@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Supermercado Avicola</title>
+  <meta property="og:title" content="Supermercado Avícola | Sistema de gestión comercial">
+  <meta property="og:description" content="Aplicación Full-Stack para gestión de inventario, ventas, caja, productos, clientes y reportes, desarrollada con FastAPI, PostgreSQL, Docker y Render.">
+  <meta property="og:image" content="https://supermercado-avicola.onrender.com/static/img/supermercado-avicola-og.png">
+  <meta property="og:url" content="https://supermercado-avicola.onrender.com/login.html">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Supermercado Avícola | Sistema de gestión comercial">
+  <meta name="twitter:description" content="Demo pública Full-Stack con roles, inventario, ventas, caja y reportes.">
+  <meta name="twitter:image" content="https://supermercado-avicola.onrender.com/static/img/supermercado-avicola-og.png">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="static/css/style.css" rel="stylesheet">
+</head>
+<body>
+  <div id="sidebar" class="sidebar"></div>
+  <div class="main-content">
+    <div id="topbar" class="top-bar"></div>
+    <div id="alertBox"></div>
+
+    <div class="row g-3 mb-4" id="statsRow"></div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card stat-card">
+          <div class="card-body">
+            <h6 class="text-muted mb-3">Alertas de Vencimiento (7 dias)</h6>
+            <div id="alertasVencimiento">Cargando...</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card stat-card">
+          <div class="card-body">
+            <h6 class="text-muted mb-3">Productos con Stock Bajo</h6>
+            <div id="stockBajo">Cargando...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="static/js/api.js"></script>
+  <script src="static/js/layout.js"></script>
+  <script>
+    initPage('Dashboard', '/index.html');
+
+    async function loadDashboard() {
+      try {
+        const [ventas, stock, alertas] = await Promise.all([
+          apiGet('/reportes/ventas-diarias').catch(() => ({ cantidad_ventas: 0, total_vendido: 0 })),
+          apiGet('/inventario/stock').catch(() => []),
+          apiGet('/inventario/alertas-vencimiento?dias=7').catch(() => []),
+        ]);
+
+        const totalProductos = stock.length;
+        const bajosStock = stock.filter(s => s.alerta_stock_bajo).length;
+
+        document.getElementById('statsRow').innerHTML = `
+          <div class="col-sm-6 col-lg-3">
+            <div class="card stat-card">
+              <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon bg-success bg-opacity-10 text-success"><i class="bi bi-cash-stack"></i></div>
+                <div><div class="text-muted small">Ventas Hoy</div><h5 class="mb-0">${ventas.cantidad_ventas}</h5></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-lg-3">
+            <div class="card stat-card">
+              <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon bg-primary bg-opacity-10 text-primary"><i class="bi bi-currency-dollar"></i></div>
+                <div><div class="text-muted small">Total Vendido</div><h5 class="mb-0">${formatMoney(ventas.total_vendido)}</h5></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-lg-3">
+            <div class="card stat-card">
+              <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon bg-info bg-opacity-10 text-info"><i class="bi bi-box-seam"></i></div>
+                <div><div class="text-muted small">Productos</div><h5 class="mb-0">${totalProductos}</h5></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-lg-3">
+            <div class="card stat-card">
+              <div class="card-body d-flex align-items-center gap-3">
+                <div class="stat-icon ${bajosStock > 0 ? 'bg-danger' : 'bg-success'} bg-opacity-10 ${bajosStock > 0 ? 'text-danger' : 'text-success'}"><i class="bi bi-exclamation-circle"></i></div>
+                <div><div class="text-muted small">Stock Bajo</div><h5 class="mb-0">${bajosStock}</h5></div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        if (alertas.length === 0) {
+          document.getElementById('alertasVencimiento').innerHTML = '<p class="text-success mb-0">Sin alertas de vencimiento</p>';
+        } else {
+          document.getElementById('alertasVencimiento').innerHTML = `<table class="table table-sm mb-0">
+            <thead><tr><th>Producto</th><th>Lote</th><th>Vence</th><th>Dias</th></tr></thead>
+            <tbody>${alertas.map(a => `<tr class="${a.dias_restantes <= 0 ? 'table-danger' : 'table-warning'}">
+              <td>${a.producto_nombre}</td><td>${a.codigo_lote}</td><td>${a.fecha_vencimiento}</td>
+              <td><span class="badge ${a.dias_restantes <= 0 ? 'bg-danger' : 'bg-warning text-dark'}">${a.dias_restantes}d</span></td>
+            </tr>`).join('')}</tbody></table>`;
+        }
+
+        const bajos = stock.filter(s => s.alerta_stock_bajo);
+        if (bajos.length === 0) {
+          document.getElementById('stockBajo').innerHTML = '<p class="text-success mb-0">Todos los productos tienen stock suficiente</p>';
+        } else {
+          document.getElementById('stockBajo').innerHTML = `<table class="table table-sm mb-0">
+            <thead><tr><th>Producto</th><th>Stock</th><th>Minimo</th></tr></thead>
+            <tbody>${bajos.map(s => `<tr class="table-warning">
+              <td>${s.producto_nombre}</td><td>${s.stock_total}</td><td>${s.stock_minimo}</td>
+            </tr>`).join('')}</tbody></table>`;
+        }
+      } catch (err) {
+        showAlert(document.getElementById('alertBox'), err.message);
+      }
+    }
+    loadDashboard();
+  </script>
+</body>
+</html>

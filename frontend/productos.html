@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Productos - Supermercado Avicola</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="static/css/style.css" rel="stylesheet">
+</head>
+<body>
+  <div id="sidebar" class="sidebar"></div>
+  <div class="main-content">
+    <div id="topbar" class="top-bar"></div>
+    <div id="alertBox"></div>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Productos</h5>
+      <button class="btn btn-success btn-sm" onclick="openModal()"><i class="bi bi-plus-lg"></i> Nuevo</button>
+    </div>
+
+    <div class="row g-2 mb-3">
+      <div class="col-md-4"><input type="text" id="buscar" class="form-control form-control-sm" placeholder="Buscar por nombre o codigo..." oninput="load()"></div>
+      <div class="col-md-3"><select id="filtroCategoria" class="form-select form-select-sm" onchange="load()"><option value="">Todas las categorias</option></select></div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Codigo</th><th>Nombre</th><th>Categoria</th><th>U.Medida</th><th>P.Compra</th><th>P.Venta</th><th>Perecedero</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="tableBody"><tr><td colspan="9" class="text-center">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="formModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="modalTitle">Producto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div id="modalAlert"></div>
+          <input type="hidden" id="editId">
+          <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Codigo</label><input type="text" id="codigo" class="form-control" required></div>
+            <div class="col-md-8"><label class="form-label">Nombre</label><input type="text" id="nombre" class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">Categoria</label><select id="categoria_id" class="form-select" required></select></div>
+            <div class="col-md-6"><label class="form-label">Unidad de Medida</label>
+              <select id="unidad_medida" class="form-select">
+                <option value="unidad">Unidad</option><option value="kilogramo">Kilogramo</option>
+                <option value="libra">Libra</option><option value="gramo">Gramo</option><option value="litro">Litro</option>
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label">Precio Compra</label><input type="number" id="precio_compra" class="form-control" min="0" step="0.01" required></div>
+            <div class="col-md-4"><label class="form-label">Precio Venta</label><input type="number" id="precio_venta" class="form-control" min="0" step="0.01" required></div>
+            <div class="col-md-4"><label class="form-label">Stock Minimo</label><input type="number" id="stock_minimo" class="form-control" min="0" value="0"></div>
+            <div class="col-md-12"><label class="form-label">Descripcion</label><textarea id="descripcion" class="form-control" rows="2"></textarea></div>
+            <div class="col-md-4"><div class="form-check mt-2"><input type="checkbox" id="es_perecedero" class="form-check-input"><label class="form-check-label" for="es_perecedero">Es perecedero</label></div></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-success" onclick="save()">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="static/js/api.js"></script>
+  <script src="static/js/layout.js"></script>
+  <script>
+    initPage('Productos', '/productos.html');
+    let modal, categorias = [];
+
+    async function loadCategorias() {
+      categorias = await apiGet('/categorias/?activa=true');
+      const sel = document.getElementById('filtroCategoria');
+      const selForm = document.getElementById('categoria_id');
+      categorias.forEach(c => {
+        sel.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+        selForm.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+      });
+    }
+
+    async function load() {
+      const buscar = document.getElementById('buscar').value;
+      const catId = document.getElementById('filtroCategoria').value;
+      let url = '/productos/?activo=true';
+      if (buscar) url += `&buscar=${encodeURIComponent(buscar)}`;
+      if (catId) url += `&categoria_id=${catId}`;
+      const data = await apiGet(url);
+      document.getElementById('tableBody').innerHTML = data.length === 0
+        ? '<tr><td colspan="9" class="text-center text-muted">Sin productos</td></tr>'
+        : data.map(p => `<tr>
+            <td><code>${p.codigo}</code></td><td>${p.nombre}</td><td>${p.categoria_nombre || '-'}</td>
+            <td>${p.unidad_medida}</td><td>${formatMoney(p.precio_compra)}</td><td>${formatMoney(p.precio_venta)}</td>
+            <td>${p.es_perecedero ? '<span class="badge bg-warning text-dark">Si</span>' : 'No'}</td>
+            <td><span class="badge ${p.activo ? 'bg-success' : 'bg-secondary'}">${p.activo ? 'Activo' : 'Inactivo'}</span></td>
+            <td>
+              <button class="btn btn-sm btn-outline-primary" onclick='edit(${JSON.stringify(p)})'><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm btn-outline-danger" onclick="del(${p.id})"><i class="bi bi-trash"></i></button>
+            </td>
+          </tr>`).join('');
+    }
+
+    function openModal(p = null) {
+      document.getElementById('editId').value = p ? p.id : '';
+      document.getElementById('codigo').value = p ? p.codigo : '';
+      document.getElementById('codigo').disabled = !!p;
+      document.getElementById('nombre').value = p ? p.nombre : '';
+      document.getElementById('categoria_id').value = p ? p.categoria_id : '';
+      document.getElementById('unidad_medida').value = p ? p.unidad_medida : 'unidad';
+      document.getElementById('precio_compra').value = p ? p.precio_compra : '';
+      document.getElementById('precio_venta').value = p ? p.precio_venta : '';
+      document.getElementById('stock_minimo').value = p ? p.stock_minimo : 0;
+      document.getElementById('descripcion').value = p ? p.descripcion || '' : '';
+      document.getElementById('es_perecedero').checked = p ? p.es_perecedero : false;
+      document.getElementById('modalTitle').textContent = p ? 'Editar Producto' : 'Nuevo Producto';
+      document.getElementById('modalAlert').innerHTML = '';
+      modal = new bootstrap.Modal(document.getElementById('formModal'));
+      modal.show();
+    }
+
+    function edit(p) { openModal(p); }
+
+    async function save() {
+      const id = document.getElementById('editId').value;
+      const body = {
+        nombre: document.getElementById('nombre').value,
+        categoria_id: parseInt(document.getElementById('categoria_id').value),
+        unidad_medida: document.getElementById('unidad_medida').value,
+        precio_compra: parseFloat(document.getElementById('precio_compra').value),
+        precio_venta: parseFloat(document.getElementById('precio_venta').value),
+        stock_minimo: parseInt(document.getElementById('stock_minimo').value) || 0,
+        descripcion: document.getElementById('descripcion').value || null,
+        es_perecedero: document.getElementById('es_perecedero').checked,
+      };
+      if (!id) body.codigo = document.getElementById('codigo').value;
+      try {
+        if (id) await apiPut(`/productos/${id}`, body);
+        else await apiPost('/productos/', body);
+        modal.hide();
+        load();
+      } catch (err) {
+        showAlert(document.getElementById('modalAlert'), err.message);
+      }
+    }
+
+    async function del(id) {
+      if (!confirm('Desactivar este producto?')) return;
+      await apiDelete(`/productos/${id}`);
+      load();
+    }
+
+    loadCategorias().then(load);
+  </script>
+</body>
+</html>

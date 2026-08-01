@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: avicola_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-avicola_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-avicola_pass}
+      POSTGRES_DB: ${DB_NAME:-supermercado_avicola}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-avicola_user}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: avicola_backend
+    restart: unless-stopped
+    env_file:
+      - path: ../.env.example
+      - path: ../.env
+        required: false
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+      - ../database:/app/database
+      - ../frontend:/frontend
+
+volumes:
+  pgdata:

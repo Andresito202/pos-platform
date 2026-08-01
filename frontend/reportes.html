@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reportes - Supermercado Avicola</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="static/css/style.css" rel="stylesheet">
+</head>
+<body>
+  <div id="sidebar" class="sidebar"></div>
+  <div class="main-content">
+    <div id="topbar" class="top-bar"></div>
+    <div id="alertBox"></div>
+
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><a class="nav-link active" href="#" onclick="showTab('ventas')">Ventas Diarias</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="showTab('top')">Mas Vendidos</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="showTab('inventario')">Inventario Valorizado</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="showTab('mermas')">Resumen Mermas</a></li>
+    </ul>
+
+    <div id="tabContent"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="static/js/api.js"></script>
+  <script src="static/js/layout.js"></script>
+  <script>
+    initPage('Reportes', '/reportes.html');
+
+    function showTab(tab) {
+      document.querySelectorAll('.nav-tabs .nav-link').forEach(el => el.classList.remove('active'));
+      event.target.classList.add('active');
+      if (tab === 'ventas') loadVentas();
+      else if (tab === 'top') loadTop();
+      else if (tab === 'inventario') loadInventario();
+      else if (tab === 'mermas') loadMermas();
+    }
+
+    async function loadVentas() {
+      const data = await apiGet('/reportes/ventas-diarias');
+      document.getElementById('tabContent').innerHTML = `
+        <div class="row g-3 mb-3">
+          <div class="col-md-4"><div class="card stat-card"><div class="card-body text-center">
+            <div class="text-muted small">Fecha</div><h5>${data.fecha}</h5>
+          </div></div></div>
+          <div class="col-md-4"><div class="card stat-card"><div class="card-body text-center">
+            <div class="text-muted small">Ventas</div><h5 class="text-primary">${data.cantidad_ventas}</h5>
+          </div></div></div>
+          <div class="col-md-4"><div class="card stat-card"><div class="card-body text-center">
+            <div class="text-muted small">Total</div><h5 class="text-success">${formatMoney(data.total_vendido)}</h5>
+          </div></div></div>
+        </div>
+        <div class="card"><div class="card-body p-0 table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>ID</th><th>Numero</th><th>Total</th><th>Pago</th></tr></thead>
+            <tbody>${data.ventas.map(v => `<tr><td>${v.id}</td><td>${v.numero}</td><td>${formatMoney(v.total)}</td><td>${v.metodo_pago}</td></tr>`).join('')}</tbody>
+          </table>
+        </div></div>`;
+    }
+
+    async function loadTop() {
+      const data = await apiGet('/reportes/productos-mas-vendidos?limite=10');
+      document.getElementById('tabContent').innerHTML = `
+        <div class="card"><div class="card-body p-0 table-responsive">
+          <table class="table table-hover mb-0">
+            <thead><tr><th>#</th><th>Codigo</th><th>Producto</th><th>Vendido</th><th>Ingresos</th></tr></thead>
+            <tbody>${data.map((p,i) => `<tr>
+              <td>${i+1}</td><td><code>${p.codigo}</code></td><td>${p.nombre}</td>
+              <td>${p.total_vendido}</td><td>${formatMoney(p.total_ingresos)}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div></div>`;
+    }
+
+    async function loadInventario() {
+      const data = await apiGet('/reportes/inventario-valorizado');
+      document.getElementById('tabContent').innerHTML = `
+        <div class="alert alert-info mb-3">Valor total del inventario: <strong>${formatMoney(data.total_valorizado)}</strong></div>
+        <div class="card"><div class="card-body p-0 table-responsive">
+          <table class="table table-hover mb-0">
+            <thead><tr><th>Codigo</th><th>Producto</th><th>Stock</th><th>Valor</th></tr></thead>
+            <tbody>${data.productos.map(p => `<tr>
+              <td><code>${p.codigo}</code></td><td>${p.nombre}</td><td>${p.stock_disponible}</td><td>${formatMoney(p.valor_inventario)}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div></div>`;
+    }
+
+    async function loadMermas() {
+      const data = await apiGet('/reportes/mermas-resumen');
+      document.getElementById('tabContent').innerHTML = data.length === 0
+        ? '<div class="alert alert-success">Sin mermas registradas</div>'
+        : `<div class="card"><div class="card-body p-0">
+          <table class="table table-hover mb-0">
+            <thead><tr><th>Motivo</th><th>Registros</th><th>Total Unidades</th></tr></thead>
+            <tbody>${data.map(m => `<tr><td><span class="badge bg-warning text-dark">${m.motivo}</span></td><td>${m.cantidad_registros}</td><td>${m.total_unidades}</td></tr>`).join('')}</tbody>
+          </table>
+        </div></div>`;
+    }
+
+    loadVentas();
+  </script>
+</body>
+</html>
