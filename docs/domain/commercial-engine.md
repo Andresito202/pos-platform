@@ -1,0 +1,731 @@
+﻿# Motor comercial
+
+## Objetivo
+
+Definir el comportamiento común de productos, presentaciones, unidades, códigos, precios, descuentos, promociones, impuestos y redondeo para todos los tipos de comercio soportados.
+
+El motor debe ser configurable. No se crearán implementaciones separadas para avícolas, tiendas, supermercados, droguerías, ferreterías o almacenes de variedades.
+
+---
+
+# 1. Modelo de producto
+
+## Product
+
+Representa el artículo comercial maestro.
+
+Ejemplos:
+
+- Arroz Roa.
+- Pechuga de pollo.
+- Tomate chonto.
+- Acetaminofén.
+- Pintura blanca.
+- Camiseta básica.
+
+Atributos conceptuales:
+
+- id;
+- company_id;
+- internal_code;
+- name;
+- description;
+- category_id;
+- brand_id opcional;
+- product_type;
+- stock_controlled;
+- lot_controlled;
+- expiration_controlled;
+- serial_controlled;
+- active.
+
+## ProductType
+
+Valores iniciales:
+
+- STANDARD;
+- WEIGHTED;
+- SERVICE;
+- COMPOSITE;
+- PREPARED;
+- RETURNABLE;
+- REGULATED.
+
+### STANDARD
+
+Producto vendido por cantidades discretas.
+
+### WEIGHTED
+
+Producto vendido por peso, volumen, longitud o área.
+
+### SERVICE
+
+No descuenta inventario salvo configuración explícita.
+
+### COMPOSITE
+
+Producto compuesto por otros productos.
+
+### PREPARED
+
+Producto fabricado o preparado mediante receta o proceso.
+
+### RETURNABLE
+
+Tiene envase, canasta o elemento retornable.
+
+### REGULATED
+
+Requiere atributos o controles especiales, como productos de droguería.
+
+---
+
+# 2. Variantes y presentaciones
+
+## ProductVariant
+
+Representa una variante comercial del producto.
+
+Ejemplos:
+
+- color;
+- talla;
+- sabor;
+- concentración;
+- modelo;
+- tamaño.
+
+## ProductPresentation
+
+Representa la forma concreta de compra, almacenamiento o venta.
+
+Ejemplo:
+
+Producto:
+Arroz Roa.
+
+Presentaciones:
+
+- bolsa de 500 g;
+- bolsa de 1 kg;
+- paca de 12 bolsas de 1 kg.
+
+Atributos conceptuales:
+
+- id;
+- product_id;
+- variant_id opcional;
+- name;
+- base_unit_id;
+- contained_quantity;
+- sales_enabled;
+- purchasing_enabled;
+- breakable;
+- stock_mode;
+- active.
+
+## StockMode
+
+- INDEPENDENT;
+- CONVERTED_TO_BASE;
+- DERIVED;
+- NON_STOCK.
+
+### INDEPENDENT
+
+La presentación mantiene inventario propio.
+
+### CONVERTED_TO_BASE
+
+Las existencias se convierten a una unidad base.
+
+### DERIVED
+
+El saldo se calcula a partir de otra presentación.
+
+### NON_STOCK
+
+No controla inventario.
+
+## Regla
+
+No se permitirá configurar presentaciones con factores circulares o ambiguos.
+
+---
+
+# 3. Códigos e identificación
+
+## ProductIdentifier
+
+Un producto, variante o presentación puede tener varios identificadores:
+
+- código interno;
+- EAN-8;
+- EAN-13;
+- UPC;
+- código de proveedor;
+- PLU;
+- código generado por balanza;
+- QR interno;
+- código manual.
+
+Atributos conceptuales:
+
+- id;
+- company_id;
+- product_id;
+- variant_id opcional;
+- presentation_id opcional;
+- identifier_type;
+- value;
+- is_primary;
+- active.
+
+## Reglas
+
+1. Un identificador activo no puede apuntar a dos productos vendibles dentro de la misma empresa.
+2. Un producto puede tener varios códigos.
+3. El código del proveedor no sustituye el código interno.
+4. El lector debe resolver el código sin que el cajero seleccione manualmente el tipo.
+5. Los códigos de balanza pueden contener producto, peso o precio según el formato configurado.
+6. El lote y el vencimiento no se asumirán desde un código comercial ordinario.
+
+---
+
+# 4. Unidades de medida
+
+## Dimensiones iniciales
+
+- COUNT;
+- MASS;
+- VOLUME;
+- LENGTH;
+- AREA;
+- PACKAGING;
+- TIME;
+- SERVICE.
+
+## Unidades iniciales
+
+### Conteo
+
+- unidad;
+- par;
+- docena.
+
+### Masa
+
+- miligramo;
+- gramo;
+- kilogramo;
+- libra.
+
+### Volumen
+
+- mililitro;
+- litro.
+
+### Longitud
+
+- centímetro;
+- metro.
+
+### Área
+
+- metro cuadrado.
+
+### Empaque
+
+- bolsa;
+- paquete;
+- caja;
+- paca;
+- bulto;
+- canasta;
+- rollo.
+
+## Regla dimensional
+
+Solo se permitirán conversiones compatibles.
+
+Ejemplos válidos:
+
+- kilogramo a gramo;
+- caja a unidad mediante factor comercial configurado.
+
+Ejemplos inválidos:
+
+- litro a kilogramo sin una regla específica del producto;
+- unidad a metro sin equivalencia explícita.
+
+---
+
+# 5. Conversiones y fraccionamiento
+
+## UnitConversion
+
+Atributos conceptuales:
+
+- product_id;
+- source_presentation_id;
+- target_presentation_id;
+- factor;
+- reversible;
+- requires_authorization;
+- valid_from;
+- valid_until.
+
+Ejemplo:
+
+1 paca = 12 bolsas.
+
+## Transformación de inventario
+
+Abrir una presentación debe generar:
+
+- salida de la presentación origen;
+- entrada de la presentación destino;
+- referencia común;
+- usuario;
+- sucursal;
+- fecha;
+- posible merma;
+- auditoría.
+
+## Reglas
+
+1. La conversión no modifica inventario silenciosamente.
+2. El factor debe ser positivo.
+3. La transformación debe ser atómica.
+4. La merma debe registrarse separadamente.
+5. El costo total debe conservarse o distribuirse según política.
+6. No se permitirán conversiones retrospectivas sobre movimientos cerrados.
+
+---
+
+# 6. Motor de precios
+
+## PriceList
+
+Ejemplos:
+
+- precio minorista;
+- precio mayorista;
+- precio de domicilio;
+- precio para clientes preferenciales.
+
+Atributos conceptuales:
+
+- id;
+- company_id;
+- name;
+- currency;
+- priority;
+- active.
+
+## ProductPrice
+
+Puede aplicar a:
+
+- producto;
+- variante;
+- presentación;
+- sucursal;
+- canal;
+- lista de precios;
+- grupo de clientes;
+- rango de cantidad;
+- fecha y horario.
+
+Atributos conceptuales:
+
+- id;
+- price_list_id;
+- product_id;
+- variant_id opcional;
+- presentation_id opcional;
+- branch_id opcional;
+- sales_channel opcional;
+- customer_group_id opcional;
+- minimum_quantity opcional;
+- amount;
+- valid_from;
+- valid_until;
+- status.
+
+## Prioridad inicial de resolución
+
+1. Precio contractual específico del cliente.
+2. Precio promocional válido.
+3. Precio por grupo de clientes.
+4. Precio por volumen.
+5. Precio por canal.
+6. Precio por sucursal.
+7. Precio de lista predeterminado.
+8. Precio base del producto.
+
+La prioridad definitiva deberá ser configurable y probada para evitar ambigüedad.
+
+## Reglas
+
+1. El precio aplicado se guarda como snapshot en la venta.
+2. Los cambios de precio requieren vigencia e historial.
+3. No se sobrescribe el precio anterior sin trazabilidad.
+4. Una compra nueva no cambia automáticamente el precio de venta.
+5. El cajero no puede editar precios libremente.
+6. Si dos precios tienen la misma prioridad y vigencia, la configuración se considera inválida.
+7. Un precio no puede ser negativo.
+8. El precio cero requiere permiso o tipo de producto compatible.
+
+---
+
+# 7. Costos
+
+## Políticas iniciales
+
+- FIFO;
+- FEFO;
+- WEIGHTED_AVERAGE;
+- SPECIFIC_COST;
+- STANDARD_COST.
+
+## Reglas
+
+1. La política de salida física puede diferir de la política contable de costo.
+2. FEFO prioriza vencimiento para productos perecederos.
+3. FIFO prioriza antigüedad de ingreso.
+4. El costo histórico de una venta debe conservarse.
+5. Un cambio posterior de costo no altera ventas cerradas.
+6. El costo no debe ser visible para el cajero salvo permiso explícito.
+
+---
+
+# 8. Descuentos
+
+## Discount
+
+Puede ser:
+
+- manual;
+- por porcentaje;
+- por valor fijo;
+- por autorización;
+- comercial;
+- promocional;
+- fidelización;
+- compensación.
+
+## Alcance
+
+- ítem;
+- grupo de ítems;
+- subtotal;
+- total;
+- cliente;
+- categoría.
+
+## Reglas
+
+1. Todo descuento debe registrar tipo y origen.
+2. Un descuento manual debe respetar el límite del usuario.
+3. Superar el límite requiere autorización.
+4. El descuento no puede volver negativo un ítem.
+5. Los descuentos deben conservarse en el snapshot.
+6. El redondeo no es un descuento.
+7. Las promociones deben diferenciarse de descuentos manuales.
+8. La autorización debe registrar aprobador, fecha y motivo.
+
+---
+
+# 9. Promociones
+
+## Promotion
+
+Atributos conceptuales:
+
+- id;
+- company_id;
+- name;
+- status;
+- priority;
+- valid_from;
+- valid_until;
+- days_of_week;
+- start_time;
+- end_time;
+- sales_channels;
+- branch_scope;
+- customer_scope;
+- stack_policy.
+
+## Tipos iniciales
+
+- PERCENTAGE_OFF;
+- FIXED_AMOUNT_OFF;
+- FIXED_PRICE;
+- BUY_X_PAY_Y;
+- BUY_X_GET_Y;
+- SECOND_UNIT_DISCOUNT;
+- BUNDLE_PRICE;
+- MINIMUM_PURCHASE_DISCOUNT;
+- CATEGORY_DISCOUNT;
+- CUSTOMER_GROUP_DISCOUNT.
+
+## Ejemplos
+
+- Lleve 3 y pague 2.
+- Segundo producto al 50 %.
+- Combo pollo y gaseosa.
+- Compra superior a $100.000 con descuento.
+- Precio especial para cliente mayorista.
+- Promoción solo en domicilio.
+- Promoción por horario.
+
+## StackPolicy
+
+- EXCLUSIVE;
+- STACKABLE;
+- BEST_PRICE;
+- PRIORITY_ORDER.
+
+## Reglas
+
+1. La promoción no modifica el precio maestro.
+2. Se debe conservar qué regla produjo el beneficio.
+3. Las promociones vencidas no aplican.
+4. Una promoción no debe aplicarse dos veces por reintento.
+5. Las combinaciones incompatibles deben rechazarse.
+6. El motor debe poder explicar el cálculo.
+7. El cajero no puede alterar manualmente la regla aplicada.
+8. El sistema debe calcular primero la elegibilidad y después el beneficio.
+9. El cálculo debe ser determinista.
+10. Los impuestos deben calcularse según la base legal aplicable después de descuentos autorizados.
+
+---
+
+# 10. Impuestos
+
+## TaxCategory
+
+Estados conceptuales:
+
+- EXCLUDED;
+- EXEMPT;
+- TAXED;
+- NOT_APPLICABLE.
+
+## TaxRate
+
+Atributos conceptuales:
+
+- jurisdiction;
+- tax_code;
+- percentage;
+- included_in_price;
+- valid_from;
+- valid_until.
+
+## Reglas
+
+1. Los impuestos deben manejar vigencia.
+2. Una venta conserva snapshot tributario.
+3. Los cambios tributarios no alteran documentos históricos.
+4. No se codificarán porcentajes directamente en la interfaz.
+5. El motor debe permitir impuestos incluidos o adicionados.
+6. La configuración fiscal deberá validarse antes de habilitar facturación electrónica.
+7. No se imprimirán datos fiscales simulados.
+
+---
+
+# 11. Redondeo monetario para Colombia
+
+## Moneda
+
+- código: COP;
+- moneda visible: peso colombiano;
+- precisión interna: 2 decimales;
+- precios comerciales usuales: pesos enteros.
+
+## Políticas
+
+- NONE;
+- NEAREST_50;
+- UP_TO_50;
+- DOWN_TO_50;
+- NEAREST_100;
+- UP_TO_100;
+- DOWN_TO_100.
+
+## Configuración predeterminada
+
+- efectivo: NEAREST_50;
+- transferencia: NONE;
+- tarjeta: NONE;
+- QR: NONE.
+
+## Campos conceptuales
+
+- calculated_total;
+- rounding_mode;
+- rounding_adjustment;
+- payable_total.
+
+## Reglas
+
+1. El redondeo se aplica una sola vez al total final.
+2. No se redondea cada línea.
+3. No se modifica el precio unitario.
+4. No se registra como descuento.
+5. El ajuste debe ser visible y auditable.
+6. Los pagos electrónicos se cobran en pesos exactos.
+7. Los cálculos internos pueden conservar fracciones de peso producidas por cantidades, impuestos o prorrateos.
+8. El total fiscal y el total pagadero deberán conciliarse según la normativa e integración aplicable.
+9. Una venta con pago mixto deberá definir qué porción está sujeta a redondeo de efectivo.
+10. El motor no puede producir una diferencia de pagos sin registrar.
+
+## Ejemplo
+
+Producto por peso:
+
+0,735 kg × $5.500/kg = $4.042,50.
+
+Pago en efectivo:
+
+- calculated_total: $4.042,50;
+- rounding_adjustment: $7,50;
+- payable_total: $4.050.
+
+Pago electrónico:
+
+El valor se ajusta al peso exacto definido por la política de cobro electrónico y conciliación.
+
+---
+
+# 12. Orden de cálculo de una venta
+
+Orden conceptual inicial:
+
+1. Resolver producto, variante y presentación.
+2. Convertir cantidad a unidad requerida.
+3. Resolver precio vigente.
+4. Calcular importe bruto por línea.
+5. Determinar promociones elegibles.
+6. Aplicar promociones según prioridad y compatibilidad.
+7. Aplicar descuentos manuales autorizados.
+8. Calcular base tributaria.
+9. Calcular impuestos.
+10. Consolidar total calculado.
+11. Aplicar redondeo según medios de pago.
+12. Validar suma de pagos.
+13. Guardar snapshots.
+14. Confirmar transacción.
+
+## Regla
+
+El orden definitivo debe implementarse como una canalización explícita, versionada y cubierta por pruebas.
+
+---
+
+# 13. Productos por peso
+
+## Entrada de peso
+
+El peso puede provenir de:
+
+- balanza conectada;
+- código emitido por balanza;
+- entrada manual;
+- producto preempacado.
+
+## Reglas
+
+1. La unidad y precisión deben estar definidas.
+2. El precio se calcula sobre la cantidad real.
+3. La entrada manual puede requerir permiso.
+4. El peso negativo o cero se rechaza.
+5. El valor leído debe estabilizarse según el adaptador.
+6. El sistema debe conservar cantidad, unidad, precio por unidad y total.
+7. No debe depender de una marca específica de balanza.
+
+---
+
+# 14. Especialización por comercio
+
+## Tiendas y supermercados
+
+- códigos de barras;
+- presentaciones;
+- precios por volumen;
+- promociones;
+- crédito;
+- venta rápida.
+
+## Avícolas y carnicerías
+
+- peso;
+- lotes;
+- FEFO;
+- transformación;
+- despiece;
+- merma.
+
+## Fruver
+
+- peso;
+- catálogo visual;
+- productos perecederos;
+- merma.
+
+## Droguerías
+
+- variantes por concentración y presentación;
+- lotes;
+- vencimientos;
+- atributos regulatorios;
+- restricciones especiales.
+
+## Ferreterías
+
+- longitud;
+- masa;
+- volumen;
+- conversiones;
+- precios por cantidad.
+
+## Cacharrerías y ropa
+
+- variantes;
+- colores;
+- tallas;
+- referencias;
+- inventario por combinación.
+
+## Regla
+
+La especialización se implementa mediante configuración, módulos y atributos; no mediante copias del código.
+
+---
+
+# 15. Invariantes críticas
+
+1. Un código activo identifica un único artículo vendible dentro de una empresa.
+2. Toda venta conserva el precio realmente aplicado.
+3. Toda promoción aplicada es explicable y auditable.
+4. Ningún cambio posterior modifica ventas históricas.
+5. El inventario cambia mediante movimientos.
+6. Toda conversión conserva trazabilidad y costo.
+7. El redondeo no altera productos ni impuestos silenciosamente.
+8. Los cálculos monetarios utilizan Decimal.
+9. El motor debe producir el mismo resultado con la misma entrada y versión de reglas.
+10. La lógica crítica reside en backend o núcleo local confiable, no exclusivamente en la interfaz.
+
+## Precisión operativa adicional para COP
+
+1. Los cálculos internos conservan dos decimales.
+2. Los medios electrónicos operan con importes expresados en pesos enteros.
+3. Cuando el cálculo produzca fracciones de peso, el total electrónico se normaliza al peso entero según una política explícita y auditable.
+4. El efectivo se redondea después de la normalización monetaria al múltiplo configurado, normalmente $50.
+5. En pagos mixtos, el ajuste de efectivo se aplica únicamente al saldo pagado en efectivo.
+6. La suma de pagos más el ajuste de redondeo debe coincidir exactamente con el total pagadero.
+7. No se mostrarán centavos al usuario final salvo en vistas técnicas o de auditoría.
