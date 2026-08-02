@@ -14,7 +14,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Estado inicial del árbol al crear este backlog: limpio.
 - Etapa actual: definición de arquitectura y dominio antes de modificar el modelo físico.
 - Fase 0: `IN_PROGRESS`.
-- Siguiente trabajo autorizado: `UC-PAY-004`, con estado `READY` y prioridad `P0`.
+- Siguiente trabajo aprobado y en curso: `UC-PAY-004`, con estado `IN_PROGRESS` y prioridad `P0`.
 - Siguiente dependencia de la secuencia: `UC-PAY-005`, que depende de `UC-PAY-004`.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -155,7 +155,7 @@ Estado de la épica: `IN_PROGRESS`.
 | UC-PAY-001 | `P0` | `DONE` | Registrar pago individual. | `docs/use-cases/payments/UC-PAY-001-register-payment.md` |
 | UC-PAY-002 | `P0` | `DONE` | Registrar pago mixto y fallo parcial. | `docs/use-cases/payments/UC-PAY-002-register-mixed-payment.md` |
 | UC-PAY-003 | `P0` | `DONE` | Confirmar transferencia manual o QR estático. | `docs/use-cases/payments/UC-PAY-003-confirm-manual-transfer.md` |
-| UC-PAY-004 | `P0` | `READY` | Definir devolución y reversión de un pago confirmado, incluidos parciales, compensaciones, caja, proveedor, idempotencia y offline. | Siguiente trabajo. Debe materializarse en una ruta `docs/use-cases/payments/UC-PAY-004-*.md`; depende de UC-PAY-001 a 003. |
+| UC-PAY-004 | `P0` | `IN_PROGRESS` | Definir devolución y reversión de un pago confirmado, incluidos parciales, compensaciones, caja, proveedor, idempotencia y offline. | Trabajo en curso. Debe materializarse en una ruta `docs/use-cases/payments/UC-PAY-004-*.md`; depende de UC-PAY-001 a 003. |
 | UC-PAY-005 | `P0` | `PLANNED` | Definir liquidación y conciliación de pagos contra caja, extractos y proveedores. | Siguiente dependencia: comenzar después de `UC-PAY-004`; debe materializarse en `docs/use-cases/payments/UC-PAY-005-*.md`. |
 | UC-PAY-006 | `P0` | `DONE` | Gestionar pagos pendientes, timeouts, reintentos y respuestas tardías. | `docs/use-cases/payments/UC-PAY-006-handle-pending-payment.md` |
 | PAY-007 | `P0` | `PLANNED` | Consolidar la máquina de estados después de UC-PAY-004 y UC-PAY-005 y eliminar estados ambiguos. | Depende de ambos casos y DEC-001. |
@@ -299,7 +299,7 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. `UC-PAY-004` — `P0`, `READY`: devolución y reversión de pagos.
+1. `UC-PAY-004` — `P0`, `IN_PROGRESS`: devolución y reversión de pagos.
 2. `UC-PAY-005` — `P0`, `PLANNED`: liquidación y conciliación; se habilita cuando `UC-PAY-004` esté `DONE` y se hayan armonizado sus transiciones.
 3. `PAY-007` — consolidar la máquina de estados de pagos.
 4. `CASH-003` y `SALES-002` — completar efectos de devoluciones, conciliación y anulaciones.
@@ -376,6 +376,10 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 
 La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domiciliario, facturación electrónica, GPS, conciliación bancaria avanzada ni especialización regulatoria de droguería.
 
+## Registro de cambios
+
+- 2026-08-02: `UC-PAY-004` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo aprobado. `UC-PAY-005` permanece `PLANNED` y dependiente de `UC-PAY-004`. La Fase 0 permanece `IN_PROGRESS`.
+
 ## Regla de actualización del backlog
 
 1. Todo cambio de alcance, estado, prioridad o dependencia debe actualizar este archivo en el mismo cambio que introduce la evidencia o descubre el impedimento.
@@ -387,4 +391,4 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
 
-Próxima actualización obligatoria: al iniciar `UC-PAY-004`, moverlo a `IN_PROGRESS`; al terminarlo, adjuntar su ruta exacta, moverlo a `DONE`, promover `UC-PAY-005` a `READY` y reevaluar DEC-001 y DEC-002.
+Próxima actualización obligatoria: al terminar `UC-PAY-004`, adjuntar su ruta exacta, moverlo a `DONE`, promover `UC-PAY-005` a `READY` y reevaluar DEC-001 y DEC-002.
