@@ -15,8 +15,8 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: definición de arquitectura y dominio antes de modificar el modelo físico.
 - Fase 0: `IN_PROGRESS`.
 - Último trabajo completado: `PAY-007`, con estado `DONE` y prioridad `P0`.
-- Siguiente trabajo autorizado: `CASH-003`, con prioridad `P0`; `SALES-002` queda `READY` y depende de las decisiones operativas de caja que afecten anulaciones, devoluciones y compensaciones.
-- La secuencia de pagos y la política de compensaciones quedaron cerradas; el siguiente trabajo es completar el dominio operativo de caja antes de continuar con ventas.
+- Siguiente trabajo aprobado y en curso: `CASH-003`, con estado `IN_PROGRESS` y prioridad `P0`; `SALES-002` permanece `READY` y debe armonizarse con las decisiones operativas de caja.
+- La secuencia de pagos y la política de compensaciones quedaron cerradas; `CASH-003` está en curso para completar movimientos, retiros, arqueos, devoluciones, compensaciones y recaudo de domiciliarios.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
 - `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md` consolidan formalmente los estados, proyecciones, eventos y flujos operativos del dominio de pagos. `PAY-007` está `DONE`.
@@ -166,7 +166,7 @@ Estado de la épica: `IN_PROGRESS`.
 |---|---|---|---|---|
 | CASH-001 | `P0` | `DONE` | Definir apertura de turno. | `docs/use-cases/cash/UC-CASH-001-open-register.md` |
 | CASH-002 | `P0` | `DONE` | Definir cierre y diferencia de turno. | `docs/use-cases/cash/UC-CASH-002-close-register.md` |
-| CASH-003 | `P0` | `READY` | Completar casos de movimientos, retiros, arqueos, devoluciones, compensaciones y recaudo de domiciliarios. | Depende de UC-PAY-004, UC-PAY-005 y DEC-002, todos cerrados. Siguiente trabajo autorizado. |
+| CASH-003 | `P0` | `IN_PROGRESS` | Completar casos de movimientos, retiros, arqueos, devoluciones, compensaciones y recaudo de domiciliarios. | Trabajo en curso; depende de UC-PAY-004, UC-PAY-005 y DEC-002, todos cerrados. |
 | CASH-004 | `P1` | `PLANNED` | Implementar caja por terminal y turno con historial inmutable. | Fase 1; depende de CASH-003 y DEV-002. |
 
 ### Ventas
@@ -295,7 +295,7 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. `CASH-003` — `P0`, `READY`: completar movimientos, retiros, arqueos, devoluciones, compensaciones y recaudo de domiciliarios.
+1. `CASH-003` — `P0`, `IN_PROGRESS`: completar movimientos, retiros, arqueos, devoluciones, compensaciones y recaudo de domiciliarios.
 2. `SALES-002` — `P0`, `READY`: definir suspensión, recuperación, anulación, devolución y reimpresión, condicionado por las reglas operativas de caja.
 3. Resolver las decisiones `P0` restantes que bloquean persistencia: `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008`.
 4. Reevaluar `TECH-002` y `TECH-003` después de cerrar las decisiones documentales de persistencia, catálogo, redondeo, sincronización y seguridad.
@@ -389,6 +389,7 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-04: `DEC-002` pasó de decisión pendiente a `IN_PROGRESS` como siguiente trabajo `P0`. `CASH-003` y `SALES-002` permanecen bloqueados hasta cerrar la política de pago inferior, sobrepago, fallo parcial y compensación. La Fase 0 permanece `IN_PROGRESS`.
 - 2026-08-04: `DEC-002` pasó de `IN_PROGRESS` a decisión cerrada, con evidencia en `docs/adr/DEC-002-payment-compensation-policy.md`. `CASH-003` y `SALES-002` pasaron de `PLANNED` a `READY`; `CASH-003` queda como siguiente trabajo autorizado. `F0.6` permanece `IN_PROGRESS` por las decisiones críticas restantes.
+- 2026-08-04: `CASH-003` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo `P0`. `SALES-002` permanece `READY` y dependiente de la consolidación operativa de caja. La Fase 0 permanece `IN_PROGRESS`.
 ## Regla de actualización del backlog
 
 1. Todo cambio de alcance, estado, prioridad o dependencia debe actualizar este archivo en el mismo cambio que introduce la evidencia o descubre el impedimento.
@@ -400,4 +401,4 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
 
-Próxima actualización obligatoria: al iniciar `CASH-003`, moverlo a `IN_PROGRESS`; al terminarlo, adjuntar evidencia, moverlo a `DONE`, reevaluar `SALES-002` y actualizar las dependencias operativas de caja y ventas.
+Próxima actualización obligatoria: al terminar `CASH-003`, adjuntar evidencia verificable, moverlo a `DONE`, reevaluar `SALES-002` y actualizar las dependencias operativas de caja y ventas.
