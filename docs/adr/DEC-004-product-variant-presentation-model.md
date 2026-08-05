@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ## Prioridad
 
@@ -4224,7 +4224,7 @@ Esta decisión no cierra:
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
 Puede pasar a `DONE` cuando:
 
