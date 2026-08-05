@@ -15,8 +15,8 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: definición de arquitectura y dominio antes de modificar el modelo físico.
 - Fase 0: `IN_PROGRESS`.
 - Último trabajo completado: `PAY-007`, con estado `DONE` y prioridad `P0`.
-- Siguiente trabajo autorizado: pendiente de reevaluar entre `CASH-003`, `SALES-002`, `TECH-002` y `TECH-003`.
-- La secuencia completa de pagos quedó documentada y armonizada.
+- Siguiente trabajo aprobado y en curso: `DEC-002`, con prioridad `P0`.
+- La secuencia completa de pagos quedó documentada y armonizada; ahora se cierra la política operativa de pagos inferiores, sobrepagos, fallos parciales y compensaciones antes de continuar con caja y ventas.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
 - `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md` consolidan formalmente los estados, proyecciones, eventos y flujos operativos del dominio de pagos. `PAY-007` está `DONE`.
@@ -295,9 +295,10 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Reevaluar `CASH-003`, `SALES-002`, `TECH-002` y `TECH-003` y seleccionar el siguiente elemento `P0` sin dependencias abiertas.
-2. Resolver las decisiones `P0` que todavía bloquean persistencia: `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008`.
-3. Iniciar diseño físico únicamente cuando no existan decisiones documentales `P0` abiertas que afecten estados, precios, catálogo, redondeo, sincronización o seguridad.
+1. `DEC-002` — `P0`, `IN_PROGRESS`: cerrar política de pago inferior, sobrepago, fallo parcial y compensación entre efectivo y proveedores externos.
+2. `CASH-003` — completar movimientos, retiros, arqueos, devoluciones y recaudo, después de cerrar `DEC-002`.
+3. `SALES-002` — definir suspensión, recuperación, anulación, devolución y reimpresión, después de cerrar `DEC-002`.
+4. Reevaluar `TECH-002` y `TECH-003` únicamente después de cerrar decisiones de persistencia y contratos.
 
 
 No se inicia implementación de la arquitectura objetivo mientras los invariantes que afectan transacciones, estados y persistencia sigan abiertos en esta secuencia.
@@ -325,11 +326,16 @@ No se inicia implementación de la arquitectura objetivo mientras los invariante
 |---|---|---|---|---|
 | DEC-001 | `P0` | Taxonomía definitiva de estados de pagos, intentos, refunds, reversals, liquidaciones, conciliaciones, contracargos, revisión e incidencias; transiciones, terminalidad y proyecciones derivadas. | `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`. | `PAY-007` queda `DONE`; `PaymentStatus` no incorpora estados de refund, reversal, settlement, reconciliation ni chargeback. El diseño físico deberá mantener agregados, estados, eventos y proyecciones separados. |
 
+## Decisiones en curso
+
+| ID | Prioridad | Decisión requerida | Estado | Evidencia esperada | Bloquea |
+|---|---|---|---|---|---|
+| DEC-002 | `P0` | Política predeterminada para pago inferior, sobrepago, fallo parcial y compensación entre efectivo y proveedores externos. | `IN_PROGRESS` | Documento de decisión con reglas, invariantes, escenarios, excepciones y consecuencias operativas. | `CASH-003` y `SALES-002`. |
 ## Decisiones pendientes
 
 | ID | Prioridad | Decisión requerida | Bloquea |
 |---|---|---|---|
-| DEC-002 | `P0` | Política predeterminada para pago inferior, sobrepago, fallo parcial y compensación entre efectivo y proveedores externos. | UC-PAY-004, UC-PAY-005, CASH-003 y SALES-002. |
+
 | DEC-003 | `P0` | Orden único y versionado de precio base, precio promocional, promociones, descuentos, impuestos y redondeo. | PRICE-002 y SALES-003. |
 | DEC-004 | `P0` | Separación definitiva entre `ProductVariant` y `ProductPresentation` en glosario, modelo conceptual y persistencia. | CAT-002 y TECH-002. |
 | DEC-005 | `P1` | Política offline de crédito: vigencia del cupo sincronizado, límite, mora y resolución de consumo concurrente. | CUST-002 y PAY-009. |
@@ -385,6 +391,7 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 - 2026-08-04: `PAY-007` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo aprobado. `UC-PAY-005` permanece `DONE`. La Fase 0 permanece `IN_PROGRESS`.
 - 2026-08-04: `PAY-007` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`. `DEC-001` se movió de decisiones pendientes a decisiones cerradas. `F0.5` quedó `DONE`; la Fase 0 permanece `IN_PROGRESS` porque continúan abiertas decisiones `P0` necesarias para persistencia.
 
+- 2026-08-04: `DEC-002` pasó de decisión pendiente a `IN_PROGRESS` como siguiente trabajo `P0`. `CASH-003` y `SALES-002` permanecen bloqueados hasta cerrar la política de pago inferior, sobrepago, fallo parcial y compensación. La Fase 0 permanece `IN_PROGRESS`.
 ## Regla de actualización del backlog
 
 1. Todo cambio de alcance, estado, prioridad o dependencia debe actualizar este archivo en el mismo cambio que introduce la evidencia o descubre el impedimento.
@@ -396,4 +403,4 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
 
-Próxima actualización obligatoria: reevaluar `CASH-003`, `SALES-002`, `TECH-002` y `TECH-003`, cerrar las decisiones críticas restantes y definir el siguiente trabajo autorizado antes de iniciar diseño físico o implementación.
+Próxima actualización obligatoria: al cerrar `DEC-002`, moverla a decisiones cerradas con evidencia verificable, habilitar `CASH-003` o `SALES-002` según dependencias y reevaluar el orden de trabajo.
