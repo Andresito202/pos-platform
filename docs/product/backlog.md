@@ -14,12 +14,12 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Estado inicial del árbol al crear este backlog: limpio.
 - Etapa actual: definición de arquitectura y dominio antes de modificar el modelo físico.
 - Fase 0: `IN_PROGRESS`.
-- Último trabajo completado: `UC-PAY-004`, con estado `DONE` y prioridad `P0`.
-- Siguiente trabajo aprobado y en curso: `UC-PAY-005`, con estado `IN_PROGRESS` y prioridad `P0`.
-- Siguiente dependencia de la secuencia: `PAY-007`, que depende de `UC-PAY-005`.
+- Último trabajo completado: `UC-PAY-005`, con estado `DONE` y prioridad `P0`.
+- Siguiente trabajo autorizado: `PAY-007`, con estado `READY` y prioridad `P0`.
+- Siguiente dependencia de la secuencia: `CASH-003` y `SALES-002`, que dependen de la consolidación de pagos.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
-- Existe `docs/use-cases/payments/UC-PAY-004-refund-payment.md` y está marcado `DONE`. Existe `docs/use-cases/payments/UC-PAY-005-reconcile-payment.md`, actualmente en `IN_PROGRESS`, pero todavía no puede marcarse `DONE` hasta completar su contenido, validación y evidencia.
+- Existen `docs/use-cases/payments/UC-PAY-004-refund-payment.md` y `docs/use-cases/payments/UC-PAY-005-reconcile-payment.md`, ambos marcados `DONE`. `PAY-007` permanece `READY` hasta consolidar formalmente la máquina de estados.
 
 ## Flujo de trabajo oficial
 
@@ -157,8 +157,8 @@ Estado de la épica: `IN_PROGRESS`.
 | PAY-009 | `P1` | `PLANNED` | Implementar pagos y pruebas de concurrencia, idempotencia, permisos y recuperación. | Fase 1; depende de PAY-008, CASH-003 y SALES-003. |
 
 | UC-PAY-004 | `P0` | `DONE` | Definir devolución y reversión de un pago confirmado, incluidos parciales, compensaciones, caja, proveedor, idempotencia y offline. | `docs/use-cases/payments/UC-PAY-004-refund-payment.md` |
-| UC-PAY-005 | `P0` | `IN_PROGRESS` | Definir liquidación y conciliación de pagos contra caja, extractos y proveedores. | Trabajo en curso; depende de `UC-PAY-004`, ya completado. Debe materializarse en `docs/use-cases/payments/UC-PAY-005-reconcile-payment.md`. |
-| PAY-007 | `P0` | `PLANNED` | Consolidar la máquina de estados después de UC-PAY-004 y UC-PAY-005 y eliminar estados ambiguos. | Depende de ambos casos y DEC-001. |
+| UC-PAY-005 | `P0` | `DONE` | Definir liquidación y conciliación de pagos contra caja, extractos y proveedores. | `docs/use-cases/payments/UC-PAY-005-reconcile-payment.md` |
+| PAY-007 | `P0` | `READY` | Consolidar la máquina de estados de pagos y separar los ejes de Payment, Refund, Reversal, Settlement, Reconciliation y Chargeback. | Siguiente trabajo autorizado; depende de `UC-PAY-004` y `UC-PAY-005`, ambos completados, y debe cerrar DEC-001. |
 
 Estado de la épica: `IN_PROGRESS`.
 
@@ -295,10 +295,10 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. `UC-PAY-005` — `P0`, `IN_PROGRESS`: liquidación y conciliación de pagos.
-2. `PAY-007` — consolidar la máquina de estados de pagos.
-3. `CASH-003` y `SALES-002` — completar efectos de devoluciones, conciliación y anulaciones.
-4. `TECH-002` y `TECH-003` — diseño físico y contratos para iniciar Fase 1.
+1. `PAY-007` — `P0`, `READY`: consolidar la máquina de estados de pagos.
+2. `CASH-003` y `SALES-002` — completar efectos de devoluciones, conciliación y anulaciones.
+3. `TECH-002` y `TECH-003` — diseño físico y contratos para iniciar Fase 1.
+
 
 No se inicia implementación de la arquitectura objetivo mientras los invariantes que afectan transacciones, estados y persistencia sigan abiertos en esta secuencia.
 
@@ -348,7 +348,7 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.2 Arquitectura y ADR iniciales | `DONE` | `docs/architecture/` y `docs/adr/`. |
 | F0.3 Dominio, seguridad, pruebas y migración | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md`. |
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`, salvo los huecos explícitos de pagos. |
-| F0.5 Secuencia completa de pagos | `IN_PROGRESS` | UC-PAY-001, 002, 003, 004 y 006 están documentados; falta UC-PAY-005 y posteriormente PAY-007 para armonizar estados. |
+| F0.5 Secuencia completa de pagos | `IN_PROGRESS` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados; falta `PAY-007` para armonizar los estados. |
 | F0.6 Decisiones críticas cerradas | `PLANNED` | DEC-001 a DEC-008 resueltas o aceptadas con consecuencia explícita. |
 | F0.7 Preparación para diseño físico | `PLANNED` | Estados y contratos coherentes, dependencias trazadas y ningún `P0` documental bloqueante. |
 
@@ -376,6 +376,7 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 - 2026-08-02: `UC-PAY-004` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo aprobado. `UC-PAY-005` permanece `PLANNED` y dependiente de `UC-PAY-004`. La Fase 0 permanece `IN_PROGRESS`.
 - 2026-08-02: `UC-PAY-004` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/use-cases/payments/UC-PAY-004-refund-payment.md`. `UC-PAY-005` pasó de `PLANNED` a `READY`. La Fase 0 permanece `IN_PROGRESS`.
 - 2026-08-04: `UC-PAY-005` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo aprobado. `PAY-007` permanece `PLANNED` y dependiente de `UC-PAY-005`. La Fase 0 permanece `IN_PROGRESS`.
+- 2026-08-04: `UC-PAY-005` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/use-cases/payments/UC-PAY-005-reconcile-payment.md`. `PAY-007` pasó de `PLANNED` a `READY`. La Fase 0 permanece `IN_PROGRESS`.
 
 ## Regla de actualización del backlog
 
@@ -388,4 +389,4 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
 
-Próxima actualización obligatoria: al terminar `UC-PAY-005`, adjuntar su ruta exacta, moverlo a `DONE`, habilitar `PAY-007` y reevaluar las decisiones de conciliación y estados.
+Próxima actualización obligatoria: al iniciar `PAY-007`, moverlo a `IN_PROGRESS`; al terminarlo, adjuntar su evidencia, moverlo a `DONE`, cerrar las decisiones de estados y reevaluar la preparación para el diseño físico.
