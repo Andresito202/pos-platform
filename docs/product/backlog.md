@@ -15,7 +15,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: definición de arquitectura y dominio antes de modificar el modelo físico.
 - Fase 0: `IN_PROGRESS`.
 - Último trabajo completado: `PAY-007`, con estado `DONE` y prioridad `P0`.
-- Siguiente trabajo aprobado y en curso: `DEC-006`, con estado `IN_PROGRESS` y prioridad `P0`; `DEC-004` quedó `DONE` con evidencia verificable y `CAT-002` pasó a `READY`.
+- Siguiente trabajo aprobado y en curso: `DEC-007`, con estado `IN_PROGRESS` y prioridad `P0`; `DEC-006` quedó `DONE` con evidencia verificable y `TAX-003` pasó a `READY`.
 - Los ciclos de pagos, caja y ventas, junto con la canalización versionada de pricing, quedaron documentados; `DEC-004` está en curso para separar definitivamente `ProductVariant` y `ProductPresentation`.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -140,7 +140,7 @@ Estado de la épica: `IN_PROGRESS`.
 |---|---|---|---|---|
 | TAX-001 | `P0` | `DONE` | Definir resolución y cambios tributarios versionados. | `docs/use-cases/tax/UC-TAX-001-resolve-tax.md`, `docs/use-cases/tax/UC-TAX-002-handle-tax-change.md` |
 | TAX-002 | `P0` | `DONE` | Definir redondeo del total pagadero para COP. | `docs/use-cases/rounding/UC-ROUND-001-calculate-payable-total.md` |
-| TAX-003 | `P0` | `PLANNED` | Resolver empate de redondeo y política de conciliación fiscal. | Requiere DEC-006. |
+| TAX-003 | `P0` | `READY` | Resolver empate de redondeo y política de conciliación fiscal. | Requiere DEC-006. |
 | TAX-004 | `P3` | `DEFERRED` | Facturación electrónica e integraciones fiscales. | Fase posterior según `docs/product/scope.md`. |
 
 ### Pagos
@@ -295,8 +295,8 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. `DEC-006` — `P0`, `IN_PROGRESS`: cerrar regla de empate para `NEAREST_50`, normalización de fracciones y conciliación con el total fiscal.
-2. Resolver después las decisiones `P0` restantes que bloquean persistencia: `DEC-007` y `DEC-008`.
+1. `DEC-007` — `P0`, `IN_PROGRESS`: definir autoridad por dato, resolución de conflictos, reloj confiable, retención de outbox y recuperación local-first.
+2. Resolver después `DEC-008`, última decisión `P0` pendiente sobre licenciamiento, claves, activación offline y reemplazo de dispositivos.
 3. Reevaluar `TECH-002` y `TECH-003` después de cerrar las decisiones documentales de persistencia, catálogo, redondeo, sincronización y seguridad.
 
 
@@ -327,12 +327,13 @@ No se inicia implementación de la arquitectura objetivo mientras los invariante
 | DEC-002 | `P0` | Política predeterminada para pagos inferiores, sobrepagos, fallos parciales y compensaciones entre efectivo y proveedores externos. | `docs/adr/DEC-002-payment-compensation-policy.md`. | `CASH-003` y `SALES-002` quedan desbloqueados documentalmente; caja, ventas y pagos deben conservar componentes independientes, operaciones compensatorias, idempotencia, control de concurrencia y trazabilidad append-only. |
 | DEC-003 | `P0` | Orden único y versionado de precio base, precio promocional, promociones, descuentos, impuestos y redondeo mediante `PRICING_PIPELINE_V1`. | `docs/adr/DEC-003-pricing-calculation-order.md`. | `PRICE-002` y `SALES-003` quedan desbloqueados documentalmente, aunque `DEC-006` todavía debe cerrar la regla exacta de redondeo `NEAREST_50`; toda implementación debe conservar snapshots inmutables, decimal exacto, algoritmos versionados y separación entre pricing y cobertura. |
 | DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; `TECH-002` reduce bloqueos pero permanece `PLANNED` hasta cerrar `DEC-006`, `DEC-007` y `DEC-008`. |
+| DEC-006 | `P0` | Política versionada `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`, con empate alejándose de cero, separación fiscal/comercial, residuos deterministas, devoluciones, offline y conciliación. | `docs/adr/DEC-006-nearest-50-rounding-policy.md` y `docs/adr/DEC-003-pricing-calculation-order.md`. | `TAX-003` queda `READY`; `SALES-003` reduce sus bloqueos documentales; toda implementación debe conservar decimal exacto, snapshots, versión, checksum y ajustes explícitos. |
 
 ## Decisiones en curso
 
 | ID | Prioridad | Decisión requerida | Estado | Evidencia esperada | Bloquea |
 |---|---|---|---|---|---|
-| DEC-006 | `P0` | Regla de empate para `NEAREST_50`, normalización de fracciones y conciliación con total fiscal. | `IN_PROGRESS` | ADR con definición matemática, tratamiento de empates, importes negativos, devoluciones, distribución de residuos, ejemplos, pruebas e invariantes. | `TAX-003` y `SALES-003`. |
+| DEC-007 | `P0` | Autoridad por dato, resolución de conflictos, reloj confiable, retención de outbox y recuperación en arquitectura local-first. | `IN_PROGRESS` | ADR con matriz de autoridad, estados de sincronización, resolución determinista, clocks, outbox/inbox, retención, reintentos, recuperación, seguridad, escenarios e invariantes. | `SYNC-003` y `TECH-005`. |
 
 ## Decisiones pendientes
 
@@ -340,7 +341,6 @@ No se inicia implementación de la arquitectura objetivo mientras los invariante
 |---|---|---|---|
 
 | DEC-005 | `P1` | Política offline de crédito: vigencia del cupo sincronizado, límite, mora y resolución de consumo concurrente. | CUST-002 y PAY-009. |
-| DEC-007 | `P0` | Autoridad por dato, resolución de conflictos, reloj confiable, retención de outbox y recuperación en local-first. | SYNC-003 y TECH-005. |
 | DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | LIC-002 y DEV-002. |
 | DEC-009 | `P1` | RPO, RTO, retención de auditoría, hardware mínimo y límites de carga de referencia. | TECH-005 y criterios de salida de Fase 1. |
 | DEC-010 | `P1` | Estrategia de evolución del frontend y sistema de diseño que reemplazará la interfaz estática. | UX-003 e implementación del POS. |
@@ -360,7 +360,7 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.3 Dominio, seguridad, pruebas y migración | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md`. |
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`, salvo los huecos explícitos de pagos. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
-| F0.6 Decisiones críticas cerradas | `IN_PROGRESS` | `DEC-001`, `DEC-002`, `DEC-003` y `DEC-004` cerradas; `DEC-006` está `IN_PROGRESS`; permanecen abiertas `DEC-005`, `DEC-007` y `DEC-008`. |
+| F0.6 Decisiones críticas cerradas | `IN_PROGRESS` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004` y `DEC-006` cerradas; `DEC-007` está `IN_PROGRESS`; permanecen abiertas `DEC-005` y `DEC-008`. |
 | F0.7 Preparación para diseño físico | `PLANNED` | Estados y contratos coherentes, dependencias trazadas y ningún `P0` documental bloqueante. |
 
 La Fase 0 termina cuando UC-PAY-004 y UC-PAY-005 estén `DONE`, la máquina de pagos esté consolidada, las decisiones `P0` necesarias para persistencia estén cerradas y los casos críticos tengan invariantes y pruebas mínimas coherentes.
@@ -401,6 +401,8 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-04: `DEC-004` pasó de `IN_PROGRESS` a decisión cerrada, con evidencia en `docs/adr/DEC-004-product-variant-presentation-model.md` y documentación relacionada alineada. `CAT-002` pasó de `PLANNED` a `READY`. `DEC-006` pasó de decisión pendiente a `IN_PROGRESS` como siguiente trabajo `P0`. `TECH-002` permanece `PLANNED` por decisiones críticas restantes.
 
+- 2026-08-04: `DEC-006` pasó de `IN_PROGRESS` a decisión cerrada, con evidencia en `docs/adr/DEC-006-nearest-50-rounding-policy.md`; `DEC-003` quedó armonizada con `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`. `TAX-003` pasó a `READY` y `DEC-007` pasó a `IN_PROGRESS` como siguiente trabajo `P0`.
+
 ## Regla de actualización del backlog
 
 1. Todo cambio de alcance, estado, prioridad o dependencia debe actualizar este archivo en el mismo cambio que introduce la evidencia o descubre el impedimento.
@@ -412,4 +414,4 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
 
-Próxima actualización obligatoria: al cerrar `DEC-006`, moverla a decisiones cerradas con evidencia verificable, habilitar `TAX-003` y reducir los bloqueos de `SALES-003`; después continuar con `DEC-007` y `DEC-008` antes de autorizar `TECH-002`.
+Próxima actualización obligatoria: al cerrar `DEC-007`, moverla a decisiones cerradas con evidencia verificable, habilitar `SYNC-003`, reducir los bloqueos de `TECH-005` y continuar con `DEC-008` antes de autorizar el diseño físico de `TECH-002`.

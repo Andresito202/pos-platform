@@ -1989,7 +1989,7 @@ fiscal_rounding_amount
 
 # Relación con DEC-006
 
-`DEC-006` cerrará específicamente:
+`DEC-006` define específicamente:
 
 - regla de empate para `NEAREST_50`;
 - normalización de fracciones;
@@ -2008,7 +2008,7 @@ impuestos
 → redondeo comercial
 ```
 
-Pero no sustituye el cierre específico de `DEC-006`.
+Esta decisión se complementa con la política cerrada y versionada en `DEC-006`.
 
 ---
 
@@ -3080,7 +3080,7 @@ total fiscal redondeado: 10.000
 ajuste fiscal:              -24
 ```
 
-La regla exacta de empate queda condicionada por `DEC-006`.
+La regla oficial de empate está definida por `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` según `DEC-006`.
 
 ## Ejemplo 11 — Redondeo comercial en efectivo
 
@@ -3558,7 +3558,7 @@ No debe existir un endpoint que acepte un total final arbitrario.
 
 # Riesgos residuales
 
-1. `DEC-006` todavía no define empates de redondeo.
+1. `DEC-006` define los empates mediante `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`.
 2. La política fiscal definitiva puede exigir variantes.
 3. La separación catálogo/presentación de `DEC-004` puede modificar claves de selección.
 4. `DEC-007` puede afectar autoridad offline.

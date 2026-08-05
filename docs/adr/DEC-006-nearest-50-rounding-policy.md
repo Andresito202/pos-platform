@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ## Prioridad
 
@@ -3926,9 +3926,9 @@ La implementación no podrá:
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
-Puede pasar a `DONE` cuando:
+Criterios de cierre verificados:
 
 - se valide la fórmula;
 - se validen positivos;
