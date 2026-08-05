@@ -1,681 +1,1126 @@
-Ciclo de vida de pagos
+# Ciclo operativo de pagos
 
-Objetivo
+## Estado
 
-Definir estados, transiciones, responsabilidades e invariantes del módulo de pagos antes de diseñar sus casos de uso y persistencia física.
+`ACTIVE`
 
-1. Conceptos
+## Autoridad documental
 
-Payment
+Este documento describe los conceptos, flujos operativos, evidencias y reglas transversales del módulo de pagos.
 
-Representa un intento o registro de valor asociado a una venta, devolución, recaudo u obligación.
+La fuente oficial y definitiva para estados, transiciones, proyecciones y eventos es:
 
-PaymentMethod
+```text
+docs/domain/payment-state-model.md
+```
 
-Medio utilizado para cubrir un valor.
+Si este documento contradice `payment-state-model.md`, prevalece `payment-state-model.md`.
 
-Valores iniciales:
+Este documento no autoriza una máquina global que mezcle:
 
-CASH;
+- `PaymentAttempt`;
+- `Payment`;
+- `Refund`;
+- `Reversal`;
+- `Settlement`;
+- `Reconciliation`;
+- `Chargeback`.
 
-BANK_TRANSFER;
+---
 
-STATIC_QR;
+# 1. Objetivo
 
-CARD;
+Definir el comportamiento operativo del módulo de pagos antes de construir:
 
-DIGITAL_WALLET;
+- modelo físico;
+- migraciones;
+- entidades;
+- repositorios;
+- servicios;
+- endpoints;
+- interfaces;
+- integraciones externas.
 
-CUSTOMER_CREDIT;
+El módulo debe permitir:
 
-GIFT_CREDIT;
+- pagos individuales;
+- pagos mixtos;
+- pagos presenciales;
+- pagos manuales;
+- pagos electrónicos;
+- operación offline controlada;
+- devoluciones;
+- reversals;
+- liquidación;
+- conciliación;
+- contracargos;
+- auditoría;
+- trazabilidad multiempresa.
 
-OTHER_AUTHORIZED.
+---
 
-PaymentProvider
+# 2. Principios obligatorios
 
-Entidad o sistema externo que procesa o recibe un pago.
+1. Reportar un pago no equivale a confirmarlo.
+2. Autorizar un pago no equivale a confirmarlo.
+3. Confirmar un pago no equivale a liquidarlo.
+4. Liquidar un pago no equivale a conciliarlo.
+5. Conciliar un pago no modifica el pago original.
+6. Un refund no es un reversal.
+7. Un contracargo no es un refund.
+8. Ninguna respuesta incierta se interpreta como éxito.
+9. Ningún timeout se interpreta automáticamente como fallo definitivo.
+10. El frontend no decide la validez financiera.
+11. Toda confirmación requiere una fuente autorizada.
+12. Toda transición debe ser idempotente.
+13. Todo cambio crítico debe quedar auditado.
+14. Una corrección financiera genera una nueva operación.
+15. Los registros históricos no se sobrescriben destructivamente.
+16. El aislamiento entre tenants es obligatorio.
+17. Los datos sensibles de tarjeta no se almacenan.
+18. Las proyecciones financieras deben ser reconstruibles.
+
+---
+
+# 3. Conceptos
+
+## Payment
+
+Representa el resultado financiero agregado de uno o varios intentos relacionados con una obligación.
+
+Un `Payment` puede estar asociado a:
+
+- venta;
+- pedido;
+- devolución;
+- recaudo;
+- deuda;
+- cuenta por cobrar;
+- obligación autorizada.
+
+El pago no contiene como estados persistentes:
+
+- `SETTLED`;
+- `RECONCILED`;
+- `REFUNDED`;
+- `REVERSED`;
+- `CHARGEDBACK`.
+
+Esos conceptos pertenecen a otros agregados o a proyecciones derivadas.
+
+## PaymentAttempt
+
+Representa un intento técnico u operativo de ejecutar o confirmar un pago.
+
+Debe conservar:
+
+- identificador global;
+- `payment_id`;
+- proveedor;
+- medio;
+- importe;
+- moneda;
+- idempotency key;
+- correlation ID;
+- referencia externa;
+- terminal;
+- dispositivo;
+- fechas;
+- respuestas;
+- errores;
+- evidencia.
+
+## PaymentMethod
+
+Medio utilizado para cubrir una obligación.
+
+Valores conceptuales iniciales:
+
+- `CASH`;
+- `BANK_TRANSFER`;
+- `STATIC_QR`;
+- `DYNAMIC_QR`;
+- `CARD`;
+- `DIGITAL_WALLET`;
+- `CUSTOMER_CREDIT`;
+- `GIFT_CREDIT`;
+- `OTHER_AUTHORIZED`.
+
+Los valores definitivos deben ser extensibles y no depender de un proveedor específico.
+
+## PaymentProvider
+
+Entidad o sistema que procesa, recibe, autoriza, liquida o reporta un pago.
 
 Ejemplos:
 
-banco;
+- banco;
+- adquirente;
+- datáfono;
+- billetera digital;
+- pasarela;
+- procesador;
+- caja física;
+- cuenta por cobrar interna.
 
-adquirente;
+## PaymentComponent
 
-billetera digital;
+Representa un componente de un pago mixto.
 
-pasarela;
+Cada componente conserva:
 
-caja física;
+- medio;
+- valor esperado;
+- valor confirmado;
+- intento;
+- proveedor;
+- estado propio;
+- referencia;
+- evidencia;
+- elegibilidad para refund;
+- elegibilidad para reversal.
 
-cuenta por cobrar interna.
+## PaymentAllocation
 
-PaymentAllocation
+Asigna total o parcialmente un importe confirmado a:
 
-Asigna un pago total o parcial a una venta, devolución, pedido o deuda.
+- venta;
+- pedido;
+- devolución;
+- deuda;
+- cuenta por cobrar;
+- obligación.
 
-ExternalReference
+Una asignación no puede consumir dos veces el mismo importe.
 
-Referencia entregada por un proveedor externo.
+## ExternalReference
+
+Referencia entregada por una fuente externa.
 
 No debe confundirse con:
 
-número interno;
+- número interno;
+- captura de pantalla;
+- texto digitado;
+- consecutivo visual;
+- comprobante sin verificación.
 
-comprobante visual;
+La unicidad debe definirse según:
 
-texto digitado por el usuario.
+- tenant;
+- empresa;
+- proveedor;
+- cuenta;
+- terminal;
+- tipo de operación;
+- periodo.
 
+## Refund
+
+Operación compensatoria que devuelve valor previamente confirmado y todavía elegible.
+
+No modifica destructivamente el pago original.
+
+## Reversal
+
+Cancelación técnica de una operación cuando la semántica real del proveedor permite deshacerla antes de su liquidación definitiva.
+
+Después de liquidación, la política normal es refund.
+
+## Settlement
+
+Proceso mediante el cual caja, proveedor, adquirente, billetera o banco reconoce y liquida movimientos financieros.
+
+La liquidación no equivale a conciliación.
+
+## Reconciliation
+
+Proceso que cruza movimientos internos contra:
+
+- caja;
+- extractos;
+- bancos;
+- proveedores;
+- adquirentes;
+- pasarelas;
+- billeteras;
+- archivos externos.
+
+La conciliación crea vínculos, clasificaciones e incidencias. No reescribe pagos.
+
+## Chargeback
+
+Operación iniciada por banco, adquirente, procesador o proveedor mediante la cual se disputa o revierte posteriormente valor ya procesado.
+
+Un contracargo puede ocurrir después de liquidación y conciliación.
+
+---
+
+# 4. Separación de ciclos de vida
+
+Los ciclos deben mantenerse separados.
+
+## Intento técnico
+
+```text
+PaymentAttempt
+CREATED
+→ PENDING / PROCESSING
+→ CONFIRMED / DECLINED / FAILED / UNKNOWN
+```
+
+## Resultado financiero
+
+```text
+Payment
+CREATED
+→ PENDING
+→ PARTIALLY_CONFIRMED / CONFIRMED
+```
+
+## Liquidación
+
+```text
 Settlement
+CREATED
+→ PENDING / PROCESSING
+→ PARTIALLY_COMPLETED / COMPLETED
+```
 
-Proceso mediante el cual el proveedor liquida el dinero al comercio.
+## Conciliación
 
+```text
 Reconciliation
-
-Proceso que cruza pagos registrados contra caja, extractos o reportes externos.
-
-2. Estados
-
 CREATED
+→ RUNNING
+→ PARTIALLY_RECONCILED / RECONCILED / REVIEW_REQUIRED
+→ CLOSED
+```
 
-El pago fue creado, pero todavía no ha sido procesado o confirmado.
+## Devolución
 
-PENDING
+```text
+Refund
+REQUESTED
+→ PENDING_APPROVAL / APPROVED
+→ PROCESSING
+→ PARTIALLY_COMPLETED / COMPLETED
+```
 
-La operación está esperando respuesta, verificación o acción externa.
+## Reversal
 
-REPORTED
+```text
+Reversal
+REQUESTED
+→ PROCESSING
+→ COMPLETED
+```
 
-Un usuario informa que el pago fue realizado, pero todavía no está verificado.
+## Contracargo
 
-Este estado no prueba que el dinero exista.
+```text
+Chargeback
+RECEIVED
+→ UNDER_REVIEW / DISPUTED
+→ WON / LOST / PARTIALLY_LOST
+→ CLOSED
+```
 
-AUTHORIZED
+Las transiciones completas y definitivas se encuentran en `payment-state-model.md`.
 
-El proveedor autorizó la operación, pero la liquidación puede estar pendiente.
+---
 
-CONFIRMED
+# 5. Autoridad de evidencia
 
-El sistema considera válido el pago para cubrir la obligación.
+## Efectivo
 
-La confirmación debe tener una fuente válida:
+La fuente primaria es:
 
-efectivo recibido por cajero autorizado;
-
-confirmación manual autorizada;
-
-respuesta firmada de proveedor;
-
-proceso interno confiable.
-
-REJECTED
-
-La operación fue revisada y declarada no válida.
-
-CANCELLED
-
-El pago fue cancelado antes de confirmarse.
-
-EXPIRED
-
-El intento dejó de ser válido por tiempo o política.
-
-FAILED
-
-La operación no pudo completarse por fallo técnico o de proveedor.
-
-SETTLED
-
-El proveedor liquidó el valor al comercio.
-
-RECONCILED
-
-El pago fue cruzado correctamente contra la fuente financiera correspondiente.
-
-PARTIALLY_REFUNDED
-
-Parte del valor confirmado fue devuelto.
-
-REFUNDED
-
-Todo el valor elegible fue devuelto.
-
-REVERSED
-
-La confirmación o autorización fue revertida mediante una operación compensatoria válida.
-
-3. Transiciones generales permitidas
-
-CREATED
-├── PENDING
-├── REPORTED
-├── CONFIRMED
-├── CANCELLED
-├── EXPIRED
-└── FAILED
-
-PENDING
-├── AUTHORIZED
-├── CONFIRMED
-├── REJECTED
-├── CANCELLED
-├── EXPIRED
-└── FAILED
-
-REPORTED
-├── CONFIRMED
-├── REJECTED
-├── CANCELLED
-└── EXPIRED
-
-AUTHORIZED
-├── CONFIRMED
-├── REVERSED
-├── FAILED
-└── EXPIRED
-
-CONFIRMED
-├── SETTLED
-├── RECONCILED
-├── PARTIALLY_REFUNDED
-├── REFUNDED
-└── REVERSED
-
-SETTLED
-├── RECONCILED
-├── PARTIALLY_REFUNDED
-├── REFUNDED
-└── REVERSED
-
-PARTIALLY_REFUNDED
-├── PARTIALLY_REFUNDED
-└── REFUNDED
-
-Los estados terminales ordinarios son:
-
-REJECTED;
-
-CANCELLED;
-
-EXPIRED;
-
-FAILED;
-
-RECONCILED;
-
-REFUNDED;
-
-REVERSED.
-
-Una transición inválida debe rechazarse.
-
-4. Flujo por método
-
-Efectivo
-
-Flujo normal:
-
-CREATED
-→ CONFIRMED
-→ RECONCILED
-
-Reglas:
-
-Requiere caja abierta.
-
-El cajero registra valor recibido.
-
-El sistema calcula cambio.
-
-El movimiento de caja se registra atómicamente con la venta.
-
-La conciliación ocurre durante el cierre o arqueo.
+- entrega física validada por cajero autorizado;
+- movimiento de caja;
+- turno válido;
+- arqueo;
+- cierre.
 
 No existe referencia bancaria.
 
-No se permite confirmar más efectivo que el autorizado por la operación sin registrar el excedente correctamente.
+Una captura o fotografía no reemplaza la evidencia de caja.
 
-Transferencia manual o QR estático
+## Transferencia
 
-Flujo:
+La evidencia puede provenir de:
 
+- movimiento bancario;
+- referencia bancaria verificable;
+- API del banco;
+- proveedor autorizado;
+- confirmación manual autorizada.
+
+Una captura de pantalla es evidencia auxiliar, no confirmación final por sí sola.
+
+## QR
+
+La evidencia primaria depende del tipo:
+
+### QR estático
+
+Puede requerir:
+
+- reporte del cliente;
+- referencia;
+- cuenta destino;
+- validación manual;
+- movimiento bancario.
+
+### QR dinámico
+
+La fuente primaria debe ser:
+
+- proveedor;
+- banco;
+- billetera;
+- procesador;
+- respuesta autenticada.
+
+## Tarjeta
+
+La fuente primaria de confirmación es:
+
+- adquirente;
+- procesador;
+- pasarela;
+- datáfono integrado;
+- respuesta autenticada.
+
+La autorización no prueba liquidación ni abono bancario.
+
+## Billetera digital
+
+La fuente primaria es la respuesta autenticada de la billetera o proveedor.
+
+## Crédito del cliente
+
+La fuente primaria es la cuenta por cobrar interna y su política de crédito.
+
+No representa efectivo recibido.
+
+## Proveedor fiscal
+
+La factura o documento fiscal no constituye evidencia suficiente de:
+
+- recepción;
+- confirmación;
+- liquidación;
+- abono;
+- conciliación.
+
+---
+
+# 6. Flujo de efectivo
+
+## Flujo operativo
+
+```text
+Payment.CREATED
+→ Payment.CONFIRMED
+
+CashMovement
+→ registrado en turno válido
+
+Reconciliation
+→ conciliación de caja durante arqueo o cierre
+```
+
+## Reglas
+
+1. Requiere caja y turno válidos.
+2. El cajero registra el valor recibido.
+3. El sistema calcula el cambio.
+4. El movimiento de caja se registra atómicamente con la operación.
+5. El efectivo confirmado incrementa el efectivo esperado.
+6. El cambio entregado reduce el efectivo esperado.
+7. No se permite confirmar más efectivo del autorizado sin registrar el excedente.
+8. La conciliación ocurre durante arqueo o cierre.
+9. Un refund en efectivo genera salida de caja.
+10. Si no existe efectivo suficiente, no se inventa una devolución completada.
+11. Los reintentos no duplican movimientos.
+12. El cierre conserva diferencia esperada y observada.
+
+---
+
+# 7. Transferencia manual y QR estático
+
+## Flujo operativo
+
+```text
+Payment.CREATED
+→ Payment.PENDING
+
+PaymentAttempt
 CREATED
-→ REPORTED
-→ CONFIRMED o REJECTED
-→ RECONCILED
+→ PENDING / REVIEW_REQUIRED
+→ CONFIRMED / DECLINED
+```
 
-Reglas:
+La conciliación ocurre posteriormente mediante `Reconciliation`.
 
-El cliente o domiciliario puede reportar.
+## Reglas
 
-Reportar no confirma.
+1. El cliente o domiciliario puede reportar.
+2. Reportar no confirma.
+3. La confirmación requiere un usuario autorizado o fuente externa válida.
+4. Debe registrarse:
+   - entidad;
+   - referencia;
+   - fecha;
+   - valor;
+   - moneda;
+   - cuenta destino;
+   - versión de cuenta;
+   - reportante;
+   - confirmador;
+   - dispositivo;
+   - sucursal;
+   - evidencia.
+5. Una captura de pantalla no constituye confirmación final.
+6. La referencia externa no puede reutilizarse dentro del mismo contexto.
+7. El QR debe pertenecer al negocio o sucursal autorizada.
+8. El usuario no puede sustituir silenciosamente la cuenta destino.
+9. Una diferencia de importe requiere política explícita.
+10. La confirmación manual debe ser auditable.
+11. La conciliación se realiza contra banco, extracto o fuente externa.
+12. El pago original no cambia a `RECONCILED`.
 
-La confirmación requiere usuario autorizado.
+---
 
-Se debe registrar:
+# 8. Tarjeta o pasarela
 
-entidad;
+## Flujo operativo
 
-referencia;
+```text
+Payment.CREATED
+→ Payment.PENDING
 
-fecha;
-
-valor;
-
-cuenta destino;
-
-usuario confirmador.
-
-Una captura de pantalla no constituye confirmación.
-
-Una referencia externa no puede reutilizarse.
-
-El QR mostrado debe pertenecer al negocio o sucursal.
-
-Tarjeta o pasarela
-
-Flujo conceptual:
-
+PaymentAttempt
 CREATED
 → PENDING
-→ AUTHORIZED
-→ CONFIRMED
-→ SETTLED
-→ RECONCILED
+→ PROCESSING / REQUIRES_ACTION
+→ CONFIRMED / DECLINED / FAILED / UNKNOWN
 
-Reglas:
+Settlement
+CREATED
+→ PROCESSING
+→ PARTIALLY_COMPLETED / COMPLETED
 
-La fuente de verdad es la respuesta autenticada del proveedor.
+Reconciliation
+CREATED
+→ RUNNING
+→ RECONCILED / REVIEW_REQUIRED
+→ CLOSED
+```
 
-No se confía en parámetros del frontend.
+## Reglas
 
-Los webhooks o callbacks deben ser idempotentes.
+1. La fuente de verdad es la respuesta autenticada del proveedor.
+2. No se confía en parámetros enviados por el frontend.
+3. Webhooks y callbacks deben ser idempotentes.
+4. Una autorización puede expirar.
+5. Una autorización puede requerir reversal.
+6. Un timeout genera incertidumbre, no fallo automático.
+7. Antes de reintentar debe consultarse el estado conocido.
+8. La liquidación puede ocurrir después de la venta.
+9. La conciliación se realiza contra reportes y abonos.
+10. Las comisiones se separan del valor confirmado.
+11. Las retenciones se separan del valor confirmado.
+12. No se debe almacenar PAN completo, CVV ni datos restringidos.
+13. La tokenización debe delegarse al proveedor.
+14. Un contracargo es una operación posterior independiente.
 
-Una autorización puede expirar o revertirse.
+---
 
-La liquidación puede ocurrir después de la venta.
+# 9. Billetera digital y QR dinámico
 
-La conciliación se realiza contra reportes del proveedor.
+Puede seguir un ciclo similar a tarjeta o transferencia automática, según las capacidades del proveedor.
 
-Billetera digital con API
+Debe distinguir:
 
-Puede seguir el flujo de tarjeta o transferencia automática según el proveedor.
+- intención creada;
+- pago pendiente;
+- acción requerida;
+- pago confirmado;
+- pago rechazado;
+- pago expirado;
+- pago desconocido;
+- pago liquidado;
+- pago conciliado.
 
-Crédito del cliente
+No se permite consolidar todos esos conceptos en un único estado.
 
-No representa dinero recibido.
+---
 
-Flujo:
+# 10. Crédito del cliente
 
-Venta confirmada
+## Principio
+
+El crédito interno no representa dinero recibido.
+
+## Flujo conceptual
+
+```text
+Venta autorizada
 → cuenta por cobrar
-→ uno o varios pagos posteriores
+→ uno o varios abonos posteriores
+→ pagos reales
+```
 
-Reglas:
+## Reglas
 
-Requiere cliente identificado.
+1. Requiere cliente identificado.
+2. Requiere cupo disponible.
+3. Requiere política vigente.
+4. No incrementa efectivo esperado.
+5. Genera obligación separada.
+6. Los abonos posteriores generan pagos.
+7. El saldo debe ser auditable.
+8. Los movimientos son append-only.
+9. Los ajustes requieren causa y autorización.
+10. La operación offline depende de una proyección vigente y límites configurados.
 
-Requiere cupo y política de crédito.
+---
 
-No incrementa efectivo esperado.
+# 11. Pago mixto
 
-Genera una obligación separada.
+Una venta puede contener varios componentes.
 
-Los abonos posteriores generan pagos reales.
+## Ejemplo
 
-El saldo debe ser auditable.
-
-5. Pago mixto
-
-Una venta puede contener varios pagos.
-
-Ejemplo:
-
+```text
 Total pagadero: $100.000
+Efectivo:        $40.000
+Transferencia:   $60.000
+```
 
-Efectivo:       $40.000
-Transferencia:  $60.000
+## Reglas
 
-Cada componente debe existir como un Payment independiente.
+1. Cada componente debe existir de forma independiente.
+2. Cada componente conserva medio, importe, intentos y evidencia.
+3. La suma confirmada determina la cobertura.
+4. Un componente pendiente no cubre la venta salvo política expresa.
+5. Un componente rechazado no se incluye en el total cubierto.
+6. El redondeo de efectivo solo aplica al saldo cubierto en efectivo.
+7. Un refund parcial conserva distribución versionada.
+8. La distribución predeterminada de refunds mixtos se encuentra en `UC-PAY-004`.
+9. No se deben mezclar estados de componentes en un texto libre.
+10. Los componentes pueden liquidarse y conciliarse de forma independiente.
 
-Reglas:
+---
 
-La suma de pagos válidos debe cubrir exactamente el total pagadero.
+# 12. Proyección de pago de la venta
 
-El redondeo de efectivo solo aplica al saldo cubierto en efectivo.
+El estado de cobertura de una venta es una proyección derivada.
 
-Un pago pendiente no cubre la venta salvo política explícita.
+## Clasificaciones conceptuales
 
-Un pago rechazado no se incluye en el total cubierto.
+- `UNPAID`;
+- `PAYMENT_PENDING`;
+- `PARTIALLY_PAID`;
+- `PAID`;
+- `OVERPAID`;
+- `PAYMENT_FAILED`;
+- `PARTIALLY_REFUNDED`;
+- `FULLY_REFUNDED`.
 
-Cada pago tiene estado propio.
+## Definiciones
 
-La venta puede permanecer:
+### UNPAID
 
-PAYMENT_PENDING;
+No existe valor confirmado aplicable.
 
-PARTIALLY_PAID;
+### PAYMENT_PENDING
 
-PAID;
+Existen intentos pendientes, reportados, autorizados o inciertos sin cobertura suficiente confirmada.
 
-PAYMENT_FAILED.
+### PARTIALLY_PAID
 
-No se deben mezclar estados en un único campo de texto sin estructura.
+Existe valor confirmado menor al total exigible.
 
-6. Estados de pago de la venta
+### PAID
 
-UNPAID
+La suma confirmada cubre el total exigible.
 
-No existe valor confirmado.
+### OVERPAID
 
-PARTIALLY_PAID
+Existe valor confirmado superior al exigible.
 
-Existe un valor confirmado menor al total pagadero.
+Debe impedirse o resolverse mediante política explícita.
 
-PAYMENT_PENDING
+### PAYMENT_FAILED
 
-Existe valor reportado, pendiente o autorizado aún no confirmado.
+Los intentos relevantes fallaron y no existe cobertura suficiente.
 
-PAID
+### PARTIALLY_REFUNDED
 
-La suma de pagos confirmados cubre el total pagadero.
+Parte del valor elegible fue devuelto mediante refunds completados.
 
-OVERPAID
+### FULLY_REFUNDED
 
-Estado excepcional que debe impedirse o resolverse explícitamente.
+Todo el valor elegible fue devuelto mediante refunds completados.
 
-REFUNDED
+## Regla
 
-La venta fue reembolsada completamente.
+La proyección:
 
-PARTIALLY_REFUNDED
+- se calcula;
+- no se edita manualmente;
+- conserva fuentes;
+- debe ser reconstruible;
+- no reemplaza estados de `Payment`;
+- no reemplaza estados de `Refund`.
 
-La venta fue reembolsada parcialmente.
+---
 
-PAYMENT_FAILED
+# 13. Confirmación manual
 
-Los intentos de pago fallaron y no existe cobertura suficiente.
+La confirmación manual aplica inicialmente a:
 
-Regla
+- transferencia;
+- QR estático;
+- otros medios autorizados sin confirmación automática.
 
-El estado de pago de la venta se calcula a partir de pagos y devoluciones. No debe editarse manualmente.
+## Datos mínimos
 
-7. Confirmación manual
-
-La confirmación manual aplica inicialmente a transferencias y QR estático.
-
-Debe registrar:
-
-payment_id;
-
-amount;
-
-external_reference;
-
-financial_entity;
-
-destination_account_version;
-
-reported_by;
-
-confirmed_by;
-
-confirmed_at;
-
-reason;
-
-evidence_reference opcional;
-
-device_id;
-
-branch_id;
-
-audit_event_id.
-
-Restricciones
-
-El reportante y el confirmador pueden requerir separación según política.
-
-El domiciliario no confirma.
-
-El cajero solo confirma si tiene permiso explícito.
-
-El propietario o administrador puede confirmar según su alcance.
-
-El sistema debe alertar referencias repetidas.
-
-Los valores deben coincidir o seguir una política de diferencia autorizada.
-
-Una confirmación no se modifica; se revierte cuando sea necesario.
-
-8. Idempotencia y duplicados
-
-Toda operación crítica debe utilizar:
-
-payment_id global;
-
-idempotency_key;
-
-provider_reference;
-
-correlation_id.
-
-Reglas
-
-Repetir una solicitud con la misma clave devuelve el resultado original.
-
-Un webhook repetido no duplica pagos.
-
-Una referencia externa confirmada no puede cubrir dos ventas incompatibles.
-
-El sistema debe detectar referencias reutilizadas.
-
-La deduplicación no puede depender solo de fecha y valor.
-
-Los registros de caja tampoco pueden duplicarse por reintento.
-
-9. Operación offline
-
-Permitido
-
-efectivo;
-
-crédito interno autorizado;
-
-registro local de intención de otros medios, cuando la política lo permita.
-
-Restringido
-
-confirmación bancaria automática;
-
-validación de transferencias;
-
-consulta de proveedores externos;
-
-liquidación;
-
-conciliación central.
-
-Reglas
-
-El efectivo puede confirmarse localmente.
-
-Una transferencia offline debe permanecer REPORTED o PENDING.
-
-No debe marcarse CONFIRMED sin una fuente autorizada.
-
-Al recuperar conexión se sincroniza de forma idempotente.
-
-Los conflictos deben escalarse; no resolverse silenciosamente.
-
-La venta puede quedar pendiente de entrega o confirmación según el canal.
-
-10. Domicilios
-
-Efectivo
+- `payment_id`;
+- `payment_attempt_id`;
+- importe;
+- moneda;
+- referencia externa;
+- entidad financiera;
+- versión de cuenta destino;
+- reportante;
+- confirmador;
+- fecha;
+- motivo;
+- evidencia;
+- dispositivo;
+- sucursal;
+- evento de auditoría;
+- idempotency key;
+- correlation ID.
+
+## Restricciones
+
+1. Reportante y confirmador pueden requerir separación.
+2. El domiciliario no confirma.
+3. El cajero solo confirma con permiso explícito.
+4. El administrador confirma según alcance.
+5. Se alertan referencias repetidas.
+6. Los importes deben coincidir o seguir tolerancia aprobada.
+7. Una confirmación no se edita.
+8. Una corrección se realiza mediante nueva operación.
+9. La confirmación no implica liquidación.
+10. La confirmación no implica conciliación.
+
+---
+
+# 14. Idempotencia y duplicados
+
+Toda operación crítica debe usar identificadores globales y claves de idempotencia.
+
+## Campos conceptuales
+
+- identificador global;
+- idempotency key;
+- provider reference;
+- correlation ID;
+- tenant;
+- empresa;
+- dispositivo;
+- versión esperada;
+- hash de solicitud.
+
+## Reglas
+
+1. La misma clave y el mismo contenido devuelven el resultado original.
+2. La misma clave con contenido diferente produce conflicto.
+3. Un webhook repetido no duplica pagos.
+4. Una referencia confirmada no cubre obligaciones incompatibles.
+5. El sistema detecta referencias reutilizadas.
+6. La deduplicación no depende solo de fecha e importe.
+7. Los movimientos de caja no se duplican por reintento.
+8. Los refunds no se duplican.
+9. Los reversals no se duplican.
+10. Las liquidaciones no consumen dos veces el mismo importe.
+11. Las conciliaciones no consumen dos veces el mismo movimiento.
+12. Los workers deben tolerar reentrega de eventos.
+
+---
+
+# 15. Operación offline
+
+## Permitido
+
+- efectivo;
+- crédito interno autorizado;
+- creación local de ventas;
+- creación local de intentos;
+- registro de intención de otros medios;
+- cola de eventos;
+- movimientos de caja permitidos;
+- proyecciones vigentes.
+
+## Restringido
+
+- confirmación bancaria automática;
+- confirmación de tarjeta sin proveedor;
+- validación de transferencia;
+- consulta externa;
+- liquidación central;
+- conciliación central;
+- contracargos;
+- cambios de configuración sensible.
+
+## Reglas
+
+1. El efectivo puede confirmarse localmente.
+2. Una transferencia offline permanece pendiente.
+3. No se marca confirmado sin fuente autorizada.
+4. Se conserva fecha local y fecha de recepción.
+5. La sincronización es idempotente.
+6. Los conflictos se escalan.
+7. No se sobrescriben silenciosamente versiones.
+8. La venta puede quedar pendiente de entrega.
+9. Un evento tardío puede generar incidencia.
+10. Un periodo cerrado no se reescribe.
+11. Una caída de red no autoriza doble cobro.
+12. La cola debe sobrevivir reinicios.
+
+---
+
+# 16. Domicilios
+
+## Efectivo
 
 El domiciliario puede recibir efectivo.
 
 Debe registrar:
 
-valor esperado;
+- valor esperado;
+- valor recibido;
+- cambio entregado;
+- pedido;
+- turno;
+- recaudo;
+- fecha;
+- ubicación o evidencia permitida;
+- dispositivo.
 
-valor recibido;
+El dinero se concilia cuando se entrega el recaudo a la sucursal.
 
-cambio entregado;
-
-pedido;
-
-turno;
-
-recaudo;
-
-hora.
-
-El dinero se concilia al entregar recaudo a la sucursal.
-
-Transferencia o QR
+## Transferencia o QR
 
 El domiciliario puede:
 
-mostrar QR oficial;
-
-reportar que el cliente pagó;
-
-esperar confirmación;
-
-consultar el estado.
+- mostrar QR oficial;
+- reportar pago;
+- esperar confirmación;
+- consultar estado autorizado.
 
 No puede:
 
-cambiar el QR;
+- cambiar el QR;
+- cambiar la cuenta;
+- confirmar el pago;
+- modificar el importe;
+- reutilizar referencias;
+- aprobar diferencias.
 
-cambiar la cuenta;
+## Entrega
 
-confirmar el pago;
+Una política puede impedir validar entrega o PIN mientras no exista cobertura confirmada suficiente.
 
-modificar el importe.
+---
 
-Entrega
+# 17. Refunds
 
-Una política puede impedir validar el PIN hasta que el pago esté confirmado.
+Un refund devuelve valor confirmado y todavía elegible.
 
-11. Reversiones y devoluciones
+## Reglas
 
-Refund
+1. No cambia destructivamente el pago original.
+2. Referencia el pago y componente originales.
+3. No supera el valor elegible.
+4. Respeta el medio original cuando la política lo exige.
+5. El efectivo genera salida de caja.
+6. Una devolución electrónica puede quedar pendiente.
+7. Las devoluciones parciales se acumulan.
+8. El estado del refund es independiente.
+9. El valor completado alimenta la proyección reembolsada.
+10. Toda operación requiere permiso y auditoría.
+11. La distribución mixta usa algoritmo versionado.
+12. Un refund aprobado no equivale a completado.
 
-Devuelve dinero relacionado con una venta confirmada.
+---
 
-Reversal
+# 18. Reversals
 
-Revierte una autorización o confirmación mediante una operación compensatoria.
+Un reversal cancela técnicamente una operación cuando el proveedor permite deshacerla.
 
-Reglas
+## Reglas
 
-No se cambia el estado histórico destructivamente.
+1. Conserva referencia al intento original.
+2. Requiere evidencia válida.
+3. No elimina el intento.
+4. No elimina el pago.
+5. No equivale a refund.
+6. Después de liquidación se prefiere refund.
+7. Una respuesta incierta permanece explícita.
+8. Un reversal completado alimenta `reversed_amount`.
+9. Un resultado contradictorio genera incidencia.
+10. No consume el mismo importe que un refund sin política explícita.
 
-Toda devolución referencia el pago original.
+---
 
-El valor devuelto no puede superar el valor elegible.
+# 19. Liquidación
 
-Debe respetarse el método original cuando la política lo exija.
+## Caja
 
-El efectivo devuelto genera salida de caja.
+Puede considerar:
 
-Una devolución electrónica puede quedar pendiente.
+- efectivo confirmado;
+- ingresos;
+- egresos;
+- retiros;
+- refunds;
+- recaudos;
+- diferencias.
 
-Las devoluciones parciales deben acumularse correctamente.
+## Tarjetas, QR y billeteras
 
-Toda operación requiere permiso y auditoría.
+Puede considerar:
 
-12. Conciliación
+- bruto;
+- comisiones;
+- retenciones;
+- refunds;
+- reversals;
+- contracargos;
+- ajustes;
+- neto.
 
-Caja
+## Reglas
+
+1. Una liquidación puede agrupar pagos.
+2. Un pago puede liquidarse parcialmente.
+3. La liquidación no cambia `PaymentStatus`.
+4. El bruto permanece separado de comisiones.
+5. Los archivos originales son inmutables.
+6. Una corrección genera versión o ajuste.
+7. El mismo importe no se liquida dos veces.
+8. `COMPLETED` no implica conciliación.
+
+---
+
+# 20. Conciliación
+
+## Caja
 
 Concilia:
 
-base;
+- base;
+- efectivo confirmado;
+- ingresos;
+- egresos;
+- retiros;
+- refunds;
+- recaudos;
+- arqueo;
+- cierre.
 
-efectivo confirmado;
-
-ingresos;
-
-egresos;
-
-retiros;
-
-devoluciones;
-
-recaudos de domiciliarios.
-
-Transferencias
+## Transferencias
 
 Concilia contra:
 
-extracto;
+- extracto;
+- archivo bancario;
+- consulta API;
+- confirmación autorizada.
 
-archivo bancario;
-
-consulta API;
-
-revisión manual autorizada.
-
-Tarjetas y pasarelas
+## Tarjetas y pasarelas
 
 Concilia contra:
 
-transacciones autorizadas;
+- transacciones;
+- lotes;
+- liquidaciones;
+- comisiones;
+- retenciones;
+- refunds;
+- reversals;
+- contracargos;
+- abonos bancarios.
 
-liquidaciones;
+## Reglas
 
-comisiones;
+1. La conciliación no modifica la venta.
+2. La conciliación no modifica el pago.
+3. Las diferencias generan incidencias.
+4. Los movimientos no conciliados permanecen visibles.
+5. La conciliación es idempotente.
+6. Se conserva fuente, periodo, usuario y resultado.
+7. Una conciliación cerrada no se edita directamente.
+8. Un evento tardío genera revisión o reapertura.
+9. Los ajustes son operaciones separadas.
+10. `RECONCILED` pertenece a `ReconciliationStatus`, no a `PaymentStatus`.
 
-retenciones;
+---
 
-reversos;
+# 21. Contracargos
 
-contracargos.
+## Reglas
 
-Reglas
+1. Son operaciones posteriores.
+2. Pueden aparecer después de liquidación.
+3. Pueden aparecer después de conciliación.
+4. No cambian destructivamente el pago.
+5. No se modelan como refund.
+6. Conservan evidencia y plazos.
+7. El resultado perdido alimenta `chargeback_amount`.
+8. Una conciliación histórica puede requerir revisión posterior.
+9. El historial de disputa no se elimina.
+10. Los ajustes contables derivados son operaciones separadas.
 
-La conciliación no modifica silenciosamente la venta.
+---
 
-Las diferencias generan incidencias.
+# 22. Auditoría
 
-Los pagos no conciliados permanecen visibles.
+Debe registrarse:
 
-La conciliación debe ser idempotente.
+- actor;
+- proceso;
+- tenant;
+- empresa;
+- sucursal;
+- dispositivo;
+- acción;
+- agregado;
+- identificador;
+- estado anterior;
+- estado nuevo;
+- motivo;
+- evidencia;
+- referencia externa;
+- correlation ID;
+- idempotency key;
+- fecha del dispositivo;
+- fecha del servidor;
+- versión;
+- resultado;
+- error.
 
-Deben conservarse fuente, periodo, usuario y resultado.
+La auditoría no almacena:
 
-13. Invariantes
+- contraseñas;
+- tokens;
+- CVV;
+- PAN completo;
+- secretos;
+- certificados;
+- información innecesaria.
 
-Un pago confirmado no se elimina.
+---
 
-Reportar no equivale a confirmar.
+# 23. Invariantes
 
-El domiciliario no confirma pagos.
+1. Un pago confirmado no se elimina.
+2. Reportar no equivale a confirmar.
+3. Autorizar no equivale a confirmar.
+4. Confirmar no equivale a liquidar.
+5. Liquidar no equivale a conciliar.
+6. El domiciliario no confirma pagos.
+7. La suma confirmada determina cobertura.
+8. El crédito no es efectivo recibido.
+9. Las referencias externas son únicas según contexto.
+10. Los reintentos no duplican pagos.
+11. Los reintentos no duplican caja.
+12. Un refund no supera el saldo elegible.
+13. Un reversal no elimina el pago original.
+14. Un contracargo no es refund.
+15. La proyección de la venta es derivada.
+16. El frontend no decide validez financiera.
+17. Todo cambio crítico queda auditado.
+18. Un tenant no accede a pagos de otro tenant.
+19. Los pagos mixtos conservan componentes independientes.
+20. El POS offline no inventa confirmaciones externas.
+21. Las diferencias no se ocultan.
+22. Ningún importe se consume dos veces.
+23. Toda transición usa versión esperada.
+24. Toda operación crítica es idempotente.
+25. Las proyecciones pueden reconstruirse.
+26. Los estados de agregados permanecen separados.
 
-La suma de pagos confirmados determina la cobertura.
+---
 
-El crédito no es efectivo recibido.
+# 24. Relación con el modelo oficial
 
-Las referencias externas deben ser únicas según contexto.
+Los estados, transiciones y eventos definitivos se encuentran en:
 
-Las operaciones repetidas no duplican pagos ni caja.
+```text
+docs/domain/payment-state-model.md
+```
 
-Una devolución no supera el valor confirmado elegible.
+Este documento debe utilizarse para:
 
-El estado de pago de la venta es derivado.
+- flujos operativos;
+- autoridad de evidencia;
+- comportamiento por medio;
+- confirmación manual;
+- offline;
+- domicilios;
+- liquidación;
+- conciliación;
+- reglas transversales.
 
-El frontend no decide la validez financiera.
+`payment-state-model.md` debe utilizarse para:
 
-Todo cambio crítico queda auditado.
+- estados persistentes;
+- transiciones;
+- eventos;
+- proyecciones;
+- invariantes de estados;
+- separación de agregados;
+- consecuencias para persistencia.
 
-Los pagos de otro tenant nunca pueden consultarse ni asignarse.
+---
 
-Los pagos mixtos mantienen registros independientes.
+# 25. Restricción de diseño físico
 
-El POS offline no inventa confirmaciones externas.
+Este documento no define:
 
-Las diferencias se registran; no se ocultan mediante ajustes silenciosos.
+- tablas;
+- columnas;
+- claves;
+- índices;
+- migraciones;
+- endpoints;
+- contratos SQL;
+- particionamiento.
+
+El diseño físico debe basarse conjuntamente en:
+
+- casos de uso aprobados;
+- `payment-state-model.md`;
+- reglas de seguridad;
+- estrategia multiempresa;
+- sincronización local-first;
+- auditoría;
+- requisitos de rendimiento.
+
+---
+
+# 26. Estado del documento
+
+Estado: `ACTIVE`
+
+El modelo antiguo de máquina global queda reemplazado por `payment-state-model.md`.
+
+No se permite volver a introducir `SETTLED`, `RECONCILED`, `REFUNDED`, `REVERSED` o `CHARGEDBACK` como estados persistentes de `Payment`.
