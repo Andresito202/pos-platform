@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ## Prioridad
 
@@ -3616,7 +3616,7 @@ Todo diseño posterior deberá respetar:
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
 Puede pasar a `DONE` cuando:
 
