@@ -1,4 +1,4 @@
-﻿# Modelo conceptual de datos
+# Modelo conceptual de datos
 
 ## Objetivo
 
@@ -201,19 +201,50 @@ Atributos conceptuales:
 
 ### ProductVariant
 
-Representa una presentación o combinación específica.
+Representa una combinación comercial opcional de atributos dentro de un producto.
 
 Ejemplos:
 
 - sabor;
-- tamaño;
+- talla;
 - color;
 - concentración;
-- empaque.
+- modelo;
+- capacidad.
+
+No representa unidades, empaques ni cantidades contenidas.
+
+### ProductPresentation
+
+Representa la forma concreta en la que un producto o variante se compra, almacena o vende.
+
+Atributos conceptuales:
+
+- id;
+- product_id;
+- variant_id opcional;
+- name;
+- internal_sku;
+- base_unit_id;
+- contained_quantity;
+- base_presentation_id opcional;
+- conversion_factor opcional;
+- sales_enabled;
+- purchasing_enabled;
+- inventory_enabled;
+- breakable;
+- stock_mode;
+- active.
+
+Toda presentación pertenece a un producto y, cuando exista variante, esta debe pertenecer al mismo producto.
+
+Todo artículo vendible debe resolver finalmente a una presentación.
 
 ### ProductBarcode
 
-Permite varios códigos por producto o variante.
+Permite varios identificadores por producto, variante o presentación.
+
+Los códigos operativos utilizados para venta, compra o inventario deben resolver finalmente a una presentación.
 
 ### Category
 
@@ -237,7 +268,9 @@ Agrupa reglas de precios.
 
 Atributos conceptuales:
 
-- product_id o variant_id;
+- product_id;
+- variant_id opcional;
+- presentation_id opcional;
 - price_list_id;
 - branch_id opcional;
 - sales_channel;
@@ -245,6 +278,14 @@ Atributos conceptuales:
 - valid_from;
 - valid_until;
 - status.
+
+La resolución conceptual prioriza:
+
+1. presentación;
+2. variante;
+3. producto.
+
+El precio operativo final debe corresponder a una presentación concreta.
 
 ### PriceChange
 

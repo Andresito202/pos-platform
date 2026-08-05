@@ -1,4 +1,4 @@
-﻿# Motor comercial
+# Motor comercial
 
 ## Objetivo
 
@@ -33,6 +33,7 @@ Atributos conceptuales:
 - category_id;
 - brand_id opcional;
 - product_type;
+- variant_policy;
 - stock_controlled;
 - lot_controlled;
 - expiration_controlled;
@@ -117,13 +118,27 @@ Atributos conceptuales:
 - product_id;
 - variant_id opcional;
 - name;
+- internal_sku;
 - base_unit_id;
 - contained_quantity;
+- base_presentation_id opcional;
+- conversion_factor opcional;
 - sales_enabled;
 - purchasing_enabled;
+- inventory_enabled;
 - breakable;
 - stock_mode;
 - active.
+
+Reglas de integridad:
+
+1. Toda presentación pertenece a un producto.
+2. Si existe `variant_id`, la variante debe pertenecer al mismo producto.
+3. El SKU operativo principal pertenece a la presentación.
+4. Toda presentación vendible debe resolver una unidad física o de servicio válida.
+5. `contained_quantity` debe ser positiva.
+6. Una presentación derivada no mantiene saldo independiente.
+7. Los cambios estructurales con historial requieren migración.
 
 ## StockMode
 
@@ -184,12 +199,15 @@ Atributos conceptuales:
 
 ## Reglas
 
-1. Un identificador activo no puede apuntar a dos productos vendibles dentro de la misma empresa.
-2. Un producto puede tener varios códigos.
+1. Un identificador activo no puede apuntar a dos artículos vendibles dentro de la misma empresa.
+2. Un producto, variante o presentación puede tener varios códigos.
 3. El código del proveedor no sustituye el código interno.
-4. El lector debe resolver el código sin que el cajero seleccione manualmente el tipo.
-5. Los códigos de balanza pueden contener producto, peso o precio según el formato configurado.
-6. El lote y el vencimiento no se asumirán desde un código comercial ordinario.
+4. Todo código utilizado para venta, compra o inventario debe resolver finalmente a una `ProductPresentation`.
+5. Si un código apunta a producto o variante y existen varias presentaciones vendibles, se requiere selección explícita.
+6. El lector debe resolver el código sin que el cajero seleccione manualmente el tipo de identificador.
+7. Los códigos de balanza pueden contener producto, presentación, peso o precio según el formato configurado.
+8. El lote y el vencimiento no se asumirán desde un código comercial ordinario.
+9. Un mismo código activo no puede resolver a presentaciones distintas dentro de la empresa.
 
 ---
 
@@ -301,6 +319,11 @@ Abrir una presentación debe generar:
 4. La merma debe registrarse separadamente.
 5. El costo total debe conservarse o distribuirse según política.
 6. No se permitirán conversiones retrospectivas sobre movimientos cerrados.
+7. Origen y destino deben pertenecer al mismo producto.
+8. Origen y destino deben pertenecer a la misma variante, o ambos carecer de variante.
+9. No se permiten conversiones entre una presentación sin variante y otra asociada a variante.
+10. No se permiten ciclos de conversión.
+11. La operación debe conservar presentación origen, presentación destino, factor y versión.
 
 ---
 
@@ -377,6 +400,10 @@ La prioridad definitiva deberá ser configurable y probada para evitar ambigüed
 6. Si dos precios tienen la misma prioridad y vigencia, la configuración se considera inválida.
 7. Un precio no puede ser negativo.
 8. El precio cero requiere permiso o tipo de producto compatible.
+9. La resolución conceptual prioriza presentación, variante y producto.
+10. El precio operativo final debe corresponder a una `ProductPresentation`.
+11. Un precio heredado desde producto o variante debe materializarse en el snapshot de la presentación vendida.
+12. No se deduce automáticamente el precio de una presentación a partir de su factor de conversión.
 
 ---
 

@@ -1,4 +1,4 @@
-﻿# Catálogo de eventos del dominio
+# Catálogo de eventos del dominio
 
 ## Objetivo
 
@@ -90,7 +90,23 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### ProductDeactivated
 
-### BarcodeAssigned
+### ProductVariantCreated
+
+### ProductVariantUpdated
+
+### ProductVariantDeactivated
+
+### ProductPresentationCreated
+
+### ProductPresentationUpdated
+
+### ProductPresentationDeactivated
+
+### ProductIdentifierAssigned
+
+### ProductIdentifierDeactivated
+
+### ProductPresentationConversionDefined
 
 ### PriceScheduled
 

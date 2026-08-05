@@ -1,4 +1,4 @@
-﻿# Glosario del dominio
+# Glosario del dominio
 
 ## Plataforma
 
@@ -38,19 +38,29 @@ Equipo autorizado para ejecutar el POS o acceder a una aplicación.
 
 ## Producto
 
-Artículo o servicio comercializable.
+Entidad comercial que representa el artículo lógico compartido por la empresa.
 
 ## Variante
 
-Presentación específica de un producto, como tamaño, color, sabor o concentración.
+Combinación opcional de atributos comerciales de un producto, como sabor, color, talla, concentración o modelo.
+
+Una variante no representa empaques, cantidades ni unidades de venta.
+
+## Presentación
+
+Forma concreta en la que un producto o una variante se compra, almacena, transforma o vende.
+
+Toda venta, precio, inventario, lote y movimiento operativo resuelve finalmente a una presentación.
 
 ## Código de barras
 
-Identificador escaneable asociado a un producto o variante.
+Identificador escaneable asociado a un producto, variante o presentación.
+
+Los códigos utilizados operacionalmente deben resolver finalmente a una presentación.
 
 ## Unidad de medida
 
-Unidad utilizada para comprar, almacenar o vender un producto.
+Unidad física utilizada para comprar, almacenar, transformar o vender una presentación.
 
 ## Precio
 
