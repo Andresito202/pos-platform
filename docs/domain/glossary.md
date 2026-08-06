@@ -34,7 +34,11 @@ Conjunto de permisos asignados a un usuario.
 
 ## Dispositivo
 
-Equipo autorizado para ejecutar el POS o acceder a una aplicación.
+Identidad operativa autorizada para ejecutar el POS o servicios relacionados.
+
+Se distingue de la instalación, la clave criptográfica y la evidencia de hardware.
+
+La identidad del dispositivo no depende exclusivamente de una huella física.
 
 ## Producto
 
@@ -124,7 +128,116 @@ Valor calculado a partir de la base, ventas, ingresos, egresos, retiros y devolu
 
 ## Licencia
 
-Autorización firmada para usar determinadas funciones, dispositivos y modalidades.
+Derecho contractual firmado emitido para un tenant.
+
+Define modalidad, vigencia, derechos y límites.
+
+No representa una activación, una sesión, un dispositivo ni un permiso de usuario.
+
+## Activación de licencia
+
+Asociación verificable entre una licencia, un dispositivo y una instalación autorizada.
+
+Una activación no amplía derechos ni límites contractuales.
+
+## Instalación
+
+Instancia concreta de la aplicación identificada mediante `installation_id`.
+
+Una reinstalación limpia genera una nueva instalación y no revive automáticamente activaciones anteriores.
+
+## Identidad criptográfica del dispositivo
+
+Identidad basada en una clave propia del dispositivo y una asociación aprobada por la autoridad central.
+
+Permite demostrar posesión sin transmitir la clave privada.
+
+## Clave de dispositivo
+
+Clave criptográfica asociada a un dispositivo.
+
+La clave privada permanece protegida localmente y la clave pública se registra para validación.
+
+## Evidencia de hardware
+
+Información secundaria utilizada para detectar cambios, clonación o riesgo en un dispositivo.
+
+No constituye identidad principal ni debe producir bloqueo irreversible por un único atributo.
+
+## Revocación
+
+Instrucción verificable que desautoriza una licencia, activación, dispositivo o clave.
+
+La revocación conserva identidad, secuencia, motivo y auditoría.
+
+No elimina datos ni historia.
+
+## Periodo de gracia
+
+Autorización temporal y explícita que permite continuar con capacidades limitadas.
+
+No se genera automáticamente por pérdida de conectividad, reinstalación o error criptográfico.
+
+## Conjunto de confianza
+
+Colección versionada de claves públicas autorizadas para verificar artefactos firmados.
+
+No se amplía mediante claves arbitrarias recibidas junto con una licencia o actualización.
+
+## Activación offline
+
+Proceso mediante el cual un dispositivo obtiene una activación verificable sin conexión directa durante el intercambio final.
+
+La autorización sigue siendo emitida por la autoridad central.
+
+## Replay
+
+Reutilización de una solicitud, respuesta o artefacto para intentar repetir un efecto ya aplicado.
+
+Un replay debe rechazarse o devolver idempotentemente el resultado existente.
+
+## Actualización firmada
+
+Paquete de software, política o material de confianza cuya autenticidad e integridad se verifican antes de instalarse.
+
+Una actualización no amplía derechos ni elimina datos confirmados.
+
+## Gracia agotada
+
+Estado en el que una autorización de gracia alcanzó su límite temporal o fue revocada.
+
+No puede reiniciarse localmente.
+
+## Estado de confianza del dispositivo
+
+Clasificación operativa de la confianza conocida de un dispositivo.
+
+Valores conceptuales:
+
+- `TRUSTED`;
+- `DEGRADED`;
+- `UNTRUSTED`;
+- `REVOKED`;
+- `UNKNOWN`;
+- `REVIEW_REQUIRED`.
+
+## Clave confiable
+
+Clave pública previamente aprobada para verificar un tipo específico de artefacto.
+
+Una clave retirada puede conservarse en modo `VERIFY_ONLY` para validación histórica controlada.
+
+## Recuperación de dispositivo
+
+Proceso controlado para restaurar operación después de pérdida de clave, reinstalación, daño, reemplazo o revocación.
+
+La recuperación conserva trazabilidad y no amplía derechos.
+
+## Reemplazo de dispositivo
+
+Proceso que retira o revoca una activación anterior y crea una nueva asociación verificable.
+
+La clave privada anterior no se copia al nuevo dispositivo.
 
 ## Feature flag
 

@@ -1,4 +1,4 @@
-﻿# Reglas de negocio
+# Reglas de negocio
 
 ## Empresas y aislamiento
 
@@ -114,22 +114,70 @@ RN-048. Las ventas por domicilio y punto físico deben conservar su canal de ori
 
 ## Licencias
 
-RN-049. Las modalidades HYBRID y LOCAL_PERPETUAL comparten la misma base de código.
+RN-049. Las modalidades `HYBRID` y `LOCAL_PERPETUAL` comparten la misma base de código.
 
-RN-050. La suspensión por falta de pago debe aplicar avisos y periodo de gracia.
+RN-050. La suspensión por falta de pago debe aplicar avisos y periodo de gracia únicamente cuando exista política autorizada.
 
-RN-051. No se eliminan datos por falta de pago.
+RN-051. No se eliminan datos por falta de pago, expiración, suspensión, revocación o cambio de modalidad.
 
-RN-052. El módulo de domicilios se controla mediante licencia y validación backend.
+RN-052. Los módulos y límites se controlan mediante derechos verificables y validación autoritativa en backend cuando exista conectividad.
 
 RN-053. La licencia local perpetua no incluye automáticamente actualizaciones mayores.
 
+RN-054. La licencia es distinta de la activación, la sesión, el dispositivo y los permisos del usuario.
+
+RN-055. Una activación no amplía derechos ni límites contractuales.
+
+RN-056. El cliente no modifica localmente vigencia, módulos, límites, gracia, revocaciones ni estado contractual.
+
+RN-057. La clave privada central nunca reside en el cliente.
+
+RN-058. Manipular un payload firmado invalida su verificación.
+
+RN-059. Una firma inválida no genera periodo de gracia.
+
+RN-060. Una clave desconocida no se acepta por conveniencia ni fallback.
+
+RN-061. La identidad del dispositivo no depende exclusivamente de una huella de hardware.
+
+RN-062. Un dispositivo revocado no recupera confianza sin autorización explícita.
+
+RN-063. El reloj local no constituye autoridad temporal absoluta.
+
+RN-064. Cambiar el reloj, reinstalar o restaurar una copia local no extiende licencia ni reinicia gracia.
+
+RN-065. La ausencia de conectividad no crea derechos, activaciones, gracia ni reactivaciones.
+
+RN-066. Una revocación conocida se aplica también durante operación offline.
+
+RN-067. Una revocación no elimina ventas, pagos, inventario, caja, auditoría ni operaciones pendientes.
+
+RN-068. La activación online y offline debe conservar identidad, idempotencia, vínculo con dispositivo e instalación y evidencia verificable.
+
+RN-069. Una respuesta de activación offline no puede reutilizarse en otro dispositivo o instalación.
+
+RN-070. El reemplazo de dispositivo conserva trazabilidad y no copia la clave privada anterior.
+
+RN-071. La recuperación sin clave anterior exige controles reforzados y revocación de la identidad previa cuando corresponda.
+
+RN-072. Una actualización debe verificar firma, integridad, plataforma, compatibilidad y política de versión antes de instalarse.
+
+RN-073. Una actualización no amplía derechos ni elimina datos confirmados.
+
+RN-074. Un downgrade inseguro debe bloquearse.
+
+RN-075. Los errores de licencia, activación, dispositivo, tiempo y revocación deben usar códigos estables y no mensajes ambiguos.
+
+RN-076. Toda emisión, activación, revocación, reemplazo, recuperación, rotación y acceso de soporte debe quedar auditado.
+
+RN-077. La política normativa de confianza de dispositivo, licencia firmada y activación se define en `DEC-008`.
+
 ## Comprobantes
 
-RN-054. Los datos impresos deben corresponder a la empresa y sucursal de la venta.
+RN-078. Los datos impresos deben corresponder a la empresa y sucursal de la venta.
 
-RN-055. Una reimpresión debe reproducir el snapshot original.
+RN-079. Una reimpresión debe reproducir el snapshot original.
 
-RN-056. CUFE, QR fiscal y resolución solo se imprimen cuando existen datos válidos de integración fiscal.
+RN-080. CUFE, QR fiscal y resolución solo se imprimen cuando existen datos válidos de integración fiscal.
 
-RN-057. La reimpresión debe quedar auditada.
+RN-081. La reimpresión debe quedar auditada.

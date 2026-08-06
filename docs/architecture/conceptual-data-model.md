@@ -48,33 +48,229 @@ Atributos conceptuales:
 
 ### License
 
-Controla el derecho de uso.
+Representa el derecho contractual emitido para un tenant.
+
+No representa una activación, una sesión, un dispositivo ni un permiso de usuario.
 
 Atributos conceptuales:
 
 - id;
 - tenant_id;
-- status;
-- start_at;
-- expires_at;
-- grace_period_ends_at;
+- payload_version;
+- issuer_id;
+- issued_at;
+- not_before opcional;
+- expires_at opcional;
 - deployment_mode;
-- signature;
+- contract_status;
 - device_limit;
-- branch_limit.
+- branch_limit;
+- allowed_app_versions;
+- offline_policy;
+- grace_policy opcional;
+- supersedes_license_id opcional;
+- signing_key_id;
+- signature_algorithm_id;
+- canonicalization_version;
+- signature.
+
+Valores conceptuales de `contract_status`:
+
+- `TRIAL`;
+- `ACTIVE`;
+- `PAST_DUE`;
+- `SUSPENDED`;
+- `CANCELLED`;
+- `EXPIRED`.
+
+Reglas:
+
+1. La licencia pertenece a un tenant.
+2. La licencia es distinta de una activación.
+3. Los campos que afectan autorización están cubiertos por la firma.
+4. Una modificación requiere emitir una nueva versión.
+5. Una licencia sustituida conserva historial.
+6. Una licencia cancelada o expirada no elimina datos.
+7. La licencia local perpetua no incluye automáticamente actualizaciones mayores.
+8. El cliente no modifica derechos, límites ni vigencia.
 
 ### FeatureEntitlement
 
-Define módulos habilitados.
+Define una capacidad contractual habilitada por una licencia.
 
 Atributos conceptuales:
 
+- id;
 - tenant_id;
+- license_id;
+- entitlement_version;
 - feature_code;
 - enabled;
-- limit_value;
+- limit_value opcional;
 - valid_from;
-- valid_until.
+- valid_until opcional;
+- policy_version.
+
+Reglas:
+
+1. Todo entitlement pertenece a una licencia.
+2. Un entitlement no equivale a un permiso de usuario.
+3. Los derechos efectivos deben ser verificables.
+4. El cliente no amplía módulos ni límites.
+5. Un cambio requiere una nueva versión verificable.
+
+### LicenseActivation
+
+Representa la asociación autorizada entre una licencia, un dispositivo y una instalación.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- license_id;
+- company_id opcional;
+- branch_id opcional;
+- device_id;
+- installation_id;
+- device_key_id;
+- activation_status;
+- payload_version;
+- issued_at;
+- not_before opcional;
+- expires_at opcional;
+- offline_authorization;
+- grace_policy opcional;
+- previous_activation_id opcional;
+- replacement_reason opcional;
+- signing_key_id;
+- signature_algorithm_id;
+- signature;
+- idempotency_key;
+- revoked_at opcional.
+
+Valores conceptuales de `activation_status`:
+
+- `PENDING`;
+- `ACTIVE`;
+- `SUSPENDED`;
+- `REVOKED`;
+- `REPLACED`;
+- `EXPIRED`;
+- `REVIEW_REQUIRED`.
+
+Reglas:
+
+1. Una activación pertenece a una licencia.
+2. Una activación no amplía derechos.
+3. Una activación referencia una identidad concreta de dispositivo.
+4. Una solicitud idempotente no crea activaciones duplicadas.
+5. Un reemplazo genera una nueva activación.
+6. Una activación revocada no se reutiliza.
+7. La activación anterior conserva historial.
+
+### LicenseRevocation
+
+Representa una revocación verificable de una licencia, activación, dispositivo o clave.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- target_type;
+- target_id;
+- reason_code;
+- issued_at;
+- effective_at;
+- sequence;
+- payload_version;
+- signing_key_id;
+- signature.
+
+Valores conceptuales de `target_type`:
+
+- `LICENSE`;
+- `ACTIVATION`;
+- `DEVICE`;
+- `SIGNING_KEY`;
+- `UPDATE_KEY`.
+
+Reglas:
+
+1. Toda revocación tiene identidad propia.
+2. Una revocación no elimina el objeto afectado.
+3. Una secuencia anterior no revierte una revocación posterior.
+4. Una revocación conocida se aplica también durante operación offline.
+5. El cliente no elimina revocaciones aplicadas.
+
+### GraceAuthorization
+
+Representa una autorización temporal y verificable de continuidad operativa.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- license_id;
+- activation_id opcional;
+- issued_at;
+- starts_at;
+- ends_at;
+- allowed_features;
+- restricted_features;
+- reason_code;
+- grace_sequence;
+- payload_version;
+- signing_key_id;
+- signature.
+
+Reglas:
+
+1. La gracia no se infiere.
+2. La gracia no nace de una falla de red.
+3. La gracia no corrige una firma inválida.
+4. La gracia no amplía derechos originales.
+5. Una gracia agotada no se reinicia localmente.
+6. Una reinstalación no reinicia la gracia.
+
+### TrustedSigningKey
+
+Representa material público de verificación previamente confiado.
+
+Atributos conceptuales:
+
+- id;
+- key_id;
+- key_purpose;
+- environment;
+- public_key;
+- algorithm_id;
+- key_status;
+- valid_from;
+- valid_until opcional;
+- replaced_by_key_id opcional;
+- created_at;
+- retired_at opcional;
+- revoked_at opcional.
+
+Valores conceptuales de `key_status`:
+
+- `PENDING`;
+- `ACTIVE`;
+- `ROTATING`;
+- `VERIFY_ONLY`;
+- `RETIRED`;
+- `REVOKED`;
+- `COMPROMISED`;
+- `DESTROYED`.
+
+Reglas:
+
+1. Solo una clave `ACTIVE` firma artefactos nuevos.
+2. `VERIFY_ONLY` permite validar artefactos históricos.
+3. Una clave comprometida no vuelve a `ACTIVE`.
+4. Una clave retirada no firma artefactos nuevos.
+5. Los ambientes no comparten claves de producción.
+6. El cliente no acepta claves arbitrarias recibidas junto con un artefacto.
 
 ## Entidades organizacionales
 
@@ -127,19 +323,182 @@ Atributos conceptuales:
 
 ### Device
 
-Representa un equipo autorizado.
+Representa una identidad operativa autorizada para ejecutar el POS o servicios relacionados.
+
+La identidad no depende exclusivamente de una huella de hardware.
 
 Atributos conceptuales:
 
 - id;
+- tenant_id;
 - company_id;
-- branch_id;
+- branch_id opcional;
 - type;
-- fingerprint;
+- installation_id;
 - app_version;
 - operating_system;
+- trust_status;
 - status;
-- last_seen_at.
+- last_seen_at;
+- registered_at;
+- revoked_at opcional;
+- replacement_device_id opcional.
+
+Valores conceptuales de `trust_status`:
+
+- `TRUSTED`;
+- `DEGRADED`;
+- `UNTRUSTED`;
+- `REVOKED`;
+- `UNKNOWN`;
+- `REVIEW_REQUIRED`.
+
+Reglas:
+
+1. `device_id` es globalmente único.
+2. `device_id` no se reutiliza.
+3. `installation_id` identifica una instalación concreta.
+4. Una reinstalación limpia genera un nuevo `installation_id`.
+5. Un cambio menor de hardware no revoca automáticamente.
+6. Un dispositivo revocado no recupera confianza sin autorización.
+7. La confianza del dispositivo no sustituye permisos de usuario.
+
+### DeviceKey
+
+Representa una identidad criptográfica asociada a un dispositivo.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- device_id;
+- device_key_id;
+- public_key;
+- algorithm_id;
+- key_status;
+- created_at;
+- activated_at opcional;
+- rotated_at opcional;
+- retired_at opcional;
+- revoked_at opcional;
+- replacement_key_id opcional;
+- proof_method;
+- policy_version.
+
+Valores conceptuales de `key_status`:
+
+- `PENDING`;
+- `ACTIVE`;
+- `ROTATING`;
+- `RETIRED`;
+- `REVOKED`;
+- `COMPROMISED`;
+- `UNKNOWN`.
+
+Reglas:
+
+1. La clave privada no se almacena en el modelo central.
+2. La clave privada no se transmite al servidor.
+3. La misma clave no se comparte entre dispositivos.
+4. Una clave revocada o comprometida no autentica nuevas operaciones.
+5. La pérdida de la clave requiere recuperación.
+6. La rotación conserva trazabilidad.
+
+### DeviceHardwareEvidence
+
+Representa evidencia secundaria sobre el entorno físico o lógico del dispositivo.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- device_id;
+- evidence_version;
+- evidence_hash;
+- evidence_type;
+- observed_at;
+- change_classification;
+- risk_status;
+- retained_until opcional.
+
+Valores conceptuales de `change_classification`:
+
+- `EXPECTED_CHANGE`;
+- `MINOR_CHANGE`;
+- `MAJOR_CHANGE`;
+- `SUSPICIOUS_CHANGE`;
+- `UNKNOWN_CHANGE`.
+
+Reglas:
+
+1. La evidencia de hardware no es identidad principal.
+2. No debe contener más datos personales de los necesarios.
+3. Un único atributo no produce bloqueo irreversible.
+4. La evidencia anterior se conserva para auditoría.
+5. Los cambios sospechosos pueden producir degradación o revisión.
+
+### DeviceActivationRequest
+
+Representa una solicitud de activación online u offline.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- license_reference;
+- device_id;
+- installation_id;
+- device_key_id;
+- challenge_nonce;
+- requested_at_local;
+- app_version;
+- operating_system_family;
+- device_evidence_hash opcional;
+- proof_of_possession;
+- payload_checksum;
+- request_status;
+- created_at;
+- expires_at;
+- idempotency_key.
+
+Reglas:
+
+1. Toda solicitud tiene identidad propia.
+2. El nonce no se reutiliza.
+3. La misma solicitud idempotente no genera efectos duplicados.
+4. La solicitud no contiene claves privadas.
+5. Una solicitud vencida se rechaza.
+
+### DeviceActivationResponse
+
+Representa la respuesta verificable emitida para una solicitud de activación.
+
+Atributos conceptuales:
+
+- id;
+- request_id;
+- activation_id;
+- tenant_id;
+- license_id;
+- device_id;
+- installation_id;
+- issued_at;
+- not_before opcional;
+- expires_at opcional;
+- activation_status;
+- offline_authorization;
+- policy_version;
+- request_checksum;
+- signing_key_id;
+- signature.
+
+Reglas:
+
+1. La respuesta queda vinculada a la solicitud original.
+2. No puede utilizarse en otro dispositivo.
+3. No puede utilizarse en otra instalación.
+4. Aplicarla nuevamente produce el mismo resultado o un rechazo de replay.
+5. La respuesta debe poder verificarse sin conexión cuando sea offline.
 
 ## Identidad y autorización
 

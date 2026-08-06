@@ -15,7 +15,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: definición de arquitectura y dominio antes de modificar el modelo físico.
 - Fase 0: `IN_PROGRESS`.
 - Último trabajo completado: `PAY-007`, con estado `DONE` y prioridad `P0`.
-- Siguiente trabajo aprobado y en curso: `DEC-008`, con estado `IN_PROGRESS` y prioridad `P0`; `DEC-007` quedó `DONE` con evidencia verificable y `SYNC-003` pasó a `READY`.
+- Siguiente trabajo aprobado y en curso: `DEV-001`, con estado `IN_PROGRESS` y prioridad `P0`; `DEC-008` quedó `DONE` con evidencia verificable, `LIC-002` pasó a `READY` y `DEV-002` permanece `PLANNED` hasta cerrar `DEV-001` y `LIC-002`.
 - Los ciclos de pagos, caja y ventas, junto con la canalización versionada de pricing, quedaron documentados; `DEC-004` está en curso para separar definitivamente `ProductVariant` y `ProductPresentation`.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -235,7 +235,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | LIC-001 | `P0` | `DONE` | Definir validación de licencia híbrida y local perpetua. | `docs/use-cases/licensing/UC-LIC-001-validate-license.md` |
-| LIC-002 | `P0` | `PLANNED` | Definir emisión, firma, activación, renovación, gracia, suspensión y reactivación. | Requiere DEC-008. |
+| LIC-002 | `P0` | `READY` | Consolidar emisión, firma, activación, renovación, gracia, suspensión y reactivación a partir de `DEC-008` y `UC-LIC-001`. | `DEC-008` cerrada; evidencia base disponible en el ADR, modelo conceptual, modelo de seguridad y caso de uso de validación. |
 | LIC-003 | `P1` | `PLANNED` | Implementar derechos por módulos, límites y dispositivos sin pérdida de datos. | Fase 1; depende de LIC-002 y DEV-002. |
 
 ### Dispositivos
@@ -244,8 +244,8 @@ Estado de la épica: `PLANNED`.
 
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
-| DEV-001 | `P0` | `PLANNED` | Definir registro, aprobación, vínculo, sesión, revocación y recuperación de dispositivo. | Concepto en `docs/architecture/conceptual-data-model.md`; no existe caso de uso dedicado. |
-| DEV-002 | `P0` | `PLANNED` | Definir identidad segura del POS y contrato con licencias. | Depende de DEV-001 y LIC-002. |
+| DEV-001 | `P0` | `IN_PROGRESS` | Definir registro, aprobación, vínculo, sesión, revocación y recuperación de dispositivo. | `DEC-008` y el modelo conceptual aportan la política base; falta consolidar el caso de uso operativo dedicado. |
+| DEV-002 | `P0` | `PLANNED` | Consolidar identidad segura del POS y contrato operativo con licencias. | Depende del cierre de `DEV-001` y `LIC-002`; `DEC-008` ya contiene la política arquitectónica normativa. |
 | DEV-003 | `P2` | `PLANNED` | Implementar adaptadores de lector, impresora, cajón y balanza. | Depende de ARCH-004 y matriz de hardware pendiente. |
 
 ### Sincronización
@@ -334,7 +334,7 @@ No se inicia implementación de la arquitectura objetivo mientras los invariante
 
 | ID | Prioridad | Decisión requerida | Estado | Evidencia esperada | Bloquea |
 |---|---|---|---|---|---|
-| DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | `IN_PROGRESS` | ADR con modelo de confianza, jerarquía y rotación de claves, almacenamiento seguro, firma y verificación, activación online/offline, revocación, recuperación, reemplazo, gracia, amenazas, escenarios, pruebas e invariantes. | `LIC-002`, `DEV-002`, `TECH-002` y salida de Fase 0. |
+| DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | `DONE` | ADR con modelo de confianza, jerarquía y rotación de claves, almacenamiento seguro, firma y verificación, activación online/offline, revocación, recuperación, reemplazo, gracia, amenazas, escenarios, pruebas e invariantes. | `LIC-002`, `DEV-002`, `TECH-002` y salida de Fase 0. |
 
 ## Decisiones pendientes
 
@@ -360,8 +360,8 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.3 Dominio, seguridad, pruebas y migración | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md`. |
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`, salvo los huecos explícitos de pagos. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
-| F0.6 Decisiones críticas cerradas | `IN_PROGRESS` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006` y `DEC-007` cerradas; `DEC-008` está `IN_PROGRESS`; `DEC-005` permanece pendiente con prioridad `P1`. |
-| F0.7 Preparación para diseño físico | `PLANNED` | Estados y contratos coherentes, dependencias trazadas y ningún `P0` documental bloqueante. |
+| F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
+| F0.7 Preparación para diseño físico | `PLANNED` | Requiere cerrar `DEV-001`, `LIC-002` y `DEV-002`, validar coherencia de contratos, confirmar ausencia de bloqueantes documentales `P0` y reevaluar `TECH-002`. |
 
 La Fase 0 termina cuando UC-PAY-004 y UC-PAY-005 estén `DONE`, la máquina de pagos esté consolidada, las decisiones `P0` necesarias para persistencia estén cerradas y los casos críticos tengan invariantes y pruebas mínimas coherentes.
 
@@ -416,4 +416,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
 
-Próxima actualización obligatoria: al cerrar `DEC-008`, moverla a decisiones cerradas con evidencia verificable, habilitar `LIC-002` y `DEV-002`, reevaluar `TECH-002`, resolver si `DEC-005` debe cerrarse dentro de Fase 0 y ejecutar `F0.7` antes del diseño físico.
+- 2026-08-06: `DEC-008` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/adr/DEC-008-device-trust-license-activation.md` y alineación del modelo conceptual, modelo de seguridad, reglas de negocio, glosario y `UC-LIC-001`. `LIC-002` pasó a `READY`; `DEV-001` pasó a `IN_PROGRESS` como siguiente trabajo `P0`; `DEV-002` permanece `PLANNED` hasta cerrar ambas dependencias. `F0.6` pasó a `DONE`; `DEC-005` quedó diferida como decisión `P1`.
+
+Próxima actualización obligatoria: cerrar `DEV-001`, continuar con `LIC-002`, habilitar y cerrar `DEV-002`, ejecutar `F0.7`, reevaluar `TECH-002` y confirmar que no existe ningún bloqueante documental `P0` antes de autorizar el diseño físico.
