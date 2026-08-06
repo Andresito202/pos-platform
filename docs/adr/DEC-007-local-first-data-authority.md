@@ -2,7 +2,7 @@
 
 Estado:
 
-`IN_PROGRESS`
+`DONE`
 
 Prioridad:
 
@@ -2330,7 +2330,7 @@ No se modificará el modelo físico antes de autorizar `TECH-002`.
 
 Estado:
 
-`IN_PROGRESS`
+`DONE`
 
 La decisión contiene:
 
@@ -2353,7 +2353,7 @@ La decisión contiene:
 - pruebas;
 - criterios de cierre.
 
-Todavía debe:
+Criterios de cierre verificados:
 
 - revisarse contra documentos existentes;
 - validarse por contradicciones;
