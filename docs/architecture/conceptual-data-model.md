@@ -504,6 +504,247 @@ Conserva datos exactos impresos en una venta.
 
 Representa factura electrónica, documento equivalente u otro documento fiscal.
 
+## Sincronización local-first
+
+### SyncOperation
+
+Representa una intención operativa generada por un dispositivo y sincronizable con el servidor central.
+
+Atributos conceptuales:
+
+- operation_id;
+- tenant_id;
+- company_id;
+- branch_id;
+- device_id;
+- session_id;
+- actor_id;
+- aggregate_type;
+- aggregate_id;
+- operation_type;
+- idempotency_key;
+- expected_version;
+- causation_id opcional;
+- correlation_id;
+- occurred_at_local;
+- recorded_at_local;
+- received_at_server opcional;
+- committed_at_server opcional;
+- schema_version;
+- payload_checksum;
+- sync_status.
+
+La identidad de una operación es global y permanece estable durante todos sus reintentos.
+
+Una modificación del payload requiere una operación nueva.
+
+### OutboxEntry
+
+Representa una operación local confirmada que debe enviarse al servidor.
+
+Atributos conceptuales:
+
+- outbox_id;
+- operation_id;
+- tenant_id;
+- device_id;
+- local_sequence;
+- sync_status;
+- attempt_count;
+- next_attempt_at;
+- last_attempt_at;
+- last_error_code;
+- created_at;
+- updated_at.
+
+La operación de negocio y su `OutboxEntry` deben persistirse dentro de la misma transacción local.
+
+La outbox:
+
+- es persistente;
+- sobrevive reinicios;
+- conserva errores e intentos;
+- no elimina operaciones pendientes;
+- mantiene aislamiento por tenant y dispositivo.
+
+### InboxEntry
+
+Representa el registro central de una operación recibida.
+
+Atributos conceptuales:
+
+- tenant_id;
+- operation_id;
+- idempotency_key;
+- payload_checksum;
+- processing_status;
+- result_code;
+- previous_version opcional;
+- new_version opcional;
+- received_at_server;
+- committed_at_server opcional.
+
+El inbox impide aplicar dos veces una operación aceptada.
+
+La misma operación con el mismo checksum devuelve su resultado anterior.
+
+La misma `idempotency_key` con un payload diferente genera conflicto.
+
+### SyncCheckpoint
+
+Representa la posición confirmada de sincronización entre un dispositivo y el servidor.
+
+Atributos conceptuales:
+
+- tenant_id;
+- device_id;
+- last_uploaded_sequence;
+- last_server_acknowledged_sequence;
+- last_downloaded_cursor;
+- last_successful_sync_at;
+- last_full_reconciliation_at;
+- checkpoint_status.
+
+El checkpoint:
+
+- se actualiza transaccionalmente;
+- no avanza antes de persistir la confirmación;
+- permite reanudar después de reinicios;
+- queda aislado por tenant y dispositivo.
+
+### SyncConflict
+
+Representa una operación que no puede aplicarse automáticamente.
+
+Atributos conceptuales:
+
+- conflict_id;
+- tenant_id;
+- operation_id;
+- aggregate_type;
+- aggregate_id;
+- conflict_type;
+- expected_version;
+- current_version;
+- authority_policy;
+- severity;
+- resolution_policy;
+- status;
+- detected_at;
+- resolved_at opcional;
+- resolved_by opcional;
+- resolution_reason opcional.
+
+Una resolución puede:
+
+- aceptar;
+- rechazar;
+- compensar;
+- esperar una dependencia;
+- reintentar;
+- requerir revisión manual;
+- enviar a dead letter.
+
+Un conflicto no se oculta ni sobrescribe silenciosamente el estado existente.
+
+### SyncReview
+
+Representa la intervención autorizada sobre un conflicto.
+
+Atributos conceptuales:
+
+- review_id;
+- conflict_id;
+- assigned_role;
+- assigned_user opcional;
+- decision;
+- reason;
+- evidence_reference opcional;
+- created_at;
+- resolved_at opcional.
+
+La revisión conserva actor, decisión, motivo y evidencia.
+
+### DeviceClockState
+
+Representa la calidad conocida del reloj de un dispositivo.
+
+Atributos conceptuales:
+
+- tenant_id;
+- device_id;
+- device_clock_offset;
+- clock_quality;
+- last_clock_sync_at;
+- measured_at_server;
+- status.
+
+Valores conceptuales de `clock_quality`:
+
+- `TRUSTED`;
+- `DEGRADED`;
+- `UNTRUSTED`;
+- `UNKNOWN`.
+
+El reloj local sirve como evidencia contextual, no como autoridad global.
+
+### DeviceSyncState
+
+Representa el estado general de sincronización de un dispositivo.
+
+Atributos conceptuales:
+
+- tenant_id;
+- device_id;
+- connection_status;
+- sync_status;
+- outbox_depth;
+- oldest_pending_at opcional;
+- checkpoint_lag;
+- last_successful_sync_at opcional;
+- last_error_code opcional;
+- schema_version;
+- device_status.
+
+Este concepto permite diagnosticar:
+
+- colas detenidas;
+- dispositivos revocados;
+- versiones incompatibles;
+- retrasos de sincronización;
+- errores persistentes.
+
+### Políticas de autoridad
+
+Cada dominio declara una política conceptual:
+
+- `LOCAL_AUTHORITATIVE_UNTIL_SYNC`;
+- `SERVER_AUTHORITATIVE`;
+- `APPEND_ONLY_SHARED`;
+- `CENTRAL_REVIEW_REQUIRED`;
+- `EXTERNAL_PROVIDER_AUTHORITATIVE`;
+- `DERIVED_PROJECTION`.
+
+La autoridad no se decide mediante una regla genérica de timestamps.
+
+### Reglas estructurales de sincronización
+
+1. Toda operación crítica tiene identidad global.
+2. Todo reintento conserva `operation_id` e `idempotency_key`.
+3. Una operación aceptada no se aplica dos veces.
+4. El negocio local y la outbox se confirman atómicamente.
+5. Los efectos centrales y el inbox se confirman atómicamente.
+6. Un checkpoint no avanza sin confirmación persistida.
+7. Una operación dependiente conserva causalidad.
+8. Un conflicto no modifica silenciosamente el estado existente.
+9. El reloj local no define precedencia global.
+10. Un dispositivo revocado no sincroniza.
+11. Un tenant no puede modificar datos de otro.
+12. Los movimientos financieros y de inventario permanecen append-only.
+13. Las proyecciones no sustituyen hechos.
+14. La recuperación conserva operaciones pendientes.
+15. Toda resolución queda auditada.
+
 ## Auditoría y soporte
 
 ### AuditEvent

@@ -734,7 +734,71 @@ La especialización se implementa mediante configuración, módulos y atributos;
 
 ---
 
-# 15. Invariantes críticas
+# 15. Operación local-first del motor comercial
+
+El motor comercial podrá operar con reglas sincronizadas localmente cuando el servidor central no esté disponible.
+
+La política normativa de autoridad, versionado, conflictos, outbox, inbox y recuperación se define en:
+
+- `docs/adr/DEC-007-local-first-data-authority.md`.
+
+## Autoridad
+
+1. El servidor central es autoritativo para catálogo, pricing, promociones, impuestos y configuración comercial.
+2. El dispositivo utiliza únicamente versiones previamente sincronizadas.
+3. El dispositivo no inventa reglas globales.
+4. El reloj local no determina vigencia definitiva.
+5. Una regla comercial no se sobrescribe mediante `last-write-wins`.
+
+## Venta offline
+
+Toda operación comercial offline deberá conservar como mínimo:
+
+- versión del pipeline de pricing;
+- versión de catálogo;
+- versión de presentación;
+- reglas promocionales aplicadas;
+- tarifas fiscales aplicadas;
+- política de redondeo;
+- checksum de configuración;
+- fecha local;
+- estado de calidad del reloj;
+- dispositivo;
+- actor;
+- snapshot resultante.
+
+## Reglas
+
+1. Una venta completada conserva el snapshot comercial original.
+2. Una sincronización posterior no recalcula la venta con reglas nuevas.
+3. Una promoción no se aplica nuevamente durante un reintento.
+4. Un cambio central de precio no modifica ventas históricas.
+5. Un cambio de impuesto no modifica snapshots tributarios anteriores.
+6. Una versión vencida puede bloquear la operación o enviarla a revisión.
+7. Una discrepancia entre reglas locales y centrales no se oculta.
+8. Toda corrección posterior utiliza una operación nueva.
+9. La misma operación conserva `operation_id` e `idempotency_key`.
+10. Un payload diferente requiere una identidad nueva.
+11. Un conflicto de versión no sobrescribe automáticamente el estado central.
+12. El resultado local y su operación de sincronización deben persistirse atómicamente.
+13. Una respuesta tardía conserva correlación con la operación original.
+14. El frontend puede previsualizar, pero no constituye autoridad comercial.
+15. Las proyecciones comerciales no sustituyen los hechos ni snapshots originales.
+
+## Restricciones offline
+
+Una operación deberá bloquearse o pasar a `REVIEW_REQUIRED` cuando:
+
+- la versión comercial no sea soportada;
+- la política fiscal haya expirado;
+- el checksum no coincida;
+- el dispositivo esté revocado;
+- el reloj sea no confiable para una operación sensible;
+- falte una presentación requerida;
+- la regla aplicada no pueda demostrarse;
+- exista un conflicto que afecte impuestos, total o elegibilidad.
+
+# 16. Invariantes críticas
 
 1. Un código activo identifica un único artículo vendible dentro de una empresa.
 2. Toda venta conserva el precio realmente aplicado.

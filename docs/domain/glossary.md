@@ -164,4 +164,95 @@ Propiedad que impide duplicar una operación cuando una solicitud se repite.
 
 ## Outbox
 
-Registro persistente de eventos pendientes de publicación o sincronización.
+Registro persistente de operaciones o eventos confirmados localmente que todavía deben publicarse o sincronizarse.
+
+La operación de negocio y su registro de outbox deben persistirse dentro de la misma transacción local.
+
+## Inbox
+
+Registro persistente utilizado por el nodo receptor para reconocer operaciones previamente recibidas e impedir que sus efectos se apliquen más de una vez.
+
+## Operación local
+
+Intención operativa creada y confirmada en un dispositivo POS antes de obtener confirmación del servidor central.
+
+Conserva identidad global, tenant, dispositivo, actor, versión, payload, checksum y estado de sincronización.
+
+## Checkpoint de sincronización
+
+Posición confirmada desde la cual un dispositivo puede reanudar la sincronización sin perder ni aplicar nuevamente operaciones.
+
+No avanza hasta que la confirmación correspondiente haya sido persistida.
+
+## Autoridad por dato
+
+Política que determina qué nodo, dominio o proveedor puede decidir el estado definitivo de un dato u operación.
+
+La autoridad no se determina mediante una regla genérica de último timestamp.
+
+## Versión esperada
+
+Versión del agregado que una operación espera encontrar antes de modificarlo.
+
+Si no coincide con la versión vigente, se genera un conflicto en lugar de sobrescribir el estado existente.
+
+## Causalidad
+
+Relación que identifica la operación o evento que originó otro efecto posterior.
+
+Permite impedir que una operación dependiente sea aplicada antes de su causa obligatoria.
+
+## Conflicto de sincronización
+
+Situación en la que una operación no puede aplicarse automáticamente porque existe una diferencia de versión, estado, autoridad, dependencia, permiso, dispositivo, tenant o política.
+
+Un conflicto debe resolverse explícitamente o pasar a revisión.
+
+## Append-only
+
+Modelo en el que los hechos confirmados no se actualizan ni eliminan destructivamente.
+
+Las correcciones se representan mediante nuevas operaciones compensatorias.
+
+## Proyección derivada
+
+Estado calculado a partir de hechos fuente, como saldo de inventario, efectivo esperado o cobertura de pago.
+
+Una proyección no sustituye ni reescribe los hechos que la originaron.
+
+## Checksum de payload
+
+Huella determinista utilizada para verificar que el contenido de una operación no cambió durante transmisión, almacenamiento o reintentos.
+
+La misma identidad de operación con un checksum diferente constituye un conflicto.
+
+## Reintento
+
+Nueva transmisión de la misma operación, conservando `operation_id`, `idempotency_key` y payload original.
+
+Un reintento no representa una nueva intención comercial.
+
+## Dead letter
+
+Operación que no pudo resolverse automáticamente después de agotar los reintentos permitidos o presentar un error permanente.
+
+Debe conservarse para diagnóstico, revisión o archivo controlado.
+
+## Calidad de reloj
+
+Clasificación de la confiabilidad temporal conocida de un dispositivo.
+
+Valores conceptuales:
+
+- `TRUSTED`;
+- `DEGRADED`;
+- `UNTRUSTED`;
+- `UNKNOWN`.
+
+El reloj local aporta evidencia contextual, pero no constituye autoridad global.
+
+## Local-first
+
+Arquitectura en la que el POS puede confirmar operaciones autorizadas mediante persistencia local y sincronizarlas posteriormente de forma idempotente.
+
+No significa que todos los datos sean autoritativos localmente ni que todos los conflictos puedan fusionarse.
