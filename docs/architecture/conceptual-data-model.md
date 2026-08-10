@@ -81,7 +81,21 @@ Valores conceptuales de `contract_status`:
 - `PAST_DUE`;
 - `SUSPENDED`;
 - `CANCELLED`;
-- `EXPIRED`.
+- `TERMINATED`.
+
+La vigencia temporal no forma parte de `contract_status`.
+
+Se determina mediante `not_before`, `expires_at` y la evidencia temporal aplicable.
+
+`EXPIRED` es un resultado temporal de evaluación y no un estado contractual persistente.
+
+La gracia se representa mediante `GraceAuthorization`.
+
+La revocación se representa mediante `LicenseRevocation`.
+
+`INVALID` representa un resultado de validación y no un estado contractual.
+
+`RESTRICTED` representa una decisión efectiva de autorización y no un estado contractual base.
 
 Reglas:
 
@@ -90,9 +104,11 @@ Reglas:
 3. Los campos que afectan autorización están cubiertos por la firma.
 4. Una modificación requiere emitir una nueva versión.
 5. Una licencia sustituida conserva historial.
-6. Una licencia cancelada o expirada no elimina datos.
+6. Una licencia cancelada, terminada o temporalmente expirada no elimina datos.
 7. La licencia local perpetua no incluye automáticamente actualizaciones mayores.
 8. El cliente no modifica derechos, límites ni vigencia.
+9. `contract_status` no mezcla vigencia temporal, gracia, revocación ni validez criptográfica.
+10. La autorización efectiva se calcula a partir del contrato, vigencia, entitlements, gracia, activación, revocaciones y política aplicable.
 
 ### FeatureEntitlement
 
@@ -437,6 +453,90 @@ Reglas:
 4. La evidencia anterior se conserva para auditoría.
 5. Los cambios sospechosos pueden producir degradación o revisión.
 
+### DeviceOperationalState
+
+Representa el estado técnico y de disponibilidad conocido de un dispositivo.
+
+No sustituye `trust_status` ni define derechos de licencia.
+
+Atributos conceptuales:
+
+- tenant_id;
+- device_id;
+- device_status;
+- connectivity_status;
+- health_status;
+- last_seen_at opcional;
+- last_sync_at opcional;
+- stale_since_at opcional;
+- unreachable_since_at opcional;
+- review_status opcional;
+- last_transition_at;
+- policy_version.
+
+Valores conceptuales de `device_status`:
+
+- `ACTIVE`;
+- `OFFLINE`;
+- `STALE`;
+- `UNREACHABLE`;
+- `DEGRADED`;
+- `DEACTIVATED`;
+- `REVIEW_REQUIRED`.
+
+Reglas:
+
+1. `device_status` no sustituye `trust_status`.
+2. `OFFLINE` no implica revocación.
+3. `STALE` no implica revocación.
+4. `UNREACHABLE` no confirma desinstalación.
+5. `last_seen_at` solo avanza después de actividad válida.
+6. `last_sync_at` solo avanza después de sincronización confirmada.
+7. Los umbrales temporales se definen mediante política versionada.
+8. Una transición operativa no amplía permisos ni derechos contractuales.
+
+### DeviceManagementProfile
+
+Representa la modalidad contractual y administrativa bajo la cual se gestiona un dispositivo o activo asociado.
+
+La propiedad del hardware se modela independientemente de la licencia del software.
+
+Atributos conceptuales:
+
+- tenant_id;
+- device_id;
+- asset_ownership_mode;
+- management_mode;
+- policy_version;
+- managed_since_at opcional;
+- management_ends_at opcional;
+- status.
+
+Valores conceptuales de `asset_ownership_mode`:
+
+- `CUSTOMER_OWNED`;
+- `PROVIDER_OWNED`;
+- `LEASED`;
+- `MANAGED_ASSET`.
+
+Valores conceptuales de `management_mode`:
+
+- `SOFTWARE_ONLY`;
+- `SOFTWARE_MANAGED`;
+- `DEVICE_MANAGED`;
+- `KIOSK_MANAGED`.
+
+Reglas:
+
+1. La propiedad del activo no modifica `trust_status`.
+2. La modalidad de administración no amplía derechos de licencia.
+3. `SOFTWARE_ONLY` no autoriza control general del sistema operativo.
+4. `DEVICE_MANAGED` y `KIOSK_MANAGED` requieren política y contrato explícitos.
+5. Las políticas de administración son versionadas.
+6. Toda acción remota sensible queda auditada.
+7. Un dispositivo `CUSTOMER_OWNED` no se bloquea para impedir software de terceros.
+8. La terminación de administración debe permitir desasociación controlada.
+
 ### DeviceActivationRequest
 
 Representa una solicitud de activación online u offline.
@@ -504,12 +604,15 @@ Reglas:
 
 ### User
 
-Representa una persona autenticada.
+Representa una identidad autenticable global.
+
+La identidad del usuario es independiente de cualquier tenant concreto.
+
+La pertenencia a tenants se representa exclusivamente mediante `TenantMembership`.
 
 Atributos conceptuales:
 
 - id;
-- tenant_id;
 - email;
 - phone;
 - full_name;
@@ -517,6 +620,64 @@ Atributos conceptuales:
 - status;
 - mfa_enabled.
 
+Reglas:
+
+1. `User` no contiene `tenant_id` como autoridad de pertenencia.
+2. Un usuario puede no pertenecer todavía a ningún tenant.
+3. Un usuario puede pertenecer a más de un tenant únicamente mediante relaciones `TenantMembership` explícitas y autorizadas.
+4. La autenticación de un usuario no concede acceso automático a ningún tenant.
+5. La identidad global no sustituye roles, permisos ni políticas ABAC.
+6. El acceso efectivo requiere una pertenencia válida al tenant correspondiente.
+
+### TenantMembership
+
+Representa la pertenencia explícita de un usuario a un tenant.
+
+Permite separar la identidad autenticada del usuario de su alcance dentro de uno o varios tenants.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- user_id;
+- membership_type;
+- status;
+- is_primary;
+- created_at;
+- activated_at opcional;
+- suspended_at opcional;
+- revoked_at opcional;
+- created_by;
+- version.
+
+Valores conceptuales de `membership_type`:
+
+- `OWNER`;
+- `ADMIN`;
+- `MEMBER`;
+- `SERVICE`.
+
+Valores conceptuales de `status`:
+
+- `PENDING`;
+- `ACTIVE`;
+- `SUSPENDED`;
+- `REVOKED`.
+
+Reglas:
+
+1. La pertenencia debe identificar explícitamente `tenant_id` y `user_id`.
+2. Un usuario no obtiene acceso a un tenant por coincidencia de correo, teléfono o nombre.
+3. Un usuario puede tener más de una pertenencia únicamente cuando la política del producto lo permita.
+4. Una pertenencia no concede por sí sola todos los permisos del tenant.
+5. Los permisos efectivos se determinan mediante roles, permisos atómicos y políticas ABAC.
+6. Una pertenencia `OWNER` identifica al propietario administrativo del tenant.
+7. Un tenant debe conservar al menos una pertenencia propietaria válida según la política aplicable.
+8. Revocar una pertenencia no elimina al usuario ni los datos del tenant.
+9. Las transiciones de estado deben quedar auditadas.
+10. Los cambios de propietario requieren autorización reforzada, MFA o reautenticación según política.
+11. La identidad del usuario es independiente de una pertenencia específica.
+12. `TenantMembership` es la relación normativa entre usuario y tenant para el diseño físico posterior.
 ### Role
 
 Agrupa permisos.
@@ -527,7 +688,37 @@ Representa una acción atómica.
 
 ### UserRoleAssignment
 
-Relaciona usuario, rol, empresa y sucursal.
+Asigna un rol a una pertenencia de tenant dentro de un alcance operativo autorizado.
+
+No determina pertenencia al tenant y no sustituye `TenantMembership`.
+
+Atributos conceptuales:
+
+- id;
+- tenant_membership_id;
+- role_id;
+- company_id opcional;
+- branch_id opcional;
+- status;
+- valid_from;
+- valid_until opcional;
+- created_at;
+- created_by;
+- revoked_at opcional;
+- version.
+
+Reglas:
+
+1. Toda asignación pertenece a una `TenantMembership` válida.
+2. El tenant efectivo se deriva de la pertenencia y no de un parámetro libre enviado por el cliente.
+3. `company_id`, cuando exista, debe pertenecer al mismo tenant de la pertenencia.
+4. `branch_id`, cuando exista, debe pertenecer a la empresa y tenant autorizados.
+5. Una asignación de rol no permite acceder a otro tenant.
+6. Revocar una asignación no elimina la identidad del usuario ni su pertenencia.
+7. Una pertenencia puede tener múltiples asignaciones únicamente cuando la política lo permita.
+8. Los permisos efectivos se calculan mediante rol, permisos atómicos y políticas ABAC.
+9. La asignación debe conservar historial y auditoría.
+10. La ausencia de una asignación requerida produce denegación, no elevación implícita.
 
 ### Session
 
@@ -705,7 +896,135 @@ Atributos conceptuales:
 
 ### InventoryReservation
 
-Reserva stock para pedidos o procesos pendientes.
+Representa una reserva explícita de inventario para pedidos u otros procesos pendientes.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- branch_id;
+- inventory_location_id;
+- product_id;
+- variant_id opcional;
+- lot_id opcional;
+- reference_type;
+- reference_id;
+- quantity;
+- consumed_quantity;
+- released_quantity;
+- status;
+- expires_at opcional;
+- idempotency_key;
+- version;
+- created_by;
+- created_at;
+- updated_at.
+
+Estados conceptuales:
+
+- `ACTIVE`;
+- `PARTIALLY_CONSUMED`;
+- `CONSUMED`;
+- `RELEASED`;
+- `EXPIRED`.
+
+Reglas:
+
+1. Una reserva reduce disponibilidad pero no existencia física.
+2. Una reserva no constituye una salida definitiva.
+3. El consumo debe generar los movimientos de inventario correspondientes.
+4. La liberación no genera una entrada ficticia de inventario.
+5. Una reserva no puede consumir más cantidad que la reservada.
+6. Los cambios sensibles deben respetar control de concurrencia.
+7. `idempotency_key` evita creación o transición duplicada por reintentos.
+8. La reserva debe permanecer dentro del mismo tenant que el recurso y la operación que la originan.
+
+### InventoryTransfer
+
+Representa el ciclo de vida de un traslado de inventario entre ubicaciones autorizadas.
+
+No sustituye a `InventoryMovement`.
+
+Los movimientos continúan siendo la fuente de verdad de existencias; `InventoryTransfer` conserva la identidad, estado y trazabilidad de la operación que origina los movimientos de salida y entrada.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- source_branch_id;
+- source_location_id;
+- destination_branch_id;
+- destination_location_id;
+- status;
+- requested_by;
+- approved_by opcional;
+- dispatched_by opcional;
+- received_by opcional;
+- requested_at;
+- approved_at opcional;
+- dispatched_at opcional;
+- received_at opcional;
+- cancelled_at opcional;
+- cancellation_reason opcional;
+- idempotency_key;
+- version;
+- created_at;
+- updated_at.
+
+Estados conceptuales:
+
+- `REQUESTED`;
+- `APPROVED`;
+- `IN_TRANSIT`;
+- `RECEIVED`;
+- `PARTIALLY_RECEIVED`;
+- `CANCELLED`;
+- `REJECTED`.
+
+Reglas:
+
+1. Origen y destino deben pertenecer al mismo tenant.
+2. Origen y destino deben ser diferentes.
+3. Un traslado no modifica directamente `StockBalance`.
+4. La salida del origen genera uno o más `InventoryMovement`.
+5. La recepción genera uno o más `InventoryMovement` de entrada.
+6. Los movimientos asociados deben usar `reference_type = INVENTORY_TRANSFER` y `reference_id = InventoryTransfer.id`.
+7. La cantidad global del tenant no cambia salvo diferencias, pérdidas, mermas o ajustes explícitos.
+8. Una recepción parcial debe conservarse explícitamente.
+9. Una cancelación posterior a la salida requiere compensación explícita.
+10. No se eliminan movimientos para revertir un traslado.
+11. Los cambios de estado deben respetar control de concurrencia.
+12. `idempotency_key` debe impedir creación o ejecución duplicada por reintentos.
+
+### InventoryTransferLine
+
+Representa cada producto, variante y lote involucrado en un traslado.
+
+Atributos conceptuales:
+
+- id;
+- transfer_id;
+- product_id;
+- variant_id opcional;
+- lot_id opcional;
+- requested_quantity;
+- dispatched_quantity;
+- received_quantity;
+- difference_quantity;
+- base_unit;
+- status;
+- created_at;
+- updated_at.
+
+Reglas:
+
+1. Las cantidades no pueden ser negativas.
+2. `dispatched_quantity` no puede superar la cantidad autorizada salvo política explícita.
+3. `received_quantity` puede ser menor que `dispatched_quantity`, pero la diferencia debe quedar registrada.
+4. Una diferencia no se corrige mediante sobrescritura silenciosa.
+5. Las diferencias deben producir ajuste, incidencia, revisión o compensación según política.
 
 ## Compras
 

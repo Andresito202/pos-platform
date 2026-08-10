@@ -1,4 +1,4 @@
-﻿# UC-TAX-001: Resolver impuestos aplicables
+# UC-TAX-001: Resolver impuestos aplicables
 
 ## Objetivo
 
@@ -74,6 +74,60 @@ Motor comercial, POS, aplicación de pedidos o servicio de facturación autoriza
 8. Valida incompatibilidades.
 9. Produce explicación y versión.
 10. Devuelve el resultado para congelarlo en la venta.
+
+## Precisión y normalización fiscal
+
+Cada componente tributario se calcula con decimal exacto y precisión interna suficiente para evitar pérdida prematura de información.
+
+La normalización fiscal se realiza por impuesto y según la precisión fiscal aplicable a ese componente.
+
+No se utiliza el incremento comercial de 50 para normalizar impuestos.
+
+La precisión fiscal, regla de normalización y versión aplicable deben quedar identificadas en el resultado tributario.
+
+## Residuos fiscales
+
+Cuando la suma de componentes normalizados por línea no coincide con el total fiscal documental exacto, la diferencia se representa como residuo fiscal.
+
+Los residuos deben:
+
+- calcularse explícitamente;
+- mantenerse separados por impuesto;
+- distribuirse mediante algoritmo determinista y versionado;
+- utilizar la unidad fiscal mínima aplicable;
+- conservar trazabilidad de línea, impuesto, residuo y ajuste asignado;
+- no mezclarse con el ajuste comercial.
+
+La distribución de residuos debe cerrar exactamente el total fiscal documental.
+
+## Conciliación fiscal
+
+Debe cumplirse que la suma de bases, impuestos normalizados y ajustes fiscales asignados reproduzca el total fiscal documental.
+
+La conciliación debe validar como mínimo:
+
+- total tributario por impuesto;
+- total tributario por documento;
+- residuos pendientes;
+- ajustes distribuidos;
+- consistencia entre líneas y total documental.
+
+Una diferencia no conciliada impide congelar el snapshot tributario.
+
+## Ajustes fiscales persistentes
+
+Los ajustes derivados de normalización y distribución de residuos deben conservarse explícitamente.
+
+No se permite ocultarlos mediante modificación de precio, descuento, impuesto original o ajuste comercial.
+
+El snapshot tributario debe conservar cuando corresponda:
+
+- precisión fiscal;
+- regla de normalización;
+- residuos fiscales;
+- ajustes fiscales por línea;
+- versión del algoritmo de distribución;
+- total fiscal conciliado.
 
 ## Reglas
 

@@ -97,7 +97,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | SEC-001 | `P0` | `DONE` | Definir modelo de seguridad, roles y matriz de permisos. | `docs/architecture/security-model.md`, `docs/product/roles.md`, `docs/security/permission-matrix.md` |
-| SEC-002 | `P0` | `PLANNED` | Definir permisos atómicos, políticas ABAC y pruebas negativas por módulo. | La matriz declara esta evolución pendiente. |
+| SEC-002 | `P0` | `DONE` | Definir permisos atómicos, políticas ABAC y pruebas negativas por módulo. | Cerrado en `docs/security/permission-matrix.md` con permisos atómicos, políticas ABAC, segregación de funciones, pruebas negativas y contrato estructurado de decisión de autorización. |
 | SEC-003 | `P0` | `PLANNED` | Implementar aislamiento de tenant, sesiones revocables, MFA y reautenticación. | Fase 1; depende de ONB-002 y DEV-001. |
 | SEC-004 | `P1` | `PLANNED` | Definir gestión de secretos, firma de licencias/actualizaciones y acceso temporal de soporte. | Depende de LIC-002 y DEV-002. |
 
@@ -119,7 +119,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | PRICE-001 | `P0` | `DONE` | Definir programación y resolución determinista de precios. | `docs/use-cases/pricing/UC-PRICE-001-schedule-price.md`, `docs/use-cases/pricing/UC-PRICE-002-resolve-sale-price.md` |
-| PRICE-002 | `P0` | `PLANNED` | Cerrar el orden definitivo entre precio base, precio promocional, descuentos e impuestos. | Requiere DEC-003. |
+| PRICE-002 | `P0` | `DONE` | Cerrar el orden definitivo entre precio base, precio promocional, descuentos e impuestos. | Cerrado mediante `DEC-003`, `DEC-006` y `UC-PRICE-002`; resolución determinista de precio base y precio promocional alineada con `PRICING_PIPELINE_V1`, decimal exacto, snapshots versionados, operación offline controlada y pruebas de determinismo. |
 | PRICE-003 | `P1` | `PLANNED` | Implementar precios versionados, vigencias, caché y snapshots offline. | Depende de CAT-003 y SYNC-002. |
 
 ### Promociones
@@ -140,7 +140,7 @@ Estado de la épica: `IN_PROGRESS`.
 |---|---|---|---|---|
 | TAX-001 | `P0` | `DONE` | Definir resolución y cambios tributarios versionados. | `docs/use-cases/tax/UC-TAX-001-resolve-tax.md`, `docs/use-cases/tax/UC-TAX-002-handle-tax-change.md` |
 | TAX-002 | `P0` | `DONE` | Definir redondeo del total pagadero para COP. | `docs/use-cases/rounding/UC-ROUND-001-calculate-payable-total.md` |
-| TAX-003 | `P0` | `READY` | Resolver empate de redondeo y política de conciliación fiscal. | Requiere DEC-006. |
+| TAX-003 | `P0` | `DONE` | Resolver empate de redondeo y conciliación fiscal. | Cerrado mediante `DEC-003`, `DEC-006`, `UC-TAX-001` y `UC-ROUND-001`; quedan formalizadas precisión fiscal, normalización por impuesto, distribución determinista de residuos, persistencia de ajustes, conciliación documental, separación fiscal/comercial, `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` y `payable_amount` independiente del medio de pago. |
 | TAX-004 | `P3` | `DEFERRED` | Facturación electrónica e integraciones fiscales. | Fase posterior según `docs/product/scope.md`. |
 
 ### Pagos
@@ -195,7 +195,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | INV-001 | `P0` | `DONE` | Definir recepción de mercancía. | `docs/use-cases/inventory/UC-INVENTORY-001-receive-stock.md` |
-| INV-002 | `P0` | `PLANNED` | Definir reservas, salidas, ajustes, mermas, traslados, lotes, vencimientos y concurrencia. | Reglas iniciales: `docs/domain/business-rules.md`. |
+| INV-002 | `P0` | `DONE` | Definir reservas, salidas, ajustes, mermas, traslados, lotes, vencimientos y concurrencia. | Cerrado mediante `UC-INVENTORY-002`; contrato operativo alineado con modelo conceptual, reglas de negocio, glosario y matriz de permisos, incluyendo reservas, salidas, ajustes, mermas, traslados, lotes, vencimientos, concurrencia, operación offline, conflictos y compensaciones. |
 | INV-003 | `P1` | `PLANNED` | Implementar movimientos como fuente de verdad y saldos como proyección. | Depende de CAT-003 e INV-002. |
 
 ### Clientes
@@ -224,7 +224,7 @@ Estado de la épica: `PLANNED`.
 
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
-| ONB-001 | `P0` | `PLANNED` | Definir creación de tenant, empresa, primera sucursal, propietario y configuración inicial. | Depende de SEC-002 y LIC-002. |
+| ONB-001 | `P0` | `DONE` | Definir creación de tenant, empresa, primera sucursal, propietario y configuración inicial. | Cerrado mediante `UC-ONB-001`; contrato funcional de onboarding consolidado con `User` global, `TenantMembership`, `UserRoleAssignment`, tenant, empresa, sucursal, propietario, configuración inicial, integración con licencias, auditoría e idempotencia. |
 | ONB-002 | `P0` | `PLANNED` | Diseñar bootstrap transaccional, idempotente y auditable. | Depende de ONB-001 y TECH-002. |
 | ONB-003 | `P2` | `PLANNED` | Definir importación masiva y migración asistida de datos. | Depende de CAT-003, CUST-003 y PUR-002. |
 
@@ -235,7 +235,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | LIC-001 | `P0` | `DONE` | Definir validación de licencia híbrida y local perpetua. | `docs/use-cases/licensing/UC-LIC-001-validate-license.md` |
-| LIC-002 | `P0` | `READY` | Consolidar emisión, firma, activación, renovación, gracia, suspensión y reactivación a partir de `DEC-008` y `UC-LIC-001`. | `DEC-008` cerrada; evidencia base disponible en el ADR, modelo conceptual, modelo de seguridad y caso de uso de validación. |
+| LIC-002 | `P0` | `DONE` | Consolidar emisión, firma, activación, renovación, gracia, suspensión y reactivación a partir de `DEC-008` y `UC-LIC-001`. | Cerrado mediante `UC-LIC-002`; ciclo de vida contractual-operativo consolidado y alineado con modelo conceptual, reglas de negocio, glosario, `UC-LIC-001` y `DEC-008`. |
 | LIC-003 | `P1` | `PLANNED` | Implementar derechos por módulos, límites y dispositivos sin pérdida de datos. | Fase 1; depende de LIC-002 y DEV-002. |
 
 ### Dispositivos
@@ -244,8 +244,8 @@ Estado de la épica: `PLANNED`.
 
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
-| DEV-001 | `P0` | `IN_PROGRESS` | Definir registro, aprobación, vínculo, sesión, revocación y recuperación de dispositivo. | `DEC-008` y el modelo conceptual aportan la política base; falta consolidar el caso de uso operativo dedicado. |
-| DEV-002 | `P0` | `PLANNED` | Consolidar identidad segura del POS y contrato operativo con licencias. | Depende del cierre de `DEV-001` y `LIC-002`; `DEC-008` ya contiene la política arquitectónica normativa. |
+| DEV-001 | `P0` | `DONE` | Definir registro, aprobación, vínculo, operación conectada/offline, heartbeat, estado operativo, revocación, recuperación, reinstalación, reemplazo, desactivación, administración del activo y alertas de dispositivo. | Cerrado mediante `UC-DEV-001`, con alineación en modelo conceptual, reglas de negocio y glosario; compatible con `DEC-007` y `DEC-008`. |
+| DEV-002 | `P0` | `DONE` | Consolidar identidad segura del POS y contrato operativo con licencias. | Cerrado mediante `UC-DEV-002`; contrato dispositivo ↔ instalación ↔ clave ↔ activación ↔ licencia consolidado, con validación conectada/offline, decisión efectiva, códigos estables, auditoría y compatibilidad con `UC-DEV-001`, `UC-LIC-001`, `UC-LIC-002`, `DEC-007` y `DEC-008`. |
 | DEV-003 | `P2` | `PLANNED` | Implementar adaptadores de lector, impresora, cajón y balanza. | Depende de ARCH-004 y matriz de hardware pendiente. |
 
 ### Sincronización
@@ -254,9 +254,9 @@ Estado de la épica: `PLANNED`.
 
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
-| SYNC-001 | `P0` | `PLANNED` | Definir identidad global, outbox, idempotencia, orden y contrato de sincronización. | Principios: `docs/adr/ADR-003-local-first.md`. |
-| SYNC-002 | `P0` | `PLANNED` | Definir versiones de configuración y disponibilidad offline por módulo. | Depende de SYNC-001. |
-| SYNC-003 | `P0` | `READY` | Definir conflictos, reintentos, recuperación, reloj incorrecto y observabilidad. | Depende de SYNC-001 y DEC-007. |
+| SYNC-001 | `P0` | `DONE` | Definir identidad global, outbox, idempotencia, orden y contrato de sincronización. | Cerrado mediante `UC-SYNC-001`, alineado con `ADR-003`, `DEC-007` y el modelo conceptual; incluye identidad global, atomicidad negocio+outbox, inbox persistente, idempotencia, checksum, control de versión, causalidad, autoridad por dominio, checkpoint, recuperación, aislamiento multi-tenant y reloj no autoritativo. |
+| SYNC-002 | `P0` | `DONE` | Definir versiones de configuración y disponibilidad offline por módulo. | Cerrado mediante `UC-SYNC-002`; se formalizó versionado por dominio, referencias nativas de versión, checksum, schema version, vigencia, estados `CURRENT`/`STALE`/`EXPIRED`/`INCOMPATIBLE`/`REVOKED`, disponibilidad offline derivada y contextual, actualización atómica, reconexión y conservación de snapshots históricos. |
+| SYNC-003 | `P0` | `DONE` | Definir conflictos, reintentos, recuperación, reloj incorrecto y observabilidad. | Cerrado mediante `UC-SYNC-003`; se consolidaron conflictos explícitos, retries idempotentes, backoff exponencial con jitter, checkpoints, recuperación tras reinicio, reloj no autoritativo, revisión manual, dead letter y observabilidad alineada con `DEC-007` y el modelo conceptual. |
 | SYNC-004 | `P1` | `PLANNED` | Implementar y probar venta offline sin duplicación ni pérdida. | Fase 1; depende de SALES-003, PAY-009 y SYNC-003. |
 
 ### Reportes
@@ -287,7 +287,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `PLANNED` | Diseñar modelo físico nuevo, migraciones, restricciones, índices y fronteras de transacción. | `DEC-004` cerrada, pero todavía depende de `DEC-006`, `DEC-007`, `DEC-008` y demás decisiones críticas aplicables; debe seguir `docs/migration/avicola-baseline-migration.md` y no reescribir silenciosamente la migración original. |
+| TECH-002 | `P0` | `READY` | Diseñar modelo físico nuevo, migraciones, restricciones, índices y fronteras de transacción. | Fase 1; decisiones documentales críticas de Fase 0 cerradas. Debe seguir `docs/migration/avicola-baseline-migration.md`, conservar las decisiones `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008`, y no reescribir silenciosamente la migración original. |
 | TECH-003 | `P0` | `PLANNED` | Definir contratos API, errores, idempotency keys, versionado y correlación. | Depende de casos de uso de Fase 0. |
 | TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con lint, tipos, pruebas, seguridad y validación de migraciones. | Requisitos en `docs/testing/testing-strategy.md`; no hay evidencia de pipeline objetivo terminado. |
 | TECH-005 | `P1` | `PLANNED` | Definir observabilidad, backups, restauración, actualización y rollback por modalidad. | Requiere objetivos RNF, `DEC-009` y criterios verificables de capacidad, recuperación y retención. |
@@ -349,7 +349,8 @@ No se inicia implementación de la arquitectura objetivo mientras los invariante
 
 ### Fase 0 — Fundación de producto, arquitectura y dominio
 
-Estado: `IN_PROGRESS`.
+
+Estado: `DONE`.
 
 Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseñar la arquitectura objetivo sin modificar prematuramente modelos, frontend o infraestructura.
 
@@ -361,7 +362,7 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`, salvo los huecos explícitos de pagos. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
 | F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
-| F0.7 Preparación para diseño físico | `PLANNED` | Requiere cerrar `DEV-001`, `LIC-002` y `DEV-002`, validar coherencia de contratos, confirmar ausencia de bloqueantes documentales `P0` y reevaluar `TECH-002`. |
+| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. `TECH-002` queda `READY` como entrada de Fase 1. |
 
 La Fase 0 termina cuando UC-PAY-004 y UC-PAY-005 estén `DONE`, la máquina de pagos esté consolidada, las decisiones `P0` necesarias para persistencia estén cerradas y los casos críticos tengan invariantes y pruebas mínimas coherentes.
 
@@ -418,4 +419,24 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-06: `DEC-008` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/adr/DEC-008-device-trust-license-activation.md` y alineación del modelo conceptual, modelo de seguridad, reglas de negocio, glosario y `UC-LIC-001`. `LIC-002` pasó a `READY`; `DEV-001` pasó a `IN_PROGRESS` como siguiente trabajo `P0`; `DEV-002` permanece `PLANNED` hasta cerrar ambas dependencias. `F0.6` pasó a `DONE`; `DEC-005` quedó diferida como decisión `P1`.
 
-Próxima actualización obligatoria: cerrar `DEV-001`, continuar con `LIC-002`, habilitar y cerrar `DEV-002`, ejecutar `F0.7`, reevaluar `TECH-002` y confirmar que no existe ningún bloqueante documental `P0` antes de autorizar el diseño físico.
+- 2026-08-10: `DEV-001` pasó de `IN_PROGRESS` a `DONE` mediante `docs/use-cases/devices/UC-DEV-001-manage-device-lifecycle.md`. Se consolidaron registro, aprobación, operación conectada/offline, heartbeat, estados operativos, alertas administrativas, cambios de hardware, reinstalación, pérdida de clave, revocación, recuperación, reemplazo, desactivación, desinstalación confirmada y modalidades de propiedad y administración del activo. El modelo conceptual incorporó `DeviceOperationalState` y `DeviceManagementProfile`; las reglas de negocio quedaron extendidas hasta `RN-102` y el glosario fue alineado. `LIC-002` queda como siguiente trabajo `P0`.
+
+- 2026-08-10: `LIC-002` pasó de `READY` a `DONE` mediante `docs/use-cases/licensing/UC-LIC-002-manage-license-lifecycle.md`. Se consolidaron emisión, renovación, avisos, gracia, restricción progresiva, suspensión, reactivación, revocación, terminación, modalidades `HYBRID` y `LOCAL_PERPETUAL`, cambios de plan y la relación con activaciones y dispositivos. El modelo conceptual separó `contract_status` de vigencia, gracia, revocación, restricción efectiva y validez; las reglas de negocio quedaron extendidas hasta `RN-116` y el glosario fue alineado. `DEV-002` pasa a `IN_PROGRESS` como siguiente trabajo `P0`.
+
+- 2026-08-10: `DEV-002` pasó de `IN_PROGRESS` a `DONE` mediante `docs/use-cases/devices/UC-DEV-002-secure-pos-identity-license-contract.md`. Se consolidó el contrato operativo entre tenant, dispositivo, instalación, clave criptográfica, activación, licencia y entitlements; se definieron validación conectada/offline, autorización efectiva, códigos estables, flujos alternos, auditoría, observabilidad futura y pruebas mínimas. `RN-117` fija su relación normativa con `UC-DEV-001`, `UC-LIC-001`, `UC-LIC-002`, `DEC-007` y `DEC-008`. `F0.7` pasa a `IN_PROGRESS`.
+
+- 2026-08-10: `SEC-002` pasó de `PLANNED` a `DONE` mediante la ampliación de `docs/security/permission-matrix.md`. Se definieron permisos atómicos, políticas ABAC, segregación de funciones, pruebas negativas y contrato estructurado de decisión de autorización. La deuda explícita de refund/reversal quedó cubierta y `ONB-001` pasó a `READY`.
+
+- 2026-08-10: `INV-002` pasó de `PLANNED` a `DONE` mediante `docs/use-cases/inventory/UC-INVENTORY-002-manage-stock-lifecycle.md`. Se consolidaron reservas, salidas, ajustes, mermas, traslados, lotes, vencimientos, FEFO/FIFO, concurrencia, control de versión, operación local-first/offline, conflictos y compensaciones. El modelo conceptual, las reglas de negocio hasta `RN-130`, el glosario y la matriz de permisos quedaron alineados. La auditoría final no detectó contradicciones estructurales ni duplicados.
+
+- 2026-08-10: `ONB-001` pasó de `READY` a `DONE` mediante `docs/use-cases/onboarding/UC-ONB-001-initialize-tenant.md`. Se consolidó el contrato funcional de onboarding para creación de tenant, empresa inicial, primera sucursal, propietario y configuración mínima. La identidad del usuario quedó definida como global; `TenantMembership` establece la pertenencia al tenant y `UserRoleAssignment` define roles y alcance operativo. Las reglas de negocio quedaron extendidas hasta `RN-139`, y modelo conceptual, tenant model y glosario fueron alineados.
+
+- 2026-08-10: `PRICE-002` pasó de `PLANNED` a `DONE`. `UC-PRICE-002` quedó consolidado con `DEC-003` y `DEC-006`: conserva por separado precio base y precio promocional elegible, declara `PRICING_PIPELINE_V1`, produce `resolution_snapshot`, utiliza decimal exacto y no adelanta promociones posteriores, cupones, descuentos manuales, impuestos ni redondeos.
+
+- 2026-08-10: `TAX-003` pasó de `READY` a `DONE`. `UC-TAX-001` quedó ampliado con precisión y normalización fiscal, residuos, conciliación y persistencia explícita de ajustes. `UC-ROUND-001` fue alineado con `DEC-006`: el redondeo fiscal ocurre antes del comercial, `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` opera a nivel documental y se obtiene un único `payable_amount` antes de los pagos e independiente del medio de pago.
+
+- 2026-08-10: `SYNC-001` pasó de `PLANNED` a `DONE` mediante `docs/use-cases/sync/UC-SYNC-001-synchronize-operation.md`. Se consolidaron identidad global de operación, atomicidad local negocio+outbox, inbox central, idempotencia, checksum, expected_version, causalidad, autoridad por dominio, checkpoint, recuperación tras reinicio, aislamiento multi-tenant y prohibición de usar last-write-wins o reloj local como autoridad global. `SYNC-002` pasa a `READY`.
+
+- 2026-08-10: `SYNC-002` pasó de `READY` a `DONE` mediante `docs/use-cases/sync/UC-SYNC-002-manage-offline-configuration.md`. Se descartó una entidad global de configuración y se consolidó versionado por dominio; la disponibilidad offline quedó definida como decisión derivada de versiones, vigencia, permisos, licencia, dispositivo, autoridad, revocaciones y dependencias.
+
+Próxima actualización obligatoria: cerrar `SYNC-003`, reevaluar `TECH-002` y confirmar ausencia de bloqueantes documentales `P0` antes de declarar cerrada la Fase 0.

@@ -181,3 +181,124 @@ RN-079. Una reimpresión debe reproducir el snapshot original.
 RN-080. CUFE, QR fiscal y resolución solo se imprimen cuando existen datos válidos de integración fiscal.
 
 RN-081. La reimpresión debe quedar auditada.
+
+## Dispositivos y administración operativa
+
+RN-082. El estado operativo de un dispositivo es distinto de su estado de confianza criptográfica, estado de licencia, activación y estado contractual.
+
+RN-083. Los estados operativos conceptuales del dispositivo son `ACTIVE`, `OFFLINE`, `STALE`, `UNREACHABLE`, `DEGRADED`, `DEACTIVATED` y `REVIEW_REQUIRED`.
+
+RN-084. Un dispositivo `STALE` no se considera automáticamente revocado, comprometido, desinstalado ni fuera de servicio.
+
+RN-085. Un dispositivo `UNREACHABLE` indica ausencia de comunicación dentro de la política aplicable, pero no constituye por sí solo evidencia suficiente de desinstalación.
+
+RN-086. La desinstalación solo puede considerarse confirmada mediante evidencia explícita y auditable; la ausencia de heartbeat o sincronización no equivale a `UNINSTALL_CONFIRMED`.
+
+RN-087. `last_seen_at` y `last_sync_at` representan evidencias diferentes: actividad conocida del dispositivo y última sincronización confirmada respectivamente.
+
+RN-088. La pérdida de heartbeat, conectividad o sincronización debe generar estado operativo y alertas según política, pero no debe eliminar datos ni revocar automáticamente licencia, dispositivo o activación.
+
+RN-089. Una reinstalación genera una nueva identidad de instalación y debe evaluarse contra el dispositivo, clave, activaciones y evidencia previa antes de autorizar operación.
+
+RN-090. Una reinstalación sospechosa debe producir revisión o alerta verificable y no puede utilizarse para reiniciar gracia, evadir suspensión, recuperar una activación revocada ni ampliar derechos.
+
+RN-091. La propiedad física del equipo y el nivel de administración del POS son dimensiones independientes y deben modelarse explícitamente.
+
+RN-092. Los modos conceptuales de propiedad del activo son `CUSTOMER_OWNED`, `PROVIDER_OWNED`, `LEASED` y `MANAGED_ASSET`.
+
+RN-093. Los modos conceptuales de administración son `SOFTWARE_ONLY`, `SOFTWARE_MANAGED`, `DEVICE_MANAGED` y `KIOSK_MANAGED`.
+
+RN-094. Las capacidades administrativas efectivas sobre un dispositivo deben limitarse por contrato, modalidad del activo, consentimiento, permisos y política de seguridad aplicable.
+
+RN-095. En equipos propiedad del cliente, el sistema no puede bloquear el sistema operativo, impedir la instalación de software de terceros ni ejercer controles ajenos al POS únicamente para forzar permanencia comercial o cobro.
+
+RN-096. En equipos administrados, arrendados o provistos bajo modalidad que autorice gestión reforzada, cualquier control técnico adicional debe estar explícitamente autorizado, ser proporcional, auditable y limitarse al alcance contractual definido.
+
+RN-097. La suspensión contractual del POS puede restringir capacidades licenciadas según la política autorizada, pero no debe destruir datos comerciales ni impedir su conservación, recuperación o tratamiento conforme a las reglas aplicables.
+
+RN-098. La desactivación, desinstalación, revocación, pérdida de comunicación, recuperación y reemplazo de un dispositivo deben conservar historial y trazabilidad.
+
+RN-099. El sistema administrativo puede generar alertas por dispositivo `STALE`, `UNREACHABLE`, reinstalación sospechosa, desinstalación confirmada, revocación, cambio relevante de hardware o pérdida de identidad criptográfica.
+
+RN-100. Una alerta administrativa constituye evidencia para revisión y no autoriza por sí sola una acción destructiva, una ampliación de privilegios ni una revocación irreversible.
+
+RN-101. La política operativa de dispositivos debe respetar aislamiento por `tenant_id`, empresa y sucursal, y ninguna señal de actividad de un tenant puede utilizarse para autorizar acciones sobre otro.
+
+RN-102. El ciclo de vida operativo del dispositivo se define en `UC-DEV-001` y debe permanecer compatible con la política criptográfica y de activación definida en `DEC-008`.
+
+## Ciclo de vida y estado de licencias
+
+RN-103. `contract_status` representa únicamente estado contractual y no debe mezclar vigencia temporal, gracia, revocación, restricción efectiva ni validez criptográfica.
+
+RN-104. Los valores conceptuales de `contract_status` son `TRIAL`, `ACTIVE`, `PAST_DUE`, `SUSPENDED`, `CANCELLED` y `TERMINATED`.
+
+RN-105. `EXPIRED` representa un resultado temporal de evaluación derivado de vigencia y no un estado contractual persistente.
+
+RN-106. `GRACE_PERIOD` representa una decisión efectiva sustentada por una `GraceAuthorization` válida y vigente.
+
+RN-107. `RESTRICTED` representa una decisión efectiva de autorización y no un `contract_status` base.
+
+RN-108. `REVOKED` representa el resultado efectivo de una `LicenseRevocation` aplicable y no un `contract_status`.
+
+RN-109. `INVALID` representa un resultado de validación criptográfica, estructural o normativa y no un estado contractual.
+
+RN-110. La autorización efectiva de licencia debe calcularse combinando estado contractual, vigencia, entitlements, gracia, activación, dispositivo, revocaciones, política offline y versión aplicable.
+
+RN-111. Los avisos de vencimiento son señales comerciales versionadas y no cambian por sí solos derechos, vigencia ni estado contractual.
+
+RN-112. La suspensión contractual puede restringir capacidades licenciadas, pero no debe revocar automáticamente dispositivos ni eliminar datos.
+
+RN-113. Una reactivación contractual debe ser explícita y no puede ampliar derechos ni revivir revocaciones de dispositivo.
+
+RN-114. Una licencia `LOCAL_PERPETUAL` conserva los derechos contratados para su alcance definido y no incluye automáticamente actualizaciones mayores ni servicios externos adicionales.
+
+RN-115. El cambio de plan debe generar una nueva decisión autoritativa y versionada sin eliminar datos existentes por reducción de derechos o límites.
+
+RN-116. `UC-LIC-002` define el ciclo de vida contractual-operativo de licencia y debe permanecer compatible con `UC-LIC-001` y `DEC-008`.
+RN-117. `UC-DEV-002` define el contrato operativo entre identidad del POS, instalación, clave de dispositivo, activación y licencia; debe permanecer compatible con `UC-DEV-001`, `UC-LIC-001`, `UC-LIC-002`, `DEC-007` y `DEC-008`.
+## Ciclo operativo de inventario
+
+RN-118. `InventoryMovement` constituye la fuente de verdad de los cambios de existencia; `StockBalance` es una proyección derivada y no debe sustituir el historial de movimientos.
+
+RN-119. Una operación confirmada que afecte inventario debe generar movimientos explícitos y actualizar la proyección de saldo de forma atómica respecto de dichos movimientos.
+
+RN-120. Las reservas reducen disponibilidad, pero no existencia física; consumir una reserva debe generar los movimientos correspondientes y liberarla no debe generar una entrada ficticia de inventario.
+
+RN-121. La creación y las transiciones sensibles de reservas, movimientos, ajustes y traslados deben ser idempotentes cuando exista posibilidad de reintento; una misma `idempotency_key` no puede producir efectos de inventario duplicados.
+
+RN-122. Las operaciones sensibles de inventario deben soportar control de concurrencia mediante versión esperada o mecanismo equivalente y deben rechazar actualizaciones basadas en estado obsoleto cuando no puedan resolverse de forma segura.
+
+RN-123. Ninguna reserva, movimiento, ajuste, merma, traslado, lote, saldo o conflicto de inventario puede cruzar límites de tenant; empresa, sucursal y ubicación deben respetar el alcance autorizado de la operación.
+
+RN-124. Los traslados deben conservar una identidad operacional propia y generar movimientos explícitos de salida y entrada; no deben modificar directamente `StockBalance` ni eliminar movimientos previos para representar cancelaciones o correcciones.
+
+RN-125. Una recepción parcial, diferencia, pérdida o inconsistencia durante un traslado debe conservarse explícitamente y resolverse mediante incidencia, ajuste, merma, compensación u otro proceso autorizado, nunca mediante sobrescritura silenciosa del historial.
+
+RN-126. Los ajustes manuales y las mermas deben conservar motivo, actor, referencia, cantidades y trazabilidad; las correcciones posteriores deben realizarse mediante nuevos movimientos o compensaciones explícitas.
+
+RN-127. La selección de lotes debe aplicar FEFO cuando exista vencimiento y la política lo requiera; cuando no exista vencimiento puede aplicarse FIFO u otra política configurada y autorizada.
+
+RN-128. Las operaciones local-first u offline deben conservar tenant, ubicación, identidad de producto, `idempotency_key` y evidencia suficiente para reconciliación; la operación offline no puede utilizarse para evadir aislamiento, autorización ni reglas de consistencia.
+
+RN-129. Un conflicto de inventario que no pueda resolverse automáticamente de forma segura debe producir revisión o compensación explícita, incluyendo estados conceptuales como `REVIEW_REQUIRED` o `COMPENSATION_REQUIRED`; no debe corregirse mediante edición destructiva del historial.
+
+RN-130. `UC-INVENTORY-002` define el ciclo operativo de reservas, salidas, ajustes, mermas, traslados, lotes, vencimientos, concurrencia y conflictos de inventario y debe permanecer compatible con `UC-INVENTORY-001`, las políticas de autorización y el modelo conceptual de inventario.
+## Identidad, pertenencia y autorización multi-tenant
+
+RN-131. `User` representa una identidad autenticable global y no utiliza `tenant_id` como autoridad de pertenencia.
+
+RN-132. La pertenencia de un usuario a un tenant se representa exclusivamente mediante una `TenantMembership` explícita y válida.
+
+RN-133. La autenticación exitosa de un usuario no concede por sí sola acceso a ningún tenant; el acceso requiere una pertenencia válida y la autorización efectiva correspondiente.
+
+RN-134. Una `TenantMembership` con `membership_type = OWNER` identifica al propietario administrativo del tenant, pero no concede por sí sola todos los permisos ni elimina controles RBAC, ABAC, MFA o reautenticación.
+
+RN-135. `UserRoleAssignment` define roles y alcance operativo dentro de una `TenantMembership`; no determina pertenencia al tenant ni puede utilizarse para conceder acceso cruzado entre tenants.
+
+RN-136. Toda asignación con alcance de empresa o sucursal debe permanecer dentro del mismo tenant de la `TenantMembership` correspondiente.
+
+RN-137. Revocar una `TenantMembership` o una `UserRoleAssignment` no elimina la identidad global del usuario ni los datos históricos del tenant.
+
+RN-138. `UC-ONB-001` debe crear o resolver una identidad `User`, establecer una `TenantMembership` explícita para el propietario inicial y aplicar roles y permisos mediante asignaciones separadas conforme a `SEC-002`.
+
+RN-139. La resolución del tenant efectivo debe derivarse de contexto autenticado y relaciones autorizadas; nunca debe confiarse en un `tenant_id` libre suministrado por el cliente como prueba suficiente de pertenencia.

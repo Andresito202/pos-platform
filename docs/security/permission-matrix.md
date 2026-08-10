@@ -1,4 +1,4 @@
-﻿# Matriz de permisos
+# Matriz de permisos
 
 ## Principios
 
@@ -159,6 +159,162 @@
 | Confirmar entrega con PIN | No | No | No | No | Sí | Entregar PIN |
 | Modificar QR | Reautenticación | Rol financiero | No | No | No | No |
 | Ver ubicación del domiciliario | Sí | Sí | Sí | Condicional | Propia | Pedido propio |
+
+## Permisos atómicos
+
+Los permisos de producto descritos en esta matriz se descomponen en permisos atómicos verificables por backend.
+
+Convención conceptual:
+
+`dominio.recurso.acción`
+
+Ejemplos:
+
+- `sales.sale.create`;
+- `sales.sale.cancel`;
+- `sales.refund.request`;
+- `sales.refund.approve`;
+- `sales.refund.execute`;
+- `payments.reversal.request`;
+- `payments.reversal.approve`;
+- `payments.reversal.execute`;
+- `cash.expense.register`;
+- `inventory.adjustment.request`;
+- `inventory.adjustment.approve`;
+- `inventory.adjustment.execute`;
+- `inventory.waste.record`;
+- `inventory.transfer.request`;
+- `inventory.transfer.approve`;
+- `inventory.transfer.dispatch`;
+- `inventory.transfer.receive`;
+- `inventory.conflict.review`;
+- `inventory.compensation.execute`;
+- `security.permission.change`;
+- `tenant.owner.change`;
+- `license.plan.change`.
+
+Reglas:
+
+1. Un permiso agregado de interfaz no sustituye permisos atómicos de backend.
+2. Solicitar, aprobar y ejecutar una operación crítica deben poder separarse.
+3. Ningún permiso permite acceso implícito a otro tenant.
+4. Un permiso no elimina requisitos adicionales de MFA, reautenticación, estado contractual o política ABAC.
+5. La ausencia de un permiso atómico produce denegación explícita.
+6. Los permisos efectivos deben poder auditarse.
+7. Los permisos administrativos críticos deben evitar privilegios implícitos por pertenencia a un rol demasiado amplio.
+
+## Políticas ABAC
+
+La autorización efectiva combina RBAC con atributos contextuales.
+
+Atributos conceptuales mínimos:
+
+- `tenant_id`;
+- `company_id`;
+- `branch_id`;
+- `actor_id`;
+- `role`;
+- permisos atómicos;
+- estado de sesión;
+- estado de MFA;
+- reautenticación reciente cuando corresponda;
+- recurso afectado;
+- propietario o alcance del recurso;
+- estado de la operación;
+- monto o nivel de riesgo cuando corresponda;
+- dispositivo;
+- canal;
+- modalidad de licencia;
+- política versionada.
+
+Reglas:
+
+1. `tenant_id` debe coincidir entre actor, recurso y operación.
+2. El aislamiento de tenant prevalece sobre cualquier rol.
+3. El alcance por empresa y sucursal debe validarse cuando aplique.
+4. Un actor no puede aprobar su propia solicitud cuando la política exige segregación de funciones.
+5. Las operaciones sensibles pueden exigir MFA o reautenticación adicional.
+6. Los atributos de alto riesgo deben evaluarse en backend.
+7. Las políticas deben ser deterministas y versionables.
+8. Una política ABAC no puede ampliar derechos fuera de los permisos atómicos disponibles.
+9. Una denegación no debe revelar información de otro tenant.
+10. Las decisiones críticas deben ser auditables mediante código de razón estable.
+
+## Segregación de funciones
+
+Las operaciones de alto impacto deben permitir separación entre solicitud, aprobación y ejecución.
+
+Aplicaciones mínimas:
+
+| Operación | Solicitar | Aprobar | Ejecutar |
+|---|---|---|---|
+| Refund | `sales.refund.request` | `sales.refund.approve` | `sales.refund.execute` |
+| Reversal | `payments.reversal.request` | `payments.reversal.approve` | `payments.reversal.execute` |
+| Ajuste crítico de inventario | `inventory.adjustment.request` | `inventory.adjustment.approve` | `inventory.adjustment.execute` |
+| Traslado de inventario | `inventory.transfer.request` | `inventory.transfer.approve` | `inventory.transfer.dispatch` / `inventory.transfer.receive` |
+| Compensación de inventario | Revisión autorizada | `inventory.conflict.review` | `inventory.compensation.execute` |
+| Cambio de permisos críticos | `security.permission.change` | Política reforzada | Aplicación controlada |
+| Cambio de propietario | Solicitud autorizada | Reautenticación/MFA | Aplicación auditada |
+| Cambio de plan/licencia | Solicitud autorizada | Política comercial | Aplicación autoritativa |
+
+Reglas:
+
+1. La misma persona no debe completar todas las etapas cuando la política exija segregación.
+2. Las excepciones requieren autorización reforzada y auditoría.
+3. Las transiciones deben conservar actor, momento, motivo y `correlation_id`.
+4. La separación de funciones no debe implementarse únicamente en frontend.
+
+## Pruebas negativas mínimas
+
+Cada módulo crítico debe probar como mínimo:
+
+1. usuario sin permiso atómico;
+2. usuario con rol válido pero fuera de tenant;
+3. usuario con tenant válido pero sucursal fuera de alcance;
+4. sesión revocada;
+5. MFA requerido y ausente;
+6. reautenticación requerida y ausente;
+7. actor intentando aprobar su propia solicitud cuando no está permitido;
+8. actor intentando ejecutar sin aprobación previa;
+9. acceso por identificador de recurso perteneciente a otro tenant;
+10. manipulación de `tenant_id`, `company_id` o `branch_id`;
+11. intento de elevar permisos desde frontend;
+12. operación crítica con estado incompatible;
+13. recurso inexistente sin filtrar información sensible;
+14. permiso correcto pero política ABAC denegada;
+15. bypass de autorización por operación offline;
+16. replay de una aprobación o ejecución ya consumida;
+17. intento de acceso después de revocación de sesión;
+18. intento de cambio crítico sin auditoría obligatoria.
+
+## Contrato de decisión de autorización
+
+Toda autorización sensible debe poder producir una decisión estructurada con:
+
+- `allowed`;
+- `reason_code`;
+- `tenant_id`;
+- `actor_id`;
+- `permission`;
+- `resource_type`;
+- `resource_id` opcional;
+- `policy_version`;
+- `correlation_id`;
+- `evaluated_at`.
+
+Códigos de razón conceptuales pueden incluir:
+
+- `ALLOW`;
+- `PERMISSION_DENIED`;
+- `TENANT_MISMATCH`;
+- `BRANCH_SCOPE_DENIED`;
+- `SESSION_REVOKED`;
+- `MFA_REQUIRED`;
+- `REAUTH_REQUIRED`;
+- `SELF_APPROVAL_DENIED`;
+- `INVALID_OPERATION_STATE`;
+- `POLICY_DENIED`;
+- `RESOURCE_NOT_ACCESSIBLE`.
 
 ## Regla crítica
 
