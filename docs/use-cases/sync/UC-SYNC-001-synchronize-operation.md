@@ -49,7 +49,7 @@ Agente de sincronización del dispositivo POS.
 - aggregate_id opcional;
 - session_id opcional;
 - actor_id opcional;
-- expected_version opcional;
+- expected_version obligatorio para mutar un agregado versionado existente; solo se omite al crear un hecho append-only nuevo protegido por identidad e idempotencia o cuando no existe versión previa;
 - causation_id opcional;
 - parent_operation_id opcional;
 - payload;
@@ -219,11 +219,11 @@ El nodo central debe:
 
 ## Control de versión
 
-Cuando exista expected_version, debe cumplirse:
+Para toda mutación de un agregado versionado existente debe cumplirse:
 
 expected_version = current_version
 
-si la política del dominio exige coincidencia estricta.
+La omisión solo es válida para los casos de creación definidos por `DEC-007`; no puede usarse para eludir concurrencia optimista.
 
 Una diferencia produce conflicto de versión y no debe sobrescribir silenciosamente el estado central.
 

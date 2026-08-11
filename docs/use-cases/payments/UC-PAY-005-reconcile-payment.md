@@ -2,7 +2,7 @@
 
 ## Estado
 
-IN_PROGRESS
+DONE
 
 ---
 
@@ -294,7 +294,7 @@ Estos son estados conceptuales del elemento de conciliación. `PAY-007` debe arm
 
 20. Si la validación interna falla, la ejecución pasa a `FAILED` y no puede cerrarse.
 
-21. Si existen elementos pendientes, la ejecución queda en `REVIEW_REQUIRED` o `PARTIALLY_RECONCILED`, según la política que deberá consolidar `PAY-007`.
+21. Si existen elementos pendientes, la ejecución queda en `REVIEW_REQUIRED` o `PARTIALLY_RECONCILED` conforme al modelo consolidado de `PAY-007`.
 
 22. Si no existen diferencias bloqueantes, el actor autorizado solicita el cierre.
 
@@ -1173,14 +1173,14 @@ Todo diseño físico deberá respetar las decisiones documentadas aquí.
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
-El documento únicamente podrá cambiar a `DONE` cuando:
+El documento permanece `DONE` mientras:
 
 - exista revisión arquitectónica;
 - exista revisión funcional;
 - exista validación de consistencia;
-- se aprueben las decisiones abiertas;
+- se mantengan alineadas las decisiones aprobadas;
 - se complete la evidencia requerida;
 - el backlog marque `UC-PAY-005` como `DONE`;
-- `PAY-007` pueda pasar oficialmente a `READY`.
+- `PAY-007` permanezca `DONE`.

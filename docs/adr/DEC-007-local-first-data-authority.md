@@ -76,6 +76,24 @@ Los riesgos principales son:
 
 Esta decisión define las reglas operativas obligatorias para implementarla.
 
+## Contrato de persistencia local y central
+
+La persistencia objetivo utiliza:
+
+- PostgreSQL 16 como base central autoritativa;
+- SQLite en modo WAL como base operacional local del POS.
+
+Ambos motores comparten el mismo modelo lógico para los datos replicados, pero no están obligados a compartir DDL idéntico.
+
+Reglas:
+
+1. Las migraciones centrales y locales se versionan y validan de forma separada.
+2. El contrato de sincronización, los identificadores, los estados y los checksums son independientes del dialecto.
+3. Una restricción que SQLite no pueda expresar se valida localmente de forma transaccional y vuelve a validarse en PostgreSQL.
+4. PostgreSQL puede incorporar índices, particionado o restricciones adicionales sin cambiar el contrato lógico.
+5. Las pruebas SQLite no sustituyen las pruebas de integración sobre PostgreSQL.
+6. Cada entidad se clasifica durante el diseño físico como central, local, replicada o proyección.
+
 ---
 
 # Problema
@@ -242,13 +260,15 @@ operation_id
 
 Debe ser globalmente único.
 
-La generación local utilizará un formato seguro para operación distribuida.
+La generación local utilizará `UUID v7` como formato canónico.
 
-Ejemplos admitidos:
+Reglas físicas:
 
-- UUID v7;
-- ULID monotónico;
-- identificador equivalente aprobado.
+1. PostgreSQL almacenará el valor mediante su tipo nativo `uuid`.
+2. SQLite lo almacenará como texto canónico lowercase con guiones de 36 caracteres, validado al escribir y leer.
+3. El mismo valor se conserva en API, outbox, inbox, auditoría y sincronización.
+4. No se mantiene un segundo `global_id` cuando `id` ya contiene el UUID global.
+5. Los identificadores heredados se preservan como referencia de migración y no sustituyen la identidad objetivo.
 
 No se utilizarán enteros autoincrementales locales como identidad global.
 
@@ -274,6 +294,8 @@ Reglas:
 8. La clave no se elimina antes del periodo de retención.
 9. Los efectos secundarios también deben ser idempotentes.
 10. Una respuesta tardía se relaciona con la misma clave.
+11. La unicidad se evalúa por `tenant_id`, `operation_type` e `idempotency_key`.
+12. El inbox conserva el checksum asociado durante toda la ventana de reintento, recuperación y retención aplicable.
 
 ---
 
@@ -284,6 +306,8 @@ Los agregados mutables utilizarán:
 ```text
 expected_version
 ```
+
+`expected_version` es obligatorio cuando la operación modifica un agregado versionado existente. Solo puede omitirse al crear un hecho append-only nuevo protegido por identidad global e idempotencia, o cuando no existe una versión previa que comparar.
 
 El servidor aplicará la operación cuando:
 
@@ -614,6 +638,7 @@ outbox_id
 operation_id
 tenant_id
 device_id
+local_sequence
 aggregate_type
 aggregate_id
 operation_type
@@ -642,6 +667,8 @@ updated_at
 8. Se procesa por lotes limitados.
 9. Respeta orden causal cuando aplique.
 10. No mezcla tenants.
+11. `local_sequence` es única y estrictamente creciente dentro de `(tenant_id, device_id)`.
+12. `operation_id` no aparece en más de una entrada activa o histórica de outbox.
 
 ---
 
@@ -677,6 +704,14 @@ SYNC_IDEMPOTENCY_CONFLICT
 ### Operación ya aceptada
 
 No se repiten efectos.
+
+## Restricciones de deduplicación
+
+1. `operation_id` es única globalmente.
+2. Existe unicidad adicional para `(tenant_id, operation_type, idempotency_key)` en la intención recibida.
+3. Un mismo `idempotency_key` no puede quedar asociado a dos checksums dentro de su alcance.
+4. El registro de inbox y los efectos centrales se confirman o revierten juntos.
+5. La retención de inbox e idempotencia no puede ser menor que la mayor ventana soportada de retry, recuperación y operación offline.
 
 ### Operación ya rechazada
 

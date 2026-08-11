@@ -89,7 +89,9 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 - `requires_confirmation`;
 - `requires_reconciliation`;
 - `created_at`;
-- `configuration_version`;
+- `pricing_pipeline_version`;
+- `tax_policy_version`;
+- `rounding_policy_version`;
 - `audit_reference`.
 
 ---
@@ -190,7 +192,7 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 
 1. Se valida el turno.
 2. Se valida el total pagadero.
-3. Se aplica la política de redondeo de efectivo.
+3. Se valida el `payable_amount` y el snapshot de redondeo ya congelados.
 4. Se verifica que el valor recibido cubra el importe.
 5. Se calcula el cambio.
 6. Se crea el pago en `CONFIRMED`.
@@ -223,7 +225,7 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 
 1. Se valida que el QR o cuenta pertenezca al negocio.
 2. Se valida la referencia.
-3. Se crea el pago como `REPORTED`.
+3. Se crea el `Payment` como `PENDING` y se registra el reporte como evidencia inmutable del `PaymentAttempt`.
 4. No se considera cobertura confirmada.
 5. Se notifica al usuario autorizado para verificar.
 6. La venta queda `PAYMENT_PENDING` o según política.
@@ -247,11 +249,12 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 2. Se envía la solicitud al proveedor.
 3. El pago pasa a `PENDING`.
 4. El proveedor responde de forma autenticada.
-5. Puede pasar a:
-   - `AUTHORIZED`;
+5. El `PaymentAttempt` puede pasar a:
+   - `PROCESSING`, conservando por separado la evidencia de autorización cuando todavía no exista confirmación financiera;
    - `CONFIRMED`;
-   - `REJECTED`;
+   - `DECLINED`;
    - `FAILED`.
+   El `Payment` agregado permanece `PENDING` mientras no exista resultado concluyente y deriva únicamente uno de los estados permitidos por `PaymentStatus`.
 6. Los callbacks se procesan idempotentemente.
 7. Una confirmación válida puede cubrir la venta.
 8. La liquidación y conciliación ocurren después.
@@ -300,8 +303,8 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 | Método | Estado inicial normal |
 |---|---|
 | CASH | CONFIRMED |
-| BANK_TRANSFER manual | REPORTED |
-| STATIC_QR | REPORTED |
+| BANK_TRANSFER manual | PENDING, con reporte en el intento |
+| STATIC_QR | PENDING, con reporte en el intento |
 | CARD | CREATED o PENDING |
 | DIGITAL_WALLET con API | CREATED o PENDING |
 | CUSTOMER_CREDIT | Cuenta por cobrar, no dinero confirmado |
@@ -330,7 +333,7 @@ Este estado no puede editarse manualmente.
 
 - efectivo confirmado localmente;
 - crédito autorizado con datos sincronizados;
-- registro de transferencia como `REPORTED`;
+- registro de transferencia como `Payment=PENDING`, con el reporte conservado en el intento;
 - persistencia local e inclusión en outbox.
 
 ### No permitido
@@ -407,9 +410,9 @@ Según el método y resultado:
 
 - `PaymentInitiated`;
 - `PaymentReported`;
-- `PaymentAuthorized`;
+- `PaymentAuthorizationRecorded`;
 - `PaymentConfirmed`;
-- `PaymentRejected`;
+- `PaymentAttemptDeclined`;
 - `PaymentFailed`;
 - `CashMovementRecorded`;
 - `CreditTransactionCreated`;
@@ -511,7 +514,7 @@ Debe procesarse usando el identificador y referencia originales.
 ## Criterios de aceptación
 
 1. Un pago en efectivo válido se registra junto al movimiento de caja.
-2. Una transferencia manual queda `REPORTED`, no `CONFIRMED`.
+2. Una transferencia manual queda `Payment=PENDING` con evidencia de reporte, no `CONFIRMED`.
 3. Un pago con la misma `idempotency_key` no se duplica.
 4. Una referencia externa repetida genera conflicto.
 5. Un cajero sin caja abierta no puede registrar efectivo.
@@ -527,7 +530,7 @@ Debe procesarse usando el identificador y referencia originales.
 
 - efectivo exacto;
 - efectivo con cambio;
-- efectivo con redondeo;
+- efectivo sobre venta con redondeo ya congelado;
 - caja cerrada;
 - transferencia reportada;
 - QR estático;

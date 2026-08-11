@@ -58,29 +58,25 @@ REJECTED
 
 El sistema debe conservar el pago en un estado pendiente hasta contar con evidencia suficiente para confirmar, rechazar, cancelar, expirar o revertir.
 
-Estados gestionados
+Estados y evidencias gestionados
 
-Este caso de uso aplica principalmente a:
+En `PaymentStatus`, este caso de uso aplica principalmente a:
 
 CREATED;
 
 PENDING;
 
-REPORTED;
-
-AUTHORIZED;
-
 PARTIALLY_CONFIRMED;
 
-FAILED recuperable;
+REVIEW_REQUIRED;
 
-EXPIRED sujeto a revisión;
+En `PaymentAttemptStatus`, también gestiona `PENDING`, `PROCESSING`, `REQUIRES_ACTION`, `UNKNOWN`, `REVIEW_REQUIRED` y fallos recuperables. Un reporte o una autorización son evidencias del intento, no estados adicionales de `Payment`.
+
+Un intento `EXPIRED` puede requerir revisión sin convertir `EXPIRED` en estado de `Payment`;
 
 agrupaciones de pago con componentes pendientes.
 
-No debe alterar destructivamente pagos ya:
-
-CONFIRMED;
+No debe alterar destructivamente pagos ya `CONFIRMED` ni pagos cuyas proyecciones financieras indiquen:
 
 SETTLED;
 
@@ -340,7 +336,7 @@ Prohibiciones
 
 No se debe:
 
-marcar automáticamente REJECTED;
+marcar automáticamente el `Payment` como `FAILED` o el intento como `DECLINED` sin evidencia concluyente;
 
 crear un segundo pago sin deduplicación;
 
@@ -502,7 +498,7 @@ Un proceso detecta vencimiento.
 
 Verifica que no exista confirmación tardía.
 
-Marca EXPIRED si corresponde.
+Marca el `PaymentAttempt` como `EXPIRED` si corresponde; el `Payment` deriva uno de sus estados permitidos según cobertura y recuperabilidad.
 
 Recalcula venta y pedido.
 
@@ -626,7 +622,7 @@ Puede confirmarse localmente con caja abierta.
 
 Transferencia o QR
 
-Permanece REPORTED o PENDING.
+El `Payment` permanece `PENDING`; el intento conserva la evidencia de reporte.
 
 Tarjeta
 
@@ -804,7 +800,7 @@ PaymentMethodChangeRequested;
 
 PaymentCancelled;
 
-PaymentExpired;
+PaymentAttemptExpired;
 
 PaymentReviewRequired;
 

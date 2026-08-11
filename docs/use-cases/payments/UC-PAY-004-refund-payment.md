@@ -125,7 +125,9 @@ Los estados definidos en este documento pertenecen a `Refund` o `Reversal`, no s
 - `currency`;
 - `expected_sale_version`;
 - `expected_refund_version`;
-- `configuration_version`;
+- `pricing_pipeline_version`;
+- `tax_policy_version`;
+- `rounding_policy_version`;
 - `correlation_id`.
 
 El contexto de `tenant_id`, `company_id`, actor y permisos se deriva de la identidad autenticada. No se confía en valores libres enviados por el frontend.
@@ -141,7 +143,7 @@ Cada componente solicitado incluye:
 - `provider_id` opcional;
 - `provider_reference` protegida, cuando exista;
 - `original_payment_allocation_id` opcional;
-- `component_idempotency_key`;
+- `payment_idempotency_key`;
 - `override_reason` y aprobador, si se aparta de la política original.
 
 ### Nivel comercial y tributario
@@ -195,7 +197,9 @@ Cada componente solicitado incluye:
 - `requires_manual_review`;
 - `next_action`;
 - `created_at` y `completed_at` opcional;
-- `configuration_version`;
+- `pricing_pipeline_version`;
+- `tax_policy_version`;
+- `rounding_policy_version`;
 - `audit_reference`.
 
 ---
@@ -378,7 +382,7 @@ Para `Reversal`, `COMPLETED` produce una proyección `REVERSED` del pago únicam
 26. La distribución predeterminada de un refund parcial mixto usa el algoritmo versionado `PROPORTIONAL_ORIGINAL_CONFIRMED_V1`.
 27. Antes de calcular proporciones se excluyen componentes no confirmados, sin saldo reembolsable o cuyo medio no permita el refund.
 28. Una restricción real del proveedor que exija un componente específico prevalece sobre el prorrateo general.
-29. Los residuos de precisión se asignan al componente elegible con mayor importe confirmado originalmente asignado y capacidad disponible; los empates se resuelven por `payment_component_id` en orden estable ascendente.
+29. Los residuos de precisión se asignan al pago elegible con mayor importe confirmado originalmente asignado y capacidad disponible; los empates se resuelven por `payment_id` en orden estable ascendente.
 30. Un override manual de componente exige permiso, motivo y auditoría, y no puede exceder ningún saldo reembolsable.
 31. La suma final de `RefundComponent` debe coincidir exactamente con el importe aprobado.
 32. El algoritmo, versión, conjunto elegible, exclusiones, proporciones, residuos y overrides quedan congelados en el snapshot conceptual del `Refund`.
@@ -468,7 +472,7 @@ Reglas:
 6. Ejecuta el flujo específico del medio.
 7. Deriva `PARTIALLY_REFUNDED`, `REFUNDED` o `REVERSED` solo a partir de resultados completados.
 
-Un pago `REPORTED`, `PENDING`, `REJECTED`, `CANCELLED`, `EXPIRED` o `FAILED` sin valor confirmado no se reembolsa. Puede cancelarse, expirar o gestionarse mediante `UC-PAY-006`.
+Un `Payment` en `PENDING`, `CANCELLED` o `FAILED` sin valor confirmado no se reembolsa. Los reportes, rechazos y expiraciones pertenecen a la evidencia o estado de `PaymentAttempt`; pueden gestionarse mediante `UC-PAY-006` sin ampliar `PaymentStatus`.
 
 ---
 
@@ -507,7 +511,7 @@ El algoritmo se ejecuta así:
    `residual = approved_refund_amount - sum(refund_component_amounts)`
 
 10. Asigna el residuo, en unidades de la precisión monetaria interna, al componente elegible con mayor `original_confirmed_allocated_amount`. Si ese componente no tiene capacidad suficiente, continúa con el siguiente por el mismo orden.
-11. Si dos o más componentes empatan en importe original, usa `payment_component_id` en orden estable ascendente.
+11. Si dos o más pagos empatan en importe original, usa `payment_id` en orden estable ascendente.
 12. Verifica que la suma final de todos los `RefundComponent` coincida exactamente con `approved_refund_amount`. Si no puede cuadrar sin exceder un saldo o violar una restricción, rechaza la distribución automática y marca `REVIEW_REQUIRED`.
 13. Una selección manual sustituye el prorrateo únicamente con `payments.refund.override_distribution` o permiso equivalente, motivo explícito, límites válidos y auditoría de distribución original y distribución aprobada.
 14. Congela en el snapshot conceptual del `Refund`:
@@ -866,7 +870,7 @@ La deduplicación opera en dos niveles.
 ### Operación compensatoria
 
 - identificador del componente;
-- `component_idempotency_key`;
+- `payment_idempotency_key`;
 - `payment_id` original;
 - referencia del proveedor;
 - movimiento de caja o crédito vinculado;
@@ -1131,7 +1135,7 @@ Se conserva pago, refund, liquidación y evidencia. UC-PAY-005 resolverá la dif
 25. El historial permite reconstruir solicitud, aprobación, ejecución, fallos y resultado.
 26. Un refund parcial mixto usa `PROPORTIONAL_ORIGINAL_CONFIRMED_V1` salvo restricción de proveedor u override autorizado.
 27. Solo participan componentes confirmados, reembolsables, con saldo y medio permitido.
-28. Los residuos se asignan por mayor importe original y, en empate, por orden estable de `payment_component_id`.
+28. Los residuos se asignan por mayor importe original y, en empate, por orden estable de `payment_id`.
 29. La suma de `RefundComponent` coincide exactamente con el importe aprobado.
 30. El snapshot del `Refund` conserva algoritmo, versión, entradas, exclusiones, proporciones, residuos y overrides.
 
@@ -1161,7 +1165,7 @@ Se conserva pago, refund, liquidación y evidencia. UC-PAY-005 resolverá la dif
 20. La auditoría identifica solicitante, aprobador, ejecutor, motivo, dispositivo, importes y resultado.
 21. Un refund parcial mixto se distribuye proporcionalmente según los importes confirmados originalmente asignados.
 22. Un componente no reembolsable se excluye antes de calcular proporciones.
-23. Un residuo de precisión se asigna al componente elegible de mayor importe original y los empates se resuelven establemente por `payment_component_id`.
+23. Un residuo de precisión se asigna al pago elegible de mayor importe original y los empates se resuelven establemente por `payment_id`.
 24. Un override manual solo se acepta con permiso, motivo y auditoría.
 25. Una restricción de proveedor sobre un componente específico prevalece sobre el prorrateo.
 26. La suma de componentes coincide exactamente con el importe aprobado y el snapshot conserva la versión del algoritmo.
@@ -1200,7 +1204,7 @@ Se conserva pago, refund, liquidación y evidencia. UC-PAY-005 resolverá la dif
 - exclusión de componente no reembolsable;
 - redistribución por saldo insuficiente de un componente;
 - residuo por precisión monetaria;
-- empate determinista por `payment_component_id`;
+- empate determinista por `payment_id`;
 - override autorizado con motivo y auditoría;
 - override sin permiso;
 - restricción de proveedor a componente específico;
@@ -1276,16 +1280,14 @@ Se conserva pago, refund, liquidación y evidencia. UC-PAY-005 resolverá la dif
 
 ---
 
-## Contradicciones y brechas detectadas
+## Resolución de consistencia
 
-Este caso respeta las decisiones aprobadas sin modificar los documentos previos. Quedan las siguientes brechas para resolución posterior:
-
-1. `docs/domain/payment-lifecycle.md` presenta `PARTIALLY_REFUNDED`, `REFUNDED` y `REVERSED` como estados de `Payment`, mientras la decisión aprobada exige que el pago original sea inmutable y que toda corrección sea otra operación. Este documento los trata como proyecciones derivadas de operaciones append-only; `PAY-007` debe definir los ejes definitivos.
-2. `docs/domain/payment-lifecycle.md` declara `RECONCILED` terminal y no muestra transiciones de reembolso posteriores, aunque una devolución puede ocurrir después de conciliación. Este documento conserva la conciliación original y crea un `Refund` separado; UC-PAY-005 y `PAY-007` deben formalizar la proyección conjunta.
-3. `docs/domain/payment-lifecycle.md` permite conceptualmente `SETTLED -> REVERSED`. La decisión aprobada establece que, después de liquidación, normalmente corresponde `Refund`; una reversión solo será válida si la semántica real y autenticada del proveedor lo permite. `PAY-007` debe cerrar esta nomenclatura.
-4. `docs/domain/commercial-engine.md` expresa un ajuste COP de `$7,50` desde el total calculado, mientras `UC-ROUND-001` normaliza primero y expresa un ajuste de `$7`. Este caso conserva importes y ajustes separados, pero no decide la fórmula pendiente de DEC-006.
-5. `docs/security/permission-matrix.md` define “Devolver venta” y “Registrar egreso de caja”, pero aún no contiene permisos atómicos distintos para solicitar, aprobar y ejecutar refund o reversal. SEC-002 deberá incorporarlos.
-6. `PAY-007` debe consolidar formalmente la política y su versionado en la máquina de estados y modelo conceptual, pero UC-PAY-004 ya define el algoritmo operativo predeterminado.
+1. `PARTIALLY_REFUNDED`, `FULLY_REFUNDED` y `REVERSED` son proyecciones del pago; no pertenecen a `PaymentStatus`.
+2. Un refund posterior a conciliación conserva la conciliación original y crea operaciones posteriores separadas.
+3. Después de liquidación se utiliza `Refund`; `Reversal` solo aplica cuando el proveedor confirma semántica técnica reversible.
+4. `DEC-006` y `UC-ROUND-001` gobiernan el ajuste comercial original y prohíben recalcular por medio.
+5. La matriz de permisos atómicos gobierna solicitud, aprobación, ejecución y override.
+6. `PAY-007` separa los estados por agregado y este caso aplica esa separación.
 
 ---
 
@@ -1377,38 +1379,36 @@ Alto.
 6. Divergencia entre devolución física, garantía, inventario y dinero.
 7. Reembolso de pago confirmado que luego resulte no conciliable.
 8. Fraude interno por repetición, colusión o uso de otra sucursal.
-9. Fórmula COP y efecto fiscal todavía no cerrados completamente.
+9. Aplicación incorrecta del snapshot fiscal y de redondeo original.
 10. Proveedores sin API o sin referencias únicas confiables.
 
-### Decisiones pendientes para UC-PAY-005
+### Integración con UC-PAY-005
 
-1. Cómo cruzar pago, refund, reversal, liquidación, comisión, retención y contracargo por periodo.
-2. Cómo representar y cerrar una incidencia de pago reembolsado antes de conciliación.
-3. Qué fuente tiene autoridad para cada medio y qué evidencia mínima confirma la devolución.
-4. Cómo tratar diferencias de fecha, moneda, valor neto y referencia del proveedor.
-5. Cómo reabrir o encadenar conciliación sin modificar un periodo histórico cerrado.
-6. Cómo conciliar salidas de caja offline sincronizadas posteriormente.
+1. Payment, Refund, Reversal, Settlement, Reconciliation y Chargeback conservan identidades y estados separados.
+2. Una incidencia relaciona las operaciones sin reescribirlas.
+3. La autoridad y evidencia dependen del medio y proveedor registrado.
+4. Fecha operativa, fecha contable, moneda, importe neto y referencia se conservan por separado.
+5. Un periodo cerrado no se reabre destructivamente; una ejecución posterior se enlaza con la anterior.
+6. Las salidas offline se concilian después de sincronizar su identidad original.
 
 ### Decisiones tomadas
 
 1. La distribución operativa predeterminada de refunds parciales en pagos mixtos es proporcional al importe confirmado y originalmente asignado de cada componente elegible.
 2. El algoritmo aprobado es `PROPORTIONAL_ORIGINAL_CONFIRMED_V1` y debe quedar congelado en el snapshot conceptual del `Refund`.
 3. Los componentes no reembolsables se excluyen antes del cálculo, las restricciones del proveedor prevalecen y un override manual exige permiso, motivo y auditoría.
-4. Los residuos se asignan por mayor importe original, con desempate estable por `payment_component_id`, y la suma final debe coincidir exactamente con el importe aprobado.
+4. Los residuos se asignan por mayor importe original, con desempate estable por `payment_id`, y la suma final debe coincidir exactamente con el importe aprobado.
 
-### Decisiones pendientes para PAY-007
+### Decisiones aplicadas de PAY-007
 
-1. Separar ejes de estado financiero, liquidación, conciliación, refund y reversal.
-2. Definir si `PARTIALLY_REFUNDED`, `REFUNDED` y `REVERSED` son proyecciones, estados agregados o ambos.
-3. Armonizar `RECONCILED` terminal con refunds posteriores.
-4. Cerrar la semántica de `SETTLED -> REVERSED` frente a refund posterior a liquidación.
-5. Incorporar la política `PROPORTIONAL_ORIGINAL_CONFIRMED_V1` y su versionado al modelo conceptual y, posteriormente, al diseño físico, sin reabrir el algoritmo operativo aprobado.
-6. Resolver estados inciertos y parciales de reversal sin agregarlos arbitrariamente a `Payment`.
-7. Cerrar la fórmula de redondeo y asignación del ajuste original.
-8. Definir reservas de valor elegible para solicitudes aprobadas o en proceso.
+1. Los ejes de Payment, Settlement, Reconciliation, Refund y Reversal están separados.
+2. Los acumulados de refund y reversal son proyecciones.
+3. Una conciliación cerrada conserva historia ante refunds posteriores.
+4. `SETTLED` no habilita una transición destructiva de Payment.
+5. `PROPORTIONAL_ORIGINAL_CONFIRMED_V1` queda versionada en el snapshot de Refund.
+6. Los estados inciertos pertenecen a Refund/Reversal o a una incidencia, no a Payment.
+7. El ajuste de redondeo se distribuye desde el snapshot original conforme DEC-006.
+8. Las solicitudes aprobadas o en proceso reservan saldo elegible mediante versión y transacción.
 
 ### Decisión sobre diseño físico
 
-Todavía no debe diseñarse el modelo físico.
-
-Antes de definir tablas, columnas, restricciones, índices, migraciones o endpoints deben completarse UC-PAY-005, PAY-007 y las decisiones pendientes de estados, conciliación, incorporación conceptual de la distribución mixta, redondeo e idempotencia distribuida.
+El diseño físico puede modelar los agregados separados siempre que preserve estados, idempotencia, reservas de saldo, snapshots, concurrencia y operaciones append-only definidos aquí y en PAY-007.

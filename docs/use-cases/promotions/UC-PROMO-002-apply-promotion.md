@@ -29,7 +29,7 @@ Sistema POS, aplicación de pedidos o servicio comercial autorizado.
 - quantities;
 - payment_method opcional;
 - occurred_at;
-- promotion_configuration_version;
+- promotion_policy_version;
 - correlation_id.
 
 ## Salida
@@ -43,7 +43,7 @@ Sistema POS, aplicación de pedidos o servicio comercial autorizado.
 - promotional_discount_total;
 - resulting_total;
 - explanation;
-- configuration_version.
+- promotion_policy_version.
 
 ## Flujo principal
 

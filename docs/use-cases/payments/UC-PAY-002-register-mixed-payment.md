@@ -72,9 +72,9 @@ Payment A:
 Payment B:
 - BANK_TRANSFER
 - $60.000
-- REPORTED
+- PENDING, con evidencia de reporte en su intento
 
-La venta no debe considerarse totalmente pagada mientras el componente pendiente no sea confirmado.
+La venta no debe considerarse totalmente pagada mientras el pago pendiente no sea confirmado.
 
 Precondiciones generales
 
@@ -132,15 +132,19 @@ correlation_id;
 
 expected_payable_total;
 
-configuration_version.
+pricing_pipeline_version;
+
+tax_policy_version;
+
+rounding_policy_version.
 
 Nivel de componente
 
 Cada elemento de payments debe incluir:
 
-payment_component_id;
+payment_id;
 
-component_idempotency_key;
+payment_idempotency_key;
 
 payment_method;
 
@@ -198,7 +202,11 @@ requires_reconciliation;
 
 created_at;
 
-configuration_version;
+pricing_pipeline_version;
+
+tax_policy_version;
+
+rounding_policy_version;
 
 audit_reference.
 
@@ -222,7 +230,9 @@ cash_movement_id opcional;
 
 credit_transaction_id opcional.
 
-Estados derivados del grupo
+Clasificaciones derivadas del grupo
+
+Estas etiquetas se calculan desde los `Payment`, sus intentos, asignaciones, incidencias y conciliaciones. No forman un enum persistente adicional ni amplían `PaymentStatus`.
 
 CREATED
 
@@ -230,11 +240,11 @@ La agrupación fue creada, pero todavía no se procesaron todos los componentes.
 
 PARTIALLY_CONFIRMED
 
-Existe al menos un componente confirmado y otro pendiente, reportado, autorizado o fallido.
+Existe al menos un pago confirmado y otro `PENDING`, con evidencia de reporte/autorización, o fallido.
 
 PAYMENT_PENDING
 
-No existe cobertura confirmada suficiente y al menos un componente espera confirmación.
+No existe cobertura confirmada suficiente y al menos un pago espera confirmación.
 
 CONFIRMED
 
@@ -274,9 +284,9 @@ El usuario debe tener permiso para cada medio.
 
 La suma propuesta debe ser coherente con el total pagadero.
 
-El redondeo solo puede aplicarse al saldo en efectivo.
+El `payable_amount` y su ajuste de redondeo ya deben estar congelados antes de crear el grupo.
 
-No se permite redondear componentes electrónicos.
+No se permite redondear ningún pago individual.
 
 Un componente reportado no cuenta como confirmado.
 
@@ -310,7 +320,7 @@ Permitir ajustar importes.
 
 Recalcular saldo restante en tiempo real.
 
-Aplicar redondeo al componente en efectivo.
+Distribuir el `payable_amount` congelado entre los medios.
 
 Validar cobertura.
 
@@ -344,11 +354,9 @@ El actor agrega uno o más medios adicionales.
 
 El sistema valida cada componente.
 
-El sistema normaliza importes electrónicos a pesos enteros.
+El sistema valida que cada importe respete la precisión monetaria del snapshot.
 
-El sistema identifica el saldo cubierto en efectivo.
-
-Aplica la política de redondeo solo al saldo en efectivo.
+El sistema distribuye el mismo `payable_amount` congelado sin recalcular redondeo.
 
 Calcula el total cubierto confirmado potencial.
 
@@ -368,7 +376,7 @@ Para efectivo, registra el movimiento de caja.
 
 Para crédito, registra la obligación correspondiente.
 
-Para transferencias manuales, registra estado REPORTED.
+Para transferencias manuales, conserva el `Payment` en `PENDING` y registra el reporte como evidencia del intento.
 
 Para proveedores externos, inicia el flujo correspondiente.
 
@@ -403,7 +411,7 @@ Resultado inicial:
 
 efectivo: CONFIRMED;
 
-transferencia: REPORTED;
+transferencia: `Payment=PENDING`, con intento reportado;
 
 grupo: PARTIALLY_CONFIRMED;
 
@@ -452,7 +460,7 @@ La política predeterminada recomendada es conservar el efectivo como pago parci
 
 3. Transferencia + QR
 
-Ambos medios manuales pueden quedar REPORTED.
+Ambos medios manuales pueden quedar como `Payment=PENDING`, cada uno con su evidencia de reporte.
 
 La venta permanece PAYMENT_PENDING hasta que la suma confirmada cubra el total.
 
@@ -498,25 +506,22 @@ Redondeo en pago mixto
 
 Regla principal
 
-El redondeo se aplica únicamente al saldo final cubierto en efectivo.
+El redondeo comercial ya fue aplicado una sola vez a nivel de venta. El pago mixto distribuye el mismo `payable_amount` y no redondea componentes.
 
 Ejemplo:
 
-Total calculado: $10.042,50
-Total normalizado: $10.043
+fiscal_total_amount: $10.025
+commercial_rounding_adjustment: $25
+payable_amount: $10.050
 
 Transferencia: $8.000
-Saldo efectivo normalizado: $2.043
-Efectivo cobrado: $2.050
-Ajuste de redondeo: $7
+Efectivo asignado: $2.050
 
 Reglas
 
-No se redondea el total antes de distribuir medios de forma arbitraria.
+El total se congela antes de distribuir medios.
 
-Los pagos electrónicos se expresan en pesos enteros.
-
-El efectivo absorbe el ajuste permitido.
+Cada medio cubre exactamente el importe asignado.
 
 El ajuste debe registrarse una sola vez.
 
@@ -524,7 +529,7 @@ No se registra como descuento.
 
 Debe quedar asociado al grupo y a la venta.
 
-Si no existe efectivo, no se aplica redondeo a múltiplos de $50.
+Cambiar los medios de pago no modifica `payable_amount`.
 
 La suma final debe conciliar exactamente.
 
@@ -600,7 +605,7 @@ efectivo;
 
 crédito autorizado con información sincronizada;
 
-registro de transferencia o QR como REPORTED;
+registro de transferencia o QR como `Payment=PENDING` con evidencia de reporte;
 
 grupos mixtos compuestos por medios permitidos offline.
 
@@ -640,7 +645,7 @@ La idempotency_key global evita duplicar la operación completa.
 
 Nivel de componente
 
-Cada component_idempotency_key evita duplicar un pago individual.
+Cada `payment_idempotency_key` evita duplicar un pago individual.
 
 Reglas
 
@@ -682,15 +687,15 @@ Eventos
 
 MixedPaymentStarted;
 
-PaymentComponentCreated;
+PaymentCreated;
 
-PaymentComponentReported;
+PaymentReported;
 
-PaymentComponentConfirmed;
+PaymentConfirmed;
 
-PaymentComponentRejected;
+PaymentAttemptDeclined;
 
-PaymentComponentFailed;
+PaymentFailed;
 
 PaymentGroupPartiallyConfirmed;
 
@@ -828,7 +833,7 @@ El estado del grupo es derivado.
 
 El estado de la venta es derivado.
 
-El redondeo solo afecta el saldo en efectivo.
+El redondeo no se recalcula ni se aplica por pago.
 
 Un pago reportado no cubre como confirmado.
 
@@ -868,11 +873,11 @@ Cada medio crea un pago independiente.
 
 El efectivo genera movimiento de caja.
 
-La transferencia manual queda REPORTED.
+La transferencia manual queda `Payment=PENDING` con evidencia de reporte.
 
 La venta permanece pendiente mientras falte confirmación.
 
-El redondeo se aplica solo al efectivo.
+Todos los medios conservan el mismo `payable_amount` congelado.
 
 Una tarjeta rechazada no confirma el grupo.
 
@@ -900,9 +905,7 @@ efectivo + crédito;
 
 tres medios;
 
-redondeo con efectivo;
-
-sin efectivo;
+misma venta con distintas distribuciones de medios conserva `payable_amount`;
 
 pago insuficiente;
 

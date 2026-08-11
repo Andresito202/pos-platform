@@ -50,7 +50,7 @@ Principio central
 
 Reportar un pago no equivale a confirmarlo.
 
-REPORTED
+REPORTE REGISTRADO + `Payment=PENDING`
 ≠
 CONFIRMED
 
@@ -86,7 +86,7 @@ El pago existe.
 
 El pago pertenece al mismo tenant y empresa.
 
-El pago se encuentra en REPORTED o estado equivalente permitido.
+El pago se encuentra en `PENDING` y tiene un reporte inmutable asociado a un `PaymentAttempt`.
 
 La venta, pedido u obligación asociada existe.
 
@@ -166,7 +166,11 @@ requires_reconciliation;
 
 audit_reference;
 
-configuration_version.
+pricing_pipeline_version;
+
+tax_policy_version;
+
+rounding_policy_version.
 
 Permisos y segregación de funciones
 
@@ -366,7 +370,7 @@ El actor confirma la operación.
 
 El sistema inicia una transacción.
 
-Cambia el pago de REPORTED a CONFIRMED.
+Cambia el `Payment` de `PENDING` a `CONFIRMED` y confirma el `PaymentAttempt` correspondiente.
 
 Registra quién confirmó, cuándo, desde qué dispositivo y con qué fuente.
 
@@ -632,11 +636,11 @@ El cliente realiza el pago.
 
 El cliente o domiciliario reporta.
 
-El pago queda REPORTED.
+El `Payment` queda `PENDING` con el reporte conservado como evidencia del intento.
 
 El propietario o actor autorizado verifica.
 
-El pago pasa a CONFIRMED o REJECTED.
+El `Payment` pasa a `CONFIRMED` o, ante rechazo concluyente sin importe confirmado, a `FAILED`; el intento pasa a `CONFIRMED` o `DECLINED`.
 
 La aplicación del domiciliario recibe actualización.
 
@@ -688,7 +692,7 @@ El actor selecciona rechazar.
 
 Debe indicar motivo.
 
-El sistema cambia REPORTED a REJECTED.
+El sistema cambia el intento de `PENDING` a `DECLINED` y el `Payment` de `PENDING` a `FAILED` únicamente cuando el rechazo es concluyente y no existe importe confirmado.
 
 Recalcula el estado de la venta.
 
@@ -744,7 +748,7 @@ almacenar referencia;
 
 registrar evidencia;
 
-mantener estado REPORTED;
+mantener `Payment=PENDING` y la evidencia del reporte;
 
 sincronizar posteriormente.
 
@@ -848,7 +852,7 @@ ManualPaymentConfirmationRequested;
 
 ManualPaymentConfirmed;
 
-ManualPaymentRejected;
+ManualPaymentReportRejected;
 
 DuplicatePaymentReferenceDetected;
 
@@ -988,7 +992,7 @@ Recuperación ante fallos
 
 Fallo antes del commit
 
-El pago permanece REPORTED.
+El `Payment` permanece `PENDING` y el intento conserva la evidencia de reporte.
 
 Fallo después del commit
 

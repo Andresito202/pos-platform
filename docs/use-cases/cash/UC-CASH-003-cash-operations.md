@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ## Prioridad
 
@@ -1519,9 +1519,9 @@ El diseño posterior deberá respetar:
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
-El documento puede pasar a `DONE` cuando:
+El documento permanece `DONE` mientras:
 
 - se valide su estructura;
 - se complete revisión funcional;

@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ## Prioridad
 
@@ -685,18 +685,13 @@ El diseño físico deberá respetar:
 
 ---
 
-# Criterios de cierre
+# Evidencia de cierre
 
-`DEC-002` puede pasar a `CLOSED` cuando:
+`DEC-002` permanece `DONE` porque:
 
-- las reglas sean revisadas;
-- no contradigan `payment-state-model.md`;
-- no contradigan `payment-lifecycle.md`;
-- cubran pagos mixtos;
-- cubran efectivo;
-- cubran proveedores externos;
-- cubran offline;
-- cubran refunds y reversals;
-- definan consecuencias para `CASH-003`;
-- definan consecuencias para `SALES-002`;
-- el backlog incluya evidencia verificable.
+- las reglas fueron revisadas;
+- son compatibles con `payment-state-model.md` y `payment-lifecycle.md`;
+- cubren pagos mixtos, efectivo, proveedores externos y operación offline;
+- cubren refunds, reversals y compensaciones;
+- definen consecuencias para `CASH-003` y `SALES-002`;
+- el backlog incluye evidencia verificable de su cierre.

@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ---
 
@@ -1076,6 +1076,10 @@ Se requieren claves independientes para:
 
 El futuro modelo físico deberá:
 
+- representar cada medio de un pago mixto como un `Payment` independiente dentro de un `PaymentGroup`;
+- no crear un agregado o tabla `PaymentComponent` adicional;
+- relacionar cada intento mediante `PaymentAttempt.payment_id`;
+- relacionar la cobertura mediante `PaymentAllocation`;
 - usar estados separados por agregado;
 - evitar una columna global de estado financiero;
 - conservar historial de transiciones;
@@ -1096,9 +1100,9 @@ Este documento no define todavía nombres de tablas, columnas, índices ni migra
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
-Puede pasar a `DONE` después de:
+Permanece `DONE` porque cuenta con:
 
 - revisión de consistencia con `payment-lifecycle.md`;
 - revisión contra UC-PAY-001 a UC-PAY-006;

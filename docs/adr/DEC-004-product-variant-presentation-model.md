@@ -1004,8 +1004,6 @@ El SKU activo debe ser único dentro de:
 company_id
 ```
 
-o del alcance configurado por tenant.
-
 ## Reglas
 
 1. Un SKU no identifica dos presentaciones activas.
@@ -1015,6 +1013,8 @@ o del alcance configurado por tenant.
 5. El SKU no depende del nombre visible.
 6. El SKU no cambia por traducción.
 7. Un SKU puede generarse o asignarse manualmente.
+8. La restricción física usa `(company_id, normalized_sku)` para identificadores activos.
+9. Compartir catálogo entre empresas requerirá una decisión futura y no cambia este alcance.
 
 ---
 
@@ -1240,6 +1240,14 @@ Cada producto o variante inventariable debe definir una presentación base de in
 ```text
 default_inventory_presentation_id
 ```
+
+Reglas:
+
+1. Si la operación usa una variante, la presentación base pertenece a esa variante.
+2. Si el producto no usa variante, la presentación base pertenece directamente al producto.
+3. Una presentación base debe tener `inventory_enabled = true`.
+4. Dos variantes no comparten implícitamente una presentación base.
+5. Toda conversión de stock termina en la presentación base del mismo producto y variante opcional.
 
 ## Ejemplo
 
@@ -1473,6 +1481,15 @@ Debe poder identificar:
 ## Regla
 
 El lote no pertenece únicamente al producto si existen presentaciones o variantes incompatibles.
+
+## Identidad y unicidad operacional
+
+1. Todo lote tiene UUID v7 global.
+2. `presentation_id` es obligatorio.
+3. `batch_code` se normaliza y es único dentro de `(tenant_id, company_id, presentation_id)` mientras el lote exista; el proveedor no altera esa identidad.
+4. La ubicación y cantidades no forman parte de la identidad del lote; se representan mediante movimientos y saldos por ubicación.
+5. Un mismo lote puede tener saldo en varias ubicaciones sin duplicar su identidad.
+6. Un sublote conserva referencia al lote origen y no amplía fechas ni cantidades.
 
 ---
 
@@ -1832,7 +1849,7 @@ Los residuos:
 
 # Métodos de costo
 
-La decisión no fija todavía un único método, pero el modelo debe soportar:
+No se impone un único método global. El modelo debe soportar:
 
 - promedio ponderado;
 - FIFO;
@@ -1842,7 +1859,7 @@ La decisión no fija todavía un único método, pero el modelo debe soportar:
 
 ## Regla
 
-La presentación y el lote deben ofrecer suficiente identidad para aplicar el método elegido.
+La política de costo se selecciona y versiona por empresa y, cuando corresponda, por presentación. La presentación, el lote y los movimientos deben ofrecer suficiente identidad para aplicar el método vigente sin recalcular documentos históricos. `TECH-002` debe modelar la referencia a la política y los datos de costo necesarios, pero no codificar un método universal.
 
 ---
 
@@ -2502,7 +2519,7 @@ No como edición de la venta original.
 
 # Devolución de producto fraccionado
 
-Debe definirse si:
+La disposición se decide explícitamente, según política versionada y evaluación autorizada, entre:
 
 - puede reingresar a inventario;
 - conserva lote;
@@ -2510,9 +2527,12 @@ Debe definirse si:
 - se clasifica como merma;
 - necesita autorización.
 
-## Regla
+## Reglas
 
-La devolución no recompone automáticamente una presentación mayor.
+1. La devolución no recompone automáticamente una presentación mayor.
+2. Ninguna devolución fraccionada reingresa automáticamente a disponibilidad.
+3. Hasta que exista una decisión autorizada, la unidad devuelta queda en cuarentena o fuera del saldo disponible.
+4. Reingreso, merma o disposición generan movimientos explícitos y conservan presentación, lote cuando sea trazable, actor, motivo y evidencia.
 
 ---
 
@@ -4000,9 +4020,9 @@ REVIEW_REQUIRED
 
 ---
 
-# Cambios documentales requeridos
+# Alineaciones documentales exigidas
 
-Al cerrar esta decisión deberán actualizarse posteriormente mediante `CAT-002`:
+El contrato conceptual exigió las alineaciones siguientes. Ya están aplicadas en los documentos indicados; `CAT-002` conserva como trabajo `READY` únicamente el diseño de persistencia física.
 
 ## `docs/architecture/conceptual-data-model.md`
 
@@ -4154,7 +4174,7 @@ Estas consecuencias se aceptan porque evitan ambigüedades estructurales más co
 
 ---
 
-# Decisiones no cerradas por este documento
+# Alcance deliberadamente posterior
 
 Esta decisión no cierra:
 
@@ -4164,13 +4184,11 @@ Esta decisión no cierra:
 - diseño concreto de atributos;
 - búsquedas;
 - integración GS1;
-- método definitivo de costo;
-- estrategia completa de lotes;
+- configuración concreta de políticas de costo por empresa o presentación;
+- optimización y particionado físico de lotes;
 - reglas regulatorias por país;
 - `DEC-005`;
-- `DEC-006`;
-- `DEC-007`;
-- `DEC-008`.
+- decisiones posteriores que amplíen regulación o integraciones sin contradecir `DEC-006`, `DEC-007` y `DEC-008` ya cerradas.
 
 ---
 

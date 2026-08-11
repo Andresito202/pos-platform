@@ -38,6 +38,14 @@ Cajero o usuario autorizado.
 9. Se emite CashShiftClosed.
 10. Se actualiza el dashboard.
 
+## Frontera transaccional y concurrencia
+
+1. El cierre obtiene lock o valida `expected_version` sobre `CashShift`.
+2. La versión usada para calcular el efectivo esperado incluye todos los movimientos aceptados hasta el corte.
+3. Conteo, esperado, diferencia, autorización, cambio de estado, auditoría, resultado idempotente y outbox se confirman en una sola transacción.
+4. Una operación concurrente incompatible falla o se reintenta contra la nueva versión; no se inserta silenciosamente después del cierre.
+5. Un reintento devuelve el mismo cierre y no crea otro conteo ni otro evento financiero.
+
 ## Excepciones
 
 - Turno inexistente o cerrado.

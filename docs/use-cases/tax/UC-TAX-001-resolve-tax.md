@@ -33,7 +33,7 @@ Motor comercial, POS, aplicación de pedidos o servicio de facturación autoriza
 - promotional_benefits;
 - occurred_at;
 - currency;
-- tax_configuration_version;
+- tax_policy_version;
 - correlation_id.
 
 ## Salida
@@ -46,7 +46,7 @@ Motor comercial, POS, aplicación de pedidos o servicio de facturación autoriza
 - price_includes_tax;
 - exemption_reason opcional;
 - resolution_explanation;
-- configuration_version.
+- tax_policy_version.
 
 ## Categorías conceptuales
 

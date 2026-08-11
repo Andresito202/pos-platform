@@ -107,7 +107,7 @@ Cada configuración relevante para decisiones offline debe disponer de checksum 
 
 El checksum debe calcularse sobre una representación canónica del payload.
 
-La misma configuration_version con diferente payload_checksum constituye conflicto.
+La misma versión nativa de dominio con diferente `payload_checksum` constituye conflicto.
 
 ## Snapshot local de configuración
 

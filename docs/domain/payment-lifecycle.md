@@ -163,11 +163,11 @@ Ejemplos:
 - caja física;
 - cuenta por cobrar interna.
 
-## PaymentComponent
+## PaymentGroup y pagos mixtos
 
-Representa un componente de un pago mixto.
+`PaymentGroup` agrupa los `Payment` independientes que cubren una misma obligación. El término componente puede utilizarse en la interfaz, pero no representa un agregado o tabla adicional.
 
-Cada componente conserva:
+Cada `Payment` del grupo conserva:
 
 - medio;
 - valor esperado;
@@ -590,7 +590,7 @@ Venta autorizada
 
 # 11. Pago mixto
 
-Una venta puede contener varios componentes.
+Una venta puede contener varios `Payment` agrupados.
 
 ## Ejemplo
 
@@ -602,16 +602,16 @@ Transferencia:   $60.000
 
 ## Reglas
 
-1. Cada componente debe existir de forma independiente.
-2. Cada componente conserva medio, importe, intentos y evidencia.
+1. Cada medio se persiste como un `Payment` independiente.
+2. Cada `Payment` conserva medio, importe, intentos y evidencia.
 3. La suma confirmada determina la cobertura.
-4. Un componente pendiente no cubre la venta salvo política expresa.
-5. Un componente rechazado no se incluye en el total cubierto.
-6. El redondeo de efectivo solo aplica al saldo cubierto en efectivo.
+4. Un pago pendiente no cubre la venta salvo política expresa.
+5. Un pago rechazado no se incluye en el total cubierto.
+6. El redondeo comercial se resuelve antes de los pagos y no se aplica por medio.
 7. Un refund parcial conserva distribución versionada.
 8. La distribución predeterminada de refunds mixtos se encuentra en `UC-PAY-004`.
-9. No se deben mezclar estados de componentes en un texto libre.
-10. Los componentes pueden liquidarse y conciliarse de forma independiente.
+9. No se deben mezclar estados de pagos en un texto libre.
+10. Los pagos pueden liquidarse y conciliarse de forma independiente.
 
 ---
 

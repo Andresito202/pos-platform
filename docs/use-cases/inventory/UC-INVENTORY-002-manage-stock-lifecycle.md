@@ -58,7 +58,7 @@ Según la operación:
 - `source_location_id` opcional;
 - `destination_location_id` opcional;
 - `reservation_id` opcional;
-- `expected_version` opcional;
+- `expected_version` obligatorio para mutaciones de agregados existentes;
 - `idempotency_key`;
 - `correlation_id`;
 - `occurred_at`;
@@ -312,7 +312,7 @@ Las operaciones de inventario deben impedir doble consumo, pérdida de actualiza
 
 Reglas:
 
-1. Toda operación sensible puede exigir `expected_version`.
+1. Toda mutación de un agregado existente exige `expected_version`.
 2. Si la versión esperada no coincide con la versión vigente, la operación se rechaza o pasa a resolución explícita.
 3. Una reserva concurrente no puede comprometer dos veces la misma disponibilidad.
 4. Dos salidas concurrentes no pueden consumir la misma unidad lógica cuando la política no lo permita.
@@ -322,6 +322,22 @@ Reglas:
 8. Una operación confirmada no se reemplaza por una versión tardía.
 9. Los conflictos deben conservar evidencia suficiente para auditoría y sincronización.
 10. El control de concurrencia debe aplicarse también a reservas, traslados y ajustes.
+
+## Fronteras transaccionales
+
+### Reserva
+
+La creación o transición de `InventoryReservation`, la actualización de cantidades reservadas de `StockBalance`, la auditoría, el resultado idempotente y la outbox comparten una transacción.
+
+### Consumo
+
+El `InventoryMovement` de salida, el consumo total o parcial de la reserva, la actualización de `StockBalance`, la auditoría y la outbox comparten una transacción. Si cualquiera falla, no queda consumo parcial.
+
+### Recepción, ajuste, merma y traslado
+
+Cada hecho confirmado crea movimientos append-only y actualiza su proyección en la misma transacción local. Una integración externa o recepción en otra sucursal constituye otra operación idempotente enlazada, no una transacción distribuida simulada.
+
+`expected_version` es obligatorio para toda mutación de reserva, saldo proyectado o traslado. Solo se omite en la creación de un hecho append-only cuya unicidad e idempotencia ya estén protegidas.
 
 ## Operación local-first y offline
 

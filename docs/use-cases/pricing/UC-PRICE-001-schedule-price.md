@@ -36,7 +36,7 @@ Propietario, administrador general, gerente de sucursal o usuario autorizado de 
 - valid_from;
 - valid_until opcional;
 - reason;
-- expected_configuration_version;
+- expected_pricing_policy_version;
 - idempotency_key.
 
 ## Alcances admitidos

@@ -421,6 +421,27 @@ precisión de cobro:   0 decimales
 
 La reducción de precisión debe ocurrir únicamente en etapas definidas.
 
+## Contrato físico de precisión
+
+Para el primer modelo físico objetivo:
+
+| Categoría | Tipo lógico mínimo | Uso |
+|---|---|---|
+| importe de cálculo, precio, base, impuesto, descuento, residuo, pago y costo | decimal exacto `(19,6)` | conserva fracciones y prorrateos sin reducción prematura |
+| importe documental normalizado | decimal exacto `(19,2)` | resultado de una etapa fiscal o contable explícita |
+| tasa, porcentaje y factor de conversión | decimal exacto `(19,10)` | evita pérdida acumulativa |
+| cantidad, peso y unidad convertible | decimal exacto `(19,6)` | soporta productos pesables y conversiones |
+
+Reglas:
+
+1. PostgreSQL usa `NUMERIC` con la precisión y escala indicadas.
+2. SQLite conserva decimal como representación exacta validada; nunca usa `REAL` como autoridad monetaria.
+3. Los importes de una moneda siempre incluyen `currency_code` o lo derivan de un agregado que lo congela.
+4. Toda reducción de escala usa la regla versionada de la etapa correspondiente.
+5. Los importes y cantidades que no admiten signo negativo incorporan `CHECK >= 0`.
+6. Refunds, reversals y notas correctivas expresan el sentido mediante el tipo de operación; no dependen de valores negativos ambiguos.
+7. Los acumulados no pueden exceder los saldos elegibles sin una operación de ajuste explícita.
+
 ---
 
 # Prohibición de coma flotante binaria
@@ -2016,7 +2037,7 @@ Esta decisión se complementa con la política cerrada y versionada en `DEC-006`
 
 ## Propósito
 
-Ajustar el importe cobrable por razones operativas, normalmente asociadas al efectivo.
+Ajustar el importe cobrable mediante una política comercial versionada aplicada a la venta antes de registrar pagos.
 
 ## Regla principal
 
@@ -2044,57 +2065,37 @@ Puede depender de:
 - empresa;
 - sucursal;
 - canal;
-- medio de pago;
 - importe;
-- política;
-- disponibilidad de denominaciones.
+- política comercial vigente.
 
 ## Regla predeterminada
 
-El total comercial base no depende del medio de pago.
+El total comercial y `payable_amount` no dependen del medio de pago, del efectivo recibido ni del cambio.
 
-Si se permite redondeo exclusivo para efectivo, debe modelarse como ajuste de cobro posterior y explícito.
-
-No se recalcula el precio de la venta.
+La aplicabilidad se resuelve y congela antes de crear pagos. Una venta congelada no se recalcula al cambiar entre efectivo, tarjeta, transferencia, QR, crédito o pago mixto.
 
 ---
 
 # Redondeo comercial y pagos mixtos
 
-## Problema
-
-Una venta puede pagarse parcialmente en efectivo y parcialmente con otros medios.
+Una venta puede pagarse parcialmente con varios medios, pero todos cubren porciones del mismo `payable_amount` ya congelado.
 
 ## Decisión
 
-El redondeo comercial de efectivo se aplica únicamente al saldo cubierto en efectivo cuando la política lo permita.
-
-No se aplica sobre:
-
-- tarjeta;
-- transferencia;
-- crédito;
-- wallet;
-- gift card;
-- saldo promocional;
-- otros medios exactos.
+1. No se redondea ningún componente de pago.
+2. El redondeo comercial se aplica una sola vez a nivel de venta.
+3. La suma de asignaciones confirmadas se compara con `payable_amount`.
+4. `cash_received` y `change_amount` pertenecen a caja y no alteran el total de venta.
 
 ## Ejemplo
 
 ```text
-total fiscal:        10.030
-tarjeta:              5.000
-saldo efectivo:       5.030
-redondeo efectivo:      -30
-efectivo cobrado:     5.000
+fiscal_total_amount:             10.025
+commercial_rounding_adjustment:      25
+payable_amount:                  10.050
+efectivo:                         5.000
+tarjeta:                          5.050
 ```
-
-El ajuste:
-
-- no cambia el total fiscal;
-- no cambia la cobertura de tarjeta;
-- queda relacionado con el componente en efectivo;
-- conserva política y versión.
 
 ---
 
@@ -2103,10 +2104,10 @@ El ajuste:
 Ejemplo:
 
 ```text
-saldo efectivo: 5.020
+fiscal_total_amount: 10.020
 unidad:              50
-resultado:        5.050
-ajuste:            +30
+payable_amount:  10.000
+ajuste:            -20
 ```
 
 ## Reglas
@@ -2115,7 +2116,7 @@ ajuste:            +30
 2. Debe comunicarse al usuario.
 3. Debe conservarse explícitamente.
 4. No puede ocultarse como precio.
-5. Debe participar en caja.
+5. Los pagos cubren el resultado ya congelado.
 6. Debe quedar auditado.
 7. La devolución debe respetar la política original.
 
@@ -2126,20 +2127,20 @@ ajuste:            +30
 Ejemplo:
 
 ```text
-saldo efectivo: 5.030
+fiscal_total_amount: 10.030
 unidad:              50
-resultado:        5.000
-ajuste:            -30
+payable_amount:  10.050
+ajuste:            +20
 ```
 
 ## Reglas
 
 1. Debe estar permitido.
 2. No puede crear total negativo.
-3. No puede exceder el saldo efectivo.
+3. No se calcula sobre un componente de pago.
 4. Debe quedar separado.
 5. No modifica impuestos.
-6. Debe participar en caja.
+6. Los pagos cubren el resultado ya congelado.
 7. Debe quedar auditado.
 
 ---
@@ -3082,19 +3083,19 @@ ajuste fiscal:              -24
 
 La regla oficial de empate está definida por `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` según `DEC-006`.
 
-## Ejemplo 11 — Redondeo comercial en efectivo
+## Ejemplo 11 — Redondeo comercial de la venta
 
 ```text
 Total fiscal: 10.030
 Unidad comercial: 50
-Modo: permitido para efectivo
+Política comercial: NEAREST_50_HALF_AWAY_FROM_ZERO_V1
 ```
 
 Resultado:
 
 ```text
-total cobrable en efectivo: 10.000
-ajuste comercial:              -30
+payable_amount:              10.050
+ajuste comercial:               +20
 ```
 
 El total fiscal permanece 10.030.
@@ -3111,21 +3112,21 @@ No se recalcula el pricing.
 
 Solo se distribuye cobertura.
 
-## Ejemplo 13 — Pago mixto con redondeo en efectivo
+## Ejemplo 13 — Pago mixto sobre total ya redondeado
 
 ```text
 Total fiscal: 100.030
+Payable amount: 100.050
 Tarjeta:       60.000
-Saldo efectivo:40.030
-Redondeo efectivo: -30
+Efectivo asignado:40.050
 ```
 
 Resultado:
 
 ```text
 tarjeta:          60.000
-efectivo cobrado: 40.000
-ajuste comercial:    -30
+efectivo asignado: 40.050
+ajuste comercial de venta: +20
 ```
 
 ## Ejemplo 14 — Devolución parcial con descuento global

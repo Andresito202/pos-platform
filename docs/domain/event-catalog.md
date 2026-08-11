@@ -198,11 +198,13 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### PaymentReported
 
+Registra que se recibió evidencia declarativa de un pago; no implica `PaymentStatus=REPORTED` ni confirmación financiera.
+
 ### PaymentConfirmed
 
-### PaymentRejected
+### PaymentAttemptDeclined
 
-### PaymentRefunded
+### RefundCompleted
 
 ### PaymentReconciliationRequired
 

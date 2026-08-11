@@ -4,9 +4,7 @@
 
 Definir el contrato funcional para crear de forma coherente un nuevo tenant junto con su empresa inicial, primera sucursal, propietario y configuración mínima necesaria para comenzar el proceso de activación del POS.
 
-Este caso de uso no define todavía el bootstrap físico ni la transacción SQL concreta.
-
-La atomicidad técnica, idempotencia de infraestructura, rollback físico y estrategia de persistencia se detallarán en `ONB-002` después de `TECH-002`.
+Este caso de uso define la frontera transaccional obligatoria del bootstrap. `ONB-002` podrá implementarla, pero no redefinir su atomicidad ni permitir tenants parcialmente visibles.
 
 ## Actor principal
 
@@ -354,7 +352,10 @@ El caso de uso puede devolver:
 - `license_reference` opcional;
 - `requested_plan` opcional;
 - `effective_plan` opcional;
-- `configuration_version` opcional;
+- `pricing_policy_version` opcional;
+- `tax_policy_version` opcional;
+- `rounding_policy_version` opcional;
+- `authorization_policy_version` opcional;
 - `required_action` opcional;
 - `idempotency_key`;
 - `correlation_id`;
@@ -369,6 +370,33 @@ La salida no debe exponer:
 - información privada de otros tenants;
 - datos innecesarios de autenticación;
 - información interna que permita enumerar tenants ajenos.
+
+## Frontera transaccional de bootstrap
+
+Dentro de una sola transacción central deben persistirse:
+
+1. la solicitud de onboarding y su `idempotency_key`;
+2. la creación o resolución determinista del `User` global;
+3. `Tenant`;
+4. `Company` inicial;
+5. `Branch` inicial;
+6. `TenantMembership` de tipo `OWNER`;
+7. `UserRoleAssignment` explícita con el rol de negocio aprobado;
+8. las referencias de política iniciales por dominio;
+9. `AuditEvent` de cada efecto crítico;
+10. las entradas de outbox necesarias;
+11. el resultado idempotente del onboarding.
+
+Reglas:
+
+1. Un fallo previo al commit revierte todos los elementos anteriores.
+2. Un reintento con la misma clave y checksum devuelve la misma identidad y resultado.
+3. La misma clave con otro checksum produce conflicto y no modifica el tenant creado.
+4. La comprobación de duplicidad y la inserción comparten la misma transacción y aislamiento.
+5. Ningún Tenant, Company o Branch de esta operación se publica fuera de la transacción antes del commit.
+6. La emisión o activación de licencia que requiera otra autoridad ocurre después mediante una operación idempotente separada; no se simula una transacción distribuida.
+7. Un tenant sin licencia aplicable puede quedar `READY_FOR_LICENSE`, pero no se presenta como habilitado para operar el POS.
+8. Un crash después del commit se recupera consultando el resultado por `idempotency_key` y procesando la outbox.
 
 ## Reglas de consistencia
 
@@ -533,17 +561,13 @@ El diseño debe permitir verificar como mínimo:
 
 `UC-ONB-001` define el contrato funcional y los invariantes del onboarding.
 
-`ONB-002` deberá definir posteriormente:
+`ONB-002` implementará y probará:
 
-- límites de la transacción física;
-- orden de persistencia;
-- rollback;
-- idempotencia técnica;
-- aislamiento transaccional;
-- manejo de fallos parciales;
-- outbox y eventos;
-- reintentos técnicos;
-- recuperación después de crash;
-- garantías de auditoría durante bootstrap.
+- la transacción física definida aquí;
+- el orden interno de persistencia compatible con sus FKs;
+- rollback completo;
+- aislamiento e idempotencia técnica;
+- outbox y recuperación después de crash;
+- pruebas de concurrencia y de tenant parcialmente creado.
 
 `ONB-002` no podrá alterar los invariantes funcionales establecidos por este caso de uso.

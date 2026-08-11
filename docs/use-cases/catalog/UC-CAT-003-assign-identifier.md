@@ -49,7 +49,7 @@ Usuario autorizado de catálogo o inventario.
 6. Registra el identificador.
 7. Si se marca como principal, actualiza la prioridad sin borrar los anteriores.
 8. Registra auditoría.
-9. Emite `BarcodeAssigned` o evento equivalente.
+9. Emite `ProductIdentifierAssigned`.
 
 ## Reglas
 
@@ -91,7 +91,7 @@ Se valida contra el formato configurado para la sucursal o dispositivo.
 
 ## Eventos
 
-- `BarcodeAssigned`;
+- `ProductIdentifierAssigned`;
 - `ProductIdentifierDeactivated`.
 
 ## Pruebas mínimas

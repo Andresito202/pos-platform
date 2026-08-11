@@ -15,7 +15,7 @@ Motor comercial autorizado.
 - Impuestos exactos calculados.
 - Impuestos normalizados conforme a la política fiscal aplicable.
 - Residuos fiscales conciliados.
-- iscal_total_amount disponible.
+- fiscal_total_amount disponible.
 - Moneda conocida.
 - Política de redondeo comercial vigente y autorizada.
 - Versión y checksum de política disponibles cuando correspondan.
@@ -57,7 +57,7 @@ NEAREST_50_HALF_AWAY_FROM_ZERO_V1
 
 La política:
 
-- opera sobre el iscal_total_amount global del documento;
+- opera sobre el fiscal_total_amount global del documento;
 - es independiente del medio de pago;
 - se aplica una sola vez;
 - utiliza decimal exacto;
@@ -69,11 +69,11 @@ La política:
 
 ## Flujo principal
 
-1. El sistema recibe el iscal_total_amount después de la normalización y conciliación fiscal.
+1. El sistema recibe el fiscal_total_amount después de la normalización y conciliación fiscal.
 2. Valida moneda, empresa, versión y política de redondeo comercial.
 3. Verifica que la política esté autorizada para el contexto.
 4. Obtiene la política versionada aplicable.
-5. Aplica la política al iscal_total_amount global.
+5. Aplica la política al fiscal_total_amount global.
 6. Calcula commercial_rounding_adjustment.
 7. Obtiene un único payable_amount.
 8. Verifica que el redondeo comercial no haya modificado impuestos, descuentos ni precios.
@@ -88,7 +88,7 @@ La política:
 4. calcular impuestos exactos;
 5. normalizar impuestos fiscalmente;
 6. conciliar residuos fiscales;
-7. obtener iscal_total_amount;
+7. obtener fiscal_total_amount;
 8. aplicar redondeo comercial;
 9. obtener payable_amount;
 10. congelar snapshot.
@@ -128,7 +128,7 @@ El redondeo fiscal:
 
 El redondeo comercial:
 
-- ocurre después de obtener iscal_total_amount;
+- ocurre después de obtener fiscal_total_amount;
 - opera sobre el total fiscal global;
 - no modifica componentes tributarios;
 - produce commercial_rounding_adjustment y payable_amount.
@@ -163,9 +163,9 @@ Un refund no recalcula pricing ni sustituye la política original por una versi�
 
 Antes de registrar pagos debe quedar congelada, como mínimo:
 
-- iscal_total_amount;
+- fiscal_total_amount;
 - exact_fiscal_total;
-- iscal_rounding_adjustment;
+- fiscal_rounding_adjustment;
 - commercial_rounding_adjustment;
 - payable_amount;
 - política de redondeo;
@@ -219,7 +219,7 @@ Al sincronizar:
 - versión inexistente o expirada;
 - checksum incompatible;
 - datos fiscales incompletos;
-- iscal_total_amount inconsistente;
+- fiscal_total_amount inconsistente;
 - snapshot incompatible ya congelado;
 - intento de modificar histórico;
 - configuración desactualizada;

@@ -59,7 +59,6 @@ Contiene:
 - proveedores;
 - clientes, según política;
 - listas de precios;
-- roles;
 - branding.
 
 ### Separados por sucursal
@@ -80,6 +79,8 @@ La identidad autenticable del usuario es global y se mantiene separada del alcan
 La relación normativa es:
 
 `User` → `TenantMembership` → `UserRoleAssignment`
+
+Los catálogos de `Role` y `Permission` pertenecen al módulo de autorización y son globales, versionados y administrados por la plataforma. Su asignación operativa siempre queda limitada por una pertenencia de tenant.
 
 ### User
 
@@ -142,6 +143,18 @@ Las operaciones deberán incluir o derivar de forma segura:
 - device_id, cuando aplique;
 - cash_register_id, cuando aplique.
 
+## Reglas físicas de aislamiento
+
+1. `User` es global y no contiene `tenant_id` como pertenencia.
+2. Existe una sola `TenantMembership` lógica por `(tenant_id, user_id)`; sus cambios de estado conservan la misma identidad e historial.
+3. Toda entidad operacional contiene `tenant_id` aunque el tenant también pueda derivarse desde empresa o sucursal.
+4. Las relaciones con empresa se validan mediante el mismo par `(tenant_id, company_id)`.
+5. Las relaciones con sucursal se validan mediante `(tenant_id, company_id, branch_id)`.
+6. Una `UserRoleAssignment` nunca amplía el alcance de su `TenantMembership`.
+7. Los roles de plataforma no pueden asignarse mediante una membership de negocio.
+8. Las FKs de entidades históricas no usan borrado en cascada.
+9. Las consultas operacionales siempre incluyen `tenant_id` en su predicado o en una política equivalente verificable.
+
 ## Seguridad
 
 El tenant_id no se confiará desde un parámetro libre enviado por el cliente.
@@ -150,7 +163,9 @@ Debe derivarse de la sesión, licencia o contexto autorizado y validarse en cada
 
 ## Identificadores
 
-Las entidades sincronizables utilizarán identificadores globales compatibles con operación offline.
+Las entidades sincronizables utilizan UUID v7 globales compatibles con operación offline conforme a `DEC-007`.
+
+Los códigos legibles, consecutivos, SKU y referencias heredadas son identificadores de negocio separados y nunca sustituyen la PK global.
 
 ## Restricción
 

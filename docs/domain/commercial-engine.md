@@ -571,7 +571,8 @@ Atributos conceptuales:
 
 - código: COP;
 - moneda visible: peso colombiano;
-- precisión interna: 2 decimales;
+- precisión interna de cálculo: 6 decimales;
+- precisión documental normalizada: 2 decimales;
 - precios comerciales usuales: pesos enteros.
 
 ## Políticas
@@ -586,17 +587,14 @@ Atributos conceptuales:
 
 ## Configuración predeterminada
 
-- efectivo: NEAREST_50;
-- transferencia: NONE;
-- tarjeta: NONE;
-- QR: NONE.
+La empresa define una política comercial versionada para la venta. La política no cambia según el medio de pago seleccionado después de congelar el total.
 
 ## Campos conceptuales
 
-- calculated_total;
-- rounding_mode;
-- rounding_adjustment;
-- payable_total.
+- fiscal_total_amount;
+- rounding_policy_version;
+- commercial_rounding_adjustment;
+- payable_amount.
 
 ## Reglas
 
@@ -605,10 +603,10 @@ Atributos conceptuales:
 3. No se modifica el precio unitario.
 4. No se registra como descuento.
 5. El ajuste debe ser visible y auditable.
-6. Los pagos electrónicos se cobran en pesos exactos.
+6. Todos los medios cubren el mismo `payable_amount` congelado.
 7. Los cálculos internos pueden conservar fracciones de peso producidas por cantidades, impuestos o prorrateos.
 8. El total fiscal y el total pagadero deberán conciliarse según la normativa e integración aplicable.
-9. Una venta con pago mixto deberá definir qué porción está sujeta a redondeo de efectivo.
+9. Una venta con pago mixto no redondea componentes individuales.
 10. El motor no puede producir una diferencia de pagos sin registrar.
 
 ## Ejemplo
@@ -617,11 +615,11 @@ Producto por peso:
 
 0,735 kg × $5.500/kg = $4.042,50.
 
-Pago en efectivo:
+Total comercial:
 
-- calculated_total: $4.042,50;
-- rounding_adjustment: $7,50;
-- payable_total: $4.050.
+- fiscal_total_amount: $4.042,50;
+- commercial_rounding_adjustment: $7,50;
+- payable_amount: $4.050.
 
 Pago electrónico:
 
@@ -643,7 +641,7 @@ Orden conceptual inicial:
 8. Calcular base tributaria.
 9. Calcular impuestos.
 10. Consolidar total calculado.
-11. Aplicar redondeo según medios de pago.
+11. Aplicar una vez la política comercial y obtener `payable_amount`.
 12. Validar suma de pagos.
 13. Guardar snapshots.
 14. Confirmar transacción.
@@ -813,10 +811,10 @@ Una operación deberá bloquearse o pasar a `REVIEW_REQUIRED` cuando:
 
 ## Precisión operativa adicional para COP
 
-1. Los cálculos internos conservan dos decimales.
-2. Los medios electrónicos operan con importes expresados en pesos enteros.
-3. Cuando el cálculo produzca fracciones de peso, el total electrónico se normaliza al peso entero según una política explícita y auditable.
-4. El efectivo se redondea después de la normalización monetaria al múltiplo configurado, normalmente $50.
-5. En pagos mixtos, el ajuste de efectivo se aplica únicamente al saldo pagado en efectivo.
-6. La suma de pagos más el ajuste de redondeo debe coincidir exactamente con el total pagadero.
+1. Los cálculos internos conservan seis decimales.
+2. La normalización fiscal o documental reduce precisión únicamente en la etapa versionada correspondiente.
+3. `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` se aplica al total documental, no a un medio.
+4. En pagos mixtos no se redondea ningún componente.
+5. La suma de pagos confirmados debe coincidir exactamente con `payable_amount`, salvo sobrepago o cambio registrados explícitamente.
+6. `cash_received` y `change_amount` pertenecen a caja y no modifican el total comercial.
 7. No se mostrarán centavos al usuario final salvo en vistas técnicas o de auditoría.

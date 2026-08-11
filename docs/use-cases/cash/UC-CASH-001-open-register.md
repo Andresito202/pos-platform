@@ -33,6 +33,12 @@ Cajero, supervisor o administrador autorizado.
 9. Se emite CashShiftOpened.
 10. El POS queda habilitado para ventas.
 
+## Frontera transaccional
+
+La comprobación de turno incompatible, la creación de `CashShift`, el movimiento de apertura, la auditoría, el resultado idempotente y la outbox se ejecutan en una sola transacción.
+
+Debe existir una restricción que impida más de un turno abierto incompatible por tenant, sucursal, caja y terminal. La verificación previa no sustituye esa protección contra concurrencia.
+
 ## Excepciones
 
 - Caja inactiva.

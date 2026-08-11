@@ -159,6 +159,104 @@ El proyecto actual contiene:
 - comprador;
 - domiciliario.
 
+## Contrato de identificadores
+
+1. Las entidades objetivo sincronizables usan UUID v7.
+2. Los enteros heredados se conservan en una tabla o referencia de correspondencia `(source_table, legacy_id, target_id)`.
+3. `legacy_id` nunca sustituye la PK objetivo ni se expone como autoridad de sincronización.
+4. Los consecutivos humanos se migran como datos de negocio y no como PK.
+
+## Mapeo obligatorio de datos heredados
+
+### Tenancy
+
+Antes de migrar datos operacionales debe existir una regla aprobada que asigne cada fila heredada a un Tenant, Company y Branch de transición. No se permiten valores nulos ni un tenant global compartido como bypass de aislamiento.
+
+### Usuarios y roles
+
+| Legado | Objetivo |
+|---|---|
+| `usuarios` | `User` global |
+| `usuarios.rol` | `TenantMembership` activa + `UserRoleAssignment` al rol aprobado equivalente |
+| `usuarios.activo = false` | User desactivado y assignments no vigentes |
+
+El correo se normaliza antes de validar unicidad global. Una colisión no se fusiona automáticamente: se lleva a cuarentena con evidencia.
+
+### Catálogo
+
+Cada producto heredado genera:
+
+1. un `Product`;
+2. una `ProductPresentation` predeterminada con la unidad heredada;
+3. el SKU o código heredado como identificador de la presentación;
+4. una referencia de correspondencia entre IDs.
+
+No se crea `ProductVariant` si el legado no contiene evidencia de variantes.
+
+### Inventario y lotes
+
+Los lotes, movimientos, mermas y detalles de recepción heredados se enlazan a la presentación predeterminada creada para su producto. `InventoryMovement` se migra como hecho; `StockBalance` se reconstruye desde movimientos y se compara contra cantidades heredadas.
+
+Una diferencia no se corrige sobrescribiendo el movimiento: se registra en un informe de reconciliación y requiere ajuste explícito aprobado.
+
+### Ventas
+
+Las ventas cerradas se migran como históricas e inmutables. Cada línea conserva:
+
+- referencia a la presentación migrada;
+- nombre, código, unidad, cantidad y precio heredados;
+- impuesto, descuento o costo solo cuando exista evidencia;
+- `legacy_id` y fecha original.
+
+No se inventan snapshots fiscales, promociones, descuentos o versiones inexistentes. Los campos desconocidos se marcan como datos heredados no disponibles.
+
+### Pagos
+
+`ventas.metodo_pago` se transforma en un `PaymentGroup` y un `Payment` cuando el medio y el importe son inequívocos.
+
+Un valor heredado `mixto` sin desglose suficiente se migra como evidencia histórica no descompuesta y queda fuera de nuevas operaciones de refund automático hasta revisión. No se inventan importes, proveedores, referencias ni intentos.
+
+### Caja
+
+Las cajas y movimientos heredados conservan importes y timestamps originales. Los turnos incompletos o imposibles de reconciliar se migran con estado de revisión y no se presentan como cierres válidos.
+
+### Auditoría
+
+La auditoría heredada se encapsula en `AuditEvent` conservando el texto original. Tenant, actor y recurso se asignan solo cuando exista correspondencia verificable; la ausencia se representa mediante actor/tipo de migración, nunca mediante datos inventados.
+
+## Cuarentena
+
+Se llevan a cuarentena, sin inserción silenciosa en el modelo operacional:
+
+- correos globales duplicados no resolubles;
+- SKU duplicados dentro de empresa;
+- productos sin unidad interpretable;
+- lotes sin producto/presentación;
+- movimientos huérfanos;
+- ventas con totales incoherentes;
+- pagos mixtos sin desglose;
+- auditoría sin correspondencia verificable;
+- referencias cruzadas entre scopes incompatibles.
+
+## Reconciliación obligatoria
+
+Cada etapa produce y valida:
+
+1. conteo origen, migrado, omitido y en cuarentena;
+2. suma monetaria por moneda y fecha comercial;
+3. saldo de inventario por presentación, ubicación y lote;
+4. total de ventas y pagos migrados;
+5. correspondencia completa de IDs;
+6. huérfanos y violaciones de FK;
+7. duplicados de claves naturales;
+8. checksum o evidencia reproducible del lote migrado.
+
+La migración no se considera aceptada mientras existan diferencias sin clasificación y aprobación explícita.
+
+## Rollback
+
+Las migraciones objetivo se crean como revisiones nuevas y no reescriben `001_initial_schema.py`. El rollback debe retirar exclusivamente estructuras o datos creados por la revisión objetivo, conservar los datos heredados y documentar cualquier operación no reversible antes de ejecutarla.
+
 ## Restricciones
 
 - No copiar código sin comprender sus invariantes.
@@ -167,6 +265,7 @@ El proyecto actual contiene:
 - No duplicar reglas entre frontend y backend.
 - No conservar credenciales demo.
 - No usar datos del portafolio como datos productivos.
+- No ejecutar semillas de demostración automáticamente en despliegues compartidos o productivos; `SEED_DEMO_DATA` debe permanecer desactivado salvo ejecución local, explícita y aislada.
 
 ## Criterio de finalización
 

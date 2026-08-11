@@ -588,7 +588,7 @@ Reglas:
 1. Una activación pertenece a una licencia.
 2. Una activación referencia una identidad concreta de dispositivo.
 3. La activación no modifica los derechos contractuales.
-4. Un reemplazo emite un nuevo ctivation_id.
+4. Un reemplazo emite un nuevo `activation_id`.
 5. La activación anterior conserva estado histórico.
 6. El cliente no cambia device_id, installation_id ni límites.
 7. Una activación revocada no puede reutilizarse.
@@ -932,7 +932,7 @@ Una clave REVOKED o COMPROMISED no puede autenticar operaciones nuevas.
 
 La implementación debe preferir almacenamiento protegido por la plataforma.
 
-La política concreta por sistema operativo se definirá después.
+La selección del mecanismo concreto por sistema operativo pertenece a la implementación de dispositivos. No altera el contrato de persistencia: debe registrarse el tipo de almacén protegido, la versión del mecanismo y la evidencia de disponibilidad o degradación.
 
 Requisitos mínimos:
 
@@ -1006,6 +1006,9 @@ Flujo conceptual:
 10. Una activación emitida para otro dispositivo se rechaza.
 11. Una activación emitida para otra instalación se rechaza cuando el vínculo sea obligatorio.
 12. Los límites de dispositivos se evalúan centralmente.
+13. La validación del límite, la reserva de capacidad, el registro idempotente, la creación de la activación y su auditoría se confirman en una sola transacción central.
+14. El payload firmado se emite a partir de una activación ya confirmada; si la firma o entrega falla, un reintento recupera la misma activación.
+15. La concurrencia sobre el cupo de licencia usa lock o versión autoritativa y nunca permite exceder el límite contratado.
 
 ## Activación offline
 
@@ -1182,6 +1185,8 @@ Flujo conceptual:
 8. Se conserva relación entre ambas.
 9. Se sincronizan evidencias.
 10. Se audita el proceso.
+
+La revocación o retiro de la activación anterior, la creación de la nueva activación, el vínculo de reemplazo y la auditoría comparten una transacción central. La reconciliación de operaciones pendientes ocurre antes o después mediante el protocolo de `DEC-007` y no se simula como parte de una transacción distribuida.
 
 ## Operaciones pendientes durante reemplazo
 
@@ -1439,7 +1444,7 @@ Pueden restringirse:
 - operaciones de alto riesgo;
 - actualizaciones mayores.
 
-El alcance definitivo se definirá por modalidad y licencia.
+El alcance efectivo se deriva de la modalidad, la licencia firmada y sus políticas versionadas. No se codifica una lista global fija ni se amplían derechos por defecto.
 
 ## Operaciones iniciadas antes de restricción
 
@@ -1881,7 +1886,7 @@ La migración deberá:
 9. Conservar trazabilidad de la migración.
 10. Permitir revisión cuando la identidad anterior sea ambigua.
 
-El procedimiento físico de migración se definirá durante implementación, antes de admitir datos productivos.
+El procedimiento físico se materializará en migraciones nuevas durante implementación, siguiendo `docs/migration/avicola-baseline-migration.md` y antes de admitir datos productivos. Este trabajo no modifica la identidad ni las invariantes decididas aquí.
 
 ---
 
@@ -1889,9 +1894,7 @@ El procedimiento físico de migración se definirá durante implementación, ant
 
 `DONE`
 
-El documento contiene únicamente el alcance, principios y matriz inicial.
-
-Todavía debe desarrollar y validar cada política antes de pasar a `DONE`.
+El documento contiene el contrato normativo completo de confianza, amenazas, activación, recuperación, revocación y actualizaciones. Los criterios posteriores conservan evidencia de su cierre y no representan trabajo pendiente.
 
 # Modelo de amenazas
 
@@ -4013,7 +4016,7 @@ No se considera aprobada una prueba basada únicamente en inspección visual.
 
 # Criterios de aceptación
 
-`DEC-008` puede pasar a `DONE` únicamente cuando se cumplan todos los criterios siguientes.
+`DEC-008` permanece `DONE` mientras se cumplan todos los criterios siguientes.
 
 ## Modelo de confianza
 

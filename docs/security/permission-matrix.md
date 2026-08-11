@@ -74,7 +74,7 @@
 |---|---:|---:|---:|---:|---:|
 | Crear usuario | Sí | Sí | Solo sede | No | No |
 | Desactivar usuario | Sí | Sí | Solo sede | No | No |
-| Asignar rol global | Sí | Condicional | No | No | No |
+| Asignar rol de negocio a nivel tenant o empresa | Sí | Condicional | No | No | No |
 | Asignar rol de sede | Sí | Sí | Condicional | No | No |
 | Cambiar permisos críticos | Reautenticación | Condicional | No | No | No |
 | Restablecer contraseña | Sí | Sí | Solo sede | No | Solo propia |

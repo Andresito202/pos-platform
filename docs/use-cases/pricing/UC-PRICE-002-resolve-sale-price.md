@@ -34,7 +34,7 @@ Sistema POS, aplicación de pedidos o servicio comercial autorizado.
 - customer_group_ids opcionales;
 - occurred_at;
 - currency;
-- pricing_configuration_version;
+- pricing_policy_version;
 - correlation_id.
 
 ## Salida
@@ -52,7 +52,7 @@ Sistema POS, aplicación de pedidos o servicio comercial autorizado.
 - priority;
 - valid_from;
 - valid_until;
-- pricing_configuration_version;
+- pricing_policy_version;
 - pricing_pipeline_version;
 - resolved_at;
 - comparison_candidates opcional;
@@ -92,7 +92,7 @@ El snapshot de resolución de precio no sustituye el snapshot comercial definiti
 12. Calcula `effective_initial_unit_price` usando el precio promocional o, en su ausencia, el precio base.
 13. Produce una explicación trazable de la resolución.
 14. Construye `resolution_snapshot`.
-15. Devuelve `pricing_configuration_version` y `pricing_pipeline_version`.
+15. Devuelve `pricing_policy_version` y `pricing_pipeline_version`.
 16. Entrega el resultado como entrada de las etapas posteriores de `PRICING_PIPELINE_V1`.
 ## Relación con `PRICING_PIPELINE_V1`
 

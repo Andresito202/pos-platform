@@ -2,7 +2,7 @@
 
 ## Estado
 
-`IN_PROGRESS`
+`DONE`
 
 ## Prioridad
 
@@ -346,24 +346,6 @@ Los pagos ya confirmados deben resolverse separadamente.
 
 La venta o suspensión dejó de ser válida por política temporal.
 
-## `RETURN_IN_PROGRESS`
-
-Existe una devolución comercial en curso.
-
-## `PARTIALLY_RETURNED`
-
-Parte de la venta fue devuelta mediante operaciones posteriores.
-
-## `FULLY_RETURNED`
-
-Todo el valor o las cantidades elegibles fueron devueltos.
-
-## `VOIDED`
-
-La venta o documento fue invalidado mediante un procedimiento autorizado.
-
-Este estado solo aplica cuando la política comercial, fiscal y operativa lo permita.
-
 ---
 
 # Estados que no pertenecen a Sale
@@ -379,7 +361,11 @@ No deben agregarse como estados persistentes de `Sale`:
 - `PENDING_APPROVAL`;
 - `REVIEW_REQUIRED`;
 - `PARTIALLY_SETTLED`;
-- `FULLY_SETTLED`.
+- `FULLY_SETTLED`;
+- `RETURN_IN_PROGRESS`;
+- `PARTIALLY_RETURNED`;
+- `FULLY_RETURNED`;
+- `VOIDED`.
 
 Esos estados pertenecen a otros agregados o procesos.
 
@@ -390,6 +376,8 @@ Las condiciones equivalentes se representan mediante:
 - eventos;
 - incidencias;
 - operaciones relacionadas.
+
+`RETURN_IN_PROGRESS`, `PARTIALLY_RETURNED` y `FULLY_RETURNED` son estados o proyecciones del agregado `SaleReturn`. `VOIDED` pertenece a `SaleCancellation` o al documento fiscal invalidado, no a `Sale.status`.
 
 ---
 
@@ -522,17 +510,7 @@ PAYMENT_IN_PROGRESS
 └── EXPIRED
 
 COMPLETED
-├── RETURN_IN_PROGRESS
-└── VOIDED
-
-RETURN_IN_PROGRESS
-├── PARTIALLY_RETURNED
-├── FULLY_RETURNED
-└── COMPLETED
-
-PARTIALLY_RETURNED
-├── RETURN_IN_PROGRESS
-└── FULLY_RETURNED
+└── [terminal para el ciclo operacional de Sale]
 ```
 
 ## Restricciones
@@ -541,8 +519,8 @@ PARTIALLY_RETURNED
 2. `COMPLETED` no vuelve a `READY_FOR_PAYMENT`.
 3. `CANCELLED` no vuelve a estado activo.
 4. `EXPIRED` no vuelve a estado activo sin crear una nueva revisión o venta.
-5. `FULLY_RETURNED` no puede recibir una nueva devolución sobre el mismo saldo.
-6. `VOIDED` no puede editarse destructivamente.
+5. Una devolución no cambia destructivamente `Sale.status`.
+6. Una invalidación se registra mediante `SaleCancellation` o documento fiscal separado.
 7. Una venta suspendida puede recuperarse solo mediante versión esperada.
 8. Una transición inválida debe rechazarse.
 
@@ -985,7 +963,7 @@ La acción exacta depende de:
 
 ## Definición
 
-`VOIDED` representa una invalidación autorizada cuando la política comercial, fiscal y técnica lo permite.
+`VOIDED` representa el resultado de una `SaleCancellation` o de un documento fiscal invalidado cuando la política comercial, fiscal y técnica lo permite. No es un valor de `Sale.status`.
 
 ## Reglas
 
@@ -2676,10 +2654,6 @@ Resultado:
 | `COMPLETED` | No | No | No directamente | Sí | Sí |
 | `CANCELLED` | No | No | No | No, salvo política excepcional | Sí, si existe documento |
 | `EXPIRED` | No | No | No | No | Según documento existente |
-| `RETURN_IN_PROGRESS` | No | No | No | Continuar proceso | Sí |
-| `PARTIALLY_RETURNED` | No | No | No | Sí, sobre saldo elegible | Sí |
-| `FULLY_RETURNED` | No | No | No | No | Sí |
-| `VOIDED` | No | No | No | Según política correctiva | Sí |
 
 ---
 
@@ -2693,7 +2667,7 @@ Resultado:
 | Cancelar con pago | `CANCELLED` o revisión | Refund/Reversal | Compensación explícita | Libera reserva | Puede requerir corrección |
 | Devolver | Proyección derivada | Refund/Reversal | Puede generar salida | Restituye según estado | Puede requerir documento |
 | Reimprimir | Sin cambio | Sin cambio | Sin cambio | Sin cambio | Nueva copia del original |
-| Void | `VOIDED` | No se borra | No se borra | No se borra | Conserva original y corrección |
+| Void | Sin cambio destructivo; crea `SaleCancellation` | No se borra | No se borra | No se borra | Estado `VOIDED` en la corrección y conservación del original |
 
 ---
 
@@ -2842,36 +2816,17 @@ Todo diseño posterior deberá respetar:
 
 ---
 
-# Decisiones abiertas relacionadas
+# Decisiones normativas relacionadas
 
-Este documento no cierra:
-
-- `DEC-003`;
-- `DEC-004`;
-- `DEC-006`;
-- `DEC-007`;
-- `DEC-008`.
-
-Estas decisiones aún pueden afectar:
-
-- cálculo final;
-- catálogo;
-- persistencia;
-- redondeo;
-- sincronización;
-- seguridad;
-- licenciamiento;
-- dispositivos.
-
-No deben modificar las invariantes cerradas de ventas, pagos y caja sin actualizar formalmente este documento.
+Este documento aplica `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008`. Cualquier cambio futuro en esas decisiones exige revisar explícitamente las invariantes de ventas, pagos, inventario y caja.
 
 ---
 
 # Estado del documento
 
-Estado: `IN_PROGRESS`
+Estado: `DONE`
 
-El documento puede pasar a `DONE` cuando:
+El documento permanece `DONE` mientras:
 
 - se valide la estructura;
 - se complete revisión funcional;
@@ -2884,5 +2839,5 @@ El documento puede pasar a `DONE` cuando:
 - no contradiga `payment-state-model.md`;
 - incluya evidencia verificable;
 - el backlog marque `SALES-002` como `DONE`;
-- las decisiones abiertas permanezcan explícitas;
-- pueda continuarse la Fase 0 sin ambigüedades críticas de ventas.
+- las decisiones normativas relacionadas permanezcan alineadas;
+- pueda diseñarse la persistencia sin ambigüedades críticas de ventas.
