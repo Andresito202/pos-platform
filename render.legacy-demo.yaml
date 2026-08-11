@@ -1,6 +1,8 @@
+# Blueprint exclusivo para pruebas de la línea base Avícola heredada.
+# No procesa datos reales y no representa la arquitectura productiva de POS Platform.
 services:
   - type: web
-    name: supermercado-avicola
+    name: supermercado-avicola-legacy-demo
     runtime: docker
     plan: free
     region: oregon
@@ -9,7 +11,7 @@ services:
     autoDeployTrigger: commit
     envVars:
       - key: ENVIRONMENT
-        value: production
+        value: development
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
@@ -23,7 +25,7 @@ services:
       - key: AUTO_CREATE_TABLES
         value: "false"
       - key: SEED_DEMO_DATA
-        value: "true"
+        value: "false"
       - key: ADMIN_USERNAME
         value: admin
       - key: ADMIN_PASSWORD

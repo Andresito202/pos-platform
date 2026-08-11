@@ -10,6 +10,10 @@ Las políticas operativas detalladas de confianza de dispositivo, licencias firm
 
 - `docs/adr/DEC-008-device-trust-license-activation.md`.
 
+La gestión normativa de secretos, claves centrales y locales, credenciales fiscales, firma de artefactos, cifrado de backups y acceso temporal de soporte se define en:
+
+- `docs/security/secret-key-and-support-management.md` (`SEC-004`).
+
 La sincronización local-first, autoridad por dato, idempotencia y recuperación operativa se definen en:
 
 - `docs/adr/DEC-007-local-first-data-authority.md`.
@@ -99,6 +103,16 @@ Una sesión válida no implica:
 - permiso suficiente;
 - acceso entre tenants.
 
+Contrato de sesión:
+
+1. La autenticación crea una sesión de User sin conceder tenant implícito.
+2. El contexto efectivo enlaza una `TenantMembership` activa y las `UserRoleAssignment` vigentes.
+3. Los roles de plataforma y de negocio no se mezclan en una misma asignación.
+4. La sesión conserva MFA, última reautenticación, dispositivo, expiración y revocación.
+5. La operación offline exige `offline_valid_until`, snapshot de permisos y versión de política conocidos.
+6. Una revocación conocida prevalece sobre el snapshot local.
+7. Expirar o revocar la sesión impide nuevas operaciones; no elimina operaciones ya confirmadas.
+
 ## Licencias y dispositivos
 
 Reglas generales:
@@ -131,6 +145,12 @@ Las claves y secretos:
 Las claves privadas del dispositivo no se transmiten al servidor.
 
 Las claves privadas centrales no se distribuyen a clientes.
+
+Los secretos locales se protegen mediante Windows CNG, DPAPI, Windows Credential Manager o un mecanismo aprobado para el perfil del servicio. No se almacenan en el renderer, PWA, archivos `.env` productivos ni configuración plana.
+
+Las credenciales fiscales se aíslan por tenant, empresa/NIT, proveedor y ambiente. Los tokens se renuevan dentro del adaptador y no llegan al POS renderer.
+
+El perfil de protección de SQLite debe declararse honestamente como `OS_PROTECTED` o `DB_ENCRYPTED` conforme a `SEC-004`; ACL no se presenta como cifrado de base.
 
 ## Actualizaciones
 
@@ -191,6 +211,8 @@ El acceso de soporte debe ser:
 - auditado;
 - revocable;
 - asociado a un motivo.
+
+No existe contraseña maestra, usuario oculto, token permanente ni llave universal. El soporte conectado utiliza sesiones JIT con MFA, aprobación, scope, expiración y auditoría. El soporte offline utiliza paquetes diagnósticos sanitizados y autorizados.
 
 Soporte no puede:
 

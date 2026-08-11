@@ -88,7 +88,8 @@ Estado de la épica: `IN_PROGRESS`.
 | ARCH-001 | `P0` | `DONE` | Definir monolito modular, monorepo, local-first y base de código única. | `docs/adr/ADR-001-modular-monolith.md` a `docs/adr/ADR-004-single-codebase.md` |
 | ARCH-002 | `P0` | `DONE` | Definir contexto, mapa modular, tenancy, despliegue y propiedad de datos. | `docs/architecture/` |
 | ARCH-003 | `P0` | `PLANNED` | Convertir límites conceptuales en contratos de módulos y reglas de dependencia ejecutables. | Fase 1; depende de TECH-002. |
-| ARCH-004 | `P1` | `PLANNED` | Definir contratos de integración POS local, API central y servicio de hardware. | Depende de SYNC-001 y DEV-002. |
+| ARCH-004 | `P0` | `DONE` | Definir contratos de integración entre renderer, Electron, POS local, API central, hardware y proveedores externos. | Cerrado en `docs/architecture/integration-contracts.md`; materialización pendiente en `TECH-003` y adaptadores. |
+| ARCH-005 | `P0` | `DONE` | Cerrar el stack tecnológico objetivo y su política de dependencias, persistencia, pruebas y portabilidad. | `docs/adr/ADR-005-target-technology-stack.md`. |
 
 ### Seguridad
 
@@ -99,7 +100,7 @@ Estado de la épica: `IN_PROGRESS`.
 | SEC-001 | `P0` | `DONE` | Definir modelo de seguridad, roles y matriz de permisos. | `docs/architecture/security-model.md`, `docs/product/roles.md`, `docs/security/permission-matrix.md` |
 | SEC-002 | `P0` | `DONE` | Definir permisos atómicos, políticas ABAC y pruebas negativas por módulo. | Cerrado en `docs/security/permission-matrix.md` con permisos atómicos, políticas ABAC, segregación de funciones, pruebas negativas y contrato estructurado de decisión de autorización. |
 | SEC-003 | `P0` | `PLANNED` | Implementar aislamiento de tenant, sesiones revocables, MFA y reautenticación. | Fase 1; depende de ONB-002 y DEV-001. |
-| SEC-004 | `P1` | `PLANNED` | Definir gestión de secretos, firma de licencias/actualizaciones y acceso temporal de soporte. | Depende de LIC-002 y DEV-002. |
+| SEC-004 | `P0` | `DONE` | Definir gestión de secretos, claves, credenciales fiscales, firma de licencias/actualizaciones y acceso temporal de soporte. | Cerrado en `docs/security/secret-key-and-support-management.md`; selección de proveedores y PoC de protección local se validan antes del piloto. |
 
 ### Catálogo
 
@@ -141,7 +142,8 @@ Estado de la épica: `IN_PROGRESS`.
 | TAX-001 | `P0` | `DONE` | Definir resolución y cambios tributarios versionados. | `docs/use-cases/tax/UC-TAX-001-resolve-tax.md`, `docs/use-cases/tax/UC-TAX-002-handle-tax-change.md` |
 | TAX-002 | `P0` | `DONE` | Definir redondeo del total pagadero para COP. | `docs/use-cases/rounding/UC-ROUND-001-calculate-payable-total.md` |
 | TAX-003 | `P0` | `DONE` | Resolver empate de redondeo y conciliación fiscal. | Cerrado mediante `DEC-003`, `DEC-006`, `UC-TAX-001` y `UC-ROUND-001`; quedan formalizadas precisión fiscal, normalización por impuesto, distribución determinista de residuos, persistencia de ajustes, conciliación documental, separación fiscal/comercial, `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` y `payable_amount` independiente del medio de pago. |
-| TAX-004 | `P3` | `DEFERRED` | Facturación electrónica e integraciones fiscales. | Fase posterior según `docs/product/scope.md`. |
+| TAX-004 | `P1` | `PLANNED` | Implementar documentos electrónicos e integraciones fiscales mediante puertos neutrales. | Contrato arquitectónico y caso de uso cerrados; implementación productiva, segundo adaptador, seguridad, sandbox y validación normativa pendientes. |
+| UC-EINV-001 | `P1` | `DONE` | Definir configuración, emisión, resultado incierto, conciliación, notas, contingencia y operación sin proveedor fiscal. | `docs/use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md` y `docs/architecture/electronic-invoicing.md`. |
 
 ### Pagos
 
@@ -246,7 +248,7 @@ Estado de la épica: `PLANNED`.
 |---|---|---|---|---|
 | DEV-001 | `P0` | `DONE` | Definir registro, aprobación, vínculo, operación conectada/offline, heartbeat, estado operativo, revocación, recuperación, reinstalación, reemplazo, desactivación, administración del activo y alertas de dispositivo. | Cerrado mediante `UC-DEV-001`, con alineación en modelo conceptual, reglas de negocio y glosario; compatible con `DEC-007` y `DEC-008`. |
 | DEV-002 | `P0` | `DONE` | Consolidar identidad segura del POS y contrato operativo con licencias. | Cerrado mediante `UC-DEV-002`; contrato dispositivo ↔ instalación ↔ clave ↔ activación ↔ licencia consolidado, con validación conectada/offline, decisión efectiva, códigos estables, auditoría y compatibilidad con `UC-DEV-001`, `UC-LIC-001`, `UC-LIC-002`, `DEC-007` y `DEC-008`. |
-| DEV-003 | `P2` | `PLANNED` | Implementar adaptadores de lector, impresora, cajón y balanza. | Depende de ARCH-004 y matriz de hardware pendiente. |
+| DEV-003 | `P1` | `PLANNED` | Implementar simuladores y adaptadores de lector, impresora, cajón y balanza dentro del POS Local Service. | `ARCH-004` cerrado y matriz creada en `docs/hardware/support-matrix.md`; certificación bloqueada hasta seleccionar y probar equipos físicos. |
 
 ### Sincronización
 
@@ -287,17 +289,17 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `READY` | Diseñar modelo físico nuevo, migraciones, restricciones, índices y fronteras de transacción. | Fase 1; decisiones documentales críticas de Fase 0 cerradas. Debe seguir `docs/migration/avicola-baseline-migration.md`, conservar las decisiones `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008`, y no reescribir silenciosamente la migración original. |
-| TECH-003 | `P0` | `PLANNED` | Definir contratos API, errores, idempotency keys, versionado y correlación. | Depende de casos de uso de Fase 0. |
-| TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con lint, tipos, pruebas, seguridad y validación de migraciones. | Requisitos en `docs/testing/testing-strategy.md`; no hay evidencia de pipeline objetivo terminado. |
-| TECH-005 | `P1` | `PLANNED` | Definir observabilidad, backups, restauración, actualización y rollback por modalidad. | Requiere objetivos RNF, `DEC-009` y criterios verificables de capacidad, recuperación y retención. |
+| TECH-002 | `P0` | `READY` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | Debe seguir modelos conceptuales, ownership, migración, pruebas, `ADR-005`, `DEC-003`, `DEC-004`, `DEC-006` a `DEC-010`, `ARCH-004` y `SEC-004`, sin reescribir la migración heredada. |
+| TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
+| TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
+| TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
 | TECH-006 | `P1` | `PLANNED` | Establecer datos de prueba, fixtures multi-tenant y pruebas de concurrencia/recuperación. | Depende de TECH-002 y TECH-004. |
 
 ## Orden inmediato de trabajo
 
 1. `TECH-002` — `P0`, `READY`: diseñar el modelo físico nuevo, migraciones, restricciones, índices y fronteras de transacción.
-2. Reevaluar `TECH-003` y los trabajos dependientes después de completar el diseño físico y registrar su evidencia.
-3. Mantener `DEC-005`, `DEC-009` y `DEC-010` como decisiones `P1` pendientes según sus dependencias; no bloquean el inicio de `TECH-002`.
+2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
+3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
 
 
 La implementación de la arquitectura objetivo debe comenzar por la fundación técnica y respetar los invariantes cerrados durante la Fase 0.
@@ -314,10 +316,10 @@ La implementación de la arquitectura objetivo debe comenzar por la fundación t
 | R-006 | Alta | No hay modelo físico objetivo; modificar silenciosamente la migración heredada puede fijar errores de dominio. | Ejecutar `TECH-002` como entrada `READY` de Fase 1 y crear nuevas migraciones conforme a las decisiones cerradas. |
 | R-007 | Media | La canalización versionada de pricing está definida, pero todavía no tiene una implementación objetivo. | Implementarla conforme a `DEC-003`, `DEC-006` y `PRICE-002`, con pruebas deterministas. |
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
-| R-009 | Media | Hardware, Windows y operación offline carecen de una matriz de equipos y pruebas reales. | Definir matriz, simuladores y laboratorio antes de certificar compatibilidad. |
-| R-010 | Media | Facturación electrónica y droguería pueden introducir requisitos regulatorios que alteren snapshots, impuestos o trazabilidad. | Mantenerlos `DEFERRED` hasta una fase especializada y validación normativa. |
-| R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra accesibilidad ni navegación final por rol. | UX-002 a UX-004 antes de adopción operativa. |
-| R-012 | Media | Firma, custodia de claves y recuperación de licencias/dispositivos están documentadas, pero todavía no implementadas. | Implementar conforme a `DEC-008`, `LIC-002`, `DEV-001` y `DEV-002`; completar `SEC-004` según su alcance. |
+| R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
+| R-010 | Media | Facturación electrónica tiene contrato neutral, pero no implementación, segundo adaptador ni validación normativa productiva. | Implementar `TAX-004` con Factus sandbox y un segundo adaptador sin modificar el dominio comercial; validar proveedor y normativa antes de producción. |
+| R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra el runtime Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
+| R-012 | Media | Firma, custodia de claves y soporte están documentados, pero proveedores y PoC de protección local no están implementados. | Materializar los controles definidos por `SEC-004`, probar el perfil `OS_PROTECTED` o `DB_ENCRYPTED` y firmar artefactos antes del piloto. |
 
 ## Decisiones cerradas
 
@@ -330,15 +332,14 @@ La implementación de la arquitectura objetivo debe comenzar por la fundación t
 | DEC-006 | `P0` | Política versionada `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`, con empate alejándose de cero, separación fiscal/comercial, residuos deterministas, devoluciones, offline y conciliación. | `docs/adr/DEC-006-nearest-50-rounding-policy.md` y `docs/adr/DEC-003-pricing-calculation-order.md`. | `TAX-003` quedó `DONE`; `SALES-003` redujo sus bloqueos documentales; toda implementación debe conservar decimal exacto, snapshots, versión, checksum y ajustes explícitos. |
 | DEC-007 | `P0` | Autoridad por dato, políticas de sincronización, idempotencia, control de versión, reloj confiable, causalidad, outbox/inbox, checkpoints, conflictos, retención, recuperación, seguridad y observabilidad local-first. | `docs/adr/DEC-007-local-first-data-authority.md`, `docs/adr/ADR-003-local-first.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md` y `docs/domain/glossary.md`. | `SYNC-003` quedó `DONE`; `TECH-005` dejó de depender de `DEC-007`; la implementación deberá conservar operaciones globalmente identificadas, transacciones atómicas, deduplicación, aislamiento multiempresa y conflictos explícitos. |
 | DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | `docs/adr/DEC-008-device-trust-license-activation.md`. | `LIC-002` y `DEV-002` quedaron `DONE`; la decisión dejó de bloquear `TECH-002` y la salida de Fase 0. |
+| DEC-009 | `P0` | Entornos, infraestructura pagada, producción central, RPO/RTO medidos, backups, retención, benchmark, observabilidad, rollback y portabilidad. | `docs/adr/DEC-009-operational-production-baseline.md`. | Prohíbe datos reales en recursos gratuitos; habilita `TECH-005` y condiciona SLA/hardware comercial a evidencia. |
+| DEC-010 | `P0` | Electron productivo, React, POS Local Service, único escritor SQLite, canal local, PWA de laboratorio, empaquetado y actualización. | `docs/adr/DEC-010-pos-runtime.md`. | Define el runtime físico y desbloquea el esqueleto POS; PWA no es autoridad local productiva. |
 
 ## Decisiones pendientes
 
 | ID | Prioridad | Decisión requerida | Bloquea |
 |---|---|---|---|
-
 | DEC-005 | `P1` | Política offline de crédito: vigencia del cupo sincronizado, límite, mora y resolución de consumo concurrente. | CUST-002 y PAY-009. |
-| DEC-009 | `P1` | RPO, RTO, retención de auditoría, hardware mínimo y límites de carga de referencia. | TECH-005 y criterios de salida de Fase 1. |
-| DEC-010 | `P1` | Estrategia de evolución del frontend y sistema de diseño que reemplazará la interfaz estática. | UX-003 e implementación del POS. |
 
 ## Hitos
 
@@ -356,7 +357,7 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.3 Dominio, seguridad, pruebas y migración | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md`. |
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`; la secuencia completa de pagos se consolida en F0.5. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
-| F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007` y `DEC-008` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
+| F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007`, `DEC-008`, `DEC-009` y `DEC-010` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
 | F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. `TECH-002` queda `READY` como entrada de Fase 1. |
 
 La Fase 0 quedó cerrada al completarse UC-PAY-004 y UC-PAY-005, consolidarse la máquina de pagos, cerrarse las decisiones `P0` necesarias para persistencia y documentarse invariantes y pruebas mínimas coherentes para los casos críticos.
@@ -433,5 +434,9 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 - 2026-08-10: `SYNC-001` pasó de `PLANNED` a `DONE` mediante `docs/use-cases/sync/UC-SYNC-001-synchronize-operation.md`. Se consolidaron identidad global de operación, atomicidad local negocio+outbox, inbox central, idempotencia, checksum, expected_version, causalidad, autoridad por dominio, checkpoint, recuperación tras reinicio, aislamiento multi-tenant y prohibición de usar last-write-wins o reloj local como autoridad global. `SYNC-002` pasa a `READY`.
 
 - 2026-08-10: `SYNC-002` pasó de `READY` a `DONE` mediante `docs/use-cases/sync/UC-SYNC-002-manage-offline-configuration.md`. Se descartó una entidad global de configuración y se consolidó versionado por dominio; la disponibilidad offline quedó definida como decisión derivada de versiones, vigencia, permisos, licencia, dispositivo, autoridad, revocaciones y dependencias.
+
+- 2026-08-10: la auditoría general de preimplementación fue remediada sin iniciar el modelo físico. Se unificaron identidad UUID v7, alcances multi-tenant, propiedad modular, estados de ventas y pagos, topología `PaymentGroup`/`Payment`/`PaymentAttempt`, precisión monetaria, redondeo único por venta, inventario por presentación y lote, contratos local-first, configuración offline, transacciones críticas, migración y pruebas por dialecto. `TECH-002` permanece `READY`; el inicio de Fase 1 no tiene decisiones `P0` documentales pendientes.
+
+- 2026-08-10: se cerró la preparación tecnológica previa a código mediante `ADR-005`, `DEC-009`, `DEC-010`, `ARCH-004` y `SEC-004`. Se fijaron stack TypeScript/NestJS/Electron, POS Local Service como único escritor SQLite, infraestructura pagada para datos reales, modos `HYBRID`/`LOCAL_PERPETUAL`, pruebas objetivo, aislamiento del despliegue Avícola heredado, contrato fiscal neutral, Factus como primer sandbox, Siigo como segunda validación y matriz de hardware sin certificaciones inventadas. `TECH-002` permanece como siguiente trabajo `P0 READY`; ninguna implementación objetivo fue declarada terminada.
 
 Próxima actualización obligatoria: registrar el inicio de `TECH-002` cuando comience el diseño físico de Fase 1 y mantener alineados su estado, evidencia, riesgos y trabajos dependientes.

@@ -30,7 +30,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
 | Fase 1 — Fundación técnica ejecutable | `PLANNED` | Esqueleto modular, modelo físico, migraciones, seguridad, CI, primer corte vertical y base local-first pendientes de implementación. `TECH-002` está `READY` como entrada de la fase. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
-| Capacidades especializadas | `DEFERRED` o fuera del primer núcleo | Domicilios, facturación electrónica, integraciones fiscales avanzadas y especialización regulatoria, entre otras. |
+| Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 
 `DONE` en Fase 0 significa que existe evidencia documental verificable. No significa que la capacidad correspondiente esté implementada como software objetivo.
 
@@ -50,6 +50,12 @@ La fundación documental define:
 - identidad y ciclo de vida de dispositivos, licencias, activaciones y derechos verificables;
 - operación local-first con outbox, inbox, checkpoints, reintentos, idempotencia y conflictos explícitos;
 - auditoría, recuperación, pruebas negativas, invariantes, concurrencia y resiliencia esperada.
+- stack objetivo TypeScript/NestJS/Electron/React con PostgreSQL central y SQLite/WAL local;
+- POS Local Service como único escritor de SQLite y propietario de hardware, impresión y sincronización;
+- infraestructura pagada para staging con datos sensibles, piloto y producción;
+- modalidades productivas `HYBRID` y `LOCAL_PERPETUAL` sin dependencia permanente de Internet;
+- contrato fiscal neutral con Factus como primer sandbox y Siigo como segunda validación futura;
+- gestión de secretos, firma, soporte temporal y certificación honesta de hardware.
 
 ## Principios arquitectónicos
 
@@ -62,6 +68,9 @@ La fundación documental define:
 - **Trazabilidad y aislamiento:** ventas, pagos, caja, inventario, sincronización y cambios sensibles conservan actor, tenant, correlación y auditoría.
 - **Recuperación sin sobrescritura silenciosa:** movimientos y hechos críticos son append-only; las proyecciones no sustituyen su fuente.
 - **Conflictos visibles:** no se usa `last-write-wins` como política genérica ni el reloj local como autoridad global.
+- **Runtime físico explícito:** Electron presenta la UI; POS Local Service ejecuta dominio, SQLite, hardware y recuperación.
+- **Producción pagada:** recursos gratuitos se limitan a desarrollo, CI, sandbox o demos sin datos reales.
+- **Proveedores mediante adaptadores:** Factus, Siigo, datáfonos y hardware no definen entidades del dominio.
 
 Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 
@@ -75,6 +84,10 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | Inventario, ventas, caja y pagos | Casos de uso e invariantes definidos | Pendiente; existe una implementación heredada monoempresa |
 | Dispositivos y licenciamiento | Contratos y decisiones definidos | Pendiente |
 | Local-first y sincronización | Autoridad, idempotencia, conflictos y recuperación definidos | Pendiente |
+| Runtime Electron y servicio local | Stack, procesos, IPC y seguridad definidos | Pendiente |
+| Facturación electrónica | Arquitectura neutral y `UC-EINV-001` definidos | Pendiente; sin certificación ni proveedor productivo habilitado |
+| Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
+| Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
 | CI y validación automática de la arquitectura objetivo | Estrategia definida | Pendiente |
 | Domicilios e integraciones especializadas | Alcance previsto o diferido | Pendiente y fuera del primer núcleo |
 
@@ -86,10 +99,12 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | [`docs/architecture`](docs/architecture/) | Contexto, módulos, tenancy, seguridad, despliegue, propiedad y modelo conceptual de datos. |
 | [`docs/adr`](docs/adr/) | Decisiones arquitectónicas y políticas normativas aceptadas. |
 | [`docs/domain`](docs/domain/) | Glosario, reglas, eventos, motor comercial y modelos de estado. |
-| [`docs/security`](docs/security/) | Matriz de permisos, políticas RBAC/ABAC y pruebas negativas esperadas. |
+| [`docs/security`](docs/security/) | Permisos, políticas RBAC/ABAC, secretos, claves, soporte controlado y pruebas negativas. |
+| [`docs/hardware`](docs/hardware/) | Matriz de equipos, adaptadores, evidencia y certificación. |
 | [`docs/testing`](docs/testing/) | Estrategia de pruebas para integridad, seguridad, concurrencia, offline y recuperación. |
 | [`docs/migration`](docs/migration/) | Clasificación y estrategia para migrar la línea base heredada. |
 | [`docs/use-cases`](docs/use-cases/) | Contratos funcionales, flujos alternos, invariantes y pruebas mínimas por capacidad. |
+| [`docs/legacy`](docs/legacy/) | Documentación histórica aislada; no normativa para producción. |
 
 ## Estructura actual del repositorio
 
@@ -102,16 +117,38 @@ pos-platform/
 |-- infra/                # Docker Compose de la línea base actual
 |-- .env.example          # Variables del entorno heredado
 |-- Dockerfile            # Imagen integrada actual
-|-- render.yaml           # Blueprint de despliegue heredado
+|-- render.legacy-demo.yaml # Blueprint gratuito exclusivo de la demo heredada
+|-- .gitattributes        # UTF-8, LF y tratamiento de binarios
+|-- .editorconfig         # Convenciones de edición reproducibles
 |-- iniciar.bat           # Inicio local de la línea base en Windows
 `-- detener.bat           # Detención local en Windows
 ```
 
 No existen todavía paquetes físicos separados que materialicen los módulos de la arquitectura objetivo.
 
-## Stack técnico verificado
+## Stack objetivo aprobado
 
-El stack siguiente describe lo que está físicamente presente, no una selección definitiva para toda la arquitectura objetivo.
+La selección normativa está cerrada en [`ADR-005`](docs/adr/ADR-005-target-technology-stack.md):
+
+| Capa | Tecnología objetivo | Estado físico |
+|---|---|---|
+| Lenguaje y monorepo | TypeScript estricto, pnpm workspaces y Nx | Pendiente |
+| API central | NestJS con Fastify, monolito modular | Pendiente |
+| POS productivo | Electron, React y Vite | Pendiente |
+| PWA del POS | React/Vite con `IndexedDB`, `sql.js` o SQLite/WASM solo para laboratorio sintético | Prohibida como runtime o persistencia productiva |
+| Servicio local | Node.js/TypeScript como servicio de Windows | Pendiente |
+| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Decidida; modelo físico pendiente |
+| Acceso a datos | Kysely con migraciones separadas por dialecto | Pendiente |
+| Contratos | TypeScript y Zod | Pendiente |
+| Pruebas | Vitest, Playwright, Testcontainers y k6 | Pendiente |
+| Observabilidad | OpenTelemetry | Pendiente |
+| Infraestructura | Docker, object storage compatible con S3 y proveedor central pagado | Pendiente |
+
+Las versiones exactas se fijarán mediante manifiestos, lockfile, imágenes y CI al crear el esqueleto. Este cuadro representa decisiones, no una implementación existente.
+
+## Stack heredado verificado
+
+El stack siguiente describe únicamente lo que está físicamente presente en la línea base Avícola.
 
 | Capa | Tecnología verificada | Situación |
 |---|---|---|
@@ -119,8 +156,10 @@ El stack siguiente describe lo que está físicamente presente, no una selecció
 | Persistencia | PostgreSQL 16 en Docker Compose; SQLite en memoria para tests | Línea base heredada |
 | Seguridad | JWT con `python-jose`, bcrypt y roles simples por endpoint | Línea base heredada; no implementa aún el modelo RBAC/ABAC objetivo |
 | Frontend | HTML, CSS, JavaScript y Bootstrap 5 cargado por CDN | Línea base heredada prevista para reemplazo |
-| Infraestructura | Docker, Docker Compose y Render Blueprint | Configuración heredada; no acredita un despliegue objetivo |
+| Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
+
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas Kysely separadas por dialecto. Véanse `ADR-005` y `DEC-007`. Esto guía `TECH-002`; no describe una implementación ya existente.
 
 El repositorio no contiene actualmente `package.json`, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 
@@ -160,12 +199,13 @@ La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas
 La Fase 1 debe convertir los contratos documentales en una fundación ejecutable:
 
 1. crear el esqueleto modular y reglas verificables de dependencia;
-2. diseñar e implementar el modelo físico nuevo sin reescribir silenciosamente la migración heredada;
-3. añadir migraciones, restricciones, índices y fronteras transaccionales;
-4. implementar aislamiento multi-tenant, identidad, sesiones revocables y autorización backend;
-5. establecer CI con lint, tipos, pruebas, seguridad y validación de migraciones;
-6. entregar un primer corte vertical autenticado, auditable e idempotente;
-7. demostrar la base local-first con identificadores globales, outbox, reintentos y recuperación sin duplicación.
+2. crear el monorepo pnpm/Nx conforme a `ADR-005`, sin copiar el acoplamiento del legado;
+3. diseñar e implementar el modelo físico nuevo sin reescribir silenciosamente la migración heredada;
+4. añadir migraciones, restricciones, índices y fronteras transaccionales;
+5. implementar aislamiento multi-tenant, identidad, sesiones revocables y autorización backend;
+6. establecer CI con lint, tipos, pruebas, seguridad, licencias y validación de migraciones;
+7. entregar un primer corte vertical autenticado, auditable e idempotente;
+8. demostrar la base local-first con identificadores globales, outbox, reintentos y recuperación sin duplicación.
 
 El detalle y las dependencias se mantienen en [docs/product/backlog.md](docs/product/backlog.md).
 
@@ -186,6 +226,13 @@ Las reglas de seguridad requieren autorización en backend, mínimo privilegio, 
 - [Modelo multiempresa](docs/architecture/tenant-model.md)
 - [Modelo conceptual de datos](docs/architecture/conceptual-data-model.md)
 - [Modelo de seguridad](docs/architecture/security-model.md)
+- [Stack tecnológico objetivo](docs/adr/ADR-005-target-technology-stack.md)
+- [Runtime productivo del POS](docs/adr/DEC-010-pos-runtime.md)
+- [Línea base operacional](docs/adr/DEC-009-operational-production-baseline.md)
+- [Contratos de integración](docs/architecture/integration-contracts.md)
+- [Documentos electrónicos](docs/architecture/electronic-invoicing.md)
+- [Matriz de hardware](docs/hardware/support-matrix.md)
+- [Secretos, claves y soporte](docs/security/secret-key-and-support-management.md)
 - [Reglas de negocio](docs/domain/business-rules.md)
 - [Matriz de permisos](docs/security/permission-matrix.md)
 - [Estrategia de pruebas](docs/testing/testing-strategy.md)

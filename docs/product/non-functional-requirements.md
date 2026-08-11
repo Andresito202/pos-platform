@@ -168,3 +168,14 @@ Los siguientes valores deberán confirmarse con pruebas reales antes de converti
 - RPO;
 - RTO;
 - tiempo máximo de sincronización.
+
+## Criterio transitorio para el primer modelo físico
+
+Conforme a `DEC-009`, mientras los benchmarks, restauraciones y pilotos no establezcan valores contractuales:
+
+1. no se elimina automáticamente auditoría, inbox confirmado, movimientos financieros, ventas ni movimientos de inventario;
+2. el primer esquema no depende de particionado para conservar integridad;
+3. las tablas de alto crecimiento incluyen claves temporales y de tenant aptas para indexación o particionado posterior;
+4. los índices iniciales se justifican por FKs, unicidad, aislamiento y flujos críticos, no por estimaciones inventadas;
+5. RPO, RTO, hardware y capacidad se validan mediante benchmark antes de prometer SLA;
+6. la ausencia de esos SLA no permite omitir backups, restauración probada ni recuperación de outbox.
