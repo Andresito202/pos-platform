@@ -1,210 +1,241 @@
-# Supermercado Avicola
+# POS Platform
 
-Sistema web full-stack para administrar la operacion de un supermercado avicola: autenticacion, roles, catalogo, proveedores, compras, lotes, inventario, punto de venta, caja, mermas, reportes y auditoria.
+Plataforma POS modular, multi-tenant y local-first orientada a operaciones comerciales reales.
 
-## Descripcion
+POS Platform busca proporcionar un núcleo comercial reutilizable para distintos tipos de negocio, con límites de dominio explícitos, operación por empresa y sucursal, seguridad contextual y continuidad operativa ante interrupciones de conectividad.
 
-Supermercado Avicola es una demo tecnica orientada a procesos reales de comercio e inventario. El backend expone una API REST con FastAPI y SQLAlchemy, usa PostgreSQL como base principal y sirve un frontend multipagina construido con HTML, Bootstrap 5 y JavaScript.
+> **Estado actual:** el proyecto está en desarrollo. La Fase 0 de fundación de producto, arquitectura y dominio está cerrada como trabajo documental. La siguiente etapa es la Fase 1, fundación técnica ejecutable. La arquitectura objetivo todavía no está implementada y el sistema no debe considerarse terminado ni listo para producción.
 
-El proyecto esta preparado para ejecutarse localmente con Docker Compose o desplegarse como una sola aplicacion en Render, sirviendo frontend y backend desde FastAPI.
+## Objetivo del proyecto
 
-## Problema que resuelve
+La plataforma está diseñada para soportar progresivamente:
 
-Un negocio avicola necesita controlar productos perecederos, entradas de mercancia, lotes, stock disponible, ventas, caja y trazabilidad. Este sistema centraliza esas operaciones y aplica reglas clave como salida FIFO, validacion de stock, roles de usuario y reportes operativos.
+- múltiples tenants, empresas y sucursales;
+- identidad global de usuario, pertenencias, roles y permisos contextuales;
+- catálogo, variantes, presentaciones, precios, promociones e impuestos;
+- inventario, lotes, compras y proveedores;
+- ventas, caja, pagos, devoluciones y conciliación;
+- operación local-first, sincronización y recuperación;
+- dispositivos, periféricos, licenciamiento y modalidades de despliegue;
+- onboarding, auditoría, administración, soporte e integraciones.
 
-## Funcionalidades
+Estas capacidades forman parte del alcance y de los contratos documentales en distintos niveles de madurez. No equivalen a módulos físicos terminados. El código ejecutable presente corresponde a una línea base heredada que se auditará y migrará de forma incremental.
 
-- Login con JWT y control de acceso por roles.
-- Usuarios demo para evaluacion tecnica con contrasenas ocultas en pantalla.
-- CRUD de categorias, productos, proveedores y clientes.
-- Registro de compras con generacion de lotes y movimientos de inventario.
-- Control de inventario por stock, lotes, movimientos, ajustes y alertas de vencimiento.
-- Punto de venta con carrito, validacion de stock y salida FIFO.
-- Modulo de caja con apertura, cierre, ingresos, egresos y diferencia de arqueo.
-- Registro de mermas con impacto en inventario.
-- Reportes de ventas diarias, top productos, inventario valorizado y mermas.
-- Auditoria de acciones para administradores y gerencia.
-- Docker Compose para ejecucion local.
-- Configuracion de despliegue en Render con PostgreSQL administrado.
-- Suite de tests automatizados con SQLite en memoria.
+## Estado del proyecto
 
-## Tecnologias
+El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estados, prioridades, dependencias y evidencia.
 
-| Capa | Tecnologias |
+| Etapa | Estado en el backlog | Alcance real |
+|---|---|---|
+| Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
+| Fase 1 — Fundación técnica ejecutable | `PLANNED` | Esqueleto modular, modelo físico, migraciones, seguridad, CI, primer corte vertical y base local-first pendientes de implementación. `TECH-002` está `READY` como entrada de la fase. |
+| Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
+| Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
+
+`DONE` en Fase 0 significa que existe evidencia documental verificable. No significa que la capacidad correspondiente esté implementada como software objetivo.
+
+## Fundación completada en Fase 0
+
+La fundación documental define:
+
+- jerarquía `Platform -> Tenant -> Company -> Branch` y aislamiento multi-tenant;
+- identidad global `User`, pertenencia mediante `TenantMembership` y alcance mediante `UserRoleAssignment`;
+- autorización RBAC combinada con políticas ABAC, permisos atómicos y segregación de funciones;
+- límites y propiedad de datos de los módulos de plataforma y del núcleo comercial;
+- catálogo con `Product`, `ProductVariant` y `ProductPresentation`;
+- inventario basado en movimientos, reservas, lotes, vencimientos, FEFO/FIFO y compensaciones;
+- pricing determinista y versionado, impuestos, redondeo y snapshots históricos;
+- ciclos separados para ventas, caja, pagos, refunds, reversals, liquidación y conciliación;
+- onboarding de tenant, empresa inicial, sucursal, propietario y configuración mínima;
+- identidad y ciclo de vida de dispositivos, licencias, activaciones y derechos verificables;
+- operación local-first con outbox, inbox, checkpoints, reintentos, idempotencia y conflictos explícitos;
+- auditoría, recuperación, pruebas negativas, invariantes, concurrencia y resiliencia esperada.
+- stack objetivo TypeScript/NestJS/Electron/React con PostgreSQL central y SQLite/WAL local;
+- POS Local Service como único escritor de SQLite y propietario de hardware, impresión y sincronización;
+- infraestructura pagada para staging con datos sensibles, piloto y producción;
+- modalidades productivas `HYBRID` y `LOCAL_PERPETUAL` sin dependencia permanente de Internet;
+- contrato fiscal neutral con Factus como primer sandbox y Siigo como segunda validación futura;
+- gestión de secretos, firma, soporte temporal y certificación honesta de hardware.
+
+## Principios arquitectónicos
+
+- **Monolito modular y monorepo:** una sola base de código inicial, con módulos propietarios de sus datos y reglas.
+- **Multi-tenancy por diseño:** el contexto efectivo se deriva de identidad, pertenencia, sesión y alcance autorizado; no se confía en un `tenant_id` libre enviado por el cliente.
+- **Local-first con autoridad explícita:** cada dominio define quién puede confirmar o modificar un dato durante operación conectada u offline.
+- **Seguridad en backend:** ocultar controles en la interfaz no constituye autorización; permisos, alcance y contexto se validan nuevamente en el backend.
+- **Idempotencia e identidad global:** las operaciones críticas y sus reintentos conservan identidad, checksum, versión y claves idempotentes.
+- **Determinismo y snapshots:** precios, impuestos, redondeos y hechos históricos se resuelven con reglas versionadas y evidencia inmutable.
+- **Trazabilidad y aislamiento:** ventas, pagos, caja, inventario, sincronización y cambios sensibles conservan actor, tenant, correlación y auditoría.
+- **Recuperación sin sobrescritura silenciosa:** movimientos y hechos críticos son append-only; las proyecciones no sustituyen su fuente.
+- **Conflictos visibles:** no se usa `last-write-wins` como política genérica ni el reloj local como autoridad global.
+- **Runtime físico explícito:** Electron presenta la UI; POS Local Service ejecuta dominio, SQLite, hardware y recuperación.
+- **Producción pagada:** recursos gratuitos se limitan a desarrollo, CI, sandbox o demos sin datos reales.
+- **Proveedores mediante adaptadores:** Factus, Siigo, datáfonos y hardware no definen entidades del dominio.
+
+Las decisiones normativas están registradas en [docs/adr](docs/adr/).
+
+## Estado de capacidades
+
+| Capacidad | Contrato o diseño | Implementación física objetivo |
+|---|---|---|
+| Tenancy, empresas, sucursales e identidad global | Definido en Fase 0 | Pendiente |
+| RBAC, ABAC, permisos y auditoría | Definido en Fase 0 | Pendiente; el legado solo contiene roles simples |
+| Catálogo, pricing, promociones e impuestos | Definido en Fase 0 | Pendiente; existe una implementación heredada no equivalente |
+| Inventario, ventas, caja y pagos | Casos de uso e invariantes definidos | Pendiente; existe una implementación heredada monoempresa |
+| Dispositivos y licenciamiento | Contratos y decisiones definidos | Pendiente |
+| Local-first y sincronización | Autoridad, idempotencia, conflictos y recuperación definidos | Pendiente |
+| Runtime Electron y servicio local | Stack, procesos, IPC y seguridad definidos | Pendiente |
+| Facturación electrónica | Arquitectura neutral y `UC-EINV-001` definidos | Pendiente; sin certificación ni proveedor productivo habilitado |
+| Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
+| Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
+| CI y validación automática de la arquitectura objetivo | Estrategia definida | Pendiente |
+| Domicilios e integraciones especializadas | Alcance previsto o diferido | Pendiente y fuera del primer núcleo |
+
+## Arquitectura documental
+
+| Ruta | Propósito |
 |---|---|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2, Pydantic, Alembic |
-| Base de datos | PostgreSQL 16, SQLite para tests |
-| Seguridad | JWT, bcrypt, roles por endpoint, CORS por entorno |
-| Frontend | HTML5, Bootstrap 5, JavaScript vanilla |
-| Infraestructura | Docker, Docker Compose, Render Blueprint |
-| Calidad | Pytest, TestClient, migraciones versionadas |
+| [`docs/product`](docs/product/) | Visión, alcance, roles, requisitos no funcionales y backlog maestro. |
+| [`docs/architecture`](docs/architecture/) | Contexto, módulos, tenancy, seguridad, despliegue, propiedad y modelo conceptual de datos. |
+| [`docs/adr`](docs/adr/) | Decisiones arquitectónicas y políticas normativas aceptadas. |
+| [`docs/domain`](docs/domain/) | Glosario, reglas, eventos, motor comercial y modelos de estado. |
+| [`docs/security`](docs/security/) | Permisos, políticas RBAC/ABAC, secretos, claves, soporte controlado y pruebas negativas. |
+| [`docs/hardware`](docs/hardware/) | Matriz de equipos, adaptadores, evidencia y certificación. |
+| [`docs/testing`](docs/testing/) | Estrategia de pruebas para integridad, seguridad, concurrencia, offline y recuperación. |
+| [`docs/migration`](docs/migration/) | Clasificación y estrategia para migrar la línea base heredada. |
+| [`docs/use-cases`](docs/use-cases/) | Contratos funcionales, flujos alternos, invariantes y pruebas mínimas por capacidad. |
+| [`docs/legacy`](docs/legacy/) | Documentación histórica aislada; no normativa para producción. |
 
-## Arquitectura
+## Estructura actual del repositorio
 
 ```text
-supermercado-avicola/
-|-- backend/
-|   |-- app/
-|   |   |-- api/          # Routers FastAPI por dominio
-|   |   |-- core/         # Configuracion, seguridad, base de datos y dependencias
-|   |   |-- models/       # Modelos SQLAlchemy
-|   |   |-- schemas/      # Schemas Pydantic
-|   |   `-- main.py       # App FastAPI y servidor de frontend
-|   |-- alembic/          # Migraciones
-|   |-- tests/            # Tests automatizados
-|   `-- Dockerfile        # Docker local/desarrollo
-|-- frontend/             # Vistas HTML, CSS y JS
-|-- database/seeds/       # Datos demo
-|-- docs/                 # Manuales, despliegue y capturas
-|-- infra/                # Docker Compose local
-|-- Dockerfile            # Imagen de produccion para Render
-|-- render.yaml           # Blueprint Render
-`-- .env.example          # Plantilla de variables
+pos-platform/
+|-- backend/              # API, modelos, schemas, migración y tests del legado
+|-- database/seeds/       # Datos de demostración heredados
+|-- docs/                 # Fundación documental de POS Platform y documentación histórica
+|-- frontend/             # Frontend multipágina heredado
+|-- infra/                # Docker Compose de la línea base actual
+|-- .env.example          # Variables del entorno heredado
+|-- Dockerfile            # Imagen integrada actual
+|-- render.legacy-demo.yaml # Blueprint gratuito exclusivo de la demo heredada
+|-- .gitattributes        # UTF-8, LF y tratamiento de binarios
+|-- .editorconfig         # Convenciones de edición reproducibles
+|-- iniciar.bat           # Inicio local de la línea base en Windows
+`-- detener.bat           # Detención local en Windows
 ```
 
-La demo publica puede correr como una sola app: FastAPI sirve `/api/*` y tambien los archivos del frontend. Esto evita separar la experiencia en dos URLs.
+No existen todavía paquetes físicos separados que materialicen los módulos de la arquitectura objetivo.
 
-## Capturas
+## Stack objetivo aprobado
 
-Capturas recomendadas para portafolio:
+La selección normativa está cerrada en [`ADR-005`](docs/adr/ADR-005-target-technology-stack.md):
 
-| Vista | Archivo sugerido | Objetivo |
+| Capa | Tecnología objetivo | Estado físico |
 |---|---|---|
-| Login | `docs/screenshots/login.png` | Mostrar acceso demo profesional y contrasenas ocultas |
-| Dashboard | `docs/screenshots/dashboard.png` | Resumen operativo y alertas |
-| Inventario | `docs/screenshots/inventario.png` | Stock, lotes y vencimientos |
-| Productos | `docs/screenshots/productos.png` | Catalogo, categorias, precios y estado |
-| Ventas | `docs/screenshots/ventas-pos.png` | Punto de venta y carrito |
-| Caja | `docs/screenshots/caja.png` | Apertura/cierre y arqueo |
-| Reportes | `docs/screenshots/reportes.png` | Indicadores comerciales |
+| Lenguaje y monorepo | TypeScript estricto, pnpm workspaces y Nx | Pendiente |
+| API central | NestJS con Fastify, monolito modular | Pendiente |
+| POS productivo | Electron, React y Vite | Pendiente |
+| PWA del POS | React/Vite con `IndexedDB`, `sql.js` o SQLite/WASM solo para laboratorio sintético | Prohibida como runtime o persistencia productiva |
+| Servicio local | Node.js/TypeScript como servicio de Windows | Pendiente |
+| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Decidida; modelo físico pendiente |
+| Acceso a datos | Kysely con migraciones separadas por dialecto | Pendiente |
+| Contratos | TypeScript y Zod | Pendiente |
+| Pruebas | Vitest, Playwright, Testcontainers y k6 | Pendiente |
+| Observabilidad | OpenTelemetry | Pendiente |
+| Infraestructura | Docker, object storage compatible con S3 y proveedor central pagado | Pendiente |
 
-Ver la guia de captura en [docs/screenshots/README.md](docs/screenshots/README.md).
+Las versiones exactas se fijarán mediante manifiestos, lockfile, imágenes y CI al crear el esqueleto. Este cuadro representa decisiones, no una implementación existente.
 
-## Instalacion
+## Stack heredado verificado
 
-### 1. Clonar el repositorio
+El stack siguiente describe únicamente lo que está físicamente presente en la línea base Avícola.
 
-```bash
-git clone https://github.com/Andresito202/supermercado-avicola.git
-cd supermercado-avicola
+| Capa | Tecnología verificada | Situación |
+|---|---|---|
+| Backend | Python 3.12 en las imágenes, FastAPI, Uvicorn, SQLAlchemy 2, Pydantic 2 y Alembic | Línea base heredada |
+| Persistencia | PostgreSQL 16 en Docker Compose; SQLite en memoria para tests | Línea base heredada |
+| Seguridad | JWT con `python-jose`, bcrypt y roles simples por endpoint | Línea base heredada; no implementa aún el modelo RBAC/ABAC objetivo |
+| Frontend | HTML, CSS, JavaScript y Bootstrap 5 cargado por CDN | Línea base heredada prevista para reemplazo |
+| Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
+| Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
+
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas Kysely separadas por dialecto. Véanse `ADR-005` y `DEC-007`. Esto guía `TECH-002`; no describe una implementación ya existente.
+
+El repositorio no contiene actualmente `package.json`, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
+
+## Desarrollo local
+
+La arquitectura objetivo de POS Platform aún no puede iniciarse de extremo a extremo. Los siguientes comandos levantan y prueban únicamente la línea base heredada.
+
+### Línea base con Docker Compose
+
+En PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+docker compose -f infra/docker-compose.yml up --build
 ```
 
-### 2. Crear variables locales
+En Windows también existen los scripts:
 
-```bash
-cp .env.example .env
+```powershell
+.\iniciar.bat
+.\detener.bat
 ```
 
-En Windows tambien puedes ejecutar `iniciar.bat`; si no existe `.env`, el script lo crea desde `.env.example`.
+La configuración actual expone la aplicación y la documentación OpenAPI en `http://localhost:8000` y `http://localhost:8000/docs`. Sus variables, datos de demostración e identidad visual todavía pertenecen al legado y no deben trasladarse sin revisión al modelo objetivo.
 
-## Variables de entorno
+### Tests existentes
 
-| Variable | Descripcion |
-|---|---|
-| `ENVIRONMENT` | `development`, `test` o `production` |
-| `DATABASE_URL` | URL completa de PostgreSQL |
-| `SECRET_KEY` | Clave privada para firmar JWT. Debe tener al menos 32 caracteres |
-| `ADMIN_USERNAME` | Usuario administrador inicial |
-| `ADMIN_PASSWORD` | Contrasena del administrador inicial |
-| `ADMIN_EMAIL` | Email del administrador inicial |
-| `CORS_ORIGINS` | Lista separada por comas de origenes permitidos |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Tiempo de expiracion del JWT |
-| `AUTO_CREATE_TABLES` | Crea tablas automaticamente en desarrollo |
-| `SEED_DEMO_DATA` | Carga usuarios y datos demo al iniciar |
-| `FRONTEND_DIR` | Ruta opcional para servir frontend desde FastAPI |
-
-Las claves sensibles no tienen valores por defecto en el codigo. Deben configurarse por entorno. En produccion no se permite `CORS_ORIGINS=*` ni claves de ejemplo.
-
-## Docker
-
-### Desarrollo local
-
-```bash
-cd infra
-docker compose up --build
-```
-
-Servicios:
-
-- App: `http://localhost:8000`
-- Swagger: `http://localhost:8000/docs`
-- PostgreSQL: `localhost:5432`
-
-### Produccion
-
-El Dockerfile de la raiz esta pensado para Render:
-
-```bash
-docker build -t supermercado-avicola .
-docker run --env-file .env -p 8000:8000 supermercado-avicola
-```
-
-## Base de datos
-
-El proyecto usa PostgreSQL en desarrollo y produccion. Para tests se usa SQLite en memoria.
-
-Migraciones:
-
-```bash
-cd backend
-alembic upgrade head
-```
-
-Seed demo:
-
-```bash
-python database/seeds/seed_data.py
-```
-
-Usuarios demo del seed:
-
-| Rol | Usuario |
-|---|---|
-| Administrador | `admin` |
-| Cajero | `cajero1` |
-| Bodeguero | `bodeguero1` |
-| Supervisor | `supervisor1` |
-| Gerente | `gerente1` |
-
-Las contrasenas demo se ocultan visualmente en el login y se copian mediante botones.
-
-## Tests
-
-```bash
-cd backend
+```powershell
+Set-Location backend
 python -m pytest tests -q
 ```
 
-Estado actual validado:
+La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas pasaron, con advertencias de deprecación de la dependencia JWT. Este resultado no valida multi-tenancy, RBAC/ABAC, licenciamiento, sincronización ni operación local-first.
 
-```text
-27 passed
-```
+## Roadmap inmediato
 
-## Despliegue
+La Fase 1 debe convertir los contratos documentales en una fundación ejecutable:
 
-La configuracion recomendada es Render:
+1. crear el esqueleto modular y reglas verificables de dependencia;
+2. crear el monorepo pnpm/Nx conforme a `ADR-005`, sin copiar el acoplamiento del legado;
+3. diseñar e implementar el modelo físico nuevo sin reescribir silenciosamente la migración heredada;
+4. añadir migraciones, restricciones, índices y fronteras transaccionales;
+5. implementar aislamiento multi-tenant, identidad, sesiones revocables y autorización backend;
+6. establecer CI con lint, tipos, pruebas, seguridad, licencias y validación de migraciones;
+7. entregar un primer corte vertical autenticado, auditable e idempotente;
+8. demostrar la base local-first con identificadores globales, outbox, reintentos y recuperación sin duplicación.
 
-- Web Service Docker en plan `starter` para evitar sleep en entrevistas.
-- PostgreSQL administrado por Render en plan `basic-256mb`.
-- Variables sensibles en el panel de Render.
-- Frontend servido desde FastAPI.
+El detalle y las dependencias se mantienen en [docs/product/backlog.md](docs/product/backlog.md).
 
-El repositorio incluye `render.yaml` para crear la infraestructura base. Ver pasos detallados en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+## Calidad y seguridad
 
-Para una demo sin costo se pueden cambiar los planes a `free`, aceptando cold starts, limites y menor estabilidad para reclutadores.
+La estrategia objetivo exige pruebas unitarias, de integración, contrato y extremo a extremo, además de escenarios negativos de permisos, aislamiento entre tenants, concurrencia, reintentos, recuperación y operación offline. Estos son requisitos documentados para la implementación futura; no se presentan como cobertura ya disponible.
 
-## Roadmap
+Las reglas de seguridad requieren autorización en backend, mínimo privilegio, RBAC/ABAC, segregación de funciones, reautenticación para cambios sensibles, auditoría append-only y aislamiento por tenant, empresa y sucursal. La implementación heredada no satisface todavía este modelo completo.
 
-- Agregar pagina de administracion de usuarios.
-- Completar auditoria automatica en todas las operaciones criticas.
-- Agregar GitHub Actions para ejecutar tests en cada push.
-- Reemplazar renderizados con `innerHTML` por componentes DOM seguros en todo el frontend.
-- Agregar capturas reales al README y Open Graph para LinkedIn.
-- Agregar filtros avanzados y exportacion CSV/PDF en reportes.
+## Documentación principal
 
-## Autor
+- [Visión del producto](docs/product/vision.md)
+- [Alcance inicial](docs/product/scope.md)
+- [Backlog maestro](docs/product/backlog.md)
+- [Requisitos no funcionales](docs/product/non-functional-requirements.md)
+- [Contexto del sistema](docs/architecture/system-context.md)
+- [Mapa de módulos](docs/architecture/module-map.md)
+- [Modelo multiempresa](docs/architecture/tenant-model.md)
+- [Modelo conceptual de datos](docs/architecture/conceptual-data-model.md)
+- [Modelo de seguridad](docs/architecture/security-model.md)
+- [Stack tecnológico objetivo](docs/adr/ADR-005-target-technology-stack.md)
+- [Runtime productivo del POS](docs/adr/DEC-010-pos-runtime.md)
+- [Línea base operacional](docs/adr/DEC-009-operational-production-baseline.md)
+- [Contratos de integración](docs/architecture/integration-contracts.md)
+- [Documentos electrónicos](docs/architecture/electronic-invoicing.md)
+- [Matriz de hardware](docs/hardware/support-matrix.md)
+- [Secretos, claves y soporte](docs/security/secret-key-and-support-management.md)
+- [Reglas de negocio](docs/domain/business-rules.md)
+- [Matriz de permisos](docs/security/permission-matrix.md)
+- [Estrategia de pruebas](docs/testing/testing-strategy.md)
+- [Estrategia de migración de la línea base](docs/migration/avicola-baseline-migration.md)
 
-Wilson Andres Camacho Culma
-
-Proyecto preparado como demo full-stack para entrevistas tecnicas, portafolio personal y seccion Destacados de LinkedIn.
+POS Platform está en desarrollo activo. El repositorio no publica todavía una licencia de uso.
