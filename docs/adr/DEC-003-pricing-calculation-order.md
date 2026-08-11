@@ -2203,7 +2203,7 @@ La cobertura se calcula separadamente.
 
 ```text
 confirmed_coverage =
-sum(confirmed_payment_components)
+sum(confirmed_payment_amounts)
 ```
 
 ```text

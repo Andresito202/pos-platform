@@ -301,6 +301,13 @@ Estado de la épica: `IN_PROGRESS`.
 2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
 3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
 
+`TECH-002 READY` autoriza iniciar el diseño físico, no escribir migraciones antes de cerrar ese diseño. Su secuencia interna obligatoria es:
+
+1. consolidar la matriz física de motores y dialectos, UUID, tipos monetarios, alcances de unicidad, tablas de identidad/RBAC/sesión, fronteras transaccionales y auditoría;
+2. verificar cada decisión contra inventario por presentación y lote, `PaymentGroup`/`Payment`/`PaymentAttempt`, estados persistentes de `Sale`, redondeo único y configuración offline por dominio;
+3. aprobar el esquema y las diferencias PostgreSQL/SQLite mediante revisión transversal;
+4. solo entonces escribir y validar la primera migración objetivo, sin modificar la migración heredada.
+
 
 La implementación de la arquitectura objetivo debe comenzar por la fundación técnica y respetar los invariantes cerrados durante la Fase 0.
 
