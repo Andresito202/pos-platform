@@ -105,15 +105,15 @@
 | Ver kardex | Sí | Sí | Sí | Sí | Sí | No |
 | Eliminar movimiento | No | No | No | No | No | No |
 
-## Compras
+## Recepción y proveedores
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | PURCHASING_OPERATOR | SUPERVISOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
-| Crear compra | Sí | Sí | Sí | Sí | Condicional | No |
-| Recibir compra | Sí | Sí | Sí | Sí | Sí | No |
-| Anular compra | Sí | Sí | Condicional | Solicitar | Autorizar | No |
-| Editar costo | Sí | Sí | Condicional | Sí | Condicional | No |
+| Registrar GoodsReceipt confirmado | Sí | Sí | Sí | Sí | Sí | No |
+| Consultar GoodsReceipt | Sí | Sí | Sí | Sí | Sí | No |
 | Consultar proveedores | Sí | Sí | Sí | Sí | Sí | No |
+
+No existe permiso para anular o editar un GoodsReceipt confirmado. Los errores de inventario utilizan los permisos separados de ajuste, revisión y compensación; los permisos de PurchaseOrder se definirán únicamente al abordar `PUR-001`.
 
 ## Caja y ventas
 
@@ -131,6 +131,11 @@
 | Abrir cajón manualmente | Sí | Sí | Condicional | Autorizar | Condicional |
 | Registrar ingreso de caja | Sí | Sí | Sí | Sí | Dentro de política |
 | Registrar egreso de caja | Sí | Sí | Condicional | Autorizar | Dentro de límite |
+| Realizar arqueo propio | Sí | Sí | Sí | Sí | Sí |
+| Abandonar arqueo propio | Sí | Sí | Sí | Sí | Sí, auditado |
+| Consultar arqueo | Sí | Sí | Sí | Sí | Solo propio |
+| Revisar diferencia | Sí | Sí | Sí | Sí | No sobre diferencia propia crítica |
+| Aceptar diferencia material | Sí | Sí | Condicional | Sí | No sobre diferencia propia crítica |
 | Eliminar cierre | No | No | No | No | No |
 
 ## Reportes
@@ -179,6 +184,17 @@ Ejemplos:
 - `payments.reversal.approve`;
 - `payments.reversal.execute`;
 - `cash.expense.register`;
+- `cash.shift.open`;
+- `cash.shift.close`;
+- `cash.count.start`;
+- `cash.count.complete`;
+- `cash.count.abort`;
+- `cash.count.correct`;
+- `cash.count.read`;
+- `cash.difference.review`;
+- `cash.difference.accept`;
+- `cash.difference.escalate`;
+- `cash.difference.resolve`;
 - `inventory.adjustment.request`;
 - `inventory.adjustment.approve`;
 - `inventory.adjustment.execute`;
@@ -189,6 +205,9 @@ Ejemplos:
 - `inventory.transfer.receive`;
 - `inventory.conflict.review`;
 - `inventory.compensation.execute`;
+- `purchasing.goods_receipt.confirm`;
+- `purchasing.goods_receipt.read`;
+- `suppliers.supplier.read`;
 - `security.permission.change`;
 - `tenant.owner.change`;
 - `license.plan.change`.

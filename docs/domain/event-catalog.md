@@ -120,6 +120,12 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### InventoryReceived
 
+Registra una entrada de inventario cuya causa no es una recepción de proveedor, por ejemplo el resultado de una conversión de presentación. No sustituye `GoodsReceiptConfirmed`.
+
+### GoodsReceiptConfirmed
+
+Registra la confirmación inmutable de una recepción física y referencia sus líneas, asignaciones de lote y movimientos. No representa orden de compra, factura, cuenta por pagar ni pago al proveedor.
+
 ### InventoryAdjusted
 
 ### InventoryReserved
@@ -140,31 +146,65 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### StockBelowMinimum
 
-## Compras
-
-### PurchaseCreated
-
-### PurchaseReceived
-
-### PurchasePartiallyReceived
-
-### PurchaseCancelled
-
-### SupplierReturnCreated
-
 ## Caja
 
 ### CashShiftOpened
 
 ### CashMovementRecorded
 
+Evento de integración emitido una sola vez cuando un CashMovement queda `POSTED` y participa en ExpectedCash.
+
+### CashMovementCreated
+
+### CashMovementApproved
+
+### CashMovementPosted
+
+### CashMovementRejected
+
+### CashMovementFailed
+
+### CashMovementCompensated
+
 ### CashWithdrawalRecorded
+
+### CashWithdrawalRequested
+
+### CashWithdrawalApproved
+
+### CashWithdrawalCompleted
+
+### CashWithdrawalRejected
 
 ### CashShiftClosingRequested
 
 ### CashShiftClosed
 
 ### CashDifferenceDetected
+
+### CashCountStarted
+
+### CashCountCompleted
+
+### CashCountAborted
+
+### CashDifferenceAccepted
+
+### CashDifferenceEscalated
+
+### CourierCashReported
+
+### CourierCashReceived
+
+### CourierCashDifferenceDetected
+
+### CourierCashCollectionClosed
+
+### CashRefundRequested
+
+### CashRefundCompleted
+
+### CashRefundFailed
 
 ### CashDrawerOpenedManually
 

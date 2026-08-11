@@ -177,15 +177,15 @@ Todo movimiento debe identificar:
 
 ## ExpectedCash
 
-Valor calculado que debería existir en caja.
+Valor derivado que debería existir en caja. No es un agregado ni una columna mutable de CashShift: se calcula desde CashMovement `POSTED` hasta un corte explícito y se congela dentro de CashCount.
 
 ## CountedCash
 
-Valor físicamente contado durante arqueo o cierre.
+Valor físicamente contado durante arqueo o cierre y conservado dentro de CashCount junto con sus denominaciones cuando se informan.
 
 ## CashDifference
 
-Diferencia entre efectivo esperado y efectivo contado.
+Diferencia inmutable dentro de CashCount entre efectivo esperado y efectivo contado. Su investigación se gestiona mediante CashDifferenceReview; aceptar una diferencia no la convierte en cero ni crea un movimiento.
 
 ```text
 cash_difference = counted_cash - expected_cash
@@ -270,8 +270,9 @@ Los tipos definitivos deben quedar versionados y extensibles.
 - `POSTED`;
 - `REJECTED`;
 - `FAILED`;
-- `CANCELLED`;
-- `REVERSED_BY_COMPENSATION`.
+- `CANCELLED`.
+
+`REVERSED_BY_COMPENSATION` es una proyección derivada cuando existe un movimiento compensatorio `POSTED`; no cambia el estado persistido del movimiento original.
 
 ## Regla
 
@@ -781,9 +782,9 @@ Comparar el efectivo esperado con el efectivo contado sin cerrar el turno.
 1. Un arqueo no modifica movimientos.
 2. Un arqueo no ajusta automáticamente.
 3. Un arqueo no cierra el turno.
-4. El arqueo conserva versión.
+4. El arqueo conserva la versión del turno y la secuencia de corte usadas para ExpectedCash.
 5. Los movimientos posteriores no cambian el resultado histórico del arqueo.
-6. Una diferencia debe investigarse.
+6. Toda diferencia distinta de cero crea CashDifferenceReview y debe investigarse.
 7. Las denominaciones deben sumar el total contado.
 8. Los reintentos no crean arqueos duplicados.
 
@@ -804,7 +805,7 @@ Reducir el sesgo durante el conteo.
 1. La política define cuándo aplica.
 2. El efectivo esperado se revela después de confirmar el conteo.
 3. El actor no puede modificar el conteo después de conocer el esperado.
-4. Una corrección crea una nueva versión.
+4. Una corrección crea un CashCount `CORRECTION` nuevo que referencia el conteo anterior.
 5. Toda reapertura requiere autorización.
 6. El arqueo original permanece.
 
@@ -1244,9 +1245,11 @@ El reintento debe ser idempotente.
 
 ## Conteo incorrecto
 
-Se crea una nueva versión del arqueo.
+Se crea un CashCount `CORRECTION` nuevo relacionado con el conteo incorrecto, conservando su corte, efectivo esperado, moneda y políticas versionadas.
 
 El conteo original permanece.
+
+Si la versión del turno cambia antes de completar un conteo, este queda `ABORTED` con motivo auditable y debe iniciarse un conteo nuevo.
 
 ---
 

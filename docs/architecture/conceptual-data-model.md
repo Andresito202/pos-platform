@@ -15,7 +15,7 @@ Platform
             ├── InventoryLocation
             ├── UserRoleAssignment con alcance de sucursal
             ├── Sale
-            ├── Purchase
+            ├── GoodsReceipt
             └── DeliveryOperation
 
 ## Entidades de plataforma
@@ -41,16 +41,15 @@ Atributos conceptuales:
 
 - id;
 - code opcional;
-- legal_name;
+- name;
 - status;
-- plan_id;
-- deployment_mode;
 - created_at.
 
 Reglas:
 
 1. `id` UUID v7 es la identidad canónica del tenant.
 2. `code`, cuando exista, se normaliza de forma determinista y es único globalmente; es un identificador humano, no reemplaza `id` ni se reutiliza.
+3. El plan efectivo, la modalidad de despliegue y los entitlements pertenecen a `License`; no se duplican como autoridad en `Tenant`.
 
 ### License
 
@@ -304,11 +303,11 @@ Atributos conceptuales:
 
 - id;
 - tenant_id;
-- legal_name;
+- legal_name opcional;
 - trade_name;
-- tax_id;
-- email;
-- phone;
+- tax_id opcional;
+- email opcional;
+- phone opcional;
 - timezone;
 - currency;
 - status.
@@ -317,6 +316,7 @@ Reglas:
 
 1. `tax_id`, cuando exista, se normaliza y es único dentro de `tenant_id` conforme a la matriz de restricciones de este documento.
 2. `timezone` y `currency` son obligatorios para congelar fecha de negocio y valores monetarios; su modificación no reinterpreta documentos históricos.
+3. `trade_name` materializa el `company_name` obligatorio de onboarding; `legal_name` solo se exige cuando el contrato comercial o fiscal aplicable lo requiera.
 
 ### CompanyBranding
 
@@ -342,10 +342,10 @@ Atributos conceptuales:
 - company_id;
 - name;
 - code opcional;
-- address;
-- city;
-- latitude;
-- longitude;
+- address opcional;
+- city opcional;
+- latitude opcional;
+- longitude opcional;
 - timezone;
 - status.
 
@@ -354,6 +354,61 @@ Reglas:
 1. `code`, cuando exista, se normaliza y es único por `(tenant_id, company_id)`; es un identificador humano, no la PK.
 2. La sucursal pertenece a una sola empresa y su `tenant_id` debe coincidir con el de esa empresa.
 3. `timezone` es obligatoria y determina `business_date` para operaciones nuevas; cambiarla no altera fechas ya congeladas.
+
+### OnboardingOperation
+
+Representa la identidad, el estado y el resultado idempotente de `UC-ONB-001`.
+
+Puede existir antes de que se cree el tenant y no sustituye los estados de tenant, licencia, usuario, sesión, dispositivo o sucursal.
+
+Atributos conceptuales:
+
+- id;
+- actor_id;
+- idempotency_key;
+- request_checksum;
+- correlation_id;
+- tenant_id opcional;
+- company_id opcional;
+- branch_id opcional;
+- owner_user_id opcional;
+- tenant_membership_id opcional;
+- status;
+- reason_code opcional;
+- license_reference opcional;
+- requested_plan opcional;
+- effective_plan opcional;
+- pricing_policy_version opcional;
+- tax_policy_version opcional;
+- rounding_policy_version opcional;
+- authorization_policy_version opcional;
+- required_action opcional;
+- created_at;
+- updated_at;
+- completed_at opcional;
+- cancelled_at opcional.
+
+Valores conceptuales de `status`:
+
+- `PENDING`;
+- `IN_PROGRESS`;
+- `READY_FOR_LICENSE`;
+- `READY_FOR_ACTIVATION`;
+- `COMPLETED`;
+- `FAILED`;
+- `CANCELLED`;
+- `REVIEW_REQUIRED`.
+
+Reglas:
+
+1. La misma identidad de idempotencia y el mismo `request_checksum` devuelven el mismo onboarding y resultado.
+2. Reutilizar la misma identidad de idempotencia con otro checksum produce conflicto y no modifica el resultado existente.
+3. `tenant_id`, `company_id`, `branch_id`, `owner_user_id` y `tenant_membership_id` permanecen opcionales hasta que la transacción de bootstrap confirme esos efectos.
+4. Un estado `COMPLETED` exige que el resultado mínimo de `UC-ONB-001` haya quedado confirmado.
+5. Las referencias de políticas registran las versiones aplicadas; no copian ni reemplazan sus reglas.
+6. La emisión o activación de licencia y el registro de dispositivos son operaciones posteriores e idempotentes.
+7. La cancelación o el fallo no eliminan silenciosamente estructuras ya confirmadas ni su auditoría.
+8. La operación, sus efectos críticos, el resultado idempotente y la outbox se confirman en la frontera transaccional definida por `UC-ONB-001`.
 
 ### Device
 
@@ -368,12 +423,7 @@ Atributos conceptuales:
 - company_id;
 - branch_id opcional;
 - type;
-- installation_id;
-- app_version;
-- operating_system;
 - trust_status;
-- status;
-- last_seen_at;
 - registered_at;
 - revoked_at opcional;
 - replacement_device_id opcional.
@@ -391,11 +441,35 @@ Reglas:
 
 1. `device_id` es globalmente único.
 2. `device_id` no se reutiliza.
-3. `installation_id` identifica una instalación concreta.
-4. Una reinstalación limpia genera un nuevo `installation_id`.
-5. Un cambio menor de hardware no revoca automáticamente.
-6. Un dispositivo revocado no recupera confianza sin autorización.
-7. La confianza del dispositivo no sustituye permisos de usuario.
+3. Las instalaciones asociadas se representan mediante `Installation`; `Device` no usa `installation_id` como identidad propia.
+4. Un cambio menor de hardware no revoca automáticamente.
+5. Un dispositivo revocado no recupera confianza sin autorización.
+6. La confianza del dispositivo no sustituye permisos de usuario.
+
+### Installation
+
+Representa una instalación concreta de la aplicación POS y mantiene identidad independiente de dispositivo, clave, activación y licencia.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- device_id opcional hasta completar el registro autorizado;
+- app_version;
+- operating_system;
+- created_at;
+- linked_at opcional;
+- retired_at opcional;
+- replacement_installation_id opcional.
+
+Reglas:
+
+1. `installation_id` es globalmente único y no se reutiliza.
+2. Una reinstalación limpia crea una nueva `Installation`.
+3. Una instalación puede existir antes de quedar vinculada a un `Device`, pero no obtiene por ello confianza, licencia ni activación.
+4. Cuando `device_id` exista, la instalación y el dispositivo deben pertenecer al mismo tenant.
+5. Retirar o reemplazar una instalación conserva su historia y no revive ni transfiere activaciones automáticamente.
+6. La instalación no sustituye `DeviceKey`, `LicenseActivation` ni `License`.
 
 ### DeviceKey
 
@@ -481,6 +555,7 @@ Atributos conceptuales:
 
 - tenant_id;
 - device_id;
+- installation_id;
 - device_status;
 - connectivity_status;
 - health_status;
@@ -512,6 +587,7 @@ Reglas:
 6. `last_sync_at` solo avanza después de sincronización confirmada.
 7. Los umbrales temporales se definen mediante política versionada.
 8. Una transición operativa no amplía permisos ni derechos contractuales.
+9. El estado operativo identifica la instalación observada; una señal de una instalación retirada no actualiza silenciosamente la instalación vigente.
 
 ### DeviceManagementProfile
 
@@ -634,9 +710,7 @@ Atributos conceptuales:
 - email;
 - phone;
 - full_name;
-- password_hash;
-- status;
-- mfa_enabled.
+- status.
 
 Reglas:
 
@@ -650,6 +724,63 @@ Reglas:
 8. `phone` se normaliza cuando exista, pero no constituye por sí solo autoridad de pertenencia ni de recuperación.
 9. La PK UUID v7 de User es la autoridad de identidad; cambiar correo o teléfono no crea otra identidad.
 10. Vincular un onboarding con un User existente exige autenticación, verificación o proceso administrativo autorizado; una coincidencia no basta.
+11. Las credenciales y los factores MFA tienen ciclo de vida propio; `User` no almacena una bandera que los sustituya.
+
+### UserCredential
+
+Representa una credencial verificable asociada a una identidad global.
+
+Atributos conceptuales:
+
+- id;
+- user_id;
+- credential_type;
+- verifier;
+- status;
+- failed_attempt_count;
+- locked_until opcional;
+- created_at;
+- rotated_at opcional;
+- last_used_at opcional;
+- revoked_at opcional;
+- retained_until opcional;
+- version.
+
+Reglas:
+
+1. Para contraseña, `verifier` contiene únicamente un hash resistente con parámetros y salt propios; nunca contraseña, pista ni valor reversible.
+2. El tipo de credencial debe estar soportado por un contrato implementado; el modelo no acepta mecanismos desconocidos por configuración libre.
+3. Los intentos fallidos y el bloqueo temporal se actualizan de forma controlada y auditable.
+4. Rotar o revocar una credencial conserva historia suficiente sin permitir reutilizar el verificador anterior.
+5. Una credencial válida no concede pertenencia, rol ni contexto tenant.
+6. Una credencial retirada no se purga antes de `retained_until` ni mientras sea necesaria para investigar un evento de seguridad; la duración concreta pertenece a la política de retención y no se inventa en el modelo.
+
+### MfaFactor
+
+Representa un segundo factor registrado y verificable para un usuario.
+
+Atributos conceptuales:
+
+- id;
+- user_id;
+- factor_type;
+- secret_reference opcional;
+- status;
+- enrolled_at;
+- verified_at opcional;
+- last_used_at opcional;
+- revoked_at opcional;
+- retained_until opcional;
+- version.
+
+Reglas:
+
+1. Un factor solo satisface MFA después de quedar verificado y vigente.
+2. Los secretos o claves privadas del factor no se almacenan como texto plano; cuando existan se custodian mediante la referencia permitida por `SEC-004`.
+3. La presencia de un factor no implica que toda sesión haya completado MFA.
+4. Revocar un factor no elimina los eventos de seguridad ni la evidencia de sesiones anteriores.
+5. Cada `factor_type` requiere contrato, almacenamiento y pruebas propios antes de habilitarse; este modelo no selecciona un proveedor o método por anticipado.
+6. Un factor retirado no se purga antes de `retained_until` ni mientras sea necesario para una investigación o auditoría aplicable.
 
 ### TenantMembership
 
@@ -743,6 +874,54 @@ Reglas:
 2. Un permiso utilizado se retira; no se elimina ni cambia de significado.
 3. La relación versionada entre Role y Permission conserva vigencia e historial.
 
+### RolePermissionGrant
+
+Representa la relación publicada y versionada entre un rol y un permiso atómico.
+
+Atributos conceptuales:
+
+- id;
+- role_id;
+- permission_id;
+- grant_version;
+- status;
+- valid_from;
+- valid_until opcional;
+- created_at;
+- retired_at opcional.
+
+Reglas:
+
+1. Un grant solo referencia definiciones existentes de `Role` y `Permission`.
+2. La combinación publicada de rol, permiso y versión no se modifica retroactivamente.
+3. Retirar un grant conserva el historial y no elimina el permiso ni el rol.
+4. Un grant no amplía el alcance definido por `UserRoleAssignment`, pertenencia o política ABAC.
+5. La ausencia de un grant vigente produce denegación explícita.
+
+### AuthorizationPolicyVersion
+
+Identifica la versión exacta del conjunto determinista de reglas ABAC aplicado por backend.
+
+Atributos conceptuales:
+
+- id;
+- code;
+- version;
+- ruleset_checksum;
+- status;
+- effective_from;
+- effective_until opcional;
+- created_at;
+- retired_at opcional.
+
+Reglas:
+
+1. `code` y `version` identifican de forma única una política publicada.
+2. `ruleset_checksum` vincula el registro con reglas backend revisadas y probadas; no sustituye las reglas ni las guarda como JSON opaco autoritativo.
+3. Una política ABAC solo restringe permisos atómicos existentes; nunca crea permisos por sí misma.
+4. Las decisiones sensibles registran la versión aplicada y un `reason_code` estable.
+5. Una versión utilizada no se modifica retroactivamente; se retira o sustituye por otra.
+
 ### UserRoleAssignment
 
 Asigna un rol a una pertenencia de tenant dentro de un alcance operativo autorizado.
@@ -808,6 +987,71 @@ Reglas:
 5. MFA y reautenticación son evidencias separadas y auditables.
 6. Revocar una sesión no elimina su historial.
 
+### SessionRefreshToken
+
+Representa un token de renovación rotatorio sin persistir el token utilizable.
+
+Atributos conceptuales:
+
+- id;
+- session_id;
+- token_family_id;
+- parent_token_id opcional;
+- token_hash;
+- issued_at;
+- expires_at;
+- consumed_at opcional;
+- replacement_token_id opcional;
+- revoked_at opcional;
+- revocation_reason opcional;
+- reuse_detected_at opcional;
+- retained_until opcional.
+
+Reglas:
+
+1. Solo se persiste un hash no reversible del refresh token; el token utilizable no entra a base, logs ni auditoría.
+2. Un token consumido, vencido o revocado no vuelve a ser válido.
+3. La rotación consume el token anterior y crea un sucesor dentro de la misma familia.
+4. Detectar reutilización revoca la familia según la política y genera `SecurityEvent`.
+5. Revocar la sesión invalida todos sus refresh tokens vigentes.
+6. Un refresh token no cambia por sí mismo usuario, tenant, pertenencia, roles ni permisos de la sesión.
+7. El hash y la metadata de un token invalidado se conservan hasta `retained_until` cuando sean necesarios para detectar reutilización; nunca se conserva el token utilizable.
+
+### OfflineAuthorizationSnapshot
+
+Representa el contexto mínimo, limitado y verificable con el que una instalación puede autorizar operaciones offline.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- user_id;
+- tenant_membership_id;
+- device_id;
+- installation_id;
+- authorization_policy_version;
+- permission_codes;
+- company_scopes;
+- branch_scopes;
+- mfa_evidence opcional;
+- issued_at;
+- expires_at;
+- payload_version;
+- payload_checksum;
+- signing_key_id;
+- signature;
+- revoked_at opcional.
+
+Reglas:
+
+1. El snapshot no contiene contraseña, factor MFA, access token, refresh token ni secreto reutilizable.
+2. Solo conserva permisos y scopes efectivos ya autorizados; no permite elevarlos localmente.
+3. Pertenece a un usuario, membership, dispositivo e instalación concretos del mismo tenant.
+4. Su vigencia no supera la sesión ni `offline_valid_until` que lo originan.
+5. Se verifica firma, checksum, versión, vigencia y revocaciones conocidas antes de usarlo.
+6. Una revocación conocida prevalece sobre el snapshot.
+7. Cambiar roles, política o instalación exige otro snapshot; el anterior conserva historia pero no se reescribe.
+
 ### SecurityEvent
 
 Registra intentos, cambios y alertas críticas.
@@ -826,13 +1070,58 @@ Atributos conceptuales:
 - internal_code;
 - name;
 - description;
-- brand;
-- category_id;
+- brand_id opcional;
+- category_id opcional según política del tipo de producto;
 - product_type;
+- variant_policy;
+- base_unit_id;
 - stock_controlled;
 - lot_controlled;
 - expiration_controlled;
-- active.
+- serial_controlled;
+- tax_category_id opcional;
+- business_attributes;
+- status;
+- created_at;
+- updated_at;
+- version.
+
+Valores conceptuales de `status`:
+
+- `DRAFT`;
+- `ACTIVE`;
+- `INACTIVE`.
+
+Reglas:
+
+1. `internal_code`, cuando exista, es único dentro de la empresa y no se reutiliza silenciosamente al desactivar.
+2. `base_unit_id` debe ser compatible con la naturaleza y precisión del producto.
+3. Un producto con `expiration_controlled` requiere `lot_controlled`.
+4. Crear o actualizar Product no crea stock ni precio implícito.
+5. Los cambios incompatibles con movimientos existentes requieren migración controlada; no reescriben historia.
+6. `business_attributes` solo contiene atributos realmente abiertos y validados por tipo; no sustituye relaciones, estados, unidad, impuestos ni controles.
+
+### Brand
+
+Representa una marca comercial referenciable dentro del catálogo de una empresa.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- name;
+- name_normalized;
+- status;
+- created_at;
+- retired_at opcional;
+- version.
+
+Reglas:
+
+1. Una marca pertenece a una empresa y no se comparte implícitamente entre tenants.
+2. El nombre normalizado activo es único dentro de la empresa.
+3. Retirar una marca no altera productos ni snapshots históricos.
 
 ### ProductVariant
 
@@ -872,10 +1161,14 @@ Atributos conceptuales:
 - variant_id opcional;
 - name;
 - internal_sku;
-- base_unit_id;
+- unit_id;
 - contained_quantity;
-- base_presentation_id opcional;
-- conversion_factor opcional;
+- quantity_scale;
+- variable_quantity;
+- minimum_quantity opcional;
+- maximum_quantity opcional;
+- tare_quantity opcional;
+- scale_format opcional;
 - sales_enabled;
 - purchasing_enabled;
 - inventory_enabled;
@@ -886,6 +1179,10 @@ Atributos conceptuales:
 Toda presentación pertenece a un producto y, cuando exista variante, esta debe pertenecer al mismo producto.
 
 Todo artículo vendible debe resolver finalmente a una presentación.
+
+La presentación define la precisión física de sus cantidades. Los límites y la tara solo aplican cuando `variable_quantity = true` y deben usar su misma unidad y precisión.
+
+`base_presentation_id` y `conversion_factor` son entradas opcionales de creación que, cuando se informan, producen una `UnitConversion` versionada dentro de la misma operación. No se duplican como autoridad mutable en ProductPresentation.
 
 ### ProductIdentifier
 
@@ -912,11 +1209,64 @@ El valor activo es único dentro de `(company_id, identifier_type, normalized_va
 
 ### Category
 
-Organiza el catálogo.
+Organiza de forma plana el catálogo de una empresa sin introducir jerarquías no exigidas por los casos de uso vigentes.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- code opcional;
+- code_normalized opcional;
+- name;
+- name_normalized;
+- status;
+- created_at;
+- retired_at opcional;
+- version.
+
+Reglas:
+
+1. Category pertenece a una empresa.
+2. Nombre normalizado y código normalizado, cuando exista, son únicos dentro de la empresa mientras estén vigentes.
+3. Una categoría retirada conserva productos y operaciones históricas; no se elimina en cascada.
+4. No se crea `parent_category_id` hasta que un caso de uso defina jerarquía, movimientos y prevención de ciclos.
 
 ### UnitOfMeasure
 
-Representa unidad, gramo, kilogramo, libra, litro, metro, caja, paquete u otra unidad.
+Representa una unidad física publicada y reutilizable para cantidades de catálogo.
+
+Atributos conceptuales:
+
+- id;
+- code;
+- name;
+- symbol;
+- dimension;
+- precision_scale;
+- status;
+- created_at;
+- retired_at opcional.
+
+Valores conceptuales de `dimension`:
+
+- `COUNT`;
+- `MASS`;
+- `VOLUME`;
+- `LENGTH`;
+- `AREA`;
+- `PACKAGING`;
+- `TIME`;
+- `SERVICE`.
+
+Reglas:
+
+1. El catálogo inicial es global, publicado y administrado por plataforma; un tenant no crea unidades arbitrarias en esta fase.
+2. `code` es globalmente único e inmutable.
+3. `precision_scale` está entre 0 y 6 y define la granularidad máxima autorizada para cantidades.
+4. Una unidad retirada permanece verificable para historia.
+5. Conversiones entre dimensiones distintas solo existen mediante una equivalencia explícita de producto y presentación; nunca por una tabla global implícita.
+6. Empaques comerciales concretos siguen siendo ProductPresentation aunque su unidad tenga dimensión `PACKAGING`.
 
 ### UnitConversion
 
@@ -1027,6 +1377,33 @@ Política versionada por Tenant y Company que conserva moneda, algoritmo, unidad
 
 Representa bodega, vitrina, caja o ubicación interna.
 
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- branch_id;
+- code;
+- name;
+- location_type;
+- status;
+- created_at;
+- retired_at opcional;
+- version.
+
+Valores conceptuales de `location_type`:
+
+- `WAREHOUSE`;
+- `DISPLAY`;
+- `CASH_REGISTER`;
+- `INTERNAL`.
+
+Reglas:
+
+1. La ubicación pertenece a una sola sucursal, empresa y tenant.
+2. El código es único dentro de la sucursal y no se reutiliza silenciosamente.
+3. Retirar una ubicación impide movimientos nuevos, pero conserva movimientos y saldos históricos.
+
 ### StockBalance
 
 Vista o proyección del saldo por:
@@ -1057,7 +1434,7 @@ Atributos conceptuales:
 - lot_id opcional;
 - type;
 - quantity;
-- base_unit;
+- unit_id;
 - reference_type;
 - reference_id;
 - user_id;
@@ -1071,12 +1448,11 @@ Atributos conceptuales:
 - tenant_id;
 - company_id;
 - presentation_id;
-- supplier_id;
+- supplier_id opcional;
 - batch_code;
 - manufacture_date;
 - expiration_date;
 - received_at;
-- unit_cost;
 - status.
 
 ### InventoryReservation
@@ -1210,23 +1586,159 @@ Reglas:
 5. Las diferencias deben producir ajuste, incidencia, revisión o compensación según política.
 6. `presentation_id` es obligatorio y resuelve el producto, variante opcional, unidad y conversión aplicables.
 
-## Compras
+## Recepción y compras futuras
 
 ### Supplier
 
+Representa un proveedor válido dentro de una empresa para operaciones de recepción.
+
+Atributos conceptuales mínimos respaldados por `UC-INVENTORY-001`:
+
+- id;
+- tenant_id;
+- company_id;
+- name;
+- name_normalized;
+- status;
+- created_at;
+- retired_at opcional;
+- version.
+
+Reglas:
+
+1. Supplier pertenece a una empresa y no se comparte implícitamente entre tenants.
+2. Una recepción solo usa un proveedor activo del mismo tenant y empresa.
+3. Retirar un proveedor conserva recepciones, lotes y costos históricos.
+4. Datos fiscales, crédito, contactos y condiciones comerciales requieren un caso de uso de proveedores/compras; no se inventan en esta fase.
+
 ### PurchaseOrder
 
-### Purchase
+Concepto diferido a `PUR-001`. Representará una intención comercial de compra con líneas propias cuando su caso de uso defina identidad, estados, aprobación, cumplimiento y corrección. No forma parte del contrato físico del primer release y no es requisito para confirmar una recepción.
 
-### PurchaseItem
+El modelo objetivo no contiene un agregado genérico `Purchase`: orden de compra, recepción física, documento del proveedor, cuenta por pagar y pago al proveedor son responsabilidades diferentes. `SupplierDocument`, `AccountsPayable` y `SupplierPayment` permanecen diferidos; `SupplierPayment` no comparte el agregado `Payment` utilizado para cobros.
 
 ### GoodsReceipt
 
-### GoodsReceiptItem
+Representa la recepción confirmada de mercancía; no es una factura de compra ni la fuente directa del saldo.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- branch_id;
+- inventory_location_id;
+- supplier_id;
+- received_at;
+- received_by;
+- idempotency_key;
+- request_checksum;
+- created_at.
+
+Reglas:
+
+1. Tenant, empresa, sucursal, ubicación y proveedor deben coincidir.
+2. La recepción confirmada es inmutable; errores posteriores se compensan mediante movimientos explícitos.
+3. La misma idempotency key/checksum devuelve la misma recepción; checksum distinto produce conflicto.
+4. Confirmar crea líneas, asignaciones, lotes cuando correspondan, movimientos, costos, auditoría y outbox en una sola transacción local.
+5. La recepción no crea ni modifica precio de venta.
+6. GoodsReceipt puede existir sin PurchaseOrder; esa independencia no reduce trazabilidad de Supplier, ubicación, líneas, asignaciones y movimientos.
+7. Una recepción utiliza exactamente una `inventory_location_id`; mercancía recibida en otra ubicación exige otra recepción.
+8. La recepción no es factura, cuenta por pagar ni pago al proveedor, y no calcula impuestos de compra, landed cost o valoración contable.
+
+Cardinalidades:
+
+1. Un `GoodsReceipt` tiene una o más `GoodsReceiptLine`; cada línea pertenece exactamente a una recepción.
+2. Una `GoodsReceiptLine` tiene una o más `GoodsReceiptLotAllocation`; cada asignación pertenece exactamente a una línea.
+3. Una asignación referencia cero o un `Lot`; un Lot puede recibir cero o muchas asignaciones a lo largo del tiempo.
+4. Cada asignación de una recepción confirmada referencia exactamente un `InventoryMovement` de entrada y ese movimiento no pertenece a otra asignación.
+5. Cada línea confirmada origina exactamente un `InventoryCostRecord`.
+
+### GoodsReceiptLine
+
+Entidad de `GoodsReceipt` que congela la presentación, las cantidades y el costo declarado usados al recibir.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- goods_receipt_id;
+- line_number;
+- presentation_id;
+- source_unit_id;
+- source_quantity;
+- inventory_quantity;
+- unit_cost;
+- currency_code;
+- cost_tax_treatment: `INCLUDED`, `EXCLUDED` o `UNKNOWN`;
+- unit_conversion_id opcional;
+- conversion_factor opcional;
+- conversion_version opcional.
+
+Reglas:
+
+1. Cantidades son positivas y respetan precisión de sus unidades/presentación.
+2. `inventory_quantity` conserva el resultado exacto en la unidad de inventario; no reemplaza la cantidad fuente.
+3. Costo no es negativo y no modifica Pricing; expresa costo de recepción, no costo contable, valoración ni precio de venta.
+4. Moneda y tratamiento tributario quedan congelados; `UNKNOWN` conserva ausencia de evidencia y no ejecuta cálculo tributario.
+5. Identidad, factor y versión de conversión son todos ausentes o forman un conjunto completo y coherente.
+6. Cada línea tiene una o más `GoodsReceiptLotAllocation` y la suma de sus cantidades coincide exactamente con `inventory_quantity`.
+
+### GoodsReceiptLotAllocation
+
+Entidad de `GoodsReceiptLine` que distribuye su cantidad inventariable entre lotes. También existe una asignación con `lot_id` ausente cuando la presentación no controla lote, de modo que toda cantidad recibida conserve una causa única para su movimiento.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- goods_receipt_line_id;
+- allocation_number;
+- inventory_quantity;
+- lot_id opcional.
+
+Reglas:
+
+1. La asignación pertenece al mismo tenant, empresa, presentación y recepción que su línea y lote.
+2. `inventory_quantity` es positiva y respeta la precisión inventariable de la presentación.
+3. Cada asignación origina exactamente un `InventoryMovement` de entrada, en la ubicación de su `GoodsReceipt`.
+4. Una asignación confirmada no se actualiza ni elimina; una corrección crea un movimiento compensatorio nuevo.
+
+### InventoryCostRecord
+
+Hecho append-only que conserva el costo recibido sin convertirlo en precio de venta.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- presentation_id;
+- goods_receipt_line_id;
+- unit_cost;
+- currency_code;
+- cost_tax_treatment;
+- source_quantity;
+- source_unit_id;
+- conversion_factor opcional;
+- conversion_version opcional;
+- effective_at;
+- recorded_by;
+- recorded_source;
+- created_at.
+
+Reglas:
+
+1. El registro de costo se origina en una línea confirmada y no se actualiza destructivamente.
+2. La política de valoración consume estos hechos; no reescribe la recepción.
+3. Corregir un costo exige un hecho compensatorio o un caso de uso posterior explícito.
+4. No calcula landed cost, promedio ponderado, valoración contable ni impuestos de compra.
 
 ### SupplierReturn
 
-La recepción y la factura de compra deben modelarse separadamente cuando el flujo lo requiera.
+Concepto diferido a `PUR-001`. Una devolución al proveedor será una operación nueva que cause movimientos de salida referenciados y nunca anulará, editará o eliminará una recepción confirmada.
+
+La recepción física y el documento del proveedor se modelan separadamente. El documento puede llegar antes o después de la mercancía y afectar valoración u obligación cuando exista el contrato futuro, pero nunca modifica inventario directamente.
 
 ## Caja
 
@@ -1241,8 +1753,14 @@ Atributos conceptuales mínimos:
 - company_id;
 - branch_id;
 - code;
+- currency_code;
 - status;
 - version.
+
+Reglas:
+
+1. CashRegister pertenece a una sucursal y opera en una moneda definida.
+2. Retirar una caja no elimina turnos, movimientos, conteos o auditoría.
 
 ### CashShift
 
@@ -1255,19 +1773,33 @@ Atributos conceptuales:
 - company_id;
 - branch_id;
 - cash_register_id;
-- device_id;
-- user_id;
+- origin_device_id;
+- opened_by;
 - opened_at;
 - closed_at opcional;
 - business_date;
 - timezone_id;
-- opening_amount;
-- expected_amount opcional;
-- counted_amount opcional;
-- difference opcional;
+- currency_code;
+- closed_by opcional;
 - status;
-- idempotency_key;
+- opening_idempotency_key;
+- closing_idempotency_key opcional;
+- last_movement_sequence;
 - version.
+
+Estados persistentes:
+
+- `OPEN`;
+- `CLOSING`;
+- `CLOSED`.
+
+Reglas:
+
+1. La base inicial se deriva del único CashMovement `OPENING_FLOAT` `POSTED` del turno; no existe una segunda autoridad mutable ni FK circular.
+2. Un turno cerrado tiene exactamente un CashCount `CLOSING` completado, relacionado por el turno y protegido por unicidad; no admite edición destructiva.
+3. ExpectedCash se deriva de CashMovement `POSTED`; el turno no conserva un saldo esperado mutable.
+4. Cada movimiento obtiene una secuencia monotónica dentro del turno y aumenta su versión.
+5. Apertura y cierre tienen idempotencia/checksum independientes.
 
 ### CashMovement
 
@@ -1279,30 +1811,153 @@ Atributos conceptuales:
 - branch_id;
 - cash_register_id;
 - cash_shift_id;
-- document_series;
-- sale_number;
+- shift_sequence;
 - movement_type;
+- direction;
 - amount;
-- currency;
+- currency_code;
+- status;
 - reference_type;
 - reference_id opcional;
-- actor_id;
+- original_cash_movement_id opcional;
+- reason_code;
+- evidence_reference opcional;
+- actor_type;
+- actor_id opcional;
+- approved_by opcional;
 - business_date;
 - occurred_at;
+- device_reported_at;
+- origin_device_id;
 - idempotency_key;
+- request_checksum;
 - correlation_id;
+- version;
 - created_at.
 
 Tipos conceptuales:
 
-- opening;
-- sale;
-- income;
-- expense;
-- withdrawal;
-- refund;
-- adjustment;
-- courier_settlement.
+- `OPENING_FLOAT`;
+- `CASH_SALE`;
+- `CASH_PAYMENT`;
+- `CHANGE_GIVEN`;
+- `CASH_REFUND`;
+- `CASH_REVERSAL_COMPENSATION`;
+- `CASH_WITHDRAWAL`;
+- `CASH_DEPOSIT`;
+- `COURIER_COLLECTION`;
+- `CASH_EXPENSE`;
+- `CASH_ADJUSTMENT_POSITIVE`;
+- `CASH_ADJUSTMENT_NEGATIVE`;
+- `TRANSFER_TO_SAFE`;
+- `TRANSFER_FROM_SAFE`;
+- `CLOSING_TRANSFER`;
+- `OTHER_AUTHORIZED`.
+
+Estados persistentes:
+
+- `CREATED`;
+- `PENDING_APPROVAL`;
+- `APPROVED`;
+- `POSTED`;
+- `REJECTED`;
+- `FAILED`;
+- `CANCELLED`;
+
+Reglas:
+
+1. Importe es positivo y dirección `IN`/`OUT` determina el efecto.
+2. Solo movimientos `POSTED` participan en ExpectedCash.
+3. Un movimiento `POSTED` es inmutable; corregirlo crea un movimiento compensatorio relacionado.
+4. `(tenant_id, cash_shift_id, shift_sequence)` identifica el orden autoritativo dentro del turno.
+5. Un movimiento pertenece al mismo tenant, empresa, sucursal, caja, turno y moneda.
+6. `REVERSED_BY_COMPENSATION` es una proyección derivada; el movimiento original conserva estado persistido `POSTED`.
+
+### CashCount
+
+Agregado que conserva la evidencia física de un arqueo parcial, cierre o corrección sin modificar CashMovement.
+
+Atributos conceptuales:
+
+- id;
+- tenant_id;
+- company_id;
+- branch_id;
+- cash_register_id;
+- cash_shift_id;
+- count_type: `PARTIAL`, `CLOSING` o `CORRECTION`;
+- status: `IN_PROGRESS`, `COMPLETED` o `ABORTED`;
+- blind_mode;
+- started_shift_version;
+- movement_cutoff_sequence;
+- calculation_policy_version;
+- calculation_checksum;
+- expected_amount opcional hasta completar;
+- counted_amount opcional hasta completar;
+- difference_amount opcional hasta completar;
+- difference_type opcional: `SHORTAGE`, `EXACT` u `OVERAGE`;
+- severity opcional;
+- currency_code;
+- denomination_breakdown_status: `PROVIDED` o `NOT_PROVIDED`;
+- tolerance_policy_version;
+- tolerance_policy_checksum;
+- supersedes_cash_count_id opcional;
+- started_by;
+- started_at;
+- completed_by opcional;
+- completed_at opcional;
+- aborted_by opcional;
+- aborted_at opcional;
+- abort_reason_code opcional;
+- origin_device_id;
+- start_idempotency_key;
+- completion_idempotency_key opcional;
+- correlation_id;
+- version.
+
+Reglas:
+
+1. Iniciar congela versión del turno y corte de movimientos; completar exige la misma versión o deja el conteo `ABORTED` y produce conflicto.
+2. ExpectedCash se calcula desde movimientos `POSTED` hasta el corte y se congela con versión/checksum.
+3. En arqueo ciego, expected_amount no se revela al actor antes de completar.
+4. Un CashCount completado es inmutable y no crea ajustes automáticos.
+5. Un conteo incorrecto crea CashCount `CORRECTION` relacionado; el original permanece y cada conteo admite como máximo un sucesor directo para formar una cadena lineal. La corrección conserva corte, esperado, moneda y políticas versionadas del conteo corregido.
+6. Una corrección posterior al cierre no reemplaza el CashCount `CLOSING` original ni reescribe CashShift.
+7. Todo CashCount completado con diferencia distinta de cero crea una CashDifferenceReview.
+
+### CashCountDenomination
+
+Entidad inmutable de CashCount que conserva denominación, valor, cantidad entera, subtotal y moneda. Cuando existe desglose, la suma de subtotales coincide exactamente con counted_amount.
+
+### CashDifferenceReview
+
+Agregado que representa revisión, aceptación, escalamiento y resolución de una diferencia sin modificar el conteo.
+
+Estados persistentes:
+
+- `REVIEW_REQUIRED`;
+- `ACCEPTED`;
+- `ESCALATED`;
+- `RESOLVED`.
+
+Reglas:
+
+1. Existe como máximo una Review por CashCount.
+2. Una diferencia material bloquea el cierre sin acción autorizada conforme a política.
+3. El actor que contó no aprueba su propia diferencia crítica cuando aplica segregación.
+4. Aceptar una diferencia no cambia su importe ni crea un movimiento.
+
+### CashDifferenceReviewAction
+
+Hecho append-only que conserva cada transición de CashDifferenceReview con actor, motivo, evidencia, política de autorización, idempotencia, checksum e instante.
+
+Cardinalidades:
+
+1. CashShift tiene cero o muchos CashCount y exactamente uno de cierre cuando está `CLOSED`.
+2. CashCount tiene cero o muchas denominaciones según política de desglose.
+3. CashCount referencia cero o un conteo anterior corregido y puede tener cero o un sucesor directo; la cadena de corrección no se ramifica.
+4. CashCount completado con diferencia distinta de cero tiene exactamente una CashDifferenceReview; un conteo exacto solo la tiene si la política la exige.
+5. CashDifferenceReview tiene una o más CashDifferenceReviewAction.
 
 ## Ventas
 
@@ -1375,7 +2030,7 @@ Debe referenciar obligatoriamente `presentation_id` y conservar snapshot de:
 
 ### Payment
 
-Representa un medio financiero independiente que cubre total o parcialmente una obligación. Una venta puede tener uno o varios pagos relacionados mediante un `PaymentGroup`.
+Representa un cobro financiero independiente que cubre total o parcialmente una venta, pedido o cuenta por cobrar de cliente. Una venta puede tener uno o varios pagos relacionados mediante un `PaymentGroup`. No representa cuentas por pagar ni pagos a proveedores, que pertenecen a una capacidad futura y a un agregado separado.
 
 Atributos conceptuales:
 
@@ -1408,7 +2063,7 @@ Estados persistentes permitidos:
 
 ### PaymentGroup
 
-Agrupa los pagos que cubren una misma venta, pedido, cuenta por cobrar u obligación.
+Agrupa los pagos que cubren una misma venta, pedido o cuenta por cobrar de cliente.
 
 Atributos conceptuales:
 
@@ -1416,8 +2071,8 @@ Atributos conceptuales:
 - tenant_id;
 - company_id;
 - branch_id;
-- obligation_type;
-- obligation_id;
+- collection_subject_type;
+- collection_subject_id;
 - currency;
 - expected_payable_amount;
 - status derivado;
@@ -1426,7 +2081,7 @@ Atributos conceptuales:
 
 ### PaymentAllocation
 
-Relaciona un `Payment` con la obligación o porción que cubre y conserva el importe asignado.
+Relaciona un `Payment` con la venta, pedido o cuenta por cobrar de cliente —o la porción correspondiente— y conserva el importe asignado.
 
 ### PaymentAttempt
 
@@ -1808,7 +2463,7 @@ Permite acceso temporal y auditado al proveedor.
 | Role, Permission y política publicada | se retiran o sustituyen mediante versión; no se reescriben |
 | Product, ProductVariant, ProductPresentation, ProductIdentifier | se desactivan y no se reutilizan inmediatamente |
 | Price, Promotion, TaxPolicy y RoundingPolicy publicadas | expiran o se sustituyen; no alteran snapshots históricos |
-| Sale, Payment, Refund, Reversal, Settlement, Reconciliation, CashShift, CashMovement | no admiten hard delete |
+| Sale, Payment, Refund, Reversal, Settlement, Reconciliation, CashShift, CashMovement, CashCount, CashDifferenceReview y acciones | no admiten hard delete |
 | InventoryMovement | no admite hard delete ni update destructivo |
 | InventoryReservation | transiciona a consumida, liberada, expirada o cancelada |
 | Device, Installation, Activation, License, Revocation | se desactivan, revocan, cancelan o terminan; conservan identidad |
@@ -1847,11 +2502,14 @@ Permite acceso temporal y auditado al proveedor.
 | InventoryMovement | presentación, ubicación, tipo, cantidad, actor/operación y timestamp obligatorios; append-only |
 | InventoryReservation | cantidad no negativa; consumida + liberada no supera reservada; versión obligatoria para mutar |
 | Sale/SaleItem | tenant, empresa, sucursal y presentación consistentes; `(tenant_id, branch_id, document_series, sale_number)` único; importes no se reescriben después de completar |
-| PaymentGroup/Payment | misma moneda, tenant y obligación; idempotencia única por alcance operativo; cobertura confirmada no se duplica |
+| PaymentGroup/Payment | misma moneda, tenant y venta, pedido o cuenta por cobrar de cliente; idempotencia única por alcance operativo; cobertura confirmada no se duplica |
 | PaymentAttempt | pertenece a un Payment; referencia externa única por Tenant/Provider/ReferenceType cuando exista |
 | Refund/Reversal | importe solicitado, reservado y completado no supera saldo elegible; versión obligatoria |
 | CashShift | un solo turno abierto compatible por Tenant/Branch/Register/Terminal |
-| CashMovement | pertenece a turno abierto o a corrección autorizada; append-only |
+| CashMovement | pertenece a turno abierto o a corrección autorizada; transición versionada antes de POSTED y hecho inmutable después |
+| CashCount | corte/version de turno coherentes; completado inmutable; abortado terminal y auditable; un sucesor directo máximo; un conteo de cierre por turno cerrado |
+| CashCountDenomination | pertenece al conteo y moneda; subtotal exacto; suma igual a counted_amount cuando el desglose fue informado |
+| CashDifferenceReview | exactamente una por conteo completado con diferencia distinta de cero y máximo una en los demás casos; decisiones críticas respetan autorización y segregación; acciones append-only |
 | SyncOperation | UUID global, idempotencia por Tenant/OperationType, checksum inmutable |
 | OutboxEntry | una por operation; secuencia única y creciente por Tenant/Device |
 | InboxEntry | operation global única; idempotencia y checksum coherentes |

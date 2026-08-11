@@ -193,13 +193,23 @@ Se representa conceptualmente mediante `REVIEW_REQUIRED`.
 
 Historial ordenado de movimientos de inventario.
 
-## Compra
+## Orden de compra
 
-Operación de adquisición de mercancía a un proveedor.
+Intención comercial futura de adquirir mercancía a un proveedor. `PurchaseOrder` está diferido a `PUR-001` y no es requisito para recibir mercancía en el primer release.
 
 ## Recepción
 
-Confirmación física de mercancía recibida.
+Confirmación física e inmutable de mercancía recibida en una ubicación de inventario. `GoodsReceipt` puede existir sin orden de compra y produce movimientos mediante sus líneas y asignaciones de lote.
+
+No es factura, cuenta por pagar ni pago al proveedor. Un error se corrige mediante una operación compensatoria nueva.
+
+## Documento del proveedor
+
+Factura, remisión, nota u otra evidencia comercial emitida por un proveedor. `SupplierDocument` está diferido y permanece separado de la recepción física; no modifica inventario directamente.
+
+## Devolución al proveedor
+
+Operación futura y trazable que retira mercancía mediante movimientos de salida nuevos. No anula ni reescribe la recepción original.
 
 ## Venta
 
@@ -231,7 +241,17 @@ Efectivo inicial entregado al cajero para dar cambio.
 
 ## Efectivo esperado
 
-Valor calculado a partir de la base, ventas, ingresos, egresos, retiros y devoluciones.
+Valor derivado de movimientos de caja publicados hasta una secuencia de corte. No es un saldo mutable ni se reemplaza con el efectivo contado.
+
+## Arqueo de caja
+
+Operación `CashCount` que congela el corte de movimientos, efectivo esperado, efectivo contado, denominaciones y diferencia sin modificar movimientos ni cerrar necesariamente el turno.
+
+Un conteo completado es inmutable; su corrección crea otro conteo relacionado.
+
+## Diferencia de caja
+
+Resultado exacto de restar efectivo esperado al efectivo contado. La tolerancia puede clasificarla, pero no ocultarla ni convertirla en cero.
 
 ## Licencia
 

@@ -10,12 +10,12 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 
 ## Estado general
 
-- Rama de trabajo verificada: `architecture/foundation`.
+- Rama de trabajo verificada: `architecture/physical-model`.
 - Estado inicial del árbol al crear este backlog: limpio.
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Siguiente trabajo habilitado: `TECH-002`, con estado `READY` y prioridad `P0`, como entrada de la Fase 1.
+- Trabajo principal en curso: `TECH-002`, con estado `IN_PROGRESS` y prioridad `P0`; `PHY-G07` está cerrado y `PHY-G08` es el siguiente gate físico, aún no iniciado.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -187,8 +187,8 @@ Estado de la épica: `PLANNED`.
 
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
-| PUR-001 | `P1` | `PLANNED` | Definir proveedor, orden de compra, compra, recepción parcial, cancelación y devolución a proveedor. | La recepción inicial está en `docs/use-cases/inventory/UC-INVENTORY-001-receive-stock.md`; no cubre toda la épica. |
-| PUR-002 | `P1` | `PLANNED` | Implementar compras separando recepción física y factura. | Depende de PUR-001 e INV-003. |
+| PUR-001 | `P1` | `PLANNED` | Definir PurchaseOrder, líneas, aprobación configurable, cumplimiento parcial, cierre/cancelación y devolución a proveedor. | GoodsReceipt independiente está definido en `UC-INVENTORY-001`; PurchaseOrder y SupplierReturn permanecen diferidos. |
+| PUR-002 | `P1` | `PLANNED` | Implementar capacidades comerciales separando GoodsReceipt, SupplierDocument y futuras obligaciones/pagos a proveedor. | Depende de PUR-001 e INV-003; no reutiliza Payment de cobros ni el pipeline tributario de ventas. |
 
 ### Inventario
 
@@ -289,7 +289,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `READY` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | Debe seguir modelos conceptuales, ownership, migración, pruebas, `ADR-005`, `DEC-003`, `DEC-004`, `DEC-006` a `DEC-010`, `ARCH-004` y `SEC-004`, sin reescribir la migración heredada. |
+| TECH-002 | `P0` | `IN_PROGRESS` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | `PHY-G07` cerrado mediante el contrato físico de turnos, movimientos, arqueos, denominaciones, diferencias y correcciones; `PHY-G08` es el siguiente gate y aún no se inició. La primera migración permanece `NO-GO`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
 | TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
@@ -297,11 +297,11 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. `TECH-002` — `P0`, `READY`: diseñar el modelo físico nuevo, migraciones, restricciones, índices y fronteras de transacción.
+1. Continuar `TECH-002` — `P0`, `IN_PROGRESS`: iniciar `PHY-G08` en un trabajo posterior explícito, sin saltar el orden físico y sin escribir migraciones.
 2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
 3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
 
-`TECH-002 READY` autoriza iniciar el diseño físico, no escribir migraciones antes de cerrar ese diseño. Su secuencia interna obligatoria es:
+El trabajo producido durante `TECH-002` conserva validez documental. El cierre de `PHY-G07` habilita abordar `PHY-G08`, pero no autoriza escribir migraciones. La secuencia interna obligatoria continúa así:
 
 1. consolidar la matriz física de motores y dialectos, UUID, tipos monetarios, alcances de unicidad, tablas de identidad/RBAC/sesión, fronteras transaccionales y auditoría;
 2. verificar cada decisión contra inventario por presentación y lote, `PaymentGroup`/`Payment`/`PaymentAttempt`, estados persistentes de `Sale`, redondeo único y configuración offline por dominio;
@@ -320,7 +320,7 @@ La implementación de la arquitectura objetivo debe comenzar por la fundación t
 | R-003 | Alta | Pagos mixtos con proveedores externos no tienen atomicidad distribuida y pueden producir doble cobro o compensaciones pendientes. | Estados explícitos, idempotencia, incidencias y pruebas de respuestas tardías. |
 | R-004 | Alta | El aislamiento multi-tenant está definido pero no probado en la base objetivo. | SEC-003 y pruebas negativas obligatorias antes de datos reales. |
 | R-005 | Alta | El contrato local-first está documentado, pero todavía no existe una implementación probada de sincronización. | Implementar `SYNC-004` sobre los contratos `SYNC-001`, `SYNC-002` y `SYNC-003`, con pruebas de duplicados, orden, recuperación y reloj incorrecto. |
-| R-006 | Alta | No hay modelo físico objetivo; modificar silenciosamente la migración heredada puede fijar errores de dominio. | Ejecutar `TECH-002` como entrada `READY` de Fase 1 y crear nuevas migraciones conforme a las decisiones cerradas. |
+| R-006 | Alta | El modelo físico objetivo sigue incompleto; reintroducir una compra genérica o transformar el legado en órdenes/facturas inexistentes fijaría errores de dominio. | Mantener el contrato cerrado de `PHY-G06`, completar los gates restantes de `TECH-002` y crear migraciones solo después de una autorización documental independiente. |
 | R-007 | Media | La canalización versionada de pricing está definida, pero todavía no tiene una implementación objetivo. | Implementarla conforme a `DEC-003`, `DEC-006` y `PRICE-002`, con pruebas deterministas. |
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
 | R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
@@ -335,7 +335,7 @@ La implementación de la arquitectura objetivo debe comenzar por la fundación t
 | DEC-001 | `P0` | Taxonomía definitiva de estados de pagos, intentos, refunds, reversals, liquidaciones, conciliaciones, contracargos, revisión e incidencias; transiciones, terminalidad y proyecciones derivadas. | `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`. | `PAY-007` queda `DONE`; `PaymentStatus` no incorpora estados de refund, reversal, settlement, reconciliation ni chargeback. El diseño físico deberá mantener agregados, estados, eventos y proyecciones separados. |
 | DEC-002 | `P0` | Política predeterminada para pagos inferiores, sobrepagos, fallos parciales y compensaciones entre efectivo y proveedores externos. | `docs/adr/DEC-002-payment-compensation-policy.md`. | `CASH-003` y `SALES-002` quedan desbloqueados documentalmente; caja, ventas y pagos deben conservar componentes independientes, operaciones compensatorias, idempotencia, control de concurrencia y trazabilidad append-only. |
 | DEC-003 | `P0` | Orden único y versionado de precio base, precio promocional, promociones, descuentos, impuestos y redondeo mediante `PRICING_PIPELINE_V1`. | `docs/adr/DEC-003-pricing-calculation-order.md`. | `PRICE-002` y `SALES-003` quedan desbloqueados documentalmente; `DEC-006` complementa la regla exacta de redondeo `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`. Toda implementación debe conservar snapshots inmutables, decimal exacto, algoritmos versionados y separación entre pricing y cobertura. |
-| DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; las decisiones críticas relacionadas quedaron cerradas y `TECH-002` está `READY`. |
+| DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; las decisiones críticas relacionadas quedaron cerradas y `TECH-002` continúa `IN_PROGRESS` después del cierre de `PHY-G06`. |
 | DEC-006 | `P0` | Política versionada `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`, con empate alejándose de cero, separación fiscal/comercial, residuos deterministas, devoluciones, offline y conciliación. | `docs/adr/DEC-006-nearest-50-rounding-policy.md` y `docs/adr/DEC-003-pricing-calculation-order.md`. | `TAX-003` quedó `DONE`; `SALES-003` redujo sus bloqueos documentales; toda implementación debe conservar decimal exacto, snapshots, versión, checksum y ajustes explícitos. |
 | DEC-007 | `P0` | Autoridad por dato, políticas de sincronización, idempotencia, control de versión, reloj confiable, causalidad, outbox/inbox, checkpoints, conflictos, retención, recuperación, seguridad y observabilidad local-first. | `docs/adr/DEC-007-local-first-data-authority.md`, `docs/adr/ADR-003-local-first.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md` y `docs/domain/glossary.md`. | `SYNC-003` quedó `DONE`; `TECH-005` dejó de depender de `DEC-007`; la implementación deberá conservar operaciones globalmente identificadas, transacciones atómicas, deduplicación, aislamiento multiempresa y conflictos explícitos. |
 | DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | `docs/adr/DEC-008-device-trust-license-activation.md`. | `LIC-002` y `DEV-002` quedaron `DONE`; la decisión dejó de bloquear `TECH-002` y la salida de Fase 0. |
@@ -365,20 +365,20 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`; la secuencia completa de pagos se consolida en F0.5. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
 | F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007`, `DEC-008`, `DEC-009` y `DEC-010` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
-| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. `TECH-002` queda `READY` como entrada de Fase 1. |
+| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. El cierre dejó `TECH-002` como entrada de Fase 1; actualmente está `IN_PROGRESS` y `PHY-G06` está cerrado. |
 
 La Fase 0 quedó cerrada al completarse UC-PAY-004 y UC-PAY-005, consolidarse la máquina de pagos, cerrarse las decisiones `P0` necesarias para persistencia y documentarse invariantes y pruebas mínimas coherentes para los casos críticos.
 
 ### Fase 1 — Fundación técnica ejecutable
 
-Estado: `PLANNED`.
+Estado: `IN_PROGRESS`.
 
 Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, migraciones nuevas y controles backend, sin dar por válida la implementación heredada.
 
 | Hito | Estado | Criterio de salida |
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
-| F1.2 Modelo físico y migraciones | `PLANNED` | Tenant, empresa, sucursal, usuario, roles, auditoría, licencia y dispositivo con restricciones e índices. |
+| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G07` cerrados documentalmente; `PHY-G08` es el siguiente gate no iniciado. La primera migración requiere autorización documental independiente y permanece `NO-GO`. |
 | F1.3 Seguridad e identidad | `PLANNED` | Aislamiento multi-tenant probado, sesiones revocables, MFA crítico y permisos backend. |
 | F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
@@ -446,4 +446,12 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-10: se cerró la preparación tecnológica previa a código mediante `ADR-005`, `DEC-009`, `DEC-010`, `ARCH-004` y `SEC-004`. Se fijaron stack TypeScript/NestJS/Electron, POS Local Service como único escritor SQLite, infraestructura pagada para datos reales, modos `HYBRID`/`LOCAL_PERPETUAL`, pruebas objetivo, aislamiento del despliegue Avícola heredado, contrato fiscal neutral, Factus como primer sandbox, Siigo como segunda validación y matriz de hardware sin certificaciones inventadas. `TECH-002` permanece como siguiente trabajo `P0 READY`; ninguna implementación objetivo fue declarada terminada.
 
-Próxima actualización obligatoria: registrar el inicio de `TECH-002` cuando comience el diseño físico de Fase 1 y mantener alineados su estado, evidencia, riesgos y trabajos dependientes.
+- 2026-08-10: `TECH-002` pasó de `READY` a `IN_PROGRESS` con la matriz `docs/architecture/physical-model/traceability.md`. El inventario relaciona los casos de uso con módulos y agregados, excluye capacidades diferidas y registra brechas físicas que deben cerrarse antes del esquema. La primera migración permanece bloqueada hasta aprobar tipos, scopes, aislamiento, transacciones, auditoría y diferencias PostgreSQL/SQLite.
+
+- 2026-08-10: `TECH-002` cerró documentalmente `PHY-G01` a `PHY-G05` y diseñó convenciones, fundación, dispositivos/licencias y catálogo sin escribir DDL. Al abordar `PHY-G06`, se alineó recepción con `inventory_location_id` y se diseñaron Supplier, GoodsReceipt, items, lotes, movimientos, costo y saldo; `TECH-002` pasó a `BLOCKED` porque `purchase_id` referencia Purchase sin contrato funcional suficiente. No se avanzó a `PHY-G07`.
+
+- 2026-08-10: la segunda pasada controlada de `PHY-G06` eliminó la referencia genérica del contrato vigente y cerró GoodsReceipt independiente, líneas, múltiples asignaciones de lote, un movimiento por asignación, costo de recepción separado, compensaciones, permisos, eventos, migración heredada y frontera atómica. `PHY-G06` pasó a `CLOSED` y `TECH-002` volvió a `IN_PROGRESS`; no se inició `PHY-G07`.
+
+- 2026-08-10: `PHY-G07` cerró el contrato físico de caja mediante autoridades explícitas para CashShift, CashMovement, CashCount y revisión de diferencias; se alinearon corte, efectivo esperado, denominaciones, correcciones, concurrencia, permisos, eventos, operación offline y migración heredada. No se escribió DDL ni se inició `PHY-G08`.
+
+Próxima actualización obligatoria: iniciar `PHY-G08` únicamente mediante un trabajo posterior explícito y mantener el orden físico; el gate de primera migración permanece `NO-GO`.

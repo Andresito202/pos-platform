@@ -12,11 +12,11 @@
 | Catalog | Productos, categorías, variantes y códigos |
 | Pricing | Listas, precios, vigencias e historial |
 | Inventory | Stock, lotes, movimientos y reservas |
-| Purchasing | Compras, órdenes, recepciones y devoluciones |
+| Purchasing | GoodsReceipt, líneas y asignaciones de lote; futuras PurchaseOrder, SupplierDocument y devoluciones cuando sus casos de uso se habiliten |
 | Suppliers | Proveedores |
 | Sales | Ventas, detalles, devoluciones comerciales SaleReturn y anulaciones SaleCancellation |
 | Payments | Métodos, grupos, pagos, intentos, asignaciones, refunds, reversals, settlement, conciliación y chargebacks |
-| Cash Register | Turnos, base, movimientos y cierres |
+| Cash Register | CashRegister, CashShift, CashMovement, CashCount, denominaciones, revisiones de diferencia y cierres |
 | Customers | Clientes comerciales y crédito |
 | Orders | Pedidos y estados |
 | Delivery | Despacho, seguimiento y entrega |
@@ -42,3 +42,5 @@
 10. Electronic Invoicing consume snapshots comerciales y fiscales; no recalcula ni sobrescribe Sale, Pricing, Tax, Payments, Cash Register o Inventory.
 11. Una nota o ajuste electrónico es un documento nuevo relacionado, no una mutación destructiva del documento aceptado.
 12. Credenciales y certificados se referencian desde el almacén definido por SEC-004; no son propiedad de tablas de negocio.
+13. Purchasing confirma la recepción física, pero Inventory es la única autoridad que crea movimientos y deriva saldos; una recepción nunca modifica StockBalance por fuera del contrato de Inventory.
+14. Payment cubre cobros de ventas, pedidos y cuentas por cobrar. Pagos a proveedores pertenecen a una capacidad financiera futura y no reutilizan ese agregado.

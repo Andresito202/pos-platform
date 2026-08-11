@@ -128,8 +128,8 @@ El proyecto actual contiene:
 - stock por sucursal;
 - lotes;
 - movimientos;
-- compras;
-- recepciones;
+- compras heredadas interpretadas como evidencia histórica de recepción;
+- GoodsReceipt, líneas y asignaciones de lote objetivo;
 - proveedores.
 
 ### Etapa 4 — Caja y ventas
@@ -199,6 +199,33 @@ Los lotes, movimientos, mermas y detalles de recepción heredados se enlazan a l
 
 Una diferencia no se corrige sobrescribiendo el movimiento: se registra en un informe de reconciliación y requiere ajuste explícito aprobado.
 
+### Compras heredadas y recepción
+
+La tabla heredada `compras` no representa una orden de compra, factura del proveedor, cuenta por pagar ni pago al proveedor. El endpoint heredado crea cada fila directamente como recibida, calcula sus detalles y, en la misma operación, crea lotes y movimientos de entrada. Por ello se conserva como evidencia histórica de una recepción física heredada, sujeta a reconciliación.
+
+Mapeo permitido cuando la evidencia y los scopes son verificables:
+
+- `compras` a `GoodsReceipt` histórico;
+- `detalle_compras` a `GoodsReceiptLine` con la presentación predeterminada del producto;
+- el lote relacionado a una `GoodsReceiptLotAllocation` y a su `InventoryMovement` de entrada;
+- proveedor, fecha, cantidades, costo unitario, subtotal, total, observaciones y estado exactamente como consten en origen;
+- `productos.precio_compra` únicamente como snapshot legado del último valor observado, nunca como costo histórico, valoración o precio autoritativo.
+
+No puede reconstruirse sin evidencia adicional:
+
+- PurchaseOrder ni cantidades ordenadas;
+- recepciones parciales respecto de una orden;
+- SupplierDocument, número o fecha de factura/remisión;
+- impuestos o descuentos de compra y su inclusión en el costo;
+- moneda cuando no exista una fuente autorizada;
+- landed cost, método de valoración o costo contable;
+- AccountsPayable o condiciones de crédito;
+- SupplierPayment;
+- tenant, empresa, sucursal o ubicación ausentes;
+- código de lote real del proveedor cuando el legado generó uno sintético.
+
+Los valores ausentes se registran como no disponibles; no se completan con defaults comerciales. Las anulaciones heredadas requieren reconciliación porque el flujo existente puede haber puesto el lote en cero y creado una salida por la cantidad original sin demostrar disponibilidad. Una anulación incoherente se conserva como evidencia o se lleva a cuarentena; no se transforma automáticamente en devolución al proveedor ni en corrección válida.
+
 ### Ventas
 
 Las ventas cerradas se migran como históricas e inmutables. Cada línea conserva:
@@ -218,7 +245,29 @@ Un valor heredado `mixto` sin desglose suficiente se migra como evidencia histó
 
 ### Caja
 
-Las cajas y movimientos heredados conservan importes y timestamps originales. Los turnos incompletos o imposibles de reconciliar se migran con estado de revisión y no se presentan como cierres válidos.
+La tabla heredada `cajas` mezcla turno, base y snapshot de cierre. `movimientos_caja` conserva hechos básicos, pero no tiene tenant, empresa, sucursal, caja física separada, dispositivo, moneda explícita, idempotencia, secuencia, aprobación, referencia robusta o política.
+
+Mapeo permitido con evidencia y reconciliación:
+
+- cada `cajas` coherente puede producir un CashShift histórico después de asignar Tenant, Company, Branch y CashRegister mediante una regla de transición aprobada;
+- cada `movimientos_caja` puede producir un CashMovement histórico conservando tipo, importe, usuario y timestamp;
+- `monto_apertura` debe reconciliarse contra el movimiento `apertura`; nunca se crean dos efectos por la misma base;
+- una caja heredada `cerrada` puede producir CashCount `CLOSING` histórico únicamente cuando `monto_cierre - monto_esperado = diferencia` con decimal exacto;
+- una diferencia histórica distinta de cero crea CashDifferenceReview `REVIEW_REQUIRED` y su acción inicial con actor de migración; no se infieren aceptación, resolución ni aprobador;
+- observaciones y estados se conservan como evidencia heredada.
+
+No pueden reconstruirse sin evidencia adicional:
+
+- arqueos parciales o ciegos;
+- denominaciones;
+- correcciones versionadas de conteo;
+- tolerancia y versión de política;
+- aprobaciones, segregación o investigación de diferencias;
+- idempotency keys, checksums, correlation IDs o secuencia de movimientos;
+- dispositivo, moneda o business date cuando no exista fuente autorizada;
+- referencia exacta de venta, pago, refund o recaudo para movimientos genéricos.
+
+Una fórmula incoherente, movimiento huérfano, apertura duplicada o turno imposible de aislar se lleva a revisión/cuarentena y no se presenta como cierre válido. No se inventan denominaciones, aprobadores o políticas para completar la historia.
 
 ### Auditoría
 
@@ -235,6 +284,8 @@ Se llevan a cuarentena, sin inserción silenciosa en el modelo operacional:
 - movimientos huérfanos;
 - ventas con totales incoherentes;
 - pagos mixtos sin desglose;
+- turnos de caja con fórmula de cierre incoherente;
+- movimientos de caja huérfanos o base duplicada;
 - auditoría sin correspondencia verificable;
 - referencias cruzadas entre scopes incompatibles.
 

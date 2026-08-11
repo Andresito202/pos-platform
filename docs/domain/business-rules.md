@@ -76,7 +76,7 @@ RN-031. Una caja abierta debe estar asociada a sucursal, terminal, usuario y tur
 
 RN-032. Un usuario no puede tener dos turnos de caja abiertos en la misma terminal.
 
-RN-033. El cierre conserva valor esperado, valor contado, diferencia y observación.
+RN-033. El cierre referencia un CashCount inmutable que conserva corte de movimientos, versión de cálculo, valor esperado, valor contado, diferencia, denominaciones y política aplicada.
 
 RN-034. Los cierres no se eliminan.
 
@@ -84,15 +84,15 @@ RN-035. Toda apertura manual de cajón debe auditarse.
 
 RN-036. Los pagos no efectivos no incrementan el efectivo físico esperado.
 
-## Compras
+## Recepción y compras futuras
 
-RN-037. Una compra recibida debe generar inventario y movimientos.
+RN-037. Confirmar un GoodsReceipt debe crear sus líneas, asignaciones de lote y un movimiento de entrada por asignación de forma atómica con costo histórico, saldo, auditoría y outbox.
 
-RN-038. Anular una compra no puede retirar mercancía ya vendida sin validación.
+RN-038. Un GoodsReceipt confirmado no se anula, edita ni elimina; una corrección o devolución al proveedor crea una operación compensatoria nueva, valida disponibilidad y conserva la recepción original.
 
-RN-039. El precio de venta no cambia automáticamente por una nueva compra.
+RN-039. El precio de venta no cambia automáticamente por una recepción ni por su costo declarado.
 
-RN-040. El costo histórico debe conservarse.
+RN-040. El costo de recepción debe conservar unidad, moneda, tratamiento tributario conocido, conversión, instante y actor/fuente, separado de costo contable, valoración y precio de venta.
 
 ## Domicilios
 
@@ -302,3 +302,11 @@ RN-137. Revocar una `TenantMembership` o una `UserRoleAssignment` no elimina la 
 RN-138. `UC-ONB-001` debe crear o resolver una identidad `User`, establecer una `TenantMembership` explícita para el propietario inicial y aplicar roles y permisos mediante asignaciones separadas conforme a `SEC-002`.
 
 RN-139. La resolución del tenant efectivo debe derivarse de contexto autenticado y relaciones autorizadas; nunca debe confiarse en un `tenant_id` libre suministrado por el cliente como prueba suficiente de pertenencia.
+
+## Arqueos de caja
+
+RN-140. ExpectedCash se deriva exclusivamente de CashMovement `POSTED`; un arqueo o diferencia no crea ajustes automáticos.
+
+RN-141. Un CashCount completado no se edita: una corrección crea otro CashCount relacionado y conserva el original.
+
+RN-142. Toda diferencia distinta de cero genera revisión; una diferencia material requiere autorización y no puede ser aprobada por el mismo actor que contó cuando la política exige segregación.
