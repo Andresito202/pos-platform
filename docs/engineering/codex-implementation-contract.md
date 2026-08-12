@@ -79,6 +79,25 @@ Estas reglas no exigen convertir el legado Python a TypeScript fuera de una tare
 4. Autenticación, pertenencia al tenant, autorización y licenciamiento son decisiones distintas y ninguna sustituye a las demás.
 5. Se aplica mínimo privilegio en puertos, adaptadores, consultas y credenciales de infraestructura.
 6. Los cambios de seguridad incluyen pruebas negativas relevantes, especialmente para acceso cross-tenant y escalamiento de privilegios.
+7. `docs/security/security-gates.md` define los gates `SEC-G01` a `SEC-G10`; su estado documental no equivale a control implementado ni evidencia aprobada.
+8. Una funcionalidad crítica no está terminada solo porque compile o pase pruebas funcionales: debe satisfacer los security gates aplicables.
+
+## Evaluación de seguridad por módulo crítico
+
+Antes de cerrar cualquier cambio crítico de Sales, Payments, Cash Register, Inventory, Licensing, Devices, Sync, Electronic Invoicing o Administration, el diseño, las pruebas y la entrega deben responder explícitamente:
+
+1. si puede leer, modificar, borrar, referenciar o ejecutar sobre otro tenant;
+2. qué actor, permiso y alcance pueden ejecutarlo;
+3. si puede repetirse y cómo conserva idempotencia;
+4. si admite replay, duplicado o reordenamiento y cómo se rechazan;
+5. cómo se detecta payload manipulado y cuándo exige autenticidad fuerte;
+6. qué autoridad decide conectado y offline;
+7. qué se audita y qué señales antifraude produce;
+8. si toca secretos, credenciales o datos sensibles;
+9. qué ocurre ante fallo parcial, timeout o incertidumbre;
+10. si requiere segregación, aprobación superior, reautenticación o MFA.
+
+Cada respuesta debe enlazar amenaza, control, prueba futura o ejecutada y evidencia. “No aplica” requiere justificación explícita. Un checksum simple no demuestra autenticidad ante un atacante que controla SQLite; cuando el riesgo exige autenticidad fuerte se utiliza la identidad criptográfica definida por `DEC-008` o una decisión posterior equivalente.
 
 ## Dependencias e infraestructura
 
@@ -129,6 +148,8 @@ Se ejecutan los scripts reales disponibles y proporcionales al cambio. Cuando ex
 6. `git diff --check`;
 7. `git status --short`;
 8. revisión resumida del diff.
+
+Para una versión o funcionalidad crítica se añade la evaluación de `SEC-G01` a `SEC-G10` que corresponda. Un gate en `FAIL`, `BLOCKED` o sin evaluar impide declarar aptitud productiva; una excepción `NOT_APPLICABLE` requiere justificación aprobada y versionada.
 
 No se inventan comandos ausentes. Si el repositorio todavía no ofrece un script requerido, se informa como limitación y no se declara validado.
 

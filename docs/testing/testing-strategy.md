@@ -115,6 +115,31 @@ Se deben probar como mínimo:
 - payloads inválidos;
 - exportación no autorizada.
 
+### Evidencia de los security gates
+
+`docs/security/security-gates.md` es la autoridad para `SEC-G01` a `SEC-G10`. Cada suite aplicable debe mantener la relación:
+
+`amenaza → control → test_id → resultado → evidencia`
+
+La evidencia mínima identifica commit, artefacto, ambiente, plataforma, configuración/policy version, datos sintéticos de entrada, resultado esperado/real, código estable, persistencia y auditoría. No contiene secretos ni datos reales de clientes.
+
+Cobertura futura mínima por gate:
+
+| Gate | Suite/evidencia principal |
+|---|---|
+| `SEC-G01` | integración cross-tenant, constraints y RLS PostgreSQL; aislamiento SQLite cuando aplique |
+| `SEC-G02` | autenticación, rotación/replay de refresh, revocación, MFA, reautenticación, bloqueo y recuperación |
+| `SEC-G03` | permisos backend, scopes ABAC, deny by default, límites y segregación de funciones |
+| `SEC-G04` | dispositivo, instalación, claves, activación, revocación, reemplazo, tiempo, licencia y gracia |
+| `SEC-G05` | SQLite/WAL + PostgreSQL para outbox/inbox, idempotencia, replay, orden, conflicto y recovery |
+| `SEC-G06` | auditoría append-only, fallo transaccional, atribución, aislamiento y reglas antifraude |
+| `SEC-G07` | secret scanning, redacción, aislamiento, rotación/revocación, criptografía y backup seguro |
+| `SEC-G08` | validación, IDOR/BOLA, inyección, XSS, CSRF aplicable, CSP/headers, CORS, SSRF, límites y webhooks |
+| `SEC-G09` | TLS/endurecimiento, privilegios, scanning, SBOM, pipeline, backup/restore, DR y updates |
+| `SEC-G10` | evaluación agregada, provenance y bloqueo efectivo de promoción |
+
+Una inspección visual, mock aislado o prueba heredada no sustituye la evidencia ejecutable del stack objetivo. Los gates permanecen `NOT_EVALUATED` hasta que existan sus suites reales.
+
 ## Integridad transaccional
 
 Casos obligatorios:
@@ -366,5 +391,9 @@ Un release no puede promoverse cuando:
 - no puede reproducirse el artefacto desde el commit identificado;
 - staging utiliza una topología incompatible con producción sin justificación;
 - se pretende usar sandbox o infraestructura gratuita con datos reales.
+
+Además, `SEC-G10` bloquea la promoción cuando un gate de seguridad aplicable está en `FAIL`, `BLOCKED` o `NOT_EVALUATED`, cuando un `NOT_APPLICABLE` carece de justificación aprobada, o cuando existe una vulnerabilidad crítica conocida sin tratamiento válido y trazable.
+
+Compilar, construir y superar pruebas funcionales no basta para declarar una funcionalidad crítica `DONE` o una versión apta para producción.
 
 No se permitirá fusionar cambios críticos con pruebas fallidas.

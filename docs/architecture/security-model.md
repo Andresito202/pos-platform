@@ -18,6 +18,12 @@ La sincronización local-first, autoridad por dato, idempotencia y recuperación
 
 - `docs/adr/DEC-007-local-first-data-authority.md`.
 
+Los gates verificables de Fase 1, su matriz amenaza → control → prueba → evidencia y el bloqueo de release se definen en:
+
+- `docs/security/security-gates.md` (`SEC-G01` a `SEC-G10`).
+
+La existencia de este modelo o de un contrato documental no demuestra implementación. Cada control crítico requiere evidencia ejecutable del gate aplicable.
+
 ## Controles fundamentales
 
 - autenticación segura;
@@ -241,6 +247,28 @@ La auditoría:
 - no se sustituye por logs técnicos;
 - no se elimina mediante soporte;
 - permite reconstruir decisiones críticas.
+
+## Datos de tarjeta y alcance PCI
+
+La plataforma minimiza deliberadamente su alcance PCI:
+
+- no almacena ni registra PAN completo, CVV/CVC o secretos de autenticación de tarjeta;
+- prefiere tokenización y procesamiento por proveedor autorizado;
+- trata tokens y referencias como datos sensibles tenant-scoped;
+- una referencia de proveedor no confirma por sí sola un resultado financiero;
+- cualquier excepción futura exige necesidad explícita, revisión jurídica/normativa, certificación técnica y una decisión aprobada.
+
+## Seguridad fiscal
+
+Las credenciales, certificados y tokens fiscales se aíslan por tenant, empresa/NIT, proveedor y ambiente conforme a `SEC-004`. Renderer y PWA no reciben secretos fiscales. El cliente POS no es autoridad fiscal final y una respuesta externa solo se acepta mediante el contrato autoritativo del módulo Electronic Invoicing.
+
+La evidencia y retención fiscal dependen de política normativa específica y versionada. No se fijan periodos legales sin una fuente normativa cerrada.
+
+## Puertos de observabilidad
+
+La arquitectura debe permitir puertos de aplicación equivalentes a `LoggerPort`, `MetricsPort` y `AuditPort`, sin acoplar dominio a proveedores. Logger y Metrics no sustituyen Audit, y una alerta no decide estados de negocio.
+
+La implementación de OpenTelemetry u otros adaptadores corresponde a tareas posteriores expresamente autorizadas.
 
 ## Degradación segura
 

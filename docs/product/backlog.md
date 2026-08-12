@@ -102,6 +102,23 @@ Estado de la épica: `IN_PROGRESS`.
 | SEC-003 | `P0` | `PLANNED` | Implementar aislamiento de tenant, sesiones revocables, MFA y reautenticación. | Fase 1; depende de ONB-002 y DEV-001. |
 | SEC-004 | `P0` | `DONE` | Definir gestión de secretos, claves, credenciales fiscales, firma de licencias/actualizaciones y acceso temporal de soporte. | Cerrado en `docs/security/secret-key-and-support-management.md`; selección de proveedores y PoC de protección local se validan antes del piloto. |
 
+#### Gates verificables de seguridad de Fase 1
+
+El contrato de los gates está definido en `docs/security/security-gates.md`, pero ninguno tiene todavía implementación ni evidencia ejecutable del stack objetivo. Por eso todos permanecen `PLANNED`; este estado no contradice los elementos documentales `SEC-001`, `SEC-002` y `SEC-004` ya cerrados.
+
+| ID | Prioridad | Estado | Gate | Dependencias / criterio futuro |
+|---|---|---|---|---|
+| SEC-G01 | `P0` | `PLANNED` | Tenant Isolation | `SEC-003`, tenant model y `PHY-G14`; exige pruebas cross-tenant reales, constraints y RLS aplicable. |
+| SEC-G02 | `P0` | `PLANNED` | Authentication & Session Security | `UC-AUTH-001`, Identity y Devices; exige expiración, rotación, revocación, MFA, reautenticación, bloqueo y recuperación. |
+| SEC-G03 | `P0` | `PLANNED` | Authorization / RBAC / ABAC | `SEC-001`, `SEC-002`, `SEC-G01/02`; exige deny by default y pruebas backend de scopes, límites y segregación. |
+| SEC-G04 | `P0` | `PLANNED` | Device Trust & License Enforcement | `DEC-008`, Devices y Licensing; exige evidencia criptográfica, activación/revocación, tiempo, gracia y reemplazo. |
+| SEC-G05 | `P0` | `PLANNED` | Local-first Integrity & Replay Protection | `DEC-007`, `DEC-008`, Sync y schemas local/central; exige outbox/inbox, replay, orden, conflictos y recovery. |
+| SEC-G06 | `P0` | `PLANNED` | Audit & Anti-Fraud | Audit y gates anteriores; exige append-only, atribución y reglas deterministas antifraude. |
+| SEC-G07 | `P0` | `PLANNED` | Secrets & Cryptography | `SEC-004`, `DEC-008`, `DEC-009`; exige scanning, aislamiento, rotación, revocación, cifrado y redacción. |
+| SEC-G08 | `P0` | `PLANNED` | API / Webhook / Input Security | `ARCH-004`, `TECH-003`, autenticación y adaptadores; exige pruebas de input, BOLA/IDOR, web y webhook. |
+| SEC-G09 | `P0` | `PLANNED` | Infrastructure / Supply Chain / Backup & Recovery | `ADR-005`, `DEC-009/010`, `TECH-004/005`; exige hardening, SBOM/scanning, restore, DR, update y rollback. |
+| SEC-G10 | `P0` | `PLANNED` | Security Release Gate | `SEC-G01` a `SEC-G09`; bloquea producción sin evidencia completa o con vulnerabilidad crítica no tratada. |
+
 ### Catálogo
 
 Estado de la épica: `IN_PROGRESS`.
@@ -379,7 +396,7 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
 | F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G09` cerrados documentalmente; `PHY-G10` es el siguiente gate no iniciado. La primera migración requiere autorización documental independiente y permanece `NO-GO`. |
-| F1.3 Seguridad e identidad | `PLANNED` | Aislamiento multi-tenant probado, sesiones revocables, MFA crítico y permisos backend. |
+| F1.3 Seguridad e identidad | `PLANNED` | `SEC-G01` a `SEC-G10` formalizados pero no evaluados; requiere aislamiento multi-tenant probado, sesiones revocables, MFA crítico, permisos backend y evidencia de release. |
 | F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
 | F1.6 Base local-first | `PLANNED` | Identificadores globales, outbox y reintento demostrados sin duplicación. |
@@ -457,5 +474,7 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 - 2026-08-12: `PHY-G08` cerró el contrato físico documental de SaleReturn. Se separaron estados persistentes de proyecciones de Sale, SaleReturn de Refund/Reversal, ownership y permisos de Sales/Payments, y se alinearon tenant, snapshots, elegibilidad, dinero, inventario, caja, fiscalización, local-first, auditoría, eventos y migración heredada. No se escribió DDL ni se inició `PHY-G09`.
 
 - 2026-08-12: `PHY-G09` cerró el contrato físico documental de Reversal, Settlement y Reconciliation. `PAY-007` quedó como autoridad única de estados; se alinearon eventos canónicos, ownership de Payments, componentes monetarios exactos, tratamiento versionado del bruto frente a reversals, snapshots de alcance, permisos sobre roles existentes, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración heredada. No se escribió DDL ni se inició `PHY-G10`.
+
+- 2026-08-12: se formalizaron `SEC-G01` a `SEC-G10` mediante `docs/security/security-gates.md` y la matriz obligatoria amenaza → control → prueba → evidencia. Los diez gates permanecen `PLANNED`/no evaluados porque no existe implementación ni evidencia ejecutable del stack objetivo. `TECH-002` y la secuencia física no cambiaron; `PHY-G10` no se inició.
 
 Próxima actualización obligatoria: iniciar `PHY-G10` únicamente mediante un trabajo posterior explícito y mantener el orden físico; el gate de primera migración permanece `NO-GO`.
