@@ -537,6 +537,7 @@ Atributos conceptuales:
 - id;
 - tenant_id;
 - device_id;
+- installation_id;
 - evidence_version;
 - evidence_hash;
 - evidence_type;
@@ -692,6 +693,7 @@ Atributos conceptuales:
 - license_id;
 - device_id;
 - installation_id;
+- device_key_id;
 - issued_at;
 - not_before opcional;
 - expires_at opcional;
@@ -981,6 +983,7 @@ Atributos conceptuales:
 
 - id;
 - user_id;
+- tenant_id opcional hasta seleccionar contexto;
 - tenant_membership_id opcional hasta seleccionar contexto;
 - device_id opcional;
 - authenticated_at;
@@ -1003,6 +1006,7 @@ Reglas:
 4. La vigencia offline nunca supera `offline_valid_until` ni amplía permisos conocidos.
 5. MFA y reautenticación son evidencias separadas y auditables.
 6. Revocar una sesión no elimina su historial.
+7. `tenant_id`, membership y Device, cuando existan, pertenecen al mismo contexto; una sesión pre-contexto no origina operaciones tenant-scoped.
 
 ### SessionRefreshToken
 
@@ -2365,25 +2369,32 @@ Atributos conceptuales:
 
 - operation_id;
 - tenant_id;
-- company_id;
-- branch_id;
+- company_id opcional para operación tenant-wide y obligatorio para origen Device;
+- branch_id opcional;
+- source_kind;
 - device_id opcional para origen central;
-- session_id;
-- actor_id;
+- installation_id opcional para origen central;
+- session_id opcional;
+- actor_type;
+- actor_id opcional según actor_type;
 - aggregate_type;
 - aggregate_id;
 - operation_type;
 - idempotency_key;
-- expected_version;
+- expected_version opcional cuando no aplica concurrencia del agregado;
+- authority_policy;
+- parent_operation_id opcional;
 - causation_id opcional;
 - correlation_id;
-- occurred_at_local;
-- recorded_at_local;
+- occurred_at_local opcional para origen central;
+- recorded_at_local opcional para origen central y obligatorio para origen local;
 - received_at_server opcional;
 - committed_at_server opcional;
 - schema_version;
+- payload;
 - payload_checksum;
-- sync_status.
+- sync_status;
+- version.
 
 El payload canónico original pertenece lógicamente a esta operación y permanece inmutable. Outbox lo transporta o referencia e Inbox conserva checksum/resultado; ningún registro de dead letter crea otra copia autoritativa.
 
@@ -2416,6 +2427,7 @@ Atributos conceptuales:
 - acknowledged_at opcional;
 - created_at;
 - updated_at.
+- version.
 
 `SyncOperation` conserva la intención, el payload canónico, checksum, identidad e idempotencia. `OutboxEntry` es exclusivamente el sobre persistente de entrega y retry: referencia la operación 1:1 y no crea una segunda copia autoritativa del payload ni de la idempotency key. `operation_type`, schema, checksum, correlación y causalidad deben coincidir con la operación referenciada.
 
@@ -2448,16 +2460,23 @@ Representa el registro central de una operación recibida.
 
 Atributos conceptuales:
 
+- inbox_id;
 - tenant_id;
 - operation_id;
+- receiver_code;
 - operation_type;
 - idempotency_key;
 - payload_checksum;
 - processing_status;
-- result_code;
+- result_code opcional hasta resultado terminal;
+- result_reference opcional;
+- result_checksum opcional;
 - previous_version opcional;
 - new_version opcional;
 - received_at_server;
+- applied_at opcional;
+- rejected_at opcional;
+- error_code opcional;
 - committed_at_server opcional.
 
 El inbox impide aplicar dos veces una operación aceptada.
@@ -2470,18 +2489,23 @@ El inbox conserva unicidad por `operation_id` y por el alcance `(tenant_id, oper
 
 ### SyncCheckpoint
 
-Representa la posición confirmada de sincronización entre un dispositivo y el servidor.
+Representa la posición durable confirmada por dispositivo, stream y dirección en cada nodo.
 
 Atributos conceptuales:
 
 - tenant_id;
+- checkpoint_id;
 - device_id;
-- last_uploaded_sequence;
-- last_server_acknowledged_sequence;
-- last_downloaded_cursor;
-- last_successful_sync_at;
-- last_full_reconciliation_at;
-- checkpoint_status.
+- stream_code;
+- direction;
+- confirmed_sequence opcional;
+- confirmed_cursor opcional;
+- last_confirmed_operation_id opcional;
+- last_successful_sync_at opcional;
+- last_full_reconciliation_at opcional;
+- checkpoint_status;
+- version;
+- updated_at.
 
 El checkpoint:
 
@@ -2502,8 +2526,8 @@ Atributos conceptuales:
 - aggregate_type;
 - aggregate_id;
 - conflict_type;
-- expected_version;
-- current_version;
+- expected_version opcional cuando aplica concurrencia del agregado;
+- observed_version opcional cuando aplica concurrencia del agregado;
 - authority_policy;
 - severity;
 - resolution_policy;
@@ -2511,7 +2535,9 @@ Atributos conceptuales:
 - detected_at;
 - resolved_at opcional;
 - resolved_by opcional;
-- resolution_reason opcional.
+- resolution_reason opcional;
+- evidence_reference opcional;
+- version.
 
 Una resolución puede:
 
@@ -2532,15 +2558,17 @@ Representa la intervención autorizada sobre un conflicto o una dead letter.
 Atributos conceptuales:
 
 - review_id;
+- tenant_id;
 - conflict_id opcional;
 - dead_letter_id opcional;
 - assigned_role;
 - assigned_user opcional;
-- decision;
-- reason;
+- decision opcional hasta resolución;
+- reason opcional hasta resolución;
 - evidence_reference opcional;
 - created_at;
-- resolved_at opcional.
+- resolved_at opcional;
+- version.
 
 La revisión conserva actor, decisión, motivo y evidencia.
 

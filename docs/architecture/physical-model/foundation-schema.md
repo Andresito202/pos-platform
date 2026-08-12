@@ -234,8 +234,9 @@ Constraints e índices:
 |---|---|---:|---|
 | `id` | `uuid` | no | PK |
 | `user_id` | `uuid` | no | FK user |
+| `tenant_id` | `uuid` | sí | contexto tenant seleccionado; nulo antes de seleccionarlo |
 | `tenant_membership_id` | `uuid` | sí | contexto seleccionado, FK compuesta con `user_id` |
-| `device_id` | `uuid` | sí | `DIFERIDA AL BLOQUE DEVICES` |
+| `device_id` | `uuid` | sí | Device del mismo tenant cuando existe contexto |
 | `authenticated_at` | `timestamptz` | no | autenticación inicial |
 | `expires_at` | `timestamptz` | no | posterior a autenticación |
 | `last_reauthenticated_at` | `timestamptz` | sí | evidencia distinta de MFA |
@@ -249,9 +250,16 @@ Constraints e índices:
 | `created_at` | `timestamptz` | no | persistencia |
 | `version` | `bigint` | no | concurrencia optimista |
 
-Índices: `(user_id, expires_at) WHERE revoked_at IS NULL`, `(tenant_membership_id, expires_at) WHERE revoked_at IS NULL` y `(device_id, expires_at) WHERE device_id IS NOT NULL AND revoked_at IS NULL`.
+Candidate keys, FKs e índices:
 
-La FK `(user_id, tenant_membership_id)` impide seleccionar una membership de otro usuario. La aplicación además exige que esté activa y evalúa su tenant dentro de la transacción.
+- `UNIQUE (tenant_id, id)` habilita referencias tenant-aware desde Sync/Audit; la PK global en `id` permanece canónica;
+- FK `(user_id, tenant_membership_id)` impide seleccionar una membership de otro usuario;
+- FK `(tenant_id, tenant_membership_id)` verifica el tenant seleccionado;
+- FK `(tenant_id, device_id)` a Devices cuando Device exista;
+- `CHECK ((tenant_id IS NULL) = (tenant_membership_id IS NULL))` y `CHECK (device_id IS NULL OR tenant_id IS NOT NULL)`;
+- índices `(user_id, expires_at) WHERE revoked_at IS NULL`, `(tenant_id, tenant_membership_id, expires_at) WHERE tenant_membership_id IS NOT NULL AND revoked_at IS NULL` y `(tenant_id, device_id, expires_at) WHERE device_id IS NOT NULL AND revoked_at IS NULL`.
+
+La aplicación además exige membership activa y Device permitido dentro de la misma transacción. Una sesión pre-contexto no puede originar una operación tenant-scoped ni vincular Device.
 
 ### `identity.session_refresh_tokens`
 
@@ -283,9 +291,9 @@ Constraints e índices:
 
 Append-only; propietario Identity.
 
-Columnas: `id uuid PK`, `user_id uuid NULL`, `session_id uuid NULL`, `tenant_id uuid NULL`, `device_id uuid NULL` (`DIFERIDA AL BLOQUE DEVICES`), `event_code text NOT NULL`, `result text NOT NULL`, `reason_code text NULL`, `ip_address inet NULL`, `evidence_checksum text NULL`, `correlation_id uuid NOT NULL`, `occurred_at timestamptz NOT NULL`, `server_recorded_at timestamptz NOT NULL`.
+Columnas: `id uuid PK`, `user_id uuid NULL`, `session_id uuid NULL`, `tenant_id uuid NULL`, `device_id uuid NULL`, `event_code text NOT NULL`, `result text NOT NULL`, `reason_code text NULL`, `ip_address inet NULL`, `evidence_checksum text NULL`, `correlation_id uuid NOT NULL`, `occurred_at timestamptz NOT NULL`, `server_recorded_at timestamptz NOT NULL`.
 
-Índices: `(user_id, occurred_at DESC)`, `(tenant_id, occurred_at DESC)` y `(event_code, server_recorded_at DESC)`. No contiene credenciales, tokens, códigos MFA ni payload arbitrario.
+FK global `session_id -> sessions(id)` cuando exista, FK `(tenant_id, session_id)` para evento con contexto y FK `(tenant_id, device_id)` cuando Device exista; `CHECK (device_id IS NULL OR tenant_id IS NOT NULL)`. Así Session y Device presentes en contexto corresponden físicamente al mismo tenant, mientras una señal pre-contexto aún puede referenciar su Session global. Las referencias históricas usan `NO ACTION` y ninguna revocación borra el evento. Índices: `(user_id, occurred_at DESC)`, `(tenant_id, occurred_at DESC)` y `(event_code, server_recorded_at DESC)`. No contiene credenciales, tokens, códigos MFA ni payload arbitrario.
 
 ## Autorización
 
@@ -432,7 +440,7 @@ Columnas opcionales por contexto:
 - `company_id uuid NULL` y `branch_id uuid NULL` con scope tenant-aware cuando existan;
 - `actor_id uuid NULL`, permitido nulo para proceso identificado por `actor_type`;
 - `session_id uuid NULL`;
-- `device_id uuid NULL` con FK diferida a Devices;
+- `device_id uuid NULL` con FK tenant-aware a Devices cuando exista;
 - `resource_id uuid NULL`;
 - `operation_id uuid NULL`;
 - `causation_id uuid NULL`;
@@ -455,18 +463,21 @@ Reglas condicionales:
 7. `payload_checksum` cubre la representación canónica del evento sanitizado; no demuestra por sí solo autenticidad criptográfica.
 8. Los roles operacionales no reciben `UPDATE`, `DELETE` ni `TRUNCATE`; correcciones generan otro AuditEvent causalmente relacionado.
 
+FK global `session_id -> sessions(id)` y FKs tenant-aware `(tenant_id, company_id)`, `(tenant_id, company_id, branch_id)`, `(tenant_id, device_id)`, `(tenant_id, session_id)` y `(tenant_id, operation_id)` cuando cada referencia tenant-scoped exista. Checks exigen `tenant_id` para Company, Branch, Device u Operation; un evento de plataforma/bootstrap sin Tenant solo puede conservar Session pre-contexto y referencias globales permitidas. Todas usan `NO ACTION`; retirar actor, Device u Operation no borra auditoría.
+
 Índices candidatos justificados: `(tenant_id, server_recorded_at DESC, id)`, `(tenant_id, resource_type, resource_id, server_recorded_at DESC)`, `(tenant_id, actor_type, actor_id, server_recorded_at DESC)` cuando actor exista, `(operation_id, server_recorded_at, id)` cuando operación exista y `(correlation_id, server_recorded_at, id)`. No se indexan snapshots JSON ni campos sensibles por conveniencia.
 
 ### `sync.outbox_entries`
 
 Sobre persistente de entrega y retry; propietario Sync para transporte y creado por la misma transacción que `SyncOperation` y el hecho del módulo origen. `SyncOperation` conserva intención, payload canónico, checksum, identidad e idempotencia. Outbox no duplica ese payload ni decide el resultado de negocio.
 
-Columnas: `id uuid PK`, `tenant_id uuid NOT NULL`, `operation_id uuid NOT NULL`, `device_id uuid NULL`, `local_sequence bigint NULL`, `operation_type text NOT NULL`, `schema_version integer NOT NULL CHECK (schema_version >= 1)`, `payload_checksum text NOT NULL`, `correlation_id uuid NOT NULL`, `causation_id uuid NULL`, `sync_status text NOT NULL`, `created_at timestamptz NOT NULL`, `available_at timestamptz NOT NULL`, `attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0)`, `last_attempt_at timestamptz NULL`, `next_attempt_at timestamptz NULL`, `last_error_code text NULL`, `acknowledged_at timestamptz NULL`, `updated_at timestamptz NOT NULL`.
+Columnas: `id uuid PK`, `tenant_id uuid NOT NULL`, `operation_id uuid NOT NULL`, `device_id uuid NULL`, `local_sequence bigint NULL`, `operation_type text NOT NULL`, `schema_version integer NOT NULL CHECK (schema_version >= 1)`, `payload_checksum bytea NOT NULL`, `correlation_id uuid NOT NULL`, `causation_id uuid NULL`, `sync_status text NOT NULL`, `created_at timestamptz NOT NULL`, `available_at timestamptz NOT NULL`, `attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0)`, `last_attempt_at timestamptz NULL`, `next_attempt_at timestamptz NULL`, `last_error_code text NULL`, `acknowledged_at timestamptz NULL`, `updated_at timestamptz NOT NULL`, `version bigint NOT NULL`.
 
 Constraints e índices:
 
-- `UNIQUE (operation_id)` garantiza una sola OutboxEntry autoritativa por operación;
+- `UNIQUE (operation_id)`, `UNIQUE (tenant_id, id)` y `UNIQUE (tenant_id, operation_id, id)` garantizan una sola OutboxEntry autoritativa por operación y habilitan referencias tenant-aware;
 - FK tenant-aware `(tenant_id, operation_id)` a `SyncOperation`; se materializa en el corte conjunto y no se permite una Outbox productiva huérfana;
+- FK `(tenant_id, device_id, operation_id)` a la candidate key de `SyncOperation` cuando el origen sea local, para que Outbox y Operation compartan Device;
 - check `device_id` y `local_sequence` ambos presentes para origen local o ambos ausentes para origen central;
 - unique parcial `(tenant_id, device_id, local_sequence) WHERE device_id IS NOT NULL`;
 - `operation_type`, `schema_version`, `payload_checksum`, correlación y causalidad coinciden con `SyncOperation`; checksum distinto es conflicto y no update;
@@ -479,7 +490,7 @@ Constraints e índices:
 - Outbox no contiene `idempotency_key`, aggregate fields ni payload de negocio duplicados: los resuelve desde `SyncOperation`;
 - Outbox no resuelve conflictos de dominio; Inbox deduplica/retorna resultado y SyncDeadLetter trata agotamiento o error permanente.
 
-El modelo completo de Inbox, SyncOperation, conflictos y checkpoints se cierra en R2/R3. Esta definición fija solo la incompatibilidad transversal de R1. La outbox mínima existe aquí porque `UC-ONB-001` exige que operación, hecho de negocio y sobre de entrega compartan transacción.
+El contrato completo de Operation, Outbox, Inbox, checkpoints, conflictos, reviews y dead letter se cierra documentalmente en `sync-base-schema.md`. Esta tabla se conserva aquí porque `UC-ONB-001` exige que operación, hecho de negocio y sobre de entrega compartan transacción.
 
 ## Frontera transaccional de onboarding
 
@@ -524,25 +535,25 @@ La emisión/activación de licencia y el registro/activación del dispositivo oc
 
 ## Estado de condiciones de salida
 
-| Condición | Clasificación R1 | Evidencia o trabajo restante |
+| Condición | Clasificación vigente | Evidencia o trabajo restante |
 |---|---|---|
 | modelo Device, Installation, DeviceKey, License y Activation | satisfecha documentalmente | `device-licensing-schema.md`; su gate físico continúa `IN_REVIEW` |
 | snapshot offline sin credenciales centrales | satisfecha documentalmente | `authorization.offline_authorization_snapshots` en el bloque Device/Licensing |
 | autoridad de estados de licencia/activación | satisfecha documentalmente | `DEC-008`, casos de uso y modelo conceptual |
 | PoC RLS PostgreSQL 16 | satisfecha con evidencia ejecutable | `poc/rls/`, 30 PASS / 0 FAIL |
-| FK desde Session, SecurityEvent y AuditEvent hacia Device | pendiente | exige cierre y orden físico conjunto con Device/Licensing |
-| FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | trasladada | R2/R3; R1 fija identidad, metadata e invariantes, no el módulo completo |
-| revisión columna por columna y pruebas de ambos dialectos | pendiente | R2/R3 y futura implementación autorizada |
+| FK desde Session, SecurityEvent y AuditEvent hacia Device | satisfecha documentalmente en R2-A | candidate keys y FKs tenant-aware cerradas; evidencia física queda para R3 |
+| FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | satisfecha documentalmente en R2-A | `sync-base-schema.md`; pruebas físicas quedan para R3 |
+| revisión columna por columna y pruebas de ambos dialectos | parcialmente satisfecha | R2-A cerró relaciones; auditoría completa y ejecución PostgreSQL/SQLite siguen en R2-B/R3 |
 | orden, rollback, convivencia y manifiesto de primera migración | trasladada | R4; no forma parte de R1 |
 
 Estas clasificaciones no autorizan DDL ni permiten omitir una condición trasladada.
 
 ## Gate del bloque
 
-Foundation permanece `IN_REVIEW`. Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solamente si:
+Foundation permanece `IN_REVIEW`. R2-A elimina sus FKs diferidas a Device/Sync, pero pasa a `APPROVED_FOR_MIGRATION_DESIGN` solamente si:
 
 - la revisión contra `UC-ONB-001`, `UC-AUTH-001`, `SEC-002` y `SEC-004` no encuentra campos o transiciones sin fuente;
-- el bloque Device/Licensing cierra todas las FK diferidas;
+- las relaciones tenant-aware de Foundation, Device/Licensing y Sync permanecen alineadas sin FK libre;
 - el PoC de RLS demuestra aislamiento y ausencia de fuga de contexto;
 - la estrategia completa de migraciones define orden, rollback y convivencia con el esquema heredado.
 

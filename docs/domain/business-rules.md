@@ -448,3 +448,25 @@ RN-204. Los límites persistentes usan exclusivamente `FINITE`, `UNLIMITED` o `N
 RN-205. Importes de cálculo y financieros usan escala 6, tasas/factores escala 10 y un importe usa escala 2 solo después de normalización fiscal/contable explícita y versionada. PostgreSQL/SQLite conservan equivalencia exacta y ningún adaptador usa coma flotante autoritativa.
 
 RN-206. `PriceChange` no es entidad física: historial de precio se conserva mediante versiones inmutables, vigencia, eventos, auditoría y snapshot de Sale. Un workflow futuro de solicitud/aprobación requiere caso de uso y agregado propios.
+
+## Relaciones físicas transversales R2-A
+
+RN-207. Toda relación tenant-scoped entre Foundation, Devices/Licensing y Sync usa candidate key y FK compuesta con el scope necesario. RLS y validación de aplicación son defensas adicionales, no sustitutos de integridad referencial.
+
+RN-208. `sync.sync_operations.id` representa el `operation_id` canónico. Intención, payload, schema, checksum, idempotencia, origen y autoridad son inmutables; estado técnico cambia únicamente con concurrencia controlada.
+
+RN-209. Toda SyncOperation entregable crea exactamente una Outbox en la misma transacción del nodo originador. Toda operación local exige Device, Installation y secuencia coherentes; un proceso central no inventa esas identidades.
+
+RN-210. Inbox central aplica una Operation como máximo una vez. Duplicado con el mismo checksum devuelve resultado persistido; identidad repetida con checksum diferente se rechaza, no produce efecto adicional y genera señal de seguridad.
+
+RN-211. Un checkpoint pertenece a Tenant, Device, stream y dirección. Solo avanza sobre confirmación durable y contigua; restart lo recupera y ningún timestamp, conflicto, review o dead letter pendiente se oculta adelantando la posición.
+
+RN-212. SyncReview referencia exactamente un SyncConflict o una SyncDeadLetter. DeadLetter, Review y Action pertenecen al mismo tenant/operation y no duplican payload ni autoridad del dominio.
+
+RN-213. Device, Installation, DeviceKey, License y LicenseActivation mantienen identidades separadas. Activation prueba mediante FKs compuestas que License, Device, Installation y Key pertenecen al tenant y combinaciones autorizadas; reemplazar o revocar nunca reutiliza identidad.
+
+RN-214. Las relaciones históricas de Identity, Device, Licensing, Sync y Audit usan `RESTRICT`/`NO ACTION`. Archivar, retirar, revocar o reemplazar no ejecuta cascadas destructivas ni elimina evidencia.
+
+RN-215. El grafo Foundation→Device/Installation/Key→License/Activation→Sync no requiere `DEFERRABLE`: las referencias de reemplazo o causalidad apuntan a filas previas o nacen nulas cuando el lifecycle lo autoriza. No se elimina integridad para resolver ciclos inexistentes.
+
+RN-216. Crear operación local, aplicar operación central, confirmar ACK/checkpoint, transicionar dead letter y emitir activación respetan sus fronteras atómicas locales o centrales. Nunca existe una transacción distribuida SQLite/PostgreSQL.

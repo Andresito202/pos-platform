@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS obligatorio y la remediación R1 fueron cerrados; la primera migración continúa `NO-GO` hasta completar R2/R3/R4 y obtener autorización independiente.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1 y R2-A fueron cerrados documentalmente; la primera migración continúa `NO-GO` hasta completar R2-B/R3/R4 y obtener autorización independiente.
 
 ## Principios obligatorios
 
@@ -240,6 +240,37 @@ PostgreSQL usa `jsonb`; SQLite usa `TEXT` JSON canónico validado por el adaptad
 | dato migrado | conserva referencia y evidencia de reconciliación |
 
 No se propagan borrados en cascada desde identidad, dispositivo, tenant o catálogo hacia hechos históricos.
+
+### Relaciones tenant-aware
+
+Una PK UUID v7 global no sustituye el aislamiento relacional. Toda tabla tenant-scoped expone `UNIQUE (tenant_id, id)` cuando otra tabla tenant-scoped la referencia. Si Company o Branch forman parte del invariante, el destino expone además `(tenant_id, company_id, id)` o `(tenant_id, company_id, branch_id, id)` y la FK usa ese mismo scope.
+
+Reglas:
+
+1. Una FK simple por `id` solo es válida para catálogos realmente globales o identidades globales como User y TrustedSigningKey.
+2. Repetir `tenant_id` en una dependiente está permitido cuando es necesario para RLS, partición lógica o FK compuesta; debe existir constraint que pruebe coincidencia con el padre.
+3. Una relación opcional usa FK compuesta con semántica `MATCH SIMPLE` únicamente cuando todos sus componentes opcionales forman el mismo scope; no se permite un tenant presente con identidad de otro tenant.
+4. Las relaciones Company/Branch verifican la cadena completa, no Company y Branch mediante FKs independientes que podrían combinar filas incompatibles.
+5. RLS es defensa adicional. No reemplaza candidate keys, FKs, checks ni validación del caso de uso.
+6. SQLite reproduce las FKs que existan localmente y el repositorio valida las invariantes que el dialecto no pueda expresar; PostgreSQL revalida al recibir.
+
+### Ciclos y constraints diferidas
+
+El grafo se ordena por ownership y lifecycle. Una FK circular no se acepta por comodidad:
+
+- un ciclo innecesario se elimina manteniendo la referencia en el dependiente real;
+- un self-link histórico a una fila anterior se crea después de existir el target o nace nulo si el lifecycle lo autoriza;
+- una referencia histórica polimórfica puede conservar tipo/identidad sin FK fuerte cuando conectar todos los módulos crearía acoplamiento o ciclos, pero la aplicación valida tenant/ownership;
+- `DEFERRABLE` solo se propone cuando una invariante exige que dos filas nuevas se validen al final de la misma transacción y no existe un propietario/dependiente claro.
+
+R2-A no requiere `DEFERRABLE`: Device no referencia Activation, Operation no referencia Outbox y DeadLetter/Review/Action dependen en un solo sentido.
+
+### Política referencial de borrado
+
+- `RESTRICT`/`NO ACTION` es el default para datos operativos, seguridad, licensing, Sync, Audit y evidencia.
+- `CASCADE` solo es candidato para un detalle sin identidad/historia independiente y nunca desde Tenant, Company, Branch, Device, Installation, License, Activation, SyncOperation, Inbox, DeadLetter o AuditEvent.
+- `SET NULL` exige que la historia sobreviva legítimamente sin esa relación y no puede borrar tenant, atribución, causalidad, scope o cadena criptográfica.
+- archivar, retirar, revocar, reemplazar o anonimizar son casos de uso; no efectos implícitos de una FK.
 
 ## Auditoría
 

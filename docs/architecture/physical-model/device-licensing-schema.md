@@ -61,8 +61,9 @@ Las flechas representan referencias verificables, no herencia ni equivalencia de
 
 Constraints e índices:
 
-- `UNIQUE (tenant_id, id)`, `UNIQUE (tenant_id, company_id, id)`;
-- FK `(tenant_id, company_id)` y `(tenant_id, company_id, branch_id)`;
+- `UNIQUE (tenant_id, id)`, `UNIQUE (tenant_id, company_id, id)` y `UNIQUE (tenant_id, company_id, branch_id, id)` para scopes físicos;
+- FK `tenant_id -> tenancy.tenants(id)`, FK `(tenant_id, company_id) -> organization.companies(tenant_id, id)` y FK `(tenant_id, company_id, branch_id) -> organization.branches(tenant_id, company_id, id)` cuando Branch exista;
+- FK self `(tenant_id, replacement_device_id) -> devices(tenant_id, id)` con `NO ACTION`;
 - `CHECK (replacement_device_id IS NULL OR replacement_device_id <> id)`;
 - índice `(tenant_id, branch_id, trust_status, id)`;
 - no contiene `installation_id`, estado operativo, versión de app ni último heartbeat.
@@ -84,8 +85,9 @@ Constraints e índices:
 
 Constraints:
 
-- `UNIQUE (tenant_id, id)`;
+- `UNIQUE (tenant_id, id)` y `UNIQUE (tenant_id, device_id, id)`;
 - FK `(tenant_id, device_id)` cuando exista;
+- FK self `(tenant_id, replacement_installation_id)` a Installation con `NO ACTION`;
 - una instalación solo puede enlazarse una vez a Device; cambiar Device requiere flujo explícito de recuperación, no update ordinario;
 - `replacement_installation_id` no reutiliza identidad ni transfiere activación;
 - índice `(tenant_id, device_id, retired_at, created_at DESC)`.
@@ -98,10 +100,10 @@ Columnas: `id uuid PK`, `tenant_id uuid NOT NULL`, `device_id uuid NOT NULL`, `p
 
 Constraints:
 
-- `UNIQUE (tenant_id, id)` y `UNIQUE (public_key_fingerprint)` para impedir reutilización silenciosa;
+- `UNIQUE (tenant_id, id)`, `UNIQUE (tenant_id, device_id, id)` y `UNIQUE (public_key_fingerprint)` para impedir reutilización silenciosa;
 - `UNIQUE (tenant_id, device_id, key_version)`;
 - FK compuesta `(tenant_id, device_id)`;
-- FK self `replacement_key_id`, diferente de la misma fila;
+- FK self `(tenant_id, device_id, replacement_key_id)` para que la rotación permanezca en el mismo Device, diferente de la misma fila y con `NO ACTION`;
 - una sola clave `ACTIVE` por dispositivo mediante unique parcial;
 - coherencia entre estado y timestamps;
 - la tabla local equivalente es `devices_device_keys` y no contiene clave privada.
@@ -110,7 +112,7 @@ Constraints:
 
 Append-only: `id`, `tenant_id`, `device_id`, `installation_id`, `evidence_version`, `evidence_hash`, `evidence_type`, `observed_at`, `change_classification`, `risk_status`, `retained_until`, `correlation_id`.
 
-Constraints: FK compuestas a Device e Installation, `UNIQUE (tenant_id, device_id, installation_id, evidence_version, evidence_type)`, índice `(tenant_id, device_id, observed_at DESC)`. El hash no se usa como identidad y el payload crudo solo se conserva si una política de minimización lo autoriza expresamente.
+Constraints: FK `(tenant_id, device_id)` a Device y FK `(tenant_id, device_id, installation_id)` a Installation, `UNIQUE (tenant_id, device_id, installation_id, evidence_version, evidence_type)`, índice `(tenant_id, device_id, observed_at DESC)`. Ambas FKs usan `NO ACTION`. El hash no se usa como identidad y el payload crudo solo se conserva si una política de minimización lo autoriza expresamente.
 
 ### `devices.device_operational_states`
 
@@ -127,7 +129,7 @@ Una fila mutable por Device:
 - `last_transition_at timestamptz NOT NULL`;
 - `policy_version text NOT NULL`;
 - `version bigint NOT NULL`;
-- PK `(tenant_id, device_id)` y FK compuestas a Device e Installation.
+- PK `(tenant_id, device_id)`, FK `(tenant_id, device_id)` a Device y FK `(tenant_id, device_id, installation_id)` a Installation.
 
 Un heartbeat solo avanza `last_seen_at` si prueba Device/Installation válida y no está fuera de orden según la política. `last_sync_at` cambia únicamente después de sincronización confirmada. El estado no modifica confianza ni licencia.
 
@@ -135,7 +137,7 @@ Un heartbeat solo avanza `last_seen_at` si prueba Device/Installation válida y 
 
 Una fila versionada por dispositivo y vigencia: `id`, `tenant_id`, `device_id`, `asset_ownership_mode`, `management_mode`, `policy_version`, `managed_since_at`, `management_ends_at`, `status`, `created_at`, `version`.
 
-Constraints: modos exactos del modelo conceptual, rango temporal válido y máximo un perfil activo por Device. `DEVICE_MANAGED` y `KIOSK_MANAGED` requieren evidencia de contrato/política referenciada; el perfil nunca otorga entitlements.
+Constraints: FK `(tenant_id, device_id)` con `NO ACTION`, modos exactos del modelo conceptual, rango temporal válido y máximo un perfil activo por Device. `DEVICE_MANAGED` y `KIOSK_MANAGED` requieren evidencia de contrato/política referenciada; el perfil nunca otorga entitlements.
 
 ## Licencias
 
@@ -172,6 +174,7 @@ Artefacto inmutable por versión emitida.
 Constraints e índices:
 
 - `UNIQUE (tenant_id, id)` y `UNIQUE (issuer_id, payload_checksum)`;
+- FK `tenant_id` a Tenant, FK self `(tenant_id, supersedes_license_id)` y FK global `signing_key_id` a TrustedSigningKey;
 - rango temporal válido;
 - `supersedes_license_id <> id`;
 - ninguna actualización ordinaria: un cambio emite otra License;
@@ -186,7 +189,7 @@ Constraints e índices:
 
 Columnas: `id`, `tenant_id`, `license_id`, `entitlement_version`, `feature_code`, `enabled`, `limit_type text NOT NULL`, `limit_value numeric(19,6) NULL`, `valid_from`, `valid_until`, `policy_version`.
 
-Constraints: FK compuesta a License, `UNIQUE (tenant_id, license_id, entitlement_version, feature_code)`, rango temporal válido y el feature code debe pertenecer al catálogo publicado; no equivale a Permission. `enabled` y límite son dimensiones separadas: `enabled = false` no equivale a `enabled = true` con `FINITE + 0`.
+Constraints: `UNIQUE (tenant_id, id)`, FK `(tenant_id, license_id)` a License con `NO ACTION`, `UNIQUE (tenant_id, license_id, entitlement_version, feature_code)`, rango temporal válido y el feature code debe pertenecer al catálogo publicado; no equivale a Permission. `enabled` y límite son dimensiones separadas: `enabled = false` no equivale a `enabled = true` con `FINITE + 0`.
 
 Todo entitlement persistido declara `limit_type` y usa exclusivamente `FINITE`, `UNLIMITED` o `NOT_APPLICABLE`; una capability sin dimensión cuantitativa usa `NOT_APPLICABLE`. `FINITE` exige valor exacto no negativo; `UNLIMITED`/`NOT_APPLICABLE` exigen valor nulo. Dispositivos y sucursales exigen entero exacto; otra capability conserva decimal exacto solo si su unidad normativa lo autoriza. Una configuración requerida ausente impide emitir el entitlement efectivo y falla cerrada, no se persiste como cuarto tipo.
 
@@ -221,9 +224,12 @@ Todo entitlement persistido declara `limit_type` y usa exclusivamente `FINITE`, 
 
 Constraints:
 
-- FKs tenant-scoped a License, Device, Installation y DeviceKey;
-- el Device de Installation y DeviceKey debe coincidir con `device_id`, mediante claves compuestas;
-- `branch_id` exige `company_id`;
+- `UNIQUE (tenant_id, id)`, `UNIQUE (tenant_id, license_id, id)`, `UNIQUE (tenant_id, license_id, device_id, installation_id, device_key_id, id)` y FKs `(tenant_id, license_id)`, `(tenant_id, device_id)`, `(tenant_id, device_id, installation_id)` y `(tenant_id, device_id, device_key_id)`, todas `NO ACTION`;
+- FK `(tenant_id, company_id)` cuando Company exista y FK `(tenant_id, company_id, branch_id)` cuando Branch exista;
+- si `company_id` existe, FK `(tenant_id, company_id, device_id)` exige que el Device pertenezca a esa Company; si `branch_id` existe, FK `(tenant_id, company_id, branch_id, device_id)` exige que Device y Activation compartan Branch;
+- el Device de Installation y DeviceKey coincide físicamente con `device_id` mediante claves compuestas;
+- `branch_id` exige `company_id`; Company/Branch nulos significan activación tenant-wide autorizada, no scope inferido desde request;
+- FK self `(tenant_id, license_id, previous_activation_id)` con `NO ACTION` exige la misma License; la aplicación valida cadena sin ciclos;
 - `UNIQUE (tenant_id, idempotency_key)`;
 - máximo una activación no terminal por `(tenant_id, license_id, device_id, installation_id)`;
 - reemplazar crea otra fila y conserva anterior;
@@ -241,7 +247,7 @@ Se evitan FK polimórficas sin integridad. La tabla conserva `target_type` y col
 Constraints:
 
 - check “exactamente un target no nulo” y coherencia con `target_type`;
-- FKs tipadas donde apliquen;
+- FKs tipadas tenant-aware a License, Activation y Device; TrustedSigningKey es catálogo global por ambiente y usa FK global explícita, no una FK tenant ficticia;
 - `UNIQUE (tenant_id, target_type, target-id-tipado, sequence)` mediante índices parciales por tipo;
 - una secuencia menor nunca anula una mayor;
 - append-only, sin delete en cliente;
@@ -253,7 +259,7 @@ Constraints:
 
 Artefacto append-only: `id`, `tenant_id`, `license_id`, `activation_id NULL`, `issued_at`, `starts_at`, `ends_at`, `allowed_features jsonb`, `restricted_features jsonb`, `reason_code`, `grace_sequence`, `payload_version`, `canonical_payload`, `payload_checksum`, `signing_key_id`, `signature_algorithm_id`, `signature`.
 
-Constraints: rango `starts_at < ends_at`, FK activation debe pertenecer a la misma License cuando exista, `UNIQUE (tenant_id, license_id, grace_sequence)`, listas con schema/version y ninguna capacidad fuera de entitlements originales.
+Constraints: `UNIQUE (tenant_id, id)`, rango `starts_at < ends_at`, FK `(tenant_id, license_id)` y FK `(tenant_id, license_id, activation_id)` mediante candidate key de Activation cuando exista, `UNIQUE (tenant_id, license_id, grace_sequence)`, listas con schema/version y ninguna capacidad fuera de entitlements originales. Las FKs usan `NO ACTION`.
 
 ### `licensing.trusted_signing_keys`
 
@@ -267,13 +273,13 @@ Constraints: `UNIQUE (environment, key_purpose, key_id)`, `UNIQUE (environment, 
 
 Mismo UUID local/central. Columnas: `id`, `tenant_id`, `license_reference`, `device_id`, `installation_id`, `device_key_id`, `challenge_nonce bytea`, `requested_at_local`, `received_at NULL`, `app_version`, `operating_system_family`, `device_evidence_hash NULL`, `proof_of_possession bytea`, `payload_checksum bytea`, `request_status`, `reason_code NULL`, `created_at`, `expires_at`, `idempotency_key`, `correlation_id`.
 
-Constraints: `UNIQUE (tenant_id, idempotency_key)`, `UNIQUE (tenant_id, challenge_nonce)`, FKs compuestas a Device/Installation/DeviceKey, rango temporal y estados `PENDING`, `ACCEPTED`, `REJECTED`, `EXPIRED`. Repetir la misma clave/checksum devuelve el mismo resultado; checksum distinto produce conflicto.
+Constraints: `UNIQUE (tenant_id, id)`, `UNIQUE (tenant_id, device_id, installation_id, device_key_id, id)`, `UNIQUE (tenant_id, idempotency_key)`, `UNIQUE (tenant_id, challenge_nonce)`, FKs `(tenant_id, device_id)`, `(tenant_id, device_id, installation_id)` y `(tenant_id, device_id, device_key_id)`, rango temporal y estados `PENDING`, `ACCEPTED`, `REJECTED`, `EXPIRED`. Todas las FKs históricas usan `NO ACTION`. Repetir la misma clave/checksum devuelve el mismo resultado; checksum distinto produce conflicto y señal de seguridad.
 
 ### `devices.activation_responses`
 
-Artefacto append-only: `id`, `request_id`, `activation_id`, `tenant_id`, `license_id`, `device_id`, `installation_id`, `issued_at`, `not_before`, `expires_at`, `activation_status`, `offline_authorization jsonb`, `policy_version`, `request_checksum`, `payload_version`, `canonical_payload`, `payload_checksum`, `signing_key_id`, `signature_algorithm_id`, `signature`, `applied_at NULL`, `rejected_at NULL`, `rejection_reason NULL`.
+Artefacto append-only: `id`, `request_id`, `activation_id`, `tenant_id`, `license_id`, `device_id`, `installation_id`, `device_key_id`, `issued_at`, `not_before`, `expires_at`, `activation_status`, `offline_authorization jsonb`, `policy_version`, `request_checksum`, `payload_version`, `canonical_payload`, `payload_checksum`, `signing_key_id`, `signature_algorithm_id`, `signature`, `applied_at NULL`, `rejected_at NULL`, `rejection_reason NULL`.
 
-Constraints: una respuesta por request, FKs compuestas a request y Activation, coincidencia exacta tenant/license/device/installation, aplicación idempotente y rechazo de replay/mismatch.
+Constraints: `UNIQUE (tenant_id, id)`, una respuesta por `(tenant_id, request_id)`, FK `(tenant_id, device_id, installation_id, device_key_id, request_id)` a Request y FK `(tenant_id, license_id, device_id, installation_id, device_key_id, activation_id)` a Activation. Estas candidate keys prueban físicamente coincidencia exacta tenant/license/device/installation/DeviceKey; la aplicación valida además checksum del request. Aplicación idempotente y rechazo de replay/mismatch; ninguna FK usa cascade.
 
 ## Snapshot de autorización offline
 
@@ -288,7 +294,7 @@ Representación:
 - PostgreSQL usa `jsonb` solo para los arrays inmutables del snapshot firmado;
 - SQLite usa JSON canónico `TEXT` validado;
 - no contiene credenciales ni tokens;
-- FKs centrales prueban misma membership/tenant y misma Device/Installation;
+- FKs centrales `(tenant_id, tenant_membership_id)`, `(user_id, tenant_membership_id)`, `(tenant_id, device_id)` y `(tenant_id, device_id, installation_id)` prueban misma membership/usuario/tenant y mismo Device/Installation;
 - índice local `(user_id, expires_at DESC)` y central `(tenant_id, user_id, device_id, expires_at DESC)`;
 - máximo un snapshot vigente por `(user_id, tenant_membership_id, device_id, installation_id, authorization_policy_version_id)`;
 - la decisión offline cruza firma, vigencia, revocaciones conocidas, licencia, activación y estado de dispositivo; el snapshot aislado nunca basta.
@@ -321,11 +327,11 @@ Aplican las mismas identidades y constraints lógicas con las conversiones de `p
 
 ### Registro de dispositivo
 
-Una operación central idempotente confirma Device, vínculo de Installation, clave pública, evidencia mínima, estado operativo inicial, AuditEvent y outbox. La clave privada ya existe localmente y nunca cruza la frontera.
+Una operación central idempotente confirma Device, vínculo de Installation, clave pública, evidencia mínima, estado operativo inicial, AuditEvent, `SyncOperation` entregable y su única Outbox. La clave privada ya existe localmente y nunca cruza la frontera.
 
 ### Activación
 
-Una operación central bloquea el conjunto License/Device/Installation, valida límites, revocaciones y prueba de posesión, crea LicenseActivation y ActivationResponse, registra auditoría/outbox y confirma una sola vez. Reemplazar una activación marca la anterior según DEC-008 y crea otra; no reescribe su payload.
+Una operación central bloquea el conjunto License/Device/Installation, valida límites, revocaciones y prueba de posesión, crea LicenseActivation y ActivationResponse, registra auditoría, `SyncOperation` entregable y su única Outbox, y confirma una sola vez. Reemplazar una activación marca la anterior según DEC-008 y crea otra; no reescribe su payload. La aplicación local posterior no comparte una transacción distribuida con PostgreSQL.
 
 ### Aplicación local de artefactos
 
@@ -334,6 +340,26 @@ POS Local Service verifica trust store, firma, checksum, versión, tenant, Devic
 ### Heartbeat
 
 La recepción central valida Device/Installation y orden temporal, inserta evidencia append-only cuando corresponda y actualiza DeviceOperationalState con expected version. No modifica Trust, License ni Activation.
+
+## Grafo físico, ciclos y políticas de delete
+
+Orden lógico de dependencias de este bloque:
+
+1. Tenant, Company y Branch;
+2. TrustedSigningKey global;
+3. Device;
+4. Installation;
+5. DeviceKey, HardwareEvidence, OperationalState y ManagementProfile;
+6. License;
+7. FeatureEntitlement;
+8. LicenseActivation;
+9. GraceAuthorization, LicenseRevocation y artefactos request/response;
+10. OfflineAuthorizationSnapshot;
+11. SyncOperation/Outbox y Audit según la frontera transaccional.
+
+No existe ciclo Device→Activation→Device porque Device no conserva `activation_id`. Los vínculos `replacement_device_id`, `replacement_installation_id`, `replacement_key_id`, `supersedes_license_id` y `previous_activation_id` referencian una fila anterior ya existente o nacen nulos cuando el lifecycle lo autoriza; no justifican `DEFERRABLE`. Una referencia que cerrara un ciclo futuro deberá demostrar su invariante antes de añadirse.
+
+Todas las relaciones desde historia, evidencia, licencias emitidas, activaciones, revocaciones, requests/responses, Sync y Audit usan `RESTRICT`/`NO ACTION`. No se usa `CASCADE` desde Tenant, Company, Branch, Device, Installation, DeviceKey, License, Activation o TrustedSigningKey. `SET NULL` solo sería válido para metadata no autoritativa futura; no borra atribución, scope ni cadena criptográfica.
 
 ## Índices críticos
 
@@ -369,18 +395,21 @@ Además de los ya indicados:
 18. `FINITE + 0`, `FINITE + positivo`, `UNLIMITED` y `NOT_APPLICABLE` conservan resultados distintos.
 19. `FINITE` sin valor, valor negativo, valor fraccionario para Device/Branch o valor presente con `UNLIMITED`/`NOT_APPLICABLE` se rechazan.
 20. Una dimensión requerida no configurada impide emitir/firmar y la evaluación falla cerrada.
+21. Toda FK Device/Installation/DeviceKey/Activation/License cross-tenant o con Device incompatible se rechaza físicamente.
+22. Ninguna eliminación de Tenant, Company, Branch, Device, Installation, Key, License o Activation destruye evidencia histórica.
+23. El grafo se crea sin `DEFERRABLE` y los vínculos de reemplazo no forman ciclos ni reutilizan identidades.
 
 ## Gate del bloque
 
-Este bloque permanece `IN_REVIEW`. R1 cerró la identidad canónica de DeviceKey y la semántica de límites, pero no sustituye estas condiciones:
+Este bloque permanece `IN_REVIEW`. R1 cerró la identidad canónica de DeviceKey y límites; R2-A cerró relaciones, candidate keys, orden y delete policies, pero no sustituye estas condiciones:
 
-| Condición | Clasificación R1 | Tratamiento |
+| Condición | Clasificación vigente | Tratamiento |
 |---|---|---|
 | identidad Device/Installation/DeviceKey/Activation/License | satisfecha documentalmente | DeviceKey usa un solo UUID; las identidades no son intercambiables |
 | límites contractuales | satisfecha documentalmente | `FINITE`, `UNLIMITED`, `NOT_APPLICABLE`, ausencia fail-closed |
 | PoC RLS PostgreSQL 16 | satisfecha con evidencia | `PHY-G14`, 30 PASS / 0 FAIL |
 | auditoría columna por columna contra DEC-008/casos de uso | pendiente | cierre físico del bloque |
-| FK diferidas con Foundation | pendiente | orden conjunto sin ciclos |
+| FK diferidas con Foundation | satisfecha documentalmente en R2-A | candidate keys/FKs y orden sin ciclos en este documento y `sync-base-schema.md`; ejecución queda para R3 |
 | orden de migración y manifiesto | trasladada | R4 |
 | PoC de firma/canonicalización/storage seguro | pendiente | requiere autorización y evidencia separadas |
 | pruebas físicas PostgreSQL/SQLite | trasladada | R3/implementación futura autorizada |

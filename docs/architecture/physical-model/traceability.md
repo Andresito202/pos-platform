@@ -97,7 +97,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 
 | Fuente | Módulo propietario | Agregados exigidos | Cobertura | Observación física obligatoria |
 |---|---|---|---|---|
-| `UC-SYNC-001` | módulos propietarios + Sync | `SyncOperation`, `OutboxEntry`, `InboxEntry`, `SyncCheckpoint` | `COVERED` | Negocio y outbox comparten transacción; inbox y efectos centrales comparten commit o rollback. |
+| `UC-SYNC-001` | módulos propietarios + Sync | `SyncOperation`, `OutboxEntry`, `InboxEntry`, `SyncCheckpoint` | `COVERED` | `sync-base-schema.md` cierra identidad, columnas, cardinalidades, candidate keys/FKs tenant-aware, deduplicación, checkpoint por stream/dirección, split PostgreSQL/SQLite y fronteras atómicas. |
 | `UC-SYNC-002` | módulos propietarios | versiones nativas de configuración, checksums y vigencias | `COVERED` | `domain-configuration-schema.md` fija ownership, identidad/versiones, scopes, lifecycle, checksum, snapshots, offline, permisos, eventos y migración sin `Configuration` global; Sync solo distribuye. |
 | `UC-SYNC-003` | Sync | `SyncConflict`, `SyncReview`, `SyncDeadLetter`, `SyncDeadLetterAction`, `DeviceClockState`, `DeviceSyncState` | `COVERED` | `sync-dead-letter-schema.md` define registro separado referencial, una identidad por operation, lifecycle sin estados paralelos, clasificación, retry, revisión, archivo, seguridad, concurrencia y retención sin copiar operación o payload. |
 
@@ -144,4 +144,6 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 
 `PHY-G01` a `PHY-G14` están cerrados en el alcance documental registrado por cada gate. Ese cierre no convierte automáticamente los bloques físicos Foundation, Device/Licensing o Catalog en aprobados para migración: sus condiciones internas pendientes siguen explícitas.
 
-R1 de `TECH-002` cierra la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. Foundation y Device/Licensing permanecen `IN_REVIEW`; R2/R3/R4, implementación de repositories y security gates continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. Foundation y Device/Licensing permanecen `IN_REVIEW`; R2-A se registra a continuación y R2-B/R3/R4, repositories y security gates continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+
+R2-A cierra documentalmente relaciones Foundation↔Devices/Licensing↔Sync: candidate keys/FKs tenant-aware, orden sin ciclos irresolubles, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, delete policies, split PostgreSQL/SQLite y fronteras transaccionales. Foundation y Device/Licensing permanecen `IN_REVIEW` por auditoría R2-B, pruebas R3, PoC criptográfico y estrategia R4. `TECH-002` y la primera migración no cambian de estado.

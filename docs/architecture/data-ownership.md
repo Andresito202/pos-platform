@@ -7,8 +7,8 @@
 | Companies | Identidad legal, comercial y branding |
 | Branches | Sucursales, horarios, cobertura y ubicación |
 | Authorization | Roles, permisos, políticas y UserRoleAssignment |
-| Devices | Equipos, instalaciones, activaciones, claves, confianza, perfiles de administración y políticas nativas de dispositivo |
-| Licensing | Licencias, entitlements, límites, gracia, revocaciones y artefactos contractuales firmados |
+| Devices | Equipos, instalaciones, solicitudes/respuestas de activación de dispositivo, claves, confianza, perfiles de administración y políticas nativas de dispositivo |
+| Licensing | Licencias, LicenseActivation, entitlements, límites, gracia, revocaciones y artefactos contractuales firmados |
 | Catalog | Productos, categorías, variantes y códigos |
 | Pricing | Listas, precios, promociones, descuentos, redondeo comercial, políticas de resolución, versiones, vigencias e historial |
 | Tax | TaxRule, TaxRuleVersion, clasificación, tasas, reglas, vigencia, cálculo y resultado tributario |
@@ -50,5 +50,6 @@
 16. Pricing consume el resultado de Tax dentro del pipeline, pero no posee ni recalcula reglas tributarias. Electronic Invoicing consume el snapshot tributario de la operación y mantiene separado su snapshot de emisión fiscal.
 17. `ElectronicDocument` es el único agregado canónico del documento de Electronic Invoicing; `FiscalDocument` no constituye una entidad paralela.
 18. `FiscalReconciliation` pertenece a Electronic Invoicing y no comparte entidad ni enum física con `Payments.Reconciliation`, aunque algunos nombres de estados coincidan.
-17. Los secretos reales permanecen en el almacén aprobado; las configuraciones de negocio solo conservan referencias opacas.
-18. Sync posee coordinación, entrega, deduplicación, conflicto y dead letter, pero no duplica ni adquiere ownership de la intención o efecto del dominio originador.
+19. Los secretos reales permanecen en el almacén aprobado; las configuraciones de negocio solo conservan referencias opacas.
+20. Sync posee coordinación, entrega, deduplicación, conflicto y dead letter, pero no duplica ni adquiere ownership de la intención o efecto del dominio originador.
+21. Una FK desde Sync hacia Tenant, Company, Branch, Session, Device, Installation, License o Activation conserva integridad referencial y scope; no transfiere ownership. Las referencias aggregate/actor tipadas sin FK fuerte siguen sujetas a validación tenant-aware del caso de uso.

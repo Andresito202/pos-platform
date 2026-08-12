@@ -34,7 +34,7 @@ Clases de ubicación conceptuales:
 |---|---|---|
 | `SyncOperation` | `DUAL_WITH_EXPLICIT_POLICY` | nodo originador conserva identidad e intención inmutables; el receptor decide aceptación según autoridad del dominio |
 | `OutboxEntry` | `DUAL_WITH_EXPLICIT_POLICY` | nodo originador; Device y secuencia son obligatorios solo para origen local |
-| `InboxEntry` | `DUAL_WITH_EXPLICIT_POLICY` | nodo receptor; deduplica y conserva el resultado recibido |
+| `InboxEntry` | `CENTRAL_ONLY` para el flujo definido por `DEC-007` | backend central; deduplica y conserva el resultado recibido |
 | `SyncDeadLetter` | `DUAL_WITH_EXPLICIT_POLICY` | el nodo que detecta crea; el backend autoriza tratamiento una vez conocido, sin last-write-wins |
 
 Una dead letter creada localmente puede permanecer disponible durante desconexión. Al sincronizarse conserva su identidad global. El cliente local no puede autorizar por sí mismo un retry manual crítico, reclasificar un incidente de seguridad ni ampliar permisos.
@@ -62,7 +62,7 @@ Relaciones obligatorias:
 
 ```text
 SyncOperation entregable 1 ── 1 OutboxEntry
-SyncOperation 1 ── 0..1 InboxEntry central
+SyncOperation recibida 1 ── 0..1 InboxEntry central
 SyncOperation 1 ── 0..1 SyncDeadLetter
 SyncDeadLetter 1 ── 0..n SyncDeadLetterAction
 SyncConflict 0..1 ── 0..n SyncReview
@@ -70,6 +70,8 @@ SyncDeadLetter 0..1 ── 0..n SyncReview
 ```
 
 Una `SyncReview` referencia exactamente un `SyncConflict` o un `SyncDeadLetter`. DeadLetter puede referenciar un conflicto, pero no todo error permanente es un conflicto de dominio.
+
+Las tablas base, candidate keys, FKs, XOR de Review, delete policies y diferencias PostgreSQL/SQLite se definen en `sync-base-schema.md`; este documento conserva la autoridad sobre el lifecycle de DeadLetter.
 
 ## Identidad y atributos conceptuales
 
@@ -219,7 +221,7 @@ Un checkpoint no declara confirmada una operación en dead letter. El procesamie
 ## Tenant isolation
 
 - `tenant_id` de DeadLetter, Operation, Outbox, Inbox, Conflict, Review y Action debe coincidir.
-- Las futuras relaciones usan claves tenant-aware y RLS PostgreSQL como defensa adicional conforme a `PHY-G14`.
+- Las relaciones usan las candidate keys y FKs tenant-aware cerradas en `sync-base-schema.md`; RLS PostgreSQL permanece como defensa adicional conforme a `PHY-G14`.
 - SQLite valida tenant mediante repositorios cerrados, FK/constraints posibles y revalidación central.
 - El tenant efectivo se deriva de identidad, sesión y dispositivo; el valor del cliente no es autoridad.
 - Leer, revisar, reintentar, rechazar o archivar otro tenant produce denegación sin revelar existencia.
@@ -280,7 +282,7 @@ Dead letters activas se conservan hasta decisión. Las aceptadas/rechazadas y ar
 
 ## Restricciones e índices candidatos
 
-El diseño físico posterior deberá demostrar:
+El contrato físico base exige y la implementación posterior deberá demostrar:
 
 1. PK UUID v7 global y `UNIQUE(operation_id)` para una sola dead letter por operación;
 2. relaciones tenant-aware a Operation, Outbox, Inbox, Conflict, Review y Actions;
@@ -293,7 +295,7 @@ El diseño físico posterior deberá demostrar:
 9. consultas y mensajes que no filtren existencia cross-tenant;
 10. semántica equivalente comprobada en PostgreSQL y SQLite/WAL.
 
-Los nombres de índices y detalles de DDL se decidirán únicamente después de autorización de migración.
+R2-A cierra candidate keys y relaciones en `sync-base-schema.md`. Los nombres de índices y detalles de DDL se decidirán únicamente después de autorización de migración.
 
 ## Observabilidad futura
 

@@ -231,6 +231,38 @@ Cuando existan migraciones y adaptadores autorizados, R1 exige suites PostgreSQL
 
 Estas pruebas permanecen futuras: R1 cierra contratos documentales, no implementación ni security gates.
 
+### Contratos físicos de TECH-002 R2-A
+
+Cuando R3 y la implementación autoricen schemas/migraciones, se ejecutan suites separadas:
+
+PostgreSQL:
+
+- candidate keys y FKs tenant-aware Foundation/Device/Licensing/Sync, incluidos Company/Branch y combinaciones Device/Installation/Key/Activation;
+- Operation canónica, idempotencia, payload/checksum inmutable y self-links sin cross-tenant;
+- Outbox exactamente una por operación entregable, Inbox dedup y resultado/effect atómicos;
+- Checkpoint por tenant/device/stream/dirección sin salto antes de confirmación;
+- XOR Review Conflict/DeadLetter y referencias DeadLetter/Action a la misma Operation;
+- `NO ACTION`/`RESTRICT` impide cascadas sobre historia, evidencia y auditoría;
+- RLS y roles del runtime sobre todas las tablas tenant-scoped sin cambiar `SEC-G01` a PASS por documentación.
+
+SQLite/WAL:
+
+- misma identidad UUID y FK locales para Device/Installation, Operation/Outbox/Checkpoint y evidencia existente;
+- business change + Operation + Outbox atómicos bajo fallo, reinicio y disco lleno;
+- secuencia local única, retry durable, ACK perdido y recuperación de checkpoint;
+- ausencia de Inbox genérica local y aplicación de snapshots centrales por contrato versionado;
+- no secretos, claves privadas, tokens ni payload duplicado en Outbox/DeadLetter/Audit.
+
+Integración:
+
+- tenant, Company, Branch, Device, Installation o Key manipulados producen rechazo sin efecto parcial;
+- Device revocado, replay y checksum distinto generan señal de seguridad y no retry automático;
+- recepción central confirma Operation + efecto + Inbox o revierte todo;
+- ACK local se persiste antes de avanzar el checkpoint; pérdida de respuesta devuelve el mismo resultado;
+- activación confirma Activation/Response/Operation/Outbox/Audit centralmente y se aplica localmente sin transacción distribuida.
+
+R2-A define estas pruebas, pero no las ejecuta ni cambia `SEC-G01`, `SEC-G04`, `SEC-G05`, `SEC-G06`, `SEC-G07` o `SEC-G10` de `PLANNED / NOT_EVALUATED`.
+
 ## Hardware
 
 Probar con simuladores y dispositivos reales:
