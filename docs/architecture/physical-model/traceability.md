@@ -105,7 +105,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 
 | Fuente | Módulo propietario | Agregados exigidos | Cobertura | Observación física obligatoria |
 |---|---|---|---|---|
-| `UC-EINV-001` | Electronic Invoicing | conexión fiscal, documento, intento, artefacto, incidencia y conciliación | `CLOSE_IN_TECH_002` | `FiscalDocument` es insuficiente como única entidad conceptual. Deben alinearse los agregados neutrales descritos en `electronic-invoicing.md`; Factus no define columnas del dominio. |
+| `UC-EINV-001` | Electronic Invoicing | `FiscalConnection`, `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalArtifact`, `FiscalIncident`, `FiscalReconciliation` y correctivos | `COVERED` | `electronic-invoicing-schema.md` cierra agregados neutrales, snapshots separados, estados, incertidumbre, idempotencia, evidencia, tenancy, seguridad, local-first, migración y pruebas sin permitir que un proveedor defina columnas del dominio. |
 
 ## Capacidades excluidas de la primera migración
 
@@ -136,10 +136,10 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 | PHY-G09 | `CLOSED` | Reversal, Settlement y Reconciliation | `UC-PAY-004`, `UC-PAY-005`, `PAY-007`, `DEC-007`, `DEC-008` | `payment-financial-operations-schema.md` y auditoría transversal alinean estados, ownership, eventos, componentes exactos de Settlement, cálculo versionado, alcance de Reconciliation, permisos, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración. |
 | PHY-G10 | `CLOSED` | Versiones de configuración por dominio | `UC-SYNC-002`, `DEC-007`, `DEC-008`, ownership | `domain-configuration-schema.md` y auditoría transversal alinean ownership por dominio, Tax independiente, CashPolicy, InventoryPolicy, precedencia explícita, lifecycle, scopes, vigencia, checksum, snapshots, secretos, permisos, eventos, local-first y legado, sin `Configuration` global. |
 | PHY-G11 | `CLOSED` | Dead letter | `UC-SYNC-003`, `UC-SYNC-001`, `DEC-007`, `DEC-008`, `SEC-G01/03/04/05/06/08/10` | `sync-dead-letter-schema.md` y auditoría transversal fijan `SyncDeadLetter` separado, ownership Sync, relación con Operation/Outbox/Inbox, clasificación, retry versionado, revisión, reactivación, archivo, idempotencia, causalidad, tenancy, seguridad, permisos, auditoría, eventos, concurrencia, legado y pruebas futuras. |
-| PHY-G12 | `OPEN` | Agregados fiscales neutrales | `UC-EINV-001` | Modelo conceptual alineado con puertos neutrales y resultado incierto. |
+| PHY-G12 | `CLOSED` | Agregados fiscales neutrales | `UC-EINV-001` | `electronic-invoicing-schema.md` y la auditoría transversal fijan `ElectronicDocument` como nombre canónico, ownership Tax/Electronic Invoicing, conexión, attempts, artefactos, incidencias, conciliación, estados separados, correctivos, incertidumbre, idempotencia, numeración, local-first, tenant, secretos, permisos, eventos, auditoría, concurrencia, legado y pruebas futuras. |
 | PHY-G13 | `CLOSED` | Representación monetaria SQLite | `DEC-003`, `ADR-005` | `physical-conventions.md` fija texto decimal canónico de escala conocida y conversión mediante coeficiente entero; prohíbe `REAL` y `number` autoritativos. |
 | PHY-G14 | `BLOCKED_BY_POC` | RLS y roles de conexión | seguridad, tenancy | Roles y contrato transaccional están definidos en `physical-conventions.md`; falta ejecutar el PoC obligatorio antes de una migración PostgreSQL. |
 
 ## Resultado del inventario
 
-`PHY-G11` está cerrado y `PHY-G12` es el siguiente gate físico, aún no iniciado. El contrato documental de dead letter se cerró sin DDL y todavía no existe autorización para escribir la primera migración.
+`PHY-G12` está cerrado documentalmente. `PHY-G14` permanece `BLOCKED_BY_POC` y no se inició en este cierre. No existe autorización para escribir la primera migración; `TECH-002` continúa `IN_PROGRESS` y los security gates conservan su estado sin evidencia ejecutable.

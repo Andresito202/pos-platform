@@ -376,7 +376,55 @@ Settlement y Reconciliation pertenecen a Payments. Sus eventos no modifican Paym
 
 ### FiscalEmissionConfigurationSuperseded
 
-Los eventos de configuración pertenecen al dominio nombrado. No existe un evento global `ConfigurationChanged`; Sync solo registra entrega o aplicación técnica sin apropiarse de la publicación.
+### ElectronicDocumentPrepared
+
+### ElectronicDocumentQueued
+
+### FiscalSubmissionStarted
+
+### FiscalSubmissionCompleted
+
+### FiscalSubmissionFailed
+
+### FiscalSubmissionOutcomeUnknown
+
+### ElectronicDocumentAccepted
+
+### ElectronicDocumentRejected
+
+### ElectronicDocumentOutcomeUnknown
+
+### FiscalIncidentOpened
+
+### FiscalIncidentReviewStarted
+
+### FiscalIncidentResolved
+
+### FiscalIncidentArchived
+
+### FiscalReconciliationStarted
+
+### FiscalReconciliationReviewRequired
+
+### FiscalReconciliationPartiallyReconciled
+
+### FiscalReconciliationCompleted
+
+### FiscalReconciliationFailed
+
+### FiscalReconciliationCancelled
+
+### FiscalReconciliationClosed
+
+### FiscalReconciliationReopened
+
+### ElectronicAdjustmentPrepared
+
+### FiscalContingencyStarted
+
+### FiscalContingencyClosed
+
+Los eventos fiscales pertenecen a Electronic Invoicing. Sus nombres no incorporan proveedores concretos y no confirman estados de Sale, Tax, Payment, Refund, Reversal, CashMovement o InventoryMovement. Los eventos de configuración pertenecen al dominio nombrado; no existe un evento global `ConfigurationChanged` y Sync solo registra entrega o aplicación técnica sin apropiarse de la publicación.
 
 ## Domicilios
 

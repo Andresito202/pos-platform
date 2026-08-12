@@ -117,7 +117,7 @@ certificate_reference
 configuration_version
 valid_from
 valid_until
-status
+configuration_version_status
 ```
 
 Reglas:
@@ -129,6 +129,7 @@ Reglas:
 - una configuración inactiva no emite documentos nuevos;
 - cambiar proveedor no reescribe documentos históricos;
 - secretos se referencian, no se almacenan como texto en tablas de negocio.
+- la conexión estable no crea otro lifecycle: elegibilidad y estado efectivo se derivan de la versión `DRAFT`/`PUBLISHED`/`SUPERSEDED`/`REVOKED`, su vigencia, capabilities y salud técnica; la salud de transporte no muta el lifecycle de configuración.
 
 ## Tipos canónicos de documento
 
@@ -258,6 +259,27 @@ retry_after
 diagnostic_reference
 ```
 
+Estados técnicos persistentes:
+
+- `CREATED`;
+- `IN_PROGRESS`;
+- `COMPLETED`;
+- `FAILED`;
+- `UNKNOWN_OUTCOME`;
+- `CANCELLED`.
+
+El estado técnico del attempt no representa el resultado fiscal del documento. `transport_status` y `normalized_result` permanecen separados. Para este contrato, `normalized_result` solo reutiliza `ACCEPTED` o `REJECTED` cuando existe evidencia; fallo técnico o incertidumbre lo dejan ausente. Esos valores no se duplican como estados técnicos ni forman una enum paralela. Un attempt histórico `UNKNOWN_OUTCOME` no se reescribe cuando evidencia posterior resuelve el `ElectronicDocument`.
+
+## Artefactos, incidencias y conciliación
+
+`FiscalArtifact` conserva referencias, tipo, media type, checksum, metadata, inmutabilidad y política de retención para XML, PDF, application response, QR data, payload firmado, respuesta del proveedor u otra evidencia autorizada. No guarda secretos y no asume que todos los proveedores produzcan todos los formatos.
+
+`FiscalIncident` distingue una situación que requiere revisión de un fallo transitorio ordinario. Sus estados persistentes son `OPEN`, `IN_REVIEW`, `RESOLVED` y `ARCHIVED`. Rechazo, timeout, incertidumbre, inconsistencia, problema de numeración, schema/version, contingencia, webhook o reconciliation mismatch se clasifican por tipo; la forma de resolución se conserva separadamente. Archivar no elimina evidencia.
+
+`FiscalReconciliation` compara estado interno y evidencia externa autoritativa. Sus estados persistentes son `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. El alcance/periodo es snapshot y no tiene otra máquina de estados. Pertenece a Electronic Invoicing y no reutiliza físicamente la enum de Payments.
+
+Documento, attempt, incidente, conciliación y estados originales del proveedor mantienen máquinas separadas.
+
 La solicitud y respuesta completas pueden almacenarse cifradas en object storage cuando sean necesarias, con checksum y política de retención. Logs y trazas no contienen documentos completos ni credenciales.
 
 ## Puertos por capacidad
@@ -369,6 +391,8 @@ Referencias verificadas:
 6. Antes de repetir se consulta por referencia interna, externa, prefijo/número u otro mecanismo seguro disponible.
 7. Si el proveedor no permite consulta inequívoca, se crea incidencia y revisión; no se emite automáticamente otro consecutivo.
 8. Misma identidad con payload diferente se rechaza.
+9. `FiscalSubmissionAttempt.UNKNOWN_OUTCOME` conserva incertidumbre técnica; `ElectronicDocument.UNKNOWN_OUTCOME` conserva incertidumbre fiscal autoritativa.
+10. Polling, webhook validado, consulta o reconciliación pueden resolver el documento a `ACCEPTED` o `REJECTED`, pero no reescriben el attempt histórico.
 
 ## Rate limiting y backpressure
 

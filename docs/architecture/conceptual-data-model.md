@@ -2305,9 +2305,37 @@ Versión inmutable publicada que conserva autorización o resolución, numeraci�
 
 El snapshot de emisión fiscal conserva esta versión y la evidencia del proveedor. El snapshot tributario de la operación conserva reglas, bases, tasas y resultados de Tax. Son evidencias distintas y no se agrupan bajo un `fiscal_snapshot` ambiguo.
 
-### FiscalDocument
+### FiscalConnection
 
-Representa factura electrónica, documento equivalente u otro documento fiscal.
+Identidad neutral y tenant-scoped de la conexión de Electronic Invoicing con un proveedor y ambiente. Conserva scope de Tenant/Company/Branch cuando aplique, identidad fiscal, capabilities, vigencia, versión de configuración y referencias opacas a secretos; nunca secretos utilizables.
+
+### ElectronicDocument
+
+Agregado canónico de Electronic Invoicing que representa factura electrónica, documento equivalente, nota u otro documento fiscal. Conserva identidad interna global anterior al envío, source comercial, estado interno, importes exactos, referencias separadas al snapshot tributario y al snapshot de emisión, numeración e identificadores externos cuando existan, incertidumbre, relación correctiva, versión y auditoría.
+
+`FiscalDocument` no es una segunda entidad. Puede aparecer solo como descripción narrativa de `ElectronicDocument`. CUFE, CUDE, prefijo/número y referencias del proveedor o autoridad no reemplazan `electronic_document_id`.
+
+Estados persistentes: `DRAFT`, `READY`, `QUEUED`, `SUBMITTING`, `ACCEPTED`, `REJECTED`, `UNKNOWN_OUTCOME`, `CONTINGENCY` y `VOIDED_BEFORE_SUBMISSION`.
+
+### FiscalSubmissionAttempt
+
+Interacción técnica versionada contra un proveedor para emitir, consultar, recuperar artefactos o ejecutar una operación fiscal autorizada. Estados persistentes: `CREATED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `UNKNOWN_OUTCOME` y `CANCELLED`. Su estado técnico, `transport_status` y `normalized_result` son dimensiones distintas; `ACCEPTED` y `REJECTED` no son estados del attempt.
+
+### FiscalArtifact
+
+Referencia tenant-scoped a XML, PDF, application response, QR data, payload firmado, respuesta de proveedor u otra evidencia autorizada. Conserva tipo, media type, checksum, tamaño/metadata, storage reference, inmutabilidad y política de retención, sin duplicar secretos.
+
+### FiscalIncident
+
+Situación persistente que requiere revisión y no un error técnico transitorio ordinario. Estados: `OPEN`, `IN_REVIEW`, `RESOLVED` y `ARCHIVED`. Tipo, severidad y forma de resolución se conservan como atributos separados; archivar no elimina evidencia.
+
+### FiscalReconciliation
+
+Comparación versionada entre estado interno y evidencia externa autoritativa. Estados: `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. Su scope/periodo es snapshot, no otro agregado con lifecycle paralelo, y no comparte físicamente la enum de Payments.
+
+### FiscalReconciliationItem
+
+Comparación tenant-scoped de un `ElectronicDocument` dentro de una ejecución fiscal. Conserva estado esperado/observado, evidencia, discrepancia, resultado y posible incidencia sin crear otra máquina de estados.
 
 ## Sincronización local-first
 

@@ -291,6 +291,25 @@ Ejemplos:
 - `fiscal.configuration.schedule`;
 - `fiscal.configuration.revoke`;
 - `fiscal.configuration.supersede`;
+- `fiscal.connection.read`;
+- `fiscal.connection.configure`;
+- `fiscal.document.read`;
+- `fiscal.document.prepare`;
+- `fiscal.document.issue`;
+- `fiscal.document.retry`;
+- `fiscal.artifact.read`;
+- `fiscal.incident.read`;
+- `fiscal.incident.review`;
+- `fiscal.incident.resolve`;
+- `fiscal.incident.archive`;
+- `fiscal.reconciliation.read`;
+- `fiscal.reconciliation.start`;
+- `fiscal.reconciliation.review`;
+- `fiscal.reconciliation.resolve`;
+- `fiscal.reconciliation.close`;
+- `fiscal.reconciliation.reopen`;
+- `fiscal.contingency.start`;
+- `fiscal.contingency.close`;
 - `sync.dead_letter.read`;
 - `sync.dead_letter.review`;
 - `sync.dead_letter.retry`;
@@ -310,6 +329,24 @@ Reglas:
 9. `payments.provider.configure` protege el cambio sensible de conexión o referencia secreta y no sustituye permisos de lifecycle de `payments.provider_configuration.*`.
 10. Restaurar comportamiento usa el permiso `supersede` específico del dominio para publicar una versión nueva; ningún permiso permite mutar o reactivar una versión histórica.
 11. Los cinco permisos `sync.dead_letter.read/review/retry/reject/archive` son independientes: leer o revisar no concede retry, rechazo o archivo, y ninguno autoriza cambiar payload, tenant o identidad de operación.
+12. Los permisos `fiscal.*` no conceden derechos de Tax, Sales, Payments, Cash Register o Inventory; leer artefactos tampoco concede acceso a secretos o payloads completos.
+
+### Operación fiscal
+
+| Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR |
+|---|---:|---:|---:|---:|
+| Leer documento/estado fiscal | Sí | Sí | Solo scope asignado | Solo scope asignado |
+| Preparar/solicitar emisión | Sí | Sí | Condicional y scope asignado | Condicional |
+| Retry después de evidencia segura | Reautenticación según riesgo | Condicional | Aprobación superior | No por defecto |
+| Leer artefacto | Sí | Sí | Solo scope y propósito autorizado | Condicional |
+| Revisar incidencia | Sí | Sí | Condicional y scope asignado | Condicional |
+| Resolver/archivar incidencia | MFA/reautenticación según riesgo | Condicional con motivo | Aprobación superior | No por defecto |
+| Iniciar/revisar conciliación | Sí | Sí | Condicional y scope asignado | Condicional |
+| Resolver/cerrar/reabrir conciliación | MFA/reautenticación según riesgo | Condicional con motivo | Aprobación superior | No por defecto |
+| Iniciar/cerrar contingencia | MFA/reautenticación y política vigente | Condicional con aprobación | No por defecto | No |
+| Cambiar conexión/referencia secreta | MFA/reautenticación y segregación | Condicional con segregación | No por defecto | No |
+
+Toda acción revalida Tenant, Company, Branch, conexión, ambiente, configuración, dispositivo y estado. `fiscal.document.retry` no autoriza retry ciego sobre `UNKNOWN_OUTCOME`; primero exige consulta/reconciliación conforme a política.
 
 ### Dead letter de sincronización
 
@@ -377,6 +414,9 @@ Aplicaciones mínimas:
 | Configuración de proveedor | `payments.provider.configure` | Segregación según riesgo | Aplicación auditada sin exponer secretos |
 | Publicación/revocación de política de dominio | Permisos `publish` / `revoke` específicos enumerados en esta matriz | Reautenticación/MFA y actor distinto según riesgo | Versión inmutable y auditoría append-only |
 | Sustitución de configuración fiscal/proveedor | `fiscal.configuration.supersede` / `payments.provider_configuration.supersede` | Segregación y permiso sensible adicional cuando cambie referencia secreta | Nueva versión; nunca edición histórica |
+| Resolución/archivo de incidencia fiscal | `fiscal.incident.resolve` / `fiscal.incident.archive` | Reautenticación/MFA, motivo y actor distinto según riesgo | Resolución append-only; archivo sin borrar evidencia |
+| Cierre/reapertura de conciliación fiscal | `fiscal.reconciliation.close` / `fiscal.reconciliation.reopen` | Reautenticación/MFA y segregación según discrepancia | Transición versionada y evidencia conservada |
+| Inicio/cierre de contingencia fiscal | `fiscal.contingency.start` / `fiscal.contingency.close` | Política vigente, reautenticación y aprobación reforzada | Evidencia, numeración y transmisión/reconciliación posterior |
 | Revisión de dead letter | `sync.dead_letter.review` | Actor distinto/MFA según clasificación | Decisión y motivo append-only |
 | Reactivación de dead letter | `sync.dead_letter.retry` | Reautenticación, condición cambiada y segregación según riesgo | Misma operation, Outbox, payload y checksum |
 | Rechazo/archivo de dead letter | `sync.dead_letter.reject` / `sync.dead_letter.archive` | Motivo obligatorio y aprobación reforzada cuando aplique | Estado terminal/archivo sin borrar evidencia |

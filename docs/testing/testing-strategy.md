@@ -299,7 +299,18 @@ Cuando una integración esté habilitada se prueban:
 - cambio de versión del proveedor;
 - aislamiento por tenant, empresa y NIT;
 - proveedor alternativo mediante la misma suite canónica;
-- contingencia cuando sea legal y funcionalmente aplicable.
+- contingencia cuando sea legal y funcionalmente aplicable;
+- aislamiento entre estado de `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalIncident`, `FiscalReconciliation` y estado externo original;
+- transiciones válidas e inválidas de las cuatro máquinas internas;
+- attempt `COMPLETED` con resultado normalizado aceptado o rechazado;
+- attempt y documento `UNKNOWN_OUTCOME` resueltos sin reescribir el attempt histórico;
+- webhook duplicado, fuera de orden, anterior a respuesta síncrona y con firma inválida;
+- dos workers sobre el mismo documento;
+- polling, webhook y retry concurrentes;
+- intención fiscal única y misma idempotency key con checksum distinto;
+- correctivo causado por SaleReturn sin modificar original ni mezclar Refund/Reversal;
+- artefacto con checksum, autorización, tenant y retención;
+- persistencia SQLite de intención, snapshots y outbox tras reinicio y reconexión sin doble emisión.
 
 Las suites contra sandbox no usan datos reales ni se presentan como certificación productiva.
 

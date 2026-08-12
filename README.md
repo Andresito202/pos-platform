@@ -28,7 +28,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Etapa | Estado en el backlog | Alcance real |
 |---|---|---|
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `PLANNED` | Esqueleto modular, modelo físico, migraciones, seguridad, CI, primer corte vertical y base local-first pendientes de implementación. `TECH-002` está `READY` como entrada de la fase. |
+| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `IN_PROGRESS`: `PHY-G01` a `PHY-G13` cerraron documentalmente, `PHY-G14` permanece bloqueado por PoC y la primera migración sigue `NO-GO`. Esqueleto modular, migraciones, seguridad ejecutable, CI, primer corte vertical y base local-first continúan pendientes. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
 | Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 

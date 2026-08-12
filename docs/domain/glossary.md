@@ -769,6 +769,34 @@ Evidencia inmutable de reglas, bases, tasas y resultado calculados por Tax para 
 
 Evidencia inmutable de la configuración, proveedor, numeración, contingencia y resultado usados por Electronic Invoicing. No sustituye ni recalcula el snapshot tributario.
 
+## FiscalConnection
+
+Conexión neutral, versionada y tenant-scoped de Electronic Invoicing con un proveedor y ambiente. Conserva capabilities y referencias opacas a secretos, nunca credenciales utilizables.
+
+## ElectronicDocument
+
+Agregado canónico de Electronic Invoicing para factura electrónica, documento equivalente, nota u otro documento fiscal. Tiene identidad interna global anterior al envío y separa estado interno, evidencia externa, numeración e identificadores legales. `FiscalDocument` es solo una descripción narrativa y no una entidad equivalente.
+
+## FiscalSubmissionAttempt
+
+Interacción técnica persistida contra un proveedor para emitir, consultar o recuperar evidencia. Su lifecycle técnico es independiente del resultado fiscal de `ElectronicDocument`.
+
+## FiscalArtifact
+
+Referencia íntegra y autorizada a XML, PDF, application response, QR data, payload firmado, respuesta externa u otra evidencia fiscal. Conserva checksum, metadata, storage reference y política de retención.
+
+## FiscalIncident
+
+Situación fiscal u operativa persistente que requiere revisión y supera un error transitorio ordinario. Su clasificación y resolución son distintas de su lifecycle `OPEN`, `IN_REVIEW`, `RESOLVED`, `ARCHIVED`.
+
+## FiscalReconciliation
+
+Agregado de Electronic Invoicing que compara estado interno con evidencia externa autoritativa sin sobrescribir historia. Es distinto de `Payments.Reconciliation`, aunque algunos estados tengan nombres equivalentes.
+
+## Resultado fiscal incierto
+
+Situación `UNKNOWN_OUTCOME` en la que no existe evidencia suficiente para afirmar aceptación, rechazo o ausencia de procesamiento. Puede existir en documento e intento como dimensiones diferentes y se resuelve mediante consulta, webhook validado o conciliación.
+
 ## Ambigüedad de configuración
 
 Situación en la que dos o más versiones son igualmente elegibles y la política no define composición o desempate. Produce conflicto explícito; timestamps y orden de llegada no son autoridad.

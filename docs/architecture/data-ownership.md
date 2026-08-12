@@ -25,7 +25,7 @@
 | Reporting | Vistas de lectura y agregados |
 | Notifications | Correos, SMS, push y alertas |
 | Hardware | Perfiles, adaptadores y periféricos |
-| Electronic Invoicing | Configuración de emisión fiscal, conexiones fiscales, rangos conocidos, documentos electrónicos, intentos, estados de proveedor, artefactos e incidencias fiscales |
+| Electronic Invoicing | `FiscalConnection`, configuración de emisión fiscal, rangos conocidos, `ElectronicDocument`, `FiscalSubmissionAttempt`, estados originales de proveedor, `FiscalArtifact`, `FiscalIncident`, `FiscalReconciliation`, contingencia, evidencia y documentos correctivos |
 | Sync | SyncOperation, OutboxEntry, InboxEntry, checkpoints, conflictos, revisiones, estado de dispositivo para sincronización y SyncDeadLetter |
 | Audit | Eventos sensibles e historial |
 | Support | Tickets, diagnóstico y accesos temporales |
@@ -48,5 +48,7 @@
 14. Payment cubre cobros de ventas, pedidos y cuentas por cobrar. Pagos a proveedores pertenecen a una capacidad financiera futura y no reutilizan ese agregado.
 15. No existe un propietario global `Configuration`: cada módulo posee su identidad y versiones; Sync o `ConfigurationDistribution` solo transportan referencias y snapshots verificables.
 16. Pricing consume el resultado de Tax dentro del pipeline, pero no posee ni recalcula reglas tributarias. Electronic Invoicing consume el snapshot tributario de la operación y mantiene separado su snapshot de emisión fiscal.
+17. `ElectronicDocument` es el único agregado canónico del documento de Electronic Invoicing; `FiscalDocument` no constituye una entidad paralela.
+18. `FiscalReconciliation` pertenece a Electronic Invoicing y no comparte entidad ni enum física con `Payments.Reconciliation`, aunque algunos nombres de estados coincidan.
 17. Los secretos reales permanecen en el almacén aprobado; las configuraciones de negocio solo conservan referencias opacas.
 18. Sync posee coordinación, entrega, deduplicación, conflicto y dead letter, pero no duplica ni adquiere ownership de la intención o efecto del dominio originador.

@@ -155,13 +155,13 @@ Ninguna excepción modifica la venta original.
 2. El sistema valida estado `READY`.
 3. Crea trabajo persistente y pasa a `QUEUED`.
 4. El worker adquiere lease y crea `FiscalSubmissionAttempt`.
-5. Cambia temporalmente a `SUBMITTING`.
+5. Persiste el attempt en `CREATED`, lo adquiere mediante versión/lease y lo pasa a `IN_PROGRESS`; el documento cambia temporalmente a `SUBMITTING`.
 6. El adaptador aplica rate limit y obtiene credenciales.
 7. Transforma el payload canónico al proveedor.
 8. Envía con identidad e idempotencia disponibles.
 9. Persiste respuesta y artefactos o sus referencias.
 10. Normaliza resultado.
-11. Actualiza documento y finaliza intento en la misma frontera consistente aplicable.
+11. Actualiza documento y finaliza el attempt en `COMPLETED`, `FAILED`, `UNKNOWN_OUTCOME` o `CANCELLED` según la evidencia técnica, en la misma frontera consistente aplicable.
 12. Publica evento y auditoría.
 
 ### Resultado aceptado
@@ -185,6 +185,7 @@ Ninguna excepción modifica la venta original.
 ### Timeout o desconexión
 
 - el intento queda con resultado incierto;
+- el attempt conserva `UNKNOWN_OUTCOME` como hecho técnico histórico;
 - documento pasa a `UNKNOWN_OUTCOME`;
 - no se crea otro documento;
 - se agenda consulta o revisión;
@@ -200,6 +201,8 @@ Ninguna excepción modifica la venta original.
 6. Si el proveedor confirma ausencia inequívoca, puede autorizarse retry con el mismo documento e idempotencia.
 7. Si no existe consulta concluyente, conserva incidencia y revisión manual.
 8. Audita fuentes, actor/proceso y resultado.
+
+La ejecución de conciliación usa `FiscalReconciliation` con estados `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. Su scope es snapshot. Una discrepancia que requiere revisión crea o relaciona `FiscalIncident` en `OPEN`/`IN_REVIEW`; resolverla no borra attempts ni evidencia anteriores.
 
 Un proceso automático no decide ausencia por un simple `404` sin conocer la semántica exacta del proveedor.
 
@@ -278,10 +281,16 @@ No registrar secretos ni documentos completos dentro del log de auditoría.
 - `ElectronicDocumentPrepared`;
 - `ElectronicDocumentQueued`;
 - `FiscalSubmissionStarted`;
+- `FiscalSubmissionCompleted`;
+- `FiscalSubmissionFailed`;
+- `FiscalSubmissionOutcomeUnknown`;
 - `ElectronicDocumentAccepted`;
 - `ElectronicDocumentRejected`;
 - `ElectronicDocumentOutcomeUnknown`;
 - `FiscalReconciliationCompleted`;
+- `FiscalReconciliationReviewRequired`;
+- `FiscalIncidentOpened`;
+- `FiscalIncidentResolved`;
 - `ElectronicAdjustmentPrepared`;
 - `FiscalContingencyStarted`;
 - `FiscalContingencyClosed`.

@@ -402,3 +402,33 @@ RN-183. Una respuesta perdida después de aplicación central se resuelve por In
 RN-184. Tenant de DeadLetter, Operation, Outbox, Inbox, Conflict, Review y acciones debe coincidir. El tenant enviado por cliente no es autoridad y nunca se reasigna una operación entre tenants.
 
 RN-185. Si nodos local y central detectan el mismo caso concurrentemente, convergen a una sola SyncDeadLetter por operation y conservan acciones idempotentes; no eligen identidad o resultado por timestamp.
+
+## Agregados fiscales neutrales
+
+RN-186. `ElectronicDocument` es el único agregado canónico del documento de Electronic Invoicing. `FiscalDocument` no existe como entidad paralela y CUFE, CUDE, prefijo, número o referencia externa nunca sustituyen su identidad interna global.
+
+RN-187. Tax es autoridad de reglas, clasificación, tarifas, vigencia, cálculo y resultado tributario. Electronic Invoicing consume un snapshot tributario inmutable y conserva separadamente el snapshot de configuración/emisión; nunca recalcula Tax.
+
+RN-188. `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalIncident`, `FiscalReconciliation` y el estado original del proveedor tienen máquinas independientes. Un estado técnico no prueba aceptación o rechazo fiscal.
+
+RN-189. `FiscalSubmissionAttempt` usa `CREATED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `UNKNOWN_OUTCOME` y `CANCELLED`. `transport_status` y `normalized_result` son dimensiones separadas; un attempt `COMPLETED` puede normalizar aceptación o rechazo sin adoptar esos estados.
+
+RN-190. `FiscalIncident` usa exclusivamente `OPEN`, `IN_REVIEW`, `RESOLVED` y `ARCHIVED`. Clasificación y resolución son atributos; archivar no borra evidencia.
+
+RN-191. `FiscalReconciliation` de Electronic Invoicing usa `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. Su alcance es snapshot y no comparte entidad ni enum física con Payments.
+
+RN-192. Si una respuesta se pierde después de transmitir, attempt y documento pueden conservar `UNKNOWN_OUTCOME` en dimensiones diferentes. Consulta, polling, webhook validado o reconciliación pueden resolver el documento, pero nunca reescriben el attempt histórico para ocultar la incertidumbre.
+
+RN-193. La misma intención fiscal conserva documento, source, payload congelado, checksum e idempotencia. Un retry técnico crea otro attempt y no otro documento ni otra numeración sin decisión explícita y evidencia segura.
+
+RN-194. Todo recurso fiscal es tenant-scoped. Source, conexión, documento, attempt, artefacto, incidente, conciliación, secreto referenciado y actor deben pertenecer al mismo tenant; una identidad externa o `tenant_id` del cliente no concede autoridad.
+
+RN-195. Una corrección fiscal crea otro `ElectronicDocument` relacionado y no modifica el original. SaleReturn solo origina evaluación; Sales, Refund o Reversal no deciden el tipo fiscal ni demuestran por sí solos que el correctivo corresponde.
+
+RN-196. El POS local puede persistir intención, snapshots y outbox según modalidad, pero no es autoridad final de aceptación externa. Reconexión, retry, webhook o polling no pueden duplicar una emisión.
+
+RN-197. Credenciales, tokens, API keys, claves privadas y certificados privados no se almacenan en agregados, artefactos, eventos, logs o auditoría. Solo se conservan referencias opacas tenant-scoped y evidencia no secreta autorizada.
+
+RN-198. Webhooks requieren autenticidad, deduplicación, replay protection, evidencia cruda referenciada y procesamiento mediante caso de uso. Una firma inválida se rechaza y puede abrir incidente fiscal y evento de seguridad.
+
+RN-199. Auditoría fiscal es append-only. Resolver incidencia, forzar reconciliación, cerrar/reabrir, cambiar conexión, numeración, proveedor o referencia secreta exige permiso atómico, motivo y controles reforzados según riesgo.

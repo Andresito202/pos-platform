@@ -4,7 +4,7 @@
 
 Contrato documental de `PHY-G11` para operaciones de sincronización que agotaron reintentos o no pueden procesarse automáticamente de forma segura.
 
-Este documento no contiene DDL ni autoriza migraciones. `TECH-002` permanece `IN_PROGRESS`, la primera migración permanece `NO-GO` y `PHY-G12` no se inicia.
+Este documento no contiene DDL ni autoriza migraciones. Al cerrar `PHY-G11`, `TECH-002` permanecía `IN_PROGRESS`, la primera migración permanecía `NO-GO` y `PHY-G12` todavía no se había iniciado; su evolución posterior se registra en `traceability.md` y `backlog.md`.
 
 ## Decisión: registro separado
 

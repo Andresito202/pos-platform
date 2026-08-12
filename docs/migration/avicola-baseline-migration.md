@@ -317,6 +317,20 @@ No se crea `Configuration` global, key-value autoritativo ni JSON libre para abs
 
 Las credenciales o secretos encontrados se rotan y se cargan al almacén aprobado; las tablas de negocio solo reciben referencias opacas. La migración conserva por separado snapshots tributarios de operación y snapshots de emisión fiscal cuando exista evidencia suficiente; nunca inventa un `fiscal_snapshot` combinado.
 
+### Documentos electrónicos heredados
+
+La auditoría del legado FastAPI/SQLAlchemy/Alembic no encontró agregados o tablas con semántica suficiente de `FiscalConnection`, `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalArtifact`, `FiscalIncident` o `FiscalReconciliation`. Tampoco encontró evidencia estructurada de resolución/autorización, numeración fiscal, CUFE/CUDE, QR fiscal, XML/PDF, application response, respuestas de proveedor o webhooks.
+
+Clasificación inicial:
+
+- ventas, anulaciones, devoluciones y textos libres: `evidence only`, no documentos electrónicos;
+- menciones aisladas de factura, NIT, resolución, QR, proveedor o estado: `ambiguous`;
+- secretos o credenciales encontrados: `not migrable`, se rotan y no se copian;
+- artefacto histórico futuro con identidad, checksum y referencias verificables: `migrable parcialmente` después de reconciliación;
+- aceptación, timestamps, provider ID, CUFE/CUDE, numeración, versión, actor o estado no demostrados: no se inventan.
+
+`FiscalDocument` heredado no se crea como alias o entidad paralela. Cualquier documento verificable se mapea al agregado canónico `ElectronicDocument`. Un número de venta, un Payment, una anulación, un SaleReturn, un Refund o una línea de auditoría no prueban emisión o aceptación fiscal. Lo ambiguo permanece en cuarentena o como evidencia, sin habilitar retry, correctivos automáticos ni descarga de artefactos.
+
 ### Dead letters y sincronización heredadas
 
 La auditoría del legado no encontró `SyncOperation`, Outbox, Inbox, checkpoints, conflictos Sync, retries persistidos ni dead letters. Los errores HTTP, excepciones, mensajes de conexión del frontend o líneas de auditoría aisladas no demuestran una intención sincronizable recuperable.
