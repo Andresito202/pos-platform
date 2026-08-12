@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS continúa siendo obligatorio antes de la primera migración PostgreSQL.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS obligatorio fue ejecutado y aprobado en `poc/rls/`; la primera migración continúa `NO-GO` hasta la revisión transversal y autorización independiente.
 
 ## Principios obligatorios
 
@@ -325,7 +325,7 @@ No se crean índices especulativos. Cada índice debe corresponder a constraint,
 ## Controles que cierran brechas
 
 - `PHY-G13` queda cerrado documentalmente mediante decimal canónico SQLite y value object de coeficiente entero.
-- `PHY-G14` queda definido documentalmente; permanece bloqueado para migración hasta ejecutar el PoC RLS descrito.
+- `PHY-G14` queda cerrado mediante el PoC PostgreSQL 16 reproducible de `poc/rls/`, con evidencia de RLS/FORCE, roles, fail-closed, constraints, pooling/worker y restore. Este resultado no aprueba `SEC-G01` ni autoriza migraciones.
 
 ## Condición de salida
 

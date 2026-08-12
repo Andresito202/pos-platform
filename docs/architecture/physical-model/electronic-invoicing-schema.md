@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-`PHY-G12` queda cerrado documentalmente mediante este contrato. El documento no contiene DDL, SQL ni migraciones y no autoriza la primera migración. `TECH-002` permanece `IN_PROGRESS`, la primera migración permanece `NO-GO`, `SEC-G01` a `SEC-G10` permanecen `PLANNED` / `NOT_EVALUATED` y `PHY-G14` no se inicia.
+`PHY-G12` queda cerrado documentalmente mediante este contrato. El documento no contiene DDL, SQL ni migraciones y no autoriza la primera migración. En este cierre, `TECH-002` permaneció `IN_PROGRESS`, la primera migración permaneció `NO-GO`, los security gates continuaron sin evaluar y `PHY-G14` todavía no se había iniciado; su evolución posterior se registra en `traceability.md` y `backlog.md`.
 
 El contrato define la persistencia conceptual neutral al proveedor de conexiones, documentos electrónicos, intentos técnicos, artefactos, incidencias, contingencia y conciliación fiscal. Factus, Siigo, Alegra, un SDK DIAN o cualquier proveedor concreto pertenecen a adaptadores futuros y no definen entidades, estados ni columnas del dominio.
 

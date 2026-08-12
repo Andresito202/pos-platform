@@ -49,6 +49,12 @@ Estado actual: `PLANNED` / `NOT_EVALUATED`.
 
 Tenant A no puede leer, modificar, borrar, referenciar ni ejecutar operaciones sobre recursos de Tenant B. Deben pasar integration tests reales en PostgreSQL y, para datos locales aplicables, SQLite/WAL. El PoC de RLS definido en `PHY-G14` debe estar aprobado antes de usar RLS como evidencia productiva.
 
+### Evidencia parcial disponible
+
+El PoC aislado `poc/rls/` pasó en PostgreSQL 16.14 para RLS/FORCE, roles runtime sin `BYPASSRLS`, contexto `SET LOCAL` fail-closed, lectura/escritura cross-tenant, `WITH CHECK`, FK compuestas tenant-aware, reutilización de conexión, rollback, worker secuencial, administración global explícita e introspección/restore. Evidencia: `poc/rls/results/evidence.txt` y `poc/rls/results/summary.md` sobre commit base `b8f5802d711d23f6117a619babeb9660df30682c`.
+
+Esta evidencia cierra `PHY-G14`, no `SEC-G01`. Aún faltan derivación de contexto desde identidad/sesión, repositories tenant-aware, API/worker reales, pruebas PostgreSQL/SQLite del stack objetivo y las demás fronteras de la matriz. El estado permanece `PLANNED / NOT_EVALUATED`; no se introduce un estado nuevo.
+
 Dependencias: tenant model, `SEC-002`, `SEC-003`, `PHY-G14`, foundation física, contratos de cada repository y `SEC-G02`/`SEC-G03`.
 
 ## SEC-G02 — Authentication & Session Security
@@ -317,7 +323,7 @@ Las alertas futuras deben cubrir, según contexto: fallos de login, rechazo cros
 - periodos legales de retención fiscal, auditoría y evidencia por jurisdicción;
 - topología portable definitiva, firewall/segmentación y endurecimiento por ambiente;
 - política formal de aceptación temporal de vulnerabilidades y SLA de remediación;
-- PoC de RLS y roles de conexión de `PHY-G14`;
+- integración del patrón RLS aprobado en `PHY-G14` con contexto autenticado, repositories y pruebas del stack objetivo;
 - implementación y pruebas de los tres puertos de observabilidad.
 
 Estos vacíos no autorizan defaults productivos. Deben cerrarse en decisiones o configuraciones versionadas antes del gate que dependa de ellos.
