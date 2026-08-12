@@ -921,6 +921,7 @@ Reglas:
 3. Una política ABAC solo restringe permisos atómicos existentes; nunca crea permisos por sí misma.
 4. Las decisiones sensibles registran la versión aplicada y un `reason_code` estable.
 5. Una versión utilizada no se modifica retroactivamente; se retira o sustituye por otra.
+6. No existe una `Configuration` global que la contenga. Su lifecycle, checksum y vigencia pertenecen a Authorization, y una versión local nunca amplía permisos atómicos.
 
 ### UserRoleAssignment
 
@@ -1331,13 +1332,23 @@ Atributos conceptuales:
 - version;
 - created_at.
 
-La resolución conceptual prioriza:
+### PricingPolicy
+
+Identidad estable, perteneciente a Tenant y Company, de la política determinista que resuelve precios, descuentos y promociones. No contiene reglas tributarias ni una precedencia global implícita.
+
+### PricingPolicyVersion
+
+Versión inmutable publicada que conserva scopes, prioridades, vigencias, elegibilidad, composición, desempates, checksum, actor y motivo. Toda regla aplicable referencia la versión exacta.
+
+La resolución conceptual de la identidad vendible prioriza:
 
 1. presentación;
 2. variante;
 3. producto.
 
 El precio operativo final debe corresponder a una presentación concreta.
+
+La precedencia entre reglas comerciales no se deriva automáticamente del nivel Branch, Company, Tenant o Platform. Cada versión declara scope, prioridad, política de resolución, vigencia, elegibilidad y desempate. Igual prioridad sin desempate normativo produce ambigüedad explícita; no se resuelve por timestamp.
 
 ### PriceChange
 
@@ -1357,6 +1368,10 @@ Una versión publicada no se edita. No pueden coexistir versiones equivalentes, 
 
 Hecho idempotente que consume un límite de promoción para una venta y permite reconstruir contadores sin reescribir ventas.
 
+## Impuestos
+
+Tax es un dominio independiente y autoridad de reglas, clasificación, tasas, vigencia, cálculo y resultado tributario. Pricing consume su resultado en el pipeline; Electronic Invoicing consume el snapshot tributario de la operación sin poseerlo ni recalcularlo.
+
 ### TaxRule
 
 Identidad estable de una regla tributaria perteneciente a Tenant y Company.
@@ -1367,11 +1382,27 @@ Versión inmutable que conserva categoría, código, tasa exacta, inclusión en 
 
 Una regla activa no se modifica; se cierra su vigencia y se publica otra versión. Dos versiones equivalentes no pueden solaparse con la misma prioridad.
 
+## Redondeo comercial
+
 ### RoundingPolicy
 
-Política versionada por Tenant y Company que conserva moneda, algoritmo, unidad, vigencia, `rounding_policy_version` y checksum. Para COP, la política aprobada es `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` y produce un solo `payable_amount` antes de los pagos.
+Identidad estable de la política de redondeo comercial perteneciente a Tenant y Company.
+
+### RoundingPolicyVersion
+
+Versión inmutable publicada que conserva moneda, algoritmo, unidad, vigencia, `rounding_policy_version`, checksum, actor y motivo. Para COP, la política aprobada es `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` y produce un solo `payable_amount` antes de los pagos.
 
 ## Inventario
+
+### InventoryPolicy
+
+Identidad estable, perteneciente a Tenant y Company y opcionalmente limitada a Branch, de las políticas operativas que Inventory posee.
+
+### InventoryPolicyVersion
+
+Versión inmutable publicada que solo puede representar reglas normativamente aprobadas sobre FIFO/FEFO, vencimiento, stock negativo, reservas, restricciones offline y ajustes explícitos. Conserva vigencia, checksum, actor, motivo y versión sustituida; no usa payload JSON libre.
+
+`InventoryPolicy` no contiene GoodsReceipt, InventoryMovement, StockBalance, reservas ni ajustes: estos conservan su identidad y ciclo propios. Una operación registra la versión aplicada y el resultado determinista; la política nueva no reescribe hechos anteriores.
 
 ### InventoryLocation
 
@@ -1873,6 +1904,16 @@ Reglas:
 5. Un movimiento pertenece al mismo tenant, empresa, sucursal, caja, turno y moneda.
 6. `REVERSED_BY_COMPENSATION` es una proyección derivada; el movimiento original conserva estado persistido `POSTED`.
 
+### CashPolicy
+
+Identidad estable, perteneciente a Tenant y Company y opcionalmente limitada a Branch, de la política operativa de caja.
+
+### CashPolicyVersion
+
+Versión inmutable publicada que conserva únicamente reglas aprobadas de conteo, tolerancia, clasificación de diferencias, aprobación y restricciones offline. Conserva moneda y tipo cuando la regla los necesita, vigencia, checksum, actor, motivo y versión sustituida; no usa payload JSON libre.
+
+`CashPolicy` no contiene ni sustituye `CashShift`, `CashMovement`, `CashCount` o revisiones. Esas operaciones conservan ciclo e identidad propios y registran las versiones de cálculo/tolerancia utilizadas.
+
 ### CashCount
 
 Agregado que conserva la evidencia física de un arqueo parcial, cierre o corrección sin modificar CashMovement.
@@ -2091,6 +2132,16 @@ Referencia exactamente una `SaleItem` de la venta original y conserva presentaci
 
 Una línea comercial no modifica inventario directamente. Solo un `InventoryMovement` explícito del módulo Inventory puede restituir o clasificar unidades, y su cantidad nunca supera la cantidad comercial completada.
 
+### PaymentProviderConfiguration
+
+Identidad estable de Payments para una configuración de proveedor dentro de Tenant y Company, con los scopes de cuenta, Branch o terminal que el contrato de proveedor reconozca.
+
+### PaymentProviderConfigurationVersion
+
+Versión inmutable publicada que conserva proveedor, ambiente, capabilities declaradas, políticas operativas, vigencia, checksum y referencias opacas a secretos. Nunca contiene credenciales utilizables ni permite que el cliente local amplíe capacidades del proveedor.
+
+La autoridad del proveedor sobre resultados externos permanece separada de esta configuración. Un cambio de versión no reescribe `Payment`, `PaymentAttempt`, `Refund`, `Reversal`, `Settlement` o `Reconciliation` históricos.
+
 ### Payment
 
 Representa un cobro financiero independiente que cubre total o parcialmente una venta, pedido o cuenta por cobrar de cliente. Una venta puede tener uno o varios pagos relacionados mediante un `PaymentGroup`. No representa cuentas por pagar ni pagos a proveedores, que pertenecen a una capacidad futura y a un agregado separado.
@@ -2243,6 +2294,16 @@ Versionada por empresa y opcionalmente por sucursal.
 ### ReceiptSnapshot
 
 Conserva datos exactos impresos en una venta.
+
+### FiscalEmissionConfiguration
+
+Identidad estable de Electronic Invoicing para configurar emisión dentro de Tenant, Company, identidad fiscal y ambiente autorizados.
+
+### FiscalEmissionConfigurationVersion
+
+Versión inmutable publicada que conserva autorización o resolución, numeración, prefijo, proveedor, conexión, contingencias, capabilities, vigencia, checksum y referencias opacas a credenciales/certificados. No contiene secretos utilizables ni reglas de cálculo tributario.
+
+El snapshot de emisión fiscal conserva esta versión y la evidencia del proveedor. El snapshot tributario de la operación conserva reglas, bases, tasas y resultados de Tax. Son evidencias distintas y no se agrupan bajo un `fiscal_snapshot` ambiguo.
 
 ### FiscalDocument
 

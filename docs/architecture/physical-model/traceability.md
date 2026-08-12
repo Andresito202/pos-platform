@@ -63,7 +63,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 | `UC-PRICE-001` | Pricing | `PriceList`, `ProductPrice`, historial de cambio | `CLOSE_IN_TECH_002` | Debe decidirse si `PriceChange` es evento auditable o agregado persistente separado; no se duplicará historia sin propósito. |
 | `UC-PRICE-002`/`DEC-003` | Pricing | snapshot de resolución y referencias de política en `SaleItem`/`Sale` | `COVERED` | La resolución final siempre apunta a presentación y congela entradas, versión y resultado. |
 | `UC-PROMO-001`/`UC-PROMO-002` | Pricing | `Promotion`, `PromotionVersion`, `PromotionConsumption` | `COVERED` | Versiones publicadas inmutables; consumo idempotente y asociado a venta. |
-| `UC-TAX-001`/`UC-TAX-002` | Pricing/Tax | `TaxRule`, `TaxRuleVersion`, snapshots fiscales | `COVERED` | Regla estable y versión inmutable; tasa decimal exacta y vigencia no solapada según alcance. |
+| `UC-TAX-001`/`UC-TAX-002` | Tax | `TaxRule`, `TaxRuleVersion`, snapshots tributarios de operación | `COVERED` | Tax es autoridad de regla, clasificación, tasa, vigencia, cálculo y resultado; Pricing consume el resultado y Electronic Invoicing el snapshot, sin poseerlos ni recalcularlos. |
 | `UC-ROUND-001`/`DEC-006` | Pricing | `RoundingPolicy`, snapshot y ajuste comercial de venta | `COVERED` | Una sola aplicación por documento produce `payable_amount`; nunca depende del medio de pago. |
 
 ## Inventario y recepción
@@ -98,7 +98,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 | Fuente | Módulo propietario | Agregados exigidos | Cobertura | Observación física obligatoria |
 |---|---|---|---|---|
 | `UC-SYNC-001` | módulos propietarios + Sync | `SyncOperation`, `OutboxEntry`, `InboxEntry`, `SyncCheckpoint` | `COVERED` | Negocio y outbox comparten transacción; inbox y efectos centrales comparten commit o rollback. |
-| `UC-SYNC-002` | módulos propietarios | versiones nativas de configuración, checksums y vigencias | `CLOSE_IN_TECH_002` | Está prohibida una tabla global `Configuration`; debe inventariarse qué módulo conserva cada versión antes del esquema. |
+| `UC-SYNC-002` | módulos propietarios | versiones nativas de configuración, checksums y vigencias | `COVERED` | `domain-configuration-schema.md` fija ownership, identidad/versiones, scopes, lifecycle, checksum, snapshots, offline, permisos, eventos y migración sin `Configuration` global; Sync solo distribuye. |
 | `UC-SYNC-003` | Sync | `SyncConflict`, `SyncReview`, `DeviceClockState`, `DeviceSyncState`, dead letter | `CLOSE_IN_TECH_002` | Debe fijarse si dead letter es estado de outbox/inbox o agregado separado; no se duplicará una operación. |
 
 ## Facturación electrónica
@@ -134,7 +134,7 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 | PHY-G07 | `CLOSED` | Arqueos de caja | `UC-CASH-002`, `UC-CASH-003`, `DEC-002`, `DEC-007` | Auditoría transversal aprobada: `cash-counting-schema.md`, modelo conceptual, eventos, permisos, ownership, reglas, glosario, casos de uso y migración alinean turno, movimientos, CashCount, denominaciones, diferencias, correcciones, concurrencia y operación offline. |
 | PHY-G08 | `CLOSED` | SaleReturn | `UC-SALES-002`, `UC-PAY-004`, `DEC-002`, `DEC-007`, ownership | `sale-return-schema.md` y auditoría transversal alinean agregado, líneas, estados persistentes, proyecciones, tenant, snapshots, dinero, permisos, eventos, inventario, pagos, caja, fiscal, local-first, auditoría y migración. |
 | PHY-G09 | `CLOSED` | Reversal, Settlement y Reconciliation | `UC-PAY-004`, `UC-PAY-005`, `PAY-007`, `DEC-007`, `DEC-008` | `payment-financial-operations-schema.md` y auditoría transversal alinean estados, ownership, eventos, componentes exactos de Settlement, cálculo versionado, alcance de Reconciliation, permisos, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración. |
-| PHY-G10 | `OPEN` | Versiones de configuración por dominio | `UC-SYNC-002` | Inventario de propietarios y referencias, sin Configuration global. |
+| PHY-G10 | `CLOSED` | Versiones de configuración por dominio | `UC-SYNC-002`, `DEC-007`, `DEC-008`, ownership | `domain-configuration-schema.md` y auditoría transversal alinean ownership por dominio, Tax independiente, CashPolicy, InventoryPolicy, precedencia explícita, lifecycle, scopes, vigencia, checksum, snapshots, secretos, permisos, eventos, local-first y legado, sin `Configuration` global. |
 | PHY-G11 | `OPEN` | Dead letter | `UC-SYNC-003` | Estado o agregado decidido sin duplicar operación. |
 | PHY-G12 | `OPEN` | Agregados fiscales neutrales | `UC-EINV-001` | Modelo conceptual alineado con puertos neutrales y resultado incierto. |
 | PHY-G13 | `CLOSED` | Representación monetaria SQLite | `DEC-003`, `ADR-005` | `physical-conventions.md` fija texto decimal canónico de escala conocida y conversión mediante coeficiente entero; prohíbe `REAL` y `number` autoritativos. |
@@ -142,4 +142,4 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 
 ## Resultado del inventario
 
-`PHY-G09` está cerrado y `PHY-G10` es el siguiente gate físico, aún no iniciado. El contrato documental de operaciones financieras se cerró sin DDL y todavía no existe autorización para escribir la primera migración.
+`PHY-G10` está cerrado y `PHY-G11` es el siguiente gate físico, aún no iniciado. El contrato documental de configuraciones por dominio se cerró sin DDL y todavía no existe autorización para escribir la primera migración.

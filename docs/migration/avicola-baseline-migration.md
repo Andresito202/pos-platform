@@ -50,7 +50,7 @@ El proyecto actual contiene:
 - inventario;
 - caja;
 - reportes;
-- configuración;
+- valores heredados candidatos a configuraciones nativas, sujetos a clasificación por dominio;
 - auditoría;
 - manejo de lotes.
 
@@ -59,7 +59,7 @@ El proyecto actual contiene:
 - frontend HTML estático;
 - navegación actual;
 - estructura de interfaz;
-- configuración específica de avícola;
+- configuración específica de avícola sin ownership, scope o versión demostrables;
 - semillas de demo;
 - creación automática de tablas en producción;
 - administración global simple;
@@ -103,7 +103,7 @@ El proyecto actual contiene:
 
 ### Etapa 1 — Fundación
 
-- configuración;
+- metadatos técnicos de entorno, separados de configuración de negocio;
 - tenant;
 - empresa;
 - sucursal;
@@ -298,6 +298,24 @@ Una fórmula incoherente, movimiento huérfano, apertura duplicada o turno impos
 ### Auditoría
 
 La auditoría heredada se encapsula en `AuditEvent` conservando el texto original. Tenant, actor y recurso se asignan solo cuando exista correspondencia verificable; la ausencia se representa mediante actor/tipo de migración, nunca mediante datos inventados.
+
+### Configuraciones heredadas por dominio
+
+El legado no contiene un agregado global de configuración reutilizable ni historia suficiente para demostrar versiones publicadas. `backend/app/core/config.py` representa settings técnicos de ejecución y no se migra como configuración de negocio.
+
+`Producto.precio_venta`, `stock_minimo` y `es_perecedero` son valores de negocio candidatos, no evidencia de `PricingPolicyVersion`, `InventoryPolicyVersion` o `TaxRuleVersion`. Solo pueden alimentar drafts iniciales del dominio correspondiente después de:
+
+- resolver Tenant y Company, y Branch cuando aplique;
+- clasificar semántica, moneda, unidad, scope y vigencia;
+- reconciliar duplicados y valores incompatibles;
+- obtener revisión humana y motivo;
+- publicar una versión nueva con checksum, sin atribuirle historia anterior.
+
+No se inventan identidad histórica, autor, fecha de publicación, vigencia, prioridad, desempate, permiso, firma, checksum anterior ni relación de sustitución. Un valor ambiguo pasa a cuarentena.
+
+No se crea `Configuration` global, key-value autoritativo ni JSON libre para absorber columnas heredadas. Pricing, Tax, Cash Register, Inventory, Payments, Electronic Invoicing, Authorization, Licensing y Devices reciben únicamente datos que su contrato nativo reconozca.
+
+Las credenciales o secretos encontrados se rotan y se cargan al almacén aprobado; las tablas de negocio solo reciben referencias opacas. La migración conserva por separado snapshots tributarios de operación y snapshots de emisión fiscal cuando exista evidencia suficiente; nunca inventa un `fiscal_snapshot` combinado.
 
 ## Cuarentena
 

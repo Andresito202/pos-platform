@@ -116,6 +116,28 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### PriceExpired
 
+### PricingPolicyPublished
+
+### PricingPolicyRevoked
+
+### PricingPolicySuperseded
+
+### RoundingPolicyPublished
+
+### RoundingPolicyRevoked
+
+### RoundingPolicySuperseded
+
+## Impuestos
+
+### TaxRuleScheduled
+
+### TaxRuleActivated
+
+### TaxRuleExpired
+
+### TaxRuleChanged
+
 ## Inventario
 
 ### InventoryReceived
@@ -146,7 +168,19 @@ Registra la confirmación inmutable de una recepción física y referencia sus l
 
 ### StockBelowMinimum
 
+### InventoryPolicyPublished
+
+### InventoryPolicyRevoked
+
+### InventoryPolicySuperseded
+
 ## Caja
+
+### CashPolicyPublished
+
+### CashPolicyRevoked
+
+### CashPolicySuperseded
 
 ### CashShiftOpened
 
@@ -319,6 +353,30 @@ Refund y Reversal pertenecen a Payments. Ninguno demuestra por sí solo devoluci
 Settlement y Reconciliation pertenecen a Payments. Sus eventos no modifican Payment histórico ni demuestran por sí mismos cierre de caja, abono bancario o efecto fiscal.
 
 ### PaymentReconciliationRequired
+
+### PaymentProviderConfigurationPublished
+
+### PaymentProviderConfigurationRevoked
+
+### PaymentProviderConfigurationSuperseded
+
+## Autorización versionada
+
+### AuthorizationPolicyPublished
+
+### AuthorizationPolicyRevoked
+
+### AuthorizationPolicySuperseded
+
+## Emisión fiscal
+
+### FiscalEmissionConfigurationPublished
+
+### FiscalEmissionConfigurationRevoked
+
+### FiscalEmissionConfigurationSuperseded
+
+Los eventos de configuración pertenecen al dominio nombrado. No existe un evento global `ConfigurationChanged`; Sync solo registra entrega o aplicación técnica sin apropiarse de la publicación.
 
 ## Domicilios
 

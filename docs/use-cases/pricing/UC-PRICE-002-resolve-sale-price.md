@@ -141,7 +141,9 @@ Dimensiones posibles:
 - rango de cantidad;
 - lista de precios.
 
-## Prioridad inicial recomendada
+## Ejemplo no normativo de prioridad
+
+La siguiente lista solo ilustra una composición posible. No define precedencia automática, no autoriza herencia Branch/Company/Tenant/Platform y no reemplaza scope, prioridad, vigencia, versión de política, elegibilidad ni desempate explícitos de cada regla:
 
 1. Contrato o precio específico de cliente.
 2. Grupo de cliente.
@@ -165,6 +167,8 @@ Si dos reglas tienen:
 - mismo contexto;
 
 la configuración es ambigua y debe producir error administrativo.
+
+No se desempata por timestamp, orden de inserción, orden de llegada ni last-write-wins.
 
 ## Congelación del precio
 

@@ -716,3 +716,39 @@ El reloj local aporta evidencia contextual, pero no constituye autoridad global.
 Arquitectura en la que el POS puede confirmar operaciones autorizadas mediante persistencia local y sincronizarlas posteriormente de forma idempotente.
 
 No significa que todos los datos sean autoritativos localmente ni que todos los conflictos puedan fusionarse.
+
+## Configuración por dominio
+
+Política, regla o perfil cuya identidad, versiones y autoridad pertenecen al módulo que define su semántica. No existe una entidad global `Configuration`.
+
+## ConfigurationDistribution
+
+Componente técnico opcional que transporta referencias, versiones y snapshots de configuraciones nativas. No es un dominio ni fuente de verdad y no puede publicar o ampliar derechos.
+
+## Identidad estable de configuración
+
+Identidad que agrupa la sucesión histórica de versiones de una política del mismo dominio y scope. No cambia cuando se publica una versión nueva.
+
+## Versión de configuración
+
+Representación inmutable publicada de una configuración, con identidad propia, número monotónico, vigencia, checksum, actor, motivo y relación de sustitución.
+
+## Versión programada
+
+Proyección temporal de una versión `PUBLISHED` cuyo `valid_from` todavía no ha llegado. `SCHEDULED` no es un estado persistente paralelo.
+
+## Sustitución de versión
+
+Publicación de una versión nueva que reemplaza prospectivamente otra sin editarla ni borrarla. Restaurar una conducta anterior también crea una versión nueva; no reactiva el registro histórico.
+
+## Snapshot tributario de operación
+
+Evidencia inmutable de reglas, bases, tasas y resultado calculados por Tax para una operación comercial.
+
+## Snapshot de emisión fiscal
+
+Evidencia inmutable de la configuración, proveedor, numeración, contingencia y resultado usados por Electronic Invoicing. No sustituye ni recalcula el snapshot tributario.
+
+## Ambigüedad de configuración
+
+Situación en la que dos o más versiones son igualmente elegibles y la política no define composición o desempate. Produce conflicto explícito; timestamps y orden de llegada no son autoridad.

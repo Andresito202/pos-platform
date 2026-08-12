@@ -276,6 +276,6 @@ Catalog solo entrega la UnitConversion vigente. La transacción de ejecución pe
 
 ## Gate del bloque
 
-Pasa a `APPROVED_FOR_MIGRATION_DESIGN` cuando el bloque Pricing/Tax cierre `tax_category_id`, se prueben constraints de equivalencia/ciclos en PostgreSQL y SQLite, y la auditoría contra los seis casos de uso no encuentre columnas sin fuente.
+Pasa a `APPROVED_FOR_MIGRATION_DESIGN` cuando los bloques independientes Pricing y Tax cierren `tax_category_id`, se prueben constraints de equivalencia/ciclos en PostgreSQL y SQLite, y la auditoría contra los seis casos de uso no encuentre columnas sin fuente.
 
 La primera migración permanece `NO-GO`.

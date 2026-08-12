@@ -7,16 +7,17 @@
 | Companies | Identidad legal, comercial y branding |
 | Branches | Sucursales, horarios, cobertura y ubicación |
 | Authorization | Roles, permisos, políticas y UserRoleAssignment |
-| Devices | Equipos, terminales, versiones y revocación |
-| Licensing | Licencias, planes, módulos y límites |
+| Devices | Equipos, instalaciones, activaciones, claves, confianza, perfiles de administración y políticas nativas de dispositivo |
+| Licensing | Licencias, entitlements, límites, gracia, revocaciones y artefactos contractuales firmados |
 | Catalog | Productos, categorías, variantes y códigos |
-| Pricing | Listas, precios, vigencias e historial |
-| Inventory | Stock, lotes, movimientos y reservas |
+| Pricing | Listas, precios, promociones, descuentos, redondeo comercial, políticas de resolución, versiones, vigencias e historial |
+| Tax | TaxRule, TaxRuleVersion, clasificación, tasas, reglas, vigencia, cálculo y resultado tributario |
+| Inventory | Stock, lotes, movimientos, reservas, InventoryPolicy y sus versiones |
 | Purchasing | GoodsReceipt, líneas y asignaciones de lote; futuras PurchaseOrder, SupplierDocument y devoluciones cuando sus casos de uso se habiliten |
 | Suppliers | Proveedores |
 | Sales | Ventas, detalles, devoluciones comerciales SaleReturn y anulaciones SaleCancellation |
-| Payments | Métodos, grupos, pagos, intentos, asignaciones, refunds, reversals, settlement, conciliación y chargebacks |
-| Cash Register | CashRegister, CashShift, CashMovement, CashCount, denominaciones, revisiones de diferencia y cierres |
+| Payments | Métodos, grupos, pagos, intentos, asignaciones, refunds, reversals, settlement, conciliación, chargebacks y configuración versionada de proveedor |
+| Cash Register | CashRegister, CashShift, CashMovement, CashCount, denominaciones, revisiones de diferencia, cierres, CashPolicy y sus versiones |
 | Customers | Clientes comerciales y crédito |
 | Orders | Pedidos y estados |
 | Delivery | Despacho, seguimiento y entrega |
@@ -24,7 +25,7 @@
 | Reporting | Vistas de lectura y agregados |
 | Notifications | Correos, SMS, push y alertas |
 | Hardware | Perfiles, adaptadores y periféricos |
-| Electronic Invoicing | Conexiones fiscales, rangos conocidos, documentos electrónicos, intentos, estados de proveedor, artefactos e incidencias fiscales |
+| Electronic Invoicing | Configuración de emisión fiscal, conexiones fiscales, rangos conocidos, documentos electrónicos, intentos, estados de proveedor, artefactos e incidencias fiscales |
 | Audit | Eventos sensibles e historial |
 | Support | Tickets, diagnóstico y accesos temporales |
 
@@ -44,3 +45,6 @@
 12. Credenciales y certificados se referencian desde el almacén definido por SEC-004; no son propiedad de tablas de negocio.
 13. Purchasing confirma la recepción física, pero Inventory es la única autoridad que crea movimientos y deriva saldos; una recepción nunca modifica StockBalance por fuera del contrato de Inventory.
 14. Payment cubre cobros de ventas, pedidos y cuentas por cobrar. Pagos a proveedores pertenecen a una capacidad financiera futura y no reutilizan ese agregado.
+15. No existe un propietario global `Configuration`: cada módulo posee su identidad y versiones; Sync o `ConfigurationDistribution` solo transportan referencias y snapshots verificables.
+16. Pricing consume el resultado de Tax dentro del pipeline, pero no posee ni recalcula reglas tributarias. Electronic Invoicing consume el snapshot tributario de la operación y mantiene separado su snapshot de emisión fiscal.
+17. Los secretos reales permanecen en el almacén aprobado; las configuraciones de negocio solo conservan referencias opacas.

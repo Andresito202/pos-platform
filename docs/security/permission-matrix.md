@@ -248,7 +248,49 @@ Ejemplos:
 - `suppliers.supplier.read`;
 - `security.permission.change`;
 - `tenant.owner.change`;
-- `license.plan.change`.
+- `license.plan.change`;
+- `pricing.policy.read`;
+- `pricing.policy.create_draft`;
+- `pricing.policy.publish`;
+- `pricing.policy.schedule`;
+- `pricing.policy.revoke`;
+- `pricing.policy.supersede`;
+- `tax.rule.read`;
+- `tax.rule.create_draft`;
+- `tax.rule.publish`;
+- `tax.rule.schedule`;
+- `tax.rule.revoke`;
+- `tax.rule.supersede`;
+- `cash.policy.read`;
+- `cash.policy.create_draft`;
+- `cash.policy.publish`;
+- `cash.policy.schedule`;
+- `cash.policy.revoke`;
+- `cash.policy.supersede`;
+- `inventory.policy.read`;
+- `inventory.policy.create_draft`;
+- `inventory.policy.publish`;
+- `inventory.policy.schedule`;
+- `inventory.policy.revoke`;
+- `inventory.policy.supersede`;
+- `authorization.policy.read`;
+- `authorization.policy.create_draft`;
+- `authorization.policy.publish`;
+- `authorization.policy.schedule`;
+- `authorization.policy.revoke`;
+- `authorization.policy.supersede`;
+- `payments.provider_configuration.read`;
+- `payments.provider_configuration.create_draft`;
+- `payments.provider_configuration.publish`;
+- `payments.provider_configuration.schedule`;
+- `payments.provider_configuration.revoke`;
+- `payments.provider_configuration.supersede`;
+- `fiscal.configuration.read`;
+- `fiscal.configuration.create_draft`;
+- `fiscal.configuration.publish`;
+- `fiscal.configuration.schedule`;
+- `fiscal.configuration.revoke`;
+- `fiscal.configuration.supersede`.
 
 Reglas:
 
@@ -259,6 +301,9 @@ Reglas:
 5. La ausencia de un permiso atómico produce denegación explícita.
 6. Los permisos efectivos deben poder auditarse.
 7. Los permisos administrativos críticos deben evitar privilegios implícitos por pertenencia a un rol demasiado amplio.
+8. No existe un permiso universal `configuration.manage`; cada lifecycle se autoriza en el dominio propietario.
+9. `payments.provider.configure` protege el cambio sensible de conexión o referencia secreta y no sustituye permisos de lifecycle de `payments.provider_configuration.*`.
+10. Restaurar comportamiento usa el permiso `supersede` específico del dominio para publicar una versión nueva; ningún permiso permite mutar o reactivar una versión histórica.
 
 ## Políticas ABAC
 
@@ -312,6 +357,8 @@ Aplicaciones mínimas:
 | Cierre de Reconciliation | `payments.reconciliation.close` | Política reforzada cuando aplique | Cierre auditado |
 | Reapertura de Reconciliation | `payments.reconciliation.reopen` | Reautenticación/MFA según política | Reapertura versionada |
 | Configuración de proveedor | `payments.provider.configure` | Segregación según riesgo | Aplicación auditada sin exponer secretos |
+| Publicación/revocación de política de dominio | Permisos `publish` / `revoke` específicos enumerados en esta matriz | Reautenticación/MFA y actor distinto según riesgo | Versión inmutable y auditoría append-only |
+| Sustitución de configuración fiscal/proveedor | `fiscal.configuration.supersede` / `payments.provider_configuration.supersede` | Segregación y permiso sensible adicional cuando cambie referencia secreta | Nueva versión; nunca edición histórica |
 | Ajuste crítico de inventario | `inventory.adjustment.request` | `inventory.adjustment.approve` | `inventory.adjustment.execute` |
 | Traslado de inventario | `inventory.transfer.request` | `inventory.transfer.approve` | `inventory.transfer.dispatch` / `inventory.transfer.receive` |
 | Compensación de inventario | Revisión autorizada | `inventory.conflict.review` | `inventory.compensation.execute` |
@@ -329,6 +376,7 @@ Reglas:
 6. SaleReturn puede exigir reautenticación, MFA o aprobación superior por importe, condición física, operación fuera de ventana, self-approval, sucursal, dispositivo o riesgo de fraude.
 7. Cerrar o reabrir Reconciliation, aceptar o resolver diferencias y configurar proveedor requieren motivo y auditoría append-only; la política puede exigir reautenticación, MFA y actores distintos.
 8. Los permisos de Settlement o Reconciliation no conceden `payments.provider.configure`, `payments.reversal.*`, acceso cross-tenant ni autoridad para modificar Payment histórico.
+9. Lectura, draft, publicación, programación, revocación y sustitución de configuraciones son acciones independientes; un rol existente solo las obtiene por grants explícitos y scope válido.
 
 ## Pruebas negativas mínimas
 

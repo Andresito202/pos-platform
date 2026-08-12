@@ -348,3 +348,29 @@ RN-158. Toda relación financiera es tenant-scoped. Una identidad, referencia ex
 RN-159. Cerrar o reabrir Reconciliation, aceptar o resolver diferencias y configurar proveedor exige permiso atómico, motivo y auditoría append-only; la política puede requerir reautenticación, MFA y segregación de funciones usando únicamente roles existentes.
 
 RN-160. Los eventos canónicos de Reversal y Reconciliation usan los nombres definidos por `PAY-007`; no se mantienen aliases para el mismo hecho. Items e incidencias pueden emitir hechos distintos sin redefinir el estado del agregado.
+
+## Configuraciones versionadas por dominio
+
+RN-161. No existe un agregado global `Configuration`: Pricing, Tax, Authorization, Payments, Electronic Invoicing, Cash Register, Inventory, Licensing y Devices son autoridad de sus configuraciones nativas; Sync solo distribuye referencias, versiones y snapshots verificables.
+
+RN-162. Toda versión publicada es inmutable. Corregir, retirar o restaurar comportamiento crea una versión nueva o una revocación explícita y conserva actor, motivo, vigencia, checksum y relación de sustitución.
+
+RN-163. `DRAFT`, `PUBLISHED`, `SUPERSEDED` y `REVOKED` son estados persistentes de versiones administrables. `SCHEDULED`, `CURRENT` y `EXPIRED` son proyecciones de vigencia; los estados locales de `UC-SYNC-002` no cambian el lifecycle central.
+
+RN-164. Toda configuración multi-tenant conserva o deriva inequívocamente `tenant_id`; sus Company, Branch, dispositivo, instalación, cuenta, ambiente y demás scopes deben pertenecer al mismo tenant. El cliente nunca constituye autoridad del scope.
+
+RN-165. No existe precedencia automática Branch/Company/Tenant/Platform. Toda selección declara scope, prioridad, elegibilidad, vigencia, versión de política, composición y desempate; una ambigüedad sin regla normativa se rechaza y jamás se resuelve por timestamp, orden de llegada o last-write-wins.
+
+RN-166. La vigencia usa `[valid_from, valid_until)`. Un hueco no activa defaults, versiones vencidas o revocadas; produce la denegación, degradación segura o revisión explícita definida por el dominio.
+
+RN-167. El checksum canónico incluye identidad, versión, esquema, tenant/scopes, vigencia, criterios y payload material determinista, pero excluye datos de transporte, metadatos no materiales y secretos. El checksum no sustituye firma ni autenticidad.
+
+RN-168. Toda operación histórica conserva referencias de versión, checksum, entradas y resultado suficientes para replay. Ventas separan snapshots de pricing, Tax y redondeo; Electronic Invoicing separa snapshot tributario de operación y snapshot de emisión fiscal.
+
+RN-169. Cash Register es propietario de `CashPolicy`/`CashPolicyVersion` e Inventory de `InventoryPolicy`/`InventoryPolicyVersion`. Esas políticas no absorben ciclos operativos ni admiten JSON libre; solo representan reglas normativamente autorizadas.
+
+RN-170. Una réplica local se aplica atómicamente después de validar tenant, firma, checksum, esquema, secuencia, vigencia y dependencias. Una copia parcial, inválida o revocada no amplía permiso, licencia, capacidad de proveedor ni confianza del dispositivo.
+
+RN-171. Los secretos utilizables nunca se almacenan en configuraciones, snapshots, eventos, auditoría o checksum. Solo se conservan referencias opacas al almacén aprobado y los cambios sensibles exigen controles reforzados.
+
+RN-172. Crear draft, leer, publicar, programar, revocar y sustituir son acciones autorizables separadamente por dominio. No existe un permiso universal de configuración ni un rollback que mute historia.
