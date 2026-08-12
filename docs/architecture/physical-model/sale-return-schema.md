@@ -63,7 +63,7 @@ Propietario: Sales.
 | `requested_at`, `approved_at`, `completed_at`, `created_at`, `updated_at` | evidencias temporales coherentes con el estado; no resuelven concurrencia |
 | `version` | control optimista de transiciones |
 
-Todos los importes usan decimal exacto conforme a `physical-conventions.md`: `numeric(19,2)` en PostgreSQL y texto decimal canónico de escala fija en SQLite. Nunca se convierten a `float`, `REAL` o `number` autoritativo.
+Precios, bases, impuestos, descuentos, costos e importes comerciales de la devolución usan decimal exacto `numeric(19,6)` en PostgreSQL y texto decimal canónico de escala 6 en SQLite. Un importe fiscal/contable usa `(19,2)` solo después del punto de normalización versionado correspondiente. Nunca se convierten a `float`, `REAL` o `number` autoritativo.
 
 Estados persistentes:
 

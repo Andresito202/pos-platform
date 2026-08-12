@@ -39,7 +39,7 @@ Licencias, dispositivos e instalaciones se diseñan en el bloque siguiente. Por 
 | OnboardingOperation | tabla completa | no se replica | `CENTRAL_ONLY` | Tenancy central |
 | SecurityEvent | tabla completa | eventos locales separados cuando corresponda | `DUAL_WITH_EXPLICIT_POLICY` | origen que confirma el evento |
 | AuditEvent | tabla completa consolidada | `audit_events` append-only local | `LOCAL_AUTHORITATIVE_SYNCED` para evento local; central para evento central | origen del hecho |
-| OutboxEntry | outbox central | `sync_outbox_entries` local | `DUAL_WITH_EXPLICIT_POLICY` | transacción que origina el evento |
+| OutboxEntry | sobre central cuando la operación se origina centralmente | `sync_outbox_entries` cuando se origina localmente | `DUAL_WITH_EXPLICIT_POLICY` | nodo/transacción que origina la operación; entrega y ACK según `DEC-007` |
 
 SQLite no recibe hashes de contraseña, secretos MFA, access tokens ni refresh tokens. El acceso offline se resolverá mediante un snapshot limitado, firmado/versionado y revocable dentro del bloque Device/Licensing; no mediante una copia de las tablas centrales de identidad.
 
@@ -411,44 +411,75 @@ Constraints e índices:
 
 ### `audit.audit_events`
 
-Append-only. Columnas mínimas:
+Append-only. La fila es evidencia acotada de una acción, no un contenedor de payloads arbitrarios.
+
+Columnas obligatorias:
 
 - `id uuid PK`;
-- `tenant_id uuid NULL` porque el evento inicial puede preceder su creación;
-- `company_id uuid NULL`;
-- `branch_id uuid NULL`;
 - `actor_type text NOT NULL`;
-- `actor_id uuid NULL`;
-- `session_id uuid NULL`;
-- `device_id uuid NULL` con FK diferida a Devices;
-- `action text NOT NULL`;
+- `action_code text NOT NULL`;
 - `resource_type text NOT NULL`;
-- `resource_id uuid NULL`;
 - `correlation_id uuid NOT NULL`;
-- `operation_id uuid NULL`;
+- `schema_version integer NOT NULL CHECK (schema_version >= 1)`;
 - `reported_at timestamptz NOT NULL`;
 - `server_recorded_at timestamptz NOT NULL`;
 - `result text NOT NULL`;
-- `reason_code text NULL`;
-- `evidence_checksum text NULL`.
+- `payload_checksum text NOT NULL`.
 
-Índices: `(tenant_id, server_recorded_at DESC, id)`, `(tenant_id, resource_type, resource_id, server_recorded_at DESC)` y `(correlation_id, server_recorded_at, id)`. Los roles de aplicación reciben `INSERT` y `SELECT` autorizado, nunca `UPDATE` o `DELETE`.
+Columnas opcionales por contexto:
+
+- `tenant_id uuid NULL` solo para evento de plataforma o bootstrap previo a crear Tenant;
+- `company_id uuid NULL` y `branch_id uuid NULL` con scope tenant-aware cuando existan;
+- `actor_id uuid NULL`, permitido nulo para proceso identificado por `actor_type`;
+- `session_id uuid NULL`;
+- `device_id uuid NULL` con FK diferida a Devices;
+- `resource_id uuid NULL`;
+- `operation_id uuid NULL`;
+- `causation_id uuid NULL`;
+- `reason_code text NULL`;
+- `reason_detail text NULL` sanitizado;
+- `previous_value jsonb NULL`;
+- `new_value jsonb NULL`;
+- `reviewer_actor_type text NULL` y `reviewer_actor_id uuid NULL`;
+- `approver_actor_type text NULL` y `approver_actor_id uuid NULL`;
+- `evidence_reference text NULL` y `evidence_checksum text NULL`.
+
+Reglas condicionales:
+
+1. Todo evento tenant-scoped exige `tenant_id`; Company, Branch, actor, recurso, operación y dispositivo deben pertenecer al mismo tenant cuando existan.
+2. `operation_id` es obligatorio para una operación idempotente/sincronizable y `causation_id` cuando existe causa conocida distinta.
+3. Motivo es obligatorio para override, rechazo, aprobación, reapertura, compensación o acción administrativa crítica.
+4. Reviewer/approver se exigen cuando la política aplicable requiere revisión, aprobación o segregación; sus pares tipo/id son ambos presentes o ambos ausentes.
+5. `previous_value`/`new_value` son snapshots limitados, con schema conocido, allowlist y redacción. No duplican el agregado completo si basta una referencia, diff acotado o checksum.
+6. Nunca contienen passwords, tokens, secretos MFA, PAN, CVV, claves privadas, certificados utilizables, blobs completos de proveedor ni payload fiscal innecesario.
+7. `payload_checksum` cubre la representación canónica del evento sanitizado; no demuestra por sí solo autenticidad criptográfica.
+8. Los roles operacionales no reciben `UPDATE`, `DELETE` ni `TRUNCATE`; correcciones generan otro AuditEvent causalmente relacionado.
+
+Índices candidatos justificados: `(tenant_id, server_recorded_at DESC, id)`, `(tenant_id, resource_type, resource_id, server_recorded_at DESC)`, `(tenant_id, actor_type, actor_id, server_recorded_at DESC)` cuando actor exista, `(operation_id, server_recorded_at, id)` cuando operación exista y `(correlation_id, server_recorded_at, id)`. No se indexan snapshots JSON ni campos sensibles por conveniencia.
 
 ### `sync.outbox_entries`
 
-Payload de evento inmutable con metadata de entrega mutable; propietario Sync para transporte y creado por la transacción del módulo origen.
+Sobre persistente de entrega y retry; propietario Sync para transporte y creado por la misma transacción que `SyncOperation` y el hecho del módulo origen. `SyncOperation` conserva intención, payload canónico, checksum, identidad e idempotencia. Outbox no duplica ese payload ni decide el resultado de negocio.
 
-Columnas: `id uuid PK`, `tenant_id uuid NULL`, `origin_module text NOT NULL`, `aggregate_type text NOT NULL`, `aggregate_id uuid NOT NULL`, `event_type text NOT NULL`, `event_version integer NOT NULL CHECK (event_version >= 1)`, `payload jsonb NOT NULL`, `payload_checksum text NOT NULL`, `idempotency_key text NOT NULL`, `correlation_id uuid NOT NULL`, `occurred_at timestamptz NOT NULL`, `available_at timestamptz NOT NULL`, `published_at timestamptz NULL`, `attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0)`, `next_attempt_at timestamptz NULL`, `last_error_code text NULL`.
+Columnas: `id uuid PK`, `tenant_id uuid NOT NULL`, `operation_id uuid NOT NULL`, `device_id uuid NULL`, `local_sequence bigint NULL`, `operation_type text NOT NULL`, `schema_version integer NOT NULL CHECK (schema_version >= 1)`, `payload_checksum text NOT NULL`, `correlation_id uuid NOT NULL`, `causation_id uuid NULL`, `sync_status text NOT NULL`, `created_at timestamptz NOT NULL`, `available_at timestamptz NOT NULL`, `attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0)`, `last_attempt_at timestamptz NULL`, `next_attempt_at timestamptz NULL`, `last_error_code text NULL`, `acknowledged_at timestamptz NULL`, `updated_at timestamptz NOT NULL`.
 
 Constraints e índices:
 
-- `UNIQUE (origin_module, idempotency_key, event_type)`;
-- índice parcial `(available_at, id) WHERE published_at IS NULL AND next_attempt_at IS NULL`;
-- índice parcial `(next_attempt_at, id) WHERE published_at IS NULL AND next_attempt_at IS NOT NULL`;
-- el payload tiene schema versionado, checksum y allowlist; no contiene secretos;
-- publicar no modifica el hecho de dominio; solo establece metadata de entrega de la outbox.
+- `UNIQUE (operation_id)` garantiza una sola OutboxEntry autoritativa por operación;
+- FK tenant-aware `(tenant_id, operation_id)` a `SyncOperation`; se materializa en el corte conjunto y no se permite una Outbox productiva huérfana;
+- check `device_id` y `local_sequence` ambos presentes para origen local o ambos ausentes para origen central;
+- unique parcial `(tenant_id, device_id, local_sequence) WHERE device_id IS NOT NULL`;
+- `operation_type`, `schema_version`, `payload_checksum`, correlación y causalidad coinciden con `SyncOperation`; checksum distinto es conflicto y no update;
+- toda `SyncOperation` originada que requiere entrega crea exactamente una OutboxEntry en la misma transacción; `UNIQUE (operation_id)` impide duplicarla y el caso de uso impide omitirla;
+- `sync_status` reutiliza los estados canónicos de `DEC-007`; `acknowledged_at` solo existe con resultado receptor confirmado;
+- índice `(tenant_id, device_id, sync_status, available_at, local_sequence)` para trabajo local elegible;
+- índice parcial `(next_attempt_at, id) WHERE next_attempt_at IS NOT NULL AND acknowledged_at IS NULL`;
+- retry actualiza metadata sobre la misma fila y nunca crea otra intención, operación o payload;
+- ACK perdido se resuelve consultando Inbox por `operation_id`/checksum y completa la misma OutboxEntry;
+- Outbox no contiene `idempotency_key`, aggregate fields ni payload de negocio duplicados: los resuelve desde `SyncOperation`;
+- Outbox no resuelve conflictos de dominio; Inbox deduplica/retorna resultado y SyncDeadLetter trata agotamiento o error permanente.
 
-El modelo completo de inbox, reintentos, dead letter, conflictos y checkpoints se cierra en el bloque Sync. Esta tabla mínima existe aquí porque `UC-ONB-001` exige que la outbox se confirme en la misma transacción del bootstrap.
+El modelo completo de Inbox, SyncOperation, conflictos y checkpoints se cierra en R2/R3. Esta definición fija solo la incompatibilidad transversal de R1. La outbox mínima existe aquí porque `UC-ONB-001` exige que operación, hecho de negocio y sobre de entrega compartan transacción.
 
 ## Frontera transaccional de onboarding
 
@@ -462,7 +493,7 @@ Una única transacción PostgreSQL con aislamiento capaz de serializar la identi
 6. crear asignación explícita del rol de negocio publicado;
 7. asociar las versiones iniciales de política ya existentes;
 8. persistir eventos de auditoría;
-9. persistir outbox;
+9. persistir `SyncOperation` y su única `OutboxEntry` en la misma transacción;
 10. cerrar el resultado de onboarding;
 11. commit único.
 
@@ -482,20 +513,33 @@ La emisión/activación de licencia y el registro/activación del dispositivo oc
 10. Roles de aplicación no actualizan ni eliminan AuditEvent.
 11. RLS niega acceso cruzado y sin contexto en todas las tablas tenant-scoped.
 12. Un fallo antes del commit no deja Tenant, Company, Branch, membership, assignment, audit u outbox parciales.
+13. AuditEvent rechaza update/delete operacional, snapshot no permitido, secreto y scope cross-tenant.
+14. AuditEvent conserva correlation/causation, schema y checksum y exige reviewer/approver según política.
+15. Una operación produce una sola OutboxEntry y una secuencia local no se repite por tenant/dispositivo.
+16. Mismo `operation_id`/checksum reutiliza Outbox; checksum distinto produce conflicto sin mutación.
+17. Retry conserva operation/outbox y solo actualiza metadata de entrega.
+18. ACK perdido consulta Inbox y no crea otro efecto ni otra OutboxEntry.
+19. Outbox sin operación, con tenant distinto o con device/sequence parcialmente nulos se rechaza.
+20. Outbox no contiene otra copia autoritativa del payload ni resuelve conflictos de dominio.
 
-## Pendientes explícitos para el siguiente bloque
+## Estado de condiciones de salida
 
-No son omisiones silenciosas ni autorización para improvisar:
+| Condición | Clasificación R1 | Evidencia o trabajo restante |
+|---|---|---|
+| modelo Device, Installation, DeviceKey, License y Activation | satisfecha documentalmente | `device-licensing-schema.md`; su gate físico continúa `IN_REVIEW` |
+| snapshot offline sin credenciales centrales | satisfecha documentalmente | `authorization.offline_authorization_snapshots` en el bloque Device/Licensing |
+| autoridad de estados de licencia/activación | satisfecha documentalmente | `DEC-008`, casos de uso y modelo conceptual |
+| PoC RLS PostgreSQL 16 | satisfecha con evidencia ejecutable | `poc/rls/`, 30 PASS / 0 FAIL |
+| FK desde Session, SecurityEvent y AuditEvent hacia Device | pendiente | exige cierre y orden físico conjunto con Device/Licensing |
+| FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | trasladada | R2/R3; R1 fija identidad, metadata e invariantes, no el módulo completo |
+| revisión columna por columna y pruebas de ambos dialectos | pendiente | R2/R3 y futura implementación autorizada |
+| orden, rollback, convivencia y manifiesto de primera migración | trasladada | R4; no forma parte de R1 |
 
-1. materializar `devices.installations`, Device, DeviceKey y su relación con Activation/License;
-2. agregar FK física de `identity.sessions.device_id`, `identity.security_events.device_id` y `audit.audit_events.device_id`;
-3. definir el snapshot offline mínimo de identidad/autorización sin replicar credenciales centrales;
-4. resolver la autoridad de estados de licencia y activación;
-5. ejecutar el PoC RLS de `PHY-G14` antes de cualquier migración PostgreSQL.
+Estas clasificaciones no autorizan DDL ni permiten omitir una condición trasladada.
 
 ## Gate del bloque
 
-Este bloque pasa a `APPROVED_FOR_MIGRATION_DESIGN` solamente si:
+Foundation permanece `IN_REVIEW`. Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solamente si:
 
 - la revisión contra `UC-ONB-001`, `UC-AUTH-001`, `SEC-002` y `SEC-004` no encuentra campos o transiciones sin fuente;
 - el bloque Device/Licensing cierra todas las FK diferidas;

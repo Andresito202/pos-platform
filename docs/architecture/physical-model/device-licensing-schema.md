@@ -92,11 +92,14 @@ Constraints:
 
 ### `devices.device_keys`
 
-Columnas: `id uuid PK`, `tenant_id uuid NOT NULL`, `device_id uuid NOT NULL`, `device_key_id uuid NOT NULL`, `public_key bytea NOT NULL`, `public_key_checksum bytea NOT NULL`, `algorithm_id text NOT NULL`, `key_status text NOT NULL` con estados conceptuales, `created_at`, `activated_at`, `rotated_at`, `retired_at`, `revoked_at`, `replacement_key_id uuid NULL`, `proof_method text NOT NULL`, `policy_version text NOT NULL` y `version bigint NOT NULL`.
+Columnas: `id uuid PK`, `tenant_id uuid NOT NULL`, `device_id uuid NOT NULL`, `public_key bytea NOT NULL`, `public_key_fingerprint bytea NOT NULL`, `key_version bigint NOT NULL`, `algorithm_id text NOT NULL`, `key_status text NOT NULL` con estados conceptuales, `created_at`, `activated_at`, `rotated_at`, `retired_at`, `revoked_at`, `replacement_key_id uuid NULL`, `proof_method text NOT NULL`, `policy_version text NOT NULL` y `version bigint NOT NULL`.
+
+`id` es la única identidad UUID v7 del agregado y representa semánticamente `device_key_id`. Las columnas FK llamadas `device_key_id` apuntan a `devices.device_keys.id`; no existe una segunda columna UUID equivalente. `public_key_fingerprint` es una huella derivada del material público, `key_version` ordena versiones dentro del Device, `replacement_key_id` enlaza la rotación y el `signing_key_id` central pertenece al trust store, no a DeviceKey.
 
 Constraints:
 
-- `UNIQUE (device_key_id)` y `UNIQUE (public_key_checksum)` para impedir reutilización silenciosa;
+- `UNIQUE (tenant_id, id)` y `UNIQUE (public_key_fingerprint)` para impedir reutilización silenciosa;
+- `UNIQUE (tenant_id, device_id, key_version)`;
 - FK compuesta `(tenant_id, device_id)`;
 - FK self `replacement_key_id`, diferente de la misma fila;
 - una sola clave `ACTIVE` por dispositivo mediante unique parcial;
@@ -151,8 +154,10 @@ Artefacto inmutable por versión emitida.
 | `expires_at` | `timestamptz` | sí | fin temporal; no estado base |
 | `deployment_mode` | `text` | no | `HYBRID`, `LOCAL_PERPETUAL` según decisiones vigentes |
 | `contract_status` | `text` | no | `TRIAL`, `ACTIVE`, `PAST_DUE`, `SUSPENDED`, `CANCELLED`, `TERMINATED` |
-| `device_limit` | `integer` | no | `>= 0` |
-| `branch_limit` | `integer` | no | `>= 0` |
+| `device_limit_type` | `text` | no | `FINITE`, `UNLIMITED`, `NOT_APPLICABLE` |
+| `device_limit_value` | `integer` | sí | obligatorio y `>= 0` solo con `FINITE` |
+| `branch_limit_type` | `text` | no | `FINITE`, `UNLIMITED`, `NOT_APPLICABLE` |
+| `branch_limit_value` | `integer` | sí | obligatorio y `>= 0` solo con `FINITE` |
 | `allowed_app_versions` | `jsonb` | no | snapshot firmado y schema versionado |
 | `offline_policy` | `jsonb` | no | snapshot firmado y schema versionado |
 | `grace_policy` | `jsonb` | sí | no crea GraceAuthorization |
@@ -172,12 +177,18 @@ Constraints e índices:
 - ninguna actualización ordinaria: un cambio emite otra License;
 - índice `(tenant_id, issued_at DESC, id)` y `(tenant_id, contract_status, issued_at DESC)`;
 - `EXPIRED`, `INVALID` y `RESTRICTED` son resultados calculados, no valores de `contract_status`.
+- `FINITE` exige valor entero exacto no negativo; cero significa que la dimensión aplica con cupo cero;
+- `UNLIMITED` y `NOT_APPLICABLE` exigen valor nulo y no son equivalentes;
+- una dimensión requerida sin tipo configurado impide emitir/firmar la License y su evaluación falla cerrada;
+- no existe `NOT_CONFIGURED` persistente ni se usan `-1`, máximos artificiales o sentinels.
 
 ### `licensing.feature_entitlements`
 
-Columnas: `id`, `tenant_id`, `license_id`, `entitlement_version`, `feature_code`, `enabled`, `limit_value numeric(19,6) NULL`, `valid_from`, `valid_until`, `policy_version`.
+Columnas: `id`, `tenant_id`, `license_id`, `entitlement_version`, `feature_code`, `enabled`, `limit_type text NOT NULL`, `limit_value numeric(19,6) NULL`, `valid_from`, `valid_until`, `policy_version`.
 
-Constraints: FK compuesta a License, `UNIQUE (tenant_id, license_id, entitlement_version, feature_code)`, rango temporal válido y `limit_value >= 0`. El feature code debe pertenecer al catálogo publicado; no equivale a Permission.
+Constraints: FK compuesta a License, `UNIQUE (tenant_id, license_id, entitlement_version, feature_code)`, rango temporal válido y el feature code debe pertenecer al catálogo publicado; no equivale a Permission. `enabled` y límite son dimensiones separadas: `enabled = false` no equivale a `enabled = true` con `FINITE + 0`.
+
+Todo entitlement persistido declara `limit_type` y usa exclusivamente `FINITE`, `UNLIMITED` o `NOT_APPLICABLE`; una capability sin dimensión cuantitativa usa `NOT_APPLICABLE`. `FINITE` exige valor exacto no negativo; `UNLIMITED`/`NOT_APPLICABLE` exigen valor nulo. Dispositivos y sucursales exigen entero exacto; otra capability conserva decimal exacto solo si su unidad normativa lo autoriza. Una configuración requerida ausente impide emitir el entitlement efectivo y falla cerrada, no se persiste como cuarto tipo.
 
 ### `licensing.license_activations`
 
@@ -354,15 +365,24 @@ Además de los ya indicados:
 14. Heartbeat de Installation retirada no actualiza silenciosamente la vigente.
 15. RLS impide cruce de tenant en cada tabla central tenant-scoped.
 16. Restaurar SQLite no restaura automáticamente confianza ni activación obsoleta.
+17. DeviceKey usa un solo UUID canónico y ninguna FK crea otra identidad equivalente.
+18. `FINITE + 0`, `FINITE + positivo`, `UNLIMITED` y `NOT_APPLICABLE` conservan resultados distintos.
+19. `FINITE` sin valor, valor negativo, valor fraccionario para Device/Branch o valor presente con `UNLIMITED`/`NOT_APPLICABLE` se rechazan.
+20. Una dimensión requerida no configurada impide emitir/firmar y la evaluación falla cerrada.
 
 ## Gate del bloque
 
-Este bloque permanece `IN_REVIEW` hasta:
+Este bloque permanece `IN_REVIEW`. R1 cerró la identidad canónica de DeviceKey y la semántica de límites, pero no sustituye estas condiciones:
 
-1. auditar columna por columna contra DEC-008 y los cuatro casos de uso fuente;
-2. cerrar todas las FK diferidas del bloque fundacional;
-3. definir el orden de migración conjunta sin ciclos imposibles;
-4. ejecutar PoC de firma/canonicalización y almacenamiento seguro local;
-5. ejecutar PoC RLS y pruebas de ambos dialectos.
+| Condición | Clasificación R1 | Tratamiento |
+|---|---|---|
+| identidad Device/Installation/DeviceKey/Activation/License | satisfecha documentalmente | DeviceKey usa un solo UUID; las identidades no son intercambiables |
+| límites contractuales | satisfecha documentalmente | `FINITE`, `UNLIMITED`, `NOT_APPLICABLE`, ausencia fail-closed |
+| PoC RLS PostgreSQL 16 | satisfecha con evidencia | `PHY-G14`, 30 PASS / 0 FAIL |
+| auditoría columna por columna contra DEC-008/casos de uso | pendiente | cierre físico del bloque |
+| FK diferidas con Foundation | pendiente | orden conjunto sin ciclos |
+| orden de migración y manifiesto | trasladada | R4 |
+| PoC de firma/canonicalización/storage seguro | pendiente | requiere autorización y evidencia separadas |
+| pruebas físicas PostgreSQL/SQLite | trasladada | R3/implementación futura autorizada |
 
 La primera migración continúa en `NO-GO`.

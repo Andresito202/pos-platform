@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS obligatorio fue ejecutado y aprobado en `poc/rls/`; la primera migración continúa `NO-GO` hasta la revisión transversal y autorización independiente.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS obligatorio y la remediación R1 fueron cerrados; la primera migración continúa `NO-GO` hasta completar R2/R3/R4 y obtener autorización independiente.
 
 ## Principios obligatorios
 
@@ -35,7 +35,8 @@ Se utilizan schemas por módulo propietario:
 | `devices` | dispositivos, instalaciones, claves públicas y estado operativo |
 | `licensing` | licencias, entitlements, activaciones y revocaciones |
 | `catalog` | productos, categorías, unidades, presentaciones e identificadores |
-| `pricing` | precios, promociones, impuestos y redondeo |
+| `pricing` | precios, promociones, descuentos y redondeo comercial |
+| `tax` | reglas, versiones, clasificación, tasas y resultados tributarios |
 | `inventory` | ubicaciones, lotes, movimientos, reservas y proyecciones |
 | `purchasing` | proveedores y recepciones autorizadas por casos de uso |
 | `cash` | cajas, turnos, conteos y movimientos |
@@ -130,20 +131,26 @@ Reglas:
 
 ### Contrato lógico vigente
 
-Se conserva el contrato de `DEC-003`:
+Se conserva el contrato de `DEC-003` y se explicita su aplicación por concepto. La escala física es capacidad de representación; no autoriza redondear antes del punto normativo indicado.
 
-| Categoría | Precisión lógica |
-|---|---|
-| importe de cálculo, precio, base, impuesto, descuento, residuo, pago y costo | `(19,6)` |
-| importe documental normalizado | `(19,2)` |
-| tasa, porcentaje y factor de conversión | `(19,10)` |
-| cantidad, peso y unidad convertible | `(19,6)` |
+| Concepto | PostgreSQL | SQLite | Escala | Punto de reducción/redondeo | Fuente |
+|---|---|---|---:|---|---|
+| `unit_price`, base, tax amount, discount amount, residuo y costo | `numeric(19,6)` | TEXT decimal canónico | 6 | etapa fiscal/contable/comercial versionada que corresponda | `DEC-003`, `DEC-006` |
+| Payment, Refund y Reversal | `numeric(19,6)` | TEXT decimal canónico | 6 | normalización de moneda/proveedor o documento explícitamente registrada | `DEC-002`, `DEC-003`, `PAY-007` |
+| gross, net, fee, withholding, refunded, reversed, chargeback y ajustes de Settlement | `numeric(19,6)` | TEXT decimal canónico | 6 | `calculation_policy_version`; nunca por conveniencia de presentación | `DEC-003`, `PAY-007`, `PHY-G09` |
+| tasa tributaria, porcentaje de descuento | `numeric(19,10)` | TEXT decimal canónico | 10 | al producir el importe bajo política versionada, no al almacenar la tasa | `DEC-003`, `UC-TAX-001` |
+| factor de conversión o exchange-like autorizado | `numeric(19,10)` | TEXT decimal canónico | 10 | operación que aplica el factor y conserva su versión | `DEC-003`, `DEC-004` |
+| cantidad, peso y unidad convertible | `numeric(19,6)` | TEXT decimal canónico | 6 | regla de unidad/conversión explícita | `DEC-003`, `DEC-004` |
+| importe fiscal o contable normalizado | `numeric(19,2)` | TEXT decimal canónico | 2 | solo después de normalización fiscal/contable explícita | `DEC-003`, `DEC-006` |
+| `payable_amount` y ajuste comercial COP | `numeric(19,6)` | TEXT decimal canónico | 6 | `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`; el resultado queda congelado sin cambiar la escala de almacenamiento | `DEC-006`, `UC-ROUND-001` |
 
-### PostgreSQL
+`numeric(19,2)` no es la representación universal del dominio financiero. Un valor recibido con dos decimales puede conservar evidencia de esa normalización, pero Payment, Refund, Reversal y los componentes de Settlement mantienen capacidad `(19,6)`.
 
-PostgreSQL utiliza `numeric(19,6)`, `numeric(19,2)` o `numeric(19,10)` según la categoría. El driver entrega estos valores como string; nunca se convierten a `number` JavaScript.
+### Representación decimal en PostgreSQL
 
-### SQLite
+PostgreSQL utiliza `numeric(19,6)`, `numeric(19,2)` o `numeric(19,10)` según la matriz. El driver entrega estos valores como string; nunca se convierten a `number` JavaScript.
+
+### Representación decimal en SQLite
 
 SQLite utiliza `TEXT` con decimal canónico de escala fija como representación autoritativa:
 
@@ -167,6 +174,7 @@ Reglas:
 9. El adaptador valida formato, precisión, escala, signo y límites en cada escritura y lectura.
 10. PostgreSQL vuelve a validar límites y resultados sincronizados.
 11. Cuando un `CHECK` SQLite no pueda expresar toda la regla, se aplica la excepción explícita de `DEC-007`: validación local transaccional, prueba negativa y revalidación central.
+12. Reducir de escala 6/10 a escala 2 exige política, versión, entradas, resultado y residuo cuando aplique; no se hace por serialización, UI o adaptador.
 
 Esta decisión prioriza exactitud y portabilidad sobre agregaciones SQL locales implícitas. No requiere extensiones nativas ni una segunda librería ORM.
 

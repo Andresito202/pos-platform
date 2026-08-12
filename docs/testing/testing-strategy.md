@@ -218,6 +218,19 @@ Integración:
 
 Cada prueba de seguridad conserva trazabilidad con `SEC-G01`, `SEC-G03`, `SEC-G04`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G10`. La documentación de la suite no cambia esos gates de `NOT_EVALUATED`.
 
+### Contratos físicos de TECH-002 R1
+
+Cuando existan migraciones y adaptadores autorizados, R1 exige suites PostgreSQL y SQLite/WAL separadas:
+
+- AuditEvent append-only: runtime sin update/delete, aislamiento tenant, correlation/causation, schema/checksum, reviewer/approver condicional y redacción de secretos/snapshots no permitidos;
+- Outbox 1:1 por operation, secuencia única tenant/device, checksum mismatch, retry sobre la misma identidad y ACK perdido resuelto por Inbox sin doble efecto;
+- DeviceKey con un único UUID canónico, fingerprint derivado y rotación sin identidad duplicada;
+- límites `FINITE` con cero/positivo, `UNLIMITED`, `NOT_APPLICABLE`, combinaciones inválidas y dimensión requerida no configurada fail-closed;
+- equivalencia exacta `(19,6)`/`(19,10)`/`(19,2)`, fronteras de redondeo, tasas de alta precisión y regresión que prohíba float/REAL/JavaScript number autoritativo;
+- historial de precio reconstruible por versiones/eventos/auditoría sin tabla o registro duplicado `PriceChange`.
+
+Estas pruebas permanecen futuras: R1 cierra contratos documentales, no implementación ni security gates.
+
 ## Hardware
 
 Probar con simuladores y dispositivos reales:

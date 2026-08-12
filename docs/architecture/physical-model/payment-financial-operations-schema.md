@@ -155,7 +155,9 @@ Resolver o aceptar una incidencia nunca modifica Payment, Settlement, extracto o
 
 ## Dinero exacto e integridad
 
-Todos los importes usan decimal exacto conforme a `physical-conventions.md`: `numeric(19,2)` en PostgreSQL y texto decimal canónico de escala fija en SQLite. Nunca se usa `float`, `REAL` ni `number` como valor autoritativo.
+Payment, Refund, Reversal y todos los componentes de Settlement (`gross`, fees, retenciones, refunded, reversed, chargeback, ajustes y net) usan `numeric(19,6)` en PostgreSQL y texto decimal canónico de escala 6 en SQLite. Tasas o factores autorizados usan `(19,10)`. `(19,2)` se reserva para un valor fiscal/contable normalizado por una etapa explícita y versionada; no es la representación universal del dominio financiero. Nunca se usa `float`, `REAL` ni `number` como valor autoritativo.
+
+Toda reducción de escala conserva punto de redondeo, política/versión, entradas exactas, residuo cuando aplique y resultado. La evidencia del proveedor con dos decimales no obliga a reducir Payment o Settlement histórico.
 
 Las sumas de cabecera deben coincidir exactamente con sus items bajo la política congelada. Toda relación usa `tenant_id` en claves y FKs compuestas; company, branch, proveedor, configuración, Payment y evidencia deben pertenecer al mismo tenant. No hay cascadas destructivas desde Tenant, Company, Branch, Payment, proveedor, actor o dispositivo.
 

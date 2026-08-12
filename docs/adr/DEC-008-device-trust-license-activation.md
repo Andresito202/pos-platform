@@ -538,13 +538,17 @@ Campos conceptuales mínimos:
 - deployment_mode;
 - contract_status;
 - feature_entitlements;
-- branch_limit;
-- device_limit;
+- branch_limit_type y branch_limit_value opcional según tipo;
+- device_limit_type y device_limit_value opcional según tipo;
 - allowed_app_versions;
 - offline_policy;
 - grace_policy opcional;
 - supersedes_license_id opcional;
 - signing_key_id.
+
+Los tipos persistentes de límite son exclusivamente `FINITE`, `UNLIMITED` y `NOT_APPLICABLE`. `FINITE` exige valor no negativo y cero significa cupo autorizado cero; para dispositivos y sucursales el valor es entero exacto. `UNLIMITED` y `NOT_APPLICABLE` exigen valor ausente y conservan semánticas distintas. Una dimensión requerida no configurada impide emitir o firmar el artefacto y falla cerrada; no se persiste como `NOT_CONFIGURED`. No se usan `-1`, máximos artificiales ni sentinels.
+
+En `FeatureEntitlement`, `enabled`, `limit_type` y `limit_value` son dimensiones separadas. Deshabilitado no equivale a habilitado con `FINITE + 0`; una unidad no entera solo usa decimal exacto cuando su contrato normativo lo exige.
 
 Reglas:
 
@@ -800,6 +804,8 @@ El servidor conserva como mínimo:
 - device_id;
 - device_key_id;
 - public_key;
+- public_key_fingerprint;
+- key_version;
 - key_status;
 - created_at;
 - activated_at;
@@ -807,6 +813,8 @@ El servidor conserva como mínimo:
 - replacement_key_id opcional;
 - proof_method;
 - policy_version.
+
+`device_key_id` es la única identidad UUID v7 del agregado DeviceKey y se persiste como su PK `id`; una FK `device_key_id` referencia ese valor. No existe otro UUID técnico equivalente. Fingerprint, versión, clave central firmante y clave de reemplazo conservan semánticas independientes.
 
 La clave pública registrada no otorga por sí sola derechos contractuales.
 

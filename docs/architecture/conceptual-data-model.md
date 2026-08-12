@@ -68,8 +68,10 @@ Atributos conceptuales:
 - expires_at opcional;
 - deployment_mode;
 - contract_status;
-- device_limit;
-- branch_limit;
+- device_limit_type;
+- device_limit_value opcional según tipo;
+- branch_limit_type;
+- branch_limit_value opcional según tipo;
 - allowed_app_versions;
 - offline_policy;
 - grace_policy opcional;
@@ -114,6 +116,11 @@ Reglas:
 8. El cliente no modifica derechos, límites ni vigencia.
 9. `contract_status` no mezcla vigencia temporal, gracia, revocación ni validez criptográfica.
 10. La autorización efectiva se calcula a partir del contrato, vigencia, entitlements, gracia, activación, revocaciones y política aplicable.
+11. `device_limit_type` y `branch_limit_type` usan exclusivamente `FINITE`, `UNLIMITED` o `NOT_APPLICABLE`.
+12. `FINITE` exige un entero exacto `limit_value >= 0`; cero significa que la dimensión aplica con cupo autorizado cero.
+13. `UNLIMITED` y `NOT_APPLICABLE` exigen `limit_value` ausente y conservan semánticas distintas.
+14. Una dimensión requerida sin tipo configurado no es `UNLIMITED`: impide emitir o firmar la licencia y la evaluación falla cerrada.
+15. No se usan sentinels, valores máximos artificiales ni números mágicos para representar ausencia o ilimitado.
 
 ### FeatureEntitlement
 
@@ -127,6 +134,7 @@ Atributos conceptuales:
 - entitlement_version;
 - feature_code;
 - enabled;
+- limit_type;
 - limit_value opcional;
 - valid_from;
 - valid_until opcional;
@@ -139,6 +147,10 @@ Reglas:
 3. Los derechos efectivos deben ser verificables.
 4. El cliente no amplía módulos ni límites.
 5. Un cambio requiere una nueva versión verificable.
+6. `enabled = false` no equivale a `enabled = true` con `FINITE + 0`.
+7. Todo entitlement persistido declara `limit_type` usando exclusivamente `FINITE`, `UNLIMITED` o `NOT_APPLICABLE`; una capability sin dimensión cuantitativa usa `NOT_APPLICABLE`, y aplican las mismas reglas de presencia de valor que License.
+8. El valor es entero exacto para dispositivos y sucursales; otra unidad solo usa decimal exacto si su contrato normativo lo exige.
+9. La ausencia de configuración requerida impide emitir el entitlement efectivo y falla cerrada; no se persiste como un cuarto tipo contractual.
 
 ### LicenseActivation
 
@@ -480,8 +492,9 @@ Atributos conceptuales:
 - id;
 - tenant_id;
 - device_id;
-- device_key_id;
 - public_key;
+- public_key_fingerprint;
+- key_version;
 - algorithm_id;
 - key_status;
 - created_at;
@@ -511,6 +524,9 @@ Reglas:
 4. Una clave revocada o comprometida no autentica nuevas operaciones.
 5. La pérdida de la clave requiere recuperación.
 6. La rotación conserva trazabilidad.
+7. `id` es la única identidad UUID v7 de DeviceKey y representa semánticamente `device_key_id`; las FK `device_key_id` apuntan a ese `id`.
+8. `public_key_fingerprint` identifica el material público de forma derivada y no constituye otra identidad del agregado.
+9. `key_version`, `replacement_key_id` y el `signing_key_id` central conservan semánticas separadas y nunca sustituyen `id`.
 
 ### DeviceHardwareEvidence
 
@@ -1350,9 +1366,11 @@ El precio operativo final debe corresponder a una presentación concreta.
 
 La precedencia entre reglas comerciales no se deriva automáticamente del nivel Branch, Company, Tenant o Platform. Cada versión declara scope, prioridad, política de resolución, vigencia, elegibilidad y desempate. Igual prioridad sin desempate normativo produce ambigüedad explícita; no se resuelve por timestamp.
 
-### PriceChange
+### Historial de precios
 
-Conserva historial, responsable y motivo.
+`PriceChange` no es un agregado ni una entidad física. El historial se reconstruye mediante versiones inmutables de precio o regla, vigencias, eventos canónicos, `AuditEvent` y el snapshot aplicado por Sale. Publicar otro valor crea una versión nueva; no reescribe la versión utilizada por una venta.
+
+Si un caso de uso futuro exige solicitud, aprobación o rechazo con lifecycle propio, deberá autorizar un agregado específico como `PriceChangeRequest`; no se anticipa una tabla para representar solamente que una versión fue publicada.
 
 ### Promotion
 
@@ -2341,7 +2359,7 @@ Comparación tenant-scoped de un `ElectronicDocument` dentro de una ejecución f
 
 ### SyncOperation
 
-Representa una intención operativa generada por un dispositivo y sincronizable con el servidor central.
+Representa una intención operativa sincronizable generada por un dispositivo o, cuando corresponda, por un proceso central identificado. El origen central no inventa Device ni secuencia local.
 
 Atributos conceptuales:
 
@@ -2349,7 +2367,7 @@ Atributos conceptuales:
 - tenant_id;
 - company_id;
 - branch_id;
-- device_id;
+- device_id opcional para origen central;
 - session_id;
 - actor_id;
 - aggregate_type;
@@ -2375,26 +2393,35 @@ Una modificación del payload requiere una operación nueva.
 
 ### OutboxEntry
 
-Representa una operación local confirmada que debe enviarse al servidor.
+Representa una operación confirmada que debe entregarse a otro nodo o consumidor mediante Sync. Para origen local conserva Device/secuencia; para origen central ambos quedan ausentes.
 
 Atributos conceptuales:
 
 - outbox_id;
 - operation_id;
 - tenant_id;
-- device_id;
-- local_sequence;
+- device_id opcional para origen central;
+- local_sequence opcional junto con device_id;
+- operation_type;
+- schema_version;
+- payload_checksum;
+- correlation_id;
+- causation_id opcional;
 - sync_status;
 - attempt_count;
+- available_at;
 - next_attempt_at;
 - last_attempt_at;
 - last_error_code;
+- acknowledged_at opcional;
 - created_at;
 - updated_at.
 
-El ejecutor local de Sync controla `attempt_count`; una política técnica versionada de retry define límites, backoff, jitter, exclusiones y agotamiento sin números hardcodeados.
+`SyncOperation` conserva la intención, el payload canónico, checksum, identidad e idempotencia. `OutboxEntry` es exclusivamente el sobre persistente de entrega y retry: referencia la operación 1:1 y no crea una segunda copia autoritativa del payload ni de la idempotency key. `operation_type`, schema, checksum, correlación y causalidad deben coincidir con la operación referenciada.
 
-La operación de negocio y su `OutboxEntry` deben persistirse dentro de la misma transacción local.
+El ejecutor de Sync en el nodo originador controla `attempt_count`; una política técnica versionada de retry define límites, backoff, jitter, exclusiones y agotamiento sin números hardcodeados.
+
+La operación de negocio, la `SyncOperation` entregable y su `OutboxEntry` deben persistirse dentro de la misma transacción del nodo originador.
 
 La outbox:
 
@@ -2407,9 +2434,13 @@ La outbox:
 Restricciones conceptuales:
 
 - `operation_id` es única globalmente;
-- `local_sequence` es única y creciente por `(tenant_id, device_id)`;
-- una operación tiene una sola entrada de outbox;
-- el negocio y la outbox comparten commit o rollback.
+- `device_id` y `local_sequence` están ambos presentes para origen local o ambos ausentes para origen central;
+- `local_sequence` es única y estrictamente creciente por `(tenant_id, device_id)` cuando existe;
+- toda `SyncOperation` originada que requiere entrega tiene exactamente una entrada de outbox;
+- retry y ACK perdido reutilizan la misma operación y la misma entrada;
+- el mismo `operation_id` con checksum distinto produce conflicto y no modifica la intención;
+- Inbox deduplica y conserva el resultado receptor; Outbox no decide conflictos de dominio;
+- el negocio, `SyncOperation` y la outbox comparten commit o rollback.
 
 ### InboxEntry
 

@@ -48,8 +48,10 @@ Según la operación:
 - `license_status` opcional;
 - `plan_reference` opcional;
 - `entitlements`;
-- `device_limit` opcional;
-- `branch_limit` opcional;
+- `device_limit_type` opcional durante borrador;
+- `device_limit_value` opcional según tipo;
+- `branch_limit_type` opcional durante borrador;
+- `branch_limit_value` opcional según tipo;
 - `start_at`;
 - `expires_at` opcional;
 - `grace_policy_reference` opcional;
@@ -78,6 +80,11 @@ Según la operación:
 13. Los avisos comerciales no sustituyen el estado contractual.
 14. Una venta ya confirmada no se elimina ni recalcula por cambio posterior de licencia.
 15. Toda emisión, renovación, suspensión, reactivación, revocación y cambio de derechos queda auditado.
+16. Los únicos tipos persistentes de límite son `FINITE`, `UNLIMITED` y `NOT_APPLICABLE`.
+17. `FINITE` exige valor no negativo; cero significa cupo autorizado cero. Para Device y Branch el valor es entero exacto.
+18. `UNLIMITED` y `NOT_APPLICABLE` exigen valor ausente y no son equivalentes.
+19. Una dimensión requerida no configurada impide emitir o firmar la licencia y falla cerrada; no se persiste `NOT_CONFIGURED`.
+20. `enabled = false` no equivale a capability habilitada con `FINITE + 0`.
 
 ## Emisión de licencia
 
@@ -107,6 +114,8 @@ Reglas:
 5. La clave privada de firma permanece fuera del cliente.
 6. La emisión debe ser idempotente cuando corresponda a una misma operación administrativa.
 7. Toda emisión queda auditada.
+8. Una licencia emitida no contiene una dimensión requerida sin `limit_type` ni combinaciones tipo/valor incoherentes.
+9. No se usan `-1`, máximos artificiales, `Number.MAX_VALUE`, sentinels ni `NULL = unlimited` sin discriminador.
 
 ## Renovación
 
@@ -521,8 +530,10 @@ El caso de uso devuelve una respuesta estructurada que puede incluir:
 - `license_status`;
 - `deployment_mode`;
 - `effective_entitlements`;
-- `device_limit` opcional;
-- `branch_limit` opcional;
+- `device_limit_type`;
+- `device_limit_value` opcional según tipo;
+- `branch_limit_type`;
+- `branch_limit_value` opcional según tipo;
 - `start_at`;
 - `expires_at` opcional;
 - `grace_started_at` opcional;

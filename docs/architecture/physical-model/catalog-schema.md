@@ -276,6 +276,16 @@ Catalog solo entrega la UnitConversion vigente. La transacción de ejecución pe
 
 ## Gate del bloque
 
-Pasa a `APPROVED_FOR_MIGRATION_DESIGN` cuando los bloques independientes Pricing y Tax cierren `tax_category_id`, se prueben constraints de equivalencia/ciclos en PostgreSQL y SQLite, y la auditoría contra los seis casos de uso no encuentre columnas sin fuente.
+Catalog permanece `IN_REVIEW`. R1 clasifica sus condiciones sin declararlas satisfechas por inferencia:
+
+| Condición | Clasificación R1 | Tratamiento |
+|---|---|---|
+| identidad, scope, presentaciones, identificadores y conversiones | satisfecha documentalmente | contrato de este bloque y `DEC-004` |
+| `PriceChange` como posible persistencia duplicada | satisfecha | reclasificado por R1: no es entidad/tabla |
+| cierre de `tax_category_id` entre Catalog y Tax | trasladada | R2, junto con contratos físicos completos de Pricing/Tax |
+| constraints de equivalencia/ciclos PostgreSQL y SQLite | pendiente | R3 y futuras pruebas por dialecto autorizadas |
+| auditoría columna por columna contra `UC-CAT-001...006` | pendiente | cierre del bloque antes de migración |
+
+Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo cuando las condiciones trasladadas y pendientes tengan evidencia. R1 no inicia Pricing/Tax completo ni pruebas ejecutables.
 
 La primera migración permanece `NO-GO`.

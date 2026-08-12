@@ -432,3 +432,19 @@ RN-197. Credenciales, tokens, API keys, claves privadas y certificados privados 
 RN-198. Webhooks requieren autenticidad, deduplicación, replay protection, evidencia cruda referenciada y procesamiento mediante caso de uso. Una firma inválida se rechaza y puede abrir incidente fiscal y evento de seguridad.
 
 RN-199. Auditoría fiscal es append-only. Resolver incidencia, forzar reconciliación, cerrar/reabrir, cambiar conexión, numeración, proveedor o referencia secreta exige permiso atómico, motivo y controles reforzados según riesgo.
+
+## Remediación física transversal R1
+
+RN-200. `AuditEvent` es append-only, usa schema versionado, correlación y causalidad cuando corresponda, y solo conserva snapshots before/after limitados y sanitizados; los roles operacionales no lo actualizan ni eliminan.
+
+RN-201. Un evento de auditoría no contiene secretos, tokens, passwords, PAN, CVV, claves privadas, certificados utilizables, blobs completos de proveedor ni payload fiscal innecesario. Reviewer/approver son obligatorios cuando la política exige revisión, aprobación o segregación.
+
+RN-202. `SyncOperation` conserva intención, payload, checksum, identidad e idempotencia; existe como máximo una `OutboxEntry` autoritativa por `operation_id`. Retry y ACK perdido reutilizan ambas identidades; Outbox controla entrega, Inbox deduplica/retorna resultado, DeadLetter trata agotamiento y el dominio resuelve conflictos.
+
+RN-203. `DeviceKey.id` es su única identidad UUID v7 y representa `device_key_id`; fingerprint, versión, clave central firmante y clave de reemplazo son conceptos separados y no crean otra identidad del agregado.
+
+RN-204. Los límites persistentes usan exclusivamente `FINITE`, `UNLIMITED` o `NOT_APPLICABLE`. `FINITE` exige valor exacto no negativo y cero es cupo cero; los otros tipos exigen valor ausente. Una dimensión requerida no configurada impide emisión y falla cerrada, sin sentinels ni magic numbers.
+
+RN-205. Importes de cálculo y financieros usan escala 6, tasas/factores escala 10 y un importe usa escala 2 solo después de normalización fiscal/contable explícita y versionada. PostgreSQL/SQLite conservan equivalencia exacta y ningún adaptador usa coma flotante autoritativa.
+
+RN-206. `PriceChange` no es entidad física: historial de precio se conserva mediante versiones inmutables, vigencia, eventos, auditoría y snapshot de Sale. Un workflow futuro de solicitud/aprobación requiere caso de uso y agregado propios.

@@ -14,7 +14,7 @@ Se adopta `SyncDeadLetter` como agregado separado de evidencia y tratamiento que
 
 Se descarta modelarlo únicamente como estado de Outbox/Inbox porque:
 
-1. Outbox controla entrega local e intentos; Inbox controla deduplicación y resultado central.
+1. Outbox controla entrega e intentos en el nodo originador; Inbox controla deduplicación y resultado en el receptor.
 2. Ninguno conserva por sí solo el lifecycle completo de revisión entre nodos.
 3. Sobrescribir su estado perdería decisiones, actores, motivos y evidencia histórica.
 4. Una operación puede llegar a dead letter antes de existir Inbox o después de existir ambos registros.
@@ -22,7 +22,7 @@ Se descarta modelarlo únicamente como estado de Outbox/Inbox porque:
 
 `SyncDeadLetter` no es una segunda operación, no contiene una intención de negocio y nunca copia el payload.
 
-Este contrato usa `OutboxEntry` en el sentido local de `UC-SYNC-001`, asociado a `SyncOperation`. La outbox central de eventos de integración definida para el bootstrap en `foundation-schema.md` es otro canal de transporte: conserva su evento inmutable, no se referencia desde `SyncDeadLetter` y queda fuera del alcance de `PHY-G11`.
+`OutboxEntry` tiene un único significado transversal: sobre de entrega/retry asociado 1:1 a `SyncOperation`, sin duplicar la intención ni su payload autoritativo. Puede tener origen local con Device/secuencia u origen central sin ambos. `SyncDeadLetter` solo la referencia cuando esa entrega entra en agotamiento o error permanente; no se crea una segunda clase homónima para eventos del bootstrap.
 
 ## Ownership y autoridad
 
@@ -32,9 +32,9 @@ Clases de ubicación conceptuales:
 
 | Concepto | Clase | Autoridad |
 |---|---|---|
-| `SyncOperation` | `LOCAL_AUTHORITATIVE_SYNCED` | identidad e intención local inmutable; el servidor decide aceptación central según dominio |
-| `OutboxEntry` | `LOCAL_ONLY` | POS Local Service |
-| `InboxEntry` | `CENTRAL_ONLY` | backend central |
+| `SyncOperation` | `DUAL_WITH_EXPLICIT_POLICY` | nodo originador conserva identidad e intención inmutables; el receptor decide aceptación según autoridad del dominio |
+| `OutboxEntry` | `DUAL_WITH_EXPLICIT_POLICY` | nodo originador; Device y secuencia son obligatorios solo para origen local |
+| `InboxEntry` | `DUAL_WITH_EXPLICIT_POLICY` | nodo receptor; deduplica y conserva el resultado recibido |
 | `SyncDeadLetter` | `DUAL_WITH_EXPLICIT_POLICY` | el nodo que detecta crea; el backend autoriza tratamiento una vez conocido, sin last-write-wins |
 
 Una dead letter creada localmente puede permanecer disponible durante desconexión. Al sincronizarse conserva su identidad global. El cliente local no puede autorizar por sí mismo un retry manual crítico, reclasificar un incidente de seguridad ni ampliar permisos.
@@ -61,7 +61,7 @@ Outbox referencia esa operación y conserva exclusivamente scheduling, secuencia
 Relaciones obligatorias:
 
 ```text
-SyncOperation 1 ── 0..1 OutboxEntry
+SyncOperation entregable 1 ── 1 OutboxEntry
 SyncOperation 1 ── 0..1 InboxEntry central
 SyncOperation 1 ── 0..1 SyncDeadLetter
 SyncDeadLetter 1 ── 0..n SyncDeadLetterAction

@@ -60,7 +60,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 
 | Fuente | Módulo propietario | Agregados exigidos | Cobertura | Observación física obligatoria |
 |---|---|---|---|---|
-| `UC-PRICE-001` | Pricing | `PriceList`, `ProductPrice`, historial de cambio | `CLOSE_IN_TECH_002` | Debe decidirse si `PriceChange` es evento auditable o agregado persistente separado; no se duplicará historia sin propósito. |
+| `UC-PRICE-001` | Pricing | `PriceList`, `ProductPrice`, versiones/vigencias, eventos y auditoría | `COVERED` | R1 determina que `PriceChange` no es agregado ni tabla: versiones inmutables, eventos, AuditEvent y snapshot de Sale conservan historia. Un workflow futuro requiere `PriceChangeRequest` y caso de uso propios. |
 | `UC-PRICE-002`/`DEC-003` | Pricing | snapshot de resolución y referencias de política en `SaleItem`/`Sale` | `COVERED` | La resolución final siempre apunta a presentación y congela entradas, versión y resultado. |
 | `UC-PROMO-001`/`UC-PROMO-002` | Pricing | `Promotion`, `PromotionVersion`, `PromotionConsumption` | `COVERED` | Versiones publicadas inmutables; consumo idempotente y asociado a venta. |
 | `UC-TAX-001`/`UC-TAX-002` | Tax | `TaxRule`, `TaxRuleVersion`, snapshots tributarios de operación | `COVERED` | Tax es autoridad de regla, clasificación, tasa, vigencia, cálculo y resultado; Pricing consume el resultado y Electronic Invoicing el snapshot, sin poseerlos ni recalcularlos. |
@@ -142,4 +142,6 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 
 ## Resultado del inventario
 
-`PHY-G01` a `PHY-G14` están cerrados. `PHY-G14` se cerró con evidencia técnica real en PostgreSQL 16, pero no sustituye la revisión transversal de `TECH-002`, la implementación de repositories ni los security gates. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` continúa `PLANNED / NOT_EVALUATED`.
+`PHY-G01` a `PHY-G14` están cerrados en el alcance documental registrado por cada gate. Ese cierre no convierte automáticamente los bloques físicos Foundation, Device/Licensing o Catalog en aprobados para migración: sus condiciones internas pendientes siguen explícitas.
+
+R1 de `TECH-002` cierra la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. Foundation y Device/Licensing permanecen `IN_REVIEW`; R2/R3/R4, implementación de repositories y security gates continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
