@@ -26,6 +26,7 @@
 | Notifications | Correos, SMS, push y alertas |
 | Hardware | Perfiles, adaptadores y periféricos |
 | Electronic Invoicing | Configuración de emisión fiscal, conexiones fiscales, rangos conocidos, documentos electrónicos, intentos, estados de proveedor, artefactos e incidencias fiscales |
+| Sync | SyncOperation, OutboxEntry, InboxEntry, checkpoints, conflictos, revisiones, estado de dispositivo para sincronización y SyncDeadLetter |
 | Audit | Eventos sensibles e historial |
 | Support | Tickets, diagnóstico y accesos temporales |
 
@@ -48,3 +49,4 @@
 15. No existe un propietario global `Configuration`: cada módulo posee su identidad y versiones; Sync o `ConfigurationDistribution` solo transportan referencias y snapshots verificables.
 16. Pricing consume el resultado de Tax dentro del pipeline, pero no posee ni recalcula reglas tributarias. Electronic Invoicing consume el snapshot tributario de la operación y mantiene separado su snapshot de emisión fiscal.
 17. Los secretos reales permanecen en el almacén aprobado; las configuraciones de negocio solo conservan referencias opacas.
+18. Sync posee coordinación, entrega, deduplicación, conflicto y dead letter, pero no duplica ni adquiere ownership de la intención o efecto del dominio originador.

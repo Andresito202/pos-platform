@@ -2339,6 +2339,8 @@ Atributos conceptuales:
 - payload_checksum;
 - sync_status.
 
+El payload canónico original pertenece lógicamente a esta operación y permanece inmutable. Outbox lo transporta o referencia e Inbox conserva checksum/resultado; ningún registro de dead letter crea otra copia autoritativa.
+
 La identidad de una operación es global y permanece estable durante todos sus reintentos.
 
 Una modificación del payload requiere una operación nueva.
@@ -2361,6 +2363,8 @@ Atributos conceptuales:
 - last_error_code;
 - created_at;
 - updated_at.
+
+El ejecutor local de Sync controla `attempt_count`; una política técnica versionada de retry define límites, backoff, jitter, exclusiones y agotamiento sin números hardcodeados.
 
 La operación de negocio y su `OutboxEntry` deben persistirse dentro de la misma transacción local.
 
@@ -2464,12 +2468,13 @@ Un conflicto no se oculta ni sobrescribe silenciosamente el estado existente.
 
 ### SyncReview
 
-Representa la intervención autorizada sobre un conflicto.
+Representa la intervención autorizada sobre un conflicto o una dead letter.
 
 Atributos conceptuales:
 
 - review_id;
-- conflict_id;
+- conflict_id opcional;
+- dead_letter_id opcional;
 - assigned_role;
 - assigned_user opcional;
 - decision;
@@ -2479,6 +2484,56 @@ Atributos conceptuales:
 - resolved_at opcional.
 
 La revisión conserva actor, decisión, motivo y evidencia.
+
+Una revisión referencia exactamente uno entre `conflict_id` y `dead_letter_id`.
+
+### SyncDeadLetter
+
+Agregado de Sync que conserva evidencia y tratamiento de una `SyncOperation` que agotó reintentos o presenta un error no recuperable automáticamente.
+
+Es un registro separado porque revisión, autorización, concurrencia, retención y archivo tienen lifecycle propio. No reemplaza el estado operativo `DEAD_LETTER`, no es otra operación y no copia el payload.
+
+Atributos conceptuales:
+
+- id UUID v7 global;
+- tenant_id;
+- operation_id;
+- outbox_id opcional;
+- referencia a Inbox por tenant/operation cuando exista;
+- conflict_id opcional;
+- origin: `LOCAL_OUTBOX` o `CENTRAL_INBOX`;
+- status;
+- error_classification;
+- error_code;
+- reason_code opcional;
+- first_failed_at;
+- last_failed_at;
+- retry_count;
+- retry_policy_version;
+- evidence_reference opcional;
+- created_at;
+- archived_at opcional;
+- version;
+- audit_reference opcional.
+
+Estados persistentes de tratamiento reutilizados de `DEC-007`: `DEAD_LETTER`, `REVIEW_REQUIRED`, `RETRY_SCHEDULED` y `ARCHIVED`. `SERVER_ACCEPTED` y `SERVER_REJECTED` pertenecen a la operación/Inbox; una acción registra ese resultado antes de archivar la dead letter.
+
+Clasificaciones: `TRANSIENT`, `PERMANENT`, `CONFLICT`, `AUTHORIZATION`, `VALIDATION`, `DEPENDENCY`, `VERSION_INCOMPATIBLE`, `TENANT_VIOLATION`, `DEVICE_REVOKED` y `UNKNOWN`.
+
+Reglas:
+
+1. Existe como máximo una dead letter por `operation_id`; reingresos añaden acciones sin duplicarla.
+2. Tenant de dead letter, operación y referencias coincide.
+3. Retry conserva operation, idempotency key, payload, checksum y causalidad.
+4. Cambiar intención o payload exige otra SyncOperation causalmente relacionada.
+5. Firma/checksum inválidos, tenant violation, autorización y dispositivo revocado no reciben retry automático.
+6. `ARCHIVED` no borra operación, Inbox, Outbox, acciones, auditoría o evidencia retenida.
+7. Toda transición usa expected version; timestamps no resuelven concurrencia.
+8. Detecciones local y central concurrentes convergen a una identidad canónica mediante unicidad de operation y resultado central, no por timestamp.
+
+### SyncDeadLetterAction
+
+Hecho append-only que conserva cada revisión, retry autorizado, rechazo, resultado o archivo con tenant, operación, estados, actor/rol/scope, permiso, motivo, condición que cambió, clasificación/código, causalidad, correlación, timestamp confiable y evidencia/auditoría sanitizadas.
 
 ### DeviceClockState
 
@@ -2631,7 +2686,7 @@ Permite acceso temporal y auditado al proveedor.
 | InventoryMovement | no admite hard delete ni update destructivo |
 | InventoryReservation | transiciona a consumida, liberada, expirada o cancelada |
 | Device, Installation, Activation, License, Revocation | se desactivan, revocan, cancelan o terminan; conservan identidad |
-| AuditEvent, SyncOperation, Inbox confirmado | se retienen o archivan conforme política; no se eliminan por cascada |
+| AuditEvent, SyncOperation, Inbox confirmado, SyncDeadLetter y sus acciones | se retienen o archivan conforme política; no se eliminan por cascada |
 
 ## Reglas estructurales
 
@@ -2678,6 +2733,8 @@ Permite acceso temporal y auditado al proveedor.
 | OutboxEntry | una por operation; secuencia única y creciente por Tenant/Device |
 | InboxEntry | operation global única; idempotencia y checksum coherentes |
 | SyncCheckpoint | uno por Tenant/Device y canal definido; nunca avanza antes del commit |
+| SyncDeadLetter | UUID global; una por operation; referencias tenant-aware; sin payload; estado/clasificación válidos; versión optimista |
+| SyncDeadLetterAction | append-only; mismo tenant/operation de la dead letter; transición, actor, motivo y timestamp confiable obligatorios |
 | Device/Activation | identidad no reutilizable; una solicitud idempotente no crea duplicados; cupo no se excede |
 | AuditEvent | UUID global, timestamp servidor, action, resource, correlation y actor type obligatorios; append-only |
 

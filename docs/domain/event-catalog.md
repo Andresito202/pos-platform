@@ -428,6 +428,24 @@ Los eventos de configuración pertenecen al dominio nombrado. No existe un event
 
 ### SyncConflictResolved
 
+### SyncOperationDeadLettered
+
+Emitido por Sync al crear o reingresar el tratamiento dead letter de una operación, sin copiar el payload ni crear otra intención.
+
+### SyncDeadLetterReviewed
+
+Emitido por Sync al registrar una decisión autorizada de revisión con actor, motivo y evidencia sanitizada.
+
+### SyncRetryAuthorized
+
+Emitido por Sync al programar un retry manual de la misma operación, conservando identidad, payload, checksum y causalidad.
+
+### SyncDeadLetterArchived
+
+Emitido por Sync al retirar el caso de la cola activa conforme a retención, sin borrar la evidencia.
+
+`SyncOperationApplied` y `SyncOperationRejected` son los eventos canónicos del resultado posterior; no se crea un alias `SyncDeadLetterResolved`.
+
 ### DeviceOfflineDetected
 
 ### DeviceReconnected

@@ -99,7 +99,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 |---|---|---|---|---|
 | `UC-SYNC-001` | módulos propietarios + Sync | `SyncOperation`, `OutboxEntry`, `InboxEntry`, `SyncCheckpoint` | `COVERED` | Negocio y outbox comparten transacción; inbox y efectos centrales comparten commit o rollback. |
 | `UC-SYNC-002` | módulos propietarios | versiones nativas de configuración, checksums y vigencias | `COVERED` | `domain-configuration-schema.md` fija ownership, identidad/versiones, scopes, lifecycle, checksum, snapshots, offline, permisos, eventos y migración sin `Configuration` global; Sync solo distribuye. |
-| `UC-SYNC-003` | Sync | `SyncConflict`, `SyncReview`, `DeviceClockState`, `DeviceSyncState`, dead letter | `CLOSE_IN_TECH_002` | Debe fijarse si dead letter es estado de outbox/inbox o agregado separado; no se duplicará una operación. |
+| `UC-SYNC-003` | Sync | `SyncConflict`, `SyncReview`, `SyncDeadLetter`, `SyncDeadLetterAction`, `DeviceClockState`, `DeviceSyncState` | `COVERED` | `sync-dead-letter-schema.md` define registro separado referencial, una identidad por operation, lifecycle sin estados paralelos, clasificación, retry, revisión, archivo, seguridad, concurrencia y retención sin copiar operación o payload. |
 
 ## Facturación electrónica
 
@@ -135,11 +135,11 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 | PHY-G08 | `CLOSED` | SaleReturn | `UC-SALES-002`, `UC-PAY-004`, `DEC-002`, `DEC-007`, ownership | `sale-return-schema.md` y auditoría transversal alinean agregado, líneas, estados persistentes, proyecciones, tenant, snapshots, dinero, permisos, eventos, inventario, pagos, caja, fiscal, local-first, auditoría y migración. |
 | PHY-G09 | `CLOSED` | Reversal, Settlement y Reconciliation | `UC-PAY-004`, `UC-PAY-005`, `PAY-007`, `DEC-007`, `DEC-008` | `payment-financial-operations-schema.md` y auditoría transversal alinean estados, ownership, eventos, componentes exactos de Settlement, cálculo versionado, alcance de Reconciliation, permisos, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración. |
 | PHY-G10 | `CLOSED` | Versiones de configuración por dominio | `UC-SYNC-002`, `DEC-007`, `DEC-008`, ownership | `domain-configuration-schema.md` y auditoría transversal alinean ownership por dominio, Tax independiente, CashPolicy, InventoryPolicy, precedencia explícita, lifecycle, scopes, vigencia, checksum, snapshots, secretos, permisos, eventos, local-first y legado, sin `Configuration` global. |
-| PHY-G11 | `OPEN` | Dead letter | `UC-SYNC-003` | Estado o agregado decidido sin duplicar operación. |
+| PHY-G11 | `CLOSED` | Dead letter | `UC-SYNC-003`, `UC-SYNC-001`, `DEC-007`, `DEC-008`, `SEC-G01/03/04/05/06/08/10` | `sync-dead-letter-schema.md` y auditoría transversal fijan `SyncDeadLetter` separado, ownership Sync, relación con Operation/Outbox/Inbox, clasificación, retry versionado, revisión, reactivación, archivo, idempotencia, causalidad, tenancy, seguridad, permisos, auditoría, eventos, concurrencia, legado y pruebas futuras. |
 | PHY-G12 | `OPEN` | Agregados fiscales neutrales | `UC-EINV-001` | Modelo conceptual alineado con puertos neutrales y resultado incierto. |
 | PHY-G13 | `CLOSED` | Representación monetaria SQLite | `DEC-003`, `ADR-005` | `physical-conventions.md` fija texto decimal canónico de escala conocida y conversión mediante coeficiente entero; prohíbe `REAL` y `number` autoritativos. |
 | PHY-G14 | `BLOCKED_BY_POC` | RLS y roles de conexión | seguridad, tenancy | Roles y contrato transaccional están definidos en `physical-conventions.md`; falta ejecutar el PoC obligatorio antes de una migración PostgreSQL. |
 
 ## Resultado del inventario
 
-`PHY-G10` está cerrado y `PHY-G11` es el siguiente gate físico, aún no iniciado. El contrato documental de configuraciones por dominio se cerró sin DDL y todavía no existe autorización para escribir la primera migración.
+`PHY-G11` está cerrado y `PHY-G12` es el siguiente gate físico, aún no iniciado. El contrato documental de dead letter se cerró sin DDL y todavía no existe autorización para escribir la primera migración.

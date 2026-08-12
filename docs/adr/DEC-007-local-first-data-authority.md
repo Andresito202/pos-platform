@@ -552,6 +552,15 @@ SERVER_REJECTED
 DEAD_LETTER
     -> REVIEW_REQUIRED
     -> ARCHIVED
+
+REVIEW_REQUIRED
+    -> RETRY_SCHEDULED
+
+RETRY_SCHEDULED
+    -> DEAD_LETTER
+    -> REVIEW_REQUIRED
+    -> SERVER_ACCEPTED
+    -> SERVER_REJECTED
 ```
 
 No se permite regresar de:
@@ -1279,6 +1288,10 @@ jitter
 ---
 
 # Procesamiento por lotes
+
+El límite, backoff, jitter, ventana, exclusiones y tratamiento de agotamiento provienen de una política técnica versionada. No se hardcodean números universales.
+
+La operación original conserva el payload canónico inmutable. Una dead letter es evidencia/revisión referencial y no copia ese payload. Si la intención cambia, se crea una operación nueva con causalidad explícita.
 
 La sincronización procesará lotes limitados.
 

@@ -188,6 +188,36 @@ Probar:
 - conflicto entre sucursales;
 - restauración de cola.
 
+### Dead letter
+
+La implementación futura de `PHY-G11` requiere suites diferenciadas:
+
+PostgreSQL:
+
+- FK tenant-aware a SyncOperation y referencias opcionales a Outbox/Inbox/Conflict;
+- una sola SyncDeadLetter por operation;
+- lifecycle, permisos, MFA/segregación y expected version;
+- dos revisores concurrentes, dos retries simultáneos y archive vs retry;
+- Inbox+efecto atómicos y ausencia de doble efecto.
+
+SQLite/WAL:
+
+- agotamiento, persistencia y recuperación después de reinicio;
+- referencia al payload original sin copia o mutación;
+- retry con mismo operation/idempotency/checksum/causalidad;
+- reingreso reutiliza DeadLetter;
+- dependientes causalmente bloqueados y resolución central recibida offline.
+
+Integración:
+
+- servidor aplicó pero ACK se perdió: Inbox devuelve resultado y no se crea dead letter falsa;
+- replay, checksum distinto, payload/schema/firma inválidos;
+- cross-tenant y dispositivo revocado;
+- operación inválida exige operación nueva en lugar de mutación;
+- eventos y auditoría sin payload ni secretos.
+
+Cada prueba de seguridad conserva trazabilidad con `SEC-G01`, `SEC-G03`, `SEC-G04`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G10`. La documentación de la suite no cambia esos gates de `NOT_EVALUATED`.
+
 ## Hardware
 
 Probar con simuladores y dispositivos reales:

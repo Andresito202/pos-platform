@@ -290,7 +290,12 @@ Ejemplos:
 - `fiscal.configuration.publish`;
 - `fiscal.configuration.schedule`;
 - `fiscal.configuration.revoke`;
-- `fiscal.configuration.supersede`.
+- `fiscal.configuration.supersede`;
+- `sync.dead_letter.read`;
+- `sync.dead_letter.review`;
+- `sync.dead_letter.retry`;
+- `sync.dead_letter.reject`;
+- `sync.dead_letter.archive`.
 
 Reglas:
 
@@ -304,6 +309,19 @@ Reglas:
 8. No existe un permiso universal `configuration.manage`; cada lifecycle se autoriza en el dominio propietario.
 9. `payments.provider.configure` protege el cambio sensible de conexión o referencia secreta y no sustituye permisos de lifecycle de `payments.provider_configuration.*`.
 10. Restaurar comportamiento usa el permiso `supersede` específico del dominio para publicar una versión nueva; ningún permiso permite mutar o reactivar una versión histórica.
+11. Los cinco permisos `sync.dead_letter.read/review/retry/reject/archive` son independientes: leer o revisar no concede retry, rechazo o archivo, y ninguno autoriza cambiar payload, tenant o identidad de operación.
+
+### Dead letter de sincronización
+
+| Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR |
+|---|---:|---:|---:|---:|
+| Leer dead letter | Sí | Sí | Solo sucursales asignadas | Solo sucursales asignadas |
+| Revisar | Sí | Sí | Condicional y solo scope asignado | Condicional y solo scope asignado |
+| Autorizar retry | Reautenticación según riesgo | Condicional | Condicional con aprobación superior | No por defecto |
+| Rechazar definitivamente | Reautenticación/MFA según riesgo | Condicional | Condicional con aprobación superior | No |
+| Archivar | Sí con motivo | Condicional con motivo | No por defecto | No |
+
+Esta matriz no concede acceso a incidentes de plataforma o seguridad fuera del tenant. Clasificaciones `TENANT_VIOLATION`, `DEVICE_REVOKED`, firma/checksum inválidos o autorización sospechosa pueden exigir actor de seguridad ya existente, segregación y prohibición de self-approval según ABAC.
 
 ## Políticas ABAC
 
@@ -359,6 +377,9 @@ Aplicaciones mínimas:
 | Configuración de proveedor | `payments.provider.configure` | Segregación según riesgo | Aplicación auditada sin exponer secretos |
 | Publicación/revocación de política de dominio | Permisos `publish` / `revoke` específicos enumerados en esta matriz | Reautenticación/MFA y actor distinto según riesgo | Versión inmutable y auditoría append-only |
 | Sustitución de configuración fiscal/proveedor | `fiscal.configuration.supersede` / `payments.provider_configuration.supersede` | Segregación y permiso sensible adicional cuando cambie referencia secreta | Nueva versión; nunca edición histórica |
+| Revisión de dead letter | `sync.dead_letter.review` | Actor distinto/MFA según clasificación | Decisión y motivo append-only |
+| Reactivación de dead letter | `sync.dead_letter.retry` | Reautenticación, condición cambiada y segregación según riesgo | Misma operation, Outbox, payload y checksum |
+| Rechazo/archivo de dead letter | `sync.dead_letter.reject` / `sync.dead_letter.archive` | Motivo obligatorio y aprobación reforzada cuando aplique | Estado terminal/archivo sin borrar evidencia |
 | Ajuste crítico de inventario | `inventory.adjustment.request` | `inventory.adjustment.approve` | `inventory.adjustment.execute` |
 | Traslado de inventario | `inventory.transfer.request` | `inventory.transfer.approve` | `inventory.transfer.dispatch` / `inventory.transfer.receive` |
 | Compensación de inventario | Revisión autorizada | `inventory.conflict.review` | `inventory.compensation.execute` |
@@ -377,6 +398,7 @@ Reglas:
 7. Cerrar o reabrir Reconciliation, aceptar o resolver diferencias y configurar proveedor requieren motivo y auditoría append-only; la política puede exigir reautenticación, MFA y actores distintos.
 8. Los permisos de Settlement o Reconciliation no conceden `payments.provider.configure`, `payments.reversal.*`, acceso cross-tenant ni autoridad para modificar Payment histórico.
 9. Lectura, draft, publicación, programación, revocación y sustitución de configuraciones son acciones independientes; un rol existente solo las obtiene por grants explícitos y scope válido.
+10. Una dead letter de seguridad o una operación originada por el mismo actor no puede autoaprobarse cuando la política exige segregación; toda acción revalida tenant, dispositivo y permisos en backend.
 
 ## Pruebas negativas mínimas
 

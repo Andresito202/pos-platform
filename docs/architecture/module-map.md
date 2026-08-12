@@ -10,6 +10,7 @@
 - Devices.
 - Licensing.
 - Audit.
+- Sync.
 
 ## Núcleo comercial
 
@@ -71,3 +72,5 @@ Un módulo no modificará directamente las tablas internas de otro módulo.
 `Electronic Invoicing` consume snapshots de `Sales`, `Pricing` y `Tax`; una respuesta fiscal no modifica directamente esos módulos.
 
 `Tax` es propietario de reglas tributarias, clasificación, tasas, vigencia y resultados de cálculo. `Pricing` consume esos resultados dentro de su pipeline y `Electronic Invoicing` consume el snapshot tributario sin recalcularlo.
+
+`Sync` es propietario de metadatos de sincronización, Outbox/Inbox, checkpoints, conflictos, revisiones y dead letters. No posee ni modifica por sí mismo los hechos de negocio transportados.

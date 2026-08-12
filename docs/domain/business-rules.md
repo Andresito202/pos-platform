@@ -374,3 +374,31 @@ RN-170. Una réplica local se aplica atómicamente después de validar tenant, f
 RN-171. Los secretos utilizables nunca se almacenan en configuraciones, snapshots, eventos, auditoría o checksum. Solo se conservan referencias opacas al almacén aprobado y los cambios sensibles exigen controles reforzados.
 
 RN-172. Crear draft, leer, publicar, programar, revocar y sustituir son acciones autorizables separadamente por dominio. No existe un permiso universal de configuración ni un rollback que mute historia.
+
+## Dead letter de sincronización
+
+RN-173. `SyncDeadLetter` es un agregado separado propiedad de Sync que referencia una única `SyncOperation`; no reemplaza Operation, Outbox o Inbox, no contiene otra intención y no copia el payload.
+
+RN-174. `SyncOperation` conserva la identidad, idempotency key, payload y checksum inmutables. Todo retry reutiliza operation, Outbox y causalidad; cambiar intención o payload exige una operación nueva causalmente relacionada.
+
+RN-175. Existe como máximo una dead letter por operation. Un reingreso por nuevo agotamiento añade evidencia append-only y no crea otra operación ni dead letter paralela.
+
+RN-176. Outbox es autoridad de scheduling e intentos locales; Inbox es autoridad de deduplicación y resultado central; DeadLetter es autoridad de clasificación, revisión, reactivación y archivo del caso.
+
+RN-177. DeadLetter reutiliza `DEAD_LETTER`, `REVIEW_REQUIRED`, `RETRY_SCHEDULED` y `ARCHIVED`; `SERVER_ACCEPTED`/`SERVER_REJECTED` pertenecen a Operation/Inbox y no se duplican en el agregado de tratamiento.
+
+RN-178. El límite, backoff, jitter, ventana, exclusiones y agotamiento provienen de una política técnica versionada. Errores permanentes o de seguridad detienen retry automático.
+
+RN-179. Firma/checksum inválidos, tenant violation, dispositivo revocado, autorización denegada y payload inválido conservan evidencia y producen revisión/rechazo y señal de seguridad; repetir no corrige ni amplía autoridad.
+
+RN-180. Revisar, reintentar, rechazar y archivar exigen permiso atómico, tenant/scope válido, actor, motivo, auditoría y expected version. La política puede exigir MFA, reautenticación y segregación.
+
+RN-181. Si B depende de A y A está en dead letter, B permanece bloqueada, pendiente o en revisión según política; no se aplica por orden de llegada. Resolver A reevalúa B sin perder causalidad.
+
+RN-182. `ARCHIVED` no significa borrado. Operación, Outbox, Inbox, DeadLetter, acciones y auditoría se conservan conforme a retención; cualquier purga futura es separada, autorizada y auditable.
+
+RN-183. Una respuesta perdida después de aplicación central se resuelve por Inbox e idempotencia antes de dead-lettering; el mismo operation/checksum devuelve el resultado previo y no duplica efecto.
+
+RN-184. Tenant de DeadLetter, Operation, Outbox, Inbox, Conflict, Review y acciones debe coincidir. El tenant enviado por cliente no es autoridad y nunca se reasigna una operación entre tenants.
+
+RN-185. Si nodos local y central detectan el mismo caso concurrentemente, convergen a una sola SyncDeadLetter por operation y conservan acciones idempotentes; no eligen identidad o resultado por timestamp.

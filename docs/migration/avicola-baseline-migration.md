@@ -317,6 +317,19 @@ No se crea `Configuration` global, key-value autoritativo ni JSON libre para abs
 
 Las credenciales o secretos encontrados se rotan y se cargan al almacén aprobado; las tablas de negocio solo reciben referencias opacas. La migración conserva por separado snapshots tributarios de operación y snapshots de emisión fiscal cuando exista evidencia suficiente; nunca inventa un `fiscal_snapshot` combinado.
 
+### Dead letters y sincronización heredadas
+
+La auditoría del legado no encontró `SyncOperation`, Outbox, Inbox, checkpoints, conflictos Sync, retries persistidos ni dead letters. Los errores HTTP, excepciones, mensajes de conexión del frontend o líneas de auditoría aisladas no demuestran una intención sincronizable recuperable.
+
+Clasificación:
+
+- migrable: ningún dead letter demostrado;
+- parcialmente migrable: ninguno con identidad, tenant, checksum, intentos y causalidad suficientes;
+- evidencia solamente: logs o auditoría que documenten un fallo, conservados de forma sanitizada como evidencia histórica;
+- no migrable: errores o acciones abandonadas sin `operation_id`, tenant, payload checksum, retry history y causalidad.
+
+No se inventan operaciones, dead letters, retries, aceptación/rechazo, actores, timestamps o causalidad a partir de logs. La puesta en marcha del stack objetivo comienza sus Outbox/Inbox/DeadLetter vacías y no convierte errores históricos en trabajo ejecutable.
+
 ## Cuarentena
 
 Se llevan a cuarentena, sin inserción silenciosa en el modelo operacional:

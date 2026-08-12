@@ -694,9 +694,29 @@ Un reintento no representa una nueva intención comercial.
 
 ## Dead letter
 
-Operación que no pudo resolverse automáticamente después de agotar los reintentos permitidos o presentar un error permanente.
+Estado operativo de una operación que no pudo resolverse automáticamente después de agotar los reintentos permitidos o presentar un error permanente.
 
-Debe conservarse para diagnóstico, revisión o archivo controlado.
+Su evidencia y tratamiento se materializan mediante `SyncDeadLetter`, sin duplicar la intención o payload original.
+
+## SyncDeadLetter
+
+Agregado de Sync con identidad global que referencia una `SyncOperation` en estado `DEAD_LETTER` y conserva clasificación, reintentos observados, revisión, reactivación autorizada, archivo y auditoría.
+
+Existe como máximo uno por operación y no es un mensaje ejecutable.
+
+## SyncDeadLetterAction
+
+Hecho append-only de revisión, retry autorizado, rechazo, resultado o archivo de una dead letter. Conserva actor, motivo, transición, causalidad y evidencia sanitizada.
+
+## Agotamiento de reintentos
+
+Condición determinada por una política técnica versionada en la que Sync detiene reintentos automáticos y conserva la operación para revisión o dead letter.
+
+No cambia la identidad ni el payload original.
+
+## Archivo de dead letter
+
+Transición `ARCHIVED` que retira el caso de tratamiento activo sin borrar operación, evidencia, idempotencia o auditoría sujeta a retención.
 
 ## Calidad de reloj
 
