@@ -2028,6 +2028,69 @@ Debe referenciar obligatoriamente `presentation_id` y conservar snapshot de:
 - lote;
 - costo aplicable.
 
+### SaleReturn
+
+Agregado de Sales que representa una devolución comercial total o parcial posterior a una `Sale` completada. No es `Refund`, `Reversal`, `SaleCancellation`, movimiento de inventario, movimiento de caja ni documento fiscal.
+
+Atributos conceptuales:
+
+- id UUID v7 global;
+- tenant_id;
+- company_id;
+- branch_id;
+- sale_id;
+- origin_device_id;
+- requested_by_actor_id;
+- approved_by_actor_id opcional;
+- reason_code y reason_detail opcional;
+- status;
+- effective_at;
+- currency_code;
+- original_sale_payable_amount;
+- requested_return_amount;
+- approved_return_amount opcional;
+- completed_return_amount;
+- returned_tax_amount;
+- versiones de pricing, impuestos y redondeo originales;
+- operation_id;
+- idempotency_key;
+- request_checksum;
+- expected_sale_version;
+- correlation_id;
+- causation_id opcional;
+- timestamps coherentes con el ciclo;
+- version.
+
+Estados persistentes:
+
+- `RETURN_REQUESTED`;
+- `RETURN_UNDER_REVIEW`;
+- `RETURN_APPROVED`;
+- `RETURN_REJECTED`;
+- `RETURN_EXECUTION_IN_PROGRESS`;
+- `RETURN_PARTIALLY_COMPLETED`;
+- `RETURN_COMPLETED`;
+- `RETURN_FAILED`;
+- `RETURN_REVIEW_REQUIRED`.
+
+`PARTIALLY_RETURNED` y `FULLY_RETURNED` son exclusivamente proyecciones derivadas del acumulado de devoluciones completadas sobre `Sale`; no son estados persistentes de `Sale` ni de `SaleReturn`.
+
+Reglas:
+
+1. SaleReturn y Sale comparten tenant, company, branch y moneda.
+2. La Sale original está `COMPLETED` y nunca se reescribe por la devolución.
+3. Cantidad e importe acumulados no superan la elegibilidad de cada SaleItem.
+4. Precios, descuentos, impuestos, cantidades y políticas se obtienen de snapshots originales, no de configuración actual.
+5. Refund/Reversal, InventoryMovement, CashMovement y corrección fiscal son efectos separados bajo sus módulos propietarios.
+6. La operación es idempotente, usa versión esperada y conserva causalidad, auditoría y evidencia de sincronización.
+7. Conflictos concurrentes se rechazan o pasan a revisión; no se resuelven por último timestamp.
+
+### SaleReturnLine
+
+Referencia exactamente una `SaleItem` de la venta original y conserva presentación, lote opcional, unidad, cantidad vendida, cantidad previamente devuelta conocida, cantidades solicitada/aprobada/completada, condición física, resolución de inventario, valores monetarios e impuestos originales y valores devueltos. Las cantidades y el dinero usan decimal exacto.
+
+Una línea comercial no modifica inventario directamente. Solo un `InventoryMovement` explícito del módulo Inventory puede restituir o clasificar unidades, y su cantidad nunca supera la cantidad comercial completada.
+
 ### Payment
 
 Representa un cobro financiero independiente que cubre total o parcialmente una venta, pedido o cuenta por cobrar de cliente. Una venta puede tener uno o varios pagos relacionados mediante un `PaymentGroup`. No representa cuentas por pagar ni pagos a proveedores, que pertenecen a una capacidad futura y a un agregado separado.
@@ -2463,7 +2526,7 @@ Permite acceso temporal y auditado al proveedor.
 | Role, Permission y política publicada | se retiran o sustituyen mediante versión; no se reescriben |
 | Product, ProductVariant, ProductPresentation, ProductIdentifier | se desactivan y no se reutilizan inmediatamente |
 | Price, Promotion, TaxPolicy y RoundingPolicy publicadas | expiran o se sustituyen; no alteran snapshots históricos |
-| Sale, Payment, Refund, Reversal, Settlement, Reconciliation, CashShift, CashMovement, CashCount, CashDifferenceReview y acciones | no admiten hard delete |
+| Sale, SaleReturn, Payment, Refund, Reversal, Settlement, Reconciliation, CashShift, CashMovement, CashCount, CashDifferenceReview y acciones | no admiten hard delete |
 | InventoryMovement | no admite hard delete ni update destructivo |
 | InventoryReservation | transiciona a consumida, liberada, expirada o cancelada |
 | Device, Installation, Activation, License, Revocation | se desactivan, revocan, cancelan o terminan; conservan identidad |

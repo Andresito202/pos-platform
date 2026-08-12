@@ -310,3 +310,27 @@ RN-140. ExpectedCash se deriva exclusivamente de CashMovement `POSTED`; un arque
 RN-141. Un CashCount completado no se edita: una corrección crea otro CashCount relacionado y conserva el original.
 
 RN-142. Toda diferencia distinta de cero genera revisión; una diferencia material requiere autorización y no puede ser aprobada por el mismo actor que contó cuando la política exige segregación.
+
+## Devoluciones comerciales
+
+RN-143. `SaleReturn` pertenece a Sales, referencia una `Sale` `COMPLETED` y conserva el mismo tenant, empresa, sucursal y moneda; un identificador enviado por el cliente no constituye autorización ni permite acceso cross-tenant.
+
+RN-144. Una devolución no elimina ni reescribe Sale o SaleItem; conserva snapshots originales de cantidades, precios, descuentos, impuestos y políticas, y cambios posteriores no alteran su valor histórico.
+
+RN-145. La cantidad y el importe acumulados devueltos por SaleItem no pueden superar lo vendido y todavía elegible; una devolución parcial solo afecta sus líneas y no convierte automáticamente toda la venta en devuelta.
+
+RN-146. `RETURN_EXECUTION_IN_PROGRESS`, `RETURN_PARTIALLY_COMPLETED` y `RETURN_COMPLETED` son estados persistentes de SaleReturn; `PARTIALLY_RETURNED` y `FULLY_RETURNED` son proyecciones derivadas de Sale.
+
+RN-147. SaleReturn, Refund y Reversal son agregados diferentes: Sales es propietario de SaleReturn y Payments de Refund/Reversal; una devolución comercial no confirma automáticamente un reembolso, reversión, salida de caja, restitución de inventario o corrección fiscal.
+
+RN-148. Toda devolución crítica conserva UUID global, `operation_id`, `idempotency_key`, checksum, versión esperada, causalidad y auditoría; un reintento o replay no duplica la devolución ni sus efectos.
+
+RN-149. Dos devoluciones concurrentes sobre la misma elegibilidad se validan centralmente y producen aceptación compatible, rechazo o `REVIEW_REQUIRED`; nunca se resuelven mediante último timestamp.
+
+RN-150. Una restitución de producto requiere condición física y un InventoryMovement explícito; no se modifica StockBalance ni el historial, y una corrección genera movimiento compensatorio.
+
+RN-151. Un Refund en efectivo requiere un CashMovement separado y política de turno válida; los medios externos conservan resultado pendiente o incierto hasta evidencia autoritativa y no se simula una capacidad de reversal inexistente.
+
+RN-152. La consecuencia fiscal de SaleReturn pertenece a Electronic Invoicing y crea, cuando corresponda, un documento correctivo relacionado; no modifica el documento original ni acopla Sales directamente a DIAN o a un proveedor.
+
+RN-153. Solicitar, aprobar, ejecutar, revisar y leer SaleReturn usan permisos `sales.return.*`; Refund usa `payments.refund.*` y Reversal `payments.reversal.*`. La política puede exigir reautenticación, MFA, aprobación superior y segregación entre actores.

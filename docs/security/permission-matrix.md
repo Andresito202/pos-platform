@@ -138,6 +138,8 @@ No existe permiso para anular o editar un GoodsReceipt confirmado. Los errores d
 | Aceptar diferencia material | Sí | Sí | Condicional | Sí | No sobre diferencia propia crítica |
 | Eliminar cierre | No | No | No | No | No |
 
+`Devolver venta` representa el ciclo comercial de `SaleReturn`: CASHIER solo solicita mediante `sales.return.request`; aprobación, ejecución y revisión exigen los permisos `sales.return.*` correspondientes y las políticas de alcance/riesgo. Ningún rol obtiene por esta fila autorización implícita para Refund, Reversal, CashMovement, InventoryMovement o efecto fiscal.
+
 ## Reportes
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | CASHIER |
@@ -177,9 +179,19 @@ Ejemplos:
 
 - `sales.sale.create`;
 - `sales.sale.cancel`;
-- `sales.refund.request`;
-- `sales.refund.approve`;
-- `sales.refund.execute`;
+- `sales.return.request`;
+- `sales.return.approve`;
+- `sales.return.execute`;
+- `sales.return.review`;
+- `sales.return.read`;
+- `payments.refund.request`;
+- `payments.refund.approve`;
+- `payments.refund.execute.cash`;
+- `payments.refund.execute.external`;
+- `payments.refund.override_method`;
+- `payments.refund.override_distribution`;
+- `payments.refund.review`;
+- `payments.refund.read`;
 - `payments.reversal.request`;
 - `payments.reversal.approve`;
 - `payments.reversal.execute`;
@@ -267,7 +279,8 @@ Aplicaciones mínimas:
 
 | Operación | Solicitar | Aprobar | Ejecutar |
 |---|---|---|---|
-| Refund | `sales.refund.request` | `sales.refund.approve` | `sales.refund.execute` |
+| SaleReturn | `sales.return.request` | `sales.return.approve` | `sales.return.execute` |
+| Refund | `payments.refund.request` | `payments.refund.approve` | `payments.refund.execute.cash` / `payments.refund.execute.external` |
 | Reversal | `payments.reversal.request` | `payments.reversal.approve` | `payments.reversal.execute` |
 | Ajuste crítico de inventario | `inventory.adjustment.request` | `inventory.adjustment.approve` | `inventory.adjustment.execute` |
 | Traslado de inventario | `inventory.transfer.request` | `inventory.transfer.approve` | `inventory.transfer.dispatch` / `inventory.transfer.receive` |
@@ -282,6 +295,8 @@ Reglas:
 2. Las excepciones requieren autorización reforzada y auditoría.
 3. Las transiciones deben conservar actor, momento, motivo y `correlation_id`.
 4. La separación de funciones no debe implementarse únicamente en frontend.
+5. `sales.return.*` no concede permisos `payments.refund.*` o `payments.reversal.*`; cada módulo autoriza y audita su propio efecto.
+6. SaleReturn puede exigir reautenticación, MFA o aprobación superior por importe, condición física, operación fuera de ventana, self-approval, sucursal, dispositivo o riesgo de fraude.
 
 ## Pruebas negativas mínimas
 

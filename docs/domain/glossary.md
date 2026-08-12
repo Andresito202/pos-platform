@@ -219,9 +219,29 @@ Transacción comercial confirmada con uno o varios productos y pagos.
 
 Venta aún no confirmada que puede recuperarse posteriormente.
 
-## Devolución
+## Devolución comercial
 
-Operación que revierte total o parcialmente una venta confirmada.
+Operación `SaleReturn`, propiedad de Sales, que devuelve total o parcialmente líneas de una venta completada sin modificarla destructivamente.
+
+Puede originar efectos financieros, de inventario, caja o fiscalización, pero no los confirma por sí misma.
+
+## Línea de devolución
+
+Parte de SaleReturn que referencia una SaleItem y conserva cantidades, valores, impuestos, snapshots originales, condición física y resolución comercial aplicable.
+
+## Devolución parcial y total
+
+Una devolución parcial consume solo parte de la elegibilidad de una o más líneas. Una devolución total consume toda la elegibilidad restante, sin convertir esos resultados en estados persistentes de SaleReturn.
+
+`PARTIALLY_RETURNED` y `FULLY_RETURNED` son proyecciones derivadas de Sale.
+
+## Refund
+
+Operación compensatoria de Payments que devuelve dinero o restaura valor confirmado y elegible sin reescribir Payment, Sale o SaleReturn. Puede existir relacionada con una devolución comercial o de forma independiente cuando la política lo permita.
+
+## Reversal
+
+Operación de Payments que revierte una autorización o confirmación cuando el estado real y el proveedor todavía lo permiten. No equivale a Refund ni prueba una devolución comercial o física.
 
 ## Anulación
 

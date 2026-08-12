@@ -215,12 +215,13 @@ Cada componente solicitado incluye:
 - `payments.refund.override_method`;
 - `payments.refund.override_distribution`;
 - `payments.reversal.request`;
+- `payments.reversal.approve`;
 - `payments.reversal.execute`;
 - `credit.refund.adjust`;
 - `payments.refund.review`;
 - `payments.refund.read`.
 
-Estos permisos son conceptuales y deben incorporarse después a la matriz atómica. No sustituyen la validación backend.
+Estos permisos están incorporados en la matriz atómica de producto. No sustituyen la validación backend, el ownership de Payments ni las políticas de alcance y segregación.
 
 ### Alcance inicial por rol
 

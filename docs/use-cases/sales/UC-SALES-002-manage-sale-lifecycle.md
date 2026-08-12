@@ -362,7 +362,7 @@ No deben agregarse como estados persistentes de `Sale`:
 - `REVIEW_REQUIRED`;
 - `PARTIALLY_SETTLED`;
 - `FULLY_SETTLED`;
-- `RETURN_IN_PROGRESS`;
+- `RETURN_EXECUTION_IN_PROGRESS`;
 - `PARTIALLY_RETURNED`;
 - `FULLY_RETURNED`;
 - `VOIDED`.
@@ -377,7 +377,7 @@ Las condiciones equivalentes se representan mediante:
 - incidencias;
 - operaciones relacionadas.
 
-`RETURN_IN_PROGRESS`, `PARTIALLY_RETURNED` y `FULLY_RETURNED` son estados o proyecciones del agregado `SaleReturn`. `VOIDED` pertenece a `SaleCancellation` o al documento fiscal invalidado, no a `Sale.status`.
+`RETURN_EXECUTION_IN_PROGRESS` es un estado persistente de `SaleReturn`. `PARTIALLY_RETURNED` y `FULLY_RETURNED` son exclusivamente proyecciones derivadas del acumulado de devoluciones completadas sobre `Sale`; no son estados persistentes de `Sale` ni de `SaleReturn`. `VOIDED` pertenece a `SaleCancellation` o al documento fiscal invalidado, no a `Sale.status`.
 
 ---
 
@@ -1502,7 +1502,7 @@ Existe incertidumbre o contradicción.
 
 ## Regla
 
-Estos estados pertenecen al proceso de devolución, no deben mezclarse automáticamente con `Sale`.
+Estos estados pertenecen al proceso de devolución y no deben mezclarse con `Sale`. `PARTIALLY_RETURNED` y `FULLY_RETURNED` permanecen fuera de esta máquina: son proyecciones derivadas de `Sale`.
 
 ---
 

@@ -85,7 +85,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 
 | Fuente | Módulo propietario | Agregados exigidos | Cobertura | Observación física obligatoria |
 |---|---|---|---|---|
-| `UC-SALES-001`/`UC-SALES-002` | Sales | `Sale`, `SaleItem`, suspensión, cancelación, devolución comercial y snapshots | `CLOSE_IN_TECH_002` | `SaleCancellation` existe; `SaleReturn` está en ownership y casos, pero debe alinearse explícitamente en el modelo conceptual antes de crear tablas. |
+| `UC-SALES-001`/`UC-SALES-002` | Sales | `Sale`, `SaleItem`, suspensión, cancelación, devolución comercial y snapshots | `COVERED` | `SaleReturn` y líneas están alineados en modelo conceptual y `sale-return-schema.md`; estados persistentes, proyecciones, efectos separados y elegibilidad acumulada no reescriben Sale. |
 | `UC-PAY-001` | Payments | `PaymentGroup`, `Payment`, `PaymentAllocation`, `PaymentAttempt` | `COVERED` | Cada medio es un `Payment`; no existe tabla `PaymentComponent`. |
 | `UC-PAY-002` | Payments | múltiples `Payment` dentro del mismo `PaymentGroup` | `COVERED` | Fallo parcial no mezcla estados ni duplica cobertura. |
 | `UC-PAY-003` | Payments | intento y evidencia de transferencia manual/QR | `COVERED` | Confirmación manual exige actor, referencia, idempotencia y auditoría. |
@@ -132,7 +132,7 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 | PHY-G05 | `CLOSED` | Brand, Category y UnitOfMeasure | `UC-CAT-001`, `UC-CAT-005`, `DEC-004` | Modelo conceptual y `catalog-schema.md` fijan atributos, scopes, precisión, ciclo y autoridad única de conversiones. |
 | PHY-G06 | `CLOSED` | Recepción física independiente y proveedor | `UC-INVENTORY-001`, `UC-INVENTORY-002`, `DEC-007` | Auditoría transversal aprobada: GoodsReceipt inmutable, líneas, asignaciones de lote, un movimiento por asignación, costo separado, una ubicación, compensaciones, permisos, migración y atomicidad alineados. |
 | PHY-G07 | `CLOSED` | Arqueos de caja | `UC-CASH-002`, `UC-CASH-003`, `DEC-002`, `DEC-007` | Auditoría transversal aprobada: `cash-counting-schema.md`, modelo conceptual, eventos, permisos, ownership, reglas, glosario, casos de uso y migración alinean turno, movimientos, CashCount, denominaciones, diferencias, correcciones, concurrencia y operación offline. |
-| PHY-G08 | `OPEN` | SaleReturn | `UC-SALES-002`, ownership | Agregado, líneas, estados y relación con inventario/pagos alineados. |
+| PHY-G08 | `CLOSED` | SaleReturn | `UC-SALES-002`, `UC-PAY-004`, `DEC-002`, `DEC-007`, ownership | `sale-return-schema.md` y auditoría transversal alinean agregado, líneas, estados persistentes, proyecciones, tenant, snapshots, dinero, permisos, eventos, inventario, pagos, caja, fiscal, local-first, auditoría y migración. |
 | PHY-G09 | `OPEN` | Reversal, Settlement y Reconciliation | `UC-PAY-004`, `UC-PAY-005`, modelo de estados | Agregados conceptuales y referencias físicas alineados. |
 | PHY-G10 | `OPEN` | Versiones de configuración por dominio | `UC-SYNC-002` | Inventario de propietarios y referencias, sin Configuration global. |
 | PHY-G11 | `OPEN` | Dead letter | `UC-SYNC-003` | Estado o agregado decidido sin duplicar operación. |
@@ -142,4 +142,4 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 
 ## Resultado del inventario
 
-`PHY-G07` está cerrado y `PHY-G08` es el siguiente gate físico, aún no iniciado. El contrato documental de caja se cerró sin DDL y todavía no existe autorización para escribir la primera migración.
+`PHY-G08` está cerrado y `PHY-G09` es el siguiente gate físico, aún no iniciado. El contrato documental de SaleReturn se cerró sin DDL y todavía no existe autorización para escribir la primera migración.

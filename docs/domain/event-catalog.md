@@ -220,9 +220,23 @@ Evento de integración emitido una sola vez cuando un CashMovement queda `POSTED
 
 ### SaleCancelled
 
-### SaleRefunded
+### SaleReturnRequested
 
-### SaleItemReturned
+### SaleReturnApproved
+
+### SaleReturnRejected
+
+### SaleReturnStarted
+
+### SaleReturnPartiallyCompleted
+
+### SaleReturnCompleted
+
+### SaleReturnFailed
+
+### SaleReturnReviewRequired
+
+Estos eventos pertenecen a Sales y describen el ciclo comercial de `SaleReturn`. No confirman Refund, Reversal, CashMovement, InventoryMovement ni documento fiscal. Los efectos dependientes conservan `correlation_id` y `causation_id` y emiten sus propios eventos al confirmarse.
 
 ### ReceiptRequested
 
@@ -244,7 +258,29 @@ Registra que se recibió evidencia declarativa de un pago; no implica `PaymentSt
 
 ### PaymentAttemptDeclined
 
+### RefundRequested
+
+### RefundApprovalRequired
+
+### RefundApproved
+
+### RefundRejected
+
+### RefundProcessingStarted
+
 ### RefundCompleted
+
+### RefundPartiallyCompleted
+
+### RefundFailed
+
+### RefundReviewRequired
+
+### PaymentReversalRequested
+
+### PaymentReversed
+
+Refund y Reversal pertenecen a Payments. Ninguno demuestra por sí solo devolución comercial o física.
 
 ### PaymentReconciliationRequired
 

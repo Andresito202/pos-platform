@@ -237,6 +237,22 @@ Las ventas cerradas se migran como históricas e inmutables. Cada línea conserv
 
 No se inventan snapshots fiscales, promociones, descuentos o versiones inexistentes. Los campos desconocidos se marcan como datos heredados no disponibles.
 
+### Devoluciones comerciales heredadas
+
+Una fila heredada solo produce un `SaleReturn` histórico cuando existe evidencia inequívoca de la Sale y SaleItem originales, cantidad, resultado comercial, fecha y asignación aprobada de Tenant, Company y Branch.
+
+Se preservan exactamente los identificadores, motivos, actores, cantidades, importes, impuestos, condición física y timestamps que consten en origen. No se infieren:
+
+- aprobación o segregación de funciones;
+- `Refund` o `Reversal`;
+- CashMovement de salida;
+- InventoryMovement de restitución;
+- nota crédito u otro efecto fiscal;
+- idempotency key, operation ID, checksum o versión de política histórica;
+- condición física o destino de inventario ausentes.
+
+Una anulación no se transforma automáticamente en SaleReturn. Devoluciones sin desglose de línea, con cantidad o valor superior a la venta, venta inexistente, tenant no verificable, pago mixto sin componentes o efectos financieros/inventario no reconciliables se conservan como evidencia y pasan a cuarentena. Los efectos separados se migran únicamente cuando su propia fuente los demuestra y quedan relacionados causalmente sin reescribir la venta.
+
 ### Pagos
 
 `ventas.metodo_pago` se transforma en un `PaymentGroup` y un `Payment` cuando el medio y el importe son inequívocos.
