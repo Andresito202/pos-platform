@@ -651,7 +651,7 @@ Flujo:
 3. Se envía o registra la solicitud por el mecanismo real disponible.
 4. La operación queda `PROCESSING` mientras el resultado sea incierto.
 5. La respuesta autenticada se procesa una sola vez.
-6. Al completarse, se emite `PaymentReversed` y se recalculan proyecciones.
+6. Al completarse, se emite `ReversalCompleted` y se recalculan proyecciones.
 7. Si la reversión no es permitida, se conserva el intento y se inicia `Refund` separado cuando corresponda.
 
 No se utiliza `Reversal` para representar devolución comercial posterior a liquidación.
@@ -954,8 +954,9 @@ Esta lista expresa responsabilidades y relaciones del dominio. No define tablas,
 - `RefundCompleted`;
 - `RefundPartiallyCompleted`;
 - `RefundFailed`;
-- `PaymentReversalRequested`;
-- `PaymentReversed`;
+- `ReversalRequested`;
+- `ReversalProcessing`;
+- `ReversalCompleted`;
 - `CashRefundRecorded`;
 - `CreditBalanceRestored`;
 - `InventoryReturnPending`;
@@ -1362,8 +1363,9 @@ Alto.
 - `RefundCompleted`;
 - `RefundPartiallyCompleted`;
 - `RefundFailed`;
-- `PaymentReversalRequested`;
-- `PaymentReversed`;
+- `ReversalRequested`;
+- `ReversalProcessing`;
+- `ReversalCompleted`;
 - `CashRefundRecorded`;
 - `CreditBalanceRestored`;
 - `InventoryReturnPending`;

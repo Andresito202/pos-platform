@@ -2160,6 +2160,46 @@ Agregado compensatorio append-only que consume saldo confirmado y elegible sin r
 
 ### RefundItem
 
+### Reversal
+
+Agregado de Payments que revierte una autorización o confirmación únicamente cuando el estado real y la capacidad del proveedor o subsistema original lo permiten. Conserva Payment e intento originales, tenant/company/branch, importe solicitado y completado, moneda, estado de `ReversalStatus`, referencias y evidencia de proveedor, actores, motivo, idempotencia, causalidad y versión.
+
+Un Reversal completado alimenta la proyección acumulada `reversed_amount`; no modifica Payment histórico, no es Refund ni demuestra una devolución comercial. Un resultado externo incierto permanece `UNKNOWN` o `REVIEW_REQUIRED` según `PAY-007`.
+
+### Settlement
+
+Agregado de Payments que registra una liquidación de caja, proveedor, adquirente, billetera o banco sin cambiar `PaymentStatus`. Conserva fuente, cuenta/lote/periodo como snapshot, moneda, evidencia original y los siguientes componentes exactos separados:
+
+- `gross_amount`;
+- `fee_amount`;
+- `withholding_amount`;
+- `refunded_amount`;
+- `reversed_amount`;
+- `chargeback_amount`;
+- `positive_adjustment_amount`;
+- `negative_adjustment_amount`;
+- `net_amount`.
+
+También conserva `calculation_policy_version`, entradas exactas, tratamiento declarado de `gross_amount` frente a reversals y resultado calculado. La política distingue entre bruto que incluye operaciones posteriormente reversadas y bruto ya neto de reversals; no existe descuento doble ni fórmula universal implícita. Un `SettlementItem` relaciona componentes financieros sin consumir dos veces el mismo importe.
+
+### Reconciliation
+
+Agregado de Payments que compara movimientos internos con fuentes externas mediante matching determinista y políticas versionadas. Su periodo o alcance es un snapshot inmutable del propio agregado, no un agregado con estado independiente.
+
+Estados persistentes exclusivos, definidos por `PAY-007`:
+
+- `CREATED`;
+- `RUNNING`;
+- `REVIEW_REQUIRED`;
+- `PARTIALLY_RECONCILED`;
+- `RECONCILED`;
+- `FAILED`;
+- `CANCELLED`;
+- `CLOSED`;
+- `REOPENED`.
+
+`OPEN` y `PROCESSING` no pertenecen a `ReconciliationStatus`. `ReconciliationItem` conserva cada matching o diferencia con estado propio; `ReconciliationIncident` conserva investigación, evidencia, resolución y estado propio. Cierre, reapertura y resolución nunca reescriben Payment, Settlement, extractos o evidencia y requieren permisos, motivo y controles reforzados según política.
+
 ### SaleCancellation
 
 Representa la cancelación o invalidación autorizada sin reutilizar estados financieros como estado de venta.

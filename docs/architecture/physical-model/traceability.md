@@ -89,8 +89,8 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 | `UC-PAY-001` | Payments | `PaymentGroup`, `Payment`, `PaymentAllocation`, `PaymentAttempt` | `COVERED` | Cada medio es un `Payment`; no existe tabla `PaymentComponent`. |
 | `UC-PAY-002` | Payments | múltiples `Payment` dentro del mismo `PaymentGroup` | `COVERED` | Fallo parcial no mezcla estados ni duplica cobertura. |
 | `UC-PAY-003` | Payments | intento y evidencia de transferencia manual/QR | `COVERED` | Confirmación manual exige actor, referencia, idempotencia y auditoría. |
-| `UC-PAY-004` | Payments, Sales, Cash Register | `Refund`, ítems, reversal y efectos compensatorios | `CLOSE_IN_TECH_002` | `Refund` está definido; `Reversal` y su relación física deben incorporarse desde el modelo de estados antes de crear tablas. |
-| `UC-PAY-005` | Payments | settlement, reconciliation, incidentes y evidencia externa | `CLOSE_IN_TECH_002` | Los agregados existen en el modelo de estados, pero faltan en la lista explícita del modelo conceptual. |
+| `UC-PAY-004` | Payments, Sales, Cash Register | `Refund`, ítems, Reversal y efectos compensatorios | `COVERED` | Reversal y su relación con Payment/Attempt, provider authority, idempotencia, evidencia y separación de Refund/SaleReturn están alineados en `payment-financial-operations-schema.md`. |
+| `UC-PAY-005` | Payments | Settlement, Reconciliation, items, incidencias y evidencia externa | `COVERED` | Modelo conceptual y contrato físico alinean estados de `PAY-007`, snapshot de alcance, componentes financieros, cálculo versionado, permisos, replay y cierre/reapertura. |
 | `UC-PAY-006` | Payments | `PaymentAttempt` pendiente/desconocido, reintento y revisión | `COVERED` | Timeout no equivale a fallo; referencia externa y operación conservan identidad durante reconciliación. |
 
 ## Sincronización y configuración offline
@@ -133,7 +133,7 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 | PHY-G06 | `CLOSED` | Recepción física independiente y proveedor | `UC-INVENTORY-001`, `UC-INVENTORY-002`, `DEC-007` | Auditoría transversal aprobada: GoodsReceipt inmutable, líneas, asignaciones de lote, un movimiento por asignación, costo separado, una ubicación, compensaciones, permisos, migración y atomicidad alineados. |
 | PHY-G07 | `CLOSED` | Arqueos de caja | `UC-CASH-002`, `UC-CASH-003`, `DEC-002`, `DEC-007` | Auditoría transversal aprobada: `cash-counting-schema.md`, modelo conceptual, eventos, permisos, ownership, reglas, glosario, casos de uso y migración alinean turno, movimientos, CashCount, denominaciones, diferencias, correcciones, concurrencia y operación offline. |
 | PHY-G08 | `CLOSED` | SaleReturn | `UC-SALES-002`, `UC-PAY-004`, `DEC-002`, `DEC-007`, ownership | `sale-return-schema.md` y auditoría transversal alinean agregado, líneas, estados persistentes, proyecciones, tenant, snapshots, dinero, permisos, eventos, inventario, pagos, caja, fiscal, local-first, auditoría y migración. |
-| PHY-G09 | `OPEN` | Reversal, Settlement y Reconciliation | `UC-PAY-004`, `UC-PAY-005`, modelo de estados | Agregados conceptuales y referencias físicas alineados. |
+| PHY-G09 | `CLOSED` | Reversal, Settlement y Reconciliation | `UC-PAY-004`, `UC-PAY-005`, `PAY-007`, `DEC-007`, `DEC-008` | `payment-financial-operations-schema.md` y auditoría transversal alinean estados, ownership, eventos, componentes exactos de Settlement, cálculo versionado, alcance de Reconciliation, permisos, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración. |
 | PHY-G10 | `OPEN` | Versiones de configuración por dominio | `UC-SYNC-002` | Inventario de propietarios y referencias, sin Configuration global. |
 | PHY-G11 | `OPEN` | Dead letter | `UC-SYNC-003` | Estado o agregado decidido sin duplicar operación. |
 | PHY-G12 | `OPEN` | Agregados fiscales neutrales | `UC-EINV-001` | Modelo conceptual alineado con puertos neutrales y resultado incierto. |
@@ -142,4 +142,4 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 
 ## Resultado del inventario
 
-`PHY-G08` está cerrado y `PHY-G09` es el siguiente gate físico, aún no iniciado. El contrato documental de SaleReturn se cerró sin DDL y todavía no existe autorización para escribir la primera migración.
+`PHY-G09` está cerrado y `PHY-G10` es el siguiente gate físico, aún no iniciado. El contrato documental de operaciones financieras se cerró sin DDL y todavía no existe autorización para escribir la primera migración.

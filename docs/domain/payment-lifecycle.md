@@ -917,6 +917,9 @@ Puede considerar:
 6. Una corrección genera versión o ajuste.
 7. El mismo importe no se liquida dos veces.
 8. `COMPLETED` no implica conciliación.
+9. Bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes positivos, ajustes negativos y neto se conservan como componentes exactos separados.
+10. Cada cálculo congela política/version, entradas, evidencia y resultado, e indica si el bruto incluye operaciones posteriormente reversadas o ya viene neto de reversals.
+11. No existe una fórmula universal que reste reversals sin considerar el tratamiento declarado del bruto, ni se modifica Payment histórico para cuadrar Settlement.
 
 ---
 
@@ -971,6 +974,8 @@ Concilia contra:
 8. Un evento tardío genera revisión o reapertura.
 9. Los ajustes son operaciones separadas.
 10. `RECONCILED` pertenece a `ReconciliationStatus`, no a `PaymentStatus`.
+11. El periodo y alcance son snapshots de Reconciliation, no agregados con estado propio.
+12. Los únicos estados persistentes de Reconciliation son los definidos por `PAY-007`; `OPEN` y `PROCESSING` quedan reservados a otros conceptos cuando corresponda.
 
 ---
 

@@ -243,6 +243,22 @@ Operación compensatoria de Payments que devuelve dinero o restaura valor confir
 
 Operación de Payments que revierte una autorización o confirmación cuando el estado real y el proveedor todavía lo permiten. No equivale a Refund ni prueba una devolución comercial o física.
 
+## Settlement
+
+Agregado de Payments que representa el reconocimiento y liquidación de componentes financieros por caja, proveedor, adquirente, billetera o banco. Conserva bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes y neto separados, además de política, entradas, evidencia y resultado; no modifica Payment histórico ni equivale a conciliación.
+
+## Reconciliation
+
+Agregado de Payments que compara snapshots de movimientos internos y fuentes externas mediante reglas deterministas y versionadas. Su periodo o alcance es contexto congelado, no otro agregado con estado propio. Los estados de la ejecución, de sus items y de sus incidencias son ejes separados.
+
+## Provider authority
+
+Principio por el cual el proveedor o subsistema que controla una operación externa es autoridad sobre su resultado. POS Platform valida y consolida evidencia, pero un dispositivo, frontend, callback no autenticado o timestamp no puede declarar éxito.
+
+## Evidencia de proveedor
+
+Respuesta, webhook, archivo, consulta o referencia verificable de una fuente externa, conservada de forma inmutable mediante localizador seguro, identidad, hash y contexto tenant-scoped. No incluye secretos ni datos sensibles en logs o eventos.
+
 ## Anulación
 
 Reversión autorizada de una operación completa, manteniendo trazabilidad.

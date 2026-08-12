@@ -65,7 +65,7 @@
 | Editar sucursal | Sí | Sí | Solo asignada | No | No |
 | Desactivar sucursal | Sí | Condicional | No | No | No |
 | Cambiar dirección | Reautenticación | Condicional | Solicitar | No | No |
-| Cambiar QR de recaudo | Reautenticación reforzada | Rol financiero | No | No | No |
+| Cambiar QR de recaudo | Reautenticación reforzada | Condicional con `payments.provider.configure` | No | No | No |
 | Consultar todas las sucursales | Sí | Sí | Solo asignadas | Solo asignadas | Solo propia |
 
 ## Usuarios y permisos
@@ -140,6 +140,22 @@ No existe permiso para anular o editar un GoodsReceipt confirmado. Los errores d
 
 `Devolver venta` representa el ciclo comercial de `SaleReturn`: CASHIER solo solicita mediante `sales.return.request`; aprobación, ejecución y revisión exigen los permisos `sales.return.*` correspondientes y las políticas de alcance/riesgo. Ningún rol obtiene por esta fila autorización implícita para Refund, Reversal, CashMovement, InventoryMovement o efecto fiscal.
 
+## Operaciones financieras de Payments
+
+| Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR |
+|---|---:|---:|---:|---:|
+| Registrar Settlement | Sí | Sí | Condicional | Condicional |
+| Consultar Settlement | Sí | Sí | Solo alcance | Solo alcance |
+| Revisar Settlement | Sí | Sí | Condicional | Condicional |
+| Iniciar Reconciliation | Sí | Sí | Solo alcance | Solo alcance |
+| Consultar Reconciliation | Sí | Sí | Solo alcance | Solo alcance |
+| Revisar o resolver diferencias | Reforzado | Reforzado | Condicional | Condicional |
+| Cerrar Reconciliation | Reforzado | Reforzado | Condicional | Condicional |
+| Reabrir Reconciliation | Reforzado | Reforzado | No por defecto | No por defecto |
+| Configurar proveedor | Reforzado | Condicional | No | No |
+
+La tabla no crea roles financieros. Cada celda exige el permiso atómico correspondiente y evaluación ABAC de tenant, company, branch, importe, estado, fuente, sesión, dispositivo y riesgo. `Reforzado` incluye motivo y auditoría append-only y puede exigir reautenticación, MFA y segregación de funciones según política.
+
 ## Reportes
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | CASHIER |
@@ -164,7 +180,7 @@ No existe permiso para anular o editar un GoodsReceipt confirmado. Los errores d
 | Mostrar QR del negocio | No | No | No | No | Sí, solo lectura | Escanear |
 | Confirmar pago manual | Sí | Sí | Sí | No | No | No |
 | Confirmar entrega con PIN | No | No | No | No | Sí | Entregar PIN |
-| Modificar QR | Reautenticación | Rol financiero | No | No | No | No |
+| Modificar QR | Reautenticación | Condicional con `payments.provider.configure` | No | No | No | No |
 | Ver ubicación del domiciliario | Sí | Sí | Sí | Condicional | Propia | Pedido propio |
 
 ## Permisos atómicos
@@ -195,6 +211,16 @@ Ejemplos:
 - `payments.reversal.request`;
 - `payments.reversal.approve`;
 - `payments.reversal.execute`;
+- `payments.settlement.record`;
+- `payments.settlement.read`;
+- `payments.settlement.review`;
+- `payments.reconciliation.start`;
+- `payments.reconciliation.read`;
+- `payments.reconciliation.review`;
+- `payments.reconciliation.resolve`;
+- `payments.reconciliation.close`;
+- `payments.reconciliation.reopen`;
+- `payments.provider.configure`;
 - `cash.expense.register`;
 - `cash.shift.open`;
 - `cash.shift.close`;
@@ -282,6 +308,10 @@ Aplicaciones mínimas:
 | SaleReturn | `sales.return.request` | `sales.return.approve` | `sales.return.execute` |
 | Refund | `payments.refund.request` | `payments.refund.approve` | `payments.refund.execute.cash` / `payments.refund.execute.external` |
 | Reversal | `payments.reversal.request` | `payments.reversal.approve` | `payments.reversal.execute` |
+| Resolución de diferencia | Revisión con `payments.reconciliation.review` | Política reforzada | `payments.reconciliation.resolve` |
+| Cierre de Reconciliation | `payments.reconciliation.close` | Política reforzada cuando aplique | Cierre auditado |
+| Reapertura de Reconciliation | `payments.reconciliation.reopen` | Reautenticación/MFA según política | Reapertura versionada |
+| Configuración de proveedor | `payments.provider.configure` | Segregación según riesgo | Aplicación auditada sin exponer secretos |
 | Ajuste crítico de inventario | `inventory.adjustment.request` | `inventory.adjustment.approve` | `inventory.adjustment.execute` |
 | Traslado de inventario | `inventory.transfer.request` | `inventory.transfer.approve` | `inventory.transfer.dispatch` / `inventory.transfer.receive` |
 | Compensación de inventario | Revisión autorizada | `inventory.conflict.review` | `inventory.compensation.execute` |
@@ -297,6 +327,8 @@ Reglas:
 4. La separación de funciones no debe implementarse únicamente en frontend.
 5. `sales.return.*` no concede permisos `payments.refund.*` o `payments.reversal.*`; cada módulo autoriza y audita su propio efecto.
 6. SaleReturn puede exigir reautenticación, MFA o aprobación superior por importe, condición física, operación fuera de ventana, self-approval, sucursal, dispositivo o riesgo de fraude.
+7. Cerrar o reabrir Reconciliation, aceptar o resolver diferencias y configurar proveedor requieren motivo y auditoría append-only; la política puede exigir reautenticación, MFA y actores distintos.
+8. Los permisos de Settlement o Reconciliation no conceden `payments.provider.configure`, `payments.reversal.*`, acceso cross-tenant ni autoridad para modificar Payment histórico.
 
 ## Pruebas negativas mínimas
 

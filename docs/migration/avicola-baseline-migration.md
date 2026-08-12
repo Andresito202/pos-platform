@@ -259,6 +259,16 @@ Una anulación no se transforma automáticamente en SaleReturn. Devoluciones sin
 
 Un valor heredado `mixto` sin desglose suficiente se migra como evidencia histórica no descompuesta y queda fuera de nuevas operaciones de refund automático hasta revisión. No se inventan importes, proveedores, referencias ni intentos.
 
+### Reversal, Settlement y Reconciliation heredados
+
+Una venta anulada, nota libre, diferencia de caja, fecha, estado genérico o cambio manual no demuestra por sí mismo un `Reversal`, `Settlement` o `Reconciliation` completado.
+
+Solo se convierte un hecho cuando existen tenant/company/branch verificables, identidad de fuente, importes exactos, moneda, relación con el Payment original y evidencia suficiente. No se inventan referencias externas, idempotency keys, políticas de cálculo, tratamiento del bruto, evidencia de proveedor, aprobaciones ni estados finales.
+
+Los componentes de Settlement se reconstruyen separados cuando la fuente los demuestra: bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes positivos, ajustes negativos y neto. Debe documentarse si el bruto incluye operaciones posteriormente reversadas o ya viene neto; una ambigüedad impide calcular un neto autoritativo y pasa a revisión.
+
+El alcance heredado de conciliación se conserva como snapshot, no como agregado de periodo ni máquina paralela. Items e incidencias ambiguos se llevan a cuarentena. La migración no modifica Payment histórico para cuadrar Settlement o Reconciliation y debe detectar duplicados, doble consumo y contaminación cross-tenant antes del cutover.
+
 ### Caja
 
 La tabla heredada `cajas` mezcla turno, base y snapshot de cierre. `movimientos_caja` conserva hechos básicos, pero no tiene tenant, empresa, sucursal, caja física separada, dispositivo, moneda explícita, idempotencia, secuencia, aprobación, referencia robusta o política.

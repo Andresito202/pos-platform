@@ -40,12 +40,13 @@ P0
 
 ## Actores primarios
 
-- Supervisor de caja.
-- Administrador financiero.
-- Analista de conciliación.
-- Contabilidad.
-- Auditor autorizado.
+- `OWNER`.
+- `GENERAL_ADMIN`.
+- `BRANCH_MANAGER` dentro de sus sucursales asignadas.
+- `SUPERVISOR` dentro de su alcance autorizado.
 - Procesos automáticos de POS Platform.
+
+Estos son roles existentes, no roles financieros nuevos. La autorización efectiva depende siempre de permisos atómicos y políticas contextuales; ningún rol recibe por nombre acceso implícito a Settlement, Reconciliation o configuración de proveedor.
 
 ## Sistemas externos participantes
 
@@ -158,11 +159,11 @@ Estos son estados conceptuales del elemento de conciliación. `PAY-007` debe arm
    - existencia del alcance;
    - compatibilidad de moneda;
    - zona horaria;
-   - estado del periodo;
+   - existencia de una Reconciliation cerrada o activa sobre el mismo alcance exclusivo;
    - ausencia de otra ejecución incompatible;
    - idempotency key de la solicitud.
 
-3. El sistema crea una ejecución de conciliación en estado conceptual `RUNNING`.
+3. El sistema crea una ejecución de conciliación en estado persistente `RUNNING`, autorizado por `PAY-007`.
 
 4. El sistema congela un snapshot de entrada que contiene:
 
@@ -322,7 +323,7 @@ Estos son estados conceptuales del elemento de conciliación. `PAY-007` debe arm
     - motivo;
     - auditoría.
 
-26. El sistema publica el evento interno `PaymentReconciliationClosed`.
+26. El sistema publica el evento interno `ReconciliationClosed`.
 
 27. Una repetición con la misma idempotency key y el mismo contenido devuelve el resultado existente.
 
@@ -641,7 +642,7 @@ Una conciliación puede operar sobre:
 - periodo contable;
 - rango personalizado autorizado.
 
-Cada periodo debe conservar:
+El alcance se conserva como snapshot inmutable dentro de `Reconciliation` y debe incluir:
 
 - tenant;
 - empresa;
@@ -654,31 +655,30 @@ Cada periodo debe conservar:
 - fecha y hora final;
 - zona horaria;
 - fecha de corte;
-- estado;
 - versión.
 
-## Estados conceptuales del periodo
+## Estados persistentes de Reconciliation
 
-- `OPEN`
-- `PROCESSING`
+- `CREATED`
+- `RUNNING`
 - `REVIEW_REQUIRED`
 - `PARTIALLY_RECONCILED`
 - `RECONCILED`
-- `CLOSED`
-- `REOPENED`
 - `FAILED`
 - `CANCELLED`
+- `CLOSED`
+- `REOPENED`
 
-Estos estados son conceptuales para UC-PAY-005. `PAY-007` debe armonizarlos con la máquina general sin agregarlos arbitrariamente a `Payment`.
+`PAY-007` es la única autoridad de estos estados. `OPEN` y `PROCESSING` no son estados de Reconciliation. El periodo o alcance no es un agregado con máquina de estados propia; los estados de items e incidencias permanecen separados.
 
 ## Reglas
 
-1. Un periodo `CLOSED` no se modifica directamente.
-2. Un movimiento recibido después del cierre no reescribe el periodo histórico.
+1. Una Reconciliation `CLOSED` no se modifica directamente.
+2. Un movimiento recibido después del cierre no reescribe el snapshot histórico.
 3. La reapertura requiere permiso, motivo, versión esperada y auditoría.
 4. Una reapertura crea una nueva revisión o versión del proceso.
-5. Los periodos no pueden solaparse cuando representan el mismo alcance exclusivo.
-6. Un periodo puede cerrarse con incidencias pendientes solo si una política expresa lo permite.
+5. Los alcances no pueden solaparse cuando representan el mismo scope exclusivo.
+6. Una Reconciliation puede cerrarse con incidencias pendientes solo si una política expresa lo permite.
 7. Las incidencias materiales bloquean el cierre.
 8. La fecha contable y la fecha de operación deben conservarse separadas.
 9. La zona horaria utilizada queda congelada en el snapshot del periodo.
@@ -715,14 +715,18 @@ Una liquidación debe identificar:
 - lote;
 - moneda;
 - periodo;
-- importe bruto;
-- comisiones;
-- retenciones;
-- refunds;
-- reversals;
-- contracargos;
-- ajustes;
-- importe neto;
+- `gross_amount`;
+- `fee_amount`;
+- `withholding_amount`;
+- `refunded_amount`;
+- `reversed_amount`;
+- `chargeback_amount`;
+- `positive_adjustment_amount`;
+- `negative_adjustment_amount`;
+- `net_amount`;
+- `calculation_policy_version`;
+- tratamiento declarado del bruto frente a reversals;
+- snapshot de entradas exactas y resultado calculado;
 - fecha esperada de abono;
 - fecha real de abono;
 - referencia externa;
@@ -730,20 +734,9 @@ Una liquidación debe identificar:
 
 ## Regla de total
 
-El importe neto esperado se calcula conceptualmente como:
+No existe una fórmula universal implícita. El contrato de fuente y la política versionada deben declarar si `gross_amount` incluye operaciones posteriormente reversadas o si ya viene neto de reversals. Solo en el primer caso la política puede descontar `reversed_amount`; descontarlo de nuevo cuando el bruto ya viene neto es inválido.
 
-```text
-importe bruto
-- comisiones
-- retenciones
-- refunds
-- contracargos
-+ ajustes positivos
-- ajustes negativos
-= importe neto esperado
-```
-
-La fórmula exacta debe quedar versionada y adaptarse al contrato de cada proveedor sin alterar la semántica interna.
+Cada cálculo conserva `calculation_policy_version`, entradas exactas, tratamiento del bruto, evidencia de proveedor y resultado calculado. Los componentes permanecen separados aunque una política no los sume o reste. Una diferencia nunca se corrige modificando Payment histórico.
 
 ## Reglas de liquidación
 
@@ -756,6 +749,7 @@ La fórmula exacta debe quedar versionada y adaptarse al contrato de cada provee
 7. Toda liquidación conserva detalle suficiente para reconstruir el neto.
 8. Los archivos externos originales permanecen inmutables.
 9. Una liquidación corregida crea una nueva versión o ajuste; no reemplaza la anterior sin trazabilidad.
+10. Los importes usan decimal exacto y el resultado debe poder reproducirse desde la política y entradas congeladas.
 
 ---
 
@@ -902,13 +896,13 @@ No se permite:
 
 ## Principio
 
-Una operación válida creada offline puede llegar después del cierre del periodo al que pertenece.
+Una operación válida creada offline puede llegar después del cierre de la Reconciliation cuyo snapshot cubre su periodo.
 
 El sistema no debe:
 
 - descartarla;
 - cambiar su fecha original;
-- insertarla silenciosamente en un periodo cerrado;
+- insertarla silenciosamente en una Reconciliation cerrada;
 - duplicarla;
 - alterar un cierre histórico sin revisión.
 
@@ -926,13 +920,13 @@ El sistema no debe:
 
 2. El sistema valida autenticidad e idempotencia.
 
-3. Si pertenece a un periodo abierto, se incorpora normalmente.
+3. Si pertenece al alcance de una Reconciliation activa, se incorpora conforme a su snapshot y política.
 
-4. Si pertenece a un periodo cerrado:
+4. Si pertenece al alcance histórico de una Reconciliation cerrada:
 
    - se registra como movimiento tardío;
    - se crea incidencia;
-   - se vincula al periodo histórico;
+   - se vincula al snapshot histórico;
    - se decide reapertura, ajuste o conciliación posterior;
    - se conserva la fecha contable aplicada.
 
@@ -1010,11 +1004,20 @@ La conciliación es una operación privilegiada.
 
 ## Roles autorizados
 
-- Administrador de empresa.
-- Supervisor financiero.
-- Auditor.
+- `OWNER`.
+- `GENERAL_ADMIN`.
+- `BRANCH_MANAGER` dentro de su alcance de sede.
+- `SUPERVISOR` dentro de su alcance autorizado.
 - Servicio interno de conciliación.
 - Integración autorizada.
+
+Los permisos atómicos aplicables son:
+
+- `payments.settlement.record`, `payments.settlement.read`, `payments.settlement.review`;
+- `payments.reconciliation.start`, `payments.reconciliation.read`, `payments.reconciliation.review`, `payments.reconciliation.resolve`, `payments.reconciliation.close`, `payments.reconciliation.reopen`;
+- `payments.provider.configure`.
+
+El cierre, la reapertura, la aceptación o resolución de diferencias y la configuración de proveedor exigen motivo y auditoría append-only; la política puede exigir reautenticación, MFA y segregación de funciones.
 
 ## Restricciones
 
@@ -1041,14 +1044,14 @@ Toda autorización debe evaluarse considerando:
 
 Durante el proceso pueden emitirse los siguientes eventos conceptuales:
 
-- `PaymentReconciliationStarted`
+- `ReconciliationStarted`
 - `PaymentMatched`
 - `PaymentMismatchDetected`
 - `PaymentToleranceApplied`
 - `PaymentIncidentCreated`
 - `PaymentAdjustmentCreated`
-- `PaymentReconciliationClosed`
-- `PaymentReconciliationReopened`
+- `ReconciliationClosed`
+- `ReconciliationReopened`
 
 Los eventos son inmutables y forman parte de la auditoría.
 
@@ -1059,8 +1062,8 @@ Los eventos son inmutables y forman parte de la auditoría.
 El sistema debe distinguir, como mínimo:
 
 - conciliación inexistente;
-- periodo inexistente;
-- periodo cerrado;
+- alcance o snapshot inexistente;
+- Reconciliation cerrada;
 - proveedor inexistente;
 - extracto inválido;
 - archivo corrupto;
@@ -1143,11 +1146,7 @@ Debe existir evidencia para:
 
 # Relación con PAY-007
 
-Este caso define el proceso de conciliación.
-
-No define todavía la máquina de estados definitiva.
-
-La consolidación de estados corresponde exclusivamente a `PAY-007`.
+Este caso define el proceso de conciliación y adopta la máquina de estados definitiva consolidada exclusivamente por `PAY-007`.
 
 Ninguna implementación debe introducir estados adicionales sin actualizar `PAY-007`.
 

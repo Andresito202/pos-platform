@@ -334,3 +334,17 @@ RN-151. Un Refund en efectivo requiere un CashMovement separado y política de t
 RN-152. La consecuencia fiscal de SaleReturn pertenece a Electronic Invoicing y crea, cuando corresponda, un documento correctivo relacionado; no modifica el documento original ni acopla Sales directamente a DIAN o a un proveedor.
 
 RN-153. Solicitar, aprobar, ejecutar, revisar y leer SaleReturn usan permisos `sales.return.*`; Refund usa `payments.refund.*` y Reversal `payments.reversal.*`. La política puede exigir reautenticación, MFA, aprobación superior y segregación entre actores.
+
+RN-154. `PAY-007` es la única autoridad de `ReconciliationStatus`: `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. `OPEN` y `PROCESSING` no son estados de Reconciliation; periodo y alcance son snapshots sin máquina de estados propia.
+
+RN-155. Reversal, Settlement y Reconciliation pertenecen a Payments y nunca modifican Payment histórico, Sale, CashMovement, InventoryMovement ni documento fiscal para cuadrar un resultado. Cada efecto de otro dominio se registra por su propietario.
+
+RN-156. Settlement conserva por separado bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes positivos, ajustes negativos y neto, usando dinero exacto. Cada cálculo congela política/version, entradas, evidencia, resultado y si el bruto incluye operaciones posteriormente reversadas o ya viene neto; un reversal nunca se descuenta dos veces.
+
+RN-157. El resultado externo de Reversal y la evidencia de Settlement respetan provider authority. Webhooks, callbacks, archivos y reintentos se autentican, deduplican y procesan idempotentemente; incertidumbre o contradicción genera consulta o revisión, no éxito implícito ni last-write-wins.
+
+RN-158. Toda relación financiera es tenant-scoped. Una identidad, referencia externa, idempotency key, configuración o evidencia de otro tenant se rechaza sin revelar su existencia.
+
+RN-159. Cerrar o reabrir Reconciliation, aceptar o resolver diferencias y configurar proveedor exige permiso atómico, motivo y auditoría append-only; la política puede requerir reautenticación, MFA y segregación de funciones usando únicamente roles existentes.
+
+RN-160. Los eventos canónicos de Reversal y Reconciliation usan los nombres definidos por `PAY-007`; no se mantienen aliases para el mismo hecho. Items e incidencias pueden emitir hechos distintos sin redefinir el estado del agregado.

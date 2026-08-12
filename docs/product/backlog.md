@@ -15,7 +15,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Trabajo principal en curso: `TECH-002`, con estado `IN_PROGRESS` y prioridad `P0`; `PHY-G08` está cerrado y `PHY-G09` es el siguiente gate físico, aún no iniciado.
+- Trabajo principal en curso: `TECH-002`, con estado `IN_PROGRESS` y prioridad `P0`; `PHY-G09` está cerrado y `PHY-G10` es el siguiente gate físico, aún no iniciado.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -289,7 +289,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `IN_PROGRESS` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | `PHY-G08` cerrado mediante el contrato físico documental de SaleReturn; `PHY-G09` es el siguiente gate y aún no se inició. La primera migración permanece `NO-GO`. |
+| TECH-002 | `P0` | `IN_PROGRESS` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | `PHY-G09` cerrado mediante el contrato físico documental de Reversal, Settlement y Reconciliation; `PHY-G10` es el siguiente gate y aún no se inició. La primera migración permanece `NO-GO`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
 | TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
@@ -297,11 +297,11 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Continuar `TECH-002` — `P0`, `IN_PROGRESS`: iniciar `PHY-G09` en un trabajo posterior explícito, sin saltar el orden físico y sin escribir migraciones.
+1. Continuar `TECH-002` — `P0`, `IN_PROGRESS`: iniciar `PHY-G10` en un trabajo posterior explícito, sin saltar el orden físico y sin escribir migraciones.
 2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
 3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
 
-El trabajo producido durante `TECH-002` conserva validez documental. El cierre de `PHY-G08` habilita abordar `PHY-G09`, pero no autoriza escribir migraciones. La secuencia interna obligatoria continúa así:
+El trabajo producido durante `TECH-002` conserva validez documental. El cierre de `PHY-G09` habilita abordar `PHY-G10`, pero no autoriza escribir migraciones. La secuencia interna obligatoria continúa así:
 
 1. consolidar la matriz física de motores y dialectos, UUID, tipos monetarios, alcances de unicidad, tablas de identidad/RBAC/sesión, fronteras transaccionales y auditoría;
 2. verificar cada decisión contra inventario por presentación y lote, `PaymentGroup`/`Payment`/`PaymentAttempt`, estados persistentes de `Sale`, redondeo único y configuración offline por dominio;
@@ -378,7 +378,7 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 | Hito | Estado | Criterio de salida |
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
-| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G08` cerrados documentalmente; `PHY-G09` es el siguiente gate no iniciado. La primera migración requiere autorización documental independiente y permanece `NO-GO`. |
+| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G09` cerrados documentalmente; `PHY-G10` es el siguiente gate no iniciado. La primera migración requiere autorización documental independiente y permanece `NO-GO`. |
 | F1.3 Seguridad e identidad | `PLANNED` | Aislamiento multi-tenant probado, sesiones revocables, MFA crítico y permisos backend. |
 | F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
@@ -456,4 +456,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-12: `PHY-G08` cerró el contrato físico documental de SaleReturn. Se separaron estados persistentes de proyecciones de Sale, SaleReturn de Refund/Reversal, ownership y permisos de Sales/Payments, y se alinearon tenant, snapshots, elegibilidad, dinero, inventario, caja, fiscalización, local-first, auditoría, eventos y migración heredada. No se escribió DDL ni se inició `PHY-G09`.
 
-Próxima actualización obligatoria: iniciar `PHY-G09` únicamente mediante un trabajo posterior explícito y mantener el orden físico; el gate de primera migración permanece `NO-GO`.
+- 2026-08-12: `PHY-G09` cerró el contrato físico documental de Reversal, Settlement y Reconciliation. `PAY-007` quedó como autoridad única de estados; se alinearon eventos canónicos, ownership de Payments, componentes monetarios exactos, tratamiento versionado del bruto frente a reversals, snapshots de alcance, permisos sobre roles existentes, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración heredada. No se escribió DDL ni se inició `PHY-G10`.
+
+Próxima actualización obligatoria: iniciar `PHY-G10` únicamente mediante un trabajo posterior explícito y mantener el orden físico; el gate de primera migración permanece `NO-GO`.

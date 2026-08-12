@@ -276,11 +276,47 @@ Registra que se recibió evidencia declarativa de un pago; no implica `PaymentSt
 
 ### RefundReviewRequired
 
-### PaymentReversalRequested
+### ReversalRequested
 
-### PaymentReversed
+### ReversalProcessing
+
+### ReversalCompleted
+
+### ReversalFailed
+
+### ReversalCancelled
+
+### ReversalReviewRequired
 
 Refund y Reversal pertenecen a Payments. Ninguno demuestra por sí solo devolución comercial o física.
+
+### SettlementCreated
+
+### SettlementProcessing
+
+### SettlementPartiallyCompleted
+
+### SettlementCompleted
+
+### SettlementFailed
+
+### SettlementReviewRequired
+
+### ReconciliationStarted
+
+### ReconciliationPartiallyCompleted
+
+### ReconciliationCompleted
+
+### ReconciliationReviewRequired
+
+### ReconciliationClosed
+
+### ReconciliationReopened
+
+### ReconciliationFailed
+
+Settlement y Reconciliation pertenecen a Payments. Sus eventos no modifican Payment histórico ni demuestran por sí mismos cierre de caja, abono bancario o efecto fiscal.
 
 ### PaymentReconciliationRequired
 
