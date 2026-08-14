@@ -1,0 +1,7 @@
+DROP SCHEMA audit CASCADE;
+DROP SCHEMA sync CASCADE;
+DROP SCHEMA "authorization" CASCADE;
+DROP SCHEMA identity CASCADE;
+DROP SCHEMA organization CASCADE;
+DROP SCHEMA tenancy CASCADE;
+DROP FUNCTION platform.current_tenant_id();

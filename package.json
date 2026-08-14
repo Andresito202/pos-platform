@@ -1,0 +1,11 @@
+{
+  "name": "pos-platform-target",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "typecheck": "pnpm --filter @pos-platform/target-migrations typecheck",
+    "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
+    "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",
+    "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite"
+  }
+}
