@@ -2,7 +2,7 @@
 
 ## Estado
 
-Inventario normativo de `TECH-002`. R1, R2-A y R2-B están cerrados documentalmente; R3 está ejecutado con `PASS` y R4 tiene `PASS` documental. Falta la revisión transversal independiente.
+Inventario normativo de `TECH-002`. R1, R2-A y R2-B están cerrados documentalmente; R3 está ejecutado con `PASS`, R4 tiene `PASS` documental y R5 cerró documentalmente los seis blockers de la primera revisión transversal. Falta una nueva revisión transversal final independiente.
 
 Este documento no autoriza todavía la creación de migraciones. Su propósito es demostrar qué caso de uso, decisión o invariante exige cada agregado que podrá entrar al modelo físico objetivo.
 
@@ -249,11 +249,26 @@ El corte PostgreSQL contiene Foundation central, identidad/autorización, onboar
 
 El PoC criptográfico pendiente no bloquea 001 porque no se persiste ningún objeto dependiente de firma/canonicalización. Sí bloquea el corte posterior de Device/Licensing/offline. Foundation queda `APPROVED_FOR_MIGRATION_DESIGN` solo para el scope 001; Device/Licensing y Catalog permanecen `IN_REVIEW`. No cambian security gates, `TECH-002` ni el `NO-GO` de la primera migración.
 
+## R5 — cierre normativo de blockers B01–B06
+
+R5: `PASS` documental. La revisión transversal posterior a R4 produjo seis blockers y R5 los cerró sin escribir DDL ni ampliar el conjunto de objetos 001:
+
+| Blocker | Estado | Decisión normativa |
+|---|---|---|
+| B01 | `CLOSED` | PHASE 0 crea/verifica roles y bootstrap permanente `platform`/UUIDv7/ledger antes de admitir `STARTED`; attempt, body y smoke tienen fronteras separadas. |
+| B02 | `CLOSED` | `target_migration_executions` es la única history; Kysely solo ejecuta queries y no crea metadata de migraciones. |
+| B03 | `CLOSED` | `APPLIED` exige body committed, catálogo exacto y smoke PASS; committed no verificado permanece `STARTED`; FAILED nunca representa schema committed; down fresh conserva evidencia y produce `ROLLED_BACK`. |
+| B04 | `CLOSED` | Onboarding referencia `(tenant_id,user_id,id,membership_type)` con discriminador generado `OWNER` y checks de copresencia del resultado estructural. |
+| B05 | `CLOSED` | Session sigue global con contexto opcional, pero usa RLS/FORCE: `pos_app` solo tenant actual, Identity service global explícito, worker sin grant y admin read-only. |
+| B06 | `CLOSED` | AuditEvent usa `resource_reference_kind=INSTANCE|SYSTEM|BATCH`; la combinación determina de forma verificable si `resource_id` es obligatorio o nulo, sin sentinel. |
+
+R5 solo aporta schema/migration readiness documental. Las policies Session, constraints nuevas, runner, reconciliation y combinaciones AuditEvent deben probarse sobre el DDL real. `SEC-G01`, `SEC-G02` y `SEC-G06`, al igual que los demás gates, permanecen `PLANNED / NOT_EVALUATED`. `TECH-002` continúa `IN_PROGRESS` y la primera migración continúa `NO-GO` hasta una nueva revisión transversal final independiente.
+
 ## Resultado del inventario
 
 `PHY-G01` a `PHY-G14` están cerrados en el alcance documental registrado por cada gate. Ese cierre no convierte automáticamente los bloques físicos Foundation, Device/Licensing o Catalog en aprobados para migración: sus condiciones internas pendientes siguen explícitas.
 
-R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. R2-A, R2-B, R3 y R4 se registran a continuación; repositories, implementación, gates y revisión transversal continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. R2-A, R2-B, R3, R4 y R5 se registran a continuación; repositories, implementación, gates y una nueva revisión transversal continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 R2-A cierra documentalmente relaciones Foundation↔Devices/Licensing↔Sync: candidate keys/FKs tenant-aware, orden sin ciclos irresolubles, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, delete policies, split PostgreSQL/SQLite y fronteras transaccionales. R3 validó patrones físicos y R4 difiere sin FK libre la cadena Device/Licensing. Foundation queda aprobada para diseño de 001; Device/Licensing permanece `IN_REVIEW`. `TECH-002` y la primera migración no cambian de estado.
 

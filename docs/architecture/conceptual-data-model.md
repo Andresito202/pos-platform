@@ -2731,7 +2731,8 @@ Debe ser inmutable y registrar:
 - device_id opcional;
 - action_code;
 - resource_type;
-- resource_id opcional;
+- resource_reference_kind: `INSTANCE`, `SYSTEM` o `BATCH`;
+- resource_id condicional;
 - previous_value opcional;
 - new_value opcional;
 - reason_code opcional;
@@ -2752,6 +2753,9 @@ Reglas:
 4. Los snapshots históricos no se reconstruyen desde configuración actual.
 5. Logs, métricas, trazas y eventos de dominio no sustituyen `AuditEvent`.
 6. La retención y archivo preservan identidad, checksum y correlación.
+7. `INSTANCE` identifica una única instancia persistida y exige su `resource_id`; `SYSTEM` representa un hecho sin instancia y prohíbe `resource_id`; `BATCH` representa un conjunto, prohíbe `resource_id` y exige `operation_id`.
+8. No se usan UUID ficticios o sentinel para representar ausencia de recurso.
+9. Login, MFA y replay ordinarios pertenecen a SecurityEvent; AuditEvent registra solo una acción administrativa diferenciada sobre User/Session.
 
 ### SupportTicket
 
@@ -2823,6 +2827,6 @@ Permite acceso temporal y auditado al proveedor.
 | SyncDeadLetter | UUID global; una por operation; referencias tenant-aware; sin payload; estado/clasificación válidos; versión optimista |
 | SyncDeadLetterAction | append-only; mismo tenant/operation de la dead letter; transición, actor, motivo y timestamp confiable obligatorios |
 | Device/Activation | identidad no reutilizable; una solicitud idempotente no crea duplicados; cupo no se excede |
-| AuditEvent | UUID global, timestamp servidor, action, resource, correlation y actor type obligatorios; append-only |
+| AuditEvent | UUID global, timestamp servidor, action, resource type/reference kind, correlation y actor type obligatorios; `resource_id` condicional; append-only |
 
 Las restricciones anteriores deben expresarse mediante `FK`, `UNIQUE`, `CHECK`, `NOT NULL`, versión optimista o una combinación verificable. Una validación de aplicación no sustituye una restricción de base de datos cuando el motor pueda expresarla.

@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-`APPROVED_FOR_MIGRATION_DESIGN` para el scope exacto de migration 001 definido por R4. No autoriza DDL ni cambia la primera migración de `NO-GO`.
+`APPROVED_FOR_MIGRATION_DESIGN` para el scope exacto de migration 001 definido por R4 y corregido normativamente por R5. No autoriza DDL ni cambia la primera migración de `NO-GO`.
 
 Este documento diseña el bloque central que debe existir antes de catálogo, inventario, ventas o pagos:
 
@@ -93,6 +93,7 @@ Constraints e índices:
 
 - `UNIQUE (tenant_id, id)` para FK tenant-scoped;
 - `UNIQUE (user_id, id)` para que Session valide usuario y membership en una FK compuesta;
+- `UNIQUE (tenant_id, user_id, id, membership_type)` para que Onboarding valide en una sola FK tenant, propietario, membership y tipo `OWNER`;
 - una sola relación no revocada por `(tenant_id, user_id)`: índice unique parcial con `status <> 'REVOKED'`;
 - máximo una membership primaria vigente por usuario: unique parcial `(user_id) WHERE is_primary AND status = 'ACTIVE'`;
 - índice `(user_id, status, tenant_id)` para selección explícita de contexto;
@@ -261,6 +262,15 @@ Candidate keys, FKs e índices:
 
 La aplicación además exige membership activa y Device permitido dentro de la misma transacción. Una sesión pre-contexto no puede originar una operación tenant-scoped ni vincular Device.
 
+Session es una entidad global de Identity que puede adquirir contexto tenant; no es una tabla libre para el runtime común. PostgreSQL aplica `ENABLE ROW LEVEL SECURITY` y `FORCE ROW LEVEL SECURITY`:
+
+- `sessions_tenant_context` es `FOR SELECT TO pos_app` y exige `tenant_id` no nulo igual al contexto validado de la transacción; nunca expone sesiones pre-contexto;
+- `sessions_identity_select`, `sessions_identity_insert` y `sessions_identity_update`, solo para `pos_platform_app`, separan SELECT/INSERT/UPDATE global para login pre-contexto, selección de contexto, refresh lookup y revocación; no existe policy DELETE;
+- `pos_worker` no recibe grants; `pos_app` no actualiza Session; RefreshToken solo es accesible por `pos_platform_app`;
+- el path administrativo global es `pos_platform_admin`, read-only, explícito y auditado; ningún runtime es owner, superuser o BYPASSRLS.
+
+La frontera anterior requiere prueba física sobre el DDL real: tenant A/B, tenant nulo, contexto inválido, reuse de pool, login pre-contexto, refresh/revocation y ausencia de lookup global desde `pos_app`/worker. El PoC previo de PHY-G14 demuestra el patrón, no esta tabla concreta.
+
 ### `identity.session_refresh_tokens`
 
 | Columna | Tipo PostgreSQL | Nulable | Regla |
@@ -391,6 +401,7 @@ Propietario: Tenants. `CENTRAL_ONLY`. Existe antes del tenant y por ello no apli
 | `branch_id` | `uuid` | sí | resultado |
 | `owner_user_id` | `uuid` | sí | resultado |
 | `tenant_membership_id` | `uuid` | sí | resultado |
+| `owner_membership_type` | `text` generado | no | constante física `OWNER`, no segunda fuente de autoridad |
 | `status` | `text` | no | estados exactos de `UC-ONB-001` |
 | `reason_code` | `text` | sí | error/decisión estable |
 | `license_reference` | `text` | sí | referencia, no licencia ni secreto |
@@ -410,6 +421,9 @@ Propietario: Tenants. `CENTRAL_ONLY`. Existe antes del tenant y por ello no apli
 Constraints e índices:
 
 - `UNIQUE (actor_type, actor_id, idempotency_key)`;
+- FK `(tenant_id, owner_user_id, tenant_membership_id, owner_membership_type) -> tenancy.tenant_memberships(tenant_id, user_id, id, membership_type)`; la membership referenciada es la única autoridad de pertenencia/tipo;
+- el grupo `(tenant_id, company_id, branch_id, tenant_membership_id)` es todo nulo o todo presente; `owner_user_id` puede resolverse antes del grupo, pero es obligatorio cuando este existe;
+- `READY_FOR_LICENSE`, `READY_FOR_ACTIVATION` y `COMPLETED` exigen grupo y owner completos; `PENDING` no admite grupo estructural;
 - unique parcial `tenant_id`, `company_id`, `branch_id` y `tenant_membership_id` cuando presentes para impedir que dos onboardings reclamen el mismo resultado;
 - checks de timestamps por estado;
 - índice `(status, updated_at, id)` para recuperación de operaciones incompletas;
@@ -427,6 +441,7 @@ Columnas obligatorias:
 - `actor_type text NOT NULL`;
 - `action_code text NOT NULL`;
 - `resource_type text NOT NULL`;
+- `resource_reference_kind text NOT NULL` con valores `INSTANCE`, `SYSTEM` o `BATCH`;
 - `correlation_id uuid NOT NULL`;
 - `schema_version integer NOT NULL CHECK (schema_version >= 1)`;
 - `reported_at timestamptz NOT NULL`;
@@ -454,14 +469,18 @@ Columnas opcionales por contexto:
 
 Reglas condicionales:
 
-1. Todo evento tenant-scoped exige `tenant_id`; Company, Branch, actor, recurso, operación y dispositivo deben pertenecer al mismo tenant cuando existan.
-2. `operation_id` es obligatorio para una operación idempotente/sincronizable y `causation_id` cuando existe causa conocida distinta.
-3. Motivo es obligatorio para override, rechazo, aprobación, reapertura, compensación o acción administrativa crítica.
-4. Reviewer/approver se exigen cuando la política aplicable requiere revisión, aprobación o segregación; sus pares tipo/id son ambos presentes o ambos ausentes.
-5. `previous_value`/`new_value` son snapshots limitados, con schema conocido, allowlist y redacción. No duplican el agregado completo si basta una referencia, diff acotado o checksum.
-6. Nunca contienen passwords, tokens, secretos MFA, PAN, CVV, claves privadas, certificados utilizables, blobs completos de proveedor ni payload fiscal innecesario.
-7. `payload_checksum` cubre la representación canónica del evento sanitizado; no demuestra por sí solo autenticidad criptográfica.
-8. Los roles operacionales no reciben `UPDATE`, `DELETE` ni `TRUNCATE`; correcciones generan otro AuditEvent causalmente relacionado.
+1. `INSTANCE` representa una única fila estable y exige `resource_id`; incluye onboarding/configuration publication una vez existe su fila.
+2. `SYSTEM` representa un hecho global o pre-recurso sin una instancia persistida y exige `resource_id NULL`.
+3. `BATCH` representa un conjunto, exige `resource_id NULL` y `operation_id NOT NULL`; Operation identifica el trabajo, no se usa UUID ficticio.
+4. Login, MFA y replay ordinarios pertenecen a SecurityEvent; AuditEvent solo los registra cuando existe una acción administrativa distinta, usando `INSTANCE` sobre User/Session.
+5. Todo evento tenant-scoped exige `tenant_id`; Company, Branch, actor, recurso, operación y dispositivo deben pertenecer al mismo tenant cuando existan.
+6. `operation_id` es obligatorio para una operación idempotente/sincronizable y `causation_id` cuando existe causa conocida distinta.
+7. Motivo es obligatorio para override, rechazo, aprobación, reapertura, compensación o acción administrativa crítica.
+8. Reviewer/approver se exigen cuando la política aplicable requiere revisión, aprobación o segregación; sus pares tipo/id son ambos presentes o ambos ausentes.
+9. `previous_value`/`new_value` son snapshots limitados, con schema conocido, allowlist y redacción. No duplican el agregado completo si basta una referencia, diff acotado o checksum.
+10. Nunca contienen passwords, tokens, secretos MFA, PAN, CVV, claves privadas, certificados utilizables, blobs completos de proveedor ni payload fiscal innecesario.
+11. `payload_checksum` cubre la representación canónica del evento sanitizado; no demuestra por sí solo autenticidad criptográfica.
+12. Los roles operacionales no reciben `UPDATE`, `DELETE` ni `TRUNCATE`; correcciones generan otro AuditEvent causalmente relacionado.
 
 FK global `session_id -> sessions(id)` y FKs tenant-aware `(tenant_id, company_id)`, `(tenant_id, company_id, branch_id)`, `(tenant_id, device_id)`, `(tenant_id, session_id)` y `(tenant_id, operation_id)` cuando cada referencia tenant-scoped exista. Checks exigen `tenant_id` para Company, Branch, Device u Operation; un evento de plataforma/bootstrap sin Tenant solo puede conservar Session pre-contexto y referencias globales permitidas. Todas usan `NO ACTION`; retirar actor, Device u Operation no borra auditoría.
 
@@ -544,17 +563,18 @@ La emisión/activación de licencia y el registro/activación del dispositivo oc
 | FK desde Session, SecurityEvent y AuditEvent hacia Device | diferida de forma cerrada por R4 | migration 001 exige `device_id IS NULL`; el corte criptográfico posterior agrega las FK antes de admitir Device |
 | FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | satisfecha con evidencia parcial ejecutable | `sync-base-schema.md` y R3; 001 admite únicamente origen central |
 | revisión columna por columna y pruebas de ambos dialectos | satisfecha para diseño de 001 | R2-A/R2-B y R3; la implementación futura repite introspección y tests sobre DDL real |
-| orden, rollback, convivencia y manifiesto de primera migración | satisfecha documentalmente | `docs/migration/first-target-migration-manifest.md` |
+| orden, rollback, convivencia y manifiesto de primera migración | satisfecha documentalmente tras R5 | `docs/migration/first-target-migration-manifest.md`; bootstrap, autoridad y máquina de estados cerrados |
+| ownership Onboarding, Session RLS y referencia AuditEvent | satisfechas documentalmente tras R5 | FK OWNER compuesta, policies Session y `resource_reference_kind`; falta prueba del DDL real |
 
 Estas clasificaciones no autorizan DDL ni permiten omitir una condición trasladada.
 
 ## Gate del bloque
 
-Foundation queda `APPROVED_FOR_MIGRATION_DESIGN` únicamente para el scope 001 porque R2-A/R2-B/R3/R4 satisfacen:
+Foundation queda `APPROVED_FOR_MIGRATION_DESIGN` únicamente para el scope 001 porque R2-A/R2-B/R3/R4/R5 satisfacen:
 
 - la revisión contra `UC-ONB-001`, `UC-AUTH-001`, `SEC-002` y `SEC-004` no encuentra campos o transiciones sin fuente;
 - las relaciones tenant-aware de Foundation, Device/Licensing y Sync permanecen alineadas sin FK libre;
 - el PoC de RLS demuestra aislamiento y ausencia de fuga de contexto;
 - la estrategia completa de migraciones define orden, rollback y convivencia con el esquema heredado.
 
-Persisten como condiciones de implementación: paquete inicial de Authorization aprobado, grants por columna/repositories, pruebas del DDL real y revisión transversal independiente. El estado global de primera migración permanece `NO-GO`.
+Persisten como condiciones de implementación: paquete inicial de Authorization aprobado, grants por columna/repositories, pruebas del DDL real —incluidas Session y las constraints R5— y una nueva revisión transversal independiente. El estado global de primera migración permanece `NO-GO`.

@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados, R3 fue ejecutado con `PASS` y R4 fijó el manifiesto 001; la primera migración continúa `NO-GO` hasta la revisión transversal y autorización independientes.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados, R3 fue ejecutado con `PASS`, R4 fijó el manifiesto 001 y R5 cerró sus seis blockers normativos; la primera migración continúa `NO-GO` hasta una nueva revisión transversal y autorización independientes.
 
 ## Principios obligatorios
 
@@ -283,13 +283,15 @@ R2-A no requiere `DEFERRABLE`: Device no referencia Activation, Operation no ref
 - `actor_type` y `actor_id` opcional según tipo;
 - sesión y dispositivo cuando existan;
 - acción y recurso;
-- `resource_id`;
+- `resource_reference_kind` y `resource_id` conforme a su regla condicional;
 - `correlation_id`;
 - `operation_id` o idempotency key cuando corresponda;
 - instante reportado y timestamp de servidor;
 - resultado;
 - motivo/código estable;
 - hash o checksum de evidencia cuando aplique.
+
+`resource_reference_kind` admite `INSTANCE`, `SYSTEM` o `BATCH`. `INSTANCE` exige el UUID real de una única fila en `resource_id`; `SYSTEM` exige `resource_id NULL` porque no existe instancia; `BATCH` exige `resource_id NULL` y `operation_id NOT NULL` porque el objeto es el conjunto coordinado por esa operación. Onboarding y publicación de configuración usan `INSTANCE` cuando su fila estable existe. Login, MFA y replay ordinarios pertenecen a SecurityEvent; una acción administrativa separada sobre User/Session usa AuditEvent `INSTANCE`. No se inventa UUID sentinel.
 
 No almacena contraseñas, tokens, claves privadas, PAN, CVV ni credenciales fiscales. Logs y trazas no sustituyen esta tabla.
 
@@ -319,6 +321,7 @@ No almacena contraseñas, tokens, claves privadas, PAN, CVV ni credenciales fisc
 8. El pool no conserva contexto entre préstamos porque `SET LOCAL` termina con commit/rollback.
 9. FKs y constraints incluyen el scope necesario para impedir relaciones cruzadas aunque RLS no cubra integridad referencial.
 10. Operaciones de plataforma global usan puertos y roles específicos, auditados, no parámetros enviados por clientes.
+11. Una entidad global con contexto tenant opcional, como Session, usa FORCE RLS y policies separadas: el runtime común solo ve filas del tenant no nulo actual; el servicio global explícito atiende pre-auth/revocación sin convertir `tenant_id NULL` en bypass.
 
 ### Gate de PoC
 

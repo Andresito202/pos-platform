@@ -327,6 +327,12 @@ La ejecución reproducible de `poc/physical-model/` aporta evidencia física par
 
 `SEC-G02`, `SEC-G03`, `SEC-G04`, `SEC-G07` y `SEC-G10` no reciben evidencia suficiente para registro parcial. La evidencia íntegra de la corrida está en `poc/physical-model/results/evidence.txt` y su resumen en `poc/physical-model/results/summary.md`.
 
+## Readiness documental de TECH-002/R5
+
+R5 cerró contratos de schema, no ejecutó controles. Para `SEC-G01`, Session ahora exige RLS/FORCE, policy tenant exclusiva para `pos_app`, servicio Identity global explícito sin BYPASSRLS y ausencia de grants para worker; falta probar esas policies y el contexto autenticado sobre DDL real. Para `SEC-G02`, refresh lookup y revocación quedan detrás del rol Identity separado; faltan implementación, hashing/token, MFA y pruebas de replay. Para `SEC-G06`, `AuditEvent.resource_reference_kind` hace verificable `INSTANCE|SYSTEM|BATCH` y la nulabilidad de `resource_id`; faltan DDL, AuditPort, redacción, antifraude y retención.
+
+Estas mejoras son `schema readiness` únicamente. `SEC-G01`, `SEC-G02`, `SEC-G06` y todos los demás gates conservan `PLANNED / NOT_EVALUATED`; R5 no registra PASS ni evidencia runtime nueva.
+
 ## Vacíos que permanecen abiertos
 
 - duraciones exactas de tokens, refresh, reautenticación, bloqueo y ventanas de replay;
