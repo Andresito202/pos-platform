@@ -543,7 +543,7 @@ La emisión/activación de licencia y el registro/activación del dispositivo oc
 | PoC RLS PostgreSQL 16 | satisfecha con evidencia ejecutable | `poc/rls/`, 30 PASS / 0 FAIL |
 | FK desde Session, SecurityEvent y AuditEvent hacia Device | satisfecha documentalmente en R2-A | candidate keys y FKs tenant-aware cerradas; evidencia física queda para R3 |
 | FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | satisfecha documentalmente en R2-A | `sync-base-schema.md`; pruebas físicas quedan para R3 |
-| revisión columna por columna y pruebas de ambos dialectos | parcialmente satisfecha | R2-A cerró relaciones; auditoría completa y ejecución PostgreSQL/SQLite siguen en R2-B/R3 |
+| revisión columna por columna y pruebas de ambos dialectos | parcialmente satisfecha | R2-A cerró relaciones y R2-B la auditoría comercial; ejecución PostgreSQL/SQLite sigue en R3 |
 | orden, rollback, convivencia y manifiesto de primera migración | trasladada | R4; no forma parte de R1 |
 
 Estas clasificaciones no autorizan DDL ni permiten omitir una condición trasladada.

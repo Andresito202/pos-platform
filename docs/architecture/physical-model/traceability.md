@@ -2,7 +2,7 @@
 
 ## Estado
 
-Inventario normativo inicial de `TECH-002`.
+Inventario normativo de `TECH-002`. R1, R2-A y R2-B están cerrados documentalmente.
 
 Este documento no autoriza todavía la creación de migraciones. Su propósito es demostrar qué caso de uso, decisión o invariante exige cada agregado que podrá entrar al modelo físico objetivo.
 
@@ -140,10 +140,102 @@ Estas exclusiones no eliminan conceptos ni impiden evolución. Evitan crear tabl
 | PHY-G13 | `CLOSED` | Representación monetaria SQLite | `DEC-003`, `ADR-005` | `physical-conventions.md` fija texto decimal canónico de escala conocida y conversión mediante coeficiente entero; prohíbe `REAL` y `number` autoritativos. |
 | PHY-G14 | `CLOSED` | RLS y roles de conexión | seguridad, tenancy | El PoC reproducible en `poc/rls/` pasó sobre PostgreSQL 16.14: RLS/FORCE, owner y runtimes sin bypass, fail-closed, `WITH CHECK`, FK tenant-aware, reuse/rollback/worker, admin explícito, introspección y dump/restore. Es evidencia parcial de `SEC-G01`, no autorización de migración. |
 
+## R2-B — contratos comerciales y extensibilidad
+
+R2-B cierra las relaciones físicas base mediante:
+
+- `sales-schema.md`: Sale, SaleItem, snapshots, medición validada, relaciones y atomicidad local;
+- `payments-schema.md`: PaymentGroup, Payment, Allocation, Attempt y Refund, junto al contrato financiero ya cerrado;
+- `pricing-schema.md`: PriceList, ProductPrice y versiones/policies sin `PriceChange`;
+- `tax-schema.md`: TaxClassification, TaxRule/Version y TaxSnapshot separado de Electronic Invoicing;
+- `inventory-schema.md`: ledger, saldo, reservas, lotes, vencimientos, ajustes y merma, junto a recepción ya cerrada.
+
+### Autoridad y sincronización comercial
+
+| Operación/dato | Origen local permitido | Autoridad de aceptación | Transporte |
+|---|---|---|---|
+| Sale ordinaria y efectos locales autorizados | sí, con licencia/device/permiso/policy | local hasta aceptación central | una SyncOperation + Outbox; Inbox solo central |
+| InventoryMovement, reserva, ajuste o merma permitidos | sí, bajo policy explícita | local hasta validación/reconciliación central | hecho append-only; saldo es proyección, no payload duplicado |
+| efectivo y reporte manual de transferencia/QR | sí | efectivo local; confirmación manual según actor/policy | intento, evidencia sanitizada y outbox |
+| pago remoto/QR dinámico y estado de proveedor | intención sí; éxito no | proveedor externo mediante adapter verificado | webhook/polling idempotente; resultado incierto se conserva |
+| ProductPrice, PricingPolicy y TaxRule publicados | no | central | snapshot/version completa central→local y checkpoint |
+| aceptación fiscal, license override y administración global | no | autoridad externa/central correspondiente | resultado explícito; offline nunca finge éxito |
+
+No toda entidad es bidireccional. SQLite no contiene Inbox; Outbox referencia SyncOperation 1:1 y no duplica payload. Cada módulo conserva ownership de su intención y Sync solo coordina entrega, deduplicación, conflicto, checkpoint y dead letter.
+
+### Capability model
+
+La cadena vigente es `License → FeatureEntitlement(feature_code, enabled, limits/policy_version) → decisión efectiva de capability → autorización/policy del dominio`. Capability no sustituye Permission, licencia, configuración de dominio ni compatibilidad de hardware. El cliente local puede restringir por evidencia ausente, pero nunca ampliar un entitlement firmado.
+
+No existe todavía un catálogo normativo publicado para los códigos propuestos: ninguno de los dieciséis nombres recibidos puede confirmarse hoy como `feature_code` normativo existente. Sí existen el agregado físico `FeatureEntitlement` y varios contratos funcionales subyacentes, pero eso no crea automáticamente una capability comercial. R2-B no crea, renombra, siembra ni declara comercializable ningún código. Su clasificación de revisión es:
+
+| Candidato solicitado | Frontera principal | Estado R2-B |
+|---|---|---|
+| `inventory_batches`, `expiration_control`, `weighted_products`, `serial_tracking`, `waste_management`, `reservations` | capability de dominio, además de policy/configuración y soporte del modelo | candidato; lotes, expiración, peso, merma y reservas encajan; seriales siguen diferidos |
+| `barcode_sales`, `scale_integration` | capability de hardware/integración + support matrix/device trust | candidato; no demuestra adapter ni hardware soportado |
+| `product_variants`, `purchase_orders`, `suppliers`, `electronic_invoicing`, `customer_credit` | feature comercial/módulo | candidato; variantes y Supplier tienen contrato, Electronic Invoicing tiene contrato neutral; PurchaseOrder y crédito siguen diferidos |
+| `multi_branch`, `advanced_reporting`, `offline_sales` | feature comercial/plataforma con límites/policies | candidato; multi-branch y offline encajan; reporting avanzado sigue diferido |
+
+Antes de persistir cualquiera como `feature_code`, una decisión posterior debe aprobar código canónico, significado, unidad/límite, dependencias, defaults, degradación, modalidad/licencia, policy version, pruebas y compatibilidad. Ausencia de catálogo falla cerrada; no se usa texto libre, JSON o nombre del tipo de negocio como autorización.
+
+### Multi-negocio sin forks ni entidades gigantes
+
+| Tipo de comercio | Composición del core y capacidades optativas, sin columnas específicas |
+|---|---|
+| tienda/minimercado | catálogo, códigos, presentaciones, inventario, venta, caja y pagos comunes |
+| supermercado/avícola | unidades de masa, medición validada por puerto, lotes/vencimiento y merma por policy |
+| droguería | lotes/vencimiento y controles futuros más estrictos como módulo/policy; no se asume regulación no documentada |
+| ferretería/almacén | variantes, presentaciones, longitud/área/volumen y seriales solo cuando exista contrato aprobado |
+| floristería | lotes opcionales, perecibilidad y merma; color/tallos no son columnas universales |
+| otros | composición de módulos, entitlements, policies, value objects y extensiones tipadas aprobadas |
+
+Product, Sale, SaleItem, StockBalance, Customer y Payment no reciben campos de una vertical. JSON queda limitado por `physical-conventions.md`: no sustituye FK, estado, scope, dinero, relación o regla autoritativa.
+
+### Hardware y providers
+
+Barcode scanner, scale, printer, cash drawer, payment terminal y customer display permanecen detrás de puertos/adapters. El dominio recibe identificador, medición o resultado validado; no SDK, marca o modelo. Payments usa método, configuración versionada, provider code/references y evidencia sanitizada; ninguna tabla o estado depende de Bold, Wompi, Mercado Pago u otro proveedor. La matriz de soporte futura determina compatibilidad real.
+
+### Seguridad aplicable antes de implementación
+
+| Control de referencia | Gate existente | Contrato habilitante; estado real |
+|---|---|---|
+| Rate limiting por IP/identidad/tenant/endpoint/riesgo | `SEC-G08` | frontera HTTP/webhook; valores pendientes; no limita operación local interna por dependencia HTTP |
+| `.env` solo para configuración local/no sensible | `SEC-G07` | ningún secreto operativo se documenta o persiste allí; inyección pendiente |
+| Secrets management | `SEC-G07` | entidades solo guardan referencias opacas; mecanismo pendiente |
+| IP/network limiting | `SEC-G08` / `SEC-G09` | allowlist/egress/superficie según contexto; topología pendiente |
+| Input sanitization | `SEC-G08` | parsing, schema validation, business validation, normalización, autorización y output encoding separados |
+| Server-side validation | `SEC-G08` | no confía en tenant, permisos, total/impuesto, pago o fiscal acceptance del cliente |
+| RLS | `SEC-G01` | tenant_id, candidate keys/FKs compuestas y PoC `PHY-G14`; implementación aún no evaluada |
+| Encryption | `SEC-G07` | datos/transportes/backups/secretos según riesgo; selección e implementación pendientes |
+| Expiración/revocación de sesión | `SEC-G02` | sesión/device/licencia se revalidan conectado/offline según autoridad |
+| CORS estricto | `SEC-G08` | solo HTTP/web; allowlist por ambiente y nunca `*` con credenciales; IPC tiene contrato distinto |
+
+Rate limiting no sustituye autorización. CORS no protege IPC ni es control de acceso. Renderer, POS Local Service input, PWA, sync, webhook y hardware adapter son fronteras no confiables. MFA, reauthentication, RBAC, ABAC, device trust, licencias firmadas, idempotencia, replay protection, auditoría append-only, secret/key management, validation, scanning/SBOM, backup/restore, updates firmados y release fail-closed se preservan como controles planificados, no implementados.
+
+### Fronteras transaccionales R2-B
+
+| Dominio | Unidad atómica |
+|---|---|
+| Sales | Sale + items + snapshots + audit + SyncOperation/Outbox; efectos locales indispensables coordinados por puertos |
+| Inventory | movimiento/reserva + proyección afectada + audit + SyncOperation/Outbox |
+| Payments | transición + evidencia + allocation/efecto local aplicable + audit + SyncOperation/Outbox |
+| Pricing | versión publicada + vigencia/solapamiento + audit + evento/outbox de distribución |
+| Tax | versión publicada + vigencia/solapamiento + audit + evento/outbox de distribución |
+
+Ninguna incluye llamada remota a proveedor, fiscalización, impresión o backend como transacción distribuida. `LoggerPort`, `MetricsPort` y `AuditPort` quedan como puntos futuros en Sales, Payments, Sync, fiscalización, Inventory y seguridad sin modificar lógica de dominio.
+
+### Evaluación de R2-B
+
+R2-B: `PASS` documental. Sales, Payments, Pricing, Tax e Inventory tienen contratos base; Sync comercial, tenant isolation, dinero exacto, local-first, seguridad implementable, extensibilidad multi-negocio y fronteras transaccionales están alineados. No apareció contradicción normativa material.
+
+Este PASS no cambia `TECH-002` de `IN_PROGRESS`, no aprueba Foundation/Device-Licensing/Catalog para migración, no evalúa `SEC-G01..SEC-G10`, no ejecuta R3/R4 y no autoriza DDL ni la primera migración.
+
 ## Resultado del inventario
 
 `PHY-G01` a `PHY-G14` están cerrados en el alcance documental registrado por cada gate. Ese cierre no convierte automáticamente los bloques físicos Foundation, Device/Licensing o Catalog en aprobados para migración: sus condiciones internas pendientes siguen explícitas.
 
-R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. Foundation y Device/Licensing permanecen `IN_REVIEW`; R2-A se registra a continuación y R2-B/R3/R4, repositories y security gates continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. Foundation y Device/Licensing permanecen `IN_REVIEW`; R2-A y R2-B se registran a continuación; R3/R4, repositories y security gates continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
-R2-A cierra documentalmente relaciones Foundation↔Devices/Licensing↔Sync: candidate keys/FKs tenant-aware, orden sin ciclos irresolubles, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, delete policies, split PostgreSQL/SQLite y fronteras transaccionales. Foundation y Device/Licensing permanecen `IN_REVIEW` por auditoría R2-B, pruebas R3, PoC criptográfico y estrategia R4. `TECH-002` y la primera migración no cambian de estado.
+R2-A cierra documentalmente relaciones Foundation↔Devices/Licensing↔Sync: candidate keys/FKs tenant-aware, orden sin ciclos irresolubles, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, delete policies, split PostgreSQL/SQLite y fronteras transaccionales. Foundation y Device/Licensing permanecen `IN_REVIEW` por pruebas R3, PoC criptográfico, estrategia R4 y sus demás condiciones explícitas. `TECH-002` y la primera migración no cambian de estado.
+
+R2-B cierra documentalmente Sales, Payments, Pricing, Tax e Inventory, su Sync comercial y la extensibilidad por capabilities sin catálogo inventado, forks ni acoplamiento a vertical, hardware o provider. Foundation, Device/Licensing y Catalog permanecen `IN_REVIEW` por sus condiciones explícitas; R3/R4 siguen pendientes. `TECH-002` permanece `IN_PROGRESS`, `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED` y la primera migración permanece `NO-GO`.

@@ -86,8 +86,8 @@ Tenant-scoped con RLS.
 | `lot_controlled` | `boolean` | no | control explícito |
 | `expiration_controlled` | `boolean` | no | implica lote |
 | `serial_controlled` | `boolean` | no | control explícito |
-| `tax_category_id` | `uuid` | sí | FK `DIFERIDA AL BLOQUE PRICING/TAX` |
-| `business_attributes` | `jsonb` | no | objeto canónico validado por product_type |
+| `tax_category_id` | `uuid` | sí | FK tenant/company-aware a `tax.tax_classifications`, cerrada por R2-B |
+| `business_attributes` | `jsonb` | no | value object canónico bajo schema allowlisted y versionado por `product_type`; no admite claves libres |
 | `status` | `text` | no | `DRAFT`, `ACTIVE`, `INACTIVE` |
 | `creation_idempotency_key` | `text` | no | alcance empresa |
 | `creation_request_checksum` | `text` | no | request canónico |
@@ -103,6 +103,7 @@ Constraints e índices:
 - `UNIQUE (tenant_id, company_id, creation_idempotency_key)`;
 - FKs compuestas a Brand y Category;
 - `CHECK (NOT expiration_controlled OR lot_controlled)`;
+- `business_attributes` se valida contra el contrato tipado publicado para `product_type`, rechaza campos desconocidos y no sustituye columnas, FK, estado, unidad, impuesto, capability o control de inventario; mientras no exista contrato publicado solo admite el objeto vacío;
 - índice `(tenant_id, company_id, status, name_normalized)` requiere una columna `name_normalized text NOT NULL`, almacenada y validada junto con `name`;
 - no se crea stock, precio ni tax snapshot al insertar Product.
 
@@ -147,7 +148,7 @@ No se crea `ProductVariantAttributeValue` separado mientras el conjunto de atrib
 | `minimum_quantity` | `numeric(19,6)` | sí | `> 0` |
 | `maximum_quantity` | `numeric(19,6)` | sí | `>= minimum` |
 | `tare_quantity` | `numeric(19,6)` | sí | `>= 0`, menor que máximo cuando exista |
-| `scale_format` | `text` | sí | código de adaptador aprobado, no configuración libre |
+| `scale_format` | `text` | sí | código versionado de codificación de medición aprobado; neutral a adapter/proveedor |
 | `sales_enabled` | `boolean` | no | capacidad |
 | `purchasing_enabled` | `boolean` | no | capacidad |
 | `inventory_enabled` | `boolean` | no | capacidad |
@@ -172,6 +173,8 @@ Constraints e índices:
 - no contiene factor de conversión: el input opcional crea UnitConversion en la misma transacción.
 
 La equivalencia de presentación se controla con dos unique funcionales: uno para `variant_id IS NULL` y otro para `variant_id IS NOT NULL`, sobre Product/Variant, Unit, `contained_quantity`, `stock_mode` y nombre normalizado. Esto evita que NULL permita duplicados silenciosos.
+
+`scale_format` no selecciona hardware ni contiene SDK, marca, modelo, puerto o credencial. Un adapter futuro interpreta la codificación y entrega una medición validada al dominio; compatibilidad física y configuración del dispositivo permanecen fuera de Catalog.
 
 ## Identificadores
 
@@ -282,10 +285,10 @@ Catalog permanece `IN_REVIEW`. R1 clasifica sus condiciones sin declararlas sati
 |---|---|---|
 | identidad, scope, presentaciones, identificadores y conversiones | satisfecha documentalmente | contrato de este bloque y `DEC-004` |
 | `PriceChange` como posible persistencia duplicada | satisfecha | reclasificado por R1: no es entidad/tabla |
-| cierre de `tax_category_id` entre Catalog y Tax | trasladada | R2, junto con contratos físicos completos de Pricing/Tax |
+| cierre de `tax_category_id` entre Catalog y Tax | satisfecha | R2-B fija FK tenant/company-aware a TaxClassification en `tax-schema.md` |
 | constraints de equivalencia/ciclos PostgreSQL y SQLite | pendiente | R3 y futuras pruebas por dialecto autorizadas |
 | auditoría columna por columna contra `UC-CAT-001...006` | pendiente | cierre del bloque antes de migración |
 
-Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo cuando las condiciones trasladadas y pendientes tengan evidencia. R1 no inicia Pricing/Tax completo ni pruebas ejecutables.
+Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo cuando las condiciones pendientes tengan evidencia. R2-B cerró Pricing/Tax sin iniciar pruebas ejecutables.
 
 La primera migración permanece `NO-GO`.

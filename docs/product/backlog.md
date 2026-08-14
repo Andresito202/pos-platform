@@ -6,7 +6,7 @@ Este archivo es la fuente de verdad del trabajo del proyecto. Consolida el estad
 
 Si otro documento de avance, una conversación o una lista informal contradice este backlog, prevalece este archivo hasta que se actualice mediante el flujo oficial.
 
-Última actualización: 2026-08-12.
+Última actualización: 2026-08-14.
 
 ## Estado general
 
@@ -15,7 +15,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Trabajo principal en curso: `TECH-002`, con estado `IN_PROGRESS` y prioridad `P0`; R1 y R2-A están cerrados documentalmente. Foundation/Device-Licensing continúan `IN_REVIEW`; R2-B, R3 y R4 están pendientes y la primera migración permanece `NO-GO`.
+- Trabajo principal en curso: `TECH-002`, con estado `IN_PROGRESS` y prioridad `P0`; R1, R2-A y R2-B están cerrados documentalmente. Foundation/Device-Licensing/Catalog continúan `IN_REVIEW`; R3 y R4 están pendientes y la primera migración permanece `NO-GO`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -306,7 +306,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `IN_PROGRESS` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | R1 y R2-A cerrados documentalmente; PoC RLS aprobado. Faltan R2-B/R3/R4, bloques físicos aún `IN_REVIEW`, pruebas por dialecto y revisión transversal final. La primera migración permanece `NO-GO`. |
+| TECH-002 | `P0` | `IN_PROGRESS` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | R1, R2-A y R2-B cerrados documentalmente; PoC RLS aprobado. Faltan R3/R4, bloques físicos aún `IN_REVIEW`, pruebas por dialecto y revisión transversal final. La primera migración permanece `NO-GO`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
 | TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
@@ -314,7 +314,7 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Continuar `TECH-002` — `P0`, `IN_PROGRESS`: R1 y R2-A están cerrados; el siguiente trabajo posible es R2-B, solo con autorización explícita y sin escribir la primera migración por inferencia.
+1. Continuar `TECH-002` — `P0`, `IN_PROGRESS`: R1, R2-A y R2-B están cerrados; el siguiente trabajo posible es R3, solo con autorización explícita y sin escribir la primera migración por inferencia.
 2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
 3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
 
@@ -395,7 +395,7 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 | Hito | Estado | Criterio de salida |
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
-| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G14`, PoC RLS, R1 y R2-A cerrados documentalmente. Faltan R2-B, R3 y R4, cierre de bloques `IN_REVIEW` y autorización independiente; la primera migración permanece `NO-GO`. |
+| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G14`, PoC RLS, R1, R2-A y R2-B cerrados documentalmente. Faltan R3, R4, cierre de bloques `IN_REVIEW` y autorización independiente; la primera migración permanece `NO-GO`. |
 | F1.3 Seguridad e identidad | `PLANNED` | `SEC-G01` a `SEC-G10` formalizados pero no evaluados; requiere aislamiento multi-tenant probado, sesiones revocables, MFA crítico, permisos backend y evidencia de release. |
 | F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
@@ -489,4 +489,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-12: `TECH-002 / R2-A` cerró documentalmente relaciones Foundation↔Devices/Licensing↔Sync. `sync-base-schema.md` fija identidades, cardinalidades, candidate keys/FKs tenant-aware, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, orden sin ciclos, delete policies, split PostgreSQL/SQLite, transacciones y seguridad. Foundation y Device/Licensing permanecen `IN_REVIEW`; no se ejecutaron security gates, DDL ni migraciones.
 
-Próxima actualización obligatoria: no iniciar R2-B ni escribir la primera migración sin autorización explícita.
+- 2026-08-14: `TECH-002 / R2-B` pasó `PASS` documental mediante contratos físicos base de Sales, Payments, Pricing, Tax e Inventory y la auditoría transversal de Sync comercial, multi-negocio, capability model, hardware/providers, seguridad y transacciones. No se creó catálogo definitivo de capabilities ni se adelantaron Customer Credit, PurchaseOrder o serial tracking. `TECH-002` permanece `IN_PROGRESS`; `SEC-G01` a `SEC-G10` siguen `PLANNED`/`NOT_EVALUATED`, R3/R4 siguen pendientes y la primera migración permanece `NO-GO`.
+
+Próxima actualización obligatoria: no iniciar R3 ni escribir la primera migración sin autorización explícita.

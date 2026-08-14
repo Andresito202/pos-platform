@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1 y R2-A fueron cerrados documentalmente; la primera migración continúa `NO-GO` hasta completar R2-B/R3/R4 y obtener autorización independiente.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados documentalmente; la primera migración continúa `NO-GO` hasta completar R3/R4 y obtener autorización independiente.
 
 ## Principios obligatorios
 
