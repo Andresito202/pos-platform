@@ -409,9 +409,9 @@ Este bloque permanece `IN_REVIEW`. R1 cerró la identidad canónica de DeviceKey
 | límites contractuales | satisfecha documentalmente | `FINITE`, `UNLIMITED`, `NOT_APPLICABLE`, ausencia fail-closed |
 | PoC RLS PostgreSQL 16 | satisfecha con evidencia | `PHY-G14`, 30 PASS / 0 FAIL |
 | auditoría columna por columna contra DEC-008/casos de uso | pendiente | cierre físico del bloque |
-| FK diferidas con Foundation | satisfecha documentalmente en R2-A | candidate keys/FKs y orden sin ciclos en este documento y `sync-base-schema.md`; ejecución queda para R3 |
-| orden de migración y manifiesto | trasladada | R4 |
+| FK diferidas con Foundation | satisfecha documentalmente y probada en el subconjunto R3 | R4 mantiene `device_id` nulo en 001 y difiere el bloque completo sin referencia libre |
+| orden de migración y manifiesto | satisfecha para exclusión de 001 | `docs/migration/first-target-migration-manifest.md`; el orden del corte criptográfico posterior sigue condicionado por su PoC |
 | PoC de firma/canonicalización/storage seguro | pendiente | requiere autorización y evidencia separadas |
-| pruebas físicas PostgreSQL/SQLite | trasladada | R3/implementación futura autorizada |
+| pruebas físicas PostgreSQL/SQLite | parcialmente satisfecha | R3 validó patrones comunes; la cadena criptográfica completa requiere su PoC y tests de implementación |
 
 La primera migración continúa en `NO-GO`.

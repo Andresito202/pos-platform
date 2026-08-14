@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-`IN_REVIEW` dentro de `TECH-002`.
+`APPROVED_FOR_MIGRATION_DESIGN` para el scope exacto de migration 001 definido por R4. No autoriza DDL ni cambia la primera migración de `NO-GO`.
 
 Este documento diseña el bloque central que debe existir antes de catálogo, inventario, ventas o pagos:
 
@@ -541,20 +541,20 @@ La emisión/activación de licencia y el registro/activación del dispositivo oc
 | snapshot offline sin credenciales centrales | satisfecha documentalmente | `authorization.offline_authorization_snapshots` en el bloque Device/Licensing |
 | autoridad de estados de licencia/activación | satisfecha documentalmente | `DEC-008`, casos de uso y modelo conceptual |
 | PoC RLS PostgreSQL 16 | satisfecha con evidencia ejecutable | `poc/rls/`, 30 PASS / 0 FAIL |
-| FK desde Session, SecurityEvent y AuditEvent hacia Device | satisfecha documentalmente en R2-A | candidate keys y FKs tenant-aware cerradas; evidencia física queda para R3 |
-| FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | satisfecha documentalmente en R2-A | `sync-base-schema.md`; pruebas físicas quedan para R3 |
-| revisión columna por columna y pruebas de ambos dialectos | parcialmente satisfecha | R2-A cerró relaciones y R2-B la auditoría comercial; ejecución PostgreSQL/SQLite sigue en R3 |
-| orden, rollback, convivencia y manifiesto de primera migración | trasladada | R4; no forma parte de R1 |
+| FK desde Session, SecurityEvent y AuditEvent hacia Device | diferida de forma cerrada por R4 | migration 001 exige `device_id IS NULL`; el corte criptográfico posterior agrega las FK antes de admitir Device |
+| FK 1:1 OutboxEntry/SyncOperation y diseño completo de Sync | satisfecha con evidencia parcial ejecutable | `sync-base-schema.md` y R3; 001 admite únicamente origen central |
+| revisión columna por columna y pruebas de ambos dialectos | satisfecha para diseño de 001 | R2-A/R2-B y R3; la implementación futura repite introspección y tests sobre DDL real |
+| orden, rollback, convivencia y manifiesto de primera migración | satisfecha documentalmente | `docs/migration/first-target-migration-manifest.md` |
 
 Estas clasificaciones no autorizan DDL ni permiten omitir una condición trasladada.
 
 ## Gate del bloque
 
-Foundation permanece `IN_REVIEW`. R2-A elimina sus FKs diferidas a Device/Sync, pero pasa a `APPROVED_FOR_MIGRATION_DESIGN` solamente si:
+Foundation queda `APPROVED_FOR_MIGRATION_DESIGN` únicamente para el scope 001 porque R2-A/R2-B/R3/R4 satisfacen:
 
 - la revisión contra `UC-ONB-001`, `UC-AUTH-001`, `SEC-002` y `SEC-004` no encuentra campos o transiciones sin fuente;
 - las relaciones tenant-aware de Foundation, Device/Licensing y Sync permanecen alineadas sin FK libre;
 - el PoC de RLS demuestra aislamiento y ausencia de fuga de contexto;
 - la estrategia completa de migraciones define orden, rollback y convivencia con el esquema heredado.
 
-Hasta entonces, el estado global de primera migración permanece `NO-GO`.
+Persisten como condiciones de implementación: paquete inicial de Authorization aprobado, grants por columna/repositories, pruebas del DDL real y revisión transversal independiente. El estado global de primera migración permanece `NO-GO`.

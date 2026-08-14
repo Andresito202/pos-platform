@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados documentalmente y R3 fue ejecutado con `PASS`; la primera migración continúa `NO-GO` hasta completar R4 y obtener autorización independiente.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados, R3 fue ejecutado con `PASS` y R4 fijó el manifiesto 001; la primera migración continúa `NO-GO` hasta la revisión transversal y autorización independientes.
 
 ## Principios obligatorios
 
@@ -303,6 +303,8 @@ No almacena contraseñas, tokens, claves privadas, PAN, CVV ni credenciales fisc
 | `pos_migrator` | ejecutar versión de migración autorizada | sin tráfico de negocio |
 | `pos_app` | API central por tenant | no owner, no superuser, sin `BYPASSRLS` |
 | `pos_worker` | workers procesando un tenant por transacción | no owner, no `BYPASSRLS` |
+| `pos_platform_app` | onboarding e identidad por ruta de plataforma separada | no owner, no superuser, sin `BYPASSRLS`; usa contexto tenant cuando escribe scope tenant |
+| `pos_platform_admin` | inspección global excepcional y auditada | `BYPASSRLS`, solo lectura explícita, sin DML/DDL y nunca heredado por app/worker |
 | `pos_reporting` | proyecciones autorizadas de lectura | no accede a tablas fuera de datasets aprobados |
 
 ### Política

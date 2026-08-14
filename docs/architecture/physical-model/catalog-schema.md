@@ -286,9 +286,9 @@ Catalog permanece `IN_REVIEW`. R1 clasifica sus condiciones sin declararlas sati
 | identidad, scope, presentaciones, identificadores y conversiones | satisfecha documentalmente | contrato de este bloque y `DEC-004` |
 | `PriceChange` como posible persistencia duplicada | satisfecha | reclasificado por R1: no es entidad/tabla |
 | cierre de `tax_category_id` entre Catalog y Tax | satisfecha | R2-B fija FK tenant/company-aware a TaxClassification en `tax-schema.md` |
-| constraints de equivalencia/ciclos PostgreSQL y SQLite | pendiente | R3 y futuras pruebas por dialecto autorizadas |
+| constraints de equivalencia/ciclos PostgreSQL y SQLite | pendiente | R3 validó patrones comunes, no el grafo completo de Catalog; requiere pruebas del DDL futuro |
 | auditoría columna por columna contra `UC-CAT-001...006` | pendiente | cierre del bloque antes de migración |
 
-Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo cuando las condiciones pendientes tengan evidencia. R2-B cerró Pricing/Tax sin iniciar pruebas ejecutables.
+Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo cuando las condiciones pendientes tengan evidencia. R4 lo excluye íntegramente de migration 001, por lo que estas condiciones no bloquean ese corte pero sí cualquier migración de Catalog.
 
 La primera migración permanece `NO-GO`.

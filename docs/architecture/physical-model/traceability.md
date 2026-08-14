@@ -2,7 +2,7 @@
 
 ## Estado
 
-Inventario normativo de `TECH-002`. R1, R2-A y R2-B están cerrados documentalmente; R3 está ejecutado con resultado `PASS` sobre un PoC desechable.
+Inventario normativo de `TECH-002`. R1, R2-A y R2-B están cerrados documentalmente; R3 está ejecutado con `PASS` y R4 tiene `PASS` documental. Falta la revisión transversal independiente.
 
 Este documento no autoriza todavía la creación de migraciones. Su propósito es demostrar qué caso de uso, decisión o invariante exige cada agregado que podrá entrar al modelo físico objetivo.
 
@@ -241,12 +241,20 @@ R3 se ejecutó el 2026-08-14 sobre el subconjunto Foundation + Sales + Payments 
 
 R3: `PASS`. No apareció contradicción material con R1/R2-A/R2-B. La normalización previa del typmod `numeric` de PostgreSQL confirma que el adaptador debe validar la forma decimal canónica antes del cast; es una aclaración de enforcement del contrato existente, no una decisión nueva. La evidencia es parcial para `SEC-G01`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G09`; ningún security gate cambia de `PLANNED / NOT_EVALUATED`.
 
+## R4 — manifiesto exacto de primera migración
+
+R4: `PASS` documental. `docs/migration/first-target-migration-manifest.md` fija `001_central_foundation` y `001_local_migration_control`, sus objetos, columnas, constraints, índices, orden, roles, RLS/grants, seeds, histories, convivencia legacy, rollback, backup/recovery y verification plan.
+
+El corte PostgreSQL contiene Foundation central, identidad/autorización, onboarding, Audit y SyncOperation/Outbox de origen central. SQLite contiene únicamente control de versión y pragmas: no crea autoridad local antes de Device/License/Activation verificables. DeviceKey, Licensing, artefactos firmados, Inbox/Checkpoint local/central receptor y todos los dominios comerciales quedan fuera.
+
+El PoC criptográfico pendiente no bloquea 001 porque no se persiste ningún objeto dependiente de firma/canonicalización. Sí bloquea el corte posterior de Device/Licensing/offline. Foundation queda `APPROVED_FOR_MIGRATION_DESIGN` solo para el scope 001; Device/Licensing y Catalog permanecen `IN_REVIEW`. No cambian security gates, `TECH-002` ni el `NO-GO` de la primera migración.
+
 ## Resultado del inventario
 
 `PHY-G01` a `PHY-G14` están cerrados en el alcance documental registrado por cada gate. Ese cierre no convierte automáticamente los bloques físicos Foundation, Device/Licensing o Catalog en aprobados para migración: sus condiciones internas pendientes siguen explícitas.
 
-R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. Foundation y Device/Licensing permanecen `IN_REVIEW`; R2-A, R2-B y R3 se registran a continuación; R4, repositories y security gates continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+R1 de `TECH-002` cerró la alineación documental de Foundation status, AuditEvent, Outbox, DeviceKey, límites, escalas monetarias y reclasificación de PriceChange. R2-A, R2-B, R3 y R4 se registran a continuación; repositories, implementación, gates y revisión transversal continúan pendientes. La primera migración permanece `NO-GO`, `TECH-002` continúa `IN_PROGRESS` y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
-R2-A cierra documentalmente relaciones Foundation↔Devices/Licensing↔Sync: candidate keys/FKs tenant-aware, orden sin ciclos irresolubles, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, delete policies, split PostgreSQL/SQLite y fronteras transaccionales. R3 cerró su subconjunto físico sin cubrir el PoC criptográfico, la estrategia R4 ni las demás condiciones explícitas; por ello Foundation y Device/Licensing permanecen `IN_REVIEW`. `TECH-002` y la primera migración no cambian de estado.
+R2-A cierra documentalmente relaciones Foundation↔Devices/Licensing↔Sync: candidate keys/FKs tenant-aware, orden sin ciclos irresolubles, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, delete policies, split PostgreSQL/SQLite y fronteras transaccionales. R3 validó patrones físicos y R4 difiere sin FK libre la cadena Device/Licensing. Foundation queda aprobada para diseño de 001; Device/Licensing permanece `IN_REVIEW`. `TECH-002` y la primera migración no cambian de estado.
 
-R2-B cierra documentalmente Sales, Payments, Pricing, Tax e Inventory, su Sync comercial y la extensibilidad por capabilities sin catálogo inventado, forks ni acoplamiento a vertical, hardware o provider. R3 valida físicamente el subconjunto autorizado; Foundation, Device/Licensing y Catalog permanecen `IN_REVIEW` por sus demás condiciones explícitas y R4 sigue pendiente. `TECH-002` permanece `IN_PROGRESS`, `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED` y la primera migración permanece `NO-GO`.
+R2-B cierra documentalmente Sales, Payments, Pricing, Tax e Inventory, su Sync comercial y la extensibilidad por capabilities sin catálogo inventado, forks ni acoplamiento a vertical, hardware o provider. R4 excluye esos dominios de 001 por ausencia de dependencia física directa; Catalog y Device/Licensing conservan sus condiciones `IN_REVIEW`. `TECH-002` permanece `IN_PROGRESS`, `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED` y la primera migración permanece `NO-GO`.
