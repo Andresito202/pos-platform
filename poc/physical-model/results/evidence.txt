@@ -1,0 +1,845 @@
+R3_RUN_STARTED_UTC=2026-08-14T21:38:31Z
+GIT_HEAD=19c767a943ab59ce7603e047c0224d1299255a8b
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml config --quiet
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml up -d --wait
+ Container pos-platform-physical-model-poc-postgres-1 Recreate 
+ Container pos-platform-physical-model-poc-postgres-1 Recreated 
+ Container pos-platform-physical-model-poc-postgres-1 Starting 
+ Container pos-platform-physical-model-poc-postgres-1 Started 
+ Container pos-platform-physical-model-poc-postgres-1 Waiting 
+ Container pos-platform-physical-model-poc-postgres-1 Healthy
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d physical_model_poc
+                                                               ?column?                                                                
+---------------------------------------------------------------------------------------------------------------------------------------
+ POSTGRES_VERSION=PostgreSQL 16.14 (Debian 16.14-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+NOTICE:  schema "poc" does not exist, skipping
+DROP SCHEMA
+DO
+GRANT ROLE
+CREATE SCHEMA
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+DO
+RESET
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+REVOKE
+REVOKE
+REVOKE
+REVOKE
+REVOKE
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d physical_model_poc
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 4
+INSERT 0 6
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+      ?column?      
+--------------------
+ POSTGRES_SEED=PASS
+(1 row)
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U physical_poc_test_executor -d physical_model_poc
+BEGIN
+SET
+SET
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+INSERT 0 3
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+ test_assert 
+-------------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ test_assert 
+-------------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ test_assert 
+-------------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+DO
+ complete_sale 
+---------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+DO
+ record_inventory 
+------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+DO
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+UPDATE 1
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_expect_error 
+-------------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+COMMIT
+Output format is unaligned.
+POSTGRES_TEST_COUNT=92
+POSTGRES_TEST_FAILURES=0
+POSTGRES_TESTS_FAILED=none
+COMMAND=postgres concurrency harness
+--- sale session A ---
+BEGIN
+SET
+SET
+UPDATE 1
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT
+--- sale session B ---
+BEGIN
+SET
+SET
+UPDATE 0
+COMMIT
+--- inventory sessions ---
+BEGIN
+SET
+SET
+ record_inventory 
+------------------
+ 
+(1 row)
+
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ record_inventory 
+------------------
+ 
+(1 row)
+
+COMMIT
+--- payment sessions ---
+BEGIN
+SET
+SET
+ confirm_payment 
+-----------------
+ t
+(1 row)
+
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ confirm_payment 
+-----------------
+ f
+(1 row)
+
+COMMIT
+--- configuration sessions ---
+BEGIN
+SET
+SET
+ publish_price 
+---------------
+ 
+(1 row)
+
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ERROR:  expected version conflict
+CONTEXT:  PL/pgSQL function poc.publish_price(uuid,uuid,uuid,uuid,bigint,text,integer,timestamp with time zone,timestamp with time zone,text,bigint) line 7 at RAISE
+CONFIG_SESSION_A_EXIT=0
+CONFIG_SESSION_B_EXPECTED_CONFLICT_EXIT=3
+POSTGRES_CONCURRENCY_HARNESS=PASS
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d physical_model_poc
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+ test_assert 
+-------------
+ 
+(1 row)
+
+Output format is unaligned.
+POSTGRES_CONCURRENCY_TEST_COUNT=5
+POSTGRES_CONCURRENCY_FAILURES=0
+=== PostgreSQL backup/restore ===
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres pg_dump -U postgres -d physical_model_poc -Fc -f /tmp/physical-model.dump
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres pg_dumpall -U postgres --roles-only -f /tmp/physical-model-roles.sql
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres
+NOTICE:  database "physical_model_poc_restore" does not exist, skipping
+DROP DATABASE
+CREATE DATABASE
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres pg_restore -U postgres -d physical_model_poc_restore /tmp/physical-model.dump
+COMMAND=docker compose -f C:\Proyectos\pos-platform\poc\physical-model\compose.yaml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d physical_model_poc_restore
+DO
+BEGIN
+SET
+SET
+             case              
+-------------------------------
+ RESTORE_TENANT_A_VISIBLE=PASS
+(1 row)
+
+COMMIT
+BEGIN
+SET
+                   case                   
+------------------------------------------
+ RESTORE_MISSING_CONTEXT_FAIL_CLOSED=PASS
+(1 row)
+
+COMMIT
+                     ?column?                     
+--------------------------------------------------
+ POSTGRES_RESTORE_ROLES=SEPARATE_CLUSTER_ARTIFACT
+(1 row)
+
+           ?column?           
+------------------------------
+ POSTGRES_RESTORE_RESULT=PASS
+(1 row)
+=== SQLite/WAL ===
+COMMAND=C:\Users\Usuario\AppData\Local\Programs\Python\Python313\python.exe C:\Proyectos\pos-platform\poc\physical-model\sqlite\test_sqlite.py
+SQLITE_VERSION=3.50.4
+SQLITE_TEST|PASS|sqlite_wal|wal
+SQLITE_TEST|PASS|sqlite_foreign_keys|
+SQLITE_TEST|PASS|sqlite_no_inbox|
+SQLITE_TEST|PASS|uuid_canonical|
+SQLITE_TEST|PASS|uuid_invalid|IntegrityError
+SQLITE_TEST|PASS|uuid_v4_rejected|IntegrityError
+SQLITE_TEST|PASS|money_zero|
+SQLITE_TEST|PASS|money_positive|
+SQLITE_TEST|PASS|money_large|
+SQLITE_TEST|PASS|money_no_drift|
+SQLITE_TEST|PASS|money_roundtrip|
+SQLITE_TEST|PASS|money_excess_scale|1.0000001
+SQLITE_TEST|PASS|money_nan|NaN
+SQLITE_TEST|PASS|money_infinity|Infinity
+SQLITE_TEST|PASS|money_ambiguous|01.000000
+SQLITE_TEST|PASS|money_exponent|1e3
+SQLITE_TEST|PASS|money_over_precision|10000000000000.000000
+SQLITE_TEST|PASS|rate_scale_10|
+SQLITE_TEST|PASS|factor_large|
+SQLITE_TEST|PASS|rate_excess_scale|
+SQLITE_TEST|PASS|normalization_scale_2|
+SQLITE_TEST|PASS|limit_contract_valid|
+SQLITE_TEST|PASS|limit_finite_requires_value|IntegrityError
+SQLITE_TEST|PASS|limit_unlimited_rejects_value|IntegrityError
+SQLITE_TEST|PASS|limit_not_applicable_rejects_value|IntegrityError
+SQLITE_TEST|PASS|no_real_money_columns|
+SQLITE_TEST|PASS|quantity_unit|
+SQLITE_TEST|PASS|quantity_weight|
+SQLITE_TEST|PASS|quantity_volume|
+SQLITE_TEST|PASS|quantity_zero|IntegrityError
+SQLITE_TEST|PASS|status_invalid|IntegrityError
+SQLITE_TEST|PASS|decimal_real_type_rejected|IntegrityError
+SQLITE_TEST|PASS|fk_sale_branch_cross_tenant|IntegrityError
+SQLITE_TEST|PASS|fk_payment_sale_cross_tenant|IntegrityError
+SQLITE_TEST|PASS|fk_sync_device_cross_tenant|IntegrityError
+SQLITE_TEST|PASS|sales_failure_rollback|
+SQLITE_TEST|PASS|sales_failure_no_operation|
+SQLITE_TEST|PASS|sales_atomic_success|
+SQLITE_TEST|PASS|weighted_same_sale_schema|
+SQLITE_TEST|PASS|fk_inventory_product_cross_tenant|IntegrityError
+SQLITE_TEST|PASS|sale_idempotency_duplicate|IntegrityError
+SQLITE_TEST|PASS|inventory_failure_rollback|
+SQLITE_TEST|PASS|inventory_failure_no_projection|
+SQLITE_TEST|PASS|waste_history_reason|
+SQLITE_TEST|PASS|waste_projection|
+SQLITE_TEST|PASS|ledger_update_blocked|IntegrityError
+SQLITE_TEST|PASS|ledger_delete_blocked|IntegrityError
+SQLITE_TEST|PASS|payment_failure_rollback|
+SQLITE_TEST|PASS|payment_atomic_success|
+SQLITE_TEST|PASS|payment_duplicate_callback|
+SQLITE_TEST|PASS|payment_reference_unique|IntegrityError
+SQLITE_TEST|PASS|outbox_one_to_one|
+SQLITE_TEST|PASS|operation_duplicate|IntegrityError
+SQLITE_TEST|PASS|operation_checksum_replay|IntegrityError
+SQLITE_TEST|PASS|outbox_retry_same_intent|
+SQLITE_TEST|PASS|checkpoint_requires_durable_ack|
+SQLITE_TEST|PASS|checkpoint_rollback|
+SQLITE_TEST|PASS|checkpoint_durable|
+SQLITE_TEST|PASS|checkpoint_not_timestamp_ordered|
+SQLITE_TEST|PASS|single_writer_lock|OperationalError
+SQLITE_TEST|PASS|sales_optimistic_concurrency|
+SQLITE_TEST|PASS|inventory_concurrency_no_loss|
+SQLITE_TEST|PASS|inventory_concurrency_two_facts|
+SQLITE_TEST|PASS|audit_update_blocked|IntegrityError
+SQLITE_TEST|PASS|audit_delete_blocked|IntegrityError
+SQLITE_TEST|PASS|sale_delete_blocked|IntegrityError
+SQLITE_TEST|PASS|payment_delete_blocked|IntegrityError
+SQLITE_TEST|PASS|sync_delete_blocked|IntegrityError
+SQLITE_TEST|PASS|tenant_delete_restricted|IntegrityError
+SQLITE_TEST|PASS|lot_optional|
+SQLITE_TEST|PASS|lot_expiration_valid|
+SQLITE_TEST|PASS|lot_expiration_nullable|
+SQLITE_TEST|PASS|lot_no_quantity_column|
+SQLITE_TEST|PASS|multi_business_same_schema|
+SQLITE_TEST|PASS|capability_no_bypass|
+SQLITE_TEST|PASS|provider_neutrality|
+SQLITE_TEST|PASS|structural_indexes|
+SQLITE_TEST|PASS|restart_uncommitted_disappears|
+SQLITE_TEST|PASS|restart_outbox_remains|
+SQLITE_TEST|PASS|restart_checkpoint_remains|
+SQLITE_TEST|PASS|restart_wal_remains|
+SQLITE_TEST|PASS|sqlite_backup_reopens|
+SQLITE_TEST|PASS|sqlite_backup_business_fact|
+EQUIV|UUID|uuid canonical|TEXT canonical|PASS
+EQUIV|money scale 6|numeric(19,6)|TEXT + Decimal|PASS
+EQUIV|rate scale 10|numeric(19,10)|TEXT + Decimal|PASS
+EQUIV|quantity|numeric(19,6)|TEXT + Decimal|PASS
+EQUIV|timestamp|timestamptz UTC|RFC3339 UTC TEXT|PASS
+EQUIV|boolean|boolean|INTEGER CHECK 0/1|PASS
+EQUIV|enum/check|TEXT CHECK|TEXT CHECK|PASS
+EQUIV|version|bigint|INTEGER|PASS
+EQUIV|checksum|TEXT CHECK|TEXT CHECK|PASS
+EQUIV|FK/UNIQUE|composite constraints|composite constraints|PASS
+EQUIV|transactions|MVCC/row locks|WAL single writer|PASS
+SQLITE_TEST_COUNT=83
+SQLITE_TEST_FAILURES=0
+SQLITE_TESTS_FAILED=none
+SQLITE_RESULT=PASS
+POSTGRES_TEST_COUNT_TOTAL=97
+SQLITE_TEST_COUNT_TOTAL=83
+SECURITY_EVIDENCE=PARTIAL SEC-G01,SEC-G05,SEC-G06,SEC-G08,SEC-G09
+SECURITY_GATE_STATES_UNCHANGED=PLANNED/NOT_EVALUATED
+TECH_002_STATUS=IN_PROGRESS
+FIRST_MIGRATION=NO-GO
+R3_RESULT=PASS
+R3_RUN_FINISHED_UTC=2026-08-14T21:38:44Z

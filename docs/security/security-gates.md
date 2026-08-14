@@ -313,6 +313,20 @@ Los casos de uso críticos deben poder depender de puertos conceptuales `LoggerP
 
 Las alertas futuras deben cubrir, según contexto: fallos de login, rechazo cross-tenant, replay, dispositivo sospechoso, exceso de refunds/reversals, diferencias de caja, fallos de proveedor y anomalías de auditoría. Logger y métricas no sustituyen Audit; una alerta no modifica estado de dominio por sí sola.
 
+## Evidencia física parcial de TECH-002/R3
+
+La ejecución reproducible de `poc/physical-model/` aporta evidencia física parcial, no una evaluación de release. Los estados globales de `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED` porque el PoC no incluye identidad autenticada del stack objetivo, repositories, API/IPC, aplicación completa, despliegue ni operación productiva.
+
+| Gate | Amenaza/control/prueba demostrados en el subconjunto | Evidencia que aún falta |
+|---|---|---|
+| `SEC-G01` | RLS/FORCE, runtime sin BYPASSRLS, fail-closed sin tenant o con tenant inválido, aislamiento SELECT/INSERT/UPDATE/DELETE, FK tenant-aware y reuse de contexto | Propagación desde identidad autenticada, repositories y suite end-to-end del stack objetivo |
+| `SEC-G05` | Idempotencia, checksum mismatch, Outbox 1:1, Inbox central durable, ACK perdido, retry sobre la misma intención, Checkpoint sin salto y recuperación local | Autenticidad fuerte del payload, transporte real, ventanas y alertas de replay |
+| `SEC-G06` | Audit append-only, atribución causal y rollback conjunto con hechos comerciales | Integración de `AuditPort`, redacción completa, señales antifraude, retención y consulta operativa |
+| `SEC-G08` | Rechazo de UUID, decimal, estado, FK, secuencia, referencia y `limit_type` inválidos | Zod/API/IPC, webhook, CORS/CSRF/rate limit y validación de aplicación |
+| `SEC-G09` | Dump/restore PostgreSQL con roles separados y backup/reapertura SQLite WAL con hechos durables | DR automatizado, RPO/RTO medidos, cifrado/rotación, rollback de release y supply chain |
+
+`SEC-G02`, `SEC-G03`, `SEC-G04`, `SEC-G07` y `SEC-G10` no reciben evidencia suficiente para registro parcial. La evidencia íntegra de la corrida está en `poc/physical-model/results/evidence.txt` y su resumen en `poc/physical-model/results/summary.md`.
+
 ## Vacíos que permanecen abiertos
 
 - duraciones exactas de tokens, refresh, reautenticación, bloqueo y ventanas de replay;

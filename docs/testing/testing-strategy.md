@@ -233,7 +233,7 @@ Estas pruebas permanecen futuras: R1 cierra contratos documentales, no implement
 
 ### Contratos físicos de TECH-002 R2-A
 
-Cuando R3 y la implementación autoricen schemas/migraciones, se ejecutan suites separadas:
+R3 ejecuta el subconjunto reproducible descrito más abajo. Cuando existan schemas/migraciones y adaptadores de producto autorizados, estas suites se repiten y amplían sobre la implementación real:
 
 PostgreSQL:
 
@@ -262,6 +262,19 @@ Integración:
 - activación confirma Activation/Response/Operation/Outbox/Audit centralmente y se aplica localmente sin transacción distribuida.
 
 R2-A define estas pruebas, pero no las ejecuta ni cambia `SEC-G01`, `SEC-G04`, `SEC-G05`, `SEC-G06`, `SEC-G07` o `SEC-G10` de `PLANNED / NOT_EVALUATED`.
+
+### Evidencia ejecutada de TECH-002 R3
+
+El PoC desechable `poc/physical-model/` materializa solo Foundation + Sales + Payments + Inventory + Pricing/Tax mínimo + Sync/Audit. Sus funciones transaccionales son harness de prueba y no deciden si el producto usará stored procedures, repositories u otro coordinador.
+
+| Motor | Resultado | Cobertura física ejecutada |
+|---|---:|---|
+| PostgreSQL `16.14` | `97/97 PASS` | UUID v7, `numeric(19,6/10/2)`, límites, RLS/FORCE y roles, FKs tenant-aware, atomicidad e inyección de fallos, idempotencia, append-only, concurrencia paralela de venta/inventario/pago/precio, Inbox/Checkpoint y dump/restore con roles separados |
+| SQLite `3.50.4` WAL | `83/83 PASS` | UUID v7, decimal canónico `TEXT` + `Decimal`, límites, FKs tenant-aware, atomicidad, Outbox/Checkpoint condicionado a ACK, single-writer con dos conexiones, reinicio y backup/reapertura |
+
+La matriz de equivalencia de tipos, restricciones y semántica transaccional resultó `PASS`. La evidencia completa está en `poc/physical-model/results/evidence.txt`; el resumen y comando reproducible están en `poc/physical-model/results/summary.md` y `poc/physical-model/README.md`.
+
+R3 queda `PASS`, pero `TECH-002` permanece `IN_PROGRESS`, la primera migración permanece `NO-GO` y R4 sigue pendiente. La evidencia solo es parcial para `SEC-G01`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G09`; todos los security gates conservan `PLANNED / NOT_EVALUATED`.
 
 ## Hardware
 

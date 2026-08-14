@@ -4,7 +4,7 @@
 
 `APPROVED_FOR_TABLE_DESIGN` dentro de `TECH-002`.
 
-Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados documentalmente; la primera migración continúa `NO-GO` hasta completar R3/R4 y obtener autorización independiente.
+Este documento define cómo se materializan tipos y controles ya exigidos por los casos de uso y ADR. No contiene DDL ni autoriza migraciones. El PoC de RLS, R1, R2-A y R2-B fueron cerrados documentalmente y R3 fue ejecutado con `PASS`; la primera migración continúa `NO-GO` hasta completar R4 y obtener autorización independiente.
 
 ## Principios obligatorios
 
@@ -149,6 +149,8 @@ Se conserva el contrato de `DEC-003` y se explicita su aplicación por concepto.
 ### Representación decimal en PostgreSQL
 
 PostgreSQL utiliza `numeric(19,6)`, `numeric(19,2)` o `numeric(19,10)` según la matriz. El driver entrega estos valores como string; nunca se convierten a `number` JavaScript.
+
+R3 confirmó una particularidad de enforcement ya anticipada por este contrato: el typmod `numeric(p,s)` de PostgreSQL normaliza el valor antes de que un `CHECK` de fila pueda distinguir escala léxica excedente. Por ello el adaptador o servicio valida primero la representación decimal canónica y solo después realiza el cast a `numeric`; las funciones de frontera del PoC demuestran ese orden. Esto no crea un tipo nuevo ni autoriza escritura SQL directa desde clientes.
 
 ### Representación decimal en SQLite
 
