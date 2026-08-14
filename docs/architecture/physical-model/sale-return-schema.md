@@ -4,7 +4,7 @@
 
 `CLOSED` dentro de `TECH-002` para `PHY-G08`.
 
-Este documento cierra el contrato físico documental de la devolución comercial definido por `UC-SALES-002`. No contiene DDL, SQL ejecutable ni migraciones y no declara implementada la capacidad. La primera migración objetivo permanece en `NO-GO`.
+Este documento cierra el contrato físico documental de la devolución comercial definido por `UC-SALES-002`. No contiene DDL, SQL ejecutable ni migraciones y no declara implementada la capacidad. Al cerrar este gate, la primera migración objetivo permanecía en `NO-GO`; su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`.
 
 Fuentes: `UC-SALES-002`, `UC-PAY-004`, `DEC-002`, `DEC-007`, modelo conceptual, ownership, reglas de negocio, glosario, catálogo de eventos, matriz de permisos, integración fiscal y convenciones físicas.
 
@@ -244,4 +244,4 @@ Registros sin desglose de línea, pago mixto sin componentes, totales inconsiste
 
 ## Condición de cierre
 
-`PHY-G08` queda cerrado tras alinear modelo conceptual, estados/proyecciones, ownership, permisos, eventos, reglas, glosario, migración y trazabilidad con este contrato. El cierre no inicia `PHY-G09` ni autoriza DDL o migraciones; la primera migración mantiene su gate independiente `NO-GO`.
+`PHY-G08` quedó cerrado tras alinear modelo conceptual, estados/proyecciones, ownership, permisos, eventos, reglas, glosario, migración y trazabilidad con este contrato. Ese cierre no inició `PHY-G09` ni autorizó DDL o migraciones; en ese corte la primera migración mantuvo su gate independiente `NO-GO`. Su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`.

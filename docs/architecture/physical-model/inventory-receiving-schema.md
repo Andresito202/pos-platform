@@ -184,4 +184,4 @@ Inbox, validación tenant-scoped y efectos consolidados comparten una transacci�
 
 `PHY-G06` se cierra sin definir PurchaseOrder porque el contrato vigente solo materializa recepción física independiente. La auditoría transversal verificó cardinalidades, lifecycle inmutable, compensaciones, eventos, permisos, migración heredada, atomicidad y consistencia con `DEC-007` y `UC-INVENTORY-002`.
 
-No se inicia `PHY-G07` en este cambio. El cierre documental de `PHY-G06` tampoco autoriza DDL: la primera migración conserva su gate independiente `NO-GO`.
+No se inició `PHY-G07` en este cambio. El cierre documental de `PHY-G06` tampoco autorizó DDL: en ese corte la primera migración conservó su gate independiente `NO-GO`. Su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`.

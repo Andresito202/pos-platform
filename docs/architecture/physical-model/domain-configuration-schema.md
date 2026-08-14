@@ -4,7 +4,7 @@
 
 Contrato documental de `PHY-G10` para cerrar la persistencia conceptual de configuraciones versionadas por dominio.
 
-Este documento no contiene DDL ni autoriza migraciones. `TECH-002` permanece `IN_PROGRESS` y la primera migración permanece `NO-GO`.
+Este documento no contiene DDL ni autoriza migraciones. Al cerrar este gate, `TECH-002` permanecía `IN_PROGRESS` y la primera migración permanecía `NO-GO`; su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`.
 
 Queda prohibido crear un agregado, tabla, servicio o clave-valor global llamado `Configuration`. Cada dominio conserva la identidad, versiones, reglas y autoridad de sus propias configuraciones. Si una implementación necesita metadatos técnicos de transporte, se denomina `ConfigurationDistribution`, pertenece a infraestructura y no se convierte en fuente de verdad de negocio.
 

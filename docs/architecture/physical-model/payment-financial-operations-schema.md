@@ -4,7 +4,7 @@
 
 `CLOSED` dentro de `TECH-002` para `PHY-G09`.
 
-Este documento cierra únicamente el contrato físico documental de `Reversal`, `Settlement` y `Reconciliation`. No contiene DDL, SQL ejecutable ni migraciones y no declara implementadas estas capacidades. La primera migración objetivo permanece en `NO-GO`.
+Este documento cierra únicamente el contrato físico documental de `Reversal`, `Settlement` y `Reconciliation`. No contiene DDL, SQL ejecutable ni migraciones y no declara implementadas estas capacidades. Al cerrar este gate, la primera migración objetivo permanecía en `NO-GO`; su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`.
 
 Fuentes: `UC-PAY-004`, `UC-PAY-005`, `PAY-007`, `DEC-002`, `DEC-007`, `DEC-008`, modelo conceptual, ownership, ciclo de pagos, reglas de negocio, glosario, catálogo de eventos, matriz de permisos, contratos de integración y convenciones físicas.
 

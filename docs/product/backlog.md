@@ -15,7 +15,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Trabajo principal en curso: `TECH-002`, `IN_PROGRESS`, `P0`; R1/R2-A/R2-B/R3/R4/R5 tienen `PASS` en su alcance. Foundation está `APPROVED_FOR_MIGRATION_DESIGN` para 001; Device-Licensing/Catalog continúan `IN_REVIEW`. R5 cerró B01–B06 y falta una nueva revisión transversal independiente; la primera migración permanece `NO-GO`.
+- Último trabajo principal completado: `TECH-002`, `DONE`, `P0`; R1/R2-A/R2-B/R3/R4/R5 y la revisión transversal final #2 tienen `PASS` en su alcance. Foundation está `APPROVED_FOR_MIGRATION_DESIGN` para 001; Device-Licensing/Catalog continúan `IN_REVIEW`. B01–B06 están cerrados y la primera migración queda `GO_AUTHORIZED` únicamente para implementación.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -306,7 +306,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `IN_PROGRESS` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 `PASS`; el manifest fija scope, ledger único y cierres B01–B06. Falta nueva revisión transversal final; Device-Licensing/Catalog siguen `IN_REVIEW`. Primera migración `NO-GO`. |
+| TECH-002 | `P0` | `DONE` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 y revisión transversal final #2 `PASS`; el manifest fija scope, ledger único y cierres B01–B06. Device-Licensing/Catalog siguen `IN_REVIEW`. Primera migración `GO_AUTHORIZED` para implementación. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
 | TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
@@ -314,8 +314,8 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Continuar `TECH-002` — `P0`, `IN_PROGRESS`: ejecutar una nueva revisión transversal final independiente de R1/R2/R3/R4/R5; no escribir la primera migración sin su resultado y autorización explícita.
-2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
+1. Implementar la primera migración objetivo exactamente según `docs/migration/first-target-migration-manifest.md`: `001_central_foundation` y `001_local_migration_control`, con sus pruebas e introspección, sin ampliar scope.
+2. Iniciar `TECH-003` después de implementar el primer corte físico y materializar `ARCH-004` sin cambiar sus contratos.
 3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
 
 El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. La secuencia interna obligatoria continúa así:
@@ -395,7 +395,7 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 | Hito | Estado | Criterio de salida |
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
-| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `PHY-G01` a `PHY-G14` y R1/R2-A/R2-B/R3/R4/R5 cerrados en su alcance. Falta nueva revisión transversal, condiciones posteriores de Device-Licensing/Catalog y autorización independiente; primera migración `NO-GO`. |
+| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | Diseño `TECH-002`, `PHY-G01` a `PHY-G14`, R1/R2-A/R2-B/R3/R4/R5 y revisión transversal final #2 cerrados en su alcance. Primera migración `GO_AUTHORIZED`; faltan implementación y pruebas del DDL real. Device-Licensing/Catalog conservan sus condiciones posteriores. |
 | F1.3 Seguridad e identidad | `PLANNED` | `SEC-G01` a `SEC-G10` formalizados pero no evaluados; requiere aislamiento multi-tenant probado, sesiones revocables, MFA crítico, permisos backend y evidencia de release. |
 | F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
@@ -497,4 +497,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-14: la primera revisión transversal final de `TECH-002` produjo `NO-GO` y seis blockers materiales B01–B06: bootstrap/ledger, autoridad del migrador, recovery, ownership de onboarding, Session/RLS y `AuditEvent.resource_id`. `TECH-002 / R5` los cerró documentalmente con bootstrap permanente previo a STARTED, ledger único sin metadata Kysely, máquina de estados fail-closed, FK OWNER compuesta, Session RLS/FORCE y referencia AuditEvent condicional verificable. El scope de 001 no se amplió, los security gates no cambiaron y no se escribió DDL.
 
-Próxima actualización obligatoria: ejecutar una nueva revisión transversal final independiente de R1/R2/R3/R4/R5; no escribir la primera migración sin su resultado y autorización explícita.
+- 2026-08-14: la revisión transversal final #2 revalidó R1–R5 y confirmó B01–B06 `CLOSED`, scope 001 exacto, aislamiento tenant-aware, autoridad única, lifecycle/recovery, separación legacy y cero blockers categoría A. `TECH-002` pasó a `DONE` y la primera migración a `GO_AUTHORIZED` solo para implementar `001_central_foundation` y `001_local_migration_control`. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`; Fase 1, Device/Licensing, Catalog y producción no se declararon terminados.
+
+Próxima actualización obligatoria: implementar y verificar la primera migración objetivo exactamente según el manifiesto, sin ampliar scope ni modificar la revisión Alembic heredada.

@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-`APPROVED_FOR_MIGRATION_DESIGN` para el scope exacto de migration 001 definido por R4 y corregido normativamente por R5. No autoriza DDL ni cambia la primera migración de `NO-GO`.
+`APPROVED_FOR_MIGRATION_DESIGN` para el scope exacto de migration 001 definido por R4 y corregido normativamente por R5. La revisión transversal final #2 autoriza implementar ese scope (`GO_AUTHORIZED`), pero este documento no contiene DDL ni declara la migración implementada.
 
 Este documento diseña el bloque central que debe existir antes de catálogo, inventario, ventas o pagos:
 
@@ -577,4 +577,4 @@ Foundation queda `APPROVED_FOR_MIGRATION_DESIGN` únicamente para el scope 001 p
 - el PoC de RLS demuestra aislamiento y ausencia de fuga de contexto;
 - la estrategia completa de migraciones define orden, rollback y convivencia con el esquema heredado.
 
-Persisten como condiciones de implementación: paquete inicial de Authorization aprobado, grants por columna/repositories, pruebas del DDL real —incluidas Session y las constraints R5— y una nueva revisión transversal independiente. El estado global de primera migración permanece `NO-GO`.
+Persisten como condiciones de implementación: paquete inicial de Authorization aprobado, grants por columna/repositories y pruebas del DDL real —incluidas Session y las constraints R5—. La revisión transversal final #2 quedó satisfecha; la primera migración está `GO_AUTHORIZED` únicamente para su implementación.

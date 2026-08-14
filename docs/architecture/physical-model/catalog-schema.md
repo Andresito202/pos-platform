@@ -291,4 +291,4 @@ Catalog permanece `IN_REVIEW`. R1 clasifica sus condiciones sin declararlas sati
 
 Pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo cuando las condiciones pendientes tengan evidencia. R4 lo excluye íntegramente de migration 001, por lo que estas condiciones no bloquean ese corte pero sí cualquier migración de Catalog.
 
-La primera migración permanece `NO-GO`.
+Al cerrar este bloque, la primera migración permanecía `NO-GO`; su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`. Catalog permanece fuera de 001 y conserva sus gates propios.

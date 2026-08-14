@@ -323,4 +323,4 @@ No se infieren arqueos parciales, arqueo ciego, versiones corregidas, tolerancia
 
 `PHY-G07` queda cerrado tras confirmar transversalmente que modelo conceptual, eventos, permisos, migración, trazabilidad, UC-CASH-002, UC-CASH-003, DEC-002 y DEC-007 usan estas identidades y reglas sin contradicciones.
 
-Cerrar `PHY-G07` no inicia `PHY-G08` ni autoriza DDL o migraciones. La primera migración mantiene un gate independiente `NO-GO`.
+Al cerrar `PHY-G07` no se inició `PHY-G08` ni se autorizó DDL o migraciones; en ese corte la primera migración conservó su gate independiente `NO-GO`. Su estado vigente se registra en `traceability.md` y `../../product/backlog.md`.

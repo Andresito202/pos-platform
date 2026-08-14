@@ -13,7 +13,7 @@ No contiene DDL ni código Kysely. Tampoco autoriza ejecutar las migraciones. De
 
 `platform.target_migration_executions` es la única history normativa del producto. El runner asigna `migration_id`, `execution_id` y checksum y decide si una migración está aplicada. Kysely puede usarse como query builder/executor de sentencias, pero no se usa `Migrator` ni se crean tablas Kysely de migration/lock. Cualquier metadata auxiliar de una herramienta es efímera, reconstruible y no participa en decisiones de apply, retry, down o recovery; si una herramienta no puede operar así, no es un executor válido para este manifiesto.
 
-La migración 001 no habilita un POS ni login operacional de terminal. DeviceKey, licencias, activaciones y snapshots offline permanecen fail-closed hasta cerrar el PoC criptográfico y un corte posterior. `TECH-002` sigue `IN_PROGRESS`; primera migración `NO-GO` hasta revisión transversal independiente.
+La migración 001 no habilita un POS ni login operacional de terminal. DeviceKey, licencias, activaciones y snapshots offline permanecen fail-closed hasta cerrar el PoC criptográfico y un corte posterior. La revisión transversal final #2 cerró `TECH-002` y autorizó implementar el alcance exacto de 001; no declara la migración implementada ni aplicada.
 
 Fuentes normativas:
 
@@ -470,7 +470,7 @@ Upgrade simulation empieza cuando exista una versión TARGET anterior. El legado
 
 El PoC de firma/canonicalización/storage seguro no bloquea R4 ni el esquema central 001 porque ninguna tabla que persista clave pública, firma, payload firmado, license, activation o autorización offline entra en el corte. Sí bloquea cualquier migración posterior que introduzca DeviceKey, License, FeatureEntitlement, LicenseActivation, trusted keys, activation artifacts u offline snapshot. No se permite escribir `device_id` no nulo ni aceptar `LOCAL_DEVICE` antes de ese corte.
 
-- Foundation: `APPROVED_FOR_MIGRATION_DESIGN`; R3 aporta evidencia y R4/R5 cierran alcance/orden normativo, pero implementación y nueva revisión transversal siguen pendientes.
+- Foundation: `APPROVED_FOR_MIGRATION_DESIGN`; R3 aporta evidencia, R4/R5 cierran alcance/orden normativo y la revisión transversal final #2 autoriza implementar 001; la implementación sigue pendiente.
 - Device/Licensing: `IN_REVIEW`; faltan auditoría final del bloque y PoC criptográfico.
 - Catalog: `IN_REVIEW` y fuera de 001; siguen pendientes pruebas completas de equivalencia/ciclos y auditoría columna por columna.
 
@@ -488,8 +488,10 @@ Riesgos residuales:
 6. roles y bootstrap permanente requieren automatización/backup separados;
 7. los checks temporales `device_id IS NULL` y perfil central Sync deben retirarse únicamente en el corte criptográfico completo.
 
-R5 cerró documentalmente B01–B06 sin ampliar el scope de objetos: bootstrap ejecutable, ledger único, lifecycle/recovery, ownership de onboarding, frontera Session y regla AuditEvent quedaron normativos. Este cierre no aporta evidencia runtime nueva. Antes de GO aún se requiere otra revisión transversal final independiente de TECH-002 que verifique los cambios R5 y autorice expresamente escribir la migración.
+R5 cerró documentalmente B01–B06 sin ampliar el scope de objetos: bootstrap ejecutable, ledger único, lifecycle/recovery, ownership de onboarding, frontera Session y regla AuditEvent quedaron normativos. La revisión transversal final #2 verificó independientemente esos cierres, no encontró blockers categoría A ni contradicciones materiales y autorizó escribir la migración exacta descrita aquí. Este resultado no aporta evidencia runtime nueva.
 
-**TECH-002 = IN_PROGRESS**
+**TECH-002 = DONE**
 
-**First migration = NO-GO**
+**First migration = GO_AUTHORIZED**
+
+`GO_AUTHORIZED` significa únicamente que la siguiente tarea puede implementar `001_central_foundation` y `001_local_migration_control`. No significa migración aplicada, Fase 1 terminada, security gates en PASS, producción autorizada, local-first terminado ni Device/Licensing terminado.

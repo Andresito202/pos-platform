@@ -414,4 +414,4 @@ Este bloque permanece `IN_REVIEW`. R1 cerró la identidad canónica de DeviceKey
 | PoC de firma/canonicalización/storage seguro | pendiente | requiere autorización y evidencia separadas |
 | pruebas físicas PostgreSQL/SQLite | parcialmente satisfecha | R3 validó patrones comunes; la cadena criptográfica completa requiere su PoC y tests de implementación |
 
-La primera migración continúa en `NO-GO`.
+Al cerrar este bloque, la primera migración continuaba en `NO-GO`; su evolución posterior se registra en `traceability.md` y `../../product/backlog.md`. Device/Licensing permanece fuera de 001 y conserva sus gates propios.
