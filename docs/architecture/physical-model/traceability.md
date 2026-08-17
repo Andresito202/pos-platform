@@ -297,3 +297,5 @@ Resultado del delta: `PASS` documental del contrato general. La decisión poster
 ```
 
 Migration 002 no crea tablas fiscales y prohíbe físicamente dispatches `FISCAL`. Migration 003 materializará posteriormente el bounded context fiscal y habilitará `FISCAL` solo en la misma frontera transaccional que crea `FiscalSubmissionAttempt` y la FK discriminada. Ambas migrations pertenecen a Phase 1; ninguna implementa adapters ni verifica providers. Migration 001 permanece inmutable y `SEC-G01` a `SEC-G10` no cambian de `PLANNED / NOT_EVALUATED`.
+
+INT-002 materializa esa decisión únicamente como diseño en [`second-target-migration-manifest.md`](../../migration/second-target-migration-manifest.md): 16 tablas `CENTRAL_ONLY` bajo `integrations`, cero SQLite, cero seed y cero SQL; `integration_dispatches_dispatch_class_002_ck` permite solo `NON_FISCAL` y `IntegrationDispatchAttempt` conserva FK discriminada hacia ese mismo valor. El manifest consume Company/Branch, roles, RLS, UUID v7, Audit y ledger de 001 sin alterar ningún objeto 001. Su cierre documental no autoriza aún implementar migration 002; requiere revisión/autorización de materialización separada.

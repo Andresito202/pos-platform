@@ -86,7 +86,7 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | Local-first y sincronización | Autoridad, idempotencia, conflictos y recuperación definidos | Pendiente |
 | Runtime Electron y servicio local | Stack, procesos, IPC y seguridad definidos | Pendiente |
 | Facturación electrónica | Arquitectura neutral y `UC-EINV-001` definidos | Pendiente; sin certificación ni proveedor productivo habilitado |
-| Integraciones externas | `ExternalIntegration`, capabilities, mappings, ownership, discovery, dispatch, webhook, rate limits y evidencia definidos | Pendiente; sin migration 002 ni adapters reales/verificados |
+| Integraciones externas | `ExternalIntegration`, capabilities, mappings, ownership, discovery, dispatch, webhook, rate limits y evidencia definidos; manifest 002 diseñado | Pendiente de autorización/materialización; sin SQL 002 ni adapters reales/verificados |
 | Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
 | Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
 | CI y validación automática de la arquitectura objetivo | Estrategia definida | Pendiente |
@@ -160,7 +160,7 @@ El stack siguiente describe únicamente lo que está físicamente presente en la
 | Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007` y `docs/migration/first-target-migration-manifest.md`. `TECH-002` está cerrado y migration 001 ya fue materializada/verificada en `255d813`; no debe editarse. La siguiente tarea es reiniciar INT-002 para diseñar exclusivamente el manifest de migration 002 External Integrations, central y `NON_FISCAL`, sin SQL. Una migration 003 posterior materializará Fiscal/Electronic Invoicing y habilitará `FISCAL` atómicamente con `FiscalSubmissionAttempt`.
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md` y `docs/migration/second-target-migration-manifest.md`. `TECH-002` está cerrado y migration 001 ya fue materializada/verificada en `255d813`; no debe editarse. INT-002 diseñó exclusivamente el manifest de migration 002 External Integrations, central y `NON_FISCAL`, pero todavía no autorizó su materialización ni creó SQL. La siguiente tarea es su revisión independiente y decisión de materialización. Una migration 003 posterior materializará Fiscal/Electronic Invoicing y habilitará `FISCAL` atómicamente con `FiscalSubmissionAttempt`.
 
 El repositorio contiene ahora el `package.json` mínimo del harness TARGET de migration 001; todavía no contiene `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 

@@ -42,6 +42,7 @@ Se utilizan schemas por módulo propietario:
 | `cash` | cajas, turnos, conteos y movimientos |
 | `sales` | ventas, líneas, suspensiones, devoluciones comerciales y cancelaciones |
 | `payments` | grupos, pagos, intentos, asignaciones, refunds y conciliación |
+| `integrations` | providers, conexiones externas, capabilities, ownership, discovery, mappings, dispatch no fiscal, webhooks, rate limits y evidencia |
 | `sync` | inbox, conflictos, revisiones y checkpoints centrales |
 | `fiscal` | configuración y documentos electrónicos neutrales a proveedor |
 | `audit` | auditoría inmutable |

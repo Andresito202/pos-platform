@@ -170,7 +170,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | INT-001 | `P0` | `DONE` | Cerrar contrato físico general provider-agnostic, mappings, ownership, discovery, secrets, dispatch, webhook, rate limit y evidencia; reconciliar `FiscalConnection`. | `docs/architecture/physical-model/external-integrations-schema.md`, `docs/architecture/provider-integration-matrix.md`; documental, sin SQL/adapters |
-| INT-002 | `P0` | `READY` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | Depende de INT-001 y de la decisión de split 002/003; migration 001 permanece inmutable; no incluye tablas fiscales ni SQL en la fase de manifest |
+| INT-002 | `P0` | `DONE` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | Cerrado en `docs/migration/second-target-migration-manifest.md`; 16 tablas centrales, SQLite NONE, sin tablas fiscales ni SQL; migration 001 permanece inmutable |
 | INT-003 | `P0` | `PLANNED` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | Depende de INT-002 y autorización independiente de migration 002 |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
@@ -328,11 +328,12 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Reiniciar `INT-002` y diseñar únicamente el manifest aditivo de migration 002 External Integrations, central y `NON_FISCAL`, sin modificar migration 001 ni escribir SQL.
-2. Después de materializar 002 bajo autorización separada, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
-3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
-4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
-5. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
+1. Ejecutar revisión independiente del manifest INT-002 y autorizar, en una tarea separada, la materialización de migration 002; no escribir SQL antes de esa autorización.
+2. Materializar 002 exactamente como External Integrations central `NON_FISCAL`, sin modificar migration 001 ni crear tablas fiscales.
+3. Después de materializar 002, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
+4. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
+5. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
+6. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
 
 El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. Los puntos 1–4 siguientes son el registro histórico que llevó a la autorización y materialización de migration 001; no son pasos pendientes ni autorizan editarla:
 
@@ -519,4 +520,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-17: la gobernanza resolvió el blocker de alcance de INT-002 separando materialización progresiva dentro de Phase 1: migration 002 contiene solo External Integrations foundation y permite únicamente dispatch `NON_FISCAL`; migration 003 contendrá Fiscal/Electronic Invoicing y habilitará `FISCAL` atómicamente con `FiscalSubmissionAttempt`. No se creó manifest detallado ni SQL, no cambió INT-001 y migration 001 permanece inmutable.
 
-Próxima actualización obligatoria: reiniciar `INT-002` para diseñar el manifest exacto de migration 002 External Integrations `NON_FISCAL`, sin modificar migration 001, sin tablas fiscales y sin escribir SQL.
+- 2026-08-17: `INT-002` cerró el manifest documental exacto de migration 002 External Integrations: 16 tablas PostgreSQL centrales bajo `integrations`, 12 con RLS/FORCE, cero SQLite/seeds/SQL, ownership y FKs tenant-aware, y dispatch físicamente limitado a `NON_FISCAL`. No se materializó migration 002, no se inició INT-003, no se implementaron adapters y todos los providers/SEC-G conservaron sus estados.
+
+Próxima actualización obligatoria: revisión independiente del manifest INT-002 y decisión explícita de autorización para materializar migration 002. Hasta entonces no escribir SQL.
