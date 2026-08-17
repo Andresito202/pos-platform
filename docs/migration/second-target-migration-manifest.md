@@ -33,6 +33,20 @@ Reglas de interpretación: `DOCUMENTADO != IMPLEMENTADO`, `MANIFEST != SQL`, `IM
 | `dispatch_class` limitado temporalmente a `NON_FISCAL` | `RECONCILIATION` | materializa progresivamente INT-001 según `GOV-INT-SPLIT` |
 | inclusión de `integrations` en la lista general de schemas | `RECONCILIATION` | corrige una omisión documental anterior a INT-001; ownership no cambia |
 
+La remediación posterior a `MANIFEST-002-REVIEW = PASS_WITH_REMEDIATION` queda acotada y clasificada así:
+
+| Finding | Clasificación | Reconciliación acotada |
+|---|---|---|
+| `M-01` | `RECONCILIATION` | todas las FKs usan `provider_registry(provider_id)` como identidad canónica |
+| `M-02` | `RECONCILIATION` | `IntegrationCredentialBinding` queda como único owner del binding activo; se elimina el pointer duplicado |
+| `M-03` | `EXTENSION` | el self-scope de supersession incluye integration y resource type |
+| `M-04` | `EXTENSION` | row shapes, RLS, grants y segregación de funciones mixed-scope quedan cerrados |
+| `M-05` | `EXTENSION` | versiones publicadas reciben vigencia no solapable y publicación inequívoca |
+| `M-06` | `RECONCILIATION` | rate policy conserva configuración, no estado operacional de alta frecuencia |
+| `M-07` y LOW asociados | `RECONCILIATION` | matriz exacta de índices FK y retiro de índices redundantes/especulativos |
+
+Ninguna remediación es `REPLACEMENT` o `DEPRECATED`; no reabre INT-001, GOV-INT-SPLIT, DEC-007, ADR-005 ni TECH-002.
+
 No existe `REPLACEMENT` ni `DEPRECATED`. El flujo aprobado permanece:
 
 ```text
@@ -93,7 +107,7 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 - **1–6:** table `provider_registry`; schema `integrations`; owner `External Integrations`; catálogo global controlado de providers; `NEW`; `CENTRAL_ONLY`.
 - **7–12:** PK `provider_id`; UUID v7; `tenant_id` —; `company_id` —; `branch_id` —; NOT NULL `provider_code,display_name,integration_class,status,created_at,updated_at,version`.
 - **13–18:** nullable `official_reference_uri`; candidate key `provider_code`; UNIQUE `provider_registry_provider_code_uq`; CHECK código `^[A-Z][A-Z0-9_]{1,63}$`, class `ERP_ACCOUNTING|ELECTRONIC_DOCUMENT_PROVIDER|HYBRID|OTHER_REVIEW_REQUIRED`, status `ACTIVE|RETIRED|BLOCKED`, timestamps/version; FKs —; dependencias 001 `platform.is_uuid_v7` y roles.
-- **19–24:** dependencia 002 —; delete `NO ACTION` lógico mediante retiro; update solo metadata/status con CAS de `version`; inmutables `provider_id,provider_code,created_at`; optimistic concurrency por `version`; índices PK, unique code y `provider_registry_status_code_idx(status,provider_code)`.
+- **19–24:** dependencia 002 —; delete `NO ACTION` lógico mediante retiro; update solo metadata/status con CAS de `version`; inmutables `provider_id,provider_code,created_at`; optimistic concurrency por `version`; índices PK y unique code. No se planifica índice por status: el catálogo es pequeño y no existe query path que lo justifique.
 - **25–29:** parciales —; RLS no aplica por ser global; policies —; `pos_app/pos_worker` SELECT, `pos_platform_app` SELECT y publicación administrativa autorizada, admin SELECT, migrator/owner según baseline; sensibles: URI y metadata operativa, no secretos.
 - **30–33:** Audit obligatorio para alta/bloqueo/retiro; retención mientras exista cualquier referencia, sin hard delete; publicación y Audit en una transacción; rollback fresh elimina la tabla solo después de dependientes.
 
@@ -118,9 +132,9 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 ### 5.4 `integrations.provider_platform_configurations`
 
 - **1–6:** `provider_platform_configurations`; `integrations`; `External Integrations`; configuración global de plataforma por provider/ambiente, nunca credencial del cliente; `NEW`; `CENTRAL_ONLY`.
-- **7–12:** PK `id`; UUID v7; scopes tenant/company/branch —; NOT NULL `provider_id,environment,configuration_type,configuration_schema_version,configuration_payload,status,valid_from,created_at,updated_at,version`.
-- **13–18:** nullable `valid_until`; candidate `(provider_id,environment,configuration_type,configuration_schema_version)`; UNIQUE homónimo; CHECK environment/type uppercase, schema/version positivos, status `DRAFT|PUBLISHED|RETIRED`, vigencia/timestamps y JSON object; FK ProviderRegistry; dependencias 001 helper/roles.
-- **19–24:** depende de ProviderRegistry; delete `NO ACTION`; DRAFT mutable con CAS, PUBLISHED inmutable y reemplazado por nueva versión, RETIRED solo cierra vigencia; inmutables id/provider/environment/type/schema version/created_at tras publish; optimistic `version`; índices unique y `provider_platform_configurations_lookup_idx(provider_id,environment,configuration_type,status,valid_from DESC)`.
+- **7–12:** PK `id`; UUID v7; scopes tenant/company/branch —; NOT NULL `provider_id,environment,configuration_type,configuration_schema_version,configuration_payload,status,valid_from,created_at,updated_at,version,row_version`.
+- **13–18:** nullable `valid_until,published_at`; scope identity `(provider_id,environment,configuration_type)`; candidate versionada `(provider_id,environment,configuration_type,version)` y UNIQUE homónimo; CHECK environment/type uppercase, schema/version/row version positivos, status `DRAFT|PUBLISHED|RETIRED`, `valid_from < valid_until` cuando exista, `valid_until NULL` como extremo abierto, `published_at NULL` solo para DRAFT y presente para PUBLISHED/RETIRED, timestamps y JSON object; FK `provider_id -> provider_registry(provider_id)`; dependencias 001 helper/roles y disponibilidad aprobada de `btree_gist`.
+- **19–24:** depende de ProviderRegistry; delete `NO ACTION`; DRAFT mutable con CAS de `row_version`, PUBLISHED inmutable y reemplazado por nueva `version`, RETIRED solo cierra vigencia; inmutables id/provider/environment/type/schema version/business version/created_at tras publish; exclusión PostgreSQL `provider_platform_configurations_published_validity_excl` por scope identity y rango semiabierto `[valid_from,valid_until)` para filas PUBLISHED, tratando NULL como infinito; índices unique y `provider_platform_configurations_lookup_idx(provider_id,environment,configuration_type,status,valid_from DESC)`.
 - **25–29:** parcial `provider_platform_configurations_current_idx(provider_id,environment,configuration_type,valid_from DESC) WHERE status='PUBLISHED' AND valid_until IS NULL`; sin RLS/policies; worker SELECT published, platform app publicación, app solo metadata sin payload, admin SELECT allowlisted; sensible `configuration_payload`, obligatorio allowlist y sin secretos.
 - **30–33:** Audit con checksum/snapshot sanitizado; retención de versiones publicadas; publish/retiro + Audit atómico; rollback fresh inverso. Siigo `Partner-Id` podrá publicarse después como `SYSTEM_REFERENCE_DATA/CONFIGURATION`, nunca se siembra en 002.
 
@@ -128,9 +142,9 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 
 - **1–6:** `external_integrations`; `integrations`; `External Integrations`; cuenta/conexión general tenant/company-scoped; `NEW`; `CENTRAL_ONLY`.
 - **7–12:** PK `id`; UUID v7; `tenant_id NOT NULL`; `company_id NOT NULL`; `branch_id NULL`; NOT NULL `provider_id,provider_code_snapshot,provider_adapter_version_id,environment,status,configuration_version,created_at,updated_at,version`.
-- **13–18:** nullable `branch_id,credential_binding_id,provider_account_reference,last_health_check_at,last_success_at,last_failure_at,activated_at,disabled_at`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,id,provider_adapter_version_id)`; UNIQUE para las tres más uniques activas por scope/account; CHECK environment/código, status `CREATED|CREDENTIALS_CONFIGURED|AUTHENTICATED|DISCOVERING|DISCOVERY_COMPLETE|MAPPING_REQUIRED|READY_FOR_REVIEW|ACTIVE|DEGRADED|DISABLED|CREDENTIAL_ROTATION_REQUIRED|ERROR`, timestamps, branch scope y version; FKs tenant-aware a Company/Branch, compuesta Provider+Adapter y binding activo agregada tras crear bindings; guards `external_integrations_provider_snapshot_guard` y `external_integrations_active_credential_guard` verifican respectivamente código congelado y binding `ACTIVE` de la misma integración; dependencias 001 Company/Branch/helper/roles/Audit.
-- **19–24:** depende de registry/adapter y luego binding; delete `NO ACTION`; transiciones lifecycle/health/config con CAS, disable en vez de delete; inmutables id/scope/provider/environment/account identity validada/created_at salvo caso de reconfiguración que crea otra integración; optimistic `version`; índices lookup tenant/company/status/provider, provider/environment/status, health vencido y FK branch/adapter.
-- **25–29:** dos uniques parciales para account activa: company-wide cuando `branch_id IS NULL` y branch-specific cuando no nulo, ambos solo con `provider_account_reference IS NOT NULL AND status <> 'DISABLED'`; RLS ENABLE/FORCE; policy `external_integrations_tenant_isolation`; app y worker SELECT, app INSERT/UPDATE por permisos, platform app bajo contexto, worker solo columnas health/status técnico allowlisted, admin SELECT sin credential reference; sensibles account reference, health y binding pointer.
+- **13–18:** nullable `branch_id,provider_account_reference,last_health_check_at,last_success_at,last_failure_at,activated_at,disabled_at`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,id,provider_adapter_version_id)`; UNIQUE para las tres más uniques activas por scope/account; CHECK environment/código, status `CREATED|CREDENTIALS_CONFIGURED|AUTHENTICATED|DISCOVERING|DISCOVERY_COMPLETE|MAPPING_REQUIRED|READY_FOR_REVIEW|ACTIVE|DEGRADED|DISABLED|CREDENTIAL_ROTATION_REQUIRED|ERROR`, timestamps, branch scope y version; FKs tenant-aware a Company/Branch y compuesta Provider+Adapter; el guard `external_integrations_provider_snapshot_guard` verifica el código congelado; dependencias 001 Company/Branch/helper/roles/Audit.
+- **19–24:** depende de registry/adapter; delete `NO ACTION`; transiciones lifecycle/health/config con CAS, disable en vez de delete; inmutables id/scope/provider/environment/account identity validada/created_at salvo caso de reconfiguración que crea otra integración; optimistic `version`; índices lookup tenant/company/status/provider, provider/environment/status, health vencido y FK branch/adapter. No existe FK ni pointer desde la integración hacia un binding.
+- **25–29:** dos uniques parciales para account activa: company-wide cuando `branch_id IS NULL` y branch-specific cuando no nulo, ambos solo con `provider_account_reference IS NOT NULL AND status <> 'DISABLED'`; RLS ENABLE/FORCE; policy `external_integrations_tenant_isolation`; app y worker SELECT, app INSERT/UPDATE por permisos, platform app bajo contexto, worker solo columnas health/status técnico allowlisted, admin SELECT; sensibles account reference y health.
 - **30–33:** Audit configure/test/review/activate/disable/rotate/revalidate sin valores; retención por toda la historia dependiente; creación metadata + Audit atómica, HTTP fuera, binding se activa en transacción posterior; rollback fresh solo después de todos los dependientes.
 
 ### 5.6 `integrations.integration_credential_bindings`
@@ -140,7 +154,7 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 - **13–18:** nullable `activated_at,rotation_due_at,superseded_at,revoked_at`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,integration_id,id)`, `(tenant_id,integration_id,generation)`; UNIQUE las cuatro; CHECK generation/version positivos, reference/kind no vacíos, status `PENDING|ACTIVE|SUPERSEDED|REVOKED` y timestamps coherentes; FK tenant/company/integration; dependencias 001 Company indirecta/helper/Audit.
 - **19–24:** depende de ExternalIntegration; delete `NO ACTION`; solo transiciones de lifecycle con CAS, rotación inserta fila nueva; inmutables id/scope/integration/reference/kind/generation/created_at; optimistic `version`; índices por integration/status y rotation_due.
 - **25–29:** unique parcial `integration_credential_bindings_active_uq(tenant_id,integration_id) WHERE status='ACTIVE'`; RLS ENABLE/FORCE; policy tenant; app ve metadata redacted y solicita operaciones por puerto, worker puede SELECT `credential_reference` para resolver el secreto, platform app gestiona bajo contexto, admin no recibe esa columna; sensible `credential_reference` aunque no sea el secreto.
-- **30–33:** Audit registra referencia identificadora sanitizada, actor, motivo y resultado; retención de generaciones retiradas según política de seguridad y dependencias; insertar/probar fuera de ACID/activar binding/reapuntar integración/retirar anterior se separa, siendo la activación final una transacción; rollback fresh después de eliminar FK activa desde ExternalIntegration.
+- **30–33:** Audit registra referencia identificadora sanitizada, actor, motivo y resultado; retención de generaciones retiradas según política de seguridad y dependencias; crear PENDING y probar el secreto ocurren antes de la activación final; la transacción final cambia el ACTIVE anterior a SUPERSEDED o REVOKED, cambia el nuevo a ACTIVE y registra Audit. El UNIQUE parcial garantiza **AT MOST ONE ACTIVE**. Se permite cero ACTIVE en `CREATED`, `CREDENTIALS_CONFIGURED`, `CREDENTIAL_ROTATION_REQUIRED`, `DISABLED` y `ERROR`; la validación server-side exige **EXACTLY ONE ACTIVE** antes de entrar o permanecer en `AUTHENTICATED`, `DISCOVERING`, `DISCOVERY_COMPLETE`, `MAPPING_REQUIRED`, `READY_FOR_REVIEW`, `ACTIVE` o `DEGRADED`. Rollback fresh elimina bindings antes de ExternalIntegration, sin ciclo referencial.
 
 ### 5.7 `integrations.resource_ownership_policies`
 
@@ -182,7 +196,7 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 
 - **1–6:** `external_reference_mappings`; `integrations`; `External Integrations`; mapping neutral internal↔external; `NEW`; `CENTRAL_ONLY`.
 - **7–12:** PK `id`; UUID v7; tenant/company NOT NULL; branch —; NOT NULL `integration_id,resource_type,internal_entity_type,internal_entity_id,external_id,mapping_status,provider_metadata_schema_version,provider_metadata,created_at,updated_at,version`.
-- **13–18:** nullable `external_code,verified_at,verified_by_actor_id,supersedes_mapping_id`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)` y self-scope; UNIQUE vigentes mediante índices parciales interno/externo; CHECK status `PROPOSED|VERIFIED|ACTIVE|CONFLICT|STALE|RETIRED`, verification actor/time, JSON/schema/version; FK Integration, self tenant-aware y reviewer global a `identity.users`; referencias internas polimórficas se validan por puerto propietario; dependencias 001 User/helper/Audit.
+- **13–18:** nullable `external_code,verified_at,verified_by_actor_id,supersedes_mapping_id`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)` y self-scope `(tenant_id,company_id,integration_id,resource_type,id)`; UNIQUE vigentes mediante índices parciales interno/externo; CHECK status `PROPOSED|VERIFIED|ACTIVE|CONFLICT|STALE|RETIRED`, verification actor/time, JSON/schema/version; FK Integration, self-FK `(tenant_id,company_id,integration_id,resource_type,supersedes_mapping_id)` a la candidate key exacta y reviewer global a `identity.users`; referencias internas polimórficas se validan por puerto propietario; dependencias 001 User/helper/Audit.
 - **19–24:** depende de Integration y opcionalmente Discovery por causalidad, no FK obligatoria; delete `NO ACTION`; retiro/reemplazo explícitos con CAS, conflicto nunca overwrite; inmutables scope/integration/resource/internal identity/external identity/created_at; optimistic `version`; índices lookup interno, externo y status.
 - **25–29:** uniques parciales `external_reference_mappings_internal_current_uq` y `..._external_current_uq` para filas no `RETIRED`; índice parcial pending/stale; RLS ENABLE/FORCE; policy tenant; app map/review, worker SELECT, platform app contextual, admin SELECT sin metadata completa; sensibles identidades externas y metadata.
 - **30–33:** Audit map/verify/conflict/retire/replace; mappings retirados e historia no se eliminan; retirar anterior+insertar reemplazo+self-link+Audit atómicos; rollback fresh antes de Integration.
@@ -217,45 +231,54 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 ### 5.15 `integrations.provider_rate_limit_policies`
 
 - **1–6:** `provider_rate_limit_policies`; `integrations`; `External Integrations`; límites externos versionados y precedencia por scope; `NEW`; `CENTRAL_ONLY`.
-- **7–12:** PK `id`; UUID v7; `tenant_id/company_id` nullable según scope; branch —; NOT NULL `provider_id,endpoint_class,retry_after_mode,backoff_policy_code,status,valid_from,version`.
-- **13–18:** nullable `tenant_id,company_id,integration_id,request_limit,window_seconds,concurrency_limit,cooldown_seconds,source_reference_uri,valid_until,last_rate_limit_event_at`; candidates `(provider_id,endpoint_class,version)`, `(provider_id,tenant_id,endpoint_class,version)`, `(provider_id,tenant_id,company_id,endpoint_class,version)` o `(provider_id,tenant_id,company_id,integration_id,endpoint_class,version)` según scope; UNIQUE mediante cuatro índices parciales; CHECK shape provider/tenant/company/integration, límites positivos, retry mode `PROVIDER_HEADER_DRIVEN|FIXED_WINDOW|UNVERIFIED`, status `DRAFT|PUBLISHED|RETIRED`, vigencia/version; FK Provider, Company tenant-aware e Integration cuando aplique; dependencias 001 Company/helper/roles.
-- **19–24:** depende de Provider e Integration opcional; delete `NO ACTION`; límites publicados se reemplazan por versión nueva, solo observación `last_rate_limit_event_at` puede avanzar técnicamente; inmutables scope/endpoint/valores contractuales/version/valid_from tras publish; optimistic concurrency por business `version` y row lock; índices lookup de precedencia y evento reciente.
-- **25–29:** cuatro uniques parciales para provider default, tenant, company e integration; RLS ENABLE/FORCE por ser tabla mixta; policies `provider_rate_limit_policies_tenant_select`, `..._tenant_write` y `..._platform_global` separan filas globales; worker SELECT global+tenant y UPDATE solo last event, app SELECT/config tenant, platform app publica global/contextual, admin read-only; sensible fuente/estado contractual, sin secretos.
-- **30–33:** Audit publish/replace/rate-limit incident; retención de versiones; publicación/retiro+Audit atómico, headers efectivos se aplican runtime fuera de esa transacción; rollback fresh antes de Provider/Integration.
+- **7–12:** PK `id`; UUID v7; `tenant_id/company_id` nullable según scope; branch —; NOT NULL `provider_id,scope_type,endpoint_class,retry_after_mode,backoff_policy_code,status,valid_from,version,row_version`.
+- **13–18:** nullable `tenant_id,company_id,integration_id,request_limit,window_seconds,concurrency_limit,cooldown_seconds,source_reference_uri,valid_until,published_at`; `scope_type` admite `PROVIDER|TENANT|COMPANY|INTEGRATION` y el CHECK de shape exige respectivamente: los tres IDs nulos; solo tenant; tenant+company; o tenant+company+integration. Las candidates versionadas son `(provider_id,endpoint_class,version)`, `(provider_id,tenant_id,endpoint_class,version)`, `(provider_id,tenant_id,company_id,endpoint_class,version)` y `(provider_id,tenant_id,company_id,integration_id,endpoint_class,version)`, cada una limitada por su `scope_type`; CHECK límites positivos, retry mode `PROVIDER_HEADER_DRIVEN|FIXED_WINDOW|UNVERIFIED`, status `DRAFT|PUBLISHED|RETIRED`, `valid_from < valid_until` cuando exista, NULL como extremo abierto, `published_at` ausente solo en DRAFT y presente en PUBLISHED/RETIRED, version/row version positivos; FK `provider_id -> provider_registry(provider_id)`, Company tenant-aware e Integration cuando aplique; dependencias 001 Company/helper/roles y disponibilidad aprobada de `btree_gist`.
+- **19–24:** depende de Provider e Integration opcional; delete `NO ACTION`; cada scope+endpoint tiene business `version` monotónica y DRAFT usa CAS de `row_version`; PUBLISHED es inmutable y se reemplaza por versión nueva; cuatro exclusion constraints PostgreSQL parciales, uno por `scope_type`, impiden overlap de rangos semiabiertos `[valid_from,valid_until)` entre filas PUBLISHED del mismo scope identity, tratando NULL como infinito. `PUBLISHED` describe publicación administrativa; `EFFECTIVE` no es estado persistente sino el predicado temporal `PUBLISHED AND valid_from <= now < valid_until`, con extremo superior abierto. Una versión futura puede estar PUBLISHED sin ser efectiva y la exclusión impide que su intervalo se solape con otra. Índice lookup de precedencia; no hay counters ni eventos runtime.
+- **25–29:** cuatro uniques parciales de business version y cuatro exclusiones de vigencia para provider, tenant, company e integration; RLS ENABLE/FORCE por ser tabla mixta. Las policies exactas están en §9: `pos_app`/`pos_worker` nunca obtienen DML global ni bypass por tenant nulo; `pos_worker` solo SELECT de columnas efectivas; `pos_app` SELECT y DML contextual tenant/company/integration por columnas autorizadas; `pos_platform_app` administra global y contextual con policies separadas; `pos_platform_admin` solo SELECT allowlisted. Sensible fuente/estado contractual, sin secretos.
+- **30–33:** Audit publish/replace; retención de versiones; publicación/retiro+Audit atómico, headers y eventos efectivos se observan runtime fuera de esta tabla; rollback fresh antes de Provider/Integration.
+
+Las cuatro exclusiones de vigencia son `provider_rate_limit_policies_provider_validity_excl` sobre `(provider_id,endpoint_class)`, `provider_rate_limit_policies_tenant_validity_excl` sobre `(provider_id,tenant_id,endpoint_class)`, `provider_rate_limit_policies_company_validity_excl` sobre `(provider_id,tenant_id,company_id,endpoint_class)` y `provider_rate_limit_policies_integration_validity_excl` sobre `(provider_id,tenant_id,company_id,integration_id,endpoint_class)`. Cada una aplica solo a su `scope_type` y a filas `PUBLISHED`, y usa igualdad del scope más no-overlap del rango semiabierto. Se prefiere exclusion constraint con `btree_gist` porque una unique parcial solo impediría dos intervalos abiertos, pero no detectaría solapes entre intervalos cerrados o programados.
 
 ### 5.16 `integrations.provider_verification_evidence`
 
 - **1–6:** `provider_verification_evidence`; `integrations`; `External Integrations`; metadata inmutable y referencia protegida de evidencia; `NEW`; `CENTRAL_ONLY`.
-- **7–12:** PK `id`; UUID v7; tenant/company nullable solo junto con integration; branch —; NOT NULL `provider_id,provider_adapter_version_id,environment,evidence_level,test_suite_version,source_commit,executed_at,result,evidence_reference,evidence_checksum,created_at`.
-- **13–18:** nullable `tenant_id,company_id,integration_id,authorized_account_reference,reviewed_by_actor_id,reviewed_at,expires_at`; candidates `(provider_id,id)` y `(tenant_id,id)` solo para filas tenant mediante unique parcial; UNIQUE global `(provider_adapter_version_id,environment,test_suite_version,source_commit,executed_at)` donde integration es nula y UNIQUE tenant `(tenant_id,integration_id,provider_adapter_version_id,environment,test_suite_version,source_commit,executed_at)` donde existe integration; CHECK scope global/integration, level `DOCUMENTED|IMPLEMENTED|MOCK_TESTED|SANDBOX_VERIFIED|PRODUCTION_VERIFIED|CERTIFIED`, result `PASS|FAIL|BLOCKED`, checksum/review/expiry; FKs Provider+Adapter, reviewer global a `identity.users` y, si existe, Integration+Adapter compuesta; dependencias 001 User/helper/roles/Audit.
+- **7–12:** PK `id`; UUID v7; tenant/company nullable solo junto con integration; branch —; NOT NULL `provider_id,provider_adapter_version_id,scope_type,environment,evidence_level,test_suite_version,source_commit,executed_at,result,evidence_reference,evidence_checksum,registered_by_actor_id,created_at`.
+- **13–18:** nullable `tenant_id,company_id,integration_id,authorized_account_reference,reviewed_by_actor_id,reviewed_at,expires_at`; `scope_type` admite `GLOBAL|INTEGRATION`: GLOBAL exige los tres IDs nulos e INTEGRATION exige los tres presentes. Candidates `(provider_id,id)` y `(tenant_id,id)` solo para filas tenant mediante unique parcial; UNIQUE global `(provider_adapter_version_id,environment,test_suite_version,source_commit,executed_at)` donde scope es GLOBAL y UNIQUE tenant `(tenant_id,integration_id,provider_adapter_version_id,environment,test_suite_version,source_commit,executed_at)` donde scope es INTEGRATION; CHECK level `DOCUMENTED|IMPLEMENTED|MOCK_TESTED|SANDBOX_VERIFIED|PRODUCTION_VERIFIED|CERTIFIED`, result `PASS|FAIL|BLOCKED`, checksum/review/expiry y `reviewed_by_actor_id <> registered_by_actor_id`; FKs `provider_id -> provider_registry(provider_id)`, Provider+Adapter, registrar/reviewer globales a `identity.users` y, para INTEGRATION, Integration+Adapter compuesta; dependencias 001 User/helper/roles/Audit.
 - **19–24:** depende de Provider/Adapter/Integration opcional; delete `NO ACTION`; append-only, review/promoción se expresa con nueva evidencia o campos de review completados una vez; inmutables identidad, scope, ejecución, resultado, reference/checksum/created; optimistic concurrency —; índices por adapter/level/result/executed, integration/environment y expiry.
-- **25–29:** parciales pendientes de review y expiración; RLS ENABLE/FORCE por tabla mixta; policies tenant y global platform separadas; app solo estado resumido, worker no DML, platform app INSERT/review, admin SELECT excluyendo account/evidence reference; sensibles account/evidence reference/checksum.
-- **30–33:** Audit de registro/review/promoción; retención inmutable conforme a certificación/seguridad; insertar/revisar evidencia y promover AdapterVersion en una transacción, pero la ejecución real ocurrió fuera; rollback fresh antes de Adapter/Provider.
+- **25–29:** parciales pendientes de review y expiración; RLS ENABLE/FORCE por tabla mixta. Runtime común no recibe DML ni acceso directo a evidencia global; `pos_app` puede leer solo columnas de estado mínimo de evidencia INTEGRATION de su tenant mediante grants de columna, `pos_worker` no accede a la tabla, `pos_platform_app` usa policies separadas para REGISTER/REVIEW/PROMOTE y `pos_platform_admin` solo SELECT excluyendo account/evidence reference/checksum. Las policies exactas están en §9.
+- **30–33:** Audit de registro/review/promoción; retención inmutable conforme a certificación/seguridad. REGISTER, REVIEW y APPROVE/PROMOTE son permisos backend distintos; cuando el nivel exige revisión independiente, quien registró no puede revisar ni promover su propia evidencia. La promoción valida actores/permisos y actualiza AdapterVersion en una transacción, pero la ejecución real ocurrió fuera; mocks nunca justifican verificación real. Rollback fresh antes de Adapter/Provider.
 
-## 6. Plan exacto de FKs
+## 6. Plan exacto de FKs e índices hijos
 
-Todas las FKs son `NOT DEFERRABLE`, `NO ACTION` y reciben índice hijo salvo cobertura por UNIQUE/índice ya declarado.
+Todas las FKs son `NOT DEFERRABLE` y `NO ACTION`. La matriz enumera cada FK materializable, su parent candidate key y la cobertura exacta del lado hijo; `PK`, `UNIQUE` y prefix solo cuentan cuando sus primeras columnas sirven al lookup referencial.
 
-| Child | FK columns | Parent candidate key |
-|---|---|---|
-| adapter versions | `provider_id` | `provider_registry(provider_id)` |
-| capability declarations | `(provider_id,provider_adapter_version_id)` | adapter `(provider_id,provider_adapter_version_id)` |
-| platform configurations | `provider_id` | provider `id` |
-| external integrations | `(tenant_id,company_id)` | Company `(tenant_id,id)` |
-| external integrations | `(tenant_id,company_id,branch_id)` | Branch `(tenant_id,company_id,id)` |
-| external integrations | `(provider_id,provider_adapter_version_id)` | adapter `(provider_id,provider_adapter_version_id)` |
-| credential bindings | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` |
-| external integrations, FK agregada después | `(tenant_id,company_id,id,credential_binding_id)` | binding `(tenant_id,company_id,integration_id,id)` |
-| ownership/capability/run/mapping/dispatch/webhook | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` |
-| capability | `(tenant_id,company_id,integration_id,ownership_policy_id)` | ownership `(tenant_id,company_id,integration_id,id)` |
-| discovery run/evidence | `(tenant_id,company_id,integration_id,provider_adapter_version_id)` | integration key equivalente |
-| discovery item | `(tenant_id,company_id,integration_id,discovery_run_id)` | run key equivalente |
-| mapping supersession | `(tenant_id,company_id,supersedes_mapping_id)` | mapping `(tenant_id,company_id,id)` |
-| mapping reviewer | `verified_by_actor_id` | `identity.users(id)` |
-| dispatch attempt | `(tenant_id,company_id,integration_dispatch_id,dispatch_class)` | dispatch discriminada equivalente |
-| rate policy | Company/Integration según shape | candidate keys 001/002 correspondientes |
-| evidence | `(provider_id,provider_adapter_version_id)` y, si tenant, Integration+Adapter | adapter/integration correspondientes |
-| evidence reviewer | `reviewed_by_actor_id` | `identity.users(id)` |
+| Child / relación | Columnas FK exactas | Parent candidate key | Cobertura hijo existente | Decisión final |
+|---|---|---|---|---|
+| adapter versions → registry | `(provider_id)` | `provider_registry(provider_id)` | `provider_adapter_versions_provider_status_idx` comparte prefix | cubierto por prefix; no duplicar |
+| capability declarations → adapter | `(provider_id,provider_adapter_version_id)` | adapter `(provider_id,provider_adapter_version_id)` | ningún PK/UNIQUE/prefix exacto | crear `provider_capability_declarations_adapter_fk_idx` |
+| platform configurations → registry | `(provider_id)` | `provider_registry(provider_id)` | lookup comparte prefix | cubierto por prefix; no duplicar |
+| external integrations → Company | `(tenant_id,company_id)` | Company `(tenant_id,id)` | tenant status lookup comparte prefix | cubierto por prefix; no duplicar |
+| external integrations → Branch | `(tenant_id,company_id,branch_id)` | Branch `(tenant_id,company_id,id)` | ninguno | crear `external_integrations_branch_fk_idx`, parcial cuando branch no nulo |
+| external integrations → adapter | `(provider_id,provider_adapter_version_id)` | adapter `(provider_id,provider_adapter_version_id)` | provider/environment no comparte ambas columnas | crear `external_integrations_adapter_fk_idx` |
+| credential bindings → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | status lookup pasa a usar las mismas tres columnas como prefix | cubierto por `integration_credential_bindings_integration_status_idx` |
+| ownership policies → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | lookup pasa a usar prefix exacto | cubierto por `resource_ownership_policies_lookup_idx` |
+| integration capabilities → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | lookup pasa a usar prefix exacto | cubierto por `integration_capabilities_lookup_idx` |
+| integration capabilities → ownership | `(tenant_id,company_id,integration_id,ownership_policy_id)` | ownership `(tenant_id,company_id,integration_id,id)` | ninguno | crear `integration_capabilities_ownership_fk_idx`, parcial cuando no nulo |
+| discovery runs → integration+adapter | `(tenant_id,company_id,integration_id,provider_adapter_version_id)` | integration `(tenant_id,company_id,id,provider_adapter_version_id)` | ninguno | crear `integration_discovery_runs_integration_adapter_fk_idx` |
+| discovery items → run | `(tenant_id,company_id,integration_id,discovery_run_id)` | run `(tenant_id,company_id,integration_id,id)` | ninguno | crear `integration_discovery_items_run_fk_idx` |
+| mappings → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | internal/external lookups pasan a usar prefix exacto | cubierto por ambos lookups |
+| mapping → mapping superseded | `(tenant_id,company_id,integration_id,resource_type,supersedes_mapping_id)` | mapping `(tenant_id,company_id,integration_id,resource_type,id)` | ninguno | crear `external_reference_mappings_supersedes_fk_idx`, parcial cuando no nulo |
+| mapping → reviewer | `(verified_by_actor_id)` | `identity.users(id)` | ninguno | crear `external_reference_mappings_reviewer_fk_idx`, parcial cuando no nulo |
+| dispatches → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | ninguno | crear `integration_dispatches_integration_fk_idx` |
+| dispatch attempts → dispatch discriminado | `(tenant_id,company_id,integration_dispatch_id,dispatch_class)` | dispatch `(tenant_id,company_id,id,dispatch_class)` | UNIQUE history no comparte company/class como prefix completo | crear `integration_dispatch_attempts_dispatch_fk_idx`; no duplicar UNIQUE history |
+| webhook receipts → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | provider-event lookup es parcial y no cubre receipts sin event ID | crear `external_webhook_receipts_integration_fk_idx` |
+| rate policy → registry | `(provider_id)` | `provider_registry(provider_id)` | lookup comparte prefix | cubierto por prefix; no duplicar |
+| rate policy → Company | `(tenant_id,company_id)` | Company `(tenant_id,id)` | ninguno | crear `provider_rate_limit_policies_company_fk_idx`, parcial para COMPANY/INTEGRATION |
+| rate policy → integration | `(tenant_id,company_id,integration_id)` | integration `(tenant_id,company_id,id)` | ninguno | crear `provider_rate_limit_policies_integration_fk_idx`, parcial para INTEGRATION |
+| evidence → adapter | `(provider_id,provider_adapter_version_id)` | adapter `(provider_id,provider_adapter_version_id)` | adapter query index no inicia por provider | crear `provider_verification_evidence_adapter_fk_idx` |
+| evidence → integration+adapter | `(tenant_id,company_id,integration_id,provider_adapter_version_id)` | integration `(tenant_id,company_id,id,provider_adapter_version_id)` | integration query index pasa a compartir las cuatro columnas | cubierto por `provider_verification_evidence_integration_idx` |
+| evidence → registrar | `(registered_by_actor_id)` | `identity.users(id)` | ninguno | crear `provider_verification_evidence_registrar_fk_idx` |
+| evidence → reviewer | `(reviewed_by_actor_id)` | `identity.users(id)` | ninguno | crear `provider_verification_evidence_reviewer_fk_idx`, parcial cuando no nulo |
 
 Las referencias polimórficas `internal_entity_type/internal_entity_id`, `internal_operation_id` y actores no reciben FK genérica que acople todos los dominios. El puerto propietario valida existencia, tenant/company y tipo antes de persistir; RLS no convierte esa validación en opcional.
 
@@ -266,8 +289,15 @@ Los UNIQUE estructurales están en las fichas. Reglas adicionales:
 1. `ExternalReferenceMapping` usa dos uniques parciales para filas no `RETIRED`: una identidad interna no puede apuntar a dos externas y una externa no puede apuntar a dos internas dentro de la misma integración/resource.
 2. Un conflicto no inserta una segunda asociación incompatible: marca/revisa la fila vigente como `CONFLICT` bajo optimistic lock.
 3. Reemplazar exige retirar la fila anterior y crear otra con `supersedes_mapping_id`; las dos acciones y Audit son atómicas.
+   La self-FK y su candidate key incluyen `(tenant_id,company_id,integration_id,resource_type)`, por lo que también rechazan físicamente supersession cross-integration o cross-resource-type.
 4. `external_code` no es unique salvo futura migration específica respaldada por contrato oficial del provider/resource.
 5. Provider/account scope siempre incluye `integration_id`; no existen `siigo_id`, `factus_id`, `alegra_id` ni equivalentes en core.
+
+### 7.1 Gate de activación de capabilities
+
+`ProviderCapabilityDeclaration` expresa soporte global de una capability por una versión concreta de adapter; `IntegrationCapability` expresa configuración efectiva de esa capability para una integración. No son intercambiables. En la misma transacción que cambia una IntegrationCapability a `SUPPORTED`, que activa una integración o que encola un dispatch, el backend bloquea/lee la ExternalIntegration y la declaración de su `provider_adapter_version_id + capability_code`, y exige `support_status='SUPPORTED'`; en caso contrario falla cerrado. Las FKs Provider+Adapter, Integration+Adapter, los CHECK de código y los uniques de capability son complementos físicos, pero no se crea una FK artificial que confunda scopes o estados temporales.
+
+Las pruebas negativas deben rechazar: declaración ausente, `UNSUPPORTED`, `UNVERIFIED`, adapter distinto al seleccionado, capability de otra integración, cambio concurrente de adapter y dispatch cuando la asignación esté deshabilitada, vencida o no efectiva.
 
 ## 8. CHECK temporal que deshabilita FISCAL
 
@@ -287,20 +317,44 @@ AND internal_entity_type <> 'ElectronicDocument'
 
 Esto impide físicamente todo dispatch fiscal y evita reclasificar una operación fiscal como no fiscal. La FK discriminada permanente de `IntegrationDispatchAttempt` agrega su propio `CHECK (dispatch_class='NON_FISCAL')` y apunta a la candidate key del dispatch que incluye el discriminador.
 
-Migration 003 será la única autorizada para reemplazar `integration_dispatches_dispatch_class_002_ck` por el constraint final `FISCAL|NON_FISCAL`, y deberá hacerlo en la misma transacción que cree `FiscalSubmissionAttempt` y su FK discriminada `FISCAL`. Si cualquiera falla, 003 completa rollback y FISCAL continúa deshabilitado.
+Migration 003 será la única autorizada para reemplazar `integration_dispatches_dispatch_class_002_ck` por el constraint final `FISCAL|NON_FISCAL`. La regla normativa de transición, sin constituir un diseño de 003, es: (1) mantener el constraint 002 `NON_FISCAL`; (2) crear el foundation fiscal; (3) crear `FiscalSubmissionAttempt`; (4) crear sus candidate keys; (5) crear la FK discriminada fija `FISCAL`; (6) validar toda la estructura; (7) reemplazar el constraint temporal; y (8) habilitar `FISCAL` como **último cambio estructural** de la transición. Todo ocurre en una frontera transaccional; si cualquier paso falla, hay rollback completo y FISCAL continúa deshabilitado.
 
 ## 9. RLS, policies y roles
 
 Doce tablas tenant o mixed-scoped reciben ENABLE/FORCE: `external_integrations`, `integration_credential_bindings`, `resource_ownership_policies`, `integration_capabilities`, `integration_discovery_runs`, `integration_discovery_items`, `external_reference_mappings`, `integration_dispatches`, `integration_dispatch_attempts`, `external_webhook_receipts`, `provider_rate_limit_policies` y `provider_verification_evidence`. Las cuatro tablas globales no entran. La implementación debe fallar si el conteo no coincide: son **12 tablas protegidas**.
 
-Las diez tablas puramente tenant-scoped usan `<table>_tenant_isolation` para `pos_app,pos_worker,pos_platform_app`, con `USING/WITH CHECK (tenant_id = platform.current_tenant_id())`. `provider_rate_limit_policies` y `provider_verification_evidence` son mixed-scoped: runtime tenant ve su tenant y, por SELECT separado, defaults/evidencia global allowlisted; solo `pos_platform_app` puede escribir filas globales. Tenant nulo nunca autoriza DML del runtime común.
+Las diez tablas puramente tenant-scoped usan `<table>_tenant_isolation` para `pos_app,pos_worker,pos_platform_app`, con `USING/WITH CHECK (tenant_id = platform.current_tenant_id())`. Las dos tablas mixed-scoped no reutilizan esa policy ni interpretan NULL como comodín.
+
+Matriz normativa para `provider_rate_limit_policies`:
+
+| Policy / roles | Operación | `USING` | `WITH CHECK` | Grants de columnas |
+|---|---|---|---|---|
+| `provider_rate_limit_policies_runtime_global_select`; `pos_app,pos_worker` | SELECT | shape PROVIDER, `status='PUBLISHED' AND valid_from<=transaction_timestamp() AND (valid_until IS NULL OR transaction_timestamp()<valid_until)` | — | `id,provider_id,scope_type,endpoint_class,request_limit,window_seconds,concurrency_limit,retry_after_mode,backoff_policy_code,cooldown_seconds,valid_from,valid_until,version` |
+| `provider_rate_limit_policies_worker_tenant_select`; `pos_worker` | SELECT | `scope_type<>'PROVIDER'`, tenant actual y el mismo predicado temporal PUBLISHED efectivo | — | mismas columnas mínimas más IDs de scope |
+| `provider_rate_limit_policies_app_tenant_select`; `pos_app` | SELECT | `scope_type<>'PROVIDER' AND tenant_id=platform.current_tenant_id()` | — | columnas de configuración autorizadas; nunca concede acceso a otro tenant |
+| `provider_rate_limit_policies_app_tenant_insert`; `pos_app` | INSERT | — | `scope_type IN ('TENANT','COMPANY','INTEGRATION') AND tenant_id=platform.current_tenant_id()` más CHECK de row shape | columnas de configuración; timestamps/publication administrados por el caso de uso |
+| `provider_rate_limit_policies_app_tenant_update`; `pos_app` | UPDATE | `scope_type<>'PROVIDER' AND tenant_id=platform.current_tenant_id()` | la misma expresión y row shape | DRAFT/retirement mediante columnas allowlisted; sin DELETE |
+| `provider_rate_limit_policies_platform_global`; `pos_platform_app` | SELECT/INSERT/UPDATE | `scope_type='PROVIDER'` | `scope_type='PROVIDER'` y row shape global | publicación global autorizada; sin DELETE |
+| `provider_rate_limit_policies_platform_tenant`; `pos_platform_app` | SELECT/INSERT/UPDATE | `scope_type<>'PROVIDER' AND tenant_id=platform.current_tenant_id()` | misma expresión y row shape contextual | administración contextual; sin DELETE |
+
+`pos_worker` no recibe INSERT/UPDATE/DELETE y `pos_app` nunca recibe DML sobre global rows. `pos_platform_admin` conserva BYPASSRLS read-only, con SELECT por columnas y sin `source_reference_uri` cuando no esté justificado. PUBLIC y `pos_reporting` no reciben acceso.
+
+Matriz normativa para `provider_verification_evidence`:
+
+| Policy / roles | Operación | `USING` | `WITH CHECK` | Grants / permiso backend |
+|---|---|---|---|---|
+| `provider_verification_evidence_tenant_minimal_select`; `pos_app` | SELECT | `scope_type='INTEGRATION' AND tenant_id=platform.current_tenant_id()` | — | `id,provider_id,provider_adapter_version_id,scope_type,tenant_id,company_id,integration_id,environment,evidence_level,test_suite_version,source_commit,executed_at,result,expires_at,created_at`; excluye account/evidence reference/checksum y actores |
+| `provider_verification_evidence_platform_global`; `pos_platform_app` | SELECT/INSERT/UPDATE | `scope_type='GLOBAL'` | `scope_type='GLOBAL'` y row shape global | REGISTER inserta; REVIEW solo completa `reviewed_by_actor_id,reviewed_at` una vez; APPROVE/PROMOTE no altera evidencia y solo promueve adapter tras validar segregación |
+| `provider_verification_evidence_platform_tenant`; `pos_platform_app` | SELECT/INSERT/UPDATE | `scope_type='INTEGRATION' AND tenant_id=platform.current_tenant_id()` | misma expresión y row shape integration | mismos permisos separados, bajo contexto tenant |
+
+`pos_worker` y runtime común no reciben INSERT/UPDATE/DELETE ni lectura global directa. `pos_platform_admin` tiene SELECT allowlisted sin `authorized_account_reference`, `evidence_reference` ni `evidence_checksum`; no tiene DML. Los permisos backend `REGISTER`, `REVIEW`, `APPROVE/PROMOTE` son distintos, exigen actor autenticado y registran Audit; para niveles con revisión independiente, el actor que registra no puede revisar ni promover su propia evidencia. `SEC-G` permanece `PLANNED / NOT_EVALUATED`.
 
 | Role | Acceso conceptual 002 |
 |---|---|
 | `pos_schema_owner` | owner; DDL y grants durante migration, no runtime |
 | `pos_migrator` | `SET ROLE pos_schema_owner` solo en pipeline autorizado; sin negocio |
 | `pos_app` | lectura tenant; configure/discover/map/review/activate mediante grants por tabla/columna y autorización backend; sin secret reference ni UPDATE técnico de worker |
-| `pos_worker` | lectura de configuración publicada, resolución controlada de credential reference, insert/update técnico de runs/dispatch/attempts/webhooks/rate event; un tenant por transacción |
+| `pos_worker` | lectura de configuración publicada, resolución controlada de credential reference e insert/update técnico de runs/dispatch/attempts/webhooks; sin DML de rate policies/evidence; un tenant por transacción |
 | `pos_platform_app` | publicación global y rutas webhook/plataforma separadas; usa tenant context para filas tenant |
 | `pos_platform_admin` | BYPASSRLS read-only por columnas, sin DML/DDL y sin referencias sensibles |
 | `pos_reporting` | sin grants en 002 |
@@ -315,53 +369,64 @@ Solo se crean los índices enumerados en las fichas o necesarios para soportar F
 
 | Index | Columns / predicate | Query path |
 |---|---|---|
-| `provider_registry_status_code_idx` | `(status,provider_code)` | catálogo activo |
 | `provider_adapter_versions_provider_status_idx` | `(provider_id,implementation_status,verification_status)` | adapter elegible |
 | `provider_adapter_versions_released_idx` | `(provider_id,released_at DESC) WHERE retired_at IS NULL` | versión vigente |
 | `provider_capability_declarations_provider_capability_idx` | `(provider_id,capability_code,support_status)` | soporte declarado |
+| `provider_capability_declarations_adapter_fk_idx` | `(provider_id,provider_adapter_version_id)` | soporte FK adapter |
 | `provider_platform_configurations_lookup_idx` | `(provider_id,environment,configuration_type,status,valid_from DESC)` | resolver configuración |
 | `provider_platform_configurations_current_idx` | `(provider_id,environment,configuration_type,valid_from DESC) WHERE status='PUBLISHED' AND valid_until IS NULL` | publicación vigente |
 | `external_integrations_tenant_status_provider_idx` | `(tenant_id,company_id,status,provider_id,id)` | UI/RLS y lifecycle |
 | `external_integrations_provider_environment_status_idx` | `(provider_id,environment,status,id)` | operación por adapter |
 | `external_integrations_branch_fk_idx` | `(tenant_id,company_id,branch_id) WHERE branch_id IS NOT NULL` | soporte FK Branch |
+| `external_integrations_adapter_fk_idx` | `(provider_id,provider_adapter_version_id)` | soporte FK adapter |
 | `external_integrations_health_idx` | `(tenant_id,company_id,last_health_check_at,id) WHERE status IN ('ACTIVE','DEGRADED')` | health vencido |
-| `integration_credential_bindings_integration_status_idx` | `(tenant_id,integration_id,status,generation DESC)` | binding activo/historia |
+| `integration_credential_bindings_integration_status_idx` | `(tenant_id,company_id,integration_id,status,generation DESC)` | FK, binding activo e historia |
 | `integration_credential_bindings_rotation_idx` | `(rotation_due_at,tenant_id,integration_id) WHERE status='ACTIVE' AND rotation_due_at IS NOT NULL` | rotación requerida |
-| `resource_ownership_policies_lookup_idx` | `(tenant_id,integration_id,resource_type,operation_scope,status,effective_from DESC)` | resolver autoridad |
-| `integration_capabilities_lookup_idx` | `(tenant_id,integration_id,capability_code,support_status,effective_from DESC)` | capability efectiva |
+| `resource_ownership_policies_lookup_idx` | `(tenant_id,company_id,integration_id,resource_type,operation_scope,status,effective_from DESC)` | FK y resolver autoridad |
+| `integration_capabilities_lookup_idx` | `(tenant_id,company_id,integration_id,capability_code,support_status,effective_from DESC)` | FK y capability efectiva |
 | `integration_capabilities_ownership_fk_idx` | `(tenant_id,company_id,integration_id,ownership_policy_id) WHERE ownership_policy_id IS NOT NULL` | soporte FK ownership |
 | `integration_discovery_runs_work_idx` | `(tenant_id,status,created_at,id) WHERE status IN ('CREATED','RUNNING')` | worker discovery |
 | `integration_discovery_runs_review_idx` | `(tenant_id,integration_id,completed_at DESC,id) WHERE status IN ('COMPLETED','PARTIAL')` | review |
+| `integration_discovery_runs_integration_adapter_fk_idx` | `(tenant_id,company_id,integration_id,provider_adapter_version_id)` | soporte FK Integration+Adapter |
 | `integration_discovery_items_review_idx` | `(tenant_id,integration_id,review_status,created_at,id)` | cola de review |
 | `integration_discovery_items_external_idx` | `(tenant_id,integration_id,resource_type,external_id)` | lookup externo |
-| `external_reference_mappings_internal_idx` | `(tenant_id,integration_id,internal_entity_type,internal_entity_id,resource_type)` | internal→external |
-| `external_reference_mappings_external_idx` | `(tenant_id,integration_id,resource_type,external_id)` | external→internal |
+| `integration_discovery_items_run_fk_idx` | `(tenant_id,company_id,integration_id,discovery_run_id)` | soporte FK run |
+| `external_reference_mappings_internal_idx` | `(tenant_id,company_id,integration_id,internal_entity_type,internal_entity_id,resource_type)` | FK e internal→external |
+| `external_reference_mappings_external_idx` | `(tenant_id,company_id,integration_id,resource_type,external_id)` | FK y external→internal |
 | `external_reference_mappings_status_idx` | `(tenant_id,integration_id,mapping_status,updated_at,id)` | pending/stale/conflict |
+| `external_reference_mappings_supersedes_fk_idx` | `(tenant_id,company_id,integration_id,resource_type,supersedes_mapping_id) WHERE supersedes_mapping_id IS NOT NULL` | self-FK scoped |
+| `external_reference_mappings_reviewer_fk_idx` | `(verified_by_actor_id) WHERE verified_by_actor_id IS NOT NULL` | soporte FK reviewer |
 | `integration_dispatches_work_idx` | `(tenant_id,status,next_attempt_at,created_at,id) WHERE status IN ('QUEUED','RETRY_SCHEDULED')` | claim del worker |
 | `integration_dispatches_reconciliation_idx` | `(tenant_id,status,last_reconciled_at,id) WHERE status IN ('UNKNOWN_OUTCOME','RECONCILIATION_REQUIRED')` | reconciliación |
 | `integration_dispatches_internal_idx` | `(tenant_id,internal_entity_type,internal_entity_id,created_at DESC)` | causalidad por entidad |
 | `integration_dispatches_correlation_idx` | `(tenant_id,correlation_id,created_at,id)` | trazabilidad |
-| `integration_dispatch_attempts_history_idx` | `(tenant_id,integration_dispatch_id,attempt_number)` | historial del dispatch |
+| `integration_dispatches_integration_fk_idx` | `(tenant_id,company_id,integration_id)` | soporte FK Integration |
+| `integration_dispatch_attempts_dispatch_fk_idx` | `(tenant_id,company_id,integration_dispatch_id,dispatch_class)` | soporte FK discriminada |
 | `integration_dispatch_attempts_provider_operation_idx` | `(tenant_id,provider_operation_reference) WHERE provider_operation_reference IS NOT NULL` | reconciliación provider |
 | `integration_dispatch_attempts_unknown_idx` | `(tenant_id,started_at,id) WHERE status='UNKNOWN_OUTCOME'` | outcome incierto |
 | `external_webhook_receipts_work_idx` | `(tenant_id,processing_status,next_attempt_at,received_at,id) WHERE processing_status IN ('RECEIVED','PENDING','RETRY_SCHEDULED')` | worker webhook |
+| `external_webhook_receipts_integration_fk_idx` | `(tenant_id,company_id,integration_id)` | soporte FK Integration para todo receipt |
 | `external_webhook_receipts_provider_event_idx` | `(tenant_id,integration_id,provider_event_id) WHERE provider_event_id IS NOT NULL` | dedup/diagnóstico |
 | `external_webhook_receipts_received_idx` | `(tenant_id,received_at,id)` | retención/archivo |
-| `provider_rate_limit_policies_lookup_idx` | `(provider_id,tenant_id,company_id,integration_id,endpoint_class,status,valid_from DESC)` | precedencia explícita |
-| `provider_rate_limit_policies_event_idx` | `(last_rate_limit_event_at DESC,provider_id) WHERE last_rate_limit_event_at IS NOT NULL` | incidentes 429 |
+| `provider_rate_limit_policies_lookup_idx` | `(provider_id,scope_type,tenant_id,company_id,integration_id,endpoint_class,status,valid_from DESC)` | precedencia explícita |
+| `provider_rate_limit_policies_company_fk_idx` | `(tenant_id,company_id) WHERE scope_type IN ('COMPANY','INTEGRATION')` | soporte FK Company |
+| `provider_rate_limit_policies_integration_fk_idx` | `(tenant_id,company_id,integration_id) WHERE scope_type='INTEGRATION'` | soporte FK Integration |
 | `provider_verification_evidence_adapter_idx` | `(provider_adapter_version_id,evidence_level,result,executed_at DESC)` | promoción/verificación |
-| `provider_verification_evidence_integration_idx` | `(tenant_id,integration_id,environment,executed_at DESC) WHERE integration_id IS NOT NULL` | evidencia por cuenta |
+| `provider_verification_evidence_adapter_fk_idx` | `(provider_id,provider_adapter_version_id)` | soporte FK Adapter |
+| `provider_verification_evidence_integration_idx` | `(tenant_id,company_id,integration_id,provider_adapter_version_id,environment,executed_at DESC) WHERE scope_type='INTEGRATION'` | FK y evidencia por cuenta |
+| `provider_verification_evidence_registrar_fk_idx` | `(registered_by_actor_id)` | soporte FK registrar |
+| `provider_verification_evidence_reviewer_fk_idx` | `(reviewed_by_actor_id) WHERE reviewed_by_actor_id IS NOT NULL` | soporte FK reviewer |
 | `provider_verification_evidence_expiry_idx` | `(expires_at,provider_adapter_version_id) WHERE expires_at IS NOT NULL` | revalidación |
 
-Los índices UNIQUE parciales ya declarados para conexión activa, binding activo, policy/capability vigente, mapping vigente, scopes de rate limit e identidad de evidence son constraints de integridad y no se duplican aquí.
+Los índices UNIQUE parciales ya declarados para conexión activa, binding activo, policy/capability vigente, mapping vigente, scopes de rate limit e identidad de evidence son constraints de integridad y no se duplican aquí. El UNIQUE history de attempts no recibe un duplicado; el catálogo pequeño de providers no recibe un índice especulativo por status; y rate policies no recibe un índice de eventos runtime.
 
 ## 11. Fronteras transaccionales
 
 | Operación | Frontera ACID PostgreSQL |
 |---|---|
 | crear integración | metadata inicial + Audit; sin auth HTTP |
-| rotar credencial | binding nuevo PENDING; prueba HTTP fuera; activación/repoint/retiro anterior + Audit atómicos |
-| asignar capability/ownership | policy publicada + assignment + Audit, o rollback total |
+| rotar credencial | binding nuevo PENDING; prueba HTTP fuera; retiro/revocación del ACTIVE anterior + activación del nuevo + Audit atómicos, sin repoint |
+| asignar capability/ownership | policy publicada + assignment + validación transaccional de declaration SUPPORTED + Audit, o rollback total |
 | activar mapping | retirar/reemplazar cuando aplique + mapping activo + Audit |
 | enqueue dispatch | intención immutable/idempotency/checksum + Audit/evento causal; HTTP posterior |
 | transición dispatch/attempt | row lock/CAS, outcome y próximo trabajo; nunca distributed transaction |
@@ -372,28 +437,27 @@ Provider HTTP nunca participa en una transacción ACID PostgreSQL. Timeout ambig
 
 ## 12. Orden topológico exacto de creación
 
-1. Preflight: ledger 001 `APPLIED`, checksum/catalog exactos, PostgreSQL 16, roles/helpers y ausencia de `integrations` divergente.
+1. Preflight: ledger 001 `APPLIED`, checksum/catalog exactos, PostgreSQL 16, roles/helpers, disponibilidad/autorización de `btree_gist` para exclusiones temporales y ausencia de `integrations` divergente.
 2. Crear schema `integrations` bajo `pos_schema_owner`; revocar PUBLIC.
 3. `provider_registry`.
 4. `provider_adapter_versions` y su candidate key `(provider_id,provider_adapter_version_id)`.
 5. `provider_capability_declarations`.
 6. `provider_platform_configurations`.
-7. `external_integrations` sin la FK de `credential_binding_id`, que nace nullable.
+7. `external_integrations`, sin columna ni FK de binding activo.
 8. `integration_credential_bindings`.
-9. Agregar FK compuesta del binding activo desde `external_integrations`.
-10. Crear los guards de provider snapshot/binding activo después de que ambas tablas existan.
-11. `resource_ownership_policies`.
-12. `integration_capabilities`.
-13. `integration_discovery_runs`.
-14. `integration_discovery_items`.
-15. `external_reference_mappings`; agregar self-FK después de crear su candidate key.
-16. `integration_dispatches` con constraint temporal 002.
-17. `integration_dispatch_attempts` y FK discriminada `NON_FISCAL`.
-18. `external_webhook_receipts`.
-19. `provider_rate_limit_policies`.
-20. `provider_verification_evidence`.
-21. Crear índices no inline, guards restantes de inmutabilidad/append-only, RLS, policies, FORCE RLS y grants.
-22. Introspección exacta dentro de la transacción; commit body; smoke mediante conexiones reales; ledger pasa a `APPLIED` solo según la máquina normativa de 001.
+9. Crear el guard de provider snapshot; el UNIQUE parcial de bindings define la única autoridad ACTIVE sin ciclo.
+10. `resource_ownership_policies`.
+11. `integration_capabilities`.
+12. `integration_discovery_runs`.
+13. `integration_discovery_items`.
+14. `external_reference_mappings`; agregar self-FK después de crear su candidate key scoped completa.
+15. `integration_dispatches` con constraint temporal 002.
+16. `integration_dispatch_attempts` y FK discriminada `NON_FISCAL`.
+17. `external_webhook_receipts`.
+18. `provider_rate_limit_policies`.
+19. `provider_verification_evidence`.
+20. Crear índices no inline, exclusion constraints de vigencia, guards restantes de inmutabilidad/append-only, RLS, policies, FORCE RLS y grants.
+21. Introspección exacta dentro de la transacción; commit body; smoke mediante conexiones reales; ledger pasa a `APPLIED` solo según la máquina normativa de 001.
 
 ## 13. SQLite scope
 
@@ -419,7 +483,7 @@ El down técnico solo es admisible en base fresh/test sin datos 002 y con catál
 1. revocar grants, policies/RLS y eliminar guards/índices;
 2. evidence, rate policies, webhook receipts, dispatch attempts, dispatches;
 3. mappings, discovery items/runs, capabilities, ownership policies;
-4. eliminar FK de binding activo; credential bindings; external integrations;
+4. credential bindings; external integrations; no existe FK inversa que romper;
 5. platform configurations, capability declarations, adapter versions, provider registry;
 6. schema `integrations` solo si queda vacío;
 7. verificar que todo objeto 001 conserva definición/hash y registrar `ROLLED_BACK` en el ledger sin borrar history.
@@ -439,13 +503,15 @@ La futura implementación deberá probar al menos:
 7. credential references/tokens ausentes de SQLite, Sync/Outbox/Audit, logs, errores, fixtures y backups;
 8. idempotency key duplicada con mismo checksum y conflicto con checksum distinto;
 9. mapping internal/external uniqueness, conflicto, retiro y replacement;
-10. discovery sanitizado y review/mapping tenant-aware;
-11. webhook dedup, callback cross-tenant, replay/auth states sin inventar firmas;
-12. rate-limit precedence, 429/header-driven, aislamiento por cuenta y valores no hard-coded;
-13. evidence levels separados, mocks sin promoción real y expiración/review;
-14. timeout ambiguo, reconciliación y dead-letter sin doble efecto;
-15. append-only/inmutabilidad, Audit sanitizado y rollback fresh/reapply;
-16. dump/restore PostgreSQL y roles separados.
+10. supersession rechaza cross-tenant/company/integration/resource-type;
+11. discovery sanitizado y review/mapping tenant-aware;
+12. webhook dedup, callback cross-tenant, replay/auth states sin inventar firmas;
+13. rate-limit precedence, row shapes mixed, no-overlap temporal, 429/header-driven, aislamiento por cuenta y valores no hard-coded;
+14. evidence levels, grants de columna, segregación REGISTER/REVIEW/PROMOTE, mocks sin promoción real y expiración/review;
+15. capability ausente/unsupported/unverified/adapter distinto no activa ni genera dispatch;
+16. timeout ambiguo, reconciliación y dead-letter sin doble efecto;
+17. append-only/inmutabilidad, Audit sanitizado y rollback fresh/reapply;
+18. dump/restore PostgreSQL y roles separados.
 
 Estas pruebas mapearán `SEC-G01`, `SEC-G03`, `SEC-G05`, `SEC-G06`, `SEC-G07`, `SEC-G08`, `SEC-G09` y `SEC-G10`, pero todos permanecen `PLANNED / NOT_EVALUATED` hasta ejecución real.
 
@@ -459,8 +525,8 @@ Estas pruebas mapearán `SEC-G01`, `SEC-G03`, `SEC-G05`, `SEC-G06`, `SEC-G07`, `
 
 ## 18. Decisión
 
-El manifest es completo, aditivo y no presenta contradicción HIGH/CRITICAL ni necesidad de replacement/deprecation.
+El manifest remediado es completo, aditivo y no presenta contradicción HIGH/CRITICAL ni necesidad de replacement/deprecation.
 
-**INT-002 = APPROVED_FOR_COMMIT**
+**MANIFEST-002-REMEDIATION = APPROVED_FOR_COMMIT**
 
-Esto autoriza únicamente comprometer este diseño documental. No autoriza escribir SQL, materializar migration 002, iniciar INT-003, implementar adapters ni declarar providers verificados.
+Esto conserva `INT-002 = DONE` y autoriza únicamente comprometer la remediación documental para una segunda revisión independiente. No autoriza escribir SQL, materializar migration 002, iniciar INT-003, implementar adapters ni declarar providers verificados.

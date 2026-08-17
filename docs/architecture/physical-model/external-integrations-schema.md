@@ -70,7 +70,7 @@ created_at timestamptz NOT NULL
 
 `integrations.provider_capability_declarations` registra qué capability declara cada versión del adapter, con `provider_id`, `provider_adapter_version_id`, `capability_code`, `support_status`, `official_reference_uri`, `verified_at`, `created_at` y `version`. `support_status` admite `SUPPORTED`, `UNSUPPORTED`, `UNVERIFIED`; `UNIQUE (provider_adapter_version_id, capability_code)`. Esta declaración global no activa la capability para una empresa: `IntegrationCapability` es la asignación efectiva por conexión.
 
-`integrations.provider_platform_configurations` conserva configuración de nuestra plataforma, no credenciales del cliente: `id`, `provider_id`, `environment`, `configuration_type`, `configuration_schema_version`, `configuration_payload jsonb`, `status`, vigencia, timestamps y `version`. El payload es allowlisted por provider/type y no admite secretos. Para Siigo, `PARTNER_ID` vive aquí, global por ambiente del integrador; no se copia a cada tenant ni se confunde con `username/access_key`. `UNIQUE (provider_id, environment, configuration_type, configuration_schema_version)`; versiones publicadas no se editan ni borran.
+`integrations.provider_platform_configurations` conserva configuración de nuestra plataforma, no credenciales del cliente: `id`, `provider_id`, `environment`, `configuration_type`, `configuration_schema_version`, `configuration_payload jsonb`, `status`, `valid_from`, `valid_until`, `published_at`, timestamps, business `version` y `row_version`. El payload es allowlisted por provider/type y no admite secretos. Para Siigo, `PARTNER_ID` vive aquí, global por ambiente del integrador; no se copia a cada tenant ni se confunde con `username/access_key`. `UNIQUE (provider_id, environment, configuration_type, version)`; versiones publicadas no se editan ni borran. Para un mismo provider/environment/type, una exclusion constraint PostgreSQL con rango semiabierto impide que dos filas `PUBLISHED` se solapen; `valid_until NULL` significa extremo abierto y siempre se exige `valid_from < valid_until` cuando exista.
 
 ## ExternalIntegration
 
@@ -86,7 +86,6 @@ created_at timestamptz NOT NULL
 | `provider_adapter_version_id` | `uuid` | versión allowlisted del adapter |
 | `environment` | `text` | `SANDBOX`, `TEST`, `PRODUCTION` u otro ambiente registrado y validado por provider; no inventa sandbox |
 | `status` | `text` | lifecycle normativo |
-| `credential_binding_id` | `uuid NULL` | binding activo; nunca valor secreto |
 | `configuration_version` | `bigint` | versión publicada de configuración no secreta |
 | `provider_account_reference` | `text NULL` | identidad no secreta descubierta/validada |
 | `last_health_check_at`, `last_success_at`, `last_failure_at` | `timestamptz NULL` | observación técnica; no reescribe lifecycle por sí sola |
@@ -99,10 +98,10 @@ Constraints e índices:
 - `UNIQUE (tenant_id, id)` y `UNIQUE (tenant_id, company_id, id)` para FKs dependientes;
 - unique parcial de conexión activa por `(tenant_id, company_id, branch_id-normalized, provider_id, environment, provider_account_reference)` cuando la referencia exista; una segunda conexión requiere account identity distinta y revisión explícita;
 - la semántica de `branch_id NULL` se implementa con índices parciales separados, no con igualdad NULL ambigua;
-- FKs tenant-aware a Company, Branch y CredentialBinding; Provider/AdapterVersion globales mediante FKs directas;
+- FKs tenant-aware a Company y Branch; Provider/AdapterVersion globales mediante FKs directas; no existe pointer ni FK inversa hacia CredentialBinding;
 - índices `(tenant_id, company_id, status, provider_id)`, `(provider_id, environment, status)`, health vencido y rotación requerida;
 - RLS `ENABLE` + `FORCE`; tenant derivado de contexto autenticado, nunca del request;
-- Company, Branch, Provider, AdapterVersion y CredentialBinding usan `ON DELETE RESTRICT/NO ACTION`; una integración con historia se deshabilita, no se borra en cascade;
+- Company, Branch, Provider y AdapterVersion usan `ON DELETE RESTRICT/NO ACTION`; CredentialBinding referencia a la integración en una sola dirección y una integración con historia se deshabilita, no se borra en cascade;
 - actor, permiso, motivo, versión previa/nueva y correlation ID se registran en Audit para configure, test, map, review, activate, disable, rotate y revalidate, sin secretos ni payloads completos.
 
 ### Lifecycle
@@ -120,7 +119,7 @@ Reglas:
 5. `Review` valida provider/account/environment/capabilities/ownership/mappings y segregación de funciones.
 6. `Activate` exige adapter compatible, credencial vigente, capabilities aprobadas y revisión; puede exigir MFA/reauthentication.
 7. `DEGRADED` expresa health operacional, no revoca evidencia ni altera Sale/Payment/ElectronicDocument.
-8. `Rotate credentials` crea un binding nuevo, prueba/revalida y luego retira el anterior; nunca vuelve a mostrar el secreto.
+8. `Rotate credentials` crea un binding PENDING, asocia una referencia opaca, prueba/revalida fuera de la transacción y, al activar, cambia el ACTIVE anterior a SUPERSEDED/REVOKED y el nuevo a ACTIVE en una sola transacción; nunca vuelve a mostrar el secreto.
 9. `DISABLED` impide nuevos dispatches, pero conserva mappings, documentos, attempts, receipts y auditoría.
 10. Repetir comandos conserva idempotency key y request checksum; mismo key con checksum distinto es conflicto.
 
@@ -145,7 +144,7 @@ created_at timestamptz
 version bigint
 ```
 
-`UNIQUE (tenant_id, integration_id, generation)` y un único binding `ACTIVE` por integración mediante índice parcial. `credential_reference` no puede aparecer en payloads de Sync/Outbox/Audit ni llegar al renderer/PWA. El valor referenciado pertenece al mecanismo de `SEC-004`, scoped por tenant/company/provider/environment.
+`IntegrationCredentialBinding` es el único owner del lifecycle y del binding activo. `UNIQUE (tenant_id, integration_id, generation)` y `integration_credential_bindings_active_uq(tenant_id,integration_id) WHERE status='ACTIVE'` garantizan **AT MOST ONE ACTIVE**; ExternalIntegration no conserva otro pointer. Cero ACTIVE es válido en `CREATED`, `CREDENTIALS_CONFIGURED`, `CREDENTIAL_ROTATION_REQUIRED`, `DISABLED` y `ERROR`. El servidor exige **EXACTLY ONE ACTIVE** antes de entrar o permanecer en `AUTHENTICATED`, `DISCOVERING`, `DISCOVERY_COMPLETE`, `MAPPING_REQUIRED`, `READY_FOR_REVIEW`, `ACTIVE` o `DEGRADED`. `credential_reference` no puede aparecer en payloads de Sync/Outbox/Audit ni llegar al renderer/PWA. El valor referenciado pertenece al mecanismo de `SEC-004`, scoped por tenant/company/provider/environment.
 
 Se distinguen:
 
@@ -177,6 +176,8 @@ version bigint
 ```
 
 Capabilities iniciales: `ELECTRONIC_INVOICING`, `ACCOUNTING`, `CUSTOMERS`, `PRODUCTS`, `INVENTORY`, `PURCHASES`, `PAYMENTS`, `CREDIT_NOTES`, `SUPPORT_DOCUMENTS`, `WEBHOOKS`, `REPORTING`. El código es catálogo extensible administrado, no columnas booleanas en Company.
+
+Una `ProviderCapabilityDeclaration` declara soporte de una versión de adapter; una `IntegrationCapability` configura ese soporte para una cuenta concreta. Una IntegrationCapability no puede ser efectiva como `SUPPORTED`, ni activar la integración ni originar dispatch, si el adapter seleccionado no declara el mismo código como `SUPPORTED`. El backend lo valida fail-closed bajo lock en la misma transacción; las FKs de adapter/integration, checks y uniques son complementos físicos, no una FK artificial entre scopes distintos.
 
 `support_status` admite `SUPPORTED`, `UNSUPPORTED`, `UNVERIFIED`, `DISABLED`. `SUPPORTED` exige fuente oficial para diseño; activar productivamente exige además adapter implementado, configuración válida y evidencia aplicable. `UNIQUE (tenant_id, integration_id, capability_code, configuration_version)`. FK tenant-aware a ExternalIntegration y ownership policy. Retirar una capability cierra vigencia; no reescribe snapshots ni historia.
 
@@ -244,6 +245,7 @@ La discovery incluye solo recursos que el API oficial permita: empresa/cuenta, t
 | `external_code` | nullable, para código visible cuando el proveedor lo distinga |
 | `mapping_status` | `PROPOSED`, `VERIFIED`, `ACTIVE`, `CONFLICT`, `STALE`, `RETIRED` |
 | `verified_at`, `verified_by_actor_id` | requeridos al verificar/activar |
+| `supersedes_mapping_id` | referencia opcional a un mapping retirado del mismo tenant, company, integration y resource type |
 | `provider_metadata` | `jsonb` allowlisted, schema-versioned, sanitizado y sin secretos |
 | `created_at`, `updated_at`, `version` | historia y optimistic concurrency |
 
@@ -253,6 +255,7 @@ Constraints:
 - `UNIQUE (tenant_id, integration_id, resource_type, external_id)` para impedir que una identidad externa apunte a dos internos;
 - `external_code` no reemplaza `external_id`; su unicidad solo se activa por adapter/resource cuando el contrato oficial lo garantiza;
 - misma identidad con asociación distinta pasa a `CONFLICT`, no sobrescribe;
+- la candidate key `(tenant_id, company_id, integration_id, resource_type, id)` y la self-FK que incluye esas mismas columnas impiden reemplazos cross-tenant, cross-company, cross-integration o cross-resource-type;
 - cross-tenant/company se rechaza antes de persistir y por FK/constraint cuando exista FK fuerte;
 - índices por interno, externo, status y mappings pendientes/stale;
 - ExternalIntegration, recursos canónicos e historia fiscal usan `RESTRICT/NO ACTION`; retirar un mapping no elimina evidencia ni entidades canónicas.
@@ -308,7 +311,7 @@ Para un dispatch `FISCAL`, `FiscalSubmissionAttempt.integration_dispatch_id` usa
 El contrato conceptual anterior no cambia, pero su materialización se divide dentro de Phase 1:
 
 1. migration 002 crea exclusivamente External Integrations foundation. Su constraint temporal permite solo `dispatch_class = 'NON_FISCAL'`; por tanto, ninguna fila fiscal huérfana puede persistirse. `IntegrationDispatchAttempt` mantiene además su discriminador permanente `NON_FISCAL`.
-2. migration 003 crea el foundation de Fiscal/Electronic Invoicing, incluidos los owners y dependencias que su manifest futuro derive del contrato fiscal. En la misma migración y frontera transaccional agrega la FK discriminada desde `FiscalSubmissionAttempt` y reemplaza únicamente el constraint temporal de rollout por el constraint final `FISCAL|NON_FISCAL` aprobado en INT-001.
+2. migration 003 mantiene primero el constraint 002, crea el foundation fiscal, `FiscalSubmissionAttempt`, sus candidate keys y la FK discriminada fija `FISCAL`, y valida la estructura. Solo después reemplaza el constraint temporal por el final `FISCAL|NON_FISCAL`: habilitar `FISCAL` es el último cambio estructural de la transición.
 3. migration 003 no puede habilitar `FISCAL` antes de que `FiscalSubmissionAttempt` exista y sea físicamente referenciable. Si owner, FK o constraint no pueden instalarse juntos, toda la migration falla; no existe ventana con dispatch fiscal sin owner.
 
 Esta secuencia es `RECONCILIATION` de rollout, no cambio de ownership, replacement ni deprecación. Migration 002 no crea `FiscalConnection`, `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalArtifact`, `FiscalIncident` o `FiscalReconciliation`.
@@ -355,6 +358,7 @@ version bigint
 ```text
 id uuid PK
 provider_id uuid
+scope_type text
 tenant_id uuid NULL
 company_id uuid NULL
 integration_id uuid NULL
@@ -369,11 +373,14 @@ source_reference_uri text NULL
 status text
 valid_from timestamptz
 valid_until timestamptz NULL
-last_rate_limit_event_at timestamptz NULL
+published_at timestamptz NULL
 version bigint
+row_version bigint
 ```
 
-Precedencia explícita: integration/account > company > tenant > provider default. Los scopes ausentes no se mezclan entre cuentas. Valores NULL significan `UNVERIFIED/PROVIDER_HEADER_DRIVEN` según `retry_after_mode`, no ilimitado. Headers efectivos como `Retry-After` y reset prevalecen para el evento; los límites no se hard-codean dispersos en negocio. `UNIQUE` por scope, endpoint class y versión vigente.
+`scope_type` es `PROVIDER|TENANT|COMPANY|INTEGRATION` y un CHECK obliga respectivamente a ninguna, una, dos o tres columnas scoped presentes; tenant nulo nunca es bypass. Precedencia explícita: integration/account > company > tenant > provider default. Valores NULL significan `UNVERIFIED/PROVIDER_HEADER_DRIVEN` según `retry_after_mode`, no ilimitado. Headers efectivos como `Retry-After` y reset prevalecen para el evento; los límites no se hard-codean dispersos en negocio. Business `version` es única por scope+endpoint y `row_version` protege edición DRAFT. `valid_until NULL` es vigencia abierta y, cuando existe, `valid_from < valid_until`. Cuatro exclusion constraints PostgreSQL parciales, uno por scope, impiden overlap entre intervalos `PUBLISHED`; una publicación futura no es efectiva hasta `valid_from`. La tabla no guarda counters ni eventos runtime de alta frecuencia.
+
+RLS `ENABLE/FORCE` separa policies globales y contextualizadas. `pos_app`/`pos_worker` solo leen las columnas mínimas de la configuración PUBLISHED global; nunca hacen DML global. `pos_app` puede administrar filas tenant/company/integration solo bajo `tenant_id = platform.current_tenant_id()` y grants de columna; `pos_worker` no hace DML. `pos_platform_app` administra global o contextual mediante policies separadas; `pos_platform_admin` es read-only allowlisted.
 
 ## ProviderVerificationEvidence
 
@@ -383,6 +390,9 @@ Precedencia explícita: integration/account > company > tenant > provider defaul
 id uuid PK
 provider_id uuid
 provider_adapter_version_id uuid
+scope_type text
+tenant_id uuid NULL
+company_id uuid NULL
 integration_id uuid NULL
 environment text
 evidence_level text
@@ -393,13 +403,16 @@ authorized_account_reference text NULL
 result text
 evidence_reference text
 evidence_checksum text
+registered_by_actor_id uuid
 reviewed_by_actor_id uuid NULL
 reviewed_at timestamptz NULL
 expires_at timestamptz NULL
 created_at timestamptz
 ```
 
-`evidence_level`: `DOCUMENTED`, `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED`, `CERTIFIED`. `result`: `PASS`, `FAIL`, `BLOCKED`. Credenciales y payloads reales están prohibidos. La promoción requiere evaluación de autenticación, discovery, operación autorizada, parsing, status reconciliation, duplicate/idempotency, timeout ambiguo, rotación, leakage, cross-tenant, rate limiting, dead letter, audit sanitization y artefactos fiscales aplicables.
+`scope_type` es `GLOBAL|INTEGRATION`: GLOBAL exige tenant/company/integration nulos e INTEGRATION exige los tres presentes. `evidence_level`: `DOCUMENTED`, `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED`, `CERTIFIED`. `result`: `PASS`, `FAIL`, `BLOCKED`. Credenciales y payloads reales están prohibidos. La promoción requiere evaluación de autenticación, discovery, operación autorizada, parsing, status reconciliation, duplicate/idempotency, timeout ambiguo, rotación, leakage, cross-tenant, rate limiting, dead letter, audit sanitization y artefactos fiscales aplicables.
+
+RLS `ENABLE/FORCE`, grants de columna y permisos backend separan `REGISTER`, `REVIEW`, `APPROVE/PROMOTE` y `READ MINIMAL STATUS`. Runtime no registra, revisa ni promueve; `pos_worker` no accede a la tabla y `pos_app` solo puede leer estado mínimo INTEGRATION de su tenant. `pos_platform_app` usa policies global/contextual separadas. Para niveles con revisión independiente, `registered_by_actor_id` debe ser distinto del reviewer y del actor de promoción de su propia evidencia; `pos_platform_admin` es read-only y no ve account/evidence reference/checksum. Nada de esto cambia `SEC-G`, que permanece `PLANNED / NOT_EVALUATED`.
 
 ## Fronteras transaccionales y local-first
 

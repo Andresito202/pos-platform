@@ -328,7 +328,7 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Ejecutar revisión independiente del manifest INT-002 y autorizar, en una tarea separada, la materialización de migration 002; no escribir SQL antes de esa autorización.
+1. Ejecutar una segunda revisión independiente del manifest INT-002 remediado y decidir, en una tarea separada, si se autoriza materializar migration 002; no escribir SQL antes de esa autorización.
 2. Materializar 002 exactamente como External Integrations central `NON_FISCAL`, sin modificar migration 001 ni crear tablas fiscales.
 3. Después de materializar 002, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
 4. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
@@ -522,4 +522,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-17: `INT-002` cerró el manifest documental exacto de migration 002 External Integrations: 16 tablas PostgreSQL centrales bajo `integrations`, 12 con RLS/FORCE, cero SQLite/seeds/SQL, ownership y FKs tenant-aware, y dispatch físicamente limitado a `NON_FISCAL`. No se materializó migration 002, no se inició INT-003, no se implementaron adapters y todos los providers/SEC-G conservaron sus estados.
 
-Próxima actualización obligatoria: revisión independiente del manifest INT-002 y decisión explícita de autorización para materializar migration 002. Hasta entonces no escribir SQL.
+- 2026-08-17: la primera revisión independiente de INT-002 concluyó `PASS_WITH_REMEDIATION`; la remediación documental acotada resolvió M-01..M-07 y LOW asociados mediante `RECONCILIATION`/`EXTENSION`, sin SQL, sin cambiar las 16 tablas, sin tocar migration 001 y sin alterar providers/SEC-G. Queda pendiente una segunda revisión independiente antes de cualquier decisión de materialización.
+
+Próxima actualización obligatoria: segunda revisión independiente del manifest INT-002 remediado y decisión explícita de autorización o rechazo para materializar migration 002. Hasta entonces no escribir SQL.
