@@ -25,7 +25,8 @@
 | Reporting | Vistas de lectura y agregados |
 | Notifications | Correos, SMS, push y alertas |
 | Hardware | Perfiles, adaptadores y periféricos |
-| Electronic Invoicing | `FiscalConnection`, configuración de emisión fiscal, rangos conocidos, `ElectronicDocument`, `FiscalSubmissionAttempt`, estados originales de proveedor, `FiscalArtifact`, `FiscalIncident`, `FiscalReconciliation`, contingencia, evidencia y documentos correctivos |
+| External Integrations | `ProviderRegistry`, `ExternalIntegration`, credenciales referenciadas, capabilities, ownership por recurso, discovery, `ExternalReferenceMapping`, dispatch externo, rate limiting, webhook receipts y evidencia de verificación |
+| Electronic Invoicing | `FiscalConnection` como perfil fiscal asociado a `ExternalIntegration`, configuración de emisión fiscal, rangos conocidos, `ElectronicDocument`, `FiscalSubmissionAttempt`, estados originales de proveedor, `FiscalArtifact`, `FiscalIncident`, `FiscalReconciliation`, contingencia, evidencia y documentos correctivos |
 | Sync | SyncOperation, OutboxEntry, InboxEntry, checkpoints, conflictos, revisiones, estado de dispositivo para sincronización y SyncDeadLetter |
 | Audit | Eventos sensibles e historial |
 | Support | Tickets, diagnóstico y accesos temporales |
@@ -53,3 +54,8 @@
 19. Los secretos reales permanecen en el almacén aprobado; las configuraciones de negocio solo conservan referencias opacas.
 20. Sync posee coordinación, entrega, deduplicación, conflicto y dead letter, pero no duplica ni adquiere ownership de la intención o efecto del dominio originador.
 21. Una FK desde Sync hacia Tenant, Company, Branch, Session, Device, Installation, License o Activation conserva integridad referencial y scope; no transfiere ownership. Las referencias aggregate/actor tipadas sin FK fuerte siguen sujetas a validación tenant-aware del caso de uso.
+22. External Integrations posee conexión, cuenta externa, credencial referenciada, capability, mapping y transporte central hacia el proveedor; no posee Sale, Payment, Product, Customer, Tax, Inventory ni el resultado legal de `ElectronicDocument`.
+23. `FiscalConnection` referencia exactamente una `ExternalIntegration` con capability fiscal activa. No duplica credenciales generales, account identity, environment, health ni capabilities generales.
+24. `SyncOperation` coordina local↔central; `IntegrationDispatch` coordina central↔provider. Ninguno adquiere ownership del hecho de dominio ni convierte un ACK contable en verdad de Sale o Payment.
+25. Electronic Invoicing conserva ownership exclusivo de cada attempt fiscal en `FiscalSubmissionAttempt`. `IntegrationDispatch` fiscal conserva intención/orquestación y lo referencia causalmente; `IntegrationDispatchAttempt` solo pertenece a operaciones no fiscales y una FK discriminada impide doble historial.
+26. `SyncOperation.authority_policy` gobierna autoridad local↔central conforme a `DEC-007`; `ResourceOwnershipPolicy` gobierna autoridad central↔provider. Son decisiones simultáneas e independientes: ninguna reemplaza ni se deriva automáticamente de la otra.

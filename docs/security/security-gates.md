@@ -294,6 +294,23 @@ Antes de cerrar un cambio crítico de Sales, Payments, Cash Register, Inventory,
 
 Cada respuesta enlaza amenazas, controles, pruebas y evidencia de los `SEC-Gxx` aplicables. Una respuesta “no aplica” requiere justificación explícita.
 
+## Mapping obligatorio para integraciones externas
+
+El contrato `../architecture/physical-model/external-integrations-schema.md` amplía el alcance futuro de pruebas sin cambiar el estado de ningún gate:
+
+| Gate | Riesgo/control de integración | Evidencia futura mínima |
+|---|---|---|
+| `SEC-G01` | RLS/FORCE, FKs tenant-aware y cero ambigüedad de integración/mapping/webhook | lectura/escritura/callback cross-tenant y account swapping rechazados |
+| `SEC-G03` | permisos atómicos para configure, test, discover, map, review, activate, disable, rotate y revalidate | pruebas backend de scope, MFA/reauth cuando aplique y segregación de funciones |
+| `SEC-G05` | identidad inmutable, checksum, deduplicación, anti-replay, retry y outcome incierto | duplicado, payload distinto con misma key, ACK perdido, timeout ambiguo y reconciliación |
+| `SEC-G06` | Audit append-only sanitizado para configuración, mapping, rotación, dispatch y revisión | causalidad completa sin secretos ni payloads provider completos |
+| `SEC-G07` | secret references centrales, token lifecycle, rotación/revocación y redacción | canary leakage en SQLite, renderer/PWA, Sync/Outbox/Audit, logs, errores, telemetría, backup y fixtures |
+| `SEC-G08` | schemas provider-specific server-side, SSRF/egress allowlist, webhook authenticity disponible, payload limits y rate limiting por cuenta | BOLA/IDOR, destino malicioso, callback falso/replay, body grande, 429/headers y recuperación |
+| `SEC-G09` | TLS, destinos oficiales, supply chain del adapter y backup/restore sin secretos | certificado/destino inválido, SBOM/scans y restore aislado |
+| `SEC-G10` | promoción fail-closed separa `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED` y `CERTIFIED` | release bloqueado si falta evidencia real aplicable |
+
+`ExternalWebhookReceipt` no inventa mecanismos de firma: usa únicamente autenticación, firma, timestamp o nonce demostrados por el provider; lo demás permanece `UNVERIFIED`. `ProviderVerificationEvidence` puede registrar evidencia, pero no cambia por sí solo el estado de un `SEC-Gxx`.
+
 ## PCI y datos de tarjeta
 
 La plataforma minimiza deliberadamente su alcance PCI. No almacena ni registra PAN completo, CVV/CVC ni secretos de autenticación de tarjeta, salvo necesidad futura explícita con revisión jurídica, normativa y certificación técnica. Se prefiere tokenización y procesamiento por proveedor autorizado. Tokens o referencias del proveedor se tratan como datos sensibles tenant-scoped y nunca autorizan por sí solos un resultado financiero.

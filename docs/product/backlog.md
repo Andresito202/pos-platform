@@ -6,7 +6,7 @@ Este archivo es la fuente de verdad del trabajo del proyecto. Consolida el estad
 
 Si otro documento de avance, una conversación o una lista informal contradice este backlog, prevalece este archivo hasta que se actualice mediante el flujo oficial.
 
-Última actualización: 2026-08-14.
+Última actualización: 2026-08-17.
 
 ## Estado general
 
@@ -15,7 +15,8 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Último trabajo principal completado: `TECH-002`, `DONE`, `P0`; R1/R2-A/R2-B/R3/R4/R5 y la revisión transversal final #2 tienen `PASS` en su alcance. Foundation está `APPROVED_FOR_MIGRATION_DESIGN` para 001; Device-Licensing/Catalog continúan `IN_REVIEW`. B01–B06 están cerrados y la primera migración queda `GO_AUTHORIZED` únicamente para implementación.
+- Último baseline ejecutable completado: migration 001 materializada en `255d813`, con PostgreSQL `54/54`, SQLite `12/12`, combined `66/66`, RLS `10/10` y real-role smoke `22/22`. Migration 001 es inmutable.
+- Último contrato completado: `INT-001`, contrato físico general de External Integrations y reconciliación con `FiscalConnection`. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -159,8 +160,20 @@ Estado de la épica: `IN_PROGRESS`.
 | TAX-001 | `P0` | `DONE` | Definir resolución y cambios tributarios versionados. | `docs/use-cases/tax/UC-TAX-001-resolve-tax.md`, `docs/use-cases/tax/UC-TAX-002-handle-tax-change.md` |
 | TAX-002 | `P0` | `DONE` | Definir redondeo del total pagadero para COP. | `docs/use-cases/rounding/UC-ROUND-001-calculate-payable-total.md` |
 | TAX-003 | `P0` | `DONE` | Resolver empate de redondeo y conciliación fiscal. | Cerrado mediante `DEC-003`, `DEC-006`, `UC-TAX-001` y `UC-ROUND-001`; quedan formalizadas precisión fiscal, normalización por impuesto, distribución determinista de residuos, persistencia de ajustes, conciliación documental, separación fiscal/comercial, `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` y `payable_amount` independiente del medio de pago. |
-| TAX-004 | `P1` | `PLANNED` | Implementar documentos electrónicos e integraciones fiscales mediante puertos neutrales. | Contrato arquitectónico y caso de uso cerrados; implementación productiva, segundo adaptador, seguridad, sandbox y validación normativa pendientes. |
+| TAX-004 | `P1` | `PLANNED` | Implementar documentos electrónicos mediante puertos neutrales y perfiles fiscales asociados a `ExternalIntegration`. | Contratos cerrados; adapters SIIGO/FACTUS/ALEGRA, seguridad, evidencia autorizada y validación normativa permanecen pendientes. |
 | UC-EINV-001 | `P1` | `DONE` | Definir configuración, emisión, resultado incierto, conciliación, notas, contingencia y operación sin proveedor fiscal. | `docs/use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md` y `docs/architecture/electronic-invoicing.md`. |
+
+### Integraciones externas
+
+Estado de la épica: `IN_PROGRESS`.
+
+| ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
+|---|---|---|---|---|
+| INT-001 | `P0` | `DONE` | Cerrar contrato físico general provider-agnostic, mappings, ownership, discovery, secrets, dispatch, webhook, rate limit y evidencia; reconciliar `FiscalConnection`. | `docs/architecture/physical-model/external-integrations-schema.md`, `docs/architecture/provider-integration-matrix.md`; documental, sin SQL/adapters |
+| INT-002 | `P0` | `READY` | Diseñar manifest aditivo de migration 002 central para External Integrations y perfil fiscal, con orden, constraints, RLS, grants, recovery y pruebas exactas. | Depende de revisión/aprobación de INT-001; migration 001 permanece inmutable |
+| INT-003 | `P0` | `PLANNED` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | Depende de INT-002 y autorización independiente de migration 002 |
+| INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
+| INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
 
 ### Pagos
 
@@ -306,7 +319,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `DONE` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 y revisión transversal final #2 `PASS`; el manifest fija scope, ledger único y cierres B01–B06. Device-Licensing/Catalog siguen `IN_REVIEW`. Primera migración `GO_AUTHORIZED` para implementación. |
+| TECH-002 | `P0` | `DONE` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 y revisión final `PASS`; migration 001 fue materializada en `255d813` y es inmutable. Device-Licensing/Catalog siguen `IN_REVIEW`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
 | TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
@@ -314,19 +327,17 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Implementar la primera migración objetivo exactamente según `docs/migration/first-target-migration-manifest.md`: `001_central_foundation` y `001_local_migration_control`, con sus pruebas e introspección, sin ampliar scope.
-2. Iniciar `TECH-003` después de implementar el primer corte físico y materializar `ARCH-004` sin cambiar sus contratos.
-3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
+1. Revisar y aprobar `INT-001`; después diseñar `INT-002`, manifest aditivo de migration 002 central, sin modificar migration 001 ni escribir SQL antes de la autorización.
+2. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC, sin adelantar adapters reales sin seguridad/evidencia.
+3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
 
-El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. La secuencia interna obligatoria continúa así:
+El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. Los puntos 1–4 siguientes son el registro histórico que llevó a la autorización y materialización de migration 001; no son pasos pendientes ni autorizan editarla:
 
 1. consolidar la matriz física de motores y dialectos, UUID, tipos monetarios, alcances de unicidad, tablas de identidad/RBAC/sesión, fronteras transaccionales y auditoría;
 2. verificar cada decisión contra inventario por presentación y lote, `PaymentGroup`/`Payment`/`PaymentAttempt`, estados persistentes de `Sale`, redondeo único y configuración offline por dominio;
 3. aprobar el esquema y las diferencias PostgreSQL/SQLite mediante revisión transversal;
 4. solo entonces escribir y validar la primera migración objetivo, sin modificar la migración heredada.
-
-
-La implementación de la arquitectura objetivo debe comenzar por la fundación técnica y respetar los invariantes cerrados durante la Fase 0.
+La implementación posterior debe respetar esos invariantes.
 
 ## Riesgos abiertos
 
@@ -341,7 +352,7 @@ La implementación de la arquitectura objetivo debe comenzar por la fundación t
 | R-007 | Media | La canalización versionada de pricing está definida, pero todavía no tiene una implementación objetivo. | Implementarla conforme a `DEC-003`, `DEC-006` y `PRICE-002`, con pruebas deterministas. |
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
 | R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
-| R-010 | Media | Facturación electrónica tiene contrato neutral, pero no implementación, segundo adaptador ni validación normativa productiva. | Implementar `TAX-004` con Factus sandbox y un segundo adaptador sin modificar el dominio comercial; validar proveedor y normativa antes de producción. |
+| R-010 | Media | External Integrations y facturación electrónica tienen contrato neutral, pero no migration 002, adapters SIIGO/FACTUS/ALEGRA ni validación normativa/productiva. | Diseñar INT-002, implementar cada adapter sin modificar el dominio comercial y exigir evidencia autorizada independiente antes de promoverlo. |
 | R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra el runtime Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
 | R-012 | Media | Firma, custodia de claves y soporte están documentados, pero proveedores y PoC de protección local no están implementados. | Materializar los controles definidos por `SEC-004`, probar el perfil `OS_PROTECTED` o `DB_ENCRYPTED` y firmar artefactos antes del piloto. |
 
@@ -395,7 +406,7 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 | Hito | Estado | Criterio de salida |
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
-| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | Diseño `TECH-002`, `PHY-G01` a `PHY-G14`, R1/R2-A/R2-B/R3/R4/R5 y revisión transversal final #2 cerrados en su alcance. Primera migración `GO_AUTHORIZED`; faltan implementación y pruebas del DDL real. Device-Licensing/Catalog conservan sus condiciones posteriores. |
+| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `TECH-002` cerrado y migration 001 materializada/verificada en `255d813`; siguientes cortes son aditivos y requieren manifest/autorización independientes. Device-Licensing/Catalog conservan sus condiciones posteriores. |
 | F1.3 Seguridad e identidad | `PLANNED` | `SEC-G01` a `SEC-G10` formalizados pero no evaluados; requiere aislamiento multi-tenant probado, sesiones revocables, MFA crítico, permisos backend y evidencia de release. |
 | F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
@@ -497,6 +508,10 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-14: la primera revisión transversal final de `TECH-002` produjo `NO-GO` y seis blockers materiales B01–B06: bootstrap/ledger, autoridad del migrador, recovery, ownership de onboarding, Session/RLS y `AuditEvent.resource_id`. `TECH-002 / R5` los cerró documentalmente con bootstrap permanente previo a STARTED, ledger único sin metadata Kysely, máquina de estados fail-closed, FK OWNER compuesta, Session RLS/FORCE y referencia AuditEvent condicional verificable. El scope de 001 no se amplió, los security gates no cambiaron y no se escribió DDL.
 
-- 2026-08-14: la revisión transversal final #2 revalidó R1–R5 y confirmó B01–B06 `CLOSED`, scope 001 exacto, aislamiento tenant-aware, autoridad única, lifecycle/recovery, separación legacy y cero blockers categoría A. `TECH-002` pasó a `DONE` y la primera migración a `GO_AUTHORIZED` solo para implementar `001_central_foundation` y `001_local_migration_control`. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`; Fase 1, Device/Licensing, Catalog y producción no se declararon terminados.
+- 2026-08-14: la revisión transversal final #2 revalidó R1–R5 y confirmó B01–B06 `CLOSED`, scope 001 exacto, aislamiento tenant-aware, autoridad única, lifecycle/recovery, separación legacy y cero blockers categoría A. `TECH-002` pasó a `DONE` y la primera migración a `GO_AUTHORIZED` solo para implementar `001_central_foundation` y `001_local_migration_control`. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`; Fase 1, Device/Licensing, Catalog y producción no se declararon terminados. Registro histórico previo a `255d813`.
 
-Próxima actualización obligatoria: implementar y verificar la primera migración objetivo exactamente según el manifiesto, sin ampliar scope ni modificar la revisión Alembic heredada.
+- 2026-08-14: `255d813` materializó migration 001 con evidencia PostgreSQL `54/54`, SQLite `12/12` y combined `66/66`; desde este punto sus artefactos y checksums son inmutables.
+
+- 2026-08-17: `INT-001` cerró documentalmente External Integrations: conexión general separada de `FiscalConnection`, provider registry extensible, capabilities, mappings, ownership, discovery, secrets/tokens, dispatch, webhooks, rate limits, evidencia y matriz SIIGO/FACTUS/ALEGRA/HKA/ODOO. No se creó SQL ni adapter; los providers permanecen `NOT_EVALUATED` y los SEC-G no cambian.
+
+Próxima actualización obligatoria: revisión independiente de `INT-001` y, si se aprueba, diseño exacto de `INT-002`/manifest aditivo de migration 002 central sin modificar migration 001.

@@ -102,17 +102,14 @@ Reglas:
 
 ## Configuración por empresa
 
-Cada conexión fiscal pertenece como mínimo a:
+Cada perfil fiscal pertenece como mínimo a:
 
 ```text
 tenant_id
 company_id
 tax_identity_id
-provider_code
-environment
-provider_account_reference
-capabilities
-credential_reference
+external_integration_id
+fiscal_capabilities_snapshot
 certificate_reference
 configuration_version
 valid_from
@@ -122,13 +119,14 @@ configuration_version_status
 
 Reglas:
 
+- provider, environment, account identity, credential binding, health y capabilities generales pertenecen a `ExternalIntegration` y no se duplican en `FiscalConnection`;
 - no existe una credencial global compartida implícitamente entre tenants;
-- sandbox y producción son configuraciones diferentes;
+- sandbox y producción son `ExternalIntegration` diferentes;
 - sucursales pueden seleccionar un perfil autorizado de la empresa sin convertirse en propietarias del NIT;
 - rango, prefijo y resolución se asocian al emisor, proveedor, ambiente y tipo documental aplicables;
 - una configuración inactiva no emite documentos nuevos;
 - cambiar proveedor no reescribe documentos históricos;
-- secretos se referencian, no se almacenan como texto en tablas de negocio.
+- secretos se referencian desde `ExternalIntegration`/`SEC-004`, no se almacenan como texto en tablas de negocio;
 - la conexión estable no crea otro lifecycle: elegibilidad y estado efectivo se derivan de la versión `DRAFT`/`PUBLISHED`/`SUPERSEDED`/`REVOKED`, su vigencia, capabilities y salud técnica; la salud de transporte no muta el lifecycle de configuración.
 
 ## Tipos canónicos de documento
@@ -244,6 +242,7 @@ Cada `FiscalSubmissionAttempt` conserva:
 ```text
 attempt_id
 electronic_document_id
+integration_dispatch_id
 attempt_number
 request_id
 idempotency_key
@@ -269,6 +268,8 @@ Estados técnicos persistentes:
 - `CANCELLED`.
 
 El estado técnico del attempt no representa el resultado fiscal del documento. `transport_status` y `normalized_result` permanecen separados. Para este contrato, `normalized_result` solo reutiliza `ACCEPTED` o `REJECTED` cuando existe evidencia; fallo técnico o incertidumbre lo dejan ausente. Esos valores no se duplican como estados técnicos ni forman una enum paralela. Un attempt histórico `UNKNOWN_OUTCOME` no se reescribe cuando evidencia posterior resuelve el `ElectronicDocument`.
+
+`FiscalSubmissionAttempt` es el único owner de los attempts fiscales. `integration_dispatch_id` enlaza inequívocamente la intención/routing central que lo originó; `IntegrationDispatch` no copia su historial técnico y `IntegrationDispatchAttempt` está prohibido para dispatches fiscales mediante FK discriminada. Correlation/causation complementan la trazabilidad, pero no sustituyen esa relación.
 
 ## Artefactos, incidencias y conciliación
 
@@ -337,49 +338,17 @@ Cada versión del adaptador registra:
 | Webhook | `SUPPORTED`, `UNSUPPORTED`, `UNVERIFIED` |
 | Contingencia | `SUPPORTED`, `UNSUPPORTED`, `REQUIRES_MANUAL_PROCESS`, `UNVERIFIED` |
 
-`UNVERIFIED` nunca se presenta comercialmente como soporte.
+`UNVERIFIED` nunca se presenta comercialmente como soporte. La capability general y su evidencia pertenecen a `ExternalIntegration`; este módulo conserva únicamente el snapshot fiscal realmente habilitado.
 
-## Adaptador Factus V2
+## Adapters SIIGO, FACTUS y ALEGRA
 
-Factus V2 será el primer adaptador de referencia porque existe acceso sandbox.
+Los tres providers obligatorios se diseñan sobre los mismos puertos fiscales y el contrato general de integraciones, sin modificar Sale, Tax, Payment, Product o Inventory. Sus credenciales, endpoints, discovery, mappings, rate limits, webhook status y elementos `UNVERIFIED` se mantienen en `provider-integration-matrix.md`.
 
-El adaptador debe encapsular:
+- SIIGO usa credenciales de cliente `username/access_key`, token Bearer con `expires_in` y `Partner-Id` de plataforma. Sus IDs externos se resuelven mediante `ExternalReferenceMapping`.
+- FACTUS usa OAuth2 con credenciales de cliente, access/refresh token, `expires_in`, sandbox/producción, `reference_code`, rangos y artefactos fiscales. `reference_code` deriva de una identidad POS inmutable.
+- ALEGRA usa API email/API token mediante Basic Authentication. Estado de aplicación Alegra, estado de emisión y estado DIAN/legal permanecen separados.
 
-- endpoints sandbox y producción;
-- OAuth2 y refresh token;
-- expiración indicada por la respuesta real;
-- límite documentado de solicitudes por usuario;
-- `429` y `Retry-After`;
-- payloads y catálogos Factus;
-- facturas, notas y artefactos realmente contratados;
-- códigos y errores originales;
-- consulta después de timeout;
-- rangos de numeración cuando la capacidad se habilite.
-
-No se codificará una duración fija del token: la documentación consultada contiene diferencias entre la descripción y ejemplos, por lo que prevalece el valor efectivo recibido y las reglas contractuales vigentes.
-
-Referencias verificadas:
-
-- https://developers.factus.com.co/
-- https://developers.factus.com.co/autenticacion/auth
-- https://developers.factus.com.co/limite-de-request
-- https://developers.factus.com.co/facturas/crear-y-validar
-
-El acceso prolongado al sandbox no se interpreta como plan productivo ilimitado, SLA ni derecho multi-NIT.
-
-## Adaptador Siigo
-
-Siigo se utilizará como segunda validación de neutralidad antes de afirmar que el módulo es multi-proveedor.
-
-El adaptador encapsulará sus dependencias propias, entre ellas las referencias configuradas en Siigo para documentos, clientes, productos, impuestos, bodegas, usuarios o medios de pago cuando correspondan.
-
-Esas referencias se almacenan como mappings del adaptador y no reemplazan las identidades internas de POS Platform.
-
-Referencias verificadas:
-
-- https://developers.siigo.com/docs/siigoapi/
-- https://developers.siigo.com/docs/siigoapi/facturacion-electronica/
-- https://developers.siigo.com/docs/siigoapi/invoice/1-create-invoice/
+Un adapter puede estar `IMPLEMENTED` sin estar `SANDBOX_VERIFIED` o `PRODUCTION_VERIFIED`. Mocks solo aportan `MOCK_TESTED`; nunca prueban integración real. HKA y Odoo permanecen extensiones futuras no implementadas.
 
 ## Idempotencia y resultado incierto
 
@@ -453,7 +422,7 @@ El software no activa contingencia automáticamente solo porque una llamada exce
 
 ## Seguridad
 
-- credenciales y certificados se almacenan mediante `SEC-004`;
+- credenciales generales se referencian desde `ExternalIntegration` mediante `SEC-004`; certificados fiscales separados solo existen cuando aplican;
 - renderer y PWA nunca reciben secretos fiscales;
 - sandbox y producción usan secretos diferentes;
 - permisos de configuración y emisión están separados;
@@ -495,16 +464,16 @@ Ninguna registra secretos completos.
 
 La suite canónica se ejecutará contra:
 
-1. adaptador fake determinista;
-2. Factus sandbox;
-3. adaptador Siigo o sandbox disponible;
-4. fixtures sanitizados de respuestas de error;
-5. estados desconocidos;
-6. timeouts e idempotencia;
-7. dos empresas con proveedores distintos;
-8. cambio de proveedor conservando historia.
+1. fake determinista y fixtures sanitizados únicamente para unit/contract tests, con estado máximo `MOCK_TESTED`;
+2. Factus sandbox autorizado para `SANDBOX_VERIFIED`;
+3. cuenta/ambiente autorizado de Siigo;
+4. cuenta/ambiente autorizado de Alegra;
+5. respuestas y estados desconocidos;
+6. timeouts, duplicados, idempotencia/reconciliación y rate limits;
+7. aislamiento de empresas/tenants con providers distintos;
+8. rotación y cambio de provider conservando historia y sin filtrar secretos.
 
-No se afirmará soporte multi-proveedor hasta completar al menos dos adaptadores sin modificar entidades de venta, impuestos, pagos o inventario.
+No se afirmará soporte multi-provider hasta completar adapters reales aplicables sin modificar entidades de venta, impuestos, pagos o inventario. Cada provider conserva su verification status propio; aprobar uno no aprueba los demás.
 
 ## Criterios de aceptación
 
@@ -515,7 +484,7 @@ No se afirmará soporte multi-proveedor hasta completar al menos dos adaptadores
 - estados canónicos y originales coexisten;
 - timeout produce reconciliación, no duplicación;
 - Factus no define el modelo interno;
-- un segundo adaptador usa los mismos puertos canónicos;
+- Siigo, Factus y Alegra pueden usar los mismos puertos canónicos sin contaminar el core;
 - notas no sobrescriben documentos aceptados;
 - contingencia requiere habilitación explícita;
 - `LOCAL_PERPETUAL` funciona sin proveedor fiscal;

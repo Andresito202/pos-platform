@@ -28,7 +28,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Etapa | Estado en el backlog | Alcance real |
 |---|---|---|
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`: R1/R2-A/R2-B/R3/R4/R5/FINAL #2 tienen `PASS` y la primera migración está `GO_AUTHORIZED` para implementación/verificación. TARGET todavía no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`, y continúan pendientes el esqueleto modular, seguridad ejecutable, CI, primer corte vertical y base local-first. |
+| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE` y migration 001 fue materializada en `255d813` con su evidencia aprobada; sus artefactos son inmutables. El contrato general de External Integrations está cerrado documentalmente, sin migration 002 ni adapters. TARGET todavía no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
 | Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 
@@ -54,7 +54,7 @@ La fundación documental define:
 - POS Local Service como único escritor de SQLite y propietario de hardware, impresión y sincronización;
 - infraestructura pagada para staging con datos sensibles, piloto y producción;
 - modalidades productivas `HYBRID` y `LOCAL_PERPETUAL` sin dependencia permanente de Internet;
-- contrato fiscal neutral con Factus como primer sandbox y Siigo como segunda validación futura;
+- contrato general de integraciones separado del perfil fiscal, con matriz documental SIIGO/FACTUS/ALEGRA y HKA/Odoo futuros;
 - gestión de secretos, firma, soporte temporal y certificación honesta de hardware.
 
 ## Principios arquitectónicos
@@ -86,6 +86,7 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | Local-first y sincronización | Autoridad, idempotencia, conflictos y recuperación definidos | Pendiente |
 | Runtime Electron y servicio local | Stack, procesos, IPC y seguridad definidos | Pendiente |
 | Facturación electrónica | Arquitectura neutral y `UC-EINV-001` definidos | Pendiente; sin certificación ni proveedor productivo habilitado |
+| Integraciones externas | `ExternalIntegration`, capabilities, mappings, ownership, discovery, dispatch, webhook, rate limits y evidencia definidos | Pendiente; sin migration 002 ni adapters reales/verificados |
 | Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
 | Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
 | CI y validación automática de la arquitectura objetivo | Estrategia definida | Pendiente |
@@ -137,7 +138,7 @@ La selección normativa está cerrada en [`ADR-005`](docs/adr/ADR-005-target-tec
 | POS productivo | Electron, React y Vite | Pendiente |
 | PWA del POS | React/Vite con `IndexedDB`, `sql.js` o SQLite/WASM solo para laboratorio sintético | Prohibida como runtime o persistencia productiva |
 | Servicio local | Node.js/TypeScript como servicio de Windows | Pendiente |
-| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Modelo físico aprobado; primera migración autorizada y pendiente de implementación/verificación |
+| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Migration 001 materializada/verificada en `255d813`; siguientes migrations requieren manifest y autorización aditivos |
 | Acceso a datos | Kysely con migraciones separadas por dialecto | Pendiente |
 | Contratos | TypeScript y Zod | Pendiente |
 | Pruebas | Vitest, Playwright, Testcontainers y k6 | Pendiente |
@@ -159,7 +160,7 @@ El stack siguiente describe únicamente lo que está físicamente presente en la
 | Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007` y `docs/migration/first-target-migration-manifest.md`. `TECH-002` está cerrado; la siguiente tarea es implementar y verificar migration 001 sin confundir esa autorización con una implementación ya existente.
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007` y `docs/migration/first-target-migration-manifest.md`. `TECH-002` está cerrado y migration 001 ya fue materializada/verificada en `255d813`; no debe editarse. La siguiente tarea, tras revisar el contrato general de integraciones, es diseñar el manifest aditivo de migration 002 central sin escribir SQL antes de su autorización.
 
 El repositorio contiene ahora el `package.json` mínimo del harness TARGET de migration 001; todavía no contiene `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 

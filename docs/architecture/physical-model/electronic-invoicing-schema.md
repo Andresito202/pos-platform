@@ -26,6 +26,8 @@ El contrato define la persistencia conceptual neutral al proveedor de conexiones
 - `FiscalReconciliation` y sus items;
 - numeración, contingencia, evidencia de emisión y documentos correctivos.
 
+`External Integrations` es autoridad de `ProviderRegistry`, la cuenta/conexión general `ExternalIntegration`, credenciales referenciadas, capabilities generales, discovery, mappings, rate-limit policy, webhook receipt y dispatch central hacia el proveedor. El contrato físico general está en `external-integrations-schema.md`.
+
 Electronic Invoicing consume un snapshot tributario inmutable y no recalcula Tax. Tax no transmite documentos, no administra proveedor, numeración, contingencia ni aceptación externa. Sale, SaleReturn, Payment, Refund, Reversal, CashMovement e InventoryMovement conservan ownership independiente.
 
 ## Snapshots separados
@@ -45,7 +47,7 @@ El POS local nunca inventa `ACCEPTED` o `REJECTED`. La autoridad externa se inco
 
 ## Agregado `FiscalConnection`
 
-Representa una conexión neutral con un proveedor fiscal. Identidad candidata UUID v7: `fiscal_connection_id`.
+Representa el perfil fiscal que habilita una `ExternalIntegration` para una identidad tributaria, configuración de emisión, numeración, certificados cuando apliquen y contingencia. No es la conexión general ni propietaria de credenciales. Identidad candidata UUID v7: `fiscal_connection_id`.
 
 Atributos conceptuales mínimos:
 
@@ -55,13 +57,9 @@ tenant_id
 company_id
 branch_id nullable
 tax_identity_id
-provider_type
-provider_account_reference nullable
-environment
-effective_status
-capabilities_snapshot
-configuration_version_reference
-secret_reference nullable
+external_integration_id
+fiscal_capabilities_snapshot
+fiscal_configuration_version_reference
 certificate_reference nullable
 valid_from
 valid_until nullable
@@ -73,13 +71,13 @@ updated_at
 Reglas:
 
 1. `tenant_id`, `company_id` y `branch_id` forman un scope coherente; Branch, si existe, pertenece a la misma Company y Tenant.
-2. `provider_type` es un código neutral de adaptador, no una autoridad ni una FK externa.
-3. Sandbox y producción son conexiones diferentes.
-4. Secretos, tokens y claves privadas no se almacenan en esta entidad; solo referencias opacas tenant-scoped.
+2. `external_integration_id` referencia mediante FK tenant/company-aware una integración general cuya capability `ELECTRONIC_INVOICING` está activa.
+3. Provider, account identity, environment, general status/health, adapter version, credential binding y capabilities generales se leen de `ExternalIntegration`; no se duplican aquí.
+4. Secretos, tokens y claves privadas no se almacenan en esta entidad. `certificate_reference` solo existe cuando el perfil fiscal exige material distinto de la credencial general y sigue `SEC-004`.
 5. Una conexión inactiva o vencida no autoriza documentos nuevos.
 6. Rotar credenciales o cambiar proveedor crea o referencia una versión nueva; no muta evidencia histórica.
-7. Las capabilities se validan por conexión, ambiente y versión. No se infieren por nombre comercial del proveedor.
-8. `effective_status` es una proyección, no otra máquina persistente: deriva del lifecycle autorizado de `FiscalEmissionConfigurationVersion`, vigencia, capabilities y disponibilidad de referencias secretas/certificados. La salud técnica se observa separadamente.
+7. Las capabilities fiscales se validan contra la integración, ambiente y versión; no se infieren por nombre comercial del proveedor.
+8. La elegibilidad fiscal es una proyección derivada de `ExternalIntegration.ACTIVE`, capability fiscal activa, versión publicada, vigencia, mappings/rangos y certificado cuando aplique. No crea otro lifecycle general.
 
 ## Agregado `ElectronicDocument`
 
@@ -176,6 +174,7 @@ fiscal_submission_attempt_id
 tenant_id
 electronic_document_id
 fiscal_connection_id
+integration_dispatch_id
 operation_type
 attempt_number
 status
@@ -218,6 +217,10 @@ Reglas:
 6. Un retry técnico conserva `electronic_document_id`, intención e idempotencia. Crea un nuevo attempt numerado, no otro documento.
 7. Un attempt histórico en `UNKNOWN_OUTCOME` no se reescribe cuando una consulta posterior resuelve el documento.
 8. La combinación de documento, operación y `attempt_number` es única dentro del tenant.
+9. `FiscalSubmissionAttempt` es el único owner autoritativo de attempt number, request/transporte, respuesta HTTP/provider, `Retry-After`, provider reference, resultado técnico, timestamps, incertidumbre, retry y reconciliación para toda operación fiscal.
+10. `integration_dispatch_id` identifica obligatoriamente la intención central que originó el attempt. La FK tenant-aware apunta a `IntegrationDispatch` con `dispatch_class = 'FISCAL'`; la coherencia de Company se verifica contra el `ElectronicDocument`, `FiscalConnection` y dispatch referenciados. La implementación física usa el discriminador constante y la candidate key compuesta definidas en `external-integrations-schema.md` o un constraint equivalente igualmente verificable.
+11. `UNIQUE (tenant_id, integration_dispatch_id, attempt_number)` ordena los retries del dispatch fiscal. `correlation_id` conserva trazabilidad extremo a extremo, pero no sustituye esta identidad.
+12. Un dispatch fiscal no admite `IntegrationDispatchAttempt`. La FK discriminada impide que ambos tipos representen la misma interacción; no existe doble historial autoritativo.
 
 ## Entidad `FiscalArtifact`
 

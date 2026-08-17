@@ -2323,13 +2323,17 @@ Identidad estable de Electronic Invoicing para configurar emisión dentro de Ten
 
 ### FiscalEmissionConfigurationVersion
 
-Versión inmutable publicada que conserva autorización o resolución, numeración, prefijo, proveedor, conexión, contingencias, capabilities, vigencia, checksum y referencias opacas a credenciales/certificados. No contiene secretos utilizables ni reglas de cálculo tributario.
+Versión inmutable publicada que conserva autorización o resolución, numeración, prefijo, `FiscalConnection`, contingencias, capabilities fiscales, vigencia, checksum y referencia opaca a certificado cuando aplique. Provider, environment, cuenta y credencial general pertenecen a `ExternalIntegration`. No contiene secretos utilizables ni reglas de cálculo tributario.
 
 El snapshot de emisión fiscal conserva esta versión y la evidencia del proveedor. El snapshot tributario de la operación conserva reglas, bases, tasas y resultados de Tax. Son evidencias distintas y no se agrupan bajo un `fiscal_snapshot` ambiguo.
 
+### ExternalIntegration
+
+Identidad general tenant/company-scoped de una cuenta externa con ERP, plataforma contable o proveedor tecnológico. Conserva provider y ambiente, adapter version, credential binding opaco, lifecycle, health y configuration version; capabilities, ownership, discovery y mappings viven en contratos relacionados. No posee entidades comerciales canónicas ni resultados fiscales.
+
 ### FiscalConnection
 
-Identidad neutral y tenant-scoped de la conexión de Electronic Invoicing con un proveedor y ambiente. Conserva scope de Tenant/Company/Branch cuando aplique, identidad fiscal, capabilities, vigencia, versión de configuración y referencias opacas a secretos; nunca secretos utilizables.
+Perfil tenant-scoped de Electronic Invoicing que referencia una `ExternalIntegration` y conserva identidad fiscal, configuración de emisión, numeración, capabilities fiscales, vigencia y certificado cuando aplique. No duplica provider, account identity, environment, health, credenciales ni capabilities generales.
 
 ### ElectronicDocument
 
@@ -2341,7 +2345,7 @@ Estados persistentes: `DRAFT`, `READY`, `QUEUED`, `SUBMITTING`, `ACCEPTED`, `REJ
 
 ### FiscalSubmissionAttempt
 
-Interacción técnica versionada contra un proveedor para emitir, consultar, recuperar artefactos o ejecutar una operación fiscal autorizada. Estados persistentes: `CREATED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `UNKNOWN_OUTCOME` y `CANCELLED`. Su estado técnico, `transport_status` y `normalized_result` son dimensiones distintas; `ACCEPTED` y `REJECTED` no son estados del attempt.
+Interacción técnica versionada contra un proveedor para emitir, consultar, recuperar artefactos o ejecutar una operación fiscal autorizada. Es el único owner de attempts fiscales y referencia mediante `integration_dispatch_id` la intención central `FISCAL` que lo originó; `IntegrationDispatchAttempt` queda reservado a operaciones no fiscales. Estados persistentes: `CREATED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `UNKNOWN_OUTCOME` y `CANCELLED`. Su estado técnico, `transport_status` y `normalized_result` son dimensiones distintas; `ACCEPTED` y `REJECTED` no son estados del attempt.
 
 ### FiscalArtifact
 

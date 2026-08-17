@@ -769,9 +769,13 @@ Evidencia inmutable de reglas, bases, tasas y resultado calculados por Tax para 
 
 Evidencia inmutable de la configuración, proveedor, numeración, contingencia y resultado usados por Electronic Invoicing. No sustituye ni recalcula el snapshot tributario.
 
+## ExternalIntegration
+
+Conexión general, versionada y tenant/company-scoped con una cuenta de ERP, plataforma contable o proveedor tecnológico. Es propietaria de la referencia de credencial, ambiente, capabilities, discovery, mappings, ownership y health; nunca de Product, Sale, Payment, Inventory o ElectronicDocument.
+
 ## FiscalConnection
 
-Conexión neutral, versionada y tenant-scoped de Electronic Invoicing con un proveedor y ambiente. Conserva capabilities y referencias opacas a secretos, nunca credenciales utilizables.
+Perfil fiscal neutral y tenant-scoped que referencia una `ExternalIntegration`. Conserva identidad/configuración fiscal, numeración, capabilities fiscales, vigencia y certificado cuando aplique; no duplica credenciales, cuenta, ambiente, health ni capabilities generales.
 
 ## ElectronicDocument
 
@@ -779,7 +783,7 @@ Agregado canónico de Electronic Invoicing para factura electrónica, documento 
 
 ## FiscalSubmissionAttempt
 
-Interacción técnica persistida contra un proveedor para emitir, consultar o recuperar evidencia. Su lifecycle técnico es independiente del resultado fiscal de `ElectronicDocument`.
+Interacción técnica persistida contra un proveedor para emitir, consultar o recuperar evidencia. Es el único owner de attempts fiscales, referencia el `IntegrationDispatch` fiscal originador y nunca coexiste con un `IntegrationDispatchAttempt` para la misma interacción. Su lifecycle técnico es independiente del resultado fiscal de `ElectronicDocument`.
 
 ## FiscalArtifact
 
