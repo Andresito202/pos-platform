@@ -170,10 +170,11 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | INT-001 | `P0` | `DONE` | Cerrar contrato físico general provider-agnostic, mappings, ownership, discovery, secrets, dispatch, webhook, rate limit y evidencia; reconciliar `FiscalConnection`. | `docs/architecture/physical-model/external-integrations-schema.md`, `docs/architecture/provider-integration-matrix.md`; documental, sin SQL/adapters |
-| INT-002 | `P0` | `READY` | Diseñar manifest aditivo de migration 002 central para External Integrations y perfil fiscal, con orden, constraints, RLS, grants, recovery y pruebas exactas. | Depende de revisión/aprobación de INT-001; migration 001 permanece inmutable |
+| INT-002 | `P0` | `READY` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | Depende de INT-001 y de la decisión de split 002/003; migration 001 permanece inmutable; no incluye tablas fiscales ni SQL en la fase de manifest |
 | INT-003 | `P0` | `PLANNED` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | Depende de INT-002 y autorización independiente de migration 002 |
-| INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
+| INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
+| INT-006 | `P0` | `PLANNED` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Depende de migration 002 aplicada; su manifest futuro deriva de PHY-G12/INT-001 y debe resolver todas las dependencias fiscales antes de SQL |
 
 ### Pagos
 
@@ -327,9 +328,11 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Revisar y aprobar `INT-001`; después diseñar `INT-002`, manifest aditivo de migration 002 central, sin modificar migration 001 ni escribir SQL antes de la autorización.
-2. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC, sin adelantar adapters reales sin seguridad/evidencia.
-3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
+1. Reiniciar `INT-002` y diseñar únicamente el manifest aditivo de migration 002 External Integrations, central y `NON_FISCAL`, sin modificar migration 001 ni escribir SQL.
+2. Después de materializar 002 bajo autorización separada, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
+3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
+4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
+5. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
 
 El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. Los puntos 1–4 siguientes son el registro histórico que llevó a la autorización y materialización de migration 001; no son pasos pendientes ni autorizan editarla:
 
@@ -352,7 +355,7 @@ La implementación posterior debe respetar esos invariantes.
 | R-007 | Media | La canalización versionada de pricing está definida, pero todavía no tiene una implementación objetivo. | Implementarla conforme a `DEC-003`, `DEC-006` y `PRICE-002`, con pruebas deterministas. |
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
 | R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
-| R-010 | Media | External Integrations y facturación electrónica tienen contrato neutral, pero no migration 002, adapters SIIGO/FACTUS/ALEGRA ni validación normativa/productiva. | Diseñar INT-002, implementar cada adapter sin modificar el dominio comercial y exigir evidencia autorizada independiente antes de promoverlo. |
+| R-010 | Media | External Integrations y facturación electrónica tienen contrato neutral, pero no existen migrations 002/003, adapters SIIGO/FACTUS/ALEGRA ni validación normativa/productiva. | Diseñar/materializar 002 External Integrations, después 003 fiscal, e implementar cada adapter sin modificar el dominio comercial; exigir evidencia autorizada independiente antes de promoverlo. |
 | R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra el runtime Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
 | R-012 | Media | Firma, custodia de claves y soporte están documentados, pero proveedores y PoC de protección local no están implementados. | Materializar los controles definidos por `SEC-004`, probar el perfil `OS_PROTECTED` o `DB_ENCRYPTED` y firmar artefactos antes del piloto. |
 
@@ -514,4 +517,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-17: `INT-001` cerró documentalmente External Integrations: conexión general separada de `FiscalConnection`, provider registry extensible, capabilities, mappings, ownership, discovery, secrets/tokens, dispatch, webhooks, rate limits, evidencia y matriz SIIGO/FACTUS/ALEGRA/HKA/ODOO. No se creó SQL ni adapter; los providers permanecen `NOT_EVALUATED` y los SEC-G no cambian.
 
-Próxima actualización obligatoria: revisión independiente de `INT-001` y, si se aprueba, diseño exacto de `INT-002`/manifest aditivo de migration 002 central sin modificar migration 001.
+- 2026-08-17: la gobernanza resolvió el blocker de alcance de INT-002 separando materialización progresiva dentro de Phase 1: migration 002 contiene solo External Integrations foundation y permite únicamente dispatch `NON_FISCAL`; migration 003 contendrá Fiscal/Electronic Invoicing y habilitará `FISCAL` atómicamente con `FiscalSubmissionAttempt`. No se creó manifest detallado ni SQL, no cambió INT-001 y migration 001 permanece inmutable.
+
+Próxima actualización obligatoria: reiniciar `INT-002` para diseñar el manifest exacto de migration 002 External Integrations `NON_FISCAL`, sin modificar migration 001, sin tablas fiscales y sin escribir SQL.

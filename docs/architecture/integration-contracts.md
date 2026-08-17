@@ -329,6 +329,8 @@ La persistencia y ownership de esta frontera se rigen por `physical-model/extern
 
 Un `IntegrationDispatch` fiscal solo conserva intención, routing, correlación y estado agregado. Sus interacciones pertenecen exclusivamente a `FiscalSubmissionAttempt`, relacionado mediante `integration_dispatch_id`; `IntegrationDispatchAttempt` acepta únicamente dispatches `NON_FISCAL`. Las FKs discriminadas `FISCAL`/`NON_FISCAL` impiden dos historiales de attempt para una misma interacción fiscal.
 
+La materialización es progresiva sin cambiar este contrato: migration 002 crea External Integrations y restringe físicamente todo dispatch a `NON_FISCAL`; migration 003 crea Fiscal/Electronic Invoicing y solo entonces habilita `FISCAL` junto con `FiscalSubmissionAttempt` y su FK discriminada. Runtime adapters y verificación real ocurren después y no son migrations.
+
 Las integraciones externas se implementan mediante puertos específicos por capacidad, por ejemplo:
 
 - proveedor de pagos;

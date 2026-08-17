@@ -286,4 +286,14 @@ La reconciliación posterior a `255d813` cierra documentalmente `external-integr
 
 `FiscalConnection` queda reconciliado como perfil fiscal que referencia `ExternalIntegration`; `ElectronicDocument` permanece canónico. `SyncOperation` conserva local↔central y `IntegrationDispatch` cubre central↔provider. `FiscalSubmissionAttempt` es el único owner de attempts fiscales y referencia su dispatch `FISCAL`; `IntegrationDispatchAttempt` queda restringido mediante FK discriminada a dispatches `NON_FISCAL`. `SyncOperation.authority_policy` y `ResourceOwnershipPolicy` conservan catálogos independientes para sus dos fronteras. Los contratos Siigo/Factus/Alegra y HKA/Odoo futuro se registran en `../provider-integration-matrix.md`; ninguno está implementado o verificado.
 
-Resultado del delta: `PASS` documental del contrato general, sujeto a revisión. Habilita diseñar una migration 002 aditiva central, no escribirla en este cambio. Migration 001 permanece inmutable. `SEC-G01` a `SEC-G10` no cambian de `PLANNED / NOT_EVALUATED`.
+Resultado del delta: `PASS` documental del contrato general. La decisión posterior de gobernanza divide su materialización, sin cambiar ownership ni nombres canónicos:
+
+```text
+001 CENTRAL FOUNDATION (materializada e inmutable)
+  -> 002 EXTERNAL INTEGRATIONS FOUNDATION (`NON_FISCAL` únicamente)
+  -> 003 FISCAL / ELECTRONIC INVOICING FOUNDATION (habilita `FISCAL` con su owner)
+  -> runtime provider adapters
+  -> real provider verification
+```
+
+Migration 002 no crea tablas fiscales y prohíbe físicamente dispatches `FISCAL`. Migration 003 materializará posteriormente el bounded context fiscal y habilitará `FISCAL` solo en la misma frontera transaccional que crea `FiscalSubmissionAttempt` y la FK discriminada. Ambas migrations pertenecen a Phase 1; ninguna implementa adapters ni verifica providers. Migration 001 permanece inmutable y `SEC-G01` a `SEC-G10` no cambian de `PLANNED / NOT_EVALUATED`.

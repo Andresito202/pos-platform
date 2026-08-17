@@ -303,6 +303,16 @@ Estados: `QUEUED`, `DISPATCHING`, `SUCCEEDED`, `RETRY_SCHEDULED`, `UNKNOWN_OUTCO
 
 Para un dispatch `FISCAL`, `FiscalSubmissionAttempt.integration_dispatch_id` usa la FK complementaria con discriminador fijo `FISCAL`. Un mismo dispatch fiscal puede originar varios attempts numerados, pero ninguno puede materializarse como `IntegrationDispatchAttempt`. Para una misma interacción fiscal externa no pueden existir dos registros autoritativos independientes de attempt.
 
+### Materialización progresiva 002/003
+
+El contrato conceptual anterior no cambia, pero su materialización se divide dentro de Phase 1:
+
+1. migration 002 crea exclusivamente External Integrations foundation. Su constraint temporal permite solo `dispatch_class = 'NON_FISCAL'`; por tanto, ninguna fila fiscal huérfana puede persistirse. `IntegrationDispatchAttempt` mantiene además su discriminador permanente `NON_FISCAL`.
+2. migration 003 crea el foundation de Fiscal/Electronic Invoicing, incluidos los owners y dependencias que su manifest futuro derive del contrato fiscal. En la misma migración y frontera transaccional agrega la FK discriminada desde `FiscalSubmissionAttempt` y reemplaza únicamente el constraint temporal de rollout por el constraint final `FISCAL|NON_FISCAL` aprobado en INT-001.
+3. migration 003 no puede habilitar `FISCAL` antes de que `FiscalSubmissionAttempt` exista y sea físicamente referenciable. Si owner, FK o constraint no pueden instalarse juntos, toda la migration falla; no existe ventana con dispatch fiscal sin owner.
+
+Esta secuencia es `RECONCILIATION` de rollout, no cambio de ownership, replacement ni deprecación. Migration 002 no crea `FiscalConnection`, `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalArtifact`, `FiscalIncident` o `FiscalReconciliation`.
+
 ## ExternalWebhookReceipt
 
 `integrations.external_webhook_receipts` recibe durablemente antes de procesar:
@@ -424,4 +434,4 @@ Las integraciones no añaden flags ni IDs de proveedor a Product, Sale, Inventor
 
 ## Criterio de cierre
 
-El contrato obtiene `PASS` documental si la revisión transversal confirma identidad, scope, FKs, uniques, delete policy, índices, lifecycle, ownership, secrets, dispatch, webhook, rate limits, evidencia, reconciliación fiscal y compatibilidad con migration 001. Este PASS no implementa ni verifica ningún provider y solo habilita diseñar una migration 002 aditiva independiente.
+El contrato obtiene `PASS` documental si la revisión transversal confirma identidad, scope, FKs, uniques, delete policy, índices, lifecycle, ownership, secrets, dispatch, webhook, rate limits, evidencia, reconciliación fiscal y compatibilidad con migration 001. Este PASS no implementa ni verifica ningún provider. Habilita diseñar migration 002 para External Integrations foundation con dispatch exclusivamente `NON_FISCAL`; el foundation fiscal y la habilitación `FISCAL` pertenecen a migration 003.

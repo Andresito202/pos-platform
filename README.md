@@ -28,7 +28,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Etapa | Estado en el backlog | Alcance real |
 |---|---|---|
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE` y migration 001 fue materializada en `255d813` con su evidencia aprobada; sus artefactos son inmutables. El contrato general de External Integrations está cerrado documentalmente, sin migration 002 ni adapters. TARGET todavía no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
+| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE` y migration 001 fue materializada en `255d813` con su evidencia aprobada; sus artefactos son inmutables. INT-001 cerró External Integrations y la gobernanza separó su materialización: migration 002 para foundation general no fiscal y migration 003 para Fiscal/Electronic Invoicing. Ninguna existe todavía. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
 | Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 
@@ -160,7 +160,7 @@ El stack siguiente describe únicamente lo que está físicamente presente en la
 | Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007` y `docs/migration/first-target-migration-manifest.md`. `TECH-002` está cerrado y migration 001 ya fue materializada/verificada en `255d813`; no debe editarse. La siguiente tarea, tras revisar el contrato general de integraciones, es diseñar el manifest aditivo de migration 002 central sin escribir SQL antes de su autorización.
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007` y `docs/migration/first-target-migration-manifest.md`. `TECH-002` está cerrado y migration 001 ya fue materializada/verificada en `255d813`; no debe editarse. La siguiente tarea es reiniciar INT-002 para diseñar exclusivamente el manifest de migration 002 External Integrations, central y `NON_FISCAL`, sin SQL. Una migration 003 posterior materializará Fiscal/Electronic Invoicing y habilitará `FISCAL` atómicamente con `FiscalSubmissionAttempt`.
 
 El repositorio contiene ahora el `package.json` mínimo del harness TARGET de migration 001; todavía no contiene `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 
