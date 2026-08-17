@@ -2,9 +2,9 @@
 
 ## 1. Propósito, estado y autoridad
 
-Estado de INT-002: `PASS` documental sujeto a revisión final del diff.
+Estado de `INT-002 MANIFEST DESIGN`: `DONE`. `MANIFEST-002-REVIEW-2 = PASS_WITH_REMEDIATION`; `MED-01` y `MED-02` están resueltos y `MANIFEST-002-REVIEW-3 = PASS`. SQL 002 queda autorizado únicamente como siguiente tarea separada.
 
-Este documento es la autoridad de alcance para la futura migration PostgreSQL `002_external_integrations_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, código Kysely, adapters, clientes HTTP, mocks, credenciales ni evidencia de proveedor. Tampoco autoriza materializar la migration; esa autorización corresponde a una tarea posterior.
+Este documento es la autoridad de alcance para la futura migration PostgreSQL `002_external_integrations_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, código Kysely, adapters, clientes HTTP, mocks, credenciales ni evidencia de proveedor. La autorización final permite iniciar la materialización en una tarea posterior; no materializa nada por sí misma.
 
 La migration es aditiva sobre `001_central_foundation`, que permanece materializada e inmutable. Materializa únicamente el bounded context `External Integrations` en el schema central `integrations`. No crea contraparte SQLite y no crea, altera ni anticipa tablas del bounded context `Fiscal / Electronic Invoicing`.
 
@@ -44,6 +44,8 @@ La remediación posterior a `MANIFEST-002-REVIEW = PASS_WITH_REMEDIATION` queda 
 | `M-05` | `EXTENSION` | versiones publicadas reciben vigencia no solapable y publicación inequívoca |
 | `M-06` | `RECONCILIATION` | rate policy conserva configuración, no estado operacional de alta frecuencia |
 | `M-07` y LOW asociados | `RECONCILIATION` | matriz exacta de índices FK y retiro de índices redundantes/especulativos |
+| `MED-01` de `MANIFEST-002-REVIEW-2` | `RECONCILIATION` | ownership publicado usa scope exacto y exclusión temporal PostgreSQL; un UNIQUE de fila abierta no se considera suficiente |
+| `MED-02` de `MANIFEST-002-REVIEW-2` | `RECONCILIATION` | capability por integración usa scope exacto y exclusión temporal PostgreSQL; `effective_from` deja de presentarse como unicidad de vigencia |
 
 Ninguna remediación es `REPLACEMENT` o `DEPRECATED`; no reabre INT-001, GOV-INT-SPLIT, DEC-007, ADR-005 ni TECH-002.
 
@@ -160,18 +162,18 @@ Cada ficha cubre las 33 dimensiones obligatorias. `—` significa que el concept
 
 - **1–6:** `resource_ownership_policies`; `integrations`; `External Integrations`; autoridad central↔provider por recurso/operación; `NEW`; `CENTRAL_ONLY`.
 - **7–12:** PK `id`; UUID v7; tenant/company NOT NULL; branch —; NOT NULL `integration_id,resource_type,operation_scope,authority_type,policy_version,status,effective_from,created_at`.
-- **13–18:** nullable `conflict_policy_code,effective_until`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,integration_id,id)`, `(tenant_id,integration_id,resource_type,operation_scope,policy_version)`; UNIQUE todas; CHECK authority exacta, bidirectional exige conflict code y las demás lo prohíben, policy_version positivo, status `DRAFT|PUBLISHED|RETIRED`, vigencia; FK Integration; dependencias 001 helper/Audit.
+- **13–18:** nullable `conflict_policy_code,effective_until`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,integration_id,id)`, `(tenant_id,company_id,integration_id,resource_type,operation_scope,policy_version)`; UNIQUE todas; `policy_scope_key` conceptual exacta `(tenant_id,company_id,integration_id,resource_type,operation_scope)`, sin capability ni dirección adicional; CHECK authority exacta, bidirectional exige conflict code y las demás lo prohíben, policy_version positivo, status `DRAFT|PUBLISHED|RETIRED` y `effective_until IS NULL OR effective_from < effective_until`; FK Integration; dependencias 001 helper/Audit y disponibilidad aprobada de `btree_gist`. `effective_from/effective_until` son las columnas de vigencia aprobadas para este agregado, con semántica equivalente a `valid_from/valid_until`.
 - **19–24:** depende de ExternalIntegration; delete `NO ACTION`; published inmutable, cambio semántico crea versión; inmutables scope/integration/resource/operation/policy version/created_at; optimistic concurrency por identidad+policy_version y row lock de publicación, sin columna paralela; índices lookup por integration/resource/status.
-- **25–29:** unique parcial de policy vigente por `(tenant_id,integration_id,resource_type,operation_scope) WHERE status='PUBLISHED' AND effective_until IS NULL`; RLS ENABLE/FORCE; policy tenant; app configura/revisa, worker SELECT, platform app bajo contexto, admin SELECT; sensible conflict policy y vigencias, sin secretos.
+- **25–29:** exclusion constraint PostgreSQL NOT DEFERRABLE `resource_ownership_policies_published_validity_excl` con firma conceptual exacta `EXCLUDE USING gist (tenant_id WITH =, company_id WITH =, integration_id WITH =, resource_type WITH =, operation_scope WITH =, tstzrange(effective_from,effective_until,'[)') WITH &&) WHERE (status='PUBLISHED')`; `effective_until NULL` produce extremo superior abierto. Impide intervalos PUBLISHED cerrados, abiertos o programados que se solapen para el mismo scope. El constraint crea su índice GiST implícito; el B-tree `resource_ownership_policies_lookup_idx` se conserva únicamente para FK/resolución ordenada y no se crea UNIQUE parcial de fila abierta. RLS ENABLE/FORCE; policy tenant; app configura/revisa, worker SELECT, platform app bajo contexto, admin SELECT; sensible conflict policy y vigencias, sin secretos.
 - **30–33:** Audit publicación/retiro; retención histórica; publicación + cierre prospectivo anterior + Audit atómicos; rollback fresh antes de ExternalIntegration.
 
 ### 5.8 `integrations.integration_capabilities`
 
 - **1–6:** `integration_capabilities`; `integrations`; `External Integrations`; capability efectiva por conexión/configuración; `NEW`; `CENTRAL_ONLY`.
 - **7–12:** PK `id`; UUID v7; tenant/company NOT NULL; branch —; NOT NULL `integration_id,capability_code,support_status,configuration_version,effective_from,created_at,version`.
-- **13–18:** nullable `ownership_policy_id,effective_until,source_reference_uri,verified_at`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,integration_id,capability_code,configuration_version)`; UNIQUE; CHECK código uppercase, support `SUPPORTED|UNSUPPORTED|UNVERIFIED|DISABLED`, configuration/version positivos y vigencia; FK Integration y FK compuesta ownership dentro de misma integración; dependencias 001 helper/Audit.
+- **13–18:** nullable `ownership_policy_id,effective_until,source_reference_uri,verified_at`; candidates `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,integration_id,capability_code,configuration_version)`; UNIQUE; `capability_scope_key` conceptual exacta `(tenant_id,company_id,integration_id,capability_code)`, sin provider ni adapter duplicados; CHECK código uppercase, support `SUPPORTED|UNSUPPORTED|UNVERIFIED|DISABLED`, configuration/version positivos y `effective_until IS NULL OR effective_from < effective_until`; FK Integration y FK compuesta ownership dentro de misma integración; dependencias 001 helper/Audit y disponibilidad aprobada de `btree_gist`.
 - **19–24:** depende de ExternalIntegration y ResourceOwnershipPolicy; delete `NO ACTION`; retiro cierra vigencia, no reescribe historia; inmutables id/scope/integration/capability/configuration version/created_at; optimistic `version`; índices capability lookup y ownership FK.
-- **25–29:** parcial de capability efectiva por `(tenant_id,integration_id,capability_code,effective_from DESC) WHERE support_status='SUPPORTED' AND effective_until IS NULL`; RLS ENABLE/FORCE; policy tenant; app configura, worker SELECT, platform app contextual, admin SELECT; sensible fuente/verification metadata, no secretos.
+- **25–29:** exclusion constraint PostgreSQL NOT DEFERRABLE `integration_capabilities_effective_validity_excl` con firma conceptual exacta `EXCLUDE USING gist (tenant_id WITH =, company_id WITH =, integration_id WITH =, capability_code WITH =, tstzrange(effective_from,effective_until,'[)') WITH &&)`; aplica a todas las configuraciones de capability porque `support_status` es el resultado configurado, no un lifecycle paralelo. `effective_until NULL` produce extremo superior abierto. Impide más de una configuración simultáneamente efectiva —incluidas filas cerradas, abiertas o programadas— para la misma integración+capability. El constraint crea su índice GiST implícito; el B-tree `integration_capabilities_lookup_idx` se conserva para FK/resolución temporal por status y no se crea UNIQUE parcial de capability abierta. RLS ENABLE/FORCE; policy tenant; app configura, worker SELECT, platform app contextual, admin SELECT; sensible fuente/verification metadata, no secretos.
 - **30–33:** Audit assignment/review/disable; retención histórica; assignment + ownership + Audit atómicos, activar integración valida conjunto en misma transacción; rollback fresh antes de ownership/integration.
 
 ### 5.9 `integrations.integration_discovery_runs`
@@ -363,7 +365,7 @@ PUBLIC no recibe CREATE/USAGE/DML; no se usa `GRANT ALL`. UPDATE se concede por 
 
 ## 10. Índices y query paths
 
-Solo se crean los índices enumerados en las fichas o necesarios para soportar FKs no cubiertas. Cada uno responde a: tenant/RLS, FK, lifecycle de integración, rotación, discovery/review, mapping lookup, dispatch worker, unknown outcome/reconciliation, webhook dedup/retry, precedencia de rate limit o evidence review/expiry. No hay GIN/JSON, particionado ni índices especulativos. PK/UNIQUE ya cubiertos no se duplican.
+Solo se crean los índices enumerados en las fichas o necesarios para soportar FKs no cubiertas. Cada uno responde a: tenant/RLS, FK, lifecycle de integración, rotación, discovery/review, mapping lookup, dispatch worker, unknown outcome/reconciliation, webhook dedup/retry, precedencia de rate limit o evidence review/expiry. No hay GIN/JSON, particionado ni índices especulativos. PK/UNIQUE ya cubiertos no se duplican. Los índices GiST creados implícitamente por exclusion constraints soportan la integridad temporal y no sustituyen B-trees con query paths distintos.
 
 Índices de acceso no cubiertos por PK/UNIQUE:
 
@@ -418,7 +420,7 @@ Solo se crean los índices enumerados en las fichas o necesarios para soportar F
 | `provider_verification_evidence_reviewer_fk_idx` | `(reviewed_by_actor_id) WHERE reviewed_by_actor_id IS NOT NULL` | soporte FK reviewer |
 | `provider_verification_evidence_expiry_idx` | `(expires_at,provider_adapter_version_id) WHERE expires_at IS NOT NULL` | revalidación |
 
-Los índices UNIQUE parciales ya declarados para conexión activa, binding activo, policy/capability vigente, mapping vigente, scopes de rate limit e identidad de evidence son constraints de integridad y no se duplican aquí. El UNIQUE history de attempts no recibe un duplicado; el catálogo pequeño de providers no recibe un índice especulativo por status; y rate policies no recibe un índice de eventos runtime.
+Los índices UNIQUE parciales declarados para conexión activa, binding activo, mappings vigentes, business versions de rate limits e identidad de evidence son constraints de integridad y no se duplican aquí. La vigencia de ownership y capabilities se garantiza mediante `resource_ownership_policies_published_validity_excl` e `integration_capabilities_effective_validity_excl`, cuyos índices GiST son implícitos; sus B-trees lookup permanecen porque sirven FK y resolución ordenada, no no-overlap. Las exclusiones de configuración de plataforma y rate limits siguen el mismo patrón temporal. El UNIQUE history de attempts no recibe un duplicado; el catálogo pequeño de providers no recibe un índice especulativo por status; y rate policies no recibe un índice de eventos runtime.
 
 ## 11. Fronteras transaccionales
 
@@ -504,14 +506,16 @@ La futura implementación deberá probar al menos:
 8. idempotency key duplicada con mismo checksum y conflicto con checksum distinto;
 9. mapping internal/external uniqueness, conflicto, retiro y replacement;
 10. supersession rechaza cross-tenant/company/integration/resource-type;
-11. discovery sanitizado y review/mapping tenant-aware;
-12. webhook dedup, callback cross-tenant, replay/auth states sin inventar firmas;
-13. rate-limit precedence, row shapes mixed, no-overlap temporal, 429/header-driven, aislamiento por cuenta y valores no hard-coded;
-14. evidence levels, grants de columna, segregación REGISTER/REVIEW/PROMOTE, mocks sin promoción real y expiración/review;
-15. capability ausente/unsupported/unverified/adapter distinto no activa ni genera dispatch;
-16. timeout ambiguo, reconciliación y dead-letter sin doble efecto;
-17. append-only/inmutabilidad, Audit sanitizado y rollback fresh/reapply;
-18. dump/restore PostgreSQL y roles separados.
+11. introspección confirma `resource_ownership_policies_published_validity_excl` como exclusion constraint NOT DEFERRABLE, su predicado PUBLISHED y firma exacta; ownership rechaza overlap cerrado/cerrado, abierto/cerrado y programado dentro de la misma `policy_scope_key`, pero acepta intervalos adyacentes `[)` y scopes distintos;
+12. introspección confirma `integration_capabilities_effective_validity_excl` como exclusion constraint NOT DEFERRABLE, sin predicado parcial y con firma exacta; capability rechaza overlap cerrado/cerrado, abierto/cerrado y programado dentro de la misma `capability_scope_key`, para cualquier `support_status`, pero acepta intervalos adyacentes `[)` y scopes distintos;
+13. discovery sanitizado y review/mapping tenant-aware;
+14. webhook dedup, callback cross-tenant, replay/auth states sin inventar firmas;
+15. rate-limit precedence, row shapes mixed, no-overlap temporal, 429/header-driven, aislamiento por cuenta y valores no hard-coded;
+16. evidence levels, grants de columna, segregación REGISTER/REVIEW/PROMOTE, mocks sin promoción real y expiración/review;
+17. capability ausente/unsupported/unverified/adapter distinto no activa ni genera dispatch;
+18. timeout ambiguo, reconciliación y dead-letter sin doble efecto;
+19. append-only/inmutabilidad, Audit sanitizado y rollback fresh/reapply;
+20. dump/restore PostgreSQL y roles separados.
 
 Estas pruebas mapearán `SEC-G01`, `SEC-G03`, `SEC-G05`, `SEC-G06`, `SEC-G07`, `SEC-G08`, `SEC-G09` y `SEC-G10`, pero todos permanecen `PLANNED / NOT_EVALUATED` hasta ejecución real.
 
@@ -525,8 +529,12 @@ Estas pruebas mapearán `SEC-G01`, `SEC-G03`, `SEC-G05`, `SEC-G06`, `SEC-G07`, `
 
 ## 18. Decisión
 
-El manifest remediado es completo, aditivo y no presenta contradicción HIGH/CRITICAL ni necesidad de replacement/deprecation.
+El manifest remediado es completo, aditivo y no presenta contradicción CRITICAL/HIGH/MEDIUM/LOW ni necesidad de replacement/deprecation. `MED-01` y `MED-02` quedan resueltos como `RECONCILIATION`.
 
-**MANIFEST-002-REMEDIATION = APPROVED_FOR_COMMIT**
+**MANIFEST-002-FINAL-REMEDIATION = PASS**
 
-Esto conserva `INT-002 = DONE` y autoriza únicamente comprometer la remediación documental para una segunda revisión independiente. No autoriza escribir SQL, materializar migration 002, iniciar INT-003, implementar adapters ni declarar providers verificados.
+**MANIFEST-002-REVIEW-3 = PASS**
+
+**SQL 002 = GO_AUTHORIZED**
+
+Esto conserva `INT-002 MANIFEST DESIGN = DONE` y autoriza únicamente iniciar, en la siguiente tarea separada, la materialización exacta de migration 002. Este cambio documental no escribe SQL, no materializa migration 002, no inicia migration 003, no implementa adapters y no declara providers verificados.

@@ -170,7 +170,7 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | INT-001 | `P0` | `DONE` | Cerrar contrato físico general provider-agnostic, mappings, ownership, discovery, secrets, dispatch, webhook, rate limit y evidencia; reconciliar `FiscalConnection`. | `docs/architecture/physical-model/external-integrations-schema.md`, `docs/architecture/provider-integration-matrix.md`; documental, sin SQL/adapters |
-| INT-002 | `P0` | `DONE` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | Cerrado en `docs/migration/second-target-migration-manifest.md`; 16 tablas centrales, SQLite NONE, sin tablas fiscales ni SQL; migration 001 permanece inmutable |
+| INT-002 | `P0` | `DONE` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | `INT-002 MANIFEST DESIGN = DONE`; `MANIFEST-002-REVIEW-2 = PASS_WITH_REMEDIATION`; MED-01/MED-02 resueltos; `MANIFEST-002-REVIEW-3 = PASS`; `SQL 002 = GO_AUTHORIZED` solo para la siguiente tarea separada. 16 tablas centrales, SQLite NONE, sin tablas fiscales ni SQL; migration 001 permanece inmutable |
 | INT-003 | `P0` | `PLANNED` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | Depende de INT-002 y autorización independiente de migration 002 |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
@@ -328,12 +328,11 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Ejecutar una segunda revisión independiente del manifest INT-002 remediado y decidir, en una tarea separada, si se autoriza materializar migration 002; no escribir SQL antes de esa autorización.
-2. Materializar 002 exactamente como External Integrations central `NON_FISCAL`, sin modificar migration 001 ni crear tablas fiscales.
-3. Después de materializar 002, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
-4. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
-5. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
-6. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
+1. Materializar 002 exactamente como External Integrations central `NON_FISCAL`, conforme a `MANIFEST-002-REVIEW-3 = PASS`, sin modificar migration 001 ni crear tablas fiscales.
+2. Después de materializar 002, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
+3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
+4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
+5. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
 
 El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. Los puntos 1–4 siguientes son el registro histórico que llevó a la autorización y materialización de migration 001; no son pasos pendientes ni autorizan editarla:
 
@@ -524,4 +523,8 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-17: la primera revisión independiente de INT-002 concluyó `PASS_WITH_REMEDIATION`; la remediación documental acotada resolvió M-01..M-07 y LOW asociados mediante `RECONCILIATION`/`EXTENSION`, sin SQL, sin cambiar las 16 tablas, sin tocar migration 001 y sin alterar providers/SEC-G. Queda pendiente una segunda revisión independiente antes de cualquier decisión de materialización.
 
-Próxima actualización obligatoria: segunda revisión independiente del manifest INT-002 remediado y decisión explícita de autorización o rechazo para materializar migration 002. Hasta entonces no escribir SQL.
+- 2026-08-17: la segunda revisión independiente concluyó `MANIFEST-002-REVIEW-2 = PASS_WITH_REMEDIATION`, con CRITICAL 0, HIGH 0, MEDIUM 2 y LOW 0. MED-01 exige no-overlap físico PUBLISHED para ResourceOwnershipPolicy y MED-02 unicidad temporal efectiva para IntegrationCapability. La remediación final queda acotada a scopes, exclusion constraints, índices y estado documental; no crea SQL ni cambia migration 001, providers o SEC-G.
+
+- 2026-08-17: la remediación final resolvió MED-01/MED-02 como `RECONCILIATION`, con scopes exactos, `[)`, open-ended, exclusion constraints NOT DEFERRABLE e índices no redundantes. `MANIFEST-002-REVIEW-3 = PASS`, con CRITICAL/HIGH/MEDIUM/LOW en cero. `SQL 002 = GO_AUTHORIZED` únicamente para la siguiente tarea separada; no se creó SQL, no se modificó migration 001 y no cambiaron providers o SEC-G.
+
+Próxima actualización obligatoria: materializar y validar migration 002 exactamente conforme al manifest autorizado, manteniendo `NON_FISCAL`, migration 001 inmutable y SQL 003 ausente.
