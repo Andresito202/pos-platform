@@ -6,7 +6,7 @@ Este archivo es la fuente de verdad del trabajo del proyecto. Consolida el estad
 
 Si otro documento de avance, una conversación o una lista informal contradice este backlog, prevalece este archivo hasta que se actualice mediante el flujo oficial.
 
-Última actualización: 2026-08-17.
+Última actualización: 2026-08-18.
 
 ## Estado general
 
@@ -15,8 +15,8 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Último baseline ejecutable completado: migration 001 materializada en `255d813`, con PostgreSQL `54/54`, SQLite `12/12`, combined `66/66`, RLS `10/10` y real-role smoke `22/22`. Migration 001 es inmutable.
-- Último contrato completado: `INT-001`, contrato físico general de External Integrations y reconciliación con `FiscalConnection`. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Último baseline ejecutable completado: migrations 001→002, con PostgreSQL `96/96` y SQLite `12/12`; migration 001 permanece byte-for-byte inmutable y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
+- Último trabajo completado: `INT-003 / MAT-002-MATERIALIZATION = PASS`. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -170,8 +170,8 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | INT-001 | `P0` | `DONE` | Cerrar contrato físico general provider-agnostic, mappings, ownership, discovery, secrets, dispatch, webhook, rate limit y evidencia; reconciliar `FiscalConnection`. | `docs/architecture/physical-model/external-integrations-schema.md`, `docs/architecture/provider-integration-matrix.md`; documental, sin SQL/adapters |
-| INT-002 | `P0` | `DONE` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | `INT-002 MANIFEST DESIGN = DONE`; revisiones históricas cerradas; `MAT-002-PREFLIGHT-REMEDIATION-1 = APPROVED_FOR_COMMIT` resuelve MED-01..05 y LOW-01..03 documentalmente. `SQL 002 = NO-GO` hasta repetir MAT-002-PREFLIGHT. 16 tablas centrales, SQLite NONE, sin tablas fiscales ni SQL; migration 001 permanece inmutable |
-| INT-003 | `P0` | `PLANNED` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | Depende de INT-002 y autorización independiente de migration 002 |
+| INT-002 | `P0` | `DONE` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | Manifest y revisiones cerrados; `MAT-002-PREFLIGHT-2 = PASS`; migration 001 permanece inmutable |
+| INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
 | INT-006 | `P0` | `PLANNED` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Depende de migration 002 aplicada; su manifest futuro deriva de PHY-G12/INT-001 y debe resolver todas las dependencias fiscales antes de SQL |
@@ -328,8 +328,8 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Repetir `MAT-002-PREFLIGHT` sobre el commit de `MAT-002-PREFLIGHT-REMEDIATION-1`; solo un PASS puede decidir nuevamente GO para SQL 002.
-2. Después de materializar 002, diseñar migration 003 Fiscal/Electronic Invoicing y habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
+1. Diseñar y revisar de forma independiente migration 003 Fiscal/Electronic Invoicing; habilitar `FISCAL` solo junto con el owner `FiscalSubmissionAttempt`.
+2. Mantener migration 002 `NON_FISCAL`, migration 001 inmutable y adapters sin implementación hasta cerrar las dependencias siguientes.
 3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
 4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
 5. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
@@ -529,4 +529,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-18: `MAT-002-PREFLIGHT` encontró cinco MEDIUM y tres LOW antes de SQL. `MAT-002-PREFLIGHT-REMEDIATION-1` cerró documentalmente RateLimitPolicy tenant/integration+provider FKs, grants/guards exactos, límites JSON, lifecycle compartido de `btree_gist`, descriptors/validators/ledger/lock global y los tres índices inconsistentes. Es `RECONCILIATION/EXTENSION`, no crea SQL/código/provider runtime, no toca migration 001 ni SEC-G. SQL 002 permanece NO-GO hasta repetir el pre-flight independiente.
 
-Próxima actualización obligatoria: materializar y validar migration 002 exactamente conforme al manifest autorizado, manteniendo `NON_FISCAL`, migration 001 inmutable y SQL 003 ausente.
+- 2026-08-18: `MAT-002-PREFLIGHT-2 = PASS` autorizó SQL y `MAT-002-MATERIALIZATION = PASS` materializó migration 002 con tooling descriptor-driven, 16 tablas PostgreSQL, 12 RLS/FORCE, grants por columna, guards, recovery/down, lock global y `btree_gist` compartido. PostgreSQL 16 pasó `96/96`, SQLite conservó `12/12`; 001 quedó byte-for-byte intacta y 003 ausente. Providers y `SEC-G01..10` no cambiaron de estado.
+
+Próxima actualización obligatoria: diseñar y revisar migration 003 como tarea separada, sin habilitar `FISCAL` antes de materializar `FiscalSubmissionAttempt` y su FK discriminada.

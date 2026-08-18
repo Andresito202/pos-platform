@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:postgres": "vitest run tests/postgres-migration.test.ts",
+    "test:postgres": "vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts",
     "test:sqlite": "vitest run tests/sqlite-migration.test.ts"
   },
   "dependencies": {

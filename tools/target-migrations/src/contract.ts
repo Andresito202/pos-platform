@@ -67,3 +67,72 @@ export const PROHIBITED_TABLE_NAMES = [
   "devices","device_keys","licenses","license_activations","inbox_entries","sync_checkpoints",
   "sync_conflicts","sync_reviews","sync_dead_letters","kysely_migration","kysely_migration_lock",
 ] as const;
+
+export interface MigrationDescriptor {
+  migrationId: string;
+  manifestVersion: number;
+  dependencies: readonly string[];
+  upArtifact: string;
+  downArtifact: string;
+  checksum: "DERIVED_FROM_UP_ARTIFACT";
+  ownedSchemas: readonly string[];
+  ownedTables: readonly string[];
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT";
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT";
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT";
+  requiredExtensions: readonly string[];
+  expectedLedgerState: "APPLIED";
+}
+
+export const POSTGRES_001_DESCRIPTOR: MigrationDescriptor = {
+  migrationId: "001_central_foundation",
+  manifestVersion: 1,
+  dependencies: [],
+  upArtifact: "postgres/001_central_foundation.up.sql",
+  downArtifact: "postgres/001_central_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: TARGET_SCHEMAS,
+  ownedTables: Object.keys(POSTGRES_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.")),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: [],
+  expectedLedgerState: "APPLIED",
+};
+
+export const INTEGRATION_TABLES = [
+  "provider_registry",
+  "provider_adapter_versions",
+  "provider_capability_declarations",
+  "provider_platform_configurations",
+  "external_integrations",
+  "integration_credential_bindings",
+  "resource_ownership_policies",
+  "integration_capabilities",
+  "integration_discovery_runs",
+  "integration_discovery_items",
+  "external_reference_mappings",
+  "integration_dispatches",
+  "integration_dispatch_attempts",
+  "external_webhook_receipts",
+  "provider_rate_limit_policies",
+  "provider_verification_evidence",
+] as const;
+
+export const INTEGRATION_RLS_TABLES = INTEGRATION_TABLES.slice(4) as readonly string[];
+
+export const POSTGRES_002_DESCRIPTOR: MigrationDescriptor = {
+  migrationId: "002_external_integrations_foundation",
+  manifestVersion: 1,
+  dependencies: [POSTGRES_001_DESCRIPTOR.migrationId],
+  upArtifact: "postgres/002_external_integrations_foundation.up.sql",
+  downArtifact: "postgres/002_external_integrations_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: ["integrations"],
+  ownedTables: INTEGRATION_TABLES.map((name) => `integrations.${name}`),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: ["btree_gist"],
+  expectedLedgerState: "APPLIED",
+};

@@ -2,7 +2,7 @@
 
 ## 1. Propósito, estado y autoridad
 
-Estado de `INT-002 MANIFEST DESIGN`: `DONE`. Las revisiones históricas `MANIFEST-002-REVIEW-2/3` permanecen cerradas. El pre-flight físico posterior produjo `MAT-002-PREFLIGHT = BLOCKED`; esta remediación resuelve sus findings documentalmente, pero SQL 002 permanece `NO-GO` hasta repetir el pre-flight independiente sobre el nuevo commit.
+Estado de `INT-002 MANIFEST DESIGN`: `DONE`. Las revisiones históricas y remediaciones permanecen cerradas. `MAT-002-PREFLIGHT-2 = PASS` autorizó SQL y `MAT-002-MATERIALIZATION = PASS` materializó posteriormente este contrato; el manifest conserva autoridad normativa y migration 001 permanece inmutable.
 
 Este documento es la autoridad de alcance para la futura migration PostgreSQL `002_external_integrations_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, código Kysely, adapters, clientes HTTP, mocks, credenciales ni evidencia de proveedor. La autorización final permite iniciar la materialización en una tarea posterior; no materializa nada por sí misma.
 
@@ -594,7 +594,7 @@ Con datos reales, DROP destructivo queda prohibido: se usa forward migration o r
 
 ### 15.1 Evolución normativa del migration tooling
 
-La materialización deberá reemplazar constantes globales de “la migration” por descriptors inmutables, sin editar bytes SQL ni semántica de 001. Un descriptor contiene exactamente: `migration_id`, `manifest_version`, `dependencies`, `up_artifact`, `down_artifact`, `owned_schemas`, `owned_tables`, `owned_policies`, `owned_constraints`, `owned_indexes`, `required_extensions` y `expected_ledger_state`. Checksum se calcula desde el artefacto up efectivo; no se duplica como literal entre runner y tests.
+La materialización reemplaza constantes globales de “la migration” por descriptors inmutables, sin editar bytes SQL ni semántica de 001. Un descriptor contiene exactamente: `migration_id`, `manifest_version`, `dependencies`, `up_artifact`, `down_artifact`, `owned_schemas`, `owned_tables`, `owned_policies`, `owned_constraints`, `owned_indexes`, `required_extensions` y `expected_ledger_state`. Checksum se calcula desde el artefacto up efectivo; no se duplica como literal entre runner y tests.
 
 Descriptors iniciales:
 
@@ -623,7 +623,7 @@ Reglas del ledger, sin cambiar su taxonomía:
 
 Una futura 003 declarará dependencia dirigida hacia 002 y aplicará la misma regla. La extensión compartida no cambia de estado en down 002.
 
-Impacto futuro por archivo, todavía sin implementación:
+Implementación materializada por archivo:
 
 - `shared.ts`: tipos/loader de descriptor y clave del advisory lock global; conservar helpers/checksum/UUID.
 - `contract.ts`: separar contratos owned 001/002 y dependencies/shared objects; no mezclar políticas en un array universal.
@@ -690,3 +690,5 @@ El manifest remediado es completo, aditivo y no requiere replacement/deprecation
 **SQL 002 = NO-GO hasta repetir MAT-002-PREFLIGHT sobre este commit**
 
 Esto conserva `INT-002 MANIFEST DESIGN = DONE` y autoriza únicamente comprometer la remediación documental. La siguiente tarea exacta es repetir `MAT-002-PREFLIGHT`; solo un PASS posterior podrá volver a decidir GO para materialización. Este cambio documental no escribe SQL, no materializa migration 002, no inicia migration 003, no implementa adapters y no declara providers verificados.
+
+Registro posterior: `MAT-002-PREFLIGHT-2 = PASS` y `SQL 002 = GO` cerraron la condición anterior. `MAT-002-MATERIALIZATION = PASS` materializó `002_external_integrations_foundation` con evidencia reproducible PostgreSQL 16, sin modificar bytes 001, sin scope SQLite y sin crear SQL 003. Los textos anteriores se conservan como historial de decisiones, no como estado vigente.

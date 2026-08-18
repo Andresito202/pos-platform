@@ -2,6 +2,8 @@ import type { SqlExecutor } from "./database.js";
 import { queryRows } from "./database.js";
 import {
   POSTGRES_TABLE_COLUMNS,
+  INTEGRATION_RLS_TABLES,
+  INTEGRATION_TABLES,
   PROHIBITED_TABLE_NAMES,
   REQUIRED_POLICIES,
   RLS_TABLES,
@@ -233,7 +235,7 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
     assertInvariant(row.force_row_security === protectedTable, `${row.qualified_name} FORCE RLS diverges`);
   }
 
-  const policies = await queryRows<NameRow>(db, `SELECT policyname AS name FROM pg_policies ORDER BY policyname`);
+  const policies = await queryRows<NameRow>(db, `SELECT policyname AS name FROM pg_policies WHERE schemaname IN ('identity','tenancy','organization','authorization','sync','audit') ORDER BY policyname`);
   const policyNames = policies.map((row) => row.name);
   assertInvariant(sameValues(policyNames, [...REQUIRED_POLICIES].sort()), "policy set diverges");
 
@@ -287,4 +289,172 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
       AND privilege_type IN ('UPDATE','DELETE','TRUNCATE')
   `);
   assertInvariant(Number(dangerousAuditGrants[0]!.count) === 0, "runtime can mutate AuditEvent");
+}
+
+function tableColumnsFromSql(source: string): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const match of source.matchAll(/CREATE TABLE integrations\.([a-z][a-z0-9_]*) \(([\s\S]*?)\n\);/g)) {
+    const columns = match[2]!
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("CONSTRAINT"))
+      .map((line) => line.match(/^([a-z][a-z0-9_]*)\s/)?.[1])
+      .filter((name): name is string => name !== undefined);
+    result.set(match[1]!, columns);
+  }
+  return result;
+}
+
+function splitTopLevel(value: string): string[] {
+  const parts: string[]=[]; let depth=0; let start=0;
+  for(let index=0;index<value.length;index+=1){
+    if(value[index]==="(")depth+=1;
+    else if(value[index]===")")depth-=1;
+    else if(value[index]===","&&depth===0){parts.push(value.slice(start,index).trim());start=index+1;}
+  }
+  parts.push(value.slice(start).trim()); return parts.filter(Boolean);
+}
+
+function columnGrantsFromSql(source:string,columns:Map<string,string[]>):string[]{
+  const grants=new Set<string>();
+  for(const line of source.split(/\r?\n/).map(value=>value.trim()).filter(value=>value.startsWith("GRANT "))){
+    const match=line.match(/^GRANT (.+) ON (.+) TO (.+);$/); if(!match||match[2]!.startsWith("SCHEMA "))continue;
+    const objects=splitTopLevel(match[2]!).map(value=>value.replace(/^integrations\./,""));
+    const roles=splitTopLevel(match[3]!);
+    for(const privilege of splitTopLevel(match[1]!)){
+      const parsed=privilege.match(/^(SELECT|INSERT|UPDATE)(?: \((.+)\))?$/); if(!parsed)continue;
+      for(const object of objects){
+        const grantedColumns=parsed[2] ? splitTopLevel(parsed[2]!) : columns.get(object) ?? [];
+        for(const role of roles)for(const column of grantedColumns)grants.add(`${role}|${object}|${parsed[1]}|${column}`);
+      }
+    }
+  }
+  return [...grants].sort();
+}
+
+export async function integrationsCatalogState(db: SqlExecutor): Promise<"pre-002" | "target-002" | "partial"> {
+  const schemas = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='integrations'");
+  if (Number(schemas[0]!.count) === 0) return "pre-002";
+  try {
+    await validatePostgres002Catalog(db);
+    return "target-002";
+  } catch {
+    return "partial";
+  }
+}
+
+export async function validateBtreeGist(db: SqlExecutor): Promise<void> {
+  const extension = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_extension WHERE extname='btree_gist'");
+  assertInvariant(Number(extension[0]!.count) === 1, "btree_gist is missing");
+  const operatorTypes = await queryRows<NameRow>(db, `
+    SELECT DISTINCT t.typname AS name
+    FROM pg_opclass o
+    JOIN pg_am a ON a.oid=o.opcmethod
+    JOIN pg_type t ON t.oid=o.opcintype
+    WHERE a.amname='gist' AND t.typname IN ('uuid','text','anyrange')
+    ORDER BY 1
+  `);
+  assertInvariant(sameValues(operatorTypes.map((row) => row.name), ["anyrange","text","uuid"]), "required GiST operator classes are missing");
+}
+
+export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void> {
+  await validatePostgresCatalog(db);
+  await validateBtreeGist(db);
+  const bodySql = await readArtifact("postgres/002_external_integrations_foundation.up.sql");
+  const expectedColumns = tableColumnsFromSql(bodySql);
+  assertInvariant(sameValues([...expectedColumns.keys()].sort(), [...INTEGRATION_TABLES].sort()), "002 artifact table set diverges");
+
+  const schema = await queryRows<{ owner_name: string; public_create: boolean }>(db, `
+    SELECT pg_get_userbyid(n.nspowner) AS owner_name,
+           EXISTS (SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create
+    FROM pg_namespace n WHERE n.nspname='integrations'
+  `);
+  assertInvariant(schema[0]?.owner_name === "pos_schema_owner" && !schema[0].public_create, "integrations schema ownership/grants diverge");
+
+  const tables = await queryRows<{ name: string; owner_name: string; rls: boolean; forced: boolean }>(db, `
+    SELECT c.relname AS name, pg_get_userbyid(c.relowner) AS owner_name,
+           c.relrowsecurity AS rls, c.relforcerowsecurity AS forced
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='integrations' AND c.relkind='r' ORDER BY c.relname
+  `);
+  assertInvariant(sameValues(tables.map((row) => row.name), [...INTEGRATION_TABLES].sort()), "integration table set diverges");
+  for (const table of tables) {
+    assertInvariant(table.owner_name === "pos_schema_owner", `${table.name} owner diverges`);
+    const protectedTable = INTEGRATION_RLS_TABLES.includes(table.name);
+    assertInvariant(table.rls === protectedTable && table.forced === protectedTable, `${table.name} RLS diverges`);
+  }
+
+  const columns = await queryRows<ColumnRow>(db, `
+    SELECT table_schema AS schema_name,table_name,column_name,ordinal_position
+    FROM information_schema.columns WHERE table_schema='integrations'
+    ORDER BY table_name,ordinal_position
+  `);
+  for (const [table, expected] of expectedColumns) {
+    const actual = columns.filter((row) => row.table_name===table).map((row) => row.column_name);
+    assertInvariant(sameValues(actual, expected), `integrations.${table} columns diverge`);
+  }
+
+  const constraints = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='integrations' ORDER BY 1
+  `);
+  const expectedConstraints = [
+    ...capturedNames(bodySql, /(?:^\s*CONSTRAINT|ADD CONSTRAINT)\s+([a-z][a-z0-9_]*)/gim),
+    ...capturedNames(bodySql, /CREATE\s+CONSTRAINT\s+TRIGGER\s+([a-z][a-z0-9_]*)/gi),
+    ...INTEGRATION_TABLES.map((table) => `${table}_pkey`),
+  ].sort();
+  assertInvariant(sameValues(constraints.map((row) => row.name), expectedConstraints), "002 constraint set diverges");
+
+  const constraintIndexes = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace
+    WHERE n.nspname='integrations' AND x.contype IN ('p','u','x') ORDER BY 1
+  `);
+  const indexes = await queryRows<NameRow>(db, "SELECT indexname AS name FROM pg_indexes WHERE schemaname='integrations' ORDER BY 1");
+  const expectedIndexes = [
+    ...capturedNames(bodySql, /CREATE\s+(?:UNIQUE\s+)?INDEX\s+([a-z][a-z0-9_]*)/gi),
+    ...constraintIndexes.map((row) => row.name),
+  ].sort();
+  assertInvariant(sameValues(indexes.map((row) => row.name), expectedIndexes), "002 index set diverges");
+  assertInvariant(!indexes.some((row) => row.name === "provider_platform_configurations_current_idx"), "prohibited speculative index exists");
+
+  const triggers = await queryRows<NameRow>(db, `
+    SELECT t.tgname AS name FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='integrations' AND NOT t.tgisinternal ORDER BY 1
+  `);
+  assertInvariant(sameValues(triggers.map((row) => row.name), capturedNames(bodySql, /CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+([a-z][a-z0-9_]*)/gi)), "002 trigger set diverges");
+
+  const policies = await queryRows<NameRow>(db, "SELECT policyname AS name FROM pg_policies WHERE schemaname='integrations' ORDER BY 1");
+  assertInvariant(sameValues(policies.map((row) => row.name), capturedNames(bodySql, /CREATE\s+POLICY\s+([a-z][a-z0-9_]*)/gi)), "002 policy set diverges");
+
+  const unsafeFunctions=await queryRows<NameRow>(db, `
+    SELECT p.proname AS name FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='integrations'
+      AND NOT (COALESCE(array_to_string(p.proconfig,','),'') LIKE '%search_path=pg_catalog, integrations%')
+  `);
+  assertInvariant(unsafeFunctions.length===0,"002 function has unsafe search_path");
+
+  const dangerous = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM information_schema.role_table_grants
+    WHERE table_schema='integrations'
+      AND grantee IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting')
+      AND privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')
+  `);
+  assertInvariant(Number(dangerous[0]!.count)===0, "runtime has dangerous 002 table grants");
+  const reporting = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM information_schema.role_table_grants WHERE table_schema='integrations' AND grantee='pos_reporting'");
+  assertInvariant(Number(reporting[0]!.count)===0, "pos_reporting has 002 grants");
+  const adminMutation = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM information_schema.role_table_grants WHERE table_schema='integrations' AND grantee='pos_platform_admin' AND privilege_type<>'SELECT'");
+  assertInvariant(Number(adminMutation[0]!.count)===0, "platform admin can mutate 002");
+
+  const actualColumnGrants=await queryRows<{grantee:string;table_name:string;privilege_type:string;column_name:string}>(db, `
+    SELECT grantee,table_name,privilege_type,column_name FROM information_schema.role_column_grants
+    WHERE table_schema='integrations'
+      AND grantee IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting')
+      AND privilege_type IN ('SELECT','INSERT','UPDATE')
+    ORDER BY grantee,table_name,privilege_type,column_name
+  `);
+  const actualGrantKeys=actualColumnGrants.map(row=>`${row.grantee}|${row.table_name}|${row.privilege_type}|${row.column_name}`).sort();
+  const expectedGrantKeys=columnGrantsFromSql(bodySql,expectedColumns);
+  assertInvariant(sameValues(actualGrantKeys,expectedGrantKeys), "002 role/operation/column grant matrix diverges");
 }

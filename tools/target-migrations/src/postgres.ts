@@ -1,19 +1,21 @@
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
-import { POSTGRES_TABLE_COLUMNS } from "./contract.js";
-import { bootstrapPresence, targetCatalogState, validateBootstrap, validatePostgresCatalog } from "./postgres-introspection.js";
+import { INTEGRATION_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_TABLE_COLUMNS } from "./contract.js";
+import { bootstrapPresence, integrationsCatalogState, targetCatalogState, validateBootstrap, validateBtreeGist, validatePostgres002Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
 import {
   MANIFEST_VERSION,
   MigrationInvariantError,
   POSTGRES_MIGRATION_ID,
+  POSTGRES_002_MIGRATION_ID,
+  POSTGRES_MIGRATION_LOCK_RESOURCE,
   RUNNER_VERSION,
   SimulatedCrashError,
   readArtifact,
   sha256,
   uuidV7,
 } from "./shared.js";
-import { runPostgresSmoke } from "./postgres-smoke.js";
+import { runPostgres002Smoke, runPostgresSmoke } from "./postgres-smoke.js";
 
 interface RoleDefinition {
   login: boolean;
@@ -62,6 +64,7 @@ export interface PostgresApplyResult {
   noOp: boolean;
   reconciled: boolean;
   checksumHex: string;
+  prerequisiteState?: "PREEXISTING" | "INSTALLED_BY_MIGRATION_PREREQUISITE";
 }
 
 function roleConnectionUrl(adminUrl: string, roleName: string): string {
@@ -122,7 +125,8 @@ async function ensureRoles(admin: SqlExecutor): Promise<void> {
   const database = await queryRows<{ name: string }>(admin, "SELECT current_database() AS name");
   const databaseName = database[0]!.name;
   if (!/^[a-zA-Z0-9_]+$/.test(databaseName)) throw new MigrationInvariantError("unsafe database identifier");
-  await executeRaw(admin, `GRANT CREATE ON DATABASE "${databaseName}" TO pos_schema_owner`);
+  const ownerCanCreate = await queryRows<{ allowed: boolean }>(admin, "SELECT has_database_privilege('pos_schema_owner',current_database(),'CREATE') AS allowed");
+  if (!ownerCanCreate[0]!.allowed) await executeRaw(admin, `GRANT CREATE ON DATABASE "${databaseName}" TO pos_schema_owner`);
 }
 
 async function bootstrapPostgres(admin: SqlExecutor, migrator: SqlExecutor): Promise<void> {
@@ -143,14 +147,40 @@ async function bootstrapPostgres(admin: SqlExecutor, migrator: SqlExecutor): Pro
   });
 }
 
-async function executionRows(db: SqlExecutor): Promise<ExecutionRow[]> {
+async function executionRows(db: SqlExecutor, migrationId = POSTGRES_MIGRATION_ID): Promise<ExecutionRow[]> {
   const result = await sql<ExecutionRow>`
     SELECT execution_id, migration_id, checksum, status, body_committed_at, applied_at
     FROM platform.target_migration_executions
-    WHERE migration_id = ${POSTGRES_MIGRATION_ID}
+    WHERE migration_id = ${migrationId}
     ORDER BY started_at DESC
   `.execute(db);
   return result.rows;
+}
+
+async function acquireMigrationLock(db: SqlExecutor): Promise<void> {
+  await sql`SELECT pg_advisory_lock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE}, 0))`.execute(db);
+}
+
+async function releaseMigrationLock(db: SqlExecutor): Promise<void> {
+  await sql`SELECT pg_advisory_unlock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE}, 0))`.execute(db);
+}
+
+async function ensureBtreeGist(db: SqlExecutor): Promise<"PREEXISTING" | "INSTALLED_BY_MIGRATION_PREREQUISITE"> {
+  const present = await queryRows<{ present: boolean }>(db, "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname='btree_gist') AS present");
+  let state: "PREEXISTING" | "INSTALLED_BY_MIGRATION_PREREQUISITE" = "PREEXISTING";
+  if (!present[0]!.present) {
+    try {
+      await db.transaction().execute(async (transaction) => {
+        await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+        await executeRaw(transaction, "CREATE EXTENSION btree_gist");
+      });
+      state = "INSTALLED_BY_MIGRATION_PREREQUISITE";
+    } catch (error) {
+      throw new MigrationInvariantError(`btree_gist prerequisite unavailable: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+  await validateBtreeGist(db);
+  return state;
 }
 
 function sameChecksum(actual: Buffer, expected: Buffer): boolean {
@@ -196,7 +226,7 @@ export async function applyPostgres001(config: PostgresRunnerConfig): Promise<Po
     await bootstrapPostgres(admin, migrator);
     return await migrator.connection().execute(async (connection) => {
       await executeRaw(connection, "SET ROLE pos_schema_owner");
-      await sql`SELECT pg_advisory_lock(hashtextextended(${POSTGRES_MIGRATION_ID}, 0))`.execute(connection);
+      await acquireMigrationLock(connection);
       try {
         const rows = await executionRows(connection);
         for (const row of rows) {
@@ -257,7 +287,7 @@ export async function applyPostgres001(config: PostgresRunnerConfig): Promise<Po
         await finishFromCommittedBody(connection, config, executionId, config.adminUrl);
         return { executionId, noOp: false, reconciled: false, checksumHex };
       } finally {
-        await sql`SELECT pg_advisory_unlock(hashtextextended(${POSTGRES_MIGRATION_ID}, 0))`.execute(connection);
+        await releaseMigrationLock(connection);
         await executeRaw(connection, "RESET ROLE");
       }
     });
@@ -274,8 +304,14 @@ export async function downPostgres001(config: Pick<PostgresRunnerConfig, "adminU
   try {
     await migrator.connection().execute(async (connection) => {
       await executeRaw(connection, "SET ROLE pos_schema_owner");
-      await sql`SELECT pg_advisory_lock(hashtextextended(${POSTGRES_MIGRATION_ID}, 0))`.execute(connection);
+      await acquireMigrationLock(connection);
       try {
+        const dependents = await queryRows<{ migration_id: string }>(connection, `
+          SELECT migration_id FROM platform.target_migration_executions
+          WHERE migration_id='002_external_integrations_foundation'
+            AND status IN ('APPLIED','STARTED')
+        `);
+        if (dependents.length > 0) throw new MigrationInvariantError("down 001 rejected because 002 is applied or committed STARTED");
         await validatePostgresCatalog(connection);
         const rows = await executionRows(connection);
         const execution = rows.find((row) => row.status === "APPLIED" || (row.status === "STARTED" && row.body_committed_at !== null));
@@ -303,7 +339,122 @@ export async function downPostgres001(config: Pick<PostgresRunnerConfig, "adminU
           WHERE execution_id = ${execution.execution_id}::uuid
         `.execute(connection);
       } finally {
-        await sql`SELECT pg_advisory_unlock(hashtextextended(${POSTGRES_MIGRATION_ID}, 0))`.execute(connection);
+        await releaseMigrationLock(connection);
+        await executeRaw(connection, "RESET ROLE");
+      }
+    });
+  } finally {
+    await migrator.destroy();
+  }
+}
+
+export async function applyPostgres002(config: PostgresRunnerConfig): Promise<PostgresApplyResult> {
+  const admin = postgresDatabase(config.adminUrl, 2);
+  const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
+  const migrator = postgresDatabase(migratorUrl, 1);
+  const upSql = await readArtifact(POSTGRES_002_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
+  const checksumHex = checksum.toString("hex");
+  try {
+    await bootstrapPostgres(admin, migrator);
+    return await migrator.connection().execute(async (connection) => {
+      await executeRaw(connection, "SET ROLE pos_schema_owner");
+      await acquireMigrationLock(connection);
+      try {
+        const dependencySql = await readArtifact(POSTGRES_001_DESCRIPTOR.upArtifact);
+        const dependencyChecksum = sha256(dependencySql);
+        const dependency = await queryRows<ExecutionRow>(connection, `
+          SELECT execution_id,migration_id,checksum,status,body_committed_at,applied_at
+          FROM platform.target_migration_executions
+          WHERE migration_id='001_central_foundation' AND status='APPLIED'
+        `);
+        if (dependency.length !== 1 || !sameChecksum(dependency[0]!.checksum, dependencyChecksum)) {
+          throw new MigrationInvariantError("002 requires approved 001 APPLIED dependency");
+        }
+        await validatePostgresCatalog(connection);
+        const prerequisiteState = await ensureBtreeGist(connection);
+        const rows = await executionRows(connection, POSTGRES_002_MIGRATION_ID);
+        for (const row of rows) if (!sameChecksum(row.checksum, checksum)) throw new MigrationInvariantError("checksum mismatch for 002_external_integrations_foundation");
+        const applied = rows.find((row) => row.status === "APPLIED");
+        if (applied) {
+          await validatePostgres002Catalog(connection);
+          return { executionId: applied.execution_id, noOp: true, reconciled: false, checksumHex, prerequisiteState };
+        }
+        const started = rows.find((row) => row.status === "STARTED");
+        if (started) {
+          const state = await integrationsCatalogState(connection);
+          if (state === "partial") throw new MigrationInvariantError("STARTED 002 execution has divergent catalog");
+          if (state === "target-002") {
+            if (started.body_committed_at === null) await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${started.execution_id}::uuid`.execute(connection);
+            await validatePostgres002Catalog(connection);
+            if (!config.skipSmoke) await runPostgres002Smoke(config.adminUrl);
+            await finishApplied(connection, started.execution_id);
+            return { executionId: started.execution_id, noOp: false, reconciled: true, checksumHex, prerequisiteState };
+          }
+          await markFailed(connection, started.execution_id, "RECONCILED_PRE_002");
+        }
+        const executionId = uuidV7();
+        await sql`INSERT INTO platform.target_migration_executions
+          (execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version)
+          VALUES (${executionId}::uuid,${POSTGRES_002_MIGRATION_ID},'POSTGRESQL',${POSTGRES_002_DESCRIPTOR.manifestVersion},${checksum},'STARTED',clock_timestamp(),${RUNNER_VERSION})`.execute(connection);
+        if (config.simulateCrashAfterStarted) throw new SimulatedCrashError("simulated 002 crash after STARTED");
+        try {
+          await connection.transaction().execute(async (transaction) => {
+            await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+            await executeRaw(transaction, upSql);
+            if (config.injectBodyFailure) await executeRaw(transaction, "SELECT missing_injected_002_body_function()");
+            await validatePostgres002Catalog(transaction);
+          });
+        } catch (error) {
+          await markFailed(connection, executionId, "BODY_002_ROLLED_BACK");
+          throw error;
+        }
+        if (config.simulateCrashAfterBodyCommit) throw new SimulatedCrashError("simulated 002 crash after body COMMIT");
+        await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${executionId}::uuid AND status='STARTED'`.execute(connection);
+        await validatePostgres002Catalog(connection);
+        if (!config.skipSmoke) await runPostgres002Smoke(config.adminUrl);
+        await finishApplied(connection, executionId);
+        return { executionId, noOp: false, reconciled: false, checksumHex, prerequisiteState };
+      } finally {
+        await releaseMigrationLock(connection);
+        await executeRaw(connection, "RESET ROLE");
+      }
+    });
+  } finally {
+    await migrator.destroy();
+    await admin.destroy();
+  }
+}
+
+export async function downPostgres002(config: Pick<PostgresRunnerConfig,"adminUrl"|"migratorUrl">): Promise<void> {
+  const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
+  const migrator = postgresDatabase(migratorUrl, 1);
+  const downSql = await readArtifact(POSTGRES_002_DESCRIPTOR.downArtifact);
+  try {
+    await migrator.connection().execute(async (connection) => {
+      await executeRaw(connection, "SET ROLE pos_schema_owner");
+      await acquireMigrationLock(connection);
+      try {
+        const rows = await executionRows(connection, POSTGRES_002_MIGRATION_ID);
+        const initialState = await integrationsCatalogState(connection);
+        if (initialState === "pre-002" && rows.some((row) => row.status==="ROLLED_BACK")) return;
+        await validatePostgres002Catalog(connection);
+        const execution = rows.find((row) => row.status==="APPLIED" || (row.status==="STARTED" && row.body_committed_at!==null));
+        if (!execution) {
+          throw new MigrationInvariantError("no committed 002 execution is eligible for down");
+        }
+        const counts = await queryRows<{ row_count: string }>(connection, `SELECT (${INTEGRATION_TABLES.map((table) => `(SELECT count(*) FROM integrations.${table})`).join(" + ")})::text AS row_count`);
+        if (Number(counts[0]!.row_count)!==0) throw new MigrationInvariantError("down 002 refused because integration data exists");
+        await connection.transaction().execute(async (transaction) => {
+          await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+          await executeRaw(transaction, downSql);
+          if (await integrationsCatalogState(transaction) !== "pre-002") throw new MigrationInvariantError("down 002 did not restore pre-002 catalog");
+          await validatePostgresCatalog(transaction);
+          await validateBtreeGist(transaction);
+        });
+        await sql`UPDATE platform.target_migration_executions SET status='ROLLED_BACK',rolled_back_at=clock_timestamp(),finished_at=clock_timestamp() WHERE execution_id=${execution.execution_id}::uuid`.execute(connection);
+      } finally {
+        await releaseMigrationLock(connection);
         await executeRaw(connection, "RESET ROLE");
       }
     });

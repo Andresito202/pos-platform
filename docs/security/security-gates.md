@@ -309,6 +309,8 @@ El contrato `../architecture/physical-model/external-integrations-schema.md` amp
 | `SEC-G09` | TLS, destinos oficiales, supply chain, `btree_gist` preflight no destructivo, migration lock y backup/restore | extensión ausente/sin privilegio, carreras up/down, certificado/destino inválido, SBOM/scans y restore aislado |
 | `SEC-G10` | promoción fail-closed y provenance de descriptor/checksum separan `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED` y `CERTIFIED` | self-review/self-promotion/level skipping y release sin evidencia real quedan bloqueados |
 
+`MAT-002-MATERIALIZATION` aporta evidencia ejecutable parcial sobre migration 002: RLS/FORCE, FKs tenant-aware, grants por columna, guards, JSON físico, idempotencia, segregación de evidencia, lock/recovery y lifecycle de `btree_gist`. No evalúa identidad/API/adapters/despliegue productivo ni promueve gates; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+
 `ExternalWebhookReceipt` no inventa mecanismos de firma: usa únicamente autenticación, firma, timestamp o nonce demostrados por el provider; lo demás permanece `UNVERIFIED`. `ProviderVerificationEvidence` puede registrar evidencia, pero no cambia por sí solo el estado de un `SEC-Gxx`.
 
 ## PCI y datos de tarjeta
