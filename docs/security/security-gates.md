@@ -300,14 +300,14 @@ El contrato `../architecture/physical-model/external-integrations-schema.md` amp
 
 | Gate | Riesgo/control de integración | Evidencia futura mínima |
 |---|---|---|
-| `SEC-G01` | RLS/FORCE, FKs tenant-aware y cero ambigüedad de integración/mapping/webhook | lectura/escritura/callback cross-tenant y account swapping rechazados |
-| `SEC-G03` | permisos atómicos para configure, test, discover, map, review, activate, disable, rotate y revalidate | pruebas backend de scope, MFA/reauth cuando aplique y segregación de funciones |
+| `SEC-G01` | RLS/FORCE, FKs tenant-aware y FK Integration+Provider para rate policy sin ambigüedad de cuenta | lectura/escritura/callback cross-tenant, Tenant inexistente, Company cruzada y provider/account swapping rechazados |
+| `SEC-G03` | matriz TABLE×ROLE×OPERATION×COLUMN SET, guards old/new y permisos atómicos para configure/test/discover/map/review/activate/disable/rotate/revalidate | pruebas negativas por columna/rol, worker sin business mutation, admin read-only y segregación REGISTER/REVIEW/PROMOTE |
 | `SEC-G05` | identidad inmutable, checksum, deduplicación, anti-replay, retry y outcome incierto | duplicado, payload distinto con misma key, ACK perdido, timeout ambiguo y reconciliación |
 | `SEC-G06` | Audit append-only sanitizado para configuración, mapping, rotación, dispatch y revisión | causalidad completa sin secretos ni payloads provider completos |
-| `SEC-G07` | secret references centrales, token lifecycle, rotación/revocación y redacción | canary leakage en SQLite, renderer/PWA, Sync/Outbox/Audit, logs, errores, telemetría, backup y fixtures |
-| `SEC-G08` | schemas provider-specific server-side, SSRF/egress allowlist, webhook authenticity disponible, payload limits y rate limiting por cuenta | BOLA/IDOR, destino malicioso, callback falso/replay, body grande, 429/headers y recuperación |
-| `SEC-G09` | TLS, destinos oficiales, supply chain del adapter y backup/restore sin secretos | certificado/destino inválido, SBOM/scans y restore aislado |
-| `SEC-G10` | promoción fail-closed separa `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED` y `CERTIFIED` | release bloqueado si falta evidencia real aplicable |
+| `SEC-G07` | secret references centrales, token lifecycle, rotación/revocación, JSON secret-key denylist y redacción | canary leakage en JSON, SQLite, renderer/PWA, Sync/Outbox/Audit, logs, errores, telemetría, backup y fixtures |
+| `SEC-G08` | schemas provider-specific server-side, límites JSON de bytes/profundidad/arrays/strings, SSRF/egress allowlist, webhook y rate limiting | oversized/deep/unknown/raw payload, BOLA/IDOR, destino malicioso, callback falso/replay, 429/headers y recuperación |
+| `SEC-G09` | TLS, destinos oficiales, supply chain, `btree_gist` preflight no destructivo, migration lock y backup/restore | extensión ausente/sin privilegio, carreras up/down, certificado/destino inválido, SBOM/scans y restore aislado |
+| `SEC-G10` | promoción fail-closed y provenance de descriptor/checksum separan `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED` y `CERTIFIED` | self-review/self-promotion/level skipping y release sin evidencia real quedan bloqueados |
 
 `ExternalWebhookReceipt` no inventa mecanismos de firma: usa únicamente autenticación, firma, timestamp o nonce demostrados por el provider; lo demás permanece `UNVERIFIED`. `ProviderVerificationEvidence` puede registrar evidencia, pero no cambia por sí solo el estado de un `SEC-Gxx`.
 

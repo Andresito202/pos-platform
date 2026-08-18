@@ -70,7 +70,7 @@ created_at timestamptz NOT NULL
 
 `integrations.provider_capability_declarations` registra qué capability declara cada versión del adapter, con `provider_id`, `provider_adapter_version_id`, `capability_code`, `support_status`, `official_reference_uri`, `verified_at`, `created_at` y `version`. `support_status` admite `SUPPORTED`, `UNSUPPORTED`, `UNVERIFIED`; `UNIQUE (provider_adapter_version_id, capability_code)`. Esta declaración global no activa la capability para una empresa: `IntegrationCapability` es la asignación efectiva por conexión.
 
-`integrations.provider_platform_configurations` conserva configuración de nuestra plataforma, no credenciales del cliente: `id`, `provider_id`, `environment`, `configuration_type`, `configuration_schema_version`, `configuration_payload jsonb`, `status`, `valid_from`, `valid_until`, `published_at`, timestamps, business `version` y `row_version`. El payload es allowlisted por provider/type y no admite secretos. Para Siigo, `PARTNER_ID` vive aquí, global por ambiente del integrador; no se copia a cada tenant ni se confunde con `username/access_key`. `UNIQUE (provider_id, environment, configuration_type, version)`; versiones publicadas no se editan ni borran. Para un mismo provider/environment/type, una exclusion constraint PostgreSQL con rango semiabierto impide que dos filas `PUBLISHED` se solapen; `valid_until NULL` significa extremo abierto y siempre se exige `valid_from < valid_until` cuando exista.
+`integrations.provider_platform_configurations` conserva configuración de nuestra plataforma, no credenciales del cliente: `id`, `provider_id`, `environment`, `configuration_type`, `configuration_schema_version`, `configuration_payload jsonb`, `status`, `valid_from`, `valid_until`, `published_at`, timestamps, business `version` y `row_version`. El payload es allowlisted por provider/type y no admite secretos. Para Siigo, `PARTNER_ID` vive aquí, global por ambiente del integrador; no se copia a cada tenant ni se confunde con `username/access_key`. `UNIQUE (provider_id, environment, configuration_type, version)`; versiones publicadas no se editan ni borran. Para un mismo provider/environment/type, una exclusion constraint PostgreSQL con rango semiabierto impide que dos filas `PUBLISHED` se solapen; `valid_until NULL` significa extremo abierto y siempre se exige `valid_from < valid_until` cuando exista. Su contrato JSON normativo es objeto máximo 16 KiB/profundidad 4/array 32/string 2 KiB, con schema allowlisted por provider+type+version, unknown keys y claves secret-like rechazadas, sin JSON index; los detalles transversales están en el manifest 002.
 
 ## ExternalIntegration
 
@@ -96,6 +96,7 @@ created_at timestamptz NOT NULL
 Constraints e índices:
 
 - `UNIQUE (tenant_id, id)` y `UNIQUE (tenant_id, company_id, id)` para FKs dependientes;
+- `UNIQUE (tenant_id, company_id, id, provider_id)` para dependientes que deban demostrar simultáneamente Integration y Provider, sin confiar en dos FKs independientes;
 - unique parcial de conexión activa por `(tenant_id, company_id, branch_id-normalized, provider_id, environment, provider_account_reference)` cuando la referencia exista; una segunda conexión requiere account identity distinta y revisión explícita;
 - la semántica de `branch_id NULL` se implementa con índices parciales separados, no con igualdad NULL ambigua;
 - FKs tenant-aware a Company y Branch; Provider/AdapterVersion globales mediante FKs directas; no existe pointer ni FK inversa hacia CredentialBinding;
@@ -234,7 +235,7 @@ La respuesta fiscal o contable de un provider no transfiere ownership de Sale, P
 
 `integrations.integration_discovery_runs` conserva una ejecución idempotente: scope tenant/company/integration, `discovery_type`, `status`, `idempotency_key`, `request_checksum`, adapter version, started/completed timestamps, counts, error code seguro, evidence reference y correlation ID. Estados: `CREATED`, `RUNNING`, `COMPLETED`, `PARTIAL`, `FAILED`, `CANCELLED`. `UNIQUE (tenant_id, integration_id, idempotency_key)`.
 
-`integrations.integration_discovery_items` conserva por run el `resource_type`, external ID/code sanitizados, display reference allowlisted, provider checksum, proposed internal reference nullable, review status y metadata limitada. No almacena credenciales ni payload bruto. `UNIQUE (tenant_id, discovery_run_id, resource_type, external_id)`.
+`integrations.integration_discovery_items` conserva por run el `resource_type`, external ID/code sanitizados, display reference allowlisted, provider checksum, proposed internal reference nullable, review status y metadata limitada. No almacena credenciales ni payload bruto. `UNIQUE (tenant_id, discovery_run_id, resource_type, external_id)`. `provider_metadata` es objeto máximo 32 KiB/profundidad 5/array 100/string 4 KiB, validado por el schema versionado del adapter+discovery/resource; unknown/secret-like keys y raw provider responses se rechazan.
 
 La discovery incluye solo recursos que el API oficial permita: empresa/cuenta, tipos documentales, rangos, impuestos, formas/métodos de pago, bodegas, vendedores, contactos/clientes, productos/items, cuentas y centros de costo. Nunca obliga al usuario a teclear IDs opacos que puedan descubrirse.
 
@@ -265,6 +266,8 @@ Constraints:
 - cross-tenant/company se rechaza antes de persistir y por FK/constraint cuando exista FK fuerte;
 - índices por interno, externo, status y mappings pendientes/stale;
 - ExternalIntegration, recursos canónicos e historia fiscal usan `RESTRICT/NO ACTION`; retirar un mapping no elimina evidencia ni entidades canónicas.
+
+`provider_metadata` de mapping es objeto auxiliar máximo 16 KiB/profundidad 4/array 32/string 2 KiB. El schema pertenece al mapping contract por adapter+resource+schema version; claves desconocidas/secret-like se rechazan y el payload discovery/raw no se copia. No recibe GIN/JSON index.
 
 ## IntegrationDispatch y reconciliación externa
 
@@ -359,6 +362,10 @@ version bigint
 
 ## ProviderRateLimitPolicy
 
+### Dependencia compartida `btree_gist`
+
+Las exclusiones temporales de plataforma, ownership, capabilities y rate limits dependen de `btree_gist`. Es infraestructura PostgreSQL compartida, no objeto destructivamente owned por migration 002. El runner la introspecta antes de mutar `integrations`; si falta, `pos_migrator` ejecuta `SET LOCAL ROLE pos_schema_owner` y este último puede instalarla solo con su CREATE de database y allowlist del servicio, sin escalar a superuser. Registra PREEXISTING o INSTALLED_BY_MIGRATION_PREREQUISITE; si la instala queda owned por `pos_schema_owner`, y si preexiste conserva owner. Ausencia sin privilegio/allowlist falla cerrado antes del body. Se validan operator classes requeridas para UUID/text/rangos. Down 002 nunca elimina la extensión y dump/restore debe preprovisionarla o restaurarla antes de verificar el catálogo.
+
 `integrations.provider_rate_limit_policies` versiona límites externos:
 
 ```text
@@ -384,9 +391,11 @@ version bigint
 row_version bigint
 ```
 
-`scope_type` es `PROVIDER|TENANT|COMPANY|INTEGRATION` y un CHECK obliga respectivamente a ninguna, una, dos o tres columnas scoped presentes; tenant nulo nunca es bypass. Precedencia explícita: integration/account > company > tenant > provider default. Valores NULL significan `UNVERIFIED/PROVIDER_HEADER_DRIVEN` según `retry_after_mode`, no ilimitado. Headers efectivos como `Retry-After` y reset prevalecen para el evento; los límites no se hard-codean dispersos en negocio. Business `version` es única por scope+endpoint y `row_version` protege edición DRAFT. `valid_until NULL` es vigencia abierta y, cuando existe, `valid_from < valid_until`. Cuatro exclusion constraints PostgreSQL parciales, uno por scope, impiden overlap entre intervalos `PUBLISHED`; una publicación futura no es efectiva hasta `valid_from`. La tabla no guarda counters ni eventos runtime de alta frecuencia.
+`scope_type` es `PROVIDER|TENANT|COMPANY|INTEGRATION` y un CHECK obliga respectivamente a ninguna, una, dos o tres columnas scoped presentes; tenant nulo nunca es bypass. Toda fila contextual usa FK `tenant_id -> tenancy.tenants(id)`; COMPANY/INTEGRATION usa FK `(tenant_id,company_id)`; INTEGRATION usa la FK única `(tenant_id,company_id,integration_id,provider_id) -> external_integrations(tenant_id,company_id,id,provider_id)`, que impide combinar provider A con una integración de provider B. Las columnas nulas de scopes menores usan MATCH SIMPLE y el CHECK impide shapes parciales. Precedencia explícita: integration/account > company > tenant > provider default. Valores NULL significan `UNVERIFIED/PROVIDER_HEADER_DRIVEN` según `retry_after_mode`, no ilimitado. Headers efectivos como `Retry-After` y reset prevalecen para el evento; los límites no se hard-codean dispersos en negocio. Business `version` es única por scope+endpoint y `row_version` protege edición DRAFT. `valid_until NULL` es vigencia abierta y, cuando existe, `valid_from < valid_until`. Cuatro exclusion constraints PostgreSQL parciales, uno por scope, impiden overlap entre intervalos `PUBLISHED`; una publicación futura no es efectiva hasta `valid_from`. La tabla no guarda counters ni eventos runtime de alta frecuencia.
 
 RLS `ENABLE/FORCE` separa policies globales y contextualizadas. `pos_app`/`pos_worker` solo leen las columnas mínimas de la configuración PUBLISHED global; nunca hacen DML global. `pos_app` puede administrar filas tenant/company/integration solo bajo `tenant_id = platform.current_tenant_id()` y grants de columna; `pos_worker` no hace DML. `pos_platform_app` administra global o contextual mediante policies separadas; `pos_platform_admin` es read-only allowlisted.
+
+Los índices de FK son: Tenant parcial `WHERE tenant_id IS NOT NULL`, Company parcial `WHERE company_id IS NOT NULL` e Integration+Provider parcial `WHERE integration_id IS NOT NULL`; los predicados son inferibles por el lookup referencial y no dependen de filtrar `scope_type`. El lookup de precedencia empieza por provider. Todas las FKs usan NO ACTION.
 
 ## ProviderVerificationEvidence
 
@@ -419,6 +428,8 @@ created_at timestamptz
 `scope_type` es `GLOBAL|INTEGRATION`: GLOBAL exige tenant/company/integration nulos e INTEGRATION exige los tres presentes. `evidence_level`: `DOCUMENTED`, `IMPLEMENTED`, `MOCK_TESTED`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED`, `CERTIFIED`. `result`: `PASS`, `FAIL`, `BLOCKED`. Credenciales y payloads reales están prohibidos. La promoción requiere evaluación de autenticación, discovery, operación autorizada, parsing, status reconciliation, duplicate/idempotency, timeout ambiguo, rotación, leakage, cross-tenant, rate limiting, dead letter, audit sanitization y artefactos fiscales aplicables.
 
 RLS `ENABLE/FORCE`, grants de columna y permisos backend separan `REGISTER`, `REVIEW`, `APPROVE/PROMOTE` y `READ MINIMAL STATUS`. Runtime no registra, revisa ni promueve; `pos_worker` no accede a la tabla y `pos_app` solo puede leer estado mínimo INTEGRATION de su tenant. `pos_platform_app` usa policies global/contextual separadas. Para niveles con revisión independiente, `registered_by_actor_id` debe ser distinto del reviewer y del actor de promoción de su propia evidencia; `pos_platform_admin` es read-only y no ve account/evidence reference/checksum. Nada de esto cambia `SEC-G`, que permanece `PLANNED / NOT_EVALUATED`.
+
+El manifest 002 contiene la matriz normativa exacta TABLE×ROLE×OPERATION×COLUMN SET de las 16 tablas. Todo repositorio usa listas explícitas; runtime no recibe DELETE/TRUNCATE/ownership. `pos_platform_app` conserva un solo rol físico, pero REGISTER, REVIEW y PROMOTE usan commands/repositories y permisos de aplicación distintos, actor/reviewer/promoter explícitos, prohibición de self-review/self-promotion y ausencia de generic update repository. Guards old/new protegen identidad, scopes, routing, idempotencia, checksum y hechos append-only; CHECK y RLS no se presentan como sustitutos de esos guards.
 
 ## Fronteras transaccionales y local-first
 

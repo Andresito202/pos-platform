@@ -222,6 +222,8 @@ JSON no sustituye:
 
 PostgreSQL usa `jsonb`; SQLite usa `TEXT` JSON canónico validado por el adaptador y `json_valid` cuando esté disponible en el runtime certificado.
 
+Cada columna JSON nueva declara antes de DDL: owner del schema, schema version, allowlist/versioned validator, unknown-key policy, tamaño UTF-8 máximo, profundidad, límites de arrays/strings, canonicalización/checksum, sanitización, secretos prohibidos, tratamiento Audit/log e indexing. PostgreSQL debe comprobar como mínimo top-level y tamaño; la aplicación comprueba estructura y semántica completas. Un límite numérico sin evidencia se registra como `PRODUCT/SECURITY LIMIT CONTRACT` conservador y ampliarlo exige revisión/versionado, no decisión unilateral del adapter.
+
 ## Versionado y concurrencia
 
 1. Agregados mutables contienen `version BIGINT/INTEGER NOT NULL` iniciando en `1`.
@@ -267,6 +269,14 @@ El grafo se ordena por ownership y lifecycle. Una FK circular no se acepta por c
 - `DEFERRABLE` solo se propone cuando una invariante exige que dos filas nuevas se validen al final de la misma transacción y no existe un propietario/dependiente claro.
 
 R2-A no requiere `DEFERRABLE`: Device no referencia Activation, Operation no referencia Outbox y DeadLetter/Review/Action dependen en un solo sentido.
+
+### Extensiones PostgreSQL compartidas
+
+Una extensión requerida por constraints puede ser precondición compartida sin pertenecer destructivamente a la migration consumidora. El descriptor declara `required_extensions`; el runner introspecta/instala únicamente mediante bootstrap administrativo autorizado antes del body, falla cerrado si el servicio administrado no la permite y registra PREEXISTING o INSTALLED_BY_MIGRATION_PREREQUISITE. Runtime nunca instala extensiones. Down de una migration consumidora no ejecuta DROP EXTENSION; backup/restore debe reprovisionarla antes de validar objetos dependientes.
+
+### Ownership de validators y orden de migrations
+
+Cada migration tiene descriptor con ID, dependencies, artifacts/checksum y objetos owned. Su validator compara exactamente su ownership y no interpreta policies/tablas/constraints/indexes/grants/extensiones globales como si todos le pertenecieran. Las operaciones apply/down/recovery se serializan mediante un advisory lock PostgreSQL global mantenido mientras se consultan ledger/dependencies y se completa la operación. Down de una dependencia se rechaza mientras exista un dependent STARTED incompatible o APPLIED.
 
 ### Política referencial de borrado
 

@@ -19,3 +19,17 @@ docker compose -f tools/target-migrations/compose.yaml down
 ```
 
 Las pruebas no modifican LEGACY ni la evidencia histórica de R3/PHY-G14.
+
+## Contrato documental para la evolución 002
+
+El código actual continúa implementando únicamente migration 001. La futura materialización 002 deberá evolucionarlo mediante descriptors por migration, sin modificar los bytes SQL ni la semántica pública de 001:
+
+- descriptor: migration ID, dependencies, manifest version, up/down artifacts, checksum derivado, schemas/tables/policies/constraints/indexes owned, required extensions y expected ledger state;
+- validators scoped: 001 valida solo ownership 001 y 002 solo ownership 002; ninguna consulta global de `pg_policies` u otro catálogo se compara contra la lista de una sola migration;
+- ledger: 002 exige 001 APPLIED; checksum mismatch falla cerrado; STARTED/body committed se recupera por introspección exacta;
+- lock: advisory lock PostgreSQL global, no mutex de proceso ni lock independiente por migration;
+- down dependencies: down 001 se rechaza con 002 STARTED incompatible/APPLIED; una futura 003 bloqueará down 002;
+- `btree_gist`: dependencia compartida introspectada o instalada por bootstrap administrativo antes del body; runtime nunca instala y down 002 nunca elimina;
+- SQLite: no descriptor, artifact ni ledger entry 002.
+
+Cuando se autorice código deberán extenderse `shared.ts`, `contract.ts`, `postgres.ts`, `postgres-introspection.ts`, `postgres-smoke.ts`, `tests/postgres-migration.test.ts`, `index.ts`, CLI y evidence. Hasta entonces `applyPostgres001`, `downPostgres001` y `validatePostgresCatalog` conservan exactamente su comportamiento materializado; este README no declara soporte 002 implementado.
