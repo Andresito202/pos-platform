@@ -311,6 +311,8 @@ El contrato `../architecture/physical-model/external-integrations-schema.md` amp
 
 `MAT-002-MATERIALIZATION` aporta evidencia ejecutable parcial sobre migration 002: RLS/FORCE, FKs tenant-aware, grants por columna, guards, JSON físico, idempotencia, segregación de evidencia, lock/recovery y lifecycle de `btree_gist`. No evalúa identidad/API/adapters/despliegue productivo ni promueve gates; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
+`FISCAL-003-MANIFEST` agrega únicamente el mapping futuro de controles fiscales: nueve RLS/FORCE y FKs tenant-aware (`SEC-G01`), grants por columna y separación business/worker/admin (`SEC-G03`), idempotencia/UNKNOWN_OUTCOME/reconciliation (`SEC-G05`), evidencia append-only (`SEC-G06`), certificate/storage references opacas (`SEC-G07`), límites de autoridad y artifacts (`SEC-G08`), lock/rollback/`btree_gist` no destructivo (`SEC-G09`) y ausencia de claims provider/normativos (`SEC-G10`). Es diseño sin evidencia ejecutable y no promueve ningún gate.
+
 `ExternalWebhookReceipt` no inventa mecanismos de firma: usa únicamente autenticación, firma, timestamp o nonce demostrados por el provider; lo demás permanece `UNVERIFIED`. `ProviderVerificationEvidence` puede registrar evidencia, pero no cambia por sí solo el estado de un `SEC-Gxx`.
 
 ## PCI y datos de tarjeta

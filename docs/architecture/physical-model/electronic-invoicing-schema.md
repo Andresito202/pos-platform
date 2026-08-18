@@ -47,6 +47,8 @@ El POS local nunca inventa `ACCEPTED` o `REJECTED`. La autoridad externa se inco
 
 La materialización física de este bounded context pertenece a migration 003, posterior a migration 002 External Integrations foundation. Migration 002 no crea ni altera tablas fiscales y mantiene `IntegrationDispatch.FISCAL` físicamente deshabilitado. Migration 003 deberá crear los owners/dependencias fiscales y habilitar `FISCAL` en la misma frontera transaccional que instala la FK discriminada hacia `FiscalSubmissionAttempt`; no existe un periodo con dispatch fiscal huérfano.
 
+El manifest posterior [INT-006 / migration 003](../../migration/third-target-migration-manifest.md) materializa este contrato en nueve tablas centrales. Conserva `FiscalEmissionConfiguration` y su versión como par estable/versionado; integra `TaxIdentity` con Company más snapshot inmutable; embebe numeración/certificate reference/contingencia en la versión; y reutiliza artifacts, incidents, reconciliation, Audit y eventos para no inventar tablas paralelas. El manifest está pendiente de revisión independiente y no constituye SQL.
+
 ## Agregado `FiscalConnection`
 
 Representa el perfil fiscal que habilita una `ExternalIntegration` para una identidad tributaria, configuración de emisión, numeración, certificados cuando apliquen y contingencia. No es la conexión general ni propietaria de credenciales. Identidad candidata UUID v7: `fiscal_connection_id`.
