@@ -406,9 +406,13 @@ Se mantienen separados:
 - `authority_reference`;
 - CUFE, CUDE u otro `legal_identifier` cuando exista.
 
-No se inventa numeración antes de asignación comprobable. Las modalidades son `PROVIDER_ASSIGNED`, `AUTHORITY_ASSIGNED`, `AUTHORIZED_RANGE` y `LOCAL_CONTINGENCY`. En las dos primeras no existe cursor local y la referencia write-once llega de la autoridad correspondiente. En rango autorizado/contingencia, la versión publicada es owner del rango/cursor y se bloquea antes de tomar `next_number_value`; la asignación al mismo `ElectronicDocument`, avance del cursor y Audit ocurren atómicamente. Rollback previo al commit revierte cursor y reserva. Tras el commit que expone o prepara exposición externa, el número no vuelve al pool: cancelación/anulación conserva `RELEASED_WITHOUT_REUSE|BURNED` y evidencia del hueco.
+No se inventa numeración antes de asignación comprobable. Las modalidades son `PROVIDER_ASSIGNED`, `AUTHORITY_ASSIGNED`, `AUTHORIZED_RANGE` y `LOCAL_CONTINGENCY`. En las dos primeras, `pos_app` crea el `ElectronicDocument` DRAFT/PENDING_EXTERNAL antes de HTTP, sin identidad/evidencia externa; no existe cursor local y `pos_worker`, que no tiene INSERT de documentos, completa después la referencia write-once. En rango autorizado/contingencia, la versión publicada es owner del rango/cursor y se bloquea antes de tomar `next_number_value`; la asignación al mismo `ElectronicDocument`, avance del cursor y Audit ocurren atómicamente. Rollback previo al commit revierte cursor y reserva. Tras el commit que expone o prepara exposición externa, el número no vuelve al pool: cancelación/anulación conserva `RELEASED_WITHOUT_REUSE|BURNED` y evidencia del hueco.
 
 Dos asignaciones concurrentes serializan sobre la versión exacta. Agotamiento bloquea emisión sin rollover implícito. `UNKNOWN_OUTCOME` impide liberar, reasignar o pedir automáticamente otro número hasta reconciliation autoritativa. Un retry usa el mismo documento/número y crea solamente otro attempt; un replacement/correctivo explícito es un documento nuevo con identidad, capability y numeración propias. Un `UNIQUE` es defensa adicional, no el protocolo, y una sequence PostgreSQL no sustituye numeración legal.
+
+La forma inicial normal es física, no convención de aplicación: versión `DRAFT` sin publicación/agotamiento; documento remoto `DRAFT/PENDING_EXTERNAL` sin número, CUFE/CUDE, referencias/status/timestamps terminales; attempt `CREATED` sin HTTP/resultado/completado; reconciliation `CREATED` sin observación/revisión/cierre; incident `OPEN` sin assignment/resolución/archive. CHECKs e insert guards rechazan si un rol intenta presembrar esos resultados.
+
+Publicación/selección y precedencia BRANCH > COMPANY usan `FiscalConnection FOR UPDATE` como coordinator antes de consultar candidatos, eliminando phantom de ausencia. Webhook, polling, worker y reconciliation aplican evidencia en el orden `ElectronicDocument -> IntegrationDispatch -> FiscalSubmissionAttempt(s) -> FiscalReconciliation -> FiscalIncident -> FiscalReconciliationItem(s)`, con UUID ascendente y CAS; una sola transición legal converge y las demás quedan idempotentes.
 
 ## Contingencia
 
@@ -533,6 +537,8 @@ No se transforma una Sale, anulación, SaleReturn, Refund, texto de auditoría o
 13. asignación concurrente, agotamiento, rollback, huecos, contingencia y `UNKNOWN_OUTCOME` sin segundo número;
 14. configuración company-wide frente a branch-specific y precedencia fail-closed;
 15. downgrade concurrente de declaración/capability y nota débito sin `DEBIT_NOTES` rechazada.
+16. worker sin INSERT documental y shapes iniciales terminales rechazadas físicamente;
+17. publicación COMPANY/BRANCH, preparación, downgrade, webhook, worker y reconciliation concurrentes sin phantom ni deadlock.
 
 ### SQLite/WAL
 
