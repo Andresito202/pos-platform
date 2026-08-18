@@ -176,9 +176,13 @@ created_at timestamptz
 version bigint
 ```
 
-Capabilities iniciales: `ELECTRONIC_INVOICING`, `ACCOUNTING`, `CUSTOMERS`, `PRODUCTS`, `INVENTORY`, `PURCHASES`, `PAYMENTS`, `CREDIT_NOTES`, `SUPPORT_DOCUMENTS`, `WEBHOOKS`, `REPORTING`. El código es catálogo extensible administrado, no columnas booleanas en Company.
+Capabilities iniciales: `ELECTRONIC_INVOICING`, `ACCOUNTING`, `CUSTOMERS`, `PRODUCTS`, `INVENTORY`, `PURCHASES`, `PAYMENTS`, `CREDIT_NOTES`, `DEBIT_NOTES`, `SUPPORT_DOCUMENTS`, `WEBHOOKS`, `REPORTING`. `DEBIT_NOTES` es una extensión documental aditiva owned por migration 003; SQL 002 permanece inmutable. El código es catálogo extensible administrado, no columnas booleanas en Company.
 
 Una `ProviderCapabilityDeclaration` declara soporte de una versión de adapter; una `IntegrationCapability` configura ese soporte para una cuenta concreta. Una IntegrationCapability no puede ser efectiva como `SUPPORTED`, ni activar la integración ni originar dispatch, si el adapter seleccionado no declara el mismo código como `SUPPORTED`. El backend lo valida fail-closed bajo lock en la misma transacción; las FKs de adapter/integration, checks y uniques son complementos físicos, no una FK artificial entre scopes distintos.
+
+El consumo y downgrade usan un orden canónico único: `ProviderCapabilityDeclaration -> ProviderAdapterVersion -> ExternalIntegration -> IntegrationCapability -> FiscalConnection -> FiscalEmissionConfiguration -> FiscalEmissionConfigurationVersion -> ElectronicDocument -> IntegrationDispatch -> FiscalSubmissionAttempt`, con orden ascendente dentro de cada nivel. La declaración se bloquea primero también en preparación/enqueue, de modo que `SUPPORTED -> UNSUPPORTED|UNVERIFIED` o retiro/bloqueo del adapter serializa contra operaciones nuevas. El downgrade cierra o degrada las `IntegrationCapability` efectivas en la misma transacción; un guard inverso impide commit si queda alguna efectiva. Cada connection/document/dispatch revalida declaración y capability bajo lock: una asignación `SUPPORTED` obsoleta nunca autoriza trabajo nuevo.
+
+El downgrade bloquea nuevas activaciones, publicaciones, documentos y dispatches, pero no borra ni reescribe documentos históricos, identificadores legales, attempts, artifacts o evidencia. Connection queda proyectada `REVALIDATION_REQUIRED`, sin columna/lifecycle duplicado. Reconciliation histórica sigue legible; nueva interacción externa requiere una capability de consulta vigente explícita o evidencia manual/autoridad. `DEBIT_NOTE` exige `DEBIT_NOTES`; la capability genérica `ELECTRONIC_INVOICING` no basta y no se presume soporte por provider.
 
 `support_status` admite `SUPPORTED`, `UNSUPPORTED`, `UNVERIFIED`, `DISABLED`. `SUPPORTED` exige fuente oficial para diseño; activar productivamente exige además adapter implementado, configuración válida y evidencia aplicable. La `capability_scope_key` exacta es `(tenant_id, company_id, integration_id, capability_code)` y la business version es `UNIQUE (tenant_id, company_id, integration_id, capability_code, configuration_version)`. `effective_from/effective_until` usa intervalo semiabierto `[effective_from,effective_until)`; NULL superior significa open-ended y el CHECK exige `effective_until IS NULL OR effective_from < effective_until`.
 
@@ -303,9 +307,9 @@ Estados: `QUEUED`, `DISPATCHING`, `SUCCEEDED`, `RETRY_SCHEDULED`, `UNKNOWN_OUTCO
 
 `dispatch_class` admite exactamente `FISCAL` y `NON_FISCAL`:
 
-- `FISCAL` es obligatorio para `ELECTRONIC_INVOICING`, `CREDIT_NOTES`, `SUPPORT_DOCUMENTS` y cualquier operación cuyo lifecycle legal/fiscal pertenezca a `ElectronicDocument`/`FiscalConnection`; exige `internal_entity_type = 'ElectronicDocument'` y su attempt owner es exclusivamente `FiscalSubmissionAttempt`;
+- `FISCAL` es obligatorio para `ELECTRONIC_INVOICING`, `CREDIT_NOTES`, `DEBIT_NOTES`, `SUPPORT_DOCUMENTS` y cualquier operación cuyo lifecycle legal/fiscal pertenezca a `ElectronicDocument`/`FiscalConnection`; exige `internal_entity_type = 'ElectronicDocument'` y su attempt owner es exclusivamente `FiscalSubmissionAttempt`;
 - `NON_FISCAL` cubre sincronización de customers, products, inventory, accounting, reporting y otros recursos no fiscales realmente habilitados; su attempt owner es `IntegrationDispatchAttempt`;
-- un `CHECK` físico exige `dispatch_class = 'FISCAL'` cuando `capability_code IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','SUPPORT_DOCUMENTS')` o `internal_entity_type = 'ElectronicDocument'`, y prohíbe esas combinaciones en `NON_FISCAL`; una capability fiscal futura requiere ampliar primero esta allowlist/constraint versionada;
+- el `CHECK` final owned por 003 exige `dispatch_class = 'FISCAL'` cuando `capability_code IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','DEBIT_NOTES','SUPPORT_DOCUMENTS')` o `internal_entity_type = 'ElectronicDocument'`, y prohíbe esas combinaciones en `NON_FISCAL`; una capability fiscal futura requiere ampliar primero esta allowlist/constraint versionada;
 - la clasificación también se valida server-side contra capability/resource allowlisted. Un adapter o request no puede elegirla ni reclasificar una operación fiscal como no fiscal;
 - existen candidate keys `UNIQUE (tenant_id, id, dispatch_class)` y `UNIQUE (tenant_id, company_id, id, dispatch_class)` para FKs discriminadas según el scope materializado por cada tipo de attempt.
 

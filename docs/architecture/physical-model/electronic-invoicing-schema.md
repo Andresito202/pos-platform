@@ -47,7 +47,7 @@ El POS local nunca inventa `ACCEPTED` o `REJECTED`. La autoridad externa se inco
 
 La materialización física de este bounded context pertenece a migration 003, posterior a migration 002 External Integrations foundation. Migration 002 no crea ni altera tablas fiscales y mantiene `IntegrationDispatch.FISCAL` físicamente deshabilitado. Migration 003 deberá crear los owners/dependencias fiscales y habilitar `FISCAL` en la misma frontera transaccional que instala la FK discriminada hacia `FiscalSubmissionAttempt`; no existe un periodo con dispatch fiscal huérfano.
 
-El manifest posterior [INT-006 / migration 003](../../migration/third-target-migration-manifest.md) materializa este contrato en nueve tablas centrales. Conserva `FiscalEmissionConfiguration` y su versión como par estable/versionado; integra `TaxIdentity` con Company más snapshot inmutable; embebe numeración/certificate reference/contingencia en la versión; y reutiliza artifacts, incidents, reconciliation, Audit y eventos para no inventar tablas paralelas. El manifest está pendiente de revisión independiente y no constituye SQL.
+El manifest posterior [INT-006 / migration 003](../../migration/third-target-migration-manifest.md) materializa este contrato en nueve tablas centrales. Conserva `FiscalEmissionConfiguration` y su versión como par estable/versionado; integra `TaxIdentity` con Company más snapshot inmutable; embebe rango/cursor de numeración, certificate reference y contingencia en la versión, con la reserva durable en `ElectronicDocument`; y reutiliza artifacts, incidents, reconciliation, Audit y eventos. Su primera revisión terminó `PASS_WITH_REMEDIATION`; la remediación documental está pendiente de review repetido y no constituye SQL.
 
 ## Agregado `FiscalConnection`
 
@@ -59,7 +59,6 @@ Atributos conceptuales mínimos:
 fiscal_connection_id
 tenant_id
 company_id
-branch_id nullable
 tax_identity_id
 external_integration_id
 fiscal_capabilities_snapshot
@@ -74,14 +73,14 @@ updated_at
 
 Reglas:
 
-1. `tenant_id`, `company_id` y `branch_id` forman un scope coherente; Branch, si existe, pertenece a la misma Company y Tenant.
+1. `FiscalConnection` es corporativa: `tenant_id` y `company_id` forman su scope y no contiene `branch_id`. La configuración establece scope `COMPANY|BRANCH`; el documento conserva su Branch operativa obligatoria.
 2. `external_integration_id` referencia mediante FK tenant/company-aware una integración general cuya capability `ELECTRONIC_INVOICING` está activa.
 3. Provider, account identity, environment, general status/health, adapter version, credential binding y capabilities generales se leen de `ExternalIntegration`; no se duplican aquí.
 4. Secretos, tokens y claves privadas no se almacenan en esta entidad. `certificate_reference` solo existe cuando el perfil fiscal exige material distinto de la credencial general y sigue `SEC-004`.
 5. Una conexión inactiva o vencida no autoriza documentos nuevos.
 6. Rotar credenciales o cambiar proveedor crea o referencia una versión nueva; no muta evidencia histórica.
 7. Las capabilities fiscales se validan contra la integración, ambiente y versión; no se infieren por nombre comercial del proveedor.
-8. La elegibilidad fiscal es una proyección derivada de `ExternalIntegration.ACTIVE`, capability fiscal activa, versión publicada, vigencia, mappings/rangos y certificado cuando aplique. No crea otro lifecycle general.
+8. La elegibilidad fiscal es una proyección derivada de `ExternalIntegration.ACTIVE`, declaración y capability fiscal activas, versión publicada, vigencia, mappings/rangos y certificado cuando aplique. Un downgrade la proyecta `REVALIDATION_REQUIRED`; no crea otro lifecycle general ni altera historia.
 
 ## Agregado `ElectronicDocument`
 
@@ -99,6 +98,8 @@ source_id
 source_version
 document_type
 status
+numbering_mode
+numbering_state
 currency
 subtotal_amount
 discount_amount
@@ -113,6 +114,9 @@ canonical_payload_checksum
 internal_reference
 prefix nullable
 number nullable
+number_reserved_at nullable
+number_consumed_at nullable
+number_burned_at nullable
 provider_document_id nullable
 provider_reference nullable
 authority_reference nullable
@@ -137,7 +141,7 @@ Reglas:
 2. Source y documento pertenecen al mismo Tenant, Company y Branch aplicables.
 3. `source_type + source_id + document_type + intención lógica` participa en la unicidad de intención; una operación no crea accidentalmente dos documentos equivalentes.
 4. Importes y moneda son exactos y coinciden con snapshots; Electronic Invoicing no recalcula ventas, precios, impuestos ni pagos.
-5. `provider_status_raw` y `authority_status_raw` conservan evidencia externa sin convertirse en enums globales.
+5. `provider_status_raw` y `authority_status_raw` conservan evidencia externa sanitizada, acotada a 256 bytes UTF-8 y sin controles/secretos, sin convertirse en enums globales.
 6. Prefijo, número, referencia del proveedor, referencia de autoridad y CUFE/CUDE u otro identificador legal son identidades diferentes y opcionales hasta que exista evidencia.
 7. Un documento aceptado no se borra ni sobrescribe.
 8. Una corrección es otro `ElectronicDocument` relacionado con el original y la operación causal.
@@ -402,7 +406,9 @@ Se mantienen separados:
 - `authority_reference`;
 - CUFE, CUDE u otro `legal_identifier` cuando exista.
 
-No se inventa numeración antes de asignación comprobable. Reserva, consumo, liberación o contingencia dependen de la versión de configuración y política aplicables. Un retry no consume una segunda numeración para la misma intención salvo decisión explícita, verificable y auditable.
+No se inventa numeración antes de asignación comprobable. Las modalidades son `PROVIDER_ASSIGNED`, `AUTHORITY_ASSIGNED`, `AUTHORIZED_RANGE` y `LOCAL_CONTINGENCY`. En las dos primeras no existe cursor local y la referencia write-once llega de la autoridad correspondiente. En rango autorizado/contingencia, la versión publicada es owner del rango/cursor y se bloquea antes de tomar `next_number_value`; la asignación al mismo `ElectronicDocument`, avance del cursor y Audit ocurren atómicamente. Rollback previo al commit revierte cursor y reserva. Tras el commit que expone o prepara exposición externa, el número no vuelve al pool: cancelación/anulación conserva `RELEASED_WITHOUT_REUSE|BURNED` y evidencia del hueco.
+
+Dos asignaciones concurrentes serializan sobre la versión exacta. Agotamiento bloquea emisión sin rollover implícito. `UNKNOWN_OUTCOME` impide liberar, reasignar o pedir automáticamente otro número hasta reconciliation autoritativa. Un retry usa el mismo documento/número y crea solamente otro attempt; un replacement/correctivo explícito es un documento nuevo con identidad, capability y numeración propias. Un `UNIQUE` es defensa adicional, no el protocolo, y una sequence PostgreSQL no sustituye numeración legal.
 
 ## Contingencia
 
@@ -412,7 +418,7 @@ El documento conserva snapshot de configuración, numeración aplicable, represe
 
 ## Documentos correctivos
 
-`SaleReturn` puede causar una solicitud de evaluación fiscal. Sales no decide el tipo de documento correctivo. Electronic Invoicing determina, con política vigente, si corresponde nota crédito, nota débito u otro tipo permitido.
+`SaleReturn` puede causar una solicitud de evaluación fiscal. Sales no decide el tipo de documento correctivo. Electronic Invoicing determina, con política vigente, si corresponde nota crédito, nota débito u otro tipo permitido. `DEBIT_NOTE` exige la capability específica `DEBIT_NOTES` declarada y efectiva; `ELECTRONIC_INVOICING` genérica no la autoriza. Este contrato no afirma que Siigo, Factus, Alegra u otro provider la soporte.
 
 El correctivo:
 
@@ -523,7 +529,10 @@ No se transforma una Sale, anulación, SaleReturn, Refund, texto de auditoría o
 9. permisos, scopes, MFA/reautenticación y segregación;
 10. aislamiento de secretos;
 11. concurrencia entre workers, polling y webhook;
-12. PoC RLS futuro como evidencia separada.
+12. PoC RLS futuro como evidencia separada;
+13. asignación concurrente, agotamiento, rollback, huecos, contingencia y `UNKNOWN_OUTCOME` sin segundo número;
+14. configuración company-wide frente a branch-specific y precedencia fail-closed;
+15. downgrade concurrente de declaración/capability y nota débito sin `DEBIT_NOTES` rechazada.
 
 ### SQLite/WAL
 

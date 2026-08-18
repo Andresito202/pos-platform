@@ -2,7 +2,7 @@
 
 ## 1. Propósito, estado y autoridad
 
-Estado de `FISCAL-003-MANIFEST`: `PASS`, pendiente de revisión independiente. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
+Estado de `FISCAL-003-MANIFEST`: `PASS`. La revisión independiente `FISCAL-003-MANIFEST-REVIEW` terminó `PASS_WITH_REMEDIATION`; esta revisión documental cierra M-01..M-06 y reconcilia L-01/L-02 antes de repetir el review. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
 
 Este documento es la autoridad de alcance para la futura migration PostgreSQL `003_fiscal_electronic_invoicing_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, SQL, cambios al runner, adapters, HTTP, credenciales, seeds ni evidencia real de provider. Un PASS documental autoriza únicamente una revisión independiente; no autoriza materialización.
 
@@ -35,6 +35,7 @@ Reglas de interpretación: `MANIFEST != SQL`, `DOCUMENTED != IMPLEMENTED`, `IMPL
 | FKs hacia 001/002 y descriptor dirigido `003 -> 002` | `EXTENSION` | consumen Company, Branch, User, ExternalIntegration, IntegrationCapability, IntegrationDispatch, ledger y roles existentes |
 | constraint final de `IntegrationDispatch.dispatch_class` | `RECONCILIATION` | completa el rollout aprobado 002/003 sin editar bytes de 002 |
 | candidate key adicional de `integration_capabilities` y guards fiscales sobre dispatch | `EXTENSION` | hacen verificable la capability y la referencia fiscal desde objetos 003 |
+| capability `DEBIT_NOTES` | `EXTENSION` | 003 amplía de forma aditiva declaraciones, capacidades efectivas y allowlists; no modifica SQL 002 ni declara soporte de provider |
 | alcance SQLite | `RECONCILIATION` | el contrato conceptual permite intención local futura, pero migration 003 no replica estado fiscal central ni crea schema local |
 
 No existe `REPLACEMENT` ni `DEPRECATED`. Migration 003 no adquiere ownership de provider, account/environment, credential binding, capabilities generales, discovery, mappings, dispatch general, webhook general ni provider-wide configuration. Tampoco materializa Sales, Tax, Payments, Sync o Audit por segunda vez.
@@ -85,7 +86,6 @@ Columnas, en orden:
 id uuid PK
 tenant_id uuid NOT NULL
 company_id uuid NOT NULL
-branch_id uuid NULL
 external_integration_id uuid NOT NULL
 electronic_invoicing_capability_id uuid NOT NULL
 capability_code text NOT NULL DEFAULT 'ELECTRONIC_INVOICING'
@@ -96,9 +96,9 @@ updated_at timestamptz NOT NULL
 version bigint NOT NULL DEFAULT 1
 ```
 
-`capability_code` queda fijo en `ELECTRONIC_INVOICING`. Provider, environment, account, adapter, credential, health y capability general no se copian. El estado efectivo es una proyección de vigencia, integración `ACTIVE|DEGRADED`, capability `SUPPORTED`, configuración publicada y requisitos; no se crea un lifecycle duplicado.
+`capability_code` queda fijo en `ELECTRONIC_INVOICING`. La connection es **corporativa y nunca tiene `branch_id`**. Provider, environment, account, adapter, credential, health y capability general no se copian. El estado efectivo es una proyección de vigencia, integración `ACTIVE|DEGRADED`, capability `SUPPORTED`, declaración vigente y configuración publicada; `REVALIDATION_REQUIRED` es una proyección cuando la declaración/capability deja de ser efectiva, no una columna ni un lifecycle duplicado.
 
-Candidate keys: `(tenant_id,id)`, `(tenant_id,company_id,id)` y `(tenant_id,company_id,external_integration_id,id)`. Dos exclusion constraints NOT DEFERRABLE impiden solapamiento `[valid_from,valid_until)`: una por `(tenant_id,company_id,external_integration_id)` cuando `branch_id IS NULL` y otra que añade `branch_id` cuando no es NULL. Branch, si existe, pertenece a la misma Company.
+Candidate keys: `(tenant_id,id)`, `(tenant_id,company_id,id)` y `(tenant_id,company_id,external_integration_id,id)`. Una exclusion constraint NOT DEFERRABLE impide solapamiento `[valid_from,valid_until)` por `(tenant_id,company_id,external_integration_id)`. El scope de sede pertenece exclusivamente a configuración/documento.
 
 ### 5.2 `fiscal.fiscal_emission_configurations`
 
@@ -107,13 +107,14 @@ id uuid PK
 tenant_id uuid NOT NULL
 company_id uuid NOT NULL
 branch_id uuid NULL
+scope_type text NOT NULL
 fiscal_connection_id uuid NOT NULL
 external_integration_id uuid NOT NULL
 document_type text NOT NULL
 created_at timestamptz NOT NULL
 ```
 
-Es la identidad estable, no una versión ni un key-value global. Candidate keys: `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,company_id,external_integration_id,fiscal_connection_id,id,document_type)` y `UNIQUE (tenant_id,company_id,fiscal_connection_id,document_type)`. El catálogo físico inicial es `ELECTRONIC_SALES_INVOICE`, `CREDIT_NOTE`, `DEBIT_NOTE`, `SUPPORT_DOCUMENT` y `SUPPORT_DOCUMENT_ADJUSTMENT`; migration no inserta filas ni afirma que todo provider soporte cada tipo. Un tipo adicional exige ampliar el contrato y sus capabilities antes de uso.
+Es la identidad estable, no una versión ni un key-value global. `scope_type` es `COMPANY|BRANCH`; `COMPANY` exige `branch_id IS NULL` y `BRANCH` exige `branch_id IS NOT NULL`. Candidate keys: `(tenant_id,id)`, `(tenant_id,company_id,id)` y `(tenant_id,company_id,external_integration_id,fiscal_connection_id,id,document_type,scope_type)`. La FK de versión usa esta última clave sin nullable; un guard físico compara además `OLD/NEW branch_id` con la configuración, evitando que NULL desactive una FK compuesta. Dos uniques parciales impiden conflicto: `(tenant_id,company_id,fiscal_connection_id,document_type) WHERE scope_type='COMPANY'` y `(tenant_id,company_id,branch_id,fiscal_connection_id,document_type) WHERE scope_type='BRANCH'`. Puede existir una configuración company-wide y configuraciones por sede para el mismo tipo; para un documento, la branch-specific vigente tiene precedencia y la company-wide solo es fallback. Dos candidatas del mismo nivel, solapamiento publicado en una identidad o más de una candidata efectiva producen conflicto fail-closed. El catálogo físico inicial es `ELECTRONIC_SALES_INVOICE`, `CREDIT_NOTE`, `DEBIT_NOTE`, `SUPPORT_DOCUMENT` y `SUPPORT_DOCUMENT_ADJUSTMENT`; migration no inserta filas ni afirma que todo provider soporte cada tipo.
 
 ### 5.3 `fiscal.fiscal_emission_configuration_versions`
 
@@ -122,6 +123,7 @@ id uuid PK
 tenant_id uuid NOT NULL
 company_id uuid NOT NULL
 branch_id uuid NULL
+scope_type text NOT NULL
 fiscal_connection_id uuid NOT NULL
 external_integration_id uuid NOT NULL
 fiscal_emission_configuration_id uuid NOT NULL
@@ -135,6 +137,8 @@ numbering_policy_code text NOT NULL
 prefix text NULL
 number_range_start bigint NULL
 number_range_end bigint NULL
+next_number_value bigint NULL
+numbering_exhausted_at timestamptz NULL
 provider_numbering_reference text NULL
 certificate_reference text NULL
 contingency_policy_reference text NULL
@@ -153,9 +157,9 @@ updated_at timestamptz NOT NULL
 row_version bigint NOT NULL DEFAULT 1
 ```
 
-Estados exactos: `DRAFT`, `PUBLISHED`, `SUPERSEDED`, `REVOKED`. `SCHEDULED`, `CURRENT` y `EXPIRED` son proyecciones. Candidate key `(tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,id,document_type)`, `UNIQUE (tenant_id,fiscal_emission_configuration_id,version_number)` y self-FK scoped `(tenant_id,company_id,fiscal_emission_configuration_id,supersedes_version_id)` lineal. Una exclusion constraint NOT DEFERRABLE sobre `(tenant_id,company_id,fiscal_emission_configuration_id,tstzrange(valid_from,valid_until,'[)')) WHERE status='PUBLISHED'` impide solapamiento.
+Estados exactos: `DRAFT`, `PUBLISHED`, `SUPERSEDED`, `REVOKED`. `SCHEDULED`, `CURRENT` y `EXPIRED` son proyecciones. Scope se fija por FK compuesta no-nullable y branch debe ser idéntica a la configuración mediante guard físico más FK independiente a Branch. Candidate key `(tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,id,document_type)`, `UNIQUE (tenant_id,fiscal_emission_configuration_id,version_number)` y self-FK scoped `(tenant_id,company_id,fiscal_emission_configuration_id,supersedes_version_id)` lineal. Una exclusion constraint NOT DEFERRABLE sobre `(tenant_id,company_id,fiscal_emission_configuration_id,tstzrange(valid_from,valid_until,'[)')) WHERE status='PUBLISHED'` impide solapamiento.
 
-Los rangos son ambos NULL o ambos no NULL y, si existen, `0 < start <= end`. `numbering_policy_code` es código publicado/allowlisted, no una secuencia PostgreSQL que suplante numeración legal. `certificate_reference` es opaca. Checksum de configuración incluye identidad, versión, scope, NIT/nombre congelados, autorización, numeración, references, vigencia y schema; excluye timestamps de auditoría y secretos.
+`numbering_policy_code` admite las modalidades normativas `PROVIDER_ASSIGNED`, `AUTHORITY_ASSIGNED`, `AUTHORIZED_RANGE` y `LOCAL_CONTINGENCY`; cualquier código adicional exige contrato versionado. En las dos modalidades remotas, rango, cursor y agotamiento son NULL. En las dos modalidades con asignación local, rango y `next_number_value` son obligatorios, `0 < start <= next <= end + 1`, y `numbering_exhausted_at` solo existe cuando `next=end+1`. El material publicado es inmutable salvo el cursor operacional `next_number_value`, `numbering_exhausted_at`, `updated_at` y `row_version`, modificables exclusivamente por el guard de asignación bajo lock. No se usa una sequence PostgreSQL como sustituto legal. `certificate_reference` es opaca. El checksum publicado incluye la fuente/rango inicial, pero excluye cursor, agotamiento y timestamps operacionales para no reescribir la versión legal.
 
 ### 5.4 `fiscal.electronic_documents`
 
@@ -163,7 +167,7 @@ Los rangos son ambos NULL o ambos no NULL y, si existen, `0 < start <= end`. `nu
 id uuid PK
 tenant_id uuid NOT NULL
 company_id uuid NOT NULL
-branch_id uuid NULL
+branch_id uuid NOT NULL
 external_integration_id uuid NOT NULL
 fiscal_connection_id uuid NOT NULL
 fiscal_emission_configuration_id uuid NOT NULL
@@ -174,6 +178,8 @@ source_version bigint NOT NULL
 document_type text NOT NULL
 logical_operation_key text NOT NULL
 status text NOT NULL
+numbering_mode text NOT NULL
+numbering_state text NOT NULL
 currency_code char(3) NOT NULL
 subtotal_amount numeric(19,6) NOT NULL
 discount_amount numeric(19,6) NOT NULL
@@ -188,6 +194,10 @@ canonical_payload_checksum text NOT NULL
 internal_reference text NOT NULL
 prefix text NULL
 number text NULL
+number_reserved_at timestamptz NULL
+number_consumed_at timestamptz NULL
+number_burned_at timestamptz NULL
+numbering_resolution_reason text NULL
 provider_document_id text NULL
 provider_reference text NULL
 authority_reference text NULL
@@ -213,6 +223,21 @@ Candidate keys: `(tenant_id,id)`, `(tenant_id,company_id,id)`, `(tenant_id,compa
 `source_type/source_id` es referencia polimórfica inmutable porque los aggregates source todavía no comparten una tabla física única; el caso de uso valida tenant/company/branch y congela snapshots. La self-FK del correctivo incluye tenant/company y prohíbe autorreferencia. `CREDIT_NOTE`, `DEBIT_NOTE` y `SUPPORT_DOCUMENT_ADJUSTMENT` exigen original y causa correctiva; los otros dos tipos los prohíben. Los importes son no negativos y deben coincidir con snapshots/checksum; SQL no inventa una ecuación universal que ignore redondeo, cargos, retenciones u otras dimensiones del payload canónico.
 
 `status` es lifecycle de aplicación/documento; `FiscalSubmissionAttempt.status/transport_status` es lifecycle técnico; `provider_status_raw` y `authority_status_raw` conservan autoridades externas separadas. No se colapsan en un único status provider-specific.
+
+#### 5.4.1 Protocolo normativo de numeración
+
+`ElectronicDocument` es la reserva durable del número para una identidad lógica; la versión de configuración es el owner del rango/cursor. `numbering_state` admite `NOT_APPLICABLE`, `PENDING_EXTERNAL`, `RESERVED`, `CONSUMED`, `UNKNOWN_OUTCOME`, `RELEASED_WITHOUT_REUSE` y `BURNED`. Nunca se reasigna a otro `logical_operation_key` un par prefix/number que haya quedado durablemente asociado, incluso si fue liberado administrativamente.
+
+| Modalidad | Reserva/asignación | Confirmación/consumo | Liberación, huecos y cancelación |
+|---|---|---|---|
+| `PROVIDER_ASSIGNED` | Worker crea el documento con `PENDING_EXTERNAL`; no toca cursor local. El provider asigna y el worker persiste número/referencias write-once. | Evidencia verificable del provider/autoridad confirma `CONSUMED`. | Antes de transmitir no hay número que liberar. Timeout tras envío queda `UNKNOWN_OUTCOME`; reconciliation confirma consumo/rechazo, nunca solicita automáticamente un segundo número. |
+| `AUTHORITY_ASSIGNED` | Worker crea el documento con `PENDING_EXTERNAL`; no toca cursor local. La autoridad asigna directamente y el worker persiste número/referencias write-once. | Evidencia autoritativa confirma `CONSUMED`. | Antes de solicitar no hay número local. Outcome incierto no se libera ni genera una segunda solicitud automática; reconciliation consulta la misma identidad lógica. |
+| `AUTHORIZED_RANGE` | El comando fiscal bloquea la declaración y cadena de capability y luego la versión exacta `FOR UPDATE`; toma `next_number_value`, crea/actualiza el mismo documento lógico a `RESERVED` y avanza el cursor dentro de la misma transacción. | Antes de cualquier HTTP, la reserva durable se marca `CONSUMED` y se crea el attempt/dispatch coherente; desde ese commit el número no vuelve al pool. | Rollback previo al commit revierte documento y cursor. Cancelación tras reserva durable produce `RELEASED_WITHOUT_REUSE` o `BURNED` según política legal, con razón/Audit; el cursor no retrocede. Huecos se conservan como evidencia. |
+| `LOCAL_CONTINGENCY` | Igual lock y asignación atómica que `AUTHORIZED_RANGE`, pero solo si la versión publicada habilita contingencia y existe evidencia de activación. | Se considera consumido al emitir localmente el artefacto legal o, como máximo, antes de exponerlo fuera de la transacción. Posterior envío usa el mismo documento/número. | Nunca se reutiliza. Cancelación/anulación exige evidencia y, si corresponde, documento correctivo; reconciliation converge el mismo documento. |
+
+Orden transaccional de asignación local: (1) resolver por branch con precedencia cerrada; (2) adquirir locks canónicos de capability de §7.1; (3) bloquear versión/rango; (4) verificar vigencia, modalidad, rango y `next_number_value <= end`; (5) verificar `logical_operation_key`/checksum; (6) asignar prefix/number y `RESERVED` al mismo documento; (7) incrementar cursor y marcar agotamiento si alcanza `end+1`; (8) Audit/evento; (9) commit. Dos transacciones concurrentes serializan sobre la misma versión. Al agotarse el rango, no hay rollover implícito: se bloquea nueva emisión hasta publicar/seleccionar otra versión autorizada.
+
+Un retry técnico siempre crea otro `FiscalSubmissionAttempt` con el mismo `ElectronicDocument`, número, dispatch lógico e idempotency root. `UNKNOWN_OUTCOME` bloquea release, reutilización, replacement automático y nueva asignación. Solo reconciliation con evidencia autoritativa puede confirmar `CONSUMED`, `BURNED` o ausencia de exposición; aun en esta última, `RELEASED_WITHOUT_REUSE` conserva el hueco. Un reemplazo/correctivo es un nuevo documento lógico explícito que referencia el original y obtiene numeración conforme a su propio tipo/capability.
 
 ### 5.5 `fiscal.fiscal_submission_attempts`
 
@@ -372,16 +397,17 @@ Todas las FKs usan `ON DELETE NO ACTION`; RLS nunca las sustituye.
 | Origen | Columnas | Destino | Invariante |
 |---|---|---|---|
 | connection | `(tenant_id,company_id)` | `organization.companies(tenant_id,id)` | company scope |
-| connection | `(tenant_id,company_id,branch_id)` | `organization.branches(tenant_id,company_id,id)` | branch opcional coherente |
 | connection | `(tenant_id,company_id,external_integration_id)` | `integrations.external_integrations(tenant_id,company_id,id)` | integración general exacta |
 | connection | `(tenant_id,company_id,external_integration_id,electronic_invoicing_capability_id,capability_code)` | candidate 003 de `integration_capabilities` | capability `ELECTRONIC_INVOICING` perteneciente a la integración |
-| stable config | `(tenant_id,company_id,external_integration_id,fiscal_connection_id)` | connection candidate | mismo perfil/integration |
-| config version | `(tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,document_type)` | stable config candidate | misma identidad estable y tipo documental |
+| stable config | `(tenant_id,company_id,external_integration_id,fiscal_connection_id)` | connection candidate | mismo perfil/integration corporativo |
+| stable config | `(tenant_id,company_id,branch_id)` cuando `scope_type='BRANCH'` | `organization.branches(tenant_id,company_id,id)` | sede real; CHECK `COMPANY↔NULL`, `BRANCH↔NOT NULL` |
+| config version | `(tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,document_type,scope_type)` | stable config candidate | misma identidad, tipo y scope; guard físico exige branch idéntica |
+| config version | `(tenant_id,company_id,branch_id)` cuando no NULL | `organization.branches(tenant_id,company_id,id)` | defensa física adicional de sede |
 | config version | actors | `identity.users(id)` | actor global autenticado |
 | config version | scoped `supersedes_version_id` | versión anterior | no supersession cross-scope/config |
-| document | `(tenant_id,company_id,branch_id)` | Branch | branch opcional real |
+| document | `(tenant_id,company_id,branch_id)` | Branch | branch operativa obligatoria y real |
 | document | `(tenant_id,company_id,external_integration_id,fiscal_connection_id)` | connection candidate | mismo profile/integration |
-| document | `(tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,document_type)` | version candidate | configuración publicada exacta |
+| document | versión scoped sin imponer igualdad de branch | version candidate | versión publicada exacta; guard físico exige `version.branch_id IS NULL OR version.branch_id=document.branch_id` y precedencia branch-first |
 | document | `(tenant_id,company_id,original_electronic_document_id)` | document candidate | correctivo mismo tenant/company |
 | attempt | `(tenant_id,company_id,external_integration_id,fiscal_connection_id,electronic_document_id)` | document candidate | mismo documento/connection/integration |
 | attempt | `(tenant_id,company_id,external_integration_id,fiscal_connection_id)` | connection candidate | misma conexión |
@@ -401,9 +427,9 @@ Toda tabla usa `<table>_id_v7_ck`, `<table>_tenant_id_id_uq` y, donde existe `co
 
 | Tabla/alteración | Constraints normativos |
 |---|---|
-| `fiscal_connections` | `fiscal_connections_tenant_company_integration_id_uq`, `fiscal_connections_company_fk`, `fiscal_connections_branch_fk`, `fiscal_connections_integration_fk`, `fiscal_connections_capability_fk`, `fiscal_connections_capability_ck`, `fiscal_connections_validity_ck`, `fiscal_connections_version_ck`, `fiscal_connections_company_validity_excl`, `fiscal_connections_branch_validity_excl` |
-| `fiscal_emission_configurations` | `fiscal_emission_configurations_scope_uq`, `fiscal_emission_configurations_identity_uq`, `fiscal_emission_configurations_connection_fk`, `fiscal_emission_configurations_document_type_ck` |
-| `fiscal_emission_configuration_versions` | `fiscal_emission_configuration_versions_scope_uq`, `fiscal_emission_configuration_versions_number_uq`, `fiscal_emission_configuration_versions_configuration_fk`, `fiscal_emission_configuration_versions_supersedes_fk`, `fiscal_emission_configuration_versions_created_by_fk`, `fiscal_emission_configuration_versions_published_by_fk`, `fiscal_emission_configuration_versions_status_ck`, `fiscal_emission_configuration_versions_numbering_ck`, `fiscal_emission_configuration_versions_checksum_ck`, `fiscal_emission_configuration_versions_publication_ck`, `fiscal_emission_configuration_versions_validity_ck`, `fiscal_emission_configuration_versions_published_validity_excl` |
+| `fiscal_connections` | `fiscal_connections_tenant_company_integration_id_uq`, `fiscal_connections_company_fk`, `fiscal_connections_integration_fk`, `fiscal_connections_capability_fk`, `fiscal_connections_capability_ck`, `fiscal_connections_validity_ck`, `fiscal_connections_version_ck`, `fiscal_connections_company_validity_excl` |
+| `fiscal_emission_configurations` | `fiscal_emission_configurations_scope_uq`, `fiscal_emission_configurations_company_scope_uq`, `fiscal_emission_configurations_branch_scope_uq`, `fiscal_emission_configurations_connection_fk`, `fiscal_emission_configurations_branch_fk`, `fiscal_emission_configurations_scope_ck`, `fiscal_emission_configurations_document_type_ck` |
+| `fiscal_emission_configuration_versions` | `fiscal_emission_configuration_versions_scope_uq`, `fiscal_emission_configuration_versions_number_uq`, `fiscal_emission_configuration_versions_configuration_fk`, `fiscal_emission_configuration_versions_branch_fk`, `fiscal_emission_configuration_versions_supersedes_fk`, `fiscal_emission_configuration_versions_created_by_fk`, `fiscal_emission_configuration_versions_published_by_fk`, `fiscal_emission_configuration_versions_scope_ck`, `fiscal_emission_configuration_versions_status_ck`, `fiscal_emission_configuration_versions_numbering_ck`, `fiscal_emission_configuration_versions_checksum_ck`, `fiscal_emission_configuration_versions_publication_ck`, `fiscal_emission_configuration_versions_validity_ck`, `fiscal_emission_configuration_versions_published_validity_excl` |
 | `electronic_documents` | `electronic_documents_tenant_company_integration_id_uq`, `electronic_documents_tenant_company_connection_id_uq`, `electronic_documents_integration_connection_id_uq`, `electronic_documents_logical_operation_uq`, `electronic_documents_connection_fk`, `electronic_documents_branch_fk`, `electronic_documents_configuration_version_fk`, `electronic_documents_original_fk`, `electronic_documents_status_ck`, `electronic_documents_document_type_ck`, `electronic_documents_checksum_ck`, `electronic_documents_amounts_ck`, `electronic_documents_correction_ck`, `electronic_documents_external_identity_ck`, `electronic_documents_timestamps_ck`, `electronic_documents_version_ck`, más los uniques parciales `electronic_documents_legal_number_uq`, `electronic_documents_legal_identifier_uq`, `electronic_documents_provider_document_uq` |
 | `fiscal_submission_attempts` | `fiscal_submission_attempts_document_scope_uq`, `fiscal_submission_attempts_connection_scope_uq`, `fiscal_submission_attempts_dispatch_history_uq`, `fiscal_submission_attempts_document_history_uq`, `fiscal_submission_attempts_idempotency_uq`, `fiscal_submission_attempts_document_fk`, `fiscal_submission_attempts_connection_fk`, `fiscal_submission_attempts_dispatch_fk`, `fiscal_submission_attempts_class_ck`, `fiscal_submission_attempts_status_ck`, `fiscal_submission_attempts_result_ck`, `fiscal_submission_attempts_checksum_ck`, `fiscal_submission_attempts_values_ck`, `fiscal_submission_attempts_timestamps_ck`, `fiscal_submission_attempts_version_ck` |
 | `fiscal_artifacts` | `fiscal_artifacts_identity_uq`, `fiscal_artifacts_document_fk`, `fiscal_artifacts_attempt_fk`, `fiscal_artifacts_type_ck`, `fiscal_artifacts_checksum_ck`, `fiscal_artifacts_values_ck` |
@@ -416,12 +442,16 @@ Los guards/triggers exactos son:
 
 ```text
 fiscal_connections_scope_guard
+fiscal_connections_capability_guard
+fiscal_emission_configurations_scope_guard
 fiscal_emission_configuration_versions_update_guard
 fiscal_emission_configuration_versions_state_guard
+fiscal_emission_configuration_versions_numbering_guard
 electronic_documents_insert_guard
 electronic_documents_update_guard
 electronic_documents_state_guard
 electronic_documents_evidence_guard
+electronic_documents_numbering_guard
 fiscal_submission_attempts_insert_guard
 fiscal_submission_attempts_update_guard
 fiscal_submission_attempts_state_guard
@@ -435,13 +465,14 @@ fiscal_incidents_update_guard
 fiscal_incidents_state_guard
 fiscal_reconciliation_items_immutable_guard
 integration_dispatches_fiscal_document_guard
+provider_capability_declarations_fiscal_downgrade_guard
 ```
 
 Las funciones que los soporten pertenecen a `pos_schema_owner`, fijan `search_path=pg_catalog,fiscal,integrations` sólo cuando requieren ambos schemas y no confían en el search path de sesión. Introspection compara nombre, evento, timing, tabla, función y definición material.
 
-## 7. Capability gate y transición discriminada
+## 7. Capability gate, downgrade y transición discriminada
 
-La cadena obligatoria para crear un documento/dispatch fiscal es:
+Migration 003 incorpora `DEBIT_NOTES` como capability extensible aditiva en `ProviderCapabilityDeclaration`, `IntegrationCapability`, allowlists, guards e introspection owned por 003. No edita SQL 002, no inserta declaraciones/capabilities y no afirma soporte de ningún provider. La cadena obligatoria para activar una conexión, publicar/seleccionar configuración, crear un documento o encolar dispatch fiscal es:
 
 ```text
 ProviderCapabilityDeclaration(SUPPORTED)
@@ -453,23 +484,50 @@ ProviderCapabilityDeclaration(SUPPORTED)
   -> FiscalSubmissionAttempt(FISCAL)
 ```
 
-No hay flags en Company. Un trigger de connection valida capability `ELECTRONIC_INVOICING`; un trigger de document valida tipo contra configuración/capability y snapshot; el guard de dispatch 002 sigue validando una IntegrationCapability efectiva.
+No hay flags en Company. Cada operación nueva revalida la declaración de la versión exacta del adapter y la capability efectiva bajo el orden de locks de §7.1; no basta un snapshot ni una fila histórica `IntegrationCapability`. Un trigger de connection valida capability base `ELECTRONIC_INVOICING`; un trigger de document valida tipo contra configuración, declaración, capability y snapshot; el guard 003 de dispatch repite el gate fail-closed justo antes de insertar/activar el dispatch.
 
-Mapping inicial document type → capability: `ELECTRONIC_SALES_INVOICE|DEBIT_NOTE -> ELECTRONIC_INVOICING`, `CREDIT_NOTE -> CREDIT_NOTES`, `SUPPORT_DOCUMENT|SUPPORT_DOCUMENT_ADJUSTMENT -> SUPPORT_DOCUMENTS`. La capability de cada documento debe estar `SUPPORTED` y efectiva en la misma integración; la capability base de la connection no sustituye este gate por tipo.
+Mapping inicial document type → capability: `ELECTRONIC_SALES_INVOICE -> ELECTRONIC_INVOICING`, `CREDIT_NOTE -> CREDIT_NOTES`, `DEBIT_NOTE -> DEBIT_NOTES`, `SUPPORT_DOCUMENT|SUPPORT_DOCUMENT_ADJUSTMENT -> SUPPORT_DOCUMENTS`. Una nota débito falla si `DEBIT_NOTES` no está declarada `SUPPORTED` por la versión exacta del adapter y configurada `SUPPORTED`/efectiva para la integración. La capability base de la connection no sustituye el gate por tipo.
 
 El constraint final 003 de `integrations.integration_dispatches` exige exactamente:
 
 ```text
 (dispatch_class='FISCAL'
- AND capability_code IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','SUPPORT_DOCUMENTS')
+ AND capability_code IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','DEBIT_NOTES','SUPPORT_DOCUMENTS')
  AND internal_entity_type='ElectronicDocument')
 OR
 (dispatch_class='NON_FISCAL'
- AND capability_code NOT IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','SUPPORT_DOCUMENTS')
+ AND capability_code NOT IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','DEBIT_NOTES','SUPPORT_DOCUMENTS')
  AND internal_entity_type<>'ElectronicDocument')
 ```
 
 Una capability fiscal futura exige migration explícita antes de uso. Un trigger 003 sobre dispatch `FISCAL` valida que `internal_entity_id` identifique un `ElectronicDocument` del mismo tenant/company/integration y que su tipo sea compatible con la capability. La FK discriminada de `FiscalSubmissionAttempt` exige `FISCAL`; la FK y check existentes de `IntegrationDispatchAttempt` continúan exigiendo `NON_FISCAL`.
+
+### 7.1 Orden canónico de locks
+
+Toda activación, downgrade/retiro, preparación documental, asignación de número y enqueue fiscal adquiere únicamente las filas aplicables y siempre en este orden; dentro de cada nivel usa UUID/código ascendente:
+
+```text
+ProviderCapabilityDeclaration
+-> ProviderAdapterVersion
+-> ExternalIntegration
+-> IntegrationCapability
+-> FiscalConnection
+-> FiscalEmissionConfiguration
+-> FiscalEmissionConfigurationVersion / numbering owner
+-> ElectronicDocument
+-> IntegrationDispatch
+-> FiscalSubmissionAttempt
+```
+
+La declaración se bloquea primero `FOR UPDATE` tanto al consumir como al degradar para serializar el último gate con el downgrade. Ninguna ruta invierte el orden ni adquiere tardíamente un predecessor. HTTP, discovery y consulta a autoridad ocurren fuera de la transacción.
+
+### 7.2 Downgrade/retiro consistente
+
+Un cambio de declaración `SUPPORTED -> UNSUPPORTED|UNVERIFIED`, o retiro/bloqueo de la versión del adapter, bloquea primero la declaración y versión. Desde ese lock, toda nueva operación fiscal espera; al commit revalida y falla. En la misma transacción se bloquean en orden las `IntegrationCapability` afectadas y se cierran en `effective_until=now` o pasan a `UNSUPPORTED|UNVERIFIED|DISABLED` según el motivo permitido por 002; después se bloquean sus conexiones/configuraciones activas para auditar la proyección `REVALIDATION_REQUIRED`. No se añade status duplicado a `FiscalConnection`.
+
+El guard inverso `provider_capability_declarations_fiscal_downgrade_guard` impide confirmar el downgrade si alguna capability efectiva afectada no fue degradada/cerrada en esa transacción. El guard de connection/document/dispatch consulta nuevamente declaración + capability bajo lock, por lo que una fila efectiva obsoleta nunca basta para crear una operación nueva. Activación y upgrade recorren el mismo orden y exigen declaración `SUPPORTED`, adapter habilitado y evidencia aprobada.
+
+El downgrade impide nuevas activaciones, publicaciones seleccionables, documentos, asignaciones legales y dispatches para la capability retirada. DRAFT/READY/QUEUED no transmitidos quedan bloqueados y requieren revalidación o cancelación explícita. No borra ni altera documentos emitidos, identificadores legales, números quemados, attempts, artifacts, snapshots o Audit. La lectura histórica y reconciliation local siguen permitidas; una consulta externa de reconciliation requiere una capability de consulta vigente explícita o evidencia manual/autoridad, nunca un bypass de la capability de emisión retirada. Un documento correctivo posterior requiere sus capabilities vigentes propias.
 
 ## 8. Orden atómico de habilitación FISCAL
 
@@ -513,63 +571,85 @@ Guards obligatorios:
 - incident y reconciliation aceptan únicamente las transiciones cerradas por PHY-G12, con actor/motivo requeridos para review/resolve/archive/close/reopen;
 - cross-scope, capability ausente, configuración no efectiva, self-correction, checksum conflict y estado ilegal fallan cerrado.
 
+Todo texto externo se valida antes de persistir. Se normaliza Unicode NFC, se recortan extremos y se rechazan vacío/solo whitespace, NUL, CR/LF/TAB, controles Unicode `Cc/Cf`, secuencias de escape y contenido que coincida con la denylist de secretos (`authorization`, `bearer`, `api[_-]?key`, `client[_-]?secret`, private key, token/JWT o credencial). `provider_status_raw`, `authority_status_raw`, `provider_code_raw`, códigos de incidente/discrepancia/reconciliation y `error_code` admiten texto provider-specific —nunca enum global— hasta 256 bytes UTF-8; whitespace interno se colapsa a un espacio. Identificadores legales/provider/authority/request/operation/correlation admiten hasta 512 bytes y, cuando son identificadores opacos, solo letras Unicode normalizadas, números y `._:/+@#=-`; referencias URI/storage/evidence/snapshot admiten hasta 2048 bytes y deben satisfacer su scheme/allowlist. Razones sanitizadas admiten 1024 bytes. NULL representa ausencia; string vacío no. Audit/log registra categoría, longitud, hash y resultado de validación, nunca el valor raw, storage reference ni contenido rechazado. Canonicalización ocurre antes de checksum/idempotencia.
+
 ## 10. RLS y policies
 
-Exactamente las nueve tablas 003 reciben `ENABLE ROW LEVEL SECURITY`, una policy `<table>_tenant_isolation` para `pos_app,pos_worker,pos_platform_app` y después `FORCE ROW LEVEL SECURITY`.
+Exactamente las nueve tablas 003 reciben `ENABLE ROW LEVEL SECURITY` y después `FORCE ROW LEVEL SECURITY`. Ocho tablas usan policy `<table>_tenant_isolation` para `pos_app,pos_worker,pos_platform_app`; cada operación autorizada aplica:
 
 ```text
 USING     (tenant_id = platform.current_tenant_id())
 WITH CHECK (tenant_id = platform.current_tenant_id())
 ```
 
+`fiscal_emission_configuration_versions` separa cuatro policies permisivas y no incluye al worker en una policy tenant-only: (a) `..._app_tenant_isolation` para `pos_app` con `USING/WITH CHECK` tenant; (b) `..._platform_tenant_isolation` para `pos_platform_app` con `USING` tenant y sin DML; (c) `..._worker_published_history` solo `SELECT` para `pos_worker`, con `USING tenant AND status='PUBLISHED'`, o `status IN ('SUPERSEDED','REVOKED')` únicamente cuando un `ElectronicDocument` del mismo tenant referencia esa versión; (d) `..._worker_numbering_update` solo `UPDATE`, con `USING/WITH CHECK tenant AND status='PUBLISHED'`, mientras el grant y guard limitan el cambio al cursor operacional. Reconciliation accede a histórico mediante el documento/item scoped; no habilita lectura de versiones huérfanas. `DRAFT` jamás es visible al worker. Los column grants siguen siendo una frontera independiente.
+
 La ausencia o invalidez de `app.tenant_id` falla cerrado mediante el helper 001. `pos_platform_admin` conserva su `BYPASSRLS` de inspección, pero solo recibe SELECT por columnas. `pos_reporting` y PUBLIC no reciben acceso. Workers usan `SET LOCAL` por tenant/transacción y las pruebas reutilizan conexiones entre tenants para demostrar ausencia de fuga.
 
 ## 11. Matriz normativa de grants por columnas
 
-`pos_migrator` ejecuta únicamente artifacts autorizados mediante ownership temporal/controlado; `pos_schema_owner` posee objetos y no atiende tráfico. Ningún runtime recibe ownership, DDL, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` o `GRANT ALL`. En la tabla siguiente, “todas” significa exactamente la lista cerrada de columnas de la ficha §5 correspondiente y debe expandirse como grant por columnas; nunca autoriza `GRANT ... ON TABLE` ni incluye automáticamente columnas futuras.
+`pos_migrator` ejecuta únicamente artifacts autorizados mediante ownership temporal/controlado; `pos_schema_owner` posee objetos y no atiende tráfico. Ningún runtime recibe ownership, DDL, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` o `GRANT ALL`. Los siguientes conjuntos son listas literales cerradas que el SQL deberá expandir en grants por columna; una columna futura no pertenece a ninguno y queda **DENY BY DEFAULT**.
 
-| Tabla | Rol | Operación | Columnas exactas / límite |
+| Tabla | Rol | Operación | Conjunto exacto de columnas |
 |---|---|---|---|
-| `fiscal_connections` | `pos_app` | SELECT | todas salvo ninguna secreta; no hay credential/certificate |
-|  | `pos_app` | INSERT | `id,tenant_id,company_id,branch_id,external_integration_id,electronic_invoicing_capability_id,capability_code,valid_from,valid_until,created_at,updated_at,version` |
+| `fiscal_connections` | `pos_app` | SELECT, INSERT | `id,tenant_id,company_id,external_integration_id,electronic_invoicing_capability_id,capability_code,valid_from,valid_until,created_at,updated_at,version` |
 |  | `pos_app` | UPDATE | `valid_until,updated_at,version` |
-|  | `pos_worker` | SELECT | todas |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,capability_code,valid_from,valid_until,created_at,updated_at,version` |
-| `fiscal_emission_configurations` | `pos_app` | SELECT, INSERT | todas las columnas |
-|  | `pos_worker` | SELECT | todas |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | todas |
-| `fiscal_emission_configuration_versions` | `pos_app` | SELECT | todas excepto `certificate_reference` |
-|  | `pos_app` | INSERT | todas las columnas; guard exige `DRAFT`, actor y references opacas |
-|  | `pos_app` | UPDATE | material DRAFT, `status,published_at,published_by_actor_id,updated_at,row_version`; guard separa publish/revoke/supersede |
-|  | `pos_worker` | SELECT | versión publicada completa, incluida `certificate_reference` opaca |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | todas excepto `certificate_reference`, snapshot references y checksums |
-| `electronic_documents` | `pos_app` | SELECT | todas |
-|  | `pos_app` | INSERT | todas las columnas de identidad/source/snapshots/importes en estado `DRAFT`; external/legal evidence debe iniciar NULL |
-|  | `pos_app` | UPDATE | material DRAFT, `status,updated_at,version`; solo `DRAFT->READY->QUEUED` o void pre-submit |
-|  | `pos_worker` | SELECT | todas |
-|  | `pos_worker` | UPDATE | `status,provider_document_id,provider_reference,authority_reference,legal_identifier,provider_status_raw,authority_status_raw,uncertainty_reason,prefix,number,issued_at,accepted_at,rejected_at,last_reconciled_at,updated_at,version` |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | todas excepto snapshot references/checksums y `canonical_payload_checksum` |
-| `fiscal_submission_attempts` | `pos_app` | SELECT | identidad, operation/attempt, estados/códigos/timestamps y correlation; excluye response references |
-|  | `pos_worker` | SELECT, INSERT | todas |
+|  | `pos_worker` | SELECT | `id,tenant_id,company_id,external_integration_id,electronic_invoicing_capability_id,capability_code,valid_from,valid_until,created_at,updated_at,version` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,external_integration_id,capability_code,valid_from,valid_until,created_at,updated_at,version` |
+| `fiscal_emission_configurations` | `pos_app` | SELECT, INSERT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,document_type,created_at` |
+|  | `pos_worker` | SELECT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,document_type,created_at` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,document_type,created_at` |
+| `fiscal_emission_configuration_versions` | `pos_app` | SELECT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,fiscal_emission_configuration_id,document_type,version_number,status,issuer_tax_id_normalized_snapshot,issuer_legal_name_snapshot,authorization_reference,numbering_policy_code,prefix,number_range_start,number_range_end,next_number_value,numbering_exhausted_at,provider_numbering_reference,contingency_policy_reference,fiscal_capabilities_snapshot_reference,fiscal_capabilities_snapshot_checksum,configuration_schema_version,configuration_checksum,valid_from,valid_until,published_at,supersedes_version_id,created_by_actor_id,published_by_actor_id,created_at,updated_at,row_version` |
+|  | `pos_app` | INSERT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,fiscal_emission_configuration_id,document_type,version_number,status,issuer_tax_id_normalized_snapshot,issuer_legal_name_snapshot,authorization_reference,numbering_policy_code,prefix,number_range_start,number_range_end,next_number_value,numbering_exhausted_at,provider_numbering_reference,certificate_reference,contingency_policy_reference,fiscal_capabilities_snapshot_reference,fiscal_capabilities_snapshot_checksum,configuration_schema_version,configuration_checksum,valid_from,valid_until,published_at,supersedes_version_id,created_by_actor_id,published_by_actor_id,created_at,updated_at,row_version` |
+|  | `pos_app` | UPDATE | `issuer_tax_id_normalized_snapshot,issuer_legal_name_snapshot,authorization_reference,numbering_policy_code,prefix,number_range_start,number_range_end,next_number_value,numbering_exhausted_at,provider_numbering_reference,certificate_reference,contingency_policy_reference,fiscal_capabilities_snapshot_reference,fiscal_capabilities_snapshot_checksum,configuration_schema_version,configuration_checksum,valid_from,valid_until,status,published_at,published_by_actor_id,updated_at,row_version` |
+|  | `pos_worker` | SELECT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,fiscal_emission_configuration_id,document_type,version_number,status,issuer_tax_id_normalized_snapshot,issuer_legal_name_snapshot,authorization_reference,numbering_policy_code,prefix,number_range_start,number_range_end,next_number_value,numbering_exhausted_at,provider_numbering_reference,certificate_reference,contingency_policy_reference,fiscal_capabilities_snapshot_reference,fiscal_capabilities_snapshot_checksum,configuration_schema_version,configuration_checksum,valid_from,valid_until,published_at,supersedes_version_id,created_by_actor_id,published_by_actor_id,created_at,updated_at,row_version` |
+|  | `pos_worker` | UPDATE | `next_number_value,numbering_exhausted_at,updated_at,row_version` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,fiscal_emission_configuration_id,document_type,version_number,status,issuer_tax_id_normalized_snapshot,issuer_legal_name_snapshot,authorization_reference,numbering_policy_code,prefix,number_range_start,number_range_end,next_number_value,numbering_exhausted_at,provider_numbering_reference,contingency_policy_reference,configuration_schema_version,valid_from,valid_until,published_at,supersedes_version_id,created_by_actor_id,published_by_actor_id,created_at,updated_at,row_version` |
+| `electronic_documents` | `pos_app` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,source_type,source_id,source_version,document_type,logical_operation_key,status,numbering_mode,numbering_state,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,tax_snapshot_reference,tax_snapshot_checksum,fiscal_emission_snapshot_reference,fiscal_emission_snapshot_checksum,canonical_payload_version,canonical_payload_checksum,internal_reference,prefix,number,number_reserved_at,number_consumed_at,number_burned_at,numbering_resolution_reason,provider_document_id,provider_reference,authority_reference,legal_identifier,provider_status_raw,authority_status_raw,uncertainty_reason,original_electronic_document_id,correction_source_reference,issued_at,accepted_at,rejected_at,last_reconciled_at,created_at,updated_at,version` |
+|  | `pos_app` | INSERT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,source_type,source_id,source_version,document_type,logical_operation_key,status,numbering_mode,numbering_state,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,tax_snapshot_reference,tax_snapshot_checksum,fiscal_emission_snapshot_reference,fiscal_emission_snapshot_checksum,canonical_payload_version,canonical_payload_checksum,internal_reference,prefix,number,number_reserved_at,number_consumed_at,number_burned_at,numbering_resolution_reason,provider_document_id,provider_reference,authority_reference,legal_identifier,provider_status_raw,authority_status_raw,uncertainty_reason,original_electronic_document_id,correction_source_reference,issued_at,accepted_at,rejected_at,last_reconciled_at,created_at,updated_at,version` |
+|  | `pos_app` | UPDATE | `source_version,status,numbering_state,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,tax_snapshot_reference,tax_snapshot_checksum,fiscal_emission_snapshot_reference,fiscal_emission_snapshot_checksum,canonical_payload_version,canonical_payload_checksum,internal_reference,prefix,number,number_reserved_at,number_consumed_at,number_burned_at,numbering_resolution_reason,correction_source_reference,updated_at,version` |
+|  | `pos_worker` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,source_type,source_id,source_version,document_type,logical_operation_key,status,numbering_mode,numbering_state,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,tax_snapshot_reference,tax_snapshot_checksum,fiscal_emission_snapshot_reference,fiscal_emission_snapshot_checksum,canonical_payload_version,canonical_payload_checksum,internal_reference,prefix,number,number_reserved_at,number_consumed_at,number_burned_at,numbering_resolution_reason,provider_document_id,provider_reference,authority_reference,legal_identifier,provider_status_raw,authority_status_raw,uncertainty_reason,original_electronic_document_id,correction_source_reference,issued_at,accepted_at,rejected_at,last_reconciled_at,created_at,updated_at,version` |
+|  | `pos_worker` | UPDATE | `status,numbering_state,prefix,number,number_reserved_at,number_consumed_at,number_burned_at,numbering_resolution_reason,provider_document_id,provider_reference,authority_reference,legal_identifier,provider_status_raw,authority_status_raw,uncertainty_reason,issued_at,accepted_at,rejected_at,last_reconciled_at,updated_at,version` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,source_type,source_id,source_version,document_type,logical_operation_key,status,numbering_mode,numbering_state,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,canonical_payload_version,internal_reference,prefix,number,number_reserved_at,number_consumed_at,number_burned_at,numbering_resolution_reason,provider_document_id,provider_reference,authority_reference,legal_identifier,provider_status_raw,authority_status_raw,uncertainty_reason,original_electronic_document_id,correction_source_reference,issued_at,accepted_at,rejected_at,last_reconciled_at,created_at,updated_at,version` |
+| `fiscal_submission_attempts` | `pos_app` | SELECT | `id,tenant_id,company_id,external_integration_id,fiscal_connection_id,electronic_document_id,integration_dispatch_id,dispatch_class,operation_type,attempt_number,status,transport_status,normalized_result,request_id,idempotency_key,http_status,provider_code_raw,retry_classification,error_code,retry_after_at,started_at,completed_at,correlation_id,causation_id,created_at,version` |
+|  | `pos_worker` | SELECT, INSERT | `id,tenant_id,company_id,external_integration_id,fiscal_connection_id,electronic_document_id,integration_dispatch_id,dispatch_class,operation_type,attempt_number,status,transport_status,normalized_result,request_id,idempotency_key,request_checksum,provider_operation_id,provider_correlation_reference,provider_response_reference,http_status,provider_code_raw,retry_classification,error_code,retry_after_at,started_at,completed_at,correlation_id,causation_id,created_at,version` |
 |  | `pos_worker` | UPDATE | `status,transport_status,normalized_result,provider_operation_id,provider_correlation_reference,provider_response_reference,http_status,provider_code_raw,retry_classification,error_code,retry_after_at,started_at,completed_at,version` |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | identidad/scope, operation/attempt, status/transport/normalized result, HTTP/error/timestamps/correlation; excluye request/response references y checksums |
-| `fiscal_artifacts` | `pos_app` | SELECT | todas excepto `storage_reference`, provider/authority references |
-|  | `pos_worker` | SELECT, INSERT | todas |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | identidad/scope, type/media/checksum/size/retention/immutable/created; sin storage/external references |
-| `fiscal_reconciliations` | `pos_app` | SELECT | todas excepto evidence/snapshot references |
-|  | `pos_app` | INSERT | identidad/scope, snapshot checksum, status, actor, correlation/causation y timestamps; initial `CREATED` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,external_integration_id,fiscal_connection_id,electronic_document_id,integration_dispatch_id,dispatch_class,operation_type,attempt_number,status,transport_status,normalized_result,http_status,provider_code_raw,retry_classification,error_code,retry_after_at,started_at,completed_at,correlation_id,causation_id,created_at,version` |
+| `fiscal_artifacts` | `pos_app` | SELECT | `id,tenant_id,company_id,external_integration_id,electronic_document_id,fiscal_submission_attempt_id,artifact_type,media_type,checksum_algorithm,checksum,size_bytes,retention_policy_reference,immutable_evidence,created_at` |
+|  | `pos_worker` | SELECT, INSERT | `id,tenant_id,company_id,external_integration_id,electronic_document_id,fiscal_submission_attempt_id,artifact_type,media_type,storage_reference,checksum_algorithm,checksum,size_bytes,provider_reference,authority_reference,retention_policy_reference,immutable_evidence,created_at` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,external_integration_id,electronic_document_id,fiscal_submission_attempt_id,artifact_type,media_type,checksum_algorithm,checksum,size_bytes,retention_policy_reference,immutable_evidence,created_at` |
+| `fiscal_reconciliations` | `pos_app` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,status,discrepancy_summary_code,started_by_actor_id,reviewed_by_actor_id,closed_by_actor_id,resolution_reason,started_at,closed_at,correlation_id,causation_id,created_at,updated_at,version` |
+|  | `pos_app` | INSERT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,scope_snapshot_reference,scope_snapshot_checksum,status,expected_state_snapshot_reference,started_by_actor_id,correlation_id,causation_id,created_at,updated_at,version` |
 |  | `pos_app` | UPDATE | `status,reviewed_by_actor_id,closed_by_actor_id,resolution_reason,closed_at,updated_at,version` |
-|  | `pos_worker` | SELECT, INSERT | todas |
+|  | `pos_worker` | SELECT, INSERT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,scope_snapshot_reference,scope_snapshot_checksum,status,expected_state_snapshot_reference,observed_state_snapshot_reference,provider_evidence_reference,authority_evidence_reference,discrepancy_summary_code,started_by_actor_id,reviewed_by_actor_id,closed_by_actor_id,resolution_reason,started_at,closed_at,correlation_id,causation_id,created_at,updated_at,version` |
 |  | `pos_worker` | UPDATE | `status,observed_state_snapshot_reference,provider_evidence_reference,authority_evidence_reference,discrepancy_summary_code,started_at,closed_at,updated_at,version` |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | identidad/scope/status/actors/timestamps/version; sin evidence/snapshot references |
-| `fiscal_incidents` | `pos_app` | SELECT | todas excepto `evidence_reference` |
-|  | `pos_app` | INSERT | todas; initial `OPEN` y evidence reference opaca |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,status,discrepancy_summary_code,started_by_actor_id,reviewed_by_actor_id,closed_by_actor_id,resolution_reason,started_at,closed_at,correlation_id,causation_id,created_at,updated_at,version` |
+| `fiscal_incidents` | `pos_app` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,electronic_document_id,fiscal_submission_attempt_id,fiscal_reconciliation_id,incident_type,severity,status,summary_code,assigned_reviewer_id,resolution_type,resolution_reason,resolved_by_actor_id,resolved_at,archived_at,correlation_id,causation_id,created_at,updated_at,version` |
+|  | `pos_app` | INSERT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,electronic_document_id,fiscal_submission_attempt_id,fiscal_reconciliation_id,incident_type,severity,status,summary_code,evidence_reference,assigned_reviewer_id,resolution_type,resolution_reason,resolved_by_actor_id,resolved_at,archived_at,correlation_id,causation_id,created_at,updated_at,version` |
 |  | `pos_app` | UPDATE | `status,assigned_reviewer_id,resolution_type,resolution_reason,resolved_by_actor_id,resolved_at,archived_at,updated_at,version` |
-|  | `pos_worker` | SELECT, INSERT | todas; sin UPDATE de review/resolution |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | identidad/scope/type/severity/status/summary/assignment/resolution/timestamps/version; sin evidence reference |
-| `fiscal_reconciliation_items` | `pos_app` | SELECT | todas excepto `evidence_reference` |
-|  | `pos_worker` | SELECT, INSERT | todas |
-|  | `pos_platform_app,pos_platform_admin` | SELECT | identidad/scope/result/discrepancy/checksum/incident/created; sin evidence reference |
+|  | `pos_worker` | SELECT, INSERT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,electronic_document_id,fiscal_submission_attempt_id,fiscal_reconciliation_id,incident_type,severity,status,summary_code,evidence_reference,assigned_reviewer_id,resolution_type,resolution_reason,resolved_by_actor_id,resolved_at,archived_at,correlation_id,causation_id,created_at,updated_at,version` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,branch_id,external_integration_id,fiscal_connection_id,electronic_document_id,fiscal_submission_attempt_id,fiscal_reconciliation_id,incident_type,severity,status,summary_code,assigned_reviewer_id,resolution_type,resolution_reason,resolved_by_actor_id,resolved_at,archived_at,correlation_id,causation_id,created_at,updated_at,version` |
+| `fiscal_reconciliation_items` | `pos_app` | SELECT | `id,tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_reconciliation_id,electronic_document_id,expected_state_reference,observed_state_reference,evidence_checksum,discrepancy_code,result_code,fiscal_incident_id,created_at` |
+|  | `pos_worker` | SELECT, INSERT | `id,tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_reconciliation_id,electronic_document_id,expected_state_reference,observed_state_reference,evidence_checksum,discrepancy_code,result_code,evidence_reference,fiscal_incident_id,created_at` |
+|  | `pos_platform_app,pos_platform_admin` | SELECT | `id,tenant_id,company_id,external_integration_id,fiscal_connection_id,fiscal_reconciliation_id,electronic_document_id,evidence_checksum,discrepancy_code,result_code,fiscal_incident_id,created_at` |
+
+Ausencia de fila significa ausencia de grant: `pos_platform_app` no recibe DML fiscal; `pos_platform_admin` tampoco. Los guards comparan `OLD/NEW` y rechazan cambios de identidad/scope/tenant/company/branch, provider/integration/connection, versión seleccionada, source/checksums congelados, identificadores legales y numeración write-once. Solo permiten las columnas enumeradas arriba para DRAFT antes de READY, cursor bajo lock, lifecycle documental/attempt allowlisted, estados raw sanitizados, review/reconciliation autorizados y artifacts/items insert-only. Un rol con UPDATE parcial no puede evadir el set mediante trigger, view o columna futura.
+
+Matriz old/new normativa:
+
+| Tabla | Enforcement `OLD -> NEW` |
+|---|---|
+| `fiscal_connections` | identidad/tenant/company/integration/capability/`valid_from` inmutables; solo cierre monotónico de `valid_until` con CAS, sin reabrir tras uso fiscal |
+| `fiscal_emission_configurations` | insert-only; tenant/company/branch/scope/connection/integration/type no cambian |
+| `fiscal_emission_configuration_versions` | en `DRAFT` solo columnas UPDATE enumeradas; tras publicar, material/checksum/scope/actores de creación inmutables; publicación/revocación/supersession cerradas; excepción operacional exclusiva para cursor/agotamiento bajo numbering lock y avance exacto |
+| `electronic_documents` | identidad/scope/integration/connection/config/version/source/type/logical key/original inmutables; material fiscal cambia solo en `DRAFT`; desde `READY` queda congelado; número e identificadores externos pasan de NULL a valor una vez y nunca cambian; lifecycle y evidence timestamps deben ser coherentes y CAS |
+| `fiscal_submission_attempts` | identidad/scope/document/dispatch/class/operation/attempt/request/idempotency/checksum/correlation/created inmutables; solo lifecycle técnico y resultado enumerados, terminal/`UNKNOWN_OUTCOME` históricos no se reescriben |
+| `fiscal_artifacts` | no UPDATE; referencia/checksum/tipo/scope insert-only |
+| `fiscal_reconciliations` | identidad/scope/snapshots esperados/actor inicial/correlation inmutables; observación técnica y review/cierre usan columnas/roles separados, transición allowlisted y CAS |
+| `fiscal_incidents` | identidad/scope/recursos/tipo/severity/summary/evidence/correlation inmutables; únicamente assignment/resolution/archive allowlisted con actor/razón/CAS |
+| `fiscal_reconciliation_items` | no UPDATE; comparación, evidence y vínculo a incident insert-only |
+
+Los guards obtienen el rol efectivo de forma no falsificable, no confían en columnas actor controladas por request y ejecutan Audit en la misma transacción cuando el contrato lo exige.
 
 `pos_platform_app` no recibe DML fiscal. La aplicación separa `CONFIGURE`, `PUBLISH`, `PREPARE`, `ISSUE`, `RETRY`, `RECONCILE`, `ATTACH_ARTIFACT`, `REVIEW`, `RESOLVE`, `CLOSE` y `REOPEN`; el rol físico no sustituye permisos, reautenticación, MFA o segregación.
 
@@ -578,15 +658,13 @@ La ausencia o invalidez de `app.tenant_id` falla cerrado mediante el helper 001.
 | Índice | Columnas / predicado | Query path |
 |---|---|---|
 | `fiscal_connections_scope_effective_idx` | `(tenant_id,company_id,external_integration_id,valid_from DESC)` | resolver perfil vigente |
-| `fiscal_connections_branch_fk_idx` | `(tenant_id,company_id,branch_id) WHERE branch_id IS NOT NULL` | FK Branch |
 | `fiscal_connections_capability_fk_idx` | `(tenant_id,company_id,external_integration_id,electronic_invoicing_capability_id,capability_code)` | FK capability |
-| `fiscal_emission_configurations_connection_idx` | `(tenant_id,company_id,fiscal_connection_id,document_type)` | configuración por tipo |
+| `fiscal_emission_configurations_branch_fk_idx` | `(tenant_id,company_id,branch_id) WHERE branch_id IS NOT NULL` | FK Branch y lookup branch-specific |
 | `fiscal_emission_configuration_versions_lookup_idx` | `(tenant_id,company_id,fiscal_emission_configuration_id,status,valid_from DESC)` | resolver versión |
 | `fiscal_emission_configuration_versions_supersedes_idx` | scoped supersession WHERE non-null | self-FK |
 | `electronic_documents_source_idx` | `(tenant_id,company_id,source_type,source_id,created_at DESC)` | origen comercial |
 | `electronic_documents_work_idx` | `(tenant_id,status,created_at,id) WHERE status IN ('READY','QUEUED','SUBMITTING')` | cola/lifecycle |
 | `electronic_documents_uncertain_idx` | `(tenant_id,last_reconciled_at,id) WHERE status='UNKNOWN_OUTCOME'` | reconciliación |
-| `electronic_documents_connection_idx` | `(tenant_id,company_id,external_integration_id,fiscal_connection_id)` | FKs/lookup |
 | `electronic_documents_original_idx` | `(tenant_id,company_id,original_electronic_document_id) WHERE ... IS NOT NULL` | correctivos |
 | `fiscal_submission_attempts_dispatch_fk_idx` | `(tenant_id,company_id,integration_dispatch_id,dispatch_class)` | FK discriminada |
 | `fiscal_submission_attempts_document_idx` | `(tenant_id,company_id,external_integration_id,electronic_document_id,created_at DESC)` | historia por documento |
@@ -603,7 +681,7 @@ La ausencia o invalidez de `app.tenant_id` falla cerrado mediante el helper 001.
 | `fiscal_reconciliation_items_document_idx` | `(tenant_id,company_id,electronic_document_id,created_at)` | historia de comparación |
 | `fiscal_reconciliation_items_incident_idx` | scoped incident WHERE non-null | FK incident |
 
-No hay GIN, índices JSON, índice independiente de `retry_after_at`, índice por cada status ni índices provider-specific. El scheduling sigue en `IntegrationDispatch.next_attempt_at`; `retry_after_at` es evidencia del attempt.
+`fiscal_emission_configurations_connection_idx` se retira de 003 porque sus columnas quedan cubiertas por los uniques parciales de scope; `electronic_documents_connection_idx` se retira porque la candidate key `(tenant_id,company_id,external_integration_id,fiscal_connection_id,id)` cubre su prefijo. No se crean índices especulativos: si el SQL materializado muestra un query path no cubierto, se registra `POST-MATERIALIZATION PERFORMANCE VALIDATION` con `EXPLAIN (ANALYZE, BUFFERS)` y volumen representativo antes de agregar otra migration. No hay GIN, índices JSON, índice independiente de `retry_after_at`, índice por cada status ni índices provider-specific.
 
 ## 13. Fronteras transaccionales
 
@@ -611,7 +689,7 @@ No hay GIN, índices JSON, índice independiente de `retry_after_at`, índice po
 |---|---|
 | crear connection | connection + validación Integration/capability + Audit; ningún HTTP |
 | crear/publicar config | stable identity/version + exclusión temporal + Audit; validación remota ocurrió fuera |
-| preparar document | source validado + snapshots separados + payload checksum + DRAFT/READY + Audit/evento |
+| preparar document | locks canónicos + source/branch/predecencia validados + snapshots separados + asignación local atómica cuando aplique + DRAFT/READY + Audit/evento |
 | enqueue FISCAL | `READY->QUEUED` + IntegrationDispatch FISCAL idempotente + Audit/evento en una transacción |
 | reservar attempt | lock/CAS document+dispatch, nuevo attempt `CREATED->IN_PROGRESS`, document `SUBMITTING`, commit; HTTP después |
 | provider HTTP | siempre fuera de transacción PostgreSQL |
@@ -619,6 +697,7 @@ No hay GIN, índices JSON, índice independiente de `retry_after_at`, índice po
 | persistir authority status | evidencia validada + document transition + artifact/incident cuando aplique + Audit |
 | attach artifact | upload fuera; insert append-only de referencia/checksum y Audit dentro |
 | reconcile UNKNOWN_OUTCOME | crear reconciliation/claim dentro; query HTTP fuera; aplicar items/evidencia/document/dispatch en transacción posterior |
+| capability downgrade | locks canónicos; declaración + capabilities efectivas degradadas/cerradas + conexiones proyectadas REVALIDATION_REQUIRED + Audit; cero HTTP |
 
 No hay distributed transaction ni retry ciego. Un timeout después de transmitir conserva document y attempt `UNKNOWN_OUTCOME`; polling, webhook validado o reconciliation resuelven el mismo documento sin reescribir el attempt histórico.
 
@@ -649,7 +728,7 @@ Orden topológico exacto:
 1. lock global; PostgreSQL 16; ledger 001/002 `APPLIED` y checksums/catalogs exactos; SQL 003 ausente.
 2. verificar `btree_gist` PREEXISTING y operator classes; no reinstalar ni cambiar owner.
 3. crear schema `fiscal`, owner y revocación PUBLIC.
-4. agregar candidate key 003 a `integrations.integration_capabilities`.
+4. ampliar aditivamente `DEBIT_NOTES`, agregar candidate key 003 y guard inverso de downgrade sobre objetos `integrations` owned por 003.
 5. `fiscal_connections`.
 6. `fiscal_emission_configurations`.
 7. `fiscal_emission_configuration_versions`, self-FK y exclusion temporal.
@@ -666,7 +745,7 @@ Orden topológico exacto:
 
 ## 16. Down order y dependency protection
 
-Down 002 se rechaza si 003 está `STARTED` incompatible o `APPLIED`. Down 003 solo se permite en fresh/test con flag/guard explícito, catálogo exacto, cero filas en las nueve tablas y cero dispatches `FISCAL`; nunca en una base con historia fiscal.
+Down 002 se rechaza si 003 está `STARTED` incompatible o `APPLIED`. Down 003 solo se permite en fresh/test con flag/guard explícito, catálogo exacto, cero filas en las nueve tablas, cero dispatches `FISCAL` y cero declaraciones/capabilities `DEBIT_NOTES` creadas bajo el contrato 003; nunca en una base con historia fiscal.
 
 Orden inverso seguro:
 
@@ -682,7 +761,7 @@ Orden inverso seguro:
 10. `fiscal_emission_configuration_versions`;
 11. `fiscal_emission_configurations`;
 12. `fiscal_connections`;
-13. retirar candidate key 003 de `integration_capabilities`;
+13. retirar guard/catálogo aditivo `DEBIT_NOTES` y candidate key 003 después de retirar todos los dependientes fiscales;
 14. eliminar schema `fiscal` solo si está vacío;
 15. validar 001/002 exactas y registrar `ROLLED_BACK` sin borrar ledger history.
 
@@ -702,7 +781,7 @@ No se modifica tooling en esta tarea. El descriptor futuro será:
 | `checksum` | derivado únicamente de bytes del UP efectivo |
 | `owned_schemas` | `fiscal` |
 | `owned_tables` | `fiscal.fiscal_connections`, `fiscal.fiscal_emission_configurations`, `fiscal.fiscal_emission_configuration_versions`, `fiscal.electronic_documents`, `fiscal.fiscal_submission_attempts`, `fiscal.fiscal_artifacts`, `fiscal.fiscal_reconciliations`, `fiscal.fiscal_incidents`, `fiscal.fiscal_reconciliation_items` |
-| `owned_policies` | `<table>_tenant_isolation` para cada una de las nueve tablas anteriores |
+| `owned_policies` | `<table>_tenant_isolation` para ocho tablas; cuatro policies role-specific de `fiscal_emission_configuration_versions` definidas en §10 |
 | `owned_constraints` | constraints/candidates/FKs/checks/exclusion de tablas 003, candidate capability y constraint final dispatch 003 |
 | `owned_indexes` | uniques parciales e índices de §12 |
 | `required_extensions` | `btree_gist` shared, PREEXISTING/non-destructive |
@@ -721,8 +800,13 @@ Casos derivados adicionales:
 - exactamente nueve tablas y nueve RLS ENABLE/FORCE;
 - config publication sin overlap, self-supersession/cross-scope rechazadas y versión publicada inmutable;
 - TaxIdentity no crea tabla; Company/snapshot coherentes;
-- range shape/prefix y numbering policy inválidos rechazados; no secuencia legal local;
-- branch mismatch, config/version mismatch y capability ausente/no efectiva rechazados;
+- dos asignaciones concurrentes sobre el mismo rango producen números distintos; agotamiento bloquea sin rollover; rollback antes del commit revierte cursor; fallo tras aceptación externa/`UNKNOWN_OUTCOME` nunca libera; retry del mismo documento conserva número; cancelación registra hueco sin reuse; contingencia usa el rango/modo publicado;
+- branch de otra compañía/tenant rechazada por FK; company-wide y branch-specific válidas; branch-specific precede; candidatas conflictivas fallan cerrado; config/version mismatch rechazado;
+- worker no lee `DRAFT`, sí `PUBLISHED`, y solo lee `SUPERSEDED|REVOKED` si un documento histórico tenant-scoped la referencia;
+- prueba negativa para cada rol y cada categoría de columna INSERT/SELECT/UPDATE; columna futura/desconocida carece de grant por defecto;
+- `DEBIT_NOTE` se rechaza sin declaración y capability efectiva `DEBIT_NOTES`, y solo se acepta con ambas `SUPPORTED` bajo lock;
+- downgrade concurrente serializa sobre declaración, invalida/cierra capability activa, bloquea documento/dispatch nuevos, conserva lectura histórica y no produce deadlock bajo el orden canónico;
+- range shape/prefix/cursor y numbering policy inválidos rechazados; no sequence legal local;
 - document totals/checksums/snapshots inválidos rechazados;
 - correctivo self/cross-company rechazado; original aceptado permanece intacto;
 - estado técnico no prueba legal status; raw provider y authority permanecen separados;
@@ -737,6 +821,8 @@ Casos derivados adicionales:
 - btree_gist sigue presente después de down 003;
 - roles reales `pos_app`, `pos_worker`, `pos_platform_app`, `pos_platform_admin`; worker sin business mutation, app sin technical mutation, admin read-only, reporting sin acceso;
 - cero seeds, secretos, blobs, columnas provider-specific y artifacts SQLite 003.
+- `POST-MATERIALIZATION PERFORMANCE VALIDATION` usa EXPLAIN antes de añadir índices retirados;
+- raw status/reference oversized, controles, secreto aparente y vacío/whitespace-only son rechazados; canonicalización/checksum son estables.
 
 Mocks no cuentan como provider integration. No se reportará PostgreSQL 003 como evidencia hasta materializar y ejecutar este plan.
 
@@ -755,8 +841,8 @@ No hay adapter, HTTP, auth, sandbox, producción, certificado DIAN ni validació
 
 ## 20. Decisión y siguiente gate
 
-El ownership fiscal es inequívoco, no duplica 002, las nueve tablas están justificadas, FK/RLS/grants/guards están definidos, la habilitación FISCAL y rollback no abren ventanas huérfanas, SQLite queda fuera y descriptor/tests están cerrados.
+El ownership fiscal es inequívoco, no duplica 002 y `ElectronicDocument` conserva solo identidad/snapshot/source/totales/identificadores/configuración/lifecycle fiscales, sin line items de Sale. Las nueve tablas siguen justificadas. M-01..M-06 quedan resueltos; L-01/L-02 reconciliados. FK/RLS/grants/guards, numeración, capability downgrade, habilitación FISCAL y rollback no abren ventanas huérfanas; SQLite queda fuera y descriptor/tests están cerrados.
 
 **FISCAL-003-MANIFEST = PASS**
 
-**SQL 003 = NO-GO** hasta una revisión independiente completa del manifest y un preflight de materialización separado. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW`; no debe escribir SQL.
+**SQL 003 = NO-GO** hasta repetir la revisión independiente completa del manifest remediado y ejecutar después un preflight de materialización separado. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW-2`; no debe escribir SQL.

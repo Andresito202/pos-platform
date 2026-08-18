@@ -338,6 +338,8 @@ Cada versión del adaptador registra:
 | Webhook | `SUPPORTED`, `UNSUPPORTED`, `UNVERIFIED` |
 | Contingencia | `SUPPORTED`, `UNSUPPORTED`, `REQUIRES_MANUAL_PROCESS`, `UNVERIFIED` |
 
+Los códigos físicos iniciales son `ELECTRONIC_INVOICING`, `CREDIT_NOTES`, `DEBIT_NOTES` y `SUPPORT_DOCUMENTS`. Nota débito exige `DEBIT_NOTES`; no hereda soporte de facturación genérica. El registro de la capability no afirma que un provider concreto la implemente o haya sido evaluado.
+
 `UNVERIFIED` nunca se presenta comercialmente como soporte. La capability general y su evidencia pertenecen a `ExternalIntegration`; este módulo conserva únicamente el snapshot fiscal realmente habilitado.
 
 ## Adapters SIIGO, FACTUS y ALEGRA

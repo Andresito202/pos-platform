@@ -174,7 +174,7 @@ Estado de la épica: `IN_PROGRESS`.
 | INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
-| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | `FISCAL-003-MANIFEST = PASS`, pendiente de revisión independiente; nueve tablas centrales propuestas, SQLite NONE y SQL 003 ausente. Materialización no autorizada todavía |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Review inicial `PASS_WITH_REMEDIATION`; `FISCAL-003-MANIFEST-REMEDIATION-1` cierra M-01..M-06 y L-01/L-02. Nueve tablas, SQLite NONE y SQL 003 ausente; pendiente `FISCAL-003-MANIFEST-REVIEW-2` |
 
 ### Pagos
 
@@ -328,7 +328,7 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Ejecutar `FISCAL-003-MANIFEST-REVIEW` sobre el manifest de migration 003; no escribir SQL hasta obtener PASS y completar un preflight separado.
+1. Ejecutar `FISCAL-003-MANIFEST-REVIEW-2` sobre el manifest 003 remediado; no escribir SQL hasta obtener PASS y completar un preflight separado.
 2. Mantener migration 002 `NON_FISCAL`, migration 001 inmutable y adapters sin implementación hasta cerrar las dependencias siguientes.
 3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
 4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
@@ -532,5 +532,6 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 - 2026-08-18: `MAT-002-PREFLIGHT-2 = PASS` autorizó SQL y `MAT-002-MATERIALIZATION = PASS` materializó migration 002 con tooling descriptor-driven, 16 tablas PostgreSQL, 12 RLS/FORCE, grants por columna, guards, recovery/down, lock global y `btree_gist` compartido. PostgreSQL 16 pasó `96/96`, SQLite conservó `12/12`; 001 quedó byte-for-byte intacta y 003 ausente. Providers y `SEC-G01..10` no cambiaron de estado.
 
 - 2026-08-18: `INT-006 / FISCAL-003-MANIFEST = PASS` diseñó el manifest aditivo `003_fiscal_electronic_invoicing_foundation`: nueve tablas fiscales centrales, ownership sin duplicar 002, numeración/configuración versionada, FKs tenant-aware, nueve RLS/FORCE, grants por columnas, habilitación/rollback atómicos de `FISCAL`, descriptor y plan de pruebas. Es documentación pendiente de revisión independiente; no creó SQL/runtime/SQLite/adapters ni promovió providers o `SEC-G`.
+- 2026-08-18: `FISCAL-003-MANIFEST-REMEDIATION-1` cerró documentalmente M-01..M-06 y reconcilió L-01/L-02: protocolo de numeración por autoridad, scope branch íntegro, worker RLS sin DRAFT, grants literales, `DEBIT_NOTES`, downgrade/locks canónicos, retiro de índices especulativos y límites raw. No creó SQL/SQLite, no alteró 001/002, providers ni `SEC-G`; requiere review independiente repetido.
 
-Próxima actualización obligatoria: ejecutar `FISCAL-003-MANIFEST-REVIEW`; SQL 003 permanece `NO-GO` hasta PASS independiente y preflight posterior.
+Próxima actualización obligatoria: ejecutar `FISCAL-003-MANIFEST-REVIEW-2`; SQL 003 permanece `NO-GO` hasta PASS independiente y preflight posterior.
