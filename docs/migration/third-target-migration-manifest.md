@@ -2,7 +2,7 @@
 
 ## 1. Propósito, estado y autoridad
 
-Estado de `FISCAL-003-MANIFEST`: `PASS`. La primera remediación cerró M-01..M-06/L-01..L-02; `FISCAL-003-MANIFEST-REVIEW-2` terminó `PASS_WITH_REMEDIATION` y esta segunda remediación cierra MED-01..MED-03 antes de `FISCAL-003-MANIFEST-REVIEW-3`. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
+Estado de `FISCAL-003-MANIFEST`: `PASS`. La primera remediación cerró M-01..M-06/L-01..L-02; `FISCAL-003-MANIFEST-REVIEW-2` terminó `PASS_WITH_REMEDIATION`, la segunda remediación cerró MED-01..MED-03 y `FISCAL-003-MANIFEST-REMEDIATION-3` reconcilia MED-01 sobre la transición histórica de `DEBIT_NOTES` antes de `FISCAL-003-MANIFEST-REVIEW-4`. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
 
 Este documento es la autoridad de alcance para la futura migration PostgreSQL `003_fiscal_electronic_invoicing_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, SQL, cambios al runner, adapters, HTTP, credenciales, seeds ni evidencia real de provider. Un PASS documental autoriza únicamente una revisión independiente; no autoriza materialización.
 
@@ -542,20 +542,38 @@ El downgrade impide nuevas activaciones, publicaciones seleccionables, documento
 
 Downgrade y publicación toman exactamente el mismo prefijo de locks. Si el downgrade obtiene primero la declaración, publicación espera y falla al revalidar; si publicación confirma primero, el downgrade posterior degrada/cierra capability y bloquea operaciones nuevas sin reescribir la versión ya publicada. Downgrade y reconciliation histórica no compiten por capability cuando esta última solo aplica evidencia durable: reconciliation comienza en el suffix documental y conserva historia; si necesita tráfico externo, toma el prefijo completo y falla cerrado sin capability de consulta.
 
+### 7.3 Preflight de transición `DEBIT_NOTES` (MED-01)
+
+Antes de crear o alterar cualquier constraint, `apply 003` debe adquirir el lock de migration, verificar que 002 esté `APPLIED` con catálogo y checksums exactos, y ejecutar un preflight de datos fail-closed. El preflight inspecciona, como mínimo:
+
+- `IntegrationCapability`/`integration_capabilities` con `capability_code='DEBIT_NOTES'`, incluyendo tenant, company e integration;
+- `IntegrationDispatch` con `dispatch_class='NON_FISCAL'` y `capability_code='DEBIT_NOTES'`, incluyendo dispatch ID, tenant, company e integration;
+- mappings, ownership policies, configuraciones o referencias que asocien `DEBIT_NOTES` con un recurso no fiscal o carezcan del owner fiscal requerido.
+
+Una fila `DEBIT_NOTES` heredada de 002 se considera incompatible con el modelo final 003 salvo que exista evidencia de una reconciliación separada que haya demostrado ownership fiscal, scope tenant/company, `ElectronicDocument`, evidencia, numeración/legal identity cuando corresponda y auditoría. La mera existencia de una capability sin dispatch no autoriza una mutación automática: queda inventariada y bloquea `apply 003` hasta ser reconciliada o retirada por un procedimiento separado. No se exponen secretos ni payloads; el reporte usa únicamente counts, IDs y scope.
+
+Si el count incompatible es mayor que cero, el preflight termina `BLOCKED` antes de crear schema, tablas, capabilities, guards, RLS, grants o constraints. No modifica filas y no convierte `NON_FISCAL` en `FISCAL`. Cada caso se clasifica como: (A) operación realmente no fiscal mal etiquetada; (B) operación fiscal histórica incompleta; (C) dato de prueba; o (D) dato inválido/corrupto. La reconciliación es una tarea separada y requiere owner fiscal verificable, documento real, scope correcto, evidencia y auditoría; nunca inventa `ElectronicDocument`, `FiscalSubmissionAttempt`, CUFE/CUDE, número legal, resultado provider/authority ni evidencia.
+
+Si el count incompatible es cero, el resultado es `PASS` y esta condición queda registrada como precondition obligatoria de `apply 003` y de `verify 003`. Solo entonces puede continuar la habilitación fiscal.
+
 ## 8. Orden atómico de habilitación FISCAL
 
 Dentro de una única transacción PostgreSQL y bajo el lock global:
 
-1. conservar activo `integration_dispatches_dispatch_class_002_ck`;
-2. crear schema `fiscal`, tablas, candidate keys, FKs, checks, índices, guards, RLS, policies y grants;
-3. crear `ElectronicDocument` y sus invariantes;
-4. crear `FiscalSubmissionAttempt` como único owner técnico;
-5. instalar su FK discriminada `FISCAL` hacia `IntegrationDispatch`;
-6. instalar y validar el guard de dispatch fiscal hacia `ElectronicDocument`;
-7. ejecutar introspection exacta y validaciones de catálogo todavía con FISCAL bloqueado;
-8. crear el constraint final 003 como `NOT VALID`, validarlo mientras 002 todavía bloquea toda fila fiscal;
-9. eliminar `integration_dispatches_dispatch_class_002_ck` y dejar válido el constraint final 003 como **último cambio estructural**;
-10. commit; smoke posterior y ledger `APPLIED` según el protocolo descriptor-driven.
+1. adquirir el lock de migration y verificar dependencia 002 `APPLIED`, catálogo y checksums;
+2. ejecutar el preflight incompatible `DEBIT_NOTES/NON_FISCAL` de §7.3;
+3. si el count es mayor que cero, detenerse `BLOCKED` sin mutación;
+4. si el count es cero, conservar activo `integration_dispatches_dispatch_class_002_ck`;
+5. crear schema `fiscal`, tablas, candidate keys, FKs, checks, índices, guards, RLS, policies y grants;
+6. crear `ElectronicDocument` y sus invariantes;
+7. crear `FiscalSubmissionAttempt` como único owner técnico;
+8. instalar su FK discriminada `FISCAL` hacia `IntegrationDispatch`;
+9. instalar y validar el guard de dispatch fiscal hacia `ElectronicDocument`;
+10. crear la capability fiscal `DEBIT_NOTES` y validar candidate keys/FKs sin insertar declaraciones, capabilities operativas ni datos de provider;
+11. ejecutar introspection exacta y validaciones de catálogo todavía con FISCAL bloqueado;
+12. crear el constraint final 003 como `NOT VALID` y validarlo mientras 002 todavía bloquea toda fila fiscal;
+13. eliminar `integration_dispatches_dispatch_class_002_ck` y dejar válido el constraint final 003 como **último cambio estructural**;
+14. commit; smoke posterior y ledger `APPLIED` según el protocolo descriptor-driven.
 
 No existe commit intermedio ni ventana con dispatch fiscal sin owner. Cualquier fallo revierte todo y conserva el constraint 002.
 
@@ -777,7 +795,7 @@ Orden topológico exacto:
 
 ## 16. Down order y dependency protection
 
-Down 002 se rechaza si 003 está `STARTED` incompatible o `APPLIED`. Down 003 solo se permite en fresh/test con flag/guard explícito, catálogo exacto, cero filas en las nueve tablas, cero dispatches `FISCAL` y cero declaraciones/capabilities `DEBIT_NOTES` creadas bajo el contrato 003; nunca en una base con historia fiscal.
+Down 002 se rechaza si 003 está `STARTED` incompatible o `APPLIED`. Down 003 solo se permite en fresh/test con flag/guard explícito, catálogo exacto, cero filas en las nueve tablas, cero dispatches `FISCAL`, cero filas `FISCAL/DEBIT_NOTES` y cero declaraciones/capabilities `DEBIT_NOTES` creadas bajo el contrato 003; nunca en una base con historia fiscal. Un down destructivo no convierte automáticamente dispatches fiscales `DEBIT_NOTES` en `NON_FISCAL`; cualquier fila fiscal o capability heredada no reconciliada bloquea el down.
 
 Orden inverso seguro:
 
@@ -859,6 +877,14 @@ Casos derivados adicionales:
 - cero seeds, secretos, blobs, columnas provider-specific y artifacts SQLite 003.
 - `POST-MATERIALIZATION PERFORMANCE VALIDATION` usa EXPLAIN antes de añadir índices retirados;
 - raw status/reference oversized, controles, secreto aparente y vacío/whitespace-only son rechazados; canonicalización/checksum son estables.
+- una base 002 sin filas incompatibles `DEBIT_NOTES` permite que el preflight 003 pase;
+- una capability `DEBIT_NOTES` sin dispatch bloquea hasta reconciliación explícita, sin mutación automática;
+- un dispatch `NON_FISCAL/DEBIT_NOTES` bloquea `apply 003` antes de cualquier schema mutation;
+- un fallo del preflight no modifica filas y reporta solo count, IDs y tenant/company/integration;
+- una vez reconciliados los datos por procedimiento separado, el preflight puede pasar y 003 sigue usando únicamente el camino FISCAL;
+- `IntegrationDispatchAttempt` rechaza FISCAL/DEBIT_NOTES y `FiscalSubmissionAttempt` acepta únicamente FISCAL/DEBIT_NOTES;
+- down 003 con datos fiscales `DEBIT_NOTES` queda `BLOCKED`, salvo base fresh/test vacía;
+- los hashes de 001/002 se verifican después de cada bloqueo o rollback.
 
 Mocks no cuentan como provider integration. No se reportará PostgreSQL 003 como evidencia hasta materializar y ejecutar este plan.
 
@@ -877,8 +903,10 @@ No hay adapter, HTTP, auth, sandbox, producción, certificado DIAN ni validació
 
 ## 20. Decisión y siguiente gate
 
-El ownership fiscal es inequívoco, no duplica 002 y `ElectronicDocument` conserva solo identidad/snapshot/source/totales/identificadores/configuración/lifecycle fiscales, sin line items de Sale. Las nueve tablas siguen justificadas. M-01..M-06 y MED-01..MED-03 quedan resueltos; L-01/L-02 reconciliados. FK/RLS/grants/guards, initial row shapes, numeración, orden universal, capability downgrade, habilitación FISCAL y rollback no abren ventanas huérfanas; SQLite queda fuera y descriptor/tests están cerrados.
+El ownership fiscal es inequívoco, no duplica 002 y `ElectronicDocument` conserva solo identidad/snapshot/source/totales/identificadores/configuración/lifecycle fiscales, sin line items de Sale. Las nueve tablas siguen justificadas. M-01..M-06 y MED-01..MED-03 quedan resueltos; L-01/L-02 reconciliados. `FISCAL-003-MANIFEST-REMEDIATION-3` resuelve MED-01 mediante preflight fail-closed, zero-row path y reconciliación separada sin invención de datos. FK/RLS/grants/guards, initial row shapes, numeración, orden universal, capability downgrade, habilitación FISCAL y rollback no abren ventanas huérfanas; SQLite queda fuera y descriptor/tests están cerrados.
 
 **FISCAL-003-MANIFEST = PASS**
 
-**SQL 003 = NO-GO** hasta repetir la revisión independiente completa del manifest remediado y ejecutar después un preflight de materialización separado. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW-3`; no debe escribir SQL.
+**FISCAL-003-MANIFEST-REMEDIATION-3 = PASS**
+
+**SQL 003 = NO-GO** hasta repetir la revisión independiente completa del manifest remediado y ejecutar después un preflight de materialización separado. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW-4`; no debe escribir SQL.

@@ -174,7 +174,7 @@ Estado de la épica: `IN_PROGRESS`.
 | INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
-| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Review 2 `PASS_WITH_REMEDIATION`; remediación 2 cierra actor remoto, shapes iniciales y lock order universal. Nueve tablas, SQLite NONE y SQL 003 ausente; pendiente `FISCAL-003-MANIFEST-REVIEW-3` |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Review 3 `PASS_WITH_REMEDIATION`; `FISCAL-003-MANIFEST-REMEDIATION-3` reconcilia la transición histórica `DEBIT_NOTES` 002 `NON_FISCAL` hacia capability fiscal 003 mediante preflight fail-closed y camino zero-row. Nueve tablas, SQLite NONE y SQL 003 ausente; pendiente `FISCAL-003-MANIFEST-REVIEW-4` |
 
 ### Pagos
 

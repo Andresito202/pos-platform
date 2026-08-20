@@ -325,9 +325,10 @@ Para un dispatch `FISCAL`, `FiscalSubmissionAttempt.integration_dispatch_id` usa
 
 El contrato conceptual anterior no cambia, pero su materialización se divide dentro de Phase 1:
 
-1. migration 002 crea exclusivamente External Integrations foundation. Su constraint temporal permite solo `dispatch_class = 'NON_FISCAL'`; por tanto, ninguna fila fiscal huérfana puede persistirse. `IntegrationDispatchAttempt` mantiene además su discriminador permanente `NON_FISCAL`.
-2. migration 003 mantiene primero el constraint 002, crea el foundation fiscal, `FiscalSubmissionAttempt`, sus candidate keys y la FK discriminada fija `FISCAL`, y valida la estructura. Solo después reemplaza el constraint temporal por el final `FISCAL|NON_FISCAL`: habilitar `FISCAL` es el último cambio estructural de la transición.
-3. migration 003 no puede habilitar `FISCAL` antes de que `FiscalSubmissionAttempt` exista y sea físicamente referenciable. Si owner, FK o constraint no pueden instalarse juntos, toda la migration falla; no existe ventana con dispatch fiscal sin owner.
+1. migration 002 crea exclusivamente External Integrations foundation. Su constraint temporal permite solo `dispatch_class = 'NON_FISCAL'`; por tanto, ninguna fila fiscal huérfana puede persistirse. Históricamente, sin embargo, ese constraint no clasifica `DEBIT_NOTES` como fiscal y puede permitir capability/dispatch `DEBIT_NOTES` dentro de `NON_FISCAL`. `IntegrationDispatchAttempt` mantiene además su discriminador permanente `NON_FISCAL`.
+2. migration 003 mantiene primero el constraint 002 y ejecuta un preflight fail-closed de capabilities, dispatches, mappings, ownership y configuraciones `DEBIT_NOTES`. Cualquier fila incompatible bloquea antes de crear schema, tablas, guards, RLS, grants o constraints; no se convierte automáticamente en FISCAL ni se inventa owner fiscal, documento, numeración o evidencia. Solo el resultado zero-row permite continuar.
+3. migration 003 crea el foundation fiscal, `FiscalSubmissionAttempt`, sus candidate keys y la FK discriminada fija `FISCAL`, y valida la estructura. Solo después reemplaza el constraint temporal por el final `FISCAL|NON_FISCAL`: habilitar `FISCAL` es el último cambio estructural de la transición.
+4. migration 003 no puede habilitar `FISCAL` antes de que `FiscalSubmissionAttempt` exista y sea físicamente referenciable. Si owner, FK, preflight o constraint no pueden instalarse juntos, toda la migration falla; no existe ventana con dispatch fiscal sin owner.
 
 Esta secuencia es `RECONCILIATION` de rollout, no cambio de ownership, replacement ni deprecación. Migration 002 no crea `FiscalConnection`, `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalArtifact`, `FiscalIncident` o `FiscalReconciliation`.
 
