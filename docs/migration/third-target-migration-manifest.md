@@ -2,7 +2,7 @@
 
 ## 1. Propósito, estado y autoridad
 
-Estado de `FISCAL-003-MANIFEST`: `PASS`. La primera remediación cerró M-01..M-06/L-01..L-02; `FISCAL-003-MANIFEST-REVIEW-2` terminó `PASS_WITH_REMEDIATION`, la segunda remediación cerró MED-01..MED-03 y `FISCAL-003-MANIFEST-REMEDIATION-3` reconcilia MED-01 sobre la transición histórica de `DEBIT_NOTES` antes de `FISCAL-003-MANIFEST-REVIEW-4`. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
+Estado de `FISCAL-003-MANIFEST`: `PASS`. La primera remediación cerró M-01..M-06/L-01..L-02; `FISCAL-003-MANIFEST-REVIEW-2` terminó `PASS_WITH_REMEDIATION`, la segunda remediación cerró MED-01..MED-03 y `FISCAL-003-MANIFEST-REMEDIATION-3` reconcilió MED-01 sobre la transición histórica de `DEBIT_NOTES`. `FISCAL-003-MANIFEST-REVIEW-4` detectó B-01/L-01; `FISCAL-003-MANIFEST-REMEDIATION-4` resolvió ambos y `FISCAL-003-MANIFEST-REVIEW-5` confirmó sus áreas técnicas, pero falló por M-01 de gobernanza. `FISCAL-003-MANIFEST-REMEDIATION-5` reconcilia M-01 antes de `FISCAL-003-MANIFEST-REVIEW-6`. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
 
 Este documento es la autoridad de alcance para la futura migration PostgreSQL `003_fiscal_electronic_invoicing_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, SQL, cambios al runner, adapters, HTTP, credenciales, seeds ni evidencia real de provider. Un PASS documental autoriza únicamente una revisión independiente; no autoriza materialización.
 
@@ -775,23 +775,27 @@ La información mínima local continúa en la operación comercial, receipt/snap
 
 Orden topológico exacto:
 
-1. lock global; PostgreSQL 16; ledger 001/002 `APPLIED` y checksums/catalogs exactos; SQL 003 ausente.
-2. verificar `btree_gist` PREEXISTING y operator classes; no reinstalar ni cambiar owner.
-3. crear schema `fiscal`, owner y revocación PUBLIC.
-4. ampliar aditivamente `DEBIT_NOTES`, agregar candidate key 003 y guard inverso de downgrade sobre objetos `integrations` owned por 003.
-5. `fiscal_connections`.
-6. `fiscal_emission_configurations`.
-7. `fiscal_emission_configuration_versions`, self-FK y exclusion temporal.
-8. `electronic_documents`, self-FK correctiva y uniques parciales.
-9. `fiscal_submission_attempts` y FK discriminada `FISCAL`.
-10. `fiscal_artifacts`.
-11. `fiscal_reconciliations`.
-12. `fiscal_incidents`.
-13. `fiscal_reconciliation_items`.
-14. índices, guards, RLS/policies/FORCE y grants exactos.
-15. guard fiscal sobre IntegrationDispatch, introspection y smoke pre-enable.
-16. reemplazo atómico final del constraint 002 por el constraint 003 según §8.
-17. commit body, smoke con roles reales y finalización ledger.
+1. adquirir el lock global no mutante; verificar PostgreSQL 16, ledger 001/002 `APPLIED`, checksums/catalogs exactos y SQL 003 ausente.
+2. ejecutar completo el preflight histórico read-only de §7.3: consultar, contar, clasificar y reportar de forma sanitizada todas las incompatibilidades obligatorias, sin reparar ni transformar datos.
+3. evaluar todos los counts bloqueantes: si cualquiera es mayor que cero, terminar `BLOCKED` con **cero mutaciones 003** y remitir los casos al flujo de reconciliación separado ya aprobado; si todos son cero, registrar únicamente la precondition de apply satisfecha y autorizar el inicio de la fase de mutación, sin declarar la migration aprobada o aplicada.
+4. verificar `btree_gist` PREEXISTING y operator classes; no reinstalar ni cambiar owner.
+5. crear schema `fiscal`, owner y revocación PUBLIC; esta es la primera mutación 003 permitida.
+6. ampliar aditivamente `DEBIT_NOTES`, agregar candidate key 003 y guard inverso de downgrade sobre objetos `integrations` owned por 003.
+7. `fiscal_connections`.
+8. `fiscal_emission_configurations`.
+9. `fiscal_emission_configuration_versions`, self-FK y exclusion temporal.
+10. `electronic_documents`, self-FK correctiva y uniques parciales.
+11. `fiscal_submission_attempts` y FK discriminada `FISCAL`.
+12. `fiscal_artifacts`.
+13. `fiscal_reconciliations`.
+14. `fiscal_incidents`.
+15. `fiscal_reconciliation_items`.
+16. índices, guards, RLS/policies/FORCE y grants exactos.
+17. guard fiscal sobre IntegrationDispatch, introspection y smoke pre-enable.
+18. reemplazo atómico final del constraint 002 por el constraint 003 según §8.
+19. commit body, smoke con roles reales y finalización ledger.
+
+Los pasos 1–4 son precondiciones no mutantes. Antes de completar satisfactoriamente el paso 3 quedan prohibidos `CREATE SCHEMA/TABLE/TYPE`, inserciones o transformaciones fiscales, cambios de capability, RLS, grants/revokes, constraints, dispatches, mappings y ownership de provider o fiscal. No existe otro orden normativo alternativo para `apply 003`.
 
 ## 16. Down order y dependency protection
 
@@ -909,4 +913,12 @@ El ownership fiscal es inequívoco, no duplica 002 y `ElectronicDocument` conser
 
 **FISCAL-003-MANIFEST-REMEDIATION-3 = PASS**
 
-**SQL 003 = NO-GO** hasta repetir la revisión independiente completa del manifest remediado y ejecutar después un preflight de materialización separado. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW-4`; no debe escribir SQL.
+**FISCAL-003-MANIFEST-REMEDIATION-4 = PASS**
+
+**FISCAL-003-MANIFEST-REVIEW-5 = FAIL** por M-01 de gobernanza; B-01 y L-01 permanecen resueltos.
+
+**FISCAL-003-MANIFEST-REMEDIATION-5 = PASS**
+
+**MAT-003-PREFLIGHT = NO-GO** hasta obtener el siguiente PASS independiente y disponer de la validación PostgreSQL requerida.
+
+**SQL 003 = ABSENT / NO-GO**; migration 003 no está materializada y `POSTGRESQL_VALIDATION = NOT_EXECUTED / ENVIRONMENT_UNAVAILABLE`. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW-6`; no debe escribir SQL ni ejecutar `MAT-003-PREFLIGHT`.
