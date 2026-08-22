@@ -2,7 +2,7 @@
 
 ## 1. Propósito, estado y autoridad
 
-Estado de `FISCAL-003-MANIFEST`: `PASS`. La primera remediación cerró M-01..M-06/L-01..L-02; `FISCAL-003-MANIFEST-REVIEW-2` terminó `PASS_WITH_REMEDIATION`, la segunda remediación cerró MED-01..MED-03 y `FISCAL-003-MANIFEST-REMEDIATION-3` reconcilió MED-01 sobre la transición histórica de `DEBIT_NOTES`. `FISCAL-003-MANIFEST-REVIEW-4` detectó B-01/L-01; `FISCAL-003-MANIFEST-REMEDIATION-4` resolvió ambos y `FISCAL-003-MANIFEST-REVIEW-5` confirmó sus áreas técnicas, pero falló por M-01 de gobernanza. `FISCAL-003-MANIFEST-REMEDIATION-5` reconcilia M-01 antes de `FISCAL-003-MANIFEST-REVIEW-6`. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
+Estado de `FISCAL-003-MANIFEST`: `PASS`. La primera remediación cerró M-01..M-06/L-01..L-02; `FISCAL-003-MANIFEST-REVIEW-2` terminó `PASS_WITH_REMEDIATION`, la segunda remediación cerró MED-01..MED-03 y `FISCAL-003-MANIFEST-REMEDIATION-3` reconcilió MED-01 sobre la transición histórica de `DEBIT_NOTES`. `FISCAL-003-MANIFEST-REVIEW-4` detectó B-01/L-01; `FISCAL-003-MANIFEST-REMEDIATION-4` resolvió ambos y `FISCAL-003-MANIFEST-REVIEW-5` confirmó sus áreas técnicas, pero falló por M-01 de gobernanza. `FISCAL-003-MANIFEST-REMEDIATION-5` reconcilió M-01 y `FISCAL-003-MANIFEST-REVIEW-6 = PASS` cerró la revisión con BLOCKER/HIGH/MEDIUM/LOW en cero. El ID formal existente para este trabajo es `INT-006`; fue introducido por la decisión de split 002/003 y no se reasigna.
 
 Este documento es la autoridad de alcance para la futura migration PostgreSQL `003_fiscal_electronic_invoicing_foundation`. Es `MANIFEST-ONLY`: no contiene DDL, SQL, cambios al runner, adapters, HTTP, credenciales, seeds ni evidencia real de provider. Un PASS documental autoriza únicamente una revisión independiente; no autoriza materialización.
 
@@ -919,6 +919,14 @@ El ownership fiscal es inequívoco, no duplica 002 y `ElectronicDocument` conser
 
 **FISCAL-003-MANIFEST-REMEDIATION-5 = PASS**
 
-**MAT-003-PREFLIGHT = NO-GO** hasta obtener el siguiente PASS independiente y disponer de la validación PostgreSQL requerida.
+**FISCAL-003-MANIFEST-REVIEW-6 = PASS** con BLOCKER/HIGH/MEDIUM/LOW en cero; B-01, el único orden APPLY fail-closed, MED-01, la transición de constraint, down/rollback, consistencia de gobernanza y no regresión de providers/seguridad permanecen `PASS`. No se requiere REVIEW-7 por sincronización de gate.
 
-**SQL 003 = ABSENT / NO-GO**; migration 003 no está materializada y `POSTGRESQL_VALIDATION = NOT_EXECUTED / ENVIRONMENT_UNAVAILABLE`. La siguiente tarea exacta es `FISCAL-003-MANIFEST-REVIEW-6`; no debe escribir SQL ni ejecutar `MAT-003-PREFLIGHT`.
+**POSTGRES_MIGRATION_TESTS = PASS (96/96)** en PostgreSQL 16.14, endpoint temporal `127.0.0.1:55432`, mediante `pnpm test:migrations:postgres`; pasaron 2/2 archivos en 25.05 s. Los hashes 001/002 permanecieron inmutables, no quedaron bases de prueba residuales y el contenedor/red efímeros fueron retirados con el puerto liberado.
+
+**MAT-003-PREFLIGHT = BLOCKED** por `APPROVED_EXECUTABLE_PREFLIGHT_NOT_MATERIALIZED`. El repositorio conserva el contrato conceptual y el orden fail-closed de §7.3/§15, pero todavía no contiene comando, query set aprobado, runner TypeScript, package script, integración de harness ni descriptor 003 ejecutables. El intento se detuvo sin iniciar PostgreSQL, inventar consultas o modificar datos.
+
+**Siguiente tarea autorizada: `MAT-003-PREFLIGHT-MATERIALIZATION`.** Su único alcance es materializar el contrato ya aprobado como artefacto ejecutable, revisable y read-only. La decisión SQL/TypeScript/extensión del runner se tomará en esa tarea después de inspeccionar el tooling, favoreciendo reutilizar el harness existente, mínimo código, una fuente de verdad y sin framework paralelo.
+
+Criterios de aceptación: un comando explícito del repositorio sobre PostgreSQL 16.14; ejecución anterior a cualquier mutación 003 con read-only verificable; cobertura completa de capabilities, dispatches, mappings, ownership, configuración y scope tenant/company aprobados; counts bloqueantes y reporte sanitizado; resultados distintos `PASS|BLOCKED|FAIL`; cualquier count mayor que cero produce `BLOCKED` y cero mutaciones 003. No reconcilia, no convierte `NON_FISCAL -> FISCAL`, no fabrica evidencia fiscal/provider, no crea SQL 003 y no modifica migrations 001/002.
+
+**SQL 003 = ABSENT**; migration 003 no está materializada. `MAT-003-PREFLIGHT-MATERIALIZATION` no autoriza ejecutar el preflight, crear/aplicar SQL 003 ni implementar funcionalidad.

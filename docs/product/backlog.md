@@ -16,7 +16,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
 - Último baseline ejecutable completado: migrations 001→002, con PostgreSQL `96/96` y SQLite `12/12`; migration 001 permanece byte-for-byte inmutable y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
-- Último trabajo completado: `FISCAL-003-MANIFEST-REMEDIATION-5 = PASS`; el siguiente gate exacto es `FISCAL-003-MANIFEST-REVIEW-6`. `MAT-003-PREFLIGHT = NO-GO`, SQL 003 está ausente, migration 003 no está materializada y `POSTGRESQL_VALIDATION = NOT_EXECUTED / ENVIRONMENT_UNAVAILABLE`. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Último trabajo completado: reconciliación de evidencia posterior a `FISCAL-003-MANIFEST-REVIEW-6 = PASS` y `POSTGRES_MIGRATION_TESTS = PASS (96/96)`. `MAT-003-PREFLIGHT = BLOCKED` por `APPROVED_EXECUTABLE_PREFLIGHT_NOT_MATERIALIZED`; SQL 003 está ausente y migration 003 no está materializada. La siguiente tarea autorizada es `MAT-003-PREFLIGHT-MATERIALIZATION`. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -174,7 +174,7 @@ Estado de la épica: `IN_PROGRESS`.
 | INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
-| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | `FISCAL-003-MANIFEST-REMEDIATION-5 = PASS`; B-01/L-01 permanecen resueltos y M-01 fue reconciliado. Nueve tablas, SQLite NONE y SQL 003 ausente; `MAT-003-PREFLIGHT = NO-GO`; pendiente `FISCAL-003-MANIFEST-REVIEW-6` |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | `FISCAL-003-MANIFEST-REVIEW-6 = PASS`; PostgreSQL 16.14 `96/96`; nueve tablas, SQLite NONE y SQL 003 ausente. `MAT-003-PREFLIGHT = BLOCKED` porque falta su implementación ejecutable; siguiente tarea `MAT-003-PREFLIGHT-MATERIALIZATION` |
 
 ### Pagos
 
@@ -328,7 +328,7 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Ejecutar `FISCAL-003-MANIFEST-REVIEW-6` sobre el manifest 003 remediado; no escribir SQL ni ejecutar `MAT-003-PREFLIGHT` hasta obtener PASS independiente y disponer de la validación PostgreSQL requerida.
+1. Ejecutar `MAT-003-PREFLIGHT-MATERIALIZATION` conforme a los límites y criterios de aceptación de `third-target-migration-manifest.md`; no ejecutar todavía `MAT-003-PREFLIGHT` ni crear/aplicar SQL 003.
 2. Mantener migration 002 `NON_FISCAL`, migration 001 inmutable y adapters sin implementación hasta cerrar las dependencias siguientes.
 3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
 4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
@@ -537,4 +537,8 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 - 2026-08-20: `FISCAL-003-MANIFEST-REMEDIATION-3 = PASS` reconcilió MED-01; `FISCAL-003-MANIFEST-REVIEW-4 = FAIL` detectó B-01 en el orden topológico y L-01 en la instrucción operativa.
 - 2026-08-22: `FISCAL-003-MANIFEST-REMEDIATION-4 = PASS` resolvió B-01/L-01; `FISCAL-003-MANIFEST-REVIEW-5 = FAIL` confirmó esas áreas y detectó M-01 de gobernanza. `FISCAL-003-MANIFEST-REMEDIATION-5 = PASS` reconcilia las referencias operativas sin alterar arquitectura, SQL, providers ni security gates.
 
-Próxima actualización obligatoria: ejecutar `FISCAL-003-MANIFEST-REVIEW-6`; `MAT-003-PREFLIGHT` permanece `NO-GO`, SQL 003 permanece ausente y migration 003 no está materializada. La validación PostgreSQL continúa `NOT_EXECUTED / ENVIRONMENT_UNAVAILABLE` hasta disponer del servicio aprobado.
+- 2026-08-22: `FISCAL-003-MANIFEST-REVIEW-6 = PASS` cerró BLOCKER/HIGH/MEDIUM/LOW en cero y confirmó B-01, orden APPLY fail-closed, MED-01, transición de constraint, down/rollback y no regresiones. La validación PostgreSQL 16.14 posterior pasó `96/96` en 2/2 archivos; 001/002 conservaron hashes, SQL 003 siguió ausente y el entorno efímero quedó limpio.
+
+- 2026-08-22: el intento de ejecutar `MAT-003-PREFLIGHT` se detuvo correctamente antes de iniciar PostgreSQL o consultar datos: `BLOCKED` por `APPROVED_EXECUTABLE_PREFLIGHT_NOT_MATERIALIZED`. No existe aún comando, query set, runner, package script, harness integration ni descriptor 003 aprobado y ejecutable; no hubo mutaciones.
+
+Próxima actualización obligatoria: ejecutar `MAT-003-PREFLIGHT-MATERIALIZATION` para materializar el contrato read-only aprobado según `third-target-migration-manifest.md`. Esta tarea no ejecuta el preflight, no crea/aplica SQL 003 y no modifica migrations 001/002.
