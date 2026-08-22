@@ -9,12 +9,19 @@ import {
   RLS_TABLES,
   TARGET_SCHEMAS,
 } from "./contract.js";
-import { MigrationInvariantError, readArtifact } from "./shared.js";
+import { MigrationInvariantError, readArtifact, sha256 } from "./shared.js";
 
 interface CountRow { count: string }
 interface NameRow { name: string }
 interface ColumnRow { schema_name: string; table_name: string; column_name: string; ordinal_position: number }
 interface RlsRow { qualified_name: string; row_security: boolean; force_row_security: boolean; owner_name: string }
+interface SemanticRow { kind: string; qualified_name: string; definition: string }
+
+// PostgreSQL 16.14 fingerprints of the normalized semantic catalog produced by
+// the committed 001/002 artifacts. Set checks below keep failures diagnosable;
+// these additionally reject same-name definition drift.
+const SEMANTIC_DIGEST_001 = "2b59ec82b83c97a3506558fea8da6aea822d93734853007423c0789551bc5e06";
+const SEMANTIC_DIGEST_002 = "236ef5c3812e9ffa760fa9c52a27c6e4f6952461734907d958561e377a270b73";
 
 function assertInvariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new MigrationInvariantError(message);
@@ -26,6 +33,41 @@ function sameValues(actual: readonly string[], expected: readonly string[]): boo
 
 function capturedNames(source: string, expression: RegExp): string[] {
   return [...source.matchAll(expression)].map((match) => match[1]!).sort();
+}
+
+async function catalogSemanticDigest(db: SqlExecutor, schemas: readonly string[]): Promise<string> {
+  const schemaSql=schemas.map((name)=>`'${name.replaceAll("'","''")}'`).join(",");
+  const rows=await queryRows<SemanticRow>(db, `
+    SELECT 'constraint' kind,n.nspname||'.'||c.relname||'.'||x.conname qualified_name,
+           x.contype::text||':'||pg_get_constraintdef(x.oid,true) definition
+    FROM pg_constraint x JOIN pg_class c ON c.oid=x.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN (${schemaSql})
+    UNION ALL
+    SELECT 'index',n.nspname||'.'||c.relname||'.'||i.relname,pg_get_indexdef(i.oid,0,true)
+    FROM pg_index x JOIN pg_class c ON c.oid=x.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_class i ON i.oid=x.indexrelid
+    WHERE n.nspname IN (${schemaSql})
+    UNION ALL
+    SELECT 'trigger',n.nspname||'.'||c.relname||'.'||t.tgname,pg_get_triggerdef(t.oid,true)
+    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN (${schemaSql}) AND NOT t.tgisinternal
+    UNION ALL
+    SELECT 'policy',n.nspname||'.'||c.relname||'.'||p.polname,
+           concat_ws(':',p.polcmd::text,p.polpermissive,
+             (SELECT string_agg(pg_get_userbyid(role_oid),',' ORDER BY pg_get_userbyid(role_oid)) FROM unnest(p.polroles) role_oid),
+             coalesce(pg_get_expr(p.polqual,p.polrelid,true),''),coalesce(pg_get_expr(p.polwithcheck,p.polrelid,true),''))
+    FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN (${schemaSql})
+    UNION ALL
+    SELECT 'function',n.nspname||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',pg_get_functiondef(p.oid)
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN (${schemaSql})
+    ORDER BY 1,2
+  `);
+  return sha256(JSON.stringify(rows)).toString("hex");
+}
+
+async function validateCatalogSemantics(db:SqlExecutor,schemas:readonly string[],expected:string,label:string):Promise<void>{
+  const actual=await catalogSemanticDigest(db,schemas);
+  assertInvariant(actual===expected,`${label} semantic catalog diverges (${actual})`);
 }
 
 export async function bootstrapPresence(db: SqlExecutor): Promise<"absent" | "complete" | "partial"> {
@@ -57,9 +99,9 @@ export async function validateBootstrap(db: SqlExecutor): Promise<void> {
   );
 
   const columns = await queryRows<{ column_name: string }>(db, `
-    SELECT column_name FROM information_schema.columns
-    WHERE table_schema = 'platform' AND table_name = 'target_migration_executions'
-    ORDER BY ordinal_position
+    SELECT a.attname column_name FROM pg_attribute a
+    WHERE a.attrelid='platform.target_migration_executions'::regclass AND a.attnum>0 AND NOT a.attisdropped
+    ORDER BY a.attnum
   `);
   assertInvariant(
     sameValues(columns.map((row) => row.column_name), POSTGRES_TABLE_COLUMNS["platform.target_migration_executions"]),
@@ -153,10 +195,11 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
   assertInvariant(sameValues(actualTables, expectedTables), `target tables diverge: ${actualTables.join(",")}`);
 
   const columns = await queryRows<ColumnRow>(db, `
-    SELECT table_schema AS schema_name, table_name, column_name, ordinal_position
-    FROM information_schema.columns
-    WHERE table_schema IN ('platform','identity','tenancy','organization','authorization','sync','audit')
-    ORDER BY table_schema, table_name, ordinal_position
+    SELECT n.nspname schema_name,c.relname table_name,a.attname column_name,a.attnum ordinal_position
+    FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
+      AND n.nspname IN ('platform','identity','tenancy','organization','authorization','sync','audit')
+    ORDER BY n.nspname,c.relname,a.attnum
   `);
   for (const [qualifiedName, expectedColumns] of Object.entries(POSTGRES_TABLE_COLUMNS)) {
     const [schemaName, tableName] = qualifiedName.split(".") as [string, string];
@@ -277,18 +320,20 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
   assertInvariant(ownerProblems.length === 0, "runtime owns target tables");
 
   const workerSessionGrant = await queryRows<CountRow>(db, `
-    SELECT count(*)::text AS count FROM information_schema.role_table_grants
-    WHERE grantee = 'pos_worker' AND table_schema = 'identity' AND table_name = 'sessions'
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE r.rolname='pos_worker' AND n.nspname='identity' AND c.relname='sessions'
   `);
   assertInvariant(Number(workerSessionGrant[0]!.count) === 0, "worker has Session grants");
 
   const dangerousAuditGrants = await queryRows<CountRow>(db, `
-    SELECT count(*)::text AS count FROM information_schema.role_table_grants
-    WHERE grantee IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin')
-      AND table_schema = 'audit' AND table_name = 'audit_events'
-      AND privilege_type IN ('UPDATE','DELETE','TRUNCATE')
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE r.rolname IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin')
+      AND n.nspname='audit' AND c.relname='audit_events' AND a.privilege_type IN ('UPDATE','DELETE','TRUNCATE')
   `);
   assertInvariant(Number(dangerousAuditGrants[0]!.count) === 0, "runtime can mutate AuditEvent");
+  await validateCatalogSemantics(db,["platform","identity","tenancy","organization","authorization","sync","audit"],SEMANTIC_DIGEST_001,"001");
 }
 
 function tableColumnsFromSql(source: string): Map<string, string[]> {
@@ -385,9 +430,10 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
   }
 
   const columns = await queryRows<ColumnRow>(db, `
-    SELECT table_schema AS schema_name,table_name,column_name,ordinal_position
-    FROM information_schema.columns WHERE table_schema='integrations'
-    ORDER BY table_name,ordinal_position
+    SELECT n.nspname schema_name,c.relname table_name,a.attname column_name,a.attnum ordinal_position
+    FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r' AND n.nspname='integrations'
+    ORDER BY c.relname,a.attnum
   `);
   for (const [table, expected] of expectedColumns) {
     const actual = columns.filter((row) => row.table_name===table).map((row) => row.column_name);
@@ -436,25 +482,31 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
   assertInvariant(unsafeFunctions.length===0,"002 function has unsafe search_path");
 
   const dangerous = await queryRows<CountRow>(db, `
-    SELECT count(*)::text AS count FROM information_schema.role_table_grants
-    WHERE table_schema='integrations'
-      AND grantee IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting')
-      AND privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND r.rolname IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting')
+      AND a.privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')
   `);
   assertInvariant(Number(dangerous[0]!.count)===0, "runtime has dangerous 002 table grants");
-  const reporting = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM information_schema.role_table_grants WHERE table_schema='integrations' AND grantee='pos_reporting'");
+  const reporting = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='integrations' AND r.rolname='pos_reporting'");
   assertInvariant(Number(reporting[0]!.count)===0, "pos_reporting has 002 grants");
-  const adminMutation = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM information_schema.role_table_grants WHERE table_schema='integrations' AND grantee='pos_platform_admin' AND privilege_type<>'SELECT'");
+  const adminMutation = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='integrations' AND r.rolname='pos_platform_admin' AND a.privilege_type<>'SELECT'");
   assertInvariant(Number(adminMutation[0]!.count)===0, "platform admin can mutate 002");
 
   const actualColumnGrants=await queryRows<{grantee:string;table_name:string;privilege_type:string;column_name:string}>(db, `
-    SELECT grantee,table_name,privilege_type,column_name FROM information_schema.role_column_grants
-    WHERE table_schema='integrations'
-      AND grantee IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting')
-      AND privilege_type IN ('SELECT','INSERT','UPDATE')
+    SELECT DISTINCT r.rolname grantee,c.relname table_name,a.privilege_type,att.attname column_name
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND r.rolname IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting') AND a.privilege_type IN ('SELECT','INSERT','UPDATE')
+    UNION
+    SELECT r.rolname,c.relname,a.privilege_type,att.attname
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND r.rolname IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting') AND a.privilege_type IN ('SELECT','INSERT','UPDATE')
     ORDER BY grantee,table_name,privilege_type,column_name
   `);
   const actualGrantKeys=actualColumnGrants.map(row=>`${row.grantee}|${row.table_name}|${row.privilege_type}|${row.column_name}`).sort();
   const expectedGrantKeys=columnGrantsFromSql(bodySql,expectedColumns);
   assertInvariant(sameValues(actualGrantKeys,expectedGrantKeys), "002 role/operation/column grant matrix diverges");
+  await validateCatalogSemantics(db,["integrations"],SEMANTIC_DIGEST_002,"002");
 }

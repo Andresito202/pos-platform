@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "preflight:003": "tsx src/postgres-003-preflight-cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:preflight:003": "vitest run tests/postgres-003-preflight.test.ts",
     "test:postgres": "vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts",
     "test:sqlite": "vitest run tests/sqlite-migration.test.ts"
   },

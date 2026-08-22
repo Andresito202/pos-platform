@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "preflight:migration:003": "pnpm --filter @pos-platform/target-migrations preflight:003",
     "typecheck": "pnpm --filter @pos-platform/target-migrations typecheck",
     "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
     "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",

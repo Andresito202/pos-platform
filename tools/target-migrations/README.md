@@ -36,3 +36,29 @@ Migration 002 está implementada mediante descriptors por migration, sin modific
 - tests: `postgres-002-migration.test.ts`, además de la suite 001 inmutable.
 
 `btree_gist` se introspecta bajo el lock global antes de crear el schema 002; si falta se instala con `SET LOCAL ROLE pos_schema_owner`, siempre que el servicio lo permita. Down 002 conserva la extensión. Los validators 001/002 inspeccionan únicamente su ownership y los wrappers públicos 001 permanecen compatibles.
+
+## Candidate MAT-003-PREFLIGHT
+
+`src/postgres-003-preflight.ts` materializa el preflight histórico aprobado como inspección explícita sobre 001+002, sin descriptor ni SQL 003. Reutiliza checksums, ledger y `validatePostgres002Catalog` del harness en la misma conexión y transacción. Toda la evaluación ocurre en una única transacción `BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`; verifica ambos settings en runtime y siempre termina con `ROLLBACK`, incluso para `PASS` y `BLOCKED`.
+
+Comando desde la raíz:
+
+```powershell
+pnpm preflight:migration:003
+```
+
+`POSTGRES_PREFLIGHT_URL` es obligatorio, explícito y no tiene valor predeterminado. Un valor ausente, vacío o malformado produce `FAIL`/exit `1` antes de intentar conexión; la URL y sus credenciales nunca se imprimen. El rol de la URL debe ser `LOGIN NOSUPERUSER BYPASSRLS`, tener `USAGE` en `platform` e `integrations` y `SELECT` únicamente sobre las columnas consumidas del ledger, ExternalIntegration, capability, dispatch, attempt, mapping y ownership. El catálogo se valida por `pg_catalog` contra los artifacts/descriptors aprobados, sin ampliar lectura de datos sensibles. La implementación solo valida este contrato: nunca crea/altera roles, concede privilegios, usa `SET ROLE` ni desactiva RLS. `pos_platform_admin` permanece `NOT_READY` mientras falten esos permisos operacionales.
+
+Inmediatamente después de `BEGIN`, como primer statement de base de datos, el preflight intenta sin espera `pg_try_advisory_xact_lock(hashtextextended('pos-platform:target-migrations:global:v1',0))`; solo tras adquirirlo valida transacción, rol, privilegios, predecessors y catálogo. Es el mismo lock global del harness y serializa únicamente ejecutores que participan en ese protocolo; no pretende bloquear escrituras arbitrarias de aplicaciones. El snapshot estable `REPEATABLE READ` se establece al entrar en la sección protegida y cubre todas las lecturas posteriores. La liberación ocurre automáticamente con el `ROLLBACK`.
+
+La matriz final contiene cinco blockers: capability `DEBIT_NOTES`, dispatch `NON_FISCAL/DEBIT_NOTES`, attempt por FK discriminada, mapping por igualdad completa de `tenant_id/company_id/integration_id/resource_type/internal_entity_type/internal_entity_id` y ownership exclusivamente por `IntegrationCapability.ownership_policy_id` en el mismo scope. `MAT003_AFFECTED_SCOPE_INTEGRITY` es la sexta comprobación y una condición de confianza: un count no cero produce `FAIL`, no `BLOCKED`. Declaraciones y configuraciones globales de provider están fuera; no se inspeccionan nombres ni JSON para inferir historia.
+
+La salida es JSON determinista con `preflight_id`, versión, estado del predecessor y cada `check_id/count/status`, más evidencia limitada a 100 IDs/scopes ordenados; el count siempre es completo y `evidence_truncated` indica truncamiento. Exit codes: `0=PASS`, `2=BLOCKED`, `1=FAIL`. `pnpm` puede añadir texto de lifecycle alrededor de stdout; consumidores que necesiten JSON puro deben invocar el CLI subyacente.
+
+Pruebas dedicadas:
+
+```powershell
+pnpm --filter @pos-platform/target-migrations test:preflight:003
+```
+
+Esta materialización es candidata a revisión independiente. No ejecuta por sí sola el gate de gobernanza, no reconcilia datos, no crea objetos 003 y no cambia el estado vigente `MAT-003-PREFLIGHT = BLOCKED / NOT EXECUTED`.
