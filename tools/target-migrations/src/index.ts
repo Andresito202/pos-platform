@@ -9,6 +9,20 @@ export {
   runMat003Preflight,
 } from "./postgres-003-preflight.js";
 export type { Mat003DatabaseState, Mat003PreflightCheck, Mat003PreflightResult } from "./postgres-003-preflight.js";
+export {
+  ROLE_READINESS_AUTOMATIC_REVERSAL_COMPATIBLE_VERSIONS,
+  ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,
+  ROLE_READINESS_RECEIPT_VERSION,
+  applyRoleReadiness,
+  canonicalJson,
+  checkRoleReadiness,
+  classifyRoleReadiness,
+  inspectRoleReadinessAcl,
+  revertRoleReadiness,
+  validateRoleReadinessReceipt,
+  validateRoleReadinessReversal,
+} from "./postgres-003-role-readiness.js";
+export type { RoleReadinessAclSnapshot, RoleReadinessConfig, RoleReadinessReceipt, RoleReadinessResult, RoleReadinessState } from "./postgres-003-role-readiness.js";
 export { validatePostgres002Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
 export { applySqlite001, inspectSqlite001 } from "./sqlite.js";
 export {

@@ -321,3 +321,24 @@ El pre-flight físico posterior `MAT-002-PREFLIGHT` bloqueó materialización an
 La evidencia posterior cerró `FISCAL-003-MANIFEST-REVIEW-6 = PASS` y la suite PostgreSQL 16.14 pasó `96/96`. La materialización candidata posterior falló revisión independiente y su primera remediación quedó bloqueada por la ambigüedad de configuración global. `MAT-003-PREFLIGHT-CONTRACT-REMEDIATION-1 = PASS` resuelve esa ambigüedad documental; H-01/M-04 y la implementación de la matriz corregida siguen pendientes.
 
 La clasificación es `NEW + EXTENSION + RECONCILIATION`, sin replacement/deprecation. SQL 003 y SQLite 003 siguen ausentes, migration 003 no está materializada, providers no cambian de estado y `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`. La siguiente tarea autorizada es reanudar `MAT-003-PREFLIGHT-MATERIALIZATION-REMEDIATION-1`, no ejecutar el preflight ni crear/aplicar SQL 003.
+
+## Cierre de trazabilidad de canonical-role readiness para MAT-003
+
+La cadena efectiva al cierre queda explícita:
+
+```text
+001 materializada, probada e inmutable
+  -> 002 materializada, probada e inmutable
+  -> contrato MAT-003-PREFLIGHT aprobado
+  -> tooling MAT-003-PREFLIGHT materializado y revisado
+  -> diseño/revisión de canonical-role readiness aprobados
+  -> diseño/revisión del lifecycle de evidencia de reversión aprobados
+  -> tooling de role readiness materializado y revisado
+  -> CANONICAL ROLE STILL NOT APPLIED / NOT_EXECUTED
+  -> MAT-003-PREFLIGHT STILL BLOCKED / NOT_EXECUTED
+  -> SQL 003 / descriptor 003 / migration 003 STILL ABSENT
+```
+
+`Tooling materializado` no equivale a `ejecución canónica`, y `role readiness implementado` no equivale a `role readiness aplicado`. La siguiente candidata separada es `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-CANONICAL-APPLICATION`, no ejecutada y condicionada a verificación explícita de target/ambiente. Esto no completa integración fiscal, no implementa ni verifica SIIGO/FACTUS/ALEGRA y no promueve `SEC-G01..SEC-G10`.
+
+La revisión final conserva como LOW conocido/no bloqueante que el orden de evidencia diagnóstica del preflight no incluye `related_id` como último desempate. No afecta el conteo, la clasificación ni el bloqueo fail-closed y no fue remediado en este cierre.

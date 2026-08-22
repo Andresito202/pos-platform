@@ -16,7 +16,7 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
 - Último baseline ejecutable completado: migrations 001→002, con PostgreSQL `96/96` y SQLite `12/12`; migration 001 permanece byte-for-byte inmutable y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
-- Último trabajo completado: `MAT-003-PREFLIGHT-CONTRACT-REMEDIATION-1 = PASS` fijó la matriz histórica exclusivamente sobre relaciones físicas exactas de 002 y excluyó declarations/configuraciones provider-globales sin scope histórico. La implementación candidata sigue sin aprobar: `MAT-003-PREFLIGHT-MATERIALIZATION-REMEDIATION-1 = BLOCKED_PENDING_TECHNICAL_REMEDIATION`; `MAT-003-PREFLIGHT = BLOCKED / NOT_EXECUTED`, SQL 003 está ausente y migration 003 no está materializada. La siguiente tarea autorizada es reanudar la remediación técnica. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Último trabajo completado: el diseño, revisión, lifecycle de evidencia, materialización y revisión independiente de `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS` están en `PASS`. El tooling fail-closed quedó probado, pero el rol canónico continúa `NOT_APPLIED / NOT_EXECUTED`; `MAT-003-PREFLIGHT = BLOCKED / NOT_EXECUTED`, SQL/descriptor 003 están ausentes y migration 003 no está materializada. La siguiente candidata, no ejecutada, es `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-CANONICAL-APPLICATION`, sujeta a verificación explícita de target/ambiente. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -174,7 +174,21 @@ Estado de la épica: `IN_PROGRESS`.
 | INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
-| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | `MAT-003-PREFLIGHT-CONTRACT-REMEDIATION-1 = PASS`; PostgreSQL previo `96/96`; SQL 003 ausente. Implementación candidata pendiente de H-01/M-01..M-04; siguiente tarea: reanudar `MAT-003-PREFLIGHT-MATERIALIZATION-REMEDIATION-1` |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Tooling del preflight y canonical-role readiness materializado/revisado; rol canónico no aplicado, preflight no ejecutado y SQL 003 ausente. Siguiente candidata separada: aplicación canónica de role readiness con target/ambiente explícitos. |
+
+#### Estado auditable de canonical-role readiness para MAT-003
+
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-DESIGN = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-DESIGN-REVIEW = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-REVERSAL-EVIDENCE-LIFECYCLE-DESIGN = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-REVERSAL-EVIDENCE-LIFECYCLE-DESIGN-REVIEW = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-MATERIALIZATION = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-MATERIALIZATION-REVIEW = PASS`.
+- `001 / 002 = MATERIALIZED / TESTED / IMMUTABLE`.
+- `CANONICAL ROLE = NOT_APPLIED / NOT_EXECUTED`; `MAT-003-PREFLIGHT = BLOCKED / NOT_EXECUTED`.
+- `SQL 003 = ABSENT`; `Descriptor 003 = ABSENT`; `Migration 003 = NOT_MATERIALIZED`.
+- `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Finding LOW conocido y no bloqueante: el orden de evidencia diagnóstica del preflight no usa `related_id` como último desempate. No se remedia en este cierre.
 
 ### Pagos
 

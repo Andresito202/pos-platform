@@ -62,3 +62,25 @@ pnpm --filter @pos-platform/target-migrations test:preflight:003
 ```
 
 Esta materialización es candidata a revisión independiente. No ejecuta por sí sola el gate de gobernanza, no reconcilia datos, no crea objetos 003 y no cambia el estado vigente `MAT-003-PREFLIGHT = BLOCKED / NOT EXECUTED`.
+
+## MAT-003 preflight canonical-role readiness
+
+El mecanismo operacional concede exclusivamente `USAGE` sobre `platform` y `SELECT (migration_id, status, checksum)` sobre `platform.target_migration_executions` a `pos_platform_admin`. Usa una sesión explícita `pos_migrator`, `SET LOCAL ROLE pos_schema_owner` dentro de la transacción y el lock global `pos-platform:target-migrations:global:v1`. No crea SQL ni descriptor 003 y no ejecuta el preflight canónico.
+
+Comandos disponibles:
+
+```powershell
+pnpm role-readiness:migration:003:check
+pnpm role-readiness:migration:003:apply
+pnpm role-readiness:migration:003:revert
+```
+
+Todos exigen `POSTGRES_ROLE_READINESS_PROVISIONING_URL`, `POSTGRES_ROLE_READINESS_VERIFICATION_URL`, `POSTGRES_ROLE_READINESS_ENVIRONMENT_ID`, `POSTGRES_ROLE_READINESS_EXPECTED_DATABASE` y `ROLE_READINESS_REPOSITORY_COMMIT`. `apply` exige además `ROLE_READINESS_RECEIPT_OUTPUT_PATH`; `revert` exige `ROLE_READINESS_RECEIPT_PATH`. No hay rutas predeterminadas, búsqueda de “último recibo” ni reutilización de la credencial de provisioning como prueba del rol de ejecución.
+
+El recibo JSON de lifecycle v1 solo se emite para `MISSING -> APPLY -> READY`. Se publica mediante creación exclusiva (`open(..., "wx")`), escritura completa, `fsync` y cierre; un destino existente nunca se sobrescribe. Esta estrategia es deliberadamente fail-closed y no afirma atomicidad portable. Un archivo parcial o corrupto falla el parseo/contrato/hash estricto. SHA-256 prueba integridad determinista del contenido bajo custodia confiable, no autoría ni firma criptográfica.
+
+La custodia posterior corresponde al operador, job de despliegue o sistema de artifacts. Debe conservarse mientras el delta permanezca activo o pueda requerirse reversión automática. Si el commit de base de datos termina pero falla la verificación/publicación del recibo, el resultado es `APPLIED_WITHOUT_DURABLE_RECEIPT`: los grants permanecen, no hay compensación ni reconstrucción, y la reversión automática queda inhabilitada hasta revisión manual. Un recibo perdido tiene el mismo efecto.
+
+El artifact `down.sql` es únicamente la inversa formal versionada y hasheada. No es un comando operacional soportado; solo lo ejecuta `revert` después de `VALID_FOR_REVERSAL`, con recibo explícito, contrato/artifacts compatibles y estado actual exacto. `MAT-003-PREFLIGHT` permanece `BLOCKED / NOT_EXECUTED` hasta una autorización independiente.
+
+La revisión final corrigió el contrato operacional de `check`: `MISSING` y `READY` son diagnósticos exitosos; `PARTIAL` produce `FAIL/PARTIAL_STATE` y `UNEXPECTED` produce `FAIL/UNEXPECTED_STATE`. El postcheck mediante conexión fresca acepta únicamente el `READY` esperado después de apply o el `MISSING` esperado después de revert; cualquier estado diferente falla cerrado. La materialización y su revisión están en `PASS`, sin aplicar el rol canónico ni ejecutar `MAT-003-PREFLIGHT`.

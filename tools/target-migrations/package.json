@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "preflight:003": "tsx src/postgres-003-preflight-cli.ts",
+    "role-readiness:003:check": "tsx src/postgres-003-role-readiness-cli.ts check",
+    "role-readiness:003:apply": "tsx src/postgres-003-role-readiness-cli.ts apply",
+    "role-readiness:003:revert": "tsx src/postgres-003-role-readiness-cli.ts revert",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:preflight:003": "vitest run tests/postgres-003-preflight.test.ts",
+    "test:role-readiness:003": "vitest run tests/postgres-003-role-readiness.test.ts",
     "test:postgres": "vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts",
     "test:sqlite": "vitest run tests/sqlite-migration.test.ts"
   },
