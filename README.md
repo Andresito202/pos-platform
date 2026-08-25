@@ -6,8 +6,6 @@ POS Platform busca proporcionar un núcleo comercial reutilizable para distintos
 
 > **Estado actual:** el proyecto está en desarrollo. La Fase 0 de fundación de producto, arquitectura y dominio está cerrada como trabajo documental y la Fase 1 de fundación técnica ejecutable está en progreso. Existen la fundación física PostgreSQL de migrations 001/002 y tooling revisado para preparar MAT-003, pero el runtime objetivo Electron/React/NestJS todavía no está implementado. El sistema no debe considerarse terminado ni listo para producción.
 
-La aplicación Supermercado Avícola presente en `backend/`, `frontend/`, `database/` e `infra/` tiene estado formal `FROZEN_DEMO / NON_PRODUCTION`: se conserva como referencia histórica y demo, no es el runtime de POS Platform y no recibe nuevas funcionalidades por defecto. Sus defectos conocidos no se consideran resueltos y sus pruebas no acreditan readiness de la plataforma objetivo.
-
 ## Objetivo del proyecto
 
 La plataforma está diseñada para soportar progresivamente:
@@ -21,7 +19,7 @@ La plataforma está diseñada para soportar progresivamente:
 - dispositivos, periféricos, licenciamiento y modalidades de despliegue;
 - onboarding, auditoría, administración, soporte e integraciones.
 
-Estas capacidades forman parte del alcance y de los contratos documentales en distintos niveles de madurez. No equivalen a módulos físicos terminados. La aplicación ejecutable heredada se conserva congelada como demo y referencia para una migración futura caso por caso; no es una implementación parcial que deba extenderse por defecto.
+Estas capacidades forman parte del alcance y de los contratos documentales en distintos niveles de madurez. No equivalen a módulos físicos terminados. Ningún runtime de aplicación está materializado todavía y no debe inventarse uno a partir de implementaciones externas o anteriores.
 
 ## Estado del proyecto
 
@@ -81,9 +79,9 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | Capacidad | Contrato o diseño | Implementación física objetivo |
 |---|---|---|
 | Tenancy, empresas, sucursales e identidad global | Definido en Fase 0 | Pendiente |
-| RBAC, ABAC, permisos y auditoría | Definido en Fase 0 | Pendiente; el legado solo contiene roles simples |
-| Catálogo, pricing, promociones e impuestos | Definido en Fase 0 | Pendiente; existe una implementación heredada no equivalente |
-| Inventario, ventas, caja y pagos | Casos de uso e invariantes definidos | Pendiente; existe una implementación heredada monoempresa |
+| RBAC, ABAC, permisos y auditoría | Definido en Fase 0 | Pendiente |
+| Catálogo, pricing, promociones e impuestos | Definido en Fase 0 | Pendiente |
+| Inventario, ventas, caja y pagos | Casos de uso e invariantes definidos | Pendiente |
 | Dispositivos y licenciamiento | Contratos y decisiones definidos | Pendiente |
 | Local-first y sincronización | Autoridad, idempotencia, conflictos y recuperación definidos | Pendiente |
 | Runtime Electron y servicio local | Stack, procesos, IPC y seguridad definidos | Pendiente |
@@ -105,29 +103,25 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | [`docs/security`](docs/security/) | Permisos, políticas RBAC/ABAC, secretos, claves, soporte controlado y pruebas negativas. |
 | [`docs/hardware`](docs/hardware/) | Matriz de equipos, adaptadores, evidencia y certificación. |
 | [`docs/testing`](docs/testing/) | Estrategia de pruebas para integridad, seguridad, concurrencia, offline y recuperación. |
-| [`docs/migration`](docs/migration/) | Clasificación y estrategia para migrar la línea base heredada. |
+| [`docs/migration`](docs/migration/) | Manifests, orden, integridad y estrategia de migrations TARGET. |
 | [`docs/use-cases`](docs/use-cases/) | Contratos funcionales, flujos alternos, invariantes y pruebas mínimas por capacidad. |
-| [`docs/legacy`](docs/legacy/) | Documentación histórica aislada; no normativa para producción. |
 
 ## Estructura actual del repositorio
 
 ```text
 pos-platform/
-|-- backend/              # API, modelos, schemas, migración y tests del legado
-|-- database/seeds/       # Datos de demostración heredados
-|-- docs/                 # Fundación documental de POS Platform y documentación histórica
-|-- frontend/             # Frontend multipágina heredado
-|-- infra/                # Docker Compose de la línea base actual
-|-- .env.example          # Variables del entorno heredado
-|-- Dockerfile            # Imagen integrada actual
-|-- render.legacy-demo.yaml # Blueprint gratuito exclusivo de la demo heredada
+|-- docs/                 # Fuente de verdad documental de POS Platform
+|-- poc/                  # Laboratorios aislados de modelo físico y RLS
+|-- tools/target-migrations/ # Harness TARGET, migrations 001/002 y tooling MAT-003
+|-- package.json          # Comandos del workspace TARGET
+|-- pnpm-workspace.yaml   # Workspace limitado actualmente a tools/*
+|-- pnpm-lock.yaml        # Dependencias reproducibles del tooling TARGET
+|-- tsconfig.base.json    # Configuración TypeScript compartida
 |-- .gitattributes        # UTF-8, LF y tratamiento de binarios
-|-- .editorconfig         # Convenciones de edición reproducibles
-|-- iniciar.bat           # Inicio local de la línea base en Windows
-`-- detener.bat           # Detención local en Windows
+`-- .editorconfig         # Convenciones de edición reproducibles
 ```
 
-No existen todavía paquetes físicos separados que materialicen los módulos de la arquitectura objetivo.
+`apps/` y `packages/` todavía no existen. Tampoco existen paquetes físicos que materialicen el runtime o los módulos de aplicación de la arquitectura objetivo.
 
 ## Stack objetivo aprobado
 
@@ -149,53 +143,20 @@ La selección normativa está cerrada en [`ADR-005`](docs/adr/ADR-005-target-tec
 
 Las versiones exactas se fijarán mediante manifiestos, lockfile, imágenes y CI al crear el esqueleto. Este cuadro representa decisiones, no una implementación existente.
 
-## Stack heredado verificado
-
-El stack siguiente describe únicamente lo que está físicamente presente en la línea base Avícola.
-
-| Capa | Tecnología verificada | Situación |
-|---|---|---|
-| Backend | Python 3.12 en las imágenes, FastAPI, Uvicorn, SQLAlchemy 2, Pydantic 2 y Alembic | `FROZEN_DEMO / NON_PRODUCTION` |
-| Persistencia | PostgreSQL 16 en Docker Compose; SQLite en memoria para tests | `FROZEN_DEMO / NON_PRODUCTION` |
-| Seguridad | JWT con `python-jose`, bcrypt y roles simples por endpoint | Línea base heredada; no implementa aún el modelo RBAC/ABAC objetivo |
-| Frontend | HTML, CSS, JavaScript y Bootstrap 5 cargado por CDN | Demo heredada congelada; no es el runtime objetivo |
-| Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
-| Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
-
 La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; de forma separada, canonical-role readiness quedó `APPLIED / REVIEWED` y el preflight canónico `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. La ejecución fue read-only y produjo cero mutaciones durables; ninguna migration implementa adapters ni verifica providers.
 
 El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 
 ## Desarrollo local
 
-La arquitectura objetivo de POS Platform aún no puede iniciarse de extremo a extremo. Los siguientes comandos levantan y prueban únicamente la demo heredada congelada; no deben interpretarse como una ruta de despliegue productivo.
-
-### Línea base con Docker Compose
-
-En PowerShell:
+La arquitectura objetivo de POS Platform aún no puede iniciarse de extremo a extremo. El repositorio permite validar únicamente el tooling TARGET materializado:
 
 ```powershell
-Copy-Item .env.example .env
-docker compose -f infra/docker-compose.yml up --build
+pnpm typecheck
+pnpm test:migrations:sqlite
 ```
 
-En Windows también existen los scripts:
-
-```powershell
-.\iniciar.bat
-.\detener.bat
-```
-
-La configuración actual expone la aplicación y la documentación OpenAPI en `http://localhost:8000` y `http://localhost:8000/docs`. Sus variables, datos de demostración e identidad visual todavía pertenecen al legado y no deben trasladarse sin revisión al modelo objetivo.
-
-### Tests existentes
-
-```powershell
-Set-Location backend
-python -m pytest tests -q
-```
-
-La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas pasaron, con advertencias de deprecación de la dependencia JWT. Este resultado no valida multi-tenancy, RBAC/ABAC, licenciamiento, sincronización ni operación local-first.
+Las pruebas PostgreSQL, preflight, role-readiness y cualquier operación de infraestructura requieren sus propios entornos y autorizaciones. Ninguna de estas capacidades acredita todavía un runtime de aplicación completo.
 
 ## Secuencia técnica inmediata
 
@@ -203,16 +164,15 @@ La validación fresca, preparación del ambiente, canonical-role readiness, ejec
 
 Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
 
-La única secuencia técnica vigente continúa así:
+La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. La única secuencia técnica vigente continúa así:
 
-1. revisión externa explícita de esta reconciliación documental;
-2. remediación y nueva revisión si aparecen findings;
-3. únicamente después de revisión `PASS`, stage controlado de `README.md` y `docs/product/backlog.md`;
-4. commit y push normal mediante autorización separada;
-5. comprobación de working tree `CLEAN` y upstream `0 behind / 0 ahead`;
-6. apertura de un nuevo hilo de Codex;
-7. verificación en ese hilo del contexto maestro y del baseline vigente del repositorio;
-8. únicamente mediante otra autorización expresa, inicio de la planificación separada de SQL 003.
+1. limpieza del runtime y documentación operativa anterior materializada, sin stage ni commit, en `cleanup/pure-pos-platform-20260825`;
+2. revisión externa independiente y read-only del diff y de su paquete sanitizado;
+3. remediación y nueva revisión si aparecen findings;
+4. únicamente después de revisión `PASS`, autorización separada para stage, commit y push de la rama de limpieza;
+5. pull request separado hacia la rama canónica que se determine mediante autorización posterior;
+6. integración en `main` únicamente mediante otra autorización expresa;
+7. reanudación separada del contrato SQL 003 sobre el baseline limpio.
 
 SQL 003 continúa sin planificación autorizada, sin diseño y sin materialización. Planificación, diseño, materialización, pruebas, revisión y aplicación canónica de SQL 003 son gates separados; ninguno queda implícitamente autorizado por esta tarea. `SQL 003` permanece `ABSENT`; `descriptor 003` permanece `ABSENT`; el ledger entry count para migration 003 permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
@@ -220,7 +180,7 @@ SQL 003 continúa sin planificación autorizada, sin diseño y sin materializaci
 
 La estrategia objetivo exige pruebas unitarias, de integración, contrato y extremo a extremo, además de escenarios negativos de permisos, aislamiento entre tenants, concurrencia, reintentos, recuperación y operación offline. Estos son requisitos documentados para la implementación futura; no se presentan como cobertura ya disponible.
 
-Las reglas de seguridad requieren autorización en backend, mínimo privilegio, RBAC/ABAC, segregación de funciones, reautenticación para cambios sensibles, auditoría append-only y aislamiento por tenant, empresa y sucursal. La implementación heredada no satisface todavía este modelo completo.
+Las reglas de seguridad requieren autorización en backend, mínimo privilegio, RBAC/ABAC, segregación de funciones, reautenticación para cambios sensibles, auditoría append-only y aislamiento por tenant, empresa y sucursal. La implementación de este modelo continúa pendiente.
 
 ## Documentación principal
 
@@ -243,6 +203,5 @@ Las reglas de seguridad requieren autorización en backend, mínimo privilegio, 
 - [Reglas de negocio](docs/domain/business-rules.md)
 - [Matriz de permisos](docs/security/permission-matrix.md)
 - [Estrategia de pruebas](docs/testing/testing-strategy.md)
-- [Estrategia de migración de la línea base](docs/migration/avicola-baseline-migration.md)
 
 POS Platform está en desarrollo activo. El repositorio no publica todavía una licencia de uso.

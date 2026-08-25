@@ -12,7 +12,7 @@ Esta estrategia aplica al stack objetivo definido en `ADR-005`:
 - SQLite persistente en WAL para el nodo local;
 - k6 para carga de API y sincronización.
 
-Pytest, SQLAlchemy y Alembic pertenecen exclusivamente a la línea base heredada mientras se complete su migración. Sus pruebas conservan valor de regresión, pero no sustituyen las suites del producto objetivo.
+Las suites externas o anteriores no sustituyen las suites del producto objetivo ni acreditan sus gates.
 
 ## Pirámide de pruebas
 
@@ -444,7 +444,7 @@ Cada pull request deberá ejecutar:
 La validación de migraciones incluye:
 
 1. upgrade desde base vacía;
-2. upgrade desde `001_initial_schema.py` con datos heredados representativos;
+2. importación desde un fixture externo expresamente aprobado, mediante un job separado del upgrade TARGET;
 3. downgrade cuando la revisión sea reversible;
 4. ejecución repetida sin efectos duplicados;
 5. verificación de FKs, UNIQUE, CHECK y NOT NULL;
@@ -459,9 +459,9 @@ La arquitectura objetivo valida por separado:
 - compatibilidad lógica compartida;
 - diferencias físicas intencionales;
 - upgrade desde la versión productiva anterior;
-- migración desde la línea base heredada.
+- importación desde fuentes externas aprobadas.
 
-Las pruebas heredadas de SQLAlchemy/Alembic se ejecutan únicamente mientras sean necesarias para verificar lectura, reconciliación y migración de datos antiguos.
+Los import jobs futuros deben probar lectura, mapping, cuarentena, reconciliación y rollback sin convertirlos en schema upgrades TARGET.
 
 ## Matriz por entorno
 

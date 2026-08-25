@@ -18,7 +18,7 @@ pnpm test:migrations
 docker compose -f tools/target-migrations/compose.yaml down
 ```
 
-Las pruebas no modifican LEGACY ni la evidencia histórica de R3/PHY-G14.
+Las pruebas no modifican fuentes externas ni la evidencia histórica de R3/PHY-G14.
 
 ## Migration 002
 

@@ -273,16 +273,16 @@ Inbox, validación tenant-scoped y efectos aceptados comparten transacción Post
 
 Las transiciones internas de CashMovement pueden emitir sus eventos específicos. `CashMovementRecorded` es el evento de integración que comunica una única incorporación `POSTED` al efectivo esperado; no sustituye el historial de transición ni se emite para estados no publicados.
 
-## Migración heredada
+## Importación desde fuentes externas
 
-La tabla heredada `cajas` mezcla turno y snapshot de cierre; `movimientos_caja` carece de tenant, empresa, sucursal, dispositivo, moneda explícita, idempotencia, secuencia, aprobación y referencias robustas.
+Una fuente externa solo puede importarse cuando distingue inequívocamente turno y snapshot de cierre y aporta tenant, empresa, sucursal, dispositivo, moneda explícita, idempotencia, secuencia, aprobación y referencias robustas.
 
 Mapeo permitido con reconciliación:
 
-- una `cajas` coherente puede producir CashShift histórico;
-- `movimientos_caja` produce CashMovement histórico, preservando tipo, importe, usuario y timestamp;
-- `monto_apertura` se reconcilia con el movimiento legado `apertura` para evitar duplicar la base;
-- una caja cerrada puede producir CashCount `CLOSING` histórico solo si `monto_cierre`, `monto_esperado` y `diferencia` satisfacen exactamente la fórmula;
+- un registro de turno coherente puede producir CashShift histórico;
+- un registro de movimiento de efectivo puede producir CashMovement histórico, preservando tipo, importe, usuario y timestamp;
+- el importe de apertura se reconcilia con su movimiento de origen para evitar duplicar la base;
+- un cierre externo puede producir CashCount `CLOSING` histórico solo si los importes contado, esperado y de diferencia satisfacen exactamente la fórmula;
 - una diferencia histórica distinta de cero crea Review `REVIEW_REQUIRED`; no se infiere aceptación, resolución ni aprobador;
 - ausencia de denominaciones, políticas, aprobadores o evidencias se conserva como no disponible.
 
@@ -315,7 +315,7 @@ No se infieren arqueos parciales, arqueo ciego, versiones corregidas, tolerancia
 23. aislamiento tenant/company/branch/register/shift;
 24. decimales exactos equivalentes en PostgreSQL y SQLite;
 25. reconstrucción de ExpectedCash desde movimientos y corte;
-26. migración heredada reconcilia base y fórmula de cierre sin inventar denominaciones.
+26. una importación externa reconcilia base y fórmula de cierre sin inventar denominaciones.
 27. conflicto de versión deja el conteo `ABORTED` sin resultado confirmado y permite iniciar otro conteo.
 28. corrección reutiliza corte, esperado y políticas del conteo original sin recalcular el cierre.
 

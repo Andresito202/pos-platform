@@ -6,7 +6,7 @@ Aceptado.
 
 ## Contexto
 
-El repositorio conserva una línea base heredada implementada con FastAPI, SQLAlchemy, Alembic y frontend HTML/JavaScript. Esa línea base sirve para auditar comportamiento y planear migración, pero no implementa la arquitectura objetivo multiempresa, local-first, modular ni el runtime físico del POS.
+El repositorio todavía no materializa el runtime de aplicación. Antes de crear el modelo físico restante y el esqueleto ejecutable es necesario mantener un stack único, multiempresa, local-first, modular y reproducible.
 
 Antes de crear el nuevo modelo físico, las migraciones objetivo y el esqueleto ejecutable es necesario fijar un stack único, mantenible y reproducible. La elección debe soportar:
 
@@ -113,9 +113,8 @@ Un broker podrá añadirse cuando exista una necesidad demostrada. Nunca será r
 1. Kysely no convierte un esquema físico en una abstracción indistinta entre dialectos.
 2. PostgreSQL y SQLite tendrán migraciones, pruebas y optimizaciones separadas.
 3. El dinero no se almacena como `REAL` en SQLite.
-4. Las migraciones de la arquitectura objetivo no modificarán silenciosamente `001_initial_schema.py`.
-5. La migración del legado seguirá `docs/migration/avicola-baseline-migration.md`.
-6. SQLAlchemy y Alembic permanecen exclusivamente como tecnología de la línea base heredada mientras se complete su migración.
+4. Las migrations TARGET solo operan sobre sus artifacts, descriptors y ledger aprobados.
+5. Cualquier importación de datos desde sistemas externos utiliza jobs, mappings, cuarentena y reconciliación separados del schema migration.
 
 ## PWA
 
@@ -141,9 +140,9 @@ Una PWA no será autoridad productiva de SQLite, caja, inventario, impresión, b
 
 ## Alternativas descartadas
 
-### Continuar el legado como arquitectura objetivo
+### Adoptar una implementación previa o externa como arquitectura objetivo
 
-Se descarta porque su estructura actual no implementa los límites modulares, contratos multi-tenant, runtime local, sincronización ni modelo físico ya decididos. El legado conserva valor como fuente de migración y pruebas comparativas.
+Se descarta porque ninguna implementación ajena a los contratos TARGET acredita los límites modulares, contratos multi-tenant, runtime local, sincronización ni modelo físico ya decididos. Cualquier importación futura debe tratarse como una integración de datos separada y expresamente autorizada.
 
 ### PWA como POS físico definitivo
 
@@ -162,15 +161,15 @@ Se descarta porque produciría equivalencias falsas entre dialectos y ocultaría
 - `TECH-002` diseñará las migraciones objetivo con Kysely y suites separadas por dialecto.
 - `DEC-010` cierra la topología exacta de procesos Electron y servicio local.
 - `ARCH-004` define los contratos entre procesos y adaptadores.
-- `docs/testing/testing-strategy.md` retira SQLAlchemy como requisito de la arquitectura objetivo y lo conserva solo para regresión del legado.
-- El código heredado no se borrará hasta disponer de migración, reconciliación y evidencia de reemplazo.
+- `docs/testing/testing-strategy.md` define exclusivamente suites y gates de la arquitectura objetivo.
+- Una implementación externa o anterior nunca se adopta como TARGET por copia, rename o compatibilidad aparente.
 - Ninguna parte de este ADR afirma que el stack objetivo ya esté implementado.
 
 ## Criterios de aceptación
 
 La decisión se considera aplicable cuando:
 
-1. backlog, README y estrategia de pruebas distinguen stack objetivo y legado;
+1. backlog, README y estrategia de pruebas distinguen contratos TARGET de cualquier implementación externa;
 2. el nuevo esqueleto usa TypeScript estricto, pnpm y Nx;
 3. existen límites verificables entre dominio, aplicación y adaptadores;
 4. PostgreSQL y SQLite tienen migraciones y pruebas separadas;

@@ -62,7 +62,7 @@ down operation.
 - No credential, token, API, JWT, payment, fiscal, or private-key secret is
   persisted or committed; `verifier`, hashes, checksums, and opaque references
   are the only approved representations.
-- No LEGACY backend, SQLAlchemy model, Alembic revision, or legacy frontend file
+- No application runtime or artifact outside the approved TARGET migration scope
   is modified.
 - `docs/security/security-gates.md` is not modified; SEC-G01..SEC-G10 remain
   `PLANNED / NOT_EVALUATED`.

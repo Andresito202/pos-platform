@@ -1894,7 +1894,7 @@ La migración deberá:
 9. Conservar trazabilidad de la migración.
 10. Permitir revisión cuando la identidad anterior sea ambigua.
 
-El procedimiento físico se materializará en migraciones nuevas durante implementación, siguiendo `docs/migration/avicola-baseline-migration.md` y antes de admitir datos productivos. Este trabajo no modifica la identidad ni las invariantes decididas aquí.
+El procedimiento físico se materializará mediante migrations y jobs de importación nuevos, revisados y separados antes de admitir datos productivos. Este trabajo no modifica la identidad ni las invariantes decididas aquí.
 
 ---
 

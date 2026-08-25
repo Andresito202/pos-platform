@@ -7,7 +7,7 @@ La plataforma utilizará un núcleo universal con módulos especializados. No se
 - Tiendas de barrio.
 - Minimercados.
 - Supermercados pequeños y medianos.
-- Avícolas.
+- Comercios de alimentos perecederos y venta por peso.
 - Carnicerías.
 - Fruver, fruterías y verdulerías.
 - Cacharrerías y almacenes de variedades.
@@ -28,7 +28,7 @@ La plataforma utilizará un núcleo universal con módulos especializados. No se
 
 ## Capacidades por sector
 
-### Avícolas y carnicerías
+### Comercios de alimentos perecederos y carnicerías
 
 - venta por peso;
 - lotes;
