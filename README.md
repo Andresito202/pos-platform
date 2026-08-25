@@ -30,7 +30,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Etapa | Estado en el backlog | Alcance real |
 |---|---|---|
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen `MATERIALIZED / TESTED / IMMUTABLE`. El tooling de `MAT-003-PREFLIGHT` y de canonical-role readiness está `MATERIALIZED / REVIEWED`; canonical-role readiness está `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`. `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 están ausentes y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
+| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen `MATERIALIZED / TESTED / IMMUTABLE`. El tooling de `MAT-003-PREFLIGHT` y de canonical-role readiness está `MATERIALIZED / REVIEWED`; canonical-role readiness está `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`. El preflight canónico quedó `EXECUTED / PASS / REVIEWED`, con cero mutaciones durables; SQL/descriptor 003 están ausentes y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
 | Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 
@@ -162,7 +162,7 @@ El stack siguiente describe únicamente lo que está físicamente presente en la
 | Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; de forma separada, canonical-role readiness quedó `APPLIED / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. `MAT-003-PREFLIGHT` permanece `NOT_EXECUTED` y ninguna migration implementa adapters ni verifica providers.
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; de forma separada, canonical-role readiness quedó `APPLIED / REVIEWED` y el preflight canónico `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. La ejecución fue read-only y produjo cero mutaciones durables; ninguna migration implementa adapters ni verifica providers.
 
 El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 
@@ -199,7 +199,19 @@ La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas
 
 ## Secuencia técnica inmediata
 
-La única secuencia vigente se mantiene en el [backlog maestro](docs/product/backlog.md). La validación fresca, preparación del ambiente canónico y aplicación/revisión de canonical-role readiness ya cerraron `PASS`; la siguiente tarea exacta es `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`. SQL/descriptor 003 continúan ausentes y cualquier ejecución o materialización posterior requiere la autorización separada definida en el backlog.
+La única secuencia técnica vigente es la siguiente. La validación fresca, preparación del ambiente, canonical-role readiness y ejecución/revisión del preflight canónico ya cerraron `PASS`. El checkpoint operacional sanitizado está materializado y bajo revisión. La secuencia obligatoria es:
+
+1. revisión explícita del checkpoint;
+2. remediación y nueva revisión si existen findings;
+3. únicamente después de `PASS`, stage controlado de los seis archivos del checkpoint;
+4. commit del checkpoint;
+5. push normal;
+6. comprobación de working tree `CLEAN` y upstream `0 behind / 0 ahead`;
+7. instalación de Context7 mediante una tarea separada;
+8. apertura de un nuevo hilo de Codex;
+9. inicio únicamente de la planificación separada del diseño/materialización de SQL 003, mediante autorización expresa.
+
+Context7 no se instala en este gate y SQL 003 no se diseña ni materializa ahora. Planificación, diseño, materialización, prueba, revisión y aplicación de SQL 003 son gates separados; ninguno queda implícitamente autorizado. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 ## Calidad y seguridad
 

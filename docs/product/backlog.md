@@ -20,7 +20,7 @@ La aplicación Supermercado Avícola conservada en `backend/`, `frontend/`, `dat
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
 - Último baseline ejecutable registrado: validación TARGET fresca `145/145` sobre PostgreSQL 16.14 para migrations 001→002 y tooling vigente; ambas migrations permanecen `MATERIALIZED / TESTED / IMMUTABLE` y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
-- Último trabajo técnico completado: canonical-role readiness quedó `APPLIED / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`, con transición `MISSING -> APPLY -> READY`, recibo durable externo y revisión independiente `PASS` sin findings. `MAT-003-PREFLIGHT = NOT_EXECUTED`, SQL/descriptor 003 están ausentes y migration 003 no está materializada. La siguiente tarea exacta es `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`; no implementa adapters ni verifica providers. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`, y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Último trabajo técnico completado: `MAT-003-PREFLIGHT` quedó `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION` mediante una transacción `REPEATABLE READ / READ ONLY`, lock global compartido y `ROLLBACK`, con los cinco blockers y el trust invariant en `PASS/count=0`, cero evidencia diagnóstica y cero mutaciones durables. Canonical-role readiness permanece `APPLIED / REVIEWED`; SQL/descriptor 003 están ausentes y migration 003 no está materializada. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`, y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -178,9 +178,9 @@ Estado de la épica: `IN_PROGRESS`.
 | INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
-| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Tooling materializado/revisado y canonical-role readiness `APPLIED / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`; `MAT-003-PREFLIGHT` no ejecutado y SQL 003 ausente. La siguiente autorización separada es `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`. |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Tooling materializado/revisado, canonical-role readiness `APPLIED / REVIEWED` y `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. SQL/descriptor 003 siguen ausentes; ningún paso posterior está implícitamente autorizado. |
 
-#### Estado auditable de canonical-role readiness para MAT-003
+#### Estado auditable de canonical-role readiness y preflight para MAT-003
 
 - `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-DESIGN = PASS`.
 - `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-DESIGN-REVIEW = PASS`.
@@ -190,7 +190,9 @@ Estado de la épica: `IN_PROGRESS`.
 - `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-MATERIALIZATION-REVIEW = PASS`.
 - `001 / 002 = MATERIALIZED / TESTED / IMMUTABLE`.
 - `CANONICAL ROLE-READINESS = APPLIED / REVIEWED` en `local-canonical-integration`; application y revisión independiente = `PASS`, con findings `CRITICAL/HIGH/MEDIUM/LOW = 0`.
-- `MAT-003-PREFLIGHT = NOT_EXECUTED`; su siguiente tarea exacta y separada es `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`.
+- `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-EXECUTION-REVIEW = PASS`.
+- `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; durable database mutations = `ZERO`.
 - `SQL 003 = ABSENT`; `Descriptor 003 = ABSENT`; `Migration 003 = NOT_MATERIALIZED`.
 - `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Finding LOW conocido y no bloqueante: el orden de evidencia diagnóstica del preflight no usa `related_id` como último desempate. No se remedia en este cierre.
@@ -347,10 +349,19 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-Esta es la única secuencia técnica vigente. La preparación, validación fresca, application preflight, APPLY y revisión independiente de canonical-role readiness ya cerraron `PASS`; no son pasos pendientes:
+La única secuencia técnica vigente es la siguiente. La validación fresca, preparación del ambiente, canonical-role readiness y ejecución/revisión del preflight canónico ya cerraron `PASS`. El checkpoint operacional sanitizado está materializado y bajo revisión. La secuencia obligatoria es:
 
-1. Ejecutar `MAT-003-PREFLIGHT-CANONICAL-EXECUTION` contra `local-canonical-integration`, mediante autorización separada y sin crear SQL/descriptor 003.
-2. Diseñar/materializar SQL y descriptor 003 únicamente si el preflight canónico pasa y una tarea posterior los autoriza expresamente. Migrations 001/002 permanecen inmutables, 002 sigue `NON_FISCAL` y los adapters continúan sin implementación.
+1. revisión explícita del checkpoint;
+2. remediación y nueva revisión si existen findings;
+3. únicamente después de `PASS`, stage controlado de los seis archivos del checkpoint;
+4. commit del checkpoint;
+5. push normal;
+6. comprobación de working tree `CLEAN` y upstream `0 behind / 0 ahead`;
+7. instalación de Context7 mediante una tarea separada;
+8. apertura de un nuevo hilo de Codex;
+9. inicio únicamente de la planificación separada del diseño/materialización de SQL 003, mediante autorización expresa.
+
+Context7 no se instala en este gate y SQL 003 no se diseña ni materializa ahora. Planificación, diseño, materialización, prueba, revisión y aplicación de SQL 003 son gates separados; ninguno queda implícitamente autorizado. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 `TECH-003`, adapters/runtime y el resto de Fase 1 no reemplazan ni omiten esta secuencia. `DEC-005` permanece diferida como decisión `P1` hasta abordar crédito offline.
 
@@ -570,6 +581,7 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 - 2026-08-24: el primer preflight de aplicación canónica se detuvo fail-closed con `NOT_READY_FOR_CANONICAL_APPLICATION` porque no existía configuración canónica explícita. No conectó a PostgreSQL, no aplicó privilegios y no ejecutó `MAT-003-PREFLIGHT`.
 - 2026-08-24: `TARGET-POSTGRESQL-FRESH-VALIDATION` pasó `145/145`; se preparó `LOCAL_CANONICAL_INTEGRATION`, y el application preflight posterior confirmó `READY_FOR_CANONICAL_APPLICATION` sobre PostgreSQL 16.14 con 001/002 exactas.
 - 2026-08-24: canonical-role readiness completó `MISSING -> APPLY -> READY` con los dos grants aprobados, recibo lifecycle v1 durable y revisión independiente `PASS` sin findings. El estado promovido es `APPLIED / REVIEWED`; `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 siguen ausentes y migration 003 continúa `NOT_MATERIALIZED`.
+- 2026-08-24: `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION` y su revisión independiente cerraron `PASS` en `local-canonical-integration`. Los cinco blockers y `MAT003_AFFECTED_SCOPE_INTEGRITY` devolvieron `PASS/count=0`; no hubo evidencia diagnóstica ni mutaciones durables. El estado promovido es `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; SQL/descriptor 003, ledger 003 y fiscal schema permanecen ausentes. Se conserva un LOW conocido/no bloqueante sobre el desempate final de evidencia.
 - 2026-08-24: la gobernanza formalizó Supermercado Avícola como `FROZEN_DEMO / NON_PRODUCTION` y reconcilió README/backlog para distinguir documentación, materialización, pruebas, revisión, aplicación canónica y readiness productivo.
 
-Próxima actualización obligatoria: registrar el resultado de `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`. Esa tarea ejecutará únicamente el preflight ya materializado contra `local-canonical-integration`; no crea ni aplica SQL/descriptor 003.
+Próxima actualización obligatoria: registrar el resultado de una nueva revisión explícita de este checkpoint después de la remediación. Stage/commit/push solo proceden si esa revisión concluye `PASS`; Context7 y cualquier planificación de SQL 003 conservan sus tareas separadas posteriores.

@@ -61,7 +61,7 @@ Pruebas dedicadas:
 pnpm --filter @pos-platform/target-migrations test:preflight:003
 ```
 
-Esta materialización no ejecuta por sí sola el gate de gobernanza, no reconcilia datos ni crea objetos 003. Su tooling está materializado/revisado; la ejecución canónica permanece separada y `MAT-003-PREFLIGHT = NOT_EXECUTED`.
+Esta materialización no ejecuta por sí sola el gate de gobernanza, no reconcilia datos ni crea objetos 003. Su tooling está materializado/revisado; de forma separada, la ejecución canónica y su revisión independiente en `local-canonical-integration` cerraron `PASS`, por lo que `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`. SQL/descriptor 003 permanecen ausentes.
 
 ## MAT-003 preflight canonical-role readiness
 
@@ -81,6 +81,6 @@ El recibo JSON de lifecycle v1 solo se emite para `MISSING -> APPLY -> READY`. S
 
 La custodia posterior corresponde al operador, job de despliegue o sistema de artifacts. Debe conservarse mientras el delta permanezca activo o pueda requerirse reversión automática. Si el commit de base de datos termina pero falla la verificación/publicación del recibo, el resultado es `APPLIED_WITHOUT_DURABLE_RECEIPT`: los grants permanecen, no hay compensación ni reconstrucción, y la reversión automática queda inhabilitada hasta revisión manual. Un recibo perdido tiene el mismo efecto.
 
-El artifact `down.sql` es únicamente la inversa formal versionada y hasheada. No es un comando operacional soportado; solo lo ejecuta `revert` después de `VALID_FOR_REVERSAL`, con recibo explícito, contrato/artifacts compatibles y estado actual exacto. `MAT-003-PREFLIGHT` permanece `NOT_EXECUTED` hasta una autorización independiente.
+El artifact `down.sql` es únicamente la inversa formal versionada y hasheada. No es un comando operacional soportado; solo lo ejecuta `revert` después de `VALID_FOR_REVERSAL`, con recibo explícito, contrato/artifacts compatibles y estado actual exacto. La ejecución canónica posterior del preflight fue exclusivamente read-only y no utilizó este artifact.
 
-La revisión final corrigió el contrato operacional de `check`: `MISSING` y `READY` son diagnósticos exitosos; `PARTIAL` produce `FAIL/PARTIAL_STATE` y `UNEXPECTED` produce `FAIL/UNEXPECTED_STATE`. El postcheck mediante conexión fresca acepta únicamente el `READY` esperado después de apply o el `MISSING` esperado después de revert; cualquier estado diferente falla cerrado. La materialización/revisión del tooling están en `PASS`; adicionalmente, la aplicación y revisión independiente en `local-canonical-integration` están `PASS`, por lo que canonical-role readiness queda `APPLIED / REVIEWED`. `MAT-003-PREFLIGHT` no fue ejecutado.
+La revisión final corrigió el contrato operacional de `check`: `MISSING` y `READY` son diagnósticos exitosos; `PARTIAL` produce `FAIL/PARTIAL_STATE` y `UNEXPECTED` produce `FAIL/UNEXPECTED_STATE`. El postcheck mediante conexión fresca acepta únicamente el `READY` esperado después de apply o el `MISSING` esperado después de revert; cualquier estado diferente falla cerrado. La materialización/revisión del tooling están en `PASS`; adicionalmente, la aplicación y revisión independiente en `local-canonical-integration` están `PASS`, por lo que canonical-role readiness queda `APPLIED / REVIEWED`. El preflight canónico y su revisión posterior también cerraron `PASS`, con cinco blockers y trust invariant en count `0`, cero mutaciones durables y un LOW conocido/no bloqueante en el orden diagnóstico.

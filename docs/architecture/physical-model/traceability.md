@@ -322,7 +322,7 @@ La evidencia posterior cerró `FISCAL-003-MANIFEST-REVIEW-6 = PASS` y la suite P
 
 La clasificación es `NEW + EXTENSION + RECONCILIATION`, sin replacement/deprecation. En ese corte histórico, SQL 003 y SQLite 003 seguían ausentes, migration 003 no estaba materializada, providers no cambiaban de estado y `SEC-G01..SEC-G10` permanecían `PLANNED / NOT_EVALUATED`; la secuencia vigente posterior queda consolidada en el cierre siguiente.
 
-## Cierre de trazabilidad de canonical-role readiness para MAT-003
+## Cierre de trazabilidad de canonical-role readiness y preflight para MAT-003
 
 La cadena efectiva al cierre queda explícita:
 
@@ -340,10 +340,12 @@ La cadena efectiva al cierre queda explícita:
   -> canonical role-readiness APPLY PASS
   -> revisión independiente de la aplicación canónica PASS
   -> canonical role-readiness APPLIED / REVIEWED
-  -> MAT-003-PREFLIGHT NOT_EXECUTED
+  -> configuración y ejecución canónica de MAT-003-PREFLIGHT PASS
+  -> revisión independiente de la ejecución canónica PASS
+  -> MAT-003-PREFLIGHT EXECUTED / PASS / REVIEWED
   -> SQL 003 / descriptor 003 ABSENT; migration 003 NOT_MATERIALIZED
 ```
 
-`Tooling materializado` no equivale a `ejecución canónica`: ambos estados están registrados de forma separada. El tooling está `MATERIALIZED / REVIEWED`; la operación sobre `local-canonical-integration` está `APPLIED / REVIEWED`, con recibo externo y revisión independiente. La siguiente tarea separada es `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`. Esto no completa integración fiscal, no implementa ni verifica SIIGO/FACTUS/ALEGRA, no crea SQL 003 y no promueve `SEC-G01..SEC-G10`.
+`Tooling materializado` no equivale a `ejecución canónica`: ambos estados están registrados de forma separada. El tooling está `MATERIALIZED / REVIEWED`; canonical-role readiness está `APPLIED / REVIEWED`; y el preflight sobre `local-canonical-integration` está `EXECUTED / PASS / REVIEWED`. La ejecución y su revisión observaron los cinco blockers y el trust invariant en `PASS/count=0`, sin evidencia diagnóstica ni mutaciones durables. Esto no completa integración fiscal, no implementa ni verifica SIIGO/FACTUS/ALEGRA, no crea SQL 003 y no promueve `SEC-G01..SEC-G10`.
 
-La revisión del tooling conserva como LOW conocido/no bloqueante que el orden de evidencia diagnóstica del preflight no incluye `related_id` como último desempate. No afecta el conteo, la clasificación ni el bloqueo fail-closed. La aplicación/revisión operacional de canonical-role readiness cerró por separado con findings `CRITICAL/HIGH/MEDIUM/LOW = 0`.
+La revisión conserva como LOW conocido/no bloqueante que el orden de evidencia diagnóstica del preflight no incluye `related_id` como último desempate. No afectó esta ejecución de alcance vacío ni altera el conteo, la clasificación o el comportamiento fail-closed. Los findings del preflight revisado son `CRITICAL=0`, `HIGH=0`, `MEDIUM=0`, `LOW=1 KNOWN / NON_BLOCKING`; la aplicación/revisión operacional de canonical-role readiness cerró por separado con findings en cero.
