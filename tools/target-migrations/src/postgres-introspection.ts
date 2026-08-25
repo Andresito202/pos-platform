@@ -2,6 +2,8 @@ import type { SqlExecutor } from "./database.js";
 import { queryRows } from "./database.js";
 import {
   POSTGRES_TABLE_COLUMNS,
+  FISCAL_RLS_TABLES,
+  FISCAL_TABLES,
   INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
   PROHIBITED_TABLE_NAMES,
@@ -444,12 +446,14 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
     SELECT x.conname AS name FROM pg_constraint x
     JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='integrations' ORDER BY 1
   `);
+  const fiscalSuccessor = (await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_constraint WHERE conname='integration_dispatches_dispatch_class_003_ck'"))[0]!.count === "1";
   const expectedConstraints = [
     ...capturedNames(bodySql, /(?:^\s*CONSTRAINT|ADD CONSTRAINT)\s+([a-z][a-z0-9_]*)/gim),
     ...capturedNames(bodySql, /CREATE\s+CONSTRAINT\s+TRIGGER\s+([a-z][a-z0-9_]*)/gi),
     ...INTEGRATION_TABLES.map((table) => `${table}_pkey`),
-  ].sort();
-  assertInvariant(sameValues(constraints.map((row) => row.name), expectedConstraints), "002 constraint set diverges");
+  ].filter((name) => !fiscalSuccessor || name !== "integration_dispatches_dispatch_class_002_ck").sort();
+  const actual002Constraints = constraints.map((row) => row.name).filter((name) => !["integration_capabilities_fiscal_scope_uq","integration_dispatches_dispatch_class_003_ck"].includes(name));
+  assertInvariant(sameValues(actual002Constraints, expectedConstraints), "002 constraint set diverges");
 
   const constraintIndexes = await queryRows<NameRow>(db, `
     SELECT x.conname AS name FROM pg_constraint x
@@ -461,7 +465,8 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
     ...capturedNames(bodySql, /CREATE\s+(?:UNIQUE\s+)?INDEX\s+([a-z][a-z0-9_]*)/gi),
     ...constraintIndexes.map((row) => row.name),
   ].sort();
-  assertInvariant(sameValues(indexes.map((row) => row.name), expectedIndexes), "002 index set diverges");
+  const actual002Indexes = indexes.map((row) => row.name).filter((name) => name!=="integration_capabilities_fiscal_scope_uq");
+  assertInvariant(sameValues(actual002Indexes, expectedIndexes), "002 index set diverges");
   assertInvariant(!indexes.some((row) => row.name === "provider_platform_configurations_current_idx"), "prohibited speculative index exists");
 
   const triggers = await queryRows<NameRow>(db, `
@@ -469,7 +474,8 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='integrations' AND NOT t.tgisinternal ORDER BY 1
   `);
-  assertInvariant(sameValues(triggers.map((row) => row.name), capturedNames(bodySql, /CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+([a-z][a-z0-9_]*)/gi)), "002 trigger set diverges");
+  const actual002Triggers=triggers.map((row)=>row.name).filter((name)=>!["integration_dispatches_fiscal_document_guard","provider_capability_declarations_fiscal_downgrade_guard"].includes(name));
+  assertInvariant(sameValues(actual002Triggers, capturedNames(bodySql, /CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+([a-z][a-z0-9_]*)/gi)), "002 trigger set diverges");
 
   const policies = await queryRows<NameRow>(db, "SELECT policyname AS name FROM pg_policies WHERE schemaname='integrations' ORDER BY 1");
   assertInvariant(sameValues(policies.map((row) => row.name), capturedNames(bodySql, /CREATE\s+POLICY\s+([a-z][a-z0-9_]*)/gi)), "002 policy set diverges");
@@ -508,5 +514,55 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
   const actualGrantKeys=actualColumnGrants.map(row=>`${row.grantee}|${row.table_name}|${row.privilege_type}|${row.column_name}`).sort();
   const expectedGrantKeys=columnGrantsFromSql(bodySql,expectedColumns);
   assertInvariant(sameValues(actualGrantKeys,expectedGrantKeys), "002 role/operation/column grant matrix diverges");
-  await validateCatalogSemantics(db,["integrations"],SEMANTIC_DIGEST_002,"002");
+  if (!fiscalSuccessor) await validateCatalogSemantics(db,["integrations"],SEMANTIC_DIGEST_002,"002");
+}
+
+function fiscalTableColumnsFromSql(source:string):Map<string,string[]>{
+  const result=new Map<string,string[]>();
+  for(const match of source.matchAll(/CREATE TABLE fiscal\.([a-z][a-z0-9_]*) \(([\s\S]*?)\n\);/g)){
+    const columns=splitTopLevel(match[2]!).map((line)=>line.trim())
+      .filter((line)=>line!==""&&!line.startsWith("CONSTRAINT"))
+      .map((line)=>line.match(/^([a-z][a-z0-9_]*)\s/)?.[1]).filter((name):name is string=>name!==undefined);
+    result.set(match[1]!,columns);
+  }
+  return result;
+}
+
+export async function fiscalCatalogState(db:SqlExecutor):Promise<"pre-003"|"target-003"|"partial">{
+  const schema=(await queryRows<CountRow>(db,"SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='fiscal'"))[0]!;
+  if(Number(schema.count)===0)return "pre-003";
+  try{await validatePostgres003Catalog(db);return "target-003";}catch{return "partial";}
+}
+
+export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
+  await validatePostgres002Catalog(db);
+  await validateBtreeGist(db);
+  const bodySql=await readArtifact("postgres/003_fiscal_electronic_invoicing_foundation.up.sql");
+  const expectedColumns=fiscalTableColumnsFromSql(bodySql);
+  assertInvariant(sameValues([...expectedColumns.keys()].sort(),[...FISCAL_TABLES].sort()),"003 artifact table set diverges");
+  const schema=await queryRows<{owner_name:string;public_create:boolean}>(db,`SELECT pg_get_userbyid(n.nspowner) owner_name,EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a WHERE a.grantee=0 AND a.privilege_type='CREATE') public_create FROM pg_namespace n WHERE n.nspname='fiscal'`);
+  assertInvariant(schema[0]?.owner_name==="pos_schema_owner"&&!schema[0].public_create,"fiscal schema ownership/grants diverge");
+  const tables=await queryRows<{name:string;owner_name:string;rls:boolean;forced:boolean}>(db,`SELECT c.relname name,pg_get_userbyid(c.relowner) owner_name,c.relrowsecurity rls,c.relforcerowsecurity forced FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='fiscal' AND c.relkind='r' ORDER BY 1`);
+  assertInvariant(sameValues(tables.map((row)=>row.name),[...FISCAL_TABLES].sort()),"fiscal table set diverges");
+  for(const table of tables)assertInvariant(table.owner_name==="pos_schema_owner"&&table.rls&&table.forced,`${table.name} owner/RLS diverges`);
+  const columns=await queryRows<ColumnRow>(db,`SELECT n.nspname schema_name,c.relname table_name,a.attname column_name,a.attnum ordinal_position FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r' AND n.nspname='fiscal' ORDER BY c.relname,a.attnum`);
+  for(const [table,expected] of expectedColumns){const actual=columns.filter((row)=>row.table_name===table).map((row)=>row.column_name);assertInvariant(sameValues(actual,expected),`fiscal.${table} columns diverge`);}
+  const constraints=await queryRows<NameRow>(db,`SELECT x.conname name FROM pg_constraint x JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='fiscal' OR x.conname IN ('integration_capabilities_fiscal_scope_uq','integration_dispatches_dispatch_class_003_ck') ORDER BY 1`);
+  const expectedConstraints=[...capturedNames(bodySql,/(?:^\s*CONSTRAINT|ADD CONSTRAINT)\s+([a-z][a-z0-9_]*)/gim),...FISCAL_TABLES.map((table)=>`${table}_pkey`)].sort();
+  assertInvariant(sameValues(constraints.map((row)=>row.name),expectedConstraints),"003 constraint set diverges");
+  const indexes=await queryRows<NameRow>(db,"SELECT indexname name FROM pg_indexes WHERE schemaname='fiscal' ORDER BY 1");
+  const constraintIndexes=await queryRows<NameRow>(db,"SELECT x.conname name FROM pg_constraint x JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='fiscal' AND x.contype IN ('p','u','x') ORDER BY 1");
+  const expectedIndexes=[...capturedNames(bodySql,/CREATE\s+(?:UNIQUE\s+)?INDEX\s+([a-z][a-z0-9_]*)/gi),...constraintIndexes.map((row)=>row.name)].sort();
+  assertInvariant(sameValues(indexes.map((row)=>row.name),expectedIndexes),"003 index set diverges");
+  const triggers=await queryRows<NameRow>(db,`SELECT t.tgname name FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE NOT t.tgisinternal AND (n.nspname='fiscal' OR t.tgname IN ('integration_dispatches_fiscal_document_guard','provider_capability_declarations_fiscal_downgrade_guard')) ORDER BY 1`);
+  assertInvariant(sameValues(triggers.map((row)=>row.name),capturedNames(bodySql,/CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+([a-z][a-z0-9_]*)/gi)),"003 trigger set diverges");
+  const policies=await queryRows<NameRow>(db,"SELECT policyname name FROM pg_policies WHERE schemaname='fiscal' ORDER BY 1");
+  assertInvariant(sameValues(policies.map((row)=>row.name),capturedNames(bodySql,/CREATE\s+POLICY\s+([a-z][a-z0-9_]*)/gi)),"003 policy set diverges");
+  assertInvariant(FISCAL_RLS_TABLES.length===9,"003 RLS inventory diverges");
+  const dangerous=await queryRows<CountRow>(db,`SELECT count(*)::text count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='fiscal' AND r.rolname IN ('pos_app','pos_worker','pos_platform_app','pos_platform_admin','pos_reporting') AND a.privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')`);
+  assertInvariant(Number(dangerous[0]!.count)===0,"runtime has dangerous 003 grants");
+  const reporting=await queryRows<CountRow>(db,`SELECT count(*)::text count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='fiscal' AND r.rolname='pos_reporting'`);
+  assertInvariant(Number(reporting[0]!.count)===0,"pos_reporting has 003 grants");
+  const dispatchConstraint=await queryRows<{definition:string}>(db,"SELECT pg_get_constraintdef(oid,true) definition FROM pg_constraint WHERE conname='integration_dispatches_dispatch_class_003_ck'");
+  assertInvariant(dispatchConstraint.length===1&&dispatchConstraint[0]!.definition.includes("DEBIT_NOTES"),"003 dispatch discriminator diverges");
 }

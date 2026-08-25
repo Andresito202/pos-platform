@@ -1,13 +1,15 @@
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
-import { INTEGRATION_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_TABLE_COLUMNS } from "./contract.js";
-import { bootstrapPresence, integrationsCatalogState, targetCatalogState, validateBootstrap, validateBtreeGist, validatePostgres002Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
+import { FISCAL_TABLES, INTEGRATION_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_003_DESCRIPTOR, POSTGRES_TABLE_COLUMNS } from "./contract.js";
+import { bootstrapPresence, fiscalCatalogState, integrationsCatalogState, targetCatalogState, validateBootstrap, validateBtreeGist, validatePostgres002Catalog, validatePostgres003Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
+import { runMat003Preflight } from "./postgres-003-preflight.js";
 import {
   MANIFEST_VERSION,
   MigrationInvariantError,
   POSTGRES_MIGRATION_ID,
   POSTGRES_002_MIGRATION_ID,
+  POSTGRES_003_MIGRATION_ID,
   POSTGRES_MIGRATION_LOCK_RESOURCE,
   RUNNER_VERSION,
   SimulatedCrashError,
@@ -57,6 +59,7 @@ export interface PostgresRunnerConfig {
   simulateCrashAfterBodyCommit?: boolean;
   injectBodyFailure?: boolean;
   skipSmoke?: boolean;
+  allowDestructiveDown003?: boolean;
 }
 
 export interface PostgresApplyResult {
@@ -435,6 +438,8 @@ export async function downPostgres002(config: Pick<PostgresRunnerConfig,"adminUr
       await executeRaw(connection, "SET ROLE pos_schema_owner");
       await acquireMigrationLock(connection);
       try {
+        const dependents=await queryRows<{migration_id:string}>(connection,`SELECT migration_id FROM platform.target_migration_executions WHERE migration_id='003_fiscal_electronic_invoicing_foundation' AND (status='APPLIED' OR (status='STARTED' AND body_committed_at IS NOT NULL))`);
+        if(dependents.length>0)throw new MigrationInvariantError("down 002 rejected because 003 is applied or committed STARTED");
         const rows = await executionRows(connection, POSTGRES_002_MIGRATION_ID);
         const initialState = await integrationsCatalogState(connection);
         if (initialState === "pre-002" && rows.some((row) => row.status==="ROLLED_BACK")) return;
@@ -461,4 +466,86 @@ export async function downPostgres002(config: Pick<PostgresRunnerConfig,"adminUr
   } finally {
     await migrator.destroy();
   }
+}
+
+async function assertMat003ZeroRowPrecondition(db:SqlExecutor):Promise<void>{
+  const rows=await queryRows<{blocker_count:string}>(db,`
+    SELECT (
+      (SELECT count(*) FROM integrations.integration_capabilities WHERE capability_code='DEBIT_NOTES') +
+      (SELECT count(*) FROM integrations.integration_dispatches WHERE dispatch_class='NON_FISCAL' AND capability_code='DEBIT_NOTES') +
+      (SELECT count(*) FROM integrations.integration_dispatch_attempts a JOIN integrations.integration_dispatches d ON d.tenant_id=a.tenant_id AND d.company_id=a.company_id AND d.id=a.integration_dispatch_id AND d.dispatch_class=a.dispatch_class WHERE d.dispatch_class='NON_FISCAL' AND d.capability_code='DEBIT_NOTES') +
+      (SELECT count(*) FROM integrations.external_reference_mappings m JOIN integrations.integration_dispatches d ON d.tenant_id=m.tenant_id AND d.company_id=m.company_id AND d.integration_id=m.integration_id AND d.internal_entity_type=m.internal_entity_type AND d.internal_entity_id=m.internal_entity_id WHERE d.dispatch_class='NON_FISCAL' AND d.capability_code='DEBIT_NOTES') +
+      (SELECT count(*) FROM integrations.resource_ownership_policies p JOIN integrations.integration_capabilities c ON c.tenant_id=p.tenant_id AND c.company_id=p.company_id AND c.integration_id=p.integration_id AND c.ownership_policy_id=p.id WHERE c.capability_code='DEBIT_NOTES')
+    )::text blocker_count
+  `);
+  if(Number(rows[0]!.blocker_count)!==0)throw new MigrationInvariantError("003 DEBIT_NOTES precondition is BLOCKED");
+}
+
+export async function applyPostgres003(config:PostgresRunnerConfig):Promise<PostgresApplyResult>{
+  const preflight=await runMat003Preflight(roleConnectionUrl(config.adminUrl,"pos_platform_admin"));
+  if(preflight.result!=="PASS")throw new MigrationInvariantError(`003 preflight ${preflight.result}`);
+  const admin=postgresDatabase(config.adminUrl,2);
+  const migratorUrl=config.migratorUrl??roleConnectionUrl(config.adminUrl,"pos_migrator");
+  const migrator=postgresDatabase(migratorUrl,1);
+  const upSql=await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact);
+  const checksum=sha256(upSql); const checksumHex=checksum.toString("hex");
+  try{
+    await bootstrapPostgres(admin,migrator);
+    return await migrator.connection().execute(async(connection)=>{
+      await executeRaw(connection,"SET ROLE pos_schema_owner"); await acquireMigrationLock(connection);
+      try{
+        const dependencySql=await readArtifact(POSTGRES_002_DESCRIPTOR.upArtifact); const dependencyChecksum=sha256(dependencySql);
+        const dependency=await queryRows<ExecutionRow>(connection,`SELECT execution_id,migration_id,checksum,status,body_committed_at,applied_at FROM platform.target_migration_executions WHERE migration_id='002_external_integrations_foundation' AND status='APPLIED'`);
+        if(dependency.length!==1||!sameChecksum(dependency[0]!.checksum,dependencyChecksum))throw new MigrationInvariantError("003 requires approved 002 APPLIED dependency");
+        await validatePostgres002Catalog(connection); await validateBtreeGist(connection);
+        const rows=await executionRows(connection,POSTGRES_003_MIGRATION_ID);
+        for(const row of rows)if(!sameChecksum(row.checksum,checksum))throw new MigrationInvariantError("checksum mismatch for 003_fiscal_electronic_invoicing_foundation");
+        const applied=rows.find((row)=>row.status==="APPLIED");
+        if(applied){await validatePostgres003Catalog(connection);return{executionId:applied.execution_id,noOp:true,reconciled:false,checksumHex,prerequisiteState:"PREEXISTING"};}
+        const started=rows.find((row)=>row.status==="STARTED");
+        if(started){
+          const state=await fiscalCatalogState(connection);
+          if(state==="partial")throw new MigrationInvariantError("STARTED 003 execution has divergent catalog");
+          if(state==="target-003"){
+            if(started.body_committed_at===null)await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${started.execution_id}::uuid`.execute(connection);
+            await validatePostgres003Catalog(connection); await finishApplied(connection,started.execution_id);
+            return{executionId:started.execution_id,noOp:false,reconciled:true,checksumHex,prerequisiteState:"PREEXISTING"};
+          }
+          await markFailed(connection,started.execution_id,"RECONCILED_PRE_003");
+        }
+        await assertMat003ZeroRowPrecondition(connection);
+        const executionId=uuidV7();
+        await sql`INSERT INTO platform.target_migration_executions(execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version) VALUES (${executionId}::uuid,${POSTGRES_003_MIGRATION_ID},'POSTGRESQL',${POSTGRES_003_DESCRIPTOR.manifestVersion},${checksum},'STARTED',clock_timestamp(),${RUNNER_VERSION})`.execute(connection);
+        if(config.simulateCrashAfterStarted)throw new SimulatedCrashError("simulated 003 crash after STARTED");
+        try{await connection.transaction().execute(async(transaction)=>{
+          await executeRaw(transaction,"SET LOCAL ROLE pos_schema_owner"); await assertMat003ZeroRowPrecondition(transaction); await executeRaw(transaction,upSql);
+          if(config.injectBodyFailure)await executeRaw(transaction,"SELECT missing_injected_003_body_function()"); await validatePostgres003Catalog(transaction);
+        });}catch(error){await markFailed(connection,executionId,"BODY_003_ROLLED_BACK");throw error;}
+        if(config.simulateCrashAfterBodyCommit)throw new SimulatedCrashError("simulated 003 crash after body COMMIT");
+        await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${executionId}::uuid AND status='STARTED'`.execute(connection);
+        await validatePostgres003Catalog(connection); await finishApplied(connection,executionId);
+        return{executionId,noOp:false,reconciled:false,checksumHex,prerequisiteState:"PREEXISTING"};
+      }finally{await releaseMigrationLock(connection);await executeRaw(connection,"RESET ROLE");}
+    });
+  }finally{await migrator.destroy();await admin.destroy();}
+}
+
+export async function downPostgres003(config:Pick<PostgresRunnerConfig,"adminUrl"|"migratorUrl"|"allowDestructiveDown003">):Promise<void>{
+  if(config.allowDestructiveDown003!==true)throw new MigrationInvariantError("down 003 requires explicit fresh/test authorization");
+  const migratorUrl=config.migratorUrl??roleConnectionUrl(config.adminUrl,"pos_migrator"); const migrator=postgresDatabase(migratorUrl,1);
+  const downSql=await readArtifact(POSTGRES_003_DESCRIPTOR.downArtifact);
+  try{await migrator.connection().execute(async(connection)=>{
+    await executeRaw(connection,"SET ROLE pos_schema_owner");await acquireMigrationLock(connection);
+    try{
+      const rows=await executionRows(connection,POSTGRES_003_MIGRATION_ID);const initial=await fiscalCatalogState(connection);
+      if(initial==="pre-003"&&rows.some((row)=>row.status==="ROLLED_BACK"))return;
+      await validatePostgres003Catalog(connection);
+      const execution=rows.find((row)=>row.status==="APPLIED"||(row.status==="STARTED"&&row.body_committed_at!==null));
+      if(!execution)throw new MigrationInvariantError("no committed 003 execution is eligible for down");
+      const counts=await queryRows<{row_count:string}>(connection,`SELECT ((${FISCAL_TABLES.map((table)=>`SELECT count(*) FROM fiscal.${table}`).join(") + (")}) + (SELECT count(*) FROM integrations.integration_dispatches WHERE dispatch_class='FISCAL') + (SELECT count(*) FROM integrations.integration_capabilities WHERE capability_code='DEBIT_NOTES') + (SELECT count(*) FROM integrations.provider_capability_declarations WHERE capability_code='DEBIT_NOTES'))::text row_count`);
+      if(Number(counts[0]!.row_count)!==0)throw new MigrationInvariantError("down 003 refused because fiscal history exists");
+      await connection.transaction().execute(async(transaction)=>{await executeRaw(transaction,"SET LOCAL ROLE pos_schema_owner");await executeRaw(transaction,downSql);if(await fiscalCatalogState(transaction)!=="pre-003")throw new MigrationInvariantError("down 003 did not restore pre-003 catalog");await validatePostgres002Catalog(transaction);await validateBtreeGist(transaction);});
+      await sql`UPDATE platform.target_migration_executions SET status='ROLLED_BACK',rolled_back_at=clock_timestamp(),finished_at=clock_timestamp() WHERE execution_id=${execution.execution_id}::uuid`.execute(connection);
+    }finally{await releaseMigrationLock(connection);await executeRaw(connection,"RESET ROLE");}
+  });}finally{await migrator.destroy();}
 }

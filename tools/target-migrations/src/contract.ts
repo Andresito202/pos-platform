@@ -136,3 +136,33 @@ export const POSTGRES_002_DESCRIPTOR: MigrationDescriptor = {
   requiredExtensions: ["btree_gist"],
   expectedLedgerState: "APPLIED",
 };
+
+export const FISCAL_TABLES = [
+  "fiscal_connections",
+  "fiscal_emission_configurations",
+  "fiscal_emission_configuration_versions",
+  "electronic_documents",
+  "fiscal_submission_attempts",
+  "fiscal_artifacts",
+  "fiscal_reconciliations",
+  "fiscal_incidents",
+  "fiscal_reconciliation_items",
+] as const;
+
+export const FISCAL_RLS_TABLES = FISCAL_TABLES;
+
+export const POSTGRES_003_DESCRIPTOR: MigrationDescriptor = {
+  migrationId: "003_fiscal_electronic_invoicing_foundation",
+  manifestVersion: 1,
+  dependencies: [POSTGRES_002_DESCRIPTOR.migrationId],
+  upArtifact: "postgres/003_fiscal_electronic_invoicing_foundation.up.sql",
+  downArtifact: "postgres/003_fiscal_electronic_invoicing_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: ["fiscal"],
+  ownedTables: FISCAL_TABLES.map((name) => `fiscal.${name}`),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: ["btree_gist"],
+  expectedLedgerState: "APPLIED",
+};

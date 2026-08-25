@@ -1,4 +1,4 @@
-export { applyPostgres001, applyPostgres002, downPostgres001, downPostgres002, postgresRoleUrls } from "./postgres.js";
+export { applyPostgres001, applyPostgres002, applyPostgres003, downPostgres001, downPostgres002, downPostgres003, postgresRoleUrls } from "./postgres.js";
 export {
   MAT003_PREFLIGHT_GLOBAL_LOCK_RESOURCE,
   MAT003_PREFLIGHT_REQUIRED_SCHEMAS,
@@ -23,12 +23,13 @@ export {
   validateRoleReadinessReversal,
 } from "./postgres-003-role-readiness.js";
 export type { RoleReadinessAclSnapshot, RoleReadinessConfig, RoleReadinessReceipt, RoleReadinessResult, RoleReadinessState } from "./postgres-003-role-readiness.js";
-export { validatePostgres002Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
+export { validatePostgres002Catalog, validatePostgres003Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
 export { applySqlite001, inspectSqlite001 } from "./sqlite.js";
 export {
   MigrationInvariantError,
   POSTGRES_MIGRATION_ID,
   POSTGRES_002_MIGRATION_ID,
+  POSTGRES_003_MIGRATION_ID,
   SQLITE_MIGRATION_ID,
   SimulatedCrashError,
 } from "./shared.js";
