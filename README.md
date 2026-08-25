@@ -30,7 +30,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Etapa | Estado en el backlog | Alcance real |
 |---|---|---|
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen `MATERIALIZED / TESTED / IMMUTABLE`. El tooling de `MAT-003-PREFLIGHT` y de canonical-role readiness está `MATERIALIZED / REVIEWED`; el rol canónico continúa `NOT_APPLIED / NOT_EXECUTED` y `MAT-003-PREFLIGHT` continúa `BLOCKED / NOT_EXECUTED`. SQL/descriptor 003 están ausentes y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
+| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen `MATERIALIZED / TESTED / IMMUTABLE`. El tooling de `MAT-003-PREFLIGHT` y de canonical-role readiness está `MATERIALIZED / REVIEWED`; canonical-role readiness está `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`. `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 están ausentes y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
 | Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 
@@ -162,7 +162,7 @@ El stack siguiente describe únicamente lo que está físicamente presente en la
 | Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; esto no equivale a ejecución canónica. El rol canónico permanece `NOT_APPLIED / NOT_EXECUTED`, `MAT-003-PREFLIGHT` permanece `BLOCKED / NOT_EXECUTED` y ninguna migration implementa adapters ni verifica providers.
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; de forma separada, canonical-role readiness quedó `APPLIED / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. `MAT-003-PREFLIGHT` permanece `NOT_EXECUTED` y ninguna migration implementa adapters ni verifica providers.
 
 El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 
@@ -199,7 +199,7 @@ La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas
 
 ## Secuencia técnica inmediata
 
-La única secuencia vigente se mantiene en el [backlog maestro](docs/product/backlog.md). Comienza con `TARGET-POSTGRESQL-FRESH-VALIDATION`, seguida de la preparación explícita del ambiente canónico y el preflight de aplicación de canonical-role readiness. Ningún `GRANT`, ejecución canónica de `MAT-003-PREFLIGHT` ni SQL/descriptor 003 está autorizado por el estado documental actual; cada paso requiere el PASS y la autorización separada definidos en el backlog.
+La única secuencia vigente se mantiene en el [backlog maestro](docs/product/backlog.md). La validación fresca, preparación del ambiente canónico y aplicación/revisión de canonical-role readiness ya cerraron `PASS`; la siguiente tarea exacta es `MAT-003-PREFLIGHT-CANONICAL-EXECUTION`. SQL/descriptor 003 continúan ausentes y cualquier ejecución o materialización posterior requiere la autorización separada definida en el backlog.
 
 ## Calidad y seguridad
 
