@@ -6,7 +6,11 @@ Este archivo es la fuente de verdad del trabajo del proyecto. Consolida el estad
 
 Si otro documento de avance, una conversación o una lista informal contradice este backlog, prevalece este archivo hasta que se actualice mediante el flujo oficial.
 
-Última actualización: 2026-08-22.
+Última actualización: 2026-08-24.
+
+Los estados `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APPLIED` y `PRODUCTION_READY` no son equivalentes. Cada afirmación de estado debe indicar la evidencia y el nivel alcanzado; un nivel anterior nunca implica automáticamente los siguientes.
+
+La aplicación Supermercado Avícola conservada en `backend/`, `frontend/`, `database/` e `infra/` tiene estado `FROZEN_DEMO / NON_PRODUCTION`. Es referencia histórica y demo, no el runtime de POS Platform; no recibe nuevas funcionalidades por defecto, sus defectos conocidos no se consideran resueltos y sus pruebas no acreditan readiness del TARGET.
 
 ## Estado general
 
@@ -15,8 +19,8 @@ Si otro documento de avance, una conversación o una lista informal contradice e
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Último baseline ejecutable completado: migrations 001→002, con PostgreSQL `96/96` y SQLite `12/12`; migration 001 permanece byte-for-byte inmutable y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
-- Último trabajo completado: el diseño, revisión, lifecycle de evidencia, materialización y revisión independiente de `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS` están en `PASS`. El tooling fail-closed quedó probado, pero el rol canónico continúa `NOT_APPLIED / NOT_EXECUTED`; `MAT-003-PREFLIGHT = BLOCKED / NOT_EXECUTED`, SQL/descriptor 003 están ausentes y migration 003 no está materializada. La siguiente candidata, no ejecutada, es `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-CANONICAL-APPLICATION`, sujeta a verificación explícita de target/ambiente. No implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Último baseline ejecutable registrado: migrations 001→002, con PostgreSQL `96/96` y SQLite `12/12`; ambas permanecen `MATERIALIZED / TESTED / IMMUTABLE` y migration 002 materializa únicamente External Integrations central `NON_FISCAL`. La siguiente tarea exige una validación PostgreSQL TARGET fresca; la evidencia registrada no sustituye esa nueva ejecución.
+- Último trabajo técnico completado: el diseño, revisión, lifecycle de evidencia, materialización y revisión independiente de `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS` están en `PASS`. El tooling fail-closed quedó probado, pero el rol canónico continúa `NOT_APPLIED / NOT_EXECUTED`; `MAT-003-PREFLIGHT = BLOCKED / NOT_EXECUTED`, SQL/descriptor 003 están ausentes y migration 003 no está materializada. El preflight posterior de aplicación canónica se detuvo `NOT_READY_FOR_CANONICAL_APPLICATION` sin conectar a PostgreSQL porque faltaba configuración canónica explícita. La siguiente tarea exacta es `TARGET-POSTGRESQL-FRESH-VALIDATION`; no implementa adapters ni verifica providers. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -174,7 +178,7 @@ Estado de la épica: `IN_PROGRESS`.
 | INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
 | INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
 | INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
-| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Tooling del preflight y canonical-role readiness materializado/revisado; rol canónico no aplicado, preflight no ejecutado y SQL 003 ausente. Siguiente candidata separada: aplicación canónica de role readiness con target/ambiente explícitos. |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Tooling del preflight y canonical-role readiness materializado/revisado; rol canónico no aplicado, preflight no ejecutado y SQL 003 ausente. La secuencia vigente comienza con validación PostgreSQL TARGET fresca y preparación explícita del ambiente canónico antes de cualquier aplicación. |
 
 #### Estado auditable de canonical-role readiness para MAT-003
 
@@ -342,11 +346,17 @@ Estado de la épica: `IN_PROGRESS`.
 
 ## Orden inmediato de trabajo
 
-1. Reanudar `MAT-003-PREFLIGHT-MATERIALIZATION-REMEDIATION-1` para implementar la matriz contractual corregida y resolver H-01/M-04; no ejecutar todavía `MAT-003-PREFLIGHT` ni crear/aplicar SQL 003.
-2. Mantener migration 002 `NON_FISCAL`, migration 001 inmutable y adapters sin implementación hasta cerrar las dependencias siguientes.
-3. Implementar adapters/runtime y obtener evidencia real únicamente después de 003 y de los gates técnicos aplicables.
-4. Iniciar `TECH-003` de forma coordinada con el primer corte físico que consuma contratos API/IPC.
-5. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea el contrato de integraciones.
+Esta es la única secuencia técnica vigente. Cada paso depende del PASS y de la autorización explícita del anterior:
+
+1. `TARGET-POSTGRESQL-FRESH-VALIDATION`: levantar PostgreSQL 16.14 mediante el harness TARGET y ejecutar una validación fresca de migrations 001/002 y del tooling vigente, sin usar evidencia histórica como sustituto.
+2. Preparar e identificar explícitamente el target/ambiente canónico, incluidas conexiones separadas de provisioning y verificación y una ruta durable de recibo; no se permiten defaults, localhost inferido ni reutilización del entorno de pruebas.
+3. Ejecutar `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-CANONICAL-APPLICATION-PREFLIGHT` en modo solo lectura. El último intento quedó `NOT_READY_FOR_CANONICAL_APPLICATION` por ausencia de configuración canónica explícita; no evaluó la base ni aplicó privilegios.
+4. Ejecutar `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-CANONICAL-APPLICATION` únicamente después de readiness `PASS` y autorización separada; ese paso futuro es el único habilitado para aplicar los dos grants exactos.
+5. Realizar una revisión independiente de la aplicación canónica y de su recibo durable antes de promover el estado.
+6. Ejecutar el `MAT-003-PREFLIGHT` canónico únicamente después de cerrar satisfactoriamente la cadena anterior y mediante autorización separada.
+7. Diseñar/materializar SQL y descriptor 003 únicamente si el preflight canónico pasa y una tarea posterior los autoriza expresamente. Migrations 001/002 permanecen inmutables, 002 sigue `NON_FISCAL` y los adapters continúan sin implementación.
+
+`TECH-003`, adapters/runtime y el resto de Fase 1 no reemplazan ni omiten esta secuencia. `DEC-005` permanece diferida como decisión `P1` hasta abordar crédito offline.
 
 El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. Los puntos 1–4 siguientes son el registro histórico que llevó a la autorización y materialización de migration 001; no son pasos pendientes ni autorizan editarla:
 
@@ -361,15 +371,15 @@ La implementación posterior debe respetar esos invariantes.
 | ID | Severidad | Riesgo | Mitigación / condición de cierre |
 |---|---|---|---|
 | R-001 | Alta | Confundir la base avícola existente con la arquitectura objetivo puede perpetuar acceso global, lógica acoplada y modelo monoempresa. | Migrar caso por caso según `docs/migration/avicola-baseline-migration.md`; no declarar módulos objetivo `DONE` por la existencia del código heredado. |
-| R-002 | Baja | Riesgo residual de que la implementación física vuelva a mezclar estados persistentes, proyecciones y estados de agregados diferentes. | DEC-001 cerrado mediante `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`; validar el modelo físico y las migraciones contra estos documentos durante `TECH-002`. |
+| R-002 | Baja | Riesgo residual de que la implementación física vuelva a mezclar estados persistentes, proyecciones y estados de agregados diferentes. | DEC-001 cerrado mediante `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`; validar cada corte físico aditivo contra estos documentos. |
 | R-003 | Alta | Pagos mixtos con proveedores externos no tienen atomicidad distribuida y pueden producir doble cobro o compensaciones pendientes. | Estados explícitos, idempotencia, incidencias y pruebas de respuestas tardías. |
 | R-004 | Alta | El aislamiento multi-tenant está definido pero no probado en la base objetivo. | SEC-003 y pruebas negativas obligatorias antes de datos reales. |
 | R-005 | Alta | El contrato local-first está documentado, pero todavía no existe una implementación probada de sincronización. | Implementar `SYNC-004` sobre los contratos `SYNC-001`, `SYNC-002` y `SYNC-003`, con pruebas de duplicados, orden, recuperación y reloj incorrecto. |
-| R-006 | Alta | El modelo físico objetivo sigue incompleto; reintroducir una compra genérica o transformar el legado en órdenes/facturas inexistentes fijaría errores de dominio. | Mantener el contrato cerrado de `PHY-G06`, completar los gates restantes de `TECH-002` y crear migraciones solo después de una autorización documental independiente. |
+| R-006 | Alta | El modelo físico objetivo sigue incompleto; reintroducir una compra genérica o transformar el legado en órdenes/facturas inexistentes fijaría errores de dominio. | Mantener el contrato cerrado de `PHY-G06` y crear cada corte físico pendiente de F1.2 solo después de manifest, revisión y autorización independientes. |
 | R-007 | Media | La canalización versionada de pricing está definida, pero todavía no tiene una implementación objetivo. | Implementarla conforme a `DEC-003`, `DEC-006` y `PRICE-002`, con pruebas deterministas. |
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
 | R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
-| R-010 | Media | External Integrations y facturación electrónica tienen contrato neutral, pero no existen migrations 002/003, adapters SIIGO/FACTUS/ALEGRA ni validación normativa/productiva. | Diseñar/materializar 002 External Integrations, después 003 fiscal, e implementar cada adapter sin modificar el dominio comercial; exigir evidencia autorizada independiente antes de promoverlo. |
+| R-010 | Media | External Integrations está materializado en migration 002, pero migration 003 fiscal, los adapters SIIGO/FACTUS/ALEGRA y la validación normativa/productiva no existen. | Mantener 002 `NON_FISCAL` e inmutable; completar la cadena canónica de readiness/preflight antes de autorizar 003 e implementar cada adapter sin modificar el dominio comercial, con evidencia autorizada independiente antes de promoverlo. |
 | R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra el runtime Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
 | R-012 | Media | Firma, custodia de claves y soporte están documentados, pero proveedores y PoC de protección local no están implementados. | Materializar los controles definidos por `SEC-004`, probar el perfil `OS_PROTECTED` o `DB_ENCRYPTED` y firmar artefactos antes del piloto. |
 
@@ -380,7 +390,7 @@ La implementación posterior debe respetar esos invariantes.
 | DEC-001 | `P0` | Taxonomía definitiva de estados de pagos, intentos, refunds, reversals, liquidaciones, conciliaciones, contracargos, revisión e incidencias; transiciones, terminalidad y proyecciones derivadas. | `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`. | `PAY-007` queda `DONE`; `PaymentStatus` no incorpora estados de refund, reversal, settlement, reconciliation ni chargeback. El diseño físico deberá mantener agregados, estados, eventos y proyecciones separados. |
 | DEC-002 | `P0` | Política predeterminada para pagos inferiores, sobrepagos, fallos parciales y compensaciones entre efectivo y proveedores externos. | `docs/adr/DEC-002-payment-compensation-policy.md`. | `CASH-003` y `SALES-002` quedan desbloqueados documentalmente; caja, ventas y pagos deben conservar componentes independientes, operaciones compensatorias, idempotencia, control de concurrencia y trazabilidad append-only. |
 | DEC-003 | `P0` | Orden único y versionado de precio base, precio promocional, promociones, descuentos, impuestos y redondeo mediante `PRICING_PIPELINE_V1`. | `docs/adr/DEC-003-pricing-calculation-order.md`. | `PRICE-002` y `SALES-003` quedan desbloqueados documentalmente; `DEC-006` complementa la regla exacta de redondeo `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`. Toda implementación debe conservar snapshots inmutables, decimal exacto, algoritmos versionados y separación entre pricing y cobertura. |
-| DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; las decisiones críticas relacionadas quedaron cerradas y `TECH-002` continúa `IN_PROGRESS` después del cierre de `PHY-G06`. |
+| DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; las decisiones críticas relacionadas quedaron cerradas. `TECH-002` alcanzó posteriormente `DONE` en la revisión transversal final #2. |
 | DEC-006 | `P0` | Política versionada `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`, con empate alejándose de cero, separación fiscal/comercial, residuos deterministas, devoluciones, offline y conciliación. | `docs/adr/DEC-006-nearest-50-rounding-policy.md` y `docs/adr/DEC-003-pricing-calculation-order.md`. | `TAX-003` quedó `DONE`; `SALES-003` redujo sus bloqueos documentales; toda implementación debe conservar decimal exacto, snapshots, versión, checksum y ajustes explícitos. |
 | DEC-007 | `P0` | Autoridad por dato, políticas de sincronización, idempotencia, control de versión, reloj confiable, causalidad, outbox/inbox, checkpoints, conflictos, retención, recuperación, seguridad y observabilidad local-first. | `docs/adr/DEC-007-local-first-data-authority.md`, `docs/adr/ADR-003-local-first.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md` y `docs/domain/glossary.md`. | `SYNC-003` quedó `DONE`; `TECH-005` dejó de depender de `DEC-007`; la implementación deberá conservar operaciones globalmente identificadas, transacciones atómicas, deduplicación, aislamiento multiempresa y conflictos explícitos. |
 | DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | `docs/adr/DEC-008-device-trust-license-activation.md`. | `LIC-002` y `DEV-002` quedaron `DONE`; la decisión dejó de bloquear `TECH-002` y la salida de Fase 0. |
@@ -410,7 +420,7 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`; la secuencia completa de pagos se consolida en F0.5. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
 | F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007`, `DEC-008`, `DEC-009` y `DEC-010` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
-| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. El cierre dejó `TECH-002` como entrada de Fase 1; actualmente está `IN_PROGRESS` y `PHY-G06` está cerrado. |
+| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. El cierre dejó `TECH-002` como entrada de Fase 1; `TECH-002` alcanzó posteriormente `DONE` y `PHY-G06` permanece cerrado. |
 
 La Fase 0 quedó cerrada al completarse UC-PAY-004 y UC-PAY-005, consolidarse la máquina de pagos, cerrarse las decisiones `P0` necesarias para persistencia y documentarse invariantes y pruebas mínimas coherentes para los casos críticos.
 
@@ -432,6 +442,8 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domiciliario, facturación electrónica, GPS, conciliación bancaria avanzada ni especialización regulatoria de droguería.
 
 ## Registro de cambios
+
+Las entradas de esta sección son snapshots históricos y pueden describir estados vigentes únicamente en la fecha indicada. No reemplazan `Estado general`, el backlog por épica ni `Orden inmediato de trabajo`.
 
 - 2026-08-02: `UC-PAY-004` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo aprobado. `UC-PAY-005` permanece `PLANNED` y dependiente de `UC-PAY-004`. La Fase 0 permanece `IN_PROGRESS`.
 - 2026-08-02: `UC-PAY-004` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/use-cases/payments/UC-PAY-004-refund-payment.md`. `UC-PAY-005` pasó de `PLANNED` a `READY`. La Fase 0 permanece `IN_PROGRESS`.
@@ -557,4 +569,9 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-22: `MAT-003-PREFLIGHT-CONTRACT-REMEDIATION-1 = PASS` resolvió la ambigüedad detectada por la revisión de materialización. Solo son blockers históricos las relaciones exactas de 002: capability, dispatch, attempt por FK, mapping por scope+entidad interna, ownership por `ownership_policy_id` e integridad de scope. Provider declarations y platform configurations globales quedan fuera. No cambió 001/002, SQL/tooling ni estados provider/security.
 
-Próxima actualización obligatoria: reanudar `MAT-003-PREFLIGHT-MATERIALIZATION-REMEDIATION-1` para implementar el contrato corregido, lock/snapshot y conexión/rol canónicos. Esta tarea no ejecuta el preflight, no crea/aplica SQL 003 y no modifica migrations 001/002.
+- 2026-08-22: `MAT-003-PREFLIGHT-MATERIALIZATION` y su revisión independiente materializaron/aprobaron el tooling fail-closed de preflight, sin ejecutarlo canónicamente, sin SQL/descriptor 003 y sin modificar migrations 001/002.
+- 2026-08-22: el diseño, lifecycle de evidencia, materialización y revisión de `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS` quedaron `PASS`. El rol canónico permaneció `NOT_APPLIED / NOT_EXECUTED` y `MAT-003-PREFLIGHT` permaneció `BLOCKED / NOT_EXECUTED`.
+- 2026-08-24: el primer preflight de aplicación canónica se detuvo fail-closed con `NOT_READY_FOR_CANONICAL_APPLICATION` porque no existía configuración canónica explícita. No conectó a PostgreSQL, no aplicó privilegios y no ejecutó `MAT-003-PREFLIGHT`.
+- 2026-08-24: la gobernanza formalizó Supermercado Avícola como `FROZEN_DEMO / NON_PRODUCTION` y reconcilió README/backlog para distinguir documentación, materialización, pruebas, revisión, aplicación canónica y readiness productivo.
+
+Próxima actualización obligatoria: registrar el resultado de `TARGET-POSTGRESQL-FRESH-VALIDATION`. Esta tarea valida de forma fresca el harness TARGET vigente; no aplica privilegios, no ejecuta el preflight canónico y no crea/aplica SQL 003.

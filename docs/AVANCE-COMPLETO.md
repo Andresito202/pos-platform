@@ -1,8 +1,12 @@
 # Supermercado Avicola - Avance Completo de Construccion
 
+> **LEGACY / HISTORICAL — `FROZEN_DEMO / NON_PRODUCTION`**
+>
+> Este documento describe exclusivamente el alcance histórico alcanzado por la antigua demo Supermercado Avícola. La expresión “Proyecto completo” significa completo respecto de esos sprints heredados al 2026-03-09; no significa que POS Platform TARGET esté implementado, probado o listo para producción. La demo se conserva como referencia, no recibe nuevas funcionalidades por defecto y mantiene defectos conocidos que este documento histórico no acredita como resueltos. Sus 27 tests tampoco prueban multi-tenancy, local-first, RBAC/ABAC, runtime Electron/React/NestJS, security gates ni readiness productivo de POS Platform.
+
 **Fecha:** 2026-03-09
 **Autor:** Wilson Andres Camacho Culma
-**Estado:** Proyecto completo - Backend + Frontend + Tests + Migraciones + Seeds
+**Estado histórico del demo:** Proyecto completo - Backend + Frontend + Tests + Migraciones + Seeds
 **Errores de sintaxis:** 0
 
 ---

@@ -4,7 +4,9 @@ Plataforma POS modular, multi-tenant y local-first orientada a operaciones comer
 
 POS Platform busca proporcionar un núcleo comercial reutilizable para distintos tipos de negocio, con límites de dominio explícitos, operación por empresa y sucursal, seguridad contextual y continuidad operativa ante interrupciones de conectividad.
 
-> **Estado actual:** el proyecto está en desarrollo. La Fase 0 de fundación de producto, arquitectura y dominio está cerrada como trabajo documental. La siguiente etapa es la Fase 1, fundación técnica ejecutable. La arquitectura objetivo todavía no está implementada y el sistema no debe considerarse terminado ni listo para producción.
+> **Estado actual:** el proyecto está en desarrollo. La Fase 0 de fundación de producto, arquitectura y dominio está cerrada como trabajo documental y la Fase 1 de fundación técnica ejecutable está en progreso. Existen la fundación física PostgreSQL de migrations 001/002 y tooling revisado para preparar MAT-003, pero el runtime objetivo Electron/React/NestJS todavía no está implementado. El sistema no debe considerarse terminado ni listo para producción.
+
+La aplicación Supermercado Avícola presente en `backend/`, `frontend/`, `database/` e `infra/` tiene estado formal `FROZEN_DEMO / NON_PRODUCTION`: se conserva como referencia histórica y demo, no es el runtime de POS Platform y no recibe nuevas funcionalidades por defecto. Sus defectos conocidos no se consideran resueltos y sus pruebas no acreditan readiness de la plataforma objetivo.
 
 ## Objetivo del proyecto
 
@@ -19,7 +21,7 @@ La plataforma está diseñada para soportar progresivamente:
 - dispositivos, periféricos, licenciamiento y modalidades de despliegue;
 - onboarding, auditoría, administración, soporte e integraciones.
 
-Estas capacidades forman parte del alcance y de los contratos documentales en distintos niveles de madurez. No equivalen a módulos físicos terminados. El código ejecutable presente corresponde a una línea base heredada que se auditará y migrará de forma incremental.
+Estas capacidades forman parte del alcance y de los contratos documentales en distintos niveles de madurez. No equivalen a módulos físicos terminados. La aplicación ejecutable heredada se conserva congelada como demo y referencia para una migración futura caso por caso; no es una implementación parcial que deba extenderse por defecto.
 
 ## Estado del proyecto
 
@@ -28,7 +30,7 @@ El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estado
 | Etapa | Estado en el backlog | Alcance real |
 |---|---|---|
 | Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen materializadas y verificadas. `FISCAL-003-MANIFEST-REVIEW-6 = PASS` sin findings y `POSTGRES_MIGRATION_TESTS = PASS (96/96)` sobre PostgreSQL 16.14. `MAT-003-PREFLIGHT = BLOCKED` por `APPROVED_EXECUTABLE_PREFLIGHT_NOT_MATERIALIZED`; SQL 003 sigue ausente y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
+| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen `MATERIALIZED / TESTED / IMMUTABLE`. El tooling de `MAT-003-PREFLIGHT` y de canonical-role readiness está `MATERIALIZED / REVIEWED`; el rol canónico continúa `NOT_APPLIED / NOT_EXECUTED` y `MAT-003-PREFLIGHT` continúa `BLOCKED / NOT_EXECUTED`. SQL/descriptor 003 están ausentes y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
 | Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
 | Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
 
@@ -133,15 +135,15 @@ La selección normativa está cerrada en [`ADR-005`](docs/adr/ADR-005-target-tec
 
 | Capa | Tecnología objetivo | Estado físico |
 |---|---|---|
-| Lenguaje y monorepo | TypeScript estricto, pnpm workspaces y Nx | Pendiente |
+| Lenguaje y monorepo | TypeScript estricto, pnpm workspaces y Nx | Harness pnpm/TypeScript parcial; Nx y monorepo de aplicación pendientes |
 | API central | NestJS con Fastify, monolito modular | Pendiente |
 | POS productivo | Electron, React y Vite | Pendiente |
 | PWA del POS | React/Vite con `IndexedDB`, `sql.js` o SQLite/WASM solo para laboratorio sintético | Prohibida como runtime o persistencia productiva |
 | Servicio local | Node.js/TypeScript como servicio de Windows | Pendiente |
-| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Migration 001 materializada/verificada en `255d813`; siguientes migrations requieren manifest y autorización aditivos |
-| Acceso a datos | Kysely con migraciones separadas por dialecto | Pendiente |
+| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Migrations 001/002 materializadas, probadas e inmutables; SQLite actual limitado al ledger local; siguientes cortes requieren manifest y autorización aditivos |
+| Acceso a datos | Kysely con migraciones separadas por dialecto | Materializado solo en el harness de migrations 001/002; repositorios de aplicación pendientes |
 | Contratos | TypeScript y Zod | Pendiente |
-| Pruebas | Vitest, Playwright, Testcontainers y k6 | Pendiente |
+| Pruebas | Vitest, Playwright, Testcontainers y k6 | Vitest materializado en el harness de migraciones; resto pendiente |
 | Observabilidad | OpenTelemetry | Pendiente |
 | Infraestructura | Docker, object storage compatible con S3 y proveedor central pagado | Pendiente |
 
@@ -153,20 +155,20 @@ El stack siguiente describe únicamente lo que está físicamente presente en la
 
 | Capa | Tecnología verificada | Situación |
 |---|---|---|
-| Backend | Python 3.12 en las imágenes, FastAPI, Uvicorn, SQLAlchemy 2, Pydantic 2 y Alembic | Línea base heredada |
-| Persistencia | PostgreSQL 16 en Docker Compose; SQLite en memoria para tests | Línea base heredada |
+| Backend | Python 3.12 en las imágenes, FastAPI, Uvicorn, SQLAlchemy 2, Pydantic 2 y Alembic | `FROZEN_DEMO / NON_PRODUCTION` |
+| Persistencia | PostgreSQL 16 en Docker Compose; SQLite en memoria para tests | `FROZEN_DEMO / NON_PRODUCTION` |
 | Seguridad | JWT con `python-jose`, bcrypt y roles simples por endpoint | Línea base heredada; no implementa aún el modelo RBAC/ABAC objetivo |
-| Frontend | HTML, CSS, JavaScript y Bootstrap 5 cargado por CDN | Línea base heredada prevista para reemplazo |
+| Frontend | HTML, CSS, JavaScript y Bootstrap 5 cargado por CDN | Demo heredada congelada; no es el runtime objetivo |
 | Infraestructura | Docker, Docker Compose y Blueprint Render aislado como demo | Configuración heredada; no acredita un despliegue objetivo |
 | Pruebas presentes | Pytest, HTTPX y `TestClient` | Suite del legado, no cobertura de la arquitectura objetivo |
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. `MAT-002-MATERIALIZATION = PASS` materializó `002_external_integrations_foundation` con dispatch exclusivamente `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica; `FISCAL-003-MANIFEST-REVIEW-6 = PASS` cerró su revisión sin findings y las pruebas PostgreSQL 16.14 pasaron `96/96`. Como el repositorio aún no contiene un preflight 003 ejecutable aprobado, `MAT-003-PREFLIGHT = BLOCKED`; la siguiente tarea autorizada es `MAT-003-PREFLIGHT-MATERIALIZATION`. SQL 003 permanece ausente y ninguna migration implementa adapters ni verifica providers.
+La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; esto no equivale a ejecución canónica. El rol canónico permanece `NOT_APPLIED / NOT_EXECUTED`, `MAT-003-PREFLIGHT` permanece `BLOCKED / NOT_EXECUTED` y ninguna migration implementa adapters ni verifica providers.
 
-El repositorio contiene ahora el `package.json` mínimo del harness TARGET de migration 001; todavía no contiene `pyproject.toml`, pipeline de CI ni un archivo de licencia.
+El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
 
 ## Desarrollo local
 
-La arquitectura objetivo de POS Platform aún no puede iniciarse de extremo a extremo. Los siguientes comandos levantan y prueban únicamente la línea base heredada.
+La arquitectura objetivo de POS Platform aún no puede iniciarse de extremo a extremo. Los siguientes comandos levantan y prueban únicamente la demo heredada congelada; no deben interpretarse como una ruta de despliegue productivo.
 
 ### Línea base con Docker Compose
 
@@ -195,20 +197,9 @@ python -m pytest tests -q
 
 La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas pasaron, con advertencias de deprecación de la dependencia JWT. Este resultado no valida multi-tenancy, RBAC/ABAC, licenciamiento, sincronización ni operación local-first.
 
-## Roadmap inmediato
+## Secuencia técnica inmediata
 
-La Fase 1 debe convertir los contratos documentales en una fundación ejecutable:
-
-1. crear el esqueleto modular y reglas verificables de dependencia;
-2. crear el monorepo pnpm/Nx conforme a `ADR-005`, sin copiar el acoplamiento del legado;
-3. diseñar e implementar el modelo físico nuevo sin reescribir silenciosamente la migración heredada;
-4. añadir migraciones, restricciones, índices y fronteras transaccionales;
-5. implementar aislamiento multi-tenant, identidad, sesiones revocables y autorización backend;
-6. establecer CI con lint, tipos, pruebas, seguridad, licencias y validación de migraciones;
-7. entregar un primer corte vertical autenticado, auditable e idempotente;
-8. demostrar la base local-first con identificadores globales, outbox, reintentos y recuperación sin duplicación.
-
-El detalle y las dependencias se mantienen en [docs/product/backlog.md](docs/product/backlog.md).
+La única secuencia vigente se mantiene en el [backlog maestro](docs/product/backlog.md). Comienza con `TARGET-POSTGRESQL-FRESH-VALIDATION`, seguida de la preparación explícita del ambiente canónico y el preflight de aplicación de canonical-role readiness. Ningún `GRANT`, ejecución canónica de `MAT-003-PREFLIGHT` ni SQL/descriptor 003 está autorizado por el estado documental actual; cada paso requiere el PASS y la autorización separada definidos en el backlog.
 
 ## Calidad y seguridad
 

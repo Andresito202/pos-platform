@@ -42,7 +42,7 @@ Este índice separa la arquitectura objetivo de la documentación histórica de 
 
 ## Documentación histórica
 
-Los siguientes archivos describen la línea base heredada y no acreditan implementación de POS Platform:
+Los siguientes archivos describen la línea base heredada, cuyo estado formal es `FROZEN_DEMO / NON_PRODUCTION`, y no acreditan implementación de POS Platform:
 
 - `AVANCE-COMPLETO.md`;
 - `AVANCE-SPRINT-1.md`;
@@ -51,4 +51,4 @@ Los siguientes archivos describen la línea base heredada y no acreditan impleme
 - `PENDIENTE-GESTION-USUARIOS.md`;
 - `legacy/avicola-render-demo.md`.
 
-Se conservan para migración, reconciliación y trazabilidad. No son fuente normativa superior a ADR, arquitectura objetivo o backlog.
+Se conservan para migración, reconciliación y trazabilidad. No reciben nuevas funcionalidades por defecto, sus defectos conocidos no se consideran resueltos y no son fuente normativa superior a ADR, arquitectura objetivo o backlog.
