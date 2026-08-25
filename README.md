@@ -201,13 +201,20 @@ La suite heredada fue ejecutada durante la auditoría de este README: 27 pruebas
 
 La validación fresca, preparación del ambiente, canonical-role readiness, ejecución/revisión del preflight canónico y revisión externa del checkpoint operacional sanitizado cerraron `PASS`. El checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente; el working tree quedó `CLEAN` y el upstream `0 behind / 0 ahead`.
 
+Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
+
 La única secuencia técnica vigente continúa así:
 
-1. instalación de Context7 mediante autorización y tarea separadas;
-2. únicamente después de `Context7 = PASS`, apertura de un nuevo hilo de Codex;
-3. inicio únicamente de la planificación separada del diseño/materialización de SQL 003, mediante autorización expresa.
+1. revisión externa explícita de esta reconciliación documental;
+2. remediación y nueva revisión si aparecen findings;
+3. únicamente después de revisión `PASS`, stage controlado de `README.md` y `docs/product/backlog.md`;
+4. commit y push normal mediante autorización separada;
+5. comprobación de working tree `CLEAN` y upstream `0 behind / 0 ahead`;
+6. apertura de un nuevo hilo de Codex;
+7. verificación en ese hilo del contexto maestro y del baseline vigente del repositorio;
+8. únicamente mediante otra autorización expresa, inicio de la planificación separada de SQL 003.
 
-Context7 no se instala en este gate y SQL 003 no se planifica, diseña ni materializa ahora. Planificación, diseño, materialización, prueba, revisión y aplicación de SQL 003 son gates separados; ninguno queda implícitamente autorizado. `SQL 003` y `descriptor 003` permanecen `ABSENT`; el conteo de entradas para migration 003 en el ledger permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+SQL 003 continúa sin planificación autorizada, sin diseño y sin materialización. Planificación, diseño, materialización, pruebas, revisión y aplicación canónica de SQL 003 son gates separados; ninguno queda implícitamente autorizado por esta tarea. `SQL 003` permanece `ABSENT`; `descriptor 003` permanece `ABSENT`; el ledger entry count para migration 003 permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 ## Calidad y seguridad
 

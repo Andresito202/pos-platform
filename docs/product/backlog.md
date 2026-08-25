@@ -351,13 +351,20 @@ Estado de la épica: `IN_PROGRESS`.
 
 La validación fresca, preparación del ambiente, canonical-role readiness, ejecución/revisión del preflight canónico y revisión externa del checkpoint operacional sanitizado cerraron `PASS`. El checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente; el working tree quedó `CLEAN` y el upstream `0 behind / 0 ahead`.
 
+Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
+
 La única secuencia técnica vigente continúa así:
 
-1. instalación de Context7 mediante autorización y tarea separadas;
-2. únicamente después de `Context7 = PASS`, apertura de un nuevo hilo de Codex;
-3. inicio únicamente de la planificación separada del diseño/materialización de SQL 003, mediante autorización expresa.
+1. revisión externa explícita de esta reconciliación documental;
+2. remediación y nueva revisión si aparecen findings;
+3. únicamente después de revisión `PASS`, stage controlado de `README.md` y `docs/product/backlog.md`;
+4. commit y push normal mediante autorización separada;
+5. comprobación de working tree `CLEAN` y upstream `0 behind / 0 ahead`;
+6. apertura de un nuevo hilo de Codex;
+7. verificación en ese hilo del contexto maestro y del baseline vigente del repositorio;
+8. únicamente mediante otra autorización expresa, inicio de la planificación separada de SQL 003.
 
-Context7 no se instala en este gate y SQL 003 no se planifica, diseña ni materializa ahora. Planificación, diseño, materialización, prueba, revisión y aplicación de SQL 003 son gates separados; ninguno queda implícitamente autorizado. `SQL 003` y `descriptor 003` permanecen `ABSENT`; el conteo de entradas para migration 003 en el ledger permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+SQL 003 continúa sin planificación autorizada, sin diseño y sin materialización. Planificación, diseño, materialización, pruebas, revisión y aplicación canónica de SQL 003 son gates separados; ninguno queda implícitamente autorizado por esta tarea. `SQL 003` permanece `ABSENT`; `descriptor 003` permanece `ABSENT`; el ledger entry count para migration 003 permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 `TECH-003`, adapters/runtime y el resto de Fase 1 no reemplazan ni omiten esta secuencia. `DEC-005` permanece diferida como decisión `P1` hasta abordar crédito offline.
 
@@ -579,6 +586,7 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 - 2026-08-24: canonical-role readiness completó `MISSING -> APPLY -> READY` con los dos grants aprobados, recibo lifecycle v1 durable y revisión independiente `PASS` sin findings. El estado promovido es `APPLIED / REVIEWED`; `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 siguen ausentes y migration 003 continúa `NOT_MATERIALIZED`.
 - 2026-08-24: `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION` y su revisión independiente cerraron `PASS` en `local-canonical-integration`. Los cinco blockers y `MAT003_AFFECTED_SCOPE_INTEGRITY` devolvieron `PASS/count=0`; no hubo evidencia diagnóstica ni mutaciones durables. El estado promovido es `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; SQL/descriptor 003 y fiscal schema permanecen ausentes; el conteo de entradas para migration 003 en el ledger permanece en `0`. Se conserva un LOW conocido/no bloqueante sobre el desempate final de evidencia.
 - 2026-08-24: la gobernanza formalizó Supermercado Avícola como `FROZEN_DEMO / NON_PRODUCTION` y reconcilió README/backlog para distinguir documentación, materialización, pruebas, revisión, aplicación canónica y readiness productivo.
-- 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y la siguiente tarea técnica exacta pasó a ser Context7 mediante autorización separada.
+- 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y, en ese momento, la siguiente evaluación opcional pasó a ser Context7 mediante autorización separada.
+- 2026-08-24: Context7 fue configurado externamente con versión fijada y sin secretos; la validación runtime falló por timeout de handshake sin llamadas a sus herramientas y se determinó `NOT_REQUIRED`. El rollback controlado eliminó únicamente Context7, `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS` y el repositorio permaneció intacto. La siguiente transición requiere revisión y cierre de esta reconciliación documental.
 
-Próxima actualización obligatoria: registrar el resultado de la tarea separada de Context7 si se autoriza. Solo después de `Context7 = PASS` procede abrir un nuevo hilo de Codex; cualquier planificación de SQL 003 requiere otra autorización separada y no autoriza implícitamente diseño, materialización, prueba, revisión o aplicación.
+Próxima transición obligatoria: revisión externa explícita de esta reconciliación documental, con remediación y nueva revisión si aparecen findings. Solo después de revisión `PASS` podrán autorizarse por separado el stage controlado, commit, push, comprobación de repositorio limpio, apertura de un nuevo hilo y verificación del contexto maestro y baseline vigente. La planificación separada de SQL 003 requerirá otra autorización expresa y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.
