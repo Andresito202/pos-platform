@@ -8,11 +8,13 @@ Este documento define cómo interpretar el bundle documental de remediación de 
 
 Hasta que este bundle reciba CI commit-scoped y revisión independiente satisfactoria, permanece candidato. SQL 003, descriptor 003, schema fiscal, runner/apply/down 003 y providers continúan prohibidos.
 
+Las firmas que usan sintaxis parecida a `CREATE UNIQUE INDEX` dentro de este documento son **notación normativa de diseño**, no un artefacto SQL ejecutable: no existe archivo `.sql` 003, descriptor 003, checksum 003, ledger entry 003 ni autorización de DDL. La materialización posterior deberá traducir el contrato revisado a SQL separado y volver a pasar su propio gate.
+
 ## 1. Regla de preservación y precedencia
 
 Los documentos históricos existentes permanecen íntegros en Git y siguen siendo autoridad para toda cláusula **no modificada** por este bundle. No se sustituyen por versiones abreviadas porque ello perdería detalle previamente cerrado sobre grants, RLS, sanitización, preflight MAT-003, constraints, lifecycle, apply/down, provider states, pruebas y seguridad.
 
-Cuando una cláusula histórica contradiga expresamente una decisión V2 listada aquí, prevalece el overlay V2 correspondiente. Para las materias cerradas en §4 —integridad relacional de `FiscalDocumentPreparation`, ownership de identidades provider, no-reuse de numeración, grants/RLS de columnas nuevas, claim durable, receipts correlacionados/correlacionables y evidencia tardía cross-generation— **§4 tiene precedencia sobre cualquier frase incompatible de los demás overlays V2**.
+Cuando una cláusula histórica contradiga expresamente una decisión V2 listada aquí, prevalece el overlay V2 correspondiente. Para las materias cerradas en §4 —integridad relacional de `FiscalDocumentPreparation`, ownership de identidades provider, no-reuse de numeración, grants/RLS de columnas nuevas, claim durable, receipts correlacionados/correlacionables, identidad del dispatch fiscal y evidencia tardía cross-generation— **§4 tiene precedencia sobre cualquier frase incompatible de los demás overlays V2**.
 
 Si no puede determinarse con certeza si existe contradicción, la interpretación falla cerrado y SQL 003 permanece bloqueado.
 
@@ -25,7 +27,7 @@ Si no puede determinarse con certeza si existe contradicción, la interpretació
 | Arquitectura fiscal | `../architecture/electronic-invoicing.md` | `../architecture/electronic-invoicing-v2-authoritative-remediation.md` | semántica de prepare/reprepare/retry, UNKNOWN_OUTCOME, operation catalog v1, provider neutrality asociada |
 | Caso de uso | `../use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md` | `../use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle-v2-authoritative-remediation.md` | flujo `REPREPARE_BEFORE_SUBMISSION`, claim durable, retries, webhook/reconciliation y numeración por generation |
 | Frontera External Integrations | `../architecture/physical-model/external-integrations-schema.md` + `../architecture/integration-contracts.md` | `../architecture/physical-model/fiscal-integration-fence-schema.md` | extensiones owned por migration 003 sobre dispatch/receipt para vincular preparación/generation y serializar evidencia |
-| Cierre físico nuevo | todos los anteriores | **§4 de este índice** | candidates/FKs, grants/RLS, field ownership provider-specific, no-reuse legal, correlatable-receipt fence, late-evidence quarantine y claim durable |
+| Cierre físico nuevo | todos los anteriores | **§4 de este índice** | candidates/FKs, grants/RLS, field ownership provider-specific, no-reuse legal, correlatable-receipt fence, dispatch identity/lifecycle, late-evidence quarantine y claim durable |
 
 ## 3. Cláusulas V2 que sustituyen expresamente el baseline
 
@@ -46,6 +48,7 @@ Solo las siguientes familias cambian autoridad respecto del contrato histórico:
 13. La correlación webhook es write-once; todo receipt fiscal correlacionado y todo receipt general que ya pueda resolverse determinísticamente al dispatch/generation bajo §4.11 bloquean reprepare independientemente de `processing_status`.
 14. `FiscalArtifact`, reconciliation/item e incident cuando aplique deben conservar la generation histórica correspondiente.
 15. El orden de locks incorpora `FiscalDocumentPreparation` y el receipt correlacionado dentro del suffix fiscal; HTTP sigue siempre fuera de la transacción.
+16. El dispatch fiscal V1 usa una identidad interna estable y provider-neutral cerrada en §4.12; ningún adapter/request elige `resource_type`, `internal_entity_type`, `internal_operation_id`, generation ni canonical payload identity.
 
 ## 4. Cierre físico normativo V2
 
@@ -315,7 +318,7 @@ Cuando un receipt/artifact/provider/authority evidence se correlaciona a una pre
 6. si la generation actual ya tiene claim/attempt, se abre `FiscalIncident` de conflicto multi-generation, se marca la orquestación como reconciliation-required conforme al lifecycle existente y no se inicia ningún attempt adicional;
 7. ningún evidence histórico se reasigna a la generation actual por timestamp, estado “actual” o conveniencia.
 
-El claim guard del worker exige siempre:
+El claim guard del worker exige para el **primer** intento:
 
 ```text
 ElectronicDocument.status = 'QUEUED'
@@ -324,7 +327,7 @@ AND dispatch/preparation generation = ElectronicDocument.preparation_generation
 AND preparation.preparation_state = 'FROZEN'
 ```
 
-por lo que `UNKNOWN_OUTCOME` congela cualquier dispatch actual aún no reclamado.
+Los retries seguros usan las precondiciones distintas de §4.12; nunca vuelven el dispatch a `QUEUED`. En ambos casos `ElectronicDocument.status='UNKNOWN_OUTCOME'` bloquea el claim.
 
 Si una reconciliation posterior demuestra de forma autoritativa **ausencia de efecto externo en todas las generaciones históricas cuestionadas**, un comando de resolución específico puede retirar la cuarentena sin reprepare ni cambiar generation:
 
@@ -424,6 +427,114 @@ Pruebas contractuales adicionales obligatorias antes de SQL:
 - receipt inequívocamente de otro dispatch no bloquea;
 - receipt genuinamente no correlacionable permite continuar solo si todo el resto de la prueba de cero exposición pasa, y una correlación posterior activa la cuarentena histórica de §4.7;
 - correlator vs reprepare concurrentes producen un solo ganador bajo el mismo fence.
+
+### 4.12 Identidad y lifecycle exactos del `IntegrationDispatch(FISCAL)` V1
+
+Migration 002 ya exige columnas no-null de routing/identidad aunque inicialmente solo materialice `NON_FISCAL`. Al habilitar FISCAL, 003 no permite que el adapter, el payload del request o cada attempt inventen su semántica.
+
+Para todo dispatch fiscal V1:
+
+```text
+dispatch_class = 'FISCAL'
+resource_type = 'ELECTRONIC_DOCUMENT'
+internal_entity_type = 'ElectronicDocument'
+internal_entity_id = ElectronicDocument.id
+fiscal_document_preparation_id = current FiscalDocumentPreparation.id al crear el dispatch
+fiscal_preparation_generation = FiscalDocumentPreparation.preparation_generation
+payload_schema_version = FiscalDocumentPreparation.canonical_payload_version
+payload_checksum = FiscalDocumentPreparation.canonical_payload_checksum
+operation_type efectivo del owner fiscal = 'SUBMIT_DOCUMENT'
+```
+
+`resource_type='ELECTRONIC_DOCUMENT'` es un código canónico interno owned por 003 para la familia de recurso; **no** es el `document_type`, no es un código de Factus/Siigo/Alegra y no afirma capability del provider. El subtipo fiscal sigue únicamente en `FiscalDocumentPreparation.document_type` y determina `capability_code` con el mapping ya aprobado:
+
+- `ELECTRONIC_SALES_INVOICE -> ELECTRONIC_INVOICING`;
+- `CREDIT_NOTE -> CREDIT_NOTES`;
+- `DEBIT_NOTE -> DEBIT_NOTES`;
+- `SUPPORT_DOCUMENT|SUPPORT_DOCUMENT_ADJUSTMENT -> SUPPORT_DOCUMENTS`.
+
+Cuando una `ResourceOwnershipPolicy` sea aplicable a esta frontera, la identidad canónica es `resource_type='ELECTRONIC_DOCUMENT'` + `operation_scope='SUBMIT_DOCUMENT'`; el resultado legal/fiscal puede ser provider-authoritative sin transferir ownership de Sale, Payment, Tax, Product o Inventory.
+
+#### `internal_operation_id`
+
+`internal_operation_id` es el `operation_id` UUID v7 del **primer command de enqueue/submit aceptado** que materializa el dispatch de esa preparation generation. Se genera/deriva por la aplicación antes del INSERT, se audita y queda inmutable durante toda la vida del dispatch.
+
+No es:
+
+- `FiscalSubmissionAttempt.id`;
+- `attempt_number`;
+- `request_id`;
+- `correlation_id`;
+- `REPREPARE_BEFORE_SUBMISSION` command id;
+- provider operation/document id;
+- timestamp ni hash del payload.
+
+Un replay del mismo enqueue con igual root+checksum resuelve al dispatch existente y **no reescribe** `internal_operation_id`, aunque llegue con otro `request_id`. Si una segunda invocación representa otra intención pero produce la misma root, la root canónica sigue deduplicando la única intención provider-facing de esa generation; Audit puede conservar la causalidad adicional sin mutar el dispatch. Mismo root con checksum/schema/generation incompatibles es `CONFLICT`.
+
+Un reprepare confirmado crea otra generation. El enqueue posterior es otro command lógico, por tanto crea otro `internal_operation_id`, otro dispatch y otra root. Un retry técnico jamás cambia `internal_operation_id` ni crea otro dispatch.
+
+#### Lifecycle técnico del mismo dispatch
+
+La primera ejecución usa:
+
+```text
+QUEUED
+  -> [claim atómico + attempt #1 IN_PROGRESS]
+DISPATCHING
+```
+
+Un retry seguro no regresa el dispatch a `QUEUED`. Después de un attempt que tenga evidencia suficiente para `SAFE_RETRY`, el owner fiscal puede pasar el mismo dispatch a:
+
+```text
+RETRY_SCHEDULED
+```
+
+con `next_attempt_at` y clasificación coherentes. Cuando el retry sea elegible, bajo el mismo fence y lock del dispatch:
+
+```text
+RETRY_SCHEDULED
+  -> [claim atómico + attempt #N IN_PROGRESS]
+DISPATCHING
+```
+
+El `attempt_number` nuevo es `max(existing attempt_number)+1` calculado bajo lock del dispatch y nunca se reutiliza. El nuevo attempt conserva exactamente document/preparation/generation/dispatch/idempotency root/internal operation identity y numeración.
+
+Resultados agregados del dispatch:
+
+- respuesta/evidencia concluyente que completa la intención provider-facing -> `SUCCEEDED`; esto significa **completitud técnica del dispatch**, no implica por sí solo `ElectronicDocument.ACCEPTED`: un rechazo fiscal autoritativo puede coexistir con dispatch `SUCCEEDED` y documento `REJECTED`;
+- evidencia durable de no efecto + retry permitido -> `RETRY_SCHEDULED`;
+- posibilidad de efecto sin certeza -> `UNKNOWN_OUTCOME` o `RECONCILIATION_REQUIRED` conforme a evidencia, y el documento entra `UNKNOWN_OUTCOME` cuando no existe certeza legal;
+- fallo terminal conocido sin autorización de retry -> `PERMANENT_FAILURE|DEAD_LETTER` conforme a policy, con incident/reconciliation cuando corresponda; esos estados tampoco inventan un resultado legal del documento;
+- `CANCELLED` por reprepare solo es legal desde `QUEUED` sin claim/attempt/evidence conforme a la prueba de cero exposición. Un dispatch que alguna vez tuvo attempt no vuelve a ser elegible para cancelación por reprepare.
+
+`ElectronicDocument` permanece fuera del conjunto pre-submission tan pronto existe el primer claim/attempt; los retries posteriores no reabren `DRAFT|READY|QUEUED` para permitir reprepare. La ausencia de un estado legal final se resuelve mediante attempt evidence/reconciliation/incident, no degradando el fence.
+
+El guard de dispatch fiscal valida en INSERT y en cada claim:
+
+- scope tenant/company/integration y preparación exactos;
+- document/preparation/generation actuales cuando se inicia el primer attempt;
+- preparación `FROZEN`;
+- capability derivada del `document_type` vigente y supported bajo la cadena ya bloqueada;
+- `resource_type`, internal entity, operation identity, payload schema/checksum y root según este contrato;
+- ningún claim concurrente existente;
+- `ElectronicDocument.status='QUEUED'` para primer claim;
+- para retry: mismo documento/preparación/generation, documento no `UNKNOWN_OUTCOME|ACCEPTED|REJECTED|VOIDED_BEFORE_SUBMISSION`, dispatch `RETRY_SCHEDULED`, retry due y último outcome/evidence autorizando `SAFE_RETRY`.
+
+No se usa `next_attempt_at` ni el paso del tiempo como prueba de no efecto. Solo agenda un retry que ya fue autorizado por evidence/classification.
+
+Pruebas adicionales obligatorias antes de SQL:
+
+- FISCAL con `resource_type` distinto de `ELECTRONIC_DOCUMENT` falla;
+- `internal_entity_type/id` que no resuelven al documento de la preparation fallan;
+- payload schema/checksum distintos de la preparation FROZEN fallan;
+- capability incompatible con `document_type` falla;
+- replay same root+checksum conserva el mismo dispatch e `internal_operation_id`;
+- reprepare+reenqueue produce nueva generation, nuevo dispatch, nueva root y nuevo `internal_operation_id`;
+- retry conserva todos esos identificadores y solo incrementa `attempt_number`;
+- dos workers reclamando QUEUED o RETRY_SCHEDULED producen un solo attempt IN_PROGRESS;
+- `RETRY_SCHEDULED` no autoriza retry si la evidencia no clasifica `SAFE_RETRY`;
+- dispatch `SUCCEEDED` + documento `REJECTED` es una combinación válida cuando existe rechazo fiscal concluyente;
+- ningún estado de dispatch por sí solo produce ACCEPTED/REJECTED.
 
 ## 5. Cláusulas históricas preservadas
 
