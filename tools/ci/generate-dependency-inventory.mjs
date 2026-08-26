@@ -117,7 +117,7 @@ const sortedPackages = [...packages.values()].sort((a, b) => {
 
 const inventory = {
   schema: 'pos-platform-dependency-inventory/v1',
-  sourceCommit: process.env.GITHUB_SHA ?? null,
+  sourceCommit: process.env.REVIEWED_SHA ?? process.env.GITHUB_SHA ?? null,
   packageManager: 'pnpm@9.15.0',
   generatedAt: new Date().toISOString(),
   packageCount: sortedPackages.length,
