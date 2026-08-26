@@ -17,13 +17,16 @@ Este corte **no** declara `TECH-004 = DONE` y **no** equivale a un security rele
 - un package del workspace que deje de ser `private`;
 - cambio no revisado del package manager fijado `pnpm@9.15.0`;
 - dependencias directas con rangos, URLs, git/file/link/workspace specifiers u otra versión no exacta;
-- lifecycle scripts de instalación/publicación actualmente prohibidos;
+- lifecycle scripts de instalación/publicación actualmente prohibidos en packages propios del repositorio;
 - expansión del workspace fuera de `tools/*` sin un cambio explícito del contrato;
 - lockfile distinto de la generación esperada `9.0`;
+- symlinks trackeados o entradas trackeadas que no resuelvan a archivos regulares;
 - archivos de credenciales/keys sensibles trackeados;
 - patrones de secretos de alta confianza en archivos trackeados.
 
-El scanner nunca imprime el valor encontrado; solo ruta y clase del patrón.
+Rechazar symlinks evita que el scanner siga una ruta fuera del workspace del runner. El scanner nunca imprime el valor encontrado; solo ruta y clase del patrón.
+
+Los lifecycle hooks pertenecientes a dependencias instaladas no se presentan como bloqueados por esta policy; este control se aplica a los manifests propios del workspace. El riesgo de scripts transitivos requiere controles de supply chain adicionales y permanece fuera de este corte.
 
 ### 2. Dependency/license inventory
 
@@ -51,7 +54,7 @@ El workflow define `REVIEWED_SHA` como el `pull_request.head.sha` real y usa ese
 - registrar `sourceCommit` dentro del inventario;
 - nombrar el artefacto de evidencia.
 
-En `push` o `workflow_dispatch`, `REVIEWED_SHA` cae a `github.sha`.
+Ambos checkouts usan `persist-credentials: false`; los jobs no conservan la credencial Git después de obtener el source. En `push` o `workflow_dispatch`, `REVIEWED_SHA` cae a `github.sha`.
 
 ### 4. Evidencia de CI
 
