@@ -1,10 +1,12 @@
-# POS Platform
+# Camacho POS Colombia
 
-Plataforma POS modular, multi-tenant y local-first diseñada para operación comercial real, trazabilidad fuerte y evolución controlada desde una sola base de código.
+Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first diseñada para operación comercial real, trazabilidad fuerte y evolución controlada desde una sola base de código.
+
+**Identidad de producto:** `Camacho POS Colombia` es el nombre comercial visible al cliente. `POS Platform`, `pos-platform` y los scopes técnicos `@pos-platform/*` se conservan como identificadores internos para mantener compatibilidad y trazabilidad. El registro empresarial y marcario del nombre comercial permanece pendiente de validación oficial en RUES/SIC y no se presenta como marca registrada.
 
 ## Estado real
 
-POS Platform está en **Fase 1 — fundación técnica ejecutable**.
+Camacho POS Colombia está en **Fase 1 — fundación técnica ejecutable**.
 
 La Fase 0 documental está cerrada. La fundación física y de tooling existe, pero el runtime de aplicación todavía no está materializado.
 
@@ -28,10 +30,11 @@ Estado vigente:
 
 ## Integraciones recientes de `main`
 
-- PR #2 integró la fundación TARGET.
+- PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
 - PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
-- El merge de PR #5 quedó en `bfca119b27f9b4bf0a7b0541708161a2beb2833d`.
-- El run post-merge #40 (`32933559784`) terminó `SUCCESS`, incluidos:
+- PR #6 reconcilió el estado canónico y PR #7 adoptó `Camacho POS Colombia` como nombre comercial, sin renombrar identificadores técnicos.
+- El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`.
+- El run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluidos:
   - `Repository policy and dependency inventory = SUCCESS`;
   - `TypeScript, SQLite and PostgreSQL 16.14 = SUCCESS`;
   - `Main push governance = SUCCESS`.
@@ -40,6 +43,7 @@ La evidencia anterior es histórica y commit-scoped. El SHA vigente de `main` si
 
 ## Fuente de verdad
 
+- [Identidad de marca](docs/product/brand.md): nombre comercial, identificadores técnicos preservados y límites de claims.
 - [Backlog maestro](docs/product/backlog.md): estado, prioridad, dependencias, bloqueos y orden inmediato.
 - [Gobernanza del repositorio](docs/governance/repository-governance.md): ramas, PRs, merges y evidencia remota/local.
 - [Índice documental](docs/README.md): jerarquía completa de fuentes.

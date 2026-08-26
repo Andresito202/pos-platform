@@ -30,6 +30,7 @@ Valida, entre otros:
 - lockfile esperado;
 - ausencia de symlinks trackeados;
 - ausencia de archivos sensibles trackeados;
+- regresión de historia de `main`: acepta rango compuesto solo por merges válidos y rechaza un direct commit oculto antes de un merge;
 - scanner de patrones de secretos de alta confianza sin imprimir el valor;
 - instalación mediante `pnpm install --frozen-lockfile`;
 - inventario de dependencias/licencias después de instalar;
@@ -56,13 +57,13 @@ No valida un runtime NestJS/Electron inexistente.
 
 Se ejecuta únicamente cuando el evento es `push` a `main`.
 
-Es un control detectivo. Verifica que el commit de `main`:
+Es un control detectivo. Usa `github.event.before` y `github.sha` para recorrer todo el rango introducido sobre la cadena de primer padre. Exige continuidad fast-forward y que cada commit introducido:
 
 - tenga dos padres;
 - sea un merge commit creado por GitHub;
 - corresponda exactamente al `merge_commit_sha` de una PR fusionada hacia `main`.
 
-Por política del proyecto, direct push, squash merge y rebase merge no son rutas válidas de integración. Este job los marca como violación después del push; no reemplaza branch protection preventiva.
+Esto impide que un direct push quede oculto dentro del mismo evento cuyo HEAD final sea un merge válido. Por política del proyecto, direct push, squash merge y rebase merge no son rutas válidas de integración. Este job los marca como violación después del push; no reemplaza branch protection preventiva.
 
 La política completa está en `docs/governance/repository-governance.md`.
 
@@ -104,7 +105,18 @@ El push real a `main` produjo:
 - `TypeScript, SQLite and PostgreSQL 16.14 = SUCCESS`;
 - `Main push governance = SUCCESS`.
 
-Esta es la primera evidencia post-merge de que el control detectivo reconoce correctamente una integración válida mediante PR y merge commit normal.
+Esta fue la primera evidencia post-merge de que el control detectivo reconoce correctamente una integración válida mediante PR y merge commit normal.
+
+Evidencia canónica más reciente antes de este hardening:
+
+- `main`: `940107f8cc0976c130dd4f274928b2df248473f4` (merge PR #7);
+- run: `32937793013` (#47);
+- workflow: `COMPLETED / SUCCESS`;
+- repository policy/dependency inventory: `SUCCESS`;
+- TypeScript/SQLite/PostgreSQL: `SUCCESS`;
+- `Main push governance`: `SUCCESS`.
+
+Este hardening solo se considera vigente para un SHA cuando su CI commit-scoped y la verificación post-merge aplicable constan `SUCCESS` en GitHub; la evidencia se consulta por SHA y no se infiere desde este documento.
 
 ## Interpretación
 

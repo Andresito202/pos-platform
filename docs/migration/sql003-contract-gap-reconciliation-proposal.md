@@ -2,7 +2,7 @@
 
 ## 1. Estado, autoridad y límite
 
-Estado: `PROPOSAL_V5 / NOT_AUTHORITATIVE / INT-006_BLOCKED / NOT_FOR_SQL_MATERIALIZATION`.
+Estado: `PROPOSAL_V6 / MODEL_A_SELECTED / NOT_AUTHORITATIVE / INT-006_BLOCKED / NOT_FOR_SQL_MATERIALIZATION`.
 
 Este documento es la propuesta contractual previa a cualquier materialización de PostgreSQL migration 003 Fiscal / Electronic Invoicing. Consolida los findings históricos y los conflictos detectados al contrastar el diseño contra el `main` canónico posterior a las PR #5 y #6.
 
@@ -23,10 +23,12 @@ Mientras los conflictos de este documento no estén reconciliados en las fuentes
 
 ## 2. Baseline canónico
 
-- `main`: `412f4ddb59c05371b2eb629ccf37b6de74efcc48`;
+- `main`: `5d426f2c8ddff3094298f1c776ab67d2eed16ee1`;
 - PR #5: `MERGED / CLOSED`; supply-chain baseline y gobernanza detectiva integrados;
 - PR #6: `MERGED / CLOSED`; estado canónico README/backlog/governance/CI/módulos reconciliado;
-- post-merge run #42 `32934447498`: `COMPLETED / SUCCESS`;
+- PR #7: `MERGED / CLOSED`; identidad comercial `Camacho POS Colombia` adoptada sin renombrar identificadores técnicos;
+- PR #8: `MERGED / CLOSED`; control detectivo de `main` reforzado para validar todo el rango de primer padre;
+- post-merge run #51 `32977942218`: `COMPLETED / SUCCESS`;
 - migrations 001/002: `MATERIALIZED / TESTED / IMMUTABLE`;
 - `MAT-003-PREFLIGHT`: `EXECUTED / PASS / REVIEWED` en su checkpoint canónico;
 - SQL 003: `ABSENT`;
@@ -40,7 +42,7 @@ WIP histórico de referencia:
 
 - branch `wip/sql003-contract-gap-20260825`;
 - commit `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf`;
-- contra `main@412f4ddb...`: `DIVERGED / 1 ahead / 35 behind`;
+- contra `main@5d426f2c...`: `DIVERGED / 1 ahead / 41 behind`;
 - contiene SQL/runner/introspection/tests preliminares no canónicos.
 
 Clasificación: `HISTORICAL_WIP / NOT_INTEGRABLE / NOT_CHERRY_PICKABLE_AS_A_WHOLE`.
@@ -153,44 +155,29 @@ Decisión: `REMEDIATE_PROPOSAL`, ya incorporada en esta V5; la remediación auto
 El manifest 003 establece simultáneamente que:
 
 - downgrade/retiro bloquea documentos `DRAFT|READY|QUEUED` no transmitidos y exige `revalidación o cancelación explícita`;
-- `external_integration_id`, `fiscal_connection_id`, `fiscal_emission_configuration_id` y `emission_configuration_version_id` quedan fuera de los UPDATE permitidos del documento y son tratados como referencias de identidad/scope congeladas;
+- `external_integration_id`, `fiscal_connection_id`, `fiscal_emission_configuration_id` y `emission_configuration_version_id` quedan fuera de los UPDATE ordinarios del documento;
 - `logical_operation_key` es única por intención;
-- `VOIDED_BEFORE_SUBMISSION` existe, pero no define una semántica de successor/replacement para completar después la misma obligación fiscal.
+- `VOIDED_BEFORE_SUBMISSION` no define por sí solo cómo completar después la misma obligación fiscal.
 
-Hay dos casos distintos:
+Decisión V6: `SELECT_MODEL_A / REMEDIATE_AUTHORITATIVE_CONTRACT_BEFORE_SQL`.
 
-1. **misma cadena congelada vuelve a ser válida**: revalidar puede limitarse a comprobar nuevamente declaration/adapter/integration/capability/connection/config/version y permitir continuar sin mutar referencias;
-2. **la cadena congelada queda permanentemente inválida o es reemplazada**: el contrato actual no define cómo completar la misma intención fiscal sin violar inmutabilidad o crear una segunda fila con la misma logical key.
+Migration 003 v1 adoptará exclusivamente **reprepare preservando el mismo `ElectronicDocument` antes de exposición externa**. El modelo successor/replacement queda fuera de v1 y no puede aparecer como fallback implícito.
 
-Decisión: `REMEDIATE_AUTHORITATIVE_CONTRACT_BEFORE_SQL`.
+La remediación autoritativa deberá cerrar estas reglas:
 
-La remediación autoritativa deberá escoger y cerrar **un solo modelo**, con pruebas negativas:
+1. `REPREPARE_BEFORE_SUBMISSION` es un command de aplicación, no un `operation_type` fiscal ni un retry técnico.
+2. Solo admite documento `DRAFT|READY|QUEUED`. `SUBMITTING|ACCEPTED|REJECTED|UNKNOWN_OUTCOME|CONTINGENCY|VOIDED_BEFORE_SUBMISSION` lo rechazan.
+3. Debe probar durablemente **cero exposición externa** bajo locks canónicos: cero `FiscalSubmissionAttempt`; ningún dispatch reclamado o en `DISPATCHING`; cero provider/authority/legal identifiers, respuestas, artifacts o receipts aplicados; cero evidencia de reconciliation que indique transporte o efecto.
+4. Un `QUEUED` elegible exige que su dispatch siga `QUEUED`, sin attempt ni claim. Ese dispatch se cancela en la misma transacción antes de volver el documento a `DRAFT`. Si la prueba es incompleta, se falla cerrado y se abre reconciliation/incident; nunca se presume no envío.
+5. `logical_operation_key`, tenant/company/branch, source identity, `document_type`, original document y causalidad permanecen inmutables.
+6. El command puede rebindear exclusivamente `external_integration_id`, `fiscal_connection_id`, `fiscal_emission_configuration_id` y `emission_configuration_version_id`, tras revalidar declaration/adapter/integration/capability/connection/config/version y precedencia branch/company.
+7. Fiscal snapshots, canonical payload y checksums se regeneran como una nueva **preparation generation**. La generación inicia en 1, aumenta exactamente una vez por reprepare confirmado y no cambia durante retries.
+8. Cada generation crea una intención provider-facing propia. El dispatch anterior queda histórico/cancelado y el nuevo idempotency root incorpora `preparation_generation`; misma generation con checksum distinto sigue siendo conflicto.
+9. Toda asignación legal durable previa conserva historia append-only y nunca se reutiliza. Si la re-preparación exige otra numeración, el contrato autoritativo debe preservar la asignación anterior como `RELEASED_WITHOUT_REUSE|BURNED`, con razón y Audit, antes de asignar otra. Sobrescribir la única evidencia de prefix/number queda prohibido; si no existe representación física capaz de conservar ambas asignaciones, la remediación debe detenerse antes de SQL.
+10. `numbering_state='CONSUMED|UNKNOWN_OUTCOME|BURNED'`, cualquier identidad externa write-once o cualquier señal de exposición bloquean reprepare.
+11. La operación completa usa CAS, locks canónicos, actor, motivo, correlation/causation IDs, Audit y eventos; una carrera con worker, webhook, downgrade o reconciliation produce un solo ganador y el resto falla/revalida.
 
-#### Modelo A — reprepare preservando identidad antes de exposición externa
-
-Permitir que el mismo `ElectronicDocument` sea re-preparado únicamente cuando exista evidencia durable de **cero exposición externa**, definiendo explícitamente:
-
-- estados desde los que puede reentrar a preparación;
-- si `READY` puede volver a una fase mutable;
-- tratamiento de un `QUEUED` cuyo dispatch aún no produjo transporte;
-- campos de integration/connection/config/version que pueden rebindearse;
-- regeneración de fiscal snapshot/payload/checksum;
-- tratamiento de numeración reservada y huecos;
-- cancelación histórica del dispatch anterior y creación de una nueva intención provider-facing cuando cambie `integration_id`;
-- CAS, locks, Audit y eventos.
-
-#### Modelo B — successor/replacement document
-
-Mantener completamente inmutable el documento original y crear un successor explícito, definiendo:
-
-- relación de reemplazo y motivo;
-- cómo se conserva una sola intención fiscal activa;
-- cómo cambia la uniqueness de `logical_operation_key` sin permitir duplicados;
-- tratamiento de `VOIDED_BEFORE_SUBMISSION`;
-- numeración, snapshots, Audit y dispatches;
-- prohibición absoluta de successor si hubo exposición externa incierta.
-
-Hasta elegir y revisar uno de estos modelos, cualquier SQL que materialice 003 podría dejar una obligación fiscal atrapada o permitir duplicidad. Por eso este finding es bloqueante.
+Esta selección resuelve la ambigüedad de modelo a nivel de propuesta, pero `CURRENT-HIGH-008` continúa bloqueando SQL hasta que las fuentes autoritativas definan la representación física de preparation generation, dispatch e historia de numeración y una revisión independiente concluya `PASS`.
 
 ## 4. Identidad lógica de `ElectronicDocument`
 
@@ -302,11 +289,12 @@ FISCAL_SUBMIT_DISPATCH_V1
 + integration_id
 + electronic_document_id
 + operation_type=SUBMIT_DOCUMENT
++ preparation_generation
 ```
 
-`integration_id` es la FK canónica de `IntegrationDispatch` hacia `ExternalIntegration`.
+`integration_id` es la FK canónica de `IntegrationDispatch` hacia `ExternalIntegration`. `preparation_generation` inicia en 1 y solo aumenta mediante `REPREPARE_BEFORE_SUBMISSION` confirmado con cero exposición externa.
 
-La raíz identifica una intención central↔provider y permanece estable mientras se trate de la misma intención. El payload checksum se valida contra la raíz, pero no se incorpora para evitar que material diferente cree silenciosamente otra intención.
+La raíz identifica una intención central↔provider para una generación preparada y permanece estable durante todos sus retries. El payload checksum se valida contra la raíz, pero no se incorpora. Misma raíz/generation con checksum distinto es conflicto; una nueva generation no es retry y exige un dispatch nuevo, dejando el anterior cancelado e histórico.
 
 ### 6.2 Root del attempt
 
@@ -340,11 +328,12 @@ Un retry permitido:
 - conserva `SUBMIT_DOCUMENT`;
 - conserva raíz idempotente;
 - conserva payload/request checksum si representa exactamente la misma solicitud;
+- conserva `preparation_generation`;
 - incrementa `attempt_number`;
 - crea una nueva fila `CREATED`;
 - no modifica filas históricas.
 
-Contenido distinto no es retry del mismo request.
+Contenido distinto no es retry del mismo request. Reprepare incrementa generation y crea otro dispatch únicamente bajo las reglas de cero exposición de CURRENT-HIGH-008.
 
 ## 7. Scope físico migration 003 v1
 
@@ -375,26 +364,30 @@ La ausencia de query/retrieve automático no autoriza repetir submit. Respuesta 
 1. `logical_operation_key` usa solo identidad estable.
 2. `correction_source_reference` no participa.
 3. create/replay conflictivo y UPDATE DRAFT son comandos distintos.
-4. desde `READY`, payload/checksum quedan congelados salvo que el modelo de reprepare futuro defina explícitamente una transición previa a exposición externa.
-5. una invalidación pre-submission debe tener una ruta completa y no atrapada: reprepare del mismo documento o successor formal, pero no ambos implícitos.
-6. jamás se rebindeará/reemplazará después de evidencia de envío o `UNKNOWN_OUTCOME`.
-7. `started_at` solo indica inicio de attempt.
-8. `transport_status` y `retry_classification` son dimensiones distintas.
-9. HTTP/provider code aislado no autoriza retry.
-10. `UNKNOWN_OUTCOME` bloquea retry ciego y permanece histórico.
-11. `IntegrationDispatch.idempotency_key` es estable por intención submit.
-12. `FiscalSubmissionAttempt.idempotency_key` conserva esa raíz dentro del mismo dispatch.
-13. `attempt_number` es monotónico por dispatch y diferencia ejecuciones.
-14. retries crean filas nuevas.
-15. la uniqueness incompatible con raíz estable debe reconciliarse antes de SQL.
-16. migration 003 v1 materializa únicamente `SUBMIT_DOCUMENT`.
-17. query/retrieve quedan fuera hasta contrato posterior revisado.
-18. `FiscalSubmissionAttempt` continúa único owner de attempts fiscales.
-19. `IntegrationDispatchAttempt` continúa `NON_FISCAL`.
-20. migrations 001/002 permanecen byte-for-byte inmutables.
-21. SQLite 003 permanece `NONE`.
-22. providers y `SEC-G` no cambian de estado.
-23. SQL/descriptor/schema fiscal 003 permanecen ausentes hasta autorización separada.
+4. Model A es la única ruta v1 para invalidación permanente pre-submission; successor/replacement queda fuera.
+5. reprepare solo admite `DRAFT|READY|QUEUED` con prueba durable de cero exposición.
+6. un dispatch `QUEUED` elegible se cancela atómicamente antes de reabrir preparación.
+7. logical identity/source/type permanecen inmutables; solo la cadena integration/connection/config/version puede rebindearse.
+8. reprepare incrementa `preparation_generation`, regenera snapshots/payload/checksum y crea un dispatch nuevo.
+9. cada asignación legal previa permanece append-only y nunca reutilizable; no se sobreescribe evidencia de numeración.
+10. cualquier exposición, identidad externa, attempt, `SUBMITTING` o `UNKNOWN_OUTCOME` bloquea reprepare.
+11. `started_at` solo indica inicio de attempt.
+12. `transport_status` y `retry_classification` son dimensiones distintas.
+13. HTTP/provider code aislado no autoriza retry.
+14. `UNKNOWN_OUTCOME` bloquea retry ciego y permanece histórico.
+15. `IntegrationDispatch.idempotency_key` es estable por preparation generation.
+16. `FiscalSubmissionAttempt.idempotency_key` conserva esa raíz dentro del mismo dispatch.
+17. `attempt_number` es monotónico por dispatch y diferencia ejecuciones.
+18. retries crean filas nuevas y nunca incrementan preparation generation.
+19. la uniqueness incompatible con raíz estable debe reconciliarse antes de SQL.
+20. migration 003 v1 materializa únicamente `SUBMIT_DOCUMENT`.
+21. query/retrieve quedan fuera hasta contrato posterior revisado.
+22. `FiscalSubmissionAttempt` continúa único owner de attempts fiscales.
+23. `IntegrationDispatchAttempt` continúa `NON_FISCAL`.
+24. migrations 001/002 permanecen byte-for-byte inmutables.
+25. SQLite 003 permanece `NONE`.
+26. providers y `SEC-G` no cambian de estado.
+27. SQL/descriptor/schema fiscal 003 permanecen ausentes hasta autorización separada.
 
 ## 9. Consecuencias para el WIP histórico
 
@@ -404,7 +397,7 @@ Una materialización futura debe revisar de cero:
 
 - fórmula de `logical_operation_key`;
 - create/replay vs DRAFT mutation;
-- revalidación/reprepare/replacement pre-submission;
+- reprepare pre-submission, preparation generation, dispatch cancelado y numeración histórica;
 - `operation_type` allowlist;
 - uniqueness/idempotency de `FiscalSubmissionAttempt`;
 - attempt numbering bajo lock;
@@ -420,9 +413,11 @@ La revisión debe responder explícitamente:
 
 - ¿la identidad lógica usa solo material estable y distingue correctivos legítimos?;
 - ¿CREATE/replay se distingue de una mutación válida de la misma fila DRAFT?;
-- ¿la propuesta detecta correctamente el dead-end de revalidación cuando la cadena congelada queda permanentemente inválida?;
-- ¿los dos modelos permitidos para resolver HIGH-008 son suficientes y mutuamente explícitos, sin autorizar ambos a la vez por accidente?;
-- ¿se prohíbe reprepare/replacement después de cualquier exposición externa o outcome incierto?;
+- ¿Model A queda seleccionado de forma única y successor/replacement excluido de v1?;
+- ¿la prueba durable de cero exposición cubre document, dispatch, attempts, transport, receipts, artifacts y reconciliation?;
+- ¿preparation generation separa reprepare de retry y evita reutilizar una raíz con payload distinto?;
+- ¿la numeración previa permanece append-only, no reutilizable y no puede perderse por overwrite?;
+- ¿se prohíbe reprepare después de cualquier exposición externa o outcome incierto?;
 - ¿`started_at` conserva un solo significado?;
 - ¿transporte y retry fallan cerrado ante incertidumbre?;
 - ¿la raíz idempotente permanece estable entre retries del mismo dispatch?;
@@ -446,6 +441,7 @@ FISCAL-003-CONTRACT-GAP-RECONCILIATION-PROPOSAL
 = MATERIALIZED
 / INTERNAL_REVIEW_REMEDIATED
 / BASELINE_SYNCED
+/ MODEL_A_SELECTED
 / INT-006_BLOCKED
 / REQUIRES_FRESH_CI
 / REQUIRES_INDEPENDENT_REVIEW

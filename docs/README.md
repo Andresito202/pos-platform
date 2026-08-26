@@ -1,4 +1,6 @@
-# Documentación de POS Platform
+# Documentación de Camacho POS Colombia
+
+`Camacho POS Colombia` es el nombre comercial visible del producto. `POS Platform`, `pos-platform` y los scopes `@pos-platform/*` se conservan como identificadores técnicos internos para mantener compatibilidad, arquitectura y trazabilidad. La autoridad de esta identidad se documenta en `product/brand.md`.
 
 ## Propósito
 
@@ -7,15 +9,16 @@ Este índice define cómo leer la documentación TARGET y qué fuente tiene auto
 ## Jerarquía de fuentes
 
 1. `product/backlog.md` — estado vigente del trabajo, prioridad, dependencia, bloqueo y orden inmediato.
-2. `adr/` — decisiones arquitectónicas y políticas normativas aceptadas.
-3. `architecture/module-map.md` y `architecture/data-ownership.md` — módulos, fronteras y ownership.
-4. `architecture/` restante — topología, persistencia, integraciones y contratos físicos.
-5. `domain/` — reglas, estados, eventos, glosario y motor comercial.
-6. `use-cases/` — comportamiento funcional e invariantes por capacidad.
-7. `security/` — permisos, secretos, gates y controles de seguridad.
-8. `testing/` — estrategia, CI y criterios de evidencia.
-9. `migration/` — manifests, orden y contratos de migrations TARGET.
-10. `governance/repository-governance.md` — ramas, PRs, integración en `main` y evidencia remota/local.
+2. `product/brand.md` — identidad comercial del producto, identificadores técnicos preservados y límites de claims.
+3. `adr/` — decisiones arquitectónicas y políticas normativas aceptadas.
+4. `architecture/module-map.md` y `architecture/data-ownership.md` — módulos, fronteras y ownership.
+5. `architecture/` restante — topología, persistencia, integraciones y contratos físicos.
+6. `domain/` — reglas, estados, eventos, glosario y motor comercial.
+7. `use-cases/` — comportamiento funcional e invariantes por capacidad.
+8. `security/` — permisos, secretos, gates y controles de seguridad.
+9. `testing/` — estrategia, CI y criterios de evidencia.
+10. `migration/` — manifests, orden y contratos de migrations TARGET.
+11. `governance/repository-governance.md` — ramas, PRs, integración en `main` y evidencia remota/local.
 
 ## Regla de conflicto
 
@@ -34,9 +37,10 @@ Si dos fuentes normativas actuales se contradicen:
 ## Estado operativo vigente
 
 - `main` es la única rama canónica.
-- PR #2 integró la fundación TARGET.
+- PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
 - PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
-- El run post-merge #40 (`32933559784`) sobre `bfca119b27f9b4bf0a7b0541708161a2beb2833d` terminó `SUCCESS`, incluido `Main push governance = SUCCESS`.
+- PR #6 reconcilió el estado canónico y PR #7 adoptó el nombre comercial `Camacho POS Colombia` con estado registral explícitamente pendiente.
+- El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`; su run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluido `Main push governance = SUCCESS`.
 - La branch protection preventiva nativa no está disponible para este repositorio privado con el plan GitHub actual; se documenta como limitación, no como protección existente.
 - Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`.
 - SQL/descriptor 003 y schema fiscal 003 continúan ausentes; migration 003 está `NOT_MATERIALIZED`.
@@ -49,22 +53,23 @@ El estado detallado y la cola vigente se encuentran en `product/backlog.md`.
 ## Lectura recomendada para Fase 1
 
 1. `../README.md`.
-2. `product/backlog.md`.
-3. `governance/repository-governance.md`.
-4. `adr/ADR-005-target-technology-stack.md`.
-5. `adr/DEC-010-pos-runtime.md`.
-6. `architecture/module-map.md`.
-7. `architecture/data-ownership.md`.
-8. `architecture/system-context.md`.
-9. `architecture/integration-contracts.md`.
-10. `architecture/conceptual-data-model.md`.
-11. `adr/DEC-007-local-first-data-authority.md`.
-12. `adr/DEC-009-operational-production-baseline.md`.
-13. `security/secret-key-and-support-management.md`.
-14. `security/security-gates.md`.
-15. `testing/testing-strategy.md`.
-16. `testing/target-foundation-ci-gate.md`.
-17. manifests aplicables bajo `migration/`.
+2. `product/brand.md`.
+3. `product/backlog.md`.
+4. `governance/repository-governance.md`.
+5. `adr/ADR-005-target-technology-stack.md`.
+6. `adr/DEC-010-pos-runtime.md`.
+7. `architecture/module-map.md`.
+8. `architecture/data-ownership.md`.
+9. `architecture/system-context.md`.
+10. `architecture/integration-contracts.md`.
+11. `architecture/conceptual-data-model.md`.
+12. `adr/DEC-007-local-first-data-authority.md`.
+13. `adr/DEC-009-operational-production-baseline.md`.
+14. `security/secret-key-and-support-management.md`.
+15. `security/security-gates.md`.
+16. `testing/testing-strategy.md`.
+17. `testing/target-foundation-ci-gate.md`.
+18. manifests aplicables bajo `migration/`.
 
 ## Capacidades especializadas
 

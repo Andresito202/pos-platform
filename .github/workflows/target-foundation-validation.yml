@@ -15,6 +15,7 @@ permissions:
 
 env:
   REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
 
 concurrency:
   group: target-foundation-${{ github.workflow }}-${{ github.ref }}
@@ -32,7 +33,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.REVIEWED_SHA }}
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Verify main push comes from a merged PR
@@ -42,37 +43,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          parent_count="$(git show -s --format=%P "$REVIEWED_SHA" | awk '{print NF}')"
-          if [ "$parent_count" -ne 2 ]; then
-            echo "::error::main received a non-merge commit. Direct pushes and squash/rebase merges are not accepted by the compensating governance policy."
-            exit 1
-          fi
-
-          committer_email="$(git show -s --format=%ce "$REVIEWED_SHA")"
-          if [ "$committer_email" != "noreply@github.com" ]; then
-            echo "::error::main merge commit was not created by GitHub. Expected committer noreply@github.com."
-            exit 1
-          fi
-
-          associated_prs="$(
-            curl --fail --silent --show-error \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${REVIEWED_SHA}/pulls"
+          validated_commits="$(
+            bash tools/ci/validate-main-push-history.sh "$PUSH_BEFORE_SHA" "$REVIEWED_SHA"
           )"
+          mapfile -t introduced_mainline_commits <<<"$validated_commits"
 
-          matching_prs="$(
-            printf '%s' "$associated_prs" \
-              | jq --arg sha "$REVIEWED_SHA" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $sha)] | length'
-          )"
+          for commit_sha in "${introduced_mainline_commits[@]}"; do
+            associated_prs="$(
+              curl --fail --silent --show-error \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/pulls"
+            )"
 
-          if [ "$matching_prs" -lt 1 ]; then
-            echo "::error::main commit is not the merge_commit_sha of a merged pull request targeting main."
-            exit 1
-          fi
+            matching_prs="$(
+              printf '%s' "$associated_prs" \
+                | jq --arg sha "$commit_sha" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $sha)] | length'
+            )"
 
-          echo "Main push governance PASS for ${REVIEWED_SHA}."
+            if [ "$matching_prs" -lt 1 ]; then
+              echo "::error::main commit ${commit_sha} is not the merge_commit_sha of a merged pull request targeting main."
+              exit 1
+            fi
+          done
+
+          echo "Main push governance PASS for ${#introduced_mainline_commits[@]} introduced first-parent commit(s), ending at ${REVIEWED_SHA}."
 
   supply-chain-baseline:
     name: Repository policy and dependency inventory
@@ -101,6 +97,9 @@ jobs:
 
       - name: Validate repository and secret policy
         run: pnpm ci:repository-policy
+
+      - name: Validate main push history regression
+        run: bash tools/ci/test-main-push-history.sh
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
