@@ -2,24 +2,23 @@
 
 ## 1. Estado y autoridad
 
-Estado: `PROPOSAL / NOT_AUTHORITATIVE / NOT_FOR_SQL_MATERIALIZATION`.
+Estado: `PROPOSAL_V2 / NOT_AUTHORITATIVE / NOT_FOR_SQL_MATERIALIZATION`.
 
-Este documento propone una reconciliación limitada para los tres findings contractuales `HIGH-001`, `HIGH-002` y `HIGH-003` preservados en `wip/sql003-contract-gap-20260825`.
+Este documento propone la reconciliación contractual previa a cualquier SQL 003. Sustituye dentro de esta rama las versiones anteriores de la propuesta y responde a los tres findings históricos `HIGH-001`, `HIGH-002` y `HIGH-003`, además de dos ambigüedades descubiertas durante la revisión interna de la propuesta.
 
 No modifica ni sustituye todavía:
 
 - `docs/migration/third-target-migration-manifest.md`;
 - `docs/architecture/physical-model/electronic-invoicing-schema.md`;
 - `docs/use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md`;
+- `docs/architecture/physical-model/external-integrations-schema.md`;
 - `docs/architecture/integration-contracts.md`;
 - migrations PostgreSQL 001/002;
 - SQL, descriptor, runner o tests de migration 003.
 
-La aprobación de esta propuesta requerirá revisión independiente. Solo después podrá existir una remediación autoritativa separada. Esta propuesta no autoriza crear, copiar, cherry-pickear, ejecutar ni aplicar SQL 003.
+Esta propuesta requiere revisión independiente. Incluso un `PASS` autorizará solamente una remediación documental autoritativa separada. No autoriza crear, copiar, cherry-pickear, ejecutar ni aplicar SQL 003.
 
-## 2. Baseline y relación con el WIP histórico
-
-Baseline canónico de esta propuesta:
+## 2. Baseline canónico
 
 - `main`: `0110df5d2b7862d9faeb69b1e9fd7e0bc978a7a1`;
 - PR #2: `MERGED / CLOSED`;
@@ -29,51 +28,75 @@ Baseline canónico de esta propuesta:
 - SQL 003: `ABSENT` en `main`;
 - descriptor 003: `ABSENT` en `main`;
 - fiscal schema: `ABSENT`;
-- ledger entry count de migration 003: `0`.
+- ledger entry count de migration 003: `0`;
+- SIIGO/FACTUS/ALEGRA: `DESIGNED / NOT_EVALUATED`;
+- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED`.
 
 Checkpoint WIP de referencia:
 
 - rama: `wip/sql003-contract-gap-20260825`;
 - commit: `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf`;
-- merge-base histórico: `cb1dafdc987104a5fdc75034de833df157cbfe67`;
 - relación frente al `main` actual: `DIVERGED`, `1 ahead / 17 behind`.
 
-Consecuencia: el WIP no es una base de implementación. No se permite merge ni cherry-pick completo. Sus ocho archivos y sus hashes sirven únicamente como evidencia histórica para revisar decisiones y evitar pérdida de contexto.
+El WIP es evidencia histórica, no una base de implementación. No se permite merge ni cherry-pick completo.
 
-## 3. Findings revalidados
+## 3. Findings y decisión de alcance
 
-### HIGH-001 — Identidad lógica dependiente de material mutable
+### HIGH-001 — identidad lógica dependiente de material mutable
 
-El aggregate `ElectronicDocument` trata `logical_operation_key` como identidad fiscal única e inmutable. Al mismo tiempo, `correction_source_reference` pertenece al material que puede cambiar mientras el documento continúa `DRAFT`.
+`ElectronicDocument.logical_operation_key` es identidad fiscal durable, pero el candidato WIP permitía que su fórmula dependiera de `correction_source_reference`, que puede cambiar durante `DRAFT`.
 
-Una key lógica no puede depender de un valor que pueda cambiar después de crear la intención. Si lo hace, la misma intención podría producir raíces distintas según el instante de cálculo y romper deduplicación, numeración, replay y auditoría.
+Decisión propuesta: `REMEDIATE`.
 
-Resultado de esta propuesta: `VALID / REQUIRES CONTRACT RECONCILIATION`.
+La identidad lógica debe usar solo identidad estable; material, snapshots, referencias humanas, resultados externos y timestamps quedan fuera de su fórmula.
 
-### HIGH-002 — Retry seguro confundido con `started_at IS NULL`
+### HIGH-002 — retry seguro confundido con `started_at IS NULL`
 
-`FiscalSubmissionAttempt` se crea en `CREATED` y la interacción externa comienza al pasar a `IN_PROGRESS`. Un attempt que llega a `FAILED` ya inició ejecución y, por tanto, puede tener `started_at` no nulo.
+Un attempt pasa `CREATED -> IN_PROGRESS` antes de ejecutar la interacción. Un `FAILED` alcanzado desde `IN_PROGRESS` puede y normalmente debe conservar `started_at`.
 
-Usar `started_at IS NULL` como prueba de que `FAILED` es reintentable hace inalcanzable el retry permitido y mezcla dos preguntas diferentes:
+Decisión propuesta: `REMEDIATE`.
 
-1. ¿el worker comenzó a ejecutar el attempt?;
-2. ¿la petición pudo haber alcanzado al provider?
+`started_at` significa únicamente que comenzó la ejecución del attempt. La seguridad de retry se decide con evidencia de transporte/efecto externo y nunca por `started_at IS NULL`.
 
-Resultado de esta propuesta: `VALID / REQUIRES TRANSPORT SEMANTICS`.
+### HIGH-003 — alcance físico de `operation_type` no cerrado
 
-### HIGH-003 — Alcance de `operation_type` no cerrado
+El modelo conceptual contempla emisión, consulta y recuperación de artefactos, pero migration 003 aún no tiene contratos provider/capability suficientemente cerrados para automatizar consulta o recuperación externa de forma neutral.
 
-El contrato conceptual de `FiscalSubmissionAttempt` cubre emisión, consulta y recuperación de artefactos. Polling y reconciliation pueden incorporar evidencia externa sin reescribir attempts históricos. El candidato WIP proponía estrechar migration 003 a `SUBMIT_DOCUMENT` sin una decisión autoritativa equivalente.
+Decisión propuesta: `NARROW_V1_EXPLICITLY`.
 
-Resultado de esta propuesta: `VALID / REQUIRES V1 OPERATION CATALOG`.
+Migration 003 v1 materializará únicamente:
 
-## 4. Decisión propuesta para HIGH-001
+```text
+SUBMIT_DOCUMENT
+```
 
-### 4.1 `logical_operation_key` v1
+`QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` permanecen `DESIGNED / NOT_MATERIALIZED` y requieren contrato futuro independiente antes de añadirse al catálogo físico.
 
-`logical_operation_key` se calcula una sola vez durante `PREPARE`, antes de cualquier HTTP, y permanece inmutable durante toda la vida del documento.
+Esto no elimina las capacidades conceptuales. Únicamente evita afirmar en migration 003 una automatización cuyo capability gate/provider contract todavía no existe.
 
-La entrada canónica v1 propuesta es:
+### INTERNAL-HIGH-004 — idempotencia del attempt podía cambiar en cada retry
+
+Una versión anterior de esta propuesta derivaba `FiscalSubmissionAttempt.idempotency_key` de `attempt_number`. Eso puede producir una clave externa diferente para un retry de la misma intención y derrotar la deduplicación de un proveedor con idempotencia nativa.
+
+Decisión propuesta: `REMEDIATE`.
+
+La intención externa conserva una raíz de idempotencia estable por dispatch. El número de attempt identifica ejecución/historia, pero no cambia por sí mismo la raíz idempotente de la operación.
+
+### INTERNAL-MEDIUM-005 — dispatches de submit/query/retrieve mezclaban alcance innecesario
+
+La versión anterior separó dispatches por operación, pero esa complejidad deja de ser necesaria al cerrar migration 003 v1 como submit-only.
+
+Decisión propuesta: `REMOVE_FROM_V1`.
+
+Migration 003 v1 solo necesita el dispatch fiscal de `SUBMIT_DOCUMENT`. Query/retrieve tendrán su propio diseño de dispatch, capability e idempotencia cuando se autoricen en una migration/contrato posterior.
+
+## 4. Identidad lógica de `ElectronicDocument`
+
+### 4.1 Fórmula v1 propuesta
+
+`logical_operation_key` se calcula una sola vez durante `PREPARE`, antes de cualquier HTTP, y permanece inmutable.
+
+Entrada canónica:
 
 ```text
 FISCAL_LOGICAL_OPERATION_V1
@@ -85,58 +108,58 @@ FISCAL_LOGICAL_OPERATION_V1
 + original_electronic_document_id | NULL
 ```
 
-La serialización debe ser determinista, versionada y sin ambigüedades de delimitación. El valor persistido puede ser la representación canónica o su digest estable, siempre que el contrato de cálculo quede versionado y verificable.
+La serialización debe ser determinista, versionada y sin ambigüedad de delimitación. La representación persistida puede ser canónica o un digest estable del material canónico.
 
-### 4.2 Campos expresamente excluidos
+### 4.2 Campos excluidos de identidad
 
-No participan en `logical_operation_key`:
+No participan:
 
 - `source_version`;
 - `correction_source_reference`;
 - importes;
-- tax/fiscal snapshots y sus checksums;
+- tax/fiscal snapshots y checksums;
 - `canonical_payload_checksum`;
-- versión de configuración fiscal;
-- `branch_id`, porque `source_id` debe ser una identidad global estable y el scope tenant/company/branch se valida y congela por separado; si un source futuro usa identidad solo local a branch, este contrato deberá versionarse antes de admitirlo;
-- prefijo o número fiscal;
+- configuración fiscal/versiones;
+- `branch_id` mientras `source_id` conserve identidad global estable y el scope se valide por separado;
+- prefijo/número fiscal;
 - provider/authority/legal identifiers;
 - estados;
 - timestamps;
 - correlation/causation IDs.
 
-Razón: todos esos valores son material, evidencia, resolución o contexto operacional; no son la identidad primaria de la intención.
+Si un source futuro no posee identidad global estable, el contrato deberá versionarse antes de admitirlo.
 
 ### 4.3 Correctivos
 
 Para `CREDIT_NOTE`, `DEBIT_NOTE` y `SUPPORT_DOCUMENT_ADJUSTMENT`:
 
-- `source_id` debe identificar el aggregate/operación correctiva estable que originó el documento;
-- `original_electronic_document_id` participa en la key;
-- `correction_source_reference` conserva contexto humano/operativo y puede ajustarse en `DRAFT`, pero no cambia la identidad lógica.
+- `source_id` identifica el aggregate/operación correctiva estable;
+- `original_electronic_document_id` participa en la identidad;
+- `correction_source_reference` conserva contexto operativo pero no identidad.
 
-Una segunda corrección legítima requiere otro `source_id`/aggregate correctivo, no mutar una key ya creada.
+Una corrección legítima adicional requiere otra identidad source/correctiva; no muta una key existente.
 
-### 4.4 Regla de idempotencia de documento
+### 4.4 Conflicto de payload
 
-- misma `logical_operation_key` + mismo `canonical_payload_checksum`: resolución idempotente al mismo `ElectronicDocument`;
-- misma `logical_operation_key` + checksum distinto: `CONFLICT`, nunca creación silenciosa de otro documento;
+- misma `logical_operation_key` + mismo `canonical_payload_checksum`: resolución idempotente al mismo documento;
+- misma `logical_operation_key` + checksum distinto: `CONFLICT`;
 - un retry técnico nunca crea otro `ElectronicDocument`.
 
-## 5. Decisión propuesta para HIGH-002
+## 5. Attempt, transporte y retry
 
 ### 5.1 Semántica de timestamps
 
-- `CREATED`: `started_at = NULL`, `completed_at = NULL`;
+- `CREATED`: `started_at=NULL`, `completed_at=NULL`;
 - `CREATED -> IN_PROGRESS`: fija `started_at` una sola vez;
-- cualquier estado terminal alcanzado desde `IN_PROGRESS` conserva `started_at NOT NULL`;
-- `completed_at` se fija al cerrar `COMPLETED`, `FAILED` o `UNKNOWN_OUTCOME`;
-- `CANCELLED` desde `CREATED` puede conservar `started_at = NULL`.
+- terminal alcanzado desde `IN_PROGRESS`: conserva `started_at NOT NULL`;
+- `COMPLETED|FAILED|UNKNOWN_OUTCOME`: fija `completed_at` al cerrar;
+- `CANCELLED` desde `CREATED` puede conservar `started_at=NULL`.
 
-`started_at` demuestra inicio del attempt, no ausencia de transmisión.
+`started_at` nunca prueba ausencia de envío.
 
-### 5.2 Estado normalizado de transporte
+### 5.2 Evidencia de transporte v1
 
-Para decidir retry se propone cerrar `transport_status` v1 a:
+`transport_status` propuesto:
 
 ```text
 NOT_SENT
@@ -145,18 +168,14 @@ RESPONSE_RECEIVED
 UNKNOWN
 ```
 
-Interpretación:
+- `NOT_SENT`: evidencia local durable demuestra que la petición no salió al transporte;
+- `SENT`: se entregó al transporte y pudo alcanzar al provider;
+- `RESPONSE_RECEIVED`: existe respuesta verificable, cuyo significado de efecto depende del contrato del adapter/provider;
+- `UNKNOWN`: no puede probarse transmisión o procesamiento.
 
-- `NOT_SENT`: existe evidencia local durable suficiente de que la petición no salió al transporte;
-- `SENT`: la petición fue entregada al transporte y pudo llegar al provider, sin evidencia terminal suficiente;
-- `RESPONSE_RECEIVED`: existe una respuesta verificable de transporte/provider; su significado de efectos externos depende del contrato versionado del adapter/provider y no del código HTTP por sí solo;
-- `UNKNOWN`: no puede probarse si fue transmitida o procesada.
+HTTP status, provider code, timeout o excepción aislados no prueban ausencia de efecto.
 
-`transport_status` describe evidencia de transporte, no decide por sí mismo si un retry es seguro. HTTP status, provider code, timeout o excepción aislados nunca se convierten automáticamente en prueba de ausencia de efecto.
-
-### 5.3 Clasificación de retry
-
-Se propone cerrar `retry_classification` v1 a:
+### 5.3 Clasificación de retry v1
 
 ```text
 SAFE_RETRY
@@ -166,185 +185,196 @@ NON_RETRYABLE
 
 Reglas:
 
-1. `FAILED + NOT_SENT + SAFE_RETRY` puede originar un nuevo attempt cuando la evidencia local de no envío sea durable y verificable.
-2. `FAILED + RESPONSE_RECEIVED + SAFE_RETRY` solo es válido si el contrato versionado del adapter/provider y la evidencia concreta demuestran inequívocamente que no hubo efecto externo; un `4xx`, `5xx` o código provider aislado no basta.
-3. `SENT` o `UNKNOWN` sin evidencia concluyente de ausencia de efecto no admiten retry ciego: deben converger a `UNKNOWN_OUTCOME / RECONCILE_REQUIRED` o a un terminal no reintentable según evidencia autoritativa.
-4. `UNKNOWN_OUTCOME` siempre conserva `RECONCILE_REQUIRED` hasta que consulta/reconciliation produzca evidencia concluyente; el attempt histórico no se reescribe para ocultar que fue incierto.
-5. Si una reconciliation posterior demuestra ausencia inequívoca de procesamiento, puede autorizar un retry nuevo del mismo dispatch submit sin reescribir el attempt `UNKNOWN_OUTCOME` anterior.
-6. `COMPLETED` es histórico terminal y no se reintenta.
-7. `CANCELLED` solo representa cancelación previa a completar y no se reescribe.
+1. `FAILED + NOT_SENT + SAFE_RETRY` puede generar otro attempt con evidencia durable de no envío.
+2. `FAILED + RESPONSE_RECEIVED + SAFE_RETRY` solo es válido si un contrato versionado y evidencia concreta demuestran ausencia inequívoca de efecto externo.
+3. Un `4xx`, `5xx`, error de socket o código provider aislado no basta para `SAFE_RETRY`.
+4. `SENT` o `UNKNOWN` sin evidencia de no efecto convergen fail-closed a `UNKNOWN_OUTCOME / RECONCILE_REQUIRED` o a un terminal no reintentable respaldado por evidencia.
+5. `UNKNOWN_OUTCOME` nunca se reescribe para ocultar historia y bloquea retry ciego.
+6. Si evidencia posterior demuestra ausencia inequívoca de procesamiento, se puede autorizar un attempt nuevo del mismo dispatch sin modificar el attempt incierto anterior.
+7. `COMPLETED` es histórico terminal.
+8. `CANCELLED` no se reutiliza como retry.
 
-### 5.4 Retry como fila nueva
+## 6. Idempotencia y numeración de attempts
+
+### 6.1 `IntegrationDispatch` como intención estable
+
+Para migration 003 v1 existe una intención externa fiscal por `SUBMIT_DOCUMENT`.
+
+`IntegrationDispatch.idempotency_key` es la raíz estable de esa intención central↔provider. La misma raíz con payload checksum diferente produce conflicto, no otra intención.
+
+Una fórmula normativa exacta deberá quedar cerrada en la remediación autoritativa, pero debe depender únicamente de identidad estable, como mínimo:
+
+```text
+FISCAL_SUBMIT_DISPATCH_V1
++ tenant_id
++ integration_id
++ electronic_document_id
++ operation_type=SUBMIT_DOCUMENT
+```
+
+El payload checksum se valida contra la raíz; no se incorpora a la raíz para evitar que contenido diferente cree silenciosamente otra intención.
+
+### 6.2 `FiscalSubmissionAttempt.idempotency_key`
+
+Para todos los retries del mismo dispatch submit:
+
+```text
+FiscalSubmissionAttempt.idempotency_key
+== IntegrationDispatch.idempotency_key
+```
+
+La clave permanece estable entre attempts de la misma intención.
+
+El adapter puede mapear esa raíz a la representación exigida por un provider, pero la representación provider-facing también debe permanecer estable para retries de la misma intención cuando el provider soporte idempotencia. Nunca cambia únicamente porque cambió `attempt_number`.
+
+Si el provider no ofrece idempotencia nativa, la plataforma conserva igualmente su raíz interna; el retry continúa sujeto a las reglas fail-closed de evidencia de §5.
+
+### 6.3 Identidad de ejecución del attempt
+
+Un attempt concreto se identifica por:
+
+- UUID v7 `id`;
+- `integration_dispatch_id`;
+- `attempt_number` monotónico;
+- `request_id` estable de esa ejecución;
+- `request_checksum`.
+
+`attempt_number` aumenta bajo lock del mismo dispatch. La autoridad física de orden es:
+
+```text
+UNIQUE (tenant_id, integration_dispatch_id, attempt_number)
+```
+
+No se necesita crear una idempotency key nueva para distinguir attempts.
+
+Cualquier candidato SQL que impida repetir la misma raíz idempotente entre attempts o derive la raíz de `attempt_number` queda `NOT_REUSABLE` y debe remediarse antes de materialización.
+
+### 6.4 Retry como nueva fila
 
 Un retry permitido:
 
-- conserva el mismo `ElectronicDocument`;
-- conserva el mismo `IntegrationDispatch` porque continúa siendo la misma intención central↔provider;
-- conserva `operation_type`, que es constante dentro de ese dispatch;
-- incrementa `attempt_number` como secuencia monotónica **por `IntegrationDispatch`**, bajo lock del dispatch/owner aplicable;
-- crea una fila nueva `CREATED`;
-- no modifica el attempt anterior.
+- conserva `ElectronicDocument`;
+- conserva `IntegrationDispatch`;
+- conserva `operation_type='SUBMIT_DOCUMENT'`;
+- conserva la raíz idempotente;
+- conserva el mismo payload canónico/request checksum cuando representa exactamente la misma solicitud;
+- incrementa `attempt_number`;
+- crea nueva fila `CREATED`;
+- no modifica la fila histórica anterior.
 
-`attempt_number` no se reinicia por `operation_type`. Como cada dispatch representa una sola intención externa y un solo `operation_type`, `UNIQUE (tenant_id,integration_dispatch_id,attempt_number)` es la autoridad física del orden de retries. Cualquier candidato que calcule `max(attempt_number)` por documento+operation sin serializar por dispatch deberá ser remediado y no puede reutilizarse a ciegas.
+Si cambia el contenido de la solicitud, no es retry del mismo request y debe fallar por conflicto o seguir un flujo contractual nuevo explícito.
 
-Para `SUBMIT_DOCUMENT`, un retry `SAFE_RETRY` debe conservar el mismo payload canónico y request checksum. Si el contenido cambia, deja de ser retry del mismo request.
+## 7. Alcance físico v1 de `operation_type`
 
-### 5.5 Raíz de idempotencia vs key del attempt
-
-Se separan dos conceptos:
-
-**Raíz lógica del dispatch**
-
-- `IntegrationDispatch.idempotency_key` representa una intención FISCAL estable central↔provider: submit, query o artifact retrieval, según el dispatch.
-- Se conserva para todos los attempts técnicos de **ese** dispatch.
-- Una consulta o recuperación posterior no reutiliza la raíz del dispatch de submit: crea su propio dispatch fiscal con identidad/idempotencia determinista para esa nueva intención externa.
-
-**Idempotency key del attempt**
-
-- `FiscalSubmissionAttempt.idempotency_key` identifica una ejecución técnica concreta y es determinista por:
-
-```text
-FISCAL_ATTEMPT_V1
-+ IntegrationDispatch.idempotency_key
-+ operation_type
-+ attempt_number
-```
-
-- reejecutar la misma fila/attempt por recuperación local usa la misma key y checksum;
-- crear un retry real dentro del mismo dispatch incrementa `attempt_number` y obtiene una nueva key;
-- un `UNKNOWN_OUTCOME` no genera otro attempt hasta que reconciliation produzca evidencia suficiente para autorizar un retry seguro; cuando lo autoriza, el attempt incierto anterior permanece histórico.
-
-Esta separación reconcilia la intención durable del dispatch con la unicidad física de attempts numerados y evita usar un mismo lifecycle de dispatch para submit, query y artifact recovery.
-
-## 6. Decisión propuesta para HIGH-003
-
-### 6.1 Catálogo físico `operation_type` v1
-
-Migration 003 debería reconocer exactamente:
+Migration 003 v1 reconoce exactamente:
 
 ```text
 SUBMIT_DOCUMENT
+```
+
+No reconoce todavía:
+
+```text
 QUERY_DOCUMENT_STATUS
 RETRIEVE_ARTIFACT
 ```
 
-No se proponen más literales en esta fundación.
+### 7.1 Qué sigue funcionando sin automatizar query/retrieve
 
-### 6.2 Significado
+- respuesta síncrona del submit puede aportar estado y artefactos;
+- webhook validado puede aportar evidencia inbound;
+- `FiscalArtifact` puede persistir evidencia obtenida por el submit o inbound autorizado;
+- `FiscalReconciliation` conserva discrepancias, evidencia manual/inbound, review y cierre;
+- `UNKNOWN_OUTCOME` permanece visible y fail-closed cuando no exista una vía automática autorizada de consulta.
 
-`SUBMIT_DOCUMENT`
+No se inventa éxito/rechazo ni se repite submit para suplir la ausencia de query.
 
-- emite el `ElectronicDocument` ya preparado;
-- aplica también a documentos correctivos porque `document_type` y `original_electronic_document_id` ya expresan esa semántica;
-- no existe `SUBMIT_CREDIT_NOTE`, `SUBMIT_DEBIT_NOTE` ni operación provider-specific.
+### 7.2 Gate futuro para query/retrieve
 
-`QUERY_DOCUMENT_STATUS`
+Antes de materializar `QUERY_DOCUMENT_STATUS` o `RETRIEVE_ARTIFACT`, una tarea separada deberá definir y revisar:
 
-- representa polling/consulta explícita del mismo documento;
-- puede ser solicitado por recovery/reconciliation;
-- no modifica el attempt ni el dispatch de submit anterior;
-- crea/reutiliza idempotentemente un dispatch fiscal propio de consulta según la identidad lógica de la consulta/ventana aprobada.
+- capability/provider declaration exacta;
+- readiness mínima y evidencia requerida;
+- dispatch intent e idempotency root;
+- request/checksum contract;
+- rate limits;
+- resultado/normalización;
+- interacción con `FiscalReconciliation`;
+- artifacts/evidence;
+- timeout/UNKNOWN_OUTCOME;
+- permisos, auditoría y pruebas negativas;
+- providers que realmente soportan cada operación.
 
-`RETRIEVE_ARTIFACT`
+Hasta entonces esas operaciones son `DESIGNED / NOT_MATERIALIZED / FAIL_CLOSED`.
 
-- recupera un artefacto externo del mismo documento cuando exista contrato de adapter aplicable;
-- el resultado durable se materializa como `FiscalArtifact` append-only;
-- no convierte el blob en columna PostgreSQL;
-- crea/reutiliza idempotentemente un dispatch fiscal propio de recuperación según documento, tipo/referencia de artefacto y contrato versionado aplicable.
+## 8. Invariantes que deberá adoptar la remediación autoritativa
 
-### 6.3 Operaciones que NO son `operation_type`
+1. `logical_operation_key` usa solo identidad inmutable.
+2. `correction_source_reference` no participa en identidad.
+3. misma key lógica con checksum diferente produce conflicto.
+4. `started_at` solo representa inicio del attempt.
+5. `transport_status` y `retry_classification` tienen responsabilidades distintas.
+6. código HTTP/provider aislado no autoriza retry.
+7. `UNKNOWN_OUTCOME` bloquea retry ciego y permanece histórico.
+8. `IntegrationDispatch.idempotency_key` es estable por intención submit.
+9. `FiscalSubmissionAttempt.idempotency_key` conserva exactamente esa raíz dentro del mismo dispatch.
+10. `attempt_number` identifica ejecución y es monotónico por dispatch.
+11. retries crean filas nuevas sin cambiar la raíz idempotente.
+12. migration 003 v1 usa únicamente `SUBMIT_DOCUMENT`.
+13. query/retrieve quedan fuera hasta contrato posterior revisado.
+14. `FiscalSubmissionAttempt` permanece único owner de attempts fiscales.
+15. `IntegrationDispatchAttempt` permanece `NON_FISCAL`.
+16. migrations 001/002 permanecen byte-for-byte inmutables.
+17. SQLite 003 continúa `NONE`.
+18. providers y `SEC-G` no cambian de estado por esta propuesta.
+19. SQL/descriptor/schema fiscal 003 continúan ausentes hasta autorización separada.
 
-No se crean en v1:
+## 9. Consecuencias para el candidato WIP
 
-- `RECONCILE`: `FiscalReconciliation` posee ese lifecycle y puede orquestar dispatches QUERY/RETRIEVE;
-- `POLL`: polling es estrategia/scheduling de `QUERY_DOCUMENT_STATUS`;
-- `WEBHOOK`: es evidencia inbound y replay-protected, no una interacción saliente;
-- `CORRECT_DOCUMENT`: el correctivo es otro `ElectronicDocument` y usa `SUBMIT_DOCUMENT`;
-- literales `SIIGO_*`, `FACTUS_*`, `ALEGRA_*` o equivalentes.
+El checkpoint `dd07f9d...` no puede integrarse ni cherry-pickearse completo.
 
-### 6.4 Dispatch y ownership
+En particular, una futura materialización deberá revisar de cero contra este contrato:
 
-`IntegrationDispatch` materializa una intención central↔provider. Por tanto:
+- fórmula de `logical_operation_key`;
+- `operation_type` allowlist;
+- `fiscal_submission_attempts_idempotency_uq`;
+- guard de numeración de attempts;
+- estados/guards de retry;
+- request/idempotency/checksum;
+- static tests que codifiquen esas decisiones.
 
-- cada `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` o `RETRIEVE_ARTIFACT` usa un dispatch `FISCAL` propio de esa intención, todos referenciando el mismo `ElectronicDocument` cuando corresponda;
-- un dispatch concreto conserva un único `operation_type` para todos sus `FiscalSubmissionAttempt`;
-- los retries de esa intención son attempts numerados del mismo dispatch;
-- query/retrieve posteriores no cambian el estado agregado ni la idempotency root del dispatch de submit;
-- `FiscalSubmissionAttempt` continúa siendo el único owner técnico de attempts fiscales;
-- `IntegrationDispatchAttempt` continúa reservado físicamente a `NON_FISCAL`.
+La existencia del WIP no promueve SQL003 ni descriptor003 en `main`.
 
-La futura remediación autoritativa deberá definir las raíces idempotentes exactas de QUERY y RETRIEVE antes de SQL. Como mínimo deben incorporar el `ElectronicDocument`, el `operation_type` y la identidad lógica versionada de consulta/ventana o artefacto solicitado, sin timestamps de ejecución ni valores provider-specific mutables.
-
-Permitir estos literales en el esquema no declara que un provider real soporte polling o recuperación. La creación de un dispatch QUERY/RETRIEVE exige capability/adapter/readiness aplicable; mientras esa evidencia no exista, la operación falla cerrado. Los adapters, capability/readiness de provider y HTTP siguen `NOT_EVALUATED` hasta sus gates separados.
-
-## 7. Invariantes cruzados resultantes
-
-La remediación autoritativa posterior deberá hacer verificables, como mínimo, estos invariantes:
-
-1. `logical_operation_key` es inmutable y no depende de `correction_source_reference` ni de otro material DRAFT-mutable.
-2. `correction_source_reference` puede cambiar en DRAFT sin alterar identidad.
-3. `FAILED` nunca se considera reintentable por `started_at IS NULL`.
-4. `transport_status` describe evidencia y no decide retry por sí solo; un código HTTP/provider aislado nunca demuestra ausencia de efecto.
-5. todo `UNKNOWN_OUTCOME` bloquea retry ciego y permanece histórico aun si reconciliation posterior autoriza un nuevo attempt.
-6. un retry seguro crea otra fila, incrementa `attempt_number` monotónicamente por dispatch y conserva el historial.
-7. cada `IntegrationDispatch` representa una sola intención central↔provider y conserva su propia idempotency root.
-8. attempt key es ejecución-específica y determinista dentro de su dispatch.
-9. `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` son los únicos operation types v1.
-10. submit, query y retrieve no comparten un lifecycle de dispatch; cada intención usa su dispatch fiscal idempotente.
-11. polling y reconciliation pueden orquestar QUERY/RETRIEVE sin convertirse en owners de attempts; webhook sigue inbound y los correctivos siguen siendo nuevos documentos.
-12. provider-specific behavior no se incorpora al dominio ni a migration 003.
-13. migration 001/002 permanecen byte-for-byte inmutables.
-14. SQLite 003 continúa `NONE`.
-15. SQL 003 continúa `ABSENT` hasta autorización de materialización separada.
-
-## 8. Impacto esperado de una futura remediación autoritativa
-
-Si esta propuesta pasa revisión, el cambio siguiente deberá limitarse a reconciliar las fuentes autoritativas necesarias para que expresen exactamente las decisiones anteriores.
-
-Ese cambio no debe crear todavía:
-
-- `003_fiscal_electronic_invoicing_foundation.up.sql`;
-- `003_fiscal_electronic_invoicing_foundation.down.sql`;
-- `POSTGRES_003_DESCRIPTOR` ejecutable;
-- tests que pretendan aprobar un SQL inexistente;
-- provider adapters;
-- HTTP;
-- seeds;
-- secrets;
-- fiscal schema real.
-
-Solo después de una revisión independiente `PASS` de la remediación autoritativa podrá abrirse un gate separado de planificación/materialización SQL 003.
-
-## 9. Criterios de revisión independiente
+## 10. Criterios de revisión independiente
 
 La revisión debe responder explícitamente:
 
-- ¿la key lógica usa únicamente identidad inmutable?;
-- ¿dos correcciones legítimas pueden distinguirse sin material mutable?;
-- ¿la semántica `FAILED`/`UNKNOWN_OUTCOME` evita doble envío sin impedir un retry respaldado por evidencia concluyente de no efecto?;
-- ¿`started_at` conserva un significado único?;
-- ¿`transport_status` y `retry_classification` tienen responsabilidades separadas?;
-- ¿dispatch idempotency y attempt idempotency están claramente separados?;
-- ¿`attempt_number` es monotónico por dispatch y compatible con `UNIQUE (tenant_id,integration_dispatch_id,attempt_number)`?;
-- ¿submit/query/retrieve usan dispatches separados por intención sin crear owners paralelos?;
-- ¿el catálogo v1 cubre submit, query y artifact recovery sin sobrediseñar providers?;
-- ¿reconciliation/webhook/correctivos conservan owners únicos?;
+- ¿la identidad lógica usa solo campos inmutables y distingue correctivos legítimos?;
+- ¿misma identidad con payload diferente falla cerrado?;
+- ¿`started_at` conserva un único significado?;
+- ¿la semántica de transporte distingue no-envío, envío, respuesta e incertidumbre sin inferencias inseguras?;
+- ¿`SAFE_RETRY` requiere evidencia suficiente de no efecto?;
+- ¿un `UNKNOWN_OUTCOME` nunca se repite a ciegas?;
+- ¿la raíz idempotente permanece estable entre retries del mismo dispatch?;
+- ¿`attempt_number` diferencia ejecuciones sin cambiar la raíz provider-facing?;
+- ¿submit-only v1 es consistente con el estado real de providers/capabilities?;
+- ¿query/retrieve quedan expresamente diferidos sin impedir evidencia inbound/manual?;
 - ¿001/002, providers, security gates y SQLite permanecen sin promoción?;
 
-Resultado esperado de esta etapa:
+Resultado permitido:
 
 `PROPOSAL_REVIEW = PASS | PASS_WITH_REMEDIATION | FAIL`.
 
-Ningún resultado distinto de `PASS` autoriza modificar las fuentes autoritativas.
+Solo `PASS` permite abrir la remediación autoritativa documental.
 
-## 10. Gate siguiente
+## 11. Gates
 
 Gate actual:
 
-`FISCAL-003-CONTRACT-GAP-RECONCILIATION-PROPOSAL = MATERIALIZED / REQUIRES_INDEPENDENT_REVIEW`.
+`FISCAL-003-CONTRACT-GAP-RECONCILIATION-PROPOSAL = MATERIALIZED / INTERNAL_REVIEW_REMEDIATED / REQUIRES_FRESH_CI / REQUIRES_INDEPENDENT_REVIEW`.
 
-Gate siguiente, únicamente si esta propuesta obtiene `PASS`:
+Gate siguiente, únicamente después de `CI=PASS` y `PROPOSAL_REVIEW=PASS`:
 
 `FISCAL-003-CONTRACT-AUTHORITY-REMEDIATION`.
 
-Ese gate será documental y separado. SQL 003 seguirá `ABSENT` hasta una autorización posterior específica de materialización.
+Ese gate seguirá siendo exclusivamente documental. SQL 003, descriptor 003 y fiscal schema seguirán `ABSENT` hasta otra autorización específica.
