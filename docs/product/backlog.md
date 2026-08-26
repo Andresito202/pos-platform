@@ -157,6 +157,7 @@ Objetivo activo:
 Bundle candidato:
 
 - `docs/migration/sql003-authoritative-contract-remediation-index.md`;
+- `docs/migration/sql003-authoritative-contract-codex-resolution.md`;
 - `docs/migration/third-target-migration-manifest-v2-authoritative-remediation.md`;
 - `docs/architecture/physical-model/electronic-invoicing-schema-v2-authoritative-remediation.md`;
 - `docs/architecture/physical-model/fiscal-integration-fence-schema.md`;
