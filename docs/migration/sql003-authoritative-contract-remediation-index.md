@@ -14,7 +14,7 @@ Las firmas que usan sintaxis parecida a `CREATE UNIQUE INDEX` dentro de este doc
 
 Los documentos históricos existentes permanecen íntegros en Git y siguen siendo autoridad para toda cláusula **no modificada** por este bundle. No se sustituyen por versiones abreviadas porque ello perdería detalle previamente cerrado sobre grants, RLS, sanitización, preflight MAT-003, constraints, lifecycle, apply/down, provider states, pruebas y seguridad.
 
-Cuando una cláusula histórica contradiga expresamente una decisión V2 listada aquí, prevalece el overlay V2 correspondiente. Para las materias cerradas en §4 —integridad relacional de `FiscalDocumentPreparation`, ownership de identidades provider, no-reuse de numeración, grants/RLS de columnas nuevas, claim durable, receipts correlacionados/correlacionables, identidad del dispatch fiscal y evidencia tardía cross-generation— **§4 tiene precedencia sobre cualquier frase incompatible de los demás overlays V2**.
+Cuando una cláusula histórica contradiga expresamente una decisión V2 listada aquí, prevalece el overlay V2 correspondiente. Para las materias cerradas en §4 —integridad relacional de `FiscalDocumentPreparation`, ownership de identidades provider, no-reuse de numeración, grants/RLS de columnas nuevas, claim durable, receipts correlacionados/correlacionables, identidad del dispatch fiscal, current-preparation integrity y evidencia tardía cross-generation— **§4 tiene precedencia sobre cualquier frase incompatible de los demás overlays V2**.
 
 Si no puede determinarse con certeza si existe contradicción, la interpretación falla cerrado y SQL 003 permanece bloqueado.
 
@@ -27,7 +27,7 @@ Si no puede determinarse con certeza si existe contradicción, la interpretació
 | Arquitectura fiscal | `../architecture/electronic-invoicing.md` | `../architecture/electronic-invoicing-v2-authoritative-remediation.md` | semántica de prepare/reprepare/retry, UNKNOWN_OUTCOME, operation catalog v1, provider neutrality asociada |
 | Caso de uso | `../use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md` | `../use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle-v2-authoritative-remediation.md` | flujo `REPREPARE_BEFORE_SUBMISSION`, claim durable, retries, webhook/reconciliation y numeración por generation |
 | Frontera External Integrations | `../architecture/physical-model/external-integrations-schema.md` + `../architecture/integration-contracts.md` | `../architecture/physical-model/fiscal-integration-fence-schema.md` | extensiones owned por migration 003 sobre dispatch/receipt para vincular preparación/generation y serializar evidencia |
-| Cierre físico nuevo | todos los anteriores | **§4 de este índice** | candidates/FKs, grants/RLS, field ownership provider-specific, no-reuse legal, correlatable-receipt fence, dispatch identity/lifecycle, late-evidence quarantine y claim durable |
+| Cierre físico nuevo | todos los anteriores | **§4 de este índice** | candidates/FKs, current-preparation invariant, grants/RLS, field ownership provider-specific, no-reuse legal, correlatable-receipt fence, dispatch identity/lifecycle, late-evidence quarantine y claim durable |
 
 ## 3. Cláusulas V2 que sustituyen expresamente el baseline
 
@@ -49,6 +49,7 @@ Solo las siguientes familias cambian autoridad respecto del contrato histórico:
 14. `FiscalArtifact`, reconciliation/item e incident cuando aplique deben conservar la generation histórica correspondiente.
 15. El orden de locks incorpora `FiscalDocumentPreparation` y el receipt correlacionado dentro del suffix fiscal; HTTP sigue siempre fuera de la transacción.
 16. El dispatch fiscal V1 usa una identidad interna estable y provider-neutral cerrada en §4.12; ningún adapter/request elige `resource_type`, `internal_entity_type`, `internal_operation_id`, generation ni canonical payload identity.
+17. `ElectronicDocument.preparation_generation` no es un pointer confiado únicamente a la aplicación: §4.13 exige una invariante diferida de commit que impide current generation ausente o generation futura durable.
 
 ## 4. Cierre físico normativo V2
 
@@ -140,6 +141,8 @@ Actor FKs `created_by_actor_id` y `cancelled_by_actor_id` apuntan a `identity.us
 
 La compatibilidad BRANCH/COMPANY de la configuration version se revalida bajo lock y el guard exige `version.branch_id IS NULL OR version.branch_id = preparation.branch_id`, preservando la precedencia normativa existente.
 
+La FK circular “documento actual -> preparación actual” **no** se materializa como una segunda columna `current_preparation_id`. La integridad de esa relación se cierra mediante §4.13 para mantener una sola autoridad de generación y evitar dual-write de pointers.
+
 ### 4.3 Constraints/guards exactos nuevos
 
 Nombres normativos mínimos:
@@ -174,12 +177,13 @@ fiscal_document_preparations_state_guard
 fiscal_document_preparations_numbering_guard
 fiscal_document_preparations_late_evidence_guard
 electronic_documents_reprepare_guard
+electronic_documents_current_preparation_guard
 fiscal_submission_attempts_root_guard
 integration_dispatches_fiscal_preparation_guard
 external_webhook_receipts_fiscal_correlation_guard
 ```
 
-Los guards obtienen rol/contexto de forma no falsificable, usan CAS/locks y no confían en actor/scope enviados por request.
+Los guards obtienen rol/contexto de forma no falsificable, usan CAS/locks y no confían en actor/scope enviados por request. `electronic_documents_current_preparation_guard` tiene la semántica diferida cerrada en §4.13 y no se sustituye por una comprobación best-effort de aplicación.
 
 ### 4.4 No-reuse legal: identidad física conservadora V1
 
@@ -303,6 +307,14 @@ Matriz:
 | `fiscal_document_preparations` | `S{S_APP_WORKER}, I{I_APP}, U{U_APP_DRAFT ∪ U_APP_NUMBERING ∪ U_APP_STATE}` | `S{S_APP_WORKER}, U{U_WORKER}` bajo policies/guards | `S{S_PLATFORM}` | `S{S_ADMIN}` |
 
 Ningún rol runtime recibe DELETE/TRUNCATE/ownership. Los column grants por sí solos no autorizan transición: state/numbering/late-evidence guards verifican OLD→NEW, lock, generation actual/histórica y permiso de aplicación.
+
+Para una fila `CANCELLED`, `fiscal_document_preparations_late_evidence_guard` reduce de forma efectiva el UPDATE del worker a:
+
+```text
+provider_document_id,provider_reference,provider_status_raw,updated_at,version
+```
+
+bajo evidencia correlacionada de esa generation. Aunque el grant general `U_WORKER` incluya columnas de numeración necesarias para una preparación `FROZEN`, en `CANCELLED` el guard rechaza cualquier cambio a `numbering_state`, prefix/number/timestamps, configuración, snapshots, payload, lifecycle o lineage. Column grant amplio + guard estricto no se interpreta como permiso para mutar historia cancelada.
 
 ### 4.7 Evidencia tardía después de reprepare: cuarentena cross-generation
 
@@ -535,6 +547,47 @@ Pruebas adicionales obligatorias antes de SQL:
 - `RETRY_SCHEDULED` no autoriza retry si la evidencia no clasifica `SAFE_RETRY`;
 - dispatch `SUCCEEDED` + documento `REJECTED` es una combinación válida cuando existe rechazo fiscal concluyente;
 - ningún estado de dispatch por sí solo produce ACCEPTED/REJECTED.
+
+### 4.13 Invariante diferida de preparación actual
+
+`ElectronicDocument.preparation_generation` es la única autoridad para identificar la generation actual; no se agrega un `current_preparation_id` duplicado. Para impedir que ese número apunte a una fila inexistente o que exista una “future preparation” durable, 003 define el constraint trigger normativo:
+
+```text
+electronic_documents_current_preparation_guard
+```
+
+Semántica:
+
+- `CONSTRAINT TRIGGER` de PostgreSQL;
+- `DEFERRABLE INITIALLY DEFERRED` porque create/reprepare requieren varios statements dentro de una sola transacción;
+- se evalúa al cierre de la transacción sobre todo `ElectronicDocument` insertado o cuya `preparation_generation` cambió y sobre las preparaciones insertadas/cambiadas del mismo documento;
+- no sustituye las FKs NOT DEFERRABLE de §4.2.
+
+Al commit debe demostrar simultáneamente:
+
+1. `ElectronicDocument.preparation_generation >= 1`;
+2. existe **exactamente una** `FiscalDocumentPreparation` con `(tenant_id,electronic_document_id,preparation_generation)` igual al valor actual del documento;
+3. no existe ninguna preparación del documento con `preparation_generation > ElectronicDocument.preparation_generation`;
+4. la preparación actual pertenece al mismo tenant/company/branch/document_type conforme a las FKs/guards ya definidos;
+5. la cadena de supersession de generation N>1 conserva predecessor N-1; combinada con la ausencia de hard delete runtime, no puede existir un salto durable en el historial;
+6. `preparation_generation` del documento no decrementa y solo aumenta exactamente en uno por el guard de `REPREPARE_BEFORE_SUBMISSION`.
+
+La creación inicial de `ElectronicDocument` y `FiscalDocumentPreparation generation=1` ocurre en la **misma transacción**. Es legal que, dentro de esa transacción aún no confirmada, un statement exista antes que el otro; si la preparación 1 no queda creada, el commit falla y toda la transacción revierte.
+
+El reprepare también es una única transacción: cancela dispatch/numbering/preparation anterior bajo el fence, cambia el documento de N a N+1 y crea la nueva preparación N+1 DRAFT con lineage. El orden interno de statements puede elegirse para respetar guards/FKs, pero el constraint diferido prohíbe confirmar un documento apuntando a una generation inexistente o una nueva preparación sin que el documento avance a ella.
+
+No se usa un job posterior, reconciliación eventual ni “repair on startup” como sustituto de esta invariante transaccional.
+
+Pruebas obligatorias antes de SQL:
+
+- INSERT documento sin preparation 1 en la misma transacción falla al commit;
+- documento + preparation 1 en la misma transacción pasa;
+- UPDATE generation N->N+1 sin crear preparation N+1 falla al commit;
+- INSERT preparation N+1 sin avanzar documento falla al commit;
+- reprepare completo old cancel + N->N+1 + new preparation pasa atómicamente;
+- intento N->N+2 falla;
+- rollback de cualquier statement de reprepare deja documento/generation/preparación anterior intactos;
+- late evidence UPDATE sobre preparation histórica no altera la resolución de current generation.
 
 ## 5. Cláusulas históricas preservadas
 
