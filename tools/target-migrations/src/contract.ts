@@ -77,9 +77,9 @@ export interface MigrationDescriptor {
   checksum: "DERIVED_FROM_UP_ARTIFACT";
   ownedSchemas: readonly string[];
   ownedTables: readonly string[];
-  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT";
-  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT";
-  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT";
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT" | readonly string[];
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT" | readonly string[];
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT" | readonly string[];
   requiredExtensions: readonly string[];
   expectedLedgerState: "APPLIED";
 }
@@ -153,6 +153,84 @@ export const FISCAL_TABLES = [
 
 export const FISCAL_RLS_TABLES = FISCAL_TABLES;
 
+export const FISCAL_003_TABLE_COLUMNS = {
+  "fiscal.fiscal_connections": [
+    "id","tenant_id","company_id","external_integration_id","electronic_invoicing_capability_id",
+    "capability_code","valid_from","valid_until","created_at","updated_at","version",
+  ],
+  "fiscal.fiscal_emission_configurations": [
+    "id","tenant_id","company_id","branch_id","scope_type","fiscal_connection_id",
+    "external_integration_id","document_type","created_at",
+  ],
+  "fiscal.fiscal_emission_configuration_versions": [
+    "id","tenant_id","company_id","branch_id","scope_type","fiscal_connection_id",
+    "external_integration_id","fiscal_emission_configuration_id","document_type","version_number",
+    "status","issuer_tax_id_normalized_snapshot","issuer_legal_name_snapshot","authorization_reference",
+    "numbering_policy_code","prefix","number_range_start","number_range_end","next_number_value",
+    "numbering_exhausted_at","provider_numbering_reference","certificate_reference",
+    "contingency_policy_reference","fiscal_capabilities_snapshot_reference",
+    "fiscal_capabilities_snapshot_checksum","configuration_schema_version","configuration_checksum",
+    "valid_from","valid_until","published_at","supersedes_version_id","created_by_actor_id",
+    "published_by_actor_id","created_at","updated_at","row_version",
+  ],
+  "fiscal.electronic_documents": [
+    "id","tenant_id","company_id","branch_id","source_type","source_id","document_type",
+    "logical_operation_key","status","internal_reference","preparation_generation",
+    "authority_reference","legal_identifier","authority_status_raw","uncertainty_reason",
+    "original_electronic_document_id","issued_at","accepted_at","rejected_at",
+    "last_reconciled_at","created_at","updated_at","version",
+  ],
+  "fiscal.fiscal_document_preparations": [
+    "id","tenant_id","company_id","branch_id","electronic_document_id","document_type",
+    "preparation_generation","supersedes_preparation_id","preparation_state","external_integration_id",
+    "fiscal_connection_id","fiscal_emission_configuration_id","emission_configuration_version_id",
+    "source_version","correction_source_reference","currency_code","subtotal_amount","discount_amount",
+    "tax_amount","total_amount","tax_snapshot_reference","tax_snapshot_checksum",
+    "fiscal_emission_snapshot_reference","fiscal_emission_snapshot_checksum",
+    "canonical_payload_version","canonical_payload_checksum","numbering_mode","numbering_state",
+    "prefix","number","number_reserved_at","number_consumed_at","number_burned_at",
+    "numbering_resolution_reason","provider_document_id","provider_reference","provider_status_raw",
+    "created_by_actor_id","frozen_at","cancelled_at","cancelled_by_actor_id","cancellation_reason",
+    "created_at","updated_at","version",
+  ],
+  "fiscal.fiscal_submission_attempts": [
+    "id","tenant_id","company_id","external_integration_id","fiscal_connection_id",
+    "electronic_document_id","fiscal_document_preparation_id","preparation_generation",
+    "integration_dispatch_id","dispatch_class","operation_type","attempt_number","status",
+    "transport_status","normalized_result","request_id","idempotency_key","request_checksum",
+    "provider_operation_id","provider_correlation_reference","provider_response_reference",
+    "http_status","provider_code_raw","retry_classification","error_code","retry_after_at",
+    "started_at","completed_at","correlation_id","causation_id","created_at","version",
+  ],
+  "fiscal.fiscal_artifacts": [
+    "id","tenant_id","company_id","external_integration_id","electronic_document_id",
+    "fiscal_document_preparation_id","preparation_generation","fiscal_submission_attempt_id",
+    "artifact_type","media_type","storage_reference","checksum_algorithm","checksum","size_bytes",
+    "provider_reference","authority_reference","retention_policy_reference","immutable_evidence","created_at",
+  ],
+  "fiscal.fiscal_reconciliations": [
+    "id","tenant_id","company_id","branch_id","external_integration_id","fiscal_connection_id",
+    "scope_type","electronic_document_id","preparation_generation","scope_snapshot_reference",
+    "scope_snapshot_checksum","status","expected_state_snapshot_reference","observed_state_snapshot_reference",
+    "provider_evidence_reference","authority_evidence_reference","discrepancy_summary_code",
+    "started_by_actor_id","reviewed_by_actor_id","closed_by_actor_id","resolution_reason",
+    "started_at","closed_at","correlation_id","causation_id","created_at","updated_at","version",
+  ],
+  "fiscal.fiscal_incidents": [
+    "id","tenant_id","company_id","branch_id","external_integration_id","fiscal_connection_id",
+    "electronic_document_id","preparation_generation","fiscal_submission_attempt_id",
+    "fiscal_reconciliation_id","incident_type","severity","status","summary_code","evidence_reference",
+    "assigned_reviewer_id","resolution_type","resolution_reason","resolved_by_actor_id","resolved_at",
+    "archived_at","correlation_id","causation_id","created_at","updated_at","version",
+  ],
+  "fiscal.fiscal_reconciliation_items": [
+    "id","tenant_id","company_id","external_integration_id","fiscal_connection_id",
+    "fiscal_reconciliation_id","electronic_document_id","fiscal_document_preparation_id",
+    "preparation_generation","expected_state_reference","observed_state_reference","evidence_checksum",
+    "discrepancy_code","result_code","evidence_reference","fiscal_incident_id","created_at",
+  ],
+} as const;
+
 export const FISCAL_003_ALTERED_TABLES = [
   "integrations.provider_capability_declarations",
   "integrations.integration_capabilities",
@@ -174,12 +252,354 @@ export const FISCAL_003_INTEGRATION_EXTENSION_COLUMNS = {
   ],
 } as const;
 
+export const FISCAL_003_TABLE_CONSTRAINTS = {
+  "fiscal.fiscal_connections": [
+    "fiscal_connections_id_v7_ck","fiscal_connections_tenant_id_id_uq",
+    "fiscal_connections_tenant_company_id_id_uq","fiscal_connections_tenant_company_integration_id_uq",
+    "fiscal_connections_company_fk","fiscal_connections_integration_fk","fiscal_connections_capability_fk",
+    "fiscal_connections_capability_ck","fiscal_connections_validity_ck","fiscal_connections_version_ck",
+    "fiscal_connections_company_validity_excl",
+  ],
+  "fiscal.fiscal_emission_configurations": [
+    "fiscal_emission_configurations_id_v7_ck","fiscal_emission_configurations_tenant_id_id_uq",
+    "fiscal_emission_configurations_tenant_company_id_id_uq","fiscal_emission_configurations_scope_uq",
+    "fiscal_emission_configurations_connection_fk","fiscal_emission_configurations_branch_fk",
+    "fiscal_emission_configurations_scope_ck","fiscal_emission_configurations_document_type_ck",
+  ],
+  "fiscal.fiscal_emission_configuration_versions": [
+    "fiscal_emission_configuration_versions_id_v7_ck",
+    "fiscal_emission_configuration_versions_tenant_id_id_uq",
+    "fiscal_emission_configuration_versions_tenant_company_id_id_uq",
+    "fiscal_emission_configuration_versions_scope_uq",
+    "fiscal_emission_configuration_versions_number_uq",
+    "fiscal_emission_configuration_versions_configuration_fk",
+    "fiscal_emission_configuration_versions_branch_fk",
+    "fiscal_emission_configuration_versions_created_by_fk",
+    "fiscal_emission_configuration_versions_published_by_fk",
+    "fiscal_emission_configuration_versions_scope_ck",
+    "fiscal_emission_configuration_versions_status_ck",
+    "fiscal_emission_configuration_versions_numbering_ck",
+    "fiscal_emission_configuration_versions_checksum_ck",
+    "fiscal_emission_configuration_versions_publication_ck",
+    "fiscal_emission_configuration_versions_validity_ck",
+    "fiscal_emission_configuration_versions_supersedes_fk",
+    "fiscal_emission_configuration_versions_published_validity_excl",
+  ],
+  "fiscal.electronic_documents": [
+    "electronic_documents_id_v7_ck","electronic_documents_tenant_id_id_uq",
+    "electronic_documents_tenant_company_id_id_uq","electronic_documents_document_type_scope_uq",
+    "electronic_documents_logical_operation_uq","electronic_documents_branch_fk",
+    "electronic_documents_original_fk","electronic_documents_status_ck",
+    "electronic_documents_document_type_ck","electronic_documents_generation_ck",
+    "electronic_documents_original_type_ck","electronic_documents_authority_identity_ck",
+    "electronic_documents_timestamps_ck","electronic_documents_version_ck",
+  ],
+  "fiscal.fiscal_document_preparations": [
+    "fiscal_document_preparations_id_v7_ck","fiscal_document_preparations_tenant_id_id_uq",
+    "fiscal_document_preparations_tenant_company_id_id_uq","fiscal_document_preparations_document_id_uq",
+    "fiscal_document_preparations_generation_uq","fiscal_document_preparations_dispatch_scope_uq",
+    "fiscal_document_preparations_attempt_scope_uq","fiscal_document_preparations_document_fk",
+    "fiscal_document_preparations_branch_fk","fiscal_document_preparations_connection_fk",
+    "fiscal_document_preparations_configuration_version_fk","fiscal_document_preparations_supersedes_fk",
+    "fiscal_document_preparations_created_by_fk","fiscal_document_preparations_cancelled_by_fk",
+    "fiscal_document_preparations_state_ck","fiscal_document_preparations_generation_ck",
+    "fiscal_document_preparations_checksum_ck","fiscal_document_preparations_amounts_ck",
+    "fiscal_document_preparations_numbering_ck","fiscal_document_preparations_lifecycle_ck",
+    "fiscal_document_preparations_provider_identity_ck","fiscal_document_preparations_version_ck",
+  ],
+  "fiscal.fiscal_submission_attempts": [
+    "fiscal_submission_attempts_id_v7_ck","fiscal_submission_attempts_tenant_id_id_uq",
+    "fiscal_submission_attempts_tenant_company_id_id_uq","fiscal_submission_attempts_dispatch_history_uq",
+    "fiscal_submission_attempts_document_history_uq","fiscal_submission_attempts_preparation_fk",
+    "fiscal_submission_attempts_connection_fk","fiscal_submission_attempts_dispatch_fk",
+    "fiscal_submission_attempts_class_ck","fiscal_submission_attempts_operation_type_ck",
+    "fiscal_submission_attempts_status_ck","fiscal_submission_attempts_transport_ck",
+    "fiscal_submission_attempts_retry_ck","fiscal_submission_attempts_checksum_ck",
+    "fiscal_submission_attempts_values_ck","fiscal_submission_attempts_timestamps_ck",
+  ],
+  "fiscal.fiscal_artifacts": [
+    "fiscal_artifacts_id_v7_ck","fiscal_artifacts_tenant_id_id_uq",
+    "fiscal_artifacts_tenant_company_id_id_uq","fiscal_artifacts_identity_uq",
+    "fiscal_artifacts_preparation_fk","fiscal_artifacts_attempt_fk",
+    "fiscal_artifacts_type_ck","fiscal_artifacts_checksum_ck","fiscal_artifacts_values_ck",
+  ],
+  "fiscal.fiscal_reconciliations": [
+    "fiscal_reconciliations_id_v7_ck","fiscal_reconciliations_tenant_id_id_uq",
+    "fiscal_reconciliations_tenant_company_id_id_uq","fiscal_reconciliations_scope_uq",
+    "fiscal_reconciliations_connection_fk","fiscal_reconciliations_branch_fk",
+    "fiscal_reconciliations_preparation_generation_fk","fiscal_reconciliations_started_by_fk",
+    "fiscal_reconciliations_reviewed_by_fk","fiscal_reconciliations_closed_by_fk",
+    "fiscal_reconciliations_scope_ck","fiscal_reconciliations_status_ck",
+    "fiscal_reconciliations_checksum_ck","fiscal_reconciliations_lifecycle_ck",
+    "fiscal_reconciliations_version_ck",
+  ],
+  "fiscal.fiscal_incidents": [
+    "fiscal_incidents_id_v7_ck","fiscal_incidents_tenant_id_id_uq",
+    "fiscal_incidents_tenant_company_id_id_uq","fiscal_incidents_scope_uq",
+    "fiscal_incidents_connection_fk","fiscal_incidents_branch_fk","fiscal_incidents_document_fk",
+    "fiscal_incidents_preparation_generation_fk","fiscal_incidents_attempt_fk",
+    "fiscal_incidents_reconciliation_fk","fiscal_incidents_reviewer_fk","fiscal_incidents_resolved_by_fk",
+    "fiscal_incidents_status_ck","fiscal_incidents_resolution_ck","fiscal_incidents_lifecycle_ck",
+    "fiscal_incidents_version_ck",
+  ],
+  "fiscal.fiscal_reconciliation_items": [
+    "fiscal_reconciliation_items_id_v7_ck","fiscal_reconciliation_items_tenant_id_id_uq",
+    "fiscal_reconciliation_items_tenant_company_id_id_uq","fiscal_reconciliation_items_identity_uq",
+    "fiscal_reconciliation_items_reconciliation_fk","fiscal_reconciliation_items_preparation_fk",
+    "fiscal_reconciliation_items_incident_fk","fiscal_reconciliation_items_checksum_ck",
+    "fiscal_reconciliation_items_result_ck",
+  ],
+} as const;
+
+export const FISCAL_003_EXTENSION_CONSTRAINTS = [
+  "integration_capabilities_fiscal_scope_uq",
+  "integration_dispatches_fiscal_preparation_ck",
+  "integration_dispatches_fiscal_preparation_fk",
+  "integration_dispatches_dispatch_class_003_ck",
+  "external_webhook_receipts_fiscal_correlation_ck",
+  "external_webhook_receipts_fiscal_dispatch_fk",
+  "external_webhook_receipts_fiscal_document_fk",
+  "external_webhook_receipts_fiscal_preparation_fk",
+] as const;
+
+export const FISCAL_003_REQUIRED_INDEXES = [
+  "fiscal_emission_configurations_company_scope_uq",
+  "fiscal_emission_configurations_branch_scope_uq",
+  "electronic_documents_legal_identifier_uq",
+  "fiscal_document_preparations_legal_number_uq",
+  "fiscal_document_preparations_provider_document_uq",
+  "fiscal_submission_attempts_in_progress_uq",
+  "fiscal_connections_scope_effective_idx",
+  "fiscal_connections_capability_fk_idx",
+  "fiscal_emission_configurations_branch_fk_idx",
+  "fiscal_emission_configuration_versions_lookup_idx",
+  "fiscal_emission_configuration_versions_supersedes_idx",
+  "electronic_documents_source_idx",
+  "electronic_documents_work_idx",
+  "electronic_documents_uncertain_idx",
+  "electronic_documents_original_idx",
+  "fiscal_document_preparations_document_generation_idx",
+  "fiscal_document_preparations_integration_connection_idx",
+  "fiscal_document_preparations_supersedes_idx",
+  "fiscal_document_preparations_created_by_idx",
+  "fiscal_document_preparations_cancelled_by_idx",
+  "fiscal_submission_attempts_dispatch_fk_idx",
+  "fiscal_submission_attempts_document_generation_idx",
+  "fiscal_submission_attempts_unknown_idx",
+  "fiscal_submission_attempts_provider_operation_idx",
+  "fiscal_artifacts_document_generation_idx",
+  "fiscal_artifacts_attempt_fk_idx",
+  "fiscal_reconciliations_work_idx",
+  "fiscal_reconciliations_connection_idx",
+  "fiscal_reconciliations_document_generation_idx",
+  "fiscal_incidents_open_idx",
+  "fiscal_incidents_document_generation_idx",
+  "fiscal_incidents_attempt_idx",
+  "fiscal_incidents_reconciliation_idx",
+  "fiscal_reconciliation_items_document_generation_idx",
+  "fiscal_reconciliation_items_incident_idx",
+  "fiscal_reconciliation_items_preparation_idx",
+  "integration_dispatches_fiscal_preparation_idx",
+  "external_webhook_receipts_fiscal_correlation_idx",
+  "external_webhook_receipts_integration_fk_idx",
+] as const;
+
+export const FISCAL_003_REQUIRED_GUARDS = [
+  "fiscal_connections_scope_guard",
+  "fiscal_connections_capability_guard",
+  "fiscal_emission_configurations_scope_guard",
+  "fiscal_emission_configuration_versions_update_guard",
+  "fiscal_emission_configuration_versions_state_guard",
+  "fiscal_emission_configuration_versions_numbering_guard",
+  "electronic_documents_insert_guard",
+  "electronic_documents_update_guard",
+  "electronic_documents_state_guard",
+  "electronic_documents_evidence_guard",
+  "electronic_documents_reprepare_guard",
+  "electronic_documents_current_preparation_guard",
+  "fiscal_document_preparations_insert_guard",
+  "fiscal_document_preparations_update_guard",
+  "fiscal_document_preparations_state_guard",
+  "fiscal_document_preparations_numbering_guard",
+  "fiscal_document_preparations_late_evidence_guard",
+  "fiscal_document_preparations_current_generation_guard",
+  "fiscal_submission_attempts_insert_guard",
+  "fiscal_submission_attempts_update_guard",
+  "fiscal_submission_attempts_state_guard",
+  "fiscal_submission_attempts_number_guard",
+  "fiscal_submission_attempts_root_guard",
+  "fiscal_artifacts_immutable_guard",
+  "fiscal_reconciliations_insert_guard",
+  "fiscal_reconciliations_update_guard",
+  "fiscal_reconciliations_state_guard",
+  "fiscal_incidents_insert_guard",
+  "fiscal_incidents_update_guard",
+  "fiscal_incidents_state_guard",
+  "fiscal_reconciliation_items_immutable_guard",
+  "integration_dispatches_fiscal_preparation_guard",
+  "external_webhook_receipts_fiscal_correlation_guard",
+  "provider_capability_declarations_fiscal_downgrade_guard",
+] as const;
+
+export const FISCAL_003_REQUIRED_POLICIES = [
+  "fiscal_connections_tenant_isolation",
+  "fiscal_emission_configurations_tenant_isolation",
+  "fiscal_emission_configuration_versions_app_tenant_isolation",
+  "fiscal_emission_configuration_versions_platform_tenant_isolation",
+  "fiscal_emission_configuration_versions_worker_published_history",
+  "fiscal_emission_configuration_versions_worker_numbering_update",
+  "electronic_documents_tenant_isolation",
+  "fiscal_document_preparations_app_tenant_isolation",
+  "fiscal_document_preparations_platform_tenant_select",
+  "fiscal_document_preparations_worker_frozen",
+  "fiscal_document_preparations_worker_historical_evidence",
+  "fiscal_submission_attempts_tenant_isolation",
+  "fiscal_artifacts_tenant_isolation",
+  "fiscal_reconciliations_tenant_isolation",
+  "fiscal_incidents_tenant_isolation",
+  "fiscal_reconciliation_items_tenant_isolation",
+] as const;
+
+const PREPARATION_ALL = FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_document_preparations"];
+const PREPARATION_INSERT_APP = [
+  "id","tenant_id","company_id","branch_id","electronic_document_id","document_type",
+  "preparation_generation","supersedes_preparation_id","preparation_state","external_integration_id",
+  "fiscal_connection_id","fiscal_emission_configuration_id","emission_configuration_version_id",
+  "source_version","correction_source_reference","currency_code","subtotal_amount","discount_amount",
+  "tax_amount","total_amount","tax_snapshot_reference","tax_snapshot_checksum",
+  "fiscal_emission_snapshot_reference","fiscal_emission_snapshot_checksum","canonical_payload_version",
+  "canonical_payload_checksum","numbering_mode","numbering_state","prefix","number","number_reserved_at",
+  "created_by_actor_id","created_at","updated_at","version",
+] as const;
+const PREPARATION_UPDATE_APP = [
+  "source_version","correction_source_reference","currency_code","subtotal_amount","discount_amount",
+  "tax_amount","total_amount","tax_snapshot_reference","tax_snapshot_checksum",
+  "fiscal_emission_snapshot_reference","fiscal_emission_snapshot_checksum","canonical_payload_version",
+  "canonical_payload_checksum","numbering_state","prefix","number","number_reserved_at",
+  "number_consumed_at","number_burned_at","numbering_resolution_reason","preparation_state","frozen_at",
+  "cancelled_at","cancelled_by_actor_id","cancellation_reason","updated_at","version",
+] as const;
+const PREPARATION_UPDATE_WORKER = [
+  "numbering_state","prefix","number","number_reserved_at","number_consumed_at","number_burned_at",
+  "numbering_resolution_reason","provider_document_id","provider_reference","provider_status_raw",
+  "updated_at","version",
+] as const;
+const PREPARATION_PLATFORM_SELECT = PREPARATION_ALL.filter((column) => ![
+  "tax_snapshot_reference","tax_snapshot_checksum","fiscal_emission_snapshot_reference",
+  "fiscal_emission_snapshot_checksum","canonical_payload_checksum",
+].includes(column));
+
+export const FISCAL_003_GRANT_MATRIX = {
+  "fiscal.fiscal_connections": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], update: ["valid_until","updated_at","version"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], insert: [], update: [] },
+    pos_platform_app: { select: ["id","tenant_id","company_id","external_integration_id","capability_code","valid_from","valid_until","created_at","updated_at","version"], insert: [], update: [] },
+    pos_platform_admin: { select: ["id","tenant_id","company_id","external_integration_id","capability_code","valid_from","valid_until","created_at","updated_at","version"], insert: [], update: [] },
+  },
+  "fiscal.fiscal_emission_configurations": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], update: [] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: [] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: [] },
+  },
+  "fiscal.fiscal_emission_configuration_versions": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configuration_versions"].filter((c)=>c!=="certificate_reference"), insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configuration_versions"].filter((c)=>!["numbering_exhausted_at","published_at","published_by_actor_id"].includes(c)), update: ["issuer_tax_id_normalized_snapshot","issuer_legal_name_snapshot","authorization_reference","numbering_policy_code","prefix","number_range_start","number_range_end","next_number_value","numbering_exhausted_at","provider_numbering_reference","certificate_reference","contingency_policy_reference","fiscal_capabilities_snapshot_reference","fiscal_capabilities_snapshot_checksum","configuration_schema_version","configuration_checksum","valid_from","valid_until","status","published_at","published_by_actor_id","updated_at","row_version"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configuration_versions"], insert: [], update: ["next_number_value","numbering_exhausted_at","updated_at","row_version"] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configuration_versions"].filter((c)=>!["certificate_reference","fiscal_capabilities_snapshot_reference","fiscal_capabilities_snapshot_checksum","configuration_checksum"].includes(c)), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configuration_versions"].filter((c)=>!["certificate_reference","fiscal_capabilities_snapshot_reference","fiscal_capabilities_snapshot_checksum","configuration_checksum"].includes(c)), insert: [], update: [] },
+  },
+  "fiscal.electronic_documents": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.electronic_documents"], insert: ["id","tenant_id","company_id","branch_id","source_type","source_id","document_type","logical_operation_key","status","internal_reference","preparation_generation","original_electronic_document_id","created_at","updated_at","version"], update: ["status","internal_reference","preparation_generation","updated_at","version"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.electronic_documents"], insert: [], update: ["status","authority_reference","legal_identifier","authority_status_raw","uncertainty_reason","issued_at","accepted_at","rejected_at","last_reconciled_at","updated_at","version"] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.electronic_documents"].filter((c)=>!["authority_status_raw","uncertainty_reason"].includes(c)), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.electronic_documents"].filter((c)=>!["authority_status_raw","uncertainty_reason"].includes(c)), insert: [], update: [] },
+  },
+  "fiscal.fiscal_document_preparations": {
+    pos_app: { select: PREPARATION_ALL, insert: PREPARATION_INSERT_APP, update: PREPARATION_UPDATE_APP },
+    pos_worker: { select: PREPARATION_ALL, insert: [], update: PREPARATION_UPDATE_WORKER },
+    pos_platform_app: { select: PREPARATION_PLATFORM_SELECT, insert: [], update: [] },
+    pos_platform_admin: { select: PREPARATION_PLATFORM_SELECT, insert: [], update: [] },
+  },
+  "fiscal.fiscal_submission_attempts": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"].filter((c)=>!["request_checksum","provider_operation_id","provider_correlation_reference","provider_response_reference"].includes(c)), insert: [], update: [] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"], insert: ["id","tenant_id","company_id","external_integration_id","fiscal_connection_id","electronic_document_id","fiscal_document_preparation_id","preparation_generation","integration_dispatch_id","dispatch_class","operation_type","attempt_number","status","request_id","idempotency_key","request_checksum","correlation_id","causation_id","created_at","version"], update: ["status","transport_status","normalized_result","provider_operation_id","provider_correlation_reference","provider_response_reference","http_status","provider_code_raw","retry_classification","error_code","retry_after_at","started_at","completed_at","version"] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"].filter((c)=>!["request_id","idempotency_key","request_checksum","provider_operation_id","provider_correlation_reference","provider_response_reference"].includes(c)), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"].filter((c)=>!["request_id","idempotency_key","request_checksum","provider_operation_id","provider_correlation_reference","provider_response_reference"].includes(c)), insert: [], update: [] },
+  },
+  "fiscal.fiscal_artifacts": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_artifacts"].filter((c)=>!["storage_reference","provider_reference","authority_reference"].includes(c)), insert: [], update: [] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_artifacts"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_artifacts"], update: [] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_artifacts"].filter((c)=>!["storage_reference","provider_reference","authority_reference"].includes(c)), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_artifacts"].filter((c)=>!["storage_reference","provider_reference","authority_reference"].includes(c)), insert: [], update: [] },
+  },
+  "fiscal.fiscal_reconciliations": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliations"].filter((c)=>!["scope_snapshot_reference","scope_snapshot_checksum","expected_state_snapshot_reference","observed_state_snapshot_reference","provider_evidence_reference","authority_evidence_reference"].includes(c)), insert: ["id","tenant_id","company_id","branch_id","external_integration_id","fiscal_connection_id","scope_type","electronic_document_id","preparation_generation","scope_snapshot_reference","scope_snapshot_checksum","status","expected_state_snapshot_reference","started_by_actor_id","correlation_id","causation_id","created_at","updated_at","version"], update: ["status","reviewed_by_actor_id","closed_by_actor_id","resolution_reason","closed_at","updated_at","version"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliations"], insert: ["id","tenant_id","company_id","branch_id","external_integration_id","fiscal_connection_id","scope_type","electronic_document_id","preparation_generation","scope_snapshot_reference","scope_snapshot_checksum","status","expected_state_snapshot_reference","started_by_actor_id","correlation_id","causation_id","created_at","updated_at","version"], update: ["status","observed_state_snapshot_reference","provider_evidence_reference","authority_evidence_reference","discrepancy_summary_code","started_at","closed_at","updated_at","version"] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliations"].filter((c)=>!["scope_snapshot_reference","scope_snapshot_checksum","expected_state_snapshot_reference","observed_state_snapshot_reference","provider_evidence_reference","authority_evidence_reference"].includes(c)), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliations"].filter((c)=>!["scope_snapshot_reference","scope_snapshot_checksum","expected_state_snapshot_reference","observed_state_snapshot_reference","provider_evidence_reference","authority_evidence_reference"].includes(c)), insert: [], update: [] },
+  },
+  "fiscal.fiscal_incidents": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_incidents"].filter((c)=>c!=="evidence_reference"), insert: ["id","tenant_id","company_id","branch_id","external_integration_id","fiscal_connection_id","electronic_document_id","preparation_generation","fiscal_submission_attempt_id","fiscal_reconciliation_id","incident_type","severity","status","summary_code","evidence_reference","correlation_id","causation_id","created_at","updated_at","version"], update: ["status","assigned_reviewer_id","resolution_type","resolution_reason","resolved_by_actor_id","resolved_at","archived_at","updated_at","version"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_incidents"], insert: ["id","tenant_id","company_id","branch_id","external_integration_id","fiscal_connection_id","electronic_document_id","preparation_generation","fiscal_submission_attempt_id","fiscal_reconciliation_id","incident_type","severity","status","summary_code","evidence_reference","correlation_id","causation_id","created_at","updated_at","version"], update: [] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_incidents"].filter((c)=>c!=="evidence_reference"), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_incidents"].filter((c)=>c!=="evidence_reference"), insert: [], update: [] },
+  },
+  "fiscal.fiscal_reconciliation_items": {
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliation_items"].filter((c)=>!["expected_state_reference","observed_state_reference","evidence_reference"].includes(c)), insert: [], update: [] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliation_items"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliation_items"], update: [] },
+    pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliation_items"].filter((c)=>!["expected_state_reference","observed_state_reference","evidence_reference"].includes(c)), insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliation_items"].filter((c)=>!["expected_state_reference","observed_state_reference","evidence_reference"].includes(c)), insert: [], update: [] },
+  },
+} as const;
+
+export const FISCAL_003_INTEGRATION_EXTENSION_GRANTS = {
+  "integrations.integration_dispatches": {
+    pos_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"], insert: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"], update: [] },
+    pos_worker: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"], insert: [], update: [] },
+    pos_platform_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"], insert: [], update: [] },
+    pos_platform_admin: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"], insert: [], update: [] },
+  },
+  "integrations.external_webhook_receipts": {
+    pos_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: [] },
+    pos_worker: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"] },
+    pos_platform_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], update: [] },
+    pos_platform_admin: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: [] },
+  },
+} as const;
+
+export const FISCAL_003_PROHIBITED_CATALOG = {
+  electronicDocumentColumns: ["provider_document_id","provider_reference","provider_status_raw"],
+  attemptConstraints: ["fiscal_submission_attempts_idempotency_uq"],
+  leaseColumns: ["lease_owner","lease_expires_at","lease_acquired_at","lease_token"],
+  operationTypes: ["QUERY_DOCUMENT_STATUS","RETRIEVE_ARTIFACT"],
+  speculativeIndexes: ["fiscal_emission_configurations_connection_idx","electronic_documents_connection_idx","electronic_documents_legal_number_uq","electronic_documents_provider_document_uq"],
+} as const;
+
+export const FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS = [
+  "electronic_documents_current_preparation_guard",
+  "fiscal_document_preparations_current_generation_guard",
+] as const;
+
+export const FISCAL_003_SHARED_VALIDATOR = "validate_current_fiscal_preparation_invariant" as const;
+
+const ALL_FISCAL_CONSTRAINTS = Object.values(FISCAL_003_TABLE_CONSTRAINTS).flat();
+const ALL_003_CONSTRAINTS = [...ALL_FISCAL_CONSTRAINTS, ...FISCAL_003_EXTENSION_CONSTRAINTS] as const;
+
 export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   targetPostgresVersion: "16.14";
   alteredTables: readonly string[];
   sqliteArtifact: "NONE";
   fiscalTableCount: 10;
   operationTypes: readonly ["SUBMIT_DOCUMENT"];
+  expectedTableColumns: typeof FISCAL_003_TABLE_COLUMNS;
+  expectedGuards: typeof FISCAL_003_REQUIRED_GUARDS;
+  grantMatrix: typeof FISCAL_003_GRANT_MATRIX;
+  integrationExtensionColumns: typeof FISCAL_003_INTEGRATION_EXTENSION_COLUMNS;
+  integrationExtensionGrants: typeof FISCAL_003_INTEGRATION_EXTENSION_GRANTS;
+  prohibitedCatalog: typeof FISCAL_003_PROHIBITED_CATALOG;
+  currentPreparationConstraintTriggers: typeof FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS;
+  sharedCurrentPreparationValidator: typeof FISCAL_003_SHARED_VALIDATOR;
+  mat003PrerequisiteOnly: true;
 }
 
 export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
@@ -194,9 +614,9 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   checksum: "DERIVED_FROM_UP_ARTIFACT",
   ownedSchemas: ["fiscal"],
   ownedTables: FISCAL_TABLES.map((name) => `fiscal.${name}`),
-  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
-  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
-  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  ownedPolicies: FISCAL_003_REQUIRED_POLICIES,
+  ownedConstraints: ALL_003_CONSTRAINTS,
+  ownedIndexes: FISCAL_003_REQUIRED_INDEXES,
   requiredExtensions: ["btree_gist"],
   expectedLedgerState: "APPLIED",
   targetPostgresVersion: "16.14",
@@ -204,4 +624,13 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   sqliteArtifact: "NONE",
   fiscalTableCount: 10,
   operationTypes: ["SUBMIT_DOCUMENT"],
+  expectedTableColumns: FISCAL_003_TABLE_COLUMNS,
+  expectedGuards: FISCAL_003_REQUIRED_GUARDS,
+  grantMatrix: FISCAL_003_GRANT_MATRIX,
+  integrationExtensionColumns: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS,
+  integrationExtensionGrants: FISCAL_003_INTEGRATION_EXTENSION_GRANTS,
+  prohibitedCatalog: FISCAL_003_PROHIBITED_CATALOG,
+  currentPreparationConstraintTriggers: FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS,
+  sharedCurrentPreparationValidator: FISCAL_003_SHARED_VALIDATOR,
+  mat003PrerequisiteOnly: true,
 };

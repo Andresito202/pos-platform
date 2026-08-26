@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   FISCAL_003_ALTERED_TABLES,
+  FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS,
+  FISCAL_003_GRANT_MATRIX,
   FISCAL_003_INTEGRATION_EXTENSION_COLUMNS,
+  FISCAL_003_INTEGRATION_EXTENSION_GRANTS,
+  FISCAL_003_PROHIBITED_CATALOG,
+  FISCAL_003_REQUIRED_GUARDS,
+  FISCAL_003_REQUIRED_INDEXES,
+  FISCAL_003_REQUIRED_POLICIES,
+  FISCAL_003_SHARED_VALIDATOR,
+  FISCAL_003_TABLE_COLUMNS,
+  FISCAL_003_TABLE_CONSTRAINTS,
   FISCAL_RLS_TABLES,
   FISCAL_TABLES,
   POSTGRES_001_DESCRIPTOR,
@@ -20,80 +30,162 @@ describe("003 fiscal descriptor contract", () => {
     expect(POSTGRES_003_DESCRIPTOR).toMatchObject({
       migrationId: "003_fiscal_electronic_invoicing_foundation",
       manifestVersion: 1,
-      dependencies: [
-        "001_central_foundation",
-        "002_external_integrations_foundation",
-      ],
+      dependencies: ["001_central_foundation","002_external_integrations_foundation"],
       targetPostgresVersion: "16.14",
       requiredExtensions: ["btree_gist"],
       ownedSchemas: ["fiscal"],
       sqliteArtifact: "NONE",
       expectedLedgerState: "APPLIED",
+      mat003PrerequisiteOnly: true,
     });
   });
 
   it("owns exactly the authoritative ten-table Modelo A target", () => {
     expect(FISCAL_TABLES).toEqual([
-      "fiscal_connections",
-      "fiscal_emission_configurations",
-      "fiscal_emission_configuration_versions",
-      "electronic_documents",
-      "fiscal_document_preparations",
-      "fiscal_submission_attempts",
-      "fiscal_artifacts",
-      "fiscal_reconciliations",
-      "fiscal_incidents",
-      "fiscal_reconciliation_items",
+      "fiscal_connections","fiscal_emission_configurations",
+      "fiscal_emission_configuration_versions","electronic_documents",
+      "fiscal_document_preparations","fiscal_submission_attempts","fiscal_artifacts",
+      "fiscal_reconciliations","fiscal_incidents","fiscal_reconciliation_items",
     ]);
+    expect(Object.keys(FISCAL_003_TABLE_COLUMNS)).toEqual(FISCAL_TABLES.map((table)=>`fiscal.${table}`));
     expect(POSTGRES_003_DESCRIPTOR.fiscalTableCount).toBe(10);
-    expect(POSTGRES_003_DESCRIPTOR.ownedTables).toEqual(
-      FISCAL_TABLES.map((table) => `fiscal.${table}`),
-    );
+    expect(POSTGRES_003_DESCRIPTOR.expectedTableColumns).toBe(FISCAL_003_TABLE_COLUMNS);
+    expect(POSTGRES_003_DESCRIPTOR.ownedTables).toEqual(FISCAL_TABLES.map((table)=>`fiscal.${table}`));
     expect(FISCAL_RLS_TABLES).toEqual(FISCAL_TABLES);
   });
 
-  it("declares only the integration tables owned by 003 extensions", () => {
+  it("locks exact V2 columns and keeps provider identity on preparation, not document", () => {
+    expect(FISCAL_003_TABLE_COLUMNS["fiscal.electronic_documents"]).toEqual([
+      "id","tenant_id","company_id","branch_id","source_type","source_id","document_type",
+      "logical_operation_key","status","internal_reference","preparation_generation",
+      "authority_reference","legal_identifier","authority_status_raw","uncertainty_reason",
+      "original_electronic_document_id","issued_at","accepted_at","rejected_at",
+      "last_reconciled_at","created_at","updated_at","version",
+    ]);
+    for(const column of FISCAL_003_PROHIBITED_CATALOG.electronicDocumentColumns){
+      expect(FISCAL_003_TABLE_COLUMNS["fiscal.electronic_documents"]).not.toContain(column);
+      expect(FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_document_preparations"]).toContain(column);
+    }
+    expect(FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_document_preparations"]).toContain("preparation_generation");
+    expect(FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"]).toEqual(expect.arrayContaining(["fiscal_document_preparation_id","preparation_generation"]));
+    expect(FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_artifacts"]).toEqual(expect.arrayContaining(["fiscal_document_preparation_id","preparation_generation"]));
+    expect(FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_reconciliation_items"]).toEqual(expect.arrayContaining(["fiscal_document_preparation_id","preparation_generation"]));
+  });
+
+  it("encodes exact candidate/FK/constraint expectations before DDL exists", () => {
+    expect(FISCAL_003_TABLE_CONSTRAINTS["fiscal.fiscal_document_preparations"]).toEqual(expect.arrayContaining([
+      "fiscal_document_preparations_generation_uq",
+      "fiscal_document_preparations_dispatch_scope_uq",
+      "fiscal_document_preparations_attempt_scope_uq",
+      "fiscal_document_preparations_document_fk",
+      "fiscal_document_preparations_configuration_version_fk",
+      "fiscal_document_preparations_supersedes_fk",
+    ]));
+    expect(FISCAL_003_TABLE_CONSTRAINTS["fiscal.fiscal_submission_attempts"]).toEqual(expect.arrayContaining([
+      "fiscal_submission_attempts_dispatch_history_uq",
+      "fiscal_submission_attempts_document_history_uq",
+      "fiscal_submission_attempts_preparation_fk",
+      "fiscal_submission_attempts_dispatch_fk",
+    ]));
+    expect(POSTGRES_003_DESCRIPTOR.ownedConstraints).not.toBe("DERIVED_FROM_UP_ARTIFACT");
+    for(const prohibited of FISCAL_003_PROHIBITED_CATALOG.attemptConstraints){
+      expect(POSTGRES_003_DESCRIPTOR.ownedConstraints).not.toContain(prohibited);
+    }
+  });
+
+  it("locks the conservative no-reuse, indexes and no-lease V1 catalog", () => {
+    expect(FISCAL_003_REQUIRED_INDEXES).toEqual(expect.arrayContaining([
+      "fiscal_document_preparations_legal_number_uq",
+      "fiscal_document_preparations_provider_document_uq",
+      "integration_dispatches_fiscal_preparation_idx",
+      "external_webhook_receipts_fiscal_correlation_idx",
+    ]));
+    for(const retired of FISCAL_003_PROHIBITED_CATALOG.speculativeIndexes){
+      expect(FISCAL_003_REQUIRED_INDEXES).not.toContain(retired);
+    }
+    for(const lease of FISCAL_003_PROHIBITED_CATALOG.leaseColumns){
+      expect(Object.values(FISCAL_003_TABLE_COLUMNS).flat()).not.toContain(lease);
+      expect(Object.values(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS).flat()).not.toContain(lease);
+    }
+    expect(POSTGRES_003_DESCRIPTOR.ownedIndexes).toBe(FISCAL_003_REQUIRED_INDEXES);
+  });
+
+  it("locks guards including the two deferred current-preparation constraint triggers", () => {
+    expect(FISCAL_003_REQUIRED_GUARDS).toEqual(expect.arrayContaining([
+      "electronic_documents_reprepare_guard",
+      "fiscal_document_preparations_late_evidence_guard",
+      "fiscal_submission_attempts_root_guard",
+      "integration_dispatches_fiscal_preparation_guard",
+      "external_webhook_receipts_fiscal_correlation_guard",
+    ]));
+    expect(FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS).toEqual([
+      "electronic_documents_current_preparation_guard",
+      "fiscal_document_preparations_current_generation_guard",
+    ]);
+    for(const trigger of FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS){
+      expect(FISCAL_003_REQUIRED_GUARDS).toContain(trigger);
+    }
+    expect(FISCAL_003_SHARED_VALIDATOR).toBe("validate_current_fiscal_preparation_invariant");
+    expect(POSTGRES_003_DESCRIPTOR.expectedGuards).toBe(FISCAL_003_REQUIRED_GUARDS);
+  });
+
+  it("locks RLS policies and deny-by-default grant matrices", () => {
+    expect(FISCAL_003_REQUIRED_POLICIES).toEqual(expect.arrayContaining([
+      "fiscal_document_preparations_app_tenant_isolation",
+      "fiscal_document_preparations_platform_tenant_select",
+      "fiscal_document_preparations_worker_frozen",
+      "fiscal_document_preparations_worker_historical_evidence",
+    ]));
+    expect(POSTGRES_003_DESCRIPTOR.ownedPolicies).toBe(FISCAL_003_REQUIRED_POLICIES);
+    expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_document_preparations"].pos_worker.update).toEqual([
+      "numbering_state","prefix","number","number_reserved_at","number_consumed_at","number_burned_at",
+      "numbering_resolution_reason","provider_document_id","provider_reference","provider_status_raw",
+      "updated_at","version",
+    ]);
+    expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_document_preparations"].pos_platform_admin.insert).toEqual([]);
+    expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_document_preparations"].pos_platform_admin.update).toEqual([]);
+    expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.integration_dispatches"].pos_app.update).toEqual([]);
+    expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.integration_dispatches"].pos_worker.update).toEqual([]);
+    expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.external_webhook_receipts"].pos_worker.update).toEqual(
+      FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"],
+    );
+    expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.external_webhook_receipts"].pos_platform_app.update).toEqual([]);
+    expect(POSTGRES_003_DESCRIPTOR.grantMatrix).toBe(FISCAL_003_GRANT_MATRIX);
+    expect(POSTGRES_003_DESCRIPTOR.integrationExtensionGrants).toBe(FISCAL_003_INTEGRATION_EXTENSION_GRANTS);
+  });
+
+  it("declares only the integration tables and columns owned by 003 extensions", () => {
     expect(POSTGRES_003_DESCRIPTOR.alteredTables).toEqual([
       "integrations.provider_capability_declarations",
       "integrations.integration_capabilities",
       "integrations.integration_dispatches",
       "integrations.external_webhook_receipts",
     ]);
-    expect(POSTGRES_003_DESCRIPTOR.alteredTables).toEqual(FISCAL_003_ALTERED_TABLES);
-    expect(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS).toEqual({
-      "integrations.integration_dispatches": [
-        "fiscal_document_preparation_id",
-        "fiscal_preparation_generation",
-      ],
-      "integrations.external_webhook_receipts": [
-        "fiscal_electronic_document_id",
-        "fiscal_document_preparation_id",
-        "fiscal_preparation_generation",
-        "fiscal_integration_dispatch_id",
-        "fiscal_correlated_at",
-      ],
-    });
+    expect(POSTGRES_003_DESCRIPTOR.alteredTables).toBe(FISCAL_003_ALTERED_TABLES);
+    expect(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns).toBe(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS);
+    expect(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"]).toEqual([
+      "fiscal_document_preparation_id","fiscal_preparation_generation",
+    ]);
+    expect(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"]).toEqual([
+      "fiscal_electronic_document_id","fiscal_document_preparation_id",
+      "fiscal_preparation_generation","fiscal_integration_dispatch_id","fiscal_correlated_at",
+    ]);
   });
 
   it("materializes only SUBMIT_DOCUMENT in V1 and keeps SQLite 003 absent", () => {
     expect(POSTGRES_003_DESCRIPTOR.operationTypes).toEqual(["SUBMIT_DOCUMENT"]);
-    expect(POSTGRES_003_DESCRIPTOR.operationTypes).not.toContain("QUERY_DOCUMENT_STATUS");
-    expect(POSTGRES_003_DESCRIPTOR.operationTypes).not.toContain("RETRIEVE_ARTIFACT");
+    for(const operation of FISCAL_003_PROHIBITED_CATALOG.operationTypes){
+      expect(POSTGRES_003_DESCRIPTOR.operationTypes).not.toContain(operation as "SUBMIT_DOCUMENT");
+    }
     expect(POSTGRES_003_DESCRIPTOR.sqliteArtifact).toBe("NONE");
   });
 
   it("preserves immutable 001 and 002 SQL bytes", () => {
-    expect([
-      sha256(up001).toString("hex"),
-      sha256(down001).toString("hex"),
-    ]).toEqual([
+    expect([sha256(up001).toString("hex"),sha256(down001).toString("hex")]).toEqual([
       "7f188dd5c14a33f223e4684ace877d588278081924ab4c7286eb105a7c829507",
       "383a26d046beb31975e0a5f00657aea00b9748de67f1188ca2fc7edfe765c0b7",
     ]);
-    expect([
-      sha256(up002).toString("hex"),
-      sha256(down002).toString("hex"),
-    ]).toEqual([
+    expect([sha256(up002).toString("hex"),sha256(down002).toString("hex")]).toEqual([
       "8b22fdbc76ff79178d3063541012d7f428ed6d538d9027edb7987ebbbe09a554",
       "91acc3576b784daa261fa8e125c32fed522c0c5be12dd8c8fc91ed0c60bb1cf6",
     ]);
