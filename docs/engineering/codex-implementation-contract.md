@@ -4,7 +4,7 @@
 
 Este documento establece reglas obligatorias para cualquier cambio de implementación de Fase 1. Complementa el backlog, las decisiones ADR/DEC y los contratos de arquitectura, dominio, seguridad y casos de uso; no los sustituye ni autoriza por sí mismo trabajo que el backlog mantenga bloqueado, planificado o fuera de alcance.
 
-El repositorio conserva una línea base heredada en FastAPI, SQLAlchemy, Alembic y HTML/JavaScript. El stack objetivo aprobado por `ADR-005` utiliza TypeScript estricto, Node.js, NestJS, pnpm, Nx, Kysely, PostgreSQL y SQLite. Las reglas del stack objetivo no declaran materializado ese esqueleto ni autorizan migraciones, DDL o adaptación silenciosa del legado.
+El stack objetivo aprobado por `ADR-005` utiliza TypeScript estricto, Node.js, NestJS, pnpm, Nx, Kysely, PostgreSQL y SQLite. El runtime de aplicación aún no está materializado; estas reglas no autorizan migrations, DDL, módulos especulativos ni adopción silenciosa de código externo o anterior.
 
 Antes de modificar código se debe comprobar la rama, el estado Git, el trabajo vigente del backlog, sus dependencias, los artefactos existentes y las fuentes normativas aplicables. No se duplica un concepto ya existente ni se adelanta una capacidad no autorizada.
 
@@ -17,7 +17,7 @@ Si dos fuentes normativas se contradicen, el trabajo se detiene y se informa la 
 3. Los casos de uso y las reglas de negocio determinan comportamiento; la persistencia y las interfaces no pueden redefinirlo.
 4. Cada tarea modifica únicamente los archivos necesarios para sus criterios de aceptación.
 5. No se refactoriza, renombra, mueve o reformatea código no relacionado.
-6. No se modifica el legado para aparentar que implementa la arquitectura objetivo.
+6. No se adapta una implementación externa para aparentar que implementa la arquitectura objetivo.
 7. No se crean migraciones o DDL mientras el gate correspondiente permanezca en `NO-GO`.
 8. No se hace commit ni push salvo autorización explícita.
 
@@ -45,7 +45,7 @@ Si dos fuentes normativas se contradicen, el trabajo se detiene y se informa la 
 7. No se sustituyen invariantes mediante type casts ni se aceptan objetos parcialmente válidos dentro del dominio.
 8. Los contratos compartidos mantienen versionado y compatibilidad según las decisiones aplicables.
 
-Estas reglas no exigen convertir el legado Python a TypeScript fuera de una tarea de migración expresamente autorizada.
+Estas reglas no autorizan convertir implementaciones externas a TypeScript fuera de una tarea expresamente aprobada.
 
 ## Calidad y mantenibilidad
 

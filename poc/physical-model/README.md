@@ -14,7 +14,7 @@ The PoC materializes only the minimum cross-domain subset needed to exercise:
 - SyncOperation, OutboxEntry, central InboxEntry and SyncCheckpoint;
 - minimal published Pricing and Tax versions and immutable sale snapshots.
 
-The transaction-oriented SQL functions in the `poc` schema are test harnesses for approved transaction boundaries. They do not select stored procedures as the product architecture. No provider, capability code, real credential, customer data, fiscal regulation, or legacy table is included. `test_limit_contract` is likewise a harness table for the R1 finite/unlimited/not-applicable invariant, not a product licensing table.
+The transaction-oriented SQL functions in the `poc` schema are test harnesses for approved transaction boundaries. They do not select stored procedures as the product architecture. No provider, capability code, real credential, customer data, fiscal regulation, or external-source table is included. `test_limit_contract` is likewise a harness table for the R1 finite/unlimited/not-applicable invariant, not a product licensing table.
 
 ## Prerequisites and isolation
 

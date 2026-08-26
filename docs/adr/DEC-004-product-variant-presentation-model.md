@@ -199,7 +199,7 @@ Esta decisión condiciona:
 - pricing;
 - impuestos;
 - sincronización;
-- migración desde la plataforma avícola.
+- importación controlada desde catálogos externos.
 
 ---
 

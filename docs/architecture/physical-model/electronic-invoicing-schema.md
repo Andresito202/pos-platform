@@ -504,9 +504,9 @@ Sin constituir DDL, la implementación posterior debe evaluar:
 - compare-and-swap mediante `version`;
 - prohibición de delete destructivo para evidencia confirmada.
 
-## Migración del legado avícola
+## Importación desde sistemas externos
 
-La auditoría del legado no encontró documentos electrónicos, conexiones fiscales versionadas, CUFE/CUDE, resoluciones, numeración fiscal, attempts, artefactos XML/PDF, webhooks, incidencias o conciliaciones con semántica suficiente.
+Una fuente sin documentos electrónicos, conexiones fiscales versionadas, CUFE/CUDE, resoluciones, numeración fiscal, attempts, artefactos XML/PDF, webhooks, incidencias o conciliaciones con semántica suficiente no demuestra estado fiscal migrable.
 
 Clasificación:
 

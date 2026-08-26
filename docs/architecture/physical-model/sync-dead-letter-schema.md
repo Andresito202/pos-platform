@@ -301,15 +301,15 @@ R2-A cierra candidate keys y relaciones en `sync-base-schema.md`. Los nombres de
 
 Sin implementar infraestructura, se reservan señales sanitizadas para retry exhausted, permanent error, dead letter creada, incidente de seguridad, revisión, retry autorizado, resultado, archivo, volumen excesivo por tenant/dispositivo y repetición de error code. Métricas no sustituyen auditoría ni exponen payload.
 
-## Migración del legado avícola
+## Importación desde sistemas externos
 
-La auditoría de `backend/`, `database/`, `infra/` y `frontend/` no encontró outbox, inbox, SyncOperation, retries persistidos, conflictos Sync ni dead letters. Errores HTTP o mensajes de conexión del frontend son evidencia técnica efímera, no operaciones migrables.
+Logs, errores HTTP o mensajes de conexión sin outbox, inbox, `SyncOperation`, retries persistidos, conflictos Sync ni dead letters son evidencia técnica efímera, no operaciones migrables.
 
 Clasificación:
 
 - migrable: ninguno demostrado;
 - parcialmente migrable: ninguno con identidad/causalidad suficiente;
-- evidencia solamente: logs o auditoría heredada que documente un fallo, conservada como evidencia histórica sanitizada;
+- evidencia solamente: logs o auditoría externa que documente un fallo, conservada como evidencia sanitizada;
 - no migrable: excepciones, mensajes y operaciones abandonadas sin `operation_id`, tenant, payload checksum, intentos y causalidad.
 
 No se inventan dead letters, retries, aceptación/rechazo, actores, timestamps, tenant ni causalidad a partir de logs.

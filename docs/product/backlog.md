@@ -2,19 +2,17 @@
 
 ## Propósito y autoridad
 
-Este archivo es la fuente de verdad del trabajo del proyecto. Consolida el estado, la prioridad, las dependencias, la evidencia y las decisiones que gobiernan el paso desde la base avícola existente hacia POS Platform.
+Este archivo es la fuente de verdad del trabajo de POS Platform. Consolida estado, prioridad, dependencias, evidencia y decisiones del producto TARGET.
 
 Si otro documento de avance, una conversación o una lista informal contradice este backlog, prevalece este archivo hasta que se actualice mediante el flujo oficial.
 
-Última actualización: 2026-08-24.
+Última actualización: 2026-08-25.
 
 Los estados `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APPLIED` y `PRODUCTION_READY` no son equivalentes. Cada afirmación de estado debe indicar la evidencia y el nivel alcanzado; un nivel anterior nunca implica automáticamente los siguientes.
 
-La aplicación Supermercado Avícola conservada en `backend/`, `frontend/`, `database/` e `infra/` tiene estado `FROZEN_DEMO / NON_PRODUCTION`. Es referencia histórica y demo, no el runtime de POS Platform; no recibe nuevas funcionalidades por defecto, sus defectos conocidos no se consideran resueltos y sus pruebas no acreditan readiness del TARGET.
-
 ## Estado general
 
-- Rama de trabajo verificada: `architecture/physical-model`.
+- Rama de separación del runtime anterior: `cleanup/pure-pos-platform-20260825`, creada desde `cb1dafdc987104a5fdc75034de833df157cbfe67`; la limpieza base fue versionada y publicada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310`. La rama permanece pendiente de revisión externa e integración en `architecture/physical-model`.
 - Estado inicial del árbol al crear este backlog: limpio.
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
@@ -22,7 +20,7 @@ La aplicación Supermercado Avícola conservada en `backend/`, `frontend/`, `dat
 - Último baseline ejecutable registrado: validación TARGET fresca `145/145` sobre PostgreSQL 16.14 para migrations 001→002 y tooling vigente; ambas migrations permanecen `MATERIALIZED / TESTED / IMMUTABLE` y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
 - Último trabajo técnico completado: `MAT-003-PREFLIGHT` quedó `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION` mediante una transacción `REPEATABLE READ / READ ONLY`, lock global compartido y `ROLLBACK`, con los cinco blockers y el trust invariant en `PASS/count=0`, cero evidencia diagnóstica y cero mutaciones durables. Canonical-role readiness permanece `APPLIED / REVIEWED`; SQL/descriptor 003 están ausentes y migration 003 no está materializada. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`, y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
-- La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
+- El runtime TARGET NestJS/Fastify, Electron/React/Vite y POS Local Service permanece `ABSENT / NOT_MATERIALIZED`; no se contabiliza implementación externa o anterior como avance TARGET.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
 - `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md` consolidan formalmente los estados, proyecciones, eventos y flujos operativos del dominio de pagos. `PAY-007` está `DONE`.
 
@@ -41,7 +39,7 @@ El flujo normal es:
 7. Si aparece un impedimento, moverlo a `BLOCKED`, registrar causa, responsable de resolución y condición de desbloqueo. Al resolverlo vuelve a `READY` o `IN_PROGRESS`.
 8. Los cambios de alcance se deciden de forma explícita: `DEFERRED` conserva la intención para otra fase y `OUT_OF_SCOPE` la excluye del producto o hito vigente.
 
-Ningún elemento se considera terminado por existir parcialmente en la base heredada, por aparecer en una maqueta o por estar mencionado en un documento conceptual.
+Ningún elemento se considera terminado por aparecer en una maqueta, estar mencionado en un documento conceptual o existir fuera del runtime TARGET autorizado.
 
 ## Estados
 
@@ -74,7 +72,7 @@ Estos elementos están `DONE` únicamente como definiciones documentales. No imp
 | Decisiones arquitectónicas iniciales | `DONE` | `docs/adr/ADR-001-modular-monolith.md`, `docs/adr/ADR-002-monorepo.md`, `docs/adr/ADR-003-local-first.md`, `docs/adr/ADR-004-single-codebase.md` |
 | Modelo conceptual, reglas, glosario, eventos y motor comercial | `DONE` | `docs/architecture/conceptual-data-model.md`, `docs/domain/business-rules.md`, `docs/domain/glossary.md`, `docs/domain/event-catalog.md`, `docs/domain/commercial-engine.md` |
 | Modelo de roles y autorización de producto | `DONE` | `docs/security/permission-matrix.md`, `docs/product/roles.md` |
-| Estrategia de pruebas y migración de la base | `DONE` | `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md` |
+| Estrategia de pruebas y migrations TARGET | `DONE` | `docs/testing/testing-strategy.md`, manifests bajo `docs/migration/` |
 | Principios de navegación y decisiones UX iniciales | `DONE` | `docs/design/role-based-navigation.md`, `docs/ux-research/design-decisions.md` |
 | Login, caja, inventario, licencias y venta: definición inicial | `DONE` | `docs/use-cases/auth/UC-AUTH-001-login.md`, `docs/use-cases/cash/UC-CASH-001-open-register.md`, `docs/use-cases/cash/UC-CASH-002-close-register.md`, `docs/use-cases/inventory/UC-INVENTORY-001-receive-stock.md`, `docs/use-cases/licensing/UC-LIC-001-validate-license.md`, `docs/use-cases/sales/UC-SALES-001-complete-sale.md` |
 | Catálogo: seis casos de uso definidos | `DONE` | `docs/use-cases/catalog/UC-CAT-001-create-product.md`, `docs/use-cases/catalog/UC-CAT-002-update-product.md`, `docs/use-cases/catalog/UC-CAT-003-assign-identifier.md`, `docs/use-cases/catalog/UC-CAT-004-create-variant.md`, `docs/use-cases/catalog/UC-CAT-005-create-presentation.md`, `docs/use-cases/catalog/UC-CAT-006-convert-presentation.md` |
@@ -353,18 +351,19 @@ La validación fresca, preparación del ambiente, canonical-role readiness, ejec
 
 Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
 
+La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` (`chore: remove legacy demo runtime and neutralize POS Platform`) versionó y publicó normalmente la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`. Esta reconciliación corrige el estado posterior; la rama todavía no está integrada en `architecture/physical-model` ni en `main`.
+
 La única secuencia técnica vigente continúa así:
 
-1. revisión externa explícita de esta reconciliación documental;
+1. revisión externa independiente y read-only del diff completo entre `cb1dafdc987104a5fdc75034de833df157cbfe67` y el HEAD vigente de `cleanup/pure-pos-platform-20260825`;
 2. remediación y nueva revisión si aparecen findings;
-3. únicamente después de revisión `PASS`, stage controlado de `README.md` y `docs/product/backlog.md`;
-4. commit y push normal mediante autorización separada;
-5. comprobación de working tree `CLEAN` y upstream `0 behind / 0 ahead`;
-6. apertura de un nuevo hilo de Codex;
-7. verificación en ese hilo del contexto maestro y del baseline vigente del repositorio;
-8. únicamente mediante otra autorización expresa, inicio de la planificación separada de SQL 003.
+3. únicamente después de revisión `PASS`, apertura de un pull request separado `cleanup/pure-pos-platform-20260825 -> architecture/physical-model`;
+4. revisión e integración de ese pull request únicamente mediante autorización posterior;
+5. después de integrar la limpieza en `architecture/physical-model`, actualización de alcance y nueva revisión de la PR #2 `architecture/physical-model -> main`;
+6. integración en `main` únicamente mediante otra autorización expresa;
+7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
 
-SQL 003 continúa sin planificación autorizada, sin diseño y sin materialización. Planificación, diseño, materialización, pruebas, revisión y aplicación canónica de SQL 003 son gates separados; ninguno queda implícitamente autorizado por esta tarea. `SQL 003` permanece `ABSENT`; `descriptor 003` permanece `ABSENT`; el ledger entry count para migration 003 permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 `TECH-003`, adapters/runtime y el resto de Fase 1 no reemplazan ni omiten esta secuencia. `DEC-005` permanece diferida como decisión `P1` hasta abordar crédito offline.
 
@@ -373,14 +372,14 @@ El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` c
 1. consolidar la matriz física de motores y dialectos, UUID, tipos monetarios, alcances de unicidad, tablas de identidad/RBAC/sesión, fronteras transaccionales y auditoría;
 2. verificar cada decisión contra inventario por presentación y lote, `PaymentGroup`/`Payment`/`PaymentAttempt`, estados persistentes de `Sale`, redondeo único y configuración offline por dominio;
 3. aprobar el esquema y las diferencias PostgreSQL/SQLite mediante revisión transversal;
-4. solo entonces escribir y validar la primera migración objetivo, sin modificar la migración heredada.
+4. solo entonces escribir y validar la primera migration TARGET, sin ampliar su scope aprobado.
 La implementación posterior debe respetar esos invariantes.
 
 ## Riesgos abiertos
 
 | ID | Severidad | Riesgo | Mitigación / condición de cierre |
 |---|---|---|---|
-| R-001 | Alta | Confundir la base avícola existente con la arquitectura objetivo puede perpetuar acceso global, lógica acoplada y modelo monoempresa. | Migrar caso por caso según `docs/migration/avicola-baseline-migration.md`; no declarar módulos objetivo `DONE` por la existencia del código heredado. |
+| R-001 | Alta | Confundir documentación o prototipos con runtime TARGET puede producir claims falsos de implementación. | Exigir artifacts, pruebas y revisión propias antes de declarar cualquier módulo `DONE`. |
 | R-002 | Baja | Riesgo residual de que la implementación física vuelva a mezclar estados persistentes, proyecciones y estados de agregados diferentes. | DEC-001 cerrado mediante `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`; validar cada corte físico aditivo contra estos documentos. |
 | R-003 | Alta | Pagos mixtos con proveedores externos no tienen atomicidad distribuida y pueden producir doble cobro o compensaciones pendientes. | Estados explícitos, idempotencia, incidencias y pruebas de respuestas tardías. |
 | R-004 | Alta | El aislamiento multi-tenant está definido pero no probado en la base objetivo. | SEC-003 y pruebas negativas obligatorias antes de datos reales. |
@@ -426,7 +425,7 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 |---|---|---|
 | F0.1 Producto y alcance | `DONE` | Documentos bajo `docs/product/` indicados en la evidencia, incluido este backlog. |
 | F0.2 Arquitectura y ADR iniciales | `DONE` | `docs/architecture/` y `docs/adr/`. |
-| F0.3 Dominio, seguridad, pruebas y migración | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md`. |
+| F0.3 Dominio, seguridad, pruebas y migrations | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md` y manifests bajo `docs/migration/`. |
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`; la secuencia completa de pagos se consolida en F0.5. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
 | F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007`, `DEC-008`, `DEC-009` y `DEC-010` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
@@ -482,7 +481,7 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 2. Cada elemento movido a `DONE` debe incluir al menos una ruta real y verificable; si la evidencia desaparece o deja de cumplir el criterio, el elemento sale de `DONE`.
 3. Al iniciar trabajo, se registra `IN_PROGRESS`; al bloquearse, se registra causa y condición de desbloqueo; al diferirse o excluirse, se registra la decisión de alcance.
 4. La actualización debe revisar también orden inmediato, riesgos, decisiones e hitos afectados; no se actualizan estados de forma aislada.
-5. No se marcan como terminadas capacidades objetivo por existir únicamente en la base heredada, en HTML estático, en una descripción conceptual o en código sin pruebas suficientes.
+5. No se marcan como terminadas capacidades objetivo por aparecer en HTML estático, en una descripción conceptual o en código sin pruebas suficientes.
 6. Un nuevo caso de uso debe respetar identificador, épica, prioridad, dependencias, invariantes, permisos, idempotencia, auditoría, offline y pruebas mínimas cuando apliquen.
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
@@ -511,7 +510,7 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 
 - 2026-08-10: la auditoría general de preimplementación fue remediada sin iniciar el modelo físico. Se unificaron identidad UUID v7, alcances multi-tenant, propiedad modular, estados de ventas y pagos, topología `PaymentGroup`/`Payment`/`PaymentAttempt`, precisión monetaria, redondeo único por venta, inventario por presentación y lote, contratos local-first, configuración offline, transacciones críticas, migración y pruebas por dialecto. `TECH-002` permanece `READY`; el inicio de Fase 1 no tiene decisiones `P0` documentales pendientes.
 
-- 2026-08-10: se cerró la preparación tecnológica previa a código mediante `ADR-005`, `DEC-009`, `DEC-010`, `ARCH-004` y `SEC-004`. Se fijaron stack TypeScript/NestJS/Electron, POS Local Service como único escritor SQLite, infraestructura pagada para datos reales, modos `HYBRID`/`LOCAL_PERPETUAL`, pruebas objetivo, aislamiento del despliegue Avícola heredado, contrato fiscal neutral, Factus como primer sandbox, Siigo como segunda validación y matriz de hardware sin certificaciones inventadas. `TECH-002` permanece como siguiente trabajo `P0 READY`; ninguna implementación objetivo fue declarada terminada.
+- 2026-08-10: se cerró la preparación tecnológica previa a código mediante `ADR-005`, `DEC-009`, `DEC-010`, `ARCH-004` y `SEC-004`. Se fijaron stack TypeScript/NestJS/Electron, POS Local Service como único escritor SQLite, infraestructura pagada para datos reales, modos `HYBRID`/`LOCAL_PERPETUAL`, pruebas objetivo, contrato fiscal neutral, Factus como primer sandbox, Siigo como segunda validación y matriz de hardware sin certificaciones inventadas. `TECH-002` permanece como siguiente trabajo `P0 READY`; ninguna implementación objetivo fue declarada terminada.
 
 - 2026-08-10: `TECH-002` pasó de `READY` a `IN_PROGRESS` con la matriz `docs/architecture/physical-model/traceability.md`. El inventario relaciona los casos de uso con módulos y agregados, excluye capacidades diferidas y registra brechas físicas que deben cerrarse antes del esquema. La primera migración permanece bloqueada hasta aprobar tipos, scopes, aislamiento, transacciones, auditoría y diferencias PostgreSQL/SQLite.
 
@@ -585,8 +584,8 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 - 2026-08-24: `TARGET-POSTGRESQL-FRESH-VALIDATION` pasó `145/145`; se preparó `LOCAL_CANONICAL_INTEGRATION`, y el application preflight posterior confirmó `READY_FOR_CANONICAL_APPLICATION` sobre PostgreSQL 16.14 con 001/002 exactas.
 - 2026-08-24: canonical-role readiness completó `MISSING -> APPLY -> READY` con los dos grants aprobados, recibo lifecycle v1 durable y revisión independiente `PASS` sin findings. El estado promovido es `APPLIED / REVIEWED`; `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 siguen ausentes y migration 003 continúa `NOT_MATERIALIZED`.
 - 2026-08-24: `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION` y su revisión independiente cerraron `PASS` en `local-canonical-integration`. Los cinco blockers y `MAT003_AFFECTED_SCOPE_INTEGRITY` devolvieron `PASS/count=0`; no hubo evidencia diagnóstica ni mutaciones durables. El estado promovido es `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; SQL/descriptor 003 y fiscal schema permanecen ausentes; el conteo de entradas para migration 003 en el ledger permanece en `0`. Se conserva un LOW conocido/no bloqueante sobre el desempate final de evidencia.
-- 2026-08-24: la gobernanza formalizó Supermercado Avícola como `FROZEN_DEMO / NON_PRODUCTION` y reconcilió README/backlog para distinguir documentación, materialización, pruebas, revisión, aplicación canónica y readiness productivo.
+- 2026-08-25: se materializó la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`; posteriormente quedó versionada y publicada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` (`chore: remove legacy demo runtime and neutralize POS Platform`). POS Platform conserva arquitectura, contratos, tooling, migrations y evidencia TARGET; el runtime de aplicación continúa `ABSENT / NOT_MATERIALIZED`. La rama de limpieza permanece pendiente de revisión externa e integración en `architecture/physical-model`.
 - 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y, en ese momento, la siguiente evaluación opcional pasó a ser Context7 mediante autorización separada.
 - 2026-08-24: Context7 fue configurado externamente con versión fijada y sin secretos; la validación runtime falló por timeout de handshake sin llamadas a sus herramientas y se determinó `NOT_REQUIRED`. El rollback controlado eliminó únicamente Context7, `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS` y el repositorio permaneció intacto. La siguiente transición requiere revisión y cierre de esta reconciliación documental.
 
-Próxima transición obligatoria: revisión externa explícita de esta reconciliación documental, con remediación y nueva revisión si aparecen findings. Solo después de revisión `PASS` podrán autorizarse por separado el stage controlado, commit, push, comprobación de repositorio limpio, apertura de un nuevo hilo y verificación del contexto maestro y baseline vigente. La planificación separada de SQL 003 requerirá otra autorización expresa y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.
+Próxima transición obligatoria: revisión externa independiente y read-only del diff completo entre `cb1dafdc987104a5fdc75034de833df157cbfe67` y el HEAD vigente de `cleanup/pure-pos-platform-20260825`, con remediación y nueva revisión si aparecen findings. Solo después de revisión `PASS` podrá abrirse un pull request separado hacia `architecture/physical-model`. La PR #2 hacia `main` deberá actualizar su alcance y revisarse nuevamente después de integrar la limpieza. La reanudación del contrato SQL 003 seguirá siendo otra tarea separada y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.

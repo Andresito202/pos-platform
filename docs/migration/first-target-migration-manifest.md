@@ -25,8 +25,7 @@ Fuentes normativas:
 - [propiedad de datos](../architecture/data-ownership.md);
 - [onboarding](../use-cases/onboarding/UC-ONB-001-initialize-tenant.md);
 - [login](../use-cases/auth/UC-AUTH-001-login.md);
-- [DEC-007](../adr/DEC-007-local-first-data-authority.md) y [DEC-008](../adr/DEC-008-device-trust-license-activation.md);
-- [migración del legado](avicola-baseline-migration.md).
+- [DEC-007](../adr/DEC-007-local-first-data-authority.md) y [DEC-008](../adr/DEC-008-device-trust-license-activation.md).
 
 ## 2. Prerrequisitos y regla de alcance
 
@@ -382,26 +381,26 @@ Una ejecución ROLLED_BACK puede reaplicar el mismo `migration_id` solo con el m
 - Ledger afirma APPLIED y tooling no: tooling está mal configurado; el ledger y catálogo exacto prevalecen, y ese executor se rechaza.
 - Ledger APPLIED y catálogo difiere: incidente de drift; stop fail-closed sin modificar history.
 
-## 12. Convivencia con legado
+## 12. Frontera con importaciones externas
 
-LEGACY continúa en FastAPI + SQLAlchemy + Alembic y conserva `backend/alembic/versions/001_initial_schema.py`. TARGET usa histories PostgreSQL/SQLite independientes. Ningún runner objetivo descubre, marca o modifica revisiones Alembic; Alembic no administra schemas objetivo.
+TARGET usa histories PostgreSQL/SQLite propias. Ningún runner objetivo descubre, marca o modifica histories externas.
 
-001 es schema-only. Clasificación de datos heredados:
+001 es schema-only. Clasificación de datos importados:
 
 - User: `transformed` por job posterior con normalización/dedup aprobadas;
-- rol heredado: `transformed` solo mediante mapping aprobado a Membership/Assignment;
+- rol externo: `transformed` solo mediante mapping aprobado a Membership/Assignment;
 - tenant/company/branch: creados por mapping explícito, nunca tenant global inventado;
-- auditoría heredada: `evidence only` sanitizada cuando sea verificable;
-- datos demo/credenciales demo: `discarded demo`;
+- auditoría externa: `evidence only` sanitizada cuando sea verificable;
+- datos o credenciales de demostración: `discarded demo`;
 - ambigüedad, duplicados y huérfanos: `quarantined`;
 - Sync history inexistente: `unsupported`, no se inventa;
 - dominios comerciales: migrados en jobs/cortes posteriores, no en 001.
 
-No hay dual-write implícito entre LEGACY y TARGET. La convivencia es por despliegues/rutas explícitas hasta que cada vertical tenga importación, reconciliación y cutover aprobados.
+No hay dual-write implícito entre una fuente externa y TARGET. Cualquier convivencia exige rutas explícitas hasta que cada importación, reconciliación y cutover estén aprobados.
 
 ## 13. Política de data migration
 
-Schema migration y data migration/import job son procesos distintos, con artefactos, checksum, permisos, auditoría, retry y rollback separados. El `up` de 001 no lee tablas legacy ni carga usuarios. Un import futuro debe declarar source snapshot, mapping, conteos, cuarentena, correspondencia ID y reconciliación antes de cutover.
+Schema migration y data migration/import job son procesos distintos, con artifacts, checksum, permisos, auditoría, retry y rollback separados. El `up` de 001 no lee fuentes externas ni carga usuarios. Un import futuro debe declarar source snapshot, mapping, conteos, cuarentena, correspondencia ID y reconciliación antes de cutover.
 
 ## 14. Rollback, backup y recovery
 
@@ -464,7 +463,7 @@ Fresh install vacío no requiere backup de datos, pero conserva manifest/checksu
 5. backup/reopen;
 6. confirmar ausencia de todas las tablas locales excluidas.
 
-Upgrade simulation empieza cuando exista una versión TARGET anterior. El legado Alembic se valida en un entorno separado; no se presenta como upgrade desde 001 target.
+Upgrade simulation empieza cuando exista una versión TARGET anterior. Una fuente externa se valida mediante un import job separado; no se presenta como upgrade desde 001 TARGET.
 
 ## 17. Impacto del PoC criptográfico y estados de bloques
 

@@ -6,7 +6,7 @@ Estado documental: `DEFINED`.
 
 Estado de ejecución de `SEC-G01` a `SEC-G10`: `PLANNED`.
 
-Este documento formaliza los gates de seguridad de Fase 1. No implementa controles, no declara segura la línea base heredada y no autoriza producción, DDL, migraciones, infraestructura ni dependencias. Un gate solo puede aprobarse con evidencia ejecutable sobre el stack objetivo y el entorno al que aplica.
+Este documento formaliza los gates de seguridad de Fase 1. No implementa controles, no declara seguro un runtime todavía ausente y no autoriza producción, DDL, migrations, infraestructura ni dependencias. Un gate solo puede aprobarse con evidencia ejecutable sobre el stack objetivo y el entorno al que aplica.
 
 Los identificadores `SEC-Gxx` designan gates verificables y no reemplazan los elementos `SEC-001` a `SEC-004` del backlog. Estos últimos conservan sus estados y autoridad documental.
 

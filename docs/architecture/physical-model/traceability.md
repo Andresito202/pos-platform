@@ -183,7 +183,7 @@ Antes de persistir cualquiera como `feature_code`, una decisión posterior debe 
 | Tipo de comercio | Composición del core y capacidades optativas, sin columnas específicas |
 |---|---|
 | tienda/minimercado | catálogo, códigos, presentaciones, inventario, venta, caja y pagos comunes |
-| supermercado/avícola | unidades de masa, medición validada por puerto, lotes/vencimiento y merma por policy |
+| comercio por peso con perecederos | unidades de masa, medición validada por puerto, lotes/vencimiento y merma por policy |
 | droguería | lotes/vencimiento y controles futuros más estrictos como módulo/policy; no se asume regulación no documentada |
 | ferretería/almacén | variantes, presentaciones, longitud/área/volumen y seriales solo cuando exista contrato aprobado |
 | floristería | lotes opcionales, perecibilidad y merma; color/tallos no son columnas universales |

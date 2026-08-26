@@ -166,9 +166,9 @@ El diseño físico posterior deberá demostrar, en ambos dialectos:
 9. no almacenar payloads libres cuando existen campos y reglas normativas;
 10. no cascadas destructivas sobre versiones o snapshots históricos.
 
-## Migración del legado avícola
+## Importación desde sistemas externos
 
-La base heredada no contiene historia confiable de versiones de configuración. Sus valores simples pueden clasificarse como candidatos a un draft inicial, pero no se les inventarán autor, vigencia histórica, checksum previo, publicación ni decisiones pasadas.
+Una fuente externa sin historia confiable de versiones solo puede aportar valores simples como candidatos a un draft inicial; no se inventan autor, vigencia histórica, checksum previo, publicación ni decisiones pasadas.
 
 Cada candidato exige tenant/company explícitos, revisión humana y publicación posterior con versión nueva. Credenciales encontradas se rotan y migran al gestor de secretos; no se copian a tablas de negocio. Valores ausentes, ambiguos o incompatibles van a cuarentena.
 

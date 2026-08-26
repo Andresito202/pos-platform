@@ -80,7 +80,7 @@ Constraints mínimos:
 | `lot_id` | UUID nullable | evidencia de asignación cuando Inventory la exige; no hace a Sales dueño del lote |
 | `measurement_source_type`, `measurement_evidence_snapshot`, `measurement_evidence_checksum` | evidencia nullable | medición validada, con schema explícito y contenido allowlisted |
 
-Constraints: `UNIQUE (tenant_id, sale_id, line_number)`, FKs tenant/company-aware a Product/Variant/Presentation/Unit, coherencia Product→Variant→Presentation, cantidades y dinero exactos, y conciliación de líneas con totales de Sale. El snapshot no copia descripción completa, atributos comerciales abiertos, stock actual, costo vigente ni datos específicos de droguería, avícola, floristería o ferretería.
+Constraints: `UNIQUE (tenant_id, sale_id, line_number)`, FKs tenant/company-aware a Product/Variant/Presentation/Unit, coherencia Product→Variant→Presentation, cantidades y dinero exactos, y conciliación de líneas con totales de Sale. El snapshot no copia descripción completa, atributos comerciales abiertos, stock actual, costo vigente ni datos específicos de un sector comercial.
 
 ## Productos pesables y hardware
 

@@ -467,7 +467,7 @@ Ningún gate cambia a PASS por este documento. Registros fiscales, dispatch, att
 
 ## Extensibilidad comercial
 
-Las integraciones no añaden flags ni IDs de proveedor a Product, Sale, Inventory, Payment, Tax, Company o Customer. Minimercado, supermercado, avícola/alimentos, droguería, ferretería, floristería y retail general comparten el core; capacidades verticales siguen en módulos, policies, presentaciones y extensiones tipadas. Provider capabilities y business capabilities son catálogos distintos.
+Las integraciones no añaden flags ni IDs de proveedor a Product, Sale, Inventory, Payment, Tax, Company o Customer. Minimercado, supermercado, comercio de alimentos perecederos, droguería, ferretería, floristería y retail general comparten el core; capacidades verticales siguen en módulos, policies, presentaciones y extensiones tipadas. Provider capabilities y business capabilities son catálogos distintos.
 
 ## Criterio de cierre
 
