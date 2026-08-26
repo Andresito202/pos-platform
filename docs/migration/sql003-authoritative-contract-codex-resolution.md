@@ -26,12 +26,17 @@ La admisibilidad fiscal se evalúa **antes** del selector/candidate scan y antes
 
 ### 2.1 Matriz V1
 
-Un receipt puede participar como evidence fiscal correlacionable únicamente cuando cumple una de estas rutas:
+La dimensión de autenticación es admisible solo si ocurre exactamente una de estas rutas:
 
-1. `authentication_verification_result = VERIFIED` y `replay_verification_result <> FAILED`, además de cualquier requisito adicional del provider contract versionado; o
-2. `authentication_verification_result = UNSUPPORTED_BY_PROVIDER` solo si el provider/adapter contract versionado y previamente verificado declara expresamente que ese provider no ofrece el mecanismo, define un criterio alternativo de autenticidad/replay, y ese criterio se cumplió de forma durable y auditable.
+1. `authentication_verification_result = VERIFIED`; o
+2. `authentication_verification_result = UNSUPPORTED_BY_PROVIDER` y existe un provider/adapter contract versionado, previamente verificado para ese ambiente, que declara expresamente la ausencia del mecanismo, define un criterio alternativo de autenticidad y demuestra durablemente que ese criterio se cumplió.
 
-No son evidence fiscal admisible:
+La dimensión de replay es admisible solo si ocurre exactamente una de estas rutas:
+
+1. `replay_verification_result = VERIFIED`; o
+2. `replay_verification_result = UNSUPPORTED_BY_PROVIDER` y existe un provider/adapter contract versionado, previamente verificado para ese ambiente, que declara expresamente la ausencia del mecanismo, define un criterio alternativo anti-replay/dedup y demuestra durablemente que ese criterio se cumplió.
+
+**Ambas dimensiones deben ser admisibles simultáneamente.** Cualquier `FAILED` o `UNVERIFIED_CONTRACT` en cualquiera de las dos vuelve el receipt no admisible como evidence fiscal:
 
 ```text
 authentication_verification_result = FAILED
@@ -39,6 +44,8 @@ replay_verification_result = FAILED
 authentication_verification_result = UNVERIFIED_CONTRACT
 replay_verification_result = UNVERIFIED_CONTRACT
 ```
+
+Mientras providers permanezcan `NOT_EVALUATED`, ninguna ruta `UNSUPPORTED_BY_PROVIDER` se presume habilitada por documentación genérica; requiere la evidencia/provider-contract formal de la etapa de adapter correspondiente.
 
 Un receipt no admisible:
 
@@ -57,9 +64,9 @@ Correlator y reprepare aplican la admisibilidad antes del candidate scan y luego
 
 - auth FAILED con IDs correlacionables no crea linkage, no bloquea reprepare y no activa cuarentena fiscal;
 - replay FAILED se comporta igual;
-- VERIFIED + replay válido, determinísticamente correlacionable, bloquea en cualquier processing status;
-- `UNSUPPORTED_BY_PROVIDER` sin contract alternativo verificado no es evidence fiscal;
-- `UNVERIFIED_CONTRACT` falla cerrado para confiar en ese canal, pero no convierte payload no verificado en evidence del documento;
+- auth VERIFIED + replay VERIFIED, determinísticamente correlacionable, bloquea en cualquier processing status;
+- `UNSUPPORTED_BY_PROVIDER` en auth o replay sin contract alternativo verificado no es evidence fiscal;
+- `UNVERIFIED_CONTRACT` en cualquiera de las dimensiones falla cerrado para confiar en ese canal, pero no convierte payload no verificado en evidence del documento;
 - carrera receipt admisible vs reprepare produce un solo ganador bajo el fence.
 
 ## 3. Identidad efectiva de integración/configuración congelada por preparation
@@ -89,20 +96,22 @@ emission_configuration_version_id
 
 El snapshot no almacena secretos, access tokens, refresh tokens ni credential material.
 
-### 3.1 Revalidación
+### 3.1 Revalidación V1 exacta
 
-Antes de `READY`, enqueue y **cada claim/retry**, bajo el prefijo canónico de locks, se vuelve a resolver la integración efectiva y se compara con el snapshot congelado:
+Antes de `READY`, enqueue y **cada claim/retry**, bajo el prefijo canónico de locks, se vuelve a resolver la integración efectiva y se compara con el snapshot congelado. V1 exige simultáneamente:
 
-- misma integration/provider/adapter/environment;
+- misma `external_integration_id`;
+- mismo provider/adapter/environment;
 - misma identidad efectiva de cuenta;
-- mismo routing material semántico/checksum;
+- **`ExternalIntegration.configuration_version` exactamente igual a `external_integration_configuration_version` congelada**;
+- mismo routing material schema/checksum;
 - misma capability/config fiscal aplicable.
 
-Drift semántico antes de exposición externa hace fallar enqueue/claim y puede resolverse solo mediante `REPREPARE_BEFORE_SUBMISSION` si toda la prueba de cero exposición pasa. Drift después de cualquier exposure/attempt/evidence falla cerrado y usa reconciliation/incident; nunca muta la preparation histórica ni reutiliza su root.
+En V1, un cambio de `ExternalIntegration.configuration_version` es drift contractual aunque el checksum de routing resulte igual; la equivalencia entre revisiones distintas requeriría un contrato futuro explícito. El checksum es defense-in-depth para detectar drift material dentro de la revisión congelada y no una licencia para cambiar de revisión.
+
+Drift antes de exposición externa hace fallar enqueue/claim y puede resolverse solo mediante `REPREPARE_BEFORE_SUBMISSION` si toda la prueba de cero exposición pasa. Drift después de cualquier exposure/attempt/evidence falla cerrado y usa reconciliation/incident; nunca muta la preparation histórica ni reutiliza su root.
 
 Cambiar realmente a otra cuenta externa no recicla silenciosamente una identidad ya usada por historia/intenciones fiscales: requiere otra `ExternalIntegration` o una futura identidad de cuenta explícitamente versionada equivalente. La rotación de credenciales de **la misma cuenta** permanece permitida y no cambia la intención/root.
-
-Si `configuration_version` cambia pero el material semántico efectivo versionado/checksum permanece exactamente igual, no se inventa una intención nueva. Si cambia el material semántico aunque el número de versión no cambie, el checksum detecta el drift y falla cerrado.
 
 ### 3.2 Pruebas contractuales
 
@@ -110,8 +119,8 @@ Si `configuration_version` cambia pero el material semántico efectivo versionad
 - account/routing drift entre enqueue y claim;
 - drift entre attempts;
 - rotation de credencial de la misma cuenta sin cambiar intención;
-- configuration version distinta con checksum semántico igual;
-- checksum semántico distinto con igual número de versión;
+- `configuration_version` distinta bloquea V1 aunque el routing checksum coincida;
+- routing checksum distinto con la misma revisión bloquea como integrity/semantic drift;
 - post-exposure drift no habilita reprepare.
 
 ## 4. Request provider-specific: checksum semántico congelado por dispatch
@@ -134,7 +143,7 @@ Reglas:
 - checksum SHA-256 lowercase 64 hex;
 - los nuevos campos siguen DENY BY DEFAULT y los mismos grants de identidad fiscal del dispatch: `pos_app` INSERT/SELECT, worker SELECT, platform/admin SELECT según matriz; nunca UPDATE runtime.
 
-El valor representa el material provider-facing **semántico, normalizado y versionado** producido de forma determinista antes de cualquier HTTP. Incluye todo lo que pueda alterar el efecto externo: document/account identity, operation, numbering, importes/tax semantics, canonical payload meaning y routing semántico efectivo.
+El valor representa el material provider-facing **semántico, normalizado y versionado** producido de forma determinista antes de cualquier HTTP a partir del canonical payload y del snapshot efectivo congelado de §3. Incluye todo lo que pueda alterar el efecto externo: document/account identity, operation, numbering, importes/tax semantics, canonical payload meaning y routing semántico efectivo.
 
 Solo se excluyen campos de envelope/transporte explícitamente allowlisted por la versión del contrato y que no cambian la intención, por ejemplo `request_id`, nonce/timestamp o firma cuando el provider los exige. Secrets/tokens nunca forman parte de tablas de negocio ni del material semántico persistido.
 
@@ -199,7 +208,16 @@ credential_binding_generation integer NOT NULL
 
 La futura 003 exige FK directa al binding id y guard tenant/company/integration/generation-aware que demuestre que el binding seleccionado pertenecía a la misma ExternalIntegration y estaba ACTIVE durante el claim. No se persiste `credential_reference` ni ningún secreto.
 
-Credential rotation same-account puede hacer que retries posteriores usen otra binding/generation ACTIVE; esto no cambia root ni checksum semántico porque la credencial no es material de negocio/intención. Cada attempt conserva cuál generación utilizó.
+Grants/immutability 003 de estos dos campos:
+
+- `pos_worker`: INSERT + SELECT como parte de la identidad del attempt; nunca UPDATE después del INSERT;
+- `pos_app`: SELECT mínimo cuando el caso de uso autorizado lo requiera; sin INSERT/UPDATE de attempts;
+- `pos_platform_app`/`pos_platform_admin`: SELECT allowlisted conforme a la matriz del attempt; sin mutación;
+- reporting/PUBLIC: none.
+
+Los guards verifican que `credential_binding_generation` coincida con la binding referenciada y con la misma integration. Estos campos no forman parte de la idempotency root ni del semantic request checksum porque credential rotation same-account no cambia intención externa.
+
+Credential rotation same-account puede hacer que retries posteriores usen otra binding/generation ACTIVE; esto no cambia root ni checksum semántico. Cada attempt conserva cuál generación utilizó.
 
 El claim confirma estado/binding bajo lock y commit antes de HTTP. Al resolver el secreto inmediatamente antes de HTTP se revalida fail-closed que la binding pinneada siga habilitada para uso; si fue revocada/superseded o no puede resolverse, **no se ejecuta HTTP** y el attempt conserva evidence técnica `NOT_SENT`/failure conforme al contrato, sin convertir tiempo en autorización de retry.
 
@@ -225,7 +243,7 @@ IntegrationDispatch.status: QUEUED -> DISPATCHING
 FiscalSubmissionAttempt: INSERT/transition -> IN_PROGRESS
 attempt.idempotency_key = dispatch.idempotency_key
 attempt.request_checksum = dispatch.fiscal_request_semantic_checksum
-credential binding generation pinned
+credential binding id/generation pinned
 CAS/versiones confirmadas
 COMMIT
 ```
@@ -323,10 +341,11 @@ La futura suite SQL003/descriptor003 deberá añadir, como mínimo:
 - spoof/replay FAILED no bloquea reprepare ni crea fiscal linkage;
 - receipt admisible correlacionable sí bloquea en todo processing status;
 - routing/account/config snapshot drift antes y después de exposure;
+- exact `ExternalIntegration.configuration_version` freeze/revalidation;
 - checksum semántico estable en retries y conflict ante drift;
 - ACTIVE integration + exactamente una ACTIVE credential binding;
 - DEGRADED/DISABLED/ROTATION_REQUIRED fail-closed para nuevo HTTP V1;
-- credential generation pinning por attempt;
+- credential binding id/generation pinning por attempt y grants inmutables;
 - claim atómico `QUEUED -> SUBMITTING + DISPATCHING + IN_PROGRESS`;
 - exactly-one fiscal dispatch por preparation;
 - exactly-one IN_PROGRESS attempt por dispatch;
