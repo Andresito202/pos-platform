@@ -1,3 +1,10 @@
+import {
+  FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
+  FISCAL_003_EXACT_GUARD_DEFINITIONS,
+  FISCAL_003_EXACT_INDEX_DEFINITIONS,
+  FISCAL_003_EXACT_POLICY_DEFINITIONS,
+  FISCAL_003_TABLE_BLUEPRINT_SQL,
+} from "./postgres-003-blueprint.js";
 import { FISCAL_003_CATALOG_DEFINITIONS } from "./postgres-003-catalog.js";
 
 export const TARGET_SCHEMAS = [
@@ -315,13 +322,13 @@ export const FISCAL_003_TABLE_CONSTRAINTS = {
   ],
   "fiscal.fiscal_submission_attempts": [
     "fiscal_submission_attempts_id_v7_ck","fiscal_submission_attempts_tenant_id_id_uq",
-    "fiscal_submission_attempts_tenant_company_id_id_uq","fiscal_submission_attempts_dispatch_history_uq",
+    "fiscal_submission_attempts_tenant_company_id_id_uq","fiscal_submission_attempts_document_scope_uq",
+    "fiscal_submission_attempts_connection_scope_uq","fiscal_submission_attempts_dispatch_history_uq",
     "fiscal_submission_attempts_document_history_uq","fiscal_submission_attempts_preparation_fk",
     "fiscal_submission_attempts_connection_fk","fiscal_submission_attempts_dispatch_fk",
     "fiscal_submission_attempts_credential_binding_fk","fiscal_submission_attempts_credential_generation_ck",
     "fiscal_submission_attempts_class_ck","fiscal_submission_attempts_operation_type_ck",
-    "fiscal_submission_attempts_request_checksum_ck",
-    "fiscal_submission_attempts_status_ck","fiscal_submission_attempts_transport_ck",
+    "fiscal_submission_attempts_status_ck","fiscal_submission_attempts_result_ck","fiscal_submission_attempts_transport_ck",
     "fiscal_submission_attempts_retry_ck","fiscal_submission_attempts_checksum_ck",
     "fiscal_submission_attempts_values_ck","fiscal_submission_attempts_timestamps_ck",
   ],
@@ -378,7 +385,8 @@ export const FISCAL_003_REQUIRED_INDEXES = [
   "electronic_documents_legal_identifier_uq",
   "fiscal_document_preparations_legal_number_uq",
   "fiscal_document_preparations_provider_document_uq",
-  "fiscal_submission_attempts_in_progress_uq",
+  "integration_dispatches_one_fiscal_per_preparation_uq",
+  "fiscal_submission_attempts_one_in_progress_uq",
   "fiscal_connections_scope_effective_idx",
   "fiscal_connections_capability_fk_idx",
   "fiscal_emission_configurations_branch_fk_idx",
@@ -610,6 +618,11 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   currentPreparationConstraintTriggers: typeof FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS;
   sharedCurrentPreparationValidator: typeof FISCAL_003_SHARED_VALIDATOR;
   catalogDefinitions: typeof FISCAL_003_CATALOG_DEFINITIONS;
+  tableBlueprintSql: typeof FISCAL_003_TABLE_BLUEPRINT_SQL;
+  exactConstraintDefinitions: typeof FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS;
+  exactIndexDefinitions: typeof FISCAL_003_EXACT_INDEX_DEFINITIONS;
+  exactGuardDefinitions: typeof FISCAL_003_EXACT_GUARD_DEFINITIONS;
+  exactPolicyDefinitions: typeof FISCAL_003_EXACT_POLICY_DEFINITIONS;
   mat003PrerequisiteOnly: true;
 }
 
@@ -644,5 +657,10 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   currentPreparationConstraintTriggers: FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS,
   sharedCurrentPreparationValidator: FISCAL_003_SHARED_VALIDATOR,
   catalogDefinitions: FISCAL_003_CATALOG_DEFINITIONS,
+  tableBlueprintSql: FISCAL_003_TABLE_BLUEPRINT_SQL,
+  exactConstraintDefinitions: FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
+  exactIndexDefinitions: FISCAL_003_EXACT_INDEX_DEFINITIONS,
+  exactGuardDefinitions: FISCAL_003_EXACT_GUARD_DEFINITIONS,
+  exactPolicyDefinitions: FISCAL_003_EXACT_POLICY_DEFINITIONS,
   mat003PrerequisiteOnly: true,
 };

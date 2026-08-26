@@ -145,6 +145,7 @@ Baseline y autorización:
 - bundle V2: `INTEGRATED / REVIEWED`;
 - autorización separada para iniciar diseño/materialización SQL003: `GRANTED 2026-08-26`.
 - Gate A contract remediation commit: `c0df539eb52d370fbfd0902a3df0d1ec94332398`; semantic dispatch checksum, credential binding pinning y definición física de catálogo remediados; evidencia exact-head CI/Codex todavía requerida antes de Gate B.
+- Gate A exhaustiveness hardening: definitions must cover exact set equality for every advertised constraint/index/guard/policy; semantic FISCAL fields are explicitly NOT NULL by CHECK semantics; normative one-IN_PROGRESS and one-FISCAL-dispatch indexes are required.
 
 Alcance autorizado:
 

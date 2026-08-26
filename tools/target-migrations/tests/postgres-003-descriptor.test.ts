@@ -1,3 +1,10 @@
+import {
+  FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
+  FISCAL_003_EXACT_GUARD_DEFINITIONS,
+  FISCAL_003_EXACT_INDEX_DEFINITIONS,
+  FISCAL_003_EXACT_POLICY_DEFINITIONS,
+  FISCAL_003_TABLE_BLUEPRINT_SQL,
+} from "../src/postgres-003-blueprint.js";
 import { describe, expect, it } from "vitest";
 import {
   FISCAL_003_ALTERED_TABLES,
@@ -198,8 +205,10 @@ describe("003 fiscal descriptor contract", () => {
       .toEqual({type:"integer",nullable:true,defaultSql:null});
     expect(defs.columns["integrations.integration_dispatches#003"].fiscal_request_semantic_checksum)
       .toEqual({type:"text",nullable:true,defaultSql:null});
-    expect(defs.constraints.dispatchSemanticRequest.expression)
-      .toContain("fiscal_request_semantic_checksum~'^[0-9a-f]{64}$'");
+    expect(defs.constraints["integration_dispatches_fiscal_semantic_request_ck"])
+      .toContain("fiscal_request_semantic_version IS NOT NULL");
+    expect(defs.constraints["integration_dispatches_fiscal_semantic_request_ck"])
+      .toContain("fiscal_request_semantic_checksum IS NOT NULL");
     expect(defs.semanticRules.dispatchRequestIdentity)
       .toContain("same idempotency root with different semantic version/checksum is CONFLICT before HTTP");
   });
@@ -210,32 +219,59 @@ describe("003 fiscal descriptor contract", () => {
       .toEqual({type:"uuid",nullable:false,defaultSql:null});
     expect(defs.columns["fiscal.fiscal_submission_attempts"].credential_binding_generation)
       .toEqual({type:"integer",nullable:false,defaultSql:null});
-    expect(defs.constraints.integrationCredentialBindingAttemptScope.columns)
-      .toEqual(["tenant_id","company_id","integration_id","id","generation"]);
-    expect(defs.constraints.attemptCredentialFk).toMatchObject({
-      columns:["tenant_id","company_id","external_integration_id","credential_binding_id","credential_binding_generation"],
-      references:{table:"integrations.integration_credential_bindings",columns:["tenant_id","company_id","integration_id","id","generation"]},
-      onDelete:"NO ACTION",deferrable:false,
-    });
+    expect(defs.constraints["integration_credential_bindings_attempt_scope_uq"])
+      .toContain("UNIQUE (tenant_id,company_id,integration_id,id,generation)");
+    expect(defs.constraints["fiscal_submission_attempts_credential_binding_fk"])
+      .toContain("REFERENCES integrations.integration_credential_bindings(tenant_id,company_id,integration_id,id,generation)");
   });
 
   it("encodes definition-level catalog invariants before Gate B DDL", () => {
     const defs=POSTGRES_003_DESCRIPTOR.catalogDefinitions;
     expect(defs.columns["fiscal.fiscal_document_preparations"].currency_code.type).toBe("char(3)");
     expect(defs.columns["fiscal.fiscal_document_preparations"].subtotal_amount.type).toBe("numeric(19,6)");
-    expect(defs.constraints.preparationDocumentFk.references).toEqual({
-      table:"fiscal.electronic_documents",columns:["tenant_id","company_id","id","document_type"],
-    });
-    expect(defs.indexes.legalNumber).toMatchObject({
-      unique:true,keys:["tenant_id","company_id","COALESCE(prefix,'')","number"],predicate:"number IS NOT NULL",
-    });
-    expect(defs.triggers.currentDocument).toMatchObject({
-      kind:"CONSTRAINT TRIGGER",timing:"AFTER ROW",deferrable:true,initiallyDeferred:true,
-      function:"fiscal.validate_current_fiscal_preparation_invariant",
-    });
-    expect(defs.policies.preparationPlatform).toMatchObject({
-      command:"SELECT",roles:["pos_platform_app"],using:"tenant_id=platform.current_tenant_id()",withCheck:null,
-    });
+    expect(defs.constraints["fiscal_document_preparations_document_fk"])
+      .toContain("REFERENCES fiscal.electronic_documents(tenant_id,company_id,id,document_type)");
+    expect(defs.indexes["fiscal_document_preparations_legal_number_uq"])
+      .toContain("COALESCE(prefix,''),number) WHERE number IS NOT NULL");
+    expect(defs.triggers["electronic_documents_current_preparation_guard"])
+      .toContain("CONSTRAINT TRIGGER electronic_documents_current_preparation_guard AFTER INSERT OR UPDATE");
+    expect(defs.triggers["electronic_documents_current_preparation_guard"])
+      .toContain("DEFERRABLE INITIALLY DEFERRED");
+    expect(defs.policies["fiscal_document_preparations_platform_tenant_select"])
+      .toContain("FOR SELECT TO pos_platform_app");
+  });
+
+  it("has exact definition coverage for every advertised constraint, index, guard and policy", () => {
+    const sorted=(values:readonly string[])=>[...values].sort();
+    expect(sorted(Object.keys(FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS))).toEqual(sorted(POSTGRES_003_DESCRIPTOR.ownedConstraints as readonly string[]));
+    expect(sorted(Object.keys(FISCAL_003_EXACT_INDEX_DEFINITIONS))).toEqual(sorted(POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[]));
+    expect(sorted(Object.keys(FISCAL_003_EXACT_GUARD_DEFINITIONS))).toEqual(sorted(POSTGRES_003_DESCRIPTOR.expectedGuards));
+    expect(sorted(Object.keys(FISCAL_003_EXACT_POLICY_DEFINITIONS))).toEqual(sorted(POSTGRES_003_DESCRIPTOR.ownedPolicies as readonly string[]));
+    expect(Object.keys(FISCAL_003_TABLE_BLUEPRINT_SQL).sort()).toEqual(POSTGRES_003_DESCRIPTOR.ownedTables.slice().sort());
+  });
+
+  it("uses normative defense-in-depth unique indexes", () => {
+    expect(FISCAL_003_EXACT_INDEX_DEFINITIONS["fiscal_submission_attempts_one_in_progress_uq"])
+      .toBe("CREATE UNIQUE INDEX fiscal_submission_attempts_one_in_progress_uq ON fiscal.fiscal_submission_attempts(tenant_id,integration_dispatch_id) WHERE status='IN_PROGRESS';");
+    expect(FISCAL_003_EXACT_INDEX_DEFINITIONS["integration_dispatches_one_fiscal_per_preparation_uq"])
+      .toContain("ON integrations.integration_dispatches(tenant_id,fiscal_document_preparation_id) WHERE dispatch_class='FISCAL'");
+    expect(FISCAL_003_EXACT_INDEX_DEFINITIONS["fiscal_submission_attempts_in_progress_uq"]).toBeUndefined();
+  });
+
+  it("rejects NULL semantic identities for FISCAL while preserving nullable NON_FISCAL columns", () => {
+    const constraint=FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["integration_dispatches_fiscal_semantic_request_ck"];
+    expect(constraint).toContain("fiscal_request_semantic_version IS NOT NULL");
+    expect(constraint).toContain("fiscal_request_semantic_checksum IS NOT NULL");
+    expect(constraint).toContain("dispatch_class='NON_FISCAL' AND fiscal_request_semantic_version IS NULL AND fiscal_request_semantic_checksum IS NULL");
+  });
+
+  it("keeps attempt scoped candidates needed by downstream evidence FKs", () => {
+    expect(FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["fiscal_submission_attempts_document_scope_uq"])
+      .toContain("UNIQUE (tenant_id,company_id,external_integration_id,electronic_document_id,preparation_generation,id)");
+    expect(FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["fiscal_submission_attempts_connection_scope_uq"])
+      .toContain("UNIQUE (tenant_id,company_id,external_integration_id,fiscal_connection_id,id)");
+    expect(FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["fiscal_artifacts_attempt_fk"])
+      .toContain("REFERENCES fiscal.fiscal_submission_attempts(tenant_id,company_id,external_integration_id,electronic_document_id,preparation_generation,id)");
   });
 
 });

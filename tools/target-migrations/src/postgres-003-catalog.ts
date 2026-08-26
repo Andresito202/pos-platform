@@ -1,3 +1,10 @@
+import {
+  FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
+  FISCAL_003_EXACT_GUARD_DEFINITIONS,
+  FISCAL_003_EXACT_INDEX_DEFINITIONS,
+  FISCAL_003_EXACT_POLICY_DEFINITIONS,
+} from "./postgres-003-blueprint.js";
+
 export interface FiscalColumnDefinition {
   type: string;
   nullable: boolean;
@@ -117,90 +124,10 @@ export const FISCAL_003_CATALOG_DEFINITIONS = {
       fiscal_correlated_at:c("timestamptz",true),
     },
   },
-  constraints: {
-    integrationCredentialBindingAttemptScope: {
-      name:"integration_credential_bindings_attempt_scope_uq",kind:"UNIQUE",table:"integrations.integration_credential_bindings",
-      columns:["tenant_id","company_id","integration_id","id","generation"],
-    },
-    dispatchSemanticRequest: {
-      name:"integration_dispatches_fiscal_semantic_request_ck",kind:"CHECK",table:"integrations.integration_dispatches",
-      expression:"(dispatch_class='FISCAL' AND fiscal_request_semantic_version>=1 AND fiscal_request_semantic_checksum~'^[0-9a-f]{64}$') OR (dispatch_class='NON_FISCAL' AND fiscal_request_semantic_version IS NULL AND fiscal_request_semantic_checksum IS NULL)",
-    },
-    dispatchPreparationFk: {
-      name:"integration_dispatches_fiscal_preparation_fk",kind:"FOREIGN KEY",table:"integrations.integration_dispatches",
-      columns:["tenant_id","company_id","integration_id","internal_entity_id","fiscal_preparation_generation","fiscal_document_preparation_id"],
-      references:{table:"fiscal.fiscal_document_preparations",columns:["tenant_id","company_id","external_integration_id","electronic_document_id","preparation_generation","id"]},
-      onDelete:"NO ACTION",deferrable:false,
-    },
-    attemptCredentialFk: {
-      name:"fiscal_submission_attempts_credential_binding_fk",kind:"FOREIGN KEY",table:"fiscal.fiscal_submission_attempts",
-      columns:["tenant_id","company_id","external_integration_id","credential_binding_id","credential_binding_generation"],
-      references:{table:"integrations.integration_credential_bindings",columns:["tenant_id","company_id","integration_id","id","generation"]},
-      onDelete:"NO ACTION",deferrable:false,
-    },
-    attemptCredentialGeneration: {
-      name:"fiscal_submission_attempts_credential_generation_ck",kind:"CHECK",table:"fiscal.fiscal_submission_attempts",
-      expression:"credential_binding_generation>0",
-    },
-    attemptOperation: {
-      name:"fiscal_submission_attempts_operation_type_ck",kind:"CHECK",table:"fiscal.fiscal_submission_attempts",
-      expression:"operation_type='SUBMIT_DOCUMENT'",
-    },
-    attemptRequestChecksum: {
-      name:"fiscal_submission_attempts_request_checksum_ck",kind:"CHECK",table:"fiscal.fiscal_submission_attempts",
-      expression:"request_checksum~'^[0-9a-f]{64}$'",
-      crossTableInvariant:"request_checksum = integrations.integration_dispatches.fiscal_request_semantic_checksum for integration_dispatch_id; enforced by fiscal_submission_attempts_root_guard under dispatch lock",
-    },
-    preparationDocumentFk: {
-      name:"fiscal_document_preparations_document_fk",kind:"FOREIGN KEY",table:"fiscal.fiscal_document_preparations",
-      columns:["tenant_id","company_id","electronic_document_id","document_type"],
-      references:{table:"fiscal.electronic_documents",columns:["tenant_id","company_id","id","document_type"]},
-      onDelete:"NO ACTION",deferrable:false,
-    },
-    preparationConnectionFk: {
-      name:"fiscal_document_preparations_connection_fk",kind:"FOREIGN KEY",table:"fiscal.fiscal_document_preparations",
-      columns:["tenant_id","company_id","external_integration_id","fiscal_connection_id"],
-      references:{table:"fiscal.fiscal_connections",columns:["tenant_id","company_id","external_integration_id","id"]},
-      onDelete:"NO ACTION",deferrable:false,
-    },
-    preparationConfigurationVersionFk: {
-      name:"fiscal_document_preparations_configuration_version_fk",kind:"FOREIGN KEY",table:"fiscal.fiscal_document_preparations",
-      columns:["tenant_id","company_id","external_integration_id","fiscal_connection_id","fiscal_emission_configuration_id","emission_configuration_version_id","document_type"],
-      references:{table:"fiscal.fiscal_emission_configuration_versions",columns:["tenant_id","company_id","external_integration_id","fiscal_connection_id","fiscal_emission_configuration_id","id","document_type"]},
-      onDelete:"NO ACTION",deferrable:false,
-    },
-    preparationSupersedesFk: {
-      name:"fiscal_document_preparations_supersedes_fk",kind:"FOREIGN KEY",table:"fiscal.fiscal_document_preparations",
-      columns:["tenant_id","electronic_document_id","supersedes_preparation_id"],
-      references:{table:"fiscal.fiscal_document_preparations",columns:["tenant_id","electronic_document_id","id"]},
-      onDelete:"NO ACTION",deferrable:false,
-    },
-    webhookCorrelationShape: {
-      name:"external_webhook_receipts_fiscal_correlation_ck",kind:"CHECK",table:"integrations.external_webhook_receipts",
-      expression:"all five fiscal correlation columns are NULL OR all five are NOT NULL, and fiscal_preparation_generation>=1 when correlated",
-    },
-  },
-  indexes: {
-    legalNumber:{name:"fiscal_document_preparations_legal_number_uq",unique:true,table:"fiscal.fiscal_document_preparations",keys:["tenant_id","company_id","COALESCE(prefix,'')","number"],predicate:"number IS NOT NULL"},
-    providerDocument:{name:"fiscal_document_preparations_provider_document_uq",unique:true,table:"fiscal.fiscal_document_preparations",keys:["tenant_id","external_integration_id","provider_document_id"],predicate:"provider_document_id IS NOT NULL"},
-    inProgressAttempt:{name:"fiscal_submission_attempts_in_progress_uq",unique:true,table:"fiscal.fiscal_submission_attempts",keys:["tenant_id","integration_dispatch_id"],predicate:"status='IN_PROGRESS'"},
-    dispatchPreparation:{name:"integration_dispatches_fiscal_preparation_idx",unique:false,table:"integrations.integration_dispatches",keys:["tenant_id","company_id","internal_entity_id","fiscal_preparation_generation"],predicate:"dispatch_class='FISCAL'"},
-    webhookCorrelation:{name:"external_webhook_receipts_fiscal_correlation_idx",unique:false,table:"integrations.external_webhook_receipts",keys:["tenant_id","company_id","fiscal_electronic_document_id","fiscal_preparation_generation"],predicate:"fiscal_electronic_document_id IS NOT NULL"},
-  },
-  triggers: {
-    currentDocument:{name:"electronic_documents_current_preparation_guard",table:"fiscal.electronic_documents",kind:"CONSTRAINT TRIGGER",timing:"AFTER ROW",events:["INSERT","UPDATE"],deferrable:true,initiallyDeferred:true,function:"fiscal.validate_current_fiscal_preparation_invariant"},
-    currentPreparation:{name:"fiscal_document_preparations_current_generation_guard",table:"fiscal.fiscal_document_preparations",kind:"CONSTRAINT TRIGGER",timing:"AFTER ROW",events:["INSERT","UPDATE","DELETE"],deferrable:true,initiallyDeferred:true,function:"fiscal.validate_current_fiscal_preparation_invariant"},
-    reprepare:{name:"electronic_documents_reprepare_guard",table:"fiscal.electronic_documents",kind:"TRIGGER",timing:"BEFORE ROW",events:["UPDATE"],function:"fiscal.guard_electronic_document_reprepare",invariants:["preparation_generation increments exactly one","zero-exposure fence revalidated under locks","UNKNOWN_OUTCOME blocks reprepare"]},
-    attemptRoot:{name:"fiscal_submission_attempts_root_guard",table:"fiscal.fiscal_submission_attempts",kind:"TRIGGER",timing:"BEFORE ROW",events:["INSERT","UPDATE"],function:"fiscal.guard_submission_attempt_root",invariants:["attempt root equals dispatch root","request_checksum equals dispatch fiscal_request_semantic_checksum","credential binding scope exact","attempt_number monotonic under dispatch lock"]},
-    dispatch:{name:"integration_dispatches_fiscal_preparation_guard",table:"integrations.integration_dispatches",kind:"TRIGGER",timing:"BEFORE ROW",events:["INSERT","UPDATE"],function:"fiscal.guard_fiscal_dispatch",invariants:["FISCAL identity/preparation/generation required","semantic version/checksum required and immutable","NON_FISCAL fiscal fields null","payload schema/checksum match frozen preparation"]},
-    webhook:{name:"external_webhook_receipts_fiscal_correlation_guard",table:"integrations.external_webhook_receipts",kind:"TRIGGER",timing:"BEFORE ROW",events:["INSERT","UPDATE"],function:"fiscal.guard_fiscal_webhook_correlation",invariants:["all-null to all-non-null only","write-once linkage","scoped dispatch/document/preparation generation exact"]},
-  },
-  policies: {
-    preparationApp:{name:"fiscal_document_preparations_app_tenant_isolation",table:"fiscal.fiscal_document_preparations",command:"ALL",roles:["pos_app"],using:"tenant_id=platform.current_tenant_id()",withCheck:"tenant_id=platform.current_tenant_id()"},
-    preparationPlatform:{name:"fiscal_document_preparations_platform_tenant_select",table:"fiscal.fiscal_document_preparations",command:"SELECT",roles:["pos_platform_app"],using:"tenant_id=platform.current_tenant_id()",withCheck:null},
-    preparationWorkerFrozen:{name:"fiscal_document_preparations_worker_frozen",table:"fiscal.fiscal_document_preparations",command:"SELECT/UPDATE",roles:["pos_worker"],using:"tenant_id=platform.current_tenant_id() AND preparation_state='FROZEN'",withCheck:"tenant_id=platform.current_tenant_id() AND preparation_state='FROZEN'"},
-    preparationWorkerHistoricalEvidence:{name:"fiscal_document_preparations_worker_historical_evidence",table:"fiscal.fiscal_document_preparations",command:"SELECT/UPDATE",roles:["pos_worker"],using:"tenant_id=platform.current_tenant_id() AND preparation_state='CANCELLED' AND correlated generation evidence exists",withCheck:"same tenant, same CANCELLED generation; only late-evidence columns may change under guard"},
-  },
+  constraints: FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
+  indexes: FISCAL_003_EXACT_INDEX_DEFINITIONS,
+  triggers: FISCAL_003_EXACT_GUARD_DEFINITIONS,
+  policies: FISCAL_003_EXACT_POLICY_DEFINITIONS,
   semanticRules: {
     dispatchRequestIdentity:["fiscal_request_semantic_version >= 1 for FISCAL","fiscal_request_semantic_checksum is lowercase SHA-256 for FISCAL","both semantic fields are NULL for NON_FISCAL","both fields are fixed at dispatch creation and immutable","same idempotency root with different semantic version/checksum is CONFLICT before HTTP"],
     credentialBinding:["exactly one ACTIVE integration credential binding is eligible at claim","each attempt pins credential_binding_id + credential_binding_generation","credential rotation same-account may change binding generation without changing root/checksum","revoked/superseded binding before secret resolution prevents HTTP","no credential_reference or secret is stored on fiscal attempts"],
