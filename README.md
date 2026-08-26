@@ -1,211 +1,188 @@
 # POS Platform
 
-Plataforma POS modular, multi-tenant y local-first orientada a operaciones comerciales reales.
+Plataforma POS modular, multi-tenant y local-first diseñada para operación comercial real, trazabilidad fuerte y evolución controlada desde una sola base de código.
 
-POS Platform busca proporcionar un núcleo comercial reutilizable para distintos tipos de negocio, con límites de dominio explícitos, operación por empresa y sucursal, seguridad contextual y continuidad operativa ante interrupciones de conectividad.
+## Estado real
 
-> **Estado actual:** el proyecto está en desarrollo. La Fase 0 de fundación de producto, arquitectura y dominio está cerrada como trabajo documental y la Fase 1 de fundación técnica ejecutable está en progreso. Existen la fundación física PostgreSQL de migrations 001/002 y tooling revisado para preparar MAT-003, pero el runtime objetivo Electron/React/NestJS todavía no está implementado. El sistema no debe considerarse terminado ni listo para producción.
+POS Platform está en **Fase 1 — fundación técnica ejecutable**.
 
-## Objetivo del proyecto
+La Fase 0 documental está cerrada. La fundación física y de tooling existe, pero el runtime de aplicación todavía no está materializado.
 
-La plataforma está diseñada para soportar progresivamente:
+Estado vigente:
 
-- múltiples tenants, empresas y sucursales;
-- identidad global de usuario, pertenencias, roles y permisos contextuales;
-- catálogo, variantes, presentaciones, precios, promociones e impuestos;
-- inventario, lotes, compras y proveedores;
-- ventas, caja, pagos, devoluciones y conciliación;
-- operación local-first, sincronización y recuperación;
-- dispositivos, periféricos, licenciamiento y modalidades de despliegue;
-- onboarding, auditoría, administración, soporte e integraciones.
+- `main` es la única rama canónica;
+- migrations PostgreSQL 001/002: `MATERIALIZED / TESTED / IMMUTABLE`;
+- SQLite actual: control/migration tooling materializado; runtime local completo pendiente;
+- External Integrations foundation: materializada en migration 002, central, `NON_FISCAL`;
+- MAT-003 preflight y canonical-role-readiness tooling: materializados/revisados;
+- canonical-role readiness: `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`;
+- MAT-003 preflight canónico: `EXECUTED / PASS / REVIEWED`, read-only, cero mutaciones durables;
+- SQL/descriptor 003 y schema fiscal 003: `ABSENT`;
+- migration 003: `NOT_MATERIALIZED`;
+- SIIGO/FACTUS/ALEGRA: `DESIGNED / NOT_EVALUATED`;
+- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED`;
+- NestJS/Fastify, Electron/React/Vite y POS Local Service: `ABSENT / NOT_MATERIALIZED`;
+- infraestructura productiva, piloto y hardware certificado: pendientes.
 
-Estas capacidades forman parte del alcance y de los contratos documentales en distintos niveles de madurez. No equivalen a módulos físicos terminados. Ningún runtime de aplicación está materializado todavía y no debe inventarse uno a partir de implementaciones externas o anteriores.
+**No existe una aplicación POS productiva completa en este repositorio todavía.** Documentación, migrations, PoC, CI y tooling no se presentan como runtime terminado.
 
-## Estado del proyecto
+## Integraciones recientes de `main`
 
-El [backlog maestro](docs/product/backlog.md) es la fuente de verdad para estados, prioridades, dependencias y evidencia.
+- PR #2 integró la fundación TARGET.
+- PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
+- El merge de PR #5 quedó en `bfca119b27f9b4bf0a7b0541708161a2beb2833d`.
+- El run post-merge #40 (`32933559784`) terminó `SUCCESS`, incluidos:
+  - `Repository policy and dependency inventory = SUCCESS`;
+  - `TypeScript, SQLite and PostgreSQL 16.14 = SUCCESS`;
+  - `Main push governance = SUCCESS`.
 
-| Etapa | Estado en el backlog | Alcance real |
-|---|---|---|
-| Fase 0 — Fundación de producto, arquitectura y dominio | `DONE` | Visión, alcance, arquitectura, ADR, modelo conceptual, reglas, seguridad, estrategia de pruebas, migración y casos de uso críticos documentados. |
-| Fase 1 — Fundación técnica ejecutable | `IN_PROGRESS` | `TECH-002` está `DONE`; migrations 001/002 permanecen `MATERIALIZED / TESTED / IMMUTABLE`. El tooling de `MAT-003-PREFLIGHT` y de canonical-role readiness está `MATERIALIZED / REVIEWED`; canonical-role readiness está `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`. El preflight canónico quedó `EXECUTED / PASS / REVIEWED`, con cero mutaciones durables; SQL/descriptor 003 están ausentes y migration 003 no está materializada. TARGET no es un producto ejecutable completo; `SEC-G01` a `SEC-G10` siguen `PLANNED / NOT_EVALUATED`. |
-| Núcleo funcional posterior | No implementado | Las épicas de implementación permanecen principalmente `PLANNED`; algunos trabajos de diseño están `READY`. |
-| Capacidades especializadas | Contrato parcial; implementación posterior | Facturación electrónica ya tiene arquitectura neutral y caso de uso, pero no implementación productiva. Domicilios y especializaciones regulatorias permanecen posteriores. |
+La evidencia anterior es histórica y commit-scoped. El SHA vigente de `main` siempre se consulta en GitHub; no se infiere desde este README.
 
-`DONE` en Fase 0 significa que existe evidencia documental verificable. No significa que la capacidad correspondiente esté implementada como software objetivo.
+## Fuente de verdad
 
-## Fundación completada en Fase 0
+- [Backlog maestro](docs/product/backlog.md): estado, prioridad, dependencias, bloqueos y orden inmediato.
+- [Gobernanza del repositorio](docs/governance/repository-governance.md): ramas, PRs, merges y evidencia remota/local.
+- [Índice documental](docs/README.md): jerarquía completa de fuentes.
+- [Mapa de módulos](docs/architecture/module-map.md) y [ownership](docs/architecture/data-ownership.md): bounded contexts y propiedad.
 
-La fundación documental define:
+Si dos fuentes normativas vigentes se contradicen, no se implementa una interpretación arbitraria: se reconcilian primero.
 
-- jerarquía `Platform -> Tenant -> Company -> Branch` y aislamiento multi-tenant;
-- identidad global `User`, pertenencia mediante `TenantMembership` y alcance mediante `UserRoleAssignment`;
-- autorización RBAC combinada con políticas ABAC, permisos atómicos y segregación de funciones;
-- límites y propiedad de datos de los módulos de plataforma y del núcleo comercial;
-- catálogo con `Product`, `ProductVariant` y `ProductPresentation`;
-- inventario basado en movimientos, reservas, lotes, vencimientos, FEFO/FIFO y compensaciones;
-- pricing determinista y versionado, impuestos, redondeo y snapshots históricos;
-- ciclos separados para ventas, caja, pagos, refunds, reversals, liquidación y conciliación;
-- onboarding de tenant, empresa inicial, sucursal, propietario y configuración mínima;
-- identidad y ciclo de vida de dispositivos, licencias, activaciones y derechos verificables;
-- operación local-first con outbox, inbox, checkpoints, reintentos, idempotencia y conflictos explícitos;
-- auditoría, recuperación, pruebas negativas, invariantes, concurrencia y resiliencia esperada.
-- stack objetivo TypeScript/NestJS/Electron/React con PostgreSQL central y SQLite/WAL local;
-- POS Local Service como único escritor de SQLite y propietario de hardware, impresión y sincronización;
-- infraestructura pagada para staging con datos sensibles, piloto y producción;
-- modalidades productivas `HYBRID` y `LOCAL_PERPETUAL` sin dependencia permanente de Internet;
-- contrato general de integraciones separado del perfil fiscal, con matriz documental SIIGO/FACTUS/ALEGRA y HKA/Odoo futuros;
-- gestión de secretos, firma, soporte temporal y certificación honesta de hardware.
+## Arquitectura objetivo
 
-## Principios arquitectónicos
+POS Platform utiliza una sola arquitectura TARGET:
 
-- **Monolito modular y monorepo:** una sola base de código inicial, con módulos propietarios de sus datos y reglas.
-- **Multi-tenancy por diseño:** el contexto efectivo se deriva de identidad, pertenencia, sesión y alcance autorizado; no se confía en un `tenant_id` libre enviado por el cliente.
-- **Local-first con autoridad explícita:** cada dominio define quién puede confirmar o modificar un dato durante operación conectada u offline.
-- **Seguridad en backend:** ocultar controles en la interfaz no constituye autorización; permisos, alcance y contexto se validan nuevamente en el backend.
-- **Idempotencia e identidad global:** las operaciones críticas y sus reintentos conservan identidad, checksum, versión y claves idempotentes.
-- **Determinismo y snapshots:** precios, impuestos, redondeos y hechos históricos se resuelven con reglas versionadas y evidencia inmutable.
-- **Trazabilidad y aislamiento:** ventas, pagos, caja, inventario, sincronización y cambios sensibles conservan actor, tenant, correlación y auditoría.
-- **Recuperación sin sobrescritura silenciosa:** movimientos y hechos críticos son append-only; las proyecciones no sustituyen su fuente.
-- **Conflictos visibles:** no se usa `last-write-wins` como política genérica ni el reloj local como autoridad global.
-- **Runtime físico explícito:** Electron presenta la UI; POS Local Service ejecuta dominio, SQLite, hardware y recuperación.
-- **Producción pagada:** recursos gratuitos se limitan a desarrollo, CI, sandbox o demos sin datos reales.
-- **Proveedores mediante adaptadores:** Factus, Siigo, datáfonos y hardware no definen entidades del dominio.
+- monolito modular;
+- TypeScript estricto;
+- pnpm workspaces + Nx cuando se materialice el runtime;
+- API central NestJS con Fastify;
+- Electron + React + Vite para el POS de escritorio;
+- POS Local Service Node.js/TypeScript como servicio de Windows;
+- PostgreSQL 16 central;
+- SQLite/WAL local;
+- Kysely con migrations físicas separadas por dialecto;
+- Zod para contratos runtime cuando TECH-003 se materialice;
+- Vitest, Playwright, Testcontainers y k6 según el nivel de prueba;
+- OpenTelemetry para observabilidad futura;
+- Docker e infraestructura central pagada para entornos con datos reales.
 
-Las decisiones normativas están registradas en [docs/adr](docs/adr/).
+La PWA puede existir como laboratorio o capacidad web central; no es la autoridad productiva de caja, hardware o SQLite local.
 
-## Estado de capacidades
+## Principios
 
-| Capacidad | Contrato o diseño | Implementación física objetivo |
-|---|---|---|
-| Tenancy, empresas, sucursales e identidad global | Definido en Fase 0 | Pendiente |
-| RBAC, ABAC, permisos y auditoría | Definido en Fase 0 | Pendiente |
-| Catálogo, pricing, promociones e impuestos | Definido en Fase 0 | Pendiente |
-| Inventario, ventas, caja y pagos | Casos de uso e invariantes definidos | Pendiente |
-| Dispositivos y licenciamiento | Contratos y decisiones definidos | Pendiente |
-| Local-first y sincronización | Autoridad, idempotencia, conflictos y recuperación definidos | Pendiente |
-| Runtime Electron y servicio local | Stack, procesos, IPC y seguridad definidos | Pendiente |
-| Facturación electrónica | Arquitectura neutral y `UC-EINV-001` definidos | Pendiente; sin certificación ni proveedor productivo habilitado |
-| Integraciones externas | `ExternalIntegration`, capabilities, mappings, ownership, discovery, dispatch, webhook, rate limits y evidencia materializados en migration 002 | `MAT-002-MATERIALIZATION = PASS`; 16 tablas PostgreSQL centrales, 12 RLS/FORCE, SQLite NONE y dispatch solo `NON_FISCAL`; sin adapters reales/verificados |
-| Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
-| Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
-| CI y validación automática de la arquitectura objetivo | Estrategia definida | Gate mínimo de fundación `MATERIALIZED / EXECUTED / PASS`; evidencia y límites en `docs/testing/target-foundation-ci-gate.md`. El pipeline integral continúa pendiente. |
-| Domicilios e integraciones especializadas | Alcance previsto o diferido | Pendiente y fuera del primer núcleo |
+- **Una sola base de código:** no existen forks por tipo de comercio ni una arquitectura paralela para `LOCAL_PERPETUAL`.
+- **Ownership explícito:** cada bounded context posee sus reglas y datos; no escribe directamente tablas internas de otro módulo.
+- **Multi-tenancy por diseño:** tenant/company/branch se derivan y validan desde contexto autorizado; un ID enviado por cliente no constituye autoridad.
+- **Local-first:** una venta ordinaria autorizada no depende de Internet para confirmarse.
+- **Único writer SQLite:** el POS Local Service será el único proceso escritor de la base local.
+- **Idempotencia:** operaciones críticas conservan identidad, checksum, causalidad y evidencia de retry.
+- **Sin last-write-wins genérico:** el reloj local no decide autoridad global.
+- **Append-only/compensación:** hechos financieros, inventario y auditoría no se corrigen mediante sobrescritura destructiva cuando el contrato exige historia.
+- **Providers neutrales:** Factus, Siigo, datáfonos o hardware se integran mediante adapters; no definen el dominio canónico.
+- **Claims verificables:** `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APPLIED` y `PRODUCTION_READY` son niveles distintos.
 
-## Arquitectura documental
+## Módulos
 
-| Ruta | Propósito |
-|---|---|
-| [`docs/product`](docs/product/) | Visión, alcance, roles, requisitos no funcionales y backlog maestro. |
-| [`docs/architecture`](docs/architecture/) | Contexto, módulos, tenancy, seguridad, despliegue, propiedad y modelo conceptual de datos. |
-| [`docs/adr`](docs/adr/) | Decisiones arquitectónicas y políticas normativas aceptadas. |
-| [`docs/domain`](docs/domain/) | Glosario, reglas, eventos, motor comercial y modelos de estado. |
-| [`docs/security`](docs/security/) | Permisos, políticas RBAC/ABAC, secretos, claves, soporte controlado y pruebas negativas. |
-| [`docs/hardware`](docs/hardware/) | Matriz de equipos, adaptadores, evidencia y certificación. |
-| [`docs/testing`](docs/testing/) | Estrategia de pruebas para integridad, seguridad, concurrencia, offline y recuperación. |
-| [`docs/migration`](docs/migration/) | Manifests, orden, integridad y estrategia de migrations TARGET. |
-| [`docs/use-cases`](docs/use-cases/) | Contratos funcionales, flujos alternos, invariantes y pruebas mínimas por capacidad. |
+La granularidad canónica está en [module-map.md](docs/architecture/module-map.md).
 
-## Estructura actual del repositorio
+Fundación:
+
+- Identity, Tenants, Companies, Branches, Authorization, Devices, Licensing, Audit, Sync.
+
+Núcleo comercial:
+
+- Catalog, Pricing, Tax, Inventory, Purchasing, Suppliers, Sales, Payments, Cash Register, Customers, Reporting.
+
+Operación extendida:
+
+- Orders, Delivery, Couriers, Notifications, Hardware, Support, Subscriptions, External Integrations, Electronic Invoicing.
+
+`Categories`, `Product Codes`, `Units` y `Lots` son subcapacidades de owners existentes; no bounded contexts paralelos.
+
+## Runtime objetivo
+
+```text
+Renderer React
+    |
+    | preload allowlisted
+    v
+Electron main
+    |
+    | canal local autenticado/versionado
+    v
+POS Local Service
+    |-- dominio y casos de uso locales
+    |-- SQLite/WAL
+    |-- outbox/sync
+    |-- impresión
+    |-- hardware
+    |-- backup/restore
+    |-- dispositivo/licencia
+    `-- actualización/diagnóstico
+```
+
+El renderer no abre SQLite, no ejecuta reglas financieras y no accede directamente a hardware o secretos.
+
+## Estructura actual
 
 ```text
 pos-platform/
-|-- docs/                 # Fuente de verdad documental de POS Platform
-|-- poc/                  # Laboratorios aislados de modelo físico y RLS
-|-- tools/target-migrations/ # Harness TARGET, migrations 001/002 y tooling MAT-003
-|-- package.json          # Comandos del workspace TARGET
-|-- pnpm-workspace.yaml   # Workspace limitado actualmente a tools/*
-|-- pnpm-lock.yaml        # Dependencias reproducibles del tooling TARGET
-|-- tsconfig.base.json    # Configuración TypeScript compartida
-|-- .gitattributes        # UTF-8, LF y tratamiento de binarios
-`-- .editorconfig         # Convenciones de edición reproducibles
+|-- .github/workflows/             # CI TARGET vigente
+|-- docs/                          # fuentes normativas y evidencia documental
+|-- poc/                           # laboratorios aislados, no runtime
+|-- tools/ci/                      # repository/supply-chain policy
+|-- tools/target-migrations/       # migrations 001/002 + tooling MAT-003
+|-- package.json
+|-- pnpm-workspace.yaml
+|-- pnpm-lock.yaml
+`-- tsconfig.base.json
 ```
 
-`apps/` y `packages/` todavía no existen. Tampoco existen paquetes físicos que materialicen el runtime o los módulos de aplicación de la arquitectura objetivo.
+`apps/` y `packages/` de la arquitectura objetivo todavía no existen.
 
-## Stack objetivo aprobado
+## CI vigente
 
-La selección normativa está cerrada en [`ADR-005`](docs/adr/ADR-005-target-technology-stack.md):
+El gate actual está documentado en:
 
-| Capa | Tecnología objetivo | Estado físico |
-|---|---|---|
-| Lenguaje y monorepo | TypeScript estricto, pnpm workspaces y Nx | Harness pnpm/TypeScript parcial; Nx y monorepo de aplicación pendientes |
-| API central | NestJS con Fastify, monolito modular | Pendiente |
-| POS productivo | Electron, React y Vite | Pendiente |
-| PWA del POS | React/Vite con `IndexedDB`, `sql.js` o SQLite/WASM solo para laboratorio sintético | Prohibida como runtime o persistencia productiva |
-| Servicio local | Node.js/TypeScript como servicio de Windows | Pendiente |
-| Persistencia | PostgreSQL 16 central y SQLite/WAL local | Migrations 001/002 materializadas, probadas e inmutables; SQLite actual limitado al ledger local; siguientes cortes requieren manifest y autorización aditivos |
-| Acceso a datos | Kysely con migraciones separadas por dialecto | Materializado solo en el harness de migrations 001/002; repositorios de aplicación pendientes |
-| Contratos | TypeScript y Zod | Pendiente |
-| Pruebas | Vitest, Playwright, Testcontainers y k6 | Vitest materializado en el harness de migraciones; resto pendiente |
-| Observabilidad | OpenTelemetry | Pendiente |
-| Infraestructura | Docker, object storage compatible con S3 y proveedor central pagado | Pendiente |
+- [TARGET foundation CI](docs/testing/target-foundation-ci-gate.md);
+- [Supply-chain baseline](docs/testing/supply-chain-baseline-ci-gate.md).
 
-Las versiones exactas se fijarán mediante manifiestos, lockfile, imágenes y CI al crear el esqueleto. Este cuadro representa decisiones, no una implementación existente.
+El workflow corre en PRs hacia `main`, pushes a `main` y dispatch manual. Es commit-scoped.
 
-La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; de forma separada, canonical-role readiness quedó `APPLIED / REVIEWED` y el preflight canónico `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. La ejecución fue read-only y produjo cero mutaciones durables; ninguna migration implementa adapters ni verifica providers.
+El control `Main push governance` es **detectivo**, no branch protection preventiva.
 
-El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml` ni un archivo de licencia. Contiene un gate CI mínimo para la fundación TARGET; no equivale al pipeline integral de producto.
+## Branch protection
+
+El repositorio es privado y el plan GitHub vigente no habilita branch protection/rulesets preventivos para este caso. GitHub reporta `main` sin protección nativa.
+
+Mientras esa limitación exista, el proyecto exige merge normal mediante PR, SHA esperado, CI del HEAD exacto y verificación post-merge. Véase [repository-governance.md](docs/governance/repository-governance.md).
+
+No se hará público el repositorio únicamente para obtener protección de ramas.
+
+## SQL003 / facturación electrónica
+
+Migration 003 está bloqueada antes de materialización.
+
+- PR #4 contiene una propuesta de reconciliación contractual y permanece draft/bloqueada por revisión independiente no disponible por cuota.
+- `wip/sql003-contract-gap-20260825` es evidencia histórica y `NOT_INTEGRABLE`.
+- Un manifest fiscal documental anterior no autoriza escribir SQL mientras existan contract gaps abiertos.
+- No se integrará ni cherry-pickeará completo el WIP histórico.
 
 ## Desarrollo local
 
-La arquitectura objetivo de POS Platform aún no puede iniciarse de extremo a extremo. El repositorio permite validar únicamente el tooling TARGET materializado:
+El repositorio permite validar el tooling TARGET existente, pero no iniciar el producto completo extremo a extremo.
+
+Comandos existentes incluyen, entre otros:
 
 ```powershell
 pnpm typecheck
 pnpm test:migrations:sqlite
+pnpm test:migrations:postgres
 ```
 
-Las pruebas PostgreSQL, preflight, role-readiness y cualquier operación de infraestructura requieren sus propios entornos y autorizaciones. Ninguna de estas capacidades acredita todavía un runtime de aplicación completo.
+La validez de un comando y su resultado se reportan solo cuando se ejecutan realmente en el entorno correspondiente.
 
-## Secuencia técnica inmediata
+GitHub remoto no demuestra `git status`, Docker, PostgreSQL ni procesos del equipo local. Sin verificación local actual, esos estados son `NOT_EVALUATED / REQUIRES_LOCAL_VERIFICATION`.
 
-La validación fresca, preparación del ambiente, canonical-role readiness, ejecución/revisión del preflight canónico y revisión externa del checkpoint operacional sanitizado cerraron `PASS`. El checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente; el working tree quedó `CLEAN` y el upstream `0 behind / 0 ahead`.
+## Próximo trabajo
 
-Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
-
-La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` versionó la separación del runtime y la documentación operativa anterior, y `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` reconcilió su estado documental. La PR #3 fue revisada y fusionada mediante merge normal en `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`; `architecture/physical-model` ya incorpora la limpieza. La PR #2 es la única ruta autorizable desde `architecture/physical-model` hacia `main`; su estado y HEAD vigentes en GitHub son la evidencia operacional de esa transición.
-
-El gate CI mínimo ya está materializado y ha cerrado `PASS` sobre los HEAD revisados. Su evidencia es commit-scoped: cualquier commit nuevo requiere una ejecución aplicable exitosa antes de usar `CI = PASS` como gate de integración.
-
-La secuencia técnica vigente continúa así:
-
-1. mantener `CI = PASS` sobre el HEAD vigente de `architecture/physical-model` y revisar cualquier delta posterior;
-2. confirmar que el diff final hacia `main` no incorpora el WIP SQL 003 ni trabajo fuera del alcance revisado;
-3. únicamente después de revisión final `PASS`, mantener la PR #2 en estado ready para revisión;
-4. integrar la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
-5. verificar después del merge el SHA integrado, el cierre de la PR y la relación entre ramas;
-6. reanudar en una tarea separada el contrato SQL 003 sobre el baseline canónico limpio.
-
-En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
-
-## Calidad y seguridad
-
-La estrategia objetivo exige pruebas unitarias, de integración, contrato y extremo a extremo, además de escenarios negativos de permisos, aislamiento entre tenants, concurrencia, reintentos, recuperación y operación offline. Estos son requisitos documentados para la implementación futura; no se presentan como cobertura ya disponible.
-
-Las reglas de seguridad requieren autorización en backend, mínimo privilegio, RBAC/ABAC, segregación de funciones, reautenticación para cambios sensibles, auditoría append-only y aislamiento por tenant, empresa y sucursal. La implementación de este modelo continúa pendiente.
-
-## Documentación principal
-
-- [Visión del producto](docs/product/vision.md)
-- [Alcance inicial](docs/product/scope.md)
-- [Backlog maestro](docs/product/backlog.md)
-- [Requisitos no funcionales](docs/product/non-functional-requirements.md)
-- [Contexto del sistema](docs/architecture/system-context.md)
-- [Mapa de módulos](docs/architecture/module-map.md)
-- [Modelo multiempresa](docs/architecture/tenant-model.md)
-- [Modelo conceptual de datos](docs/architecture/conceptual-data-model.md)
-- [Modelo de seguridad](docs/architecture/security-model.md)
-- [Stack tecnológico objetivo](docs/adr/ADR-005-target-technology-stack.md)
-- [Runtime productivo del POS](docs/adr/DEC-010-pos-runtime.md)
-- [Línea base operacional](docs/adr/DEC-009-operational-production-baseline.md)
-- [Contratos de integración](docs/architecture/integration-contracts.md)
-- [Documentos electrónicos](docs/architecture/electronic-invoicing.md)
-- [Matriz de hardware](docs/hardware/support-matrix.md)
-- [Secretos, claves y soporte](docs/security/secret-key-and-support-management.md)
-- [Reglas de negocio](docs/domain/business-rules.md)
-- [Matriz de permisos](docs/security/permission-matrix.md)
-- [Estrategia de pruebas](docs/testing/testing-strategy.md)
-- [Gate CI mínimo TARGET](docs/testing/target-foundation-ci-gate.md)
-
-POS Platform está en desarrollo activo. El repositorio no publica todavía una licencia de uso.
+La cola exacta y sus gates están en [docs/product/backlog.md](docs/product/backlog.md). No se salta directamente al runtime mientras existan reconciliaciones/gates previos vigentes.

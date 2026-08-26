@@ -1,165 +1,235 @@
 # Contrato de implementación para Fase 1
 
-## Propósito y alcance
+## Propósito
 
-Este documento establece reglas obligatorias para cualquier cambio de implementación de Fase 1. Complementa el backlog, las decisiones ADR/DEC y los contratos de arquitectura, dominio, seguridad y casos de uso; no los sustituye ni autoriza por sí mismo trabajo que el backlog mantenga bloqueado, planificado o fuera de alcance.
+Este documento establece reglas obligatorias para cualquier cambio de implementación o tooling de Fase 1.
 
-El stack objetivo aprobado por `ADR-005` utiliza TypeScript estricto, Node.js, NestJS, pnpm, Nx, Kysely, PostgreSQL y SQLite. El runtime de aplicación aún no está materializado; estas reglas no autorizan migrations, DDL, módulos especulativos ni adopción silenciosa de código externo o anterior.
+Su objetivo es impedir arquitectura paralela, código especulativo, claims falsos, cambios sin trazabilidad, ramas huérfanas y decisiones contradictorias entre documentación y código.
 
-Antes de modificar código se debe comprobar la rama, el estado Git, el trabajo vigente del backlog, sus dependencias, los artefactos existentes y las fuentes normativas aplicables. No se duplica un concepto ya existente ni se adelanta una capacidad no autorizada.
+## Autoridad normativa
 
-Si dos fuentes normativas se contradicen, el trabajo se detiene y se informa la contradicción con archivo, sección, alternativas y efecto. No se resuelve arbitrariamente mediante código.
+Antes de modificar código se consulta, en este orden:
 
-## Autoridad normativa y alcance del cambio
+1. `docs/product/backlog.md` para estado, prioridad, bloqueo y orden inmediato;
+2. ADR/DEC aceptadas;
+3. `docs/architecture/module-map.md` y `docs/architecture/data-ownership.md` para límites y ownership;
+4. contratos de arquitectura/physical model aplicables;
+5. reglas de dominio y casos de uso;
+6. security gates aplicables;
+7. estrategia de pruebas y contratos de migrations;
+8. `docs/governance/repository-governance.md` para ramas, PRs y merge.
 
-1. `docs/product/backlog.md` determina orden, estado, prioridad y autorización del trabajo.
-2. Las decisiones ADR/DEC cerradas y los documentos normativos aplicables determinan arquitectura e invariantes.
-3. Los casos de uso y las reglas de negocio determinan comportamiento; la persistencia y las interfaces no pueden redefinirlo.
-4. Cada tarea modifica únicamente los archivos necesarios para sus criterios de aceptación.
-5. No se refactoriza, renombra, mueve o reformatea código no relacionado.
-6. No se adapta una implementación externa para aparentar que implementa la arquitectura objetivo.
-7. No se crean migraciones o DDL mientras el gate correspondiente permanezca en `NO-GO`.
-8. No se hace commit ni push salvo autorización explícita.
+Si dos fuentes normativas vigentes se contradicen, el trabajo afectado se detiene y la contradicción se reconcilia antes de implementar. No se resuelve silenciosamente mediante código.
+
+## Estado real antes de editar
+
+Antes de un cambio se debe determinar explícitamente:
+
+- baseline remoto y branch objetivo;
+- elemento de backlog asociado;
+- alcance exacto;
+- artifacts existentes;
+- gates aplicables;
+- dependencias y bloqueos;
+- archivos previstos.
+
+### GitHub remoto vs estado local
+
+GitHub remoto permite afirmar únicamente evidencia remota: refs, commits, PRs, workflows, diffs y configuración que el API exponga.
+
+No se declara desde GitHub remoto:
+
+- working tree local limpio;
+- staged/unstaged local;
+- upstream local;
+- Docker local;
+- PostgreSQL local;
+- procesos locales;
+- pruebas ejecutadas solo en el equipo local.
+
+Sin verificación local actual, esos estados son:
+
+`NOT_EVALUATED / REQUIRES_LOCAL_VERIFICATION`
+
+Un snapshot histórico de estado local no se convierte en un hecho presente.
+
+## Alcance del cambio
+
+1. Cada tarea modifica solo lo necesario para sus criterios de aceptación.
+2. No se refactoriza, renombra o reformatea trabajo no relacionado.
+3. No se importa una implementación externa/anterior para aparentar que implementa TARGET.
+4. No se crean migrations, DDL, providers o runtime cuando el gate aplicable esté bloqueado.
+5. No se crea una rama nueva si ya existe una rama activa para el mismo objetivo.
+6. No se deja una rama activa sin PR, objetivo vigente o condición de bloqueo documentada.
 
 ## Arquitectura
 
-1. La implementación objetivo aplica Clean Architecture y Ports & Adapters de forma verificable.
-2. `domain` contiene entidades, value objects, invariantes y servicios de dominio sin dependencias de framework, persistencia, transporte o proveedor.
-3. `application` contiene casos de uso y puertos propios. Puede depender de `domain`, pero no de adaptadores concretos.
-4. `infrastructure` implementa puertos y contiene persistencia, mensajería, proveedores externos y detalles técnicos.
-5. Las interfaces de entrada, incluidos controllers y handlers, validan y traducen contratos, invocan casos de uso y traducen resultados; no contienen reglas de negocio.
-6. La composición y la inyección de dependencias mediante NestJS pertenecen al composition root o a los módulos correspondientes.
-7. El dominio no importa NestJS, React, Electron, Kysely, drivers, adaptadores ni módulos de infraestructura.
-8. Un caso de uso no instancia infraestructura ni accede directamente a tablas internas de otro módulo.
-9. Los adaptadores implementan puertos; no convierten reglas específicas del proveedor en reglas del dominio.
-10. No se crea una arquitectura paralela ni se introducen capas, wrappers o abstracciones sin una necesidad actual verificable.
+1. TARGET aplica monolito modular, Clean Architecture y Ports & Adapters verificables.
+2. `domain` contiene entidades, value objects, invariantes y servicios sin framework, persistencia o provider.
+3. `application` contiene casos de uso y puertos; depende de `domain`, no de adaptadores concretos.
+4. `infrastructure` contiene persistencia, mensajería, hardware y providers que implementan puertos.
+5. Controllers/handlers validan y traducen contratos; no contienen reglas de negocio.
+6. El composition root/NestJS ensambla dependencias; el dominio no importa NestJS, React, Electron, Kysely ni drivers.
+7. Un módulo no accede directamente a tablas internas de otro módulo.
+8. `module-map.md` define bounded contexts. Subcapacidades como Categories, Product Codes, Units o Lots no crean packages propietarios separados.
+9. External Integrations y Electronic Invoicing permanecen módulos diferentes con ownership explícito.
+10. No se crean microservicios, Kafka, Redis, Kubernetes u otra infraestructura preventiva sin evidencia que lo justifique.
 
-## TypeScript del stack objetivo
+## TypeScript
 
-1. TypeScript utiliza `strict: true`.
-2. No se usa `any` salvo necesidad técnica inevitable, localizada y justificada explícitamente.
-3. No se usa `@ts-ignore` para ocultar errores de tipos.
-4. No se usan non-null assertions innecesarias.
-5. Las entradas externas se validan en runtime en la frontera correspondiente.
-6. Estados, decisiones, códigos e identidades de dominio se modelan mediante tipos, enums o value objects cuando corresponda.
-7. No se sustituyen invariantes mediante type casts ni se aceptan objetos parcialmente válidos dentro del dominio.
-8. Los contratos compartidos mantienen versionado y compatibilidad según las decisiones aplicables.
-
-Estas reglas no autorizan convertir implementaciones externas a TypeScript fuera de una tarea expresamente aprobada.
-
-## Calidad y mantenibilidad
-
-1. No se crean God Services, archivos gigantes o funciones de cientos de líneas sin una justificación técnica revisable.
-2. Cada módulo conserva responsabilidades cohesivas y fronteras explícitas.
-3. No se duplican invariantes, decisiones de autorización, cálculos ni normalizaciones.
-4. No se usan magic strings para estados, eventos, permisos, capacidades, errores u otros conceptos de dominio.
-5. No se agrega código muerto, abstracciones especulativas ni patrones "por si acaso".
-6. No se agregan comentarios que solo repitan el código.
-7. El código, los logs y la documentación técnica no incluyen emojis, etiquetas decorativas ni texto ornamental.
-8. Las excepciones y errores de dominio utilizan contratos estables y no dependen de mensajes libres como interfaz técnica.
+1. `strict: true`.
+2. `any` solo ante necesidad inevitable, localizada y documentada.
+3. No se usa `@ts-ignore` para ocultar errores.
+4. No se usan type casts para saltar invariantes.
+5. Entradas externas se validan en runtime en su frontera.
+6. Estados, códigos, permisos y errores críticos usan contratos estables, no magic strings dispersos.
+7. Zod u otro schema aprobado valida contratos compartidos cuando TECH-003 los materialice.
 
 ## Datos, tenancy e integridad
 
-1. El dinero y las cantidades que exijan exactitud decimal nunca se representan ni persisten con `float`, `double` o tipos binarios equivalentes.
-2. Todo recurso multi-tenant conserva `tenant_id` en las fronteras y relaciones exigidas por el modelo normativo.
-3. Un `tenant_id` suministrado libremente por el cliente no constituye autoridad. Debe validarse contra identidad autenticada, pertenencia, sesión y contexto autorizado.
-4. Ninguna consulta, escritura, relación, caché, evento, idempotency key o snapshot puede producir acceso o contaminación entre tenants.
-5. Las relaciones con Company y Branch deben comprobar que todas las identidades pertenecen al mismo tenant.
-6. No se borran silenciosamente entidades relacionadas ni hechos confirmados cuando el contrato exige historial, compensación o append-only.
-7. La idempotencia es obligatoria donde la especificación la exige y debe persistir evidencia suficiente para responder reintentos.
-8. Los timestamps son evidencia temporal; no se usan como regla genérica de resolución de conflictos, autoridad o last-write-wins.
-9. Las operaciones local-first conservan identidad global, tenant, versión, causalidad y evidencia de reconciliación según `DEC-007`.
-10. PostgreSQL y SQLite mantienen migraciones y pruebas físicas separadas cuando el modelo objetivo las autorice.
+1. Dinero/cantidades exactas no usan tipos binarios de punto flotante como autoridad.
+2. Todo recurso tenant-scoped conserva las identidades exigidas por el modelo.
+3. Un `tenant_id` enviado libremente por cliente nunca constituye autoridad.
+4. Relaciones tenant/company/branch/device se validan contra contexto autorizado y constraints cuando apliquen.
+5. Ninguna caché, idempotency key, evento, snapshot o query puede contaminar tenants.
+6. Hechos financieros, inventario, auditoría y evidencia no se reescriben destructivamente cuando el contrato exige append-only/compensación.
+7. Idempotencia persiste identidad y evidencia suficiente para reintentos.
+8. Timestamps son evidencia, no política genérica de autoridad ni `last-write-wins`.
+9. PostgreSQL y SQLite conservan migrations/pruebas físicas separadas.
+
+## Local-first
+
+1. Operaciones críticas conservan `operation_id`, idempotency key, checksum, causalidad y versión esperada.
+2. El reloj del dispositivo no es autoridad global.
+3. Un timeout no equivale a fallo ni éxito.
+4. `UNKNOWN_OUTCOME` requiere consulta/reconciliación antes de retry con efecto externo.
+5. Un hash simple no demuestra autenticidad frente a un atacante con control del almacenamiento local cuando el riesgo exige firma/prueba criptográfica.
 
 ## Seguridad
 
-1. No se hardcodean secretos, contraseñas, tokens, claves privadas, API keys ni credenciales.
-2. No se incorporan secretos ni datos sensibles a código, fixtures, documentación, logs, errores o snapshots no autorizados.
-3. El backend revalida todas las entradas y decisiones críticas; no confía en permisos, estados o cálculos enviados por frontend.
-4. Autenticación, pertenencia al tenant, autorización y licenciamiento son decisiones distintas y ninguna sustituye a las demás.
-5. Se aplica mínimo privilegio en puertos, adaptadores, consultas y credenciales de infraestructura.
-6. Los cambios de seguridad incluyen pruebas negativas relevantes, especialmente para acceso cross-tenant y escalamiento de privilegios.
-7. `docs/security/security-gates.md` define los gates `SEC-G01` a `SEC-G10`; su estado documental no equivale a control implementado ni evidencia aprobada.
-8. Una funcionalidad crítica no está terminada solo porque compile o pase pruebas funcionales: debe satisfacer los security gates aplicables.
+1. No se hardcodean secretos, contraseñas, tokens, claves privadas o certificados utilizables.
+2. No se incorporan secretos/datos reales en fixtures, docs, logs o snapshots no autorizados.
+3. El backend revalida autenticación, tenant, autorización, licenciamiento y reglas críticas.
+4. Autenticación, pertenencia, autorización y licencia son decisiones distintas.
+5. Se aplica mínimo privilegio.
+6. Cambios críticos incluyen pruebas negativas cross-tenant y de escalamiento de privilegios cuando corresponda.
+7. `SEC-G01..SEC-G10` permanecen `NOT_EVALUATED` hasta existir evidencia ejecutable suficiente.
+8. Un CI verde de tooling no promueve security gates de runtime.
 
-## Evaluación de seguridad por módulo crítico
+## Migrations
 
-Antes de cerrar cualquier cambio crítico de Sales, Payments, Cash Register, Inventory, Licensing, Devices, Sync, Electronic Invoicing o Administration, el diseño, las pruebas y la entrega deben responder explícitamente:
+1. Artifacts 001/002 son inmutables después de materialización/revisión.
+2. Un down destructivo valida identidad/checksum/historial y dependencias antes de mutar.
+3. El ledger es autoridad de ejecución; no se introduce metadata paralela silenciosa.
+4. SQL/descriptor 003 no se crean mientras INT-006 esté bloqueado por contradicciones contractuales/revisión pendiente.
+5. El WIP histórico SQL003 no se integra ni cherry-pickea completo.
+6. Un manifest documental no equivale a SQL, apply, provider integration o cumplimiento normativo.
 
-1. si puede leer, modificar, borrar, referenciar o ejecutar sobre otro tenant;
-2. qué actor, permiso y alcance pueden ejecutarlo;
-3. si puede repetirse y cómo conserva idempotencia;
-4. si admite replay, duplicado o reordenamiento y cómo se rechazan;
-5. cómo se detecta payload manipulado y cuándo exige autenticidad fuerte;
-6. qué autoridad decide conectado y offline;
-7. qué se audita y qué señales antifraude produce;
-8. si toca secretos, credenciales o datos sensibles;
-9. qué ocurre ante fallo parcial, timeout o incertidumbre;
-10. si requiere segregación, aprobación superior, reautenticación o MFA.
+## Providers e integraciones
 
-Cada respuesta debe enlazar amenaza, control, prueba futura o ejecutada y evidencia. “No aplica” requiere justificación explícita. Un checksum simple no demuestra autenticidad ante un atacante que controla SQLite; cuando el riesgo exige autenticidad fuerte se utiliza la identidad criptográfica definida por `DEC-008` o una decisión posterior equivalente.
+1. Providers se implementan detrás de puertos neutrales.
+2. DTO/provider status no se convierten en entidades/estados canónicos del dominio.
+3. IDs externos viven en mappings definidos; no se añaden columnas `siigo_*`, `factus_*`, `alegra_*` a entidades canónicas.
+4. Un provider nunca modifica directamente Sale, Payment, Cash Register, Tax o Inventory.
+5. `Connected` no equivale a credencial vigente, capability verificada ni readiness productiva.
+6. Mock/sandbox no se presenta como integración productiva.
 
-## Dependencias e infraestructura
+## Calidad y mantenibilidad
 
-1. No se agrega una dependencia sin una necesidad concreta, evidencia de mantenimiento y comprobación de que el repositorio no resuelve ya el problema.
-2. Las versiones se fijan conforme a `ADR-005` y a la política de lockfile cuando el esqueleto objetivo esté autorizado.
-3. No se introducen Kafka, Redis, microservicios, Kubernetes u otra infraestructura por anticipación.
-4. No se seleccionan proveedores o adaptadores definitivos cuando la decisión normativa permanece abierta.
-5. Una dependencia de framework o proveedor permanece fuera de `domain` y no redefine contratos funcionales.
+1. No se crean God Services, archivos gigantes o abstracciones especulativas sin necesidad revisada.
+2. Cada módulo conserva responsabilidad cohesiva.
+3. No se duplican invariantes, autorización, cálculos, normalización o ownership.
+4. No se agregan comentarios que solo repitan el código.
+5. Errores técnicos usan códigos estables; mensajes libres no son API.
+6. Antes de ampliar archivos de tooling grandes se evalúa extraer responsabilidades reales sin crear wrappers vacíos.
 
 ## Pruebas
 
-1. Todo comportamiento nuevo incluye pruebas relevantes para sus reglas, invariantes y casos límite.
-2. Se priorizan pruebas de negocio, aislamiento multi-tenant, autorización, idempotencia, concurrencia, compensación y recuperación sobre tests cosméticos de getters.
-3. No se modifican pruebas para aceptar comportamiento incorrecto ni se eliminan aserciones para ocultar una regresión.
-4. Las pruebas existentes deben continuar pasando o cualquier fallo previo debe documentarse con evidencia reproducible.
-5. Las reglas deterministas del dominio deben probarse sin infraestructura externa.
-6. Las restricciones dependientes del dialecto deben validarse por separado en PostgreSQL y SQLite cuando existan adaptadores y migraciones autorizados.
-7. Los fixtures no contienen secretos ni datos reales y mantienen separación explícita entre tenants.
+Todo comportamiento nuevo incluye pruebas proporcionales para:
 
-## Procedimiento obligatorio de cambio
+- reglas e invariantes;
+- aislamiento multi-tenant;
+- autorización;
+- idempotencia;
+- concurrencia;
+- compensación;
+- recuperación;
+- errores/resultado incierto;
+- diferencias de dialecto cuando apliquen.
 
-Antes de editar:
+No se eliminan aserciones ni se modifica una prueba para aceptar comportamiento incorrecto.
 
-1. verificar rama y `git status`;
-2. identificar el elemento del backlog y comprobar que está autorizado;
-3. leer las fuentes normativas aplicables;
-4. buscar implementaciones, modelos, contratos y migraciones existentes;
-5. enumerar los archivos exactos que se crearán o modificarán y justificar cada uno;
-6. detenerse si existe una contradicción normativa o un gate en `NO-GO`.
+Cuando el stack afectado disponga de scripts, la validación mínima incluye:
 
-Durante la implementación:
+- tests relevantes;
+- typecheck;
+- lint cuando exista;
+- build cuando exista;
+- validaciones de migration por dialecto cuando apliquen;
+- revisión del diff;
+- CI commit-scoped antes de merge.
 
-1. mantener el cambio mínimo y dentro del dominio autorizado;
-2. preservar cambios previos del usuario y no sobrescribir trabajo no relacionado;
-3. mantener las reglas de negocio fuera de controllers y adapters;
-4. añadir pruebas junto con el comportamiento;
-5. registrar cualquier deuda real sin crear trabajo especulativo para resolverla.
+No se inventa como ejecutado un comando ausente.
 
-## Validación y entrega
+## Commit, push y entrega
 
-Se ejecutan los scripts reales disponibles y proporcionales al cambio. Cuando existan en el stack afectado, la validación mínima incluye:
+No se hace commit/push/merge sin la autorización aplicable al flujo vigente.
 
-1. tests relevantes;
-2. suite completa cuando sea razonable;
-3. lint;
-4. typecheck y build;
-5. validaciones de migración por dialecto cuando estén autorizadas y sean aplicables;
-6. `git diff --check`;
-7. `git status --short`;
-8. revisión resumida del diff.
+La entrega no obliga a afirmar falsamente que no hubo commit o push. Debe reportar el estado real mediante uno de estos formatos:
 
-Para una versión o funcionalidad crítica se añade la evaluación de `SEC-G01` a `SEC-G10` que corresponda. Un gate en `FAIL`, `BLOCKED` o sin evaluar impide declarar aptitud productiva; una excepción `NOT_APPLICABLE` requiere justificación aprobada y versionada.
+- `COMMIT_PUSH = NO`;
+- `COMMIT_PUSH = YES / AUTHORIZED / branch=<rama> / sha=<sha>`.
 
-No se inventan comandos ausentes. Si el repositorio todavía no ofrece un script requerido, se informa como limitación y no se declara validado.
+Si hubo PR/merge:
 
-La entrega final debe indicar:
+- `PR = <número> / estado`;
+- `MERGE = YES|NO`;
+- `MAIN_AFTER_MERGE = <sha>` cuando aplique;
+- CI/reviews se reportan con SHA exacto.
 
-1. archivos creados y modificados;
-2. requisito implementado por cada archivo;
-3. invariantes y decisiones preservadas;
-4. comandos ejecutados y resultados concretos;
-5. deuda técnica real y decisiones pendientes;
-6. contradicciones encontradas;
-7. resumen del diff;
-8. confirmación de que no se hizo commit ni push.
+Nunca se dice `CLEAN`, `0/0`, `PASS`, `MERGED`, `PROTECTED` o `PRODUCTION_READY` sin evidencia correspondiente.
+
+## Procedimiento obligatorio
+
+### Antes de editar
+
+1. identificar el item de backlog;
+2. verificar baseline remoto y rama;
+3. leer fuentes normativas aplicables;
+4. buscar implementación/contrato existente para evitar duplicidad;
+5. enumerar archivos exactos y justificar alcance;
+6. detenerse si existe contradicción normativa o gate bloqueante.
+
+### Durante
+
+1. mantener el cambio acotado;
+2. preservar trabajo previo no relacionado;
+3. mantener reglas fuera de controllers/adapters;
+4. agregar pruebas junto al comportamiento;
+5. documentar deuda real sin inventar scope futuro.
+
+### Antes de integrar
+
+Aplicar `docs/governance/repository-governance.md`:
+
+- HEAD exacto;
+- base exacta;
+- CI del mismo SHA;
+- threads/reviews;
+- diff final;
+- alcance autorizado;
+- merge normal con `expected_head_sha`;
+- verificación post-merge.
+
+## Entrega final mínima
+
+La entrega debe indicar:
+
+1. archivos creados/modificados;
+2. requisito cubierto;
+3. invariantes preservados;
+4. validaciones reales y resultados;
+5. deuda/bloqueos vigentes;
+6. contradicciones encontradas y su estado;
+7. branch/PR/SHAs aplicables;
+8. commit/push/merge real, sin fórmula fija que contradiga los hechos.
