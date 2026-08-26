@@ -19,6 +19,7 @@ Los estados `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
 - Último baseline ejecutable registrado: validación TARGET fresca `145/145` sobre PostgreSQL 16.14 para migrations 001→002 y tooling vigente; ambas migrations permanecen `MATERIALIZED / TESTED / IMMUTABLE` y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
 - Último trabajo técnico completado: `MAT-003-PREFLIGHT` quedó `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION` mediante una transacción `REPEATABLE READ / READ ONLY`, lock global compartido y `ROLLBACK`, con los cinco blockers y el trust invariant en `PASS/count=0`, cero evidencia diagnóstica y cero mutaciones durables. Canonical-role readiness permanece `APPLIED / REVIEWED`; SQL/descriptor 003 están ausentes y migration 003 no está materializada. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`, y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Gate CI mínimo TARGET: `MATERIALIZED / EXECUTED / PASS` para la fundación vigente, con TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002 y tooling MAT-003. La evidencia y sus límites están en `docs/testing/target-foundation-ci-gate.md`; `TECH-004` continúa `IN_PROGRESS` porque Nx, lint, security scanning, licencias/SBOM, pruebas de runtime, release controls y pipeline integral siguen pendientes.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
 - El runtime TARGET NestJS/Fastify, Electron/React/Vite y POS Local Service permanece `ABSENT / NOT_MATERIALIZED`; no se contabiliza implementación externa o anterior como avance TARGET.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
@@ -341,7 +342,7 @@ Estado de la épica: `IN_PROGRESS`.
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
 | TECH-002 | `P0` | `DONE` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 y revisión final `PASS`; migration 001 fue materializada en `255d813` y es inmutable. Device-Licensing/Catalog siguen `IN_REVIEW`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
-| TECH-004 | `P0` | `IN_PROGRESS` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Gate mínimo de fundación en `.github/workflows/target-foundation-validation.yml`; ejecuta typecheck, SQLite, migrations PostgreSQL 001/002 y tooling MAT-003 sobre PostgreSQL 16.14. Nx, lint, seguridad, licencias y pipeline integral continúan pendientes. |
+| TECH-004 | `P0` | `IN_PROGRESS` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Gate mínimo `MATERIALIZED / EXECUTED / PASS` en `.github/workflows/target-foundation-validation.yml`, con evidencia en `docs/testing/target-foundation-ci-gate.md`; valida typecheck, SQLite, migrations PostgreSQL 001/002 y tooling MAT-003 sobre PostgreSQL 16.14. Nx, lint, seguridad, licencias/SBOM, runtime tests, release controls y pipeline integral continúan pendientes. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
 | TECH-006 | `P1` | `PLANNED` | Establecer datos de prueba, fixtures multi-tenant y pruebas de concurrencia/recuperación. | Depende de TECH-002 y TECH-004. |
 
@@ -353,15 +354,16 @@ Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una 
 
 La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` versionó la separación del runtime y la documentación operativa anterior, y `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` reconcilió su estado documental. La PR #3 fue revisada y fusionada mediante merge normal en `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`; `architecture/physical-model` ya incorpora la limpieza. La PR #2 es la única ruta autorizable desde `architecture/physical-model` hacia `main`; su estado y HEAD vigentes en GitHub son la evidencia operacional de esa transición.
 
+El gate CI mínimo quedó materializado y ejecutado con `PASS`; su evidencia es commit-scoped. Cualquier cambio posterior del HEAD exige una nueva ejecución aplicable antes de usar `CI = PASS` como gate de integración.
+
 La secuencia técnica vigente continúa así:
 
-1. primera ejecución y revisión del gate CI mínimo sobre el HEAD vigente de `architecture/physical-model`, con PostgreSQL 16.14, typecheck y SQLite;
-2. remediación y nueva ejecución si aparecen findings;
-3. únicamente después de `CI = PASS`, revisión final del diff completo entre `main` y el HEAD validado de `architecture/physical-model`;
-4. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
-5. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
-6. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
-7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
+1. mantener `CI = PASS` sobre el HEAD vigente de `architecture/physical-model` y revisar cualquier delta posterior;
+2. confirmar que el diff final hacia `main` no incorpora el WIP SQL 003 ni trabajo fuera del alcance revisado;
+3. únicamente después de revisión final `PASS`, mantener la PR #2 en estado ready para revisión;
+4. integrar la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
+5. verificar después del merge el SHA integrado, el cierre de la PR y la relación entre ramas;
+6. reanudar en una tarea separada el contrato SQL 003 sobre el baseline canónico limpio.
 
 En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
@@ -389,7 +391,7 @@ La implementación posterior debe respetar esos invariantes.
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
 | R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
 | R-010 | Media | External Integrations está materializado en migration 002, pero migration 003 fiscal, los adapters SIIGO/FACTUS/ALEGRA y la validación normativa/productiva no existen. | Mantener 002 `NON_FISCAL` e inmutable; completar la cadena canónica de readiness/preflight antes de autorizar 003 e implementar cada adapter sin modificar el dominio comercial, con evidencia autorizada independiente antes de promoverlo. |
-| R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra el runtime Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
+| R-011 | Media | El runtime TARGET de aplicación permanece `ABSENT / NOT_MATERIALIZED`; por tanto todavía no existe evidencia ejecutable de Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
 | R-012 | Media | Firma, custodia de claves y soporte están documentados, pero proveedores y PoC de protección local no están implementados. | Materializar los controles definidos por `SEC-004`, probar el perfil `OS_PROTECTED` o `DB_ENCRYPTED` y firmar artefactos antes del piloto. |
 
 ## Decisiones cerradas
@@ -444,7 +446,7 @@ Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, mi
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
 | F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `TECH-002` cerrado y migration 001 materializada/verificada en `255d813`; siguientes cortes son aditivos y requieren manifest/autorización independientes. Device-Licensing/Catalog conservan sus condiciones posteriores. |
 | F1.3 Seguridad e identidad | `PLANNED` | `SEC-G01` a `SEC-G10` formalizados pero no evaluados; requiere aislamiento multi-tenant probado, sesiones revocables, MFA crítico, permisos backend y evidencia de release. |
-| F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
+| F1.4 CI y calidad base | `IN_PROGRESS` | Gate mínimo TARGET `MATERIALIZED / EXECUTED / PASS`; lint, seguridad, licencias/SBOM, Nx y pipeline integral continúan pendientes. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
 | F1.6 Base local-first | `PLANNED` | Identificadores globales, outbox y reintento demostrados sin duplicación. |
 
@@ -588,5 +590,6 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 - 2026-08-25: `TECH-004` pasó a `IN_PROGRESS` con un gate CI mínimo y sin secretos para validar la fundación TARGET sobre PostgreSQL 16.14, TypeScript y SQLite. La primera ejecución y su revisión permanecen pendientes; esta materialización no declara el pipeline integral `DONE` ni autoriza merge en `main`.
 - 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y, en ese momento, la siguiente evaluación opcional pasó a ser Context7 mediante autorización separada.
 - 2026-08-24: Context7 fue configurado externamente con versión fijada y sin secretos; la validación runtime falló por timeout de handshake sin llamadas a sus herramientas y se determinó `NOT_REQUIRED`. El rollback controlado eliminó únicamente Context7, `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS` y el repositorio permaneció intacto. La siguiente transición requiere revisión y cierre de esta reconciliación documental.
+- 2026-08-25: el gate CI mínimo TARGET fue ejecutado y revisado con `PASS` en GitHub Actions sobre `architecture/physical-model`. Se registró evidencia commit-scoped en `docs/testing/target-foundation-ci-gate.md`; `TECH-004` permanece `IN_PROGRESS` y el pipeline integral continúa pendiente. La reconciliación de README/backlog corrige únicamente estados operacionales obsoletos y no promueve runtime, migration 003, providers ni security gates.
 
-Próxima transición obligatoria: ejecutar y revisar el gate CI mínimo sobre el HEAD vigente de `architecture/physical-model`. Solo después de `CI = PASS` y revisión final `PASS` podrá marcarse ready la PR #2; cualquier integración en `main` requiere el HEAD validado y autorización expresa. La reanudación del contrato SQL 003 seguirá siendo otra tarea separada y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.
+Próxima transición obligatoria: mantener `CI = PASS` sobre el HEAD resultante de la reconciliación documental, revisar el delta final y confirmar que el WIP SQL 003 permanece fuera. Solo después de esos gates podrá quedar ready la PR #2; cualquier integración en `main` requiere autorización expresa separada. La reanudación del contrato SQL 003 seguirá siendo otra tarea independiente y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.
