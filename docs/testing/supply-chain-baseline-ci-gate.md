@@ -31,7 +31,7 @@ El scanner nunca imprime el valor encontrado; solo ruta y clase del patrón.
 
 `artifacts/ci/dependency-inventory.json`
 
-El inventario contiene package, versión, metadata de licencia declarada, relación directa/transitiva y el commit GitHub cuando está disponible.
+El inventario contiene package, versión, metadata de licencia declarada, relación directa/transitiva y el SHA revisado cuando está disponible.
 
 El gate falla si:
 
@@ -41,13 +41,25 @@ El gate falla si:
 
 La lista restringida es un control preventivo del proyecto, no una conclusión jurídica.
 
-### 3. Evidencia de CI
+### 3. Trazabilidad del HEAD revisado
+
+En eventos `pull_request`, GitHub expone un merge ref sintético como `GITHUB_SHA`. Ese SHA no se usa como identidad del código revisado.
+
+El workflow define `REVIEWED_SHA` como el `pull_request.head.sha` real y usa ese valor para:
+
+- hacer checkout explícito del source revisado en ambos jobs;
+- registrar `sourceCommit` dentro del inventario;
+- nombrar el artefacto de evidencia.
+
+En `push` o `workflow_dispatch`, `REVIEWED_SHA` cae a `github.sha`.
+
+### 4. Evidencia de CI
 
 El workflow sube el inventario mediante `actions/upload-artifact` fijado a:
 
 `ea165f8d65b6e75b540449e92b4886f43607fa02` (`v4.6.2`).
 
-El artefacto se nombra con el SHA del commit y tiene retención limitada. La evidencia relevante sigue siendo la ejecución GitHub Actions asociada al HEAD revisado.
+El artefacto se nombra con el SHA revisado y tiene retención limitada. La evidencia relevante sigue siendo la ejecución GitHub Actions asociada al HEAD revisado.
 
 ## Controles deliberadamente pendientes
 
