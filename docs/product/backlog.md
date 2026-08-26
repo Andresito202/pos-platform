@@ -341,7 +341,7 @@ Estado de la épica: `IN_PROGRESS`.
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
 | TECH-002 | `P0` | `DONE` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 y revisión final `PASS`; migration 001 fue materializada en `255d813` y es inmutable. Device-Licensing/Catalog siguen `IN_REVIEW`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
-| TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
+| TECH-004 | `P0` | `IN_PROGRESS` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Gate mínimo de fundación en `.github/workflows/target-foundation-validation.yml`; ejecuta typecheck, SQLite, migrations PostgreSQL 001/002 y tooling MAT-003 sobre PostgreSQL 16.14. Nx, lint, seguridad, licencias y pipeline integral continúan pendientes. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
 | TECH-006 | `P1` | `PLANNED` | Establecer datos de prueba, fixtures multi-tenant y pruebas de concurrencia/recuperación. | Depende de TECH-002 y TECH-004. |
 
@@ -355,12 +355,13 @@ La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc
 
 La secuencia técnica vigente continúa así:
 
-1. revisión independiente del diff completo entre `main` y el HEAD vigente de `architecture/physical-model`;
-2. remediación y nueva revisión si aparecen findings;
-3. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
-4. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
-5. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
-6. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
+1. primera ejecución y revisión del gate CI mínimo sobre el HEAD vigente de `architecture/physical-model`, con PostgreSQL 16.14, typecheck y SQLite;
+2. remediación y nueva ejecución si aparecen findings;
+3. únicamente después de `CI = PASS`, revisión final del diff completo entre `main` y el HEAD validado de `architecture/physical-model`;
+4. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
+5. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
+6. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
+7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
 
 En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
@@ -584,7 +585,8 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 - 2026-08-24: canonical-role readiness completó `MISSING -> APPLY -> READY` con los dos grants aprobados, recibo lifecycle v1 durable y revisión independiente `PASS` sin findings. El estado promovido es `APPLIED / REVIEWED`; `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 siguen ausentes y migration 003 continúa `NOT_MATERIALIZED`.
 - 2026-08-24: `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION` y su revisión independiente cerraron `PASS` en `local-canonical-integration`. Los cinco blockers y `MAT003_AFFECTED_SCOPE_INTEGRITY` devolvieron `PASS/count=0`; no hubo evidencia diagnóstica ni mutaciones durables. El estado promovido es `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; SQL/descriptor 003 y fiscal schema permanecen ausentes; el conteo de entradas para migration 003 en el ledger permanece en `0`. Se conserva un LOW conocido/no bloqueante sobre el desempate final de evidencia.
 - 2026-08-25: se materializó la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`; quedó versionada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310`, reconciliada en `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` e integrada en `architecture/physical-model` mediante la PR #3 y `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`. POS Platform conserva arquitectura, contratos, tooling, migrations y evidencia TARGET; el runtime de aplicación continúa `ABSENT / NOT_MATERIALIZED`.
+- 2026-08-25: `TECH-004` pasó a `IN_PROGRESS` con un gate CI mínimo y sin secretos para validar la fundación TARGET sobre PostgreSQL 16.14, TypeScript y SQLite. La primera ejecución y su revisión permanecen pendientes; esta materialización no declara el pipeline integral `DONE` ni autoriza merge en `main`.
 - 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y, en ese momento, la siguiente evaluación opcional pasó a ser Context7 mediante autorización separada.
 - 2026-08-24: Context7 fue configurado externamente con versión fijada y sin secretos; la validación runtime falló por timeout de handshake sin llamadas a sus herramientas y se determinó `NOT_REQUIRED`. El rollback controlado eliminó únicamente Context7, `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS` y el repositorio permaneció intacto. La siguiente transición requiere revisión y cierre de esta reconciliación documental.
 
-Próxima transición obligatoria: revisión independiente del diff completo entre `main` y el HEAD vigente de `architecture/physical-model`, con remediación y nueva revisión si aparecen findings. Solo después de revisión `PASS` podrá marcarse ready la PR #2; cualquier integración en `main` requiere el HEAD revisado y autorización expresa. La reanudación del contrato SQL 003 seguirá siendo otra tarea separada y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.
+Próxima transición obligatoria: ejecutar y revisar el gate CI mínimo sobre el HEAD vigente de `architecture/physical-model`. Solo después de `CI = PASS` y revisión final `PASS` podrá marcarse ready la PR #2; cualquier integración en `main` requiere el HEAD validado y autorización expresa. La reanudación del contrato SQL 003 seguirá siendo otra tarea separada y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.

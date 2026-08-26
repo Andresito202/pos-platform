@@ -89,7 +89,7 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | Integraciones externas | `ExternalIntegration`, capabilities, mappings, ownership, discovery, dispatch, webhook, rate limits y evidencia materializados en migration 002 | `MAT-002-MATERIALIZATION = PASS`; 16 tablas PostgreSQL centrales, 12 RLS/FORCE, SQLite NONE y dispatch solo `NON_FISCAL`; sin adapters reales/verificados |
 | Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
 | Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
-| CI y validación automática de la arquitectura objetivo | Estrategia definida | Pendiente |
+| CI y validación automática de la arquitectura objetivo | Estrategia definida | Gate mínimo de fundación materializado; primera ejecución pendiente. El pipeline integral continúa pendiente |
 | Domicilios e integraciones especializadas | Alcance previsto o diferido | Pendiente y fuera del primer núcleo |
 
 ## Arquitectura documental
@@ -145,7 +145,7 @@ Las versiones exactas se fijarán mediante manifiestos, lockfile, imágenes y CI
 
 La persistencia objetivo utiliza un modelo lógico compartido con migraciones físicas separadas por dialecto y Kysely únicamente como executor. Véanse `ADR-005`, `DEC-007`, `docs/migration/first-target-migration-manifest.md`, `docs/migration/second-target-migration-manifest.md` y `docs/migration/third-target-migration-manifest.md`. Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`; migration 002 limita el dispatch a `NON_FISCAL`. El manifest de `INT-006` conserva nueve tablas fiscales, FK discriminada y habilitación atómica, pero SQL/descriptor 003 continúan ausentes. El tooling ejecutable de `MAT-003-PREFLIGHT` y canonical-role readiness está `MATERIALIZED / REVIEWED`; de forma separada, canonical-role readiness quedó `APPLIED / REVIEWED` y el preflight canónico `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. La ejecución fue read-only y produjo cero mutaciones durables; ninguna migration implementa adapters ni verifica providers.
 
-El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml`, pipeline de CI ni un archivo de licencia.
+El repositorio contiene el harness TARGET pnpm/TypeScript de migrations 001/002, el preflight MAT-003 y el lifecycle de canonical-role readiness. Todavía no contiene el runtime objetivo, `pyproject.toml` ni un archivo de licencia. Contiene un gate CI mínimo para la fundación TARGET; no equivale al pipeline integral de producto.
 
 ## Desarrollo local
 
@@ -168,12 +168,13 @@ La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc
 
 La secuencia técnica vigente continúa así:
 
-1. revisión independiente del diff completo entre `main` y el HEAD vigente de `architecture/physical-model`;
-2. remediación y nueva revisión si aparecen findings;
-3. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
-4. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
-5. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
-6. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
+1. primera ejecución y revisión del gate CI mínimo sobre el HEAD vigente de `architecture/physical-model`, con PostgreSQL 16.14, typecheck y SQLite;
+2. remediación y nueva ejecución si aparecen findings;
+3. únicamente después de `CI = PASS`, revisión final del diff completo entre `main` y el HEAD validado de `architecture/physical-model`;
+4. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
+5. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
+6. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
+7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
 
 En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
