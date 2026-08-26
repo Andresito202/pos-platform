@@ -368,4 +368,13 @@ describe("003 fiscal descriptor contract", () => {
     expect(sql).toContain("transaction_timestamp()>=connection_valid_until");
   });
 
+  it("requires atomic reprepare closure of predecessor preparation, dispatch and reserved numbering", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.validate_current_fiscal_preparation_invariant;
+    expect(sql).toContain("prior.preparation_state='CANCELLED'");
+    expect(sql).toContain("d.status<>'CANCELLED'");
+    expect(sql).toContain("d.fiscal_preparation_generation=current_generation-1");
+    expect(sql).toContain("prior.numbering_state='RESERVED'");
+    expect(sql).toContain("released-without-reuse or burned before reprepare commit");
+  });
+
 });
