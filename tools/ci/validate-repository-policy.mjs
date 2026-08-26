@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -11,6 +11,10 @@ function readJson(relativePath) {
 
 function addViolation(message) {
   violations.push(message);
+}
+
+function patternFromFragments(...fragments) {
+  return new RegExp(fragments.join(''));
 }
 
 const exactSemver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -78,26 +82,38 @@ const sensitiveBasenames = new Set([
 const sensitiveExtensions = new Set(['.pem', '.key', '.p12', '.pfx', '.jks', '.keystore']);
 
 const secretPatterns = [
-  ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/],
-  ['aws-access-key', /\bAKIA[0-9A-Z]{16}\b/],
-  ['github-classic-token', /\bgh[pousr]_[A-Za-z0-9]{30,}\b/],
-  ['github-fine-grained-token', /\bgithub_pat_[A-Za-z0-9_]{20,}\b/],
-  ['openai-secret-key', /\bsk-(?:proj|org|svcacct)-[A-Za-z0-9_-]{20,}\b/],
-  ['slack-token', /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/],
-  ['google-api-key', /\bAIza[0-9A-Za-z_-]{35}\b/],
-  ['jwt', /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/],
+  ['private-key', patternFromFragments('-'.repeat(5), 'BEGIN ', '(?:RSA |EC |OPENSSH )?', 'PRIVATE KEY', '-'.repeat(5))],
+  ['aws-access-key', patternFromFragments('\\bA', 'KIA', '[0-9A-Z]{16}\\b')],
+  ['github-classic-token', patternFromFragments('\\bgh', '[pousr]_', '[A-Za-z0-9]{30,}\\b')],
+  ['github-fine-grained-token', patternFromFragments('\\bgithub', '_pat_', '[A-Za-z0-9_]{20,}\\b')],
+  ['openai-secret-key', patternFromFragments('\\bs', 'k-', '(?:proj|org|svcacct)-', '[A-Za-z0-9_-]{20,}\\b')],
+  ['slack-token', patternFromFragments('\\bx', 'ox[baprs]-', '[A-Za-z0-9-]{20,}\\b')],
+  ['google-api-key', patternFromFragments('\\bAI', 'za', '[0-9A-Za-z_-]{35}\\b')],
+  ['jwt', patternFromFragments('\\bey', 'J[A-Za-z0-9_-]{10,}\\.', '[A-Za-z0-9_-]{10,}\\.', '[A-Za-z0-9_-]{10,}\\b')],
 ];
 
 for (const relativePath of trackedFiles) {
+  const absolutePath = path.join(root, relativePath);
   const base = path.basename(relativePath);
   const extension = path.extname(relativePath).toLowerCase();
+  const stats = lstatSync(absolutePath);
+
+  if (stats.isSymbolicLink()) {
+    addViolation(`${relativePath}: tracked symbolic links are forbidden in the current TARGET baseline`);
+    continue;
+  }
+
+  if (!stats.isFile()) {
+    addViolation(`${relativePath}: tracked entry must resolve to a regular file`);
+    continue;
+  }
 
   if (sensitiveBasenames.has(base) || sensitiveExtensions.has(extension)) {
     addViolation(`${relativePath}: sensitive credential/key file must not be tracked`);
     continue;
   }
 
-  const buffer = readFileSync(path.join(root, relativePath));
+  const buffer = readFileSync(absolutePath);
   if (buffer.includes(0)) {
     continue;
   }
