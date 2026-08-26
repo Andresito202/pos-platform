@@ -274,4 +274,13 @@ describe("003 fiscal descriptor contract", () => {
       .toContain("REFERENCES fiscal.fiscal_submission_attempts(tenant_id,company_id,external_integration_id,electronic_document_id,preparation_generation,id)");
   });
 
+  it("rejects NULL local numbering range fields under PostgreSQL three-valued CHECK logic", () => {
+    const constraint=FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["fiscal_emission_configuration_versions_numbering_ck"];
+    expect(constraint).toContain("number_range_start IS NOT NULL");
+    expect(constraint).toContain("number_range_end IS NOT NULL");
+    expect(constraint).toContain("next_number_value IS NOT NULL");
+    expect(constraint).toContain("numbering_policy_code IN ('AUTHORIZED_RANGE','LOCAL_CONTINGENCY')");
+    expect(constraint).toContain("next_number_value BETWEEN number_range_start AND number_range_end+1");
+  });
+
 });
