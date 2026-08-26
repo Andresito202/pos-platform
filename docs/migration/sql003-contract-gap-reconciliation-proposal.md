@@ -147,12 +147,12 @@ UNKNOWN
 
 Interpretación:
 
-- `NOT_SENT`: existe evidencia local suficiente de que la petición no salió al transporte;
-- `SENT`: la petición fue entregada al transporte y pudo llegar al provider;
-- `RESPONSE_RECEIVED`: existe respuesta de transporte/provider;
-- `UNKNOWN`: no puede probarse si fue transmitida.
+- `NOT_SENT`: existe evidencia local durable suficiente de que la petición no salió al transporte;
+- `SENT`: la petición fue entregada al transporte y pudo llegar al provider, sin evidencia terminal suficiente;
+- `RESPONSE_RECEIVED`: existe una respuesta verificable de transporte/provider; su significado de efectos externos depende del contrato versionado del adapter/provider y no del código HTTP por sí solo;
+- `UNKNOWN`: no puede probarse si fue transmitida o procesada.
 
-No se deriva este dato de HTTP status, provider code o timeout por sí solos.
+`transport_status` describe evidencia de transporte, no decide por sí mismo si un retry es seguro. HTTP status, provider code, timeout o excepción aislados nunca se convierten automáticamente en prueba de ausencia de efecto.
 
 ### 5.3 Clasificación de retry
 
@@ -166,11 +166,13 @@ NON_RETRYABLE
 
 Reglas:
 
-1. `FAILED + NOT_SENT + SAFE_RETRY` puede originar un nuevo attempt.
-2. `FAILED` con cualquier evidencia de posible transmisión no es válido: debe clasificarse `UNKNOWN_OUTCOME` o un terminal no reintentable según evidencia.
-3. `UNKNOWN_OUTCOME` siempre usa `RECONCILE_REQUIRED` y prohíbe retry ciego.
-4. `COMPLETED` es histórico terminal y no se reintenta.
-5. `CANCELLED` solo representa cancelación previa a completar y no se reescribe.
+1. `FAILED + NOT_SENT + SAFE_RETRY` puede originar un nuevo attempt cuando la evidencia local de no envío sea durable y verificable.
+2. `FAILED + RESPONSE_RECEIVED + SAFE_RETRY` solo es válido si el contrato versionado del adapter/provider y la evidencia concreta demuestran inequívocamente que no hubo efecto externo; un `4xx`, `5xx` o código provider aislado no basta.
+3. `SENT` o `UNKNOWN` sin evidencia concluyente de ausencia de efecto no admiten retry ciego: deben converger a `UNKNOWN_OUTCOME / RECONCILE_REQUIRED` o a un terminal no reintentable según evidencia autoritativa.
+4. `UNKNOWN_OUTCOME` siempre conserva `RECONCILE_REQUIRED` hasta que consulta/reconciliation produzca evidencia concluyente; el attempt histórico no se reescribe para ocultar que fue incierto.
+5. Si una reconciliation posterior demuestra ausencia inequívoca de procesamiento, puede autorizar un retry nuevo del mismo dispatch submit sin reescribir el attempt `UNKNOWN_OUTCOME` anterior.
+6. `COMPLETED` es histórico terminal y no se reintenta.
+7. `CANCELLED` solo representa cancelación previa a completar y no se reescribe.
 
 ### 5.4 Retry como fila nueva
 
@@ -210,7 +212,7 @@ FISCAL_ATTEMPT_V1
 
 - reejecutar la misma fila/attempt por recuperación local usa la misma key y checksum;
 - crear un retry real dentro del mismo dispatch incrementa `attempt_number` y obtiene una nueva key;
-- no se crea un nuevo attempt cuando existe `UNKNOWN_OUTCOME` hasta que reconciliation produzca evidencia suficiente para autorizar una nueva intención o un retry seguro.
+- un `UNKNOWN_OUTCOME` no genera otro attempt hasta que reconciliation produzca evidencia suficiente para autorizar un retry seguro; cuando lo autoriza, el attempt incierto anterior permanece histórico.
 
 Esta separación reconcilia la intención durable del dispatch con la unicidad física de attempts numerados y evita usar un mismo lifecycle de dispatch para submit, query y artifact recovery.
 
@@ -282,17 +284,18 @@ La remediación autoritativa posterior deberá hacer verificables, como mínimo,
 1. `logical_operation_key` es inmutable y no depende de `correction_source_reference` ni de otro material DRAFT-mutable.
 2. `correction_source_reference` puede cambiar en DRAFT sin alterar identidad.
 3. `FAILED` nunca se considera reintentable por `started_at IS NULL`.
-4. todo `UNKNOWN_OUTCOME` bloquea retry ciego.
-5. un retry seguro crea otra fila, incrementa `attempt_number` monotónicamente por dispatch y conserva el historial.
-6. cada `IntegrationDispatch` representa una sola intención central↔provider y conserva su propia idempotency root.
-7. attempt key es ejecución-específica y determinista dentro de su dispatch.
-8. `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` son los únicos operation types v1.
-9. submit, query y retrieve no comparten un lifecycle de dispatch; cada intención usa su dispatch fiscal idempotente.
-10. polling y reconciliation pueden orquestar QUERY/RETRIEVE sin convertirse en owners de attempts; webhook sigue inbound y los correctivos siguen siendo nuevos documentos.
-11. provider-specific behavior no se incorpora al dominio ni a migration 003.
-12. migration 001/002 permanecen byte-for-byte inmutables.
-13. SQLite 003 continúa `NONE`.
-14. SQL 003 continúa `ABSENT` hasta autorización de materialización separada.
+4. `transport_status` describe evidencia y no decide retry por sí solo; un código HTTP/provider aislado nunca demuestra ausencia de efecto.
+5. todo `UNKNOWN_OUTCOME` bloquea retry ciego y permanece histórico aun si reconciliation posterior autoriza un nuevo attempt.
+6. un retry seguro crea otra fila, incrementa `attempt_number` monotónicamente por dispatch y conserva el historial.
+7. cada `IntegrationDispatch` representa una sola intención central↔provider y conserva su propia idempotency root.
+8. attempt key es ejecución-específica y determinista dentro de su dispatch.
+9. `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` son los únicos operation types v1.
+10. submit, query y retrieve no comparten un lifecycle de dispatch; cada intención usa su dispatch fiscal idempotente.
+11. polling y reconciliation pueden orquestar QUERY/RETRIEVE sin convertirse en owners de attempts; webhook sigue inbound y los correctivos siguen siendo nuevos documentos.
+12. provider-specific behavior no se incorpora al dominio ni a migration 003.
+13. migration 001/002 permanecen byte-for-byte inmutables.
+14. SQLite 003 continúa `NONE`.
+15. SQL 003 continúa `ABSENT` hasta autorización de materialización separada.
 
 ## 8. Impacto esperado de una futura remediación autoritativa
 
@@ -318,8 +321,9 @@ La revisión debe responder explícitamente:
 
 - ¿la key lógica usa únicamente identidad inmutable?;
 - ¿dos correcciones legítimas pueden distinguirse sin material mutable?;
-- ¿la semántica `FAILED`/`UNKNOWN_OUTCOME` evita doble envío?;
+- ¿la semántica `FAILED`/`UNKNOWN_OUTCOME` evita doble envío sin impedir un retry respaldado por evidencia concluyente de no efecto?;
 - ¿`started_at` conserva un significado único?;
+- ¿`transport_status` y `retry_classification` tienen responsabilidades separadas?;
 - ¿dispatch idempotency y attempt idempotency están claramente separados?;
 - ¿`attempt_number` es monotónico por dispatch y compatible con `UNIQUE (tenant_id,integration_dispatch_id,attempt_number)`?;
 - ¿submit/query/retrieve usan dispatches separados por intención sin crear owners paralelos?;
