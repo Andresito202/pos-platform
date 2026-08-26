@@ -129,6 +129,8 @@ Reglas:
 
 ## Trabajo principal actual
 
+Excepción temporal documentada: no existe una línea principal `IN_PROGRESS` en este corte. INT-006 ya cerró; SQL/descriptor 003 continúan `BLOCKED` hasta autorización explícita y separada, y no se asignará otra línea principal por inferencia. El siguiente trabajo principal debe activarse mediante una decisión explícita sobre ese gate o una selección explícita de otra tarea `READY`.
+
 ### INT-006 — remediación contractual autoritativa de migration 003
 
 Prioridad: `P0`
@@ -158,7 +160,7 @@ Resultado cerrado:
 - preservar numeración histórica sin reuse;
 - mantener SQL003/descriptor003 ausentes; su diseño/materialización exige autorización separada posterior.
 
-Bundle candidato:
+Bundle autoritativo integrado:
 
 - `docs/migration/sql003-authoritative-contract-remediation-index.md`;
 - `docs/migration/sql003-authoritative-contract-codex-resolution.md`;
