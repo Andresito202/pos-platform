@@ -89,7 +89,7 @@ Las decisiones normativas están registradas en [docs/adr](docs/adr/).
 | Integraciones externas | `ExternalIntegration`, capabilities, mappings, ownership, discovery, dispatch, webhook, rate limits y evidencia materializados en migration 002 | `MAT-002-MATERIALIZATION = PASS`; 16 tablas PostgreSQL centrales, 12 RLS/FORCE, SQLite NONE y dispatch solo `NON_FISCAL`; sin adapters reales/verificados |
 | Hardware | Contratos y matriz de certificación definidos | Todos los modelos permanecen `UNTESTED` |
 | Infraestructura productiva | Entornos y controles pagados definidos en `DEC-009` | Pendiente de implementación y benchmark |
-| CI y validación automática de la arquitectura objetivo | Estrategia definida | Gate mínimo de fundación materializado; primera ejecución pendiente. El pipeline integral continúa pendiente |
+| CI y validación automática de la arquitectura objetivo | Estrategia definida | Gate mínimo de fundación `MATERIALIZED / EXECUTED / PASS`; evidencia y límites en `docs/testing/target-foundation-ci-gate.md`. El pipeline integral continúa pendiente. |
 | Domicilios e integraciones especializadas | Alcance previsto o diferido | Pendiente y fuera del primer núcleo |
 
 ## Arquitectura documental
@@ -166,15 +166,16 @@ Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una 
 
 La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` versionó la separación del runtime y la documentación operativa anterior, y `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` reconcilió su estado documental. La PR #3 fue revisada y fusionada mediante merge normal en `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`; `architecture/physical-model` ya incorpora la limpieza. La PR #2 es la única ruta autorizable desde `architecture/physical-model` hacia `main`; su estado y HEAD vigentes en GitHub son la evidencia operacional de esa transición.
 
+El gate CI mínimo ya está materializado y ha cerrado `PASS` sobre los HEAD revisados. Su evidencia es commit-scoped: cualquier commit nuevo requiere una ejecución aplicable exitosa antes de usar `CI = PASS` como gate de integración.
+
 La secuencia técnica vigente continúa así:
 
-1. primera ejecución y revisión del gate CI mínimo sobre el HEAD vigente de `architecture/physical-model`, con PostgreSQL 16.14, typecheck y SQLite;
-2. remediación y nueva ejecución si aparecen findings;
-3. únicamente después de `CI = PASS`, revisión final del diff completo entre `main` y el HEAD validado de `architecture/physical-model`;
-4. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
-5. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
-6. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
-7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
+1. mantener `CI = PASS` sobre el HEAD vigente de `architecture/physical-model` y revisar cualquier delta posterior;
+2. confirmar que el diff final hacia `main` no incorpora el WIP SQL 003 ni trabajo fuera del alcance revisado;
+3. únicamente después de revisión final `PASS`, mantener la PR #2 en estado ready para revisión;
+4. integrar la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
+5. verificar después del merge el SHA integrado, el cierre de la PR y la relación entre ramas;
+6. reanudar en una tarea separada el contrato SQL 003 sobre el baseline canónico limpio.
 
 En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
@@ -205,5 +206,6 @@ Las reglas de seguridad requieren autorización en backend, mínimo privilegio, 
 - [Reglas de negocio](docs/domain/business-rules.md)
 - [Matriz de permisos](docs/security/permission-matrix.md)
 - [Estrategia de pruebas](docs/testing/testing-strategy.md)
+- [Gate CI mínimo TARGET](docs/testing/target-foundation-ci-gate.md)
 
 POS Platform está en desarrollo activo. El repositorio no publica todavía una licencia de uso.
