@@ -48,8 +48,10 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - canonical-role readiness: `APPLIED / REVIEWED` solo en `LOCAL_CANONICAL_INTEGRATION`.
 - MAT-003 preflight canónico: `EXECUTED / PASS / REVIEWED`, read-only, cero mutaciones durables.
 - PR #5: `MERGED / CLOSED`; supply-chain baseline + gobernanza detectiva de `main` integrados.
-- Merge PR #5: `bfca119b27f9b4bf0a7b0541708161a2beb2833d`.
-- Run post-merge #40 `32933559784`: `COMPLETED / SUCCESS`, incluidos repository policy, TypeScript/SQLite/PostgreSQL y `Main push governance`.
+- PR #6: `MERGED / CLOSED`; fuentes canónicas reconciliadas.
+- PR #7: `MERGED / CLOSED`; `Camacho POS Colombia` adoptado como nombre comercial con clearance oficial todavía pendiente.
+- HEAD vigente de `main`: `940107f8cc0976c130dd4f274928b2df248473f4`.
+- Run post-merge #47 `32937793013`: `COMPLETED / SUCCESS`, incluidos repository policy, TypeScript/SQLite/PostgreSQL y `Main push governance`.
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub.
 
@@ -92,7 +94,10 @@ Este control es detectivo, no preventivo.
 | `architecture/physical-model` | `INTEGRATED / HISTORICAL` | PR #2 ya integrada; no reutilizar. |
 | `cleanup/pure-pos-platform-20260825` | `INTEGRATED / HISTORICAL` | PR #3 ya integrada; no reutilizar. |
 | `ci/supply-chain-baseline-20260826` | `INTEGRATED / HISTORICAL` | PR #5 ya integrada; no reutilizar. |
-| `design/sql003-contract-reconciliation-20260826` | `BLOCKED` | PR #4 draft; pendiente de revisión independiente. |
+| `docs/canonical-state-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #6 ya integrada; no reutilizar. |
+| `docs/camacho-pos-colombia-branding-20260826` | `INTEGRATED / HISTORICAL` | PR #7 ya integrada; no reutilizar. |
+| `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a `main`; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
+| `design/sql003-contract-reconciliation-20260826` | `BLOCKED` | PR #4 draft; requiere sincronización con `main` y revisión independiente. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa SQL003. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
