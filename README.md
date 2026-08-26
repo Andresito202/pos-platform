@@ -164,17 +164,16 @@ La validación fresca, preparación del ambiente, canonical-role readiness, ejec
 
 Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
 
-La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` (`chore: remove legacy demo runtime and neutralize POS Platform`) versionó y publicó normalmente la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`. Esta reconciliación corrige el estado posterior; la rama todavía no está integrada en `architecture/physical-model` ni en `main`.
+La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` versionó la separación del runtime y la documentación operativa anterior, y `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` reconcilió su estado documental. La PR #3 fue revisada y fusionada mediante merge normal en `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`; `architecture/physical-model` ya incorpora la limpieza. La PR #2 es la única ruta autorizable desde `architecture/physical-model` hacia `main`; su estado y HEAD vigentes en GitHub son la evidencia operacional de esa transición.
 
-La única secuencia técnica vigente continúa así:
+La secuencia técnica vigente continúa así:
 
-1. revisión externa independiente y read-only del diff completo entre `cb1dafdc987104a5fdc75034de833df157cbfe67` y el HEAD vigente de `cleanup/pure-pos-platform-20260825`;
+1. revisión independiente del diff completo entre `main` y el HEAD vigente de `architecture/physical-model`;
 2. remediación y nueva revisión si aparecen findings;
-3. únicamente después de revisión `PASS`, apertura de un pull request separado `cleanup/pure-pos-platform-20260825 -> architecture/physical-model`;
-4. revisión e integración de ese pull request únicamente mediante autorización posterior;
-5. después de integrar la limpieza en `architecture/physical-model`, actualización de alcance y nueva revisión de la PR #2 `architecture/physical-model -> main`;
-6. integración en `main` únicamente mediante otra autorización expresa;
-7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
+3. únicamente después de revisión `PASS`, transición de la PR #2 desde `DRAFT` a ready;
+4. integración de la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
+5. verificación posterior del commit integrado, cierre de la PR y relación entre ramas;
+6. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
 
 En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
