@@ -178,12 +178,13 @@ fiscal_document_preparations_numbering_guard
 fiscal_document_preparations_late_evidence_guard
 electronic_documents_reprepare_guard
 electronic_documents_current_preparation_guard
+fiscal_document_preparations_current_generation_guard
 fiscal_submission_attempts_root_guard
 integration_dispatches_fiscal_preparation_guard
 external_webhook_receipts_fiscal_correlation_guard
 ```
 
-Los guards obtienen rol/contexto de forma no falsificable, usan CAS/locks y no confían en actor/scope enviados por request. `electronic_documents_current_preparation_guard` tiene la semántica diferida cerrada en §4.13 y no se sustituye por una comprobación best-effort de aplicación.
+Los guards obtienen rol/contexto de forma no falsificable, usan CAS/locks y no confían en actor/scope enviados por request. Los dos guards `*_current_*` de §4.13 son `CONSTRAINT TRIGGER` table-local separados que invocan el mismo validador de invariante al cierre de transacción; no existe un trigger PostgreSQL multi-table ficticio y no se sustituyen por comprobaciones best-effort de aplicación.
 
 ### 4.4 No-reuse legal: identidad física conservadora V1
 
@@ -550,20 +551,29 @@ Pruebas adicionales obligatorias antes de SQL:
 
 ### 4.13 Invariante diferida de preparación actual
 
-`ElectronicDocument.preparation_generation` es la única autoridad para identificar la generation actual; no se agrega un `current_preparation_id` duplicado. Para impedir que ese número apunte a una fila inexistente o que exista una “future preparation” durable, 003 define el constraint trigger normativo:
+`ElectronicDocument.preparation_generation` es la única autoridad para identificar la generation actual; no se agrega un `current_preparation_id` duplicado. Para impedir que ese número apunte a una fila inexistente o que exista una “future preparation” durable, 003 define **dos constraint triggers table-local** que invocan el mismo validador lógico:
 
 ```text
 electronic_documents_current_preparation_guard
+  ON fiscal.electronic_documents
+
+fiscal_document_preparations_current_generation_guard
+  ON fiscal.fiscal_document_preparations
+
+shared validator:
+  validate_current_fiscal_preparation_invariant(tenant_id, electronic_document_id)
 ```
 
-Semántica:
+Semántica común:
 
-- `CONSTRAINT TRIGGER` de PostgreSQL;
-- `DEFERRABLE INITIALLY DEFERRED` porque create/reprepare requieren varios statements dentro de una sola transacción;
-- se evalúa al cierre de la transacción sobre todo `ElectronicDocument` insertado o cuya `preparation_generation` cambió y sobre las preparaciones insertadas/cambiadas del mismo documento;
-- no sustituye las FKs NOT DEFERRABLE de §4.2.
+- ambos son `CONSTRAINT TRIGGER` PostgreSQL `AFTER ROW`;
+- ambos son `DEFERRABLE INITIALLY DEFERRED` porque create/reprepare requieren varios statements dentro de una sola transacción;
+- el trigger de `ElectronicDocument` se agenda para INSERT y UPDATE de `preparation_generation`/scope de identidad relevante;
+- el trigger de `FiscalDocumentPreparation` se agenda para INSERT y para cualquier UPDATE/DELETE que pudiera afectar identidad/generation/scope; los guards ordinarios ya prohíben esas mutaciones en runtime, pero el constraint conserva la invariante incluso frente a una operación administrativa/migration elegible;
+- ambos llaman al mismo validador usando la clave tenant+document afectada; el validador lee el estado final visible de la transacción y no confía en el orden intermedio de statements;
+- no sustituyen las FKs NOT DEFERRABLE de §4.2.
 
-Al commit debe demostrar simultáneamente:
+Al commit el validador debe demostrar simultáneamente:
 
 1. `ElectronicDocument.preparation_generation >= 1`;
 2. existe **exactamente una** `FiscalDocumentPreparation` con `(tenant_id,electronic_document_id,preparation_generation)` igual al valor actual del documento;
@@ -572,22 +582,52 @@ Al commit debe demostrar simultáneamente:
 5. la cadena de supersession de generation N>1 conserva predecessor N-1; combinada con la ausencia de hard delete runtime, no puede existir un salto durable en el historial;
 6. `preparation_generation` del documento no decrementa y solo aumenta exactamente en uno por el guard de `REPREPARE_BEFORE_SUBMISSION`.
 
-La creación inicial de `ElectronicDocument` y `FiscalDocumentPreparation generation=1` ocurre en la **misma transacción**. Es legal que, dentro de esa transacción aún no confirmada, un statement exista antes que el otro; si la preparación 1 no queda creada, el commit falla y toda la transacción revierte.
+La creación inicial de `ElectronicDocument` y `FiscalDocumentPreparation generation=1` ocurre en la **misma transacción**. Es legal que, dentro de esa transacción aún no confirmada, un statement exista antes que el otro; si la preparación 1 no queda creada, el validador diferido hace fallar el commit y toda la transacción revierte.
 
-El reprepare también es una única transacción: cancela dispatch/numbering/preparation anterior bajo el fence, cambia el documento de N a N+1 y crea la nueva preparación N+1 DRAFT con lineage. El orden interno de statements puede elegirse para respetar guards/FKs, pero el constraint diferido prohíbe confirmar un documento apuntando a una generation inexistente o una nueva preparación sin que el documento avance a ella.
+El reprepare también es una única transacción: cancela dispatch/numbering/preparation anterior bajo el fence, cambia el documento de N a N+1 y crea la nueva preparación N+1 DRAFT con lineage. El orden interno de statements puede elegirse para respetar guards/FKs, pero los dos constraint triggers diferidos impiden confirmar un documento apuntando a una generation inexistente o una nueva preparación sin que el documento avance a ella.
 
 No se usa un job posterior, reconciliación eventual ni “repair on startup” como sustituto de esta invariante transaccional.
 
 Pruebas obligatorias antes de SQL:
 
 - INSERT documento sin preparation 1 en la misma transacción falla al commit;
-- documento + preparation 1 en la misma transacción pasa;
+- documento + preparation 1 en la misma transacción pasa independientemente del orden válido de INSERTs;
 - UPDATE generation N->N+1 sin crear preparation N+1 falla al commit;
-- INSERT preparation N+1 sin avanzar documento falla al commit;
+- INSERT preparation N+1 sin avanzar documento falla al commit por el trigger de la tabla preparation;
 - reprepare completo old cancel + N->N+1 + new preparation pasa atómicamente;
 - intento N->N+2 falla;
+- intento de mutar/eliminar identity/generation de una preparation histórica no puede dejar el documento sin current válido;
 - rollback de cualquier statement de reprepare deja documento/generation/preparación anterior intactos;
 - late evidence UPDATE sobre preparation histórica no altera la resolución de current generation.
+
+### 4.14 Alcance exacto de MAT-003 frente al target V2
+
+Los artefactos actuales `MAT-003-PREFLIGHT` y `MAT-003 canonical-role-readiness` **se preservan sin modificación en esta PR** porque su función no es certificar el shape físico de migration 003.
+
+`MAT-003-PREFLIGHT` valida, entre otros prerrequisitos:
+
+- PostgreSQL 16.14 y ejecución read-only/repeatable-read bajo el rol esperado;
+- lock global de migration;
+- migrations 001/002 `APPLIED` con checksums aprobados;
+- catálogo 002 válido;
+- privilegios de lectura requeridos;
+- ausencia de schema fiscal y de ledger 003;
+- blockers históricos de `DEBIT_NOTES`, dispatches/mappings/ownership y scope asociados.
+
+`MAT-003 canonical-role-readiness` valida/provisiona de forma controlada el rol `pos_platform_admin` requerido para el preflight, hashes 001/002/provisioning y ausencia de artefactos/descriptor/schema/ledger 003.
+
+Por tanto:
+
+```text
+MAT-003 PASS
+  = prerequisite/readiness evidence for considering migration 003
+  != validation of the V2 ten-table target
+  != SQL003 review
+  != descriptor003 validation
+  != authorization to materialize
+```
+
+Pasar de nueve a diez tablas fiscales **no invalida** esos checks de prerrequisito, pero tampoco los amplía silenciosamente. Cuando exista una tarea posterior autorizada de SQL/descriptor 003, esa tarea deberá añadir/actualizar por separado descriptor, introspection, catalog validation, grants/RLS/guard tests, apply/down tests, concurrency tests y exact target checks para las diez tablas y extensiones 003. No se reutiliza un `MAT-003 PASS` como evidencia de que ese SQL futuro cumple este V2.
 
 ## 5. Cláusulas históricas preservadas
 
@@ -602,7 +642,7 @@ Salvo contradicción expresa con §3–§4, permanecen vigentes y deben traslada
 - invariantes y hashes de migrations 001/002;
 - transición FISCAL como último cambio estructural del apply 003;
 - down 003 restringido a fresh/test sin historia fiscal;
-- MAT-003 preflight/readiness existentes;
+- MAT-003 preflight/readiness existentes como **prerrequisitos**, con alcance delimitado en §4.14;
 - provider states y ausencia de claims productivos;
 - `SEC-G01..SEC-G10 = PLANNED / NOT_EVALUATED`;
 - SQLite migration 003 = `NONE`;
@@ -622,7 +662,7 @@ Para declarar el bundle autoritativo cerrado se requiere sobre un HEAD exacto:
 
 1. diff limitado al bundle documental/backlog;
 2. CI TARGET completo `SUCCESS`;
-3. migrations 001/002 y MAT-003 sin regresión;
+3. migrations 001/002 y MAT-003 sin regresión, interpretando MAT-003 solo con el alcance de §4.14;
 4. SQL/descriptor/schema 003 ausentes;
 5. revisión independiente del conjunto V2 y de §4;
 6. cero BLOCKER/HIGH/MEDIUM abiertos;
