@@ -1,3 +1,5 @@
+import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "./postgres-003-functions.js";
+import { FISCAL_003_DISPATCH_CLASS_TRANSITION } from "./postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
   FISCAL_003_EXACT_GUARD_DEFINITIONS,
@@ -623,6 +625,9 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   exactIndexDefinitions: typeof FISCAL_003_EXACT_INDEX_DEFINITIONS;
   exactGuardDefinitions: typeof FISCAL_003_EXACT_GUARD_DEFINITIONS;
   exactPolicyDefinitions: typeof FISCAL_003_EXACT_POLICY_DEFINITIONS;
+  ownedFunctions: typeof FISCAL_003_REQUIRED_FUNCTIONS;
+  exactFunctionDefinitions: typeof FISCAL_003_FUNCTION_DEFINITION_SQL;
+  legacyConstraintTransitions: typeof FISCAL_003_DISPATCH_CLASS_TRANSITION;
   mat003PrerequisiteOnly: true;
 }
 
@@ -662,5 +667,8 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   exactIndexDefinitions: FISCAL_003_EXACT_INDEX_DEFINITIONS,
   exactGuardDefinitions: FISCAL_003_EXACT_GUARD_DEFINITIONS,
   exactPolicyDefinitions: FISCAL_003_EXACT_POLICY_DEFINITIONS,
+  ownedFunctions: FISCAL_003_REQUIRED_FUNCTIONS,
+  exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
+  legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   mat003PrerequisiteOnly: true,
 };

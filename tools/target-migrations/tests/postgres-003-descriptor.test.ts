@@ -1,3 +1,5 @@
+import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "../src/postgres-003-functions.js";
+import { FISCAL_003_DISPATCH_CLASS_TRANSITION } from "../src/postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
   FISCAL_003_EXACT_GUARD_DEFINITIONS,
@@ -286,6 +288,74 @@ describe("003 fiscal descriptor contract", () => {
   it("rejects a reconciliation close timestamp without a durable start timestamp", () => {
     const constraint=FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["fiscal_reconciliations_version_ck"];
     expect(constraint).toContain("closed_at IS NULL OR (started_at IS NOT NULL AND started_at<=closed_at)");
+  });
+
+  it("defines every fiscal function referenced by tables, guards and policies", () => {
+    const source=[
+      ...Object.values(FISCAL_003_TABLE_BLUEPRINT_SQL),
+      ...Object.values(FISCAL_003_EXACT_GUARD_DEFINITIONS),
+      ...Object.values(FISCAL_003_EXACT_POLICY_DEFINITIONS),
+    ].join("\n");
+    const tableNames=new Set(FISCAL_TABLES);
+    const referenced=[...source.matchAll(/\bfiscal\.([a-z][a-z0-9_]*)\s*\(/g)]
+      .map((match)=>match[1]!)
+      .filter((name)=>!tableNames.has(name as typeof FISCAL_TABLES[number]));
+    expect([...new Set(referenced)].sort()).toEqual([...FISCAL_003_REQUIRED_FUNCTIONS].sort());
+    expect(Object.keys(FISCAL_003_FUNCTION_DEFINITION_SQL).sort()).toEqual([...FISCAL_003_REQUIRED_FUNCTIONS].sort());
+    for(const name of FISCAL_003_REQUIRED_FUNCTIONS){
+      const sql=FISCAL_003_FUNCTION_DEFINITION_SQL[name as keyof typeof FISCAL_003_FUNCTION_DEFINITION_SQL];
+      expect(sql).toContain(`CREATE FUNCTION fiscal.${name}`);
+      expect(sql.length).toBeGreaterThan(120);
+      expect(sql).not.toMatch(/BEGIN\s*RETURN NEW;\s*END;/);
+    }
+  });
+
+  it("locks the critical Modelo A function bodies, not trigger names only", () => {
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root)
+      .toContain("dispatch.fiscal_request_semantic_checksum<>NEW.request_checksum");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root)
+      .toContain("binding.status<>'ACTIVE'");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_attempt_number)
+      .toContain("integration_dispatch_id=NEW.integration_dispatch_id");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_dispatch)
+      .toContain("FISCAL_SUBMIT_DISPATCH_V1");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_dispatch)
+      .toContain("NEW.payload_checksum<>prep.canonical_payload_checksum");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_electronic_document_reprepare)
+      .toContain("durable external evidence blocks reprepare");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.validate_current_fiscal_preparation_invariant)
+      .toContain("exactly one current fiscal preparation is required");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_webhook_correlation)
+      .toContain("fiscal webhook correlation is immutable once set");
+  });
+
+  it("owns the 002 to 003 dispatch-class transition and its fail-closed inverse", () => {
+    const transition=FISCAL_003_DISPATCH_CLASS_TRANSITION;
+    expect(transition.predecessorName).toBe("integration_dispatches_dispatch_class_002_ck");
+    expect(transition.successorName).toBe("integration_dispatches_dispatch_class_003_ck");
+    expect(transition.upSql).toEqual([
+      expect.stringContaining("ADD CONSTRAINT integration_dispatches_dispatch_class_003_ck"),
+      "ALTER TABLE integrations.integration_dispatches VALIDATE CONSTRAINT integration_dispatches_dispatch_class_003_ck;",
+      "ALTER TABLE integrations.integration_dispatches DROP CONSTRAINT integration_dispatches_dispatch_class_002_ck;",
+    ]);
+    expect(transition.upSql[0]).toContain("NOT VALID");
+    expect(transition.upSql[0]).toContain("'DEBIT_NOTES'");
+    expect(transition.expectedAfterUp).toEqual({
+      present:["integration_dispatches_dispatch_class_003_ck"],
+      absent:["integration_dispatches_dispatch_class_002_ck"],
+    });
+    expect(transition.downSql).toEqual([
+      expect.stringContaining("ADD CONSTRAINT integration_dispatches_dispatch_class_002_ck"),
+      "ALTER TABLE integrations.integration_dispatches VALIDATE CONSTRAINT integration_dispatches_dispatch_class_002_ck;",
+      "ALTER TABLE integrations.integration_dispatches DROP CONSTRAINT integration_dispatches_dispatch_class_003_ck;",
+    ]);
+    expect(transition.downSql[0]).toContain("NOT VALID");
+    expect(transition.downSql[0]).not.toContain("'DEBIT_NOTES'");
+    expect(transition.downEligibility).toContain("any remaining FISCAL dispatch makes predecessor validation fail closed");
+    expect(POSTGRES_003_DESCRIPTOR.exactConstraintDefinitions[transition.successorName])
+      .toBe(transition.successorDefinitionSql);
+    expect(POSTGRES_003_DESCRIPTOR.ownedConstraints).not.toContain(transition.predecessorName);
+    expect(POSTGRES_003_DESCRIPTOR.legacyConstraintTransitions).toBe(transition);
   });
 
 });
