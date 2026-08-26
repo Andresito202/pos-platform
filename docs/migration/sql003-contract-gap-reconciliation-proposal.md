@@ -97,7 +97,7 @@ No participan en `logical_operation_key`:
 - tax/fiscal snapshots y sus checksums;
 - `canonical_payload_checksum`;
 - versión de configuración fiscal;
-- branch derivada si ya está representada por la identidad source y scope validado;
+- `branch_id`, porque `source_id` debe ser una identidad global estable y el scope tenant/company/branch se valida y congela por separado; si un source futuro usa identidad solo local a branch, este contrato deberá versionarse antes de admitirlo;
 - prefijo o número fiscal;
 - provider/authority/legal identifiers;
 - estados;
@@ -177,11 +177,13 @@ Reglas:
 Un retry permitido:
 
 - conserva el mismo `ElectronicDocument`;
-- conserva el mismo `IntegrationDispatch` lógico;
-- conserva `operation_type`;
-- incrementa `attempt_number` bajo lock;
+- conserva el mismo `IntegrationDispatch` porque continúa siendo la misma intención central↔provider;
+- conserva `operation_type`, que es constante dentro de ese dispatch;
+- incrementa `attempt_number` como secuencia monotónica **por `IntegrationDispatch`**, bajo lock del dispatch/owner aplicable;
 - crea una fila nueva `CREATED`;
 - no modifica el attempt anterior.
+
+`attempt_number` no se reinicia por `operation_type`. Como cada dispatch representa una sola intención externa y un solo `operation_type`, `UNIQUE (tenant_id,integration_dispatch_id,attempt_number)` es la autoridad física del orden de retries. Cualquier candidato que calcule `max(attempt_number)` por documento+operation sin serializar por dispatch deberá ser remediado y no puede reutilizarse a ciegas.
 
 Para `SUBMIT_DOCUMENT`, un retry `SAFE_RETRY` debe conservar el mismo payload canónico y request checksum. Si el contenido cambia, deja de ser retry del mismo request.
 
@@ -189,10 +191,11 @@ Para `SUBMIT_DOCUMENT`, un retry `SAFE_RETRY` debe conservar el mismo payload ca
 
 Se separan dos conceptos:
 
-**Raíz lógica**
+**Raíz lógica del dispatch**
 
-- `IntegrationDispatch.idempotency_key` representa la intención FISCAL estable del documento/dispatch.
-- Se conserva para todos los attempts técnicos asociados.
+- `IntegrationDispatch.idempotency_key` representa una intención FISCAL estable central↔provider: submit, query o artifact retrieval, según el dispatch.
+- Se conserva para todos los attempts técnicos de **ese** dispatch.
+- Una consulta o recuperación posterior no reutiliza la raíz del dispatch de submit: crea su propio dispatch fiscal con identidad/idempotencia determinista para esa nueva intención externa.
 
 **Idempotency key del attempt**
 
@@ -206,10 +209,10 @@ FISCAL_ATTEMPT_V1
 ```
 
 - reejecutar la misma fila/attempt por recuperación local usa la misma key y checksum;
-- crear un retry real incrementa `attempt_number` y obtiene una nueva key;
-- no se crea un nuevo attempt cuando existe `UNKNOWN_OUTCOME`.
+- crear un retry real dentro del mismo dispatch incrementa `attempt_number` y obtiene una nueva key;
+- no se crea un nuevo attempt cuando existe `UNKNOWN_OUTCOME` hasta que reconciliation produzca evidencia suficiente para autorizar una nueva intención o un retry seguro.
 
-Esta separación reconcilia el requisito de conservar una raíz idempotente con la unicidad física de attempts numerados.
+Esta separación reconcilia la intención durable del dispatch con la unicidad física de attempts numerados y evita usar un mismo lifecycle de dispatch para submit, query y artifact recovery.
 
 ## 6. Decisión propuesta para HIGH-003
 
@@ -237,19 +240,21 @@ No se proponen más literales en esta fundación.
 
 - representa polling/consulta explícita del mismo documento;
 - puede ser solicitado por recovery/reconciliation;
-- no modifica el attempt de submit anterior.
+- no modifica el attempt ni el dispatch de submit anterior;
+- crea/reutiliza idempotentemente un dispatch fiscal propio de consulta según la identidad lógica de la consulta/ventana aprobada.
 
 `RETRIEVE_ARTIFACT`
 
 - recupera un artefacto externo del mismo documento cuando exista contrato de adapter aplicable;
 - el resultado durable se materializa como `FiscalArtifact` append-only;
-- no convierte el blob en columna PostgreSQL.
+- no convierte el blob en columna PostgreSQL;
+- crea/reutiliza idempotentemente un dispatch fiscal propio de recuperación según documento, tipo/referencia de artefacto y contrato versionado aplicable.
 
 ### 6.3 Operaciones que NO son `operation_type`
 
 No se crean en v1:
 
-- `RECONCILE`: `FiscalReconciliation` posee ese lifecycle y puede orquestar QUERY/RETRIEVE;
+- `RECONCILE`: `FiscalReconciliation` posee ese lifecycle y puede orquestar dispatches QUERY/RETRIEVE;
 - `POLL`: polling es estrategia/scheduling de `QUERY_DOCUMENT_STATUS`;
 - `WEBHOOK`: es evidencia inbound y replay-protected, no una interacción saliente;
 - `CORRECT_DOCUMENT`: el correctivo es otro `ElectronicDocument` y usa `SUBMIT_DOCUMENT`;
@@ -257,9 +262,18 @@ No se crean en v1:
 
 ### 6.4 Dispatch y ownership
 
-Los tres tipos de attempt referencian el `IntegrationDispatch(FISCAL)` del `ElectronicDocument`. No se crea un segundo owner de intentos y `IntegrationDispatchAttempt` continúa reservado a `NON_FISCAL`.
+`IntegrationDispatch` materializa una intención central↔provider. Por tanto:
 
-Permitir estos literales en el esquema no declara que un provider real soporte polling o recuperación. Los adapters, capability/readiness de provider y HTTP siguen `NOT_EVALUATED` hasta sus gates separados.
+- cada `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` o `RETRIEVE_ARTIFACT` usa un dispatch `FISCAL` propio de esa intención, todos referenciando el mismo `ElectronicDocument` cuando corresponda;
+- un dispatch concreto conserva un único `operation_type` para todos sus `FiscalSubmissionAttempt`;
+- los retries de esa intención son attempts numerados del mismo dispatch;
+- query/retrieve posteriores no cambian el estado agregado ni la idempotency root del dispatch de submit;
+- `FiscalSubmissionAttempt` continúa siendo el único owner técnico de attempts fiscales;
+- `IntegrationDispatchAttempt` continúa reservado físicamente a `NON_FISCAL`.
+
+La futura remediación autoritativa deberá definir las raíces idempotentes exactas de QUERY y RETRIEVE antes de SQL. Como mínimo deben incorporar el `ElectronicDocument`, el `operation_type` y la identidad lógica versionada de consulta/ventana o artefacto solicitado, sin timestamps de ejecución ni valores provider-specific mutables.
+
+Permitir estos literales en el esquema no declara que un provider real soporte polling o recuperación. La creación de un dispatch QUERY/RETRIEVE exige capability/adapter/readiness aplicable; mientras esa evidencia no exista, la operación falla cerrado. Los adapters, capability/readiness de provider y HTTP siguen `NOT_EVALUATED` hasta sus gates separados.
 
 ## 7. Invariantes cruzados resultantes
 
@@ -269,14 +283,16 @@ La remediación autoritativa posterior deberá hacer verificables, como mínimo,
 2. `correction_source_reference` puede cambiar en DRAFT sin alterar identidad.
 3. `FAILED` nunca se considera reintentable por `started_at IS NULL`.
 4. todo `UNKNOWN_OUTCOME` bloquea retry ciego.
-5. un retry seguro crea otra fila con `attempt_number + 1` y conserva el historial.
-6. `IntegrationDispatch.idempotency_key` es la raíz estable; attempt key es ejecución-específica y determinista.
-7. `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` son los únicos operation types v1.
-8. polling, reconciliation, webhook y correctivos no crean owners paralelos.
-9. provider-specific behavior no se incorpora al dominio ni a migration 003.
-10. migration 001/002 permanecen byte-for-byte inmutables.
-11. SQLite 003 continúa `NONE`.
-12. SQL 003 continúa `ABSENT` hasta autorización de materialización separada.
+5. un retry seguro crea otra fila, incrementa `attempt_number` monotónicamente por dispatch y conserva el historial.
+6. cada `IntegrationDispatch` representa una sola intención central↔provider y conserva su propia idempotency root.
+7. attempt key es ejecución-específica y determinista dentro de su dispatch.
+8. `SUBMIT_DOCUMENT`, `QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` son los únicos operation types v1.
+9. submit, query y retrieve no comparten un lifecycle de dispatch; cada intención usa su dispatch fiscal idempotente.
+10. polling y reconciliation pueden orquestar QUERY/RETRIEVE sin convertirse en owners de attempts; webhook sigue inbound y los correctivos siguen siendo nuevos documentos.
+11. provider-specific behavior no se incorpora al dominio ni a migration 003.
+12. migration 001/002 permanecen byte-for-byte inmutables.
+13. SQLite 003 continúa `NONE`.
+14. SQL 003 continúa `ABSENT` hasta autorización de materialización separada.
 
 ## 8. Impacto esperado de una futura remediación autoritativa
 
@@ -304,8 +320,9 @@ La revisión debe responder explícitamente:
 - ¿dos correcciones legítimas pueden distinguirse sin material mutable?;
 - ¿la semántica `FAILED`/`UNKNOWN_OUTCOME` evita doble envío?;
 - ¿`started_at` conserva un significado único?;
-- ¿root idempotency y attempt idempotency están claramente separados?;
-- ¿la unique física permite retries numerados sin duplicar intención?;
+- ¿dispatch idempotency y attempt idempotency están claramente separados?;
+- ¿`attempt_number` es monotónico por dispatch y compatible con `UNIQUE (tenant_id,integration_dispatch_id,attempt_number)`?;
+- ¿submit/query/retrieve usan dispatches separados por intención sin crear owners paralelos?;
 - ¿el catálogo v1 cubre submit, query y artifact recovery sin sobrediseñar providers?;
 - ¿reconciliation/webhook/correctivos conservan owners únicos?;
 - ¿001/002, providers, security gates y SQLite permanecen sin promoción?;
