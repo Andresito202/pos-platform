@@ -54,8 +54,9 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - PR #8: `MERGED / CLOSED`; gobernanza detectiva de pushes a `main` endurecida para validar todo el rango de primer padre y fuentes de estado reconciliadas.
 - PR #4: `MERGED / CLOSED`; propuesta V7 de reconciliación SQL003 integrada con `PROPOSAL_REVIEW = PASS`.
 - PR #9: `MERGED / CLOSED`; remediación contractual autoritativa V2 integrada con `AUTHORITATIVE_CONTRACT_REVIEW = PASS`.
-- HEAD canónico verificado después de PR #9: `be986884cd21aae11f84e64a56158705197325d0`.
-- Run post-merge #64 `33013450713`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002, MAT-003 preflight y role-readiness.
+- PR #10: `MERGED / CLOSED`; reconciliación post-merge de INT-006 integrada.
+- HEAD canónico verificado después de PR #10: `b28ca8850acc6b97385c80627a9d64b7ea607a42`.
+- Run post-merge #67 `33015503869`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002, MAT-003 preflight y role-readiness.
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub antes de cualquier integración.
 
@@ -65,11 +66,11 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
 - Nx de aplicaciones/packages: `ABSENT`.
-- SQL 003: `ABSENT`.
-- descriptor 003: `ABSENT`.
-- schema fiscal 003: `ABSENT`.
-- migration 003: `NOT_MATERIALIZED`.
-- bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; SQL/descriptor 003 permanecen `ABSENT / NOT_MATERIALIZED` y requieren autorización separada.
+- SQL 003 DDL: `ABSENT / GATE_B_PENDING` en el inicio de INT-007.
+- descriptor 003: `MATERIALIZED_IN_BRANCH / UNREVIEWED` como Gate A de INT-007; no está integrado ni aplicado.
+- schema fiscal 003: `ABSENT / NOT_APPLIED`.
+- migration 003: `IN_PROGRESS / NOT_APPLIED`.
+- bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
 - SIIGO/FACTUS/ALEGRA adapters reales: `DESIGNED / NOT_EVALUATED`.
 - infraestructura productiva/piloto: pendiente.
 - hardware certificado: todos los modelos continúan sin certificación productiva.
@@ -106,6 +107,7 @@ Este control es detectivo, no preventivo.
 | `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a un baseline ya integrado; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
 | `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
+| `feat/sql003-v2-materialization-20260826` | `IN_PROGRESS / NOT_INTEGRATED` | INT-007; rama nueva desde `main@b28ca8850acc6b97385c80627a9d64b7ea607a42`. No reutiliza el WIP histórico como implementación. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -129,7 +131,38 @@ Reglas:
 
 ## Trabajo principal actual
 
-Excepción temporal documentada: no existe una línea principal `IN_PROGRESS` en este corte. INT-006 ya cerró; SQL/descriptor 003 continúan `BLOCKED` hasta autorización explícita y separada, y no se asignará otra línea principal por inferencia. El siguiente trabajo principal debe activarse mediante una decisión explícita sobre ese gate o una selección explícita de otra tarea `READY`.
+### INT-007 — materialización SQL/descriptor 003 sobre bundle V2
+
+Prioridad: `P0`
+
+Estado: `IN_PROGRESS`
+
+Baseline y autorización:
+
+- rama: `feat/sql003-v2-materialization-20260826`;
+- base exacta: `main@b28ca8850acc6b97385c80627a9d64b7ea607a42`;
+- INT-006: `DONE`;
+- bundle V2: `INTEGRATED / REVIEWED`;
+- autorización separada para iniciar diseño/materialización SQL003: `GRANTED 2026-08-26`.
+
+Alcance autorizado:
+
+- Gate A: descriptor 003, catálogo esperado, constantes/exports y tests estáticos del contrato materializable;
+- Gate B: SQL PostgreSQL 003 up/down, runner apply/down, introspection, smoke, grants/RLS/guards y pruebas funcionales/concurrencia del target de diez tablas;
+- preservar migrations 001/002 byte-for-byte;
+- mantener SQLite migration 003 en `NONE`;
+- usar exclusivamente Modelo A y `SUBMIT_DOCUMENT` físico V1.
+
+No alcance:
+
+- adapters SIIGO/FACTUS/ALEGRA;
+- HTTP/credenciales/sandbox provider;
+- runtime NestJS/Electron;
+- promoción de `SEC-G01..SEC-G10`;
+- query/retrieve físico V1;
+- merge de la rama sin gate posterior separado.
+
+INT-007 no se considera `DONE` por crear el descriptor ni por producir SQL estático. Requiere DDL ejecutable, validación de catálogo, apply/down, regresión 001/002, CI exact-head y revisión independiente.
 
 ### INT-006 — remediación contractual autoritativa de migration 003
 
@@ -222,23 +255,25 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 
 ## Orden inmediato obligatorio
 
-1. Mantener SQL/descriptor 003 `BLOCKED` hasta una autorización explícita y separada; el merge de PR #9 no concede esa autorización.
-2. Si se autoriza SQL003, abrir una tarea/rama nueva desde el `main` exacto y diseñar/materializar únicamente contra el bundle autoritativo V2 integrado; no reutilizar el WIP histórico como implementación.
-3. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
-4. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
-5. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
-6. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
-7. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
+1. Completar **INT-007 Gate A**: descriptor 003 exacto para diez tablas, dependencias 001/002, extensiones 003, SQLite `NONE` y contrato V1 `SUBMIT_DOCUMENT`.
+2. Completar **INT-007 Gate B**: SQL up/down, runner, introspection/smoke, RLS/grants/guards, apply/down y pruebas funcionales/concurrencia sin modificar bytes de 001/002.
+3. Ejecutar CI exact-head y revisión independiente; cualquier nuevo HEAD invalida la evidencia previa.
+4. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
+5. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
+6. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
+7. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
+8. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
+9. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
 
 No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
 
 ## Gate SQL003
 
-### INT-006 / materialización 003
+### INT-007 / materialización 003
 
-Estado de materialización: `BLOCKED`.
+Estado de materialización: `IN_PROGRESS`.
 
-PR #9 fue revisada, integrada y validada post-merge. Los requisitos técnicos/documentales 1–5 del gate ya están cumplidos. El único bloqueo vigente para abrir una tarea de **diseño/materialización** SQL003 es la autorización explícita y separada del punto 6.
+PR #9 fue revisada, integrada y validada post-merge; PR #10 reconcilió el backlog y el run #67 validó el nuevo `main`. Los requisitos técnicos/documentales 1–5 del gate estaban cumplidos y la autorización explícita y separada del punto 6 fue otorgada el 2026-08-26. La ejecución queda limitada a INT-007 y no autoriza providers, runtime ni promoción de seguridad.
 
 Decisiones cerradas y consolidadas en el bundle autoritativo integrado:
 
@@ -259,16 +294,23 @@ Condición para desbloquear una **tarea posterior de materialización**:
 3. review independiente del HEAD exacto — `PASS`;
 4. `AUTHORITATIVE_CONTRACT_REVIEW = PASS`;
 5. integración documental + post-merge #64 — `PASS`;
-6. autorización separada para iniciar diseño/materialización SQL003 — `PENDING`.
+6. autorización separada para iniciar diseño/materialización SQL003 — `PASS / GRANTED 2026-08-26`.
 
-No autorizado mientras este gate siga bloqueado:
+Autorizado exclusivamente dentro de INT-007:
 
-- SQL 003;
-- descriptor 003;
+- descriptor 003 y catálogo esperado;
+- SQL PostgreSQL 003 up/down;
 - runner/apply/down 003;
-- fiscal schema;
-- adapters provider;
+- schema fiscal y extensiones 003 de tablas `integrations`;
+- introspection/smoke/tests necesarios para demostrar el target.
+
+Continúa no autorizado:
+
+- adapters provider y llamadas HTTP;
+- credenciales/sandbox;
 - promoción de security gates;
+- runtime;
+- query/retrieve físico V1;
 - merge/cherry-pick completo del WIP histórico.
 
 ## Backlog por épica
@@ -336,7 +378,8 @@ No autorizado mientras este gate siga bloqueado:
 | INT-003 | P0 | DONE | Migration 002 materializada/tested/immutable. |
 | INT-004 | P1 | PLANNED | Adapters SIIGO/FACTUS/ALEGRA reales; no mocks como evidencia. |
 | INT-005 | P2 | PLANNED | Evaluar HKA/Odoo sin adapters ficticios. |
-| INT-006 | P0 | DONE | Remediación contractual autoritativa V2 integrada/revisada por PR #9; SQL003 permanece BLOCKED por autorización separada pendiente. |
+| INT-006 | P0 | DONE | Remediación contractual autoritativa V2 integrada/revisada por PR #9; contrato cerrado. |
+| INT-007 | P0 | IN_PROGRESS | Materializar descriptor/SQL PostgreSQL 003 contra el bundle V2 integrado; Gate A descriptor, Gate B DDL/runner/tests. |
 
 ### Pagos
 

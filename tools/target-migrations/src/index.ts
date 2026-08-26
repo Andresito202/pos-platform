@@ -29,6 +29,7 @@ export {
   MigrationInvariantError,
   POSTGRES_MIGRATION_ID,
   POSTGRES_002_MIGRATION_ID,
+  POSTGRES_003_MIGRATION_ID,
   SQLITE_MIGRATION_ID,
   SimulatedCrashError,
 } from "./shared.js";

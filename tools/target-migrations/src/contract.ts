@@ -136,3 +136,72 @@ export const POSTGRES_002_DESCRIPTOR: MigrationDescriptor = {
   requiredExtensions: ["btree_gist"],
   expectedLedgerState: "APPLIED",
 };
+
+
+export const FISCAL_TABLES = [
+  "fiscal_connections",
+  "fiscal_emission_configurations",
+  "fiscal_emission_configuration_versions",
+  "electronic_documents",
+  "fiscal_document_preparations",
+  "fiscal_submission_attempts",
+  "fiscal_artifacts",
+  "fiscal_reconciliations",
+  "fiscal_incidents",
+  "fiscal_reconciliation_items",
+] as const;
+
+export const FISCAL_RLS_TABLES = FISCAL_TABLES;
+
+export const FISCAL_003_ALTERED_TABLES = [
+  "integrations.provider_capability_declarations",
+  "integrations.integration_capabilities",
+  "integrations.integration_dispatches",
+  "integrations.external_webhook_receipts",
+] as const;
+
+export const FISCAL_003_INTEGRATION_EXTENSION_COLUMNS = {
+  "integrations.integration_dispatches": [
+    "fiscal_document_preparation_id",
+    "fiscal_preparation_generation",
+  ],
+  "integrations.external_webhook_receipts": [
+    "fiscal_electronic_document_id",
+    "fiscal_document_preparation_id",
+    "fiscal_preparation_generation",
+    "fiscal_integration_dispatch_id",
+    "fiscal_correlated_at",
+  ],
+} as const;
+
+export interface FiscalMigrationDescriptor extends MigrationDescriptor {
+  targetPostgresVersion: "16.14";
+  alteredTables: readonly string[];
+  sqliteArtifact: "NONE";
+  fiscalTableCount: 10;
+  operationTypes: readonly ["SUBMIT_DOCUMENT"];
+}
+
+export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
+  migrationId: "003_fiscal_electronic_invoicing_foundation",
+  manifestVersion: 1,
+  dependencies: [
+    POSTGRES_001_DESCRIPTOR.migrationId,
+    POSTGRES_002_DESCRIPTOR.migrationId,
+  ],
+  upArtifact: "postgres/003_fiscal_electronic_invoicing_foundation.up.sql",
+  downArtifact: "postgres/003_fiscal_electronic_invoicing_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: ["fiscal"],
+  ownedTables: FISCAL_TABLES.map((name) => `fiscal.${name}`),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: ["btree_gist"],
+  expectedLedgerState: "APPLIED",
+  targetPostgresVersion: "16.14",
+  alteredTables: FISCAL_003_ALTERED_TABLES,
+  sqliteArtifact: "NONE",
+  fiscalTableCount: 10,
+  operationTypes: ["SUBMIT_DOCUMENT"],
+};
