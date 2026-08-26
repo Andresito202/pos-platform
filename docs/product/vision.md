@@ -1,6 +1,6 @@
-﻿# Visión del producto
+# Visión de Camacho POS Colombia
 
-POS Platform será una plataforma comercial modular, multiempresa y multisucursal para negocios minoristas.
+Camacho POS Colombia será una plataforma comercial modular, multiempresa y multisucursal para negocios minoristas.
 
 El producto no será una demostración ni un CRUD básico. Desde su primera versión comercial deberá cumplir con:
 
@@ -16,6 +16,8 @@ El producto no será una demostración ni un CRUD básico. Desde su primera vers
 - escalabilidad;
 - pruebas automatizadas;
 - despliegues híbridos y locales perpetuos.
+
+La marca comercial visible es `Camacho POS Colombia`. Los identificadores técnicos internos `POS Platform`, `pos-platform` y `@pos-platform/*` se preservan para no romper contratos, paquetes ni trazabilidad. El estado registral de la marca se controla en `brand.md`.
 
 ## Aplicaciones previstas
 
