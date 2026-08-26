@@ -144,6 +144,7 @@ Baseline y autorización:
 - INT-006: `DONE`;
 - bundle V2: `INTEGRATED / REVIEWED`;
 - autorización separada para iniciar diseño/materialización SQL003: `GRANTED 2026-08-26`.
+- Gate A contract remediation commit: `c0df539eb52d370fbfd0902a3df0d1ec94332398`; semantic dispatch checksum, credential binding pinning y definición física de catálogo remediados; evidencia exact-head CI/Codex todavía requerida antes de Gate B.
 
 Alcance autorizado:
 
