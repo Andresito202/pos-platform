@@ -283,4 +283,9 @@ describe("003 fiscal descriptor contract", () => {
     expect(constraint).toContain("next_number_value BETWEEN number_range_start AND number_range_end+1");
   });
 
+  it("rejects a reconciliation close timestamp without a durable start timestamp", () => {
+    const constraint=FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS["fiscal_reconciliations_version_ck"];
+    expect(constraint).toContain("closed_at IS NULL OR (started_at IS NOT NULL AND started_at<=closed_at)");
+  });
+
 });
