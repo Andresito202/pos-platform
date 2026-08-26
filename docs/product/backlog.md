@@ -17,6 +17,7 @@ No funciona como diario histórico exhaustivo. La cronología detallada permanec
 - CI vigente: `docs/testing/target-foundation-ci-gate.md`.
 - Seguridad: `docs/security/security-gates.md`.
 - Migrations: manifests y tooling aprobados bajo `docs/migration/` y `tools/target-migrations/`.
+- Remediación contractual vigente de INT-006: `docs/migration/sql003-authoritative-contract-remediation-index.md` y su bundle V2.
 
 Si una fuente vigente contradice otra, la transición afectada se bloquea hasta reconciliación. No se elige una interpretación arbitraria.
 
@@ -50,10 +51,12 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - PR #5: `MERGED / CLOSED`; supply-chain baseline + gobernanza detectiva de `main` integrados.
 - PR #6: `MERGED / CLOSED`; fuentes canónicas reconciliadas.
 - PR #7: `MERGED / CLOSED`; `Camacho POS Colombia` adoptado como nombre comercial con clearance oficial todavía pendiente.
-- Merge PR #7: `940107f8cc0976c130dd4f274928b2df248473f4`.
-- Run post-merge #47 `32937793013`: `COMPLETED / SUCCESS`, incluidos repository policy, TypeScript/SQLite/PostgreSQL y `Main push governance`.
+- PR #8: `MERGED / CLOSED`; gobernanza detectiva de pushes a `main` endurecida para validar todo el rango de primer padre y fuentes de estado reconciliadas.
+- PR #4: `MERGED / CLOSED`; propuesta V7 de reconciliación SQL003 integrada con `PROPOSAL_REVIEW = PASS`.
+- HEAD canónico verificado después de PR #4: `bdc0f96323069de821e975737f19961fd16c3ccf`.
+- Run post-merge #54 `32983568580`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002, MAT-003 preflight y role-readiness.
 
-La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub.
+La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub antes de cualquier integración.
 
 ### No materializado / no aprobado como producto
 
@@ -65,6 +68,7 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - descriptor 003: `ABSENT`.
 - schema fiscal 003: `ABSENT`.
 - migration 003: `NOT_MATERIALIZED`.
+- bundle autoritativo V2 de INT-006: `IN_PROGRESS / REVIEW_REQUIRED` en rama separada; todavía no integrado.
 - SIIGO/FACTUS/ALEGRA adapters reales: `DESIGNED / NOT_EVALUATED`.
 - infraestructura productiva/piloto: pendiente.
 - hardware certificado: todos los modelos continúan sin certificación productiva.
@@ -82,6 +86,7 @@ Control compensatorio integrado:
 - push a `main` -> CI completo + `Main push governance`;
 - merge permitido por política: merge commit normal mediante PR;
 - direct push, squash y rebase -> violación detectada por workflow;
+- el guard revisa el rango completo de primer padre introducido por cada push;
 - gate exacto y post-merge: `docs/governance/repository-governance.md`.
 
 Este control es detectivo, no preventivo.
@@ -96,9 +101,11 @@ Este control es detectivo, no preventivo.
 | `ci/supply-chain-baseline-20260826` | `INTEGRATED / HISTORICAL` | PR #5 ya integrada; no reutilizar. |
 | `docs/canonical-state-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #6 ya integrada; no reutilizar. |
 | `docs/camacho-pos-colombia-branding-20260826` | `INTEGRATED / HISTORICAL` | PR #7 ya integrada; no reutilizar. |
-| `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a `main`; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
-| `design/sql003-contract-reconciliation-20260826` | `BLOCKED` | PR #4 draft; requiere sincronización con `main` y revisión independiente. |
-| `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa SQL003. |
+| `audit/main-governance-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #8 ya integrada; no reutilizar. |
+| `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a un baseline ya integrado; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
+| `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
+| `docs/sql003-authoritative-contract-remediation-20260826` | `IN_PROGRESS` | Única línea activa de INT-006. Bundle V2 documental; SQL/descriptor 003 siguen prohibidos. |
+| `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
 
@@ -117,16 +124,64 @@ Reglas:
 5. Todo merge a `main` sigue el gate de gobernanza.
 6. Cada cambio que altere estado/orden actualiza este backlog en el mismo PR.
 7. No se usan estados locales históricos (`CLEAN`, upstream 0/0, Docker, PostgreSQL) como hechos presentes.
+8. Un documento V2 abreviado nunca sustituye destructivamente contratos históricos ricos; las remediaciones usan overlays/versionado o reemplazo completo verificable sin pérdida.
 
 ## Trabajo principal actual
 
-### TECH-004 — CI, calidad y supply chain
+### INT-006 — remediación contractual autoritativa de migration 003
 
 Prioridad: `P0`
 
 Estado: `IN_PROGRESS`
 
-Materializado:
+Baseline habilitante:
+
+- PR #4 `MERGED / CLOSED`;
+- propuesta `PROPOSAL_V7 / MODEL_A_SELECTED`;
+- CI V7 `SUCCESS`;
+- revisión independiente V7 `PASS`;
+- post-merge #54 `SUCCESS` en `main@bdc0f96323069de821e975737f19961fd16c3ccf`.
+
+Objetivo activo:
+
+- reconciliar fuentes autoritativas sin perder detalle histórico;
+- seleccionar Modelo A exclusivamente;
+- materializar documentalmente `preparation_generation` y una representación append-only de cada preparación;
+- separar create/replay, edición DRAFT, reprepare y retry;
+- mantener root provider-facing estable por dispatch/generation;
+- limitar V1 a `SUBMIT_DOCUMENT`;
+- definir fence común frente a worker/webhook/reconciliation;
+- preservar numeración histórica sin reuse;
+- mantener SQL003/descriptor003 ausentes hasta review independiente del bundle.
+
+Bundle candidato:
+
+- `docs/migration/sql003-authoritative-contract-remediation-index.md`;
+- `docs/migration/sql003-authoritative-contract-codex-resolution.md`;
+- `docs/migration/third-target-migration-manifest-v2-authoritative-remediation.md`;
+- `docs/architecture/physical-model/electronic-invoicing-schema-v2-authoritative-remediation.md`;
+- `docs/architecture/physical-model/fiscal-integration-fence-schema.md`;
+- `docs/architecture/electronic-invoicing-v2-authoritative-remediation.md`;
+- `docs/use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle-v2-authoritative-remediation.md`.
+
+Gate de cierre de esta línea:
+
+1. commit atómico y diff documental delimitado;
+2. CI commit-scoped `SUCCESS`;
+3. revisión independiente del HEAD exacto;
+4. cero BLOCKER/HIGH/MEDIUM abiertos;
+5. `AUTHORITATIVE_CONTRACT_REVIEW = PASS`;
+6. integración a `main` solo mediante autorización separada y gate de merge vigente.
+
+Ese cierre **no** materializa SQL003; únicamente habilita una tarea posterior separada para diseñarlo.
+
+### TECH-004 — CI, calidad y supply chain
+
+Prioridad: `P0`
+
+Estado: `READY`
+
+Baseline ya materializado:
 
 - gate TARGET en PR y push a `main`;
 - typecheck del tooling actual;
@@ -142,7 +197,7 @@ Materializado:
 - regresión ejecutable del rango de primer padre de `main`;
 - gobernanza detectiva de push a `main`.
 
-Pendiente para cerrar TECH-004:
+Pendiente cuando se retome como línea activa:
 
 - Nx cuando se materialicen apps/packages;
 - lint del runtime/aplicaciones;
@@ -155,47 +210,60 @@ Pendiente para cerrar TECH-004:
 - runtime/E2E tests;
 - controles de release/promoción.
 
-## Orden inmediato obligatorio después de esta reconciliación canónica
+TECH-004 no está `DONE`; queda `READY` para retomarse después del gate P0 activo de INT-006 o cuando existan artefactos runtime que permitan ejecutar sus controles pendientes.
 
-1. **Cerrar ramas históricas integradas** cuando exista operación segura de borrado de refs; no mover refs artificialmente ni hacer force-push para simular limpieza.
-2. **Resolver PR #4 / SQL003 contract gap**: obtener revisión independiente; si pasa, remediar fuentes autoritativas; revalidar idempotencia, retry/transport y `operation_type`; SQL003 continúa prohibido hasta cierre.
-3. **Retirar WIP SQL003 histórico** solo cuando la reconciliación autoritativa haya absorbido toda evidencia necesaria y sea demostrable que no se pierde trazabilidad.
-4. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
-5. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
-6. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
+## Orden inmediato obligatorio
 
-No se inicia NestJS/Electron “por avanzar” mientras los pasos anteriores sigan abiertos.
+1. **Cerrar bundle autoritativo V2 de INT-006** en la única rama activa, sin sustituir destructivamente contratos históricos.
+2. Ejecutar CI fresco sobre el HEAD exacto y revisar el delta completo.
+3. Solicitar revisión independiente; cualquier finding se remedia en la misma rama y obliga a CI/review frescos.
+4. Solo si `AUTHORITATIVE_CONTRACT_REVIEW = PASS`, dejar la PR lista para gate de integración; no fusionar sin autorización explícita separada.
+5. Después de integrar la remediación, decidir en tarea separada si se autoriza **diseñar/materializar** SQL/descriptor 003. No reutilizar el WIP como implementación.
+6. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
+7. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
+8. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
+9. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
+10. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
 
-## Bloqueo SQL003
+No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
 
-### INT-006
+## Gate SQL003
 
-Prioridad: `P0`
+### INT-006 / materialización 003
 
-Estado: `BLOCKED`
+Estado de materialización: `BLOCKED`.
 
-Causa:
+El bloqueo ya no es la propuesta: PR #4 fue revisada e integrada. El bloqueo actual es que la remediación autoritativa V2 todavía requiere CI y revisión independiente antes de poder habilitar siquiera el **diseño/materialización** SQL003.
 
-- PR #4 contiene una propuesta contractual `NOT_AUTHORITATIVE`;
-- revisión independiente Codex solicitada y bloqueada por límite de uso;
-- la auditoría detectó incompatibilidad entre retry con idempotency root estable y un unique histórico que impediría nuevas filas de attempt con la misma raíz;
-- existen findings de identidad lógica/transport/retry/operation scope que deben reconciliarse antes de DDL.
+Decisiones cerradas a nivel de propuesta y trasladadas al bundle candidato:
 
-Condición de desbloqueo:
+- Modelo A exclusivamente;
+- `REPREPARE_BEFORE_SUBMISSION` solo pre-exposure;
+- `FiscalDocumentPreparation` como representación durable por generation;
+- dispatch anterior cancelado atómicamente;
+- numeración histórica no reutilizable;
+- retry con root estable y attempts append-only;
+- `SUBMIT_DOCUMENT` como único operation type físico V1;
+- query/retrieve diferidos y fail-closed;
+- fence worker/webhook/reconciliation por documento/generation.
 
-1. revisión independiente de la propuesta;
-2. `PROPOSAL_REVIEW = PASS`;
-3. remediación autoritativa separada del manifest/physical model/use case aplicables;
-4. review de esa remediación;
-5. solo entonces considerar manifest/materialización SQL003.
+Condición para desbloquear una **tarea posterior de materialización**:
 
-No autorizado mientras esté bloqueado:
+1. bundle V2 completo;
+2. CI exact-head `PASS`;
+3. review independiente del bundle;
+4. `AUTHORITATIVE_CONTRACT_REVIEW = PASS`;
+5. integración documental autorizada y verificada;
+6. autorización separada para iniciar diseño/materialización SQL003.
+
+No autorizado mientras este gate siga bloqueado:
 
 - SQL 003;
 - descriptor 003;
 - runner/apply/down 003;
 - fiscal schema;
 - adapters provider;
+- promoción de security gates;
 - merge/cherry-pick completo del WIP histórico.
 
 ## Backlog por épica
@@ -207,7 +275,7 @@ No autorizado mientras esté bloqueado:
 | ARCH-001 | P0 | DONE | Monolito modular, monorepo, local-first y single codebase definidos. |
 | ARCH-002 | P0 | DONE | Contexto, tenancy, deployment y ownership definidos. |
 | ARCH-003 | P0 | READY | Convertir límites en reglas ejecutables de módulos/Nx. TECH-002 está DONE y module-map queda reconciliado en este corte. |
-| ARCH-004 | P0 | DONE | Contratos renderer/Electron/local/API/hardware/providers definidos. |
+| ARCH-004 | P0 | DONE | Contratos renderer/Electron/local/API/hardware/providers definidos; extensión fiscal V2 bajo INT-006 permanece en review. |
 | ARCH-005 | P0 | DONE | Stack objetivo cerrado en ADR-005. |
 
 ### Seguridad
@@ -252,7 +320,7 @@ No autorizado mientras esté bloqueado:
 | TAX-002 | P0 | DONE | Redondeo total pagadero definido. |
 | TAX-003 | P0 | DONE | Precisión/residuos/conciliación y rounding final cerrados. |
 | TAX-004 | P1 | PLANNED | Implementar Electronic Invoicing tras INT-006/TECH-003/gates. |
-| UC-EINV-001 | P1 | DONE | Ciclo funcional fiscal documentado. |
+| UC-EINV-001 | P1 | DONE | Contrato funcional base documentado; overlay V2 de remediación bajo review en INT-006, sin runtime. |
 
 ### Integraciones externas
 
@@ -263,7 +331,7 @@ No autorizado mientras esté bloqueado:
 | INT-003 | P0 | DONE | Migration 002 materializada/tested/immutable. |
 | INT-004 | P1 | PLANNED | Adapters SIIGO/FACTUS/ALEGRA reales; no mocks como evidencia. |
 | INT-005 | P2 | PLANNED | Evaluar HKA/Odoo sin adapters ficticios. |
-| INT-006 | P0 | BLOCKED | Reconciliación/materialización migration 003 fiscal; ver bloque SQL003. |
+| INT-006 | P0 | IN_PROGRESS | Remediación contractual autoritativa V2 activa; materialización SQL003 permanece BLOCKED hasta review PASS e integración separada. |
 
 ### Pagos
 
@@ -379,7 +447,7 @@ No autorizado mientras esté bloqueado:
 | TECH-001 | P0 | DONE | Modelo conceptual y ownership. |
 | TECH-002 | P0 | DONE | Modelo físico base + migrations 001/002/materialización revisada. |
 | TECH-003 | P0 | READY | Contratos Zod/API/IPC/error/idempotencia/versionado/correlación. |
-| TECH-004 | P0 | IN_PROGRESS | CI/calidad/supply chain; trabajo principal actual. |
+| TECH-004 | P0 | READY | CI/calidad/supply chain: baseline materializado; controles de runtime/release pendientes y no activos durante INT-006. |
 | TECH-005 | P1 | PLANNED | Observabilidad/backups/restore/update/rollback. |
 | TECH-006 | P1 | PLANNED | Fixtures multi-tenant/concurrencia/recovery. |
 
@@ -409,9 +477,9 @@ No autorizado mientras esté bloqueado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 DONE; 001/002 materializadas; cortes posteriores aditivos y gated. |
+| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 DONE; 001/002 materializadas; INT-006 V2 en remediación documental; SQL003 aún no materializada. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
-| F1.4 CI/calidad | IN_PROGRESS | TECH-004; baseline vigente PASS, pipeline integral pendiente. |
+| F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
 | F1.6 Base local-first | PLANNED | Operation/outbox/sync real sin duplicación. |
 
@@ -427,7 +495,7 @@ No autorizado mientras esté bloqueado:
 | R-007 | Media | Pricing documentado, runtime pendiente. | Implementación determinista + tests. |
 | R-008 | Media | RPO/RTO/volumen sin benchmark. | TECH-005 + medición. |
 | R-009 | Media | Hardware sin validación real. | DEV-003 + LAB_VALIDATED/CERTIFIED. |
-| R-010 | Alta | SQL003 con contract gaps abiertos. | PR #4 -> remediación autoritativa -> review -> materialización separada. |
+| R-010 | Alta | Remediación autoritativa SQL003 puede introducir drift o perder historia contractual/numeración. | Bundle V2 por overlays + índice de precedencia + CI + review independiente antes de cualquier SQL. |
 | R-011 | Alta | Runtime objetivo ausente. | ARCH-003/TECH-003 -> esqueleto -> gates. |
 | R-012 | Media | Firma/keys/support definidos pero no implementados. | SEC-004 materializado + pruebas. |
 | R-013 | Alta | `main` sin branch protection preventiva por limitación de plan. | Control detectivo vigente; habilitar protección cuando plan lo permita. |
@@ -445,7 +513,11 @@ Los hitos que sustentan el baseline actual incluyen, entre otros:
 - cleanup legacy integrado por PR #3;
 - fundación TARGET integrada por PR #2;
 - supply-chain/governance integrada por PR #5;
-- run post-merge #40 PASS.
+- reconciliación canónica por PR #6;
+- identidad comercial por PR #7;
+- hardening de gobernanza por PR #8;
+- propuesta SQL003 V7 integrada por PR #4;
+- run post-merge #54 PASS sobre `bdc0f96323069de821e975737f19961fd16c3ccf`.
 
 El registro histórico sirve como evidencia, no como cola de trabajo vigente.
 
@@ -460,4 +532,5 @@ Una tarea no está cerrada hasta que:
 5. el backlog refleja el estado nuevo;
 6. branch/PR/merge quedan reconciliados conforme a governance;
 7. no queda una rama activa sin objetivo o condición de bloqueo;
-8. no se deja una fuente normativa contando un estado incompatible.
+8. no se deja una fuente normativa contando un estado incompatible;
+9. ninguna remediación reduce o elimina silenciosamente detalle contractual previamente aprobado.
