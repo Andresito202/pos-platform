@@ -12,7 +12,7 @@ Los estados `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 
 ## Estado general
 
-- Rama de materialización de la limpieza: `cleanup/pure-pos-platform-20260825`, creada desde `cb1dafdc987104a5fdc75034de833df157cbfe67`; cambios unstaged, sin commit ni push.
+- Rama de separación del runtime anterior: `cleanup/pure-pos-platform-20260825`, creada desde `cb1dafdc987104a5fdc75034de833df157cbfe67`; la limpieza base fue versionada y publicada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310`. La rama permanece pendiente de revisión externa e integración en `architecture/physical-model`.
 - Estado inicial del árbol al crear este backlog: limpio.
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
@@ -351,17 +351,19 @@ La validación fresca, preparación del ambiente, canonical-role readiness, ejec
 
 Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
 
-La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. La única secuencia técnica vigente continúa así:
+La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` (`chore: remove legacy demo runtime and neutralize POS Platform`) versionó y publicó normalmente la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`. Esta reconciliación corrige el estado posterior; la rama todavía no está integrada en `architecture/physical-model` ni en `main`.
 
-1. limpieza del runtime y documentación operativa anterior materializada, sin stage ni commit, en `cleanup/pure-pos-platform-20260825`;
-2. revisión externa independiente y read-only del diff y de su paquete sanitizado;
-3. remediación y nueva revisión si aparecen findings;
-4. únicamente después de revisión `PASS`, autorización separada para stage, commit y push de la rama de limpieza;
-5. pull request separado hacia la rama canónica que se determine mediante autorización posterior;
+La única secuencia técnica vigente continúa así:
+
+1. revisión externa independiente y read-only del diff completo entre `cb1dafdc987104a5fdc75034de833df157cbfe67` y el HEAD vigente de `cleanup/pure-pos-platform-20260825`;
+2. remediación y nueva revisión si aparecen findings;
+3. únicamente después de revisión `PASS`, apertura de un pull request separado `cleanup/pure-pos-platform-20260825 -> architecture/physical-model`;
+4. revisión e integración de ese pull request únicamente mediante autorización posterior;
+5. después de integrar la limpieza en `architecture/physical-model`, actualización de alcance y nueva revisión de la PR #2 `architecture/physical-model -> main`;
 6. integración en `main` únicamente mediante otra autorización expresa;
-7. reanudación separada del contrato SQL 003 sobre el baseline limpio.
+7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
 
-SQL 003 continúa sin planificación autorizada, sin diseño y sin materialización. Planificación, diseño, materialización, pruebas, revisión y aplicación canónica de SQL 003 son gates separados; ninguno queda implícitamente autorizado por esta tarea. `SQL 003` permanece `ABSENT`; `descriptor 003` permanece `ABSENT`; el ledger entry count para migration 003 permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 `TECH-003`, adapters/runtime y el resto de Fase 1 no reemplazan ni omiten esta secuencia. `DEC-005` permanece diferida como decisión `P1` hasta abordar crédito offline.
 
@@ -582,8 +584,8 @@ Las entradas de esta sección son snapshots históricos y pueden describir estad
 - 2026-08-24: `TARGET-POSTGRESQL-FRESH-VALIDATION` pasó `145/145`; se preparó `LOCAL_CANONICAL_INTEGRATION`, y el application preflight posterior confirmó `READY_FOR_CANONICAL_APPLICATION` sobre PostgreSQL 16.14 con 001/002 exactas.
 - 2026-08-24: canonical-role readiness completó `MISSING -> APPLY -> READY` con los dos grants aprobados, recibo lifecycle v1 durable y revisión independiente `PASS` sin findings. El estado promovido es `APPLIED / REVIEWED`; `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 siguen ausentes y migration 003 continúa `NOT_MATERIALIZED`.
 - 2026-08-24: `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION` y su revisión independiente cerraron `PASS` en `local-canonical-integration`. Los cinco blockers y `MAT003_AFFECTED_SCOPE_INTEGRITY` devolvieron `PASS/count=0`; no hubo evidencia diagnóstica ni mutaciones durables. El estado promovido es `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; SQL/descriptor 003 y fiscal schema permanecen ausentes; el conteo de entradas para migration 003 en el ledger permanece en `0`. Se conserva un LOW conocido/no bloqueante sobre el desempate final de evidencia.
-- 2026-08-25: se materializó en `cleanup/pure-pos-platform-20260825`, sin stage, commit ni push, la separación del runtime y documentación operativa anterior. POS Platform conserva únicamente arquitectura, contratos, tooling, migrations y evidencia TARGET; el runtime de aplicación continúa `ABSENT / NOT_MATERIALIZED` y requiere revisión externa antes de cualquier escritura Git posterior.
+- 2026-08-25: se materializó la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`; posteriormente quedó versionada y publicada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` (`chore: remove legacy demo runtime and neutralize POS Platform`). POS Platform conserva arquitectura, contratos, tooling, migrations y evidencia TARGET; el runtime de aplicación continúa `ABSENT / NOT_MATERIALIZED`. La rama de limpieza permanece pendiente de revisión externa e integración en `architecture/physical-model`.
 - 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y, en ese momento, la siguiente evaluación opcional pasó a ser Context7 mediante autorización separada.
 - 2026-08-24: Context7 fue configurado externamente con versión fijada y sin secretos; la validación runtime falló por timeout de handshake sin llamadas a sus herramientas y se determinó `NOT_REQUIRED`. El rollback controlado eliminó únicamente Context7, `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS` y el repositorio permaneció intacto. La siguiente transición requiere revisión y cierre de esta reconciliación documental.
 
-Próxima transición obligatoria: revisión externa independiente y read-only del diff de limpieza y de su paquete sanitizado, con remediación y nueva revisión si aparecen findings. Solo después de revisión `PASS` podrán autorizarse por separado stage, commit y push de la rama de limpieza, un pull request hacia la rama canónica que se determine y, mediante autorización posterior, integración en `main`. La reanudación del contrato SQL 003 seguirá siendo otra tarea separada y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.
+Próxima transición obligatoria: revisión externa independiente y read-only del diff completo entre `cb1dafdc987104a5fdc75034de833df157cbfe67` y el HEAD vigente de `cleanup/pure-pos-platform-20260825`, con remediación y nueva revisión si aparecen findings. Solo después de revisión `PASS` podrá abrirse un pull request separado hacia `architecture/physical-model`. La PR #2 hacia `main` deberá actualizar su alcance y revisarse nuevamente después de integrar la limpieza. La reanudación del contrato SQL 003 seguirá siendo otra tarea separada y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.

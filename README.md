@@ -164,17 +164,19 @@ La validación fresca, preparación del ambiente, canonical-role readiness, ejec
 
 Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
 
-La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. La única secuencia técnica vigente continúa así:
+La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` (`chore: remove legacy demo runtime and neutralize POS Platform`) versionó y publicó normalmente la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`. Esta reconciliación corrige el estado posterior; la rama todavía no está integrada en `architecture/physical-model` ni en `main`.
 
-1. limpieza del runtime y documentación operativa anterior materializada, sin stage ni commit, en `cleanup/pure-pos-platform-20260825`;
-2. revisión externa independiente y read-only del diff y de su paquete sanitizado;
-3. remediación y nueva revisión si aparecen findings;
-4. únicamente después de revisión `PASS`, autorización separada para stage, commit y push de la rama de limpieza;
-5. pull request separado hacia la rama canónica que se determine mediante autorización posterior;
+La única secuencia técnica vigente continúa así:
+
+1. revisión externa independiente y read-only del diff completo entre `cb1dafdc987104a5fdc75034de833df157cbfe67` y el HEAD vigente de `cleanup/pure-pos-platform-20260825`;
+2. remediación y nueva revisión si aparecen findings;
+3. únicamente después de revisión `PASS`, apertura de un pull request separado `cleanup/pure-pos-platform-20260825 -> architecture/physical-model`;
+4. revisión e integración de ese pull request únicamente mediante autorización posterior;
+5. después de integrar la limpieza en `architecture/physical-model`, actualización de alcance y nueva revisión de la PR #2 `architecture/physical-model -> main`;
 6. integración en `main` únicamente mediante otra autorización expresa;
-7. reanudación separada del contrato SQL 003 sobre el baseline limpio.
+7. reanudación separada del contrato SQL 003 sobre el baseline canónico limpio.
 
-SQL 003 continúa sin planificación autorizada, sin diseño y sin materialización. Planificación, diseño, materialización, pruebas, revisión y aplicación canónica de SQL 003 son gates separados; ninguno queda implícitamente autorizado por esta tarea. `SQL 003` permanece `ABSENT`; `descriptor 003` permanece `ABSENT`; el ledger entry count para migration 003 permanece en `0`; el fiscal schema permanece `ABSENT`; migration 003 permanece `NOT_MATERIALIZED`. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
 
 ## Calidad y seguridad
 
