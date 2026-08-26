@@ -43,55 +43,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          before_sha="$PUSH_BEFORE_SHA"
-          zero_sha="0000000000000000000000000000000000000000"
+          validated_commits="$(
+            bash tools/ci/validate-main-push-history.sh "$PUSH_BEFORE_SHA" "$REVIEWED_SHA"
+          )"
+          mapfile -t introduced_mainline_commits <<<"$validated_commits"
 
-          if ! [[ "$before_sha" =~ ^[0-9a-f]{40}$ ]] || [ "$before_sha" = "$zero_sha" ]; then
-            echo "::error::main push has no valid pre-push SHA; the compensating control cannot prove the introduced first-parent range."
-            exit 1
-          fi
-
-          if ! git cat-file -e "${before_sha}^{commit}" 2>/dev/null; then
-            echo "::error::pre-push main commit ${before_sha} is unavailable in the checkout."
-            exit 1
-          fi
-
-          if ! git merge-base --is-ancestor "$before_sha" "$REVIEWED_SHA"; then
-            echo "::error::main push is not a fast-forward from ${before_sha} to ${REVIEWED_SHA}."
-            exit 1
-          fi
-
-          mapfile -t introduced_mainline_commits < <(
-            git rev-list --first-parent --reverse "${before_sha}..${REVIEWED_SHA}"
-          )
-
-          if [ "${#introduced_mainline_commits[@]}" -eq 0 ]; then
-            echo "::error::main push introduced no verifiable first-parent commit."
-            exit 1
-          fi
-
-          expected_parent="$before_sha"
           for commit_sha in "${introduced_mainline_commits[@]}"; do
-            parents="$(git show -s --format=%P "$commit_sha")"
-            parent_count="$(awk '{print NF}' <<<"$parents")"
-            first_parent="$(awk '{print $1}' <<<"$parents")"
-
-            if [ "$first_parent" != "$expected_parent" ]; then
-              echo "::error::main first-parent chain is discontinuous at ${commit_sha}; expected parent ${expected_parent}, found ${first_parent}."
-              exit 1
-            fi
-
-            if [ "$parent_count" -ne 2 ]; then
-              echo "::error::main introduced non-merge commit ${commit_sha}. Direct pushes and squash/rebase merges are not accepted."
-              exit 1
-            fi
-
-            committer_email="$(git show -s --format=%ce "$commit_sha")"
-            if [ "$committer_email" != "noreply@github.com" ]; then
-              echo "::error::main merge commit ${commit_sha} was not created by GitHub."
-              exit 1
-            fi
-
             associated_prs="$(
               curl --fail --silent --show-error \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -109,14 +66,7 @@ jobs:
               echo "::error::main commit ${commit_sha} is not the merge_commit_sha of a merged pull request targeting main."
               exit 1
             fi
-
-            expected_parent="$commit_sha"
           done
-
-          if [ "$expected_parent" != "$REVIEWED_SHA" ]; then
-            echo "::error::validated first-parent range did not terminate at the pushed main SHA."
-            exit 1
-          fi
 
           echo "Main push governance PASS for ${#introduced_mainline_commits[@]} introduced first-parent commit(s), ending at ${REVIEWED_SHA}."
 
@@ -147,6 +97,9 @@ jobs:
 
       - name: Validate repository and secret policy
         run: pnpm ci:repository-policy
+
+      - name: Validate main push history regression
+        run: bash tools/ci/test-main-push-history.sh
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile

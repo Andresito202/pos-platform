@@ -30,6 +30,7 @@ Valida, entre otros:
 - lockfile esperado;
 - ausencia de symlinks trackeados;
 - ausencia de archivos sensibles trackeados;
+- regresión de historia de `main`: acepta rango compuesto solo por merges válidos y rechaza un direct commit oculto antes de un merge;
 - scanner de patrones de secretos de alta confianza sin imprimir el valor;
 - instalación mediante `pnpm install --frozen-lockfile`;
 - inventario de dependencias/licencias después de instalar;

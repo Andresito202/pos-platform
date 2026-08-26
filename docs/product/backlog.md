@@ -139,6 +139,7 @@ Materializado:
 - artifact obligatorio;
 - Actions fijadas por SHA;
 - `persist-credentials: false`;
+- regresión ejecutable del rango de primer padre de `main`;
 - gobernanza detectiva de push a `main`.
 
 Pendiente para cerrar TECH-004:
