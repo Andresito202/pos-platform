@@ -50,7 +50,7 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - PR #5: `MERGED / CLOSED`; supply-chain baseline + gobernanza detectiva de `main` integrados.
 - PR #6: `MERGED / CLOSED`; fuentes canónicas reconciliadas.
 - PR #7: `MERGED / CLOSED`; `Camacho POS Colombia` adoptado como nombre comercial con clearance oficial todavía pendiente.
-- HEAD vigente de `main`: `940107f8cc0976c130dd4f274928b2df248473f4`.
+- Merge PR #7: `940107f8cc0976c130dd4f274928b2df248473f4`.
 - Run post-merge #47 `32937793013`: `COMPLETED / SUCCESS`, incluidos repository policy, TypeScript/SQLite/PostgreSQL y `Main push governance`.
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub.

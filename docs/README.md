@@ -40,7 +40,7 @@ Si dos fuentes normativas actuales se contradicen:
 - PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
 - PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
 - PR #6 reconcilió el estado canónico y PR #7 adoptó el nombre comercial `Camacho POS Colombia` con estado registral explícitamente pendiente.
-- El HEAD vigente de `main` es `940107f8cc0976c130dd4f274928b2df248473f4`; el run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluido `Main push governance = SUCCESS`.
+- El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`; su run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluido `Main push governance = SUCCESS`.
 - La branch protection preventiva nativa no está disponible para este repositorio privado con el plan GitHub actual; se documenta como limitación, no como protección existente.
 - Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`.
 - SQL/descriptor 003 y schema fiscal 003 continúan ausentes; migration 003 está `NOT_MATERIALIZED`.

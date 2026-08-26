@@ -116,7 +116,7 @@ Evidencia canónica más reciente antes de este hardening:
 - TypeScript/SQLite/PostgreSQL: `SUCCESS`;
 - `Main push governance`: `SUCCESS`.
 
-El hardening del rango completo requiere CI commit-scoped y verificación post-merge propios antes de promoverse.
+Este hardening solo se considera vigente para un SHA cuando su CI commit-scoped y la verificación post-merge aplicable constan `SUCCESS` en GitHub; la evidencia se consulta por SHA y no se infiere desde este documento.
 
 ## Interpretación
 
