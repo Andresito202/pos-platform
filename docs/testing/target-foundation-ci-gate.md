@@ -1,56 +1,150 @@
-# TARGET foundation CI gate
+# Gate CI de la fundación TARGET
 
-## Purpose
+## Propósito
 
-This document records the minimum CI gate currently materialized for the POS Platform TARGET foundation. It is operational evidence for `TECH-004`; it is not a declaration that the full product CI/CD pipeline is complete.
+Este documento es la fuente normativa para el alcance real del workflow `.github/workflows/target-foundation-validation.yml`.
 
-## Scope
+El workflow valida únicamente la fundación ejecutable actualmente materializada. No declara que el pipeline integral, el runtime o el producto estén completos.
 
-Workflow: `.github/workflows/target-foundation-validation.yml`
+## Eventos
 
-The gate validates only the executable foundation currently present in the repository:
+El workflow se ejecuta en:
 
-- locked dependency installation with pnpm;
-- TypeScript typecheck;
-- SQLite migration validation;
-- PostgreSQL migrations 001 and 002 on PostgreSQL 16.14;
+- `pull_request` hacia `main`;
+- `push` a `main`;
+- `workflow_dispatch`.
+
+La rama histórica `architecture/physical-model` ya no es trigger de `push`.
+
+## Jobs vigentes
+
+### Repository policy and dependency inventory
+
+Valida, entre otros:
+
+- manifests propios `private`;
+- `pnpm@9.15.0` fijado;
+- dependencias directas con versiones exactas;
+- lifecycle hooks prohibidos en manifests propios del baseline;
+- workspace actualmente limitado a `tools/*`;
+- lockfile esperado;
+- ausencia de symlinks trackeados;
+- ausencia de archivos sensibles trackeados;
+- scanner de patrones de secretos de alta confianza sin imprimir el valor;
+- instalación mediante `pnpm install --frozen-lockfile`;
+- inventario de dependencias/licencias después de instalar;
+- fallo cerrado ante package manifests instalados ilegibles o inválidos;
+- evidencia obligatoria mediante artifact; `if-no-files-found: error`.
+
+Este inventario no se presenta como SBOM CycloneDX/SPDX firmado ni como conclusión legal completa de compatibilidad de licencias.
+
+### TypeScript, SQLite and PostgreSQL 16.14
+
+Valida:
+
+- instalación locked;
+- TypeScript typecheck del tooling TARGET existente;
+- migration SQLite materializada y regresión de concurrencia;
+- PostgreSQL migrations 001/002 y regresiones de rollback/concurrencia aplicables;
 - MAT-003 preflight tooling;
-- MAT-003 canonical-role-readiness tooling.
+- MAT-003 canonical-role-readiness tooling;
+- PostgreSQL 16.14 efímero.
 
-The workflow uses `contents: read`, GitHub Actions pinned by commit SHA, Node.js 22.19.0, pnpm 9.15.0 and an ephemeral PostgreSQL 16.14 service. It does not require repository secrets for this validation path.
+No valida un runtime NestJS/Electron inexistente.
 
-## First reviewed execution
+### Main push governance
 
-- Branch: `architecture/physical-model`.
-- Commit: `4671205f48bf6cb2e18e079c321ab119fce2465c` (`ci: validate TARGET foundation on PostgreSQL 16.14`).
-- Pull request: #2 (`architecture/physical-model` -> `main`).
-- GitHub Actions run: `32921877755`.
-- Job: `TypeScript, SQLite and PostgreSQL 16.14`.
-- Result: `COMPLETED / SUCCESS`.
+Se ejecuta únicamente cuando el evento es `push` a `main`.
 
-All material steps completed successfully, including dependency installation, typecheck, SQLite validation, PostgreSQL migrations 001/002, MAT-003 preflight tooling and MAT-003 role-readiness tooling.
+Es un control detectivo. Verifica que el commit de `main`:
 
-## Interpretation
+- tenga dos padres;
+- sea un merge commit creado por GitHub;
+- corresponda exactamente al `merge_commit_sha` de una PR fusionada hacia `main`.
 
-This evidence promotes the minimum TARGET foundation CI gate to `MATERIALIZED / EXECUTED / PASS` for commit `4671205f48bf6cb2e18e079c321ab119fce2465c`.
+Por política del proyecto, direct push, squash merge y rebase merge no son rutas válidas de integración. Este job los marca como violación después del push; no reemplaza branch protection preventiva.
 
-It does **not** promote any of the following:
+La política completa está en `docs/governance/repository-governance.md`.
 
-- `TECH-004` to `DONE`;
-- the full CI/CD pipeline to complete;
-- the NestJS/Fastify runtime to materialized;
-- Electron/React/Vite or POS Local Service to materialized;
-- SQL/descriptor 003 or migration 003 to materialized;
-- SIIGO, FACTUS or ALEGRA adapters to evaluated or production-ready;
-- `SEC-G01` through `SEC-G10` to evaluated or passed;
-- POS Platform to production-ready.
+## Trazabilidad del source
 
-Nx integration, linting, security scanning, license/SBOM controls, broader runtime tests, release controls and the integral product pipeline remain pending under `TECH-004` and the applicable security gates.
+En eventos `pull_request`, `GITHUB_SHA` puede representar un merge ref sintético. Para que la evidencia identifique el código realmente revisado, el workflow usa:
 
-## Head-change rule
+`REVIEWED_SHA = pull_request.head.sha || github.sha`
 
-CI evidence is commit-scoped. Any later commit on `architecture/physical-model` must obtain a successful applicable run before that new HEAD can use `CI = PASS` as an integration gate. A historical successful run never substitutes validation of a changed HEAD.
+Los jobs de validación hacen checkout explícito de ese SHA y usan `persist-credentials: false`.
 
-## Main integration rule
+Las GitHub Actions usadas por el workflow permanecen fijadas por commit SHA. La versión de pnpm del proyecto permanece fijada de forma independiente en `9.15.0`.
 
-A successful CI run is necessary but not sufficient for integration into `main`. The validated HEAD still requires final diff review and the PR integration gate. Merge into `main` requires separate explicit authorization and post-merge verification.
+## Evidencia vigente
+
+### Pre-merge PR #5
+
+- HEAD: `19adc690a9277a18a8de214060cd890553f0842c`;
+- run: `32932269946` (#39);
+- resultado: `COMPLETED / SUCCESS`;
+- repository policy/dependency inventory: `SUCCESS`;
+- TypeScript/SQLite/PostgreSQL: `SUCCESS`;
+- `Main push governance`: `SKIPPED`, correcto porque era evento de PR.
+
+### Post-merge `main`
+
+PR #5 se fusionó mediante merge normal en:
+
+`bfca119b27f9b4bf0a7b0541708161a2beb2833d`
+
+El push real a `main` produjo:
+
+- run: `32933559784` (#40);
+- event: `push`;
+- head branch: `main`;
+- head SHA: `bfca119b27f9b4bf0a7b0541708161a2beb2833d`;
+- workflow: `COMPLETED / SUCCESS`;
+- `Repository policy and dependency inventory = SUCCESS`;
+- `TypeScript, SQLite and PostgreSQL 16.14 = SUCCESS`;
+- `Main push governance = SUCCESS`.
+
+Esta es la primera evidencia post-merge de que el control detectivo reconoce correctamente una integración válida mediante PR y merge commit normal.
+
+## Interpretación
+
+El estado correcto es:
+
+`TARGET_FOUNDATION_CI = MATERIALIZED / EXECUTED / PASS`
+
+`MAIN_PUSH_DETECTIVE_GOVERNANCE = MATERIALIZED / EXECUTED / PASS`
+
+`TECH-004 = IN_PROGRESS`
+
+No se promueve por esta evidencia:
+
+- branch protection preventiva nativa;
+- `TECH-004 = DONE`;
+- Nx de aplicaciones;
+- lint del runtime;
+- CodeQL/SAST completo;
+- vulnerability scanning con política de severidad cerrada;
+- SBOM firmado;
+- provenance/attestations de build;
+- firma de releases;
+- runtime tests;
+- release controls;
+- `SEC-G07`, `SEC-G09` o `SEC-G10 = PASS`;
+- NestJS/Fastify;
+- Electron/React/Vite;
+- POS Local Service;
+- SQL/descriptor 003;
+- SIIGO/FACTUS/ALEGRA evaluados;
+- POS Platform `PRODUCTION_READY`.
+
+## Regla commit-scoped
+
+Un resultado `PASS` solo aplica al SHA validado. Cualquier commit nuevo en una rama de PR necesita su ejecución aplicable exitosa antes de integrarse.
+
+Después de cada merge a `main`, el push workflow debe completar satisfactoriamente. Un fallo de `Main push governance` se considera violación de integración y debe investigarse antes de cualquier cambio posterior de producto.
+
+## Relación con supply chain
+
+`docs/testing/supply-chain-baseline-ci-gate.md` documenta el detalle del baseline de repository policy, secretos e inventario/licencias materializado por PR #5.
+
+Este documento describe el gate TARGET completo actualmente visible y su relación con `main`; ambos deben mantenerse alineados en el mismo cambio cuando se modifique el workflow.

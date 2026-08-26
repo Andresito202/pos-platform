@@ -2,9 +2,9 @@
 
 ## 1. Estado y autoridad
 
-Estado: `PROPOSAL_V2 / NOT_AUTHORITATIVE / NOT_FOR_SQL_MATERIALIZATION`.
+Estado: `PROPOSAL_V3 / NOT_AUTHORITATIVE / INT-006_BLOCKED / NOT_FOR_SQL_MATERIALIZATION`.
 
-Este documento propone la reconciliación contractual previa a cualquier SQL 003. Sustituye dentro de esta rama las versiones anteriores de la propuesta y responde a los tres findings históricos `HIGH-001`, `HIGH-002` y `HIGH-003`, además de dos ambigüedades descubiertas durante la revisión interna de la propuesta.
+Este documento propone la reconciliación contractual previa a cualquier SQL 003. Sustituye dentro de esta rama las versiones anteriores de la propuesta, responde a los findings históricos `HIGH-001`, `HIGH-002` y `HIGH-003`, a las ambigüedades internas `INTERNAL-HIGH-004` e `INTERNAL-MEDIUM-005`, y registra el conflicto contractual autoritativo confirmado durante la auditoría canónica posterior a las PR #5 y #6.
 
 No modifica ni sustituye todavía:
 
@@ -18,10 +18,15 @@ No modifica ni sustituye todavía:
 
 Esta propuesta requiere revisión independiente. Incluso un `PASS` autorizará solamente una remediación documental autoritativa separada. No autoriza crear, copiar, cherry-pickear, ejecutar ni aplicar SQL 003.
 
+Mientras esta propuesta no obtenga `PROPOSAL_REVIEW=PASS` y la remediación autoritativa posterior no cierre los conflictos, `INT-006` permanece `BLOCKED` conforme al backlog canónico.
+
 ## 2. Baseline canónico
 
-- `main`: `0110df5d2b7862d9faeb69b1e9fd7e0bc978a7a1`;
+- `main`: `412f4ddb59c05371b2eb629ccf37b6de74efcc48`;
 - PR #2: `MERGED / CLOSED`;
+- PR #5: `MERGED / CLOSED`; supply-chain baseline y gobernanza detectiva de `main` integrados;
+- PR #6: `MERGED / CLOSED`; reconciliación canónica de README/backlog/governance/CI/módulos integrada;
+- run post-merge #42 (`32934447498`): `COMPLETED / SUCCESS`, incluido `Main push governance = SUCCESS`;
 - migration 001: `MATERIALIZED / TESTED / IMMUTABLE`;
 - migration 002: `MATERIALIZED / TESTED / IMMUTABLE`;
 - `MAT-003-PREFLIGHT`: `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`;
@@ -36,9 +41,10 @@ Checkpoint WIP de referencia:
 
 - rama: `wip/sql003-contract-gap-20260825`;
 - commit: `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf`;
-- relación frente al `main` actual: `DIVERGED`, `1 ahead / 17 behind`.
+- relación frente a `main@412f4ddb59c05371b2eb629ccf37b6de74efcc48`: `DIVERGED`, `1 ahead / 35 behind`;
+- contiene SQL 003, cambios de runner/introspection/contract y tests preliminares no canónicos.
 
-El WIP es evidencia histórica, no una base de implementación. No se permite merge ni cherry-pick completo.
+El WIP es `HISTORICAL_WIP / NOT_INTEGRABLE`: conserva evidencia para revisión, no es una base de implementación. No se permite merge ni cherry-pick completo.
 
 ## 3. Findings y decisión de alcance
 
@@ -89,6 +95,30 @@ La versión anterior separó dispatches por operación, pero esa complejidad dej
 Decisión propuesta: `REMOVE_FROM_V1`.
 
 Migration 003 v1 solo necesita el dispatch fiscal de `SUBMIT_DOCUMENT`. Query/retrieve tendrán su propio diseño de dispatch, capability e idempotencia cuando se autoricen en una migration/contrato posterior.
+
+### CURRENT-HIGH-006 — constraint autoritativo incompatible con retry de raíz estable
+
+El `third-target-migration-manifest.md` canónico exige actualmente, para `FiscalSubmissionAttempt`, una unicidad equivalente a:
+
+```text
+UNIQUE (tenant_id, electronic_document_id, operation_type, idempotency_key)
+```
+
+El mismo contrato también establece que un retry técnico crea una fila nueva. La propuesta corregida exige que los attempts del mismo dispatch conserven una raíz idempotente estable.
+
+Esas reglas no pueden coexistir si el retry usa el mismo `electronic_document_id`, el mismo `operation_type` y la misma raíz idempotente: la segunda fila válida chocaría contra la unicidad autoritativa actual.
+
+Decisión propuesta: `REMEDIATE_AUTHORITATIVE_CONTRACT_BEFORE_SQL`.
+
+La futura remediación autoritativa deberá eliminar esta incompatibilidad sin debilitar:
+
+- identidad única de cada ejecución;
+- monotonicidad/uniqueness de `attempt_number` dentro del dispatch;
+- conflicto explícito cuando una misma intención se presenta con contenido/checksum diferente;
+- historia append-only de attempts;
+- deduplicación provider-facing cuando el proveedor soporte idempotencia.
+
+Esta propuesta no prescribe todavía un DDL sustituto. La forma física exacta debe ser revisada y aprobada en la remediación autoritativa antes de materializar migration 003.
 
 ## 4. Identidad lógica de `ElectronicDocument`
 
@@ -320,14 +350,15 @@ Hasta entonces esas operaciones son `DESIGNED / NOT_MATERIALIZED / FAIL_CLOSED`.
 9. `FiscalSubmissionAttempt.idempotency_key` conserva exactamente esa raíz dentro del mismo dispatch.
 10. `attempt_number` identifica ejecución y es monotónico por dispatch.
 11. retries crean filas nuevas sin cambiar la raíz idempotente.
-12. migration 003 v1 usa únicamente `SUBMIT_DOCUMENT`.
-13. query/retrieve quedan fuera hasta contrato posterior revisado.
-14. `FiscalSubmissionAttempt` permanece único owner de attempts fiscales.
-15. `IntegrationDispatchAttempt` permanece `NON_FISCAL`.
-16. migrations 001/002 permanecen byte-for-byte inmutables.
-17. SQLite 003 continúa `NONE`.
-18. providers y `SEC-G` no cambian de estado por esta propuesta.
-19. SQL/descriptor/schema fiscal 003 continúan ausentes hasta autorización separada.
+12. el constraint autoritativo actual que impide repetir la raíz idempotente entre attempts debe quedar reconciliado antes de SQL.
+13. migration 003 v1 usa únicamente `SUBMIT_DOCUMENT`.
+14. query/retrieve quedan fuera hasta contrato posterior revisado.
+15. `FiscalSubmissionAttempt` permanece único owner de attempts fiscales.
+16. `IntegrationDispatchAttempt` permanece `NON_FISCAL`.
+17. migrations 001/002 permanecen byte-for-byte inmutables.
+18. SQLite 003 continúa `NONE`.
+19. providers y `SEC-G` no cambian de estado por esta propuesta.
+20. SQL/descriptor/schema fiscal 003 continúan ausentes hasta autorización separada.
 
 ## 9. Consecuencias para el candidato WIP
 
@@ -337,7 +368,7 @@ En particular, una futura materialización deberá revisar de cero contra este c
 
 - fórmula de `logical_operation_key`;
 - `operation_type` allowlist;
-- `fiscal_submission_attempts_idempotency_uq`;
+- `fiscal_submission_attempts_idempotency_uq` o cualquier constraint equivalente incompatible con raíz estable;
 - guard de numeración de attempts;
 - estados/guards de retry;
 - request/idempotency/checksum;
@@ -357,6 +388,7 @@ La revisión debe responder explícitamente:
 - ¿un `UNKNOWN_OUTCOME` nunca se repite a ciegas?;
 - ¿la raíz idempotente permanece estable entre retries del mismo dispatch?;
 - ¿`attempt_number` diferencia ejecuciones sin cambiar la raíz provider-facing?;
+- ¿el manifest autoritativo debe reconciliar su uniqueness para permitir retries válidos sin perder conflicto/checksum/orden?;
 - ¿submit-only v1 es consistente con el estado real de providers/capabilities?;
 - ¿query/retrieve quedan expresamente diferidos sin impedir evidencia inbound/manual?;
 - ¿001/002, providers, security gates y SQLite permanecen sin promoción?;
@@ -371,7 +403,7 @@ Solo `PASS` permite abrir la remediación autoritativa documental.
 
 Gate actual:
 
-`FISCAL-003-CONTRACT-GAP-RECONCILIATION-PROPOSAL = MATERIALIZED / INTERNAL_REVIEW_REMEDIATED / REQUIRES_FRESH_CI / REQUIRES_INDEPENDENT_REVIEW`.
+`FISCAL-003-CONTRACT-GAP-RECONCILIATION-PROPOSAL = MATERIALIZED / INTERNAL_REVIEW_REMEDIATED / BASELINE_SYNCED / INT-006_BLOCKED / REQUIRES_FRESH_CI / REQUIRES_INDEPENDENT_REVIEW`.
 
 Gate siguiente, únicamente después de `CI=PASS` y `PROPOSAL_REVIEW=PASS`:
 
