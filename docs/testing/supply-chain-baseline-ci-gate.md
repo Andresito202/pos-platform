@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-Este documento define el corte incremental de `TECH-004` que añade controles reproducibles de repositorio, secretos y visibilidad de dependencias/licencias al workflow TARGET existente.
+Este documento define el corte incremental de `TECH-004` que añade controles reproducibles de repositorio, secretos, visibilidad de dependencias/licencias y gobernanza compensatoria de `main` al workflow TARGET existente.
 
 La existencia de este documento o de los scripts no declara por sí sola `CI = PASS`. El resultado aplicable siempre es el workflow commit-scoped del HEAD revisado.
 
@@ -51,15 +51,15 @@ En eventos `pull_request`, GitHub expone un merge ref sintético como `GITHUB_SH
 
 El workflow define `REVIEWED_SHA` como el `pull_request.head.sha` real y usa ese valor para:
 
-- hacer checkout explícito del source revisado en ambos jobs;
+- hacer checkout explícito del source revisado en los jobs aplicables;
 - registrar `sourceCommit` dentro del inventario;
 - nombrar el artefacto de evidencia.
 
-Ambos checkouts usan `persist-credentials: false`; los jobs no conservan la credencial Git después de obtener el source. En `push` o `workflow_dispatch`, `REVIEWED_SHA` cae a `github.sha`.
+Los checkouts usan `persist-credentials: false`; los jobs no conservan la credencial Git después de obtener el source. En `push` o `workflow_dispatch`, `REVIEWED_SHA` cae a `github.sha`.
 
 ### 4. Actions fijadas por SHA
 
-Las Actions de terceros usadas en este workflow permanecen fijadas por commit SHA y se actualizaron a releases estables que declaran runtime Node 24:
+Las Actions de terceros usadas en este workflow permanecen fijadas por commit SHA y usan releases estables con runtime Node 24:
 
 - `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`);
 - `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86` (`v6.0.10`);
@@ -76,10 +76,25 @@ La evidencia es obligatoria: `if-no-files-found: error` evita que un run quede v
 
 El artefacto se nombra con el SHA revisado y tiene retención limitada. La evidencia relevante sigue siendo la ejecución GitHub Actions asociada al HEAD revisado.
 
+### 6. Gobernanza compensatoria de `main`
+
+El repositorio es privado y el plan actual no habilita branch protection/rulesets para este repositorio. Por tanto, el workflow **no** presenta este control como sustituto preventivo de una branch protection nativa.
+
+Mientras esa limitación de plan exista:
+
+- el trigger `push` canónico apunta a `main`, no a ramas históricas ya integradas;
+- todo `push` a `main` ejecuta nuevamente la validación TARGET y supply-chain;
+- el job `Main push governance` exige que el commit recibido en `main` tenga exactamente dos padres, haya sido creado por GitHub y corresponda al `merge_commit_sha` de una PR ya fusionada cuyo base sea `main`;
+- un direct push, squash merge o rebase merge deja el workflow en fallo y exige remediación explícita;
+- el método operativo autorizado para integrar permanece `merge` normal mediante PR y `expected_head_sha`.
+
+Este control es **detectivo**, no preventivo: si alguien con permisos escribe directamente en `main`, GitHub ya habrá aceptado el commit antes de que Actions lo marque como incumplimiento. La protección preventiva real requiere GitHub Pro/Team/Enterprise para el repositorio privado o un cambio deliberado de visibilidad; POS Platform no debe hacerse público únicamente para obtener esta función.
+
 ## Controles deliberadamente pendientes
 
 Este corte no materializa todavía:
 
+- branch protection nativa mientras el plan actual no la habilite para el repositorio privado;
 - Nx;
 - lint del runtime/aplicaciones, porque el runtime TARGET sigue ausente;
 - CodeQL u otro SAST completo;
@@ -103,3 +118,4 @@ Por tanto `TECH-004` debe continuar `IN_PROGRESS` después de este corte aunque 
 4. SQL/descriptor 003 no se materializan.
 5. El gate no promueve providers, runtime, infraestructura productiva ni security gates.
 6. Un cambio posterior en el HEAD requiere una nueva ejecución aplicable antes de afirmar `PASS`.
+7. La gobernanza compensatoria no autoriza direct pushes a `main`; únicamente los detecta después del hecho.

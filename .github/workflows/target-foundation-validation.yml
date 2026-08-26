@@ -3,7 +3,7 @@ name: TARGET foundation validation
 on:
   push:
     branches:
-      - architecture/physical-model
+      - main
   pull_request:
     branches:
       - main
@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 env:
   REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -20,6 +21,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  main-push-governance:
+    name: Main push governance
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify main push comes from a merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          parent_count="$(git show -s --format=%P "$REVIEWED_SHA" | awk '{print NF}')"
+          if [ "$parent_count" -ne 2 ]; then
+            echo "::error::main received a non-merge commit. Direct pushes and squash/rebase merges are not accepted by the compensating governance policy."
+            exit 1
+          fi
+
+          committer_email="$(git show -s --format=%ce "$REVIEWED_SHA")"
+          if [ "$committer_email" != "noreply@github.com" ]; then
+            echo "::error::main merge commit was not created by GitHub. Expected committer noreply@github.com."
+            exit 1
+          fi
+
+          associated_prs="$(
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${REVIEWED_SHA}/pulls"
+          )"
+
+          matching_prs="$(
+            printf '%s' "$associated_prs" \
+              | jq --arg sha "$REVIEWED_SHA" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $sha)] | length'
+          )"
+
+          if [ "$matching_prs" -lt 1 ]; then
+            echo "::error::main commit is not the merge_commit_sha of a merged pull request targeting main."
+            exit 1
+          fi
+
+          echo "Main push governance PASS for ${REVIEWED_SHA}."
+
   supply-chain-baseline:
     name: Repository policy and dependency inventory
     runs-on: ubuntu-24.04
