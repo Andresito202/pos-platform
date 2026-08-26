@@ -80,6 +80,10 @@ for (const packageJsonPath of packageJsonPaths) {
   try {
     manifest = readJson(packageJsonPath);
   } catch {
+    reviewFindings.push({
+      package: path.relative(root, packageJsonPath),
+      reason: 'UNREADABLE_OR_INVALID_PACKAGE_MANIFEST',
+    });
     continue;
   }
 

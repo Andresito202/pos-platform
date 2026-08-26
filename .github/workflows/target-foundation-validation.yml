@@ -60,7 +60,7 @@ jobs:
         with:
           name: target-dependency-inventory-${{ env.REVIEWED_SHA }}
           path: artifacts/ci/dependency-inventory.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
   validate:

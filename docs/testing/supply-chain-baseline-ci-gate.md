@@ -39,6 +39,7 @@ El inventario contiene package, versión, metadata de licencia declarada, relaci
 El gate falla si:
 
 - no puede observar paquetes instalados;
+- encuentra un `package.json` instalado que no puede leerse o parsearse de forma válida;
 - una dependencia no declara metadata de licencia;
 - la metadata contiene una licencia de la lista restringida que exige revisión explícita.
 
@@ -70,6 +71,8 @@ La versión de pnpm instalada por el workflow continúa siendo exactamente `9.15
 ### 5. Evidencia de CI
 
 El workflow sube el inventario con la Action `upload-artifact` fijada por SHA indicada arriba.
+
+La evidencia es obligatoria: `if-no-files-found: error` evita que un run quede verde sin producir `artifacts/ci/dependency-inventory.json`.
 
 El artefacto se nombra con el SHA revisado y tiene retención limitada. La evidencia relevante sigue siendo la ejecución GitHub Actions asociada al HEAD revisado.
 
