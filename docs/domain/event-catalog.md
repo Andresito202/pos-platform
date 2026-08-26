@@ -116,9 +116,37 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### PriceExpired
 
+### PricingPolicyPublished
+
+### PricingPolicyRevoked
+
+### PricingPolicySuperseded
+
+### RoundingPolicyPublished
+
+### RoundingPolicyRevoked
+
+### RoundingPolicySuperseded
+
+## Impuestos
+
+### TaxRuleScheduled
+
+### TaxRuleActivated
+
+### TaxRuleExpired
+
+### TaxRuleChanged
+
 ## Inventario
 
 ### InventoryReceived
+
+Registra una entrada de inventario cuya causa no es una recepción de proveedor, por ejemplo el resultado de una conversión de presentación. No sustituye `GoodsReceiptConfirmed`.
+
+### GoodsReceiptConfirmed
+
+Registra la confirmación inmutable de una recepción física y referencia sus líneas, asignaciones de lote y movimientos. No representa orden de compra, factura, cuenta por pagar ni pago al proveedor.
 
 ### InventoryAdjusted
 
@@ -140,31 +168,77 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### StockBelowMinimum
 
-## Compras
+### InventoryPolicyPublished
 
-### PurchaseCreated
+### InventoryPolicyRevoked
 
-### PurchaseReceived
-
-### PurchasePartiallyReceived
-
-### PurchaseCancelled
-
-### SupplierReturnCreated
+### InventoryPolicySuperseded
 
 ## Caja
+
+### CashPolicyPublished
+
+### CashPolicyRevoked
+
+### CashPolicySuperseded
 
 ### CashShiftOpened
 
 ### CashMovementRecorded
 
+Evento de integración emitido una sola vez cuando un CashMovement queda `POSTED` y participa en ExpectedCash.
+
+### CashMovementCreated
+
+### CashMovementApproved
+
+### CashMovementPosted
+
+### CashMovementRejected
+
+### CashMovementFailed
+
+### CashMovementCompensated
+
 ### CashWithdrawalRecorded
+
+### CashWithdrawalRequested
+
+### CashWithdrawalApproved
+
+### CashWithdrawalCompleted
+
+### CashWithdrawalRejected
 
 ### CashShiftClosingRequested
 
 ### CashShiftClosed
 
 ### CashDifferenceDetected
+
+### CashCountStarted
+
+### CashCountCompleted
+
+### CashCountAborted
+
+### CashDifferenceAccepted
+
+### CashDifferenceEscalated
+
+### CourierCashReported
+
+### CourierCashReceived
+
+### CourierCashDifferenceDetected
+
+### CourierCashCollectionClosed
+
+### CashRefundRequested
+
+### CashRefundCompleted
+
+### CashRefundFailed
 
 ### CashDrawerOpenedManually
 
@@ -180,9 +254,23 @@ Este evento requiere tratamiento de alta criticidad.
 
 ### SaleCancelled
 
-### SaleRefunded
+### SaleReturnRequested
 
-### SaleItemReturned
+### SaleReturnApproved
+
+### SaleReturnRejected
+
+### SaleReturnStarted
+
+### SaleReturnPartiallyCompleted
+
+### SaleReturnCompleted
+
+### SaleReturnFailed
+
+### SaleReturnReviewRequired
+
+Estos eventos pertenecen a Sales y describen el ciclo comercial de `SaleReturn`. No confirman Refund, Reversal, CashMovement, InventoryMovement ni documento fiscal. Los efectos dependientes conservan `correlation_id` y `causation_id` y emiten sus propios eventos al confirmarse.
 
 ### ReceiptRequested
 
@@ -204,9 +292,139 @@ Registra que se recibió evidencia declarativa de un pago; no implica `PaymentSt
 
 ### PaymentAttemptDeclined
 
+### RefundRequested
+
+### RefundApprovalRequired
+
+### RefundApproved
+
+### RefundRejected
+
+### RefundProcessingStarted
+
 ### RefundCompleted
 
+### RefundPartiallyCompleted
+
+### RefundFailed
+
+### RefundReviewRequired
+
+### ReversalRequested
+
+### ReversalProcessing
+
+### ReversalCompleted
+
+### ReversalFailed
+
+### ReversalCancelled
+
+### ReversalReviewRequired
+
+Refund y Reversal pertenecen a Payments. Ninguno demuestra por sí solo devolución comercial o física.
+
+### SettlementCreated
+
+### SettlementProcessing
+
+### SettlementPartiallyCompleted
+
+### SettlementCompleted
+
+### SettlementFailed
+
+### SettlementReviewRequired
+
+### ReconciliationStarted
+
+### ReconciliationPartiallyCompleted
+
+### ReconciliationCompleted
+
+### ReconciliationReviewRequired
+
+### ReconciliationClosed
+
+### ReconciliationReopened
+
+### ReconciliationFailed
+
+Settlement y Reconciliation pertenecen a Payments. Sus eventos no modifican Payment histórico ni demuestran por sí mismos cierre de caja, abono bancario o efecto fiscal.
+
 ### PaymentReconciliationRequired
+
+### PaymentProviderConfigurationPublished
+
+### PaymentProviderConfigurationRevoked
+
+### PaymentProviderConfigurationSuperseded
+
+## Autorización versionada
+
+### AuthorizationPolicyPublished
+
+### AuthorizationPolicyRevoked
+
+### AuthorizationPolicySuperseded
+
+## Emisión fiscal
+
+### FiscalEmissionConfigurationPublished
+
+### FiscalEmissionConfigurationRevoked
+
+### FiscalEmissionConfigurationSuperseded
+
+### ElectronicDocumentPrepared
+
+### ElectronicDocumentQueued
+
+### FiscalSubmissionStarted
+
+### FiscalSubmissionCompleted
+
+### FiscalSubmissionFailed
+
+### FiscalSubmissionOutcomeUnknown
+
+### ElectronicDocumentAccepted
+
+### ElectronicDocumentRejected
+
+### ElectronicDocumentOutcomeUnknown
+
+### FiscalIncidentOpened
+
+### FiscalIncidentReviewStarted
+
+### FiscalIncidentResolved
+
+### FiscalIncidentArchived
+
+### FiscalReconciliationStarted
+
+### FiscalReconciliationReviewRequired
+
+### FiscalReconciliationPartiallyReconciled
+
+### FiscalReconciliationCompleted
+
+### FiscalReconciliationFailed
+
+### FiscalReconciliationCancelled
+
+### FiscalReconciliationClosed
+
+### FiscalReconciliationReopened
+
+### ElectronicAdjustmentPrepared
+
+### FiscalContingencyStarted
+
+### FiscalContingencyClosed
+
+Los eventos fiscales pertenecen a Electronic Invoicing. Sus nombres no incorporan proveedores concretos y no confirman estados de Sale, Tax, Payment, Refund, Reversal, CashMovement o InventoryMovement. Los eventos de configuración pertenecen al dominio nombrado; no existe un evento global `ConfigurationChanged` y Sync solo registra entrega o aplicación técnica sin apropiarse de la publicación.
 
 ## Domicilios
 
@@ -257,6 +475,24 @@ Registra que se recibió evidencia declarativa de un pago; no implica `PaymentSt
 ### SyncConflictDetected
 
 ### SyncConflictResolved
+
+### SyncOperationDeadLettered
+
+Emitido por Sync al crear o reingresar el tratamiento dead letter de una operación, sin copiar el payload ni crear otra intención.
+
+### SyncDeadLetterReviewed
+
+Emitido por Sync al registrar una decisión autorizada de revisión con actor, motivo y evidencia sanitizada.
+
+### SyncRetryAuthorized
+
+Emitido por Sync al programar un retry manual de la misma operación, conservando identidad, payload, checksum y causalidad.
+
+### SyncDeadLetterArchived
+
+Emitido por Sync al retirar el caso de la cola activa conforme a retención, sin borrar la evidencia.
+
+`SyncOperationApplied` y `SyncOperationRejected` son los eventos canónicos del resultado posterior; no se crea un alias `SyncDeadLetterResolved`.
 
 ### DeviceOfflineDetected
 

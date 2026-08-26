@@ -4,7 +4,7 @@
 
 Definir el comportamiento común de productos, presentaciones, unidades, códigos, precios, descuentos, promociones, impuestos y redondeo para todos los tipos de comercio soportados.
 
-El motor debe ser configurable. No se crearán implementaciones separadas para avícolas, tiendas, supermercados, droguerías, ferreterías o almacenes de variedades.
+El motor debe ser configurable. No se crearán implementaciones separadas por marca o negocio; tiendas, supermercados, comercios por peso, droguerías, ferreterías y almacenes de variedades componen capacidades del mismo core.
 
 ---
 
@@ -686,7 +686,7 @@ El peso puede provenir de:
 - crédito;
 - venta rápida.
 
-## Avícolas y carnicerías
+## Comercios de alimentos por peso y carnicerías
 
 - peso;
 - lotes;

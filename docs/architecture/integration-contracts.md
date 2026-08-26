@@ -325,6 +325,12 @@ Un timeout de impresión no autoriza repetir una venta. La cola de impresión de
 
 ## API central ↔ proveedores externos
 
+La persistencia y ownership de esta frontera se rigen por `physical-model/external-integrations-schema.md`. `ExternalIntegration` es la conexión general; `FiscalConnection` es únicamente su perfil fiscal. `SyncOperation` cubre local↔central y un `IntegrationDispatch` durable cubre central↔provider, por lo que una llamada HTTP nunca se confunde con la entrega de Sync ni se ejecuta dentro del commit local.
+
+Un `IntegrationDispatch` fiscal solo conserva intención, routing, correlación y estado agregado. Sus interacciones pertenecen exclusivamente a `FiscalSubmissionAttempt`, relacionado mediante `integration_dispatch_id`; `IntegrationDispatchAttempt` acepta únicamente dispatches `NON_FISCAL`. Las FKs discriminadas `FISCAL`/`NON_FISCAL` impiden dos historiales de attempt para una misma interacción fiscal.
+
+La materialización es progresiva sin cambiar este contrato: migration 002 crea External Integrations y restringe físicamente todo dispatch a `NON_FISCAL`; migration 003 crea Fiscal/Electronic Invoicing y solo entonces habilita `FISCAL` junto con `FiscalSubmissionAttempt` y su FK discriminada. Runtime adapters y verificación real ocurren después y no son migrations.
+
 Las integraciones externas se implementan mediante puertos específicos por capacidad, por ejemplo:
 
 - proveedor de pagos;
@@ -346,6 +352,10 @@ Cada puerto define un modelo canónico propio. Cada adaptador es responsable de:
 - compatibilidad de versión.
 
 Un proveedor no modifica directamente ventas, pagos, caja, inventario ni auditoría. Sus respuestas originan comandos o resultados explícitos en el módulo propietario.
+
+En el plano central↔provider, cada recurso sincronizable declara `POS_AUTHORITATIVE`, `PROVIDER_AUTHORITATIVE`, `BIDIRECTIONAL_WITH_EXPLICIT_CONFLICT_POLICY` o `REFERENCE_ONLY`. Esta `ResourceOwnershipPolicy` no reemplaza `SyncOperation.authority_policy`, que gobierna local↔central con el catálogo aprobado por `DEC-007`; no existe traducción 1:1 entre ambos. Una Sale puede ser `APPEND_ONLY_SHARED` en local↔central y `POS_AUTHORITATIVE` frente al provider, mientras el resultado fiscal es `PROVIDER_AUTHORITATIVE` sin transferir al provider ownership de Sale. No existe bidireccionalidad implícita ni `last-write-wins`. IDs externos se almacenan exclusivamente mediante `ExternalReferenceMapping`, nunca como columnas por proveedor en entidades canónicas.
+
+El onboarding real sigue `Connect -> Test connection -> Discover -> Map -> Review -> Activate`; mostrar `Connected` no demuestra autenticación vigente ni verificación. Webhooks se reciben durablemente antes de procesar, derivan tenant/company desde la integración y solo aplican firma/autenticidad específica cuando el contrato oficial la documenta.
 
 ## Compatibilidad de versiones
 

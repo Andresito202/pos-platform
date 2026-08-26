@@ -12,7 +12,7 @@ Definir cómo POS Platform crea, almacena, usa, rota, revoca y retira:
 - claves de licencia;
 - claves de actualización;
 - claves de dispositivo;
-- credenciales fiscales;
+- credenciales de integraciones externas y fiscales;
 - certificados;
 - claves de backup;
 - accesos temporales de soporte.
@@ -40,7 +40,7 @@ Este documento complementa `DEC-008`, `DEC-009`, `DEC-010` y `docs/architecture/
 | Firma operativa | firma de licencias, manifiestos o releases | HSM/KMS o servicio de firma autorizado | renderer, variables públicas |
 | Dispositivo | clave privada de instalación | protección criptográfica local no exportable cuando sea posible | servidor, backup ordinario, UI |
 | Aplicación central | DB, object storage, APIs | secret manager del entorno | imagen, código, logs |
-| Fiscal | Factus, Siigo, certificados | secret manager central por empresa/ambiente | POS renderer, PWA, fixtures |
+| Integración externa/fiscal | Siigo, Factus, Alegra, futuros ERP/proveedores, certificados | secret manager central por tenant/empresa/provider/ambiente | POS renderer, PWA, SQLite, Sync/Outbox/Audit, fixtures |
 | Pago | credenciales de adquirente | secret manager y alcance del adaptador | venta, logs, export general |
 | Backup | claves o referencias de cifrado | almacén separado del backup | mismo archivo sin protección |
 | Sesión | access/refresh tokens | memoria o almacenamiento protegido según cliente | localStorage no protegido, logs |
@@ -135,9 +135,9 @@ Los secretos necesarios para el nodo local:
 - se rotan o reemiten después de pérdida o compromiso;
 - tienen fallback seguro cuando Windows no permite acceso.
 
-## Credenciales fiscales
+## Credenciales de integraciones externas y fiscales
 
-Las integraciones fiscales centrales conservan secretos por:
+Las integraciones centrales conservan secretos por:
 
 - tenant;
 - empresa/NIT;
@@ -147,14 +147,17 @@ Las integraciones fiscales centrales conservan secretos por:
 
 Reglas:
 
-1. Factus sandbox y producción nunca comparten la misma referencia.
-2. Siigo y otros proveedores tienen secretos independientes.
-3. Tokens se renuevan dentro del adaptador central.
-4. Se respeta `expires_in` o contrato efectivo; no se fija duración por suposición.
-5. Certificados privados se cifran y tienen vigencia monitorizada.
-6. Cambiar NIT, proveedor, ambiente, credencial o certificado exige reautenticación y auditoría.
-7. El soporte puede validar estado sin revelar el valor.
-8. Un export de empresa no contiene secretos utilizables salvo procedimiento criptográfico específico y autorizado.
+1. `ExternalIntegration` e `IntegrationCredentialBinding` guardan únicamente referencias opacas; los valores permanecen en el secret manager.
+2. Factus sandbox y producción nunca comparten la misma referencia.
+3. Siigo `username/access_key`, Factus `client_id/client_secret/username/password` y Alegra API email/API token se tratan como material long-lived de cliente y nunca llegan a SQLite, renderer, PWA, SyncOperation, Outbox o AuditEvent.
+4. Siigo `Partner-Id` es configuración de plataforma del integrador, separada de secretos de cliente; no se duplica por empresa como credencial.
+5. Access tokens short-lived se mantienen en memoria/cache protegida o facility central de corta duración. Refresh tokens, cuando existan, se tratan como secretos rotables separados.
+6. Tokens se obtienen y renuevan dentro del adapter central. Se respeta siempre `expires_in` retornado y el contrato efectivo; un valor de ejemplo no se hard-codea como autoridad.
+7. Rotar credenciales crea un binding nuevo, prueba y revalida la conexión, activa el reemplazo y revoca/retira el anterior sin mostrar nuevamente valores almacenados.
+8. Certificados privados se cifran y tienen vigencia monitorizada.
+9. Cambiar NIT, provider, ambiente, credencial o certificado exige reautenticación, autorización, versionado y auditoría sanitizada.
+10. El soporte puede validar estado y referencias sin revelar valores.
+11. Un export de empresa no contiene secretos utilizables salvo procedimiento criptográfico específico y autorizado.
 
 Si una modalidad futura exige emisión fiscal local, deberá crear una revisión de esta política para custodia local, contingencia, certificado y responsabilidades. No se copiarán automáticamente credenciales centrales al POS.
 
@@ -363,7 +366,9 @@ Una rotación no reescribe hechos históricos ni rompe la verificación de artef
 - soporte expirado;
 - soporte fuera de scope;
 - diagnóstico offline sanitizado;
-- credenciales Factus/Siigo aisladas por empresa;
+- credenciales Siigo/Factus/Alegra aisladas por tenant, empresa, provider y ambiente;
+- rotación de credencial con binding nuevo, revalidación y retiro del anterior;
+- access/refresh tokens ausentes de tablas de negocio, SQLite, Sync/Outbox/Audit, logs y excepciones;
 - perfil local de datos en reposo seleccionado y verificado.
 
 ## Criterios de cierre

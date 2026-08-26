@@ -10,7 +10,7 @@
 - Devices.
 - Licensing.
 - Audit.
-- Configuration.
+- Sync.
 
 ## Núcleo comercial
 
@@ -19,6 +19,7 @@
 - Product Codes.
 - Units.
 - Pricing.
+- Tax.
 - Inventory.
 - Lots.
 - Purchasing.
@@ -54,6 +55,9 @@ Los siguientes son componentes de despliegue y no nuevos dominios:
 - PostgreSQL central;
 - SQLite local;
 - object storage.
+- ConfigurationDistribution.
+
+`ConfigurationDistribution` es infraestructura de transporte de referencias, versiones y snapshots nativos. No es un dominio, no posee configuraciones y no autoriza una entidad global `Configuration`.
 
 Un módulo puede ejecutarse en más de un componente mediante puertos y contratos sin ceder propiedad de sus datos.
 
@@ -66,3 +70,7 @@ Un módulo no modificará directamente las tablas internas de otro módulo.
 `Identity` es propietario de la identidad global `User`; `Tenants` es propietario de `TenantMembership`; `Authorization` es propietario de roles, permisos y `UserRoleAssignment`.
 
 `Electronic Invoicing` consume snapshots de `Sales`, `Pricing` y `Tax`; una respuesta fiscal no modifica directamente esos módulos.
+
+`Tax` es propietario de reglas tributarias, clasificación, tasas, vigencia y resultados de cálculo. `Pricing` consume esos resultados dentro de su pipeline y `Electronic Invoicing` consume el snapshot tributario sin recalcularlo.
+
+`Sync` es propietario de metadatos de sincronización, Outbox/Inbox, checkpoints, conflictos, revisiones y dead letters. No posee ni modifica por sí mismo los hechos de negocio transportados.

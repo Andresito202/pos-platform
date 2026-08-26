@@ -1,0 +1,412 @@
+POC_RUN_STARTED_UTC=2026-08-12T22:18:11Z
+GIT_HEAD=b8f5802d711d23f6117a619babeb9660df30682c
+ Network pos-platform-rls-poc_rls_poc_internal Creating
+ Network pos-platform-rls-poc_rls_poc_internal Created
+ Container pos-platform-rls-poc-postgres-1 Creating
+ Container pos-platform-rls-poc-postgres-1 Created
+ Container pos-platform-rls-poc-postgres-1 Starting
+ Container pos-platform-rls-poc-postgres-1 Started
+ Container pos-platform-rls-poc-postgres-1 Waiting
+ Container pos-platform-rls-poc-postgres-1 Healthy
+POSTGRES_IMAGE=[{"ID":"sha256:287eced1f33b59ed265ed13a60d3680dd7646d70c4dc0e785f59a470ebc03eeb","ContainerName":"pos-platform-rls-poc-postgres-1","Repository":"postgres","Tag":"","Platform":"linux/amd64","Size":160197901,"Created":"2026-06-24T01:34:02.442663741Z","LastTagTime":"2026-06-24T19:51:55.198061468Z"}]
+NOTICE:  schema "poc" does not exist, skipping
+DROP SCHEMA
+DO
+GRANT ROLE
+CREATE SCHEMA
+SET
+CREATE FUNCTION
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+RESET
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+REVOKE
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+FUNCTIONAL_SESSION_USER=rls_poc_test_executor_non_superuser
+FUNCTIONAL_CURRENT_ROLE=rls_poc_app_or_rls_poc_worker_or_explicit_test_target
+CREATE FUNCTION
+=== Role attributes ===
+NOTICE:  PASS: J runtime role is not superuser/BYPASSRLS/CREATEROLE
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: J worker role is not superuser/BYPASSRLS/CREATEROLE
+ assert_true
+-------------
+
+(1 row)
+
+=== Runtime missing and invalid context fail closed ===
+BEGIN
+SET
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: E missing context returns zero rows
+SET
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: E empty context returns zero rows
+SET
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: F invalid UUID context returns zero rows
+ROLLBACK
+=== Tenant A read/write isolation ===
+BEGIN
+SET
+SET
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: A Tenant A SELECT sees only Sale A
+INSERT 0 1
+NOTICE:  PASS: Tenant A valid INSERT succeeds
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: B/L cross-tenant INSERT rejected by WITH CHECK
+DO
+UPDATE 1
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: Tenant A own UPDATE succeeds
+NOTICE:  PASS: C tenant reassignment rejected
+DO
+NOTICE:  PASS: C cross-tenant UPDATE affects zero rows
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: D cross-tenant DELETE affects zero rows
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+=== Tenant B read isolation ===
+BEGIN
+SET
+SET
+NOTICE:  PASS: A Tenant B SELECT sees only Sale B
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+=== Same connection reuse ===
+BEGIN
+SET
+SET
+NOTICE:  PASS: G transaction 1 Tenant A context
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+BEGIN
+SET
+NOTICE:  PASS: G transaction 2 has no inherited tenant
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+NOTICE:  PASS: G transaction 3 sees only Tenant B
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+=== Rollback clears tenant context and data ===
+BEGIN
+SET
+SET
+INSERT 0 1
+ROLLBACK
+BEGIN
+SET
+NOTICE:  PASS: H rollback clears context for next transaction
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: H rollback removed inserted row
+COMMIT
+=== Sequential worker jobs and rollback ===
+BEGIN
+SET
+SET
+NOTICE:  PASS: I worker job A sees Tenant A
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+BEGIN
+SET
+SET
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+NOTICE:  PASS: I worker job B sees Tenant B
+BEGIN
+SET
+SET
+NOTICE:  PASS: I worker failing job A starts scoped
+ assert_true
+-------------
+
+(1 row)
+
+ROLLBACK
+BEGIN
+SET
+SET
+NOTICE:  PASS: I worker job B after rollback has no Tenant A leakage
+ assert_true
+-------------
+
+(1 row)
+
+COMMIT
+=== Composite FK defense in depth ===
+BEGIN
+SET
+SET
+NOTICE:  PASS: K cross-tenant Company/Branch FK rejected
+NOTICE:  PASS: K cross-tenant operational FK rejected
+DO
+ROLLBACK
+=== FORCE RLS table owner behavior ===
+BEGIN
+SET
+NOTICE:  PASS: FORCE RLS applies to table owner without context
+ assert_true
+-------------
+
+(1 row)
+
+SET
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: FORCE RLS owner sees only selected tenant
+ROLLBACK
+=== Controlled platform administration ===
+BEGIN
+SET
+NOTICE:  PASS: M explicit platform admin BYPASSRLS read sees all tenants
+ assert_true
+-------------
+
+(1 row)
+
+NOTICE:  PASS: M platform admin has no write grant
+NOTICE:  PASS: M platform admin cannot alter/disable RLS
+DO
+ROLLBACK
+BEGIN
+SET
+DO
+NOTICE:  PASS: runtime cannot alter/disable RLS
+ROLLBACK
+ALL_RUNTIME_TESTS_PASSED
+=== PostgreSQL version ===
+                                                       version
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.14 (Debian 16.14-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+=== Roles ===
+        rolname         | rolsuper | rolcreaterole | rolcreatedb | rolcanlogin | rolinherit | rolbypassrls
+------------------------+----------+---------------+-------------+-------------+------------+--------------
+ rls_poc_app            | f        | f             | f           | t           | f          | f
+ rls_poc_owner          | f        | f             | f           | f           | f          | f
+ rls_poc_platform_admin | f        | f             | f           | t           | f          | t
+ rls_poc_test_executor  | f        | f             | f           | t           | f          | f
+ rls_poc_worker         | f        | f             | f           | t           | f          | f
+(5 rows)
+
+=== Table owner and RLS flags ===
+ schema_name |  relname   |  table_owner  | relrowsecurity | relforcerowsecurity
+-------------+------------+---------------+----------------+---------------------
+ poc         | branches   | rls_poc_owner | t              | t
+ poc         | companies  | rls_poc_owner | t              | t
+ poc         | tenants    | rls_poc_owner | t              | t
+ poc         | test_sales | rls_poc_owner | t              | t
+(4 rows)
+
+=== Policies ===
+ schemaname | tablename  |    policyname     | permissive |  roles   | cmd |                 qual                  |              with_check
+------------+------------+-------------------+------------+----------+-----+---------------------------------------+---------------------------------------
+ poc        | branches   | branch_isolation  | PERMISSIVE | {public} | ALL | (tenant_id = poc.current_tenant_id()) | (tenant_id = poc.current_tenant_id())
+ poc        | companies  | company_isolation | PERMISSIVE | {public} | ALL | (tenant_id = poc.current_tenant_id()) | (tenant_id = poc.current_tenant_id())
+ poc        | tenants    | tenant_isolation  | PERMISSIVE | {public} | ALL | (tenant_id = poc.current_tenant_id()) | (tenant_id = poc.current_tenant_id())
+ poc        | test_sales | sale_isolation    | PERMISSIVE | {public} | ALL | (tenant_id = poc.current_tenant_id()) | (tenant_id = poc.current_tenant_id())
+(4 rows)
+
+=== Grants ===
+        grantee         | table_schema | table_name | privilege_type
+------------------------+--------------+------------+----------------
+ rls_poc_app            | poc          | branches   | DELETE
+ rls_poc_app            | poc          | branches   | INSERT
+ rls_poc_app            | poc          | branches   | SELECT
+ rls_poc_app            | poc          | branches   | UPDATE
+ rls_poc_app            | poc          | companies  | DELETE
+ rls_poc_app            | poc          | companies  | INSERT
+ rls_poc_app            | poc          | companies  | SELECT
+ rls_poc_app            | poc          | companies  | UPDATE
+ rls_poc_app            | poc          | tenants    | DELETE
+ rls_poc_app            | poc          | tenants    | INSERT
+ rls_poc_app            | poc          | tenants    | SELECT
+ rls_poc_app            | poc          | tenants    | UPDATE
+ rls_poc_app            | poc          | test_sales | DELETE
+ rls_poc_app            | poc          | test_sales | INSERT
+ rls_poc_app            | poc          | test_sales | SELECT
+ rls_poc_app            | poc          | test_sales | UPDATE
+ rls_poc_owner          | poc          | branches   | DELETE
+ rls_poc_owner          | poc          | branches   | INSERT
+ rls_poc_owner          | poc          | branches   | REFERENCES
+ rls_poc_owner          | poc          | branches   | SELECT
+ rls_poc_owner          | poc          | branches   | TRIGGER
+ rls_poc_owner          | poc          | branches   | TRUNCATE
+ rls_poc_owner          | poc          | branches   | UPDATE
+ rls_poc_owner          | poc          | companies  | DELETE
+ rls_poc_owner          | poc          | companies  | INSERT
+ rls_poc_owner          | poc          | companies  | REFERENCES
+ rls_poc_owner          | poc          | companies  | SELECT
+ rls_poc_owner          | poc          | companies  | TRIGGER
+ rls_poc_owner          | poc          | companies  | TRUNCATE
+ rls_poc_owner          | poc          | companies  | UPDATE
+ rls_poc_owner          | poc          | tenants    | DELETE
+ rls_poc_owner          | poc          | tenants    | INSERT
+ rls_poc_owner          | poc          | tenants    | REFERENCES
+ rls_poc_owner          | poc          | tenants    | SELECT
+ rls_poc_owner          | poc          | tenants    | TRIGGER
+ rls_poc_owner          | poc          | tenants    | TRUNCATE
+ rls_poc_owner          | poc          | tenants    | UPDATE
+ rls_poc_owner          | poc          | test_sales | DELETE
+ rls_poc_owner          | poc          | test_sales | INSERT
+ rls_poc_owner          | poc          | test_sales | REFERENCES
+ rls_poc_owner          | poc          | test_sales | SELECT
+ rls_poc_owner          | poc          | test_sales | TRIGGER
+ rls_poc_owner          | poc          | test_sales | TRUNCATE
+ rls_poc_owner          | poc          | test_sales | UPDATE
+ rls_poc_platform_admin | poc          | branches   | SELECT
+ rls_poc_platform_admin | poc          | companies  | SELECT
+ rls_poc_platform_admin | poc          | tenants    | SELECT
+ rls_poc_platform_admin | poc          | test_sales | SELECT
+ rls_poc_worker         | poc          | branches   | DELETE
+ rls_poc_worker         | poc          | branches   | INSERT
+ rls_poc_worker         | poc          | branches   | SELECT
+ rls_poc_worker         | poc          | branches   | UPDATE
+ rls_poc_worker         | poc          | companies  | DELETE
+ rls_poc_worker         | poc          | companies  | INSERT
+ rls_poc_worker         | poc          | companies  | SELECT
+ rls_poc_worker         | poc          | companies  | UPDATE
+ rls_poc_worker         | poc          | tenants    | DELETE
+ rls_poc_worker         | poc          | tenants    | INSERT
+ rls_poc_worker         | poc          | tenants    | SELECT
+ rls_poc_worker         | poc          | tenants    | UPDATE
+ rls_poc_worker         | poc          | test_sales | DELETE
+ rls_poc_worker         | poc          | test_sales | INSERT
+ rls_poc_worker         | poc          | test_sales | SELECT
+ rls_poc_worker         | poc          | test_sales | UPDATE
+(64 rows)
+
+=== Composite constraints ===
+    relation    |              conname              |                                                definition
+----------------+-----------------------------------+----------------------------------------------------------------------------------------------------------
+ poc.branches   | branches_pkey                     | PRIMARY KEY (branch_id)
+ poc.branches   | branches_tenant_company_branch_uq | UNIQUE (tenant_id, company_id, branch_id)
+ poc.branches   | branches_tenant_company_fk        | FOREIGN KEY (tenant_id, company_id) REFERENCES poc.companies(tenant_id, company_id)
+ poc.companies  | companies_pkey                    | PRIMARY KEY (company_id)
+ poc.companies  | companies_tenant_company_uq       | UNIQUE (tenant_id, company_id)
+ poc.companies  | companies_tenant_fk               | FOREIGN KEY (tenant_id) REFERENCES poc.tenants(tenant_id)
+ poc.tenants    | tenants_pkey                      | PRIMARY KEY (tenant_id)
+ poc.test_sales | test_sales_pkey                   | PRIMARY KEY (sale_id)
+ poc.test_sales | test_sales_tenant_branch_fk       | FOREIGN KEY (tenant_id, company_id, branch_id) REFERENCES poc.branches(tenant_id, company_id, branch_id)
+(9 rows)
+
+=== Backup and restore ===
+NOTICE:  database "rls_poc_restore" does not exist, skipping
+DROP DATABASE
+CREATE DATABASE
+RESTORE_RLS_FORCE_ALL_TABLES=t
+RESTORE_POLICY_COUNT_OK=t
+ROLE_DEFINITIONS_IN_SEPARATE_GLOBAL_DUMP=5
+BEGIN
+SET
+ restored_tenant_a_rows
+------------------------
+                      2
+(1 row)
+
+COMMIT
+PG_DUMP_SCOPE=database objects/data/policies/grants; cluster roles require pg_dumpall --roles-only or infrastructure automation
+POC_RESULT=PASS
+POC_RUN_FINISHED_UTC=2026-08-12T22:18:19Z

@@ -598,13 +598,16 @@ REVIEW_REQUIRED
 1. Una liquidación puede agrupar múltiples pagos.
 2. Un pago puede liquidarse parcialmente.
 3. `COMPLETED` no implica conciliación bancaria.
-4. La liquidación conserva bruto, comisiones, retenciones, refunds, contracargos, ajustes y neto.
+4. La liquidación conserva por separado bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes positivos, ajustes negativos y neto.
 5. Las comisiones no reducen el importe confirmado del pago.
 6. Las retenciones no cambian el valor histórico de la venta.
 7. Una liquidación corregida genera una nueva versión o ajuste.
 8. Un movimiento no puede liquidarse dos veces por el mismo importe.
 9. La evidencia externa original permanece inmutable.
 10. `settled_amount` se calcula a partir de componentes completados.
+11. Cada cálculo conserva `calculation_policy_version`, entradas exactas, tratamiento del bruto respecto de reversals, evidencia de proveedor y resultado.
+12. La política distingue si el bruto incluye operaciones posteriormente reversadas o ya viene neto de reversals; nunca se descuenta un reversal dos veces.
+13. Settlement no modifica Payment histórico para cuadrar una diferencia.
 
 ---
 
@@ -675,11 +678,13 @@ REOPENED
 3. Un pago puede estar liquidado y no conciliado.
 4. Una conciliación cerrada no se modifica directamente.
 5. La reapertura crea una nueva revisión vinculada.
-6. Los movimientos tardíos no reescriben periodos cerrados.
+6. Los movimientos tardíos no reescriben snapshots de alcance ni conciliaciones cerradas.
 7. `PARTIALLY_RECONCILED` requiere detalle de saldos e incidencias pendientes.
 8. Las diferencias materiales bloquean el cierre salvo política explícita.
 9. `reconciled_amount` se deriva de elementos conciliados válidos.
 10. La conciliación no crea pagos, refunds ni movimientos de caja silenciosamente.
+11. El periodo y alcance son un snapshot de Reconciliation y no tienen máquina de estados propia.
+12. `OPEN` y `PROCESSING` no pertenecen a `ReconciliationStatus`; los estados de items e incidencias permanecen separados.
 
 ---
 
@@ -1038,7 +1043,7 @@ Se requieren claves independientes para:
 1. `PARTIALLY_REFUNDED` y `FULLY_REFUNDED` son proyecciones, no estados persistentes de `Payment`.
 2. `PARTIALLY_REVERSED` y `FULLY_REVERSED` son proyecciones.
 3. `PARTIALLY_SETTLED` y `FULLY_SETTLED` son proyecciones.
-4. `PARTIALLY_RECONCILED` y `FULLY_RECONCILED` son proyecciones del pago y estados posibles de una ejecución de conciliación solo dentro de `ReconciliationStatus`.
+4. `PARTIALLY_RECONCILED` y `FULLY_RECONCILED` son valores de `ReconciliationProjection`; solo `PARTIALLY_RECONCILED` también pertenece a `ReconciliationStatus`, mientras una ejecución completa usa `RECONCILED`.
 5. `REVERSED` no es un estado persistente de `Payment`.
 6. `SETTLED` no es un estado persistente de `Payment`.
 7. `RECONCILED` no es un estado persistente de `Payment`.

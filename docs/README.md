@@ -1,6 +1,6 @@
 # Documentación de POS Platform
 
-Este índice separa la arquitectura objetivo de la documentación histórica de la línea base Avícola.
+Este índice contiene exclusivamente la fuente de verdad y los contratos TARGET.
 
 ## Fuente de verdad
 
@@ -11,7 +11,7 @@ Este índice separa la arquitectura objetivo de la documentación histórica de 
 5. `security/` — permisos, secretos, claves y soporte.
 6. `use-cases/` — contratos funcionales.
 7. `testing/` — estrategia y gates de calidad.
-8. `migration/` — tratamiento del legado.
+8. `migration/` — manifests, orden e integridad de migrations TARGET.
 
 ## Lectura recomendada para Fase 1
 
@@ -26,7 +26,7 @@ Este índice separa la arquitectura objetivo de la documentación histórica de 
 9. `adr/DEC-009-operational-production-baseline.md`.
 10. `security/secret-key-and-support-management.md`.
 11. `testing/testing-strategy.md`.
-12. `migration/avicola-baseline-migration.md`.
+12. `migration/first-target-migration-manifest.md`.
 
 ## Capacidades especializadas
 
@@ -40,15 +40,4 @@ Este índice separa la arquitectura objetivo de la documentación histórica de 
 - `architecture/deployment-modes.md` — `HYBRID` y `LOCAL_PERPETUAL`.
 - `adr/DEC-009-operational-production-baseline.md` — entornos e infraestructura pagada.
 
-## Documentación histórica
-
-Los siguientes archivos describen la línea base heredada y no acreditan implementación de POS Platform:
-
-- `AVANCE-COMPLETO.md`;
-- `AVANCE-SPRINT-1.md`;
-- `EXPLICACION-DETALLADA-FRONTEND-Y-BACKEND.md`;
-- `MANUAL-USUARIO.md`;
-- `PENDIENTE-GESTION-USUARIOS.md`;
-- `legacy/avicola-render-demo.md`.
-
-Se conservan para migración, reconciliación y trazabilidad. No son fuente normativa superior a ADR, arquitectura objetivo o backlog.
+El runtime de aplicación TARGET todavía no está materializado. Ninguna documentación conceptual o evidencia de tooling debe interpretarse como una aplicación completa o lista para producción.

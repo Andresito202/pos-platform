@@ -331,6 +331,8 @@ Cuando se alcanza el límite aplicable:
 
 `DEAD_LETTER` representa una operación que no puede procesarse automáticamente de forma segura.
 
+La persistencia usa un `SyncDeadLetter` separado, propiedad de Sync, que referencia la `SyncOperation`. El estado operativo permanece `DEAD_LETTER`; el registro separado no reemplaza Operation, Outbox o Inbox y no copia el payload.
+
 Debe conservar:
 
 - `operation_id`;
@@ -345,6 +347,8 @@ Debe conservar:
 - estado de revisión.
 
 Una dead letter no se elimina automáticamente mientras exista necesidad de revisión o retención.
+
+Existe como máximo una por `operation_id`. Reingresar después de otro agotamiento añade evidencia/acción append-only y reutiliza su identidad.
 
 ## Revisión manual
 
@@ -371,6 +375,10 @@ Posibles decisiones:
 - enviar a dead letter.
 
 La revisión no debe borrar el historial original.
+
+Para dead letter, la revisión conserva `dead_letter_id` en lugar de `conflict_id` cuando no exista conflicto. Un retry autorizado cambia a `RETRY_SCHEDULED`, conserva la identidad/payload originales y exige actor, permiso, motivo, condición material que cambió, auditoría y expected version.
+
+Si la intención o payload original son inválidos, se rechaza o archiva el caso y una corrección requiere `SyncOperation` nueva causalmente relacionada.
 
 ## Checkpoint
 

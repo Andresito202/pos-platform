@@ -12,7 +12,7 @@ Propietario, administrador fiscal autorizado o integración fiscal administrada.
 
 - Usuario autenticado.
 - Empresa activa.
-- Permiso `tax.configuration.manage`.
+- Permiso atómico correspondiente a la acción: `tax.rule.create_draft`, `tax.rule.publish`, `tax.rule.schedule`, `tax.rule.revoke` o `tax.rule.supersede`.
 - Jurisdicción válida.
 - Motivo documentado.
 - Reautenticación cuando corresponda.
@@ -58,6 +58,8 @@ Propietario, administrador fiscal autorizado o integración fiscal administrada.
 8. No se imprimirá información fiscal sin datos válidos.
 9. La configuración de otra empresa no puede reutilizarse automáticamente.
 10. Los cambios críticos deben quedar auditados.
+11. Leer una regla usa `tax.rule.read`; ningún permiso concede por sí solo otra acción del lifecycle.
+12. Restaurar una conducta anterior publica una versión nueva mediante `tax.rule.supersede`; no reactiva ni muta una versión histórica.
 
 ## Cambio inmediato
 

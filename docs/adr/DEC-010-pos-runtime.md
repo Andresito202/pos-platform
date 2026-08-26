@@ -14,7 +14,7 @@ El POS debe operar en comercios físicos con Windows, conectividad intermitente,
 
 Una aplicación web instalada como PWA no constituye por sí sola una frontera suficiente para controlar la base local autoritativa, el ciclo de vida de un servicio de Windows, los secretos del dispositivo, la impresión persistente, los puertos de hardware y las actualizaciones firmadas.
 
-La interfaz heredada HTML/JavaScript tampoco implementa los límites requeridos. Es necesario fijar la topología productiva antes de crear el nuevo frontend y el servicio local.
+No existe una interfaz TARGET que implemente los límites requeridos. Es necesario fijar la topología productiva antes de crear el nuevo frontend y el servicio local.
 
 ## Decisión
 
@@ -248,7 +248,7 @@ Se descarta porque amplía innecesariamente la superficie de ataque y permite ac
 - `UX-003` diseñará componentes React compartidos sin convertirlos en autoridad de dominio.
 - `DEV-003` implementará adaptadores únicamente dentro del servicio local.
 - `TECH-002` ubicará SQLite y migraciones locales bajo propiedad del servicio.
-- El frontend heredado se conserva solo como referencia de migración.
+- Las interfaces anteriores o externas no se consideran parte del runtime TARGET.
 - La PWA deja de ser candidata a runtime físico definitivo.
 
 ## Criterios de aceptación

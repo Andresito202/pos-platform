@@ -2,22 +2,26 @@
 
 ## Propósito y autoridad
 
-Este archivo es la fuente de verdad del trabajo del proyecto. Consolida el estado, la prioridad, las dependencias, la evidencia y las decisiones que gobiernan el paso desde la base avícola existente hacia POS Platform.
+Este archivo es la fuente de verdad del trabajo de POS Platform. Consolida estado, prioridad, dependencias, evidencia y decisiones del producto TARGET.
 
 Si otro documento de avance, una conversación o una lista informal contradice este backlog, prevalece este archivo hasta que se actualice mediante el flujo oficial.
 
-Última actualización: 2026-08-10.
+Última actualización: 2026-08-25.
+
+Los estados `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APPLIED` y `PRODUCTION_READY` no son equivalentes. Cada afirmación de estado debe indicar la evidencia y el nivel alcanzado; un nivel anterior nunca implica automáticamente los siguientes.
 
 ## Estado general
 
-- Rama de trabajo verificada: `architecture/foundation`.
+- Separación del runtime anterior: versionada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310`, reconciliada documentalmente en `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` e integrada en `architecture/physical-model` mediante la PR #3 y el merge commit `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`.
 - Estado inicial del árbol al crear este backlog: limpio.
 - Etapa actual: transición hacia la fundación técnica ejecutable y el diseño del modelo físico objetivo.
 - Fase 0: `DONE`.
 - Último hito completado: cierre documental de la Fase 0, incluida la consolidación de `SYNC-001`, `SYNC-002` y `SYNC-003`.
-- Siguiente trabajo habilitado: `TECH-002`, con estado `READY` y prioridad `P0`, como entrada de la Fase 1.
+- Último baseline ejecutable registrado: validación TARGET fresca `145/145` sobre PostgreSQL 16.14 para migrations 001→002 y tooling vigente; ambas migrations permanecen `MATERIALIZED / TESTED / IMMUTABLE` y migration 002 materializa únicamente External Integrations central `NON_FISCAL`.
+- Último trabajo técnico completado: `MAT-003-PREFLIGHT` quedó `EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION` mediante una transacción `REPEATABLE READ / READ ONLY`, lock global compartido y `ROLLBACK`, con los cinco blockers y el trust invariant en `PASS/count=0`, cero evidencia diagnóstica y cero mutaciones durables. Canonical-role readiness permanece `APPLIED / REVIEWED`; SQL/descriptor 003 están ausentes y migration 003 no está materializada. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`, y `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Gate CI mínimo TARGET: `MATERIALIZED / EXECUTED / PASS` para la fundación vigente, con TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002 y tooling MAT-003. La evidencia y sus límites están en `docs/testing/target-foundation-ci-gate.md`; `TECH-004` continúa `IN_PROGRESS` porque Nx, lint, security scanning, licencias/SBOM, pruebas de runtime, release controls y pipeline integral siguen pendientes.
 - Los ciclos de pagos, caja y ventas, la canalización versionada de pricing y las decisiones críticas `P0` de Fase 0 quedaron documentados y cerrados.
-- La base FastAPI, SQLAlchemy, Alembic, PostgreSQL y frontend HTML existente es una línea base para auditar y migrar; no demuestra que la arquitectura objetivo multiempresa, local-first o modular ya esté implementada. Evidencia: `backend/`, `frontend/`, `database/`, `infra/` y `docs/migration/avicola-baseline-migration.md`.
+- El runtime TARGET NestJS/Fastify, Electron/React/Vite y POS Local Service permanece `ABSENT / NOT_MATERIALIZED`; no se contabiliza implementación externa o anterior como avance TARGET.
 - La fundación documental del producto, arquitectura, dominio, seguridad, UX y pruebas sí existe. Su evidencia se detalla abajo.
 - `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md` consolidan formalmente los estados, proyecciones, eventos y flujos operativos del dominio de pagos. `PAY-007` está `DONE`.
 
@@ -36,7 +40,7 @@ El flujo normal es:
 7. Si aparece un impedimento, moverlo a `BLOCKED`, registrar causa, responsable de resolución y condición de desbloqueo. Al resolverlo vuelve a `READY` o `IN_PROGRESS`.
 8. Los cambios de alcance se deciden de forma explícita: `DEFERRED` conserva la intención para otra fase y `OUT_OF_SCOPE` la excluye del producto o hito vigente.
 
-Ningún elemento se considera terminado por existir parcialmente en la base heredada, por aparecer en una maqueta o por estar mencionado en un documento conceptual.
+Ningún elemento se considera terminado por aparecer en una maqueta, estar mencionado en un documento conceptual o existir fuera del runtime TARGET autorizado.
 
 ## Estados
 
@@ -69,7 +73,7 @@ Estos elementos están `DONE` únicamente como definiciones documentales. No imp
 | Decisiones arquitectónicas iniciales | `DONE` | `docs/adr/ADR-001-modular-monolith.md`, `docs/adr/ADR-002-monorepo.md`, `docs/adr/ADR-003-local-first.md`, `docs/adr/ADR-004-single-codebase.md` |
 | Modelo conceptual, reglas, glosario, eventos y motor comercial | `DONE` | `docs/architecture/conceptual-data-model.md`, `docs/domain/business-rules.md`, `docs/domain/glossary.md`, `docs/domain/event-catalog.md`, `docs/domain/commercial-engine.md` |
 | Modelo de roles y autorización de producto | `DONE` | `docs/security/permission-matrix.md`, `docs/product/roles.md` |
-| Estrategia de pruebas y migración de la base | `DONE` | `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md` |
+| Estrategia de pruebas y migrations TARGET | `DONE` | `docs/testing/testing-strategy.md`, manifests bajo `docs/migration/` |
 | Principios de navegación y decisiones UX iniciales | `DONE` | `docs/design/role-based-navigation.md`, `docs/ux-research/design-decisions.md` |
 | Login, caja, inventario, licencias y venta: definición inicial | `DONE` | `docs/use-cases/auth/UC-AUTH-001-login.md`, `docs/use-cases/cash/UC-CASH-001-open-register.md`, `docs/use-cases/cash/UC-CASH-002-close-register.md`, `docs/use-cases/inventory/UC-INVENTORY-001-receive-stock.md`, `docs/use-cases/licensing/UC-LIC-001-validate-license.md`, `docs/use-cases/sales/UC-SALES-001-complete-sale.md` |
 | Catálogo: seis casos de uso definidos | `DONE` | `docs/use-cases/catalog/UC-CAT-001-create-product.md`, `docs/use-cases/catalog/UC-CAT-002-update-product.md`, `docs/use-cases/catalog/UC-CAT-003-assign-identifier.md`, `docs/use-cases/catalog/UC-CAT-004-create-variant.md`, `docs/use-cases/catalog/UC-CAT-005-create-presentation.md`, `docs/use-cases/catalog/UC-CAT-006-convert-presentation.md` |
@@ -101,6 +105,23 @@ Estado de la épica: `IN_PROGRESS`.
 | SEC-002 | `P0` | `DONE` | Definir permisos atómicos, políticas ABAC y pruebas negativas por módulo. | Cerrado en `docs/security/permission-matrix.md` con permisos atómicos, políticas ABAC, segregación de funciones, pruebas negativas y contrato estructurado de decisión de autorización. |
 | SEC-003 | `P0` | `PLANNED` | Implementar aislamiento de tenant, sesiones revocables, MFA y reautenticación. | Fase 1; depende de ONB-002 y DEV-001. |
 | SEC-004 | `P0` | `DONE` | Definir gestión de secretos, claves, credenciales fiscales, firma de licencias/actualizaciones y acceso temporal de soporte. | Cerrado en `docs/security/secret-key-and-support-management.md`; selección de proveedores y PoC de protección local se validan antes del piloto. |
+
+#### Gates verificables de seguridad de Fase 1
+
+El contrato de los gates está definido en `docs/security/security-gates.md`, pero ninguno tiene todavía implementación ni evidencia ejecutable del stack objetivo. Por eso todos permanecen `PLANNED`; este estado no contradice los elementos documentales `SEC-001`, `SEC-002` y `SEC-004` ya cerrados.
+
+| ID | Prioridad | Estado | Gate | Dependencias / criterio futuro |
+|---|---|---|---|---|
+| SEC-G01 | `P0` | `PLANNED` | Tenant Isolation | `SEC-003`, tenant model y `PHY-G14`; exige pruebas cross-tenant reales, constraints y RLS aplicable. |
+| SEC-G02 | `P0` | `PLANNED` | Authentication & Session Security | `UC-AUTH-001`, Identity y Devices; exige expiración, rotación, revocación, MFA, reautenticación, bloqueo y recuperación. |
+| SEC-G03 | `P0` | `PLANNED` | Authorization / RBAC / ABAC | `SEC-001`, `SEC-002`, `SEC-G01/02`; exige deny by default y pruebas backend de scopes, límites y segregación. |
+| SEC-G04 | `P0` | `PLANNED` | Device Trust & License Enforcement | `DEC-008`, Devices y Licensing; exige evidencia criptográfica, activación/revocación, tiempo, gracia y reemplazo. |
+| SEC-G05 | `P0` | `PLANNED` | Local-first Integrity & Replay Protection | `DEC-007`, `DEC-008`, Sync y schemas local/central; exige outbox/inbox, replay, orden, conflictos y recovery. |
+| SEC-G06 | `P0` | `PLANNED` | Audit & Anti-Fraud | Audit y gates anteriores; exige append-only, atribución y reglas deterministas antifraude. |
+| SEC-G07 | `P0` | `PLANNED` | Secrets & Cryptography | `SEC-004`, `DEC-008`, `DEC-009`; exige scanning, aislamiento, rotación, revocación, cifrado y redacción. |
+| SEC-G08 | `P0` | `PLANNED` | API / Webhook / Input Security | `ARCH-004`, `TECH-003`, autenticación y adaptadores; exige pruebas de input, BOLA/IDOR, web y webhook. |
+| SEC-G09 | `P0` | `PLANNED` | Infrastructure / Supply Chain / Backup & Recovery | `ADR-005`, `DEC-009/010`, `TECH-004/005`; exige hardening, SBOM/scanning, restore, DR, update y rollback. |
+| SEC-G10 | `P0` | `PLANNED` | Security Release Gate | `SEC-G01` a `SEC-G09`; bloquea producción sin evidencia completa o con vulnerabilidad crítica no tratada. |
 
 ### Catálogo
 
@@ -142,8 +163,38 @@ Estado de la épica: `IN_PROGRESS`.
 | TAX-001 | `P0` | `DONE` | Definir resolución y cambios tributarios versionados. | `docs/use-cases/tax/UC-TAX-001-resolve-tax.md`, `docs/use-cases/tax/UC-TAX-002-handle-tax-change.md` |
 | TAX-002 | `P0` | `DONE` | Definir redondeo del total pagadero para COP. | `docs/use-cases/rounding/UC-ROUND-001-calculate-payable-total.md` |
 | TAX-003 | `P0` | `DONE` | Resolver empate de redondeo y conciliación fiscal. | Cerrado mediante `DEC-003`, `DEC-006`, `UC-TAX-001` y `UC-ROUND-001`; quedan formalizadas precisión fiscal, normalización por impuesto, distribución determinista de residuos, persistencia de ajustes, conciliación documental, separación fiscal/comercial, `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` y `payable_amount` independiente del medio de pago. |
-| TAX-004 | `P1` | `PLANNED` | Implementar documentos electrónicos e integraciones fiscales mediante puertos neutrales. | Contrato arquitectónico y caso de uso cerrados; implementación productiva, segundo adaptador, seguridad, sandbox y validación normativa pendientes. |
+| TAX-004 | `P1` | `PLANNED` | Implementar documentos electrónicos mediante puertos neutrales y perfiles fiscales asociados a `ExternalIntegration`. | Contratos cerrados; adapters SIIGO/FACTUS/ALEGRA, seguridad, evidencia autorizada y validación normativa permanecen pendientes. |
 | UC-EINV-001 | `P1` | `DONE` | Definir configuración, emisión, resultado incierto, conciliación, notas, contingencia y operación sin proveedor fiscal. | `docs/use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md` y `docs/architecture/electronic-invoicing.md`. |
+
+### Integraciones externas
+
+Estado de la épica: `IN_PROGRESS`.
+
+| ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
+|---|---|---|---|---|
+| INT-001 | `P0` | `DONE` | Cerrar contrato físico general provider-agnostic, mappings, ownership, discovery, secrets, dispatch, webhook, rate limit y evidencia; reconciliar `FiscalConnection`. | `docs/architecture/physical-model/external-integrations-schema.md`, `docs/architecture/provider-integration-matrix.md`; documental, sin SQL/adapters |
+| INT-002 | `P0` | `DONE` | Diseñar manifest aditivo de migration 002 central exclusivamente para External Integrations foundation, con dispatch físicamente limitado a `NON_FISCAL`, orden, constraints, RLS, grants, recovery y pruebas exactas. | Manifest y revisiones cerrados; `MAT-002-PREFLIGHT-2 = PASS`; migration 001 permanece inmutable |
+| INT-003 | `P0` | `DONE` | Implementar foundation central de integraciones conforme al manifest aprobado, sin adapters provider todavía. | `MAT-002-MATERIALIZATION = PASS`; `002_external_integrations_foundation`, 16 tablas centrales, 12 RLS/FORCE, SQLite NONE, cero seeds y SQL 003 ausente |
+| INT-004 | `P1` | `PLANNED` | Implementar y verificar adapters SIIGO, FACTUS y ALEGRA con credenciales/ambientes autorizados. | Depende de INT-003, INT-006/migration 003, TECH-003 y gates SEC aplicables; mocks no cuentan como integración real |
+| INT-005 | `P2` | `PLANNED` | Evaluar HKA y Odoo sin crear adapters ficticios. | Requiere contrato oficial vigente, caso de uso y evidencia autorizada |
+| INT-006 | `P0` | `IN_PROGRESS` | Diseñar y materializar, mediante autorizaciones separadas, migration 003 Fiscal/Electronic Invoicing foundation; habilitar `IntegrationDispatch.FISCAL` únicamente junto con `FiscalSubmissionAttempt` y su FK discriminada. | Tooling materializado/revisado, canonical-role readiness `APPLIED / REVIEWED` y `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED` en `LOCAL_CANONICAL_INTEGRATION`. SQL/descriptor 003 siguen ausentes; ningún paso posterior está implícitamente autorizado. |
+
+#### Estado auditable de canonical-role readiness y preflight para MAT-003
+
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-DESIGN = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-DESIGN-REVIEW = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-REVERSAL-EVIDENCE-LIFECYCLE-DESIGN = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-REVERSAL-EVIDENCE-LIFECYCLE-DESIGN-REVIEW = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-MATERIALIZATION = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS-MATERIALIZATION-REVIEW = PASS`.
+- `001 / 002 = MATERIALIZED / TESTED / IMMUTABLE`.
+- `CANONICAL ROLE-READINESS = APPLIED / REVIEWED` en `local-canonical-integration`; application y revisión independiente = `PASS`, con findings `CRITICAL/HIGH/MEDIUM/LOW = 0`.
+- `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION = PASS`.
+- `MAT-003-PREFLIGHT-CANONICAL-EXECUTION-REVIEW = PASS`.
+- `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; durable database mutations = `ZERO`.
+- `SQL 003 = ABSENT`; `Descriptor 003 = ABSENT`; `Migration 003 = NOT_MATERIALIZED`.
+- `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+- Finding LOW conocido y no bloqueante: el orden de evidencia diagnóstica del preflight no usa `related_id` como último desempate. No se remedia en este cierre.
 
 ### Pagos
 
@@ -187,8 +238,8 @@ Estado de la épica: `PLANNED`.
 
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
-| PUR-001 | `P1` | `PLANNED` | Definir proveedor, orden de compra, compra, recepción parcial, cancelación y devolución a proveedor. | La recepción inicial está en `docs/use-cases/inventory/UC-INVENTORY-001-receive-stock.md`; no cubre toda la épica. |
-| PUR-002 | `P1` | `PLANNED` | Implementar compras separando recepción física y factura. | Depende de PUR-001 e INV-003. |
+| PUR-001 | `P1` | `PLANNED` | Definir PurchaseOrder, líneas, aprobación configurable, cumplimiento parcial, cierre/cancelación y devolución a proveedor. | GoodsReceipt independiente está definido en `UC-INVENTORY-001`; PurchaseOrder y SupplierReturn permanecen diferidos. |
+| PUR-002 | `P1` | `PLANNED` | Implementar capacidades comerciales separando GoodsReceipt, SupplierDocument y futuras obligaciones/pagos a proveedor. | Depende de PUR-001 e INV-003; no reutiliza Payment de cobros ni el pipeline tributario de ventas. |
 
 ### Inventario
 
@@ -289,43 +340,58 @@ Estado de la épica: `IN_PROGRESS`.
 | ID | Prioridad | Estado | Trabajo | Dependencias / evidencia |
 |---|---|---|---|---|
 | TECH-001 | `P0` | `DONE` | Definir modelo conceptual y propiedad de datos. | `docs/architecture/conceptual-data-model.md`, `docs/architecture/data-ownership.md` |
-| TECH-002 | `P0` | `READY` | Diseñar modelo físico nuevo, migraciones Kysely separadas, restricciones, índices y fronteras de transacción. | Debe seguir modelos conceptuales, ownership, migración, pruebas, `ADR-005`, `DEC-003`, `DEC-004`, `DEC-006` a `DEC-010`, `ARCH-004` y `SEC-004`, sin reescribir la migración heredada. |
+| TECH-002 | `P0` | `DONE` | Diseñar modelo físico nuevo, migraciones objetivo separadas ejecutadas con Kysely sin metadata paralela, restricciones, índices y fronteras de transacción. | R1/R2-A/R2-B/R3/R4/R5 y revisión final `PASS`; migration 001 fue materializada en `255d813` y es inmutable. Device-Licensing/Catalog siguen `IN_REVIEW`. |
 | TECH-003 | `P0` | `PLANNED` | Materializar schemas Zod, contratos API/IPC, errores, idempotency keys, versionado y correlación. | Contrato base cerrado en `ARCH-004`; depende del primer diseño físico de `TECH-002`. |
-| TECH-004 | `P0` | `PLANNED` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Requisitos en `ADR-005` y `docs/testing/testing-strategy.md`; no hay pipeline objetivo implementado. |
+| TECH-004 | `P0` | `IN_PROGRESS` | Crear pipeline CI con pnpm/Nx, lint, tipos, pruebas, seguridad, licencias y validación de migraciones. | Gate mínimo `MATERIALIZED / EXECUTED / PASS` en `.github/workflows/target-foundation-validation.yml`, con evidencia en `docs/testing/target-foundation-ci-gate.md`; valida typecheck, SQLite, migrations PostgreSQL 001/002 y tooling MAT-003 sobre PostgreSQL 16.14. Nx, lint, seguridad, licencias/SBOM, runtime tests, release controls y pipeline integral continúan pendientes. |
 | TECH-005 | `P1` | `PLANNED` | Implementar observabilidad, backups, restauración, actualización y rollback por modalidad. | Política cerrada en `DEC-009`, `DEC-010` y `SEC-004`; valores SLA y hardware comercial requieren benchmark. |
 | TECH-006 | `P1` | `PLANNED` | Establecer datos de prueba, fixtures multi-tenant y pruebas de concurrencia/recuperación. | Depende de TECH-002 y TECH-004. |
 
 ## Orden inmediato de trabajo
 
-1. `TECH-002` — `P0`, `READY`: diseñar el modelo físico nuevo, migraciones, restricciones, índices y fronteras de transacción.
-2. Iniciar `TECH-003` después del primer corte del diseño físico y materializar `ARCH-004` sin cambiar sus contratos.
-3. Mantener `DEC-005` como decisión `P1` diferida hasta abordar crédito offline; no bloquea `TECH-002`.
+La validación fresca, preparación del ambiente, canonical-role readiness, ejecución/revisión del preflight canónico y revisión externa del checkpoint operacional sanitizado cerraron `PASS`. El checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente; el working tree quedó `CLEAN` y el upstream `0 behind / 0 ahead`.
 
-`TECH-002 READY` autoriza iniciar el diseño físico, no escribir migraciones antes de cerrar ese diseño. Su secuencia interna obligatoria es:
+Context7 fue evaluado como ayuda opcional. Fue configurado externamente con una versión fijada y sin secretos, pero su validación runtime falló durante el handshake. Se determinó que no era necesario para continuar y fue retirado mediante rollback controlado. Un proceso nuevo de Codex sin Context7 terminó correctamente. Los estados finales son `CONTEXT7 = EVALUATED / NOT_REQUIRED / REMOVED` y `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS`. Context7 ya no constituye gate, dependencia ni requisito del proyecto. Cuando se requiera información técnica actualizada, se consultarán directamente fuentes oficiales mediante las capacidades disponibles.
+
+La reconciliación documental de Context7 ya forma parte de `cb1dafdc987104a5fdc75034de833df157cbfe67`; su stage, commit y push no son pasos pendientes. El commit `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310` versionó la separación del runtime y la documentación operativa anterior, y `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` reconcilió su estado documental. La PR #3 fue revisada y fusionada mediante merge normal en `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`; `architecture/physical-model` ya incorpora la limpieza. La PR #2 es la única ruta autorizable desde `architecture/physical-model` hacia `main`; su estado y HEAD vigentes en GitHub son la evidencia operacional de esa transición.
+
+El gate CI mínimo quedó materializado y ejecutado con `PASS`; su evidencia es commit-scoped. Cualquier cambio posterior del HEAD exige una nueva ejecución aplicable antes de usar `CI = PASS` como gate de integración.
+
+La secuencia técnica vigente continúa así:
+
+1. mantener `CI = PASS` sobre el HEAD vigente de `architecture/physical-model` y revisar cualquier delta posterior;
+2. confirmar que el diff final hacia `main` no incorpora el WIP SQL 003 ni trabajo fuera del alcance revisado;
+3. únicamente después de revisión final `PASS`, mantener la PR #2 en estado ready para revisión;
+4. integrar la PR #2 en `main` únicamente mediante autorización expresa y con el HEAD revisado;
+5. verificar después del merge el SHA integrado, el cierre de la PR y la relación entre ramas;
+6. reanudar en una tarea separada el contrato SQL 003 sobre el baseline canónico limpio.
+
+En `architecture/physical-model` y en la rama de limpieza, `SQL 003` permanece `ABSENT`, `descriptor 003` permanece `ABSENT`, el ledger entry count para migration 003 permanece en `0`, el fiscal schema permanece `ABSENT` y migration 003 permanece `NOT_MATERIALIZED`. De forma separada, `wip/sql003-contract-gap-20260825` conserva en `dd07f9d429df7b9a2c6dcacaffa39df737cffbbf` planificación y materialización preliminar no canónica, aislada y bloqueada hasta cerrar su contrato y revisión; no está autorizada para merge ni cherry-pick completo. Su existencia no promueve el estado canónico de migration 003. Diseño, remediación, pruebas, revisión y aplicación canónica de SQL 003 conservan gates y autorizaciones separados. `SIIGO`, `FACTUS` y `ALEGRA` permanecen `DESIGNED / NOT_EVALUATED`; `SEC-G01..SEC-G10` permanecen `PLANNED / NOT_EVALUATED`.
+
+`TECH-003`, adapters/runtime y el resto de Fase 1 no reemplazan ni omiten esta secuencia. `DEC-005` permanece diferida como decisión `P1` hasta abordar crédito offline.
+
+El trabajo producido durante `TECH-002` conserva validez documental. `PHY-G12` cerró agregados fiscales neutrales sin implementar código ni autorizar migraciones. Los puntos 1–4 siguientes son el registro histórico que llevó a la autorización y materialización de migration 001; no son pasos pendientes ni autorizan editarla:
 
 1. consolidar la matriz física de motores y dialectos, UUID, tipos monetarios, alcances de unicidad, tablas de identidad/RBAC/sesión, fronteras transaccionales y auditoría;
 2. verificar cada decisión contra inventario por presentación y lote, `PaymentGroup`/`Payment`/`PaymentAttempt`, estados persistentes de `Sale`, redondeo único y configuración offline por dominio;
 3. aprobar el esquema y las diferencias PostgreSQL/SQLite mediante revisión transversal;
-4. solo entonces escribir y validar la primera migración objetivo, sin modificar la migración heredada.
-
-
-La implementación de la arquitectura objetivo debe comenzar por la fundación técnica y respetar los invariantes cerrados durante la Fase 0.
+4. solo entonces escribir y validar la primera migration TARGET, sin ampliar su scope aprobado.
+La implementación posterior debe respetar esos invariantes.
 
 ## Riesgos abiertos
 
 | ID | Severidad | Riesgo | Mitigación / condición de cierre |
 |---|---|---|---|
-| R-001 | Alta | Confundir la base avícola existente con la arquitectura objetivo puede perpetuar acceso global, lógica acoplada y modelo monoempresa. | Migrar caso por caso según `docs/migration/avicola-baseline-migration.md`; no declarar módulos objetivo `DONE` por la existencia del código heredado. |
-| R-002 | Baja | Riesgo residual de que la implementación física vuelva a mezclar estados persistentes, proyecciones y estados de agregados diferentes. | DEC-001 cerrado mediante `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`; validar el modelo físico y las migraciones contra estos documentos durante `TECH-002`. |
+| R-001 | Alta | Confundir documentación o prototipos con runtime TARGET puede producir claims falsos de implementación. | Exigir artifacts, pruebas y revisión propias antes de declarar cualquier módulo `DONE`. |
+| R-002 | Baja | Riesgo residual de que la implementación física vuelva a mezclar estados persistentes, proyecciones y estados de agregados diferentes. | DEC-001 cerrado mediante `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`; validar cada corte físico aditivo contra estos documentos. |
 | R-003 | Alta | Pagos mixtos con proveedores externos no tienen atomicidad distribuida y pueden producir doble cobro o compensaciones pendientes. | Estados explícitos, idempotencia, incidencias y pruebas de respuestas tardías. |
 | R-004 | Alta | El aislamiento multi-tenant está definido pero no probado en la base objetivo. | SEC-003 y pruebas negativas obligatorias antes de datos reales. |
 | R-005 | Alta | El contrato local-first está documentado, pero todavía no existe una implementación probada de sincronización. | Implementar `SYNC-004` sobre los contratos `SYNC-001`, `SYNC-002` y `SYNC-003`, con pruebas de duplicados, orden, recuperación y reloj incorrecto. |
-| R-006 | Alta | No hay modelo físico objetivo; modificar silenciosamente la migración heredada puede fijar errores de dominio. | Ejecutar `TECH-002` como entrada `READY` de Fase 1 y crear nuevas migraciones conforme a las decisiones cerradas. |
+| R-006 | Alta | El modelo físico objetivo sigue incompleto; reintroducir una compra genérica o transformar el legado en órdenes/facturas inexistentes fijaría errores de dominio. | Mantener el contrato cerrado de `PHY-G06` y crear cada corte físico pendiente de F1.2 solo después de manifest, revisión y autorización independientes. |
 | R-007 | Media | La canalización versionada de pricing está definida, pero todavía no tiene una implementación objetivo. | Implementarla conforme a `DEC-003`, `DEC-006` y `PRICE-002`, con pruebas deterministas. |
 | R-008 | Media | RPO, RTO, retención, volúmenes, concurrencia y tiempos de sincronización siguen sin benchmark. | Medir y aprobar objetivos antes de comprometer SLA. |
 | R-009 | Media | La matriz de hardware existe, pero todos los modelos permanecen `UNTESTED`. | Seleccionar equipos, implementar simuladores y alcanzar `LAB_VALIDATED` antes de declarar compatibilidad. |
-| R-010 | Media | Facturación electrónica tiene contrato neutral, pero no implementación, segundo adaptador ni validación normativa productiva. | Implementar `TAX-004` con Factus sandbox y un segundo adaptador sin modificar el dominio comercial; validar proveedor y normativa antes de producción. |
-| R-011 | Media | El frontend HTML actual está previsto para reemplazo y no demuestra el runtime Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
+| R-010 | Media | External Integrations está materializado en migration 002, pero migration 003 fiscal, los adapters SIIGO/FACTUS/ALEGRA y la validación normativa/productiva no existen. | Mantener 002 `NON_FISCAL` e inmutable; completar la cadena canónica de readiness/preflight antes de autorizar 003 e implementar cada adapter sin modificar el dominio comercial, con evidencia autorizada independiente antes de promoverlo. |
+| R-011 | Media | El runtime TARGET de aplicación permanece `ABSENT / NOT_MATERIALIZED`; por tanto todavía no existe evidencia ejecutable de Electron, accesibilidad ni navegación final por rol. | Materializar el runtime definido por `DEC-010` y ejecutar UX-002 a UX-004 antes de adopción operativa. |
 | R-012 | Media | Firma, custodia de claves y soporte están documentados, pero proveedores y PoC de protección local no están implementados. | Materializar los controles definidos por `SEC-004`, probar el perfil `OS_PROTECTED` o `DB_ENCRYPTED` y firmar artefactos antes del piloto. |
 
 ## Decisiones cerradas
@@ -335,7 +401,7 @@ La implementación de la arquitectura objetivo debe comenzar por la fundación t
 | DEC-001 | `P0` | Taxonomía definitiva de estados de pagos, intentos, refunds, reversals, liquidaciones, conciliaciones, contracargos, revisión e incidencias; transiciones, terminalidad y proyecciones derivadas. | `docs/domain/payment-state-model.md` y `docs/domain/payment-lifecycle.md`. | `PAY-007` queda `DONE`; `PaymentStatus` no incorpora estados de refund, reversal, settlement, reconciliation ni chargeback. El diseño físico deberá mantener agregados, estados, eventos y proyecciones separados. |
 | DEC-002 | `P0` | Política predeterminada para pagos inferiores, sobrepagos, fallos parciales y compensaciones entre efectivo y proveedores externos. | `docs/adr/DEC-002-payment-compensation-policy.md`. | `CASH-003` y `SALES-002` quedan desbloqueados documentalmente; caja, ventas y pagos deben conservar componentes independientes, operaciones compensatorias, idempotencia, control de concurrencia y trazabilidad append-only. |
 | DEC-003 | `P0` | Orden único y versionado de precio base, precio promocional, promociones, descuentos, impuestos y redondeo mediante `PRICING_PIPELINE_V1`. | `docs/adr/DEC-003-pricing-calculation-order.md`. | `PRICE-002` y `SALES-003` quedan desbloqueados documentalmente; `DEC-006` complementa la regla exacta de redondeo `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`. Toda implementación debe conservar snapshots inmutables, decimal exacto, algoritmos versionados y separación entre pricing y cobertura. |
-| DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; las decisiones críticas relacionadas quedaron cerradas y `TECH-002` está `READY`. |
+| DEC-004 | `P0` | Separación definitiva entre `Product`, `ProductVariant` y `ProductPresentation`, con cardinalidades, identidad vendible, SKU, códigos, inventario, conversiones, pricing, impuestos y migración. | `docs/adr/DEC-004-product-variant-presentation-model.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md`, `docs/domain/glossary.md` y `docs/domain/event-catalog.md`. | `CAT-002` queda `READY`; las decisiones críticas relacionadas quedaron cerradas. `TECH-002` alcanzó posteriormente `DONE` en la revisión transversal final #2. |
 | DEC-006 | `P0` | Política versionada `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`, con empate alejándose de cero, separación fiscal/comercial, residuos deterministas, devoluciones, offline y conciliación. | `docs/adr/DEC-006-nearest-50-rounding-policy.md` y `docs/adr/DEC-003-pricing-calculation-order.md`. | `TAX-003` quedó `DONE`; `SALES-003` redujo sus bloqueos documentales; toda implementación debe conservar decimal exacto, snapshots, versión, checksum y ajustes explícitos. |
 | DEC-007 | `P0` | Autoridad por dato, políticas de sincronización, idempotencia, control de versión, reloj confiable, causalidad, outbox/inbox, checkpoints, conflictos, retención, recuperación, seguridad y observabilidad local-first. | `docs/adr/DEC-007-local-first-data-authority.md`, `docs/adr/ADR-003-local-first.md`, `docs/architecture/conceptual-data-model.md`, `docs/domain/commercial-engine.md` y `docs/domain/glossary.md`. | `SYNC-003` quedó `DONE`; `TECH-005` dejó de depender de `DEC-007`; la implementación deberá conservar operaciones globalmente identificadas, transacciones atómicas, deduplicación, aislamiento multiempresa y conflictos explícitos. |
 | DEC-008 | `P0` | Jerarquía de firma, almacenamiento de claves, activación offline, reemplazo de dispositivo y alcance de gracia. | `docs/adr/DEC-008-device-trust-license-activation.md`. | `LIC-002` y `DEV-002` quedaron `DONE`; la decisión dejó de bloquear `TECH-002` y la salida de Fase 0. |
@@ -361,32 +427,34 @@ Objetivo: cerrar las decisiones y contratos conceptuales necesarios para diseña
 |---|---|---|
 | F0.1 Producto y alcance | `DONE` | Documentos bajo `docs/product/` indicados en la evidencia, incluido este backlog. |
 | F0.2 Arquitectura y ADR iniciales | `DONE` | `docs/architecture/` y `docs/adr/`. |
-| F0.3 Dominio, seguridad, pruebas y migración | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md`, `docs/migration/avicola-baseline-migration.md`. |
+| F0.3 Dominio, seguridad, pruebas y migrations | `DONE` | `docs/domain/`, `docs/security/permission-matrix.md`, `docs/testing/testing-strategy.md` y manifests bajo `docs/migration/`. |
 | F0.4 Casos comerciales y operativos iniciales | `DONE` | Casos existentes bajo `docs/use-cases/`; la secuencia completa de pagos se consolida en F0.5. |
 | F0.5 Secuencia completa de pagos | `DONE` | UC-PAY-001, 002, 003, 004, 005 y 006 están documentados, y `PAY-007` armoniza los estados en `docs/domain/payment-state-model.md`. |
 | F0.6 Decisiones críticas cerradas | `DONE` | `DEC-001`, `DEC-002`, `DEC-003`, `DEC-004`, `DEC-006`, `DEC-007`, `DEC-008`, `DEC-009` y `DEC-010` cerradas con evidencia verificable; `DEC-005` queda diferida como decisión `P1` y no bloquea el cierre de decisiones críticas `P0`. |
-| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. `TECH-002` queda `READY` como entrada de Fase 1. |
+| F0.7 Preparación para diseño físico | `DONE` | Auditoría documental completada; `SYNC-001`, `SYNC-002`, `SYNC-003`, `DEV-001`, `DEV-002`, `LIC-002` y decisiones críticas aplicables consolidadas. El cierre dejó `TECH-002` como entrada de Fase 1; `TECH-002` alcanzó posteriormente `DONE` y `PHY-G06` permanece cerrado. |
 
 La Fase 0 quedó cerrada al completarse UC-PAY-004 y UC-PAY-005, consolidarse la máquina de pagos, cerrarse las decisiones `P0` necesarias para persistencia y documentarse invariantes y pruebas mínimas coherentes para los casos críticos.
 
 ### Fase 1 — Fundación técnica ejecutable
 
-Estado: `PLANNED`.
+Estado: `IN_PROGRESS`.
 
 Objetivo: crear el núcleo multiempresa comprobable sobre límites modulares, migraciones nuevas y controles backend, sin dar por válida la implementación heredada.
 
 | Hito | Estado | Criterio de salida |
 |---|---|---|
 | F1.1 Esqueleto modular y contratos | `PLANNED` | Límites de módulo verificables y lógica fuera de controladores HTTP. |
-| F1.2 Modelo físico y migraciones | `PLANNED` | Tenant, empresa, sucursal, usuario, roles, auditoría, licencia y dispositivo con restricciones e índices. |
-| F1.3 Seguridad e identidad | `PLANNED` | Aislamiento multi-tenant probado, sesiones revocables, MFA crítico y permisos backend. |
-| F1.4 CI y calidad base | `PLANNED` | Lint, tipos, pruebas, seguridad y validación de migraciones obligatorios. |
+| F1.2 Modelo físico y migraciones | `IN_PROGRESS` | `TECH-002` cerrado y migration 001 materializada/verificada en `255d813`; siguientes cortes son aditivos y requieren manifest/autorización independientes. Device-Licensing/Catalog conservan sus condiciones posteriores. |
+| F1.3 Seguridad e identidad | `PLANNED` | `SEC-G01` a `SEC-G10` formalizados pero no evaluados; requiere aislamiento multi-tenant probado, sesiones revocables, MFA crítico, permisos backend y evidencia de release. |
+| F1.4 CI y calidad base | `IN_PROGRESS` | Gate mínimo TARGET `MATERIALIZED / EXECUTED / PASS`; lint, seguridad, licencias/SBOM, Nx y pipeline integral continúan pendientes. |
 | F1.5 Primer corte vertical | `PLANNED` | Onboarding mínimo y un flujo autenticado funcionan con auditoría e idempotencia. |
 | F1.6 Base local-first | `PLANNED` | Identificadores globales, outbox y reintento demostrados sin duplicación. |
 
 La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domiciliario, facturación electrónica, GPS, conciliación bancaria avanzada ni especialización regulatoria de droguería.
 
 ## Registro de cambios
+
+Las entradas de esta sección son snapshots históricos y pueden describir estados vigentes únicamente en la fecha indicada. No reemplazan `Estado general`, el backlog por épica ni `Orden inmediato de trabajo`.
 
 - 2026-08-02: `UC-PAY-004` pasó de `READY` a `IN_PROGRESS` como siguiente trabajo aprobado. `UC-PAY-005` permanece `PLANNED` y dependiente de `UC-PAY-004`. La Fase 0 permanece `IN_PROGRESS`.
 - 2026-08-02: `UC-PAY-004` pasó de `IN_PROGRESS` a `DONE`, con evidencia en `docs/use-cases/payments/UC-PAY-004-refund-payment.md`. `UC-PAY-005` pasó de `PLANNED` a `READY`. La Fase 0 permanece `IN_PROGRESS`.
@@ -415,7 +483,7 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 2. Cada elemento movido a `DONE` debe incluir al menos una ruta real y verificable; si la evidencia desaparece o deja de cumplir el criterio, el elemento sale de `DONE`.
 3. Al iniciar trabajo, se registra `IN_PROGRESS`; al bloquearse, se registra causa y condición de desbloqueo; al diferirse o excluirse, se registra la decisión de alcance.
 4. La actualización debe revisar también orden inmediato, riesgos, decisiones e hitos afectados; no se actualizan estados de forma aislada.
-5. No se marcan como terminadas capacidades objetivo por existir únicamente en la base heredada, en HTML estático, en una descripción conceptual o en código sin pruebas suficientes.
+5. No se marcan como terminadas capacidades objetivo por aparecer en HTML estático, en una descripción conceptual o en código sin pruebas suficientes.
 6. Un nuevo caso de uso debe respetar identificador, épica, prioridad, dependencias, invariantes, permisos, idempotencia, auditoría, offline y pruebas mínimas cuando apliquen.
 7. Antes de cerrar un cambio del backlog se ejecutan, como mínimo, `git diff --check` y la validación relevante al artefacto modificado.
 8. Este archivo se mantiene en UTF-8 y conserva una única cola ordenada de trabajo inmediato.
@@ -444,6 +512,84 @@ La Fase 1 no incluye como terminados domicilios, aplicaciones de comprador/domic
 
 - 2026-08-10: la auditoría general de preimplementación fue remediada sin iniciar el modelo físico. Se unificaron identidad UUID v7, alcances multi-tenant, propiedad modular, estados de ventas y pagos, topología `PaymentGroup`/`Payment`/`PaymentAttempt`, precisión monetaria, redondeo único por venta, inventario por presentación y lote, contratos local-first, configuración offline, transacciones críticas, migración y pruebas por dialecto. `TECH-002` permanece `READY`; el inicio de Fase 1 no tiene decisiones `P0` documentales pendientes.
 
-- 2026-08-10: se cerró la preparación tecnológica previa a código mediante `ADR-005`, `DEC-009`, `DEC-010`, `ARCH-004` y `SEC-004`. Se fijaron stack TypeScript/NestJS/Electron, POS Local Service como único escritor SQLite, infraestructura pagada para datos reales, modos `HYBRID`/`LOCAL_PERPETUAL`, pruebas objetivo, aislamiento del despliegue Avícola heredado, contrato fiscal neutral, Factus como primer sandbox, Siigo como segunda validación y matriz de hardware sin certificaciones inventadas. `TECH-002` permanece como siguiente trabajo `P0 READY`; ninguna implementación objetivo fue declarada terminada.
+- 2026-08-10: se cerró la preparación tecnológica previa a código mediante `ADR-005`, `DEC-009`, `DEC-010`, `ARCH-004` y `SEC-004`. Se fijaron stack TypeScript/NestJS/Electron, POS Local Service como único escritor SQLite, infraestructura pagada para datos reales, modos `HYBRID`/`LOCAL_PERPETUAL`, pruebas objetivo, contrato fiscal neutral, Factus como primer sandbox, Siigo como segunda validación y matriz de hardware sin certificaciones inventadas. `TECH-002` permanece como siguiente trabajo `P0 READY`; ninguna implementación objetivo fue declarada terminada.
 
-Próxima actualización obligatoria: registrar el inicio de `TECH-002` cuando comience el diseño físico de Fase 1 y mantener alineados su estado, evidencia, riesgos y trabajos dependientes.
+- 2026-08-10: `TECH-002` pasó de `READY` a `IN_PROGRESS` con la matriz `docs/architecture/physical-model/traceability.md`. El inventario relaciona los casos de uso con módulos y agregados, excluye capacidades diferidas y registra brechas físicas que deben cerrarse antes del esquema. La primera migración permanece bloqueada hasta aprobar tipos, scopes, aislamiento, transacciones, auditoría y diferencias PostgreSQL/SQLite.
+
+- 2026-08-10: `TECH-002` cerró documentalmente `PHY-G01` a `PHY-G05` y diseñó convenciones, fundación, dispositivos/licencias y catálogo sin escribir DDL. Al abordar `PHY-G06`, se alineó recepción con `inventory_location_id` y se diseñaron Supplier, GoodsReceipt, items, lotes, movimientos, costo y saldo; `TECH-002` pasó a `BLOCKED` porque `purchase_id` referencia Purchase sin contrato funcional suficiente. No se avanzó a `PHY-G07`.
+
+- 2026-08-10: la segunda pasada controlada de `PHY-G06` eliminó la referencia genérica del contrato vigente y cerró GoodsReceipt independiente, líneas, múltiples asignaciones de lote, un movimiento por asignación, costo de recepción separado, compensaciones, permisos, eventos, migración heredada y frontera atómica. `PHY-G06` pasó a `CLOSED` y `TECH-002` volvió a `IN_PROGRESS`; no se inició `PHY-G07`.
+
+- 2026-08-10: `PHY-G07` cerró el contrato físico de caja mediante autoridades explícitas para CashShift, CashMovement, CashCount y revisión de diferencias; se alinearon corte, efectivo esperado, denominaciones, correcciones, concurrencia, permisos, eventos, operación offline y migración heredada. No se escribió DDL ni se inició `PHY-G08`.
+
+- 2026-08-12: `PHY-G08` cerró el contrato físico documental de SaleReturn. Se separaron estados persistentes de proyecciones de Sale, SaleReturn de Refund/Reversal, ownership y permisos de Sales/Payments, y se alinearon tenant, snapshots, elegibilidad, dinero, inventario, caja, fiscalización, local-first, auditoría, eventos y migración heredada. No se escribió DDL ni se inició `PHY-G09`.
+
+- 2026-08-12: `PHY-G09` cerró el contrato físico documental de Reversal, Settlement y Reconciliation. `PAY-007` quedó como autoridad única de estados; se alinearon eventos canónicos, ownership de Payments, componentes monetarios exactos, tratamiento versionado del bruto frente a reversals, snapshots de alcance, permisos sobre roles existentes, provider authority, replay, idempotencia, fraude, local-first, auditoría y migración heredada. No se escribió DDL ni se inició `PHY-G10`.
+
+- 2026-08-12: se formalizaron `SEC-G01` a `SEC-G10` mediante `docs/security/security-gates.md` y la matriz obligatoria amenaza → control → prueba → evidencia. Los diez gates permanecen `PLANNED`/no evaluados porque no existe implementación ni evidencia ejecutable del stack objetivo. `TECH-002` y la secuencia física no cambiaron; `PHY-G10` no se inició.
+
+- 2026-08-12: `PHY-G10` cerró el contrato documental de versiones de configuración por dominio. Se eliminó `Configuration` como dominio global, se reconoció Tax independiente, se definieron CashPolicy/InventoryPolicy y versiones inmutables, y se alinearon ownership, scopes, vigencia, precedencia explícita, checksum, snapshots, permisos, secretos, eventos, local-first y migración legado. `TECH-002` permanece `IN_PROGRESS`; `SEC-G01` a `SEC-G10` permanecen `PLANNED`/`NOT_EVALUATED`, no se escribió DDL y no se inició `PHY-G11`.
+
+- 2026-08-12: `PHY-G11` cerró el contrato documental de dead letter. Se eligió `SyncDeadLetter` como agregado separado referencial, sin duplicar `SyncOperation`, Outbox, Inbox o payload; se alinearon ownership, identidad, clasificación, retries versionados, errores permanentes, revisión/reactivación, archivo/retención, idempotencia, causalidad, seguridad, permisos, auditoría, eventos, concurrencia, legado y pruebas PostgreSQL/SQLite. `TECH-002` permanece `IN_PROGRESS`; los security gates permanecen `PLANNED`/`NOT_EVALUATED`, no se escribió DDL y no se inició `PHY-G12`.
+
+- 2026-08-12: `PHY-G12` cerró el contrato documental de agregados fiscales neutrales. `ElectronicDocument` quedó como único nombre canónico y se formalizaron `FiscalConnection`, `FiscalSubmissionAttempt`, `FiscalArtifact`, `FiscalIncident`, `FiscalReconciliation` e items; se separaron Tax y emisión, snapshots, cuatro máquinas internas y estado externo, `UNKNOWN_OUTCOME` técnico/fiscal, correctivos, numeración, idempotencia, webhooks conceptuales, local-first, tenant, secretos, permisos, eventos, auditoría, concurrencia, legado y pruebas. `TECH-002` permanece `IN_PROGRESS`; `SEC-G01` a `SEC-G10` permanecen `PLANNED`/`NOT_EVALUATED`, la primera migración permanece `NO-GO` y `PHY-G14` no se inició.
+
+- 2026-08-12: `PHY-G14` pasó de `BLOCKED_BY_POC` a `CLOSED` después de ejecutar el PoC aislado `poc/rls/` en PostgreSQL 16.14. Pasaron RLS/FORCE para owner y runtimes, fail-closed sin contexto o con UUID inválido, SELECT/INSERT/UPDATE/DELETE cross-tenant, `WITH CHECK`, FK tenant-aware, reuse de conexión, rollback, worker secuencial, admin global explícito, introspección y dump/restore con roles separados. La evidencia es parcial para `SEC-G01`, que permanece `PLANNED`/`NOT_EVALUATED`; `TECH-002` sigue `IN_PROGRESS` y la primera migración sigue `NO-GO`.
+
+- 2026-08-12: la remediación R1 de `TECH-002` cerró siete incompatibilidades documentales: Foundation conserva `IN_REVIEW` con condiciones satisfechas/trasladadas/pendientes; AuditEvent quedó append-only con snapshots sanitizados; Outbox quedó 1:1 y referencial a SyncOperation; DeviceKey usa una sola identidad; límites usan `FINITE`/`UNLIMITED`/`NOT_APPLICABLE`; dinero separa escalas 6/10/2; y PriceChange dejó de ser entidad física candidata. No se implementaron DDL, migraciones ni tests ejecutables. `TECH-002` continúa `IN_PROGRESS`, los security gates siguen `PLANNED`/`NOT_EVALUATED` y la primera migración sigue `NO-GO`.
+
+- 2026-08-12: `TECH-002 / R2-A` cerró documentalmente relaciones Foundation↔Devices/Licensing↔Sync. `sync-base-schema.md` fija identidades, cardinalidades, candidate keys/FKs tenant-aware, Operation/Outbox/Inbox/Checkpoint, Conflict/Review/DeadLetter, orden sin ciclos, delete policies, split PostgreSQL/SQLite, transacciones y seguridad. Foundation y Device/Licensing permanecen `IN_REVIEW`; no se ejecutaron security gates, DDL ni migraciones.
+
+- 2026-08-14: `TECH-002 / R2-B` pasó `PASS` documental mediante contratos físicos base de Sales, Payments, Pricing, Tax e Inventory y la auditoría transversal de Sync comercial, multi-negocio, capability model, hardware/providers, seguridad y transacciones. No se creó catálogo definitivo de capabilities ni se adelantaron Customer Credit, PurchaseOrder o serial tracking. En ese corte, `TECH-002` permaneció `IN_PROGRESS`, `SEC-G01` a `SEC-G10` siguieron `PLANNED`/`NOT_EVALUATED`, R3/R4 quedaron pendientes y la primera migración permaneció `NO-GO`.
+
+- 2026-08-14: `TECH-002 / R3` obtuvo `PASS` en el PoC desechable `poc/physical-model/`: PostgreSQL 16.14 pasó `97/97`, SQLite 3.50.4/WAL pasó `83/83`, y dump/restore pasó con roles separados. Se validaron equivalencia de tipos y restricciones, aislamiento tenant, atomicidad, idempotencia, append-only, concurrencia, Outbox/Inbox/Checkpoint y recuperación. La evidencia es parcial para `SEC-G01`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G09`; todos los gates conservan `PLANNED`/`NOT_EVALUATED`. `TECH-002` permanece `IN_PROGRESS`, R4 sigue pendiente y la primera migración permanece `NO-GO`.
+
+- 2026-08-14: `TECH-002 / R4` obtuvo `PASS` documental. `docs/migration/first-target-migration-manifest.md` fija un control plane PostgreSQL mínimo y una contraparte SQLite limitada a control de migraciones; excluye Device/Licensing dependiente de crypto, Inbox/Checkpoint receptor y todos los dominios comerciales. Foundation pasa a `APPROVED_FOR_MIGRATION_DESIGN` solo para 001; Device-Licensing y Catalog siguen `IN_REVIEW`. Security gates no cambian, `TECH-002` sigue `IN_PROGRESS` y primera migración `NO-GO`.
+
+- 2026-08-14: la primera revisión transversal final de `TECH-002` produjo `NO-GO` y seis blockers materiales B01–B06: bootstrap/ledger, autoridad del migrador, recovery, ownership de onboarding, Session/RLS y `AuditEvent.resource_id`. `TECH-002 / R5` los cerró documentalmente con bootstrap permanente previo a STARTED, ledger único sin metadata Kysely, máquina de estados fail-closed, FK OWNER compuesta, Session RLS/FORCE y referencia AuditEvent condicional verificable. El scope de 001 no se amplió, los security gates no cambiaron y no se escribió DDL.
+
+- 2026-08-14: la revisión transversal final #2 revalidó R1–R5 y confirmó B01–B06 `CLOSED`, scope 001 exacto, aislamiento tenant-aware, autoridad única, lifecycle/recovery, separación legacy y cero blockers categoría A. `TECH-002` pasó a `DONE` y la primera migración a `GO_AUTHORIZED` solo para implementar `001_central_foundation` y `001_local_migration_control`. `SEC-G01` a `SEC-G10` permanecen `PLANNED / NOT_EVALUATED`; Fase 1, Device/Licensing, Catalog y producción no se declararon terminados. Registro histórico previo a `255d813`.
+
+- 2026-08-14: `255d813` materializó migration 001 con evidencia PostgreSQL `54/54`, SQLite `12/12` y combined `66/66`; desde este punto sus artefactos y checksums son inmutables.
+
+- 2026-08-17: `INT-001` cerró documentalmente External Integrations: conexión general separada de `FiscalConnection`, provider registry extensible, capabilities, mappings, ownership, discovery, secrets/tokens, dispatch, webhooks, rate limits, evidencia y matriz SIIGO/FACTUS/ALEGRA/HKA/ODOO. No se creó SQL ni adapter; los providers permanecen `NOT_EVALUATED` y los SEC-G no cambian.
+
+- 2026-08-17: la gobernanza resolvió el blocker de alcance de INT-002 separando materialización progresiva dentro de Phase 1: migration 002 contiene solo External Integrations foundation y permite únicamente dispatch `NON_FISCAL`; migration 003 contendrá Fiscal/Electronic Invoicing y habilitará `FISCAL` atómicamente con `FiscalSubmissionAttempt`. No se creó manifest detallado ni SQL, no cambió INT-001 y migration 001 permanece inmutable.
+
+- 2026-08-17: `INT-002` cerró el manifest documental exacto de migration 002 External Integrations: 16 tablas PostgreSQL centrales bajo `integrations`, 12 con RLS/FORCE, cero SQLite/seeds/SQL, ownership y FKs tenant-aware, y dispatch físicamente limitado a `NON_FISCAL`. No se materializó migration 002, no se inició INT-003, no se implementaron adapters y todos los providers/SEC-G conservaron sus estados.
+
+- 2026-08-17: la primera revisión independiente de INT-002 concluyó `PASS_WITH_REMEDIATION`; la remediación documental acotada resolvió M-01..M-07 y LOW asociados mediante `RECONCILIATION`/`EXTENSION`, sin SQL, sin cambiar las 16 tablas, sin tocar migration 001 y sin alterar providers/SEC-G. Queda pendiente una segunda revisión independiente antes de cualquier decisión de materialización.
+
+- 2026-08-17: la segunda revisión independiente concluyó `MANIFEST-002-REVIEW-2 = PASS_WITH_REMEDIATION`, con CRITICAL 0, HIGH 0, MEDIUM 2 y LOW 0. MED-01 exige no-overlap físico PUBLISHED para ResourceOwnershipPolicy y MED-02 unicidad temporal efectiva para IntegrationCapability. La remediación final queda acotada a scopes, exclusion constraints, índices y estado documental; no crea SQL ni cambia migration 001, providers o SEC-G.
+
+- 2026-08-17: la remediación final resolvió MED-01/MED-02 como `RECONCILIATION`, con scopes exactos, `[)`, open-ended, exclusion constraints NOT DEFERRABLE e índices no redundantes. `MANIFEST-002-REVIEW-3 = PASS`, con CRITICAL/HIGH/MEDIUM/LOW en cero. `SQL 002 = GO_AUTHORIZED` únicamente para la siguiente tarea separada; no se creó SQL, no se modificó migration 001 y no cambiaron providers o SEC-G.
+
+- 2026-08-18: `MAT-002-PREFLIGHT` encontró cinco MEDIUM y tres LOW antes de SQL. `MAT-002-PREFLIGHT-REMEDIATION-1` cerró documentalmente RateLimitPolicy tenant/integration+provider FKs, grants/guards exactos, límites JSON, lifecycle compartido de `btree_gist`, descriptors/validators/ledger/lock global y los tres índices inconsistentes. Es `RECONCILIATION/EXTENSION`, no crea SQL/código/provider runtime, no toca migration 001 ni SEC-G. SQL 002 permanece NO-GO hasta repetir el pre-flight independiente.
+
+- 2026-08-18: `MAT-002-PREFLIGHT-2 = PASS` autorizó SQL y `MAT-002-MATERIALIZATION = PASS` materializó migration 002 con tooling descriptor-driven, 16 tablas PostgreSQL, 12 RLS/FORCE, grants por columna, guards, recovery/down, lock global y `btree_gist` compartido. PostgreSQL 16 pasó `96/96`, SQLite conservó `12/12`; 001 quedó byte-for-byte intacta y 003 ausente. Providers y `SEC-G01..10` no cambiaron de estado.
+
+- 2026-08-18: `INT-006 / FISCAL-003-MANIFEST = PASS` diseñó el manifest aditivo `003_fiscal_electronic_invoicing_foundation`: nueve tablas fiscales centrales, ownership sin duplicar 002, numeración/configuración versionada, FKs tenant-aware, nueve RLS/FORCE, grants por columnas, habilitación/rollback atómicos de `FISCAL`, descriptor y plan de pruebas. Es documentación pendiente de revisión independiente; no creó SQL/runtime/SQLite/adapters ni promovió providers o `SEC-G`.
+- 2026-08-18: `FISCAL-003-MANIFEST-REMEDIATION-1` cerró documentalmente M-01..M-06 y reconcilió L-01/L-02: protocolo de numeración por autoridad, scope branch íntegro, worker RLS sin DRAFT, grants literales, `DEBIT_NOTES`, downgrade/locks canónicos, retiro de índices especulativos y límites raw. No creó SQL/SQLite, no alteró 001/002, providers ni `SEC-G`; requiere review independiente repetido.
+- 2026-08-18: `FISCAL-003-MANIFEST-REMEDIATION-2` cerró MED-01..MED-03: `pos_app` crea el documento remoto, shapes iniciales impiden presembrar resultados y el orden universal serializa publicación/selección/branch/reconciliation. No amplió grants, tablas u ownership ni creó SQL/SQLite; requiere `FISCAL-003-MANIFEST-REVIEW-3`.
+- 2026-08-20: `FISCAL-003-MANIFEST-REMEDIATION-3 = PASS` reconcilió MED-01; `FISCAL-003-MANIFEST-REVIEW-4 = FAIL` detectó B-01 en el orden topológico y L-01 en la instrucción operativa.
+- 2026-08-22: `FISCAL-003-MANIFEST-REMEDIATION-4 = PASS` resolvió B-01/L-01; `FISCAL-003-MANIFEST-REVIEW-5 = FAIL` confirmó esas áreas y detectó M-01 de gobernanza. `FISCAL-003-MANIFEST-REMEDIATION-5 = PASS` reconcilia las referencias operativas sin alterar arquitectura, SQL, providers ni security gates.
+
+- 2026-08-22: `FISCAL-003-MANIFEST-REVIEW-6 = PASS` cerró BLOCKER/HIGH/MEDIUM/LOW en cero y confirmó B-01, orden APPLY fail-closed, MED-01, transición de constraint, down/rollback y no regresiones. La validación PostgreSQL 16.14 posterior pasó `96/96` en 2/2 archivos; 001/002 conservaron hashes, SQL 003 siguió ausente y el entorno efímero quedó limpio.
+
+- 2026-08-22: el intento de ejecutar `MAT-003-PREFLIGHT` se detuvo correctamente antes de iniciar PostgreSQL o consultar datos: `BLOCKED` por `APPROVED_EXECUTABLE_PREFLIGHT_NOT_MATERIALIZED`. No existe aún comando, query set, runner, package script, harness integration ni descriptor 003 aprobado y ejecutable; no hubo mutaciones.
+
+- 2026-08-22: `MAT-003-PREFLIGHT-CONTRACT-REMEDIATION-1 = PASS` resolvió la ambigüedad detectada por la revisión de materialización. Solo son blockers históricos las relaciones exactas de 002: capability, dispatch, attempt por FK, mapping por scope+entidad interna, ownership por `ownership_policy_id` e integridad de scope. Provider declarations y platform configurations globales quedan fuera. No cambió 001/002, SQL/tooling ni estados provider/security.
+
+- 2026-08-22: `MAT-003-PREFLIGHT-MATERIALIZATION` y su revisión independiente materializaron/aprobaron el tooling fail-closed de preflight, sin ejecutarlo canónicamente, sin SQL/descriptor 003 y sin modificar migrations 001/002.
+- 2026-08-22: el diseño, lifecycle de evidencia, materialización y revisión de `MAT-003-PREFLIGHT-CANONICAL-ROLE-READINESS` quedaron `PASS`. El rol canónico permaneció `NOT_APPLIED / NOT_EXECUTED` y `MAT-003-PREFLIGHT` permaneció `BLOCKED / NOT_EXECUTED`.
+- 2026-08-24: el primer preflight de aplicación canónica se detuvo fail-closed con `NOT_READY_FOR_CANONICAL_APPLICATION` porque no existía configuración canónica explícita. No conectó a PostgreSQL, no aplicó privilegios y no ejecutó `MAT-003-PREFLIGHT`.
+- 2026-08-24: `TARGET-POSTGRESQL-FRESH-VALIDATION` pasó `145/145`; se preparó `LOCAL_CANONICAL_INTEGRATION`, y el application preflight posterior confirmó `READY_FOR_CANONICAL_APPLICATION` sobre PostgreSQL 16.14 con 001/002 exactas.
+- 2026-08-24: canonical-role readiness completó `MISSING -> APPLY -> READY` con los dos grants aprobados, recibo lifecycle v1 durable y revisión independiente `PASS` sin findings. El estado promovido es `APPLIED / REVIEWED`; `MAT-003-PREFLIGHT` continúa `NOT_EXECUTED`, SQL/descriptor 003 siguen ausentes y migration 003 continúa `NOT_MATERIALIZED`.
+- 2026-08-24: `MAT-003-PREFLIGHT-CANONICAL-CONFIGURATION-AND-EXECUTION` y su revisión independiente cerraron `PASS` en `local-canonical-integration`. Los cinco blockers y `MAT003_AFFECTED_SCOPE_INTEGRITY` devolvieron `PASS/count=0`; no hubo evidencia diagnóstica ni mutaciones durables. El estado promovido es `MAT-003-PREFLIGHT = EXECUTED / PASS / REVIEWED`; SQL/descriptor 003 y fiscal schema permanecen ausentes; el conteo de entradas para migration 003 en el ledger permanece en `0`. Se conserva un LOW conocido/no bloqueante sobre el desempate final de evidencia.
+- 2026-08-25: se materializó la separación del runtime y la documentación operativa anterior en `cleanup/pure-pos-platform-20260825`; quedó versionada en `892c3fa9b60ef5150c9a80b5b9c334acdb6b3310`, reconciliada en `0cb94778adff48aa72e57a2c7fe3c9cffc16dbce` e integrada en `architecture/physical-model` mediante la PR #3 y `7c5fcbd5fc243efa75b013cd17f5e22ec1be3978`. POS Platform conserva arquitectura, contratos, tooling, migrations y evidencia TARGET; el runtime de aplicación continúa `ABSENT / NOT_MATERIALIZED`.
+- 2026-08-25: `TECH-004` pasó a `IN_PROGRESS` con un gate CI mínimo y sin secretos para validar la fundación TARGET sobre PostgreSQL 16.14, TypeScript y SQLite. La primera ejecución y su revisión permanecen pendientes; esta materialización no declara el pipeline integral `DONE` ni autoriza merge en `main`.
+- 2026-08-24: la revisión externa del checkpoint operacional MAT-003 cerró `PASS`; el checkpoint fue committed como `c255b75eeef0aebc2eb9dfec68eb32072ab88a64` (`docs: checkpoint canonical MAT-003 preflight`) y pushed normalmente. El working tree quedó `CLEAN`, el upstream `0 behind / 0 ahead` y, en ese momento, la siguiente evaluación opcional pasó a ser Context7 mediante autorización separada.
+- 2026-08-24: Context7 fue configurado externamente con versión fijada y sin secretos; la validación runtime falló por timeout de handshake sin llamadas a sus herramientas y se determinó `NOT_REQUIRED`. El rollback controlado eliminó únicamente Context7, `CODEX_RUNTIME_WITHOUT_CONTEXT7 = PASS` y el repositorio permaneció intacto. La siguiente transición requiere revisión y cierre de esta reconciliación documental.
+- 2026-08-25: el gate CI mínimo TARGET fue ejecutado y revisado con `PASS` en GitHub Actions sobre `architecture/physical-model`. Se registró evidencia commit-scoped en `docs/testing/target-foundation-ci-gate.md`; `TECH-004` permanece `IN_PROGRESS` y el pipeline integral continúa pendiente. La reconciliación de README/backlog corrige únicamente estados operacionales obsoletos y no promueve runtime, migration 003, providers ni security gates.
+
+Próxima transición obligatoria: mantener `CI = PASS` sobre el HEAD resultante de la reconciliación documental, revisar el delta final y confirmar que el WIP SQL 003 permanece fuera. Solo después de esos gates podrá quedar ready la PR #2; cualquier integración en `main` requiere autorización expresa separada. La reanudación del contrato SQL 003 seguirá siendo otra tarea independiente y no autoriza implícitamente diseño, materialización, pruebas, revisión o aplicación canónica.

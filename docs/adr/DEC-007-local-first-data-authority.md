@@ -196,7 +196,7 @@ Hecho producido por una operación local.
 
 ## Outbox
 
-Registro persistente de operaciones o eventos pendientes de sincronización.
+Sobre persistente de entrega y retry que referencia una `SyncOperation`. La intención, payload canónico, checksum, identidad e idempotencia pertenecen a `SyncOperation`; Outbox no crea otra copia autoritativa ni decide conflictos de negocio.
 
 ## Inbox
 
@@ -552,6 +552,15 @@ SERVER_REJECTED
 DEAD_LETTER
     -> REVIEW_REQUIRED
     -> ARCHIVED
+
+REVIEW_REQUIRED
+    -> RETRY_SCHEDULED
+
+RETRY_SCHEDULED
+    -> DEAD_LETTER
+    -> REVIEW_REQUIRED
+    -> SERVER_ACCEPTED
+    -> SERVER_REJECTED
 ```
 
 No se permite regresar de:
@@ -629,7 +638,7 @@ No se confirmará el inbox si los efectos principales no quedaron persistidos.
 
 ---
 
-# Outbox local
+# Outbox de entrega
 
 Cada registro deberá contener como mínimo:
 
@@ -637,23 +646,25 @@ Cada registro deberá contener como mínimo:
 outbox_id
 operation_id
 tenant_id
-device_id
-local_sequence
-aggregate_type
-aggregate_id
+device_id optional_for_central_origin
+local_sequence optional_with_device
 operation_type
-payload
-payload_checksum
 schema_version
+payload_checksum
+correlation_id
+causation_id optional
 sync_status
+available_at
 attempt_count
-next_attempt_at
 last_attempt_at
+next_attempt_at
 last_error_code
-last_error_detail
+acknowledged_at optional
 created_at
 updated_at
 ```
+
+`operation_id` referencia 1:1 la `SyncOperation` que conserva aggregate, actor, idempotency key, payload, checksum y demás identidad de la intención. La outbox puede leer esa operación para transportar el payload, pero no lo duplica como segunda autoridad. La metadata copiada para routing/observabilidad debe coincidir con la operación referenciada.
 
 ## Reglas
 
@@ -667,8 +678,14 @@ updated_at
 8. Se procesa por lotes limitados.
 9. Respeta orden causal cuando aplique.
 10. No mezcla tenants.
-11. `local_sequence` es única y estrictamente creciente dentro de `(tenant_id, device_id)`.
+11. `local_sequence` es única y estrictamente creciente dentro de `(tenant_id, device_id)` cuando el origen es local.
 12. `operation_id` no aparece en más de una entrada activa o histórica de outbox.
+13. `device_id` y `local_sequence` están ambos presentes para origen local o ambos ausentes para origen central.
+14. Retry reutiliza la misma operación y OutboxEntry; no crea otra intención.
+15. El mismo `operation_id` con checksum distinto produce conflicto sin update de operación/outbox.
+16. Un ACK perdido se resuelve contra Inbox y completa la misma entrada sin duplicar efecto.
+17. Outbox controla scheduling/attempts; Inbox deduplica y conserva resultado; SyncDeadLetter trata agotamiento/error permanente; el dominio propietario resuelve conflictos.
+18. `acknowledged_at` solo se establece con resultado receptor confirmado y no sustituye la evidencia de Inbox.
 
 ---
 
@@ -1279,6 +1296,10 @@ jitter
 ---
 
 # Procesamiento por lotes
+
+El límite, backoff, jitter, ventana, exclusiones y tratamiento de agotamiento provienen de una política técnica versionada. No se hardcodean números universales.
+
+La operación original conserva el payload canónico inmutable. Una dead letter es evidencia/revisión referencial y no copia ese payload. Si la intención cambia, se crea una operación nueva con causalidad explícita.
 
 La sincronización procesará lotes limitados.
 

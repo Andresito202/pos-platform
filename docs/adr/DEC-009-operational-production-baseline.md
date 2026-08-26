@@ -316,7 +316,7 @@ No se introducirá una dependencia propietaria sin documentar costo de salida y 
 - declarar HA con una sola instancia;
 - prometer SLA sin contrato y medición;
 - usar el backend central como requisito para venta local ordinaria;
-- presentar el Blueprint heredado como producción de POS Platform.
+- presentar configuración de laboratorio o demo como producción de POS Platform.
 
 ## Criterios de cierre
 

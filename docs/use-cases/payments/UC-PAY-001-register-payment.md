@@ -2,7 +2,9 @@
 
 ## Objetivo
 
-Registrar un pago asociado a una venta, pedido, devolución u obligación, respetando el ciclo de vida del medio de pago, la autorización, la idempotencia, la caja, el modo offline y el aislamiento multiempresa.
+Registrar un cobro asociado a una venta, pedido, devolución comercial o cuenta por cobrar, respetando el ciclo de vida del medio de pago, la autorización, la idempotencia, la caja, el modo offline y el aislamiento multiempresa.
+
+En este dominio `Payment` representa fondos recibidos o por recibir de clientes. No representa cuentas por pagar ni pagos a proveedores; esa capacidad financiera permanece diferida y utilizará un agregado separado.
 
 ---
 
@@ -40,7 +42,7 @@ Según el medio y el canal:
 3. La sucursal pertenece a la empresa.
 4. La licencia permite la operación.
 5. El medio de pago está habilitado.
-6. La venta, pedido u obligación existe.
+6. La venta, pedido o cuenta por cobrar existe.
 7. La operación no está anulada ni cerrada de forma incompatible.
 8. El usuario posee el permiso requerido.
 9. El dispositivo está autorizado cuando corresponda.
@@ -127,7 +129,7 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 ## Validaciones comunes
 
 1. El importe debe ser mayor que cero.
-2. La moneda debe coincidir con la obligación.
+2. La moneda debe coincidir con la venta, pedido o cuenta por cobrar.
 3. El pago no puede pertenecer a otro tenant.
 4. La sucursal debe coincidir con la operación.
 5. El medio debe estar habilitado para la empresa y canal.
@@ -150,7 +152,7 @@ El contexto de `tenant_id` y `company_id` se deriva de la sesión, licencia o id
 2. El sistema valida la estructura de la solicitud.
 3. Deriva tenant, empresa, sucursal, usuario y dispositivo.
 4. Verifica licencia, módulo y medio habilitado.
-5. Localiza la venta, pedido u obligación.
+5. Localiza la venta, pedido o cuenta por cobrar.
 6. Verifica propiedad y estado.
 7. Consulta pagos existentes asociados.
 8. Comprueba la `idempotency_key`.
@@ -450,7 +452,7 @@ No se almacenarán secretos ni credenciales completas en logs.
 
 - venta inexistente;
 - venta anulada;
-- obligación cerrada;
+- venta, pedido o cuenta por cobrar cerrada;
 - importe inválido;
 - caja cerrada;
 - dispositivo revocado;

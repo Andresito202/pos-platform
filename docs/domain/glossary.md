@@ -193,13 +193,23 @@ Se representa conceptualmente mediante `REVIEW_REQUIRED`.
 
 Historial ordenado de movimientos de inventario.
 
-## Compra
+## Orden de compra
 
-Operación de adquisición de mercancía a un proveedor.
+Intención comercial futura de adquirir mercancía a un proveedor. `PurchaseOrder` está diferido a `PUR-001` y no es requisito para recibir mercancía en el primer release.
 
 ## Recepción
 
-Confirmación física de mercancía recibida.
+Confirmación física e inmutable de mercancía recibida en una ubicación de inventario. `GoodsReceipt` puede existir sin orden de compra y produce movimientos mediante sus líneas y asignaciones de lote.
+
+No es factura, cuenta por pagar ni pago al proveedor. Un error se corrige mediante una operación compensatoria nueva.
+
+## Documento del proveedor
+
+Factura, remisión, nota u otra evidencia comercial emitida por un proveedor. `SupplierDocument` está diferido y permanece separado de la recepción física; no modifica inventario directamente.
+
+## Devolución al proveedor
+
+Operación futura y trazable que retira mercancía mediante movimientos de salida nuevos. No anula ni reescribe la recepción original.
 
 ## Venta
 
@@ -209,9 +219,45 @@ Transacción comercial confirmada con uno o varios productos y pagos.
 
 Venta aún no confirmada que puede recuperarse posteriormente.
 
-## Devolución
+## Devolución comercial
 
-Operación que revierte total o parcialmente una venta confirmada.
+Operación `SaleReturn`, propiedad de Sales, que devuelve total o parcialmente líneas de una venta completada sin modificarla destructivamente.
+
+Puede originar efectos financieros, de inventario, caja o fiscalización, pero no los confirma por sí misma.
+
+## Línea de devolución
+
+Parte de SaleReturn que referencia una SaleItem y conserva cantidades, valores, impuestos, snapshots originales, condición física y resolución comercial aplicable.
+
+## Devolución parcial y total
+
+Una devolución parcial consume solo parte de la elegibilidad de una o más líneas. Una devolución total consume toda la elegibilidad restante, sin convertir esos resultados en estados persistentes de SaleReturn.
+
+`PARTIALLY_RETURNED` y `FULLY_RETURNED` son proyecciones derivadas de Sale.
+
+## Refund
+
+Operación compensatoria de Payments que devuelve dinero o restaura valor confirmado y elegible sin reescribir Payment, Sale o SaleReturn. Puede existir relacionada con una devolución comercial o de forma independiente cuando la política lo permita.
+
+## Reversal
+
+Operación de Payments que revierte una autorización o confirmación cuando el estado real y el proveedor todavía lo permiten. No equivale a Refund ni prueba una devolución comercial o física.
+
+## Settlement
+
+Agregado de Payments que representa el reconocimiento y liquidación de componentes financieros por caja, proveedor, adquirente, billetera o banco. Conserva bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes y neto separados, además de política, entradas, evidencia y resultado; no modifica Payment histórico ni equivale a conciliación.
+
+## Reconciliation
+
+Agregado de Payments que compara snapshots de movimientos internos y fuentes externas mediante reglas deterministas y versionadas. Su periodo o alcance es contexto congelado, no otro agregado con estado propio. Los estados de la ejecución, de sus items y de sus incidencias son ejes separados.
+
+## Provider authority
+
+Principio por el cual el proveedor o subsistema que controla una operación externa es autoridad sobre su resultado. POS Platform valida y consolida evidencia, pero un dispositivo, frontend, callback no autenticado o timestamp no puede declarar éxito.
+
+## Evidencia de proveedor
+
+Respuesta, webhook, archivo, consulta o referencia verificable de una fuente externa, conservada de forma inmutable mediante localizador seguro, identidad, hash y contexto tenant-scoped. No incluye secretos ni datos sensibles en logs o eventos.
 
 ## Anulación
 
@@ -231,7 +277,17 @@ Efectivo inicial entregado al cajero para dar cambio.
 
 ## Efectivo esperado
 
-Valor calculado a partir de la base, ventas, ingresos, egresos, retiros y devoluciones.
+Valor derivado de movimientos de caja publicados hasta una secuencia de corte. No es un saldo mutable ni se reemplaza con el efectivo contado.
+
+## Arqueo de caja
+
+Operación `CashCount` que congela el corte de movimientos, efectivo esperado, efectivo contado, denominaciones y diferencia sin modificar movimientos ni cerrar necesariamente el turno.
+
+Un conteo completado es inmutable; su corrección crea otro conteo relacionado.
+
+## Diferencia de caja
+
+Resultado exacto de restar efectivo esperado al efectivo contado. La tolerancia puede clasificarla, pero no ocultarla ni convertirla en cero.
 
 ## Licencia
 
@@ -638,9 +694,29 @@ Un reintento no representa una nueva intención comercial.
 
 ## Dead letter
 
-Operación que no pudo resolverse automáticamente después de agotar los reintentos permitidos o presentar un error permanente.
+Estado operativo de una operación que no pudo resolverse automáticamente después de agotar los reintentos permitidos o presentar un error permanente.
 
-Debe conservarse para diagnóstico, revisión o archivo controlado.
+Su evidencia y tratamiento se materializan mediante `SyncDeadLetter`, sin duplicar la intención o payload original.
+
+## SyncDeadLetter
+
+Agregado de Sync con identidad global que referencia una `SyncOperation` en estado `DEAD_LETTER` y conserva clasificación, reintentos observados, revisión, reactivación autorizada, archivo y auditoría.
+
+Existe como máximo uno por operación y no es un mensaje ejecutable.
+
+## SyncDeadLetterAction
+
+Hecho append-only de revisión, retry autorizado, rechazo, resultado o archivo de una dead letter. Conserva actor, motivo, transición, causalidad y evidencia sanitizada.
+
+## Agotamiento de reintentos
+
+Condición determinada por una política técnica versionada en la que Sync detiene reintentos automáticos y conserva la operación para revisión o dead letter.
+
+No cambia la identidad ni el payload original.
+
+## Archivo de dead letter
+
+Transición `ARCHIVED` que retira el caso de tratamiento activo sin borrar operación, evidencia, idempotencia o auditoría sujeta a retención.
 
 ## Calidad de reloj
 
@@ -660,3 +736,71 @@ El reloj local aporta evidencia contextual, pero no constituye autoridad global.
 Arquitectura en la que el POS puede confirmar operaciones autorizadas mediante persistencia local y sincronizarlas posteriormente de forma idempotente.
 
 No significa que todos los datos sean autoritativos localmente ni que todos los conflictos puedan fusionarse.
+
+## Configuración por dominio
+
+Política, regla o perfil cuya identidad, versiones y autoridad pertenecen al módulo que define su semántica. No existe una entidad global `Configuration`.
+
+## ConfigurationDistribution
+
+Componente técnico opcional que transporta referencias, versiones y snapshots de configuraciones nativas. No es un dominio ni fuente de verdad y no puede publicar o ampliar derechos.
+
+## Identidad estable de configuración
+
+Identidad que agrupa la sucesión histórica de versiones de una política del mismo dominio y scope. No cambia cuando se publica una versión nueva.
+
+## Versión de configuración
+
+Representación inmutable publicada de una configuración, con identidad propia, número monotónico, vigencia, checksum, actor, motivo y relación de sustitución.
+
+## Versión programada
+
+Proyección temporal de una versión `PUBLISHED` cuyo `valid_from` todavía no ha llegado. `SCHEDULED` no es un estado persistente paralelo.
+
+## Sustitución de versión
+
+Publicación de una versión nueva que reemplaza prospectivamente otra sin editarla ni borrarla. Restaurar una conducta anterior también crea una versión nueva; no reactiva el registro histórico.
+
+## Snapshot tributario de operación
+
+Evidencia inmutable de reglas, bases, tasas y resultado calculados por Tax para una operación comercial.
+
+## Snapshot de emisión fiscal
+
+Evidencia inmutable de la configuración, proveedor, numeración, contingencia y resultado usados por Electronic Invoicing. No sustituye ni recalcula el snapshot tributario.
+
+## ExternalIntegration
+
+Conexión general, versionada y tenant/company-scoped con una cuenta de ERP, plataforma contable o proveedor tecnológico. Es propietaria de la referencia de credencial, ambiente, capabilities, discovery, mappings, ownership y health; nunca de Product, Sale, Payment, Inventory o ElectronicDocument.
+
+## FiscalConnection
+
+Perfil fiscal neutral y tenant-scoped que referencia una `ExternalIntegration`. Conserva identidad/configuración fiscal, numeración, capabilities fiscales, vigencia y certificado cuando aplique; no duplica credenciales, cuenta, ambiente, health ni capabilities generales.
+
+## ElectronicDocument
+
+Agregado canónico de Electronic Invoicing para factura electrónica, documento equivalente, nota u otro documento fiscal. Tiene identidad interna global anterior al envío y separa estado interno, evidencia externa, numeración e identificadores legales. `FiscalDocument` es solo una descripción narrativa y no una entidad equivalente.
+
+## FiscalSubmissionAttempt
+
+Interacción técnica persistida contra un proveedor para emitir, consultar o recuperar evidencia. Es el único owner de attempts fiscales, referencia el `IntegrationDispatch` fiscal originador y nunca coexiste con un `IntegrationDispatchAttempt` para la misma interacción. Su lifecycle técnico es independiente del resultado fiscal de `ElectronicDocument`.
+
+## FiscalArtifact
+
+Referencia íntegra y autorizada a XML, PDF, application response, QR data, payload firmado, respuesta externa u otra evidencia fiscal. Conserva checksum, metadata, storage reference y política de retención.
+
+## FiscalIncident
+
+Situación fiscal u operativa persistente que requiere revisión y supera un error transitorio ordinario. Su clasificación y resolución son distintas de su lifecycle `OPEN`, `IN_REVIEW`, `RESOLVED`, `ARCHIVED`.
+
+## FiscalReconciliation
+
+Agregado de Electronic Invoicing que compara estado interno con evidencia externa autoritativa sin sobrescribir historia. Es distinto de `Payments.Reconciliation`, aunque algunos estados tengan nombres equivalentes.
+
+## Resultado fiscal incierto
+
+Situación `UNKNOWN_OUTCOME` en la que no existe evidencia suficiente para afirmar aceptación, rechazo o ausencia de procesamiento. Puede existir en documento e intento como dimensiones diferentes y se resuelve mediante consulta, webhook validado o conciliación.
+
+## Ambigüedad de configuración
+
+Situación en la que dos o más versiones son igualmente elegibles y la política no define composición o desempate. Produce conflicto explícito; timestamps y orden de llegada no son autoridad.

@@ -1,0 +1,74 @@
+name: TARGET foundation validation
+
+on:
+  push:
+    branches:
+      - architecture/physical-model
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: target-foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: TypeScript, SQLite and PostgreSQL 16.14
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:55432/postgres
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Validate SQLite migration
+        run: pnpm test:migrations:sqlite
+
+      - name: Validate PostgreSQL migrations 001 and 002
+        run: pnpm test:migrations:postgres
+
+      - name: Validate MAT-003 preflight tooling
+        run: pnpm --filter @pos-platform/target-migrations test:preflight:003
+
+      - name: Validate MAT-003 role-readiness tooling
+        run: pnpm --filter @pos-platform/target-migrations test:role-readiness:003

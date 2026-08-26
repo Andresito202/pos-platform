@@ -76,7 +76,7 @@ RN-031. Una caja abierta debe estar asociada a sucursal, terminal, usuario y tur
 
 RN-032. Un usuario no puede tener dos turnos de caja abiertos en la misma terminal.
 
-RN-033. El cierre conserva valor esperado, valor contado, diferencia y observación.
+RN-033. El cierre referencia un CashCount inmutable que conserva corte de movimientos, versión de cálculo, valor esperado, valor contado, diferencia, denominaciones y política aplicada.
 
 RN-034. Los cierres no se eliminan.
 
@@ -84,15 +84,15 @@ RN-035. Toda apertura manual de cajón debe auditarse.
 
 RN-036. Los pagos no efectivos no incrementan el efectivo físico esperado.
 
-## Compras
+## Recepción y compras futuras
 
-RN-037. Una compra recibida debe generar inventario y movimientos.
+RN-037. Confirmar un GoodsReceipt debe crear sus líneas, asignaciones de lote y un movimiento de entrada por asignación de forma atómica con costo histórico, saldo, auditoría y outbox.
 
-RN-038. Anular una compra no puede retirar mercancía ya vendida sin validación.
+RN-038. Un GoodsReceipt confirmado no se anula, edita ni elimina; una corrección o devolución al proveedor crea una operación compensatoria nueva, valida disponibilidad y conserva la recepción original.
 
-RN-039. El precio de venta no cambia automáticamente por una nueva compra.
+RN-039. El precio de venta no cambia automáticamente por una recepción ni por su costo declarado.
 
-RN-040. El costo histórico debe conservarse.
+RN-040. El costo de recepción debe conservar unidad, moneda, tratamiento tributario conocido, conversión, instante y actor/fuente, separado de costo contable, valoración y precio de venta.
 
 ## Domicilios
 
@@ -302,3 +302,171 @@ RN-137. Revocar una `TenantMembership` o una `UserRoleAssignment` no elimina la 
 RN-138. `UC-ONB-001` debe crear o resolver una identidad `User`, establecer una `TenantMembership` explícita para el propietario inicial y aplicar roles y permisos mediante asignaciones separadas conforme a `SEC-002`.
 
 RN-139. La resolución del tenant efectivo debe derivarse de contexto autenticado y relaciones autorizadas; nunca debe confiarse en un `tenant_id` libre suministrado por el cliente como prueba suficiente de pertenencia.
+
+## Arqueos de caja
+
+RN-140. ExpectedCash se deriva exclusivamente de CashMovement `POSTED`; un arqueo o diferencia no crea ajustes automáticos.
+
+RN-141. Un CashCount completado no se edita: una corrección crea otro CashCount relacionado y conserva el original.
+
+RN-142. Toda diferencia distinta de cero genera revisión; una diferencia material requiere autorización y no puede ser aprobada por el mismo actor que contó cuando la política exige segregación.
+
+## Devoluciones comerciales
+
+RN-143. `SaleReturn` pertenece a Sales, referencia una `Sale` `COMPLETED` y conserva el mismo tenant, empresa, sucursal y moneda; un identificador enviado por el cliente no constituye autorización ni permite acceso cross-tenant.
+
+RN-144. Una devolución no elimina ni reescribe Sale o SaleItem; conserva snapshots originales de cantidades, precios, descuentos, impuestos y políticas, y cambios posteriores no alteran su valor histórico.
+
+RN-145. La cantidad y el importe acumulados devueltos por SaleItem no pueden superar lo vendido y todavía elegible; una devolución parcial solo afecta sus líneas y no convierte automáticamente toda la venta en devuelta.
+
+RN-146. `RETURN_EXECUTION_IN_PROGRESS`, `RETURN_PARTIALLY_COMPLETED` y `RETURN_COMPLETED` son estados persistentes de SaleReturn; `PARTIALLY_RETURNED` y `FULLY_RETURNED` son proyecciones derivadas de Sale.
+
+RN-147. SaleReturn, Refund y Reversal son agregados diferentes: Sales es propietario de SaleReturn y Payments de Refund/Reversal; una devolución comercial no confirma automáticamente un reembolso, reversión, salida de caja, restitución de inventario o corrección fiscal.
+
+RN-148. Toda devolución crítica conserva UUID global, `operation_id`, `idempotency_key`, checksum, versión esperada, causalidad y auditoría; un reintento o replay no duplica la devolución ni sus efectos.
+
+RN-149. Dos devoluciones concurrentes sobre la misma elegibilidad se validan centralmente y producen aceptación compatible, rechazo o `REVIEW_REQUIRED`; nunca se resuelven mediante último timestamp.
+
+RN-150. Una restitución de producto requiere condición física y un InventoryMovement explícito; no se modifica StockBalance ni el historial, y una corrección genera movimiento compensatorio.
+
+RN-151. Un Refund en efectivo requiere un CashMovement separado y política de turno válida; los medios externos conservan resultado pendiente o incierto hasta evidencia autoritativa y no se simula una capacidad de reversal inexistente.
+
+RN-152. La consecuencia fiscal de SaleReturn pertenece a Electronic Invoicing y crea, cuando corresponda, un documento correctivo relacionado; no modifica el documento original ni acopla Sales directamente a DIAN o a un proveedor.
+
+RN-153. Solicitar, aprobar, ejecutar, revisar y leer SaleReturn usan permisos `sales.return.*`; Refund usa `payments.refund.*` y Reversal `payments.reversal.*`. La política puede exigir reautenticación, MFA, aprobación superior y segregación entre actores.
+
+RN-154. `PAY-007` es la única autoridad de `ReconciliationStatus`: `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. `OPEN` y `PROCESSING` no son estados de Reconciliation; periodo y alcance son snapshots sin máquina de estados propia.
+
+RN-155. Reversal, Settlement y Reconciliation pertenecen a Payments y nunca modifican Payment histórico, Sale, CashMovement, InventoryMovement ni documento fiscal para cuadrar un resultado. Cada efecto de otro dominio se registra por su propietario.
+
+RN-156. Settlement conserva por separado bruto, comisiones, retenciones, refunds, reversals, contracargos, ajustes positivos, ajustes negativos y neto, usando dinero exacto. Cada cálculo congela política/version, entradas, evidencia, resultado y si el bruto incluye operaciones posteriormente reversadas o ya viene neto; un reversal nunca se descuenta dos veces.
+
+RN-157. El resultado externo de Reversal y la evidencia de Settlement respetan provider authority. Webhooks, callbacks, archivos y reintentos se autentican, deduplican y procesan idempotentemente; incertidumbre o contradicción genera consulta o revisión, no éxito implícito ni last-write-wins.
+
+RN-158. Toda relación financiera es tenant-scoped. Una identidad, referencia externa, idempotency key, configuración o evidencia de otro tenant se rechaza sin revelar su existencia.
+
+RN-159. Cerrar o reabrir Reconciliation, aceptar o resolver diferencias y configurar proveedor exige permiso atómico, motivo y auditoría append-only; la política puede requerir reautenticación, MFA y segregación de funciones usando únicamente roles existentes.
+
+RN-160. Los eventos canónicos de Reversal y Reconciliation usan los nombres definidos por `PAY-007`; no se mantienen aliases para el mismo hecho. Items e incidencias pueden emitir hechos distintos sin redefinir el estado del agregado.
+
+## Configuraciones versionadas por dominio
+
+RN-161. No existe un agregado global `Configuration`: Pricing, Tax, Authorization, Payments, Electronic Invoicing, Cash Register, Inventory, Licensing y Devices son autoridad de sus configuraciones nativas; Sync solo distribuye referencias, versiones y snapshots verificables.
+
+RN-162. Toda versión publicada es inmutable. Corregir, retirar o restaurar comportamiento crea una versión nueva o una revocación explícita y conserva actor, motivo, vigencia, checksum y relación de sustitución.
+
+RN-163. `DRAFT`, `PUBLISHED`, `SUPERSEDED` y `REVOKED` son estados persistentes de versiones administrables. `SCHEDULED`, `CURRENT` y `EXPIRED` son proyecciones de vigencia; los estados locales de `UC-SYNC-002` no cambian el lifecycle central.
+
+RN-164. Toda configuración multi-tenant conserva o deriva inequívocamente `tenant_id`; sus Company, Branch, dispositivo, instalación, cuenta, ambiente y demás scopes deben pertenecer al mismo tenant. El cliente nunca constituye autoridad del scope.
+
+RN-165. No existe precedencia automática Branch/Company/Tenant/Platform. Toda selección declara scope, prioridad, elegibilidad, vigencia, versión de política, composición y desempate; una ambigüedad sin regla normativa se rechaza y jamás se resuelve por timestamp, orden de llegada o last-write-wins.
+
+RN-166. La vigencia usa `[valid_from, valid_until)`. Un hueco no activa defaults, versiones vencidas o revocadas; produce la denegación, degradación segura o revisión explícita definida por el dominio.
+
+RN-167. El checksum canónico incluye identidad, versión, esquema, tenant/scopes, vigencia, criterios y payload material determinista, pero excluye datos de transporte, metadatos no materiales y secretos. El checksum no sustituye firma ni autenticidad.
+
+RN-168. Toda operación histórica conserva referencias de versión, checksum, entradas y resultado suficientes para replay. Ventas separan snapshots de pricing, Tax y redondeo; Electronic Invoicing separa snapshot tributario de operación y snapshot de emisión fiscal.
+
+RN-169. Cash Register es propietario de `CashPolicy`/`CashPolicyVersion` e Inventory de `InventoryPolicy`/`InventoryPolicyVersion`. Esas políticas no absorben ciclos operativos ni admiten JSON libre; solo representan reglas normativamente autorizadas.
+
+RN-170. Una réplica local se aplica atómicamente después de validar tenant, firma, checksum, esquema, secuencia, vigencia y dependencias. Una copia parcial, inválida o revocada no amplía permiso, licencia, capacidad de proveedor ni confianza del dispositivo.
+
+RN-171. Los secretos utilizables nunca se almacenan en configuraciones, snapshots, eventos, auditoría o checksum. Solo se conservan referencias opacas al almacén aprobado y los cambios sensibles exigen controles reforzados.
+
+RN-172. Crear draft, leer, publicar, programar, revocar y sustituir son acciones autorizables separadamente por dominio. No existe un permiso universal de configuración ni un rollback que mute historia.
+
+## Dead letter de sincronización
+
+RN-173. `SyncDeadLetter` es un agregado separado propiedad de Sync que referencia una única `SyncOperation`; no reemplaza Operation, Outbox o Inbox, no contiene otra intención y no copia el payload.
+
+RN-174. `SyncOperation` conserva la identidad, idempotency key, payload y checksum inmutables. Todo retry reutiliza operation, Outbox y causalidad; cambiar intención o payload exige una operación nueva causalmente relacionada.
+
+RN-175. Existe como máximo una dead letter por operation. Un reingreso por nuevo agotamiento añade evidencia append-only y no crea otra operación ni dead letter paralela.
+
+RN-176. Outbox es autoridad de scheduling e intentos locales; Inbox es autoridad de deduplicación y resultado central; DeadLetter es autoridad de clasificación, revisión, reactivación y archivo del caso.
+
+RN-177. DeadLetter reutiliza `DEAD_LETTER`, `REVIEW_REQUIRED`, `RETRY_SCHEDULED` y `ARCHIVED`; `SERVER_ACCEPTED`/`SERVER_REJECTED` pertenecen a Operation/Inbox y no se duplican en el agregado de tratamiento.
+
+RN-178. El límite, backoff, jitter, ventana, exclusiones y agotamiento provienen de una política técnica versionada. Errores permanentes o de seguridad detienen retry automático.
+
+RN-179. Firma/checksum inválidos, tenant violation, dispositivo revocado, autorización denegada y payload inválido conservan evidencia y producen revisión/rechazo y señal de seguridad; repetir no corrige ni amplía autoridad.
+
+RN-180. Revisar, reintentar, rechazar y archivar exigen permiso atómico, tenant/scope válido, actor, motivo, auditoría y expected version. La política puede exigir MFA, reautenticación y segregación.
+
+RN-181. Si B depende de A y A está en dead letter, B permanece bloqueada, pendiente o en revisión según política; no se aplica por orden de llegada. Resolver A reevalúa B sin perder causalidad.
+
+RN-182. `ARCHIVED` no significa borrado. Operación, Outbox, Inbox, DeadLetter, acciones y auditoría se conservan conforme a retención; cualquier purga futura es separada, autorizada y auditable.
+
+RN-183. Una respuesta perdida después de aplicación central se resuelve por Inbox e idempotencia antes de dead-lettering; el mismo operation/checksum devuelve el resultado previo y no duplica efecto.
+
+RN-184. Tenant de DeadLetter, Operation, Outbox, Inbox, Conflict, Review y acciones debe coincidir. El tenant enviado por cliente no es autoridad y nunca se reasigna una operación entre tenants.
+
+RN-185. Si nodos local y central detectan el mismo caso concurrentemente, convergen a una sola SyncDeadLetter por operation y conservan acciones idempotentes; no eligen identidad o resultado por timestamp.
+
+## Agregados fiscales neutrales
+
+RN-186. `ElectronicDocument` es el único agregado canónico del documento de Electronic Invoicing. `FiscalDocument` no existe como entidad paralela y CUFE, CUDE, prefijo, número o referencia externa nunca sustituyen su identidad interna global.
+
+RN-187. Tax es autoridad de reglas, clasificación, tarifas, vigencia, cálculo y resultado tributario. Electronic Invoicing consume un snapshot tributario inmutable y conserva separadamente el snapshot de configuración/emisión; nunca recalcula Tax.
+
+RN-188. `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalIncident`, `FiscalReconciliation` y el estado original del proveedor tienen máquinas independientes. Un estado técnico no prueba aceptación o rechazo fiscal.
+
+RN-189. `FiscalSubmissionAttempt` usa `CREATED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `UNKNOWN_OUTCOME` y `CANCELLED`. `transport_status` y `normalized_result` son dimensiones separadas; un attempt `COMPLETED` puede normalizar aceptación o rechazo sin adoptar esos estados.
+
+RN-190. `FiscalIncident` usa exclusivamente `OPEN`, `IN_REVIEW`, `RESOLVED` y `ARCHIVED`. Clasificación y resolución son atributos; archivar no borra evidencia.
+
+RN-191. `FiscalReconciliation` de Electronic Invoicing usa `CREATED`, `RUNNING`, `REVIEW_REQUIRED`, `PARTIALLY_RECONCILED`, `RECONCILED`, `FAILED`, `CANCELLED`, `CLOSED` y `REOPENED`. Su alcance es snapshot y no comparte entidad ni enum física con Payments.
+
+RN-192. Si una respuesta se pierde después de transmitir, attempt y documento pueden conservar `UNKNOWN_OUTCOME` en dimensiones diferentes. Consulta, polling, webhook validado o reconciliación pueden resolver el documento, pero nunca reescriben el attempt histórico para ocultar la incertidumbre.
+
+RN-193. La misma intención fiscal conserva documento, source, payload congelado, checksum e idempotencia. Un retry técnico crea otro attempt y no otro documento ni otra numeración sin decisión explícita y evidencia segura.
+
+RN-194. Todo recurso fiscal es tenant-scoped. Source, conexión, documento, attempt, artefacto, incidente, conciliación, secreto referenciado y actor deben pertenecer al mismo tenant; una identidad externa o `tenant_id` del cliente no concede autoridad.
+
+RN-195. Una corrección fiscal crea otro `ElectronicDocument` relacionado y no modifica el original. SaleReturn solo origina evaluación; Sales, Refund o Reversal no deciden el tipo fiscal ni demuestran por sí solos que el correctivo corresponde.
+
+RN-196. El POS local puede persistir intención, snapshots y outbox según modalidad, pero no es autoridad final de aceptación externa. Reconexión, retry, webhook o polling no pueden duplicar una emisión.
+
+RN-197. Credenciales, tokens, API keys, claves privadas y certificados privados no se almacenan en agregados, artefactos, eventos, logs o auditoría. Solo se conservan referencias opacas tenant-scoped y evidencia no secreta autorizada.
+
+RN-198. Webhooks requieren autenticidad, deduplicación, replay protection, evidencia cruda referenciada y procesamiento mediante caso de uso. Una firma inválida se rechaza y puede abrir incidente fiscal y evento de seguridad.
+
+RN-199. Auditoría fiscal es append-only. Resolver incidencia, forzar reconciliación, cerrar/reabrir, cambiar conexión, numeración, proveedor o referencia secreta exige permiso atómico, motivo y controles reforzados según riesgo.
+
+## Remediación física transversal R1
+
+RN-200. `AuditEvent` es append-only, usa schema versionado, correlación y causalidad cuando corresponda, y solo conserva snapshots before/after limitados y sanitizados; los roles operacionales no lo actualizan ni eliminan.
+
+RN-201. Un evento de auditoría no contiene secretos, tokens, passwords, PAN, CVV, claves privadas, certificados utilizables, blobs completos de proveedor ni payload fiscal innecesario. Reviewer/approver son obligatorios cuando la política exige revisión, aprobación o segregación.
+
+RN-202. `SyncOperation` conserva intención, payload, checksum, identidad e idempotencia; existe como máximo una `OutboxEntry` autoritativa por `operation_id`. Retry y ACK perdido reutilizan ambas identidades; Outbox controla entrega, Inbox deduplica/retorna resultado, DeadLetter trata agotamiento y el dominio resuelve conflictos.
+
+RN-203. `DeviceKey.id` es su única identidad UUID v7 y representa `device_key_id`; fingerprint, versión, clave central firmante y clave de reemplazo son conceptos separados y no crean otra identidad del agregado.
+
+RN-204. Los límites persistentes usan exclusivamente `FINITE`, `UNLIMITED` o `NOT_APPLICABLE`. `FINITE` exige valor exacto no negativo y cero es cupo cero; los otros tipos exigen valor ausente. Una dimensión requerida no configurada impide emisión y falla cerrada, sin sentinels ni magic numbers.
+
+RN-205. Importes de cálculo y financieros usan escala 6, tasas/factores escala 10 y un importe usa escala 2 solo después de normalización fiscal/contable explícita y versionada. PostgreSQL/SQLite conservan equivalencia exacta y ningún adaptador usa coma flotante autoritativa.
+
+RN-206. `PriceChange` no es entidad física: historial de precio se conserva mediante versiones inmutables, vigencia, eventos, auditoría y snapshot de Sale. Un workflow futuro de solicitud/aprobación requiere caso de uso y agregado propios.
+
+## Relaciones físicas transversales R2-A
+
+RN-207. Toda relación tenant-scoped entre Foundation, Devices/Licensing y Sync usa candidate key y FK compuesta con el scope necesario. RLS y validación de aplicación son defensas adicionales, no sustitutos de integridad referencial.
+
+RN-208. `sync.sync_operations.id` representa el `operation_id` canónico. Intención, payload, schema, checksum, idempotencia, origen y autoridad son inmutables; estado técnico cambia únicamente con concurrencia controlada.
+
+RN-209. Toda SyncOperation entregable crea exactamente una Outbox en la misma transacción del nodo originador. Toda operación local exige Device, Installation y secuencia coherentes; un proceso central no inventa esas identidades.
+
+RN-210. Inbox central aplica una Operation como máximo una vez. Duplicado con el mismo checksum devuelve resultado persistido; identidad repetida con checksum diferente se rechaza, no produce efecto adicional y genera señal de seguridad.
+
+RN-211. Un checkpoint pertenece a Tenant, Device, stream y dirección. Solo avanza sobre confirmación durable y contigua; restart lo recupera y ningún timestamp, conflicto, review o dead letter pendiente se oculta adelantando la posición.
+
+RN-212. SyncReview referencia exactamente un SyncConflict o una SyncDeadLetter. DeadLetter, Review y Action pertenecen al mismo tenant/operation y no duplican payload ni autoridad del dominio.
+
+RN-213. Device, Installation, DeviceKey, License y LicenseActivation mantienen identidades separadas. Activation prueba mediante FKs compuestas que License, Device, Installation y Key pertenecen al tenant y combinaciones autorizadas; reemplazar o revocar nunca reutiliza identidad.
+
+RN-214. Las relaciones históricas de Identity, Device, Licensing, Sync y Audit usan `RESTRICT`/`NO ACTION`. Archivar, retirar, revocar o reemplazar no ejecuta cascadas destructivas ni elimina evidencia.
+
+RN-215. El grafo Foundation→Device/Installation/Key→License/Activation→Sync no requiere `DEFERRABLE`: las referencias de reemplazo o causalidad apuntan a filas previas o nacen nulas cuando el lifecycle lo autoriza. No se elimina integridad para resolver ciclos inexistentes.
+
+RN-216. Crear operación local, aplicar operación central, confirmar ACK/checkpoint, transicionar dead letter y emitir activación respetan sus fronteras atómicas locales o centrales. Nunca existe una transacción distribuida SQLite/PostgreSQL.

@@ -12,7 +12,7 @@ Esta estrategia aplica al stack objetivo definido en `ADR-005`:
 - SQLite persistente en WAL para el nodo local;
 - k6 para carga de API y sincronización.
 
-Pytest, SQLAlchemy y Alembic pertenecen exclusivamente a la línea base heredada mientras se complete su migración. Sus pruebas conservan valor de regresión, pero no sustituyen las suites del producto objetivo.
+Las suites externas o anteriores no sustituyen las suites del producto objetivo ni acreditan sus gates.
 
 ## Pirámide de pruebas
 
@@ -115,6 +115,31 @@ Se deben probar como mínimo:
 - payloads inválidos;
 - exportación no autorizada.
 
+### Evidencia de los security gates
+
+`docs/security/security-gates.md` es la autoridad para `SEC-G01` a `SEC-G10`. Cada suite aplicable debe mantener la relación:
+
+`amenaza → control → test_id → resultado → evidencia`
+
+La evidencia mínima identifica commit, artefacto, ambiente, plataforma, configuración/policy version, datos sintéticos de entrada, resultado esperado/real, código estable, persistencia y auditoría. No contiene secretos ni datos reales de clientes.
+
+Cobertura futura mínima por gate:
+
+| Gate | Suite/evidencia principal |
+|---|---|
+| `SEC-G01` | integración cross-tenant, constraints y RLS PostgreSQL; aislamiento SQLite cuando aplique |
+| `SEC-G02` | autenticación, rotación/replay de refresh, revocación, MFA, reautenticación, bloqueo y recuperación |
+| `SEC-G03` | permisos backend, scopes ABAC, deny by default, límites y segregación de funciones |
+| `SEC-G04` | dispositivo, instalación, claves, activación, revocación, reemplazo, tiempo, licencia y gracia |
+| `SEC-G05` | SQLite/WAL + PostgreSQL para outbox/inbox, idempotencia, replay, orden, conflicto y recovery |
+| `SEC-G06` | auditoría append-only, fallo transaccional, atribución, aislamiento y reglas antifraude |
+| `SEC-G07` | secret scanning, redacción, aislamiento, rotación/revocación, criptografía y backup seguro |
+| `SEC-G08` | validación, IDOR/BOLA, inyección, XSS, CSRF aplicable, CSP/headers, CORS, SSRF, límites y webhooks |
+| `SEC-G09` | TLS/endurecimiento, privilegios, scanning, SBOM, pipeline, backup/restore, DR y updates |
+| `SEC-G10` | evaluación agregada, provenance y bloqueo efectivo de promoción |
+
+Una inspección visual, mock aislado o prueba heredada no sustituye la evidencia ejecutable del stack objetivo. Los gates permanecen `NOT_EVALUATED` hasta que existan sus suites reales.
+
 ## Integridad transaccional
 
 Casos obligatorios:
@@ -162,6 +187,94 @@ Probar:
 - servidor temporalmente caído;
 - conflicto entre sucursales;
 - restauración de cola.
+
+### Dead letter
+
+La implementación futura de `PHY-G11` requiere suites diferenciadas:
+
+PostgreSQL:
+
+- FK tenant-aware a SyncOperation y referencias opcionales a Outbox/Inbox/Conflict;
+- una sola SyncDeadLetter por operation;
+- lifecycle, permisos, MFA/segregación y expected version;
+- dos revisores concurrentes, dos retries simultáneos y archive vs retry;
+- Inbox+efecto atómicos y ausencia de doble efecto.
+
+SQLite/WAL:
+
+- agotamiento, persistencia y recuperación después de reinicio;
+- referencia al payload original sin copia o mutación;
+- retry con mismo operation/idempotency/checksum/causalidad;
+- reingreso reutiliza DeadLetter;
+- dependientes causalmente bloqueados y resolución central recibida offline.
+
+Integración:
+
+- servidor aplicó pero ACK se perdió: Inbox devuelve resultado y no se crea dead letter falsa;
+- replay, checksum distinto, payload/schema/firma inválidos;
+- cross-tenant y dispositivo revocado;
+- operación inválida exige operación nueva en lugar de mutación;
+- eventos y auditoría sin payload ni secretos.
+
+Cada prueba de seguridad conserva trazabilidad con `SEC-G01`, `SEC-G03`, `SEC-G04`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G10`. La documentación de la suite no cambia esos gates de `NOT_EVALUATED`.
+
+### Contratos físicos de TECH-002 R1
+
+Cuando existan migraciones y adaptadores autorizados, R1 exige suites PostgreSQL y SQLite/WAL separadas:
+
+- AuditEvent append-only: runtime sin update/delete, aislamiento tenant, correlation/causation, schema/checksum, reviewer/approver condicional y redacción de secretos/snapshots no permitidos;
+- Outbox 1:1 por operation, secuencia única tenant/device, checksum mismatch, retry sobre la misma identidad y ACK perdido resuelto por Inbox sin doble efecto;
+- DeviceKey con un único UUID canónico, fingerprint derivado y rotación sin identidad duplicada;
+- límites `FINITE` con cero/positivo, `UNLIMITED`, `NOT_APPLICABLE`, combinaciones inválidas y dimensión requerida no configurada fail-closed;
+- equivalencia exacta `(19,6)`/`(19,10)`/`(19,2)`, fronteras de redondeo, tasas de alta precisión y regresión que prohíba float/REAL/JavaScript number autoritativo;
+- historial de precio reconstruible por versiones/eventos/auditoría sin tabla o registro duplicado `PriceChange`.
+
+Estas pruebas permanecen futuras: R1 cierra contratos documentales, no implementación ni security gates.
+
+### Contratos físicos de TECH-002 R2-A
+
+R3 ejecuta el subconjunto reproducible descrito más abajo. Cuando existan schemas/migraciones y adaptadores de producto autorizados, estas suites se repiten y amplían sobre la implementación real:
+
+PostgreSQL:
+
+- candidate keys y FKs tenant-aware Foundation/Device/Licensing/Sync, incluidos Company/Branch y combinaciones Device/Installation/Key/Activation;
+- Operation canónica, idempotencia, payload/checksum inmutable y self-links sin cross-tenant;
+- Outbox exactamente una por operación entregable, Inbox dedup y resultado/effect atómicos;
+- Checkpoint por tenant/device/stream/dirección sin salto antes de confirmación;
+- XOR Review Conflict/DeadLetter y referencias DeadLetter/Action a la misma Operation;
+- `NO ACTION`/`RESTRICT` impide cascadas sobre historia, evidencia y auditoría;
+- RLS y roles del runtime sobre todas las tablas tenant-scoped sin cambiar `SEC-G01` a PASS por documentación.
+
+SQLite/WAL:
+
+- misma identidad UUID y FK locales para Device/Installation, Operation/Outbox/Checkpoint y evidencia existente;
+- business change + Operation + Outbox atómicos bajo fallo, reinicio y disco lleno;
+- secuencia local única, retry durable, ACK perdido y recuperación de checkpoint;
+- ausencia de Inbox genérica local y aplicación de snapshots centrales por contrato versionado;
+- no secretos, claves privadas, tokens ni payload duplicado en Outbox/DeadLetter/Audit.
+
+Integración:
+
+- tenant, Company, Branch, Device, Installation o Key manipulados producen rechazo sin efecto parcial;
+- Device revocado, replay y checksum distinto generan señal de seguridad y no retry automático;
+- recepción central confirma Operation + efecto + Inbox o revierte todo;
+- ACK local se persiste antes de avanzar el checkpoint; pérdida de respuesta devuelve el mismo resultado;
+- activación confirma Activation/Response/Operation/Outbox/Audit centralmente y se aplica localmente sin transacción distribuida.
+
+R2-A define estas pruebas, pero no las ejecuta ni cambia `SEC-G01`, `SEC-G04`, `SEC-G05`, `SEC-G06`, `SEC-G07` o `SEC-G10` de `PLANNED / NOT_EVALUATED`.
+
+### Evidencia ejecutada de TECH-002 R3
+
+El PoC desechable `poc/physical-model/` materializa solo Foundation + Sales + Payments + Inventory + Pricing/Tax mínimo + Sync/Audit. Sus funciones transaccionales son harness de prueba y no deciden si el producto usará stored procedures, repositories u otro coordinador.
+
+| Motor | Resultado | Cobertura física ejecutada |
+|---|---:|---|
+| PostgreSQL `16.14` | `97/97 PASS` | UUID v7, `numeric(19,6/10/2)`, límites, RLS/FORCE y roles, FKs tenant-aware, atomicidad e inyección de fallos, idempotencia, append-only, concurrencia paralela de venta/inventario/pago/precio, Inbox/Checkpoint y dump/restore con roles separados |
+| SQLite `3.50.4` WAL | `83/83 PASS` | UUID v7, decimal canónico `TEXT` + `Decimal`, límites, FKs tenant-aware, atomicidad, Outbox/Checkpoint condicionado a ACK, single-writer con dos conexiones, reinicio y backup/reapertura |
+
+La matriz de equivalencia de tipos, restricciones y semántica transaccional resultó `PASS`. La evidencia completa está en `poc/physical-model/results/evidence.txt`; el resumen y comando reproducible están en `poc/physical-model/results/summary.md` y `poc/physical-model/README.md`.
+
+R3 queda `PASS`, pero `TECH-002` permanece `IN_PROGRESS`, la primera migración permanece `NO-GO` y R4 sigue pendiente. La evidencia solo es parcial para `SEC-G01`, `SEC-G05`, `SEC-G06`, `SEC-G08` y `SEC-G09`; todos los security gates conservan `PLANNED / NOT_EVALUATED`.
 
 ## Hardware
 
@@ -244,7 +357,18 @@ Cuando una integración esté habilitada se prueban:
 - cambio de versión del proveedor;
 - aislamiento por tenant, empresa y NIT;
 - proveedor alternativo mediante la misma suite canónica;
-- contingencia cuando sea legal y funcionalmente aplicable.
+- contingencia cuando sea legal y funcionalmente aplicable;
+- aislamiento entre estado de `ElectronicDocument`, `FiscalSubmissionAttempt`, `FiscalIncident`, `FiscalReconciliation` y estado externo original;
+- transiciones válidas e inválidas de las cuatro máquinas internas;
+- attempt `COMPLETED` con resultado normalizado aceptado o rechazado;
+- attempt y documento `UNKNOWN_OUTCOME` resueltos sin reescribir el attempt histórico;
+- webhook duplicado, fuera de orden, anterior a respuesta síncrona y con firma inválida;
+- dos workers sobre el mismo documento;
+- polling, webhook y retry concurrentes;
+- intención fiscal única y misma idempotency key con checksum distinto;
+- correctivo causado por SaleReturn sin modificar original ni mezclar Refund/Reversal;
+- artefacto con checksum, autorización, tenant y retención;
+- persistencia SQLite de intención, snapshots y outbox tras reinicio y reconexión sin doble emisión.
 
 Las suites contra sandbox no usan datos reales ni se presentan como certificación productiva.
 
@@ -320,7 +444,7 @@ Cada pull request deberá ejecutar:
 La validación de migraciones incluye:
 
 1. upgrade desde base vacía;
-2. upgrade desde `001_initial_schema.py` con datos heredados representativos;
+2. importación desde un fixture externo expresamente aprobado, mediante un job separado del upgrade TARGET;
 3. downgrade cuando la revisión sea reversible;
 4. ejecución repetida sin efectos duplicados;
 5. verificación de FKs, UNIQUE, CHECK y NOT NULL;
@@ -335,9 +459,9 @@ La arquitectura objetivo valida por separado:
 - compatibilidad lógica compartida;
 - diferencias físicas intencionales;
 - upgrade desde la versión productiva anterior;
-- migración desde la línea base heredada.
+- importación desde fuentes externas aprobadas.
 
-Las pruebas heredadas de SQLAlchemy/Alembic se ejecutan únicamente mientras sean necesarias para verificar lectura, reconciliación y migración de datos antiguos.
+Los import jobs futuros deben probar lectura, mapping, cuarentena, reconciliación y rollback sin convertirlos en schema upgrades TARGET.
 
 ## Matriz por entorno
 
@@ -366,5 +490,9 @@ Un release no puede promoverse cuando:
 - no puede reproducirse el artefacto desde el commit identificado;
 - staging utiliza una topología incompatible con producción sin justificación;
 - se pretende usar sandbox o infraestructura gratuita con datos reales.
+
+Además, `SEC-G10` bloquea la promoción cuando un gate de seguridad aplicable está en `FAIL`, `BLOCKED` o `NOT_EVALUATED`, cuando un `NOT_APPLICABLE` carece de justificación aprobada, o cuando existe una vulnerabilidad crítica conocida sin tratamiento válido y trazable.
+
+Compilar, construir y superar pruebas funcionales no basta para declarar una funcionalidad crítica `DONE` o una versión apta para producción.
 
 No se permitirá fusionar cambios críticos con pruebas fallidas.
