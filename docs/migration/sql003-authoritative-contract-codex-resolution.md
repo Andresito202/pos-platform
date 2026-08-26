@@ -81,16 +81,19 @@ external_integration_id
 provider_id
 provider_adapter_version_id
 environment
-provider_account_reference_normalized | EXPLICITLY_ABSENT_BY_VERIFIED_CONTRACT
+provider_account_reference_snapshot | EXPLICITLY_ABSENT_BY_VERIFIED_CONTRACT
 external_integration_configuration_version
 integration_routing_material_schema_version
 integration_routing_material_checksum
 capability_code
-integration_capability_id/version or equivalent effective identity
+integration_capability_id
+integration_capability_version
 fiscal_connection_id
 fiscal_emission_configuration_id
 emission_configuration_version_id
 ```
+
+`provider_account_reference_snapshot` conserva exactamente el valor no secreto validado de `ExternalIntegration.provider_account_reference` bajo el contrato del adapter; no se aplica una normalización implícita no versionada.
 
 `integration_routing_material_checksum` se calcula sobre el material **no secreto** efectivo que puede modificar account identity, endpoint/routing semántico o transformación provider-facing. El entero `ExternalIntegration.configuration_version` aislado no demuestra identidad efectiva y nunca sustituye este checksum.
 
@@ -102,10 +105,10 @@ Antes de `READY`, enqueue y **cada claim/retry**, bajo el prefijo canónico de l
 
 - misma `external_integration_id`;
 - mismo provider/adapter/environment;
-- misma identidad efectiva de cuenta;
+- mismo `provider_account_reference` efectivo que el snapshot o la misma ausencia explícitamente permitida;
 - **`ExternalIntegration.configuration_version` exactamente igual a `external_integration_configuration_version` congelada**;
 - mismo routing material schema/checksum;
-- misma capability/config fiscal aplicable.
+- misma capability efectiva id/version y configuración fiscal aplicable.
 
 En V1, un cambio de `ExternalIntegration.configuration_version` es drift contractual aunque el checksum de routing resulte igual; la equivalencia entre revisiones distintas requeriría un contrato futuro explícito. El checksum es defense-in-depth para detectar drift material dentro de la revisión congelada y no una licencia para cambiar de revisión.
 
@@ -121,6 +124,7 @@ Cambiar realmente a otra cuenta externa no recicla silenciosamente una identidad
 - rotation de credencial de la misma cuenta sin cambiar intención;
 - `configuration_version` distinta bloquea V1 aunque el routing checksum coincida;
 - routing checksum distinto con la misma revisión bloquea como integrity/semantic drift;
+- capability id/version drift bloquea claim;
 - post-exposure drift no habilita reprepare.
 
 ## 4. Request provider-specific: checksum semántico congelado por dispatch
@@ -206,7 +210,28 @@ credential_binding_id uuid NOT NULL
 credential_binding_generation integer NOT NULL
 ```
 
-La futura 003 exige FK directa al binding id y guard tenant/company/integration/generation-aware que demuestre que el binding seleccionado pertenecía a la misma ExternalIntegration y estaba ACTIVE durante el claim. No se persiste `credential_reference` ni ningún secreto.
+Migration 003 agrega sobre la tabla 002, como candidate constraint owned por 003 y eliminable por down 003:
+
+```text
+UNIQUE (
+  tenant_id,
+  company_id,
+  integration_id,
+  id,
+  generation
+)
+```
+
+El attempt usa la FK compuesta fuerte:
+
+```text
+(tenant_id, company_id, external_integration_id,
+ credential_binding_id, credential_binding_generation)
+ -> integrations.integration_credential_bindings(
+      tenant_id, company_id, integration_id, id, generation)
+```
+
+La candidate/FK demuestra scope e identidad; los guards/locks demuestran además `status=ACTIVE` en el claim. No se persiste `credential_reference` ni ningún secreto.
 
 Grants/immutability 003 de estos dos campos:
 
@@ -215,7 +240,7 @@ Grants/immutability 003 de estos dos campos:
 - `pos_platform_app`/`pos_platform_admin`: SELECT allowlisted conforme a la matriz del attempt; sin mutación;
 - reporting/PUBLIC: none.
 
-Los guards verifican que `credential_binding_generation` coincida con la binding referenciada y con la misma integration. Estos campos no forman parte de la idempotency root ni del semantic request checksum porque credential rotation same-account no cambia intención externa.
+`credential_binding_generation > 0`. Estos campos no forman parte de la idempotency root ni del semantic request checksum porque credential rotation same-account no cambia intención externa.
 
 Credential rotation same-account puede hacer que retries posteriores usen otra binding/generation ACTIVE; esto no cambia root ni checksum semántico. Cada attempt conserva cuál generación utilizó.
 
@@ -223,6 +248,7 @@ El claim confirma estado/binding bajo lock y commit antes de HTTP. Al resolver e
 
 ### 5.1 Pruebas contractuales
 
+- cross-tenant/company/integration binding FK falla;
 - disable-vs-enqueue y disable-vs-claim;
 - DEGRADED no genera nuevo efecto externo V1;
 - rotation-required sin ACTIVE binding;
@@ -272,7 +298,16 @@ OLD.prefix IS NULL
 OLD.number IS NULL
 ```
 
-y existe evidence externa fiscal **admisible según §2**, autenticada/validada conforme al provider contract, write-once y correlacionada exactamente a esa preparation/generation.
+y existe evidence externa fiscal admisible, write-once y correlacionada exactamente a esa preparation/generation.
+
+La admisibilidad se decide por tipo de fuente:
+
+- webhook: matriz estricta §2;
+- respuesta síncrona durable: debe provenir del mismo dispatch/attempt, con transport/response evidence íntegra y provider contract aplicable;
+- artifact/provider evidence recibido por otro canal: autenticidad, integridad y correlación según contrato versionado;
+- evidencia manual/authority: requiere workflow de revisión/autorización y Audit, sin convertir texto no verificado en provider evidence.
+
+Ninguna fuente puede obtener mayor autoridad que la que su propio contrato/evidencia demuestra.
 
 La transición puede fijar una sola vez:
 
@@ -310,7 +345,7 @@ UNIQUE (tenant_id, fiscal_document_preparation_id)
 WHERE dispatch_class = 'FISCAL'
 ```
 
-La FK/guard demuestra además company/integration/document/generation correctos. Esto impide dos intents para una misma preparation incluso frente a un bug que intente fabricar otra key. Reprepare usa otra preparation/generation y por tanto puede crear su único dispatch nuevo.
+La FK/guard demuestra además company/integration/document/generation correctos. Esto impide dos intents `SUBMIT_DOCUMENT` V1 para una misma preparation incluso frente a un bug que intente fabricar otra key. Reprepare usa otra preparation/generation y por tanto puede crear su único dispatch nuevo. Una futura materialización de otras operaciones FISCAL (`QUERY_DOCUMENT_STATUS`/`RETRIEVE_ARTIFACT`) deberá versionar/reemplazar esta constraint como parte de su contrato; V1 no las materializa.
 
 ## 9. Hardening adicional: máximo un attempt IN_PROGRESS por dispatch
 
@@ -345,11 +380,11 @@ La futura suite SQL003/descriptor003 deberá añadir, como mínimo:
 - checksum semántico estable en retries y conflict ante drift;
 - ACTIVE integration + exactamente una ACTIVE credential binding;
 - DEGRADED/DISABLED/ROTATION_REQUIRED fail-closed para nuevo HTTP V1;
-- credential binding id/generation pinning por attempt y grants inmutables;
+- composite credential binding FK + id/generation pinning por attempt y grants inmutables;
 - claim atómico `QUEUED -> SUBMITTING + DISPATCHING + IN_PROGRESS`;
 - exactly-one fiscal dispatch por preparation;
 - exactly-one IN_PROGRESS attempt por dispatch;
-- late remote numbering write-once sobre CANCELLED remote PENDING_EXTERNAL;
+- late remote numbering write-once sobre CANCELLED remote PENDING_EXTERNAL desde cada fuente de evidence admisible;
 - legal-number collision por late evidence -> incident/reconciliation;
 - local numbering CANCELLED permanece inmutable.
 
