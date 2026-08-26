@@ -40,16 +40,27 @@ describe("PostgreSQL destructive down safety regressions", () => {
   beforeAll(recreateDatabases);
   afterAll(dropDatabases);
 
-  it("down 001 fails closed on checksum mismatch before dropping schemas", async () => {
+  it("down 001 fails closed on any historical checksum mismatch before dropping schemas", async () => {
     const url = databaseUrl("target_down_checksum_001_regression");
     await applyPostgres001({ adminUrl: url });
 
     const pool = new Pool({ connectionString: url });
     try {
       await pool.query(`
-        UPDATE platform.target_migration_executions
-        SET checksum = decode(repeat('00', 32), 'hex')
-        WHERE migration_id = '001_central_foundation' AND status = 'APPLIED'
+        INSERT INTO platform.target_migration_executions (
+          execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,finished_at,runner_version,error_code
+        ) VALUES (
+          '018f1000-0000-7000-8000-0000000000f1',
+          '001_central_foundation',
+          'POSTGRESQL',
+          1,
+          decode(repeat('00', 32), 'hex'),
+          'FAILED',
+          clock_timestamp(),
+          clock_timestamp(),
+          'regression-test',
+          'CONTROLLED_MISMATCH'
+        )
       `);
     } finally {
       await pool.end();
@@ -66,7 +77,7 @@ describe("PostgreSQL destructive down safety regressions", () => {
     }
   }, 60_000);
 
-  it("down 002 fails closed on checksum mismatch before dropping integrations", async () => {
+  it("down 002 fails closed on any historical checksum mismatch before dropping integrations", async () => {
     const url = databaseUrl("target_down_checksum_002_regression");
     await applyPostgres001({ adminUrl: url });
     await applyPostgres002({ adminUrl: url });
@@ -74,9 +85,20 @@ describe("PostgreSQL destructive down safety regressions", () => {
     const pool = new Pool({ connectionString: url });
     try {
       await pool.query(`
-        UPDATE platform.target_migration_executions
-        SET checksum = decode(repeat('00', 32), 'hex')
-        WHERE migration_id = '002_external_integrations_foundation' AND status = 'APPLIED'
+        INSERT INTO platform.target_migration_executions (
+          execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,finished_at,runner_version,error_code
+        ) VALUES (
+          '018f2000-0000-7000-8000-0000000000f2',
+          '002_external_integrations_foundation',
+          'POSTGRESQL',
+          1,
+          decode(repeat('00', 32), 'hex'),
+          'FAILED',
+          clock_timestamp(),
+          clock_timestamp(),
+          'regression-test',
+          'CONTROLLED_MISMATCH'
+        )
       `);
     } finally {
       await pool.end();
