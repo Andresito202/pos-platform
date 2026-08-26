@@ -70,20 +70,20 @@ async function validateSqlite(handle: ReturnType<typeof sqliteDatabase>): Promis
 async function bootstrapSqlite(path: string, bootstrapSql: string): Promise<string> {
   let handle = await configureSqlite(path);
   try {
-    const table = await queryRows<{ count: number }>(handle.db, "SELECT count(*) AS count FROM sqlite_schema WHERE type='table' AND name='target_migration_executions'");
-    if (table[0]!.count === 0) {
-      await executeRaw(handle.db, "BEGIN IMMEDIATE");
-      try {
+    await executeRaw(handle.db, "BEGIN IMMEDIATE");
+    try {
+      const table = await queryRows<{ count: number }>(handle.db, "SELECT count(*) AS count FROM sqlite_schema WHERE type='table' AND name='target_migration_executions'");
+      if (table[0]!.count === 0) {
         for (const statement of bootstrapSql.split("-- statement-breakpoint").map((value) => value.trim()).filter(Boolean)) {
           await executeRaw(handle.db, statement);
         }
-        await executeRaw(handle.db, "COMMIT");
-      } catch (error) {
-        await executeRaw(handle.db, "ROLLBACK").catch(() => undefined);
-        throw error;
       }
+      await validateSqlite(handle);
+      await executeRaw(handle.db, "COMMIT");
+    } catch (error) {
+      await executeRaw(handle.db, "ROLLBACK").catch(() => undefined);
+      throw error;
     }
-    await validateSqlite(handle);
   } finally {
     await handle.db.destroy();
   }
@@ -101,44 +101,39 @@ export async function applySqlite001(config: SqliteRunnerConfig): Promise<Sqlite
   const checksum = sha256(bootstrapSql);
   const checksumHex = checksum.toString("hex");
   let sqliteVersion = await bootstrapSqlite(config.path, bootstrapSql);
-  let handle = await configureSqlite(config.path);
+  const handle = await configureSqlite(config.path);
   try {
-    const executions = await sql<SqliteExecutionRow>`
-      SELECT execution_id, checksum, status, body_committed_at
-      FROM target_migration_executions WHERE migration_id = ${SQLITE_MIGRATION_ID}
-      ORDER BY started_at DESC
-    `.execute(handle.db);
-    for (const row of executions.rows) {
-      if (!Buffer.from(row.checksum).equals(checksum)) throw new MigrationInvariantError("checksum mismatch for 001_local_migration_control");
-    }
+    await executeRaw(handle.db, "BEGIN IMMEDIATE");
+    try {
+      const executions = await sql<SqliteExecutionRow>`
+        SELECT execution_id, checksum, status, body_committed_at
+        FROM target_migration_executions WHERE migration_id = ${SQLITE_MIGRATION_ID}
+        ORDER BY started_at DESC
+      `.execute(handle.db);
+      for (const row of executions.rows) {
+        if (!Buffer.from(row.checksum).equals(checksum)) throw new MigrationInvariantError("checksum mismatch for 001_local_migration_control");
+      }
 
-    const applied = executions.rows.find((row) => row.status === "APPLIED");
-    if (applied) {
-      sqliteVersion = await validateSqlite(handle);
-      return { executionId: applied.execution_id, noOp: true, reconciled: false, checksumHex, sqliteVersion };
-    }
+      const applied = executions.rows.find((row) => row.status === "APPLIED");
+      if (applied) {
+        sqliteVersion = await validateSqlite(handle);
+        await executeRaw(handle.db, "COMMIT");
+        return { executionId: applied.execution_id, noOp: true, reconciled: false, checksumHex, sqliteVersion };
+      }
 
-    const started = executions.rows.find((row) => row.status === "STARTED");
-    if (started) {
-      sqliteVersion = await validateSqlite(handle);
-      await executeRaw(handle.db, "BEGIN IMMEDIATE");
-      try {
+      const started = executions.rows.find((row) => row.status === "STARTED");
+      if (started) {
+        sqliteVersion = await validateSqlite(handle);
         if (started.body_committed_at === null) {
           await sql`UPDATE target_migration_executions SET body_committed_at = ${isoNow()} WHERE execution_id = ${started.execution_id}`.execute(handle.db);
         }
         const now = isoNow();
         await sql`UPDATE target_migration_executions SET status='APPLIED', smoke_verified_at=${now}, applied_at=${now}, finished_at=${now} WHERE execution_id=${started.execution_id}`.execute(handle.db);
         await executeRaw(handle.db, "COMMIT");
-      } catch (error) {
-        await executeRaw(handle.db, "ROLLBACK").catch(() => undefined);
-        throw error;
+        return { executionId: started.execution_id, noOp: false, reconciled: true, checksumHex, sqliteVersion };
       }
-      return { executionId: started.execution_id, noOp: false, reconciled: true, checksumHex, sqliteVersion };
-    }
 
-    const executionId = uuidV7();
-    await executeRaw(handle.db, "BEGIN IMMEDIATE");
-    try {
+      const executionId = uuidV7();
       await sql`
         INSERT INTO target_migration_executions (
           execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version
@@ -146,40 +141,22 @@ export async function applySqlite001(config: SqliteRunnerConfig): Promise<Sqlite
           ${executionId},${SQLITE_MIGRATION_ID},'SQLITE',${MANIFEST_VERSION},${checksum},'STARTED',${isoNow()},${RUNNER_VERSION}
         )
       `.execute(handle.db);
-      await executeRaw(handle.db, "COMMIT");
-    } catch (error) {
-      await executeRaw(handle.db, "ROLLBACK").catch(() => undefined);
-      throw error;
-    }
-    if (config.simulateCrashAfterStarted) throw new SimulatedCrashError("simulated SQLite crash after STARTED");
 
-    await executeRaw(handle.db, "BEGIN IMMEDIATE");
-    try {
-      await validateSqlite(handle);
+      if (config.simulateCrashAfterStarted) {
+        await executeRaw(handle.db, "COMMIT");
+        throw new SimulatedCrashError("simulated SQLite crash after STARTED");
+      }
+
+      sqliteVersion = await validateSqlite(handle);
       await sql`UPDATE target_migration_executions SET body_committed_at=${isoNow()} WHERE execution_id=${executionId}`.execute(handle.db);
+      const now = isoNow();
+      await sql`UPDATE target_migration_executions SET status='APPLIED', smoke_verified_at=${now}, applied_at=${now}, finished_at=${now} WHERE execution_id=${executionId}`.execute(handle.db);
       await executeRaw(handle.db, "COMMIT");
+      return { executionId, noOp: false, reconciled: false, checksumHex, sqliteVersion };
     } catch (error) {
       await executeRaw(handle.db, "ROLLBACK").catch(() => undefined);
       throw error;
     }
-  } finally {
-    await handle.db.destroy();
-  }
-
-  handle = await configureSqlite(config.path);
-  try {
-    sqliteVersion = await validateSqlite(handle);
-    const now = isoNow();
-    await executeRaw(handle.db, "BEGIN IMMEDIATE");
-    try {
-      await sql`UPDATE target_migration_executions SET status='APPLIED', smoke_verified_at=${now}, applied_at=${now}, finished_at=${now} WHERE migration_id=${SQLITE_MIGRATION_ID} AND status='STARTED'`.execute(handle.db);
-      await executeRaw(handle.db, "COMMIT");
-    } catch (error) {
-      await executeRaw(handle.db, "ROLLBACK").catch(() => undefined);
-      throw error;
-    }
-    const row = await sql<{ execution_id: string }>`SELECT execution_id FROM target_migration_executions WHERE migration_id=${SQLITE_MIGRATION_ID} AND status='APPLIED'`.execute(handle.db);
-    return { executionId: row.rows[0]!.execution_id, noOp: false, reconciled: false, checksumHex, sqliteVersion };
   } finally {
     await handle.db.destroy();
   }

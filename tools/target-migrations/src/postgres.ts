@@ -187,6 +187,12 @@ function sameChecksum(actual: Buffer, expected: Buffer): boolean {
   return Buffer.from(actual).equals(expected);
 }
 
+function assertExecutionChecksums(rows: ExecutionRow[], expected: Buffer, migrationId: string): void {
+  for (const row of rows) {
+    if (!sameChecksum(row.checksum, expected)) throw new MigrationInvariantError(`checksum mismatch for ${migrationId}`);
+  }
+}
+
 async function markFailed(db: SqlExecutor, executionId: string, errorCode: string): Promise<void> {
   await sql`
     UPDATE platform.target_migration_executions
@@ -229,11 +235,7 @@ export async function applyPostgres001(config: PostgresRunnerConfig): Promise<Po
       await acquireMigrationLock(connection);
       try {
         const rows = await executionRows(connection);
-        for (const row of rows) {
-          if (!sameChecksum(row.checksum, checksum)) {
-            throw new MigrationInvariantError("checksum mismatch for 001_central_foundation");
-          }
-        }
+        assertExecutionChecksums(rows, checksum, POSTGRES_MIGRATION_ID);
 
         const applied = rows.find((row) => row.status === "APPLIED");
         if (applied) {
@@ -301,6 +303,8 @@ export async function downPostgres001(config: Pick<PostgresRunnerConfig, "adminU
   const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
   const migrator = postgresDatabase(migratorUrl, 1);
   const downSql = await readArtifact("postgres/001_central_foundation.down.sql");
+  const upSql = await readArtifact(POSTGRES_001_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
   try {
     await migrator.connection().execute(async (connection) => {
       await executeRaw(connection, "SET ROLE pos_schema_owner");
@@ -314,6 +318,7 @@ export async function downPostgres001(config: Pick<PostgresRunnerConfig, "adminU
         if (dependents.length > 0) throw new MigrationInvariantError("down 001 rejected because 002 is applied or committed STARTED");
         await validatePostgresCatalog(connection);
         const rows = await executionRows(connection);
+        assertExecutionChecksums(rows, checksum, POSTGRES_MIGRATION_ID);
         const execution = rows.find((row) => row.status === "APPLIED" || (row.status === "STARTED" && row.body_committed_at !== null));
         if (!execution) throw new MigrationInvariantError("no committed execution is eligible for down");
 
@@ -374,7 +379,7 @@ export async function applyPostgres002(config: PostgresRunnerConfig): Promise<Po
         await validatePostgresCatalog(connection);
         const prerequisiteState = await ensureBtreeGist(connection);
         const rows = await executionRows(connection, POSTGRES_002_MIGRATION_ID);
-        for (const row of rows) if (!sameChecksum(row.checksum, checksum)) throw new MigrationInvariantError("checksum mismatch for 002_external_integrations_foundation");
+        assertExecutionChecksums(rows, checksum, POSTGRES_002_MIGRATION_ID);
         const applied = rows.find((row) => row.status === "APPLIED");
         if (applied) {
           await validatePostgres002Catalog(connection);
@@ -430,14 +435,23 @@ export async function downPostgres002(config: Pick<PostgresRunnerConfig,"adminUr
   const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
   const migrator = postgresDatabase(migratorUrl, 1);
   const downSql = await readArtifact(POSTGRES_002_DESCRIPTOR.downArtifact);
+  const upSql = await readArtifact(POSTGRES_002_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
   try {
     await migrator.connection().execute(async (connection) => {
       await executeRaw(connection, "SET ROLE pos_schema_owner");
       await acquireMigrationLock(connection);
       try {
         const rows = await executionRows(connection, POSTGRES_002_MIGRATION_ID);
+        assertExecutionChecksums(rows, checksum, POSTGRES_002_MIGRATION_ID);
         const initialState = await integrationsCatalogState(connection);
-        if (initialState === "pre-002" && rows.some((row) => row.status==="ROLLED_BACK")) return;
+        if (initialState === "pre-002") {
+          const latest = rows[0];
+          const activeStarted = rows.some((row) => row.status === "STARTED");
+          if (latest?.status === "ROLLED_BACK" && !activeStarted) return;
+          if (latest?.status === "STARTED") throw new MigrationInvariantError("down 002 rejected because latest execution is active STARTED");
+          throw new MigrationInvariantError("pre-002 catalog is not backed by latest ROLLED_BACK execution");
+        }
         await validatePostgres002Catalog(connection);
         const execution = rows.find((row) => row.status==="APPLIED" || (row.status==="STARTED" && row.body_committed_at!==null));
         if (!execution) {
