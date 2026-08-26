@@ -56,11 +56,20 @@ El workflow define `REVIEWED_SHA` como el `pull_request.head.sha` real y usa ese
 
 Ambos checkouts usan `persist-credentials: false`; los jobs no conservan la credencial Git después de obtener el source. En `push` o `workflow_dispatch`, `REVIEWED_SHA` cae a `github.sha`.
 
-### 4. Evidencia de CI
+### 4. Actions fijadas por SHA
 
-El workflow sube el inventario mediante `actions/upload-artifact` fijado a:
+Las Actions de terceros usadas en este workflow permanecen fijadas por commit SHA y se actualizaron a releases estables que declaran runtime Node 24:
 
-`ea165f8d65b6e75b540449e92b4886f43607fa02` (`v4.6.2`).
+- `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`);
+- `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86` (`v6.0.10`);
+- `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020` (`v7.0.0`);
+- `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` (`v7.0.1`).
+
+La versión de pnpm instalada por el workflow continúa siendo exactamente `9.15.0`; actualizar la Action que instala pnpm no cambia el package manager del proyecto.
+
+### 5. Evidencia de CI
+
+El workflow sube el inventario con la Action `upload-artifact` fijada por SHA indicada arriba.
 
 El artefacto se nombra con el SHA revisado y tiene retención limitada. La evidencia relevante sigue siendo la ejecución GitHub Actions asociada al HEAD revisado.
 
