@@ -358,4 +358,14 @@ describe("003 fiscal descriptor contract", () => {
     expect(POSTGRES_003_DESCRIPTOR.legacyConstraintTransitions).toBe(transition);
   });
 
+  it("revalidates preparation configuration and connection effectiveness under lock", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert;
+    expect(sql).toContain("FOR SHARE OF v,c,i");
+    expect(sql).toContain("config_status<>'PUBLISHED'");
+    expect(sql).toContain("integration_status<>'ACTIVE'");
+    expect(sql).toContain("config_branch IS NOT NULL AND config_branch<>NEW.branch_id");
+    expect(sql).toContain("transaction_timestamp()>=config_valid_until");
+    expect(sql).toContain("transaction_timestamp()>=connection_valid_until");
+  });
+
 });
