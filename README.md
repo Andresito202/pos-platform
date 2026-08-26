@@ -30,10 +30,11 @@ Estado vigente:
 
 ## Integraciones recientes de `main`
 
-- PR #2 integró la fundación TARGET.
+- PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
 - PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
-- El merge de PR #5 quedó en `bfca119b27f9b4bf0a7b0541708161a2beb2833d`.
-- El run post-merge #40 (`32933559784`) terminó `SUCCESS`, incluidos:
+- PR #6 reconcilió el estado canónico y PR #7 adoptó `Camacho POS Colombia` como nombre comercial, sin renombrar identificadores técnicos.
+- El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`.
+- El run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluidos:
   - `Repository policy and dependency inventory = SUCCESS`;
   - `TypeScript, SQLite and PostgreSQL 16.14 = SUCCESS`;
   - `Main push governance = SUCCESS`.

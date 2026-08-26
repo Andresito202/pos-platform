@@ -31,15 +31,16 @@ Por tanto:
 - `push` a `main`;
 - `workflow_dispatch`.
 
-El job `Main push governance` es detectivo y aplica únicamente a pushes sobre `main`. Exige que el commit:
+El job `Main push governance` es detectivo y aplica únicamente a pushes sobre `main`. Valida **todo el rango de primer padre introducido por el push**, desde `github.event.before` hasta `github.sha`. Para cada commit de esa cadena exige que:
 
-1. tenga exactamente dos padres;
-2. haya sido creado por GitHub como merge commit;
-3. esté asociado a una pull request fusionada;
-4. sea exactamente el `merge_commit_sha` de esa PR;
-5. tenga `main` como base.
+1. el rango sea fast-forward y continuo;
+2. el commit tenga exactamente dos padres;
+3. haya sido creado por GitHub como merge commit;
+4. esté asociado a una pull request fusionada;
+5. sea exactamente el `merge_commit_sha` de esa PR;
+6. tenga `main` como base.
 
-Un direct push, squash merge o rebase merge debe producir `FAIL` en este control. El fallo es evidencia de una violación ya ocurrida; no constituye prevención nativa.
+Un direct push aislado o incluido junto a otro merge, squash merge, rebase merge, rango no demostrable o cadena discontinua debe producir `FAIL` en este control. El fallo es evidencia de una violación ya ocurrida; no constituye prevención nativa.
 
 La primera validación real de este control ocurrió después de integrar la PR #5: run `32933559784` sobre merge commit `bfca119b27f9b4bf0a7b0541708161a2beb2833d`, con `Main push governance = SUCCESS` y workflow completo `SUCCESS`.
 
@@ -99,7 +100,10 @@ Una rama `INTEGRATED` no se reutiliza para trabajo nuevo.
 - `architecture/physical-model`: `INTEGRATED / HISTORICAL`;
 - `cleanup/pure-pos-platform-20260825`: `INTEGRATED / HISTORICAL`;
 - `ci/supply-chain-baseline-20260826`: `INTEGRATED / HISTORICAL` tras PR #5;
-- `design/sql003-contract-reconciliation-20260826`: `BLOCKED`, PR #4 draft, pendiente de revisión independiente;
+- `docs/canonical-state-reconciliation-20260826`: `INTEGRATED / HISTORICAL` tras PR #6;
+- `docs/camacho-pos-colombia-branding-20260826`: `INTEGRATED / HISTORICAL` tras PR #7;
+- `brand/canonical-identity-assets-20260826`: `REDUNDANT_REF / NO_UNIQUE_COMMITS`, idéntica a `main`;
+- `design/sql003-contract-reconciliation-20260826`: `BLOCKED`, PR #4 draft, requiere sincronización con `main` y revisión independiente;
 - `wip/sql003-contract-gap-20260825`: `HISTORICAL_WIP / NOT_INTEGRABLE`, retiro únicamente después de cerrar la reconciliación autoritativa de SQL003.
 
 Las ramas temporales usadas para una reconciliación o implementación pasan a `INTEGRATED` cuando su PR se fusiona y no se reutilizan. Si GitHub conserva el ref después del merge, la existencia física del ref no convierte la rama de nuevo en `ACTIVE`.
