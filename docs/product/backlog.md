@@ -147,7 +147,7 @@ Baseline y autorización:
 
 Alcance autorizado:
 
-- Gate A: descriptor 003, catálogo esperado, constantes/exports y tests estáticos del contrato materializable;
+- Gate A: descriptor 003, catálogo esperado, constantes/exports y tests estáticos del contrato materializable; incluye definiciones físicas verificables, checksum semántico por dispatch y credential binding generation por attempt;
 - Gate B: SQL PostgreSQL 003 up/down, runner apply/down, introspection, smoke, grants/RLS/guards y pruebas funcionales/concurrencia del target de diez tablas;
 - preservar migrations 001/002 byte-for-byte;
 - mantener SQLite migration 003 en `NONE`;

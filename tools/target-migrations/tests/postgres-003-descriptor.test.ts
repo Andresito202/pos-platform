@@ -158,6 +158,7 @@ describe("003 fiscal descriptor contract", () => {
     expect(POSTGRES_003_DESCRIPTOR.alteredTables).toEqual([
       "integrations.provider_capability_declarations",
       "integrations.integration_capabilities",
+      "integrations.integration_credential_bindings",
       "integrations.integration_dispatches",
       "integrations.external_webhook_receipts",
     ]);
@@ -165,6 +166,7 @@ describe("003 fiscal descriptor contract", () => {
     expect(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns).toBe(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS);
     expect(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"]).toEqual([
       "fiscal_document_preparation_id","fiscal_preparation_generation",
+      "fiscal_request_semantic_version","fiscal_request_semantic_checksum",
     ]);
     expect(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"]).toEqual([
       "fiscal_electronic_document_id","fiscal_document_preparation_id",
@@ -190,4 +192,50 @@ describe("003 fiscal descriptor contract", () => {
       "91acc3576b784daa261fa8e125c32fed522c0c5be12dd8c8fc91ed0c60bb1cf6",
     ]);
   });
+  it("pins provider-facing semantic identity on every fiscal dispatch", () => {
+    const defs=POSTGRES_003_DESCRIPTOR.catalogDefinitions;
+    expect(defs.columns["integrations.integration_dispatches#003"].fiscal_request_semantic_version)
+      .toEqual({type:"integer",nullable:true,defaultSql:null});
+    expect(defs.columns["integrations.integration_dispatches#003"].fiscal_request_semantic_checksum)
+      .toEqual({type:"text",nullable:true,defaultSql:null});
+    expect(defs.constraints.dispatchSemanticRequest.expression)
+      .toContain("fiscal_request_semantic_checksum~'^[0-9a-f]{64}$'");
+    expect(defs.semanticRules.dispatchRequestIdentity)
+      .toContain("same idempotency root with different semantic version/checksum is CONFLICT before HTTP");
+  });
+
+  it("pins exact credential binding generation on every submission attempt", () => {
+    const defs=POSTGRES_003_DESCRIPTOR.catalogDefinitions;
+    expect(defs.columns["fiscal.fiscal_submission_attempts"].credential_binding_id)
+      .toEqual({type:"uuid",nullable:false,defaultSql:null});
+    expect(defs.columns["fiscal.fiscal_submission_attempts"].credential_binding_generation)
+      .toEqual({type:"integer",nullable:false,defaultSql:null});
+    expect(defs.constraints.integrationCredentialBindingAttemptScope.columns)
+      .toEqual(["tenant_id","company_id","integration_id","id","generation"]);
+    expect(defs.constraints.attemptCredentialFk).toMatchObject({
+      columns:["tenant_id","company_id","external_integration_id","credential_binding_id","credential_binding_generation"],
+      references:{table:"integrations.integration_credential_bindings",columns:["tenant_id","company_id","integration_id","id","generation"]},
+      onDelete:"NO ACTION",deferrable:false,
+    });
+  });
+
+  it("encodes definition-level catalog invariants before Gate B DDL", () => {
+    const defs=POSTGRES_003_DESCRIPTOR.catalogDefinitions;
+    expect(defs.columns["fiscal.fiscal_document_preparations"].currency_code.type).toBe("char(3)");
+    expect(defs.columns["fiscal.fiscal_document_preparations"].subtotal_amount.type).toBe("numeric(19,6)");
+    expect(defs.constraints.preparationDocumentFk.references).toEqual({
+      table:"fiscal.electronic_documents",columns:["tenant_id","company_id","id","document_type"],
+    });
+    expect(defs.indexes.legalNumber).toMatchObject({
+      unique:true,keys:["tenant_id","company_id","COALESCE(prefix,'')","number"],predicate:"number IS NOT NULL",
+    });
+    expect(defs.triggers.currentDocument).toMatchObject({
+      kind:"CONSTRAINT TRIGGER",timing:"AFTER ROW",deferrable:true,initiallyDeferred:true,
+      function:"fiscal.validate_current_fiscal_preparation_invariant",
+    });
+    expect(defs.policies.preparationPlatform).toMatchObject({
+      command:"SELECT",roles:["pos_platform_app"],using:"tenant_id=platform.current_tenant_id()",withCheck:null,
+    });
+  });
+
 });

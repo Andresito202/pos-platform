@@ -1,3 +1,5 @@
+import { FISCAL_003_CATALOG_DEFINITIONS } from "./postgres-003-catalog.js";
+
 export const TARGET_SCHEMAS = [
   "identity",
   "tenancy",
@@ -196,7 +198,8 @@ export const FISCAL_003_TABLE_COLUMNS = {
   "fiscal.fiscal_submission_attempts": [
     "id","tenant_id","company_id","external_integration_id","fiscal_connection_id",
     "electronic_document_id","fiscal_document_preparation_id","preparation_generation",
-    "integration_dispatch_id","dispatch_class","operation_type","attempt_number","status",
+    "integration_dispatch_id","credential_binding_id","credential_binding_generation",
+    "dispatch_class","operation_type","attempt_number","status",
     "transport_status","normalized_result","request_id","idempotency_key","request_checksum",
     "provider_operation_id","provider_correlation_reference","provider_response_reference",
     "http_status","provider_code_raw","retry_classification","error_code","retry_after_at",
@@ -234,6 +237,7 @@ export const FISCAL_003_TABLE_COLUMNS = {
 export const FISCAL_003_ALTERED_TABLES = [
   "integrations.provider_capability_declarations",
   "integrations.integration_capabilities",
+  "integrations.integration_credential_bindings",
   "integrations.integration_dispatches",
   "integrations.external_webhook_receipts",
 ] as const;
@@ -242,6 +246,8 @@ export const FISCAL_003_INTEGRATION_EXTENSION_COLUMNS = {
   "integrations.integration_dispatches": [
     "fiscal_document_preparation_id",
     "fiscal_preparation_generation",
+    "fiscal_request_semantic_version",
+    "fiscal_request_semantic_checksum",
   ],
   "integrations.external_webhook_receipts": [
     "fiscal_electronic_document_id",
@@ -312,7 +318,9 @@ export const FISCAL_003_TABLE_CONSTRAINTS = {
     "fiscal_submission_attempts_tenant_company_id_id_uq","fiscal_submission_attempts_dispatch_history_uq",
     "fiscal_submission_attempts_document_history_uq","fiscal_submission_attempts_preparation_fk",
     "fiscal_submission_attempts_connection_fk","fiscal_submission_attempts_dispatch_fk",
+    "fiscal_submission_attempts_credential_binding_fk","fiscal_submission_attempts_credential_generation_ck",
     "fiscal_submission_attempts_class_ck","fiscal_submission_attempts_operation_type_ck",
+    "fiscal_submission_attempts_request_checksum_ck",
     "fiscal_submission_attempts_status_ck","fiscal_submission_attempts_transport_ck",
     "fiscal_submission_attempts_retry_ck","fiscal_submission_attempts_checksum_ck",
     "fiscal_submission_attempts_values_ck","fiscal_submission_attempts_timestamps_ck",
@@ -353,7 +361,9 @@ export const FISCAL_003_TABLE_CONSTRAINTS = {
 
 export const FISCAL_003_EXTENSION_CONSTRAINTS = [
   "integration_capabilities_fiscal_scope_uq",
+  "integration_credential_bindings_attempt_scope_uq",
   "integration_dispatches_fiscal_preparation_ck",
+  "integration_dispatches_fiscal_semantic_request_ck",
   "integration_dispatches_fiscal_preparation_fk",
   "integration_dispatches_dispatch_class_003_ck",
   "external_webhook_receipts_fiscal_correlation_ck",
@@ -522,7 +532,7 @@ export const FISCAL_003_GRANT_MATRIX = {
   },
   "fiscal.fiscal_submission_attempts": {
     pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"].filter((c)=>!["request_checksum","provider_operation_id","provider_correlation_reference","provider_response_reference"].includes(c)), insert: [], update: [] },
-    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"], insert: ["id","tenant_id","company_id","external_integration_id","fiscal_connection_id","electronic_document_id","fiscal_document_preparation_id","preparation_generation","integration_dispatch_id","dispatch_class","operation_type","attempt_number","status","request_id","idempotency_key","request_checksum","correlation_id","causation_id","created_at","version"], update: ["status","transport_status","normalized_result","provider_operation_id","provider_correlation_reference","provider_response_reference","http_status","provider_code_raw","retry_classification","error_code","retry_after_at","started_at","completed_at","version"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"], insert: ["id","tenant_id","company_id","external_integration_id","fiscal_connection_id","electronic_document_id","fiscal_document_preparation_id","preparation_generation","integration_dispatch_id","credential_binding_id","credential_binding_generation","dispatch_class","operation_type","attempt_number","status","request_id","idempotency_key","request_checksum","correlation_id","causation_id","created_at","version"], update: ["status","transport_status","normalized_result","provider_operation_id","provider_correlation_reference","provider_response_reference","http_status","provider_code_raw","retry_classification","error_code","retry_after_at","started_at","completed_at","version"] },
     pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"].filter((c)=>!["request_id","idempotency_key","request_checksum","provider_operation_id","provider_correlation_reference","provider_response_reference"].includes(c)), insert: [], update: [] },
     pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_submission_attempts"].filter((c)=>!["request_id","idempotency_key","request_checksum","provider_operation_id","provider_correlation_reference","provider_response_reference"].includes(c)), insert: [], update: [] },
   },
@@ -599,6 +609,7 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   prohibitedCatalog: typeof FISCAL_003_PROHIBITED_CATALOG;
   currentPreparationConstraintTriggers: typeof FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS;
   sharedCurrentPreparationValidator: typeof FISCAL_003_SHARED_VALIDATOR;
+  catalogDefinitions: typeof FISCAL_003_CATALOG_DEFINITIONS;
   mat003PrerequisiteOnly: true;
 }
 
@@ -632,5 +643,6 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   prohibitedCatalog: FISCAL_003_PROHIBITED_CATALOG,
   currentPreparationConstraintTriggers: FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS,
   sharedCurrentPreparationValidator: FISCAL_003_SHARED_VALIDATOR,
+  catalogDefinitions: FISCAL_003_CATALOG_DEFINITIONS,
   mat003PrerequisiteOnly: true,
 };
