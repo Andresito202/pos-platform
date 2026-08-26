@@ -12,7 +12,7 @@ Hasta que este bundle reciba CI commit-scoped y revisión independiente satisfac
 
 Los documentos históricos existentes permanecen íntegros en Git y siguen siendo autoridad para toda cláusula **no modificada** por este bundle. No se sustituyen por versiones abreviadas porque ello perdería detalle previamente cerrado sobre grants, RLS, sanitización, preflight MAT-003, constraints, lifecycle, apply/down, provider states, pruebas y seguridad.
 
-Cuando una cláusula histórica contradiga expresamente una decisión V2 listada aquí, prevalece el overlay V2 correspondiente. Para las materias cerradas en §4 —integridad relacional de `FiscalDocumentPreparation`, ownership de identidades provider, no-reuse de numeración, grants/RLS de columnas nuevas, claim durable y evidencia tardía cross-generation— **§4 tiene precedencia sobre cualquier frase incompatible de los demás overlays V2**.
+Cuando una cláusula histórica contradiga expresamente una decisión V2 listada aquí, prevalece el overlay V2 correspondiente. Para las materias cerradas en §4 —integridad relacional de `FiscalDocumentPreparation`, ownership de identidades provider, no-reuse de numeración, grants/RLS de columnas nuevas, claim durable, receipts correlacionados/correlacionables y evidencia tardía cross-generation— **§4 tiene precedencia sobre cualquier frase incompatible de los demás overlays V2**.
 
 Si no puede determinarse con certeza si existe contradicción, la interpretación falla cerrado y SQL 003 permanece bloqueado.
 
@@ -25,7 +25,7 @@ Si no puede determinarse con certeza si existe contradicción, la interpretació
 | Arquitectura fiscal | `../architecture/electronic-invoicing.md` | `../architecture/electronic-invoicing-v2-authoritative-remediation.md` | semántica de prepare/reprepare/retry, UNKNOWN_OUTCOME, operation catalog v1, provider neutrality asociada |
 | Caso de uso | `../use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle.md` | `../use-cases/electronic-invoicing/UC-EINV-001-manage-electronic-document-lifecycle-v2-authoritative-remediation.md` | flujo `REPREPARE_BEFORE_SUBMISSION`, claim durable, retries, webhook/reconciliation y numeración por generation |
 | Frontera External Integrations | `../architecture/physical-model/external-integrations-schema.md` + `../architecture/integration-contracts.md` | `../architecture/physical-model/fiscal-integration-fence-schema.md` | extensiones owned por migration 003 sobre dispatch/receipt para vincular preparación/generation y serializar evidencia |
-| Cierre físico nuevo | todos los anteriores | **§4 de este índice** | candidates/FKs, grants/RLS, field ownership provider-specific, no-reuse legal, late-evidence quarantine y claim durable |
+| Cierre físico nuevo | todos los anteriores | **§4 de este índice** | candidates/FKs, grants/RLS, field ownership provider-specific, no-reuse legal, correlatable-receipt fence, late-evidence quarantine y claim durable |
 
 ## 3. Cláusulas V2 que sustituyen expresamente el baseline
 
@@ -36,14 +36,14 @@ Solo las siguientes familias cambian autoridad respecto del contrato histórico:
 3. `preparation_generation` inicia en 1, cambia exclusivamente mediante `REPREPARE_BEFORE_SUBMISSION` y nunca durante retries.
 4. El material de cada generación —integration, connection, config/version, source version, snapshots, canonical payload/checksum y numeración— queda en `FiscalDocumentPreparation` y conserva historia append-only.
 5. `REPREPARE_BEFORE_SUBMISSION` solo existe en `DRAFT|READY|QUEUED` y exige prueba durable de cero exposición bajo un fence común.
-6. Cualquier attempt/claim, artifact, receipt fiscal correlacionado, identidad externa, `UNKNOWN_OUTCOME`, transport/effect evidence o reconciliation aplicable en vuelo bloquea reprepare.
+6. Cualquier attempt/claim, artifact, receipt fiscal ya correlacionado **o determinísticamente correlacionable en ese momento**, identidad externa, `UNKNOWN_OUTCOME`, transport/effect evidence o reconciliation aplicable en vuelo bloquea reprepare.
 7. Un dispatch `QUEUED` elegible se cancela en la misma transacción del reprepare; no se reutiliza para la nueva generation.
 8. Numeración durable de una generación cancelada nunca vuelve al pool; permanece `RELEASED_WITHOUT_REUSE|BURNED` según policy y Audit.
 9. Retry conserva documento + preparación + generation + dispatch + idempotency root y crea otro attempt.
 10. Se elimina como requisito contractual la uniqueness por `(tenant,electronic_document,operation_type,idempotency_key)` que impedía retries válidos con root estable.
 11. Migration 003 v1 materializa exclusivamente `SUBMIT_DOCUMENT`; `QUERY_DOCUMENT_STATUS` y `RETRIEVE_ARTIFACT` permanecen diseñados pero no materializados.
 12. `IntegrationDispatch` fiscal y `ExternalWebhookReceipt` correlacionado reciben extensiones owned por 003 que fijan preparación/generation histórica.
-13. La correlación webhook es write-once y todo receipt fiscal correlacionado bloquea reprepare independientemente de su `processing_status`.
+13. La correlación webhook es write-once; todo receipt fiscal correlacionado y todo receipt general que ya pueda resolverse determinísticamente al dispatch/generation bajo §4.11 bloquean reprepare independientemente de `processing_status`.
 14. `FiscalArtifact`, reconciliation/item e incident cuando aplique deben conservar la generation histórica correspondiente.
 15. El orden de locks incorpora `FiscalDocumentPreparation` y el receipt correlacionado dentro del suffix fiscal; HTTP sigue siempre fuera de la transacción.
 
@@ -399,6 +399,31 @@ Grants 003:
 `FiscalReconciliation` DOCUMENT exige document+generation y resolución exacta a la preparación; CONNECTION los prohíbe. Un item conserva `fiscal_document_preparation_id + preparation_generation`. Un incident con documento conserva generation cuando la causa sea generation-specific.
 
 Toda colección de preparaciones/attempts/receipts/items adquirida en una misma transacción se bloquea por UUID ascendente dentro de su nivel.
+
+### 4.11 Receipt general correlacionable vs receipt todavía no correlacionable
+
+V7 bloquea reprepare ante un `ExternalWebhookReceipt` **correlacionable**, no únicamente después de que las columnas fiscales ya hayan sido fijadas. Por tanto la prueba de cero exposición distingue dos casos y no permite una ventana entre recepción y linkage.
+
+Un receipt general 002 es **determinísticamente correlacionable** cuando el contrato versionado del provider/adapter puede resolverlo a un único `IntegrationDispatch` fiscal mediante campos durables allowlisted ya persistidos —por ejemplo correlation/request/provider operation references autorizadas por ese contrato— sin leer secretos, sin inferir por timestamps y sin heurística ambigua. Una coincidencia por tenant/integration solamente nunca basta.
+
+Antes de confirmar `REPREPARE_BEFORE_SUBMISSION`, bajo el mismo prefijo/suffix de locks y después de bloquear documento/preparación/dispatch esperados:
+
+1. se consultan los receipts ya correlacionados de la generation y estos bloquean inmediatamente;
+2. se evalúan receipts generales candidatos del mismo tenant/company/integration usando exclusivamente el selector determinista versionado aplicable;
+3. si un candidato resuelve de forma inequívoca al dispatch/document/preparation histórica o actual, se bloquea el receipt, se fija la correlación fiscal write-once en esa misma transacción y el reprepare falla por evidencia externa;
+4. si el selector demuestra inequívocamente que el receipt corresponde a otro dispatch, no bloquea este documento;
+5. si existe un candidato que el contrato clasifica como potencialmente perteneciente al dispatch pero la resolución queda ambigua/incompleta, la prueba de cero exposición falla cerrado; no se cancela el dispatch ni se incrementa generation hasta resolver la ambigüedad mediante incident/reconciliation;
+6. únicamente un receipt que **genuinamente no puede relacionarse todavía con este dispatch según ningún selector autorizado** puede permanecer general y no bloquear este documento en ese instante. Si evidencia posterior lo hace correlacionable, se aplica §4.7 y la generation actual entra en cuarentena; esa ruta no convierte el reprepare anterior en una prueba de “no receipt”, solo gestiona evidencia que era materialmente irresoluble en aquel momento.
+
+El correlator y reprepare usan el mismo orden de locks. Si ambos compiten por un receipt determinísticamente correlacionable, solo uno puede ganar: correlación primero bloquea reprepare; reprepare solo puede confirmar si al revalidar inmediatamente antes del commit sigue sin existir receipt correlacionado/correlacionable, attempt/claim, artifact, identity o evidencia aplicable.
+
+Pruebas contractuales adicionales obligatorias antes de SQL:
+
+- receipt general ya determinísticamente correlacionable pero aún sin linkage fiscal bloquea reprepare;
+- receipt candidato ambiguo fail-closed no permite generation+1;
+- receipt inequívocamente de otro dispatch no bloquea;
+- receipt genuinamente no correlacionable permite continuar solo si todo el resto de la prueba de cero exposición pasa, y una correlación posterior activa la cuarentena histórica de §4.7;
+- correlator vs reprepare concurrentes producen un solo ganador bajo el mismo fence.
 
 ## 5. Cláusulas históricas preservadas
 
