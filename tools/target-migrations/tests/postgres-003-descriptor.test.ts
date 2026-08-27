@@ -501,7 +501,7 @@ describe("003 fiscal descriptor contract", () => {
     const selector=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.deterministicSelector;
     expect(selector.receiptMutationPrecondition)
       .toBe("CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE");
-    expect(selector.receiptTriggerRole).toBe("REVALIDATION_ONLY_NOT_LOCK_ORDER_ACQUISITION");
+    expect(selector.receiptTriggerRole).toBe("AFTER_WRITE_REVALIDATION_AND_HISTORICAL_QUARANTINE_NOT_LOCK_ORDER_ACQUISITION");
   });
 
   it("locks preparation selection in the universal authoritative order", () => {
@@ -552,6 +552,57 @@ describe("003 fiscal descriptor contract", () => {
       "FiscalSubmissionAttempt:IN_PROGRESS",
       "COMMIT_BEFORE_HTTP",
     ]));
+  });
+
+  it("limits live outbound eligibility checks to the transition entering IN_PROGRESS", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root;
+    expect(sql).toContain("entering_in_progress :=");
+    expect(sql).toContain("IF NOT entering_in_progress THEN");
+    expect(sql.indexOf("IF NOT entering_in_progress THEN")).toBeLessThan(
+      sql.indexOf("FROM integrations.provider_capability_declarations")
+    );
+    expect(sql).toContain("submission attempt root differs from dispatch/preparation root");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.claimExecution.liveChainRevalidationOnlyWhen)
+      .toEqual(["INSERT_IN_PROGRESS","CREATED_TO_IN_PROGRESS"]);
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.claimExecution.postClaimEvidenceUpdate)
+      .toBe("STATIC_ROOT_SCOPE_ONLY_LIVE_OUTBOUND_ELIGIBILITY_MAY_DRIFT_AFTER_COMMIT");
+  });
+
+  it("requires a durable verified comparator result before cancelled historical fields can change", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_late_evidence;
+    expect(sql).toContain("VERIFIED_LATE_REMOTE_EVIDENCE_V1");
+    expect(sql).toContain("fiscal.fiscal_reconciliation_items");
+    expect(sql).toContain("late remote mutation requires VERIFIED_LATE_REMOTE_EVIDENCE_V1 comparator output");
+    expect(sql).toContain("^LATE_REMOTE_EVIDENCE_V1:[0-9a-f]{64}$");
+    expect(sql).toContain("late remote numbering values are not bound to verified source evidence");
+    const contract=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.lateRemoteEvidence;
+    expect(contract.contract).toBe("LATE_REMOTE_EVIDENCE_V1");
+    expect(contract.comparatorOutput.resultCode).toBe("VERIFIED_LATE_REMOTE_EVIDENCE_V1");
+    expect(contract.forbidden).toContain("presence of an attempt alone is never authorization to write a number");
+  });
+
+  it("quarantines the current generation atomically when historical late evidence appears", () => {
+    const late=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_late_evidence;
+    expect(late).toContain("current_generation>OLD.preparation_generation");
+    expect(late).toContain("status='UNKNOWN_OUTCOME'");
+    expect(late).toContain("uncertainty_reason='HISTORICAL_GENERATION_EVIDENCE'");
+    const state=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_electronic_document_state;
+    expect(state).toContain("historical-generation quarantine requires durable historical evidence");
+    expect(state).toContain("p.preparation_generation<OLD.preparation_generation");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.historicalGenerationQuarantine.sameTransactionRequired)
+      .toBe(true);
+  });
+
+  it("quarantines current generation after historical webhook correlation in the same transaction", () => {
+    const trigger=FISCAL_003_EXACT_GUARD_DEFINITIONS.external_webhook_receipts_fiscal_correlation_guard;
+    expect(trigger).toContain("AFTER INSERT OR UPDATE");
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_webhook_correlation;
+    expect(sql).toContain("SECURITY DEFINER");
+    expect(sql).toContain("NEW.fiscal_preparation_generation<document_generation");
+    expect(sql).toContain("uncertainty_reason='HISTORICAL_GENERATION_EVIDENCE'");
+    expect(sql).toContain("version=version+1");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.historicalCorrelationOutcome)
+      .toBe("SAME_TRANSACTION_CURRENT_GENERATION_QUARANTINE");
   });
 
 });

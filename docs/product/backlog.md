@@ -67,7 +67,7 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
 - Nx de aplicaciones/packages: `ABSENT`.
 - SQL 003 DDL: `ABSENT / GATE_B_PENDING` en el inicio de INT-007.
-- descriptor 003: `MATERIALIZED_IN_BRANCH / UNREVIEWED` como Gate A de INT-007; no está integrado ni aplicado.
+- descriptor 003: `MATERIALIZED_IN_BRANCH / GATE_A_REMEDIATION_REVIEW` en INT-007; no está integrado ni aplicado. CI #85 fue SUCCESS sobre el HEAD anterior, pero quedó superseded por cuatro P1 Codex exact-head y esta remediación requiere evidencia nueva.
 - schema fiscal 003: `ABSENT / NOT_APPLIED`.
 - migration 003: `IN_PROGRESS / NOT_APPLIED`.
 - bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
@@ -160,6 +160,11 @@ Baseline y autorización:
 - Gate A preparation lock-order hardening: preparation now locks Declaration→Adapter→ExternalIntegration→IntegrationCapability→FiscalConnection→Config/Version before ElectronicDocument/predecessor; caller must not pre-lock a successor and the FiscalConnection coordinator precedes the BRANCH/COMPANY candidate scan.
 - Gate A declaration lock-mode hardening: ProviderCapabilityDeclaration is consumed with `FOR UPDATE` in preparation and claim, matching downgrade serialization.
 - Gate A claim caller-order hardening: attempt trigger is defense-in-depth only; claim command must own the canonical upstream prefix before Document/Dispatch state mutation and attempt INSERT, with commit before HTTP.
+- Gate A post-claim evidence hardening: live integration/capability/connection/config eligibility is revalidated only when entering `IN_PROGRESS`; response/evidence persistence after durable claim validates immutable root scope and cannot be blocked by later downgrade/expiry.
+- Gate A late-evidence authorization hardening: any mutation of a CANCELLED historical preparation requires durable `VERIFIED_LATE_REMOTE_EVIDENCE_V1` comparator output; late numbering additionally binds `numbering_resolution_reason` to the exact lowercase SHA-256 comparator evidence checksum.
+- Gate A historical quarantine hardening: accepted late historical evidence and historical webhook correlation quarantine the current pre-terminal generation to `UNKNOWN_OUTCOME` in the same transaction; current QUEUED dispatch remains durable but unclaimable.
+- Gate A webhook timing hardening: fiscal correlation guard is AFTER-write validation/quarantine and `SECURITY DEFINER` for the narrowly validated cross-schema quarantine update; canonical lock acquisition remains a caller precondition.
+- Gate A closure status for this commit: `REMEDIATION_CANDIDATE / NOT_CLOSED`; the four P1 findings from Codex review of `14d6cd9a43` remain open until fresh exact-head CI + Codex review pass. No Gate B files are started in this closure commit.
 - Gate A webhook lock-order clarification: receipt trigger is revalidation only; correlator command must lock document→preparation→dispatch before mutating/inserting the receipt linkage.
 - Gate A connection hardening: FiscalConnection closure is CAS-versioned and irreversible; a closed connection cannot be reopened, extended or rewritten.
 

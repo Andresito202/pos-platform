@@ -104,7 +104,7 @@ export const FISCAL_003_TRIGGER_BLUEPRINT_SQL = [
   "CREATE TRIGGER fiscal_incidents_state_guard BEFORE UPDATE OF status ON fiscal.fiscal_incidents FOR EACH ROW EXECUTE FUNCTION fiscal.guard_state_transition('status','OPEN>IN_REVIEW,OPEN>RESOLVED,IN_REVIEW>RESOLVED,RESOLVED>ARCHIVED');",
   "CREATE TRIGGER fiscal_reconciliation_items_immutable_guard BEFORE UPDATE OR DELETE ON fiscal.fiscal_reconciliation_items FOR EACH ROW EXECUTE FUNCTION fiscal.guard_append_only();",
   "CREATE TRIGGER integration_dispatches_fiscal_preparation_guard BEFORE INSERT OR UPDATE ON integrations.integration_dispatches FOR EACH ROW EXECUTE FUNCTION fiscal.guard_fiscal_dispatch();",
-  "CREATE TRIGGER external_webhook_receipts_fiscal_correlation_guard BEFORE INSERT OR UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION fiscal.guard_fiscal_webhook_correlation();",
+  "CREATE TRIGGER external_webhook_receipts_fiscal_correlation_guard AFTER INSERT OR UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION fiscal.guard_fiscal_webhook_correlation();",
   "CREATE TRIGGER provider_capability_declarations_fiscal_downgrade_guard BEFORE UPDATE OF support_status ON integrations.provider_capability_declarations FOR EACH ROW EXECUTE FUNCTION fiscal.guard_capability_downgrade();",
 ] as const;
 

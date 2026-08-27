@@ -26,10 +26,13 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       "CAS_VERSIONS_CONFIRMED",
       "COMMIT_BEFORE_HTTP",
     ],
+    liveChainRevalidationOnlyWhen: ["INSERT_IN_PROGRESS","CREATED_TO_IN_PROGRESS"],
+    postClaimEvidenceUpdate: "STATIC_ROOT_SCOPE_ONLY_LIVE_OUTBOUND_ELIGIBILITY_MAY_DRIFT_AFTER_COMMIT",
     forbidden: [
       "attempt trigger cannot be used as a substitute for caller canonical lock acquisition",
       "HTTP before durable claim commit",
       "reacquiring an omitted upstream predecessor after a successor as the primary lock protocol",
+      "rejecting response persistence because capability/config/connection drifted after durable claim",
     ],
   },
   frozenEmissionSnapshot: {
@@ -79,6 +82,37 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
     ],
     driftOutcome: "FAIL_CLOSED_BEFORE_HTTP",
   },
+  lateRemoteEvidence: {
+    contract: "LATE_REMOTE_EVIDENCE_V1",
+    mutationPrecondition: "CALLER_LOCKS_CURRENT_DOCUMENT_THEN_HISTORICAL_PREPARATION_BEFORE_LATE_EVIDENCE_UPDATE",
+    comparatorOutput: {
+      table: "fiscal.fiscal_reconciliation_items",
+      resultCode: "VERIFIED_LATE_REMOTE_EVIDENCE_V1",
+      exactScope: ["tenant_id","company_id","external_integration_id","electronic_document_id","fiscal_document_preparation_id","preparation_generation"],
+      requiredEvidence: ["observed_state_reference","evidence_reference","lowercase_sha256_evidence_checksum"],
+      numberingChecksumBinding: "numbering_resolution_reason=LATE_REMOTE_EVIDENCE_V1:<evidence_checksum>",
+    },
+    sourceSpecificComparatorChecks: [
+      "source authenticity/integrity is valid for its provider/authority/manual-review contract",
+      "source resolves to the exact historical document/preparation/generation",
+      "observed prefix/number/consumption-state equal the requested late numbering values",
+      "provider_document_id/provider_reference/provider_status_raw equal the source-supported values when changed",
+      "manual evidence requires reviewed authorization and Audit",
+    ],
+    forbidden: [
+      "presence of an attempt alone is never authorization to write a number",
+      "presence of an artifact alone is never authorization to copy arbitrary fields",
+      "worker-supplied numbering values without VERIFIED_LATE_REMOTE_EVIDENCE_V1 comparator output",
+    ],
+  },
+  historicalGenerationQuarantine: {
+    quarantineReason: "HISTORICAL_GENERATION_EVIDENCE",
+    sameTransactionRequired: true,
+    preTerminalStatuses: ["DRAFT","READY","QUEUED","SUBMITTING","CONTINGENCY","VOIDED_BEFORE_SUBMISSION"],
+    result: "CURRENT_DOCUMENT_UNKNOWN_OUTCOME",
+    terminalCurrentGeneration: "KEEP_STRONGER_TERMINAL_RESULT_AND_REQUIRE_MULTI_GENERATION_INCIDENT_RECONCILIATION",
+    currentQueuedDispatch: "KEEP_DURABLE_BUT_UNCLAIMABLE_WHILE_DOCUMENT_UNKNOWN_OUTCOME",
+  },
   webhookCorrelation: {
     currentV1Admissibility: {
       authentication_verification_result: ["VERIFIED"],
@@ -91,7 +125,7 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       mustRunBeforeFiscalLinkage: true,
       mustRunUnderFence: true,
       receiptMutationPrecondition: "CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE",
-      receiptTriggerRole: "REVALIDATION_ONLY_NOT_LOCK_ORDER_ACQUISITION",
+      receiptTriggerRole: "AFTER_WRITE_REVALIDATION_AND_HISTORICAL_QUARANTINE_NOT_LOCK_ORDER_ACQUISITION",
       genericTenantIntegrationMatchForbidden: true,
       timestampHeuristicForbidden: true,
       outcomes: {
@@ -107,6 +141,7 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       "IntegrationDispatch",
       "ExternalWebhookReceipt",
     ],
+    historicalCorrelationOutcome: "SAME_TRANSACTION_CURRENT_GENERATION_QUARANTINE",
     concurrencyOutcome: "ONE_WINNER_CORRELATOR_OR_REPREPARE",
   },
 } as const;
