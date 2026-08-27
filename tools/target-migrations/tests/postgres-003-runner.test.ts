@@ -70,6 +70,15 @@ describe("003 runner / introspection / smoke slice",()=>{
       await executeRaw(db,`UPDATE pg_index SET indisvalid=false WHERE indexrelid=(SELECT oid FROM pg_class WHERE relkind='i' AND relname='${ownedIndex}')`);
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
       await executeRaw(db,`UPDATE pg_index SET indisvalid=true WHERE indexrelid=(SELECT oid FROM pg_class WHERE relkind='i' AND relname='${ownedIndex}')`);
+      await executeRaw(db,"ALTER TABLE integrations.external_integrations DISABLE ROW LEVEL SECURITY");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("integration table RLS diverges");
+      await executeRaw(db,"ALTER TABLE integrations.external_integrations ENABLE ROW LEVEL SECURITY");
+      await executeRaw(db,"GRANT SELECT (certificate_reference) ON fiscal.fiscal_emission_configuration_versions TO PUBLIC");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("PUBLIC has fiscal column grants");
+      await executeRaw(db,"REVOKE SELECT (certificate_reference) ON fiscal.fiscal_emission_configuration_versions FROM PUBLIC");
+      await executeRaw(db,"REVOKE USAGE ON SCHEMA fiscal FROM pos_app");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("fiscal schema grant matrix diverges");
+      await executeRaw(db,"GRANT USAGE ON SCHEMA fiscal TO pos_app");
       await executeRaw(db,"DROP POLICY external_integrations_tenant_isolation ON integrations.external_integrations; CREATE POLICY external_integrations_tenant_isolation ON integrations.external_integrations TO pos_app,pos_worker,pos_platform_app USING (true) WITH CHECK (true)");
       await expect(applyPostgres003({...config,receiptOutputPath:receipt("unused-drift-noop")})).rejects.toThrow("semantic catalog fingerprint diverges");
       await executeRaw(db,"DROP POLICY external_integrations_tenant_isolation ON integrations.external_integrations; CREATE POLICY external_integrations_tenant_isolation ON integrations.external_integrations TO pos_app,pos_worker,pos_platform_app USING (tenant_id=platform.current_tenant_id()) WITH CHECK (tenant_id=platform.current_tenant_id())");
