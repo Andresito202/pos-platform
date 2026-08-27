@@ -5,6 +5,7 @@ import {
   FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
   FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION,
   FISCAL_003_LEGACY_GRANT_TRANSITIONS,
 } from "../src/postgres-003-transitions.js";
 import {
@@ -546,6 +547,43 @@ describe("003 fiscal descriptor contract", () => {
       expect(tail).toContain("FOR UPDATE;");
       expect(tail).not.toContain("FOR SHARE;");
     }
+  });
+
+  it("grants only immutable identity sentinels required by PostgreSQL row locks", () => {
+    const transition=FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION;
+    expect(transition.mechanism).toBe("COLUMN_SCOPED_UPDATE_ON_IMMUTABLE_IDENTITY_SENTINELS");
+    expect(transition.upSql).toEqual([
+      "GRANT UPDATE (id) ON integrations.provider_capability_declarations TO pos_app,pos_worker;",
+      "GRANT UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions TO pos_app,pos_worker;",
+      "GRANT UPDATE (id) ON integrations.integration_capabilities TO pos_worker;",
+      "GRANT UPDATE (id) ON integrations.integration_credential_bindings TO pos_worker;",
+    ]);
+    expect(transition.downSql).toEqual([
+      "REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;",
+      "REVOKE UPDATE (id) ON integrations.integration_capabilities FROM pos_worker;",
+      "REVOKE UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions FROM pos_app,pos_worker;",
+      "REVOKE UPDATE (id) ON integrations.provider_capability_declarations FROM pos_app,pos_worker;",
+    ]);
+    expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_connections"].pos_worker.update).toEqual(["id"]);
+    expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_emission_configurations"].pos_app.update).toEqual(["id"]);
+    expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_emission_configurations"].pos_worker.update).toEqual(["id"]);
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.preparationSelection.rowLockExecutionPrivilege)
+      .toBe("INVOKER_ONLY_NO_SECURITY_DEFINER");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.claimExecution.rowLockExecutionPrivilege)
+      .toBe("INVOKER_ONLY_NO_SECURITY_DEFINER");
+    expect(FISCAL_003_LEGACY_GRANT_TRANSITIONS.lockRows).toBe(transition);
+  });
+
+  it("keeps historical-worker preparation RLS non-recursive under FORCE RLS", () => {
+    const policy=FISCAL_003_EXACT_POLICY_DEFINITIONS.fiscal_document_preparations_worker_historical_evidence;
+    expect(policy).not.toContain("has_correlated_generation_evidence");
+    expect(policy).not.toContain("FROM fiscal.fiscal_document_preparations p");
+    expect(policy).toContain("fiscal.fiscal_reconciliation_items");
+    expect(policy).toContain("VERIFIED_LATE_REMOTE_EVIDENCE_V1");
+    expect(policy).toContain("fiscal.fiscal_submission_attempts");
+    expect(policy).toContain("integrations.external_webhook_receipts");
+    expect(policy).toContain("authentication_verification_result='VERIFIED'");
+    expect(policy).toContain("replay_verification_result='VERIFIED'");
   });
 
   it("requires the claim caller to own the canonical prefix before durable state mutation", () => {

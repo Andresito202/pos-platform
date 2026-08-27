@@ -520,13 +520,13 @@ const PREPARATION_PLATFORM_SELECT = PREPARATION_ALL.filter((column) => ![
 export const FISCAL_003_GRANT_MATRIX = {
   "fiscal.fiscal_connections": {
     pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], update: ["valid_until","updated_at","version"] },
-    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], insert: [], update: [] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_connections"], insert: [], update: ["id"] },
     pos_platform_app: { select: ["id","tenant_id","company_id","external_integration_id","capability_code","valid_from","valid_until","created_at","updated_at","version"], insert: [], update: [] },
     pos_platform_admin: { select: ["id","tenant_id","company_id","external_integration_id","capability_code","valid_from","valid_until","created_at","updated_at","version"], insert: [], update: [] },
   },
   "fiscal.fiscal_emission_configurations": {
-    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], update: [] },
-    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: [] },
+    pos_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], update: ["id"] },
+    pos_worker: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: ["id"] },
     pos_platform_app: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: [] },
     pos_platform_admin: { select: FISCAL_003_TABLE_COLUMNS["fiscal.fiscal_emission_configurations"], insert: [], update: [] },
   },

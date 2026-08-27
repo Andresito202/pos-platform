@@ -621,3 +621,7 @@ Una tarea no está cerrada hasta que:
 - Gate B MAT-003 transition: preflight remains read-only and still requires fiscal schema ABSENT + ledger003=0, but its repository test now recognizes the authorized PostgreSQL 003 up/down artifacts as PRESENT_UNAPPLIED; SQLite003 remains NONE.
 
 - Gate B role-readiness transition: lifecycle v2 already reports repository SQL003 as PRESENT_UNAPPLIED when both PostgreSQL artifacts exist; its current-state test now matches that truthful governance value while keeping migration_003_ledger_entries=0 and fiscal_schema=ABSENT.
+
+- Gate B P1 remediation: canonical preparation/claim row locks now receive only column-scoped UPDATE on immutable identity sentinels where PostgreSQL requires an UPDATE privilege; no SECURITY DEFINER or business-column widening is introduced, and down revokes all predecessor-table sentinel grants.
+
+- Gate B P1 remediation: pos_worker historical CANCELLED-preparation RLS no longer calls a helper that re-queries fiscal_document_preparations under FORCE RLS; the policy now evaluates durable external/correlated evidence directly, including VERIFIED_LATE_REMOTE_EVIDENCE_V1 comparator output.

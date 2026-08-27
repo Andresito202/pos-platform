@@ -2186,7 +2186,7 @@ CREATE POLICY fiscal_document_preparations_platform_tenant_select ON fiscal.fisc
 
 CREATE POLICY fiscal_document_preparations_worker_frozen ON fiscal.fiscal_document_preparations TO pos_worker USING (tenant_id=platform.current_tenant_id() AND preparation_state='FROZEN') WITH CHECK (tenant_id=platform.current_tenant_id() AND preparation_state='FROZEN');
 
-CREATE POLICY fiscal_document_preparations_worker_historical_evidence ON fiscal.fiscal_document_preparations TO pos_worker USING (tenant_id=platform.current_tenant_id() AND preparation_state='CANCELLED' AND fiscal.has_correlated_generation_evidence(tenant_id,electronic_document_id,preparation_generation)) WITH CHECK (tenant_id=platform.current_tenant_id() AND preparation_state='CANCELLED' AND fiscal.has_correlated_generation_evidence(tenant_id,electronic_document_id,preparation_generation));
+CREATE POLICY fiscal_document_preparations_worker_historical_evidence ON fiscal.fiscal_document_preparations TO pos_worker USING (tenant_id=platform.current_tenant_id() AND preparation_state='CANCELLED' AND (provider_document_id IS NOT NULL OR provider_reference IS NOT NULL OR provider_status_raw IS NOT NULL OR numbering_state IN ('CONSUMED','UNKNOWN_OUTCOME','BURNED') OR EXISTS (SELECT 1 FROM fiscal.fiscal_submission_attempts a WHERE a.tenant_id=fiscal_document_preparations.tenant_id AND a.electronic_document_id=fiscal_document_preparations.electronic_document_id AND a.preparation_generation=fiscal_document_preparations.preparation_generation) OR EXISTS (SELECT 1 FROM fiscal.fiscal_artifacts a WHERE a.tenant_id=fiscal_document_preparations.tenant_id AND a.electronic_document_id=fiscal_document_preparations.electronic_document_id AND a.preparation_generation=fiscal_document_preparations.preparation_generation) OR EXISTS (SELECT 1 FROM integrations.external_webhook_receipts r WHERE r.tenant_id=fiscal_document_preparations.tenant_id AND r.fiscal_electronic_document_id=fiscal_document_preparations.electronic_document_id AND r.fiscal_preparation_generation=fiscal_document_preparations.preparation_generation AND r.authentication_verification_result='VERIFIED' AND r.replay_verification_result='VERIFIED') OR EXISTS (SELECT 1 FROM fiscal.fiscal_reconciliations r WHERE r.tenant_id=fiscal_document_preparations.tenant_id AND r.electronic_document_id=fiscal_document_preparations.electronic_document_id AND r.preparation_generation=fiscal_document_preparations.preparation_generation AND r.status IN ('RUNNING','REVIEW_REQUIRED','PARTIALLY_RECONCILED','RECONCILED','CLOSED','REOPENED')) OR EXISTS (SELECT 1 FROM fiscal.fiscal_reconciliation_items ri WHERE ri.tenant_id=fiscal_document_preparations.tenant_id AND ri.electronic_document_id=fiscal_document_preparations.electronic_document_id AND ri.fiscal_document_preparation_id=fiscal_document_preparations.id AND ri.preparation_generation=fiscal_document_preparations.preparation_generation AND ri.result_code='VERIFIED_LATE_REMOTE_EVIDENCE_V1' AND ri.evidence_reference IS NOT NULL AND ri.evidence_checksum~'^[0-9a-f]{64}$') OR EXISTS (SELECT 1 FROM fiscal.electronic_documents d WHERE d.tenant_id=fiscal_document_preparations.tenant_id AND d.id=fiscal_document_preparations.electronic_document_id AND (d.authority_reference IS NOT NULL OR d.legal_identifier IS NOT NULL OR d.status='UNKNOWN_OUTCOME')))) WITH CHECK (tenant_id=platform.current_tenant_id() AND preparation_state='CANCELLED' AND (provider_document_id IS NOT NULL OR provider_reference IS NOT NULL OR provider_status_raw IS NOT NULL OR numbering_state IN ('CONSUMED','UNKNOWN_OUTCOME','BURNED') OR EXISTS (SELECT 1 FROM fiscal.fiscal_submission_attempts a WHERE a.tenant_id=fiscal_document_preparations.tenant_id AND a.electronic_document_id=fiscal_document_preparations.electronic_document_id AND a.preparation_generation=fiscal_document_preparations.preparation_generation) OR EXISTS (SELECT 1 FROM fiscal.fiscal_artifacts a WHERE a.tenant_id=fiscal_document_preparations.tenant_id AND a.electronic_document_id=fiscal_document_preparations.electronic_document_id AND a.preparation_generation=fiscal_document_preparations.preparation_generation) OR EXISTS (SELECT 1 FROM integrations.external_webhook_receipts r WHERE r.tenant_id=fiscal_document_preparations.tenant_id AND r.fiscal_electronic_document_id=fiscal_document_preparations.electronic_document_id AND r.fiscal_preparation_generation=fiscal_document_preparations.preparation_generation AND r.authentication_verification_result='VERIFIED' AND r.replay_verification_result='VERIFIED') OR EXISTS (SELECT 1 FROM fiscal.fiscal_reconciliations r WHERE r.tenant_id=fiscal_document_preparations.tenant_id AND r.electronic_document_id=fiscal_document_preparations.electronic_document_id AND r.preparation_generation=fiscal_document_preparations.preparation_generation AND r.status IN ('RUNNING','REVIEW_REQUIRED','PARTIALLY_RECONCILED','RECONCILED','CLOSED','REOPENED')) OR EXISTS (SELECT 1 FROM fiscal.fiscal_reconciliation_items ri WHERE ri.tenant_id=fiscal_document_preparations.tenant_id AND ri.electronic_document_id=fiscal_document_preparations.electronic_document_id AND ri.fiscal_document_preparation_id=fiscal_document_preparations.id AND ri.preparation_generation=fiscal_document_preparations.preparation_generation AND ri.result_code='VERIFIED_LATE_REMOTE_EVIDENCE_V1' AND ri.evidence_reference IS NOT NULL AND ri.evidence_checksum~'^[0-9a-f]{64}$') OR EXISTS (SELECT 1 FROM fiscal.electronic_documents d WHERE d.tenant_id=fiscal_document_preparations.tenant_id AND d.id=fiscal_document_preparations.electronic_document_id AND (d.authority_reference IS NOT NULL OR d.legal_identifier IS NOT NULL OR d.status='UNKNOWN_OUTCOME'))));
 
 CREATE POLICY fiscal_submission_attempts_tenant_isolation ON fiscal.fiscal_submission_attempts TO pos_app,pos_worker,pos_platform_app USING (tenant_id=platform.current_tenant_id()) WITH CHECK (tenant_id=platform.current_tenant_id());
 
@@ -2278,6 +2278,14 @@ GRANT INSERT (id,tenant_id,company_id,integration_id,capability_code,dispatch_cl
 
 REVOKE INSERT ON integrations.integration_dispatches FROM pos_platform_app;
 
+GRANT UPDATE (id) ON integrations.provider_capability_declarations TO pos_app,pos_worker;
+
+GRANT UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions TO pos_app,pos_worker;
+
+GRANT UPDATE (id) ON integrations.integration_capabilities TO pos_worker;
+
+GRANT UPDATE (id) ON integrations.integration_credential_bindings TO pos_worker;
+
 GRANT USAGE ON SCHEMA fiscal TO pos_app,pos_worker,pos_platform_app,pos_platform_admin;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA fiscal FROM PUBLIC;
@@ -2292,6 +2300,8 @@ GRANT UPDATE (valid_until,updated_at,version) ON fiscal.fiscal_connections TO po
 
 GRANT SELECT (id,tenant_id,company_id,external_integration_id,electronic_invoicing_capability_id,capability_code,valid_from,valid_until,created_at,updated_at,version) ON fiscal.fiscal_connections TO pos_worker;
 
+GRANT UPDATE (id) ON fiscal.fiscal_connections TO pos_worker;
+
 GRANT SELECT (id,tenant_id,company_id,external_integration_id,capability_code,valid_from,valid_until,created_at,updated_at,version) ON fiscal.fiscal_connections TO pos_platform_app;
 
 GRANT SELECT (id,tenant_id,company_id,external_integration_id,capability_code,valid_from,valid_until,created_at,updated_at,version) ON fiscal.fiscal_connections TO pos_platform_admin;
@@ -2300,7 +2310,11 @@ GRANT SELECT (id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,
 
 GRANT INSERT (id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,document_type,created_at) ON fiscal.fiscal_emission_configurations TO pos_app;
 
+GRANT UPDATE (id) ON fiscal.fiscal_emission_configurations TO pos_app;
+
 GRANT SELECT (id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,document_type,created_at) ON fiscal.fiscal_emission_configurations TO pos_worker;
+
+GRANT UPDATE (id) ON fiscal.fiscal_emission_configurations TO pos_worker;
 
 GRANT SELECT (id,tenant_id,company_id,branch_id,scope_type,fiscal_connection_id,external_integration_id,document_type,created_at) ON fiscal.fiscal_emission_configurations TO pos_platform_app;
 

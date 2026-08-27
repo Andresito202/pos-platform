@@ -141,7 +141,38 @@ export const FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION = {
   ]
 } as const;
 
+export const FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION = {
+  purpose: "ALLOW_CANONICAL_ROW_LOCKS_WITHOUT_BUSINESS_COLUMN_MUTATION",
+  mechanism: "COLUMN_SCOPED_UPDATE_ON_IMMUTABLE_IDENTITY_SENTINELS",
+  grants: [
+    { table: "integrations.provider_capability_declarations", roles: ["pos_app","pos_worker"], column: "id" },
+    { table: "integrations.provider_adapter_versions", roles: ["pos_app","pos_worker"], column: "provider_adapter_version_id" },
+    { table: "integrations.integration_capabilities", roles: ["pos_worker"], column: "id" },
+    { table: "integrations.integration_credential_bindings", roles: ["pos_worker"], column: "id" },
+  ],
+  upSql: [
+    "GRANT UPDATE (id) ON integrations.provider_capability_declarations TO pos_app,pos_worker;",
+    "GRANT UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions TO pos_app,pos_worker;",
+    "GRANT UPDATE (id) ON integrations.integration_capabilities TO pos_worker;",
+    "GRANT UPDATE (id) ON integrations.integration_credential_bindings TO pos_worker;",
+  ],
+  downSql: [
+    "REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;",
+    "REVOKE UPDATE (id) ON integrations.integration_capabilities FROM pos_worker;",
+    "REVOKE UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions FROM pos_app,pos_worker;",
+    "REVOKE UPDATE (id) ON integrations.provider_capability_declarations FROM pos_app,pos_worker;",
+  ],
+  safety: [
+    "PostgreSQL row-locking clauses require UPDATE on at least one selected-table column",
+    "only immutable identity sentinels receive UPDATE privilege",
+    "existing 002 update guards reject identity mutation",
+    "no SECURITY DEFINER lock helper and no business-column UPDATE widening",
+    "down revokes every 003 lock-only privilege and restores the exact 002 privilege surface",
+  ],
+} as const;
+
 export const FISCAL_003_LEGACY_GRANT_TRANSITIONS = {
   receiptIngress: FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
   dispatchIngress: FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
+  lockRows: FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION,
 } as const;

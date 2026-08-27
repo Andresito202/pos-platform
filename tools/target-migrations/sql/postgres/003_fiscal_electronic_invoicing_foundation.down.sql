@@ -212,6 +212,14 @@ REVOKE ALL ON ALL TABLES IN SCHEMA fiscal FROM pos_app,pos_worker,pos_platform_a
 
 REVOKE USAGE ON SCHEMA fiscal FROM pos_app,pos_worker,pos_platform_app,pos_platform_admin,pos_reporting;
 
+REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;
+
+REVOKE UPDATE (id) ON integrations.integration_capabilities FROM pos_worker;
+
+REVOKE UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions FROM pos_app,pos_worker;
+
+REVOKE UPDATE (id) ON integrations.provider_capability_declarations FROM pos_app,pos_worker;
+
 GRANT INSERT ON integrations.integration_dispatches TO pos_platform_app;
 
 REVOKE INSERT (id,tenant_id,company_id,integration_id,capability_code,dispatch_class,resource_type,internal_operation_id,internal_entity_type,internal_entity_id,idempotency_key,payload_schema_version,payload_checksum,status,correlation_id,provider_request_reference,retry_classification,next_attempt_at,last_reconciled_at,causation_id,created_at,updated_at,version) ON integrations.integration_dispatches FROM pos_platform_app;
