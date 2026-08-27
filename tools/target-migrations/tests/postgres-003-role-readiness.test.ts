@@ -103,7 +103,7 @@ describe("MAT-003 canonical role readiness materialization",()=>{
       receipt_version: ROLE_READINESS_RECEIPT_VERSION,
       lifecycle_contract_version: ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,
       governance: {
-        sql_003: "ABSENT",
+        sql_003: "PRESENT_UNAPPLIED",
         descriptor_003: "PRESENT_UNAPPLIED",
         migration_003_ledger_entries: 0,
         fiscal_schema: "ABSENT",
