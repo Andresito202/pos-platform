@@ -118,7 +118,13 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
   const components=Object.fromEntries(Object.entries(source).map(([name,value])=>[
     name,sha256(JSON.stringify(value)).toString('hex'),
   ]));
-  return {sha:sha256(JSON.stringify(source)).toString('hex'),components};
+  const columnTables=Object.fromEntries(
+    [...new Set(columns.map(row=>`${String(row.schema_name)}.${String(row.table_name)}`))].sort().map(table=>{
+      const rows=columns.filter(row=>`${String(row.schema_name)}.${String(row.table_name)}`===table);
+      return [`columns:${table}`,sha256(JSON.stringify(rows)).toString('hex')];
+    }),
+  );
+  return {sha:sha256(JSON.stringify(source)).toString('hex'),components:{...components,...columnTables}};
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   await validate001FoundationShape(db);
