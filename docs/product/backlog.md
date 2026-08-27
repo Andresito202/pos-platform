@@ -565,7 +565,7 @@ Continúa no autorizado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; SQL003 runner apply/introspection/smoke/down/reapply y hardening exacto validados físicamente en PostgreSQL 16.14 por CI #144; Gate B espera review independiente exact-head y cierre formal. |
+| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; SQL003 Gate B PASS sobre código `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`, CI #145 SUCCESS y review independiente exact-head sin major issues; merge permanece separado y no autorizado. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
@@ -707,3 +707,5 @@ Una tarea no está cerrada hasta que:
 - Gate B CI #141 remediation evidence: exact-head `f8fe93bf8d4a224ae52c265dcdf947177e0e64c0` closes the three P1 findings from review of `22123a9e...`: no-op validation now fingerprints complete `integrations` semantics, all non-owner fiscal ACL grantees must be contract-listed, and owned index fingerprints include `indisvalid/indisready/indislive`. Executable negative tests tamper an untouched 002 policy, grant DELETE to an unlisted role and invalidate an owned index; all fail closed, restoration succeeds, and apply/no-op/down/exact-002/reapply remain green. Gate B remains `NO_PASS` until independent review of the final documentation SHA.
 
 - Gate B CI #144 additional ACL/RLS evidence: exact-head `62cdea1d6fe6e8e25b19b6e82b16d577c130ada6` closes the three P1 findings from review of `af24046c...`: all predecessor integration tables have exact owner/ENABLE RLS/FORCE RLS state, PUBLIC is rejected at both fiscal table and column ACL levels, and fiscal schema ACLs require the exact non-grantable USAGE matrix with no PUBLIC or unlisted grantees. Negative tamper tests disable integration RLS, grant a fiscal column to PUBLIC and revoke pos_app schema USAGE; all fail closed and exact restoration plus the full physical cycle remain green. Gate B remains `NO_PASS` until independent review of the final documentation SHA.
+
+- Gate B formal closure: `PASS` for SQL003 code HEAD `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`. Evidence: PostgreSQL 16.14 CI #145 / run `33123036689` SUCCESS, 45/45 review threads resolved, and Codex exact-head result `Didn't find any major issues` on the same SHA. This closes INT-007 materialization only; PR #11 remains DRAFT, merge is not authorized, and provider/runtime/production/security gates remain out of scope.
