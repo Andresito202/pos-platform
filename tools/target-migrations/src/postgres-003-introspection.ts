@@ -52,7 +52,8 @@ async function validate001FoundationShape(db:SqlExecutor):Promise<void>{
       WHERE table_schema='${schemaName}' AND table_name='${tableName}'
       ORDER BY ordinal_position
     `);
-    invariant(same(columns.map(row=>row.name),[...expected]),`003 predecessor 001 columns diverge for ${qualified}`);
+    const actualColumns=columns.map(row=>row.name);
+    invariant(same(actualColumns,[...expected]),`003 predecessor 001 columns diverge for ${qualified}: actual=${JSON.stringify(actualColumns)} expected=${JSON.stringify(expected)}`);
   }
 }
 
