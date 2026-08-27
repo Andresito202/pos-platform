@@ -296,7 +296,7 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 ## Orden inmediato obligatorio
 
 1. Mantener **INT-007 Gate A** `DONE / FROZEN`; no rediseñar el contrato cerrado.
-2. Completar **INT-007 Gate B** desde el estado real: SQL UP/DOWN ya materializados; siguiente slice = runner 003 + binding/ledger/receipt, introspection/smoke, apply real, RLS/grants/guards, funcionales, concurrencia, down/restauración exacta 002 y reapply, sin modificar bytes de 001/002.
+2. Completar **INT-007 Gate B** desde el estado real: runner/binding/ledger/receipt, introspection/smoke, apply, RLS/grants/guards, down/restauración exacta 002 y reapply ya están cerrados; siguiente slice exclusivo = pruebas funcionales ejecutables del Modelo A y concurrencia claim/retry/reprepare/webhook/reconciliation/publication, sin modificar bytes de 001/002.
 3. Ejecutar CI exact-head y revisión independiente; cualquier nuevo HEAD invalida la evidencia previa.
 4. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
 5. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
