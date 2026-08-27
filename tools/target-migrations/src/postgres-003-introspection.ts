@@ -156,7 +156,8 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   for(const row of actualConstraints){
     const expected=(POSTGRES_003_DESCRIPTOR.exactConstraintDefinitions as Record<string,string>)[row.name];
     invariant(expected!==undefined,`003 missing expected constraint definition for ${row.name}`);
-    invariant(normalizeDefinition(row.definition)===expectedConstraintClause(row.name,expected),`003 constraint definition diverges for ${row.name}`);
+    const actualDefinition=normalizeDefinition(row.definition);const expectedDefinition=expectedConstraintClause(row.name,expected);
+    invariant(actualDefinition===expectedDefinition,`003 constraint definition diverges for ${row.name}: actual=${actualDefinition} expected=${expectedDefinition}`);
   }
 
   const indexes=POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[];
