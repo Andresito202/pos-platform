@@ -99,3 +99,49 @@ export const FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION = {
     "down restores table INSERT before removing the temporary column grant"
   ]
 } as const;
+
+
+export const FISCAL_003_DISPATCH_PLATFORM_INGRESS_COLUMNS = [
+  "id","tenant_id","company_id","integration_id","capability_code","dispatch_class",
+  "resource_type","internal_operation_id","internal_entity_type","internal_entity_id",
+  "idempotency_key","payload_schema_version","payload_checksum","status","correlation_id",
+  "provider_request_reference","retry_classification","next_attempt_at","last_reconciled_at",
+  "causation_id","created_at","updated_at","version"
+] as const;
+
+const FISCAL_003_DISPATCH_PLATFORM_INGRESS_COLUMN_LIST =
+  FISCAL_003_DISPATCH_PLATFORM_INGRESS_COLUMNS.join(",");
+
+export const FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION = {
+  table: "integrations.integration_dispatches",
+  role: "pos_platform_app",
+  predecessor: "TABLE_INSERT_002",
+  successor: "BASE_DISPATCH_COLUMN_INSERT_ONLY_003",
+  allowedInsertColumns: FISCAL_003_DISPATCH_PLATFORM_INGRESS_COLUMNS,
+  forbiddenFiscalExtensionColumns: [
+    "fiscal_document_preparation_id",
+    "fiscal_preparation_generation",
+    "fiscal_request_semantic_version",
+    "fiscal_request_semantic_checksum"
+  ],
+  upSql: [
+    `GRANT INSERT (${FISCAL_003_DISPATCH_PLATFORM_INGRESS_COLUMN_LIST}) ON integrations.integration_dispatches TO pos_platform_app;`,
+    "REVOKE INSERT ON integrations.integration_dispatches FROM pos_platform_app;"
+  ],
+  downSql: [
+    "GRANT INSERT ON integrations.integration_dispatches TO pos_platform_app;",
+    `REVOKE INSERT (${FISCAL_003_DISPATCH_PLATFORM_INGRESS_COLUMN_LIST}) ON integrations.integration_dispatches FROM pos_platform_app;`
+  ],
+  safety: [
+    "grant base-column INSERT before revoking inherited table INSERT",
+    "pos_platform_app keeps non-fiscal/base dispatch creation capability",
+    "fiscal extension columns remain unavailable to pos_platform_app",
+    "pos_app remains the tenant fiscal dispatch creator",
+    "down restores the exact migration002 table INSERT before removing the column grant"
+  ]
+} as const;
+
+export const FISCAL_003_LEGACY_GRANT_TRANSITIONS = {
+  receiptIngress: FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+  dispatchIngress: FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
+} as const;

@@ -4,6 +4,8 @@ import {
   FISCAL_003_DISPATCH_CLASS_TRANSITION,
   FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_LEGACY_GRANT_TRANSITIONS,
 } from "./postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
@@ -635,7 +637,7 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   exactFunctionDefinitions: typeof FISCAL_003_FUNCTION_DEFINITION_SQL;
   legacyConstraintTransitions: typeof FISCAL_003_DISPATCH_CLASS_TRANSITION;
   legacyGuardTransitions: typeof FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
-  legacyGrantTransitions: typeof FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION;
+  legacyGrantTransitions: typeof FISCAL_003_LEGACY_GRANT_TRANSITIONS;
   externalFenceContracts: typeof FISCAL_003_EXTERNAL_FENCE_CONTRACTS;
   mat003PrerequisiteOnly: true;
 }
@@ -680,7 +682,7 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
-  legacyGrantTransitions: FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+  legacyGrantTransitions: FISCAL_003_LEGACY_GRANT_TRANSITIONS,
   externalFenceContracts: FISCAL_003_EXTERNAL_FENCE_CONTRACTS,
   mat003PrerequisiteOnly: true,
 };

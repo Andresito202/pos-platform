@@ -1,4 +1,16 @@
 export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
+  dispatchIngress: {
+    tenantFiscalWriter: "pos_app",
+    platformWriter: "pos_platform_app",
+    platformMode: "BASE_002_COLUMNS_ONLY_NON_FISCAL",
+    platformPrivilegeTransition: "TABLE_INSERT_002_TO_BASE_COLUMN_INSERT_ONLY_003",
+    forbiddenPlatformColumns: [
+      "fiscal_document_preparation_id",
+      "fiscal_preparation_generation",
+      "fiscal_request_semantic_version",
+      "fiscal_request_semantic_checksum",
+    ],
+  },
   configurationPublication: {
     canonicalLockOrder: [
       "ProviderCapabilityDeclaration",

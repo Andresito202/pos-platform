@@ -4,6 +4,8 @@ import {
   FISCAL_003_DISPATCH_CLASS_TRANSITION,
   FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_LEGACY_GRANT_TRANSITIONS,
 } from "./postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
@@ -139,7 +141,7 @@ export const FISCAL_003_CATALOG_DEFINITIONS = {
   externalFenceContracts: FISCAL_003_EXTERNAL_FENCE_CONTRACTS,
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
-  legacyGrantTransitions: FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+  legacyGrantTransitions: FISCAL_003_LEGACY_GRANT_TRANSITIONS,
   semanticRules: {
     dispatchRequestIdentity:["fiscal_request_semantic_version >= 1 for FISCAL","fiscal_request_semantic_checksum is lowercase SHA-256 for FISCAL","both semantic fields are NULL for NON_FISCAL","both fields are fixed at dispatch creation and immutable","same idempotency root with different semantic version/checksum is CONFLICT before HTTP"],
     credentialBinding:["exactly one ACTIVE integration credential binding is eligible at claim","each attempt pins credential_binding_id + credential_binding_generation","credential rotation same-account may change binding generation without changing root/checksum","revoked/superseded binding before secret resolution prevents HTTP","no credential_reference or secret is stored on fiscal attempts"],

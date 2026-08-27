@@ -4,6 +4,8 @@ import {
   FISCAL_003_DISPATCH_CLASS_TRANSITION,
   FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
+  FISCAL_003_LEGACY_GRANT_TRANSITIONS,
 } from "../src/postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
@@ -671,11 +673,37 @@ describe("003 fiscal descriptor contract", () => {
       .toBe("REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;");
     expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.external_webhook_receipts"].pos_platform_app.insert)
       .toEqual([]);
-    expect(POSTGRES_003_DESCRIPTOR.legacyGrantTransitions).toBe(transition);
+    expect(POSTGRES_003_DESCRIPTOR.legacyGrantTransitions.receiptIngress).toBe(transition);
     expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.ingressMode)
       .toBe("GENERAL_RECEIPT_ONLY_FISCAL_LINKAGE_COLUMNS_NULL");
     expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.fiscalLinkageWriter)
       .toBe("pos_worker");
+  });
+
+  it("removes inherited platform INSERT access to fiscal dispatch extensions", () => {
+    const transition=FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION;
+    expect(transition.predecessor).toBe("TABLE_INSERT_002");
+    expect(transition.successor).toBe("BASE_DISPATCH_COLUMN_INSERT_ONLY_003");
+    expect(transition.allowedInsertColumns).toEqual([
+      "id","tenant_id","company_id","integration_id","capability_code","dispatch_class",
+      "resource_type","internal_operation_id","internal_entity_type","internal_entity_id",
+      "idempotency_key","payload_schema_version","payload_checksum","status","correlation_id",
+      "provider_request_reference","retry_classification","next_attempt_at","last_reconciled_at",
+      "causation_id","created_at","updated_at","version"
+    ]);
+    expect(transition.forbiddenFiscalExtensionColumns)
+      .toEqual(FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.integration_dispatches"]);
+    expect(transition.upSql[0])
+      .toContain("GRANT INSERT (id,tenant_id,company_id,integration_id,capability_code");
+    expect(transition.upSql[1])
+      .toBe("REVOKE INSERT ON integrations.integration_dispatches FROM pos_platform_app;");
+    expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.integration_dispatches"].pos_platform_app.insert)
+      .toEqual([]);
+    expect(POSTGRES_003_DESCRIPTOR.legacyGrantTransitions.dispatchIngress).toBe(transition);
+    expect(POSTGRES_003_DESCRIPTOR.legacyGrantTransitions)
+      .toBe(FISCAL_003_LEGACY_GRANT_TRANSITIONS);
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.dispatchIngress.platformMode)
+      .toBe("BASE_002_COLUMNS_ONLY_NON_FISCAL");
   });
 
 });
