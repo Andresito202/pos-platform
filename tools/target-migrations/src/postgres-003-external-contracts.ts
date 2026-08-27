@@ -15,6 +15,23 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
     phantomFence: "FISCAL_CONNECTION_FOR_UPDATE_BEFORE_BRANCH_COMPANY_CANDIDATE_SCAN",
     precedence: "BRANCH_THEN_COMPANY",
   },
+  claimExecution: {
+    callerPrecondition: "CALLER_ACQUIRES_CANONICAL_UPSTREAM_PREFIX_BEFORE_DOCUMENT_OR_DISPATCH_STATE_CHANGE_AND_ATTEMPT_INSERT",
+    attemptTriggerRole: "REVALIDATION_AND_DEFENSE_IN_DEPTH_ONLY",
+    declarationLockMode: "FOR_UPDATE",
+    durableAtomicBoundary: [
+      "ElectronicDocument:QUEUED_TO_SUBMITTING",
+      "IntegrationDispatch:QUEUED_OR_RETRY_SCHEDULED_TO_DISPATCHING",
+      "FiscalSubmissionAttempt:IN_PROGRESS",
+      "CAS_VERSIONS_CONFIRMED",
+      "COMMIT_BEFORE_HTTP",
+    ],
+    forbidden: [
+      "attempt trigger cannot be used as a substitute for caller canonical lock acquisition",
+      "HTTP before durable claim commit",
+      "reacquiring an omitted upstream predecessor after a successor as the primary lock protocol",
+    ],
+  },
   frozenEmissionSnapshot: {
     contract: "FISCAL_EMISSION_SNAPSHOT_V2",
     requiredFields: [

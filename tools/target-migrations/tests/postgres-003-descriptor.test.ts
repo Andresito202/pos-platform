@@ -525,4 +525,30 @@ describe("003 fiscal descriptor contract", () => {
       .toBe("PREPARATION_COMMAND_MUST_NOT_PRELOCK_A_SUCCESSOR_BEFORE_THE_CANONICAL_PREFIX");
   });
 
+  it("uses FOR UPDATE on ProviderCapabilityDeclaration for both preparation and claim", () => {
+    for(const sql of [
+      FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert,
+      FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root,
+    ]){
+      const start=sql.indexOf("FROM integrations.provider_capability_declarations");
+      expect(start).toBeGreaterThan(-1);
+      const tail=sql.slice(start,sql.indexOf("IF NOT FOUND",start));
+      expect(tail).toContain("FOR UPDATE;");
+      expect(tail).not.toContain("FOR SHARE;");
+    }
+  });
+
+  it("requires the claim caller to own the canonical prefix before durable state mutation", () => {
+    const claim=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.claimExecution;
+    expect(claim.declarationLockMode).toBe("FOR_UPDATE");
+    expect(claim.callerPrecondition)
+      .toBe("CALLER_ACQUIRES_CANONICAL_UPSTREAM_PREFIX_BEFORE_DOCUMENT_OR_DISPATCH_STATE_CHANGE_AND_ATTEMPT_INSERT");
+    expect(claim.attemptTriggerRole).toBe("REVALIDATION_AND_DEFENSE_IN_DEPTH_ONLY");
+    expect(claim.durableAtomicBoundary).toEqual(expect.arrayContaining([
+      "ElectronicDocument:QUEUED_TO_SUBMITTING",
+      "FiscalSubmissionAttempt:IN_PROGRESS",
+      "COMMIT_BEFORE_HTTP",
+    ]));
+  });
+
 });
