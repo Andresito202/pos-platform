@@ -48,6 +48,12 @@ describe("003 runner / introspection / smoke slice",()=>{
       await executeRaw(db,"GRANT DELETE ON fiscal.fiscal_artifacts TO pos_worker");
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("unexpected fiscal runtime privileges");
       await executeRaw(db,"REVOKE DELETE ON fiscal.fiscal_artifacts FROM pos_worker");
+      await executeRaw(db,"GRANT SELECT (id) ON fiscal.fiscal_artifacts TO pos_worker WITH GRANT OPTION");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("must not be grantable");
+      await executeRaw(db,"REVOKE GRANT OPTION FOR SELECT (id) ON fiscal.fiscal_artifacts FROM pos_worker");
+      await executeRaw(db,"ALTER TABLE fiscal.fiscal_artifacts DISABLE TRIGGER fiscal_artifacts_immutable_guard");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
+      await executeRaw(db,"ALTER TABLE fiscal.fiscal_artifacts ENABLE TRIGGER fiscal_artifacts_immutable_guard");
       await validatePostgres003Catalog(db);
       const ledger=await queryRows<{status:string;runner_version:string}>(db,"SELECT status,runner_version FROM platform.target_migration_executions WHERE migration_id='003_fiscal_electronic_invoicing_foundation' ORDER BY started_at DESC LIMIT 1");
       expect(ledger[0]?.status).toBe("APPLIED");expect(ledger[0]?.runner_version).toContain(COMMIT);

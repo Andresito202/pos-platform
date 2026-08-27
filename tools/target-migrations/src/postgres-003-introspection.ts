@@ -85,7 +85,7 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
     WHERE c.relkind='i' AND c.relname IN (${sqlList(POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[])}) ORDER BY 1,2
   `);
   const triggers=await queryRows<Record<string,unknown>>(db,`
-    SELECT n.nspname schema_name,c.relname table_name,t.tgname name,t.tgdeferrable,t.tginitdeferred,pg_get_triggerdef(t.oid,false) definition
+    SELECT n.nspname schema_name,c.relname table_name,t.tgname name,t.tgenabled,t.tgdeferrable,t.tginitdeferred,pg_get_triggerdef(t.oid,false) definition
     FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE NOT t.tgisinternal AND t.tgname IN (${sqlList(POSTGRES_003_DESCRIPTOR.expectedGuards as readonly string[])}) ORDER BY 1,2,3
   `);
@@ -210,6 +210,23 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     WHERE n.nspname='fiscal' AND c.relkind='r' AND a.grantee=0
   `);
   invariant(publicTableGrants[0]?.count==="0","PUBLIC has fiscal table grants");
+  const grantableFiscalPrivileges=await queryRows<{table_name:string;column_name:string|null;grantee:string;privilege_type:string}>(db,`
+    SELECT DISTINCT c.relname table_name,NULL::text column_name,r.rolname grantee,a.privilege_type
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND c.relkind='r'
+      AND r.rolname IN (${sqlList(RUNTIME_ROLES)}) AND a.is_grantable
+    UNION
+    SELECT DISTINCT c.relname,att.attname,r.rolname,a.privilege_type
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND c.relkind='r'
+      AND r.rolname IN (${sqlList(RUNTIME_ROLES)}) AND a.is_grantable
+  `);
+  invariant(grantableFiscalPrivileges.length===0,`003 fiscal runtime grants must not be grantable: ${JSON.stringify(grantableFiscalPrivileges)}`);
   const unexpectedFiscalPrivileges=await queryRows<{table_name:string;grantee:string;privilege_type:string}>(db,`
     SELECT DISTINCT c.relname table_name,r.rolname grantee,a.privilege_type
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
