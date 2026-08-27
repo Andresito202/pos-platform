@@ -1,6 +1,10 @@
 import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "../src/postgres-003-functions.js";
 import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "../src/postgres-003-external-contracts.js";
-import { FISCAL_003_DISPATCH_CLASS_TRANSITION, FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION } from "../src/postgres-003-transitions.js";
+import {
+  FISCAL_003_DISPATCH_CLASS_TRANSITION,
+  FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
+  FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+} from "../src/postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
   FISCAL_003_EXACT_GUARD_DEFINITIONS,
@@ -632,6 +636,46 @@ describe("003 fiscal descriptor contract", () => {
     expect(FISCAL_003_EXACT_GUARD_DEFINITIONS[transition.successorName])
       .toBe(transition.successorDefinitionSql);
     expect(POSTGRES_003_DESCRIPTOR.legacyGuardTransitions).toBe(transition);
+  });
+
+  it("serializes DRAFT to PUBLISHED through the FiscalConnection coordinator", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_configuration_version_state;
+    expect(sql).toContain("transition='DRAFT>PUBLISHED'");
+    expect(sql).toContain("FROM fiscal.fiscal_connections c");
+    expect(sql).toContain("FOR UPDATE;");
+    expect(sql).toContain("publication requires locked FiscalConnection coordinator");
+    const publication=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.configurationPublication;
+    expect(publication.callerPrecondition)
+      .toBe("CALLER_LOCKS_FISCAL_CONNECTION_FOR_UPDATE_BEFORE_DRAFT_TO_PUBLISHED_UPDATE");
+    expect(publication.coordinator).toBe("FiscalConnection");
+    expect(publication.precedenceProtected).toBe("BRANCH_THEN_COMPANY");
+    expect(publication.directPublicationWithoutCoordinator).toBe("FORBIDDEN");
+  });
+
+  it("converts webhook ingress from broad 002 INSERT to general-receipt columns only", () => {
+    const transition=FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION;
+    expect(transition.predecessor).toBe("TABLE_INSERT_002");
+    expect(transition.successor).toBe("GENERAL_RECEIPT_COLUMN_INSERT_ONLY_003");
+    expect(transition.allowedInsertColumns).toEqual([
+      "id","tenant_id","company_id","integration_id","deduplication_key","received_at",
+      "payload_schema_version","payload_checksum","authentication_verification_result",
+      "replay_verification_result","processing_status","attempt_count","correlation_id",
+      "provider_event_id","payload_evidence_reference","next_attempt_at","last_error_code",
+      "processed_at","created_at","version"
+    ]);
+    expect(transition.forbiddenFiscalLinkageColumns).toEqual(
+      FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"]
+    );
+    expect(transition.upSql[0]).toContain("GRANT INSERT (id,tenant_id,company_id,integration_id");
+    expect(transition.upSql[1])
+      .toBe("REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;");
+    expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.external_webhook_receipts"].pos_platform_app.insert)
+      .toEqual([]);
+    expect(POSTGRES_003_DESCRIPTOR.legacyGrantTransitions).toBe(transition);
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.ingressMode)
+      .toBe("GENERAL_RECEIPT_ONLY_FISCAL_LINKAGE_COLUMNS_NULL");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.fiscalLinkageWriter)
+      .toBe("pos_worker");
   });
 
 });

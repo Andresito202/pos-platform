@@ -1,4 +1,21 @@
 export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
+  configurationPublication: {
+    canonicalLockOrder: [
+      "ProviderCapabilityDeclaration",
+      "ProviderAdapterVersion",
+      "ExternalIntegration",
+      "IntegrationCapability",
+      "FiscalConnection",
+      "FiscalEmissionConfiguration",
+      "FiscalEmissionConfigurationVersion",
+    ],
+    callerPrecondition: "CALLER_LOCKS_FISCAL_CONNECTION_FOR_UPDATE_BEFORE_DRAFT_TO_PUBLISHED_UPDATE",
+    coordinator: "FiscalConnection",
+    coordinatorLock: "FOR_UPDATE",
+    triggerRole: "DEFENSE_IN_DEPTH_COORDINATOR_RELOCK_AND_SCOPE_VALIDATION",
+    directPublicationWithoutCoordinator: "FORBIDDEN",
+    precedenceProtected: "BRANCH_THEN_COMPANY",
+  },
   preparationSelection: {
     canonicalLockOrder: [
       "ProviderCapabilityDeclaration",
@@ -145,6 +162,9 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
     ],
     historicalCorrelationOutcome: "SAME_TRANSACTION_CURRENT_GENERATION_QUARANTINE",
     executionPrivilege: "INVOKER_ONLY_NO_SECURITY_DEFINER",
+    ingressMode: "GENERAL_RECEIPT_ONLY_FISCAL_LINKAGE_COLUMNS_NULL",
+    fiscalLinkageWriter: "pos_worker",
+    ingressPrivilegeTransition: "TABLE_INSERT_002_TO_BASE_COLUMN_INSERT_ONLY_003",
     historicalInsertWithoutQuarantinePrivilege: "FAIL_CLOSED_AND_USE_POS_WORKER_CORRELATOR",
     concurrencyOutcome: "ONE_WINNER_CORRELATOR_OR_REPREPARE",
   },

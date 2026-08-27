@@ -1,6 +1,10 @@
 import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "./postgres-003-functions.js";
 import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "./postgres-003-external-contracts.js";
-import { FISCAL_003_DISPATCH_CLASS_TRANSITION, FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION } from "./postgres-003-transitions.js";
+import {
+  FISCAL_003_DISPATCH_CLASS_TRANSITION,
+  FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
+  FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
+} from "./postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
   FISCAL_003_EXACT_GUARD_DEFINITIONS,
@@ -584,7 +588,7 @@ export const FISCAL_003_INTEGRATION_EXTENSION_GRANTS = {
   "integrations.external_webhook_receipts": {
     pos_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: [] },
     pos_worker: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"] },
-    pos_platform_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], update: [] },
+    pos_platform_app: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: [] },
     pos_platform_admin: { select: FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"], insert: [], update: [] },
   },
 } as const;
@@ -631,6 +635,7 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   exactFunctionDefinitions: typeof FISCAL_003_FUNCTION_DEFINITION_SQL;
   legacyConstraintTransitions: typeof FISCAL_003_DISPATCH_CLASS_TRANSITION;
   legacyGuardTransitions: typeof FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
+  legacyGrantTransitions: typeof FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION;
   externalFenceContracts: typeof FISCAL_003_EXTERNAL_FENCE_CONTRACTS;
   mat003PrerequisiteOnly: true;
 }
@@ -675,6 +680,7 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
+  legacyGrantTransitions: FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
   externalFenceContracts: FISCAL_003_EXTERNAL_FENCE_CONTRACTS,
   mat003PrerequisiteOnly: true,
 };

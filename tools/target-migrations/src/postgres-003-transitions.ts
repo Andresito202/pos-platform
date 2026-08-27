@@ -58,3 +58,44 @@ export const FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION = {
     "down restores the narrower 002 guard before removing the 003 successor"
   ]
 } as const;
+
+
+export const FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMNS = [
+  "id","tenant_id","company_id","integration_id","deduplication_key","received_at",
+  "payload_schema_version","payload_checksum","authentication_verification_result",
+  "replay_verification_result","processing_status","attempt_count","correlation_id",
+  "provider_event_id","payload_evidence_reference","next_attempt_at","last_error_code",
+  "processed_at","created_at","version"
+] as const;
+
+const FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMN_LIST =
+  FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMNS.join(",");
+
+export const FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION = {
+  table: "integrations.external_webhook_receipts",
+  role: "pos_platform_app",
+  predecessor: "TABLE_INSERT_002",
+  successor: "GENERAL_RECEIPT_COLUMN_INSERT_ONLY_003",
+  allowedInsertColumns: FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMNS,
+  forbiddenFiscalLinkageColumns: [
+    "fiscal_electronic_document_id",
+    "fiscal_document_preparation_id",
+    "fiscal_preparation_generation",
+    "fiscal_integration_dispatch_id",
+    "fiscal_correlated_at"
+  ],
+  upSql: [
+    `GRANT INSERT (${FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMN_LIST}) ON integrations.external_webhook_receipts TO pos_platform_app;`,
+    "REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;"
+  ],
+  downSql: [
+    "GRANT INSERT ON integrations.external_webhook_receipts TO pos_platform_app;",
+    `REVOKE INSERT (${FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMN_LIST}) ON integrations.external_webhook_receipts FROM pos_platform_app;`
+  ],
+  safety: [
+    "grant base-column INSERT before revoking broad table INSERT",
+    "after up, webhook ingress can persist only general receipt columns",
+    "fiscal linkage is NULL at ingress and can be written only by pos_worker under the correlation fence",
+    "down restores table INSERT before removing the temporary column grant"
+  ]
+} as const;
