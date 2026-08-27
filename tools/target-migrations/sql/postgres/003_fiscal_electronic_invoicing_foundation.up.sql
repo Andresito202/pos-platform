@@ -627,9 +627,9 @@ SET search_path=pg_catalog,fiscal,integrations
 AS $function$
 BEGIN
   IF TG_OP='UPDATE' THEN
-    IF ROW(NEW.tenant_id,NEW.company_id,NEW.external_integration_id,NEW.electronic_invoicing_capability_id,NEW.capability_code,NEW.valid_from,NEW.created_at)
+    IF ROW(NEW.id,NEW.tenant_id,NEW.company_id,NEW.external_integration_id,NEW.electronic_invoicing_capability_id,NEW.capability_code,NEW.valid_from,NEW.created_at)
        IS DISTINCT FROM
-       ROW(OLD.tenant_id,OLD.company_id,OLD.external_integration_id,OLD.electronic_invoicing_capability_id,OLD.capability_code,OLD.valid_from,OLD.created_at) THEN
+       ROW(OLD.id,OLD.tenant_id,OLD.company_id,OLD.external_integration_id,OLD.electronic_invoicing_capability_id,OLD.capability_code,OLD.valid_from,OLD.created_at) THEN
       RAISE EXCEPTION 'fiscal connection identity and opening boundary are immutable';
     END IF;
     IF NEW.version<>OLD.version+1 THEN

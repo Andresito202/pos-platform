@@ -549,6 +549,13 @@ describe("003 fiscal descriptor contract", () => {
     }
   });
 
+  it("makes the fiscal-connection lock sentinel itself immutable", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_connection_scope;
+    expect(sql).toContain("ROW(NEW.id,NEW.tenant_id,NEW.company_id");
+    expect(sql).toContain("ROW(OLD.id,OLD.tenant_id,OLD.company_id");
+    expect(sql).toContain("fiscal connection identity and opening boundary are immutable");
+  });
+
   it("grants only immutable identity sentinels required by PostgreSQL row locks", () => {
     const transition=FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION;
     expect(transition.mechanism).toBe("COLUMN_SCOPED_UPDATE_ON_IMMUTABLE_IDENTITY_SENTINELS");

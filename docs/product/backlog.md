@@ -625,3 +625,5 @@ Una tarea no está cerrada hasta que:
 - Gate B P1 remediation: canonical preparation/claim row locks now receive only column-scoped UPDATE on immutable identity sentinels where PostgreSQL requires an UPDATE privilege; no SECURITY DEFINER or business-column widening is introduced, and down revokes all predecessor-table sentinel grants.
 
 - Gate B P1 remediation: pos_worker historical CANCELLED-preparation RLS no longer calls a helper that re-queries fiscal_document_preparations under FORCE RLS; the policy now evaluates durable external/correlated evidence directly, including VERIFIED_LATE_REMOTE_EVIDENCE_V1 comparator output.
+
+- Gate B self-review hardening: fiscal_connections.id is now explicitly covered by guard_connection_scope identity immutability, making the worker's id-only row-lock sentinel incapable of legitimate mutation while still satisfying PostgreSQL row-lock privilege requirements.
