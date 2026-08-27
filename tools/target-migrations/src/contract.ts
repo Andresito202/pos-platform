@@ -603,6 +603,11 @@ export const FISCAL_003_PROHIBITED_CATALOG = {
   speculativeIndexes: ["fiscal_emission_configurations_connection_idx","electronic_documents_connection_idx","electronic_documents_legal_number_uq","electronic_documents_provider_document_uq"],
 } as const;
 
+export const FISCAL_003_FUNCTION_EXECUTE_GRANTS = {
+  safe_external_text: ["pos_app","pos_worker"],
+  has_correlated_generation_evidence: ["pos_app","pos_worker"],
+} as const;
+
 export const FISCAL_003_CURRENT_PREPARATION_CONSTRAINT_TRIGGERS = [
   "electronic_documents_current_preparation_guard",
   "fiscal_document_preparations_current_generation_guard",
@@ -636,6 +641,7 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   ownedFunctions: typeof FISCAL_003_REQUIRED_FUNCTIONS;
   exactFunctionDefinitions: typeof FISCAL_003_FUNCTION_DEFINITION_SQL;
   semanticCatalogSha256: string;
+  functionExecuteGrants: typeof FISCAL_003_FUNCTION_EXECUTE_GRANTS;
   legacyConstraintTransitions: typeof FISCAL_003_DISPATCH_CLASS_TRANSITION;
   legacyGuardTransitions: typeof FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
   legacyGrantTransitions: typeof FISCAL_003_LEGACY_GRANT_TRANSITIONS;
@@ -682,6 +688,7 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   ownedFunctions: FISCAL_003_REQUIRED_FUNCTIONS,
   exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
   semanticCatalogSha256: "51785625647046ba81b7189a9e3c48187d95441fa852b94b0887a785864a33d3",
+  functionExecuteGrants: FISCAL_003_FUNCTION_EXECUTE_GRANTS,
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   legacyGrantTransitions: FISCAL_003_LEGACY_GRANT_TRANSITIONS,
