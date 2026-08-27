@@ -43,7 +43,7 @@ describe("003 runner / introspection / smoke slice",()=>{
     try{
       await validatePostgres003Catalog(db);
       await executeRaw(db,"DROP POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections; CREATE POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections TO pos_app,pos_worker,pos_platform_app USING (true) WITH CHECK (true);");
-      await expect(validatePostgres003Catalog(db)).rejects.toThrow("policy definition diverges");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
       await executeRaw(db,"DROP POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections; "+POSTGRES_003_DESCRIPTOR.exactPolicyDefinitions.fiscal_connections_tenant_isolation);
       await executeRaw(db,"GRANT DELETE ON fiscal.fiscal_artifacts TO pos_worker");
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("unexpected fiscal runtime privileges");

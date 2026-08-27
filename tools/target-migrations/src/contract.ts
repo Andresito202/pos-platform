@@ -635,6 +635,7 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   exactPolicyDefinitions: typeof FISCAL_003_EXACT_POLICY_DEFINITIONS;
   ownedFunctions: typeof FISCAL_003_REQUIRED_FUNCTIONS;
   exactFunctionDefinitions: typeof FISCAL_003_FUNCTION_DEFINITION_SQL;
+  semanticCatalogSha256: string;
   legacyConstraintTransitions: typeof FISCAL_003_DISPATCH_CLASS_TRANSITION;
   legacyGuardTransitions: typeof FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
   legacyGrantTransitions: typeof FISCAL_003_LEGACY_GRANT_TRANSITIONS;
@@ -680,6 +681,7 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   exactPolicyDefinitions: FISCAL_003_EXACT_POLICY_DEFINITIONS,
   ownedFunctions: FISCAL_003_REQUIRED_FUNCTIONS,
   exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
+  semanticCatalogSha256: "3d479eb5166e274b4d5d528af9ed901920282e0cb7c05db6922c5bcc6f82b86a",
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   legacyGrantTransitions: FISCAL_003_LEGACY_GRANT_TRANSITIONS,

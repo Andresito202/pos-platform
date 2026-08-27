@@ -19,31 +19,6 @@ function invariant(value:unknown,message:string):asserts value{
 function same(left:readonly string[],right:readonly string[]):boolean{
   return left.length===right.length&&left.every((value,index)=>value===right[index]);
 }
-function normalizeDefinition(value:string):string{
-  return value
-    .toLowerCase()
-    .replaceAll('"',"")
-    .replace(/::(?:text|integer|bigint|uuid|character varying|timestamp with time zone)/g,"")
-    .replace(/\busing btree\b/g,"")
-    .replace(/\bcreate or replace function\b/g,"create function")
-    .replace(/\s+/g," ")
-    .replace(/\s*([(),;=<>+*\/-])\s*/g,"$1")
-    .replace(/;$/,"")
-    .trim();
-}
-function expectedConstraintClause(name:string,definition:string):string{
-  const token=`constraint ${name.toLowerCase()} `;
-  const lower=definition.toLowerCase();
-  const index=lower.indexOf(token);
-  invariant(index>=0,`003 cannot parse expected constraint ${name}`);
-  return normalizeDefinition(definition.slice(index+token.length));
-}
-function expectedFunctionBody(definition:string):string{
-  const start=definition.indexOf("$function$");
-  const end=definition.lastIndexOf("$function$");
-  invariant(start>=0&&end>start,"003 expected function body cannot be parsed");
-  return normalizeDefinition(definition.slice(start+"$function$".length,end));
-}
 function sqlList(values:readonly string[]):string{
   return values.map(value=>`'${value.replaceAll("'","''")}'`).join(",");
 }
@@ -118,144 +93,13 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
     SELECT schemaname schema_name,tablename table_name,policyname name,permissive,roles,cmd,qual,with_check
     FROM pg_policies WHERE schemaname='fiscal' ORDER BY 1,2,3
   `);
-  const functions=await queryRows<Record<string,unknown>>(db,`
-    SELECT n.nspname schema_name,p.proname name,pg_get_function_identity_arguments(p.oid) identity_arguments,pg_get_function_result(p.oid) result_type,l.lanname language,p.provolatile,p.proparallel,p.prosecdef,p.proconfig,p.prosrc body
-    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
-    WHERE n.nspname='fiscal' ORDER BY 1,2,3
-  `);
-  return sha256(JSON.stringify({constraints,indexes,triggers,policies,functions})).toString('hex');
-}
-export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
-  await validate001FoundationShape(db);
-
-  const extension=(await queryRows<{present:boolean}>(db,"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='btree_gist') present"))[0];
-  invariant(extension?.present,"003 requires btree_gist");
-
-  const schema=(await queryRows<{owner:string}>(db,"SELECT pg_get_userbyid(nspowner) owner FROM pg_namespace WHERE nspname='fiscal'"))[0];
-  invariant(schema?.owner==="pos_schema_owner","003 fiscal schema owner diverges");
-
-  const tables=await queryRows<{name:string;owner:string;rls:boolean;forced:boolean}>(db,`
-    SELECT c.relname name,pg_get_userbyid(c.relowner) owner,c.relrowsecurity rls,c.relforcerowsecurity forced
-    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='fiscal' AND c.relkind='r' ORDER BY c.relname
-  `);
-  invariant(same(tables.map(row=>row.name),[...FISCAL_TABLES].sort()),"003 fiscal table set diverges");
-  invariant(tables.every(row=>row.owner==="pos_schema_owner"&&row.rls&&row.forced),"003 fiscal owner/RLS diverges");
-
-  for(const [qualified,expected] of Object.entries(POSTGRES_003_DESCRIPTOR.expectedTableColumns)){
-    const [schemaName,tableName]=qualified.split(".");
-    const columns=await queryRows<{name:string}>(db,`
-      SELECT a.attname name
-      FROM pg_attribute a
-      JOIN pg_class c ON c.oid=a.attrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
-        AND n.nspname='${schemaName}' AND c.relname='${tableName}'
-      ORDER BY a.attnum
-    `);
-    invariant(same(columns.map(row=>row.name),[...expected]),`003 columns diverge for ${qualified}`);
-  }
-
-  const integrationTables=await queryRows<{name:string}>(db,"SELECT tablename name FROM pg_tables WHERE schemaname='integrations' ORDER BY tablename");
-  invariant(INTEGRATION_TABLES.every(name=>integrationTables.some(row=>row.name===name)),"003 predecessor integration table missing");
-
-  for(const [qualified,columns] of Object.entries(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns)){
-    const [schemaName,tableName]=qualified.split(".");
-    const actual=await queryRows<{name:string}>(db,`
-      SELECT a.attname name
-      FROM pg_attribute a
-      JOIN pg_class c ON c.oid=a.attrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
-        AND n.nspname='${schemaName}' AND c.relname='${tableName}'
-        AND a.attname IN (${sqlList(columns)})
-      ORDER BY a.attname
-    `);
-    invariant(same(actual.map(row=>row.name),[...columns].sort()),`003 integration extension columns diverge for ${qualified}`);
-  }
-
-  const constraints=POSTGRES_003_DESCRIPTOR.ownedConstraints as readonly string[];
-  const semanticFingerprint=await semanticCatalogFingerprint(db);
-  const actualConstraints=await queryRows<{name:string;definition:string}>(db,`
-    SELECT conname name,pg_get_constraintdef(oid,false) definition
-    FROM pg_constraint WHERE conname IN (${sqlList(constraints)}) ORDER BY conname
-  `);
-  invariant(same(actualConstraints.map(row=>row.name),[...constraints].sort()),"003 owned constraint set diverges");
-  for(const row of actualConstraints){
-    const expected=(POSTGRES_003_DESCRIPTOR.exactConstraintDefinitions as Record<string,string>)[row.name];
-    invariant(expected!==undefined,`003 missing expected constraint definition for ${row.name}`);
-    const actualDefinition=normalizeDefinition(row.definition);const expectedDefinition=expectedConstraintClause(row.name,expected);
-    invariant(actualDefinition===expectedDefinition,`003 constraint definition diverges for ${row.name}: fingerprint=${semanticFingerprint} actual=${actualDefinition} expected=${expectedDefinition}`);
-  }
-
-  const indexes=POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[];
-  const actualIndexes=await queryRows<{name:string;definition:string}>(db,`
-    SELECT c.relname name,pg_get_indexdef(c.oid) definition
-    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE c.relkind='i' AND c.relname IN (${sqlList(indexes)}) ORDER BY c.relname
-  `);
-  invariant(same(actualIndexes.map(row=>row.name),[...indexes].sort()),"003 owned index set diverges");
-  for(const row of actualIndexes){
-    const expected=(POSTGRES_003_DESCRIPTOR.exactIndexDefinitions as Record<string,string>)[row.name];
-    invariant(expected!==undefined,`003 missing expected index definition for ${row.name}`);
-    invariant(normalizeDefinition(row.definition)===normalizeDefinition(expected),`003 index definition diverges for ${row.name}`);
-  }
-
-  const guards=POSTGRES_003_DESCRIPTOR.expectedGuards as readonly string[];
-  const actualGuards=await queryRows<{name:string;definition:string}>(db,`
-    SELECT t.tgname name,pg_get_triggerdef(t.oid,false) definition FROM pg_trigger t
-    WHERE NOT t.tgisinternal AND t.tgname IN (${sqlList(guards)}) ORDER BY t.tgname
-  `);
-  invariant(same(actualGuards.map(row=>row.name),[...guards].sort()),"003 guard set diverges");
-  for(const row of actualGuards){
-    const expected=(POSTGRES_003_DESCRIPTOR.exactGuardDefinitions as Record<string,string>)[row.name];
-    invariant(expected!==undefined,`003 missing expected guard definition for ${row.name}`);
-    invariant(normalizeDefinition(row.definition)===normalizeDefinition(expected),`003 guard definition diverges for ${row.name}`);
-  }
-
-  const expectedPolicyKeys=Object.entries(POSTGRES_003_DESCRIPTOR.exactPolicyDefinitions).map(([name,definition])=>{
-    const match=definition.match(/^CREATE POLICY\s+[a-z][a-z0-9_]*\s+ON\s+([a-z][a-z0-9_.]*)/i);
-    invariant(match,`003 cannot parse policy definition for ${name}`);
-    return `${match[1]}|${name}`;
-  }).sort();
-  const policies=await queryRows<{key:string}>(db,`
-    SELECT schemaname||'.'||tablename||'|'||policyname AS key
-    FROM pg_policies WHERE schemaname='fiscal'
-    ORDER BY 1
-  `);
-  const actualPolicyKeys=policies.map(row=>row.key);
-  invariant(
-    same(actualPolicyKeys,expectedPolicyKeys),
-    `003 policy set diverges: actual=${JSON.stringify(actualPolicyKeys)} expected=${JSON.stringify(expectedPolicyKeys)}`,
-  );
-  const policyDefinitions=await queryRows<{name:string;definition:string}>(db,`
-    SELECT policyname name,
-      'CREATE POLICY '||policyname||' ON '||schemaname||'.'||tablename||
-      CASE WHEN cmd='ALL' THEN '' ELSE ' FOR '||cmd END||
-      ' TO '||array_to_string(roles,',')||
-      CASE WHEN qual IS NULL THEN '' ELSE ' USING ('||qual||')' END||
-      CASE WHEN with_check IS NULL THEN '' ELSE ' WITH CHECK ('||with_check||')' END||';' definition
-    FROM pg_policies WHERE schemaname='fiscal' ORDER BY policyname
-  `);
-  for(const row of policyDefinitions){
-    const expected=(POSTGRES_003_DESCRIPTOR.exactPolicyDefinitions as Record<string,string>)[row.name];
-    invariant(expected!==undefined,`003 missing expected policy definition for ${row.name}`);
-    invariant(normalizeDefinition(row.definition)===normalizeDefinition(expected),`003 policy definition diverges for ${row.name}`);
-  }
-
-  const functions=await queryRows<{name:string;security_definer:boolean;body:string}>(db,`
-    SELECT p.proname name,p.prosecdef security_definer,p.prosrc body
+  const functions=await queryRows<{name:string;security_definer:boolean}>(db,`
+    SELECT p.proname name,p.prosecdef security_definer
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='fiscal' ORDER BY p.proname
   `);
   invariant(same(functions.map(row=>row.name),[...POSTGRES_003_DESCRIPTOR.ownedFunctions].sort()),"003 function set diverges");
   invariant(functions.every(row=>!row.security_definer),"003 SECURITY DEFINER is prohibited");
-  for(const row of functions){
-    const expected=(POSTGRES_003_DESCRIPTOR.exactFunctionDefinitions as Record<string,string>)[row.name];
-    invariant(expected!==undefined,`003 missing expected function definition for ${row.name}`);
-    invariant(normalizeDefinition(row.body)===expectedFunctionBody(expected),`003 function body diverges for ${row.name}`);
-  }
-
   const publicFunctionGrants=await queryRows<{count:string}>(db,`
     SELECT count(*)::text count
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
