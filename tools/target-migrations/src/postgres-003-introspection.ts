@@ -74,6 +74,20 @@ export async function fiscal003CatalogState(db:SqlExecutor):Promise<"pre-003"|"t
 }
 
 async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
+  const columns=await queryRows<Record<string,unknown>>(db,`
+    SELECT n.nspname schema_name,c.relname table_name,a.attnum,a.attname name,
+      format_type(a.atttypid,a.atttypmod) type_name,a.attnotnull,a.attidentity,a.attgenerated,
+      CASE WHEN a.attcollation=0 THEN NULL ELSE coll.collname END collation_name,
+      pg_get_expr(ad.adbin,ad.adrelid,false) default_definition
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid=a.attrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
+    LEFT JOIN pg_collation coll ON coll.oid=a.attcollation
+    WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
+      AND (n.nspname='fiscal' OR (n.nspname='integrations' AND c.relname IN ('integration_dispatches','external_webhook_receipts')))
+    ORDER BY 1,2,3
+  `);
   const constraints=await queryRows<Record<string,unknown>>(db,`
     SELECT n.nspname schema_name,c.relname table_name,co.conname name,co.contype,co.condeferrable,co.condeferred,co.convalidated,pg_get_constraintdef(co.oid,false) definition
     FROM pg_constraint co JOIN pg_class c ON c.oid=co.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -95,11 +109,11 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
   `);
   const functions=await queryRows<Record<string,unknown>>(db,`
     SELECT n.nspname schema_name,p.proname name,pg_get_function_identity_arguments(p.oid) identity_arguments,
-      pg_get_function_result(p.oid) result_type,l.lanname language,p.provolatile,p.proparallel,p.prosecdef,p.proconfig,p.prosrc body
+      pg_get_function_result(p.oid) result_type,l.lanname language,p.provolatile,p.proparallel,p.prosecdef,p.proconfig,p.proacl,p.prosrc body
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
     WHERE n.nspname='fiscal' ORDER BY 1,2,3
   `);
-  return sha256(JSON.stringify({constraints,indexes,triggers,policies,functions})).toString('hex');
+  return sha256(JSON.stringify({columns,constraints,indexes,triggers,policies,functions})).toString('hex');
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   await validate001FoundationShape(db);
@@ -273,6 +287,24 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
 
   const extensionColumnSet=new Set(Object.entries(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns)
     .flatMap(([table,columns])=>columns.map(column=>`${table}|${column}`)));
+  const grantableIntegrationPrivileges=await queryRows<{table_name:string;column_name:string|null;grantee:string;privilege_type:string}>(db,`
+    SELECT DISTINCT c.relname table_name,NULL::text column_name,r.rolname grantee,a.privilege_type
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND c.relname IN ('integration_dispatches','external_webhook_receipts')
+      AND r.rolname IN (${sqlList(RUNTIME_ROLES)}) AND a.is_grantable
+    UNION
+    SELECT DISTINCT c.relname,att.attname,r.rolname,a.privilege_type
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND c.relname IN ('integration_dispatches','external_webhook_receipts')
+      AND r.rolname IN (${sqlList(RUNTIME_ROLES)}) AND a.is_grantable
+      AND att.attname IN (${sqlList(Object.values(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns).flat())})
+  `);
+  invariant(grantableIntegrationPrivileges.length===0,`003 integration extension runtime grants must not be grantable: ${JSON.stringify(grantableIntegrationPrivileges)}`);
   const integrationActual=await queryRows<{schema_name:string;table_name:string;column_name:string;grantee:string;privilege_type:string}>(db,`
     SELECT DISTINCT n.nspname schema_name,c.relname table_name,att.attname column_name,r.rolname grantee,a.privilege_type
     FROM pg_class c

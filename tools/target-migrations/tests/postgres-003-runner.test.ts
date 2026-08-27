@@ -54,6 +54,15 @@ describe("003 runner / introspection / smoke slice",()=>{
       await executeRaw(db,"ALTER TABLE fiscal.fiscal_artifacts DISABLE TRIGGER fiscal_artifacts_immutable_guard");
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
       await executeRaw(db,"ALTER TABLE fiscal.fiscal_artifacts ENABLE TRIGGER fiscal_artifacts_immutable_guard");
+      await executeRaw(db,"ALTER TABLE fiscal.fiscal_submission_attempts ALTER COLUMN status DROP NOT NULL");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
+      await executeRaw(db,"ALTER TABLE fiscal.fiscal_submission_attempts ALTER COLUMN status SET NOT NULL");
+      await executeRaw(db,"REVOKE EXECUTE ON FUNCTION fiscal.safe_external_text(text,integer) FROM pos_app");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
+      await executeRaw(db,"GRANT EXECUTE ON FUNCTION fiscal.safe_external_text(text,integer) TO pos_app");
+      await executeRaw(db,"GRANT UPDATE (fiscal_correlated_at) ON integrations.external_webhook_receipts TO pos_worker WITH GRANT OPTION");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("integration extension runtime grants must not be grantable");
+      await executeRaw(db,"REVOKE GRANT OPTION FOR UPDATE (fiscal_correlated_at) ON integrations.external_webhook_receipts FROM pos_worker");
       await validatePostgres003Catalog(db);
       const ledger=await queryRows<{status:string;runner_version:string}>(db,"SELECT status,runner_version FROM platform.target_migration_executions WHERE migration_id='003_fiscal_electronic_invoicing_foundation' ORDER BY started_at DESC LIMIT 1");
       expect(ledger[0]?.status).toBe("APPLIED");expect(ledger[0]?.runner_version).toContain(COMMIT);
