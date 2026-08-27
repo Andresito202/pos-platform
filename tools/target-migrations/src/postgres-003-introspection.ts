@@ -109,11 +109,22 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
   `);
   const functions=await queryRows<Record<string,unknown>>(db,`
     SELECT n.nspname schema_name,p.proname name,pg_get_function_identity_arguments(p.oid) identity_arguments,
-      pg_get_function_result(p.oid) result_type,l.lanname language,p.provolatile,p.proparallel,p.prosecdef,p.proconfig,p.proacl,p.prosrc body
+      pg_get_function_result(p.oid) result_type,l.lanname language,p.provolatile,p.proparallel,p.prosecdef,p.proconfig,p.prosrc body
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
     WHERE n.nspname='fiscal' ORDER BY 1,2,3
   `);
-  return sha256(JSON.stringify({columns,constraints,indexes,triggers,policies,functions})).toString('hex');
+  const functionAcls=await queryRows<Record<string,unknown>>(db,`
+    SELECT n.nspname schema_name,p.proname name,pg_get_function_identity_arguments(p.oid) identity_arguments,
+      CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE grantee.rolname END grantee,
+      a.privilege_type,a.is_grantable
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+    LEFT JOIN pg_roles grantee ON grantee.oid=a.grantee
+    WHERE n.nspname='fiscal'
+    ORDER BY 1,2,3,4,5,6
+  `);
+  return sha256(JSON.stringify({columns,constraints,indexes,triggers,policies,functions,functionAcls})).toString('hex');
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   await validate001FoundationShape(db);
