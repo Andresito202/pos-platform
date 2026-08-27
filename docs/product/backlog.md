@@ -643,3 +643,5 @@ Una tarea no está cerrada hasta que:
 - Gate B CI remediation: descriptor function-reference coverage now includes function-to-function calls while excluding each function's own CREATE declaration, so nested helper dependencies remain enforced after policy refactors.
 
 - Gate B runner slice: runner 003 apply/down materialized with MAT-003 prerequisite, global migration lock, exact 001/002 checksum verification, artifact/repository-commit ledger binding, durable apply receipt, exact catalog introspection, minimal real-role smoke, guarded fresh/test-only down and exact-002 restoration validation. Exact-head CI/Codex evidence remains pending; Gate B is not PASS.
+
+- Gate B runner CI #101 remediation: la primera ejecución física detectó una incompatibilidad de validación, no de DDL: `validatePostgresCatalog()` conserva correctamente la precondición histórica 001 que prohíbe `electronic_documents` antes de 003. Introspection 003 deja ese validador inmutable y valida el baseline 001 por schemas/tablas/columnas exactas dentro de su propio scope. Evidencia exact-head nueva requerida.

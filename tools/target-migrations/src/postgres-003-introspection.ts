@@ -4,8 +4,9 @@ import {
   FISCAL_TABLES,
   INTEGRATION_TABLES,
   POSTGRES_003_DESCRIPTOR,
+  POSTGRES_TABLE_COLUMNS,
+  TARGET_SCHEMAS,
 } from "./contract.js";
-import { validatePostgresCatalog } from "./postgres-introspection.js";
 import { MigrationInvariantError } from "./shared.js";
 
 type GrantEntry={select:readonly string[];insert:readonly string[];update:readonly string[]};
@@ -36,6 +37,25 @@ function expectedGrantKeys(matrix:GrantMatrix):string[]{
   return keys.sort();
 }
 
+async function validate001FoundationShape(db:SqlExecutor):Promise<void>{
+  const expectedSchemas=["platform",...TARGET_SCHEMAS].sort();
+  const schemas=await queryRows<{name:string}>(db,`
+    SELECT nspname name FROM pg_namespace
+    WHERE nspname IN (${sqlList(expectedSchemas)}) ORDER BY nspname
+  `);
+  invariant(same(schemas.map(row=>row.name),expectedSchemas),"003 predecessor 001 schema set diverges");
+
+  for(const [qualified,expected] of Object.entries(POSTGRES_TABLE_COLUMNS)){
+    const [schemaName,tableName]=qualified.split(".");
+    const columns=await queryRows<{name:string}>(db,`
+      SELECT column_name name FROM information_schema.columns
+      WHERE table_schema='${schemaName}' AND table_name='${tableName}'
+      ORDER BY ordinal_position
+    `);
+    invariant(same(columns.map(row=>row.name),[...expected]),`003 predecessor 001 columns diverge for ${qualified}`);
+  }
+}
+
 export async function fiscal003CatalogState(db:SqlExecutor):Promise<"pre-003"|"target-003"|"partial">{
   const row=(await queryRows<{schema_exists:boolean;fiscal_tables:string}>(db,`
     SELECT to_regnamespace('fiscal') IS NOT NULL schema_exists,
@@ -49,7 +69,7 @@ export async function fiscal003CatalogState(db:SqlExecutor):Promise<"pre-003"|"t
 }
 
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
-  await validatePostgresCatalog(db);
+  await validate001FoundationShape(db);
 
   const extension=(await queryRows<{present:boolean}>(db,"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='btree_gist') present"))[0];
   invariant(extension?.present,"003 requires btree_gist");
