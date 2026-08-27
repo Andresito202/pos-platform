@@ -681,7 +681,7 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   exactPolicyDefinitions: FISCAL_003_EXACT_POLICY_DEFINITIONS,
   ownedFunctions: FISCAL_003_REQUIRED_FUNCTIONS,
   exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
-  semanticCatalogSha256: "873b344acc299e2df800cd0c1c0a7bef47f48ffde4578cec4fc49008898b4f00",
+  semanticCatalogSha256: "51785625647046ba81b7189a9e3c48187d95441fa852b94b0887a785864a33d3",
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   legacyGrantTransitions: FISCAL_003_LEGACY_GRANT_TRANSITIONS,
