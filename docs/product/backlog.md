@@ -616,3 +616,4 @@ Una tarea no está cerrada hasta que:
 7. no queda una rama activa sin objetivo o condición de bloqueo;
 8. no se deja una fuente normativa contando un estado incompatible;
 9. ninguna remediación reduce o elimina silenciosamente detalle contractual previamente aprobado.
+- Gate B SQL003 materialization: IN_PROGRESS from final Gate A baseline `126762479cfdd184d282688b5e86ff04fa38c56a`; first atomic slice freezes generated PostgreSQL 003 up/down artifacts from the closed catalog with byte-parity tests. Runner/introspection/smoke remain pending in the next slice.

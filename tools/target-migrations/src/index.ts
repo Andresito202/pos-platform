@@ -33,3 +33,5 @@ export {
   SQLITE_MIGRATION_ID,
   SimulatedCrashError,
 } from "./shared.js";
+
+export { buildPostgres003UpSql, buildPostgres003DownSql } from "./postgres-003-artifact.js";
