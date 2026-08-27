@@ -182,28 +182,54 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   invariant(publicTableGrants[0]?.count==="0","PUBLIC has fiscal table grants");
 
   const fiscalActual=await queryRows<{schema_name:string;table_name:string;column_name:string;grantee:string;privilege_type:string}>(db,`
-    SELECT table_schema schema_name,table_name,column_name,grantee,privilege_type
-    FROM information_schema.column_privileges
-    WHERE table_schema='fiscal' AND grantee IN (${sqlList(RUNTIME_ROLES)})
-      AND privilege_type IN ('SELECT','INSERT','UPDATE')
+    SELECT DISTINCT n.nspname schema_name,c.relname table_name,att.attname column_name,r.rolname grantee,a.privilege_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND c.relkind='r' AND r.rolname IN (${sqlList(RUNTIME_ROLES)})
+      AND a.privilege_type IN ('SELECT','INSERT','UPDATE')
+    UNION
+    SELECT n.nspname,c.relname,att.attname,r.rolname,a.privilege_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND c.relkind='r' AND r.rolname IN (${sqlList(RUNTIME_ROLES)})
+      AND a.privilege_type IN ('SELECT','INSERT','UPDATE')
     ORDER BY 1,2,3,4,5
   `);
   const fiscalActualKeys=fiscalActual.map(row=>`${row.schema_name}|${row.table_name}|${row.column_name}|${row.grantee}|${row.privilege_type}`).sort();
   const fiscalExpected=expectedGrantKeys(POSTGRES_003_DESCRIPTOR.grantMatrix as unknown as GrantMatrix);
-  invariant(same(fiscalActualKeys,fiscalExpected),"003 fiscal column grant matrix diverges");
+  invariant(same(fiscalActualKeys,fiscalExpected),`003 fiscal column grant matrix diverges: actual=${JSON.stringify(fiscalActualKeys)} expected=${JSON.stringify(fiscalExpected)}`);
 
   const extensionColumnSet=new Set(Object.entries(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns)
     .flatMap(([table,columns])=>columns.map(column=>`${table}|${column}`)));
   const integrationActual=await queryRows<{schema_name:string;table_name:string;column_name:string;grantee:string;privilege_type:string}>(db,`
-    SELECT table_schema schema_name,table_name,column_name,grantee,privilege_type
-    FROM information_schema.column_privileges
-    WHERE table_schema='integrations' AND grantee IN (${sqlList(RUNTIME_ROLES)})
-      AND privilege_type IN ('SELECT','INSERT','UPDATE')
+    SELECT DISTINCT n.nspname schema_name,c.relname table_name,att.attname column_name,r.rolname grantee,a.privilege_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND c.relkind='r' AND r.rolname IN (${sqlList(RUNTIME_ROLES)})
+      AND a.privilege_type IN ('SELECT','INSERT','UPDATE')
+    UNION
+    SELECT n.nspname,c.relname,att.attname,r.rolname,a.privilege_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='integrations' AND c.relkind='r' AND r.rolname IN (${sqlList(RUNTIME_ROLES)})
+      AND a.privilege_type IN ('SELECT','INSERT','UPDATE')
     ORDER BY 1,2,3,4,5
   `);
   const integrationActualKeys=integrationActual
     .filter(row=>extensionColumnSet.has(`${row.schema_name}.${row.table_name}|${row.column_name}`))
     .map(row=>`${row.schema_name}|${row.table_name}|${row.column_name}|${row.grantee}|${row.privilege_type}`).sort();
   const integrationExpected=expectedGrantKeys(POSTGRES_003_DESCRIPTOR.integrationExtensionGrants as unknown as GrantMatrix);
-  invariant(same(integrationActualKeys,integrationExpected),"003 integration extension grant matrix diverges");
+  invariant(same(integrationActualKeys,integrationExpected),`003 integration extension grant matrix diverges: actual=${JSON.stringify(integrationActualKeys)} expected=${JSON.stringify(integrationExpected)}`);
 }

@@ -657,3 +657,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #106 diagnostic: el límite de identificadores ya pasó, pero introspection reportó divergencia de columnas en `identity.users` pese a que SQL003/MAT-003 no alteran esa tabla. Se mantiene fail-closed y se amplía el error para capturar `actual` vs `expected` antes de decidir remediación.
 
 - Gate B runner CI #107 finding: `actual=[]` confirmó que no había drift de `identity.users`; `information_schema.columns` ocultaba columnas por visibilidad del rol efectivo. Introspection 003 migra sus comprobaciones físicas de columnas a `pg_attribute/pg_class/pg_namespace`, igual que el validator 001, manteniendo comparación exacta y sin depender de grants.
+
+- Gate B runner CI #108 finding: la siguiente capa falló en la matriz de grants porque `information_schema.column_privileges` también depende de visibilidad del rol efectivo. Introspection 003 pasa a reconstruir privilegios efectivos desde `pg_class.relacl` + `pg_attribute.attacl` mediante `aclexplode`, siguiendo el patrón ya probado en migration 002; la matriz esperada permanece intacta.
