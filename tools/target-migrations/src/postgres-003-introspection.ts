@@ -126,8 +126,21 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   `);
   invariant(same(actualGuards.map(row=>row.name),[...guards].sort()),"003 guard set diverges");
 
-  const policies=await queryRows<{name:string}>(db,"SELECT policyname name FROM pg_policies WHERE schemaname='fiscal' ORDER BY policyname");
-  invariant(same(policies.map(row=>row.name),[...(POSTGRES_003_DESCRIPTOR.ownedPolicies as readonly string[])].sort()),"003 policy set diverges");
+  const expectedPolicyKeys=Object.entries(POSTGRES_003_DESCRIPTOR.exactPolicyDefinitions).map(([name,definition])=>{
+    const match=definition.match(/^CREATE POLICY\\s+[a-z][a-z0-9_]*\\s+ON\\s+([a-z][a-z0-9_.]*)/i);
+    invariant(match,\`003 cannot parse policy definition for \${name}\`);
+    return \`\${match[1]}|\${name}\`;
+  }).sort();
+  const policies=await queryRows<{key:string}>(db,\`
+    SELECT schemaname||'.'||tablename||'|'||policyname AS key
+    FROM pg_policies WHERE schemaname='fiscal'
+    ORDER BY 1
+  \`);
+  const actualPolicyKeys=policies.map(row=>row.key);
+  invariant(
+    same(actualPolicyKeys,expectedPolicyKeys),
+    \`003 policy set diverges: actual=\${JSON.stringify(actualPolicyKeys)} expected=\${JSON.stringify(expectedPolicyKeys)}\`,
+  );
 
   const functions=await queryRows<{name:string;security_definer:boolean}>(db,`
     SELECT p.proname name,p.prosecdef security_definer
