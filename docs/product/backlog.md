@@ -6,7 +6,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación normativa: 2026-08-26.
+Última reconciliación normativa: 2026-08-27.
 
 ## Jerarquía relacionada
 
@@ -66,8 +66,8 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
 - Nx de aplicaciones/packages: `ABSENT`.
-- SQL 003 DDL: `ABSENT / GATE_B_PENDING` en el inicio de INT-007.
-- descriptor 003: `MATERIALIZED_IN_BRANCH / GATE_A_REMEDIATION_REVIEW` en INT-007; no está integrado ni aplicado. CI #85 fue SUCCESS sobre el HEAD anterior, pero quedó superseded por cuatro P1 Codex exact-head y esta remediación requiere evidencia nueva.
+- SQL 003 DDL: `MATERIALIZED_IN_BRANCH / STATICALLY_VALIDATED / NOT_APPLIED`; PostgreSQL UP/DOWN existen en INT-007, SQLite 003 permanece `NONE`.
+- descriptor 003: `MATERIALIZED_IN_BRANCH / GATE_A_DONE_FROZEN`; Gate A está cerrado. El checkpoint exact-head vigente antes de este ajuste documental fue `c297d465cbfb9349f53d3f2e368034dddb9ca545`, CI #98 `33077301346` SUCCESS y Codex exact-head sin major issues.
 - schema fiscal 003: `ABSENT / NOT_APPLIED`.
 - migration 003: `IN_PROGRESS / NOT_APPLIED`.
 - bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
@@ -196,6 +196,16 @@ No alcance:
 
 INT-007 no se considera `DONE` por crear el descriptor ni por producir SQL estático. Requiere DDL ejecutable, validación de catálogo, apply/down, regresión 001/002, CI exact-head y revisión independiente.
 
+Checkpoint consolidado 2026-08-27:
+
+- Gate A: `DONE / FROZEN`.
+- Gate B: `IN_PROGRESS / NO_PASS`.
+- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / NOT_APPLIED`.
+- Runner/check/down 003, lifecycle receipt, introspection 003, smoke 003, pruebas funcionales y concurrencia: `NOT_MATERIALIZED`.
+- Evidencia física apply→introspection/smoke→down→exact-002→reapply: `NOT_EXECUTED`.
+- PR #11: `OPEN / DRAFT / NOT_MERGED`.
+- Merge, providers, HTTP, credenciales, sandbox, runtime, hardware y SEC-G01..SEC-G10 continúan no autorizados en este gate.
+
 ### INT-006 — remediación contractual autoritativa de migration 003
 
 Prioridad: `P0`
@@ -287,8 +297,8 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 
 ## Orden inmediato obligatorio
 
-1. Completar **INT-007 Gate A**: descriptor 003 exacto para diez tablas, dependencias 001/002, extensiones 003, SQLite `NONE` y contrato V1 `SUBMIT_DOCUMENT`.
-2. Completar **INT-007 Gate B**: SQL up/down, runner, introspection/smoke, RLS/grants/guards, apply/down y pruebas funcionales/concurrencia sin modificar bytes de 001/002.
+1. Mantener **INT-007 Gate A** `DONE / FROZEN`; no rediseñar el contrato cerrado.
+2. Completar **INT-007 Gate B** desde el estado real: SQL UP/DOWN ya materializados; siguiente slice = runner 003 + binding/ledger/receipt, introspection/smoke, apply real, RLS/grants/guards, funcionales, concurrencia, down/restauración exacta 002 y reapply, sin modificar bytes de 001/002.
 3. Ejecutar CI exact-head y revisión independiente; cualquier nuevo HEAD invalida la evidencia previa.
 4. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
 5. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
@@ -557,7 +567,7 @@ Continúa no autorizado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas; SQL003 aún no materializada y sigue bajo gate separado. |
+| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; SQL003 UP/DOWN materializados en rama pero aún no aplicados físicamente; Gate B sigue abierto. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
