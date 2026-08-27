@@ -63,6 +63,16 @@ describe("003 runner / introspection / smoke slice",()=>{
       await executeRaw(db,"GRANT UPDATE (fiscal_correlated_at) ON integrations.external_webhook_receipts TO pos_worker WITH GRANT OPTION");
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("integration extension runtime grants must not be grantable");
       await executeRaw(db,"REVOKE GRANT OPTION FOR UPDATE (fiscal_correlated_at) ON integrations.external_webhook_receipts FROM pos_worker");
+      await executeRaw(db,"CREATE ROLE fiscal_acl_intruder NOLOGIN; GRANT DELETE ON fiscal.fiscal_artifacts TO fiscal_acl_intruder");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("unlisted roles have fiscal grants");
+      await executeRaw(db,"REVOKE DELETE ON fiscal.fiscal_artifacts FROM fiscal_acl_intruder; DROP ROLE fiscal_acl_intruder");
+      const ownedIndex=POSTGRES_003_DESCRIPTOR.ownedIndexes[0]!;
+      await executeRaw(db,`UPDATE pg_index SET indisvalid=false WHERE indexrelid=(SELECT oid FROM pg_class WHERE relkind='i' AND relname='${ownedIndex}')`);
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
+      await executeRaw(db,`UPDATE pg_index SET indisvalid=true WHERE indexrelid=(SELECT oid FROM pg_class WHERE relkind='i' AND relname='${ownedIndex}')`);
+      await executeRaw(db,"DROP POLICY external_integrations_tenant_isolation ON integrations.external_integrations; CREATE POLICY external_integrations_tenant_isolation ON integrations.external_integrations TO pos_app,pos_worker,pos_platform_app USING (true) WITH CHECK (true)");
+      await expect(applyPostgres003({...config,receiptOutputPath:receipt("unused-drift-noop")})).rejects.toThrow("semantic catalog fingerprint diverges");
+      await executeRaw(db,"DROP POLICY external_integrations_tenant_isolation ON integrations.external_integrations; CREATE POLICY external_integrations_tenant_isolation ON integrations.external_integrations TO pos_app,pos_worker,pos_platform_app USING (tenant_id=platform.current_tenant_id()) WITH CHECK (tenant_id=platform.current_tenant_id())");
       await validatePostgres003Catalog(db);
       const ledger=await queryRows<{status:string;runner_version:string}>(db,"SELECT status,runner_version FROM platform.target_migration_executions WHERE migration_id='003_fiscal_electronic_invoicing_foundation' ORDER BY started_at DESC LIMIT 1");
       expect(ledger[0]?.status).toBe("APPLIED");expect(ledger[0]?.runner_version).toContain(COMMIT);
