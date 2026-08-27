@@ -108,7 +108,7 @@ DROP POLICY fiscal_emission_configurations_tenant_isolation ON fiscal.fiscal_emi
 
 DROP POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections;
 
-DROP INDEX integrations.external_webhook_receipts_integration_fk_idx;
+DROP INDEX integrations.external_webhook_receipts_fiscal_dispatch_fk_idx;
 
 DROP INDEX integrations.external_webhook_receipts_fiscal_correlation_idx;
 
@@ -211,6 +211,8 @@ ALTER TABLE fiscal.fiscal_connections DROP CONSTRAINT fiscal_connections_company
 REVOKE ALL ON ALL TABLES IN SCHEMA fiscal FROM pos_app,pos_worker,pos_platform_app,pos_platform_admin,pos_reporting;
 
 REVOKE USAGE ON SCHEMA fiscal FROM pos_app,pos_worker,pos_platform_app,pos_platform_admin,pos_reporting;
+
+REVOKE UPDATE (id) ON integrations.external_webhook_receipts FROM pos_app;
 
 REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;
 

@@ -627,3 +627,9 @@ Una tarea no está cerrada hasta que:
 - Gate B P1 remediation: pos_worker historical CANCELLED-preparation RLS no longer calls a helper that re-queries fiscal_document_preparations under FORCE RLS; the policy now evaluates durable external/correlated evidence directly, including VERIFIED_LATE_REMOTE_EVIDENCE_V1 comparator output.
 
 - Gate B self-review hardening: fiscal_connections.id is now explicitly covered by guard_connection_scope identity immutability, making the worker's id-only row-lock sentinel incapable of legitimate mutation while still satisfying PostgreSQL row-lock privilege requirements.
+
+- Gate B Codex remediation: renamed the 003 fiscal receipt/dispatch index to external_webhook_receipts_fiscal_dispatch_fk_idx so migration002 external_webhook_receipts_integration_fk_idx remains untouched on apply/down.
+
+- Gate B Codex remediation: pos_app reprepare receipt fencing now has id-only UPDATE sentinel privilege on integrations.external_webhook_receipts; the existing 002/003 update guards still reject id mutation and down revokes the sentinel.
+
+- Gate B CI remediation: descriptor function-reference coverage now includes function-to-function calls while excluding each function's own CREATE declaration, so nested helper dependencies remain enforced after policy refactors.

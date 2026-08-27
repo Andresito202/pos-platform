@@ -428,7 +428,7 @@ export const FISCAL_003_REQUIRED_INDEXES = [
   "fiscal_reconciliation_items_preparation_idx",
   "integration_dispatches_fiscal_preparation_idx",
   "external_webhook_receipts_fiscal_correlation_idx",
-  "external_webhook_receipts_integration_fk_idx",
+  "external_webhook_receipts_fiscal_dispatch_fk_idx",
 ] as const;
 
 export const FISCAL_003_REQUIRED_GUARDS = [

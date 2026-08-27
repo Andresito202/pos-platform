@@ -149,14 +149,17 @@ export const FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION = {
     { table: "integrations.provider_adapter_versions", roles: ["pos_app","pos_worker"], column: "provider_adapter_version_id" },
     { table: "integrations.integration_capabilities", roles: ["pos_worker"], column: "id" },
     { table: "integrations.integration_credential_bindings", roles: ["pos_worker"], column: "id" },
+    { table: "integrations.external_webhook_receipts", roles: ["pos_app"], column: "id" },
   ],
   upSql: [
     "GRANT UPDATE (id) ON integrations.provider_capability_declarations TO pos_app,pos_worker;",
     "GRANT UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions TO pos_app,pos_worker;",
     "GRANT UPDATE (id) ON integrations.integration_capabilities TO pos_worker;",
     "GRANT UPDATE (id) ON integrations.integration_credential_bindings TO pos_worker;",
+    "GRANT UPDATE (id) ON integrations.external_webhook_receipts TO pos_app;",
   ],
   downSql: [
+    "REVOKE UPDATE (id) ON integrations.external_webhook_receipts FROM pos_app;",
     "REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;",
     "REVOKE UPDATE (id) ON integrations.integration_capabilities FROM pos_worker;",
     "REVOKE UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions FROM pos_app,pos_worker;",

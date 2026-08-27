@@ -2124,7 +2124,7 @@ CREATE INDEX integration_dispatches_fiscal_preparation_idx ON integrations.integ
 
 CREATE INDEX external_webhook_receipts_fiscal_correlation_idx ON integrations.external_webhook_receipts(tenant_id,company_id,fiscal_electronic_document_id,fiscal_preparation_generation) WHERE fiscal_electronic_document_id IS NOT NULL;
 
-CREATE INDEX external_webhook_receipts_integration_fk_idx ON integrations.external_webhook_receipts(tenant_id,company_id,integration_id,fiscal_integration_dispatch_id) WHERE fiscal_integration_dispatch_id IS NOT NULL;
+CREATE INDEX external_webhook_receipts_fiscal_dispatch_fk_idx ON integrations.external_webhook_receipts(tenant_id,company_id,integration_id,fiscal_integration_dispatch_id) WHERE fiscal_integration_dispatch_id IS NOT NULL;
 
 ALTER TABLE fiscal.fiscal_connections ENABLE ROW LEVEL SECURITY;
 
@@ -2285,6 +2285,8 @@ GRANT UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_vers
 GRANT UPDATE (id) ON integrations.integration_capabilities TO pos_worker;
 
 GRANT UPDATE (id) ON integrations.integration_credential_bindings TO pos_worker;
+
+GRANT UPDATE (id) ON integrations.external_webhook_receipts TO pos_app;
 
 GRANT USAGE ON SCHEMA fiscal TO pos_app,pos_worker,pos_platform_app,pos_platform_admin;
 

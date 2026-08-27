@@ -299,10 +299,13 @@ describe("003 fiscal descriptor contract", () => {
   });
 
   it("defines every fiscal function referenced by tables, guards and policies", () => {
+    const functionCallSources=Object.entries(FISCAL_003_FUNCTION_DEFINITION_SQL)
+      .map(([name,sql])=>sql.replace(`CREATE FUNCTION fiscal.${name}`,`CREATE FUNCTION __defined__.${name}`));
     const source=[
       ...Object.values(FISCAL_003_TABLE_BLUEPRINT_SQL),
       ...Object.values(FISCAL_003_EXACT_GUARD_DEFINITIONS),
       ...Object.values(FISCAL_003_EXACT_POLICY_DEFINITIONS),
+      ...functionCallSources,
     ].join("\n");
     const tableNames=new Set(FISCAL_TABLES);
     const referenced=[...source.matchAll(/\bfiscal\.([a-z][a-z0-9_]*)\s*\(/g)]
@@ -556,6 +559,16 @@ describe("003 fiscal descriptor contract", () => {
     expect(sql).toContain("fiscal connection identity and opening boundary are immutable");
   });
 
+  it("uses a 003-specific receipt fiscal-dispatch index name and preserves the 002 predecessor index", () => {
+    expect(up002).toContain("CREATE INDEX external_webhook_receipts_integration_fk_idx");
+    expect(FISCAL_003_REQUIRED_INDEXES).toContain("external_webhook_receipts_fiscal_dispatch_fk_idx");
+    expect(FISCAL_003_REQUIRED_INDEXES).not.toContain("external_webhook_receipts_integration_fk_idx");
+    expect(FISCAL_003_EXACT_INDEX_DEFINITIONS.external_webhook_receipts_fiscal_dispatch_fk_idx)
+      .toContain("fiscal_integration_dispatch_id");
+    expect(Object.keys(FISCAL_003_EXACT_INDEX_DEFINITIONS))
+      .not.toContain("external_webhook_receipts_integration_fk_idx");
+  });
+
   it("grants only immutable identity sentinels required by PostgreSQL row locks", () => {
     const transition=FISCAL_003_LOCK_ROW_PRIVILEGE_TRANSITION;
     expect(transition.mechanism).toBe("COLUMN_SCOPED_UPDATE_ON_IMMUTABLE_IDENTITY_SENTINELS");
@@ -564,8 +577,10 @@ describe("003 fiscal descriptor contract", () => {
       "GRANT UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions TO pos_app,pos_worker;",
       "GRANT UPDATE (id) ON integrations.integration_capabilities TO pos_worker;",
       "GRANT UPDATE (id) ON integrations.integration_credential_bindings TO pos_worker;",
+      "GRANT UPDATE (id) ON integrations.external_webhook_receipts TO pos_app;",
     ]);
     expect(transition.downSql).toEqual([
+      "REVOKE UPDATE (id) ON integrations.external_webhook_receipts FROM pos_app;",
       "REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;",
       "REVOKE UPDATE (id) ON integrations.integration_capabilities FROM pos_worker;",
       "REVOKE UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions FROM pos_app,pos_worker;",

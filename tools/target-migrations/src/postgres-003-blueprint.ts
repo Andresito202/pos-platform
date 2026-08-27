@@ -68,7 +68,7 @@ export const FISCAL_003_INDEX_BLUEPRINT_SQL = [
   "CREATE INDEX fiscal_reconciliation_items_preparation_idx ON fiscal.fiscal_reconciliation_items(tenant_id,company_id,external_integration_id,electronic_document_id,preparation_generation,fiscal_document_preparation_id);",
   "CREATE INDEX integration_dispatches_fiscal_preparation_idx ON integrations.integration_dispatches(tenant_id,company_id,internal_entity_id,fiscal_preparation_generation) WHERE dispatch_class='FISCAL';",
   "CREATE INDEX external_webhook_receipts_fiscal_correlation_idx ON integrations.external_webhook_receipts(tenant_id,company_id,fiscal_electronic_document_id,fiscal_preparation_generation) WHERE fiscal_electronic_document_id IS NOT NULL;",
-  "CREATE INDEX external_webhook_receipts_integration_fk_idx ON integrations.external_webhook_receipts(tenant_id,company_id,integration_id,fiscal_integration_dispatch_id) WHERE fiscal_integration_dispatch_id IS NOT NULL;",
+  "CREATE INDEX external_webhook_receipts_fiscal_dispatch_fk_idx ON integrations.external_webhook_receipts(tenant_id,company_id,integration_id,fiscal_integration_dispatch_id) WHERE fiscal_integration_dispatch_id IS NOT NULL;",
 ] as const;
 
 export const FISCAL_003_TRIGGER_BLUEPRINT_SQL = [
