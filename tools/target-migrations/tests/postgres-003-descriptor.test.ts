@@ -1,4 +1,5 @@
 import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "../src/postgres-003-functions.js";
+import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "../src/postgres-003-external-contracts.js";
 import { FISCAL_003_DISPATCH_CLASS_TRANSITION } from "../src/postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
@@ -375,6 +376,84 @@ describe("003 fiscal descriptor contract", () => {
     expect(sql).toContain("d.fiscal_preparation_generation=current_generation-1");
     expect(sql).toContain("prior.numbering_state='RESERVED'");
     expect(sql).toContain("released-without-reuse or burned before reprepare commit");
+  });
+
+  it("freezes published configuration material and permits only monotonic operational cursor advancement", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_configuration_version_state;
+    expect(sql).toContain("published configuration material is immutable");
+    expect(sql).toContain("next_number_value','numbering_exhausted_at','updated_at','row_version");
+    expect(sql).toContain("published numbering cursor cannot move backwards");
+    expect(sql).toContain("numbering exhaustion is write-once");
+    expect(sql).toContain("terminal configuration version cannot transition again");
+  });
+
+  it("makes FiscalConnection closure irreversible and CAS-versioned", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_connection_scope;
+    expect(sql).toContain("fiscal connection version must increment exactly one");
+    expect(sql).toContain("closed fiscal connection cannot be reopened, extended or rewritten");
+    expect(sql).toContain("OLD.valid_until IS NULL AND NEW.valid_until IS NOT NULL");
+  });
+
+  it("binds every preparation to the exact document branch at insert and deferred commit", () => {
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert)
+      .toContain("document_branch<>NEW.branch_id");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.validate_current_fiscal_preparation_invariant)
+      .toContain("p.branch_id<>document_branch");
+  });
+
+  it("limits CANCELLED late numbering to admissible remote evidence only", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_late_evidence;
+    expect(sql).toContain("authentication_verification_result='VERIFIED'");
+    expect(sql).toContain("replay_verification_result='VERIFIED'");
+    expect(sql).toContain("OLD.numbering_mode NOT IN ('PROVIDER_ASSIGNED','AUTHORITY_ASSIGNED')");
+    expect(sql).toContain("OLD.numbering_state<>'PENDING_EXTERNAL'");
+    expect(sql).toContain("NEW.numbering_state NOT IN ('CONSUMED','UNKNOWN_OUTCOME')");
+    expect(sql).toContain("NEW.number IS NULL");
+    expect(sql).toContain("cancelled preparation permits only evidence-backed late remote numbering");
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_numbering)
+      .toContain("cancelled numbering is immutable except late remote evidence resolution");
+  });
+
+  it("serializes admissible webhook correlation with the document/preparation/dispatch fence", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_webhook_correlation;
+    expect(sql).toContain("authentication_verification_result<>'VERIFIED'");
+    expect(sql).toContain("replay_verification_result<>'VERIFIED'");
+    expect(sql).toContain("FROM fiscal.electronic_documents");
+    expect(sql).toContain("FROM fiscal.fiscal_document_preparations");
+    expect(sql).toContain("FROM integrations.integration_dispatches");
+    expect((sql.match(/FOR UPDATE/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(FISCAL_003_FUNCTION_DEFINITION_SQL.guard_electronic_document_reprepare)
+      .toContain("admissible correlated webhook blocks reprepare");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.deterministicSelector.genericTenantIntegrationMatchForbidden)
+      .toBe(true);
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.concurrencyOutcome)
+      .toBe("ONE_WINNER_CORRELATOR_OR_REPREPARE");
+  });
+
+  it("revalidates the DB-owned claim chain and explicitly pins the external snapshot comparator contract", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root;
+    expect(sql).toContain("claim requires ACTIVE ExternalIntegration");
+    expect(sql).toContain("claim adapter version is absent or retired");
+    expect(sql).toContain("exactly one SUPPORTED adapter capability declaration");
+    expect(sql).toContain("exactly one effective SUPPORTED integration capability");
+    expect(sql).toContain("claim requires exact ACTIVE credential binding generation");
+    expect(sql).toContain("claim requires effective FiscalConnection");
+    expect(sql).toContain("claim requires exact effective PUBLISHED fiscal configuration");
+    expect(sql).toContain("dispatch.fiscal_request_semantic_checksum<>NEW.request_checksum");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.frozenEmissionSnapshot.contract)
+      .toBe("FISCAL_EMISSION_SNAPSHOT_V2");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.frozenEmissionSnapshot.requiredFields)
+      .toEqual(expect.arrayContaining([
+        "provider_id","provider_adapter_version_id","environment",
+        "external_integration_configuration_version",
+        "integration_routing_material_schema_version",
+        "integration_routing_material_checksum",
+        "integration_capability_id","integration_capability_version",
+      ]));
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.frozenEmissionSnapshot.forbiddenShortcuts)
+      .toContain("session GUC/user-supplied attestation is not authoritative snapshot evidence");
+    expect(POSTGRES_003_DESCRIPTOR.externalFenceContracts)
+      .toBe(FISCAL_003_EXTERNAL_FENCE_CONTRACTS);
   });
 
 });

@@ -1,4 +1,5 @@
 import { FISCAL_003_FUNCTION_DEFINITION_SQL } from "./postgres-003-functions.js";
+import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "./postgres-003-external-contracts.js";
 import { FISCAL_003_DISPATCH_CLASS_TRANSITION } from "./postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
@@ -131,6 +132,7 @@ export const FISCAL_003_CATALOG_DEFINITIONS = {
   triggers: FISCAL_003_EXACT_GUARD_DEFINITIONS,
   policies: FISCAL_003_EXACT_POLICY_DEFINITIONS,
   functions: FISCAL_003_FUNCTION_DEFINITION_SQL,
+  externalFenceContracts: FISCAL_003_EXTERNAL_FENCE_CONTRACTS,
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
   semanticRules: {
     dispatchRequestIdentity:["fiscal_request_semantic_version >= 1 for FISCAL","fiscal_request_semantic_checksum is lowercase SHA-256 for FISCAL","both semantic fields are NULL for NON_FISCAL","both fields are fixed at dispatch creation and immutable","same idempotency root with different semantic version/checksum is CONFLICT before HTTP"],
