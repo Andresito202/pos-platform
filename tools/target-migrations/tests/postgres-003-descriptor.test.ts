@@ -359,16 +359,20 @@ describe("003 fiscal descriptor contract", () => {
     expect(POSTGRES_003_DESCRIPTOR.legacyConstraintTransitions).toBe(transition);
   });
 
-  it("revalidates preparation configuration and connection effectiveness under the current precedence lock", () => {
+  it("revalidates preparation through the canonical capability prefix before the precedence/document fence", () => {
     const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert;
+    expect(sql).toContain("preparation requires SUPPORTED adapter capability declaration");
+    expect(sql).toContain("preparation adapter version is absent or retired");
+    expect(sql).toContain("preparation requires stable ACTIVE ExternalIntegration identity");
+    expect(sql).toContain("preparation requires effective SUPPORTED integration capability");
     expect(sql).toContain("FROM fiscal.fiscal_connections c");
-    expect(sql).toContain("FOR UPDATE OF c");
-    expect(sql).toContain("integration_status<>'ACTIVE'");
+    expect(sql).toContain("FOR UPDATE;");
     expect(sql).toContain("transaction_timestamp()>=connection_valid_until");
     expect(sql).toContain("v.status='PUBLISHED'");
-    expect(sql).toContain("cfg.scope_type='BRANCH' AND cfg.branch_id=NEW.branch_id");
+    expect(sql).toContain("cfg.scope_type='BRANCH' AND cfg.branch_id=document_branch_pre");
     expect(sql).toContain("cfg.scope_type='COMPANY' AND cfg.branch_id IS NULL");
     expect(sql).toContain("selected_version_id<>NEW.emission_configuration_version_id");
+    expect(sql).toContain("preparation document changed during canonical lock acquisition");
   });
 
   it("requires atomic reprepare closure of predecessor preparation, dispatch and reserved numbering", () => {
@@ -495,6 +499,30 @@ describe("003 fiscal descriptor contract", () => {
     expect(selector.receiptMutationPrecondition)
       .toBe("CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE");
     expect(selector.receiptTriggerRole).toBe("REVALIDATION_ONLY_NOT_LOCK_ORDER_ACQUISITION");
+  });
+
+  it("locks preparation selection in the universal authoritative order", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert;
+    const declaration=sql.indexOf("FROM integrations.provider_capability_declarations");
+    const adapter=sql.indexOf("FROM integrations.provider_adapter_versions");
+    const integration=sql.indexOf("FROM integrations.external_integrations i");
+    const capability=sql.indexOf("FROM integrations.integration_capabilities c");
+    const connection=sql.indexOf("FROM fiscal.fiscal_connections c");
+    const configuration=sql.indexOf("FROM fiscal.fiscal_emission_configurations cfg");
+    const lockedDocument=sql.lastIndexOf("FROM fiscal.electronic_documents");
+    const predecessor=sql.indexOf("FROM fiscal.fiscal_document_preparations",lockedDocument);
+    expect(declaration).toBeGreaterThan(-1);
+    expect(declaration).toBeLessThan(adapter);
+    expect(adapter).toBeLessThan(integration);
+    expect(integration).toBeLessThan(capability);
+    expect(capability).toBeLessThan(connection);
+    expect(connection).toBeLessThan(configuration);
+    expect(configuration).toBeLessThan(lockedDocument);
+    expect(lockedDocument).toBeLessThan(predecessor);
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.preparationSelection.phantomFence)
+      .toBe("FISCAL_CONNECTION_FOR_UPDATE_BEFORE_BRANCH_COMPANY_CANDIDATE_SCAN");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.preparationSelection.callerPrecondition)
+      .toBe("PREPARATION_COMMAND_MUST_NOT_PRELOCK_A_SUCCESSOR_BEFORE_THE_CANONICAL_PREFIX");
   });
 
 });

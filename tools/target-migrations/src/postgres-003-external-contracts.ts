@@ -1,4 +1,20 @@
 export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
+  preparationSelection: {
+    canonicalLockOrder: [
+      "ProviderCapabilityDeclaration",
+      "ProviderAdapterVersion",
+      "ExternalIntegration",
+      "IntegrationCapability",
+      "FiscalConnection",
+      "FiscalEmissionConfiguration",
+      "FiscalEmissionConfigurationVersion",
+      "ElectronicDocument",
+      "FiscalDocumentPreparation",
+    ],
+    callerPrecondition: "PREPARATION_COMMAND_MUST_NOT_PRELOCK_A_SUCCESSOR_BEFORE_THE_CANONICAL_PREFIX",
+    phantomFence: "FISCAL_CONNECTION_FOR_UPDATE_BEFORE_BRANCH_COMPANY_CANDIDATE_SCAN",
+    precedence: "BRANCH_THEN_COMPANY",
+  },
   frozenEmissionSnapshot: {
     contract: "FISCAL_EMISSION_SNAPSHOT_V2",
     requiredFields: [
