@@ -647,3 +647,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #101 remediation: la primera ejecución física detectó una incompatibilidad de validación, no de DDL: `validatePostgresCatalog()` conserva correctamente la precondición histórica 001 que prohíbe `electronic_documents` antes de 003. Introspection 003 deja ese validador inmutable y valida el baseline 001 por schemas/tablas/columnas exactas dentro de su propio scope. Evidencia exact-head nueva requerida.
 
 - Gate B runner CI #102 remediation: descriptor y SQL003 contienen el mismo conjunto de 16 policies; introspection se endurece para comparar identidad exacta `schema.table|policy` derivada de `exactPolicyDefinitions`, en vez de una lista de nombres sin scope. Gate B continúa `NO_PASS` hasta evidencia física verde.
+
+- Gate B runner CI #103 remediation: el commit anterior introdujo escapes literales de backticks al serializar el bloque TypeScript por API. Se corrige únicamente esa sintaxis; la regla de comparación exacta `schema.table|policy` no cambia. Evidencia exact-head nueva requerida.
