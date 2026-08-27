@@ -48,9 +48,13 @@ async function validate001FoundationShape(db:SqlExecutor):Promise<void>{
   for(const [qualified,expected] of Object.entries(POSTGRES_TABLE_COLUMNS)){
     const [schemaName,tableName]=qualified.split(".");
     const columns=await queryRows<{name:string}>(db,`
-      SELECT column_name name FROM information_schema.columns
-      WHERE table_schema='${schemaName}' AND table_name='${tableName}'
-      ORDER BY ordinal_position
+      SELECT a.attname name
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid=a.attrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
+        AND n.nspname='${schemaName}' AND c.relname='${tableName}'
+      ORDER BY a.attnum
     `);
     const actualColumns=columns.map(row=>row.name);
     invariant(same(actualColumns,[...expected]),`003 predecessor 001 columns diverge for ${qualified}: actual=${JSON.stringify(actualColumns)} expected=${JSON.stringify(expected)}`);
@@ -89,8 +93,13 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   for(const [qualified,expected] of Object.entries(POSTGRES_003_DESCRIPTOR.expectedTableColumns)){
     const [schemaName,tableName]=qualified.split(".");
     const columns=await queryRows<{name:string}>(db,`
-      SELECT column_name name FROM information_schema.columns
-      WHERE table_schema='${schemaName}' AND table_name='${tableName}' ORDER BY ordinal_position
+      SELECT a.attname name
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid=a.attrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
+        AND n.nspname='${schemaName}' AND c.relname='${tableName}'
+      ORDER BY a.attnum
     `);
     invariant(same(columns.map(row=>row.name),[...expected]),`003 columns diverge for ${qualified}`);
   }
@@ -101,9 +110,14 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   for(const [qualified,columns] of Object.entries(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns)){
     const [schemaName,tableName]=qualified.split(".");
     const actual=await queryRows<{name:string}>(db,`
-      SELECT column_name name FROM information_schema.columns
-      WHERE table_schema='${schemaName}' AND table_name='${tableName}'
-        AND column_name IN (${sqlList(columns)}) ORDER BY column_name
+      SELECT a.attname name
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid=a.attrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
+        AND n.nspname='${schemaName}' AND c.relname='${tableName}'
+        AND a.attname IN (${sqlList(columns)})
+      ORDER BY a.attname
     `);
     invariant(same(actual.map(row=>row.name),[...columns].sort()),`003 integration extension columns diverge for ${qualified}`);
   }

@@ -655,3 +655,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #105 physical finding: PostgreSQL truncó `fiscal_emission_configuration_versions_platform_tenant_isolation` (64 bytes) por `NAMEDATALEN-1=63`. Auditoría de 283 identificadores confirmó que es el único exceso. Se renombra a `fiscal_emission_configuration_versions_platform_tenant_select` (61) y se agrega regresión ejecutable `<=63`; no cambia semántica RLS ni Modelo A.
 
 - Gate B runner CI #106 diagnostic: el límite de identificadores ya pasó, pero introspection reportó divergencia de columnas en `identity.users` pese a que SQL003/MAT-003 no alteran esa tabla. Se mantiene fail-closed y se amplía el error para capturar `actual` vs `expected` antes de decidir remediación.
+
+- Gate B runner CI #107 finding: `actual=[]` confirmó que no había drift de `identity.users`; `information_schema.columns` ocultaba columnas por visibilidad del rol efectivo. Introspection 003 migra sus comprobaciones físicas de columnas a `pg_attribute/pg_class/pg_namespace`, igual que el validator 001, manteniendo comparación exacta y sin depender de grants.
