@@ -617,3 +617,5 @@ Una tarea no está cerrada hasta que:
 8. no se deja una fuente normativa contando un estado incompatible;
 9. ninguna remediación reduce o elimina silenciosamente detalle contractual previamente aprobado.
 - Gate B SQL003 materialization: IN_PROGRESS from final Gate A baseline `126762479cfdd184d282688b5e86ff04fa38c56a`; first atomic slice freezes generated PostgreSQL 003 up/down artifacts from the closed catalog with byte-parity tests. Runner/introspection/smoke remain pending in the next slice.
+
+- Gate B MAT-003 transition: preflight remains read-only and still requires fiscal schema ABSENT + ledger003=0, but its repository test now recognizes the authorized PostgreSQL 003 up/down artifacts as PRESENT_UNAPPLIED; SQLite003 remains NONE.

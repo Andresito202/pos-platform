@@ -184,8 +184,15 @@ describe("MAT-003-PREFLIGHT remediated materialization",()=>{
   it("fails closed on invalid predecessor ledger under the canonical role",async()=>{
     expect(await runMat003Preflight(databaseUrl(DATABASES[1],ROLES.ok))).toMatchObject({result:"FAIL",failure_code:"PREDECESSOR_OR_CONTRACT_INVALID",checks:[]});
   });
-  it("does not create fiscal schema, migration-003 ledger state, or SQL 003",async()=>{
-    expect((await runMat003Preflight(canonical)).result).toBe("PASS");expect(await snapshot(pool)).toMatchObject({fiscal_schema:false,ledger_003:0});
-    expect((await readdir(new URL("../sql/postgres/",import.meta.url))).filter(name=>name.startsWith("003"))).toEqual([]);expect((await readdir(new URL("../sql/sqlite/",import.meta.url))).filter(name=>name.startsWith("003"))).toEqual([]);
+  it("keeps SQL003 repository artifacts PRESENT_UNAPPLIED without creating fiscal DB state",async()=>{
+    const before=await snapshot(pool);
+    expect((await runMat003Preflight(canonical)).result).toBe("PASS");
+    expect(await snapshot(pool)).toEqual(before);
+    expect(await snapshot(pool)).toMatchObject({fiscal_schema:false,ledger_003:0});
+    expect((await readdir(new URL("../sql/postgres/",import.meta.url))).filter(name=>name.startsWith("003")).sort()).toEqual([
+      "003_fiscal_electronic_invoicing_foundation.down.sql",
+      "003_fiscal_electronic_invoicing_foundation.up.sql",
+    ]);
+    expect((await readdir(new URL("../sql/sqlite/",import.meta.url))).filter(name=>name.startsWith("003"))).toEqual([]);
   });
 });
