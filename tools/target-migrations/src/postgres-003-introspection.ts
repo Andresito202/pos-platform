@@ -137,7 +137,7 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
     FROM pg_index x JOIN pg_class c ON c.oid=x.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
     JOIN pg_class i ON i.oid=x.indexrelid WHERE n.nspname='integrations'
     UNION ALL
-    SELECT 'trigger',n.nspname,c.relname,t.tgname,pg_get_triggerdef(t.oid,true)||':'||t.tgenabled
+    SELECT 'trigger',n.nspname,c.relname,t.tgname,pg_get_triggerdef(t.oid,true)||':'||t.tgenabled::text
     FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='integrations' AND NOT t.tgisinternal
     UNION ALL
