@@ -8,6 +8,7 @@ import { applyPostgres001, applyPostgres002, postgresRoleUrls } from "../src/pos
 import { applyRoleReadiness, type RoleReadinessConfig } from "../src/postgres-003-role-readiness.js";
 import { applyPostgres003, downPostgres003 } from "../src/postgres-003-runner.js";
 import { validatePostgres003Catalog } from "../src/postgres-003-introspection.js";
+import { POSTGRES_003_DESCRIPTOR } from "../src/contract.js";
 import { validatePostgres002Catalog } from "../src/postgres-introspection.js";
 
 const SERVER_URL=process.env.POSTGRES_TEST_URL??"postgres://postgres@127.0.0.1:55432/postgres";
@@ -40,6 +41,13 @@ describe("003 runner / introspection / smoke slice",()=>{
     expect(first).toMatchObject({noOp:false,result:"APPLIED_WITH_RECEIPT"});
     const db=postgresDatabase(adminUrl(name),1);
     try{
+      await validatePostgres003Catalog(db);
+      await executeRaw(db,"DROP POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections; CREATE POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections TO pos_app,pos_worker,pos_platform_app USING (true) WITH CHECK (true);");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("policy definition diverges");
+      await executeRaw(db,"DROP POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections; "+POSTGRES_003_DESCRIPTOR.exactPolicyDefinitions.fiscal_connections_tenant_isolation);
+      await executeRaw(db,"GRANT DELETE ON fiscal.fiscal_artifacts TO pos_worker");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("unexpected fiscal runtime privileges");
+      await executeRaw(db,"REVOKE DELETE ON fiscal.fiscal_artifacts FROM pos_worker");
       await validatePostgres003Catalog(db);
       const ledger=await queryRows<{status:string;runner_version:string}>(db,"SELECT status,runner_version FROM platform.target_migration_executions WHERE migration_id='003_fiscal_electronic_invoicing_foundation' ORDER BY started_at DESC LIMIT 1");
       expect(ledger[0]?.status).toBe("APPLIED");expect(ledger[0]?.runner_version).toContain(COMMIT);
