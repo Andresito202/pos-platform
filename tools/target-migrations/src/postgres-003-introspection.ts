@@ -127,7 +127,7 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   invariant(same(actualGuards.map(row=>row.name),[...guards].sort()),"003 guard set diverges");
 
   const expectedPolicyKeys=Object.entries(POSTGRES_003_DESCRIPTOR.exactPolicyDefinitions).map(([name,definition])=>{
-    const match=definition.match(/^CREATE POLICY\\s+[a-z][a-z0-9_]*\\s+ON\\s+([a-z][a-z0-9_.]*)/i);
+    const match=definition.match(/^CREATE POLICY\s+[a-z][a-z0-9_]*\s+ON\s+([a-z][a-z0-9_.]*)/i);
     invariant(match,`003 cannot parse policy definition for ${name}`);
     return `${match[1]}|${name}`;
   }).sort();

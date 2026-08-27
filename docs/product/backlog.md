@@ -649,3 +649,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #102 remediation: descriptor y SQL003 contienen el mismo conjunto de 16 policies; introspection se endurece para comparar identidad exacta `schema.table|policy` derivada de `exactPolicyDefinitions`, en vez de una lista de nombres sin scope. Gate B continúa `NO_PASS` hasta evidencia física verde.
 
 - Gate B runner CI #103 remediation: el commit anterior introdujo escapes literales de backticks al serializar el bloque TypeScript por API. Se corrige únicamente esa sintaxis; la regla de comparación exacta `schema.table|policy` no cambia. Evidencia exact-head nueva requerida.
+
+- Gate B runner CI #104 remediation: el parser de policy conservó `\\s` dentro de un regex literal y por ello buscaba una barra invertida real. Se corrige a `\s` sin cambiar el contrato ni el DDL. Evidencia exact-head nueva requerida.
