@@ -35,3 +35,8 @@ export {
 } from "./shared.js";
 
 export { buildPostgres003UpSql, buildPostgres003DownSql } from "./postgres-003-artifact.js";
+
+export { fiscal003CatalogState, validatePostgres003Catalog } from "./postgres-003-introspection.js";
+export { runPostgres003Smoke } from "./postgres-003-smoke.js";
+export { applyPostgres003, downPostgres003 } from "./postgres-003-runner.js";
+export type { Postgres003RunnerConfig, Postgres003DownConfig, Postgres003ApplyResult } from "./postgres-003-runner.js";

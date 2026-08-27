@@ -166,7 +166,7 @@ jobs:
       - name: Validate SQLite migration
         run: pnpm test:migrations:sqlite
 
-      - name: Validate PostgreSQL migrations 001/002 and 003 descriptor
+      - name: Validate PostgreSQL migrations 001/002/003 including physical runner
         run: pnpm test:migrations:postgres
 
       - name: Validate MAT-003 preflight tooling

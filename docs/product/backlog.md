@@ -199,7 +199,7 @@ Checkpoint consolidado 2026-08-27:
 - Gate A: `DONE / FROZEN`.
 - Gate B: `IN_PROGRESS / NO_PASS`.
 - PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / NOT_APPLIED`.
-- Runner/check/down 003, lifecycle receipt, introspection 003, smoke 003, pruebas funcionales y concurrencia: `NOT_MATERIALIZED`.
+- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico mínimo: `MATERIALIZED_IN_BRANCH / EXACT_HEAD_EVIDENCE_PENDING`; pruebas funcionales Modelo A y concurrencia permanecen `NOT_MATERIALIZED`.
 - Evidencia física apply→introspection/smoke→down→exact-002→reapply: `NOT_EXECUTED`.
 - PR #11: `OPEN / DRAFT / NOT_MERGED`.
 - Merge, providers, HTTP, credenciales, sandbox, runtime, hardware y SEC-G01..SEC-G10 continúan no autorizados en este gate.
@@ -641,3 +641,5 @@ Una tarea no está cerrada hasta que:
 - Gate B Codex remediation: pos_app reprepare receipt fencing now has id-only UPDATE sentinel privilege on integrations.external_webhook_receipts; the existing 002/003 update guards still reject id mutation and down revokes the sentinel.
 
 - Gate B CI remediation: descriptor function-reference coverage now includes function-to-function calls while excluding each function's own CREATE declaration, so nested helper dependencies remain enforced after policy refactors.
+
+- Gate B runner slice: runner 003 apply/down materialized with MAT-003 prerequisite, global migration lock, exact 001/002 checksum verification, artifact/repository-commit ledger binding, durable apply receipt, exact catalog introspection, minimal real-role smoke, guarded fresh/test-only down and exact-002 restoration validation. Exact-head CI/Codex evidence remains pending; Gate B is not PASS.
