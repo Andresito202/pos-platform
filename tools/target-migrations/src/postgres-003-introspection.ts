@@ -105,8 +105,10 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
     WHERE co.conname IN (${sqlList(POSTGRES_003_DESCRIPTOR.ownedConstraints as readonly string[])}) ORDER BY 1,2,3
   `);
   const indexes=await queryRows<Record<string,unknown>>(db,`
-    SELECT n.nspname schema_name,c.relname name,pg_get_indexdef(c.oid) definition
+    SELECT n.nspname schema_name,c.relname name,pg_get_indexdef(c.oid) definition,
+      x.indisvalid,x.indisready,x.indislive
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_index x ON x.indexrelid=c.oid
     WHERE c.relkind='i' AND c.relname IN (${sqlList(POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[])}) ORDER BY 1,2
   `);
   const triggers=await queryRows<Record<string,unknown>>(db,`
@@ -124,7 +126,33 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
     WHERE n.nspname='fiscal' ORDER BY 1,2,3
   `);
-  const source={columns,constraints,indexes,triggers,policies,functions};
+  const integrationSemantics=await queryRows<Record<string,unknown>>(db,`
+    SELECT 'constraint' kind,n.nspname schema_name,c.relname table_name,x.conname name,
+      x.contype::text||':'||pg_get_constraintdef(x.oid,true) definition
+    FROM pg_constraint x JOIN pg_class c ON c.oid=x.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='integrations'
+    UNION ALL
+    SELECT 'index',n.nspname,c.relname,i.relname,
+      pg_get_indexdef(i.oid,0,true)||':'||x.indisvalid::text||':'||x.indisready::text||':'||x.indislive::text
+    FROM pg_index x JOIN pg_class c ON c.oid=x.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_class i ON i.oid=x.indexrelid WHERE n.nspname='integrations'
+    UNION ALL
+    SELECT 'trigger',n.nspname,c.relname,t.tgname,pg_get_triggerdef(t.oid,true)||':'||t.tgenabled
+    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='integrations' AND NOT t.tgisinternal
+    UNION ALL
+    SELECT 'policy',n.nspname,c.relname,p.polname,
+      concat_ws(':',p.polcmd::text,p.polpermissive,
+        (SELECT string_agg(pg_get_userbyid(role_oid),',' ORDER BY pg_get_userbyid(role_oid)) FROM unnest(p.polroles) role_oid),
+        coalesce(pg_get_expr(p.polqual,p.polrelid,true),''),coalesce(pg_get_expr(p.polwithcheck,p.polrelid,true),''))
+    FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='integrations'
+    UNION ALL
+    SELECT 'function',n.nspname,'',p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',pg_get_functiondef(p.oid)
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='integrations'
+    ORDER BY 1,2,3,4
+  `);
+  const source={columns,constraints,indexes,triggers,policies,functions,integrationSemantics};
   const components=Object.fromEntries(Object.entries(source).map(([name,value])=>[
     name,sha256(JSON.stringify(value)).toString('hex'),
   ]));
@@ -260,6 +288,31 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     WHERE n.nspname='fiscal' AND c.relkind='r' AND a.grantee=0
   `);
   invariant(publicTableGrants[0]?.count==="0","PUBLIC has fiscal table grants");
+  const unlistedFiscalGrants=await queryRows<{object_name:string;column_name:string|null;grantee:string;privilege_type:string}>(db,`
+    SELECT c.relname object_name,NULL::text column_name,r.rolname grantee,a.privilege_type
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND c.relkind='r' AND a.grantee<>c.relowner
+      AND r.rolname NOT IN (${sqlList(RUNTIME_ROLES)})
+    UNION ALL
+    SELECT c.relname,att.attname,r.rolname,a.privilege_type
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND c.relkind='r' AND a.grantee<>c.relowner
+      AND r.rolname NOT IN (${sqlList(RUNTIME_ROLES)})
+  `);
+  invariant(unlistedFiscalGrants.length===0,`003 unlisted roles have fiscal grants: ${JSON.stringify(unlistedFiscalGrants)}`);
+  const unlistedFunctionGrants=await queryRows<{name:string;grantee:string;privilege_type:string}>(db,`
+    SELECT p.proname name,r.rolname grantee,a.privilege_type
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND a.grantee<>p.proowner
+      AND r.rolname NOT IN (${sqlList(RUNTIME_ROLES)})
+  `);
+  invariant(unlistedFunctionGrants.length===0,`003 unlisted roles have fiscal function grants: ${JSON.stringify(unlistedFunctionGrants)}`);
   const grantableFiscalPrivileges=await queryRows<{table_name:string;column_name:string|null;grantee:string;privilege_type:string}>(db,`
     SELECT DISTINCT c.relname table_name,NULL::text column_name,r.rolname grantee,a.privilege_type
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
