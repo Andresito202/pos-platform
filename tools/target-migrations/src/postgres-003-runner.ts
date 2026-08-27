@@ -156,14 +156,40 @@ async function finishAndReceipt(
 
 export async function applyPostgres003(config:Postgres003RunnerConfig):Promise<Postgres003ApplyResult>{
   validateConfig(config);
-  const preflight=await runMat003Preflight(roleUrl(config.adminUrl,"pos_platform_admin"));
-  invariant(preflight.result==="PASS",`003 MAT-003 preflight did not pass: ${preflight.failure_code??preflight.result}`);
-
   const migratorUrl=config.migratorUrl??roleUrl(config.adminUrl,"pos_migrator");
   const migrator=postgresDatabase(migratorUrl,1);
   const upSql=await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact);
   const checksum=sha256(upSql);const checksumHex=checksum.toString("hex");
   try{
+    const existing=await migrator.connection().execute(async connection=>{
+      await executeRaw(connection,"SET ROLE pos_schema_owner");await acquireLock(connection);
+      try{
+        await verifyRuntime(connection,config.expectedDatabase);
+        const rows=await executionRows(connection);
+        for(const row of rows) invariant(sameChecksum(row.checksum,checksum),"003 checksum mismatch");
+        const applied=rows.find(row=>row.status==="APPLIED");
+        if(applied){
+          await validatePostgres003Catalog(connection);
+          return {executionId:applied.execution_id,noOp:true,reconciled:false,checksumHex,result:"ALREADY_APPLIED",receiptPath:null,receiptSha256:null} satisfies Postgres003ApplyResult;
+        }
+        const started=rows.find(row=>row.status==="STARTED");
+        if(started){
+          const state=await fiscal003CatalogState(connection);
+          if(state==="target-003"){
+            if(started.body_committed_at===null) await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${started.execution_id}::uuid`.execute(connection);
+            return await finishAndReceipt(connection,config,started.execution_id,checksumHex,true);
+          }
+          invariant(state==="pre-003","003 STARTED execution has divergent catalog");
+          await markFailed(connection,started.execution_id);
+        }
+        return null;
+      }finally{await releaseLock(connection);await executeRaw(connection,"RESET ROLE");}
+    });
+    if(existing)return existing;
+
+    const preflight=await runMat003Preflight(roleUrl(config.adminUrl,"pos_platform_admin"),{allowClosed003History:true});
+    invariant(preflight.result==="PASS",`003 MAT-003 preflight did not pass: ${preflight.failure_code??preflight.result}`);
+
     return await migrator.connection().execute(async connection=>{
       await executeRaw(connection,"SET ROLE pos_schema_owner");await acquireLock(connection);
       try{
