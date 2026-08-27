@@ -72,6 +72,27 @@ const SCOPE_INTEGRITY:CheckDefinition={checkId:"MAT003_AFFECTED_SCOPE_INTEGRITY"
     UNION ALL SELECT p.id::text,p.tenant_id,p.company_id,p.integration_id,c.id::text FROM integrations.resource_ownership_policies p JOIN integrations.integration_capabilities c ON c.tenant_id=p.tenant_id AND c.company_id=p.company_id AND c.integration_id=p.integration_id AND c.ownership_policy_id=p.id AND c.capability_code='DEBIT_NOTES'
   ) affected WHERE NOT EXISTS(SELECT 1 FROM integrations.external_integrations i WHERE i.tenant_id=affected.tenant_id AND i.company_id=affected.company_id AND i.id=affected.integration_id)`};
 
+export const MAT003_BLOCKER_TABLES=[
+  "integrations.external_integrations",
+  "integrations.integration_capabilities",
+  "integrations.integration_dispatches",
+  "integrations.integration_dispatch_attempts",
+  "integrations.external_reference_mappings",
+  "integrations.resource_ownership_policies",
+] as const;
+
+export async function lockMat003BlockerTables(db:SqlExecutor):Promise<void>{
+  await executeRaw(db,`LOCK TABLE ${MAT003_BLOCKER_TABLES.join(",")} IN SHARE MODE`);
+}
+
+export async function assertMat003BlockersAbsent(db:SqlExecutor):Promise<void>{
+  const checks:Mat003PreflightCheck[]=[];
+  for(const definition of BLOCKERS)checks.push(await executeCheck(db,definition));
+  const scope=await executeCheck(db,SCOPE_INTEGRITY);
+  invariant(scope.count===0,"MAT-003 affected scope integrity changed after preflight");
+  invariant(!checks.some(check=>check.status==="BLOCKED"),"MAT-003 blocker state changed after preflight");
+}
+
 function fail(code:string,checks:Mat003PreflightCheck[]=[],cause:string|null=null):Mat003PreflightResult{return{preflight_id:"MAT-003-PREFLIGHT",version:1,result:"FAIL",database_state:null,checks,failure_code:code,failure_cause_code:cause};}
 function invariant(value:unknown,message:string):asserts value{if(!value)throw new MigrationInvariantError(message);}
 function preflightInvariant(value:unknown,code:string):asserts value{if(!value)throw new PreflightError(code);}

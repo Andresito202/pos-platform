@@ -5,7 +5,7 @@ import { executeRaw, postgresDatabase, queryRows } from "./database.js";
 import { POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_003_DESCRIPTOR, FISCAL_TABLES } from "./contract.js";
 import { validatePostgres002Catalog } from "./postgres-introspection.js";
 import { fiscal003CatalogState, validatePostgres003Catalog } from "./postgres-003-introspection.js";
-import { runMat003Preflight } from "./postgres-003-preflight.js";
+import { assertMat003BlockersAbsent, lockMat003BlockerTables, runMat003Preflight } from "./postgres-003-preflight.js";
 import { canonicalJson } from "./postgres-003-role-readiness.js";
 import { runPostgres003Smoke } from "./postgres-003-smoke.js";
 import {
@@ -223,6 +223,8 @@ export async function applyPostgres003(config:Postgres003RunnerConfig):Promise<P
         try{
           await connection.transaction().execute(async transaction=>{
             await executeRaw(transaction,"SET LOCAL ROLE pos_schema_owner");
+            await lockMat003BlockerTables(transaction);
+            await assertMat003BlockersAbsent(transaction);
             await executeRaw(transaction,upSql);
             await validatePostgres003Catalog(transaction);
           });
@@ -235,6 +237,11 @@ export async function applyPostgres003(config:Postgres003RunnerConfig):Promise<P
   }finally{await migrator.destroy();}
 }
 
+export async function lockPostgres003DownHistoryTables(db:SqlExecutor):Promise<void>{
+  const fiscal=FISCAL_TABLES.map(name=>`fiscal.${name}`);
+  const dependent=["integrations.integration_dispatches","integrations.external_webhook_receipts","integrations.integration_capabilities","integrations.provider_capability_declarations"];
+  await executeRaw(db,`LOCK TABLE ${[...fiscal,...dependent].join(",")} IN SHARE MODE`);
+}
 async function destructiveDataCount(db:SqlExecutor):Promise<number>{
   const fiscalSum=FISCAL_TABLES.map(name=>`(SELECT count(*) FROM fiscal.${name})`).join("+");
   const row=(await queryRows<{count:string}>(db,`
@@ -273,16 +280,25 @@ export async function downPostgres003(config:Postgres003DownConfig):Promise<void
         for(const row of rows) invariant(sameChecksum(row.checksum,checksum),"003 checksum mismatch");
         const state=await fiscal003CatalogState(connection);
         if(state==="pre-003"){
-          invariant(rows[0]?.status==="ROLLED_BACK","003 pre-003 catalog lacks ROLLED_BACK ledger");
+          await validatePostgres002Catalog(connection);
+          const receiptExecution=rows.find(row=>row.execution_id===receipt.receipt_payload.execution_id);
+          if(receiptExecution?.status==="APPLIED"){
+            await sql`UPDATE platform.target_migration_executions
+              SET status='ROLLED_BACK',rolled_back_at=clock_timestamp(),finished_at=clock_timestamp()
+              WHERE execution_id=${receiptExecution.execution_id}::uuid AND status='APPLIED'`.execute(connection);
+            return;
+          }
+          invariant(receiptExecution?.status==="ROLLED_BACK","003 pre-003 catalog lacks receipt-bound ROLLED_BACK ledger");
           return;
         }
         invariant(state==="target-003","003 down requires exact target-003 catalog");
         const applied=rows.find(row=>row.status==="APPLIED");
         invariant(applied&&applied.execution_id===receipt.receipt_payload.execution_id,"003 down requires matching APPLIED receipt");
-        const count=await destructiveDataCount(connection);
-        invariant(Number.isSafeInteger(count)&&count===0,"003 down refused because fiscal/dependent history exists");
         await connection.transaction().execute(async transaction=>{
           await executeRaw(transaction,"SET LOCAL ROLE pos_schema_owner");
+          await lockPostgres003DownHistoryTables(transaction);
+          const count=await destructiveDataCount(transaction);
+          invariant(Number.isSafeInteger(count)&&count===0,"003 down refused because fiscal/dependent history exists");
           await executeRaw(transaction,downSql);
           await validatePostgres002Catalog(transaction);
           const schema=(await queryRows<{present:boolean}>(transaction,"SELECT to_regnamespace('fiscal') IS NOT NULL present"))[0];
