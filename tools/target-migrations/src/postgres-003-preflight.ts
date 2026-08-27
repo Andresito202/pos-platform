@@ -117,7 +117,7 @@ async function inspectPredecessor(db:SqlExecutor,runtime:RuntimeState,options:Ma
   invariant(fiscal&&!fiscal.present,"fiscal schema must be absent");
   const history=await queryRows<{migration_id:string;status:string}>(db,`
     SELECT migration_id,status FROM platform.target_migration_executions
-    WHERE migration_id LIKE '003\\_%' ESCAPE '\\' ORDER BY started_at,execution_id
+    WHERE migration_id LIKE '003\\_%' ESCAPE '\\' ORDER BY migration_id,status
   `);
   if(options.allowClosed003History){
     invariant(
