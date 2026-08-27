@@ -7,7 +7,7 @@ import {
   POSTGRES_TABLE_COLUMNS,
   TARGET_SCHEMAS,
 } from "./contract.js";
-import { MigrationInvariantError } from "./shared.js";
+import { MigrationInvariantError, sha256 } from "./shared.js";
 
 type GrantEntry={select:readonly string[];insert:readonly string[];update:readonly string[]};
 type GrantMatrix=Record<string,Record<string,GrantEntry>>;
@@ -98,6 +98,33 @@ export async function fiscal003CatalogState(db:SqlExecutor):Promise<"pre-003"|"t
   return "partial";
 }
 
+async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
+  const constraints=await queryRows<Record<string,unknown>>(db,`
+    SELECT n.nspname schema_name,c.relname table_name,co.conname name,co.contype,co.condeferrable,co.condeferred,co.convalidated,pg_get_constraintdef(co.oid,false) definition
+    FROM pg_constraint co JOIN pg_class c ON c.oid=co.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE co.conname IN (${sqlList(POSTGRES_003_DESCRIPTOR.ownedConstraints as readonly string[])}) ORDER BY 1,2,3
+  `);
+  const indexes=await queryRows<Record<string,unknown>>(db,`
+    SELECT n.nspname schema_name,c.relname name,pg_get_indexdef(c.oid) definition
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE c.relkind='i' AND c.relname IN (${sqlList(POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[])}) ORDER BY 1,2
+  `);
+  const triggers=await queryRows<Record<string,unknown>>(db,`
+    SELECT n.nspname schema_name,c.relname table_name,t.tgname name,t.tgdeferrable,t.tginitdeferred,pg_get_triggerdef(t.oid,false) definition
+    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE NOT t.tgisinternal AND t.tgname IN (${sqlList(POSTGRES_003_DESCRIPTOR.expectedGuards as readonly string[])}) ORDER BY 1,2,3
+  `);
+  const policies=await queryRows<Record<string,unknown>>(db,`
+    SELECT schemaname schema_name,tablename table_name,policyname name,permissive,roles,cmd,qual,with_check
+    FROM pg_policies WHERE schemaname='fiscal' ORDER BY 1,2,3
+  `);
+  const functions=await queryRows<Record<string,unknown>>(db,`
+    SELECT n.nspname schema_name,p.proname name,pg_get_function_identity_arguments(p.oid) identity_arguments,pg_get_function_result(p.oid) result_type,l.lanname language,p.provolatile,p.proparallel,p.prosecdef,p.proconfig,p.prosrc body
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
+    WHERE n.nspname='fiscal' ORDER BY 1,2,3
+  `);
+  return sha256(JSON.stringify({constraints,indexes,triggers,policies,functions})).toString('hex');
+}
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   await validate001FoundationShape(db);
 
@@ -148,6 +175,7 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   }
 
   const constraints=POSTGRES_003_DESCRIPTOR.ownedConstraints as readonly string[];
+  const semanticFingerprint=await semanticCatalogFingerprint(db);
   const actualConstraints=await queryRows<{name:string;definition:string}>(db,`
     SELECT conname name,pg_get_constraintdef(oid,false) definition
     FROM pg_constraint WHERE conname IN (${sqlList(constraints)}) ORDER BY conname
@@ -157,7 +185,7 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     const expected=(POSTGRES_003_DESCRIPTOR.exactConstraintDefinitions as Record<string,string>)[row.name];
     invariant(expected!==undefined,`003 missing expected constraint definition for ${row.name}`);
     const actualDefinition=normalizeDefinition(row.definition);const expectedDefinition=expectedConstraintClause(row.name,expected);
-    invariant(actualDefinition===expectedDefinition,`003 constraint definition diverges for ${row.name}: actual=${actualDefinition} expected=${expectedDefinition}`);
+    invariant(actualDefinition===expectedDefinition,`003 constraint definition diverges for ${row.name}: fingerprint=${semanticFingerprint} actual=${actualDefinition} expected=${expectedDefinition}`);
   }
 
   const indexes=POSTGRES_003_DESCRIPTOR.ownedIndexes as readonly string[];
