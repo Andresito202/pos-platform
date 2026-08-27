@@ -57,6 +57,8 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       owner: "VERSIONED_PROVIDER_ADAPTER_CONTRACT",
       mustRunBeforeFiscalLinkage: true,
       mustRunUnderFence: true,
+      receiptMutationPrecondition: "CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE",
+      receiptTriggerRole: "REVALIDATION_ONLY_NOT_LOCK_ORDER_ACQUISITION",
       genericTenantIntegrationMatchForbidden: true,
       timestampHeuristicForbidden: true,
       outcomes: {

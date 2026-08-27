@@ -456,4 +456,43 @@ describe("003 fiscal descriptor contract", () => {
       .toBe(FISCAL_003_EXTERNAL_FENCE_CONTRACTS);
   });
 
+  it("re-resolves BRANCH-over-COMPANY configuration under the FiscalConnection coordinator", () => {
+    const prepare=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert;
+    const claim=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root;
+    expect(prepare).toContain("FOR UPDATE OF c");
+    expect(prepare).toContain("ORDER BY CASE WHEN cfg.scope_type='BRANCH' THEN 0 ELSE 1 END");
+    expect(prepare).toContain("preparation must use current BRANCH-over-COMPANY published configuration");
+    expect(claim).toContain("FOR UPDATE;");
+    expect(claim).toContain("claim fiscal configuration drifted from BRANCH-over-COMPANY selection");
+  });
+
+  it("locks the claim chain in the authoritative upstream-to-fence order", () => {
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root;
+    const declaration=sql.indexOf("FROM integrations.provider_capability_declarations");
+    const adapter=sql.indexOf("FROM integrations.provider_adapter_versions");
+    const integration=sql.indexOf("FROM integrations.external_integrations i");
+    const capability=sql.indexOf("FROM integrations.integration_capabilities c");
+    const binding=sql.indexOf("FROM integrations.integration_credential_bindings");
+    const connection=sql.indexOf("FROM fiscal.fiscal_connections c");
+    const lockedDocument=sql.indexOf("FROM fiscal.electronic_documents",sql.indexOf("claim fiscal configuration drifted"));
+    const lockedPreparation=sql.indexOf("FROM fiscal.fiscal_document_preparations",lockedDocument);
+    const dispatch=sql.indexOf("FROM integrations.integration_dispatches",lockedPreparation);
+    expect(declaration).toBeGreaterThan(-1);
+    expect(declaration).toBeLessThan(adapter);
+    expect(adapter).toBeLessThan(integration);
+    expect(integration).toBeLessThan(capability);
+    expect(capability).toBeLessThan(binding);
+    expect(binding).toBeLessThan(connection);
+    expect(connection).toBeLessThan(lockedDocument);
+    expect(lockedDocument).toBeLessThan(lockedPreparation);
+    expect(lockedPreparation).toBeLessThan(dispatch);
+  });
+
+  it("does not pretend a receipt trigger can establish caller lock order", () => {
+    const selector=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.deterministicSelector;
+    expect(selector.receiptMutationPrecondition)
+      .toBe("CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE");
+    expect(selector.receiptTriggerRole).toBe("REVALIDATION_ONLY_NOT_LOCK_ORDER_ACQUISITION");
+  });
+
 });
