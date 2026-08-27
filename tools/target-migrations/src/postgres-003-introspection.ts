@@ -76,8 +76,10 @@ export async function fiscal003CatalogState(db:SqlExecutor):Promise<"pre-003"|"t
 interface SemanticCatalogFingerprint{sha:string;components:Record<string,string>}
 async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalogFingerprint>{
   const columns=await queryRows<Record<string,unknown>>(db,`
-    SELECT n.nspname schema_name,c.relname table_name,a.attnum,a.attname name,
-      format_type(a.atttypid,a.atttypmod) type_name,a.attnotnull,a.attidentity,a.attgenerated,
+    SELECT n.nspname schema_name,c.relname table_name,
+      CASE WHEN n.nspname='fiscal' THEN a.attnum ELSE NULL END physical_ordinal,
+      a.attname name,format_type(a.atttypid,a.atttypmod) type_name,
+      a.attnotnull,a.attidentity,a.attgenerated,
       CASE WHEN a.attcollation=0 THEN NULL ELSE coll.collname END collation_name,
       pg_get_expr(ad.adbin,ad.adrelid,false) default_definition
     FROM pg_attribute a
@@ -95,7 +97,7 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
           )
         )
       )
-    ORDER BY 1,2,3
+    ORDER BY 1,2,4
   `);
   const constraints=await queryRows<Record<string,unknown>>(db,`
     SELECT n.nspname schema_name,c.relname table_name,co.conname name,co.contype,co.condeferrable,co.condeferred,co.convalidated,pg_get_constraintdef(co.oid,false) definition
