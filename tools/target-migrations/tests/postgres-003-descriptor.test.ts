@@ -465,7 +465,10 @@ describe("003 fiscal descriptor contract", () => {
   it("re-resolves BRANCH-over-COMPANY configuration under the FiscalConnection coordinator", () => {
     const prepare=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert;
     const claim=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root;
-    expect(prepare).toContain("FOR UPDATE OF c");
+    const connectionStart=prepare.indexOf("FROM fiscal.fiscal_connections c");
+    const candidateStart=prepare.indexOf("FROM fiscal.fiscal_emission_configurations cfg");
+    expect(connectionStart).toBeGreaterThan(-1);
+    expect(prepare.slice(connectionStart,candidateStart)).toContain("FOR UPDATE;");
     expect(prepare).toContain("ORDER BY CASE WHEN cfg.scope_type='BRANCH' THEN 0 ELSE 1 END");
     expect(prepare).toContain("preparation must use current BRANCH-over-COMPANY published configuration");
     expect(claim).toContain("FOR UPDATE;");
