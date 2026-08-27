@@ -473,7 +473,7 @@ export const FISCAL_003_REQUIRED_POLICIES = [
   "fiscal_connections_tenant_isolation",
   "fiscal_emission_configurations_tenant_isolation",
   "fiscal_emission_configuration_versions_app_tenant_isolation",
-  "fiscal_emission_configuration_versions_platform_tenant_isolation",
+  "fiscal_emission_configuration_versions_platform_tenant_select",
   "fiscal_emission_configuration_versions_worker_published_history",
   "fiscal_emission_configuration_versions_worker_numbering_update",
   "electronic_documents_tenant_isolation",

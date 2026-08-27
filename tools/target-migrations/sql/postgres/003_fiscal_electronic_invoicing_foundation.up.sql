@@ -2172,7 +2172,7 @@ CREATE POLICY fiscal_emission_configurations_tenant_isolation ON fiscal.fiscal_e
 
 CREATE POLICY fiscal_emission_configuration_versions_app_tenant_isolation ON fiscal.fiscal_emission_configuration_versions TO pos_app USING (tenant_id=platform.current_tenant_id()) WITH CHECK (tenant_id=platform.current_tenant_id());
 
-CREATE POLICY fiscal_emission_configuration_versions_platform_tenant_isolation ON fiscal.fiscal_emission_configuration_versions FOR SELECT TO pos_platform_app USING (tenant_id=platform.current_tenant_id());
+CREATE POLICY fiscal_emission_configuration_versions_platform_tenant_select ON fiscal.fiscal_emission_configuration_versions FOR SELECT TO pos_platform_app USING (tenant_id=platform.current_tenant_id());
 
 CREATE POLICY fiscal_emission_configuration_versions_worker_published_history ON fiscal.fiscal_emission_configuration_versions FOR SELECT TO pos_worker USING (tenant_id=platform.current_tenant_id() AND (status='PUBLISHED' OR (status IN ('SUPERSEDED','REVOKED') AND EXISTS (SELECT 1 FROM fiscal.fiscal_document_preparations p WHERE p.tenant_id=fiscal_emission_configuration_versions.tenant_id AND p.emission_configuration_version_id=fiscal_emission_configuration_versions.id))));
 

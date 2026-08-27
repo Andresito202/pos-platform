@@ -651,3 +651,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #103 remediation: el commit anterior introdujo escapes literales de backticks al serializar el bloque TypeScript por API. Se corrige únicamente esa sintaxis; la regla de comparación exacta `schema.table|policy` no cambia. Evidencia exact-head nueva requerida.
 
 - Gate B runner CI #104 remediation: el parser de policy conservó `\\s` dentro de un regex literal y por ello buscaba una barra invertida real. Se corrige a `\s` sin cambiar el contrato ni el DDL. Evidencia exact-head nueva requerida.
+
+- Gate B runner CI #105 physical finding: PostgreSQL truncó `fiscal_emission_configuration_versions_platform_tenant_isolation` (64 bytes) por `NAMEDATALEN-1=63`. Auditoría de 283 identificadores confirmó que es el único exceso. Se renombra a `fiscal_emission_configuration_versions_platform_tenant_select` (61) y se agrega regresión ejecutable `<=63`; no cambia semántica RLS ni Modelo A.

@@ -4,6 +4,21 @@ import { buildPostgres003DownSql, buildPostgres003UpSql } from "../src/postgres-
 import { readArtifact, sha256 } from "../src/shared.js";
 
 describe("003 materialized SQL artifact parity", () => {
+  it("keeps every materialized PostgreSQL identifier within the 63-byte limit", async () => {
+    const up=await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact);
+    const patterns=[
+      /\bCONSTRAINT\s+([a-z][a-z0-9_]*)/gi,
+      /\bCREATE TABLE\s+(?:[a-z][a-z0-9_]*\.)?([a-z][a-z0-9_]*)/gi,
+      /\bCREATE (?:UNIQUE )?INDEX\s+([a-z][a-z0-9_]*)/gi,
+      /\bCREATE (?:CONSTRAINT )?TRIGGER\s+([a-z][a-z0-9_]*)/gi,
+      /\bCREATE POLICY\s+([a-z][a-z0-9_]*)/gi,
+      /\bCREATE FUNCTION\s+(?:[a-z][a-z0-9_]*\.)?([a-z][a-z0-9_]*)\s*\(/gi,
+    ];
+    const identifiers=patterns.flatMap((pattern)=>[...up.matchAll(pattern)].map((match)=>match[1]!));
+    expect(identifiers.filter((identifier)=>Buffer.byteLength(identifier,"utf8")>63)).toEqual([]);
+  });
+
+
   it("freezes the generated Gate A catalog as exact up/down artifacts", async () => {
     const [up,down]=await Promise.all([
       readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact),
