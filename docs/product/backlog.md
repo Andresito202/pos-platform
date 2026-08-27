@@ -198,9 +198,9 @@ Checkpoint consolidado 2026-08-27:
 
 - Gate A: `DONE / FROZEN`.
 - Gate B: `IN_PROGRESS / NO_PASS`.
-- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / NOT_APPLIED`.
-- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico mínimo: `MATERIALIZED_IN_BRANCH / EXACT_HEAD_EVIDENCE_PENDING`; pruebas funcionales Modelo A y concurrencia permanecen `NOT_MATERIALIZED`.
-- Evidencia física apply→introspection/smoke→down→exact-002→reapply: `NOT_EXECUTED`.
+- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / PHYSICALLY_APPLIED_IN_ISOLATED_CI`.
+- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico mínimo: `PASS / EXACT_HEAD_CI_AND_REVIEW`; pruebas funcionales Modelo A y concurrencia permanecen `NOT_MATERIALIZED`.
+- Evidencia física apply→introspection/smoke→down→exact-002→reapply: `PASS_IN_POSTGRESQL_16_14_ISOLATED_CI`.
 - PR #11: `OPEN / DRAFT / NOT_MERGED`.
 - Merge, providers, HTTP, credenciales, sandbox, runtime, hardware y SEC-G01..SEC-G10 continúan no autorizados en este gate.
 
@@ -565,7 +565,7 @@ Continúa no autorizado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; SQL003 Gate B PASS sobre código `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`, CI #145 SUCCESS y review independiente exact-head sin major issues; merge permanece separado y no autorizado. |
+| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; slice runner/introspection SQL003 PASS sobre código `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`, CI #145 SUCCESS y review independiente sin major issues; Gate B global sigue NO_PASS hasta materializar funcionales/concurrencia. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
@@ -708,4 +708,6 @@ Una tarea no está cerrada hasta que:
 
 - Gate B CI #144 additional ACL/RLS evidence: exact-head `62cdea1d6fe6e8e25b19b6e82b16d577c130ada6` closes the three P1 findings from review of `af24046c...`: all predecessor integration tables have exact owner/ENABLE RLS/FORCE RLS state, PUBLIC is rejected at both fiscal table and column ACL levels, and fiscal schema ACLs require the exact non-grantable USAGE matrix with no PUBLIC or unlisted grantees. Negative tamper tests disable integration RLS, grant a fiscal column to PUBLIC and revoke pos_app schema USAGE; all fail closed and exact restoration plus the full physical cycle remain green. Gate B remains `NO_PASS` until independent review of the final documentation SHA.
 
-- Gate B formal closure: `PASS` for SQL003 code HEAD `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`. Evidence: PostgreSQL 16.14 CI #145 / run `33123036689` SUCCESS, 45/45 review threads resolved, and Codex exact-head result `Didn't find any major issues` on the same SHA. This closes INT-007 materialization only; PR #11 remains DRAFT, merge is not authorized, and provider/runtime/production/security gates remain out of scope.
+- Gate B runner/introspection slice closure: `PASS` for SQL003 code HEAD `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`. Evidence: PostgreSQL 16.14 CI #145 / run `33123036689` SUCCESS, 45/45 then-current review threads resolved, and Codex exact-head result `Didn't find any major issues` on the same SHA. Gate B global remains `IN_PROGRESS / NO_PASS` because Modelo A functional and concurrency suites are still `NOT_MATERIALIZED`; PR #11 remains DRAFT and merge is not authorized.
+
+- Gate B checkpoint reconciliation after documentation review: the operational runner/introspection slice is closed with physical evidence, but this does not promote the whole Gate B. Remaining blockers are the executable Modelo A functional suite and the required concurrency races (claim/retry/reprepare/webhook/reconciliation/publication). No merge or next-scope work is authorized.
