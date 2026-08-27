@@ -58,7 +58,7 @@ describe("003 runner / introspection / smoke slice",()=>{
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
       await executeRaw(db,"ALTER TABLE fiscal.fiscal_submission_attempts ALTER COLUMN status SET NOT NULL");
       await executeRaw(db,"REVOKE EXECUTE ON FUNCTION fiscal.safe_external_text(text,integer) FROM pos_app");
-      await expect(validatePostgres003Catalog(db)).rejects.toThrow("semantic catalog fingerprint diverges");
+      await expect(validatePostgres003Catalog(db)).rejects.toThrow("function execute grant matrix diverges");
       await executeRaw(db,"GRANT EXECUTE ON FUNCTION fiscal.safe_external_text(text,integer) TO pos_app");
       await executeRaw(db,"GRANT UPDATE (fiscal_correlated_at) ON integrations.external_webhook_receipts TO pos_worker WITH GRANT OPTION");
       await expect(validatePostgres003Catalog(db)).rejects.toThrow("integration extension runtime grants must not be grantable");

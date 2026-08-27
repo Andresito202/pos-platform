@@ -113,18 +113,7 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
     WHERE n.nspname='fiscal' ORDER BY 1,2,3
   `);
-  const functionAcls=await queryRows<Record<string,unknown>>(db,`
-    SELECT n.nspname schema_name,p.proname name,pg_get_function_identity_arguments(p.oid) identity_arguments,
-      CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE grantee.rolname END grantee,
-      a.privilege_type,a.is_grantable
-    FROM pg_proc p
-    JOIN pg_namespace n ON n.oid=p.pronamespace
-    CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
-    LEFT JOIN pg_roles grantee ON grantee.oid=a.grantee
-    WHERE n.nspname='fiscal'
-    ORDER BY 1,2,3,4,5,6
-  `);
-  return sha256(JSON.stringify({columns,constraints,indexes,triggers,policies,functions,functionAcls})).toString('hex');
+  return sha256(JSON.stringify({columns,constraints,indexes,triggers,policies,functions})).toString('hex');
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   await validate001FoundationShape(db);
@@ -227,6 +216,21 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     WHERE n.nspname='fiscal' AND a.grantee=0 AND a.privilege_type='EXECUTE'
   `);
   invariant(publicFunctionGrants[0]?.count==="0","PUBLIC can execute fiscal functions");
+  const functionRuntimeGrants=await queryRows<{name:string;grantee:string;privilege_type:string;is_grantable:boolean}>(db,`
+    SELECT p.proname name,r.rolname grantee,a.privilege_type,a.is_grantable
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+    JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='fiscal' AND r.rolname IN (${sqlList(RUNTIME_ROLES)})
+    ORDER BY 1,2,3,4
+  `);
+  invariant(functionRuntimeGrants.every(row=>row.privilege_type==='EXECUTE'&&!row.is_grantable),
+    `003 fiscal function runtime grants invalid: ${JSON.stringify(functionRuntimeGrants)}`);
+  const actualFunctionGrantKeys=functionRuntimeGrants.map(row=>`${row.name}|${row.grantee}`).sort();
+  const expectedFunctionGrantKeys=Object.entries(POSTGRES_003_DESCRIPTOR.functionExecuteGrants)
+    .flatMap(([name,roles])=>roles.map(role=>`${name}|${role}`)).sort();
+  invariant(same(actualFunctionGrantKeys,expectedFunctionGrantKeys),
+    `003 fiscal function execute grant matrix diverges: actual=${JSON.stringify(actualFunctionGrantKeys)} expected=${JSON.stringify(expectedFunctionGrantKeys)}`);
 
   const publicTableGrants=await queryRows<{count:string}>(db,`
     SELECT count(*)::text count
