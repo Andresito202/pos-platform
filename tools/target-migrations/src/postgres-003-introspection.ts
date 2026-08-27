@@ -86,7 +86,15 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
     LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
     LEFT JOIN pg_collation coll ON coll.oid=a.attcollation
     WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r'
-      AND (n.nspname='fiscal' OR (n.nspname='integrations' AND c.relname IN ('integration_dispatches','external_webhook_receipts')))
+      AND (
+        n.nspname='fiscal'
+        OR (
+          n.nspname='integrations' AND (
+            (c.relname='integration_dispatches' AND a.attname IN ('fiscal_document_preparation_id','fiscal_preparation_generation','fiscal_request_semantic_version','fiscal_request_semantic_checksum'))
+            OR (c.relname='external_webhook_receipts' AND a.attname IN ('fiscal_electronic_document_id','fiscal_document_preparation_id','fiscal_preparation_generation','fiscal_integration_dispatch_id','fiscal_correlated_at'))
+          )
+        )
+      )
     ORDER BY 1,2,3
   `);
   const constraints=await queryRows<Record<string,unknown>>(db,`
