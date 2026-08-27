@@ -73,7 +73,8 @@ export async function fiscal003CatalogState(db:SqlExecutor):Promise<"pre-003"|"t
   return "partial";
 }
 
-async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
+interface SemanticCatalogFingerprint{sha:string;components:Record<string,string>}
+async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalogFingerprint>{
   const columns=await queryRows<Record<string,unknown>>(db,`
     SELECT n.nspname schema_name,c.relname table_name,a.attnum,a.attname name,
       format_type(a.atttypid,a.atttypmod) type_name,a.attnotnull,a.attidentity,a.attgenerated,
@@ -113,7 +114,11 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<string>{
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
     WHERE n.nspname='fiscal' ORDER BY 1,2,3
   `);
-  return sha256(JSON.stringify({columns,constraints,indexes,triggers,policies,functions})).toString('hex');
+  const source={columns,constraints,indexes,triggers,policies,functions};
+  const components=Object.fromEntries(Object.entries(source).map(([name,value])=>[
+    name,sha256(JSON.stringify(value)).toString('hex'),
+  ]));
+  return {sha:sha256(JSON.stringify(source)).toString('hex'),components};
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   await validate001FoundationShape(db);
@@ -132,7 +137,7 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
   invariant(same(tables.map(row=>row.name),[...FISCAL_TABLES].sort()),"003 fiscal table set diverges");
   invariant(tables.every(row=>row.owner==="pos_schema_owner"&&row.rls&&row.forced),"003 fiscal owner/RLS diverges");
   const semanticFingerprint=await semanticCatalogFingerprint(db);
-  invariant(semanticFingerprint===POSTGRES_003_DESCRIPTOR.semanticCatalogSha256,`003 semantic catalog fingerprint diverges: actual=${semanticFingerprint} expected=${POSTGRES_003_DESCRIPTOR.semanticCatalogSha256}`);
+  invariant(semanticFingerprint.sha===POSTGRES_003_DESCRIPTOR.semanticCatalogSha256,`003 semantic catalog fingerprint diverges: actual=${semanticFingerprint.sha} expected=${POSTGRES_003_DESCRIPTOR.semanticCatalogSha256} components=${JSON.stringify(semanticFingerprint.components)}`);
 
   for(const [qualified,expected] of Object.entries(POSTGRES_003_DESCRIPTOR.expectedTableColumns)){
     const [schemaName,tableName]=qualified.split(".");
