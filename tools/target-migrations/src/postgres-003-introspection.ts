@@ -2,6 +2,7 @@ import type { SqlExecutor } from "./database.js";
 import { queryRows } from "./database.js";
 import {
   FISCAL_TABLES,
+  INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
   POSTGRES_003_DESCRIPTOR,
   POSTGRES_TABLE_COLUMNS,
@@ -172,6 +173,18 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
 
   const schema=(await queryRows<{owner:string}>(db,"SELECT pg_get_userbyid(nspowner) owner FROM pg_namespace WHERE nspname='fiscal'"))[0];
   invariant(schema?.owner==="pos_schema_owner","003 fiscal schema owner diverges");
+  const schemaGrants=await queryRows<{grantee:string;privilege_type:string;is_grantable:boolean}>(db,`
+    SELECT CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END grantee,
+      a.privilege_type,a.is_grantable
+    FROM pg_namespace n
+    CROSS JOIN LATERAL aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+    WHERE n.nspname='fiscal' AND a.grantee<>n.nspowner
+    ORDER BY 1,2,3
+  `);
+  const actualSchemaGrantKeys=schemaGrants.map(row=>`${row.grantee}|${row.privilege_type}|${row.is_grantable}`);
+  const expectedSchemaGrantKeys=["pos_app|USAGE|false","pos_platform_admin|USAGE|false","pos_platform_app|USAGE|false","pos_worker|USAGE|false"];
+  invariant(same(actualSchemaGrantKeys,expectedSchemaGrantKeys),
+    `003 fiscal schema grant matrix diverges: actual=${JSON.stringify(actualSchemaGrantKeys)} expected=${JSON.stringify(expectedSchemaGrantKeys)}`);
 
   const tables=await queryRows<{name:string;owner:string;rls:boolean;forced:boolean}>(db,`
     SELECT c.relname name,pg_get_userbyid(c.relowner) owner,c.relrowsecurity rls,c.relforcerowsecurity forced
@@ -197,8 +210,17 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     invariant(same(columns.map(row=>row.name),[...expected]),`003 columns diverge for ${qualified}`);
   }
 
-  const integrationTables=await queryRows<{name:string}>(db,"SELECT tablename name FROM pg_tables WHERE schemaname='integrations' ORDER BY tablename");
-  invariant(INTEGRATION_TABLES.every(name=>integrationTables.some(row=>row.name===name)),"003 predecessor integration table missing");
+  const integrationTables=await queryRows<{name:string;owner:string;rls:boolean;forced:boolean}>(db,`
+    SELECT c.relname name,pg_get_userbyid(c.relowner) owner,c.relrowsecurity rls,c.relforcerowsecurity forced
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='integrations' AND c.relkind='r' ORDER BY c.relname
+  `);
+  invariant(same(integrationTables.map(row=>row.name),[...INTEGRATION_TABLES].sort()),"003 predecessor integration table set diverges");
+  invariant(integrationTables.every(row=>row.owner==="pos_schema_owner"),"003 predecessor integration table owner diverges");
+  invariant(integrationTables.every(row=>{
+    const expected=INTEGRATION_RLS_TABLES.includes(row.name);
+    return row.rls===expected&&row.forced===expected;
+  }),"003 predecessor integration table RLS diverges");
 
   for(const [qualified,columns] of Object.entries(POSTGRES_003_DESCRIPTOR.integrationExtensionColumns)){
     const [schemaName,tableName]=qualified.split(".");
@@ -288,6 +310,14 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     WHERE n.nspname='fiscal' AND c.relkind='r' AND a.grantee=0
   `);
   invariant(publicTableGrants[0]?.count==="0","PUBLIC has fiscal table grants");
+  const publicColumnGrants=await queryRows<{count:string}>(db,`
+    SELECT count(*)::text count
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute att ON att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped
+    CROSS JOIN LATERAL aclexplode(att.attacl) a
+    WHERE n.nspname='fiscal' AND c.relkind='r' AND a.grantee=0
+  `);
+  invariant(publicColumnGrants[0]?.count==="0","PUBLIC has fiscal column grants");
   const unlistedFiscalGrants=await queryRows<{object_name:string;column_name:string|null;grantee:string;privilege_type:string}>(db,`
     SELECT c.relname object_name,NULL::text column_name,r.rolname grantee,a.privilege_type
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
