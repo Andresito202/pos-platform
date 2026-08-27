@@ -359,14 +359,16 @@ describe("003 fiscal descriptor contract", () => {
     expect(POSTGRES_003_DESCRIPTOR.legacyConstraintTransitions).toBe(transition);
   });
 
-  it("revalidates preparation configuration and connection effectiveness under lock", () => {
+  it("revalidates preparation configuration and connection effectiveness under the current precedence lock", () => {
     const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_preparation_insert;
-    expect(sql).toContain("FOR SHARE OF v,c,i");
-    expect(sql).toContain("config_status<>'PUBLISHED'");
+    expect(sql).toContain("FROM fiscal.fiscal_connections c");
+    expect(sql).toContain("FOR UPDATE OF c");
     expect(sql).toContain("integration_status<>'ACTIVE'");
-    expect(sql).toContain("config_branch IS NOT NULL AND config_branch<>NEW.branch_id");
-    expect(sql).toContain("transaction_timestamp()>=config_valid_until");
     expect(sql).toContain("transaction_timestamp()>=connection_valid_until");
+    expect(sql).toContain("v.status='PUBLISHED'");
+    expect(sql).toContain("cfg.scope_type='BRANCH' AND cfg.branch_id=NEW.branch_id");
+    expect(sql).toContain("cfg.scope_type='COMPANY' AND cfg.branch_id IS NULL");
+    expect(sql).toContain("selected_version_id<>NEW.emission_configuration_version_id");
   });
 
   it("requires atomic reprepare closure of predecessor preparation, dispatch and reserved numbering", () => {
@@ -432,13 +434,13 @@ describe("003 fiscal descriptor contract", () => {
 
   it("revalidates the DB-owned claim chain and explicitly pins the external snapshot comparator contract", () => {
     const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_submission_attempt_root;
-    expect(sql).toContain("claim requires ACTIVE ExternalIntegration");
+    expect(sql).toContain("claim requires stable ACTIVE ExternalIntegration identity");
     expect(sql).toContain("claim adapter version is absent or retired");
-    expect(sql).toContain("exactly one SUPPORTED adapter capability declaration");
-    expect(sql).toContain("exactly one effective SUPPORTED integration capability");
+    expect(sql).toContain("claim requires SUPPORTED adapter capability declaration");
+    expect(sql).toContain("claim requires effective SUPPORTED integration capability");
     expect(sql).toContain("claim requires exact ACTIVE credential binding generation");
     expect(sql).toContain("claim requires effective FiscalConnection");
-    expect(sql).toContain("claim requires exact effective PUBLISHED fiscal configuration");
+    expect(sql).toContain("claim fiscal configuration drifted from BRANCH-over-COMPANY selection");
     expect(sql).toContain("dispatch.fiscal_request_semantic_checksum<>NEW.request_checksum");
     expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.frozenEmissionSnapshot.contract)
       .toBe("FISCAL_EMISSION_SNAPSHOT_V2");
