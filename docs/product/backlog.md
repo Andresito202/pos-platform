@@ -565,7 +565,7 @@ Continúa no autorizado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; SQL003 UP/DOWN materializados en rama pero aún no aplicados físicamente; Gate B sigue abierto. |
+| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; SQL003 runner apply/introspection/smoke/down/reapply validado físicamente en PostgreSQL 16.14 por CI #136; Gate B espera review independiente exact-head y cierre formal. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
@@ -701,3 +701,5 @@ Una tarea no está cerrada hasta que:
 - Gate B fingerprint stability was rechecked on exact HEAD `411c3690926990ddd078e6970fe16ad961694978` with two independent reruns of the same PostgreSQL job. Both produced identical aggregate SHA `3628b68a2c9a74aa8397d08419e3c7ab8e2f38b8242ba45a0a692db7728114e6` and identical per-table column hashes plus identical constraint/index/trigger/policy/function hashes. Descriptor pin restored to that exact-head repeated baseline; next CI is closure evidence, not diagnostic pinning.
 
 - Gate B CI #132 isolated the remaining column-fingerprint divergence to predecessor-owned columns on `integrations.integration_dispatches` and `integrations.external_webhook_receipts`; all ten fiscal table column hashes were identical across both physical variants. SQL003 introspection now fingerprints all `fiscal.*` column metadata plus only the 003-owned extension columns on those two integrations tables. Predecessor-owned integration columns remain governed by exact 001/002 validation and are no longer mixed into the 003 semantic hash.
+
+- Gate B CI #136 closure evidence: PostgreSQL 16.14 completed apply, exact semantic introspection, negative tamper checks, no-op, guarded down, exact-002 restoration and reapply on `158317182e6c604904bf84ec9e2a680313f1b177`. The semantic fingerprint normalizes physical ordinals only for 003-owned columns added to predecessor `integrations` tables, because down/reapply legitimately assigns new `attnum` values while all contract metadata remains exact. Gate B remains `NO_PASS` until fresh independent exact-head review and thread reconciliation.
