@@ -126,7 +126,8 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       mustRunBeforeFiscalLinkage: true,
       mustRunUnderFence: true,
       receiptMutationPrecondition: "CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE",
-      receiptTriggerRole: "AFTER_WRITE_REVALIDATION_AND_HISTORICAL_QUARANTINE_NOT_LOCK_ORDER_ACQUISITION",
+      receiptTriggerRole: "AFTER_FISCAL_LINKAGE_WRITE_REVALIDATION_AND_HISTORICAL_QUARANTINE_NOT_LOCK_ORDER_ACQUISITION",
+      normalProcessingUpdatesBypassFiscalFence: true,
       genericTenantIntegrationMatchForbidden: true,
       timestampHeuristicForbidden: true,
       outcomes: {

@@ -501,7 +501,8 @@ describe("003 fiscal descriptor contract", () => {
     const selector=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.deterministicSelector;
     expect(selector.receiptMutationPrecondition)
       .toBe("CALLER_LOCKS_DOCUMENT_PREPARATION_DISPATCH_BEFORE_RECEIPT_INSERT_OR_UPDATE");
-    expect(selector.receiptTriggerRole).toBe("AFTER_WRITE_REVALIDATION_AND_HISTORICAL_QUARANTINE_NOT_LOCK_ORDER_ACQUISITION");
+    expect(selector.receiptTriggerRole).toBe("AFTER_FISCAL_LINKAGE_WRITE_REVALIDATION_AND_HISTORICAL_QUARANTINE_NOT_LOCK_ORDER_ACQUISITION");
+    expect(selector.normalProcessingUpdatesBypassFiscalFence).toBe(true);
   });
 
   it("locks preparation selection in the universal authoritative order", () => {
@@ -598,7 +599,8 @@ describe("003 fiscal descriptor contract", () => {
 
   it("quarantines current generation after historical webhook correlation in the same transaction", () => {
     const trigger=FISCAL_003_EXACT_GUARD_DEFINITIONS.external_webhook_receipts_fiscal_correlation_guard;
-    expect(trigger).toContain("AFTER INSERT OR UPDATE");
+    expect(trigger).toContain("AFTER INSERT OR UPDATE OF fiscal_electronic_document_id,fiscal_document_preparation_id,fiscal_preparation_generation,fiscal_integration_dispatch_id,fiscal_correlated_at");
+    expect(trigger).not.toContain("AFTER INSERT OR UPDATE ON");
     const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_webhook_correlation;
     expect(sql).not.toContain("SECURITY DEFINER");
     expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.executionPrivilege)
