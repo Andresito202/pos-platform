@@ -1,6 +1,6 @@
 import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "./postgres-003-functions.js";
 import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "./postgres-003-external-contracts.js";
-import { FISCAL_003_DISPATCH_CLASS_TRANSITION } from "./postgres-003-transitions.js";
+import { FISCAL_003_DISPATCH_CLASS_TRANSITION, FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION } from "./postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
   FISCAL_003_EXACT_GUARD_DEFINITIONS,
@@ -458,6 +458,7 @@ export const FISCAL_003_REQUIRED_GUARDS = [
   "fiscal_incidents_state_guard",
   "fiscal_reconciliation_items_immutable_guard",
   "integration_dispatches_fiscal_preparation_guard",
+  "external_webhook_receipts_update_guard_003",
   "external_webhook_receipts_fiscal_correlation_guard",
   "provider_capability_declarations_fiscal_downgrade_guard",
 ] as const;
@@ -629,6 +630,7 @@ export interface FiscalMigrationDescriptor extends MigrationDescriptor {
   ownedFunctions: typeof FISCAL_003_REQUIRED_FUNCTIONS;
   exactFunctionDefinitions: typeof FISCAL_003_FUNCTION_DEFINITION_SQL;
   legacyConstraintTransitions: typeof FISCAL_003_DISPATCH_CLASS_TRANSITION;
+  legacyGuardTransitions: typeof FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
   externalFenceContracts: typeof FISCAL_003_EXTERNAL_FENCE_CONTRACTS;
   mat003PrerequisiteOnly: true;
 }
@@ -672,6 +674,7 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   ownedFunctions: FISCAL_003_REQUIRED_FUNCTIONS,
   exactFunctionDefinitions: FISCAL_003_FUNCTION_DEFINITION_SQL,
   legacyConstraintTransitions: FISCAL_003_DISPATCH_CLASS_TRANSITION,
+  legacyGuardTransitions: FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   externalFenceContracts: FISCAL_003_EXTERNAL_FENCE_CONTRACTS,
   mat003PrerequisiteOnly: true,
 };

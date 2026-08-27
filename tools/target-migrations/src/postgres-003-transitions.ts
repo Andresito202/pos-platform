@@ -28,3 +28,33 @@ export const FISCAL_003_DISPATCH_CLASS_TRANSITION = {
     absent: ["integration_dispatches_dispatch_class_003_ck"]
   }
 } as const;
+
+
+export const FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION = {
+  table: "integrations.external_webhook_receipts",
+  predecessorName: "external_webhook_receipts_update_guard",
+  successorName: "external_webhook_receipts_update_guard_003",
+  predecessorDefinitionSql: "CREATE TRIGGER external_webhook_receipts_update_guard BEFORE UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version');",
+  successorDefinitionSql: "CREATE TRIGGER external_webhook_receipts_update_guard_003 BEFORE UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version,fiscal_electronic_document_id,fiscal_document_preparation_id,fiscal_preparation_generation,fiscal_integration_dispatch_id,fiscal_correlated_at');",
+  upSql: [
+    "CREATE TRIGGER external_webhook_receipts_update_guard_003 BEFORE UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version,fiscal_electronic_document_id,fiscal_document_preparation_id,fiscal_preparation_generation,fiscal_integration_dispatch_id,fiscal_correlated_at');",
+    "DROP TRIGGER external_webhook_receipts_update_guard ON integrations.external_webhook_receipts;"
+  ],
+  downSql: [
+    "CREATE TRIGGER external_webhook_receipts_update_guard BEFORE UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version');",
+    "DROP TRIGGER external_webhook_receipts_update_guard_003 ON integrations.external_webhook_receipts;"
+  ],
+  expectedAfterUp: {
+    present: ["external_webhook_receipts_update_guard_003"],
+    absent: ["external_webhook_receipts_update_guard"]
+  },
+  expectedAfterDown: {
+    present: ["external_webhook_receipts_update_guard"],
+    absent: ["external_webhook_receipts_update_guard_003"]
+  },
+  safety: [
+    "successor is created before predecessor is dropped",
+    "while both exist the narrower 002 guard remains fail-closed",
+    "down restores the narrower 002 guard before removing the 003 successor"
+  ]
+} as const;

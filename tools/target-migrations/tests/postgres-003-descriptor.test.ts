@@ -1,6 +1,6 @@
 import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } from "../src/postgres-003-functions.js";
 import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "../src/postgres-003-external-contracts.js";
-import { FISCAL_003_DISPATCH_CLASS_TRANSITION } from "../src/postgres-003-transitions.js";
+import { FISCAL_003_DISPATCH_CLASS_TRANSITION, FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION } from "../src/postgres-003-transitions.js";
 import {
   FISCAL_003_EXACT_CONSTRAINT_DEFINITIONS,
   FISCAL_003_EXACT_GUARD_DEFINITIONS,
@@ -608,6 +608,28 @@ describe("003 fiscal descriptor contract", () => {
     expect(sql).toContain("version=version+1");
     expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.historicalCorrelationOutcome)
       .toBe("SAME_TRANSACTION_CURRENT_GENERATION_QUARANTINE");
+  });
+
+  it("replaces the legacy receipt update allowlist without a permissive window", () => {
+    const transition=FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
+    expect(transition.predecessorName).toBe("external_webhook_receipts_update_guard");
+    expect(transition.successorName).toBe("external_webhook_receipts_update_guard_003");
+    expect(transition.successorDefinitionSql).toContain("processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version,fiscal_electronic_document_id,fiscal_document_preparation_id,fiscal_preparation_generation,fiscal_integration_dispatch_id,fiscal_correlated_at");
+    expect(transition.upSql).toEqual([
+      transition.successorDefinitionSql,
+      "DROP TRIGGER external_webhook_receipts_update_guard ON integrations.external_webhook_receipts;",
+    ]);
+    expect(transition.downSql).toEqual([
+      transition.predecessorDefinitionSql,
+      "DROP TRIGGER external_webhook_receipts_update_guard_003 ON integrations.external_webhook_receipts;",
+    ]);
+    expect(transition.expectedAfterUp).toEqual({
+      present:["external_webhook_receipts_update_guard_003"],
+      absent:["external_webhook_receipts_update_guard"],
+    });
+    expect(FISCAL_003_EXACT_GUARD_DEFINITIONS[transition.successorName])
+      .toBe(transition.successorDefinitionSql);
+    expect(POSTGRES_003_DESCRIPTOR.legacyGuardTransitions).toBe(transition);
   });
 
 });
