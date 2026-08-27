@@ -661,3 +661,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #108 finding: la siguiente capa falló en la matriz de grants porque `information_schema.column_privileges` también depende de visibilidad del rol efectivo. Introspection 003 pasa a reconstruir privilegios efectivos desde `pg_class.relacl` + `pg_attribute.attacl` mediante `aclexplode`, siguiendo el patrón ya probado en migration 002; la matriz esperada permanece intacta.
 
 - Gate B runner CI #109 diagnostic: la matriz ACL ya pasó y el flujo alcanzó `finishApplied`, pero el UPDATE final del ledger recibió `42501 permission denied`. SQL003 no cambia roles de sesión; se añade `verifyRuntime()` post-smoke para capturar `session_user/current_user` exactos antes de cualquier remediación de permisos.
+
+- Gate B runner CI #110 finding: post-smoke se observó `session_user=pos_migrator/current_user=pos_migrator`; `pos_migrator` es deliberadamente `NOINHERIT`, por lo que no puede cerrar el ledger. SQL003 no modifica membresías. El runner reestablece explícitamente `SET ROLE pos_schema_owner` tras el smoke, vuelve a verificar identidad y solo entonces finaliza `APPLIED`; no se conceden privilegios directos nuevos.

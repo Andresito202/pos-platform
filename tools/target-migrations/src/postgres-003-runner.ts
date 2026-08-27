@@ -137,6 +137,7 @@ async function finishAndReceipt(
 ):Promise<Postgres003ApplyResult>{
   await validatePostgres003Catalog(connection);
   if(!config.skipSmoke) await runPostgres003Smoke(config.adminUrl);
+  await executeRaw(connection,"SET ROLE pos_schema_owner");
   await verifyRuntime(connection,config.expectedDatabase);
   await finishApplied(connection,executionId);
   const payload:ApplyReceiptPayload={
