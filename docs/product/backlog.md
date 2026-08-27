@@ -659,3 +659,5 @@ Una tarea no está cerrada hasta que:
 - Gate B runner CI #107 finding: `actual=[]` confirmó que no había drift de `identity.users`; `information_schema.columns` ocultaba columnas por visibilidad del rol efectivo. Introspection 003 migra sus comprobaciones físicas de columnas a `pg_attribute/pg_class/pg_namespace`, igual que el validator 001, manteniendo comparación exacta y sin depender de grants.
 
 - Gate B runner CI #108 finding: la siguiente capa falló en la matriz de grants porque `information_schema.column_privileges` también depende de visibilidad del rol efectivo. Introspection 003 pasa a reconstruir privilegios efectivos desde `pg_class.relacl` + `pg_attribute.attacl` mediante `aclexplode`, siguiendo el patrón ya probado en migration 002; la matriz esperada permanece intacta.
+
+- Gate B runner CI #109 diagnostic: la matriz ACL ya pasó y el flujo alcanzó `finishApplied`, pero el UPDATE final del ledger recibió `42501 permission denied`. SQL003 no cambia roles de sesión; se añade `verifyRuntime()` post-smoke para capturar `session_user/current_user` exactos antes de cualquier remediación de permisos.

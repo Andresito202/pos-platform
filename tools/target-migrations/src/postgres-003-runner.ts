@@ -89,7 +89,10 @@ async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<voi
   const row=(await queryRows<{database:string;version:string;session_user:string;current_user:string}>(db,
     "SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0];
   invariant(row?.database===expectedDatabase&&row.version==="160014","003 target mismatch");
-  invariant(row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner","003 migrator identity mismatch");
+  invariant(
+    row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner",
+    `003 migrator identity mismatch: session_user=${row?.session_user??"missing"} current_user=${row?.current_user??"missing"}`,
+  );
 }
 async function verifyPredecessors(db:SqlExecutor):Promise<void>{
   const one=sha256(await readArtifact(POSTGRES_001_DESCRIPTOR.upArtifact));
@@ -134,6 +137,7 @@ async function finishAndReceipt(
 ):Promise<Postgres003ApplyResult>{
   await validatePostgres003Catalog(connection);
   if(!config.skipSmoke) await runPostgres003Smoke(config.adminUrl);
+  await verifyRuntime(connection,config.expectedDatabase);
   await finishApplied(connection,executionId);
   const payload:ApplyReceiptPayload={
     receipt_version:1,migration_id:POSTGRES_003_MIGRATION_ID,execution_id:executionId,
