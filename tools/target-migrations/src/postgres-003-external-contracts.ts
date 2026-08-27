@@ -89,7 +89,8 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       table: "fiscal.fiscal_reconciliation_items",
       resultCode: "VERIFIED_LATE_REMOTE_EVIDENCE_V1",
       exactScope: ["tenant_id","company_id","external_integration_id","electronic_document_id","fiscal_document_preparation_id","preparation_generation"],
-      requiredEvidence: ["observed_state_reference","evidence_reference","lowercase_sha256_evidence_checksum"],
+      requiredEvidence: ["expected_state_reference","observed_state_reference","evidence_reference","lowercase_sha256_evidence_checksum"],
+      verifiedMutationProjection: "expected_state_reference=jsonb_build_array(prefix,number,numbering_state,provider_document_id,provider_reference,provider_status_raw)::text",
       numberingChecksumBinding: "numbering_resolution_reason=LATE_REMOTE_EVIDENCE_V1:<evidence_checksum>",
     },
     sourceSpecificComparatorChecks: [
@@ -142,6 +143,8 @@ export const FISCAL_003_EXTERNAL_FENCE_CONTRACTS = {
       "ExternalWebhookReceipt",
     ],
     historicalCorrelationOutcome: "SAME_TRANSACTION_CURRENT_GENERATION_QUARANTINE",
+    executionPrivilege: "INVOKER_ONLY_NO_SECURITY_DEFINER",
+    historicalInsertWithoutQuarantinePrivilege: "FAIL_CLOSED_AND_USE_POS_WORKER_CORRELATOR",
     concurrencyOutcome: "ONE_WINNER_CORRELATOR_OR_REPREPARE",
   },
 } as const;

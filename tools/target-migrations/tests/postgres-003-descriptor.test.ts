@@ -578,6 +578,9 @@ describe("003 fiscal descriptor contract", () => {
     const contract=FISCAL_003_EXTERNAL_FENCE_CONTRACTS.lateRemoteEvidence;
     expect(contract.contract).toBe("LATE_REMOTE_EVIDENCE_V1");
     expect(contract.comparatorOutput.resultCode).toBe("VERIFIED_LATE_REMOTE_EVIDENCE_V1");
+    expect(contract.comparatorOutput.verifiedMutationProjection)
+      .toContain("jsonb_build_array(prefix,number,numbering_state,provider_document_id,provider_reference,provider_status_raw)");
+    expect(sql).toContain("ri.expected_state_reference=jsonb_build_array(NEW.prefix,NEW.number,NEW.numbering_state,NEW.provider_document_id,NEW.provider_reference,NEW.provider_status_raw)::text");
     expect(contract.forbidden).toContain("presence of an attempt alone is never authorization to write a number");
   });
 
@@ -597,7 +600,9 @@ describe("003 fiscal descriptor contract", () => {
     const trigger=FISCAL_003_EXACT_GUARD_DEFINITIONS.external_webhook_receipts_fiscal_correlation_guard;
     expect(trigger).toContain("AFTER INSERT OR UPDATE");
     const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_fiscal_webhook_correlation;
-    expect(sql).toContain("SECURITY DEFINER");
+    expect(sql).not.toContain("SECURITY DEFINER");
+    expect(FISCAL_003_EXTERNAL_FENCE_CONTRACTS.webhookCorrelation.executionPrivilege)
+      .toBe("INVOKER_ONLY_NO_SECURITY_DEFINER");
     expect(sql).toContain("NEW.fiscal_preparation_generation<document_generation");
     expect(sql).toContain("uncertainty_reason='HISTORICAL_GENERATION_EVIDENCE'");
     expect(sql).toContain("version=version+1");
