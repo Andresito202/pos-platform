@@ -132,6 +132,39 @@ describe("LocalDatabase", () => {
     db.close();
   });
 
+  it("blocks a pending migration when verified-backup capacity is insufficient", async () => {
+    const dataDirectory = await directory();
+    const path = join(dataDirectory, "pos-local.db");
+    const raw = new Database(path);
+    raw.exec(MIGRATION_001);
+    raw.exec(`CREATE TABLE local_schema_migrations (
+      version INTEGER PRIMARY KEY NOT NULL,
+      checksum TEXT NOT NULL CHECK(length(checksum) = 64),
+      applied_at TEXT NOT NULL
+    ) STRICT;`);
+    raw.prepare("INSERT INTO local_schema_migrations VALUES (?, ?, ?)").run(
+      1,
+      createHash("sha256").update(MIGRATION_001).digest("hex"),
+      "2026-08-28T00:00:00Z",
+    );
+    raw.close();
+
+    expect(() => LocalDatabase.open({
+      dataDirectory,
+      storageProbe: { availableBytes: () => 0n },
+    })).toThrow("insufficient free space for SQLite backup");
+
+    const unchanged = new Database(path, { readonly: true });
+    expect(unchanged.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='local_security_state'",
+    ).get()).toBeUndefined();
+    expect(unchanged.prepare(
+      "SELECT max(version) AS version FROM local_schema_migrations",
+    ).get()).toEqual({ version: 1 });
+    unchanged.close();
+    expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
+  });
+
   it("backs up an existing v1 database before applying v2", async () => {
     const dataDirectory = await directory();
     const path = join(dataDirectory, "pos-local.db");
