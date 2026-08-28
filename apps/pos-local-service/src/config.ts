@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
+import { ContractVersionSchema, compareContractVersions } from "@pos-platform/contracts";
 import * as z from "zod";
 
 const CONFIG_ENVIRONMENT_KEYS = new Set([
@@ -14,9 +15,17 @@ const ServiceConfigSchema = z.strictObject({
   data_directory: z.string().min(1),
   installation_id: z.uuid(),
   device_id: z.uuid(),
-  service_version: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
-  protocol_min: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
-  protocol_max: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
+  service_version: ContractVersionSchema,
+  protocol_min: ContractVersionSchema,
+  protocol_max: ContractVersionSchema,
+}).superRefine((value, context) => {
+  if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["protocol_max"],
+      message: "protocol_max must be greater than or equal to protocol_min",
+    });
+  }
 });
 export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
 
