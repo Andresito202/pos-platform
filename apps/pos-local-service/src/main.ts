@@ -1,10 +1,12 @@
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle } from "./lifecycle.js";
+import { LocalDatabaseComponent } from "./local-database-component.js";
 
 const logger = new StructuredLogger({ write: (record) => process.stdout.write(`${JSON.stringify(record)}\n`) });
 const config = parseServiceConfig(process.env);
-const lifecycle = new ServiceLifecycle([]);
+const localDatabase = new LocalDatabaseComponent(config.data_directory);
+const lifecycle = new ServiceLifecycle([localDatabase]);
 
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   logger.log("info", "runtime.stopping", { signal });
