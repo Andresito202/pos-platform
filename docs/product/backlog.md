@@ -55,8 +55,11 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - PR #4: `MERGED / CLOSED`; propuesta V7 de reconciliación SQL003 integrada con `PROPOSAL_REVIEW = PASS`.
 - PR #9: `MERGED / CLOSED`; remediación contractual autoritativa V2 integrada con `AUTHORITATIVE_CONTRACT_REVIEW = PASS`.
 - PR #10: `MERGED / CLOSED`; reconciliación post-merge de INT-006 integrada.
-- HEAD canónico verificado después de PR #10: `b28ca8850acc6b97385c80627a9d64b7ea607a42`.
-- Run post-merge #67 `33015503869`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002, MAT-003 preflight y role-readiness.
+- PR #11: `MERGED / CLOSED`; INT-007 / SQL003 V2 integrado con Gate A `PASS / FROZEN` y Gate B `PASS / CLOSED`.
+- HEAD exacto integrado de PR #11: `39c56d030954f3bef20b84f773e4a4f76766a06b`; Codex exact-head: `Didn't find any major issues`; 48/48 review threads resueltos.
+- Merge commit canónico: `8676caef419d70732f74489a413ae7fda2c49d0c`.
+- Run post-merge #159 `33142409080`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002/003, Modelo A, MAT-003 preflight y role-readiness.
+- Artifact post-merge exact-head: `int-007-gate-b-8676caef419d70732f74489a413ae7fda2c49d0c`.
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub antes de cualquier integración.
 
@@ -65,11 +68,9 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - NestJS/Fastify runtime: `ABSENT / NOT_MATERIALIZED`.
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
-- Nx de aplicaciones/packages: `ABSENT`.
-- SQL 003 DDL: `MATERIALIZED_IN_BRANCH / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; apply→introspection/smoke→down→exact-002→reapply y la suite Modelo A pasan; SQLite 003 permanece `NONE`.
-- descriptor 003: `MATERIALIZED_IN_BRANCH / GATE_A_DONE_FROZEN`; Gate A está cerrado. El checkpoint exact-head vigente antes de este ajuste documental fue `c297d465cbfb9349f53d3f2e368034dddb9ca545`, CI #98 `33077301346` SUCCESS y Codex exact-head sin major issues.
-- schema fiscal 003: `ABSENT / NOT_APPLIED`.
-- migration 003: `IN_PROGRESS / NOT_APPLIED`.
+- Nx de aplicaciones/packages: `IN_PROGRESS_IN_DRAFT_PR_12 / NOT_IN_MAIN`; no runtime productivo iniciado.
+- SQL 003 DDL + descriptor 003: `INTEGRATED / GATES_CLOSED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; apply→introspection/smoke→down→exact-002→reapply y Modelo A pasan; SQLite 003 permanece `NONE`.
+- schema/migration 003 en un entorno compartido o productivo: `NOT_DEPLOYED`; INT-007 cerró el artefacto de repositorio y su evidencia CI, no un despliegue productivo.
 - bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
 - SIIGO/FACTUS/ALEGRA adapters reales: `DESIGNED / NOT_EVALUATED`.
 - infraestructura productiva/piloto: pendiente.
@@ -107,7 +108,7 @@ Este control es detectivo, no preventivo.
 | `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a un baseline ya integrado; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
 | `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
-| `feat/sql003-v2-materialization-20260826` | `CLOSURE_CANDIDATE / NOT_INTEGRATED` | INT-007; Gate A cerrado y Gate B técnicamente verde en PostgreSQL 16.14; falta evidencia/review exact-head final antes de PASS y merge sigue separado. |
+| `feat/sql003-v2-materialization-20260826` | `INTEGRATED / HISTORICAL` | PR #11 integrada; INT-007 cerrado. No reutilizar para ARCH-003 ni para runtime/providers. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -131,11 +132,23 @@ Reglas:
 
 ## Trabajo principal actual
 
+### ARCH-003 — límites ejecutables de módulos / Nx
+
+Prioridad: `P0`
+
+Estado: `IN_PROGRESS / DRAFT_PR_12`
+
+Rama activa: `architecture/executable-boundaries-20260828`.
+
+PR #12 materializa únicamente límites ejecutables/Nx; no autoriza API, Electron, providers ni runtime fiscal. Debe permanecer DRAFT hasta CI exact-head verde, revisión independiente y autorización separada de merge.
+
+## Último bloque cerrado
+
 ### INT-007 — materialización SQL/descriptor 003 sobre bundle V2
 
 Prioridad: `P0`
 
-Estado: `IN_PROGRESS`
+Estado: `DONE / INTEGRATED`
 
 Baseline y autorización:
 
@@ -194,17 +207,19 @@ No alcance:
 
 INT-007 no se considera `DONE` por crear el descriptor ni por producir SQL estático. Requiere DDL ejecutable, validación de catálogo, apply/down, regresión 001/002, CI exact-head y revisión independiente.
 
-Checkpoint consolidado 2026-08-27 — cierre candidato:
+Checkpoint final 2026-08-28:
 
-- Gate A: `DONE / FROZEN`.
-- Gate B: `CLOSURE_CANDIDATE / TECHNICAL_VALIDATION_PASS / FINAL_EXACT_HEAD_REVIEW_PENDING`.
-- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`.
-- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico: `PASS`.
-- Modelo A funcional/concurrencia: `MATERIALIZED / 7_OF_7_PASS` en el baseline de implementación `89d8c5fa9697fd28ecd6685c0824caf73340f489`, CI #156 / run `33130461450`.
-- Regresión PostgreSQL 001/002/003, exact-002 restoration, reapply, SQLite, typecheck, MAT-003 preflight y role-readiness: `PASS` en CI #156.
-- Hallazgos demostrados y corregidos en Gate B: cancelación histórica de dispatch durante reprepare, ACL de webhook ingress, reemplazo 003 del trigger 002 incompatible con `processing_status`, y separación RLS SELECT/UPDATE de `FiscalDocumentPreparation` para `pos_worker`.
-- PR #11: `OPEN / DRAFT / NOT_MERGED`; no se quita DRAFT ni se autoriza merge hasta CI + revisión independiente exact-head del cierre final.
-- Merge, providers, HTTP, credenciales, sandbox, runtime, hardware y SEC-G01..SEC-G10 continúan no autorizados en este gate.
+- Gate A: `PASS / FROZEN`.
+- Gate B: `PASS / CLOSED`.
+- INT-007: `DONE / INTEGRATED`.
+- Exact implementation HEAD: `39c56d030954f3bef20b84f773e4a4f76766a06b`.
+- CI exact-head #158 / run `33141808515`: `SUCCESS`.
+- Codex exact-head: `Didn't find any major issues`; review threads `48/48 RESOLVED`.
+- PR #11: `MERGED / CLOSED`.
+- Merge commit: `8676caef419d70732f74489a413ae7fda2c49d0c`.
+- CI post-merge #159 / run `33142409080`: `SUCCESS`; main governance, repository policy/dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 y tooling MAT-003 verdes.
+- Artifact post-merge: `int-007-gate-b-8676caef419d70732f74489a413ae7fda2c49d0c`.
+- Providers, HTTP/credenciales/sandbox, runtime, hardware, producción y `SEC-G01..SEC-G10` permanecen fuera del cierre de INT-007.
 
 ### INT-006 — remediación contractual autoritativa de migration 003
 
@@ -297,16 +312,12 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 
 ## Orden inmediato obligatorio
 
-1. Mantener **INT-007 Gate A** `DONE / FROZEN`; no rediseñar el contrato cerrado.
-2. Cerrar exclusivamente **INT-007 Gate B**: la implementación, runner y suite Modelo A ya están verdes; queda generar evidencia exact-head del cierre, ejecutar CI y obtener revisión independiente sobre el mismo SHA.
-3. Cualquier nuevo HEAD invalida la evidencia CI/review anterior; solo un defecto reproducible autoriza cambios adicionales de SQL003.
-4. Declarar Gate B `PASS` únicamente cuando CI exact-head + revisión independiente + cero threads abiertos coincidan; después dejar PR #11 lista para autorización separada de merge.
-5. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
-5. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
-6. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
-7. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
-8. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
-9. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
+1. Mantener **INT-007** `DONE / INTEGRATED`; no reabrir SQL003 salvo defecto reproducible o nueva necesidad contractual versionada.
+2. **ARCH-003** es la única línea principal activa, en PR draft #12; cerrar sus límites ejecutables/Nx con CI exact-head, revisión independiente y merge autorizado por separado.
+3. **TECH-003** sigue después de ARCH-003: contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
+4. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
+5. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
+6. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con ARCH-003.
 
 No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
 
@@ -314,7 +325,7 @@ No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sig
 
 ### INT-007 / materialización 003
 
-Estado de materialización: `CLOSURE_CANDIDATE / FINAL_EXACT_HEAD_REVIEW_PENDING`.
+Estado de materialización: `DONE / INTEGRATED / NOT_DEPLOYED_TO_PRODUCTION`.
 
 PR #9 fue revisada, integrada y validada post-merge; PR #10 reconcilió el backlog y el run #67 validó el nuevo `main`. Los requisitos técnicos/documentales 1–5 del gate estaban cumplidos y la autorización explícita y separada del punto 6 fue otorgada el 2026-08-26. La ejecución queda limitada a INT-007 y no autoriza providers, runtime ni promoción de seguridad.
 
@@ -364,7 +375,7 @@ Continúa no autorizado:
 |---|---|---|---|
 | ARCH-001 | P0 | DONE | Monolito modular, monorepo, local-first y single codebase definidos. |
 | ARCH-002 | P0 | DONE | Contexto, tenancy, deployment y ownership definidos. |
-| ARCH-003 | P0 | READY | Convertir límites en reglas ejecutables de módulos/Nx. TECH-002 está DONE y module-map queda reconciliado en este corte. |
+| ARCH-003 | P0 | IN_PROGRESS | PR draft #12 `architecture/executable-boundaries-20260828`; límites ejecutables/Nx en validación. Sin runtime/API/Electron/providers. |
 | ARCH-004 | P0 | DONE | Contratos renderer/Electron/local/API/hardware/providers definidos; extensión fiscal V2 de INT-006 integrada y revisada, sin runtime. |
 | ARCH-005 | P0 | DONE | Stack objetivo cerrado en ADR-005. |
 
@@ -422,7 +433,7 @@ Continúa no autorizado:
 | INT-004 | P1 | PLANNED | Adapters SIIGO/FACTUS/ALEGRA reales; no mocks como evidencia. |
 | INT-005 | P2 | PLANNED | Evaluar HKA/Odoo sin adapters ficticios. |
 | INT-006 | P0 | DONE | Remediación contractual autoritativa V2 integrada/revisada por PR #9; contrato cerrado. |
-| INT-007 | P0 | CLOSURE_CANDIDATE | Gate A DONE/FROZEN; SQL003, runner y Modelo A 7/7 verdes en PostgreSQL 16.14. Falta CI/review exact-head final antes de DONE/PASS; merge separado. |
+| INT-007 | P0 | DONE | Gate A PASS/FROZEN; Gate B PASS/CLOSED; PR #11 MERGED/CLOSED; post-merge #159 SUCCESS sobre `main@8676caef419d70732f74489a413ae7fda2c49d0c`. |
 
 ### Pagos
 
@@ -567,8 +578,8 @@ Continúa no autorizado:
 | Hito | Estado | Criterio vigente |
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
-| F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | CLOSURE_CANDIDATE | TECH-002 e INT-006 DONE; 001/002 inmutables; SQL003 físico + runner/introspection + Modelo A funcional/concurrencia 7/7 PASS en PostgreSQL 16.14 sobre `89d8c5fa9697fd28ecd6685c0824caf73340f489`, CI #156. Falta cierre exact-head CI/review del commit documental final. |
+| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 activo en PR draft #12; TECH-003 y esqueleto runtime siguen pendientes. |
+| F1.2 Modelo físico/migrations | DONE | TECH-002 e INT-006 cerrados; migrations 001/002 inmutables; SQL003 integrado por PR #11 con Gate A/B PASS y post-merge #159 SUCCESS. Despliegue productivo no iniciado. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
@@ -720,3 +731,7 @@ Una tarea no está cerrada hasta que:
 - Gate B CI #154 on `415315873b4978a584451124fa0b642bb13f5a37` reached 159/160 tests and 6/7 Modelo A; the sole late-webhook failure proved `pos_worker` RLS could not SELECT the current DRAFT preparation during historical-generation quarantine.
 - Gate B RLS remediation: `pos_worker` now has tenant-scoped SELECT on preparations while UPDATE remains separately restricted to FROZEN or admissible historical-evidence rows. No SECURITY DEFINER and no write-surface widening.
 - Gate B implementation validation: CI #156 / run `33130461450` on `89d8c5fa9697fd28ecd6685c0824caf73340f489` is SUCCESS. Typecheck, SQLite, PostgreSQL 001/002/003, physical runner apply/introspection/down/exact-002/reapply, 7/7 Modelo A, MAT-003 preflight and role-readiness all pass. Gate B remains a closure candidate until the final documentation/evidence HEAD receives fresh exact-head CI and independent review.
+
+
+- INT-007 final exact-head closure: `39c56d030954f3bef20b84f773e4a4f76766a06b`, CI #158 / run `33141808515` SUCCESS, Modelo A concurrent race coverage PASS, Codex exact-head without major issues, 48/48 threads resolved.
+- INT-007 integration closure: PR #11 MERGED/CLOSED as merge commit `8676caef419d70732f74489a413ae7fda2c49d0c`; post-merge CI #159 / run `33142409080` SUCCESS including main governance and exact-head Gate B artifact. INT-007 is DONE; no provider/runtime/production authorization is inferred.
