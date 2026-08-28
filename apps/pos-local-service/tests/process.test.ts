@@ -4,6 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { inspectWindowsNamedPipeSecurity, localChannelEndpoint } from "../src/index.js";
 
 const directories: string[] = [];
 
@@ -23,6 +24,7 @@ function serviceEnvironment(dataDirectory?: string): NodeJS.ProcessEnv {
   );
   return {
     ...base,
+    NODE_ENV: "test",
     ...(dataDirectory === undefined ? {} : { POS_DATA_DIRECTORY: dataDirectory }),
     POS_INSTALLATION_ID: "018f0000-0000-7000-8000-000000000001",
     POS_DEVICE_ID: "018f0000-0000-7000-8000-000000000002",
@@ -169,6 +171,16 @@ describe("POS Local Service process boundary", () => {
     const child = spawnServiceWithControl(serviceEnvironment(dataDirectory));
     const stdout = captureStdout(child);
     await waitForLogEvent(child, "runtime.started");
+
+    if (process.platform === "win32") {
+      const endpoint = localChannelEndpoint("018f0000-0000-7000-8000-000000000001");
+      const report = inspectWindowsNamedPipeSecurity(endpoint);
+      expect(report.allowedTrustees.length).toBeGreaterThan(0);
+      expect(report.allowedTrustees).not.toContain("WD");
+      expect(report.allowedTrustees).not.toContain("AN");
+      expect(report.allowedTrustees).not.toContain("AU");
+      expect(report.allowedTrustees).not.toContain("BU");
+    }
 
     const exited = waitForExit(child);
     expect(child.send({ type: "pos-platform.test.shutdown" })).toBe(true);
