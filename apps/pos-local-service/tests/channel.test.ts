@@ -4,6 +4,7 @@ import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
@@ -448,6 +449,7 @@ describe("local channel", () => {
         expect(report.allowedTrustees).not.toContain("AU");
         expect(report.allowedTrustees).not.toContain("BU");
         expect(report.allowedTrustees).not.toContain("BA");
+        await yieldToEventLoop();
       }
     } finally {
       await server.stop();
