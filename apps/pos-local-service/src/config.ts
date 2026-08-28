@@ -14,9 +14,9 @@ const ServiceConfigSchema = z.strictObject({
   data_directory: z.string().min(1),
   installation_id: z.uuid(),
   device_id: z.uuid(),
-  service_version: z.string().regex(/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/),
-  protocol_min: z.string().regex(/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/),
-  protocol_max: z.string().regex(/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/),
+  service_version: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
+  protocol_min: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
+  protocol_max: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
 });
 export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
 
