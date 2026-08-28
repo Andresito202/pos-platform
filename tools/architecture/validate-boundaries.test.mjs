@@ -26,10 +26,10 @@ const policy = {
   },
 };
 
-async function writeProject(name, definition, dependencies = {}) {
+async function writeProject(name, definition, dependencies = {}, extraManifest = {}) {
   const directory = join(root, definition.root);
   await mkdir(join(directory, "src"), { recursive: true });
-  await writeFile(join(directory, "package.json"), JSON.stringify({ name, version: "0.0.0", private: true, type: "module", dependencies }, null, 2));
+  await writeFile(join(directory, "package.json"), JSON.stringify({ name, version: "0.0.0", private: true, type: "module", dependencies, ...extraManifest }, null, 2));
   const tags = [`layer:${definition.layer}`, `type:${definition.type}`, `scope:${definition.scope}`];
   if (definition.dialect) tags.push(`dialect:${definition.dialect}`);
   await writeFile(join(directory, "project.json"), JSON.stringify({ name, root: definition.root, projectType: "library", tags }, null, 2));
@@ -92,4 +92,16 @@ test("requires the workspace protocol for internal dependencies", async () => {
   await writeFile(join(root, "packages/application/src/non-workspace.ts"), 'import "@pos-platform/domain";\n');
   const errors = await validate();
   assert(errors.some((error) => error.includes("must use the workspace: protocol")));
+});
+
+test("validates duplicate internal dependency declarations independently", async () => {
+  await writeProject(
+    "@pos-platform/application",
+    policy.projects["@pos-platform/application"],
+    { "@pos-platform/domain": "0.0.0" },
+    { peerDependencies: { "@pos-platform/domain": "workspace:*" } },
+  );
+  await writeFile(join(root, "packages/application/src/duplicate.ts"), 'import "@pos-platform/domain";\n');
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("workspace: protocol in dependencies")));
 });
