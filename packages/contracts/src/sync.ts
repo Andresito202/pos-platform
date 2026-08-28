@@ -110,8 +110,12 @@ export const SyncOperationResultSchema = z.strictObject({
   retryable: z.boolean(),
   review_required: z.boolean(),
 }).superRefine((result, context) => {
-  if (result.server_status === "SERVER_ACCEPTED" && result.committed_at_server === null) {
-    context.addIssue({ code: "custom", path: ["committed_at_server"], message: "SERVER_ACCEPTED requires durable commit time" });
+  const durableStatuses = new Set(["SERVER_ACCEPTED", "SERVER_REJECTED", "CONFLICT", "REVIEW_REQUIRED", "DEAD_LETTER"]);
+  if (durableStatuses.has(result.server_status) && result.committed_at_server === null) {
+    context.addIssue({ code: "custom", path: ["committed_at_server"], message: `${result.server_status} requires durable server evidence` });
+  }
+  if (!durableStatuses.has(result.server_status) && result.committed_at_server !== null) {
+    context.addIssue({ code: "custom", path: ["committed_at_server"], message: `${result.server_status} cannot advertise a durable commit` });
   }
   if (result.server_status === "RETRY_SCHEDULED" && !result.retryable) {
     context.addIssue({ code: "custom", path: ["retryable"], message: "RETRY_SCHEDULED must be retryable" });
@@ -144,11 +148,19 @@ export function validateSyncBatchCorrespondence(requestInput: unknown, responseI
   const requestedIds = new Set(request.operations.map((operation) => operation.operation_id));
   const resultIds = new Set(response.results.map((result) => result.operation_id));
   if (requestedIds.size !== resultIds.size || [...requestedIds].some((id) => !resultIds.has(id))) return false;
-  if (response.acknowledged_through_local_sequence !== null) {
-    const maximum = request.operations.at(-1)!.local_sequence;
-    if (response.acknowledged_through_local_sequence > maximum) return false;
+  if (response.acknowledged_through_local_sequence === null) {
+    return request.checkpoint_local_sequence === null;
   }
-  return true;
+  const previousCheckpoint = request.checkpoint_local_sequence ?? 0;
+  if (response.acknowledged_through_local_sequence < previousCheckpoint) return false;
+  const resultByOperation = new Map(response.results.map((result) => [result.operation_id, result]));
+  let durablePrefix = previousCheckpoint;
+  for (const operation of request.operations) {
+    const result = resultByOperation.get(operation.operation_id)!;
+    if (result.committed_at_server === null) break;
+    durablePrefix = operation.local_sequence;
+  }
+  return response.acknowledged_through_local_sequence <= durablePrefix;
 }
 
 export type SyncOperation = z.infer<typeof SyncOperationSchema>;

@@ -40,4 +40,16 @@ describe("TECH-003 local-central sync contracts", () => {
     expect(validateSyncBatchCorrespondence(batch, { ...response, results: [{ ...result, operation_id: company }] })).toBe(false);
   });
   it("rejects checkpoints beyond the submitted sequence", () => expect(validateSyncBatchCorrespondence(batch, { ...response, acknowledged_through_local_sequence: 2 })).toBe(false));
+  it("rejects checkpoint regression", () => expect(validateSyncBatchCorrespondence(
+    { ...batch, checkpoint_local_sequence: 1, operations: [{ ...operation, local_sequence: 2 }] },
+    { ...response, acknowledged_through_local_sequence: 0 },
+  )).toBe(false));
+  it("does not acknowledge through a non-durable retry result", () => {
+    const retry = { ...result, server_status: "RETRY_SCHEDULED", committed_at_server: null, retryable: true };
+    expect(validateSyncBatchCorrespondence(batch, { ...response, results: [retry] })).toBe(false);
+  });
+  it("requires durable evidence for explicit conflicts", () => expect(SyncBatchResponseSchema.safeParse({
+    ...response,
+    results: [{ ...result, server_status: "CONFLICT", committed_at_server: null }],
+  }).success).toBe(false));
 });
