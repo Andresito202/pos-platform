@@ -104,6 +104,28 @@ public static class PosPlatformPipeSecurity
         throw new Win32Exception(Marshal.GetLastWin32Error(), "Named pipe remained unavailable");
     }
 
+    private static SecurityIdentifier GetLogonSid()
+    {
+        WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        if (identity.Groups != null)
+        {
+            foreach (IdentityReference group in identity.Groups)
+            {
+                SecurityIdentifier sid =
+                    (SecurityIdentifier)group.Translate(typeof(SecurityIdentifier));
+                if (sid.Value.StartsWith("S-1-5-5-", StringComparison.Ordinal))
+                    return sid;
+            }
+        }
+
+        throw new InvalidOperationException("Current Windows token does not contain a logon SID");
+    }
+
+    public static string CurrentLogonSid()
+    {
+        return GetLogonSid().Value;
+    }
+
     public static string HardenNamedPipe(string pipePath)
     {
         IntPtr pipeHandle = new IntPtr(-1);
@@ -113,11 +135,11 @@ public static class PosPlatformPipeSecurity
         {
             pipeHandle = OpenPipe(pipePath, WRITE_DAC);
 
-            SecurityIdentifier currentUser = WindowsIdentity.GetCurrent().User;
+            SecurityIdentifier logonSid = GetLogonSid();
             SecurityIdentifier localSystem =
                 new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
 
-            RawAcl acl = new RawAcl(2, currentUser.Equals(localSystem) ? 1 : 2);
+            RawAcl acl = new RawAcl(2, 2);
             acl.InsertAce(
                 0,
                 new CommonAce(
@@ -129,20 +151,17 @@ public static class PosPlatformPipeSecurity
                     null
                 )
             );
-            if (!currentUser.Equals(localSystem))
-            {
-                acl.InsertAce(
-                    1,
-                    new CommonAce(
-                        AceFlags.None,
-                        AceQualifier.AccessAllowed,
-                        GENERIC_ALL,
-                        currentUser,
-                        false,
-                        null
-                    )
-                );
-            }
+            acl.InsertAce(
+                1,
+                new CommonAce(
+                    AceFlags.None,
+                    AceQualifier.AccessAllowed,
+                    GENERIC_ALL,
+                    logonSid,
+                    false,
+                    null
+                )
+            );
 
             byte[] aclBytes = new byte[acl.BinaryLength];
             acl.GetBinaryForm(aclBytes, 0);
@@ -161,7 +180,7 @@ public static class PosPlatformPipeSecurity
             if (result != 0)
                 throw new Win32Exception((int)result, "SetSecurityInfo named-pipe DACL failed");
 
-            return currentUser.Value;
+            return logonSid.Value;
         }
         finally
         {
@@ -228,15 +247,17 @@ if ([string]::IsNullOrWhiteSpace($path)) {
 }
 
 if ($action -eq "harden") {
-  $sid = [PosPlatformPipeSecurity]::HardenNamedPipe($path)
-  [pscustomobject]@{ currentSid = $sid } | ConvertTo-Json -Compress
+  $logonSid = [PosPlatformPipeSecurity]::HardenNamedPipe($path)
+  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  [pscustomobject]@{ currentSid = $currentSid; logonSid = $logonSid } | ConvertTo-Json -Compress
   exit 0
 }
 
 if ($action -eq "inspect") {
   $sddl = [PosPlatformPipeSecurity]::InspectNamedPipe($path)
-  $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  [pscustomobject]@{ currentSid = $sid; sddl = $sddl } | ConvertTo-Json -Compress
+  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $logonSid = [PosPlatformPipeSecurity]::CurrentLogonSid()
+  [pscustomobject]@{ currentSid = $currentSid; logonSid = $logonSid; sddl = $sddl } | ConvertTo-Json -Compress
   exit 0
 }
 
@@ -245,11 +266,13 @@ throw "unknown pipe security action"
 
 interface PipeSecurityResult {
   readonly currentSid: string;
+  readonly logonSid: string;
   readonly sddl?: string;
 }
 
 export interface WindowsNamedPipeSecurityReport {
   readonly currentSid: string;
+  readonly logonSid: string;
   readonly sddl: string;
   readonly allowedTrustees: readonly string[];
 }
@@ -293,6 +316,9 @@ function invokePipeSecurity(
     if (!/^S-1-[0-9-]+$/.test(parsed.currentSid)) {
       throw new Error("current Windows SID is invalid");
     }
+    if (!/^S-1-5-5-[0-9]+-[0-9]+$/.test(parsed.logonSid)) {
+      throw new Error("current Windows logon SID is invalid");
+    }
     return parsed;
   } catch (error) {
     throw new Error("Windows named-pipe security helper returned invalid JSON", { cause: error });
@@ -303,7 +329,7 @@ export function hardenWindowsNamedPipeSecurity(endpoint: string): string {
   if (!endpoint.startsWith("\\\\.\\pipe\\")) {
     throw new Error("named-pipe DACL hardening requires a local Windows named-pipe endpoint");
   }
-  return invokePipeSecurity("harden", endpoint).currentSid;
+  return invokePipeSecurity("harden", endpoint).logonSid;
 }
 
 function allowedAceTrustees(sddl: string): string[] {
@@ -334,10 +360,9 @@ export function inspectWindowsNamedPipeSecurity(endpoint: string): WindowsNamedP
 
   const allowedTrustees = allowedAceTrustees(sddl);
   const permitted = new Set([
-    result.currentSid,
+    result.logonSid,
     "SY",
     "S-1-5-18",
-    "OW",
   ]);
   const unauthorized = allowedTrustees.filter((trustee) => !permitted.has(trustee));
   if (unauthorized.length > 0) {
@@ -346,16 +371,13 @@ export function inspectWindowsNamedPipeSecurity(endpoint: string): WindowsNamedP
     );
   }
 
-  const hasCurrentIdentity = allowedTrustees.includes(result.currentSid)
-    || (result.currentSid === "S-1-5-18" && (
-      allowedTrustees.includes("SY") || allowedTrustees.includes("S-1-5-18")
-    ));
-  if (!hasCurrentIdentity) {
-    throw new Error("Windows named-pipe DACL does not grant the service identity access");
+  if (!allowedTrustees.includes(result.logonSid)) {
+    throw new Error("Windows named-pipe DACL does not grant the current logon session access");
   }
 
   return {
     currentSid: result.currentSid,
+    logonSid: result.logonSid,
     sddl,
     allowedTrustees,
   };
