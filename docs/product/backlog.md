@@ -324,7 +324,7 @@ Baseline ya materializado:
 Pendiente cuando se retome como línea activa:
 
 - lint del runtime/aplicaciones;
-- CodeQL/SAST completo;
+- CodeQL/SAST materializado y ejecutado; hardening TOCTOU + discovery de inventory en Bloque 1 requiere evidencia exact-head fresca;
 - vulnerability scanning con severidad/policy cerrada;
 - SBOM estándar y firmado;
 - compatibilidad legal de licencias completa;
@@ -788,6 +788,9 @@ Una tarea no está cerrada hasta que:
 - TECH-003 post-merge closure: CI #188 / run `33165957857` SUCCESS on exact `main@148a6546657afed528d3da37b263134a944c09be`, including main governance, repository policy/dependency inventory and full TARGET validation.
 - TECH-004 started from canonical `main@148a6546657afed528d3da37b263134a944c09be` on `tech/tech004-quality-supply-chain-20260828`. Initial scope is static quality/supply-chain controls only; runtime/E2E/release-dependent gates remain deferred until executable apps exist.
 
-- TECH-004 CodeQL slice materialized: pinned CodeQL v4 workflow for JavaScript/TypeScript with `security-extended`, least-privilege job permissions, exact PR-head checkout and a fail-closed acceptance policy. This state remains `PENDING_EXECUTION`; it is not PASS until the new exact HEAD completes both CodeQL and TARGET workflows successfully.
+- TECH-004 CodeQL slice: `5ff292fbf0497748efce5d48d763990b0e0e4763`, TARGET #199 and CodeQL #10 SUCCESS, SARIF retained, 0 open threads. Final run scanned 48/48 TypeScript, 6/6 JavaScript and 2/2 workflows and exposed one non-blocking `js/file-system-race` in repository-policy tooling; Block 1 remediates it instead of suppressing it.
 
-- TECH-004 CodeQL execution finding: GitHub CodeQL completed extraction/querying over 48/48 TypeScript, 4/4 JavaScript and 2/2 workflow files, but the private repository rejected Code Scanning upload because the feature is not enabled. Remediation keeps CodeQL v4, uses `upload: never`, evaluates SARIF locally with tested fail-closed severity policy, and retains exact-head SARIF as a CI artifact. Fresh CodeQL + TARGET evidence is required.
+- TECH-004 CodeQL upload limitation remains explicit: GitHub Code Scanning is unavailable for this private repository configuration, so the workflow uses `upload: never`, local fail-closed SARIF evaluation and exact-head artifact retention. This limitation does not disable CodeQL analysis.
+
+
+- TECH-004 Block 1 hardening candidate: repository-policy tracked files are opened with O_NOFOLLOW and consumed through the same descriptor to eliminate the CodeQL TOCTOU finding; dependency inventory now auto-discovers root/apps/packages/tools manifests using the same helper as repository policy and records direct dependency scopes by workspace/manifest/section. New Node regression tests cover discovery, direct classification and invalid-manifest fail-closed behavior. Fresh TARGET + CodeQL exact-head evidence required before Block 2.

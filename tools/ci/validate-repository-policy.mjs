@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { discoverWorkspaceManifestPaths } from './workspace-manifests.mjs';
 
 const root = process.cwd();
 const violations = [];
@@ -19,21 +20,7 @@ function patternFromFragments(...fragments) {
 
 const exactSemver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const workspaceSpecifier = /^workspace:(?:\*|\^|~|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
-function discoverWorkspaceManifestPaths() {
-  const manifests = ['package.json'];
-  for (const parent of ['apps', 'packages', 'tools']) {
-    const absoluteParent = path.join(root, parent);
-    if (!existsSync(absoluteParent)) continue;
-    for (const entry of readdirSync(absoluteParent, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const manifestPath = `${parent}/${entry.name}/package.json`;
-      if (existsSync(path.join(root, manifestPath))) manifests.push(manifestPath);
-    }
-  }
-  return [...new Set(manifests)].sort();
-}
-
-const manifestPaths = discoverWorkspaceManifestPaths();
+const manifestPaths = discoverWorkspaceManifestPaths(root);
 const governedWorkspaceNames = new Set(
   manifestPaths
     .filter((manifestPath) => manifestPath.startsWith('packages/') || manifestPath.startsWith('apps/'))
@@ -114,31 +101,37 @@ const secretPatterns = [
   ['jwt', patternFromFragments('\\bey', 'J[A-Za-z0-9_-]{10,}\\.', '[A-Za-z0-9_-]{10,}\\.', '[A-Za-z0-9_-]{10,}\\b')],
 ];
 
-for (const relativePath of trackedFiles) {
+function readTrackedRegularFile(relativePath) {
   const absolutePath = path.join(root, relativePath);
+  let fileDescriptor;
+
+  try {
+    fileDescriptor = openSync(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stats = fstatSync(fileDescriptor);
+    if (!stats.isFile()) {
+      addViolation(`${relativePath}: tracked entry must resolve to a regular non-symlink file`);
+      return null;
+    }
+    return readFileSync(fileDescriptor);
+  } catch {
+    addViolation(`${relativePath}: tracked entry could not be opened as a regular non-symlink file`);
+    return null;
+  } finally {
+    if (fileDescriptor !== undefined) closeSync(fileDescriptor);
+  }
+}
+
+for (const relativePath of trackedFiles) {
   const base = path.basename(relativePath);
   const extension = path.extname(relativePath).toLowerCase();
-  const stats = lstatSync(absolutePath);
-
-  if (stats.isSymbolicLink()) {
-    addViolation(`${relativePath}: tracked symbolic links are forbidden in the current TARGET baseline`);
-    continue;
-  }
-
-  if (!stats.isFile()) {
-    addViolation(`${relativePath}: tracked entry must resolve to a regular file`);
-    continue;
-  }
 
   if (sensitiveBasenames.has(base) || sensitiveExtensions.has(extension)) {
     addViolation(`${relativePath}: sensitive credential/key file must not be tracked`);
     continue;
   }
 
-  const buffer = readFileSync(absolutePath);
-  if (buffer.includes(0)) {
-    continue;
-  }
+  const buffer = readTrackedRegularFile(relativePath);
+  if (buffer === null || buffer.includes(0)) continue;
 
   const text = buffer.toString('utf8');
   for (const [patternName, pattern] of secretPatterns) {

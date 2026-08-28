@@ -14,7 +14,8 @@
     "typecheck": "pnpm --filter @pos-platform/contracts typecheck && pnpm --filter @pos-platform/target-migrations typecheck",
     "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
     "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",
-    "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite"
+    "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite",
+    "ci:supply-chain-tests": "node --test tools/ci/workspace-manifests.test.mjs tools/ci/generate-dependency-inventory.test.mjs"
   },
   "devDependencies": {
     "nx": "23.1.2",

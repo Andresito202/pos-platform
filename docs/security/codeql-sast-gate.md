@@ -52,3 +52,10 @@ Este gate no cubre por sí solo:
 - garantía de ausencia de vulnerabilidades.
 
 El repositorio privado no tiene code scanning habilitado: la primera ejecución analizó 48/48 TypeScript, 4/4 JavaScript y 2/2 workflows, pero GitHub rechazó la carga SARIF. El gate usa `upload: never`, evalúa SARIF localmente de forma fail-closed y lo conserva como artifact. Esto materializa SAST ejecutable, pero no habilita la interfaz de alertas de GitHub Code Scanning.
+
+
+## Hardening posterior al primer PASS
+
+El run #10 sobre `5ff292fbf0497748efce5d48d763990b0e0e4763` escaneó 48/48 TypeScript, 6/6 JavaScript y 2/2 GitHub Actions. Produjo un resultado SARIF no bloqueante `js/file-system-race` dentro del scanner de repository policy.
+
+TECH-004 no lo suprime: el candidato de Bloque 1 reemplaza la secuencia path-check/path-read por apertura `O_NOFOLLOW`, `fstat` y lectura del mismo descriptor. El cambio requiere CodeQL y TARGET frescos antes de considerarse cerrado.

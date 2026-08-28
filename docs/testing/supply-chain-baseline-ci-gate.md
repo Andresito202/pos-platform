@@ -20,13 +20,13 @@ No equivale a un security release gate completo, a un SBOM estándar firmado ni 
 - package manager raíz distinto de `pnpm@9.15.0`;
 - dependencias directas con versiones no exactas o specifiers no admitidos;
 - lifecycle scripts actualmente prohibidos en manifests propios;
-- expansión del workspace fuera de `tools/*` sin reconciliar el contrato;
+- expansión del workspace fuera de los roots revisados `apps/*`, `packages/*`, `tools/*` sin reconciliar el contrato;
 - lockfile fuera de la generación esperada;
 - symlinks trackeados o entradas que no resuelven a archivos regulares;
 - credenciales/keys sensibles trackeadas;
 - patrones de secretos de alta confianza en archivos trackeados.
 
-El scanner no imprime el valor sensible encontrado. Los lifecycle hooks de dependencias transitivas no se presentan falsamente como bloqueados por esta policy.
+El scanner no imprime el valor sensible encontrado. Los archivos trackeados se abren con descriptor `O_NOFOLLOW`, se validan con `fstat` y se leen desde el mismo descriptor para evitar la carrera TOCTOU entre comprobar tipo y consumir contenido. Los lifecycle hooks de dependencias transitivas no se presentan falsamente como bloqueados por esta policy.
 
 ### Dependency/license inventory
 
@@ -42,6 +42,8 @@ El gate falla si:
 - la metadata contiene una licencia configurada como restringida y pendiente de revisión explícita.
 
 La evidencia es obligatoria: `actions/upload-artifact` utiliza `if-no-files-found: error`.
+
+El inventario comparte el mismo discovery de manifests que repository policy: `package.json` más hijos directos bajo `apps/*`, `packages/*` y `tools/*`. Cada dependencia directa registra workspace, manifest y sección declarativa; los `workspace:` internos no se confunden con paquetes externos instalados.
 
 ## Trazabilidad
 

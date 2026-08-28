@@ -95,6 +95,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Validate supply-chain tooling regressions
+        run: pnpm ci:supply-chain-tests
+
       - name: Validate repository and secret policy
         run: pnpm ci:repository-policy
 
