@@ -82,5 +82,5 @@ $rules = @(
     first.fill(0);
     second.fill(0);
     other.fill(0);
-  });
+  }, 20_000);
 });
