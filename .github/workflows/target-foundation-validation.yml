@@ -71,7 +71,7 @@ jobs:
           echo "Main push governance PASS for ${#introduced_mainline_commits[@]} introduced first-parent commit(s), ending at ${REVIEWED_SHA}."
 
   supply-chain-baseline:
-    name: Repository policy and dependency inventory
+    name: Repository policy, dependency inventory and vulnerability audit
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -109,6 +109,20 @@ jobs:
 
       - name: Generate dependency and license inventory
         run: pnpm ci:dependency-inventory
+
+      - name: Run fail-closed dependency vulnerability audit
+        run: pnpm ci:vulnerability-audit
+
+      - name: Upload dependency vulnerability evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-vulnerability-audit-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/dependency-audit.json
+            artifacts/ci/dependency-vulnerability-evaluation.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload dependency inventory evidence
         if: ${{ !cancelled() }}

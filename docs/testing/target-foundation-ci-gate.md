@@ -25,7 +25,7 @@ El workflow separado `.github/workflows/codeql-sast.yml` analiza JavaScript/Type
 Su política de aceptación, excepciones y limitaciones está definida en `docs/security/codeql-sast-gate.md`. Un workflow verde no equivale a ausencia de vulnerabilidades ni cubre dependencias, DAST, runtime inexistente, SBOM, provenance o release.
 
 
-### Repository policy and dependency inventory
+### Repository policy, dependency inventory and vulnerability audit
 
 Valida, entre otros:
 
@@ -45,6 +45,8 @@ Valida, entre otros:
 - evidencia obligatoria mediante artifact; `if-no-files-found: error`.
 
 Este inventario no se presenta como SBOM CycloneDX/SPDX firmado ni como conclusión legal completa de compatibilidad de licencias.
+
+El mismo job ejecuta además el gate de vulnerabilidades de dependencias: captura `pnpm audit --json --audit-level=low`, bloquea high/critical sin excepción válida y falla cerrado ante error de fuente o evidencia incoherente. Moderate/low permanecen visibles para triage.
 
 ### TypeScript, SQLite and PostgreSQL 16.14
 
@@ -142,7 +144,7 @@ No se promueve por esta evidencia:
 - Nx de aplicaciones;
 - lint del runtime;
 - CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
-- vulnerability scanning con política de severidad cerrada;
+- vulnerability scanning con política high/critical materializada en TECH-004; su PASS sigue siendo commit-scoped y temporal;
 - SBOM firmado;
 - provenance/attestations de build;
 - firma de releases;

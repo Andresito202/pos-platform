@@ -45,6 +45,14 @@ La evidencia es obligatoria: `actions/upload-artifact` utiliza `if-no-files-foun
 
 El inventario comparte el mismo discovery de manifests que repository policy: `package.json` más hijos directos bajo `apps/*`, `packages/*` y `tools/*`. Cada dependencia directa registra workspace, manifest y sección declarativa; los `workspace:` internos no se confunden con paquetes externos instalados.
 
+### Dependency vulnerability gate
+
+TECH-004 ejecuta `pnpm audit --json --audit-level=low` sobre la instalación frozen y evalúa el reporte con `tools/ci/validate-dependency-audit.mjs`.
+
+El piso ejecutable bloquea `high` y `critical`, conserva `moderate/low` para triage y no usa `--ignore-registry-errors`. Error del registry, JSON inválido, conteos inconsistentes, policy inválida o excepción vencida fallan cerrado.
+
+La evidencia raw + evaluación normalizada se conserva en un artifact exact-head separado. La política y formato de excepciones están en `docs/security/dependency-vulnerability-gate.md`.
+
 ## Trazabilidad
 
 El workflow utiliza el HEAD real de la PR como source revisado:
@@ -93,7 +101,7 @@ Este baseline no completa:
 - Nx y pipeline de aplicaciones TARGET;
 - lint del runtime/aplicaciones;
 - CodeQL/SAST completo;
-- vulnerability scanning con política de severidad;
+- vulnerability scanning materializado en la rama TECH-004; requiere evidencia exact-head antes de cierre;
 - SBOM CycloneDX/SPDX firmado;
 - política legal completa de compatibilidad de licencias;
 - provenance/attestations;

@@ -324,8 +324,8 @@ Baseline ya materializado:
 Pendiente cuando se retome como línea activa:
 
 - lint del runtime/aplicaciones;
-- CodeQL/SAST materializado y ejecutado; hardening TOCTOU + discovery de inventory en Bloque 1 requiere evidencia exact-head fresca;
-- vulnerability scanning con severidad/policy cerrada;
+- CodeQL/SAST + Bloque 1 hardening: `59d5b57110138236e056ca93c969b0a208f2c293`, TARGET #200 y CodeQL #11 SUCCESS; SARIF 0 results, workspace inventory tests PASS;
+- vulnerability scanning con piso high/critical materializado en Bloque 2; requiere evidencia exact-head fresca;
 - SBOM estándar y firmado;
 - compatibilidad legal de licencias completa;
 - provenance/attestations;
@@ -794,3 +794,7 @@ Una tarea no está cerrada hasta que:
 
 
 - TECH-004 Block 1 hardening candidate: repository-policy tracked files are opened with O_NOFOLLOW and consumed through the same descriptor to eliminate the CodeQL TOCTOU finding; dependency inventory now auto-discovers root/apps/packages/tools manifests using the same helper as repository policy and records direct dependency scopes by workspace/manifest/section. New Node regression tests cover discovery, direct classification and invalid-manifest fail-closed behavior. Fresh TARGET + CodeQL exact-head evidence required before Block 2.
+
+
+- TECH-004 Block 1 closure: `59d5b57110138236e056ca93c969b0a208f2c293`; TARGET #200 / run `33169811042` SUCCESS and CodeQL #11 / run `33169811007` SUCCESS. CodeQL scanned 48/48 TypeScript, 9/9 JavaScript and 2/2 workflows with 0 SARIF results; TOCTOU remediation is demonstrated, dependency inventory discovery/tests are green, and 0 review threads were open at checkpoint.
+- TECH-004 Block 2 candidate: fail-closed dependency vulnerability audit over the frozen pnpm installation. High/critical are mandatory blockers; moderate/low are triage; exceptions are exact advisory/package/version records with owner, exploitability, approval, expiry and removal condition. Registry/tool errors and inconsistent audit evidence fail closed. Raw audit + normalized evaluation are retained exact-head; fresh TARGET + CodeQL evidence required.
