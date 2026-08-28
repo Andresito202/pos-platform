@@ -8,7 +8,7 @@ import { evaluateSpdxLicenseExpression, validateLicensePolicy } from "./validate
 export const LICENSE_REGISTRY = "https://registry.npmjs.org/";
 const LICENSE_REGISTRY_ORIGIN = new URL(LICENSE_REGISTRY).origin;
 const MAX_REGISTRY_METADATA_BYTES = 1024 * 1024;
-const EXACT_SEMVER = /^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$/;
+const EXACT_SEMVER = new RegExp("^(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:[+][0-9A-Za-z.-]+)?$");
 const NPM_NAME = new RegExp("^(?:@[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$");
 
 function sha256(value){ return createHash("sha256").update(value).digest("hex"); }
