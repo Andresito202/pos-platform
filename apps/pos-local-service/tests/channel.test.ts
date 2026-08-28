@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -316,6 +316,36 @@ describe("local channel", () => {
 
     socket.destroy();
     await server.stop();
+  });
+
+  it("fails closed when another server already owns the channel endpoint", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(endpoint, () => {
+        blocker.off("error", reject);
+        resolve();
+      });
+    });
+
+    const secret = randomBytes(32);
+    const server = new LocalChannelServer(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      async (request) => compatibleResponse(
+        request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>,
+      ),
+      { min: "1.0.0", max: "1.0.0" },
+    );
+
+    try {
+      await expect(server.start()).rejects.toThrow();
+    } finally {
+      secret.fill(0);
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 
   it("uses named pipes in production and explicit sockets only in tests", () => {
