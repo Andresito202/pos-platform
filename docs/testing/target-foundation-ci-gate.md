@@ -33,7 +33,7 @@ Valida, entre otros:
 - `pnpm@9.15.0` fijado;
 - dependencias directas con versiones exactas;
 - lifecycle hooks prohibidos en manifests propios del baseline;
-- workspace actualmente limitado a `tools/*`;
+- discovery compartido de manifests en root, `apps/*`, `packages/*` y `tools/*`;
 - lockfile esperado;
 - ausencia de symlinks trackeados;
 - ausencia de archivos sensibles trackeados;
@@ -44,7 +44,7 @@ Valida, entre otros:
 - fallo cerrado ante package manifests instalados ilegibles o inválidos;
 - evidencia obligatoria mediante artifact; `if-no-files-found: error`.
 
-Este inventario no se presenta como SBOM CycloneDX/SPDX firmado ni como conclusión legal completa de compatibilidad de licencias.
+El inventario plano no se presenta como conclusión legal completa de compatibilidad de licencias. El mismo job genera además un SBOM CycloneDX JSON 1.6 desde el grafo recursivo resuelto por pnpm, valida cobertura/relaciones/SHA y publica su digest SHA-256. El SBOM no es todavía una attestación firmada.
 
 El mismo job ejecuta además el gate de vulnerabilidades de dependencias: captura `pnpm audit --json --audit-level=low`, bloquea high/critical sin excepción válida y falla cerrado ante error de fuente o evidencia incoherente. Moderate/low permanecen visibles para triage.
 
@@ -145,7 +145,7 @@ No se promueve por esta evidencia:
 - lint del runtime;
 - CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
 - vulnerability scanning high/critical materializado y ejecutado en TECH-004; su PASS es commit-scoped y temporal, y debe refrescarse antes de integración;
-- SBOM firmado;
+- SBOM firmado o multi-plataforma; el SBOM CycloneDX del grafo Linux resuelto en CI sí está materializado;
 - provenance/attestations de build;
 - firma de releases;
 - runtime tests;
@@ -177,3 +177,12 @@ Bloque 1 cerró su checkpoint ejecutable en `59d5b57110138236e056ca93c969b0a208f
 Bloque 2 cerró su primer checkpoint ejecutable en `691b5051599c735f393c13d3dad8d67bcde8af01`: TARGET #201 y CodeQL #12 `SUCCESS`; el audit de dependencias produjo 0 advisories, 0 triage y 0 excepciones aceptadas. El artifact raw/evaluado es commit-scoped y no se reutiliza para otro HEAD.
 
 Cualquier reconciliación documental posterior invalida estos SHA como evidencia final y requiere nuevas ejecuciones aplicables.
+
+
+## TECH-004 — Bloque 3 SBOM
+
+El Bloque 3 añade un SBOM CycloneDX JSON 1.6 determinista a `supply-chain-baseline`. El generador cruza `pnpm list --recursive --depth Infinity` con el discovery compartido de workspaces, conserva relaciones directas/transitivas, usa PURL npm, liga el documento al SHA revisado y al digest del lockfile, y emite un digest SHA-256 separado.
+
+La política, límites y semántica normativa están en `docs/security/cyclonedx-sbom-gate.md`.
+
+Estado documental de este commit: `MATERIALIZED / EXACT_HEAD_EXECUTION_PENDING`. Solo TARGET y CodeQL exitosos sobre este mismo HEAD, junto con el artifact `cyclonedx-sbom-<sha>`, pueden promover el bloque a PASS.
