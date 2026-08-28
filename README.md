@@ -19,8 +19,8 @@ Estado vigente:
 - MAT-003 preflight y canonical-role-readiness tooling: materializados/revisados;
 - canonical-role readiness: `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`;
 - MAT-003 preflight canónico: `EXECUTED / PASS / REVIEWED`, read-only, cero mutaciones durables;
-- SQL/descriptor 003 y schema fiscal 003: `ABSENT`;
-- migration 003: `NOT_MATERIALIZED`;
+- SQL/descriptor PostgreSQL 003 y schema fiscal 003: `INTEGRATED / GATES_CLOSED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`;
+- migration 003 en entornos compartidos o productivos: `NOT_DEPLOYED`;
 - SIIGO/FACTUS/ALEGRA: `DESIGNED / NOT_EVALUATED`;
 - `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED`;
 - NestJS/Fastify, Electron/React/Vite y POS Local Service: `ABSENT / NOT_MATERIALIZED`;
@@ -31,7 +31,9 @@ Estado vigente:
 ## Integraciones recientes de `main`
 
 - PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
-- PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
+- PR #5 integró el baseline inicial de supply chain y la gobernanza detectiva de `main`.
+- PR #11 integró SQL/descriptor PostgreSQL 003 con Gate A/B cerrados.
+- PR #12 integró límites ejecutables Nx; PR #14, contratos ejecutables; PR #15, TECH-004 completo.
 - PR #6 reconcilió el estado canónico y PR #7 adoptó `Camacho POS Colombia` como nombre comercial, sin renombrar identificadores técnicos.
 - El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`.
 - El run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluidos:
@@ -164,12 +166,12 @@ No se hará público el repositorio únicamente para obtener protección de rama
 
 ## SQL003 / facturación electrónica
 
-Migration 003 está bloqueada antes de materialización.
+Migration PostgreSQL 003 está integrada y sus gates de repositorio quedaron cerrados por INT-007 / PR #11. Esto acredita el artefacto, rollback, introspección y pruebas físicas en PostgreSQL 16.14; no acredita despliegue productivo, providers, credenciales, sandbox ni operación fiscal real.
 
-- PR #4 contiene una propuesta de reconciliación contractual y permanece draft/bloqueada por revisión independiente no disponible por cuota.
-- `wip/sql003-contract-gap-20260825` es evidencia histórica y `NOT_INTEGRABLE`.
-- Un manifest fiscal documental anterior no autoriza escribir SQL mientras existan contract gaps abiertos.
-- No se integrará ni cherry-pickeará completo el WIP histórico.
+- PR #4 y la remediación autoritativa posterior están `MERGED / CLOSED` como antecedentes contractuales.
+- `wip/sql003-contract-gap-20260825` permanece como evidencia histórica `NOT_INTEGRABLE`.
+- SQLite 003 continúa `NONE`; no se inventa equivalencia física entre dialectos.
+- Todo cambio fiscal posterior conserva Modelo A, historia append-only y gates exact-head.
 
 ## Desarrollo local
 
