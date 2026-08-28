@@ -68,7 +68,7 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - NestJS/Fastify runtime: `ABSENT / NOT_MATERIALIZED`.
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
-- Nx de aplicaciones/packages: `IN_PROGRESS_IN_DRAFT_PR_12 / NOT_IN_MAIN`; no runtime productivo iniciado.
+- Nx foundation y límites de packages: `INTEGRATED / TESTED` por ARCH-003 / PR #12; las aplicaciones runtime continúan `ABSENT / NOT_MATERIALIZED`.
 - SQL 003 DDL + descriptor 003: `INTEGRATED / GATES_CLOSED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; apply→introspection/smoke→down→exact-002→reapply y Modelo A pasan; SQLite 003 permanece `NONE`.
 - schema/migration 003 en un entorno compartido o productivo: `NOT_DEPLOYED`; INT-007 cerró el artefacto de repositorio y su evidencia CI, no un despliegue productivo.
 - bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
@@ -110,7 +110,8 @@ Este control es detectivo, no preventivo.
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
 | `feat/sql003-v2-materialization-20260826` | `INTEGRATED / HISTORICAL` | PR #11 integrada; INT-007 cerrado. No reutilizar para ARCH-003 ni para runtime/providers. |
 | `architecture/executable-boundaries-20260828` | `INTEGRATED / HISTORICAL` | PR #12 integrada; ARCH-003 cerrado. No reutilizar para TECH-003. |
-| `tech/tech003-executable-contracts-20260828` | `IN_PROGRESS` | TECH-003; contratos comunes ejecutables Zod/versioning/error/idempotency/correlation. |
+| `tech/tech003-executable-contracts-20260828` | `INTEGRATED / HISTORICAL` | PR #14 integrada; TECH-003 cerrado. No reutilizar para TECH-004 ni runtime. |
+| `tech/tech004-quality-supply-chain-20260828` | `IN_PROGRESS` | TECH-004; calidad, SAST, supply chain y evidencia de release. Primer slice sin runtime. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -134,19 +135,29 @@ Reglas:
 
 ## Trabajo principal actual
 
-### TECH-003 — contratos ejecutables compartidos
+### TECH-004 — CI, calidad y supply chain
 
 Prioridad: `P0`
 
-Estado: `IN_PROGRESS`
+Estado: `IN_PROGRESS / FINAL_CLOSURE_GATE`
 
-Rama activa: `tech/tech003-executable-contracts-20260828`.
+Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
-Alcance contractual materializado en PR #14: contratos comunes, handshake Desktop↔Local Service, IPC allowlisted, Sync local↔central, HTTP central y matriz ejecutable de compatibilidad cruzada. No crea API NestJS, Electron, POS Local Service, provider adapters ni runtime.
+Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST, hardening del inventory, vulnerabilidades, SBOM CycloneDX, compatibilidad SPDX y provenance hash-bound están materializados y ejecutados en la rama activa. GitHub native Artifact Attestations permanece bloqueado por prerrequisito de plataforma para este repositorio privado. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
 
-Estado de cierre: `CLOSURE_CANDIDATE`; requiere CI exact-head final, revisión senior final, cero threads abiertos y autorización de merge separada.
+Los controles que dependen de aplicaciones/runtime — lint de apps, E2E, packaging, firma/release y promoción — permanecen pendientes hasta que existan artefactos ejecutables reales.
 
 ## Último bloque cerrado
+
+### TECH-003 — contratos ejecutables compartidos
+
+Estado: `DONE / INTEGRATED`.
+
+PR #14 fue integrada desde exact HEAD `d37512634c823f16f71928671c46aaccc7f04d3c` como merge commit `148a6546657afed528d3da37b263134a944c09be`. CI exact-head #187 / run `33165786730` fue `SUCCESS`; CI post-merge #188 / run `33165957857` fue `SUCCESS`, incluida gobernanza de main, repository policy/dependency inventory, 57/57 contratos con 5/5 compatibilidad cruzada, TypeScript, SQLite, PostgreSQL 16.14 y MAT-003.
+
+TECH-003 no implementa runtime, autenticación criptográfica productiva, providers ni producción.
+
+## Bloque cerrado anterior
 
 ### ARCH-003 — límites ejecutables de módulos / Nx
 
@@ -289,7 +300,9 @@ Ese cierre **no** materializa SQL003; únicamente habilita una tarea posterior s
 
 Prioridad: `P0`
 
-Estado: `READY`
+Estado: `IN_PROGRESS`
+
+Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
 Baseline ya materializado:
 
@@ -308,29 +321,33 @@ Baseline ya materializado:
 - regresión ejecutable del rango de primer padre de `main`;
 - gobernanza detectiva de push a `main`.
 
-Pendiente cuando se retome como línea activa:
+Materializado en el alcance estático de TECH-004:
+
+- CodeQL/SAST + hardening TOCTOU, con SARIF exact-head y política fail-closed;
+- vulnerability scanning con piso high/critical, triage y excepciones temporales explícitas;
+- SBOM CycloneDX 1.6 con grafo workspace + dependencias opcionales reportadas por pnpm;
+- gate SPDX de compatibilidad de licencias sobre todo el universo third-party del SBOM;
+- provenance hash-bound que enlaza TARGET, inventory, vulnerabilidades, SBOM, licencias y CodeQL;
+- GitHub native Artifact Attestations registradas como `BLOCKED_BY_PLATFORM`, no como PASS.
+
+Diferido hasta que existan artefactos runtime/release reales:
 
 - lint del runtime/aplicaciones;
-- CodeQL/SAST completo;
-- vulnerability scanning con severidad/policy cerrada;
-- SBOM estándar y firmado;
-- compatibilidad legal de licencias completa;
-- provenance/attestations;
 - firma de releases;
 - runtime/E2E tests;
-- controles de release/promoción.
+- packaging y controles de release/promoción.
 
-TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para retomarse cuando existan artefactos runtime que permitan ejecutar sus controles pendientes.
+TECH-004 no está `DONE` ni integrado. La línea está activa desde `main@148a6546657afed528d3da37b263134a944c09be` y se encuentra en auditoría final del alcance estático. Los gates de runtime/E2E/release se incorporarán en la línea runtime posterior cuando existan artefactos ejecutables reales.
 
 ## Orden inmediato obligatorio
 
-1. Mantener **INT-007** y **ARCH-003** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
-2. **TECH-003** es la única línea principal activa: materializar primero contratos comunes Zod/error/versioning/idempotency/correlation y luego fronteras IPC/API específicas.
-3. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
-4. Solo después de TECH-003 iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
-5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con TECH-003.
+1. Mantener **INT-007**, **ARCH-003** y **TECH-003** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
+2. **TECH-004** es la única línea principal activa: endurecer CI/calidad/supply chain sin inventar runtime para satisfacer un gate.
+3. Primer slice TECH-004: SAST/CodeQL, política de vulnerabilidades y evidencia SBOM/licencias/provenance que puedan evaluarse sobre el repositorio actual.
+4. El primer esqueleto de runtime conforme a ADR-005/DEC-010 se inicia solo como tarea separada y sobre el baseline de calidad vigente; al existir apps se extiende TECH-004 con lint/E2E/release gates.
+5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con TECH-004.
 
-No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
+No se inicia NestJS/Electron “por avanzar” dentro del commit de transición de TECH-004.
 
 ## Gate SQL003
 
@@ -559,8 +576,8 @@ Continúa no autorizado:
 |---|---|---|---|
 | TECH-001 | P0 | DONE | Modelo conceptual y ownership. |
 | TECH-002 | P0 | DONE | Modelo físico base + migrations 001/002/materialización revisada. |
-| TECH-003 | P0 | IN_PROGRESS | Primer slice: contratos comunes Zod request/response/error/versioning/idempotency/correlation; runtime y endpoints siguen fuera de alcance. |
-| TECH-004 | P0 | READY | CI/calidad/supply chain: baseline materializado; controles de runtime/release pendientes. |
+| TECH-003 | P0 | DONE | PR #14 integrada; 57/57 contratos + 5/5 compatibilidad cruzada, CI exact-head #187 y post-merge #188 SUCCESS. |
+| TECH-004 | P0 | IN_PROGRESS | Rama `tech/tech004-quality-supply-chain-20260828`; primer slice estático de SAST/vulnerabilidades/SBOM/licencias/provenance. |
 | TECH-005 | P1 | PLANNED | Observabilidad/backups/restore/update/rollback. |
 | TECH-006 | P1 | PLANNED | Fixtures multi-tenant/concurrencia/recovery. |
 
@@ -589,7 +606,7 @@ Continúa no autorizado:
 | Hito | Estado | Criterio vigente |
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
-| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 DONE; TECH-003 activo sobre contracts ejecutables; esqueleto runtime aún pendiente. |
+| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 y TECH-003 DONE; esqueleto runtime aún pendiente y no se mezcla con el primer slice estático de TECH-004. |
 | F1.2 Modelo físico/migrations | DONE | TECH-002 e INT-006 cerrados; migrations 001/002 inmutables; SQL003 integrado por PR #11 con Gate A/B PASS y post-merge #159 SUCCESS. Despliegue productivo no iniciado. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
@@ -769,3 +786,33 @@ Una tarea no está cerrada hasta que:
 
 - TECH-003 Block 4 compatibility gate: IPC, Sync and HTTP now publish an explicit representation matrix and executable cross-boundary regressions for versioning, request/correlation identity, operation/idempotency identity, canonical UUID/UTC handling and UNKNOWN_OUTCOME. Sync deliberately retains its durable result vocabulary instead of importing HTTP error categories or inventing UNKNOWN_OUTCOME.
 - TECH-003 closure order: final exact-head CI + evidence, senior review, zero open threads, then separate merge authorization. TECH-004 runtime work must start from the resulting canonical main in a new branch/PR; it is not mixed into PR #14.
+
+
+- TECH-003 final closure: exact HEAD `d37512634c823f16f71928671c46aaccc7f04d3c`, CI #187 / run `33165786730` SUCCESS, 57/57 contracts with 5/5 cross-boundary compatibility, zero open review threads, PR #14 MERGED/CLOSED as `148a6546657afed528d3da37b263134a944c09be`.
+- TECH-003 post-merge closure: CI #188 / run `33165957857` SUCCESS on exact `main@148a6546657afed528d3da37b263134a944c09be`, including main governance, repository policy/dependency inventory and full TARGET validation.
+- TECH-004 started from canonical `main@148a6546657afed528d3da37b263134a944c09be` on `tech/tech004-quality-supply-chain-20260828`. Initial scope is static quality/supply-chain controls only; runtime/E2E/release-dependent gates remain deferred until executable apps exist.
+
+- TECH-004 CodeQL slice: `5ff292fbf0497748efce5d48d763990b0e0e4763`, TARGET #199 and CodeQL #10 SUCCESS, SARIF retained, 0 open threads. Final run scanned 48/48 TypeScript, 6/6 JavaScript and 2/2 workflows and exposed one non-blocking `js/file-system-race` in repository-policy tooling; Block 1 remediates it instead of suppressing it.
+
+- TECH-004 CodeQL upload limitation remains explicit: GitHub Code Scanning is unavailable for this private repository configuration, so the workflow uses `upload: never`, local fail-closed SARIF evaluation and exact-head artifact retention. This limitation does not disable CodeQL analysis.
+
+
+- TECH-004 Block 1 hardening candidate: repository-policy tracked files are opened with O_NOFOLLOW and consumed through the same descriptor to eliminate the CodeQL TOCTOU finding; dependency inventory now auto-discovers root/apps/packages/tools manifests using the same helper as repository policy and records direct dependency scopes by workspace/manifest/section. New Node regression tests cover discovery, direct classification and invalid-manifest fail-closed behavior. Fresh TARGET + CodeQL exact-head evidence required before Block 2.
+
+
+- TECH-004 Block 1 closure: `59d5b57110138236e056ca93c969b0a208f2c293`; TARGET #200 / run `33169811042` SUCCESS and CodeQL #11 / run `33169811007` SUCCESS. CodeQL scanned 48/48 TypeScript, 9/9 JavaScript and 2/2 workflows with 0 SARIF results; TOCTOU remediation is demonstrated, dependency inventory discovery/tests are green, and 0 review threads were open at checkpoint.
+- TECH-004 Block 2 closure checkpoint: 691b5051599c735f393c13d3dad8d67bcde8af01; TARGET #201 / run 33170295302 SUCCESS and CodeQL #12 / run 33170295301 SUCCESS. Dependency inventory observed 194 packages, 11 direct and 10 workspace manifests with 0 license review findings. Vulnerability audit returned 0 advisories, 0 triage findings and 0 accepted exceptions; raw/evaluation artifact dependency-vulnerability-audit-691b5051599c735f393c13d3dad8d67bcde8af01 was emitted. CodeQL scanned 48/48 TypeScript, 12/12 JavaScript and 2/2 workflows with 0 SARIF results.
+
+- TECH-004 Blocks 1-2 documentation closure: this commit only reconciles evidence/status after both executable gates passed. Because HEAD changes, TARGET, CodeQL and dependency vulnerability audit must execute again on the documentation HEAD before Blocks 1-2 are treated as final stable baseline. Next technical block remains SBOM; no runtime scope is authorized.
+
+- TECH-004 Block 2 registry-source hardening: senior review found that inheriting registry configuration could redirect advisory lookup and weaken the meaning of a green audit. The gate now pins `https://registry.npmjs.org/` explicitly and has an executable regression proving `--ignore-registry-errors` is absent. Fresh TARGET + CodeQL + audit evidence is required on the new HEAD.
+
+
+- TECH-004 Block 3 SBOM closure: `83ac7d75a77ee371a943fc6cc087e4934eeb1d47`, TARGET #213 / run `33172374084` SUCCESS and CodeQL #24 / run `33172374139` SUCCESS. CycloneDX 1.6 emitted 259 components, 10 workspaces and 259 relationship entries; all 194 installed inventory identities are contained in the SBOM and 55 additional identities are optional platform-specific nodes retained by the pnpm graph.
+
+- TECH-004 Block 4 implementation checkpoint: `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`, TARGET #217 / run `33174019861` SUCCESS and CodeQL #28 / run `33174019863` SUCCESS. License gate evaluated 249/249 third-party SBOM components: 194 from installed inventory and 55 from exact npm registry version metadata, with 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY. License report SHA-256 `396127e73667c5e945fc2b4f60cf2059ee8bc7d7e7c4d9974f81ea97d6bdedd1`.
+- Block 4 hardening: CodeQL #25 exposed the intentional file-to-HTTP metadata lookup. The implementation now accepts only canonical npm names and exact SemVer, pins `registry.npmjs.org`, rejects redirects/query/credentials and caps registry metadata at 1 MiB. Intermediate regex serialization failures #215/#216 remain historical failures; CodeQL #28 finished with 0 SARIF results without suppressions.
+- This documentation reconciliation changes HEAD, so Blocks 3-4 require fresh TARGET + CodeQL + vulnerability + SBOM + license evidence before final closure. Next technical block is provenance/attestations; runtime remains out of scope.
+
+- TECH-004 Block 5 final closure: `4cc59bb464fb19a3e9f63eddacf1d95bf8da2796`; TARGET #224 / run `33176399945` SUCCESS, CodeQL #35 / run `33176399999` SUCCESS and Provenance evidence SUCCESS. Provenance manifest SHA-256 `9a2889ef2505025ae55d61e3d745160e8655e223a48a554c1ad8c167e2af3810`; 6 exact-head source artifacts; CodeQL 48/48 TypeScript, 21/21 JavaScript, 2/2 workflows and 0 SARIF results.
+- TECH-004 Block 6 audit found and reconciles stale pending language for SBOM/SPDX/provenance, literal escaped newline artifacts introduced during documentation editing, stale CodeQL Block 1 wording and the PR/document split between materialized static controls and runtime-dependent deferred controls. This reconciliation remains `IN_PROGRESS / FINAL_CLOSURE_GATE` until fresh exact-head CI succeeds.

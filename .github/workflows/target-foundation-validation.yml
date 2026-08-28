@@ -71,7 +71,7 @@ jobs:
           echo "Main push governance PASS for ${#introduced_mainline_commits[@]} introduced first-parent commit(s), ending at ${REVIEWED_SHA}."
 
   supply-chain-baseline:
-    name: Repository policy and dependency inventory
+    name: Repository policy, dependency inventory and vulnerability audit
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -95,6 +95,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Validate supply-chain tooling regressions
+        run: pnpm ci:supply-chain-tests
+
       - name: Validate repository and secret policy
         run: pnpm ci:repository-policy
 
@@ -107,6 +110,48 @@ jobs:
       - name: Generate dependency and license inventory
         run: pnpm ci:dependency-inventory
 
+      - name: Run fail-closed dependency vulnerability audit
+        run: pnpm ci:vulnerability-audit
+
+      - name: Generate and validate CycloneDX SBOM
+        run: pnpm ci:sbom
+
+      - name: Evaluate SPDX license compatibility
+        run: pnpm ci:license-gate
+
+      - name: Upload license compatibility evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: license-compatibility-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/license-compatibility-report.json
+            artifacts/ci/license-compatibility-report.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload CycloneDX SBOM evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cyclonedx-sbom-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/bom.cdx.json
+            artifacts/ci/bom.cdx.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload dependency vulnerability evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-vulnerability-audit-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/dependency-audit.json
+            artifacts/ci/dependency-vulnerability-evaluation.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload dependency inventory evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -114,7 +159,7 @@ jobs:
           name: target-dependency-inventory-${{ env.REVIEWED_SHA }}
           path: artifacts/ci/dependency-inventory.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   validate:
     name: TypeScript, SQLite and PostgreSQL 16.14
@@ -224,5 +269,59 @@ jobs:
         with:
           name: target-exact-head-${{ env.REVIEWED_SHA }}
           path: artifacts/ci/target-exact-head-validation.md
+          if-no-files-found: error
+          retention-days: 90
+
+  provenance:
+    name: Provenance evidence
+    needs:
+      - supply-chain-baseline
+      - validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+
+      - name: Validate provenance tamper regressions
+        run: node --test tools/ci/provenance-manifest.test.mjs
+
+      - name: Collect exact-head provenance inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/ci/collect-provenance-evidence.sh
+
+      - name: Generate and validate provenance manifest
+        env:
+          PROVENANCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PROVENANCE_PNPM_VERSION: 9.15.0
+          PROVENANCE_CODEQL_VERSION: 4.37.9
+          PROVENANCE_CODEQL_SHA: cdf488f595d80d6e07e03d4674febd5ab45fa938
+          PROVENANCE_UPLOAD_VERSION: 7.0.1
+          PROVENANCE_UPLOAD_SHA: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          GITHUB_NATIVE_ATTESTATION_STATUS: BLOCKED_BY_PLATFORM
+          GITHUB_NATIVE_ATTESTATION_REASON: PRIVATE_REPOSITORY_ENTERPRISE_CLOUD_PREREQUISITE_NOT_ESTABLISHED
+        run: node tools/ci/provenance-manifest.mjs
+
+      - name: Upload exact-head provenance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: provenance-evidence-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/provenance-manifest.json
+            artifacts/ci/provenance-manifest.json.sha256
+            artifacts/ci/provenance-source-index.json
           if-no-files-found: error
           retention-days: 90

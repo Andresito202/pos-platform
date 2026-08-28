@@ -1,0 +1,64 @@
+name: CodeQL SAST
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "23 5 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-sast-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL JavaScript and TypeScript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+
+      - name: Validate local SARIF policy implementation
+        run: node --test tools/ci/validate-codeql-sarif.test.mjs
+
+      - name: Analyze JavaScript and TypeScript
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: "/language:javascript-typescript"
+          output: artifacts/ci/codeql-sarif
+          upload: never
+
+      - name: Enforce CodeQL SARIF policy
+        run: node tools/ci/validate-codeql-sarif.mjs artifacts/ci/codeql-sarif
+
+      - name: Upload commit-scoped CodeQL evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeql-sarif-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/ci/codeql-sarif
+          if-no-files-found: error
+          retention-days: 90

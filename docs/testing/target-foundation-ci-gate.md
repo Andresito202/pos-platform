@@ -16,9 +16,16 @@ El workflow se ejecuta en:
 
 La rama histórica `architecture/physical-model` ya no es trigger de `push`.
 
-## Jobs vigentes
+## Workflows y jobs vigentes
 
-### Repository policy and dependency inventory
+### CodeQL SAST
+
+El workflow separado `.github/workflows/codeql-sast.yml` analiza JavaScript/TypeScript en pull requests hacia `main`, pushes a `main`, ejecución manual y programación semanal. Usa `build-mode: none`, la suite `security-extended`, permisos mínimos por job y `github/codeql-action` fijada por SHA. Como GitHub Code Scanning no está habilitado en este repositorio privado, no intenta publicar a su API: conserva SARIF commit-scoped, ejecuta un evaluador local probado y falla ante nivel `error` o `security-severity >= 7.0`.
+
+Su política de aceptación, excepciones y limitaciones está definida en `docs/security/codeql-sast-gate.md`. Un workflow verde no equivale a ausencia de vulnerabilidades ni cubre dependencias, DAST, runtime inexistente, SBOM, provenance o release.
+
+
+### Repository policy, dependency inventory and vulnerability audit
 
 Valida, entre otros:
 
@@ -26,7 +33,7 @@ Valida, entre otros:
 - `pnpm@9.15.0` fijado;
 - dependencias directas con versiones exactas;
 - lifecycle hooks prohibidos en manifests propios del baseline;
-- workspace actualmente limitado a `tools/*`;
+- discovery compartido de manifests en root, `apps/*`, `packages/*` y `tools/*`;
 - lockfile esperado;
 - ausencia de symlinks trackeados;
 - ausencia de archivos sensibles trackeados;
@@ -37,7 +44,11 @@ Valida, entre otros:
 - fallo cerrado ante package manifests instalados ilegibles o inválidos;
 - evidencia obligatoria mediante artifact; `if-no-files-found: error`.
 
-Este inventario no se presenta como SBOM CycloneDX/SPDX firmado ni como conclusión legal completa de compatibilidad de licencias.
+El inventario plano no se presenta como conclusión legal completa de compatibilidad de licencias. El mismo job genera además un SBOM CycloneDX JSON 1.6 desde el grafo recursivo reportado por pnpm, valida cobertura/relaciones/SHA y publica su digest SHA-256. El SBOM puede contener nodos opcionales de otras plataformas además del inventory Linux instalado; ese inventory debe permanecer como subconjunto. El SBOM no es todavía una attestación firmada.
+
+El mismo job ejecuta además el gate de vulnerabilidades de dependencias: captura `pnpm audit --json --audit-level=low`, bloquea high/critical sin excepción válida y falla cerrado ante error de fuente o evidencia incoherente. Moderate/low permanecen visibles para triage.
+
+Después del SBOM ejecuta el gate SPDX de licencias. Cada componente third-party termina en `ALLOW`, `REVIEW_REQUIRED` o `DENY`; PASS exige cero review-required y cero deny. Componentes SBOM-only resuelven metadata exact-version desde el origin npm fijado y con egress restringido.
 
 ### TypeScript, SQLite and PostgreSQL 16.14
 
@@ -126,21 +137,17 @@ El estado correcto es:
 
 `MAIN_PUSH_DETECTIVE_GOVERNANCE = MATERIALIZED / EXECUTED / PASS`
 
-`TECH-004 = IN_PROGRESS`
+`TECH-004 = IN_PROGRESS / FINAL_CLOSURE_GATE`
 
 No se promueve por esta evidencia:
 
 - branch protection preventiva nativa;
-- `TECH-004 = DONE`;
-- Nx de aplicaciones;
-- lint del runtime;
-- CodeQL/SAST completo;
-- vulnerability scanning con política de severidad cerrada;
-- SBOM firmado;
-- provenance/attestations de build;
-- firma de releases;
-- runtime tests;
-- release controls;
+- `TECH-004 = DONE / INTEGRATED`;
+- Nx de aplicaciones runtime;
+- lint/E2E del runtime;
+- GitHub native Artifact Attestations;
+- firma/attestation de binarios o releases;
+- packaging y release controls;
 - `SEC-G07`, `SEC-G09` o `SEC-G10 = PASS`;
 - NestJS/Fastify;
 - Electron/React/Vite;
@@ -160,3 +167,44 @@ Después de cada merge a `main`, el push workflow debe completar satisfactoriame
 `docs/testing/supply-chain-baseline-ci-gate.md` documenta el detalle del baseline de repository policy, secretos e inventario/licencias materializado por PR #5.
 
 Este documento describe el gate TARGET completo actualmente visible y su relación con `main`; ambos deben mantenerse alineados en el mismo cambio cuando se modifique el workflow.
+
+## TECH-004 — checkpoint Bloques 1 y 2
+
+Bloque 1 cerró su checkpoint ejecutable en `59d5b57110138236e056ca93c969b0a208f2c293`: TARGET #200 y CodeQL #11 `SUCCESS`; el SARIF quedó en 0 resultados y el inventory compartido descubrió los manifests de root/apps/packages/tools.
+
+Bloque 2 cerró su primer checkpoint ejecutable en `691b5051599c735f393c13d3dad8d67bcde8af01`: TARGET #201 y CodeQL #12 `SUCCESS`; el audit de dependencias produjo 0 advisories, 0 triage y 0 excepciones aceptadas. El artifact raw/evaluado es commit-scoped y no se reutiliza para otro HEAD.
+
+Cualquier reconciliación documental posterior invalida estos SHA como evidencia final y requiere nuevas ejecuciones aplicables.
+
+
+## TECH-004 — Bloque 3 SBOM
+
+El Bloque 3 añade un SBOM CycloneDX JSON 1.6 determinista a `supply-chain-baseline`. El generador cruza `pnpm list --recursive --depth Infinity` con el discovery compartido de workspaces, conserva relaciones directas/transitivas, usa PURL npm, liga el documento al SHA revisado y al digest del lockfile, y emite un digest SHA-256 separado.
+
+La política, límites y semántica normativa están en `docs/security/cyclonedx-sbom-gate.md`.
+
+Cierre ejecutable de Bloque 3: `83ac7d75a77ee371a943fc6cc087e4934eeb1d47`, TARGET #213 y CodeQL #24 `SUCCESS`, artifact `cyclonedx-sbom-83ac7d75a77ee371a943fc6cc087e4934eeb1d47` presente.
+
+## TECH-004 — Bloque 4 licencias SPDX
+
+Checkpoint técnico `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`: TARGET #217 / run `33174019861` y CodeQL #28 / run `33174019863` `SUCCESS`. El gate evaluó 249 componentes third-party: 194 desde inventory instalado y 55 desde metadata de versión exacta en npm; resultado 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY.
+
+El lookup remoto se limita a nombres npm canónicos y SemVer exacto sobre `registry.npmjs.org`, sin redirects y con límite de respuesta de 1 MiB. CodeQL #28 terminó con 0 resultados después de ese hardening. Cualquier commit documental posterior exige evidencia fresca sobre el nuevo HEAD.
+
+## TECH-004 — Bloque 5 provenance / attestations
+
+Checkpoint técnico `39daf1a61798c82b6b8b4c360b173855bd415328`: TARGET #223 / run `33175944576`, CodeQL #34 / run `33175944559` y job `Provenance evidence` `SUCCESS`.
+
+El manifest une seis artifacts exact-head (TARGET, inventory, vulnerability, SBOM, licenses y CodeQL SARIF), conserva sus artifact IDs/digests y workflow run IDs, verifica hashes internos y liga lockfile + tool/action versions. Manifest SHA-256: `845eeccb488172478fa866eddb39a168f93b11334ca66a098e35cb30feb2dd7b`.
+
+GitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM` porque el repositorio es privado y el prerrequisito de GitHub Enterprise Cloud no está establecido. No se añade `id-token: write` ni se presenta una firma inexistente.
+
+Cierre final del Bloque 5: `4cc59bb464fb19a3e9f63eddacf1d95bf8da2796`, TARGET #224 / run `33176399945`, CodeQL #35 / run `33176399999` y `Provenance evidence` `SUCCESS`; manifest SHA-256 `9a2889ef2505025ae55d61e3d745160e8655e223a48a554c1ad8c167e2af3810`.
+
+## TECH-004 — Bloque 6 cierre integral
+
+Estado de este commit: `IN_PROGRESS / FINAL_CLOSURE_GATE`.
+
+La auditoría integral exige que un único HEAD demuestre TARGET completo, CodeQL, vulnerabilidades, SBOM, licencias, provenance, repository policy, arquitectura, contratos, TypeScript, SQLite, PostgreSQL 16.14, MAT-003 y cero review threads abiertos. También exige que ninguna fuente normativa presente como pendiente un control ya materializado ni convierta una limitación de plataforma en PASS.
+
+Este documento no declara el resultado de su propio commit por adelantado. Solo después de CI exact-head fresco y revisión senior del mismo SHA puede la PR pasar a `TECH-004 = CLOSURE_CANDIDATE`; merge continúa requiriendo autorización separada.
