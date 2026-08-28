@@ -138,14 +138,14 @@ describe("TECH-003 central HTTP contracts", () => {
     };
     expect(schema.safeParse({
       status_code: 202,
-      contract_contract_headers: responseHeaders,
+      contract_headers: responseHeaders,
       serialized_body_bytes: 400,
       rate_limit: null,
       body: { ...baseResponseBody, status: "UNKNOWN", result: null, error: unknownError, result_code: "PENDING_RECONCILIATION" },
     }).success).toBe(true);
     expect(schema.safeParse({
       status_code: 503,
-      contract_contract_headers: responseHeaders,
+      contract_headers: responseHeaders,
       serialized_body_bytes: 400,
       rate_limit: null,
       body: { ...baseResponseBody, status: "UNKNOWN", result: null, error: unknownError, result_code: "PENDING_RECONCILIATION" },
@@ -167,7 +167,7 @@ describe("TECH-003 central HTTP contracts", () => {
     });
     const rateLimited = {
       status_code: 429,
-      contract_contract_contract_headers: { ...responseHeaders, "retry-after": "2" },
+      contract_headers: { ...responseHeaders, "retry-after": "2" },
       serialized_body_bytes: 500,
       rate_limit: {
         policy_id: "DEVICE.API",
@@ -188,7 +188,7 @@ describe("TECH-003 central HTTP contracts", () => {
     expect(schema.safeParse({ ...rateLimited, contract_headers: responseHeaders }).success).toBe(false);
     expect(schema.safeParse({
       ...rateLimited,
-      contract_contract_contract_headers: { ...responseHeaders, "retry-after": "1" },
+      contract_headers: { ...responseHeaders, "retry-after": "1" },
     }).success).toBe(false);
     expect(expectedRetryAfterSeconds(rateError)).toBe("2");
   });
@@ -212,7 +212,7 @@ describe("TECH-003 central HTTP contracts", () => {
     const schema = createCentralHttpResponseSchema(z.strictObject({ accepted: z.boolean() }), { maxBodyBytes: 1024 });
     expect(schema.safeParse({
       status_code: 200,
-      contract_contract_headers: responseHeaders,
+      contract_headers: responseHeaders,
       serialized_body_bytes: 500,
       rate_limit: null,
       body: baseResponseBody,
@@ -220,7 +220,7 @@ describe("TECH-003 central HTTP contracts", () => {
     }).success).toBe(false);
     expect(schema.safeParse({
       status_code: 200,
-      contract_contract_headers: responseHeaders,
+      contract_headers: responseHeaders,
       serialized_body_bytes: 1025,
       rate_limit: null,
       body: baseResponseBody,

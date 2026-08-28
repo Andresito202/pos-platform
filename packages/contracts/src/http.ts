@@ -113,7 +113,7 @@ export function createCentralDeviceHttpRequestSchema<T extends z.ZodType>(
       if (headerValue !== bodyValue) {
         context.addIssue({
           code: "custom",
-          path: ["headers", headerName],
+          path: ["contract_headers", headerName],
           message: `${headerName} must match the request envelope`,
         });
       }
@@ -167,13 +167,13 @@ export function createCentralHttpResponseSchema<T extends z.ZodType>(
     const { body, contract_headers: headers, status_code: statusCode } = response;
 
     if (headers["x-request-id"] !== body.request_id) {
-      context.addIssue({ code: "custom", path: ["headers", "x-request-id"], message: "response request id must match the envelope" });
+      context.addIssue({ code: "custom", path: ["contract_headers", "x-request-id"], message: "response request id must match the envelope" });
     }
     if (headers["x-correlation-id"] !== body.correlation_id) {
-      context.addIssue({ code: "custom", path: ["headers", "x-correlation-id"], message: "response correlation id must match the envelope" });
+      context.addIssue({ code: "custom", path: ["contract_headers", "x-correlation-id"], message: "response correlation id must match the envelope" });
     }
     if (headers["x-pos-api-version"] !== body.protocol_version) {
-      context.addIssue({ code: "custom", path: ["headers", "x-pos-api-version"], message: "response API version must match the envelope" });
+      context.addIssue({ code: "custom", path: ["contract_headers", "x-pos-api-version"], message: "response API version must match the envelope" });
     }
 
     if (body.status === "SUCCEEDED" && ![200, 201].includes(statusCode)) {
@@ -203,13 +203,13 @@ export function createCentralHttpResponseSchema<T extends z.ZodType>(
         context.addIssue({ code: "custom", path: ["body", "error"], message: "HTTP 429 requires RATE_LIMITED error" });
       }
       if (headers["retry-after"] === undefined) {
-        context.addIssue({ code: "custom", path: ["headers", "retry-after"], message: "HTTP 429 requires Retry-After seconds" });
+        context.addIssue({ code: "custom", path: ["contract_headers", "retry-after"], message: "HTTP 429 requires Retry-After seconds" });
       }
       if (response.rate_limit !== null && response.rate_limit.remaining !== 0) {
         context.addIssue({ code: "custom", path: ["rate_limit", "remaining"], message: "HTTP 429 requires zero remaining quota when rate_limit is present" });
       }
     } else if (headers["retry-after"] !== undefined) {
-      context.addIssue({ code: "custom", path: ["headers", "retry-after"], message: "Retry-After is reserved for HTTP 429 in this contract" });
+      context.addIssue({ code: "custom", path: ["contract_headers", "retry-after"], message: "Retry-After is reserved for HTTP 429 in this contract" });
     }
 
     if (body.error?.category === "RATE_LIMITED" && body.error.retry_after_ms !== undefined && headers["retry-after"] !== undefined) {
@@ -217,7 +217,7 @@ export function createCentralHttpResponseSchema<T extends z.ZodType>(
       if (Number(headers["retry-after"]) !== expectedSeconds) {
         context.addIssue({
           code: "custom",
-          path: ["headers", "retry-after"],
+          path: ["contract_headers", "retry-after"],
           message: "Retry-After must equal ceil(retry_after_ms / 1000)",
         });
       }
