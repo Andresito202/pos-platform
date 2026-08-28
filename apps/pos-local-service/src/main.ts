@@ -3,22 +3,73 @@ import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 
-const logger = new StructuredLogger({ write: (record) => process.stdout.write(`${JSON.stringify(record)}\n`) });
+const logger = new StructuredLogger({
+  write: (record) => new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      process.stdout.off("error", onError);
+      reject(error);
+    };
+    process.stdout.once("error", onError);
+    process.stdout.write(`${JSON.stringify(record)}\\n`, () => {
+      process.stdout.off("error", onError);
+      resolve();
+    });
+  }),
+});
+
 const config = parseServiceConfig(process.env);
 const localDatabase = new LocalDatabaseComponent(config.data_directory);
 const lifecycle = new ServiceLifecycle([localDatabase]);
 
-const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-  logger.log("info", "runtime.stopping", { signal });
-  await lifecycle.stop();
-  logger.log("info", "runtime.stopped");
-};
+let termination: Promise<void> | undefined;
 
-await lifecycle.start();
-logger.log("info", "runtime.started", { service_version: config.service_version, installation_id: config.installation_id });
+function terminate(reason: string, exitCode: number, error?: unknown): Promise<void> {
+  if (termination) return termination;
+  termination = (async () => {
+    try {
+      logger.log(exitCode === 0 ? "info" : "error", "runtime.stopping", {
+        reason,
+        ...(error === undefined ? {} : { error }),
+      });
+      await lifecycle.stop();
+      logger.log("info", "runtime.stopped", { reason });
+    } catch (stopError) {
+      try {
+        logger.log("error", "runtime.stop_failed", { reason, error: stopError });
+      } catch {
+        // The logger can already be failed or saturated. Exit still proceeds fail-closed.
+      }
+      exitCode = 1;
+    }
+
+    try {
+      await logger.flush();
+    } catch {
+      exitCode = 1;
+    }
+    process.exit(exitCode);
+  })();
+  return termination;
+}
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => { void shutdown(signal).then(() => process.exit(0), (error) => {
-    logger.log("error", "runtime.stop_failed", { error });
+  process.on(signal, () => { void terminate(signal, 0); });
+}
+process.once("uncaughtException", (error) => { void terminate("uncaughtException", 1, error); });
+process.once("unhandledRejection", (reason) => { void terminate("unhandledRejection", 1, reason); });
+
+try {
+  await lifecycle.start();
+  logger.log("info", "runtime.started", {
+    service_version: config.service_version,
+    installation_id: config.installation_id,
+  });
+  await logger.flush();
+} catch (error) {
+  try {
+    logger.log("error", "runtime.start_failed", { error });
+    await logger.flush();
+  } finally {
     process.exit(1);
-  }); });
+  }
 }
