@@ -20,10 +20,48 @@ public static class PosPlatformPipeSecurity
     private const uint OPEN_EXISTING = 3;
     private const int ERROR_PIPE_BUSY = 231;
 
+    private const uint TOKEN_QUERY = 0x0008;
+    private const int TOKEN_GROUPS_CLASS = 2;
+    private const uint SE_GROUP_LOGON_ID = 0xC0000000;
+    private const int ERROR_INSUFFICIENT_BUFFER = 122;
+
     private const int SE_KERNEL_OBJECT = 6;
     private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
     private const uint DACL_SECURITY_INFORMATION = 0x00000004;
     private const uint SDDL_REVISION_1 = 1;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SID_AND_ATTRIBUTES
+    {
+        public IntPtr Sid;
+        public uint Attributes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TOKEN_GROUPS_HEADER
+    {
+        public uint GroupCount;
+        public SID_AND_ATTRIBUTES FirstGroup;
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(
+        IntPtr ProcessHandle,
+        uint DesiredAccess,
+        out IntPtr TokenHandle
+    );
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(
+        IntPtr TokenHandle,
+        int TokenInformationClass,
+        IntPtr TokenInformation,
+        int TokenInformationLength,
+        out int ReturnLength
+    );
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateFileW(
@@ -106,19 +144,71 @@ public static class PosPlatformPipeSecurity
 
     private static SecurityIdentifier GetLogonSid()
     {
-        WindowsIdentity identity = WindowsIdentity.GetCurrent();
-        if (identity.Groups != null)
-        {
-            foreach (IdentityReference group in identity.Groups)
-            {
-                SecurityIdentifier sid =
-                    (SecurityIdentifier)group.Translate(typeof(SecurityIdentifier));
-                if (sid.Value.StartsWith("S-1-5-5-", StringComparison.Ordinal))
-                    return sid;
-            }
-        }
+        IntPtr tokenHandle = IntPtr.Zero;
+        IntPtr groupsBuffer = IntPtr.Zero;
 
-        throw new InvalidOperationException("Current Windows token does not contain a logon SID");
+        try
+        {
+            if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, out tokenHandle))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
+
+            int requiredLength = 0;
+            bool first = GetTokenInformation(
+                tokenHandle,
+                TOKEN_GROUPS_CLASS,
+                IntPtr.Zero,
+                0,
+                out requiredLength
+            );
+            int firstError = Marshal.GetLastWin32Error();
+            if (first || firstError != ERROR_INSUFFICIENT_BUFFER || requiredLength <= 0)
+                throw new Win32Exception(firstError, "GetTokenInformation size query failed");
+
+            groupsBuffer = Marshal.AllocHGlobal(requiredLength);
+            if (!GetTokenInformation(
+                tokenHandle,
+                TOKEN_GROUPS_CLASS,
+                groupsBuffer,
+                requiredLength,
+                out requiredLength
+            ))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "GetTokenInformation groups failed");
+
+            uint groupCount = unchecked((uint)Marshal.ReadInt32(groupsBuffer));
+            int firstGroupOffset = Marshal.OffsetOf(
+                typeof(TOKEN_GROUPS_HEADER),
+                "FirstGroup"
+            ).ToInt32();
+            int entrySize = Marshal.SizeOf(typeof(SID_AND_ATTRIBUTES));
+
+            for (uint index = 0; index < groupCount; index++)
+            {
+                IntPtr entryPointer = IntPtr.Add(
+                    groupsBuffer,
+                    checked(firstGroupOffset + (int)index * entrySize)
+                );
+                SID_AND_ATTRIBUTES entry =
+                    (SID_AND_ATTRIBUTES)Marshal.PtrToStructure(
+                        entryPointer,
+                        typeof(SID_AND_ATTRIBUTES)
+                    );
+
+                if ((entry.Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID)
+                {
+                    SecurityIdentifier sid = new SecurityIdentifier(entry.Sid);
+                    if (!sid.Value.StartsWith("S-1-5-5-", StringComparison.Ordinal))
+                        throw new InvalidOperationException("Token logon SID has an unexpected authority");
+                    return sid;
+                }
+            }
+
+            throw new InvalidOperationException("Current Windows token does not contain a SE_GROUP_LOGON_ID SID");
+        }
+        finally
+        {
+            if (groupsBuffer != IntPtr.Zero) Marshal.FreeHGlobal(groupsBuffer);
+            if (tokenHandle != IntPtr.Zero) CloseHandle(tokenHandle);
+        }
     }
 
     public static string CurrentLogonSid()
