@@ -68,7 +68,7 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - NestJS/Fastify runtime: `ABSENT / NOT_MATERIALIZED`.
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
-- Nx de aplicaciones/packages: `IN_PROGRESS_IN_DRAFT_PR_12 / NOT_IN_MAIN`; no runtime productivo iniciado.
+- Nx foundation y límites de packages: `INTEGRATED / TESTED` por ARCH-003 / PR #12; las aplicaciones runtime continúan `ABSENT / NOT_MATERIALIZED`.
 - SQL 003 DDL + descriptor 003: `INTEGRATED / GATES_CLOSED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; apply→introspection/smoke→down→exact-002→reapply y Modelo A pasan; SQLite 003 permanece `NONE`.
 - schema/migration 003 en un entorno compartido o productivo: `NOT_DEPLOYED`; INT-007 cerró el artefacto de repositorio y su evidencia CI, no un despliegue productivo.
 - bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
@@ -143,7 +143,7 @@ Estado: `IN_PROGRESS`
 
 Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
-Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo, empezando por SAST/CodeQL, política de vulnerabilidades y evidencia SBOM/licencias/provenance. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
+Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST y su política de aceptación están materializados en la rama activa y pendientes de evidencia exact-head. Vulnerabilidades de dependencias, SBOM, licencias y provenance permanecen sin materializar. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
 
 Los controles que dependen de aplicaciones/runtime — lint de apps, E2E, packaging, firma/release y promoción — permanecen pendientes hasta que existan artefactos ejecutables reales.
 
@@ -787,3 +787,5 @@ Una tarea no está cerrada hasta que:
 - TECH-003 final closure: exact HEAD `d37512634c823f16f71928671c46aaccc7f04d3c`, CI #187 / run `33165786730` SUCCESS, 57/57 contracts with 5/5 cross-boundary compatibility, zero open review threads, PR #14 MERGED/CLOSED as `148a6546657afed528d3da37b263134a944c09be`.
 - TECH-003 post-merge closure: CI #188 / run `33165957857` SUCCESS on exact `main@148a6546657afed528d3da37b263134a944c09be`, including main governance, repository policy/dependency inventory and full TARGET validation.
 - TECH-004 started from canonical `main@148a6546657afed528d3da37b263134a944c09be` on `tech/tech004-quality-supply-chain-20260828`. Initial scope is static quality/supply-chain controls only; runtime/E2E/release-dependent gates remain deferred until executable apps exist.
+
+- TECH-004 CodeQL slice materialized: pinned CodeQL v4 workflow for JavaScript/TypeScript with `security-extended`, least-privilege job permissions, exact PR-head checkout and a fail-closed acceptance policy. This state remains `PENDING_EXECUTION`; it is not PASS until the new exact HEAD completes both CodeQL and TARGET workflows successfully.
