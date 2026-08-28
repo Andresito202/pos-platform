@@ -4,7 +4,13 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { inspectWindowsNamedPipeSecurity, localChannelEndpoint } from "../src/index.js";
+import {
+  inspectWindowsNamedPipeSecurity,
+  loadOrCreateWindowsLocalChannelSecret,
+  LocalChannelAuthenticator,
+  LocalChannelClient,
+  localChannelEndpoint,
+} from "../src/index.js";
 
 const directories: string[] = [];
 
@@ -173,13 +179,63 @@ describe("POS Local Service process boundary", () => {
     await waitForLogEvent(child, "runtime.started");
 
     if (process.platform === "win32") {
-      const endpoint = localChannelEndpoint("018f0000-0000-7000-8000-000000000001");
+      const installationId = "018f0000-0000-7000-8000-000000000001";
+      const deviceId = "018f0000-0000-7000-8000-000000000002";
+      const endpoint = localChannelEndpoint(installationId);
       const report = inspectWindowsNamedPipeSecurity(endpoint);
       expect(report.allowedTrustees.length).toBeGreaterThan(0);
       expect(report.allowedTrustees).not.toContain("WD");
       expect(report.allowedTrustees).not.toContain("AN");
       expect(report.allowedTrustees).not.toContain("AU");
       expect(report.allowedTrustees).not.toContain("BU");
+
+      const secret = loadOrCreateWindowsLocalChannelSecret(dataDirectory, installationId);
+      const clientAuthenticator = new LocalChannelAuthenticator(secret);
+      secret.fill(0);
+      const client = new LocalChannelClient(
+        endpoint,
+        clientAuthenticator,
+        { min: "1.0.0", max: "1.0.0" },
+        10_000,
+      );
+      try {
+        await client.connect({
+          protocol_version: "1.0.0",
+          message_type: "runtime.handshake",
+          request_id: "018f0000-0000-7000-8000-000000000010",
+          correlation_id: "018f0000-0000-7000-8000-000000000011",
+          payload_schema_version: "1.0.0",
+          payload: {
+            desktop_version: "1.0.0",
+            service_version: "1.0.0",
+            protocol_min: "1.0.0",
+            protocol_max: "1.0.0",
+            installation_id: installationId,
+            device_id: deviceId,
+            schema_version: "2",
+            service_state: "READY",
+          },
+        });
+        await expect(client.request({
+          protocol_version: "1.0.0",
+          message_type: "runtime.status.get",
+          request_id: "018f0000-0000-7000-8000-000000000012",
+          correlation_id: "018f0000-0000-7000-8000-000000000011",
+          payload_schema_version: "1.0.0",
+          payload: {},
+        })).resolves.toMatchObject({
+          status: "SUCCEEDED",
+          result: {
+            service_version: "1.0.0",
+            protocol_version: "1.0.0",
+            service_state: "READY",
+            schema_version: "2",
+          },
+        });
+      } finally {
+        await client.close();
+        clientAuthenticator.destroy();
+      }
     }
 
     const exited = waitForExit(child);
