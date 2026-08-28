@@ -87,5 +87,5 @@ El artifact es commit-scoped. Cualquier cambio de HEAD invalida el PASS anterior
 
 - El SBOM conserva el grafo reportado por `pnpm list`; ese grafo puede incluir dependencias opcionales específicas de otras plataformas que no aparecen como paquetes materializados en el inventory Linux. El inventory instalado debe ser subconjunto del SBOM y Bloque 4 resuelve metadata de licencia para componentes SBOM-only por nombre+versión exactos.
 - Licencias y expresiones SPDX se evalúan en el Bloque 4 mediante `docs/security/license-compatibility-gate.md`.
-- Provenance y attestations se materializan en el Bloque 5.
+- Provenance hash-bound está materializado en el Bloque 5; GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM` y no se presenta como firma.
 - La evidencia no autoriza merge, runtime, release ni producción.

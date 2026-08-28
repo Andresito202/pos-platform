@@ -139,7 +139,7 @@ Reglas:
 
 Prioridad: `P0`
 
-Estado: `IN_PROGRESS`
+Estado: `IN_PROGRESS / FINAL_CLOSURE_GATE`
 
 Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
@@ -321,19 +321,23 @@ Baseline ya materializado:
 - regresión ejecutable del rango de primer padre de `main`;
 - gobernanza detectiva de push a `main`.
 
-Pendiente cuando se retome como línea activa:
+Materializado en el alcance estático de TECH-004:
+
+- CodeQL/SAST + hardening TOCTOU, con SARIF exact-head y política fail-closed;
+- vulnerability scanning con piso high/critical, triage y excepciones temporales explícitas;
+- SBOM CycloneDX 1.6 con grafo workspace + dependencias opcionales reportadas por pnpm;
+- gate SPDX de compatibilidad de licencias sobre todo el universo third-party del SBOM;
+- provenance hash-bound que enlaza TARGET, inventory, vulnerabilidades, SBOM, licencias y CodeQL;
+- GitHub native Artifact Attestations registradas como `BLOCKED_BY_PLATFORM`, no como PASS.
+
+Diferido hasta que existan artefactos runtime/release reales:
 
 - lint del runtime/aplicaciones;
-- CodeQL/SAST + Bloque 1 hardening: `59d5b57110138236e056ca93c969b0a208f2c293`, TARGET #200 y CodeQL #11 SUCCESS; SARIF 0 results, workspace inventory tests PASS;
-- vulnerability scanning con piso high/critical materializado y ejecutado en Bloque 2; checkpoint 691b5051599c735f393c13d3dad8d67bcde8af01, TARGET #201 y CodeQL #12 SUCCESS, audit 0 advisories;
-- SBOM CycloneDX 1.6 materializado y ejecutado; firma/provenance permanece para Bloque 5;
-- gate SPDX de compatibilidad de licencias materializado y ejecutado; no sustituye revisión jurídica cuando una futura licencia requiera review;
-- provenance hash-bound materializado; GitHub native Artifact Attestations = BLOCKED_BY_PLATFORM hasta demostrar GitHub Enterprise Cloud;
 - firma de releases;
 - runtime/E2E tests;
-- controles de release/promoción.
+- packaging y controles de release/promoción.
 
-TECH-004 no está `DONE`. La línea está activa desde `main@148a6546657afed528d3da37b263134a944c09be`. Primero materializa controles estáticos/supply-chain independientes de runtime; los gates de runtime/E2E/release se incorporan cuando existan artefactos ejecutables reales.
+TECH-004 no está `DONE` ni integrado. La línea está activa desde `main@148a6546657afed528d3da37b263134a944c09be` y se encuentra en auditoría final del alcance estático. Los gates de runtime/E2E/release se incorporarán en la línea runtime posterior cuando existan artefactos ejecutables reales.
 
 ## Orden inmediato obligatorio
 
@@ -809,4 +813,6 @@ Una tarea no está cerrada hasta que:
 - TECH-004 Block 4 implementation checkpoint: `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`, TARGET #217 / run `33174019861` SUCCESS and CodeQL #28 / run `33174019863` SUCCESS. License gate evaluated 249/249 third-party SBOM components: 194 from installed inventory and 55 from exact npm registry version metadata, with 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY. License report SHA-256 `396127e73667c5e945fc2b4f60cf2059ee8bc7d7e7c4d9974f81ea97d6bdedd1`.
 - Block 4 hardening: CodeQL #25 exposed the intentional file-to-HTTP metadata lookup. The implementation now accepts only canonical npm names and exact SemVer, pins `registry.npmjs.org`, rejects redirects/query/credentials and caps registry metadata at 1 MiB. Intermediate regex serialization failures #215/#216 remain historical failures; CodeQL #28 finished with 0 SARIF results without suppressions.
 - This documentation reconciliation changes HEAD, so Blocks 3-4 require fresh TARGET + CodeQL + vulnerability + SBOM + license evidence before final closure. Next technical block is provenance/attestations; runtime remains out of scope.
-\n- TECH-004 Block 5 technical checkpoint: `39daf1a61798c82b6b8b4c360b173855bd415328`; TARGET #223 / run `33175944576` SUCCESS, CodeQL #34 / run `33175944559` SUCCESS and `Provenance evidence` SUCCESS. The manifest bound six exact-head source artifacts and produced SHA-256 `845eeccb488172478fa866eddb39a168f93b11334ca66a098e35cb30feb2dd7b`; provenance artifact digest `sha256:42b3e2b319becdf609059b8ed41a7440e6775b860874fae3b6cdd581eb8e7a62`. CodeQL scanned 48/48 TypeScript, 21/21 JavaScript and 2/2 workflows with 0 SARIF results.\n- Native GitHub Artifact Attestation is not represented as PASS: current policy records `BLOCKED_BY_PLATFORM / PRIVATE_REPOSITORY_ENTERPRISE_CLOUD_PREREQUISITE_NOT_ESTABLISHED`, keeps workflow permissions read-only and does not add `id-token: write`. Fresh exact-head TARGET + CodeQL + provenance evidence is required after this documentation reconciliation.\n
+
+- TECH-004 Block 5 final closure: `4cc59bb464fb19a3e9f63eddacf1d95bf8da2796`; TARGET #224 / run `33176399945` SUCCESS, CodeQL #35 / run `33176399999` SUCCESS and Provenance evidence SUCCESS. Provenance manifest SHA-256 `9a2889ef2505025ae55d61e3d745160e8655e223a48a554c1ad8c167e2af3810`; 6 exact-head source artifacts; CodeQL 48/48 TypeScript, 21/21 JavaScript, 2/2 workflows and 0 SARIF results.
+- TECH-004 Block 6 audit found and reconciles stale pending language for SBOM/SPDX/provenance, literal escaped newline artifacts introduced during documentation editing, stale CodeQL Block 1 wording and the PR/document split between materialized static controls and runtime-dependent deferred controls. This reconciliation remains `IN_PROGRESS / FINAL_CLOSURE_GATE` until fresh exact-head CI succeeds.

@@ -137,21 +137,17 @@ El estado correcto es:
 
 `MAIN_PUSH_DETECTIVE_GOVERNANCE = MATERIALIZED / EXECUTED / PASS`
 
-`TECH-004 = IN_PROGRESS`
+`TECH-004 = IN_PROGRESS / FINAL_CLOSURE_GATE`
 
 No se promueve por esta evidencia:
 
 - branch protection preventiva nativa;
-- `TECH-004 = DONE`;
-- Nx de aplicaciones;
-- lint del runtime;
-- CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
-- vulnerability scanning high/critical materializado y ejecutado en TECH-004; su PASS es commit-scoped y temporal, y debe refrescarse antes de integración;
-- attestación/firma del SBOM; el CycloneDX 1.6 y el gate SPDX sí están materializados, incluida cobertura de nodos opcionales que pnpm reporta fuera del inventory Linux;
-- GitHub native Artifact Attestations y provenance firmado de build; provenance hash-bound de los artifacts TECH-004 sí está materializado;
-- firma de releases;
-- runtime tests;
-- release controls;
+- `TECH-004 = DONE / INTEGRATED`;
+- Nx de aplicaciones runtime;
+- lint/E2E del runtime;
+- GitHub native Artifact Attestations;
+- firma/attestation de binarios o releases;
+- packaging y release controls;
 - `SEC-G07`, `SEC-G09` o `SEC-G10 = PASS`;
 - NestJS/Fastify;
 - Electron/React/Vite;
@@ -194,4 +190,21 @@ Cierre ejecutable de Bloque 3: `83ac7d75a77ee371a943fc6cc087e4934eeb1d47`, TARGE
 Checkpoint técnico `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`: TARGET #217 / run `33174019861` y CodeQL #28 / run `33174019863` `SUCCESS`. El gate evaluó 249 componentes third-party: 194 desde inventory instalado y 55 desde metadata de versión exacta en npm; resultado 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY.
 
 El lookup remoto se limita a nombres npm canónicos y SemVer exacto sobre `registry.npmjs.org`, sin redirects y con límite de respuesta de 1 MiB. CodeQL #28 terminó con 0 resultados después de ese hardening. Cualquier commit documental posterior exige evidencia fresca sobre el nuevo HEAD.
-\n## TECH-004 — Bloque 5 provenance / attestations\n\nCheckpoint técnico `39daf1a61798c82b6b8b4c360b173855bd415328`: TARGET #223 / run `33175944576`, CodeQL #34 / run `33175944559` y job `Provenance evidence` `SUCCESS`.\n\nEl manifest une seis artifacts exact-head (TARGET, inventory, vulnerability, SBOM, licenses y CodeQL SARIF), conserva sus artifact IDs/digests y workflow run IDs, verifica hashes internos y liga lockfile + tool/action versions. Manifest SHA-256: `845eeccb488172478fa866eddb39a168f93b11334ca66a098e35cb30feb2dd7b`.\n\nGitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM` porque el repositorio es privado y el prerrequisito de GitHub Enterprise Cloud no está establecido. No se añade `id-token: write` ni se presenta una firma inexistente.\n\nEste commit documental cambia HEAD; el cierre final del Bloque 5 requiere TARGET, CodeQL y provenance frescos en ese nuevo SHA.\n
+
+## TECH-004 — Bloque 5 provenance / attestations
+
+Checkpoint técnico `39daf1a61798c82b6b8b4c360b173855bd415328`: TARGET #223 / run `33175944576`, CodeQL #34 / run `33175944559` y job `Provenance evidence` `SUCCESS`.
+
+El manifest une seis artifacts exact-head (TARGET, inventory, vulnerability, SBOM, licenses y CodeQL SARIF), conserva sus artifact IDs/digests y workflow run IDs, verifica hashes internos y liga lockfile + tool/action versions. Manifest SHA-256: `845eeccb488172478fa866eddb39a168f93b11334ca66a098e35cb30feb2dd7b`.
+
+GitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM` porque el repositorio es privado y el prerrequisito de GitHub Enterprise Cloud no está establecido. No se añade `id-token: write` ni se presenta una firma inexistente.
+
+Cierre final del Bloque 5: `4cc59bb464fb19a3e9f63eddacf1d95bf8da2796`, TARGET #224 / run `33176399945`, CodeQL #35 / run `33176399999` y `Provenance evidence` `SUCCESS`; manifest SHA-256 `9a2889ef2505025ae55d61e3d745160e8655e223a48a554c1ad8c167e2af3810`.
+
+## TECH-004 — Bloque 6 cierre integral
+
+Estado de este commit: `IN_PROGRESS / FINAL_CLOSURE_GATE`.
+
+La auditoría integral exige que un único HEAD demuestre TARGET completo, CodeQL, vulnerabilidades, SBOM, licencias, provenance, repository policy, arquitectura, contratos, TypeScript, SQLite, PostgreSQL 16.14, MAT-003 y cero review threads abiertos. También exige que ninguna fuente normativa presente como pendiente un control ya materializado ni convierta una limitación de plataforma en PASS.
+
+Este documento no declara el resultado de su propio commit por adelantado. Solo después de CI exact-head fresco y revisión senior del mismo SHA puede la PR pasar a `TECH-004 = CLOSURE_CANDIDATE`; merge continúa requiriendo autorización separada.

@@ -58,7 +58,7 @@ El repositorio privado no tiene code scanning habilitado: la primera ejecución 
 
 El run #10 sobre `5ff292fbf0497748efce5d48d763990b0e0e4763` escaneó 48/48 TypeScript, 6/6 JavaScript y 2/2 GitHub Actions. Produjo un resultado SARIF no bloqueante `js/file-system-race` dentro del scanner de repository policy.
 
-TECH-004 no lo suprime: el candidato de Bloque 1 reemplaza la secuencia path-check/path-read por apertura `O_NOFOLLOW`, `fstat` y lectura del mismo descriptor. El cambio requiere CodeQL y TARGET frescos antes de considerarse cerrado.
+TECH-004 no lo suprimió: Bloque 1 reemplazó la secuencia path-check/path-read por apertura `O_NOFOLLOW`, `fstat` y lectura del mismo descriptor. TARGET #200 y CodeQL #11 cerraron ese checkpoint con 0 resultados SARIF; ejecuciones posteriores han mantenido esa remediación.
 
 ## Triage de Bloque 4 — egress de metadata de licencias
 

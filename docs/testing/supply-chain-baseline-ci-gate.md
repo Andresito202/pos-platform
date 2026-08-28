@@ -102,23 +102,26 @@ El mismo workflow escucha pushes a `main` y ejecuta el control detectivo descrit
 
 Branch protection preventiva nativa continúa no disponible con el plan actual del repositorio privado. No se describe el workflow como protección preventiva.
 
-## Pendiente bajo TECH-004
+## Estado TECH-004 y alcance diferido
 
-Este baseline no completa:
+Materializado en el alcance estático de TECH-004:
 
-- Nx y pipeline de aplicaciones TARGET;
-- lint del runtime/aplicaciones;
-- CodeQL/SAST materializado y ejecutado en TECH-004; el TOCTOU reportado por el primer SARIF fue remediado y CodeQL posterior quedó en 0 resultados;
-- vulnerability scanning high/critical materializado y ejecutado; su evidencia es dinámica y debe refrescarse en el HEAD final;
-- SBOM CycloneDX 1.6 materializado; la firma criptográfica queda en provenance/attestations;
-- gate SPDX de compatibilidad de licencias materializado; revisión jurídica futura sigue fuera de lo que puede afirmar CI;
-- provenance hash-bound materializado en Bloque 5; GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM` hasta demostrar el prerrequisito de Enterprise Cloud;
-- firma de releases;
-- runtime tests;
-- release controls;
-- gates de infraestructura/backup/restore productivos.
+- repository policy + secret baseline;
+- CodeQL/SAST con findings remediados sin suppress;
+- vulnerability gate high/critical;
+- SBOM CycloneDX 1.6;
+- compatibilidad SPDX;
+- provenance hash-bound exact-head.
 
-Bloques SAST, hardening de inventory, vulnerabilidades, SBOM, licencias y provenance hash-bound están materializados; el cierre integral TECH-004 continúa pendiente. La attestation nativa bloqueada por plataforma no se maquilla como PASS.
+No completado por este baseline porque requiere runtime/release/infraestructura real:
+
+- Nx/pipeline de aplicaciones runtime;
+- lint y E2E del runtime;
+- packaging y firma de releases;
+- release promotion;
+- infraestructura productiva, backup/restore y DR.
+
+GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM` hasta demostrar el prerrequisito compatible de Enterprise Cloud. No se maquilla como PASS. TECH-004 continúa `IN_PROGRESS / FINAL_CLOSURE_GATE` hasta que el HEAD de reconciliación pase CI integral.
 
 ## Invariantes
 
@@ -127,4 +130,9 @@ Bloques SAST, hardening de inventory, vulnerabilidades, SBOM, licencias y proven
 3. El runtime TARGET no se materializa por este gate.
 4. Un resultado CI siempre es commit-scoped.
 5. Si cambia el workflow, este documento y `target-foundation-ci-gate.md` deben reconciliarse en el mismo cambio.
-\n### Provenance exact-head\n\nEl job `Provenance evidence` corre después de supply-chain y validación TARGET. Descarga los artifacts exact-head del mismo run, espera CodeQL del mismo SHA, liga IDs/digests de GitHub y valida hashes internos antes de emitir `provenance-manifest.json` + checksum.\n\nLa suite prueba determinismo, tamper, sustitución de metadata y artifact faltante. La policy completa está en `docs/security/provenance-attestations-gate.md`.\n
+
+### Provenance exact-head
+
+El job `Provenance evidence` corre después de supply-chain y validación TARGET. Descarga los artifacts exact-head del mismo run, espera CodeQL del mismo SHA, liga IDs/digests de GitHub y valida hashes internos antes de emitir `provenance-manifest.json` + checksum.
+
+La suite prueba determinismo, tamper, sustitución de metadata y artifact faltante. La policy completa está en `docs/security/provenance-attestations-gate.md`.
