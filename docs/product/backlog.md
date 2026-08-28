@@ -66,7 +66,7 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
 - Nx de aplicaciones/packages: `ABSENT`.
-- SQL 003 DDL: `MATERIALIZED_IN_BRANCH / STATICALLY_VALIDATED / NOT_APPLIED`; PostgreSQL UP/DOWN existen en INT-007, SQLite 003 permanece `NONE`.
+- SQL 003 DDL: `MATERIALIZED_IN_BRANCH / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; apply→introspection/smoke→down→exact-002→reapply y la suite Modelo A pasan; SQLite 003 permanece `NONE`.
 - descriptor 003: `MATERIALIZED_IN_BRANCH / GATE_A_DONE_FROZEN`; Gate A está cerrado. El checkpoint exact-head vigente antes de este ajuste documental fue `c297d465cbfb9349f53d3f2e368034dddb9ca545`, CI #98 `33077301346` SUCCESS y Codex exact-head sin major issues.
 - schema fiscal 003: `ABSENT / NOT_APPLIED`.
 - migration 003: `IN_PROGRESS / NOT_APPLIED`.
@@ -107,7 +107,7 @@ Este control es detectivo, no preventivo.
 | `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a un baseline ya integrado; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
 | `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
-| `feat/sql003-v2-materialization-20260826` | `IN_PROGRESS / NOT_INTEGRATED` | INT-007; rama nueva desde `main@b28ca8850acc6b97385c80627a9d64b7ea607a42`. No reutiliza el WIP histórico como implementación. |
+| `feat/sql003-v2-materialization-20260826` | `CLOSURE_CANDIDATE / NOT_INTEGRATED` | INT-007; Gate A cerrado y Gate B técnicamente verde en PostgreSQL 16.14; falta evidencia/review exact-head final antes de PASS y merge sigue separado. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -194,14 +194,16 @@ No alcance:
 
 INT-007 no se considera `DONE` por crear el descriptor ni por producir SQL estático. Requiere DDL ejecutable, validación de catálogo, apply/down, regresión 001/002, CI exact-head y revisión independiente.
 
-Checkpoint consolidado 2026-08-27:
+Checkpoint consolidado 2026-08-27 — cierre candidato:
 
 - Gate A: `DONE / FROZEN`.
-- Gate B: `IN_PROGRESS / NO_PASS`.
-- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / PHYSICALLY_APPLIED_IN_ISOLATED_CI`.
-- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico mínimo: `PASS / EXACT_HEAD_CI_AND_REVIEW`; pruebas funcionales Modelo A y concurrencia permanecen `NOT_MATERIALIZED`.
-- Evidencia física apply→introspection/smoke→down→exact-002→reapply: `PASS_IN_POSTGRESQL_16_14_ISOLATED_CI`.
-- PR #11: `OPEN / DRAFT / NOT_MERGED`.
+- Gate B: `CLOSURE_CANDIDATE / TECHNICAL_VALIDATION_PASS / FINAL_EXACT_HEAD_REVIEW_PENDING`.
+- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`.
+- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico: `PASS`.
+- Modelo A funcional/concurrencia: `MATERIALIZED / 7_OF_7_PASS` en el baseline de implementación `89d8c5fa9697fd28ecd6685c0824caf73340f489`, CI #156 / run `33130461450`.
+- Regresión PostgreSQL 001/002/003, exact-002 restoration, reapply, SQLite, typecheck, MAT-003 preflight y role-readiness: `PASS` en CI #156.
+- Hallazgos demostrados y corregidos en Gate B: cancelación histórica de dispatch durante reprepare, ACL de webhook ingress, reemplazo 003 del trigger 002 incompatible con `processing_status`, y separación RLS SELECT/UPDATE de `FiscalDocumentPreparation` para `pos_worker`.
+- PR #11: `OPEN / DRAFT / NOT_MERGED`; no se quita DRAFT ni se autoriza merge hasta CI + revisión independiente exact-head del cierre final.
 - Merge, providers, HTTP, credenciales, sandbox, runtime, hardware y SEC-G01..SEC-G10 continúan no autorizados en este gate.
 
 ### INT-006 — remediación contractual autoritativa de migration 003
@@ -296,9 +298,10 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 ## Orden inmediato obligatorio
 
 1. Mantener **INT-007 Gate A** `DONE / FROZEN`; no rediseñar el contrato cerrado.
-2. Completar **INT-007 Gate B** desde el estado real: runner/binding/ledger/receipt, introspection/smoke, apply, RLS/grants/guards, down/restauración exacta 002 y reapply ya están cerrados; siguiente slice exclusivo = pruebas funcionales ejecutables del Modelo A y concurrencia claim/retry/reprepare/webhook/reconciliation/publication, sin modificar bytes de 001/002.
-3. Ejecutar CI exact-head y revisión independiente; cualquier nuevo HEAD invalida la evidencia previa.
-4. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
+2. Cerrar exclusivamente **INT-007 Gate B**: la implementación, runner y suite Modelo A ya están verdes; queda generar evidencia exact-head del cierre, ejecutar CI y obtener revisión independiente sobre el mismo SHA.
+3. Cualquier nuevo HEAD invalida la evidencia CI/review anterior; solo un defecto reproducible autoriza cambios adicionales de SQL003.
+4. Declarar Gate B `PASS` únicamente cuando CI exact-head + revisión independiente + cero threads abiertos coincidan; después dejar PR #11 lista para autorización separada de merge.
+5. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
 5. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
 6. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
 7. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
@@ -311,7 +314,7 @@ No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sig
 
 ### INT-007 / materialización 003
 
-Estado de materialización: `IN_PROGRESS`.
+Estado de materialización: `CLOSURE_CANDIDATE / FINAL_EXACT_HEAD_REVIEW_PENDING`.
 
 PR #9 fue revisada, integrada y validada post-merge; PR #10 reconcilió el backlog y el run #67 validó el nuevo `main`. Los requisitos técnicos/documentales 1–5 del gate estaban cumplidos y la autorización explícita y separada del punto 6 fue otorgada el 2026-08-26. La ejecución queda limitada a INT-007 y no autoriza providers, runtime ni promoción de seguridad.
 
@@ -419,7 +422,7 @@ Continúa no autorizado:
 | INT-004 | P1 | PLANNED | Adapters SIIGO/FACTUS/ALEGRA reales; no mocks como evidencia. |
 | INT-005 | P2 | PLANNED | Evaluar HKA/Odoo sin adapters ficticios. |
 | INT-006 | P0 | DONE | Remediación contractual autoritativa V2 integrada/revisada por PR #9; contrato cerrado. |
-| INT-007 | P0 | IN_PROGRESS | Materializar descriptor/SQL PostgreSQL 003 contra el bundle V2 integrado; Gate A descriptor, Gate B DDL/runner/tests. |
+| INT-007 | P0 | CLOSURE_CANDIDATE | Gate A DONE/FROZEN; SQL003, runner y Modelo A 7/7 verdes en PostgreSQL 16.14. Falta CI/review exact-head final antes de DONE/PASS; merge separado. |
 
 ### Pagos
 
@@ -565,7 +568,7 @@ Continúa no autorizado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas e inmutables; slice runner/introspection SQL003 PASS sobre código `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`, CI #145 SUCCESS y review independiente sin major issues; Gate B global sigue NO_PASS hasta materializar funcionales/concurrencia. |
+| F1.2 Modelo físico/migrations | CLOSURE_CANDIDATE | TECH-002 e INT-006 DONE; 001/002 inmutables; SQL003 físico + runner/introspection + Modelo A funcional/concurrencia 7/7 PASS en PostgreSQL 16.14 sobre `89d8c5fa9697fd28ecd6685c0824caf73340f489`, CI #156. Falta cierre exact-head CI/review del commit documental final. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
@@ -711,3 +714,9 @@ Una tarea no está cerrada hasta que:
 - Gate B runner/introspection slice closure: `PASS` for SQL003 code HEAD `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`. Evidence: PostgreSQL 16.14 CI #145 / run `33123036689` SUCCESS, 45/45 then-current review threads resolved, and Codex exact-head result `Didn't find any major issues` on the same SHA. Gate B global remains `IN_PROGRESS / NO_PASS` because Modelo A functional and concurrency suites are still `NOT_MATERIALIZED`; PR #11 remains DRAFT and merge is not authorized.
 
 - Gate B checkpoint reconciliation after documentation review: the operational runner/introspection slice is closed with physical evidence, but this does not promote the whole Gate B. Remaining blockers are the executable Modelo A functional suite and the required concurrency races (claim/retry/reprepare/webhook/reconciliation/publication). No merge or next-scope work is authorized.
+
+- Gate B Modelo A materialization: commit `fa2097fc23445e4ba6edea678c0789656f041212` introduced the executable functional/concurrency suite without product SQL remediation first. CI #149 exposed physical defects instead of masking them.
+- Gate B demonstrated remediations: reprepare historical-dispatch cancellation and webhook ingress ACL were corrected; SQL003 now replaces the inherited 002 webhook insert guard that reads nonexistent `NEW.status` with a `processing_status`-aware 003 guard while preserving exact 002 on down.
+- Gate B CI #154 on `415315873b4978a584451124fa0b642bb13f5a37` reached 159/160 tests and 6/7 Modelo A; the sole late-webhook failure proved `pos_worker` RLS could not SELECT the current DRAFT preparation during historical-generation quarantine.
+- Gate B RLS remediation: `pos_worker` now has tenant-scoped SELECT on preparations while UPDATE remains separately restricted to FROZEN or admissible historical-evidence rows. No SECURITY DEFINER and no write-surface widening.
+- Gate B implementation validation: CI #156 / run `33130461450` on `89d8c5fa9697fd28ecd6685c0824caf73340f489` is SUCCESS. Typecheck, SQLite, PostgreSQL 001/002/003, physical runner apply/introspection/down/exact-002/reapply, 7/7 Modelo A, MAT-003 preflight and role-readiness all pass. Gate B remains a closure candidate until the final documentation/evidence HEAD receives fresh exact-head CI and independent review.
