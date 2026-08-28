@@ -45,6 +45,14 @@ La evidencia es obligatoria: `actions/upload-artifact` utiliza `if-no-files-foun
 
 El inventario comparte el mismo discovery de manifests que repository policy: `package.json` más hijos directos bajo `apps/*`, `packages/*` y `tools/*`. Cada dependencia directa registra workspace, manifest y sección declarativa; los `workspace:` internos no se confunden con paquetes externos instalados.
 
+### SPDX license compatibility
+
+TECH-004 Bloque 4 evalúa todos los componentes third-party del CycloneDX SBOM con `tools/ci/validate-spdx-license.mjs`. El inventory instalado debe ser subconjunto del SBOM. Los componentes SBOM-only se consultan únicamente por nombre npm canónico + versión SemVer exacta contra `https://registry.npmjs.org`, sin redirects y con respuesta limitada a 1 MiB.
+
+El parser distingue `AND`, `OR`, paréntesis y `WITH`. La policy produce únicamente `ALLOW / REVIEW_REQUIRED / DENY`; IDs desconocidos, metadata ausente o excepciones WITH no revisadas bloquean. El piso deny para AGPL/GPL/SSPL/BUSL/UNLICENSED no puede rebajarse por configuración.
+
+La evidencia `license-compatibility-report.json` liga reviewed SHA y digests del SBOM, inventory y policy. Es una política de ingeniería/compliance, no un dictamen jurídico.
+
 ### Dependency vulnerability gate
 
 TECH-004 ejecuta `pnpm audit --json --audit-level=low` sobre la instalación frozen y evalúa el reporte con `tools/ci/validate-dependency-audit.mjs`.
@@ -102,15 +110,15 @@ Este baseline no completa:
 - lint del runtime/aplicaciones;
 - CodeQL/SAST materializado y ejecutado en TECH-004; el TOCTOU reportado por el primer SARIF fue remediado y CodeQL posterior quedó en 0 resultados;
 - vulnerability scanning high/critical materializado y ejecutado; su evidencia es dinámica y debe refrescarse en el HEAD final;
-- SBOM CycloneDX/SPDX firmado;
-- política legal completa de compatibilidad de licencias;
+- SBOM CycloneDX 1.6 materializado; la firma criptográfica queda en provenance/attestations;
+- gate SPDX de compatibilidad de licencias materializado; revisión jurídica futura sigue fuera de lo que puede afirmar CI;
 - provenance/attestations;
 - firma de releases;
 - runtime tests;
 - release controls;
 - gates de infraestructura/backup/restore productivos.
 
-Bloques SAST, hardening de inventory y vulnerabilidades no completan por sí solos TECH-004. SBOM, licencia completa, provenance y cierre integral siguen pendientes; por tanto `TECH-004` continúa `IN_PROGRESS`.
+Bloques SAST, hardening de inventory, vulnerabilidades, SBOM y licencias están materializados, pero provenance/attestations y cierre integral siguen pendientes; por tanto `TECH-004` continúa `IN_PROGRESS`.
 
 ## Invariantes
 
