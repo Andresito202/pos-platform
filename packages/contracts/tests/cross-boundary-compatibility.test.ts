@@ -109,18 +109,18 @@ describe("TECH-003 cross-boundary compatibility", () => {
   });
 
   it("uses the same canonical UUID and UTC rules at every boundary", () => {
-    expect(OperationResultRequestSchema.safeParse({
+    expect(OperationResultRequestSchema.parse({
       ...ipcRequest,
       request_id: requestId.toUpperCase(),
-    }).success).toBe(false);
+    }).request_id).toBe(requestId);
     expect(SyncOperationSchema.safeParse({
       ...syncOperation,
       occurred_at_local: "2026-08-28T12:00:00+02:00",
     }).success).toBe(false);
-    expect(httpRequestSchema.safeParse({
+    expect(httpRequestSchema.parse({
       ...httpRequest,
       body: { ...httpRequest.body, operation_id: operationId.toUpperCase() },
-    }).success).toBe(false);
+    }).body.operation_id).toBe(operationId);
   });
 
   it("rejects version, request and correlation drift at the transport binding", () => {
