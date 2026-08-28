@@ -802,3 +802,6 @@ Una tarea no está cerrada hasta que:
 - TECH-004 Blocks 1-2 documentation closure: this commit only reconciles evidence/status after both executable gates passed. Because HEAD changes, TARGET, CodeQL and dependency vulnerability audit must execute again on the documentation HEAD before Blocks 1-2 are treated as final stable baseline. Next technical block remains SBOM; no runtime scope is authorized.
 
 - TECH-004 Block 2 registry-source hardening: senior review found that inheriting registry configuration could redirect advisory lookup and weaken the meaning of a green audit. The gate now pins `https://registry.npmjs.org/` explicitly and has an executable regression proving `--ignore-registry-errors` is absent. Fresh TARGET + CodeQL + audit evidence is required on the new HEAD.
+
+
+- TECH-004 Block 3 SBOM materialization: CycloneDX JSON 1.6 is generated from the recursive pnpm graph after frozen install, crossed with root/apps/packages/tools workspace discovery. The artifact carries exact npm PURLs, dependency relationships, reviewed source SHA, lockfile digest and a separate SHA-256 digest. Unit regressions cover determinism, complete workspace binding, link resolution, cycles, dangling relations and tamper detection. This commit remains `MATERIALIZED / EXACT_HEAD_EXECUTION_PENDING`; it does not promote license, provenance, runtime or merge gates.
