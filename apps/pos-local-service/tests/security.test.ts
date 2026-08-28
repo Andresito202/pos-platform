@@ -9,6 +9,7 @@ import {
   DeviceIdentity,
   EncryptedFileSecretStore,
   LicenseVerifier,
+  LocalSecurityLifecycle,
   TrustedClockGuard,
   unsignedLicenseBytes,
   type SecretStoreKeyProvider,
@@ -115,6 +116,83 @@ describe("local security", () => {
       () => new Date("2026-08-10T00:00:00Z"),
     );
     expect(verifier.verify(signed, { installationId, deviceId }, true).decision).toBe("SIGNING_KEY_REVOKED");
+    database.close();
+  });
+
+  it("enforces activation, revocation, rotation, replacement, audit and capability decisions", async () => {
+    const dir = await directory();
+    mkdirSync(join(dir, "secrets"));
+    const database = LocalDatabase.open({ dataDirectory: dir });
+    const store = new EncryptedFileSecretStore(
+      join(dir, "secrets"),
+      testKeyProvider(randomBytes(32)),
+      installationId,
+    );
+    const firstIdentity = DeviceIdentity.create(store);
+    const lifecycle = new LocalSecurityLifecycle(
+      database,
+      () => new Date("2026-08-10T00:00:00Z"),
+    );
+    lifecycle.registerInitialDeviceKey(firstIdentity.deviceKeyId());
+
+    const pair = generateKeyPairSync("ed25519");
+    const value = claims();
+    const signed = {
+      claims: value,
+      signature: sign(null, unsignedLicenseBytes(value), pair.privateKey).toString("base64url"),
+    };
+    const verifier = new LicenseVerifier(
+      new Map([["LICENSE_KEY_1", { key: createPublicKey(pair.privateKey), status: "ACTIVE" as const }]]),
+      new TrustedClockGuard(database),
+      () => new Date("2026-08-10T00:00:00Z"),
+    );
+    const verified = verifier.verify(signed, { installationId, deviceId }, true);
+
+    expect(lifecycle.capabilityDecision("SALES", verified)).toBe("LICENSE_NOT_ACTIVATED");
+    lifecycle.activateLicense(verified);
+    expect(lifecycle.capabilityDecision("SALES", verified)).toBe("ALLOW");
+    expect(lifecycle.capabilityDecision("ADMIN", verified)).toBe("ENTITLEMENT_MISSING");
+
+    lifecycle.suspendLicense(value.license_id, "PAYMENT_REVIEW");
+    expect(lifecycle.capabilityDecision("SALES", verified)).toBe("LICENSE_SUSPENDED");
+
+    lifecycle.activateLicense(verified);
+    const rotated = DeviceIdentity.create(store, "device-identity-2");
+    lifecycle.rotateDeviceKey(rotated.deviceKeyId(), "device-identity-2");
+    expect(lifecycle.capabilityDecision("SALES", verified)).toBe("DEVICE_KEY_INACTIVE");
+
+    lifecycle.activateLicense(verified);
+    lifecycle.revokeLicense(value.license_id, "CONTRACT_REVOKED");
+    expect(lifecycle.capabilityDecision("SALES", verified)).toBe("LICENSE_REVOKED");
+
+    lifecycle.activateLicense(verified);
+    const replacement = DeviceIdentity.create(store, "device-identity-3");
+    lifecycle.replaceDeviceKey(replacement.deviceKeyId(), "device-identity-3", "DEVICE_REPLACEMENT");
+    expect(lifecycle.capabilityDecision("SALES", verified)).toBe("LICENSE_REVOKED");
+
+    lifecycle.revokeDeviceKey(replacement.deviceKeyId(), "DEVICE_COMPROMISED");
+    expect(() => database.native.prepare(
+      "UPDATE local_security_audit SET event_type='TAMPERED' WHERE sequence=1",
+    ).run()).toThrow("append-only");
+    expect(() => database.native.prepare(
+      "DELETE FROM local_security_audit WHERE sequence=1",
+    ).run()).toThrow("append-only");
+
+    const events = lifecycle.auditEntries() as Array<{ event_type: string }>;
+    expect(events.map((entry) => entry.event_type)).toEqual([
+      "DEVICE_KEY_REGISTERED",
+      "LICENSE_ACTIVATED",
+      "LICENSE_SUSPENDED",
+      "LICENSE_ACTIVATED",
+      "DEVICE_KEY_ROTATED",
+      "LICENSE_ACTIVATED",
+      "LICENSE_REVOKED",
+      "LICENSE_ACTIVATED",
+      "DEVICE_KEY_REPLACED",
+      "DEVICE_KEY_REVOKED",
+    ]);
+
+    store.destroy();
     database.close();
   });
 
