@@ -96,6 +96,11 @@ function describeImport(source, target, specifier) {
   return `${source.name} -> ${target.name} via ${specifier}`;
 }
 
+function packageNameForSpecifier(specifier) {
+  if (specifier.startsWith("@")) return specifier.split("/").slice(0, 2).join("/");
+  return specifier.split("/")[0];
+}
+
 export async function validateWorkspace(workspaceRoot, policyOverride) {
   const root = resolve(workspaceRoot);
   const policy = policyOverride ?? await readJson(join(root, "tools/architecture/module-boundaries.json"));
@@ -138,7 +143,7 @@ export async function validateWorkspace(workspaceRoot, policyOverride) {
     if (packageJson.private !== true) errors.push(`${project.name} must remain private during the architecture skeleton phase`);
     if (projectJson.name !== project.name) errors.push(`${project.root}/project.json name must be ${project.name}`);
     if (projectJson.root !== project.root) errors.push(`${project.name} Nx root must be ${project.root}`);
-    if (projectJson.projectType !== "library") errors.push(`${project.name} must be an Nx library`);
+    if (projectJson.projectType !== project.type) errors.push(`${project.name} Nx projectType must be ${project.type}`);
     const actualTags = [...(projectJson.tags ?? [])].sort();
     const requiredTags = expectedTags(project);
     if (JSON.stringify(actualTags) !== JSON.stringify(requiredTags)) {
@@ -147,6 +152,37 @@ export async function validateWorkspace(workspaceRoot, policyOverride) {
 
     const allowedLayers = new Set(policy.allowedLayerDependencies?.[project.layer] ?? []);
     const dependencies = declaredDependencies(packageJson);
+    const forbiddenExternal = policy.forbiddenExternalImportsByLayer?.[project.layer] ?? [];
+
+    for (const [dependencyName, declarations] of dependencies) {
+      const target = projects.find((candidate) => candidate.name === dependencyName);
+
+      if (dependencyName.startsWith("@pos-platform/") && !target) {
+        errors.push(`${project.name} declares undeclared workspace project ${dependencyName}`);
+        continue;
+      }
+
+      if (target) {
+        if (target.name === project.name) {
+          errors.push(`${project.name} cannot declare itself as a dependency`);
+          continue;
+        }
+        if (!allowedLayers.has(target.layer)) {
+          errors.push(`forbidden declared layer dependency: ${project.name} -> ${target.name}`);
+        }
+        for (const declaration of declarations) {
+          if (!String(declaration.specifier).startsWith("workspace:")) {
+            errors.push(`${project.name} -> ${target.name} must use the workspace: protocol in ${declaration.section}`);
+          }
+        }
+        continue;
+      }
+
+      if (forbiddenExternal.some((prefix) => dependencyName === prefix || dependencyName.startsWith(prefix))) {
+        errors.push(`${project.name} layer ${project.layer} cannot declare dependency ${dependencyName}`);
+      }
+    }
+
     const files = await walkSourceFiles(project.absoluteRoot);
     for (const file of files) {
       const source = await readFile(file, "utf8");
@@ -155,8 +191,16 @@ export async function validateWorkspace(workspaceRoot, policyOverride) {
         if (specifier.startsWith(".")) {
           const resolvedImport = resolve(dirname(file), specifier);
           target = projectForPath(resolvedImport, projects);
-          if (!target && normalizePath(resolvedImport).includes(`${normalizePath(root)}/packages/`)) {
-            errors.push(`${project.name} has an unresolved cross-package relative import ${specifier}`);
+          if (target && target.name !== project.name) {
+            errors.push(`cross-project relative import is forbidden: ${describeImport(project, target, specifier)}`);
+            continue;
+          }
+          const normalizedResolved = normalizePath(resolvedImport);
+          const crossesWorkspaceRoot = ["packages", "apps"].some((parent) =>
+            normalizedResolved.includes(`${normalizePath(root)}/${parent}/`)
+          );
+          if (!target && crossesWorkspaceRoot) {
+            errors.push(`${project.name} has an unresolved cross-project relative import ${specifier}`);
             continue;
           }
         } else if (specifier.startsWith("@pos-platform/") && !target) {
@@ -181,9 +225,13 @@ export async function validateWorkspace(workspaceRoot, policyOverride) {
         }
 
         if (!target && !specifier.startsWith(".") && !specifier.startsWith("node:")) {
-          const forbidden = policy.forbiddenExternalImportsByLayer?.[project.layer] ?? [];
-          if (forbidden.some((prefix) => specifier === prefix || specifier.startsWith(prefix))) {
+          if (forbiddenExternal.some((prefix) => specifier === prefix || specifier.startsWith(prefix))) {
             errors.push(`${project.name} layer ${project.layer} cannot import ${specifier}`);
+            continue;
+          }
+          const externalPackage = packageNameForSpecifier(specifier);
+          if (!dependencies.has(externalPackage)) {
+            errors.push(`${project.name} imports external package ${specifier} without declaring ${externalPackage}`);
           }
         }
       }

@@ -178,7 +178,7 @@ jobs:
       - name: Validate MAT-003 role-readiness tooling
         run: pnpm --filter @pos-platform/target-migrations test:role-readiness:003
 
-      - name: Emit INT-007 Gate B exact-head evidence
+      - name: Emit TARGET exact-head validation evidence
         shell: bash
         env:
           EVIDENCE_SHA: ${{ env.REVIEWED_SHA }}
@@ -193,31 +193,32 @@ jobs:
           )"
           test -n "$semantic_catalog_sha256"
 
-          cat > artifacts/ci/int-007-gate-b-exact-head.md <<EOF
-          # INT-007 Gate B exact-head evidence
+          cat > artifacts/ci/target-exact-head-validation.md <<EOF
+          # TARGET exact-head validation evidence
 
           - repository: ${GITHUB_REPOSITORY}
           - reviewed_sha: ${EVIDENCE_SHA}
           - workflow_run_id: ${EVIDENCE_RUN_ID}
           - workflow_run_attempt: ${EVIDENCE_RUN_ATTEMPT}
           - event: ${EVIDENCE_EVENT}
+          - architecture_boundaries: PASS
+          - repository_policy: PASS
           - postgres: 16.14
           - semantic_catalog_sha256: ${semantic_catalog_sha256}
           - typecheck: PASS
           - sqlite_migrations: PASS
           - postgres_001_002_003_and_physical_runner: PASS
-          - model_a_functional_and_concurrency: PASS
+          - fiscal_model_a_regression: PASS
           - mat_003_preflight: PASS
           - mat_003_role_readiness: PASS
 
-          This file is emitted only after every validation step above succeeds on REVIEWED_SHA.
-          It does not authorize merge, provider integration, runtime scope, or production promotion.
+          This evidence is commit-scoped. It does not authorize merge, providers, runtime scope, security promotion, or production deployment.
           EOF
 
-      - name: Upload INT-007 Gate B exact-head evidence
+      - name: Upload TARGET exact-head validation evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: int-007-gate-b-${{ env.REVIEWED_SHA }}
-          path: artifacts/ci/int-007-gate-b-exact-head.md
+          name: target-exact-head-${{ env.REVIEWED_SHA }}
+          path: artifacts/ci/target-exact-head-validation.md
           if-no-files-found: error
           retention-days: 90

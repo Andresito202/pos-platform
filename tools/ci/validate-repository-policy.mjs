@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -19,21 +19,24 @@ function patternFromFragments(...fragments) {
 
 const exactSemver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const workspaceSpecifier = /^workspace:(?:\*|\^|~|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
-const manifestPaths = [
-  'package.json',
-  'packages/application/package.json',
-  'packages/contracts/package.json',
-  'packages/database-core/package.json',
-  'packages/database-postgres/package.json',
-  'packages/database-sqlite/package.json',
-  'packages/domain/package.json',
-  'packages/observability/package.json',
-  'packages/testing/package.json',
-  'tools/target-migrations/package.json',
-];
+function discoverWorkspaceManifestPaths() {
+  const manifests = ['package.json'];
+  for (const parent of ['apps', 'packages', 'tools']) {
+    const absoluteParent = path.join(root, parent);
+    if (!existsSync(absoluteParent)) continue;
+    for (const entry of readdirSync(absoluteParent, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const manifestPath = `${parent}/${entry.name}/package.json`;
+      if (existsSync(path.join(root, manifestPath))) manifests.push(manifestPath);
+    }
+  }
+  return [...new Set(manifests)].sort();
+}
+
+const manifestPaths = discoverWorkspaceManifestPaths();
 const governedWorkspaceNames = new Set(
   manifestPaths
-    .filter((manifestPath) => manifestPath.startsWith('packages/'))
+    .filter((manifestPath) => manifestPath.startsWith('packages/') || manifestPath.startsWith('apps/'))
     .map((manifestPath) => readJson(manifestPath).name),
 );
 const forbiddenLifecycleScripts = new Set([

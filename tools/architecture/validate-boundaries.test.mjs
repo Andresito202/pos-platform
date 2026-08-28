@@ -105,3 +105,42 @@ test("validates duplicate internal dependency declarations independently", async
   const errors = await validate();
   assert(errors.some((error) => error.includes("workspace: protocol in dependencies")));
 });
+
+
+test("rejects forbidden manifest-only internal layer dependencies", async () => {
+  await writeProject("@pos-platform/domain", policy.projects["@pos-platform/domain"], {
+    "@pos-platform/database-postgres": "workspace:*",
+  });
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("forbidden declared layer dependency")));
+});
+
+test("rejects forbidden manifest-only external dependencies", async () => {
+  await writeProject("@pos-platform/domain", policy.projects["@pos-platform/domain"], { pg: "8.0.0" });
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("cannot declare dependency pg")));
+});
+
+test("requires workspace protocol for internal declarations even before imports exist", async () => {
+  await writeProject("@pos-platform/application", policy.projects["@pos-platform/application"], {
+    "@pos-platform/domain": "0.0.0",
+  });
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("must use the workspace: protocol")));
+});
+
+test("rejects relative imports that cross governed project roots", async () => {
+  await writeProject("@pos-platform/application", policy.projects["@pos-platform/application"], {
+    "@pos-platform/domain": "workspace:*",
+  });
+  await writeFile(join(root, "packages/domain/src/value.ts"), "export const value = 1;\n");
+  await writeFile(join(root, "packages/application/src/relative.ts"), 'import "../../domain/src/value.ts";\n');
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("cross-project relative import is forbidden")));
+});
+
+test("rejects undeclared external imports to prevent phantom dependencies", async () => {
+  await writeFile(join(root, "packages/database-postgres/src/phantom.ts"), 'import "some-transitive-package";\n');
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("without declaring some-transitive-package")));
+});

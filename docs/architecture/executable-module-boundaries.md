@@ -43,10 +43,13 @@ La matriz expresa dirección de dependencias, no autorización para implementar 
 2. validación de todos los paquetes del workspace;
 3. identidad exacta entre política, `package.json`, `project.json`, roots y tags Nx;
 4. dependencias de capas;
-5. imports relativos que atraviesen packages;
+5. rechazo de imports relativos que atraviesen fronteras entre proyectos de `apps/*` o `packages/*`;
 6. imports `@pos-platform/*` no declarados;
-7. dependencias internas ausentes de `package.json`;
-8. frameworks o drivers prohibidos en capas puras.
+7. dependencias internas declaradas o importadas que violen la matriz de capas;
+8. protocolo `workspace:` obligatorio para toda dependencia interna, aun antes de existir imports;
+9. imports externos sin dependencia directa declarada, evitando phantom dependencies;
+10. frameworks o drivers prohibidos tanto en imports como en manifests de capas puras;
+11. descubrimiento automático de manifests del workspace para que nuevos proyectos no escapen de policy CI.
 
 La política canónica está en `tools/architecture/module-boundaries.json`. El gate falla cerrado si aparece un package en `apps/*` o `packages/*` que no esté gobernado por esa política.
 
@@ -72,5 +75,6 @@ Cualquier proyecto nuevo requiere en el mismo cambio:
 2. entrada en la política;
 3. tags Nx exactos;
 4. dependencias `workspace:` explícitas;
-5. prueba negativa para una frontera nueva;
-6. CI y review exact-head.
+5. `projectType` y tags Nx coherentes con la política;
+6. prueba negativa para una frontera nueva;
+7. CI y review exact-head.
