@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  COPYFILE_EXCL,
-  chmodSync,\n  constants as fsConstants,
+  chmodSync,
+  constants as fsConstants,
   closeSync,
   copyFileSync,
   existsSync,
