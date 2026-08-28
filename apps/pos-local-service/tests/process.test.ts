@@ -33,9 +33,7 @@ function serviceEnvironment(dataDirectory?: string): NodeJS.ProcessEnv {
 }
 
 function spawnService(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams {
-  const pnpmCli = process.env.npm_execpath;
-  if (!pnpmCli) throw new Error("npm_execpath is required to spawn the service under pnpm");
-  return spawn(process.execPath, [pnpmCli, "start"], {
+  return spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
     cwd: process.cwd(),
     env: environment,
     stdio: ["pipe", "pipe", "pipe"],
