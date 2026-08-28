@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -175,28 +175,24 @@ describe("LocalDatabase", () => {
     expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
   });
 
-  it.skipIf(process.platform === "win32")(
-    "blocks a pending migration when the backup cannot be written",
-    async () => {
-      const dataDirectory = await directory();
-      const path = createV1Database(dataDirectory);
-      const backupDirectory = join(dataDirectory, "backups");
-      mkdirSync(backupDirectory, { mode: 0o500 });
-      chmodSync(backupDirectory, 0o500);
+  it("blocks a pending migration when the backup destination cannot be created", async () => {
+    const dataDirectory = await directory();
+    const path = createV1Database(dataDirectory);
+    const backupDirectory = join(dataDirectory, "backups");
+    writeFileSync(backupDirectory, "not-a-directory", { mode: 0o600 });
 
-      expect(() => LocalDatabase.open({ dataDirectory })).toThrow();
+    expect(() => LocalDatabase.open({ dataDirectory })).toThrow();
 
-      const unchanged = new Database(path, { readonly: true });
-      expect(unchanged.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='local_security_state'",
-      ).get()).toBeUndefined();
-      expect(unchanged.prepare(
-        "SELECT max(version) AS version FROM local_schema_migrations",
-      ).get()).toEqual({ version: 1 });
-      unchanged.close();
-      expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
-    },
-  );
+    const unchanged = new Database(path, { readonly: true });
+    expect(unchanged.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='local_security_state'",
+    ).get()).toBeUndefined();
+    expect(unchanged.prepare(
+      "SELECT max(version) AS version FROM local_schema_migrations",
+    ).get()).toEqual({ version: 1 });
+    unchanged.close();
+    expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
+  });
 
   it("backs up an existing v1 database before applying v2", async () => {
     const dataDirectory = await directory();
@@ -220,15 +216,23 @@ describe("LocalDatabase", () => {
   it("restores a verified backup atomically", async () => {
     const dataDirectory = await directory();
     const db = LocalDatabase.open({ dataDirectory });
-    seedOperation(db, "01");
-    const backup = db.createVerifiedBackup();
-    seedOperation(db, "02");
-    db.close();
+    let backup = "";
+    try {
+      seedOperation(db, "01");
+      backup = db.createVerifiedBackup();
+      seedOperation(db, "02");
+    } finally {
+      db.close();
+    }
 
+    expect(backup).not.toBe("");
     LocalDatabase.restoreFromBackup({ dataDirectory }, backup);
     const restored = LocalDatabase.open({ dataDirectory });
-    expect(restored.native.prepare("SELECT count(*) AS count FROM runtime_operations").get()).toEqual({ count: 1 });
-    restored.close();
+    try {
+      expect(restored.native.prepare("SELECT count(*) AS count FROM runtime_operations").get()).toEqual({ count: 1 });
+    } finally {
+      restored.close();
+    }
   });
 
   it("rejects a non-contiguous migration ledger instead of applying history out of order", async () => {
