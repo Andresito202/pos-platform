@@ -217,7 +217,7 @@ describe("POS Local Service process boundary", () => {
             protocol_max: "1.0.0",
             installation_id: installationId,
             device_id: deviceId,
-            schema_version: "2",
+            schema_version: "3",
             service_state: "READY",
           },
         });
@@ -234,7 +234,7 @@ describe("POS Local Service process boundary", () => {
             service_version: "1.0.0",
             protocol_version: "1.0.0",
             service_state: "READY",
-            schema_version: "2",
+            schema_version: "3",
           },
         });
       } finally {
