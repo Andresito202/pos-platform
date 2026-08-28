@@ -10,6 +10,7 @@ import {
   encodeFrame,
   FrameDecoder,
   LocalChannelAuthenticator,
+  LocalChannelClient,
   LocalChannelServer,
   SqliteReplayStateStore,
   localChannelEndpoint,
@@ -22,6 +23,74 @@ const sessionId = "018f0000-0000-7000-8000-000000000003";
 const requestId = "018f0000-0000-7000-8000-000000000004";
 const correlationId = "018f0000-0000-7000-8000-000000000005";
 const directories: string[] = [];
+
+function runtimeHandshakeRequest(protocolMin = "1.0.0", protocolMax = "1.0.0") {
+  return {
+    protocol_version: protocolMax,
+    message_type: "runtime.handshake" as const,
+    request_id: requestId,
+    correlation_id: correlationId,
+    payload_schema_version: "1.0.0",
+    payload: {
+      desktop_version: "1.0.0",
+      service_version: "1.0.0",
+      protocol_min: protocolMin,
+      protocol_max: protocolMax,
+      installation_id: installationId,
+      device_id: deviceId,
+      schema_version: "2",
+      service_state: "READY",
+    },
+  };
+}
+
+function runtimeStatusRequest(
+  id = "018f0000-0000-7000-8000-000000000006",
+  protocolVersion = "1.0.0",
+) {
+  return {
+    protocol_version: protocolVersion,
+    message_type: "runtime.status.get" as const,
+    request_id: id,
+    correlation_id: correlationId,
+    payload_schema_version: "1.0.0",
+    payload: {},
+  };
+}
+
+function compatibleResponse(request: ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>) {
+  if (request.message_type === "runtime.handshake") {
+    return {
+      protocol_version: "1.0.0",
+      request_id: request.request_id,
+      correlation_id: request.correlation_id,
+      operation_id: null,
+      status: "SUCCEEDED",
+      result_code: "OK",
+      result_schema_version: "1.0.0",
+      error: null,
+      server_time: "2026-08-28T00:00:00Z",
+      result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
+    };
+  }
+  return {
+    protocol_version: "1.0.0",
+    request_id: request.request_id,
+    correlation_id: request.correlation_id,
+    operation_id: null,
+    status: "SUCCEEDED",
+    result_code: "OK",
+    result_schema_version: "1.0.0",
+    error: null,
+    server_time: "2026-08-28T00:00:00Z",
+    result: {
+      service_version: "1.0.0",
+      protocol_version: "1.0.0",
+      service_state: "READY",
+      schema_version: "2",
+    },
+  };
+}
 
 async function directory(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), "pos-channel-"));
@@ -110,6 +179,102 @@ describe("local channel", () => {
     secret.fill(0);
   });
 
+  it("rejects canonical status traffic before a session handshake", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const secret = randomBytes(32);
+    const server = new LocalChannelServer(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      async (request) => compatibleResponse(request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>),
+      { min: "1.0.0", max: "1.0.0" },
+    );
+    await server.start();
+
+    const socket = createConnection(endpoint);
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    socket.write(encodeFrame(
+      new LocalChannelAuthenticator(secret, clock).sign(runtimeStatusRequest(), "1.0.0", sessionId, 1),
+    ));
+    await closed;
+
+    await server.stop();
+    secret.fill(0);
+  });
+
+  it("uses the real client to negotiate TECH-003 and validate response identity", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const secret = randomBytes(32);
+    const server = new LocalChannelServer(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      async (request) => compatibleResponse(request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>),
+      { min: "1.0.0", max: "1.0.0" },
+    );
+    await server.start();
+
+    const client = new LocalChannelClient(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      { min: "1.0.0", max: "1.0.0" },
+    );
+    await client.connect(runtimeHandshakeRequest());
+    await expect(client.request(runtimeStatusRequest())).resolves.toMatchObject({
+      status: "SUCCEEDED",
+      result: { service_state: "READY", protocol_version: "1.0.0" },
+    });
+
+    await client.close();
+    await server.stop();
+    secret.fill(0);
+  });
+
+  it("aborts a timed-out handler and closes the channel fail-closed", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const secret = randomBytes(32);
+    let aborted = false;
+    const server = new LocalChannelServer(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      async (request, signal) => {
+        if (request.message_type === "runtime.handshake") {
+          return compatibleResponse(runtimeHandshakeRequest());
+        }
+        return await new Promise((_, reject) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("aborted"));
+          }, { once: true });
+        });
+      },
+      { min: "1.0.0", max: "1.0.0" },
+      32,
+      64,
+      25,
+    );
+    await server.start();
+
+    const client = new LocalChannelClient(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      { min: "1.0.0", max: "1.0.0" },
+      500,
+    );
+    await client.connect(runtimeHandshakeRequest());
+    await expect(client.request(runtimeStatusRequest())).rejects.toThrow();
+    expect(aborted).toBe(true);
+
+    await client.close();
+    await server.stop();
+    secret.fill(0);
+  });
+
   it("requires canonical TECH-003 handshake before status traffic", async () => {
     const dir = await directory();
     const endpoint = localChannelEndpoint(installationId, process.platform, dir);
@@ -120,42 +285,9 @@ describe("local channel", () => {
     const server = new LocalChannelServer(
       endpoint,
       serverAuth,
-      async (request) => {
-        if (request.message_type === "runtime.handshake") {
-          return {
-            protocol_version: "1.0.0",
-            request_id: request.request_id,
-            correlation_id: request.correlation_id,
-            operation_id: null,
-            status: "SUCCEEDED",
-            result_code: "OK",
-            result_schema_version: "1.0.0",
-            error: null,
-            server_time: "2026-08-28T00:00:00Z",
-            result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
-          };
-        }
-        if (request.message_type === "runtime.status.get") {
-          return {
-            protocol_version: "1.0.0",
-            request_id: request.request_id,
-            correlation_id: request.correlation_id,
-            operation_id: null,
-            status: "SUCCEEDED",
-            result_code: "OK",
-            result_schema_version: "1.0.0",
-            error: null,
-            server_time: "2026-08-28T00:00:00Z",
-            result: {
-              service_version: "1.0.0",
-              protocol_version: "1.0.0",
-              service_state: "READY",
-              schema_version: "2",
-            },
-          };
-        }
-        throw new Error("unexpected request");
-      },
+      async (request) => compatibleResponse(
+        request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>,
+      ),
       { min: "1.0.0", max: "1.0.0" },
     );
 
@@ -166,23 +298,7 @@ describe("local channel", () => {
       socket.once("error", reject);
     });
 
-    const handshake = {
-      protocol_version: "1.0.0",
-      message_type: "runtime.handshake",
-      request_id: requestId,
-      correlation_id: correlationId,
-      payload_schema_version: "1.0.0",
-      payload: {
-        desktop_version: "1.0.0",
-        service_version: "1.0.0",
-        protocol_min: "1.0.0",
-        protocol_max: "1.0.0",
-        installation_id: installationId,
-        device_id: deviceId,
-        schema_version: "2",
-        service_state: "READY",
-      },
-    };
+    const handshake = runtimeHandshakeRequest();
     socket.write(encodeFrame(clientAuth.sign(handshake, "1.0.0", sessionId, 1)));
     const handshakeResponse = clientAuth.verify(await receive(socket));
     expect(handshakeResponse.payload).toMatchObject({
@@ -190,14 +306,7 @@ describe("local channel", () => {
       result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
     });
 
-    const status = {
-      protocol_version: "1.0.0",
-      message_type: "runtime.status.get",
-      request_id: "018f0000-0000-7000-8000-000000000006",
-      correlation_id: correlationId,
-      payload_schema_version: "1.0.0",
-      payload: {},
-    };
+    const status = runtimeStatusRequest();
     socket.write(encodeFrame(clientAuth.sign(status, "1.0.0", sessionId, 3)));
     const statusResponse = clientAuth.verify(await receive(socket));
     expect(statusResponse.payload).toMatchObject({
