@@ -176,9 +176,30 @@ El formato de políticas internas no se presenta como estándar HTTP externo. `R
 
 La extracción de headers reales debe rechazar duplicados ambiguos de campos contractuales antes de construir `contract_headers`; esta extracción pertenece al futuro runtime/middleware y no se simula con Zod.
 
-## Siguiente slice de TECH-003
+## Matriz cruzada y gate de cierre — Bloques 4 y 5
 
-1. completar matriz explícita de compatibilidad IPC/Sync/HTTP y pruebas cruzadas;
-2. reconciliar documentación/backlog sin estados obsoletos;
-3. cerrar TECH-003 con CI exact-head, review senior y cero threads;
-4. adapters externos permanecen fuera hasta su gate separado.
+TECH-003 publica una matriz ejecutable IPC/Sync/HTTP para las representaciones compartidas de protocolo, request/correlation, identidad operacional, idempotencia, categorías de error, UNKNOWN_OUTCOME, UTC y canonicalización UUID.
+
+Las regresiones cruzadas demuestran que:
+
+1. IPC, Sync y HTTP conservan la misma identidad `operation_id` + `idempotency_key` cuando corresponde;
+2. UUID se canonicaliza a minúsculas al parsear, sin rechazar una representación hexadecimal válida por casing;
+3. los timestamps autoritativos conservan UTC estricto;
+4. drift de versión/request/correlation en una frontera vinculada falla cerrado;
+5. `UNKNOWN_OUTCOME` permanece resultado de aplicación en IPC/HTTP y no se convierte en error de transporte 5xx;
+6. Sync mantiene deliberadamente su vocabulario durable de resultados y no importa categorías HTTP que no pertenecen a su frontera.
+
+Estado de este documento: `CLOSURE_CANDIDATE`.
+
+El cierre de TECH-003 exige sobre el mismo HEAD:
+
+- CI TARGET exact-head verde;
+- suite completa de contratos, incluida compatibilidad cruzada;
+- TypeScript, SQLite, PostgreSQL 16.14 y MAT-003 verdes;
+- repository policy/dependency inventory verde;
+- revisión senior del HEAD exacto;
+- cero review threads abiertos;
+- autorización separada de merge;
+- verificación post-merge antes de iniciar la siguiente línea principal.
+
+Adapters externos, NestJS, Electron, POS Local Service, named pipes, autenticación criptográfica de runtime y producción permanecen fuera de TECH-003.
