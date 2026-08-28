@@ -47,9 +47,51 @@ CREATE INDEX local_channel_replay_state_expires_at_idx
   ON local_channel_replay_state(expires_at);
 `.trim();
 
+const MIGRATION_003 = `
+CREATE TABLE local_device_identity_state (
+  singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
+  active_key_id TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','REVOKED'))
+) STRICT;
+
+CREATE TABLE local_device_key_history (
+  device_key_id TEXT PRIMARY KEY NOT NULL,
+  generation INTEGER NOT NULL UNIQUE CHECK(generation > 0),
+  secret_name TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','VERIFY_ONLY','REVOKED','REPLACED')),
+  created_at TEXT NOT NULL,
+  retired_at TEXT
+) STRICT;
+
+CREATE TABLE local_license_activation_state (
+  license_id TEXT PRIMARY KEY NOT NULL CHECK(length(license_id) = 36),
+  device_key_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','SUSPENDED','REVOKED')),
+  activated_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  reason TEXT
+) STRICT;
+
+CREATE TABLE local_security_audit (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  details_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER local_security_audit_no_update
+  BEFORE UPDATE ON local_security_audit
+  BEGIN SELECT RAISE(ABORT, 'local security audit is append-only'); END;
+CREATE TRIGGER local_security_audit_no_delete
+  BEFORE DELETE ON local_security_audit
+  BEGIN SELECT RAISE(ABORT, 'local security audit is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
+  { version: 3, sql: MIGRATION_003, checksum: createHash("sha256").update(MIGRATION_003).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
