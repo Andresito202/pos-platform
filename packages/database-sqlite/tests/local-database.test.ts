@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,6 +31,24 @@ CREATE TABLE runtime_operations (
 ) STRICT;
 CREATE INDEX runtime_operations_status_idx ON runtime_operations(status, created_at);
 `.trim();
+
+function createV1Database(dataDirectory: string): string {
+  const path = join(dataDirectory, "pos-local.db");
+  const raw = new Database(path);
+  raw.exec(MIGRATION_001);
+  raw.exec(`CREATE TABLE local_schema_migrations (
+    version INTEGER PRIMARY KEY NOT NULL,
+    checksum TEXT NOT NULL CHECK(length(checksum) = 64),
+    applied_at TEXT NOT NULL
+  ) STRICT;`);
+  raw.prepare("INSERT INTO local_schema_migrations VALUES (?, ?, ?)").run(
+    1,
+    createHash("sha256").update(MIGRATION_001).digest("hex"),
+    "2026-08-28T00:00:00Z",
+  );
+  raw.close();
+  return path;
+}
 
 function seedOperation(database: LocalDatabase, suffix: string): void {
   database.native.prepare("INSERT INTO runtime_operations VALUES (?, ?, ?, ?, ?, ?, ?)").run(
@@ -136,20 +154,7 @@ describe("LocalDatabase", () => {
 
   it("blocks a pending migration when verified-backup capacity is insufficient", async () => {
     const dataDirectory = await directory();
-    const path = join(dataDirectory, "pos-local.db");
-    const raw = new Database(path);
-    raw.exec(MIGRATION_001);
-    raw.exec(`CREATE TABLE local_schema_migrations (
-      version INTEGER PRIMARY KEY NOT NULL,
-      checksum TEXT NOT NULL CHECK(length(checksum) = 64),
-      applied_at TEXT NOT NULL
-    ) STRICT;`);
-    raw.prepare("INSERT INTO local_schema_migrations VALUES (?, ?, ?)").run(
-      1,
-      createHash("sha256").update(MIGRATION_001).digest("hex"),
-      "2026-08-28T00:00:00Z",
-    );
-    raw.close();
+    const path = createV1Database(dataDirectory);
 
     expect(() => LocalDatabase.open({
       dataDirectory,
@@ -167,22 +172,32 @@ describe("LocalDatabase", () => {
     expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
   });
 
+  it.skipIf(process.platform === "win32")(
+    "blocks a pending migration when the backup cannot be written",
+    async () => {
+      const dataDirectory = await directory();
+      const path = createV1Database(dataDirectory);
+      const backupDirectory = join(dataDirectory, "backups");
+      mkdirSync(backupDirectory, { mode: 0o500 });
+      chmodSync(backupDirectory, 0o500);
+
+      expect(() => LocalDatabase.open({ dataDirectory })).toThrow();
+
+      const unchanged = new Database(path, { readonly: true });
+      expect(unchanged.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='local_security_state'",
+      ).get()).toBeUndefined();
+      expect(unchanged.prepare(
+        "SELECT max(version) AS version FROM local_schema_migrations",
+      ).get()).toEqual({ version: 1 });
+      unchanged.close();
+      expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
+    },
+  );
+
   it("backs up an existing v1 database before applying v2", async () => {
     const dataDirectory = await directory();
-    const path = join(dataDirectory, "pos-local.db");
-    const raw = new Database(path);
-    raw.exec(MIGRATION_001);
-    raw.exec(`CREATE TABLE local_schema_migrations (
-      version INTEGER PRIMARY KEY NOT NULL,
-      checksum TEXT NOT NULL CHECK(length(checksum) = 64),
-      applied_at TEXT NOT NULL
-    ) STRICT;`);
-    raw.prepare("INSERT INTO local_schema_migrations VALUES (?, ?, ?)").run(
-      1,
-      createHash("sha256").update(MIGRATION_001).digest("hex"),
-      "2026-08-28T00:00:00Z",
-    );
-    raw.close();
+    const path = createV1Database(dataDirectory);
 
     const db = LocalDatabase.open({ dataDirectory });
     expect(db.native.prepare(
