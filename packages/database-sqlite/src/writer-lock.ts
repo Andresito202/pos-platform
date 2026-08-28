@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, type } from "node:fs";
+import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 interface LockRecord { readonly pid: number; readonly token: string; readonly acquired_at: string; }
