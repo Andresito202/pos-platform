@@ -16,21 +16,10 @@ export const IpcMessageTypeSchema = z.enum([
 ]);
 
 function exactMessage<
-  T extends z.ZodType,
   M extends z.infer<typeof IpcMessageTypeSchema>,
+  T extends z.ZodObject,
 >(messageType: M, schema: T) {
-  return schema
-    .refine(
-      (value) => typeof value === "object" && value !== null && "message_type" in value
-        && value.message_type === messageType,
-      { path: ["message_type"], message: `message_type must be ${messageType}` },
-    )
-    .transform((value) => {
-      if (typeof value !== "object" || value === null) {
-        throw new Error("IPC request envelope must be an object");
-      }
-      return { ...value, message_type: messageType };
-    });
+  return schema.safeExtend({ message_type: z.literal(messageType) });
 }
 
 const EmptyPayloadSchema = z.strictObject({});
