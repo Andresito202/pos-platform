@@ -46,10 +46,22 @@ const MIGRATIONS = [
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
 
+export interface LocalDatabaseStorageProbe {
+  availableBytes(directory: string): bigint;
+}
+
+const defaultStorageProbe: LocalDatabaseStorageProbe = {
+  availableBytes(directory) {
+    const filesystem = statfsSync(directory, { bigint: true });
+    return filesystem.bavail * filesystem.bsize;
+  },
+};
+
 export interface LocalDatabaseOptions {
   readonly dataDirectory: string;
   readonly filename?: string;
   readonly busyTimeoutMs?: number;
+  readonly storageProbe?: LocalDatabaseStorageProbe;
 }
 
 function validateDatabaseFile(path: string): void {
@@ -77,6 +89,7 @@ export class LocalDatabase {
     private readonly lock: WriterLock,
     private readonly directory: string,
     private readonly databasePath: string,
+    private readonly storageProbe: LocalDatabaseStorageProbe,
   ) {}
 
   static open(options: LocalDatabaseOptions): LocalDatabase {
@@ -95,7 +108,13 @@ export class LocalDatabase {
       native.pragma("journal_mode = WAL");
       native.pragma("synchronous = FULL");
       native.pragma("trusted_schema = OFF");
-      const database = new LocalDatabase(native, lock, directory, databasePath);
+      const database = new LocalDatabase(
+        native,
+        lock,
+        directory,
+        databasePath,
+        options.storageProbe ?? defaultStorageProbe,
+      );
       if (existedBeforeOpen && database.needsMigration()) {
         database.createVerifiedBackup("pre-migration");
       }
@@ -150,8 +169,7 @@ export class LocalDatabase {
     const backupDirectory = join(this.directory, "backups");
     mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
     const sourceBytes = BigInt(statSync(this.databasePath).size);
-    const filesystem = statfsSync(this.directory, { bigint: true });
-    const availableBytes = filesystem.bavail * filesystem.bsize;
+    const availableBytes = this.storageProbe.availableBytes(this.directory);
     const requiredBytes = sourceBytes + BACKUP_FREE_SPACE_RESERVE_BYTES;
     if (availableBytes < requiredBytes) {
       throw new Error(`insufficient free space for SQLite backup: required ${requiredBytes}, available ${availableBytes}`);
