@@ -20,6 +20,14 @@ describe("parseServiceConfig", () => {
   it("rejects a relative data directory before normalization", () => {
     expect(() => parseServiceConfig({ ...valid, POS_DATA_DIRECTORY: "./data" })).toThrow("must be absolute");
   });
+  it("rejects an inverted protocol compatibility range", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_PROTOCOL_MIN: "2.0.0",
+      POS_PROTOCOL_MAX: "1.9.9",
+    })).toThrow("protocol_max must be greater than or equal to protocol_min");
+  });
+
   it("rejects unknown POS-prefixed configuration", () => {
     expect(() => parseServiceConfig({ ...valid, POS_UNDECLARED_OPTION: "1" })).toThrow("unknown POS service configuration");
   });
