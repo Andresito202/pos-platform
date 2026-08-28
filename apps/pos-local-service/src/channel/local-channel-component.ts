@@ -12,7 +12,7 @@ import { SqliteReplayStateStore } from "./replay-state.js";
 import { LocalChannelServer } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 
-const LOCAL_SCHEMA_VERSION = "2";
+const LOCAL_SCHEMA_VERSION = "3";
 const RESULT_SCHEMA_VERSION = "1.0.0";
 
 function incompatibleStatus(
