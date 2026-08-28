@@ -94,6 +94,8 @@ DROP POLICY fiscal_document_preparations_worker_historical_evidence ON fiscal.fi
 
 DROP POLICY fiscal_document_preparations_worker_frozen ON fiscal.fiscal_document_preparations;
 
+DROP POLICY fiscal_document_preparations_worker_tenant_select ON fiscal.fiscal_document_preparations;
+
 DROP POLICY fiscal_document_preparations_platform_tenant_select ON fiscal.fiscal_document_preparations;
 
 DROP POLICY fiscal_document_preparations_app_tenant_isolation ON fiscal.fiscal_document_preparations;

@@ -480,6 +480,7 @@ export const FISCAL_003_REQUIRED_POLICIES = [
   "electronic_documents_tenant_isolation",
   "fiscal_document_preparations_app_tenant_isolation",
   "fiscal_document_preparations_platform_tenant_select",
+  "fiscal_document_preparations_worker_tenant_select",
   "fiscal_document_preparations_worker_frozen",
   "fiscal_document_preparations_worker_historical_evidence",
   "fiscal_submission_attempts_tenant_isolation",

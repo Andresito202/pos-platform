@@ -151,10 +151,17 @@ describe("003 fiscal descriptor contract", () => {
     expect(FISCAL_003_REQUIRED_POLICIES).toEqual(expect.arrayContaining([
       "fiscal_document_preparations_app_tenant_isolation",
       "fiscal_document_preparations_platform_tenant_select",
+      "fiscal_document_preparations_worker_tenant_select",
       "fiscal_document_preparations_worker_frozen",
       "fiscal_document_preparations_worker_historical_evidence",
     ]));
     expect(POSTGRES_003_DESCRIPTOR.ownedPolicies).toBe(FISCAL_003_REQUIRED_POLICIES);
+    expect(FISCAL_003_EXACT_POLICY_DEFINITIONS.fiscal_document_preparations_worker_tenant_select)
+      .toBe("CREATE POLICY fiscal_document_preparations_worker_tenant_select ON fiscal.fiscal_document_preparations FOR SELECT TO pos_worker USING (tenant_id=platform.current_tenant_id());");
+    expect(FISCAL_003_EXACT_POLICY_DEFINITIONS.fiscal_document_preparations_worker_frozen)
+      .toContain("FOR UPDATE TO pos_worker");
+    expect(FISCAL_003_EXACT_POLICY_DEFINITIONS.fiscal_document_preparations_worker_historical_evidence)
+      .toContain("FOR UPDATE TO pos_worker");
     expect(FISCAL_003_GRANT_MATRIX["fiscal.fiscal_document_preparations"].pos_worker.update).toEqual([
       "numbering_state","prefix","number","number_reserved_at","number_consumed_at","number_burned_at",
       "numbering_resolution_reason","provider_document_id","provider_reference","provider_status_raw",
