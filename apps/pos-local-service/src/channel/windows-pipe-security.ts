@@ -12,15 +12,11 @@ using System.Security.Principal;
 
 public static class PosPlatformPipeSecurity
 {
-    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-    private const uint TOKEN_QUERY = 0x0008;
-    private const uint TOKEN_ADJUST_DEFAULT = 0x0080;
-    private const int TOKEN_DEFAULT_DACL_CLASS = 6;
     private const int GENERIC_ALL = unchecked((int)0x10000000);
-
     private const uint GENERIC_READ = 0x80000000;
     private const uint GENERIC_WRITE = 0x40000000;
     private const uint READ_CONTROL = 0x00020000;
+    private const uint WRITE_DAC = 0x00040000;
     private const uint OPEN_EXISTING = 3;
     private const int ERROR_PIPE_BUSY = 231;
 
@@ -28,37 +24,6 @@ public static class PosPlatformPipeSecurity
     private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
     private const uint DACL_SECURITY_INFORMATION = 0x00000004;
     private const uint SDDL_REVISION_1 = 1;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct TOKEN_DEFAULT_DACL
-    {
-        public IntPtr DefaultDacl;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr OpenProcess(
-        uint dwDesiredAccess,
-        bool bInheritHandle,
-        uint dwProcessId
-    );
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern bool OpenProcessToken(
-        IntPtr ProcessHandle,
-        uint DesiredAccess,
-        out IntPtr TokenHandle
-    );
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern bool SetTokenInformation(
-        IntPtr TokenHandle,
-        int TokenInformationClass,
-        IntPtr TokenInformation,
-        int TokenInformationLength
-    );
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateFileW(
@@ -73,6 +38,17 @@ public static class PosPlatformPipeSecurity
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool WaitNamedPipeW(string lpNamedPipeName, uint nTimeOut);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint SetSecurityInfo(
+        IntPtr handle,
+        int ObjectType,
+        uint SecurityInfo,
+        IntPtr psidOwner,
+        IntPtr psidGroup,
+        IntPtr pDacl,
+        IntPtr pSacl
+    );
 
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern uint GetSecurityInfo(
@@ -96,27 +72,46 @@ public static class PosPlatformPipeSecurity
     );
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr LocalFree(IntPtr hMem);
 
-    public static string RestrictProcessDefaultDacl(uint processId)
+    private static IntPtr OpenPipe(string pipePath, uint additionalAccess)
     {
-        IntPtr processHandle = IntPtr.Zero;
-        IntPtr tokenHandle = IntPtr.Zero;
+        IntPtr pipeHandle = new IntPtr(-1);
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            pipeHandle = CreateFileW(
+                pipePath,
+                GENERIC_READ | GENERIC_WRITE | READ_CONTROL | additionalAccess,
+                0,
+                IntPtr.Zero,
+                OPEN_EXISTING,
+                0,
+                IntPtr.Zero
+            );
+            if (pipeHandle != new IntPtr(-1)) return pipeHandle;
+
+            int error = Marshal.GetLastWin32Error();
+            if (error != ERROR_PIPE_BUSY)
+                throw new Win32Exception(error, "CreateFileW named-pipe access failed");
+
+            if (!WaitNamedPipeW(pipePath, 2000))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitNamedPipeW failed");
+        }
+
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "Named pipe remained unavailable");
+    }
+
+    public static string HardenNamedPipe(string pipePath)
+    {
+        IntPtr pipeHandle = new IntPtr(-1);
         IntPtr aclPointer = IntPtr.Zero;
-        IntPtr tokenInfoPointer = IntPtr.Zero;
 
         try
         {
-            processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-            if (processHandle == IntPtr.Zero)
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcess failed");
-
-            if (!OpenProcessToken(
-                processHandle,
-                TOKEN_QUERY | TOKEN_ADJUST_DEFAULT,
-                out tokenHandle
-            ))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
+            pipeHandle = OpenPipe(pipePath, WRITE_DAC);
 
             SecurityIdentifier currentUser = WindowsIdentity.GetCurrent().User;
             SecurityIdentifier localSystem =
@@ -154,30 +149,24 @@ public static class PosPlatformPipeSecurity
             aclPointer = Marshal.AllocHGlobal(aclBytes.Length);
             Marshal.Copy(aclBytes, 0, aclPointer, aclBytes.Length);
 
-            TOKEN_DEFAULT_DACL tokenDefaultDacl = new TOKEN_DEFAULT_DACL
-            {
-                DefaultDacl = aclPointer
-            };
-            int tokenInfoSize = Marshal.SizeOf(typeof(TOKEN_DEFAULT_DACL));
-            tokenInfoPointer = Marshal.AllocHGlobal(tokenInfoSize);
-            Marshal.StructureToPtr(tokenDefaultDacl, tokenInfoPointer, false);
-
-            if (!SetTokenInformation(
-                tokenHandle,
-                TOKEN_DEFAULT_DACL_CLASS,
-                tokenInfoPointer,
-                tokenInfoSize
-            ))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "SetTokenInformation failed");
+            uint result = SetSecurityInfo(
+                pipeHandle,
+                SE_KERNEL_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                aclPointer,
+                IntPtr.Zero
+            );
+            if (result != 0)
+                throw new Win32Exception((int)result, "SetSecurityInfo named-pipe DACL failed");
 
             return currentUser.Value;
         }
         finally
         {
-            if (tokenInfoPointer != IntPtr.Zero) Marshal.FreeHGlobal(tokenInfoPointer);
             if (aclPointer != IntPtr.Zero) Marshal.FreeHGlobal(aclPointer);
-            if (tokenHandle != IntPtr.Zero) CloseHandle(tokenHandle);
-            if (processHandle != IntPtr.Zero) CloseHandle(processHandle);
+            if (pipeHandle != new IntPtr(-1)) CloseHandle(pipeHandle);
         }
     }
 
@@ -189,26 +178,7 @@ public static class PosPlatformPipeSecurity
 
         try
         {
-            for (int attempt = 0; attempt < 3; attempt++)
-            {
-                pipeHandle = CreateFileW(
-                    pipePath,
-                    GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
-                    0,
-                    IntPtr.Zero,
-                    OPEN_EXISTING,
-                    0,
-                    IntPtr.Zero
-                );
-                if (pipeHandle != new IntPtr(-1)) break;
-
-                int error = Marshal.GetLastWin32Error();
-                if (error != ERROR_PIPE_BUSY || !WaitNamedPipeW(pipePath, 2000))
-                    throw new Win32Exception(error, "CreateFileW named-pipe inspection failed");
-            }
-
-            if (pipeHandle == new IntPtr(-1))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Named pipe remained unavailable");
+            pipeHandle = OpenPipe(pipePath, 0);
 
             IntPtr owner;
             IntPtr group;
@@ -252,18 +222,18 @@ public static class PosPlatformPipeSecurity
 '@
 
 $action = $env:POS_PIPE_SECURITY_ACTION
-if ($action -eq "restrict") {
-  $pidValue = [uint32]::Parse($env:POS_PIPE_OWNER_PID)
-  $sid = [PosPlatformPipeSecurity]::RestrictProcessDefaultDacl($pidValue)
+$path = $env:POS_PIPE_SECURITY_PATH
+if ([string]::IsNullOrWhiteSpace($path)) {
+  throw "named-pipe path is required"
+}
+
+if ($action -eq "harden") {
+  $sid = [PosPlatformPipeSecurity]::HardenNamedPipe($path)
   [pscustomobject]@{ currentSid = $sid } | ConvertTo-Json -Compress
   exit 0
 }
 
 if ($action -eq "inspect") {
-  $path = $env:POS_PIPE_SECURITY_PATH
-  if ([string]::IsNullOrWhiteSpace($path)) {
-    throw "named-pipe path is required"
-  }
   $sddl = [PosPlatformPipeSecurity]::InspectNamedPipe($path)
   $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   [pscustomobject]@{ currentSid = $sid; sddl = $sddl } | ConvertTo-Json -Compress
@@ -284,12 +254,9 @@ export interface WindowsNamedPipeSecurityReport {
   readonly allowedTrustees: readonly string[];
 }
 
-let processDefaultDaclRestricted = false;
-let restrictedSid: string | undefined;
-
 function invokePipeSecurity(
-  action: "restrict" | "inspect",
-  endpoint?: string,
+  action: "harden" | "inspect",
+  endpoint: string,
 ): PipeSecurityResult {
   if (process.platform !== "win32") {
     throw new Error("Windows named-pipe security requires Windows");
@@ -306,8 +273,7 @@ function invokePipeSecurity(
       env: {
         ...process.env,
         POS_PIPE_SECURITY_ACTION: action,
-        POS_PIPE_OWNER_PID: String(process.pid),
-        ...(endpoint === undefined ? {} : { POS_PIPE_SECURITY_PATH: endpoint }),
+        POS_PIPE_SECURITY_PATH: endpoint,
       },
     },
   );
@@ -333,23 +299,23 @@ function invokePipeSecurity(
   }
 }
 
-export function restrictCurrentProcessNamedPipeDefaults(): string {
-  if (process.platform !== "win32") {
-    throw new Error("named-pipe DACL hardening requires Windows");
+export function hardenWindowsNamedPipeSecurity(endpoint: string): string {
+  if (!endpoint.startsWith("\\\\.\\pipe\\")) {
+    throw new Error("named-pipe DACL hardening requires a local Windows named-pipe endpoint");
   }
-  if (processDefaultDaclRestricted && restrictedSid) return restrictedSid;
-
-  const result = invokePipeSecurity("restrict");
-  processDefaultDaclRestricted = true;
-  restrictedSid = result.currentSid;
-  return result.currentSid;
+  return invokePipeSecurity("harden", endpoint).currentSid;
 }
 
 function allowedAceTrustees(sddl: string): string[] {
   const trustees: string[] = [];
   for (const match of sddl.matchAll(/\(([^)]+)\)/g)) {
     const fields = match[1]!.split(";");
-    if (fields.length < 6 || fields[0] !== "A") continue;
+    if (fields.length < 6) {
+      throw new Error("Windows named-pipe DACL contains a malformed ACE");
+    }
+    if (fields[0] !== "A") {
+      throw new Error(`Windows named-pipe DACL contains unsupported ACE type: ${fields[0]}`);
+    }
     trustees.push(fields[5]!);
   }
   return trustees;
