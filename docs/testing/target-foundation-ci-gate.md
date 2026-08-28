@@ -44,9 +44,11 @@ Valida, entre otros:
 - fallo cerrado ante package manifests instalados ilegibles o inválidos;
 - evidencia obligatoria mediante artifact; `if-no-files-found: error`.
 
-El inventario plano no se presenta como conclusión legal completa de compatibilidad de licencias. El mismo job genera además un SBOM CycloneDX JSON 1.6 desde el grafo recursivo resuelto por pnpm, valida cobertura/relaciones/SHA y publica su digest SHA-256. El SBOM no es todavía una attestación firmada.
+El inventario plano no se presenta como conclusión legal completa de compatibilidad de licencias. El mismo job genera además un SBOM CycloneDX JSON 1.6 desde el grafo recursivo reportado por pnpm, valida cobertura/relaciones/SHA y publica su digest SHA-256. El SBOM puede contener nodos opcionales de otras plataformas además del inventory Linux instalado; ese inventory debe permanecer como subconjunto. El SBOM no es todavía una attestación firmada.
 
 El mismo job ejecuta además el gate de vulnerabilidades de dependencias: captura `pnpm audit --json --audit-level=low`, bloquea high/critical sin excepción válida y falla cerrado ante error de fuente o evidencia incoherente. Moderate/low permanecen visibles para triage.
+
+Después del SBOM ejecuta el gate SPDX de licencias. Cada componente third-party termina en `ALLOW`, `REVIEW_REQUIRED` o `DENY`; PASS exige cero review-required y cero deny. Componentes SBOM-only resuelven metadata exact-version desde el origin npm fijado y con egress restringido.
 
 ### TypeScript, SQLite and PostgreSQL 16.14
 
@@ -145,7 +147,7 @@ No se promueve por esta evidencia:
 - lint del runtime;
 - CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
 - vulnerability scanning high/critical materializado y ejecutado en TECH-004; su PASS es commit-scoped y temporal, y debe refrescarse antes de integración;
-- SBOM firmado o multi-plataforma; el SBOM CycloneDX del grafo Linux resuelto en CI sí está materializado;
+- attestación/firma del SBOM; el CycloneDX 1.6 y el gate SPDX sí están materializados, incluida cobertura de nodos opcionales que pnpm reporta fuera del inventory Linux;
 - provenance/attestations de build;
 - firma de releases;
 - runtime tests;
@@ -185,4 +187,10 @@ El Bloque 3 añade un SBOM CycloneDX JSON 1.6 determinista a `supply-chain-basel
 
 La política, límites y semántica normativa están en `docs/security/cyclonedx-sbom-gate.md`.
 
-Estado documental de este commit: `MATERIALIZED / EXACT_HEAD_EXECUTION_PENDING`. Solo TARGET y CodeQL exitosos sobre este mismo HEAD, junto con el artifact `cyclonedx-sbom-<sha>`, pueden promover el bloque a PASS.
+Cierre ejecutable de Bloque 3: `83ac7d75a77ee371a943fc6cc087e4934eeb1d47`, TARGET #213 y CodeQL #24 `SUCCESS`, artifact `cyclonedx-sbom-83ac7d75a77ee371a943fc6cc087e4934eeb1d47` presente.
+
+## TECH-004 — Bloque 4 licencias SPDX
+
+Checkpoint técnico `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`: TARGET #217 / run `33174019861` y CodeQL #28 / run `33174019863` `SUCCESS`. El gate evaluó 249 componentes third-party: 194 desde inventory instalado y 55 desde metadata de versión exacta en npm; resultado 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY.
+
+El lookup remoto se limita a nombres npm canónicos y SemVer exacto sobre `registry.npmjs.org`, sin redirects y con límite de respuesta de 1 MiB. CodeQL #28 terminó con 0 resultados después de ese hardening. Cualquier commit documental posterior exige evidencia fresca sobre el nuevo HEAD.
