@@ -8,3 +8,5 @@ export * from "./versioning.js";
 export * from "./ipc.js";
 export * from "./sync.js";
 export * from "./compatibility.js";
+export * from "./local-channel.js";
+export * from "./local-security.js";

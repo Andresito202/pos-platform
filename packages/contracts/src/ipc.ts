@@ -15,27 +15,17 @@ export const IpcMessageTypeSchema = z.enum([
   "operation.result.get",
 ]);
 
-function exactMessage<T extends z.ZodType>(messageType: z.infer<typeof IpcMessageTypeSchema>, schema: T) {
-  return schema.refine(
-    (value) => typeof value === "object" && value !== null && "message_type" in value
-      && value.message_type === messageType,
-    { path: ["message_type"], message: `message_type must be ${messageType}` },
-  );
-}
-
 const EmptyPayloadSchema = z.strictObject({});
 
-export const RuntimeHandshakeRequestSchema = exactMessage(
-  "runtime.handshake",
-  createRequestEnvelopeSchema(RuntimeCompatibilitySnapshotSchema),
-);
+export const RuntimeHandshakeRequestSchema = createRequestEnvelopeSchema(
+  RuntimeCompatibilitySnapshotSchema,
+).safeExtend({ message_type: z.literal("runtime.handshake") });
 
 export const RuntimeHandshakeResponseSchema = createResponseEnvelopeSchema(RuntimeHandshakeOutcomeSchema);
 
-export const RuntimeStatusRequestSchema = exactMessage(
-  "runtime.status.get",
-  createRequestEnvelopeSchema(EmptyPayloadSchema),
-);
+export const RuntimeStatusRequestSchema = createRequestEnvelopeSchema(
+  EmptyPayloadSchema,
+).safeExtend({ message_type: z.literal("runtime.status.get") });
 
 export const RuntimeStatusResultSchema = z.strictObject({
   service_version: ContractVersionSchema,
@@ -51,10 +41,9 @@ export const OperationResultQuerySchema = z.strictObject({
   idempotency_key: IdempotencyKeySchema,
 });
 
-export const OperationResultRequestSchema = exactMessage(
-  "operation.result.get",
-  createRequestEnvelopeSchema(OperationResultQuerySchema),
-);
+export const OperationResultRequestSchema = createRequestEnvelopeSchema(
+  OperationResultQuerySchema,
+).safeExtend({ message_type: z.literal("operation.result.get") });
 
 export const OperationResultStatusSchema = z.enum([
   "NOT_FOUND",
@@ -75,3 +64,19 @@ export const OperationResultResponseSchema = createResponseEnvelopeSchema(Operat
 
 export type IpcMessageType = z.infer<typeof IpcMessageTypeSchema>;
 export type OperationResultQuery = z.infer<typeof OperationResultQuerySchema>;
+
+
+export const IpcRequestSchema = z.union([
+  RuntimeHandshakeRequestSchema,
+  RuntimeStatusRequestSchema,
+  OperationResultRequestSchema,
+]);
+
+export const IpcResponseSchema = z.union([
+  RuntimeHandshakeResponseSchema,
+  RuntimeStatusResponseSchema,
+  OperationResultResponseSchema,
+]);
+
+export type IpcRequest = z.infer<typeof IpcRequestSchema>;
+export type IpcResponse = z.infer<typeof IpcResponseSchema>;

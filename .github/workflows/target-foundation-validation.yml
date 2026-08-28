@@ -214,6 +214,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Validate POS Local Service runtime foundation
+        run: pnpm test:runtime
+
       - name: Validate SQLite migration
         run: pnpm test:migrations:sqlite
 
@@ -255,13 +258,17 @@ jobs:
           - postgres: 16.14
           - semantic_catalog_sha256: ${semantic_catalog_sha256}
           - typecheck: PASS
+          - pos_local_service_runtime_test_suite: PASS
+          - sqlite_local_runtime_test_suite: PASS
+          - local_channel_runtime_test_suite: PASS
+          - local_security_runtime_test_suite: PASS
           - sqlite_migrations: PASS
           - postgres_001_002_003_and_physical_runner: PASS
           - fiscal_model_a_regression: PASS
           - mat_003_preflight: PASS
           - mat_003_role_readiness: PASS
 
-          This evidence is commit-scoped. It does not authorize merge, providers, runtime scope, security promotion, or production deployment.
+          This evidence is commit-scoped. Runtime test-suite PASS means only that the checked tests passed at this SHA; it does not by itself close RT-001..RT-004 or prove Windows ACLs, multiprocess crash recovery, OS-bound secret custody, release readiness, providers, security-gate promotion, merge authorization, or production deployment.
           EOF
 
       - name: Upload TARGET exact-head validation evidence
@@ -272,11 +279,50 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+
+  runtime-windows:
+    name: Windows local runtime platform checks
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck Windows local runtime packages
+        run: pnpm --filter @pos-platform/database-sqlite typecheck && pnpm --filter @pos-platform/pos-local-service typecheck
+
+      - name: Validate Windows SQLite backup, restore and recovery
+        run: pnpm --filter @pos-platform/database-sqlite test
+
+      - name: Validate Windows POS Local Service runtime
+        run: pnpm --filter @pos-platform/pos-local-service test
+
   provenance:
     name: Provenance evidence
     needs:
       - supply-chain-baseline
       - validate
+      - runtime-windows
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
