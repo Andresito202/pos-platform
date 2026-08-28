@@ -110,7 +110,8 @@ Este control es detectivo, no preventivo.
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
 | `feat/sql003-v2-materialization-20260826` | `INTEGRATED / HISTORICAL` | PR #11 integrada; INT-007 cerrado. No reutilizar para ARCH-003 ni para runtime/providers. |
 | `architecture/executable-boundaries-20260828` | `INTEGRATED / HISTORICAL` | PR #12 integrada; ARCH-003 cerrado. No reutilizar para TECH-003. |
-| `tech/tech003-executable-contracts-20260828` | `IN_PROGRESS` | TECH-003; contratos comunes ejecutables Zod/versioning/error/idempotency/correlation. |
+| `tech/tech003-executable-contracts-20260828` | `INTEGRATED / HISTORICAL` | PR #14 integrada; TECH-003 cerrado. No reutilizar para TECH-004 ni runtime. |
+| `tech/tech004-quality-supply-chain-20260828` | `IN_PROGRESS` | TECH-004; calidad, SAST, supply chain y evidencia de release. Primer slice sin runtime. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -134,19 +135,29 @@ Reglas:
 
 ## Trabajo principal actual
 
-### TECH-003 — contratos ejecutables compartidos
+### TECH-004 — CI, calidad y supply chain
 
 Prioridad: `P0`
 
 Estado: `IN_PROGRESS`
 
-Rama activa: `tech/tech003-executable-contracts-20260828`.
+Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
-Alcance contractual materializado en PR #14: contratos comunes, handshake Desktop↔Local Service, IPC allowlisted, Sync local↔central, HTTP central y matriz ejecutable de compatibilidad cruzada. No crea API NestJS, Electron, POS Local Service, provider adapters ni runtime.
+Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo, empezando por SAST/CodeQL, política de vulnerabilidades y evidencia SBOM/licencias/provenance. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
 
-Estado de cierre: `CLOSURE_CANDIDATE`; requiere CI exact-head final, revisión senior final, cero threads abiertos y autorización de merge separada.
+Los controles que dependen de aplicaciones/runtime — lint de apps, E2E, packaging, firma/release y promoción — permanecen pendientes hasta que existan artefactos ejecutables reales.
 
 ## Último bloque cerrado
+
+### TECH-003 — contratos ejecutables compartidos
+
+Estado: `DONE / INTEGRATED`.
+
+PR #14 fue integrada desde exact HEAD `d37512634c823f16f71928671c46aaccc7f04d3c` como merge commit `148a6546657afed528d3da37b263134a944c09be`. CI exact-head #187 / run `33165786730` fue `SUCCESS`; CI post-merge #188 / run `33165957857` fue `SUCCESS`, incluida gobernanza de main, repository policy/dependency inventory, 57/57 contratos con 5/5 compatibilidad cruzada, TypeScript, SQLite, PostgreSQL 16.14 y MAT-003.
+
+TECH-003 no implementa runtime, autenticación criptográfica productiva, providers ni producción.
+
+## Bloque cerrado anterior
 
 ### ARCH-003 — límites ejecutables de módulos / Nx
 
@@ -289,7 +300,9 @@ Ese cierre **no** materializa SQL003; únicamente habilita una tarea posterior s
 
 Prioridad: `P0`
 
-Estado: `READY`
+Estado: `IN_PROGRESS`
+
+Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
 Baseline ya materializado:
 
@@ -320,17 +333,17 @@ Pendiente cuando se retome como línea activa:
 - runtime/E2E tests;
 - controles de release/promoción.
 
-TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para retomarse cuando existan artefactos runtime que permitan ejecutar sus controles pendientes.
+TECH-004 no está `DONE`. La línea está activa desde `main@148a6546657afed528d3da37b263134a944c09be`. Primero materializa controles estáticos/supply-chain independientes de runtime; los gates de runtime/E2E/release se incorporan cuando existan artefactos ejecutables reales.
 
 ## Orden inmediato obligatorio
 
-1. Mantener **INT-007** y **ARCH-003** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
-2. **TECH-003** es la única línea principal activa: materializar primero contratos comunes Zod/error/versioning/idempotency/correlation y luego fronteras IPC/API específicas.
-3. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
-4. Solo después de TECH-003 iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
-5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con TECH-003.
+1. Mantener **INT-007**, **ARCH-003** y **TECH-003** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
+2. **TECH-004** es la única línea principal activa: endurecer CI/calidad/supply chain sin inventar runtime para satisfacer un gate.
+3. Primer slice TECH-004: SAST/CodeQL, política de vulnerabilidades y evidencia SBOM/licencias/provenance que puedan evaluarse sobre el repositorio actual.
+4. El primer esqueleto de runtime conforme a ADR-005/DEC-010 se inicia solo como tarea separada y sobre el baseline de calidad vigente; al existir apps se extiende TECH-004 con lint/E2E/release gates.
+5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con TECH-004.
 
-No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
+No se inicia NestJS/Electron “por avanzar” dentro del commit de transición de TECH-004.
 
 ## Gate SQL003
 
@@ -559,8 +572,8 @@ Continúa no autorizado:
 |---|---|---|---|
 | TECH-001 | P0 | DONE | Modelo conceptual y ownership. |
 | TECH-002 | P0 | DONE | Modelo físico base + migrations 001/002/materialización revisada. |
-| TECH-003 | P0 | IN_PROGRESS | Primer slice: contratos comunes Zod request/response/error/versioning/idempotency/correlation; runtime y endpoints siguen fuera de alcance. |
-| TECH-004 | P0 | READY | CI/calidad/supply chain: baseline materializado; controles de runtime/release pendientes. |
+| TECH-003 | P0 | DONE | PR #14 integrada; 57/57 contratos + 5/5 compatibilidad cruzada, CI exact-head #187 y post-merge #188 SUCCESS. |
+| TECH-004 | P0 | IN_PROGRESS | Rama `tech/tech004-quality-supply-chain-20260828`; primer slice estático de SAST/vulnerabilidades/SBOM/licencias/provenance. |
 | TECH-005 | P1 | PLANNED | Observabilidad/backups/restore/update/rollback. |
 | TECH-006 | P1 | PLANNED | Fixtures multi-tenant/concurrencia/recovery. |
 
@@ -589,7 +602,7 @@ Continúa no autorizado:
 | Hito | Estado | Criterio vigente |
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
-| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 DONE; TECH-003 activo sobre contracts ejecutables; esqueleto runtime aún pendiente. |
+| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 y TECH-003 DONE; esqueleto runtime aún pendiente y no se mezcla con el primer slice estático de TECH-004. |
 | F1.2 Modelo físico/migrations | DONE | TECH-002 e INT-006 cerrados; migrations 001/002 inmutables; SQL003 integrado por PR #11 con Gate A/B PASS y post-merge #159 SUCCESS. Despliegue productivo no iniciado. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
@@ -769,3 +782,8 @@ Una tarea no está cerrada hasta que:
 
 - TECH-003 Block 4 compatibility gate: IPC, Sync and HTTP now publish an explicit representation matrix and executable cross-boundary regressions for versioning, request/correlation identity, operation/idempotency identity, canonical UUID/UTC handling and UNKNOWN_OUTCOME. Sync deliberately retains its durable result vocabulary instead of importing HTTP error categories or inventing UNKNOWN_OUTCOME.
 - TECH-003 closure order: final exact-head CI + evidence, senior review, zero open threads, then separate merge authorization. TECH-004 runtime work must start from the resulting canonical main in a new branch/PR; it is not mixed into PR #14.
+
+
+- TECH-003 final closure: exact HEAD `d37512634c823f16f71928671c46aaccc7f04d3c`, CI #187 / run `33165786730` SUCCESS, 57/57 contracts with 5/5 cross-boundary compatibility, zero open review threads, PR #14 MERGED/CLOSED as `148a6546657afed528d3da37b263134a944c09be`.
+- TECH-003 post-merge closure: CI #188 / run `33165957857` SUCCESS on exact `main@148a6546657afed528d3da37b263134a944c09be`, including main governance, repository policy/dependency inventory and full TARGET validation.
+- TECH-004 started from canonical `main@148a6546657afed528d3da37b263134a944c09be` on `tech/tech004-quality-supply-chain-20260828`. Initial scope is static quality/supply-chain controls only; runtime/E2E/release-dependent gates remain deferred until executable apps exist.
