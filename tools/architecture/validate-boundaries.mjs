@@ -75,12 +75,12 @@ function internalProjectForSpecifier(specifier, projects) {
 }
 
 function declaredDependencies(packageJson) {
-  return new Set([
-    ...Object.keys(packageJson.dependencies ?? {}),
-    ...Object.keys(packageJson.devDependencies ?? {}),
-    ...Object.keys(packageJson.optionalDependencies ?? {}),
-    ...Object.keys(packageJson.peerDependencies ?? {}),
-  ]);
+  return new Map(Object.entries({
+    ...(packageJson.dependencies ?? {}),
+    ...(packageJson.devDependencies ?? {}),
+    ...(packageJson.optionalDependencies ?? {}),
+    ...(packageJson.peerDependencies ?? {}),
+  }));
 }
 
 function expectedTags(project) {
@@ -167,6 +167,8 @@ export async function validateWorkspace(workspaceRoot, policyOverride) {
           }
           if (!dependencies.has(target.name)) {
             errors.push(`${describeImport(project, target, specifier)} is not declared in package.json`);
+          } else if (!String(dependencies.get(target.name)).startsWith("workspace:")) {
+            errors.push(`${describeImport(project, target, specifier)} must use the workspace: protocol`);
           }
           continue;
         }

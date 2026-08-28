@@ -86,3 +86,10 @@ test("requires internal workspace imports to be declared", async () => {
   const errors = await validate();
   assert(errors.some((error) => error.includes("is not declared in package.json")));
 });
+
+test("requires the workspace protocol for internal dependencies", async () => {
+  await writeProject("@pos-platform/application", policy.projects["@pos-platform/application"], { "@pos-platform/domain": "0.0.0" });
+  await writeFile(join(root, "packages/application/src/non-workspace.ts"), 'import "@pos-platform/domain";\n');
+  const errors = await validate();
+  assert(errors.some((error) => error.includes("must use the workspace: protocol")));
+});
