@@ -26,6 +26,13 @@ afterEach(() => {
 const installationId = "018f0000-0000-7000-8000-000000000001";
 const deviceId = "018f0000-0000-7000-8000-000000000002";
 
+function testKeyProvider(key: Buffer): SecretStoreKeyProvider {
+  return {
+    protection: "TEST_ONLY",
+    loadKey: () => Buffer.from(key),
+  };
+}
+
 function claims() {
   return {
     license_id: "018f0000-0000-7000-8000-000000000003",
@@ -47,7 +54,7 @@ describe("local security", () => {
   it("encrypts device identity, derives stable device_key_id and detects secret tampering", async () => {
     const dir = await directory();
     mkdirSync(join(dir, "secrets"));
-    const store = new EncryptedFileSecretStore(join(dir, "secrets"), randomBytes(32), installationId);
+    const store = new EncryptedFileSecretStore(join(dir, "secrets"), testKeyProvider(randomBytes(32)), installationId);\n    expect(store.protection).toBe("TEST_ONLY");
     const identity = DeviceIdentity.create(store);
     const reloaded = DeviceIdentity.load(store);
     expect(reloaded.publicKeyPem()).toBe(identity.publicKeyPem());
