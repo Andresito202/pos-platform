@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { LocalChannelFrameSchema, type LocalChannelFrame } from "@pos-platform/contracts";
+import * as z from "zod";
 import { canonicalJson } from "./canonical-json.js";
 
 export interface ChannelClock { now(): Date; }
@@ -18,10 +19,10 @@ export class LocalChannelAuthenticator {
     if (secret.byteLength < 32) throw new Error("local channel secret must contain at least 256 bits");
   }
 
-  sign(payload: unknown, protocolVersion: string, sessionId = randomUUID(), sequence = 1): LocalChannelFrame {
-    const unsigned = {
+  sign(payload: unknown, protocolVersion: string, sessionId: string = randomUUID(), sequence = 1): LocalChannelFrame {
+    const unsigned: Omit<LocalChannelFrame, "mac"> = {
       protocol_version: protocolVersion, session_id: sessionId, sequence,
-      nonce: randomBytes(18).toString("base64url"), sent_at: this.clock.now().toISOString(), payload,
+      nonce: randomBytes(18).toString("base64url"), sent_at: this.clock.now().toISOString(), payload: z.json().parse(payload),
     };
     return LocalChannelFrameSchema.parse({ ...unsigned, mac: calculateMac(this.secret, unsigned) });
   }
