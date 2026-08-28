@@ -258,17 +258,17 @@ jobs:
           - postgres: 16.14
           - semantic_catalog_sha256: ${semantic_catalog_sha256}
           - typecheck: PASS
-          - pos_local_service_runtime_foundation: PASS
-          - sqlite_local_single_writer_and_recovery: PASS
-          - authenticated_versioned_local_channel: PASS
-          - device_identity_license_and_clock_integrity: PASS
+          - pos_local_service_runtime_test_suite: PASS
+          - sqlite_local_runtime_test_suite: PASS
+          - local_channel_runtime_test_suite: PASS
+          - local_security_runtime_test_suite: PASS
           - sqlite_migrations: PASS
           - postgres_001_002_003_and_physical_runner: PASS
           - fiscal_model_a_regression: PASS
           - mat_003_preflight: PASS
           - mat_003_role_readiness: PASS
 
-          This evidence is commit-scoped. It does not authorize merge, providers, runtime scope, security promotion, or production deployment.
+          This evidence is commit-scoped. Runtime test-suite PASS means only that the checked tests passed at this SHA; it does not by itself close RT-001..RT-004 or prove Windows ACLs, multiprocess crash recovery, OS-bound secret custody, release readiness, providers, security-gate promotion, merge authorization, or production deployment.
           EOF
 
       - name: Upload TARGET exact-head validation evidence
