@@ -27,6 +27,11 @@ export function npmPurl(name, version) {
   return `pkg:npm/${encodedName}@${encodeURIComponent(version)}`;
 }
 
+function sbomWorkspaceIdentity(manifestPath, manifest) {
+  if (typeof manifest?.name === "string" && manifest.name.trim()) return manifest.name.trim();
+  return workspaceIdentity(manifestPath, manifest);
+}
+
 function workspaceVersion(manifest) {
   return typeof manifest.version === "string" && manifest.version.trim()
     ? manifest.version.trim()
@@ -72,7 +77,7 @@ export function buildCycloneDxBom({
   const expanding = new Set();
 
   for (const entry of workspaceManifests) {
-    const name = workspaceIdentity(entry.manifestPath, entry.manifest);
+    const name = sbomWorkspaceIdentity(entry.manifestPath, entry.manifest);
     const version = workspaceVersion(entry.manifest);
     const ref = npmPurl(name, version);
     if (workspaceByName.has(name)) throw new Error(`duplicate workspace identity: ${name}`);
@@ -130,7 +135,7 @@ export function buildCycloneDxBom({
 
   const projectByName = new Map(projects.map((project) => [project.name, project]));
   for (const workspace of workspaceManifests) {
-    const workspaceName = workspaceIdentity(workspace.manifestPath, workspace.manifest);
+    const workspaceName = sbomWorkspaceIdentity(workspace.manifestPath, workspace.manifest);
     const workspaceRef = workspaceByName.get(workspaceName);
     const project = projectByName.get(workspace.manifest.name)
       ?? (workspace.manifestPath === "package.json" ? projects.find((item) => item.path && !item.path.includes("/packages/") && !item.path.includes("/tools/") && !item.path.includes("/apps/")) : null);
@@ -149,7 +154,7 @@ export function buildCycloneDxBom({
 
   const rootManifest = workspaceManifests.find((entry) => entry.manifestPath === "package.json");
   if (!rootManifest) throw new Error("root package.json is missing from workspace manifests");
-  const rootRef = workspaceByName.get(workspaceIdentity("package.json", rootManifest.manifest));
+  const rootRef = workspaceByName.get(sbomWorkspaceIdentity("package.json", rootManifest.manifest));
   for (const [manifestPath, ref] of workspaceRefsByPath) {
     if (manifestPath !== "") edges.get(rootRef).add(ref);
   }
