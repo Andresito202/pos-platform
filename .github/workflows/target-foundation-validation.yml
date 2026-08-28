@@ -308,8 +308,11 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck POS Local Service
-        run: pnpm --filter @pos-platform/pos-local-service typecheck
+      - name: Typecheck Windows local runtime packages
+        run: pnpm --filter @pos-platform/database-sqlite typecheck && pnpm --filter @pos-platform/pos-local-service typecheck
+
+      - name: Validate Windows SQLite backup, restore and recovery
+        run: pnpm --filter @pos-platform/database-sqlite test
 
       - name: Validate Windows named-pipe protocol path and DPAPI custody
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/channel.test.ts tests/security.test.ts tests/windows-dpapi.test.ts
@@ -319,6 +322,7 @@ jobs:
     needs:
       - supply-chain-baseline
       - validate
+      - runtime-windows
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
