@@ -163,6 +163,9 @@ jobs:
       - name: Validate executable architecture boundaries
         run: pnpm architecture:check
 
+      - name: Validate executable contracts
+        run: pnpm test:contracts
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -202,6 +205,7 @@ jobs:
           - workflow_run_attempt: ${EVIDENCE_RUN_ATTEMPT}
           - event: ${EVIDENCE_EVENT}
           - architecture_boundaries: PASS
+          - executable_contracts: PASS
           - repository_policy: PASS
           - postgres: 16.14
           - semantic_catalog_sha256: ${semantic_catalog_sha256}
