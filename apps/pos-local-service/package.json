@@ -12,7 +12,8 @@
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
     "@pos-platform/observability": "workspace:*",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "@pos-platform/database-sqlite": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
