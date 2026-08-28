@@ -16,7 +16,14 @@ El workflow se ejecuta en:
 
 La rama histórica `architecture/physical-model` ya no es trigger de `push`.
 
-## Jobs vigentes
+## Workflows y jobs vigentes
+
+### CodeQL SAST
+
+El workflow separado `.github/workflows/codeql-sast.yml` analiza JavaScript/TypeScript en pull requests hacia `main`, pushes a `main`, ejecución manual y programación semanal. Usa `build-mode: none`, la suite `security-extended`, permisos mínimos por job y `github/codeql-action` fijada por SHA.
+
+Su política de aceptación, excepciones y limitaciones está definida en `docs/security/codeql-sast-gate.md`. Un workflow verde no equivale a ausencia de vulnerabilidades ni cubre dependencias, DAST, runtime inexistente, SBOM, provenance o release.
+
 
 ### Repository policy and dependency inventory
 
@@ -134,7 +141,7 @@ No se promueve por esta evidencia:
 - `TECH-004 = DONE`;
 - Nx de aplicaciones;
 - lint del runtime;
-- CodeQL/SAST completo;
+- CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
 - vulnerability scanning con política de severidad cerrada;
 - SBOM firmado;
 - provenance/attestations de build;
