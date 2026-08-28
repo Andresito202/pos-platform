@@ -75,3 +75,19 @@ export const OperationResultResponseSchema = createResponseEnvelopeSchema(Operat
 
 export type IpcMessageType = z.infer<typeof IpcMessageTypeSchema>;
 export type OperationResultQuery = z.infer<typeof OperationResultQuerySchema>;
+
+
+export const IpcRequestSchema = z.union([
+  RuntimeHandshakeRequestSchema,
+  RuntimeStatusRequestSchema,
+  OperationResultRequestSchema,
+]);
+
+export const IpcResponseSchema = z.union([
+  RuntimeHandshakeResponseSchema,
+  RuntimeStatusResponseSchema,
+  OperationResultResponseSchema,
+]);
+
+export type IpcRequest = z.infer<typeof IpcRequestSchema>;
+export type IpcResponse = z.infer<typeof IpcResponseSchema>;
