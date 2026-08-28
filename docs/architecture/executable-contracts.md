@@ -56,11 +56,43 @@ La compatibilidad de Desktop/Service, estado de migración, recovery y confianza
 - `server_time` es un instante RFC 3339 UTC y rechaza offsets distintos de `Z`, alineado con las convenciones físicas;
 - los límites de bytes/profundidad se aplicarán en cada transporte; un schema Zod por sí solo no sustituye esos límites.
 
+## IPC ejecutable — Bloque 1
+
+TECH-003 materializa una allowlist mínima de mensajes propios sin crear todavía Electron, preload ni named pipes:
+
+- `runtime.handshake`;
+- `runtime.status.get`;
+- `operation.result.get`.
+
+Los mensajes desconocidos se rechazan. La consulta de resultado incierto conserva `operation_id` + `idempotency_key` y permite reconciliar después de una desconexión sin repetir ciegamente una operación.
+
+Este bloque no acredita ACL, framing, autenticación del canal, timeouts ni seguridad del runtime Electron.
+
+## Sync local ↔ central — Bloque 2
+
+El contrato ejecutable conserva por operación:
+
+- tenant/company/branch;
+- `device_id` + `installation_id`;
+- sesión/actor;
+- agregado y tipo de operación;
+- autoridad;
+- secuencia local contigua;
+- identidad idempotente;
+- versión esperada;
+- schema/payload/checksum;
+- causalidad/correlación;
+- tiempos locales como evidencia.
+
+La request de batch exige que cada operación preserve el scope del batch y que la secuencia sea exactamente contigua desde el checkpoint previo. No se aceptan huecos implícitos.
+
+La respuesta puede ser parcial: cada result debe corresponder a una operación solicitada y mantener su `correlation_id` y `aggregate_id`. Un result durable no implica automáticamente que el checkpoint pueda avanzar.
+
+Solo `SERVER_ACCEPTED` y `SERVER_REJECTED` son elegibles para ampliar el prefijo contiguo confirmado. `CONFLICT`, `REVIEW_REQUIRED`, `DEAD_LETTER`, `WAITING_FOR_DEPENDENCY` y `RETRY_SCHEDULED` detienen el avance aunque exista evidencia durable del resultado técnico.
+
+Este contrato materializa identidad, deduplicación y correspondencia; no implementa todavía outbox/inbox físicos ni procesamiento de negocio.
+
 ## Siguiente slice de TECH-003
 
-Después del handshake:
-
-1. commands/results IPC propios con schemas específicos;
-2. sync local ↔ central sobre Operation/outbox/inbox;
-3. contratos HTTP centrales sin lógica de dominio en controllers;
-4. adapters externos solo cuando su gate separado sea autorizado.
+1. contratos HTTP centrales sin lógica de dominio en controllers;
+2. adapters externos solo cuando su gate separado sea autorizado.

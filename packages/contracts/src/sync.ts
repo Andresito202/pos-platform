@@ -24,6 +24,7 @@ export const SyncOperationSchema = z.strictObject({
   company_id: UuidSchema,
   branch_id: UuidSchema,
   device_id: UuidSchema,
+  installation_id: UuidSchema,
   session_id: UuidSchema,
   actor_id: UuidSchema,
   aggregate_type: StableCodeSchema,
@@ -48,6 +49,7 @@ export const SyncBatchRequestSchema = z.strictObject({
   company_id: UuidSchema,
   branch_id: UuidSchema,
   device_id: UuidSchema,
+  installation_id: UuidSchema,
   checkpoint_local_sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
   operations: z.array(SyncOperationSchema).min(1),
 }).superRefine((batch, context) => {
@@ -55,13 +57,18 @@ export const SyncBatchRequestSchema = z.strictObject({
   const idempotencyScopes = new Set<string>();
   let previousSequence = batch.checkpoint_local_sequence ?? 0;
   for (const [index, operation] of batch.operations.entries()) {
-    for (const field of ["tenant_id", "company_id", "branch_id", "device_id"] as const) {
+    for (const field of ["tenant_id", "company_id", "branch_id", "device_id", "installation_id"] as const) {
       if (operation[field] !== batch[field]) {
         context.addIssue({ code: "custom", path: ["operations", index, field], message: `${field} must match the batch scope` });
       }
     }
-    if (operation.local_sequence <= previousSequence) {
-      context.addIssue({ code: "custom", path: ["operations", index, "local_sequence"], message: "local_sequence must be strictly increasing after the checkpoint" });
+    const expectedSequence = previousSequence + 1;
+    if (operation.local_sequence !== expectedSequence) {
+      context.addIssue({
+        code: "custom",
+        path: ["operations", index, "local_sequence"],
+        message: `local_sequence must be contiguous; expected ${expectedSequence}`,
+      });
     }
     previousSequence = operation.local_sequence;
     if (operationIds.has(operation.operation_id)) {
@@ -144,22 +151,37 @@ export const SyncBatchResponseSchema = z.strictObject({
 export function validateSyncBatchCorrespondence(requestInput: unknown, responseInput: unknown): boolean {
   const request = SyncBatchRequestSchema.parse(requestInput);
   const response = SyncBatchResponseSchema.parse(responseInput);
-  if (request.batch_id !== response.batch_id || request.tenant_id !== response.tenant_id || request.device_id !== response.device_id) return false;
-  const requestedIds = new Set(request.operations.map((operation) => operation.operation_id));
-  const resultIds = new Set(response.results.map((result) => result.operation_id));
-  if (requestedIds.size !== resultIds.size || [...requestedIds].some((id) => !resultIds.has(id))) return false;
+  if (
+    request.batch_id !== response.batch_id
+    || request.tenant_id !== response.tenant_id
+    || request.device_id !== response.device_id
+  ) return false;
+
+  const requestedById = new Map(request.operations.map((operation) => [operation.operation_id, operation]));
+  for (const result of response.results) {
+    const operation = requestedById.get(result.operation_id);
+    if (!operation) return false;
+    if (result.correlation_id !== operation.correlation_id || result.aggregate_id !== operation.aggregate_id) return false;
+  }
+
+  const previousCheckpoint = request.checkpoint_local_sequence ?? 0;
   if (response.acknowledged_through_local_sequence === null) {
     return request.checkpoint_local_sequence === null;
   }
-  const previousCheckpoint = request.checkpoint_local_sequence ?? 0;
   if (response.acknowledged_through_local_sequence < previousCheckpoint) return false;
+
+  const checkpointEligibleStatuses = new Set(["SERVER_ACCEPTED", "SERVER_REJECTED"]);
   const resultByOperation = new Map(response.results.map((result) => [result.operation_id, result]));
   let durablePrefix = previousCheckpoint;
+
   for (const operation of request.operations) {
-    const result = resultByOperation.get(operation.operation_id)!;
-    if (result.committed_at_server === null) break;
+    const result = resultByOperation.get(operation.operation_id);
+    if (!result) break;
+    if (!checkpointEligibleStatuses.has(result.server_status) || result.committed_at_server === null) break;
+    if (operation.local_sequence !== durablePrefix + 1) break;
     durablePrefix = operation.local_sequence;
   }
+
   return response.acknowledged_through_local_sequence <= durablePrefix;
 }
 

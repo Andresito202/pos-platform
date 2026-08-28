@@ -752,3 +752,8 @@ Una tarea no está cerrada hasta que:
 
 - TECH-003 common-contract slice: `bb9ed6be77be136b4f68c661a9621d3ea5f34b0a`, CI #171 / run `33146168057` SUCCESS. Common Zod envelopes/errors/versioning/idempotency are executable; contracts 14/14 PASS and TARGET regressions remain green.
 - TECH-003 handshake slice: materializes DEC-010 Desktop↔Local-Service compatibility snapshot, exact handshake outcomes and deterministic protocol-window negotiation; no named-pipe/Electron/service runtime is created.
+
+
+- TECH-003 IPC + Sync implementation baseline: `169659d5a37d2d3d83e2190231defe752de29439`; subsequent hardening fixed checkpoint/result durability and canonical UUID/UTC handling.
+- TECH-003 Sync review remediation: contiguous local sequences are mandatory; local operations preserve `installation_id`; response correspondence accepts duplicate-free partial subsets; checkpoints stop before conflict/review/dead-letter/retry/waiting outcomes even when their technical result is durable.
+- Next authorized TECH-003 slice after exact-head validation of this remediation: central HTTP contracts only; no NestJS controllers or runtime.
