@@ -11,15 +11,25 @@ import type { EncryptedFileSecretStore } from "./encrypted-secret-store.js";
 export class DeviceIdentity {
   private constructor(private readonly privateKey: KeyObject) {}
 
-  static create(store: EncryptedFileSecretStore): DeviceIdentity {
+  static create(store: EncryptedFileSecretStore, secretName = "device-identity"): DeviceIdentity {
     const pair = generateKeyPairSync("ed25519");
     const pem = pair.privateKey.export({ type: "pkcs8", format: "pem" });
-    store.write("device-identity", Buffer.from(pem));
+    const bytes = Buffer.from(pem);
+    try {
+      store.write(secretName, bytes);
+    } finally {
+      bytes.fill(0);
+    }
     return new DeviceIdentity(pair.privateKey);
   }
 
-  static load(store: EncryptedFileSecretStore): DeviceIdentity {
-    return new DeviceIdentity(createPrivateKey(store.read("device-identity")));
+  static load(store: EncryptedFileSecretStore, secretName = "device-identity"): DeviceIdentity {
+    const bytes = store.read(secretName);
+    try {
+      return new DeviceIdentity(createPrivateKey(bytes));
+    } finally {
+      bytes.fill(0);
+    }
   }
 
   publicKeyPem(): string {
