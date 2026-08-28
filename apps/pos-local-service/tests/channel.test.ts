@@ -13,6 +13,7 @@ import {
   LocalChannelClient,
   LocalChannelServer,
   SqliteReplayStateStore,
+  inspectWindowsNamedPipeSecurity,
   localChannelEndpoint,
 } from "../src/index.js";
 
@@ -23,6 +24,7 @@ const sessionId = "018f0000-0000-7000-8000-000000000003";
 const requestId = "018f0000-0000-7000-8000-000000000004";
 const correlationId = "018f0000-0000-7000-8000-000000000005";
 const directories: string[] = [];
+const windowsIt = process.platform === "win32" ? it : it.skip;
 
 function runtimeHandshakeRequest(protocolMin = "1.0.0", protocolMax = "1.0.0") {
   return {
@@ -317,6 +319,35 @@ describe("local channel", () => {
     socket.destroy();
     await server.stop();
   });
+
+  windowsIt("keeps the real named-pipe DACL restricted across replenished instances", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const secret = randomBytes(32);
+    const server = new LocalChannelServer(
+      endpoint,
+      new LocalChannelAuthenticator(secret, clock),
+      async (request) => compatibleResponse(
+        request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>,
+      ),
+      { min: "1.0.0", max: "1.0.0" },
+    );
+
+    try {
+      await server.start();
+      for (let index = 0; index < 6; index += 1) {
+        const report = inspectWindowsNamedPipeSecurity(endpoint);
+        expect(report.allowedTrustees).not.toContain("WD");
+        expect(report.allowedTrustees).not.toContain("AN");
+        expect(report.allowedTrustees).not.toContain("AU");
+        expect(report.allowedTrustees).not.toContain("BU");
+        expect(report.allowedTrustees).not.toContain("BA");
+      }
+    } finally {
+      await server.stop();
+      secret.fill(0);
+    }
+  }, 30_000);
 
   it("fails closed when another server already owns the channel endpoint", async () => {
     const dir = await directory();
