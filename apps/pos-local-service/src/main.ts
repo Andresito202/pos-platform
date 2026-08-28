@@ -1,6 +1,6 @@
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
-import { ServiceLifecycle } from "./lifecycle.js";
+import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
 
@@ -77,7 +77,7 @@ try {
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
   let localChannel: LocalChannelComponent | undefined;
-  const components = [localDatabase];
+  const components: RuntimeComponent[] = [localDatabase];
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
