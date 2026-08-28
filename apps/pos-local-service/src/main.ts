@@ -10,17 +10,14 @@ const logger = new StructuredLogger({
       reject(error);
     };
     process.stdout.once("error", onError);
-    process.stdout.write(`${JSON.stringify(record)}\\n`, () => {
+    process.stdout.write(`${JSON.stringify(record)}\n`, () => {
       process.stdout.off("error", onError);
       resolve();
     });
   }),
 });
 
-const config = parseServiceConfig(process.env);
-const localDatabase = new LocalDatabaseComponent(config.data_directory);
-const lifecycle = new ServiceLifecycle([localDatabase]);
-
+let lifecycle: ServiceLifecycle | undefined;
 let termination: Promise<void> | undefined;
 
 function terminate(reason: string, exitCode: number, error?: unknown): Promise<void> {
@@ -31,7 +28,7 @@ function terminate(reason: string, exitCode: number, error?: unknown): Promise<v
         reason,
         ...(error === undefined ? {} : { error }),
       });
-      await lifecycle.stop();
+      await lifecycle?.stop();
       logger.log("info", "runtime.stopped", { reason });
     } catch (stopError) {
       try {
@@ -59,6 +56,10 @@ process.once("uncaughtException", (error) => { void terminate("uncaughtException
 process.once("unhandledRejection", (reason) => { void terminate("unhandledRejection", 1, reason); });
 
 try {
+  const config = parseServiceConfig(process.env);
+  const localDatabase = new LocalDatabaseComponent(config.data_directory);
+  lifecycle = new ServiceLifecycle([localDatabase]);
+
   await lifecycle.start();
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
