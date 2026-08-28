@@ -25,7 +25,12 @@ function exactMessage<
         && value.message_type === messageType,
       { path: ["message_type"], message: `message_type must be ${messageType}` },
     )
-    .transform((value) => ({ ...value, message_type: messageType }));
+    .transform((value) => {
+      if (typeof value !== "object" || value === null) {
+        throw new Error("IPC request envelope must be an object");
+      }
+      return { ...value, message_type: messageType };
+    });
 }
 
 const EmptyPayloadSchema = z.strictObject({});
