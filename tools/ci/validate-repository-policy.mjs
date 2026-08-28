@@ -18,7 +18,18 @@ function patternFromFragments(...fragments) {
 }
 
 const exactSemver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const manifestPaths = ['package.json', 'tools/target-migrations/package.json'];
+const manifestPaths = [
+  'package.json',
+  'packages/application/package.json',
+  'packages/contracts/package.json',
+  'packages/database-core/package.json',
+  'packages/database-postgres/package.json',
+  'packages/database-sqlite/package.json',
+  'packages/domain/package.json',
+  'packages/observability/package.json',
+  'packages/testing/package.json',
+  'tools/target-migrations/package.json',
+];
 const forbiddenLifecycleScripts = new Set([
   'preinstall',
   'install',
@@ -58,8 +69,9 @@ if (rootManifest.packageManager !== 'pnpm@9.15.0') {
 }
 
 const workspace = readFileSync(path.join(root, 'pnpm-workspace.yaml'), 'utf8').replace(/\r\n/g, '\n').trim();
-if (workspace !== 'packages:\n  - tools/*') {
-  addViolation('pnpm-workspace.yaml: workspace scope changed; expand it only in an explicitly reviewed runtime/Nx change');
+const expectedWorkspace = 'packages:\n  - apps/*\n  - packages/*\n  - tools/*';
+if (workspace !== expectedWorkspace) {
+  addViolation('pnpm-workspace.yaml: workspace scope must match the reviewed ARCH-003 Nx roots');
 }
 
 const lockfile = readFileSync(path.join(root, 'pnpm-lock.yaml'), 'utf8');
