@@ -144,7 +144,7 @@ No se promueve por esta evidencia:
 - Nx de aplicaciones;
 - lint del runtime;
 - CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
-- vulnerability scanning con política high/critical materializada en TECH-004; su PASS sigue siendo commit-scoped y temporal;
+- vulnerability scanning high/critical materializado y ejecutado en TECH-004; su PASS es commit-scoped y temporal, y debe refrescarse antes de integración;
 - SBOM firmado;
 - provenance/attestations de build;
 - firma de releases;
@@ -169,3 +169,11 @@ Después de cada merge a `main`, el push workflow debe completar satisfactoriame
 `docs/testing/supply-chain-baseline-ci-gate.md` documenta el detalle del baseline de repository policy, secretos e inventario/licencias materializado por PR #5.
 
 Este documento describe el gate TARGET completo actualmente visible y su relación con `main`; ambos deben mantenerse alineados en el mismo cambio cuando se modifique el workflow.
+
+## TECH-004 — checkpoint Bloques 1 y 2
+
+Bloque 1 cerró su checkpoint ejecutable en `59d5b57110138236e056ca93c969b0a208f2c293`: TARGET #200 y CodeQL #11 `SUCCESS`; el SARIF quedó en 0 resultados y el inventory compartido descubrió los manifests de root/apps/packages/tools.
+
+Bloque 2 cerró su primer checkpoint ejecutable en `691b5051599c735f393c13d3dad8d67bcde8af01`: TARGET #201 y CodeQL #12 `SUCCESS`; el audit de dependencias produjo 0 advisories, 0 triage y 0 excepciones aceptadas. El artifact raw/evaluado es commit-scoped y no se reutiliza para otro HEAD.
+
+Cualquier reconciliación documental posterior invalida estos SHA como evidencia final y requiere nuevas ejecuciones aplicables.

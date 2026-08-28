@@ -143,7 +143,7 @@ Estado: `IN_PROGRESS`
 
 Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
-Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST, su evaluador SARIF probado y su política de aceptación están materializados en la rama activa y pendientes de evidencia exact-head final. Vulnerabilidades de dependencias, SBOM, licencias y provenance permanecen sin materializar. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
+Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST, hardening del inventory y el gate de vulnerabilidades de dependencias están materializados y ejecutados en la rama activa. SBOM, licencias completas y provenance permanecen sin materializar. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
 
 Los controles que dependen de aplicaciones/runtime — lint de apps, E2E, packaging, firma/release y promoción — permanecen pendientes hasta que existan artefactos ejecutables reales.
 
@@ -325,7 +325,7 @@ Pendiente cuando se retome como línea activa:
 
 - lint del runtime/aplicaciones;
 - CodeQL/SAST + Bloque 1 hardening: `59d5b57110138236e056ca93c969b0a208f2c293`, TARGET #200 y CodeQL #11 SUCCESS; SARIF 0 results, workspace inventory tests PASS;
-- vulnerability scanning con piso high/critical materializado en Bloque 2; requiere evidencia exact-head fresca;
+- vulnerability scanning con piso high/critical materializado y ejecutado en Bloque 2; checkpoint 691b5051599c735f393c13d3dad8d67bcde8af01, TARGET #201 y CodeQL #12 SUCCESS, audit 0 advisories;
 - SBOM estándar y firmado;
 - compatibilidad legal de licencias completa;
 - provenance/attestations;
@@ -797,4 +797,6 @@ Una tarea no está cerrada hasta que:
 
 
 - TECH-004 Block 1 closure: `59d5b57110138236e056ca93c969b0a208f2c293`; TARGET #200 / run `33169811042` SUCCESS and CodeQL #11 / run `33169811007` SUCCESS. CodeQL scanned 48/48 TypeScript, 9/9 JavaScript and 2/2 workflows with 0 SARIF results; TOCTOU remediation is demonstrated, dependency inventory discovery/tests are green, and 0 review threads were open at checkpoint.
-- TECH-004 Block 2 candidate: fail-closed dependency vulnerability audit over the frozen pnpm installation. High/critical are mandatory blockers; moderate/low are triage; exceptions are exact advisory/package/version records with owner, exploitability, approval, expiry and removal condition. Registry/tool errors and inconsistent audit evidence fail closed. Raw audit + normalized evaluation are retained exact-head; fresh TARGET + CodeQL evidence required.
+- TECH-004 Block 2 closure checkpoint: 691b5051599c735f393c13d3dad8d67bcde8af01; TARGET #201 / run 33170295302 SUCCESS and CodeQL #12 / run 33170295301 SUCCESS. Dependency inventory observed 194 packages, 11 direct and 10 workspace manifests with 0 license review findings. Vulnerability audit returned 0 advisories, 0 triage findings and 0 accepted exceptions; raw/evaluation artifact dependency-vulnerability-audit-691b5051599c735f393c13d3dad8d67bcde8af01 was emitted. CodeQL scanned 48/48 TypeScript, 12/12 JavaScript and 2/2 workflows with 0 SARIF results.
+
+- TECH-004 Blocks 1-2 documentation closure: this commit only reconciles evidence/status after both executable gates passed. Because HEAD changes, TARGET, CodeQL and dependency vulnerability audit must execute again on the documentation HEAD before Blocks 1-2 are treated as final stable baseline. Next technical block remains SBOM; no runtime scope is authorized.

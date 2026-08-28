@@ -100,8 +100,8 @@ Este baseline no completa:
 
 - Nx y pipeline de aplicaciones TARGET;
 - lint del runtime/aplicaciones;
-- CodeQL/SAST completo;
-- vulnerability scanning materializado en la rama TECH-004; requiere evidencia exact-head antes de cierre;
+- CodeQL/SAST materializado y ejecutado en TECH-004; el TOCTOU reportado por el primer SARIF fue remediado y CodeQL posterior quedó en 0 resultados;
+- vulnerability scanning high/critical materializado y ejecutado; su evidencia es dinámica y debe refrescarse en el HEAD final;
 - SBOM CycloneDX/SPDX firmado;
 - política legal completa de compatibilidad de licencias;
 - provenance/attestations;
@@ -110,7 +110,7 @@ Este baseline no completa:
 - release controls;
 - gates de infraestructura/backup/restore productivos.
 
-Por tanto `TECH-004` continúa `IN_PROGRESS`.
+Bloques SAST, hardening de inventory y vulnerabilidades no completan por sí solos TECH-004. SBOM, licencia completa, provenance y cierre integral siguen pendientes; por tanto `TECH-004` continúa `IN_PROGRESS`.
 
 ## Invariantes
 
