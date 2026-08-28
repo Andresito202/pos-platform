@@ -66,6 +66,10 @@ describe("TECH-003 common executable contracts", () => {
     expect(RequestEnvelopeSchema.safeParse({ ...baseRequest, protocol_version: "01.0.0" }).success).toBe(false);
   });
 
+  it("compares arbitrarily large canonical version segments without Number precision loss", () => {
+    expect(compareContractVersions("9007199254740993.0.0", "9007199254740992.999.999")).toBe(1);
+  });
+
   it("accepts a strict request envelope", () => {
     expect(RequestEnvelopeSchema.parse(baseRequest)).toEqual(baseRequest);
   });
@@ -85,6 +89,13 @@ describe("TECH-003 common executable contracts", () => {
 
   it("accepts a successful response without an error", () => {
     expect(ResponseEnvelopeSchema.parse(baseResponse)).toEqual(baseResponse);
+  });
+
+  it("requires server_time to be an RFC 3339 UTC instant", () => {
+    expect(ResponseEnvelopeSchema.safeParse({
+      ...baseResponse,
+      server_time: "2026-08-28T07:00:00+02:00",
+    }).success).toBe(false);
   });
 
   it("requires an error for REJECTED responses", () => {

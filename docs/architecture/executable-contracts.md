@@ -37,12 +37,30 @@ La implementación vive en `@pos-platform/contracts` y usa Zod con parsing estri
 
 El CI TARGET ejecuta `architecture:check`, contratos, TypeScript, SQLite y PostgreSQL 16.14. Ningún PASS de este slice cambia `SEC-G01..SEC-G10` ni acredita runtime productivo.
 
+## Handshake Desktop ↔ Local Service
+
+El segundo slice materializa el intercambio de compatibilidad definido por DEC-010 sin crear todavía el canal named pipe:
+
+- snapshot estricto con `desktop_version`, `service_version`, `protocol_min`, `protocol_max`, `installation_id`, `device_id`, `schema_version` y `service_state`;
+- resultados exactos `COMPATIBLE`, `UPDATE_DESKTOP_REQUIRED`, `UPDATE_SERVICE_REQUIRED`, `MIGRATION_REQUIRED`, `RECOVERY_REQUIRED` y `UNTRUSTED_INSTALLATION`;
+- negociación determinista de la versión de protocolo más alta presente en la intersección de dos ventanas;
+- `COMPATIBLE` exige versión negociada; cualquier otro resultado la prohíbe;
+- `schema_version` permanece como identificador opaco y validado: TECH-003 no inventa aquí orden o semántica de migración local;
+- `service_state` permanece como código estable y su catálogo concreto pertenece al futuro runtime.
+
+La compatibilidad de Desktop/Service, estado de migración, recovery y confianza de instalación no se infiere únicamente de la intersección del protocolo. Esa decisión futura combina la matriz de versiones y las evidencias de runtime definidas por DEC-010.
+
+## Endurecimientos del contrato común
+
+- la comparación de versiones usa enteros arbitrarios (`BigInt`) para evitar pérdida silenciosa de precisión;
+- `server_time` es un instante RFC 3339 UTC y rechaza offsets distintos de `Z`, alineado con las convenciones físicas;
+- los límites de bytes/profundidad se aplicarán en cada transporte; un schema Zod por sí solo no sustituye esos límites.
+
 ## Siguiente slice de TECH-003
 
-Después de cerrar estos contratos comunes:
+Después del handshake:
 
-1. handshake Desktop ↔ Local Service y ventana de protocolo;
-2. commands/results IPC propios con schemas específicos;
-3. sync local ↔ central sobre Operation/outbox/inbox;
-4. contratos HTTP centrales sin lógica de dominio en controllers;
-5. adapters externos solo cuando su gate separado sea autorizado.
+1. commands/results IPC propios con schemas específicos;
+2. sync local ↔ central sobre Operation/outbox/inbox;
+3. contratos HTTP centrales sin lógica de dominio en controllers;
+4. adapters externos solo cuando su gate separado sea autorizado.

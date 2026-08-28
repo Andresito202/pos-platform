@@ -1,9 +1,9 @@
 import * as z from "zod";
 import { ContractVersionSchema, type ContractVersion } from "./primitives.js";
 
-function numericVersion(version: ContractVersion): readonly [number, number, number] {
+function numericVersion(version: ContractVersion): readonly [bigint, bigint, bigint] {
   const parsed = ContractVersionSchema.parse(version);
-  const parts = parsed.split(".").map((part) => Number(part));
+  const parts = parsed.split(".").map((part) => BigInt(part));
   return [parts[0]!, parts[1]!, parts[2]!];
 }
 
@@ -11,8 +11,9 @@ export function compareContractVersions(left: ContractVersion, right: ContractVe
   const leftParts = numericVersion(left);
   const rightParts = numericVersion(right);
   for (let index = 0; index < leftParts.length; index += 1) {
-    const delta = leftParts[index]! - rightParts[index]!;
-    if (delta !== 0) return delta < 0 ? -1 : 1;
+    const leftPart = leftParts[index]!;
+    const rightPart = rightParts[index]!;
+    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
   }
   return 0;
 }

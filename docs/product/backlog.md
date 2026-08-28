@@ -748,3 +748,7 @@ Una tarea no está cerrada hasta que:
 
 - ARCH-003 final closure: PR #12 MERGED/CLOSED; exact implementation HEAD `003c44622d1eeb5f5846b211df45626ac256bf2f`, CI #169 SUCCESS with 13/13 boundary regressions and TARGET evidence; merge commit `bc55851c7045105473d546667dce72718638a8b9`; post-merge #170 SUCCESS.
 - TECH-003 started from canonical `main@bc55851c7045105473d546667dce72718638a8b9` on `tech/tech003-executable-contracts-20260828`; first slice is limited to common executable contracts and does not authorize runtime.
+
+
+- TECH-003 common-contract slice: `bb9ed6be77be136b4f68c661a9621d3ea5f34b0a`, CI #171 / run `33146168057` SUCCESS. Common Zod envelopes/errors/versioning/idempotency are executable; contracts 14/14 PASS and TARGET regressions remain green.
+- TECH-003 handshake slice: materializes DEC-010 Desktop↔Local-Service compatibility snapshot, exact handshake outcomes and deterministic protocol-window negotiation; no named-pipe/Electron/service runtime is created.
