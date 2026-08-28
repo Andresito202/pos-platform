@@ -41,15 +41,20 @@ export class LocalChannelClient {
   private negotiatedProtocol: string | undefined;
   private nextRequestSequence = 1;
   private requestQueue: Promise<void> = Promise.resolve();
+  private queuedRequests = 0;
 
   constructor(
     private readonly endpoint: string,
     private readonly authenticator: LocalChannelAuthenticator,
     private readonly protocolRange: ContractVersionRange,
     private readonly timeoutMs = 5_000,
+    private readonly maxQueuedRequests = 64,
   ) {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
       throw new Error("local channel client timeout must be a positive integer");
+    }
+    if (!Number.isSafeInteger(maxQueuedRequests) || maxQueuedRequests <= 0) {
+      throw new Error("local channel client queue capacity must be a positive integer");
     }
   }
 
@@ -95,6 +100,11 @@ export class LocalChannelClient {
       return Promise.reject(new Error("local channel handshake is only allowed during connect"));
     }
 
+    if (this.queuedRequests >= this.maxQueuedRequests) {
+      return Promise.reject(new Error("local channel client queue capacity exceeded"));
+    }
+    this.queuedRequests += 1;
+
     return new Promise((resolve, reject) => {
       const run = this.requestQueue.then(async () => {
         try {
@@ -104,6 +114,8 @@ export class LocalChannelClient {
           resolve(response);
         } catch (error) {
           reject(error);
+        } finally {
+          this.queuedRequests -= 1;
         }
       });
       this.requestQueue = run.catch(() => undefined);
@@ -129,10 +141,10 @@ export class LocalChannelClient {
     });
   }
 
-  private async exchange<T extends { parse(input: unknown): any }>(
+  private async exchange<T extends { request_id: string; correlation_id: string }>(
     request: NonHandshakeRequest | ReturnType<typeof RuntimeHandshakeRequestSchema.parse>,
-    schema: T,
-  ): Promise<ReturnType<T["parse"]>> {
+    schema: { parse(input: unknown): T },
+  ): Promise<T> {
     const socket = this.socket;
     if (!socket || socket.destroyed) throw new Error("local channel client is not connected");
 
