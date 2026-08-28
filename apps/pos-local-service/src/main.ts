@@ -3,6 +3,7 @@ import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
+import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -76,8 +77,9 @@ try {
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
+  const durableSync = new DurableSyncComponent(localDatabase);
   let localChannel: LocalChannelComponent | undefined;
-  const components: RuntimeComponent[] = [localDatabase];
+  const components: RuntimeComponent[] = [localDatabase, durableSync];
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
