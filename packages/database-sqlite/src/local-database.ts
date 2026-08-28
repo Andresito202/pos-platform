@@ -86,7 +86,7 @@ export class LocalDatabase {
 
   checkpoint(): void { this.native.pragma("wal_checkpoint(TRUNCATE)"); }
   close(): void {
-    if (this.native.open) this.native.close();
-    this.lock.release();
+    try { if (this.native.open) this.native.close(); }
+    finally { this.lock.release(); }
   }
 }
