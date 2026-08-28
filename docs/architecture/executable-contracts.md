@@ -98,9 +98,11 @@ TECH-003 materializa la frontera POS Local Service ↔ API central como contrato
 
 ### Request central de dispositivo
 
+El runtime extrae primero un subconjunto normalizado de headers de aplicación. El schema no pretende representar todos los headers HTTP reales (Host, User-Agent, tracing, security headers, proxies, etc.); esos headers de transporte permanecen fuera de este objeto contractual.
+
 El request JSON normalizado conserva:
 
-- `Authorization` opaco y libre de CR/LF; su contenido no se parsea ni se presenta como prueba criptográfica;
+- `Authorization` opaco y libre de CR/LF dentro de `contract_headers`; su contenido no se parsea ni se presenta como prueba criptográfica;
 - `x-pos-api-version`;
 - `x-request-id`;
 - `x-correlation-id`;
@@ -119,7 +121,7 @@ Un `VerifiedDevicePrincipal` es contexto posterior a autenticación y conserva `
 La respuesta normalizada conserva:
 
 - status HTTP;
-- headers de versión/request/correlation;
+- `contract_headers` extraídos de versión/request/correlation;
 - bytes serializados;
 - envelope común de salida;
 - estado normalizado de rate limit cuando exista.
@@ -164,13 +166,15 @@ Las lecturas paginadas usan cursor opaco:
 - `next_cursor`;
 - `has_more`.
 
-Cada endpoint fija su máximo de página y longitud de cursor. No se obliga `total_count` ni offset pagination en el contrato común.
+Cada endpoint fija su máximo de página, máximo de items de respuesta y longitud de cursor. Request y response aplican el mismo límite cuantitativo definido por el endpoint. No se obliga `total_count` ni offset pagination en el contrato común.
 
 ### Rate limiting
 
 El contrato normaliza `policy_id`, scope, limit, remaining y reset UTC. Los scopes permitidos son `TENANT`, `DEVICE`, `ACTOR` e `INTEGRATION`.
 
 El formato de políticas internas no se presenta como estándar HTTP externo. `Retry-After` es la señal wire obligatoria cuando la API responde 429.
+
+La extracción de headers reales debe rechazar duplicados ambiguos de campos contractuales antes de construir `contract_headers`; esta extracción pertenece al futuro runtime/middleware y no se simula con Zod.
 
 ## Siguiente slice de TECH-003
 

@@ -1,6 +1,6 @@
 import * as z from "zod";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
-import { type ContractError, type ErrorCategory } from "./errors.js";
+import { ContractErrorSchema, type ErrorCategory } from "./errors.js";
 import {
   ContractVersionSchema,
   IdempotencyKeySchema,
@@ -97,11 +97,11 @@ export function createCentralDeviceHttpRequestSchema<T extends z.ZodType>(
 ) {
   const bodySchema = createRequestEnvelopeSchema(payloadSchema);
   return z.strictObject({
-    headers: CentralHttpRequestHeadersSchema,
+    contract_headers: CentralHttpRequestHeadersSchema,
     received_body_bytes: byteCountSchema(options.maxBodyBytes),
     body: bodySchema,
   }).superRefine((request, context) => {
-    const { headers, body } = request;
+    const { contract_headers: headers, body } = request;
     const matches: ReadonlyArray<readonly [unknown, unknown, string]> = [
       [headers["x-request-id"], body.request_id, "x-request-id"],
       [headers["x-correlation-id"], body.correlation_id, "x-correlation-id"],
@@ -144,8 +144,8 @@ export function validateCentralDevicePrincipal(
   const principal = VerifiedDevicePrincipalSchema.parse(principalInput);
   return request.body.tenant_id === principal.tenant_id
     && request.body.device_id === principal.device_id
-    && request.headers["x-pos-device-id"] === principal.device_id
-    && request.headers["x-pos-installation-id"] === principal.installation_id;
+    && request.contract_headers["x-pos-device-id"] === principal.device_id
+    && request.contract_headers["x-pos-installation-id"] === principal.installation_id;
 }
 
 type CentralHttpResponseOptions = Readonly<{
@@ -159,12 +159,12 @@ export function createCentralHttpResponseSchema<T extends z.ZodType>(
   const bodySchema = createResponseEnvelopeSchema(resultSchema);
   return z.strictObject({
     status_code: z.number().int().min(200).max(599),
-    headers: CentralHttpResponseHeadersSchema,
+    contract_headers: CentralHttpResponseHeadersSchema,
     serialized_body_bytes: byteCountSchema(options.maxBodyBytes),
     rate_limit: HttpRateLimitStateSchema.nullable(),
     body: bodySchema,
   }).superRefine((response, context) => {
-    const { body, headers, status_code: statusCode } = response;
+    const { body, contract_headers: headers, status_code: statusCode } = response;
 
     if (headers["x-request-id"] !== body.request_id) {
       context.addIssue({ code: "custom", path: ["headers", "x-request-id"], message: "response request id must match the envelope" });
@@ -242,9 +242,16 @@ export function createCursorPaginationRequestSchema(maxPageSize: number, maxCurs
   });
 }
 
-export function createCursorPageSchema<T extends z.ZodType>(itemSchema: T, maxCursorChars: number) {
+export function createCursorPageSchema<T extends z.ZodType>(
+  itemSchema: T,
+  maxPageSize: number,
+  maxCursorChars: number,
+) {
+  if (!Number.isSafeInteger(maxPageSize) || maxPageSize < 1) {
+    throw new RangeError("maxPageSize must be a positive safe integer");
+  }
   return z.strictObject({
-    items: z.array(itemSchema),
+    items: z.array(itemSchema).max(maxPageSize),
     next_cursor: cursorSchema(maxCursorChars).nullable(),
     has_more: z.boolean(),
   }).superRefine((page, context) => {
@@ -258,7 +265,8 @@ export function createCursorPageSchema<T extends z.ZodType>(itemSchema: T, maxCu
   });
 }
 
-export function expectedRetryAfterSeconds(errorInput: ContractError): string | null {
-  if (errorInput.category !== "RATE_LIMITED" || errorInput.retry_after_ms === undefined) return null;
-  return String(Math.ceil(errorInput.retry_after_ms / 1000));
+export function expectedRetryAfterSeconds(errorInput: unknown): string | null {
+  const error = ContractErrorSchema.parse(errorInput);
+  if (error.category !== "RATE_LIMITED" || error.retry_after_ms === undefined) return null;
+  return String(Math.ceil(error.retry_after_ms / 1000));
 }

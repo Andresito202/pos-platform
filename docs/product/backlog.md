@@ -761,3 +761,6 @@ Una tarea no está cerrada hasta que:
 
 - TECH-003 Sync closure candidate: `e42293d9afee0ccc1e5033dcd88d75d9f71959f1`, CI #177 / run `33162848651` SUCCESS; six review threads reconciled and resolved.
 - TECH-003 Block 3 materialization: central-device HTTP transport contracts add verified-principal binding, request/response header-envelope correspondence, configurable measured byte limits, canonical HTTP error mapping, cursor pagination, idempotency header binding and coherent 429/Retry-After/rate-limit metadata. No NestJS/runtime/auth cryptography is implemented.
+
+
+- TECH-003 Block 3 senior hardening after CI #178: raw HTTP headers are not modeled as a closed Zod object; only an extracted allowlisted `contract_headers` subset is schema-validated. This avoids rejecting legitimate transport/proxy/security headers while preserving strict application-header binding. Cursor page responses now enforce the endpoint max item count, and Retry-After derivation parses the canonical error fail-closed.

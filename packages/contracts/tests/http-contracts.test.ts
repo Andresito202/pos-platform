@@ -23,7 +23,7 @@ const payloadSchema = z.strictObject({ heartbeat: z.boolean() });
 const requestSchema = createCentralDeviceHttpRequestSchema(payloadSchema, { maxBodyBytes: 4096, requireIdempotency: true });
 
 const request = {
-  headers: {
+  contract_headers: {
     authorization: "opaque-device-credential",
     "content-type": "application/json",
     accept: "application/json",
@@ -81,18 +81,18 @@ describe("TECH-003 central HTTP contracts", () => {
     expect(requestSchema.safeParse(request).success).toBe(true);
     expect(requestSchema.safeParse({
       ...request,
-      headers: { ...request.headers, "x-request-id": diagnosticId },
+      contract_headers: { ...request.contract_headers, "x-request-id": diagnosticId },
     }).success).toBe(false);
     expect(requestSchema.safeParse({
       ...request,
-      headers: { ...request.headers, "idempotency-key": "heartbeat:other" },
+      contract_headers: { ...request.contract_headers, "idempotency-key": "heartbeat:other" },
     }).success).toBe(false);
   });
 
   it("rejects header injection and oversized measured bodies", () => {
     expect(requestSchema.safeParse({
       ...request,
-      headers: { ...request.headers, authorization: "credential\r\ninjected: true" },
+      contract_headers: { ...request.contract_headers, authorization: "credential\r\ninjected: true" },
     }).success).toBe(false);
     expect(requestSchema.safeParse({ ...request, received_body_bytes: 4097 }).success).toBe(false);
   });
@@ -100,7 +100,7 @@ describe("TECH-003 central HTTP contracts", () => {
   it("requires idempotency for configured command endpoints", () => {
     const noIdempotency = {
       ...request,
-      headers: { ...request.headers, "idempotency-key": undefined },
+      contract_headers: { ...request.contract_headers, "idempotency-key": undefined },
       body: { ...request.body, operation_id: undefined, idempotency_key: undefined },
     };
     expect(requestSchema.safeParse(noIdempotency).success).toBe(false);
@@ -138,14 +138,14 @@ describe("TECH-003 central HTTP contracts", () => {
     };
     expect(schema.safeParse({
       status_code: 202,
-      headers: responseHeaders,
+      contract_contract_headers: responseHeaders,
       serialized_body_bytes: 400,
       rate_limit: null,
       body: { ...baseResponseBody, status: "UNKNOWN", result: null, error: unknownError, result_code: "PENDING_RECONCILIATION" },
     }).success).toBe(true);
     expect(schema.safeParse({
       status_code: 503,
-      headers: responseHeaders,
+      contract_contract_headers: responseHeaders,
       serialized_body_bytes: 400,
       rate_limit: null,
       body: { ...baseResponseBody, status: "UNKNOWN", result: null, error: unknownError, result_code: "PENDING_RECONCILIATION" },
@@ -167,7 +167,7 @@ describe("TECH-003 central HTTP contracts", () => {
     });
     const rateLimited = {
       status_code: 429,
-      headers: { ...responseHeaders, "retry-after": "2" },
+      contract_contract_contract_headers: { ...responseHeaders, "retry-after": "2" },
       serialized_body_bytes: 500,
       rate_limit: {
         policy_id: "DEVICE.API",
@@ -185,10 +185,10 @@ describe("TECH-003 central HTTP contracts", () => {
       },
     };
     expect(schema.safeParse(rateLimited).success).toBe(true);
-    expect(schema.safeParse({ ...rateLimited, headers: responseHeaders }).success).toBe(false);
+    expect(schema.safeParse({ ...rateLimited, contract_headers: responseHeaders }).success).toBe(false);
     expect(schema.safeParse({
       ...rateLimited,
-      headers: { ...responseHeaders, "retry-after": "1" },
+      contract_contract_contract_headers: { ...responseHeaders, "retry-after": "1" },
     }).success).toBe(false);
     expect(expectedRetryAfterSeconds(rateError)).toBe("2");
   });
@@ -198,16 +198,21 @@ describe("TECH-003 central HTTP contracts", () => {
     expect(requestPage.safeParse({ cursor: null, page_size: 50 }).success).toBe(true);
     expect(requestPage.safeParse({ cursor: null, page_size: 101 }).success).toBe(false);
 
-    const pageSchema = createCursorPageSchema(z.strictObject({ id: z.string() }), 2048);
+    const pageSchema = createCursorPageSchema(z.strictObject({ id: z.string() }), 2, 2048);
     expect(pageSchema.safeParse({ items: [{ id: "1" }], next_cursor: "opaque-next", has_more: true }).success).toBe(true);
     expect(pageSchema.safeParse({ items: [{ id: "1" }], next_cursor: null, has_more: true }).success).toBe(false);
+    expect(pageSchema.safeParse({
+      items: [{ id: "1" }, { id: "2" }, { id: "3" }],
+      next_cursor: null,
+      has_more: false,
+    }).success).toBe(false);
   });
 
   it("rejects unknown response transport fields and output bodies over the configured bound", () => {
     const schema = createCentralHttpResponseSchema(z.strictObject({ accepted: z.boolean() }), { maxBodyBytes: 1024 });
     expect(schema.safeParse({
       status_code: 200,
-      headers: responseHeaders,
+      contract_contract_headers: responseHeaders,
       serialized_body_bytes: 500,
       rate_limit: null,
       body: baseResponseBody,
@@ -215,7 +220,7 @@ describe("TECH-003 central HTTP contracts", () => {
     }).success).toBe(false);
     expect(schema.safeParse({
       status_code: 200,
-      headers: responseHeaders,
+      contract_contract_headers: responseHeaders,
       serialized_body_bytes: 1025,
       rate_limit: null,
       body: baseResponseBody,
