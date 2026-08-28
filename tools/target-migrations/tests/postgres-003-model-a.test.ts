@@ -164,16 +164,17 @@ async function retryClaim(s:Scenario,attemptId:string):Promise<boolean>{
   });
 }
 
+async function reprepareQueuedWork(client:PoolClient,s:Scenario):Promise<void>{
+  const doc=await client.query(`UPDATE fiscal.electronic_documents SET status='DRAFT',preparation_generation=2,updated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND status='QUEUED' AND preparation_generation=1`,[s.document]);
+  if(doc.rowCount!==1) throw new Error("reprepare document CAS lost");
+  const dispatch=await client.query(`UPDATE integrations.integration_dispatches SET status='CANCELLED',updated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND status='QUEUED'`,[s.dispatch]);
+  if(dispatch.rowCount!==1) throw new Error("reprepare dispatch cancellation lost");
+  const prior=await client.query(`UPDATE fiscal.fiscal_document_preparations SET preparation_state='CANCELLED',cancelled_at=clock_timestamp(),cancelled_by_actor_id=$2,cancellation_reason='REPREPARE_BEFORE_SUBMISSION',updated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND preparation_state='FROZEN'`,[s.preparation1,s.user]);
+  if(prior.rowCount!==1) throw new Error("reprepare preparation cancellation lost");
+  await client.query(`INSERT INTO fiscal.fiscal_document_preparations(id,tenant_id,company_id,branch_id,electronic_document_id,document_type,preparation_generation,supersedes_preparation_id,preparation_state,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,source_version,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,tax_snapshot_reference,tax_snapshot_checksum,fiscal_emission_snapshot_reference,fiscal_emission_snapshot_checksum,canonical_payload_version,canonical_payload_checksum,numbering_mode,numbering_state,created_by_actor_id,created_at,updated_at,version) VALUES ($1,$2,$3,$4,$5,'ELECTRONIC_SALES_INVOICE',2,$6,'DRAFT',$7,$8,$9,$10,2,'COP',100000,0,19000,119000,$11,repeat('c',64),$12,repeat('d',64),1,repeat('f',64),'PROVIDER_ASSIGNED','PENDING_EXTERNAL',$13,clock_timestamp(),clock_timestamp(),1)`,[s.preparation2,s.tenant,s.company,s.branch,s.document,s.preparation1,s.integration,s.connection,s.configuration,s.version1,`tax://model-a/${s.n}/2`,`fiscal://model-a/${s.n}/2`,s.user]);
+}
 async function reprepareQueued(s:Scenario):Promise<void>{
-  await tx("pos_app",s.tenant,async client=>{
-    const doc=await client.query(`UPDATE fiscal.electronic_documents SET status='DRAFT',preparation_generation=2,updated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND status='QUEUED' AND preparation_generation=1`,[s.document]);
-    if(doc.rowCount!==1) throw new Error("reprepare document CAS lost");
-    const dispatch=await client.query(`UPDATE integrations.integration_dispatches SET status='CANCELLED',updated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND status='QUEUED'`,[s.dispatch]);
-    if(dispatch.rowCount!==1) throw new Error("reprepare dispatch cancellation lost");
-    const prior=await client.query(`UPDATE fiscal.fiscal_document_preparations SET preparation_state='CANCELLED',cancelled_at=clock_timestamp(),cancelled_by_actor_id=$2,cancellation_reason='REPREPARE_BEFORE_SUBMISSION',updated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND preparation_state='FROZEN'`,[s.preparation1,s.user]);
-    if(prior.rowCount!==1) throw new Error("reprepare preparation cancellation lost");
-    await client.query(`INSERT INTO fiscal.fiscal_document_preparations(id,tenant_id,company_id,branch_id,electronic_document_id,document_type,preparation_generation,supersedes_preparation_id,preparation_state,external_integration_id,fiscal_connection_id,fiscal_emission_configuration_id,emission_configuration_version_id,source_version,currency_code,subtotal_amount,discount_amount,tax_amount,total_amount,tax_snapshot_reference,tax_snapshot_checksum,fiscal_emission_snapshot_reference,fiscal_emission_snapshot_checksum,canonical_payload_version,canonical_payload_checksum,numbering_mode,numbering_state,created_by_actor_id,created_at,updated_at,version) VALUES ($1,$2,$3,$4,$5,'ELECTRONIC_SALES_INVOICE',2,$6,'DRAFT',$7,$8,$9,$10,2,'COP',100000,0,19000,119000,$11,repeat('c',64),$12,repeat('d',64),1,repeat('f',64),'PROVIDER_ASSIGNED','PENDING_EXTERNAL',$13,clock_timestamp(),clock_timestamp(),1)`,[s.preparation2,s.tenant,s.company,s.branch,s.document,s.preparation1,s.integration,s.connection,s.configuration,s.version1,`tax://model-a/${s.n}/2`,`fiscal://model-a/${s.n}/2`,s.user]);
-  });
+  await tx("pos_app",s.tenant,client=>reprepareQueuedWork(client,s));
 }
 
 async function insertGeneralReceipt(s:Scenario):Promise<void>{
@@ -181,15 +182,101 @@ async function insertGeneralReceipt(s:Scenario):Promise<void>{
     await client.query(`INSERT INTO integrations.external_webhook_receipts(id,tenant_id,company_id,integration_id,deduplication_key,received_at,payload_schema_version,payload_checksum,authentication_verification_result,replay_verification_result,processing_status,attempt_count,correlation_id,provider_event_id,created_at,version) VALUES ($1,$2,$3,$4,$5,clock_timestamp(),1,repeat('9',64),'VERIFIED','VERIFIED','RECEIVED',0,$6,$7,clock_timestamp(),1)`,[s.receipt,s.tenant,s.company,s.integration,`receipt-${s.n}`,s.correlation,`event-${s.n}`]);
   });
 }
+async function correlateReceiptWork(client:PoolClient,s:Scenario,generation:number,preparationId:string):Promise<void>{
+  await client.query(`SELECT id FROM fiscal.electronic_documents WHERE id=$1 FOR UPDATE`,[s.document]);
+  await client.query(`SELECT id FROM fiscal.fiscal_document_preparations WHERE id=$1 FOR UPDATE`,[preparationId]);
+  await client.query(`SELECT id FROM integrations.integration_dispatches WHERE id=$1 FOR UPDATE`,[s.dispatch]);
+  const receipt=await client.query(`SELECT id FROM integrations.external_webhook_receipts WHERE id=$1 FOR UPDATE`,[s.receipt]);
+  if(receipt.rowCount!==1) throw new Error("webhook receipt missing");
+  await client.query(`UPDATE integrations.external_webhook_receipts SET fiscal_electronic_document_id=$2,fiscal_document_preparation_id=$3,fiscal_preparation_generation=$4,fiscal_integration_dispatch_id=$5,fiscal_correlated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND fiscal_electronic_document_id IS NULL`,[s.receipt,s.document,preparationId,generation,s.dispatch]);
+}
 async function correlateReceipt(s:Scenario,generation:number,preparationId:string):Promise<void>{
-  await tx("pos_worker",s.tenant,async client=>{
-    await client.query(`SELECT id FROM fiscal.electronic_documents WHERE id=$1 FOR UPDATE`,[s.document]);
-    await client.query(`SELECT id FROM fiscal.fiscal_document_preparations WHERE id=$1 FOR UPDATE`,[preparationId]);
-    await client.query(`SELECT id FROM integrations.integration_dispatches WHERE id=$1 FOR UPDATE`,[s.dispatch]);
-    const receipt=await client.query(`SELECT id FROM integrations.external_webhook_receipts WHERE id=$1 FOR UPDATE`,[s.receipt]);
-    if(receipt.rowCount!==1) throw new Error("webhook receipt missing");
-    await client.query(`UPDATE integrations.external_webhook_receipts SET fiscal_electronic_document_id=$2,fiscal_document_preparation_id=$3,fiscal_preparation_generation=$4,fiscal_integration_dispatch_id=$5,fiscal_correlated_at=clock_timestamp(),version=version+1 WHERE id=$1 AND fiscal_electronic_document_id IS NULL`,[s.receipt,s.document,preparationId,generation,s.dispatch]);
-  });
+  await tx("pos_worker",s.tenant,client=>correlateReceiptWork(client,s,generation,preparationId));
+}
+
+type RaceTransaction={pool:Pool;client:PoolClient;pid:number;closed:boolean};
+type RaceResult={reprepare:{ok:boolean;error?:string};webhook:{ok:boolean;error?:string}};
+async function openRaceTransaction(role:string,tenant:string,label:string):Promise<RaceTransaction>{
+  const pool=new Pool({connectionString:roleUrl(role),max:1,application_name:`model-a-${label}`});
+  const client=await pool.connect();
+  await client.query("BEGIN");
+  await client.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);
+  await client.query("SET LOCAL lock_timeout='5s'");
+  await client.query("SET LOCAL statement_timeout='15s'");
+  const pid=(await client.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0]?.pid;
+  if(pid===undefined) throw new Error("race backend pid missing");
+  return {pool,client,pid,closed:false};
+}
+async function finishRaceTransaction(transaction:RaceTransaction,commit:boolean):Promise<void>{
+  if(transaction.closed) return;
+  await transaction.client.query(commit?"COMMIT":"ROLLBACK").finally(()=>{transaction.closed=true;});
+}
+async function closeRaceTransaction(transaction:RaceTransaction):Promise<void>{
+  if(!transaction.closed) await transaction.client.query("ROLLBACK").catch(()=>undefined);
+  transaction.client.release();
+  await transaction.pool.end();
+}
+async function waitUntilBlocked(blockedPid:number,blockerPid:number):Promise<void>{
+  const pool=new Pool({connectionString:ADMIN_URL,max:1});
+  try{
+    for(let attempt=0;attempt<100;attempt+=1){
+      const result=await pool.query<{blocked:boolean}>(`SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked`,[blockerPid,blockedPid]);
+      if(result.rows[0]?.blocked===true) return;
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }
+    throw new Error(`transaction ${blockedPid} did not block behind ${blockerPid}`);
+  }finally{await pool.end();}
+}
+function raceError(error:unknown):string{return error instanceof Error?error.message:String(error);}
+async function raceWebhookAndReprepare(s:Scenario,winner:"REPREPARE"|"WEBHOOK"):Promise<RaceResult>{
+  const reprepare=await openRaceTransaction("pos_app",s.tenant,`reprepare-${winner.toLowerCase()}`);
+  const webhook=await openRaceTransaction("pos_worker",s.tenant,`webhook-${winner.toLowerCase()}`);
+  const reprepareResult={ok:false} as {ok:boolean;error?:string};
+  const webhookResult={ok:false} as {ok:boolean;error?:string};
+  try{
+    const winnerTransaction=winner==="REPREPARE"?reprepare:webhook;
+    const loserTransaction=winner==="REPREPARE"?webhook:reprepare;
+    await winnerTransaction.client.query(`SELECT id FROM fiscal.electronic_documents WHERE id=$1 FOR UPDATE`,[s.document]);
+
+    const loserPromise=(async()=>{
+      try{
+        if(winner==="REPREPARE"){
+          await correlateReceiptWork(webhook.client,s,1,s.preparation1);
+          await finishRaceTransaction(webhook,true);
+          webhookResult.ok=true;
+        }else{
+          await reprepareQueuedWork(reprepare.client,s);
+          await finishRaceTransaction(reprepare,true);
+          reprepareResult.ok=true;
+        }
+      }catch(error){
+        if(winner==="REPREPARE") webhookResult.error=raceError(error);
+        else reprepareResult.error=raceError(error);
+        await finishRaceTransaction(loserTransaction,false).catch(()=>undefined);
+      }
+    })();
+
+    await waitUntilBlocked(loserTransaction.pid,winnerTransaction.pid);
+    try{
+      if(winner==="REPREPARE"){
+        await reprepareQueuedWork(reprepare.client,s);
+        await finishRaceTransaction(reprepare,true);
+        reprepareResult.ok=true;
+      }else{
+        await correlateReceiptWork(webhook.client,s,1,s.preparation1);
+        await finishRaceTransaction(webhook,true);
+        webhookResult.ok=true;
+      }
+    }catch(error){
+      if(winner==="REPREPARE") reprepareResult.error=raceError(error);
+      else webhookResult.error=raceError(error);
+      await finishRaceTransaction(winnerTransaction,false).catch(()=>undefined);
+    }
+    await loserPromise;
+    return {reprepare:reprepareResult,webhook:webhookResult};
+  }finally{
+    await Promise.all([closeRaceTransaction(reprepare),closeRaceTransaction(webhook)]);
+  }
 }
 
 async function startReconciliation(s:Scenario):Promise<void>{
@@ -272,15 +359,27 @@ describe("003 Modelo A functional and concurrency gate",()=>{
     }finally{await pool.end();}
   });
 
-  it("serializes webhook late evidence against reprepare and quarantines the current generation",async()=>{
-    const s=scenario(5);await prepareQueued(s);await insertGeneralReceipt(s);await reprepareQueued(s);await correlateReceipt(s,1,s.preparation1);
-    const current=await state(s);expect(current.documentStatus).toBe("UNKNOWN_OUTCOME");expect(current.generation).toBe(2);expect(current.dispatchStatus).toBe("CANCELLED");
+  it("serializes both webhook/reprepare race orders without deadlock",async()=>{
+    const reprepareFirst=scenario(5);await prepareQueued(reprepareFirst);await insertGeneralReceipt(reprepareFirst);
+    const reprepareFirstResult=await raceWebhookAndReprepare(reprepareFirst,"REPREPARE");
+    expect(reprepareFirstResult).toEqual({reprepare:{ok:true},webhook:{ok:true}});
+    expect(await state(reprepareFirst)).toEqual({documentStatus:"UNKNOWN_OUTCOME",generation:2,dispatchStatus:"CANCELLED",preparations:2,attempts:0,inProgress:0});
+
+    const webhookFirst=scenario(8);await prepareQueued(webhookFirst);await insertGeneralReceipt(webhookFirst);
+    const webhookFirstResult=await raceWebhookAndReprepare(webhookFirst,"WEBHOOK");
+    expect(webhookFirstResult.webhook).toEqual({ok:true});
+    expect(webhookFirstResult.reprepare.ok).toBe(false);
+    expect(webhookFirstResult.reprepare.error).toMatch(/blocks reprepare|reprepare document CAS lost/);
+    expect(await state(webhookFirst)).toEqual({documentStatus:"QUEUED",generation:1,dispatchStatus:"QUEUED",preparations:1,attempts:0,inProgress:0});
+
     const pool=new Pool({connectionString:ADMIN_URL,max:1});
     try{
-      const receipt=(await pool.query<{generation:string;preparation:string}>(`SELECT fiscal_preparation_generation::text AS generation,fiscal_document_preparation_id::text AS preparation FROM integrations.external_webhook_receipts WHERE id=$1`,[s.receipt])).rows[0];
-      expect(receipt).toEqual({generation:"1",preparation:s.preparation1});
+      for(const s of [reprepareFirst,webhookFirst]){
+        const receipt=(await pool.query<{generation:string;preparation:string}>(`SELECT fiscal_preparation_generation::text AS generation,fiscal_document_preparation_id::text AS preparation FROM integrations.external_webhook_receipts WHERE id=$1`,[s.receipt])).rows[0];
+        expect(receipt).toEqual({generation:"1",preparation:s.preparation1});
+      }
     }finally{await pool.end();}
-  });
+  },30_000);
 
   it("lets an in-flight DOCUMENT reconciliation win the fence and block reprepare",async()=>{
     const s=scenario(6);await prepareQueued(s);await startReconciliation(s);
