@@ -7,3 +7,4 @@ export * from "./primitives.js";
 export * from "./versioning.js";
 export * from "./ipc.js";
 export * from "./sync.js";
+export * from "./compatibility.js";
