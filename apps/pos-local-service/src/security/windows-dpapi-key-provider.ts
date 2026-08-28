@@ -59,7 +59,7 @@ $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
   [System.Security.AccessControl.AccessControlType]::Allow
 )
 [void]$acl.AddAccessRule($rule)
-Set-Acl -LiteralPath $path -AclObject $acl
+[System.IO.File]::SetAccessControl($path, $acl)
 
 $output = [Convert]::ToBase64String($key)
 [Array]::Clear($key, 0, $key.Length)
