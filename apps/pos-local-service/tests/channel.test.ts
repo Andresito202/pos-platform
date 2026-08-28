@@ -381,7 +381,6 @@ describe("local channel", () => {
     const secret = randomBytes(32);
     const serverAuth = new LocalChannelAuthenticator(secret, clock);
     const clientAuth = new LocalChannelAuthenticator(secret, clock);
-
     const server = new LocalChannelServer(
       endpoint,
       serverAuth,
@@ -390,33 +389,39 @@ describe("local channel", () => {
       ),
       { min: "1.0.0", max: "1.0.0" },
     );
+    let socket: Socket | undefined;
 
-    await server.start();
-    const socket = createConnection(endpoint);
-    await new Promise<void>((resolve, reject) => {
-      socket.once("connect", resolve);
-      socket.once("error", reject);
-    });
+    try {
+      await server.start();
+      socket = createConnection(endpoint);
+      await new Promise<void>((resolve, reject) => {
+        socket!.once("connect", resolve);
+        socket!.once("error", reject);
+      });
 
-    const handshake = runtimeHandshakeRequest();
-    socket.write(encodeFrame(clientAuth.sign(handshake, "1.0.0", sessionId, 1)));
-    const handshakeResponse = clientAuth.verify(await receive(socket));
-    expect(handshakeResponse.payload).toMatchObject({
-      status: "SUCCEEDED",
-      result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
-    });
+      const handshake = runtimeHandshakeRequest();
+      socket.write(encodeFrame(clientAuth.sign(handshake, "1.0.0", sessionId, 1)));
+      const handshakeResponse = clientAuth.verify(await receive(socket));
+      expect(handshakeResponse.payload).toMatchObject({
+        status: "SUCCEEDED",
+        result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
+      });
 
-    const status = runtimeStatusRequest();
-    socket.write(encodeFrame(clientAuth.sign(status, "1.0.0", sessionId, 3)));
-    const statusResponse = clientAuth.verify(await receive(socket));
-    expect(statusResponse.payload).toMatchObject({
-      status: "SUCCEEDED",
-      result: { service_state: "READY", schema_version: "2" },
-    });
-
-    socket.destroy();
-    await server.stop();
-  });
+      const status = runtimeStatusRequest();
+      socket.write(encodeFrame(clientAuth.sign(status, "1.0.0", sessionId, 3)));
+      const statusResponse = clientAuth.verify(await receive(socket));
+      expect(statusResponse.payload).toMatchObject({
+        status: "SUCCEEDED",
+        result: { service_state: "READY", schema_version: "2" },
+      });
+    } finally {
+      socket?.destroy();
+      await server.stop();
+      serverAuth.destroy();
+      clientAuth.destroy();
+      secret.fill(0);
+    }
+  }, 15_000);
 
   windowsIt("keeps the real named-pipe DACL restricted across replenished instances", async () => {
     const dir = await directory();
