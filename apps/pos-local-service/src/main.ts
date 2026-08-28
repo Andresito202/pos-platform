@@ -55,6 +55,19 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 process.once("uncaughtException", (error) => { void terminate("uncaughtException", 1, error); });
 process.once("unhandledRejection", (reason) => { void terminate("unhandledRejection", 1, reason); });
 
+if (process.connected && process.env.NODE_ENV === "test") {
+  process.on("message", (message: unknown) => {
+    if (
+      typeof message === "object"
+      && message !== null
+      && "type" in message
+      && (message as { type?: unknown }).type === "pos-platform.test.shutdown"
+    ) {
+      void terminate("test.control", 0);
+    }
+  });
+}
+
 try {
   const config = parseServiceConfig(process.env);
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
