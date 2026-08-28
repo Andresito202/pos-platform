@@ -231,6 +231,20 @@ describe("LocalDatabase", () => {
     restored.close();
   });
 
+  it("rejects a non-contiguous migration ledger instead of applying history out of order", async () => {
+    const dataDirectory = await directory();
+    const db = LocalDatabase.open({ dataDirectory });
+    db.close();
+
+    const raw = new Database(join(dataDirectory, "pos-local.db"));
+    raw.exec("DROP TRIGGER local_schema_migrations_no_delete");
+    raw.prepare("DELETE FROM local_schema_migrations WHERE version = 1").run();
+    raw.close();
+
+    expect(() => LocalDatabase.open({ dataDirectory })).toThrow("ledger mismatch");
+    expect(existsSync(join(dataDirectory, "local-writer.lock"))).toBe(false);
+  });
+
   it("enforces migration ledger immutability and detects bypassed tampering", async () => {
     const dataDirectory = await directory();
     const db = LocalDatabase.open({ dataDirectory });
