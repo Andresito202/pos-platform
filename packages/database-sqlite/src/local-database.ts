@@ -138,24 +138,40 @@ export class LocalDatabase {
 
     const lock = WriterLock.acquire(directory);
     const target = join(directory, options.filename ?? "pos-local.db");
-    const temporary = `${target}.restore.tmp.${randomUUID()}`;
-    const replaced = `${target}.restore.replaced.${randomUUID()}`;
+    const targetWal = `${target}-wal`;
+    const targetShm = `${target}-shm`;
+    const restoreId = randomUUID();
+    const temporary = `${target}.restore.tmp.${restoreId}`;
+    const replaced = `${target}.restore.replaced.${restoreId}`;
+    const replacedWal = `${replaced}-wal`;
+    const replacedShm = `${replaced}-shm`;
     const hadTarget = existsSync(target);
+    const hadWal = existsSync(targetWal);
+    const hadShm = existsSync(targetShm);
 
     try {
       if (hadTarget) renameSync(target, replaced);
+      if (hadWal) renameSync(targetWal, replacedWal);
+      if (hadShm) renameSync(targetShm, replacedShm);
+
       copyFileSync(backupPath, temporary, fsConstants.COPYFILE_EXCL);
       chmodSync(temporary, 0o600);
       syncFile(temporary);
       renameSync(temporary, target);
-      rmSync(`${target}-wal`, { force: true });
-      rmSync(`${target}-shm`, { force: true });
       validateDatabaseFile(target);
+
       if (hadTarget) rmSync(replaced, { force: true });
+      if (hadWal) rmSync(replacedWal, { force: true });
+      if (hadShm) rmSync(replacedShm, { force: true });
     } catch (error) {
       rmSync(temporary, { force: true });
       rmSync(target, { force: true });
+      rmSync(targetWal, { force: true });
+      rmSync(targetShm, { force: true });
+
       if (hadTarget && existsSync(replaced)) renameSync(replaced, target);
+      if (hadWal && existsSync(replacedWal)) renameSync(replacedWal, targetWal);
+      if (hadShm && existsSync(replacedShm)) renameSync(replacedShm, targetShm);
       throw error;
     } finally {
       lock.release();
