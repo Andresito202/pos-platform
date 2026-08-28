@@ -15,7 +15,11 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  packages/application: {}
+  packages/application:
+    dependencies:
+      '@pos-platform/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/contracts: {}
 

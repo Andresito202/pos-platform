@@ -18,6 +18,7 @@ function patternFromFragments(...fragments) {
 }
 
 const exactSemver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const workspaceSpecifier = /^workspace:(?:\\*|\\^|~|(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?)$/;
 const manifestPaths = [
   'package.json',
   'packages/application/package.json',
