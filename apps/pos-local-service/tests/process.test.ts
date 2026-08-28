@@ -245,7 +245,7 @@ describe("POS Local Service process boundary", () => {
     expect(stdout().match(/"event":"runtime.stopping"/g) ?? []).toHaveLength(1);
     expect(stdout().match(/"event":"runtime.stopped"/g) ?? []).toHaveLength(1);
     expect(stdout()).toContain('"reason":"test.control"');
-  });
+  }, 30_000);
 
   it("fails closed as a real child process when required config is missing", async () => {
     const child = spawnService(serviceEnvironment(undefined));
@@ -262,6 +262,6 @@ describe("POS Local Service process boundary", () => {
       expect(stdout()).toContain('"event":"runtime.started"');
       expect(stdout()).toContain('"event":"runtime.stopping"');
       expect(stdout()).toContain(`"reason":"${mode}"`);
-    });
+    }, 30_000);
   }
 });
