@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   COPYFILE_EXCL,
-  chmodSync,
+  chmodSync,\n  constants as fsConstants,
   closeSync,
   copyFileSync,
   existsSync,
@@ -125,7 +125,7 @@ export class LocalDatabase {
 
     try {
       if (hadTarget) renameSync(target, replaced);
-      copyFileSync(backupPath, temporary, COPYFILE_EXCL);
+      copyFileSync(backupPath, temporary, fsConstants.COPYFILE_EXCL);
       chmodSync(temporary, 0o600);
       syncFile(temporary);
       renameSync(temporary, target);
@@ -161,7 +161,7 @@ export class LocalDatabase {
     const target = join(backupDirectory, name);
     const temporary = `${target}.tmp`;
     try {
-      copyFileSync(this.databasePath, temporary, COPYFILE_EXCL);
+      copyFileSync(this.databasePath, temporary, fsConstants.COPYFILE_EXCL);
       chmodSync(temporary, 0o600);
       syncFile(temporary);
       validateDatabaseFile(temporary);
