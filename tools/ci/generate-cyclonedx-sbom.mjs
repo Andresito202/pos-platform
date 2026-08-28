@@ -69,6 +69,7 @@ export function buildCycloneDxBom({
   const edges = new Map();
   const workspaceByName = new Map();
   const workspaceRefsByPath = new Map();
+  const expanding = new Set();
 
   for (const entry of workspaceManifests) {
     const name = workspaceIdentity(entry.manifestPath, entry.manifest);
@@ -76,7 +77,7 @@ export function buildCycloneDxBom({
     const ref = npmPurl(name, version);
     if (workspaceByName.has(name)) throw new Error(`duplicate workspace identity: ${name}`);
     workspaceByName.set(name, ref);
-    workspaceRefsByPath.set(entry.manifestPath.replace(/\/package\.json$/, ""), ref);
+    workspaceRefsByPath.set(entry.manifestPath === "package.json" ? "" : entry.manifestPath.slice(0, -"/package.json".length), ref);
     components.set(ref, {
       type: entry.manifestPath === "package.json" ? "application" : "library",
       "bom-ref": ref,
@@ -114,9 +115,15 @@ export function buildCycloneDxBom({
       edges.set(ref, new Set());
     }
 
-    for (const dependency of dependencyEntries(node)) {
-      const childRef = registerNode(dependency.name, dependency.value);
-      edges.get(ref).add(childRef);
+    if (expanding.has(ref)) return ref;
+    expanding.add(ref);
+    try {
+      for (const dependency of dependencyEntries(node)) {
+        const childRef = registerNode(dependency.name, dependency.value);
+        edges.get(ref).add(childRef);
+      }
+    } finally {
+      expanding.delete(ref);
     }
     return ref;
   }
@@ -141,6 +148,7 @@ export function buildCycloneDxBom({
   }
 
   const rootManifest = workspaceManifests.find((entry) => entry.manifestPath === "package.json");
+  if (!rootManifest) throw new Error("root package.json is missing from workspace manifests");
   const rootRef = workspaceByName.get(workspaceIdentity("package.json", rootManifest.manifest));
   for (const [manifestPath, ref] of workspaceRefsByPath) {
     if (manifestPath !== "") edges.get(rootRef).add(ref);
