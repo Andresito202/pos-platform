@@ -191,22 +191,26 @@ describe("local channel", () => {
       async (request) => compatibleResponse(request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>),
       { min: "1.0.0", max: "1.0.0" },
     );
-    await server.start();
+    let socket: Socket | undefined;
 
-    const socket = createConnection(endpoint);
-    await new Promise<void>((resolve, reject) => {
-      socket.once("connect", resolve);
-      socket.once("error", reject);
-    });
-    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
-    socket.write(encodeFrame(
-      new LocalChannelAuthenticator(secret, clock).sign(runtimeStatusRequest(), "1.0.0", sessionId, 1),
-    ));
-    await closed;
-
-    await server.stop();
-    secret.fill(0);
-  });
+    try {
+      await server.start();
+      socket = createConnection(endpoint);
+      await new Promise<void>((resolve, reject) => {
+        socket!.once("connect", resolve);
+        socket!.once("error", reject);
+      });
+      const closed = new Promise<void>((resolve) => socket!.once("close", () => resolve()));
+      socket.write(encodeFrame(
+        new LocalChannelAuthenticator(secret, clock).sign(runtimeStatusRequest(), "1.0.0", sessionId, 1),
+      ));
+      await closed;
+    } finally {
+      socket?.destroy();
+      await server.stop();
+      secret.fill(0);
+    }
+  }, 15_000);
 
   it("uses the real client to negotiate TECH-003 and validate response identity", async () => {
     const dir = await directory();
@@ -218,23 +222,25 @@ describe("local channel", () => {
       async (request) => compatibleResponse(request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>),
       { min: "1.0.0", max: "1.0.0" },
     );
-    await server.start();
-
     const client = new LocalChannelClient(
       endpoint,
       new LocalChannelAuthenticator(secret, clock),
       { min: "1.0.0", max: "1.0.0" },
     );
-    await client.connect(runtimeHandshakeRequest());
-    await expect(client.request(runtimeStatusRequest())).resolves.toMatchObject({
-      status: "SUCCEEDED",
-      result: { service_state: "READY", protocol_version: "1.0.0" },
-    });
 
-    await client.close();
-    await server.stop();
-    secret.fill(0);
-  });
+    try {
+      await server.start();
+      await client.connect(runtimeHandshakeRequest());
+      await expect(client.request(runtimeStatusRequest())).resolves.toMatchObject({
+        status: "SUCCEEDED",
+        result: { service_state: "READY", protocol_version: "1.0.0" },
+      });
+    } finally {
+      await client.close();
+      await server.stop();
+      secret.fill(0);
+    }
+  }, 15_000);
 
   it("aborts a timed-out handler and closes the channel fail-closed", async () => {
     const dir = await directory();
@@ -260,22 +266,24 @@ describe("local channel", () => {
       64,
       25,
     );
-    await server.start();
-
     const client = new LocalChannelClient(
       endpoint,
       new LocalChannelAuthenticator(secret, clock),
       { min: "1.0.0", max: "1.0.0" },
       500,
     );
-    await client.connect(runtimeHandshakeRequest());
-    await expect(client.request(runtimeStatusRequest())).rejects.toThrow();
-    expect(aborted).toBe(true);
 
-    await client.close();
-    await server.stop();
-    secret.fill(0);
-  });
+    try {
+      await server.start();
+      await client.connect(runtimeHandshakeRequest());
+      await expect(client.request(runtimeStatusRequest())).rejects.toThrow();
+      expect(aborted).toBe(true);
+    } finally {
+      await client.close();
+      await server.stop();
+      secret.fill(0);
+    }
+  }, 15_000);
 
   it("requires canonical TECH-003 handshake before status traffic", async () => {
     const dir = await directory();
