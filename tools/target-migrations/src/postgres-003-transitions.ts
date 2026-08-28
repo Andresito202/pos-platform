@@ -85,15 +85,15 @@ export const FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION = {
     "fiscal_correlated_at"
   ],
   upSql: [
-    `GRANT INSERT (${FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMN_LIST}) ON integrations.external_webhook_receipts TO pos_platform_app;`,
-    "REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;"
+    "REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;",
+    `GRANT INSERT (${FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMN_LIST}) ON integrations.external_webhook_receipts TO pos_platform_app;`
   ],
   downSql: [
     "GRANT INSERT ON integrations.external_webhook_receipts TO pos_platform_app;",
     `REVOKE INSERT (${FISCAL_003_RECEIPT_GENERAL_INGRESS_COLUMN_LIST}) ON integrations.external_webhook_receipts FROM pos_platform_app;`
   ],
   safety: [
-    "grant base-column INSERT before revoking broad table INSERT",
+    "revoke broad table INSERT before granting base-column INSERT",
     "after up, webhook ingress can persist only general receipt columns",
     "fiscal linkage is NULL at ingress and can be written only by pos_worker under the correlation fence",
     "down restores table INSERT before removing the temporary column grant"
