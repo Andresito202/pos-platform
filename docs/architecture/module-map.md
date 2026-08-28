@@ -73,7 +73,7 @@ Si en el futuro una subcapacidad requiere extracción, deberá existir evidencia
 
 No posee `Sale`, `Payment`, `Product`, `Customer`, `Tax`, `Inventory` ni el resultado legal de un documento electrónico.
 
-Migration 002 materializa su foundation central y mantiene `IntegrationDispatch` limitado físicamente a `NON_FISCAL` hasta que una migration fiscal posterior sea autorizada y materializada.
+Migration 002 materializa su foundation central y mantiene el baseline `NON_FISCAL`. INT-007 / PR #11 integró migration 003 y extendió físicamente el camino fiscal V1 bajo Modelo A y `SUBMIT_DOCUMENT`, sin convertir esa materialización en runtime de provider ni despliegue productivo.
 
 ### Electronic Invoicing
 
@@ -83,7 +83,7 @@ No es propietario de ventas, pricing, impuestos calculados, pagos, caja ni inven
 
 `FiscalConnection` extiende una `ExternalIntegration` fiscalmente elegible; no duplica account identity, credenciales generales, environment, health o capabilities generales.
 
-La migration 003 continúa `NOT_MATERIALIZED`. Cualquier contradicción contractual detectada en SQL003 bloquea su materialización hasta reconciliación autoritativa.
+Migration 003 está `INTEGRATED / GATES_CLOSED` por INT-007 y PR #11. Cualquier cambio fiscal posterior debe preservar Modelo A, la historia contractual y los gates exact-head; providers, credenciales, runtime y producción siguen siendo scopes separados.
 
 ## Componentes de ejecución
 

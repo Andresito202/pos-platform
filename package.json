@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "architecture:check": "nx run pos-platform-target:architecture-check",
     "ci:repository-policy": "node tools/ci/validate-repository-policy.mjs",
     "ci:dependency-inventory": "node tools/ci/generate-dependency-inventory.mjs",
     "preflight:migration:003": "pnpm --filter @pos-platform/target-migrations preflight:003",
@@ -13,5 +14,19 @@
     "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
     "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",
     "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite"
+  },
+  "devDependencies": {
+    "nx": "23.1.2",
+    "typescript": "6.0.3"
+  },
+  "nx": {
+    "targets": {
+      "architecture-check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "node --test tools/architecture/validate-boundaries.test.mjs && node tools/architecture/validate-boundaries.mjs"
+        }
+      }
+    }
   }
 }

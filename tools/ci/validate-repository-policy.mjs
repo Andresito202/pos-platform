@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -18,7 +18,27 @@ function patternFromFragments(...fragments) {
 }
 
 const exactSemver = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const manifestPaths = ['package.json', 'tools/target-migrations/package.json'];
+const workspaceSpecifier = /^workspace:(?:\*|\^|~|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
+function discoverWorkspaceManifestPaths() {
+  const manifests = ['package.json'];
+  for (const parent of ['apps', 'packages', 'tools']) {
+    const absoluteParent = path.join(root, parent);
+    if (!existsSync(absoluteParent)) continue;
+    for (const entry of readdirSync(absoluteParent, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const manifestPath = `${parent}/${entry.name}/package.json`;
+      if (existsSync(path.join(root, manifestPath))) manifests.push(manifestPath);
+    }
+  }
+  return [...new Set(manifests)].sort();
+}
+
+const manifestPaths = discoverWorkspaceManifestPaths();
+const governedWorkspaceNames = new Set(
+  manifestPaths
+    .filter((manifestPath) => manifestPath.startsWith('packages/') || manifestPath.startsWith('apps/'))
+    .map((manifestPath) => readJson(manifestPath).name),
+);
 const forbiddenLifecycleScripts = new Set([
   'preinstall',
   'install',
@@ -45,8 +65,9 @@ for (const manifestPath of manifestPaths) {
 
   for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
     for (const [name, specifier] of Object.entries(manifest[section] ?? {})) {
-      if (!exactSemver.test(specifier)) {
-        addViolation(`${manifestPath}: ${section}.${name} must use an exact SemVer version, found '${specifier}'`);
+      const isGovernedWorkspaceReference = governedWorkspaceNames.has(name) && workspaceSpecifier.test(specifier);
+      if (!exactSemver.test(specifier) && !isGovernedWorkspaceReference) {
+        addViolation(`${manifestPath}: ${section}.${name} must use exact SemVer or a governed workspace: specifier, found '${specifier}'`);
       }
     }
   }
@@ -58,8 +79,9 @@ if (rootManifest.packageManager !== 'pnpm@9.15.0') {
 }
 
 const workspace = readFileSync(path.join(root, 'pnpm-workspace.yaml'), 'utf8').replace(/\r\n/g, '\n').trim();
-if (workspace !== 'packages:\n  - tools/*') {
-  addViolation('pnpm-workspace.yaml: workspace scope changed; expand it only in an explicitly reviewed runtime/Nx change');
+const expectedWorkspace = 'packages:\n  - apps/*\n  - packages/*\n  - tools/*';
+if (workspace !== expectedWorkspace) {
+  addViolation('pnpm-workspace.yaml: workspace scope must match the reviewed ARCH-003 Nx roots');
 }
 
 const lockfile = readFileSync(path.join(root, 'pnpm-lock.yaml'), 'utf8');

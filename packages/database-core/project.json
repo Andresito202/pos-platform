@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/database-core",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/database-core",
+  "projectType": "library",
+  "tags": [
+    "layer:database-core",
+    "type:library",
+    "scope:shared"
+  ]
+}
