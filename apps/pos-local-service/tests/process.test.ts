@@ -183,11 +183,14 @@ describe("POS Local Service process boundary", () => {
       const deviceId = "018f0000-0000-7000-8000-000000000002";
       const endpoint = localChannelEndpoint(installationId);
       const report = inspectWindowsNamedPipeSecurity(endpoint);
-      expect(report.allowedTrustees.length).toBeGreaterThan(0);
+      expect(report.allowedTrustees).toContain(report.logonSid);
+      expect(report.allowedTrustees).not.toContain(report.currentSid);
+      expect(report.allowedTrustees).not.toContain("LA");
       expect(report.allowedTrustees).not.toContain("WD");
       expect(report.allowedTrustees).not.toContain("AN");
       expect(report.allowedTrustees).not.toContain("AU");
       expect(report.allowedTrustees).not.toContain("BU");
+      expect(report.allowedTrustees).not.toContain("BA");
 
       const secret = loadOrCreateWindowsLocalChannelSecret(dataDirectory, installationId);
       const clientAuthenticator = new LocalChannelAuthenticator(secret);
