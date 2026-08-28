@@ -134,6 +134,21 @@ describe("POS Local Service process boundary", () => {
     expect(await waitForExit(child)).toBe(0);
   });
 
+  it("coalesces near-simultaneous SIGINT and SIGTERM into one shutdown", async () => {
+    const dataDirectory = await directory();
+    const child = spawnService(serviceEnvironment(dataDirectory));
+    const stdout = captureStdout(child);
+    await waitForLogEvent(child, "runtime.started");
+
+    const exited = waitForExit(child);
+    expect(child.kill("SIGINT")).toBe(true);
+    child.kill("SIGTERM");
+
+    expect(await exited).toBe(0);
+    expect(stdout().match(/"event":"runtime.stopping"/g) ?? []).toHaveLength(1);
+    expect(stdout().match(/"event":"runtime.stopped"/g) ?? []).toHaveLength(1);
+  });
+
   it("fails closed as a real child process when required config is missing", async () => {
     const child = spawnService(serviceEnvironment(undefined));
     const exitCode = await waitForExit(child);
