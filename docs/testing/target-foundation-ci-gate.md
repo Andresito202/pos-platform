@@ -20,7 +20,7 @@ La rama histórica `architecture/physical-model` ya no es trigger de `push`.
 
 ### CodeQL SAST
 
-El workflow separado `.github/workflows/codeql-sast.yml` analiza JavaScript/TypeScript en pull requests hacia `main`, pushes a `main`, ejecución manual y programación semanal. Usa `build-mode: none`, la suite `security-extended`, permisos mínimos por job y `github/codeql-action` fijada por SHA.
+El workflow separado `.github/workflows/codeql-sast.yml` analiza JavaScript/TypeScript en pull requests hacia `main`, pushes a `main`, ejecución manual y programación semanal. Usa `build-mode: none`, la suite `security-extended`, permisos mínimos por job y `github/codeql-action` fijada por SHA. Como GitHub Code Scanning no está habilitado en este repositorio privado, no intenta publicar a su API: conserva SARIF commit-scoped, ejecuta un evaluador local probado y falla ante nivel `error` o `security-severity >= 7.0`.
 
 Su política de aceptación, excepciones y limitaciones está definida en `docs/security/codeql-sast-gate.md`. Un workflow verde no equivale a ausencia de vulnerabilidades ni cubre dependencias, DAST, runtime inexistente, SBOM, provenance o release.
 
