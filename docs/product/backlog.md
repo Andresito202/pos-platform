@@ -757,3 +757,7 @@ Una tarea no está cerrada hasta que:
 - TECH-003 IPC + Sync implementation baseline: `169659d5a37d2d3d83e2190231defe752de29439`; subsequent hardening fixed checkpoint/result durability and canonical UUID/UTC handling.
 - TECH-003 Sync review remediation: contiguous local sequences are mandatory; local operations preserve `installation_id`; response correspondence accepts duplicate-free partial subsets; checkpoints stop before conflict/review/dead-letter/retry/waiting outcomes even when their technical result is durable.
 - Next authorized TECH-003 slice after exact-head validation of this remediation: central HTTP contracts only; no NestJS controllers or runtime.
+
+
+- TECH-003 Sync closure candidate: `e42293d9afee0ccc1e5033dcd88d75d9f71959f1`, CI #177 / run `33162848651` SUCCESS; six review threads reconciled and resolved.
+- TECH-003 Block 3 materialization: central-device HTTP transport contracts add verified-principal binding, request/response header-envelope correspondence, configurable measured byte limits, canonical HTTP error mapping, cursor pagination, idempotency header binding and coherent 429/Retry-After/rate-limit metadata. No NestJS/runtime/auth cryptography is implemented.

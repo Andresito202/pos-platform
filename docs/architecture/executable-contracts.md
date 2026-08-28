@@ -92,7 +92,89 @@ Solo `SERVER_ACCEPTED` y `SERVER_REJECTED` son elegibles para ampliar el prefijo
 
 Este contrato materializa identidad, deduplicación y correspondencia; no implementa todavía outbox/inbox físicos ni procesamiento de negocio.
 
+## HTTP central ejecutable — Bloque 3
+
+TECH-003 materializa la frontera POS Local Service ↔ API central como contratos de transporte, sin crear todavía NestJS, routes ni middleware productivo.
+
+### Request central de dispositivo
+
+El request JSON normalizado conserva:
+
+- `Authorization` opaco y libre de CR/LF; su contenido no se parsea ni se presenta como prueba criptográfica;
+- `x-pos-api-version`;
+- `x-request-id`;
+- `x-correlation-id`;
+- `x-pos-device-id`;
+- `x-pos-installation-id`;
+- `idempotency-key` cuando la operación lo exige;
+- tamaño real recibido en bytes medido por el runtime;
+- envelope común estricto.
+
+El binding exige igualdad entre headers y envelope para versión, request, correlation, device e idempotency. Las llamadas centrales originadas por dispositivo requieren `tenant_id` y `device_id`.
+
+Un `VerifiedDevicePrincipal` es contexto posterior a autenticación y conserva `tenant_id + device_id + installation_id + authentication_method`. El contrato solo compara ese principal ya verificado contra el request; TECH-003 no implementa firma, challenge, sesión de dispositivo, revocación ni trust runtime.
+
+### Response central
+
+La respuesta normalizada conserva:
+
+- status HTTP;
+- headers de versión/request/correlation;
+- bytes serializados;
+- envelope común de salida;
+- estado normalizado de rate limit cuando exista.
+
+Mapping canónico para respuestas `REJECTED`:
+
+| Categoría | HTTP |
+|---|---:|
+| VALIDATION | 400 |
+| AUTHENTICATION | 401 |
+| AUTHORIZATION | 403 |
+| NOT_FOUND | 404 |
+| CONFLICT | 409 |
+| INCOMPATIBLE_VERSION | 409 |
+| INTEGRITY | 422 |
+| RATE_LIMITED | 429 |
+| INTERNAL | 500 |
+| DEPENDENCY_UNAVAILABLE | 503 |
+
+`UNKNOWN_OUTCOME` no se convierte artificialmente en 5xx: es un resultado de aplicación `UNKNOWN` y utiliza HTTP 200/202 mientras obliga a reconciliar antes de repetir.
+
+HTTP 429 exige:
+
+- error `RATE_LIMITED`;
+- `Retry-After` expresado en segundos;
+- correspondencia exacta con `ceil(retry_after_ms / 1000)`;
+- remaining=0 cuando se adjunta estado de cuota.
+
+### Límites de payload
+
+Los límites son configurables por endpoint mediante factories. El campo validado es el tamaño real medido por el runtime, no un `Content-Length` confiado ciegamente.
+
+Input y output tienen límites independientes. Un body que excede la política falla antes de tratarse como contrato válido.
+
+### Paginación
+
+Las lecturas paginadas usan cursor opaco:
+
+- `cursor`;
+- `page_size`;
+- `items`;
+- `next_cursor`;
+- `has_more`.
+
+Cada endpoint fija su máximo de página y longitud de cursor. No se obliga `total_count` ni offset pagination en el contrato común.
+
+### Rate limiting
+
+El contrato normaliza `policy_id`, scope, limit, remaining y reset UTC. Los scopes permitidos son `TENANT`, `DEVICE`, `ACTOR` e `INTEGRATION`.
+
+El formato de políticas internas no se presenta como estándar HTTP externo. `Retry-After` es la señal wire obligatoria cuando la API responde 429.
+
 ## Siguiente slice de TECH-003
 
-1. contratos HTTP centrales sin lógica de dominio en controllers;
-2. adapters externos solo cuando su gate separado sea autorizado.
+1. completar matriz explícita de compatibilidad IPC/Sync/HTTP y pruebas cruzadas;
+2. reconciliar documentación/backlog sin estados obsoletos;
+3. cerrar TECH-003 con CI exact-head, review senior y cero threads;
+4. adapters externos permanecen fuera hasta su gate separado.
