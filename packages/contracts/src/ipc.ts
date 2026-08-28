@@ -15,26 +15,17 @@ export const IpcMessageTypeSchema = z.enum([
   "operation.result.get",
 ]);
 
-function exactMessage<
-  M extends z.infer<typeof IpcMessageTypeSchema>,
-  T extends z.ZodObject,
->(messageType: M, schema: T) {
-  return schema.safeExtend({ message_type: z.literal(messageType) });
-}
-
 const EmptyPayloadSchema = z.strictObject({});
 
-export const RuntimeHandshakeRequestSchema = exactMessage(
-  "runtime.handshake",
-  createRequestEnvelopeSchema(RuntimeCompatibilitySnapshotSchema),
-);
+export const RuntimeHandshakeRequestSchema = createRequestEnvelopeSchema(
+  RuntimeCompatibilitySnapshotSchema,
+).safeExtend({ message_type: z.literal("runtime.handshake") });
 
 export const RuntimeHandshakeResponseSchema = createResponseEnvelopeSchema(RuntimeHandshakeOutcomeSchema);
 
-export const RuntimeStatusRequestSchema = exactMessage(
-  "runtime.status.get",
-  createRequestEnvelopeSchema(EmptyPayloadSchema),
-);
+export const RuntimeStatusRequestSchema = createRequestEnvelopeSchema(
+  EmptyPayloadSchema,
+).safeExtend({ message_type: z.literal("runtime.status.get") });
 
 export const RuntimeStatusResultSchema = z.strictObject({
   service_version: ContractVersionSchema,
@@ -50,10 +41,9 @@ export const OperationResultQuerySchema = z.strictObject({
   idempotency_key: IdempotencyKeySchema,
 });
 
-export const OperationResultRequestSchema = exactMessage(
-  "operation.result.get",
-  createRequestEnvelopeSchema(OperationResultQuerySchema),
-);
+export const OperationResultRequestSchema = createRequestEnvelopeSchema(
+  OperationResultQuerySchema,
+).safeExtend({ message_type: z.literal("operation.result.get") });
 
 export const OperationResultStatusSchema = z.enum([
   "NOT_FOUND",
