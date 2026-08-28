@@ -94,21 +94,13 @@ No se crea una rama nueva si una rama activa ya posee el mismo objetivo. No se d
 
 Una rama `INTEGRATED` no se reutiliza para trabajo nuevo.
 
-## Estado de ramas persistentes después de la reconciliación canónica
+## Estado de ramas persistentes
 
-- `architecture/foundation`: `INTEGRATED / HISTORICAL`;
-- `architecture/physical-model`: `INTEGRATED / HISTORICAL`;
-- `cleanup/pure-pos-platform-20260825`: `INTEGRATED / HISTORICAL`;
-- `ci/supply-chain-baseline-20260826`: `INTEGRATED / HISTORICAL` tras PR #5;
-- `docs/canonical-state-reconciliation-20260826`: `INTEGRATED / HISTORICAL` tras PR #6;
-- `docs/camacho-pos-colombia-branding-20260826`: `INTEGRATED / HISTORICAL` tras PR #7;
-- `brand/canonical-identity-assets-20260826`: `REDUNDANT_REF / NO_UNIQUE_COMMITS`, idéntica a `main`;
-- `design/sql003-contract-reconciliation-20260826`: `BLOCKED`, PR #4 draft, requiere sincronización con `main` y revisión independiente;
-- `wip/sql003-contract-gap-20260825`: `HISTORICAL_WIP / NOT_INTEGRABLE`, retiro únicamente después de cerrar la reconciliación autoritativa de SQL003.
+El inventario canónico y vigente de ramas persistentes se mantiene en `docs/product/backlog.md`, junto con su estado y decisión de retiro. Este documento conserva únicamente las reglas de ciclo de vida para evitar duplicar un snapshot que pueda quedar obsoleto.
 
 Las ramas temporales usadas para una reconciliación o implementación pasan a `INTEGRATED` cuando su PR se fusiona y no se reutilizan. Si GitHub conserva el ref después del merge, la existencia física del ref no convierte la rama de nuevo en `ACTIVE`.
 
-Las ramas históricas integradas deben eliminarse cuando exista una operación de borrado de refs autorizada y disponible. No se simula su eliminación mediante force-push o movimiento artificial del ref.
+Las ramas históricas integradas deben eliminarse mediante mantenimiento separado cuando exista una operación de borrado de refs autorizada y disponible. No se simula su eliminación mediante force-push o movimiento artificial del ref.
 
 ## Evidencia remota y estado local
 
