@@ -1,23 +1,99 @@
 {
   "$schemaVersion": 1,
   "projects": {
-    "@pos-platform/domain": { "root": "packages/domain", "layer": "domain", "type": "library", "scope": "shared" },
-    "@pos-platform/application": { "root": "packages/application", "layer": "application", "type": "library", "scope": "shared" },
-    "@pos-platform/contracts": { "root": "packages/contracts", "layer": "contracts", "type": "library", "scope": "shared" },
-    "@pos-platform/database-core": { "root": "packages/database-core", "layer": "database-core", "type": "library", "scope": "shared" },
-    "@pos-platform/database-postgres": { "root": "packages/database-postgres", "layer": "adapter", "type": "library", "scope": "central", "dialect": "postgres" },
-    "@pos-platform/database-sqlite": { "root": "packages/database-sqlite", "layer": "adapter", "type": "library", "scope": "local", "dialect": "sqlite" },
-    "@pos-platform/observability": { "root": "packages/observability", "layer": "observability", "type": "library", "scope": "shared" },
-    "@pos-platform/testing": { "root": "packages/testing", "layer": "testing", "type": "library", "scope": "test" }
+    "@pos-platform/domain": {
+      "root": "packages/domain",
+      "layer": "domain",
+      "type": "library",
+      "scope": "shared"
+    },
+    "@pos-platform/application": {
+      "root": "packages/application",
+      "layer": "application",
+      "type": "library",
+      "scope": "shared"
+    },
+    "@pos-platform/contracts": {
+      "root": "packages/contracts",
+      "layer": "contracts",
+      "type": "library",
+      "scope": "shared"
+    },
+    "@pos-platform/database-core": {
+      "root": "packages/database-core",
+      "layer": "database-core",
+      "type": "library",
+      "scope": "shared"
+    },
+    "@pos-platform/database-postgres": {
+      "root": "packages/database-postgres",
+      "layer": "adapter",
+      "type": "library",
+      "scope": "central",
+      "dialect": "postgres"
+    },
+    "@pos-platform/database-sqlite": {
+      "root": "packages/database-sqlite",
+      "layer": "adapter",
+      "type": "library",
+      "scope": "local",
+      "dialect": "sqlite"
+    },
+    "@pos-platform/observability": {
+      "root": "packages/observability",
+      "layer": "observability",
+      "type": "library",
+      "scope": "shared"
+    },
+    "@pos-platform/testing": {
+      "root": "packages/testing",
+      "layer": "testing",
+      "type": "library",
+      "scope": "test"
+    },
+    "@pos-platform/pos-local-service": {
+      "root": "apps/pos-local-service",
+      "layer": "runtime",
+      "type": "application",
+      "scope": "local"
+    }
   },
   "allowedLayerDependencies": {
     "domain": [],
-    "application": ["domain", "contracts"],
+    "application": [
+      "domain",
+      "contracts"
+    ],
     "contracts": [],
-    "database-core": ["domain", "contracts"],
-    "adapter": ["domain", "application", "contracts", "database-core", "observability"],
-    "observability": ["contracts"],
-    "testing": ["domain", "application", "contracts", "database-core", "adapter", "observability", "testing"]
+    "database-core": [
+      "domain",
+      "contracts"
+    ],
+    "adapter": [
+      "domain",
+      "application",
+      "contracts",
+      "database-core",
+      "observability"
+    ],
+    "observability": [
+      "contracts"
+    ],
+    "testing": [
+      "domain",
+      "application",
+      "contracts",
+      "database-core",
+      "adapter",
+      "observability",
+      "testing"
+    ],
+    "runtime": [
+      "application",
+      "contracts",
+      "adapter",
+      "observability"
+    ]
   },
   "forbiddenProjectNames": [
     "@pos-platform/categories",
@@ -26,9 +102,47 @@
     "@pos-platform/lots"
   ],
   "forbiddenExternalImportsByLayer": {
-    "domain": ["@nestjs/", "electron", "react", "react-dom", "kysely", "pg", "better-sqlite3"],
-    "application": ["@nestjs/", "electron", "react", "react-dom", "kysely", "pg", "better-sqlite3"],
-    "contracts": ["@nestjs/", "electron", "react", "react-dom", "kysely", "pg", "better-sqlite3"],
-    "database-core": ["@nestjs/", "electron", "react", "react-dom", "pg", "better-sqlite3"]
+    "domain": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "kysely",
+      "pg",
+      "better-sqlite3"
+    ],
+    "application": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "kysely",
+      "pg",
+      "better-sqlite3"
+    ],
+    "contracts": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "kysely",
+      "pg",
+      "better-sqlite3"
+    ],
+    "database-core": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "pg",
+      "better-sqlite3"
+    ],
+    "runtime": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "pg"
+    ]
   }
 }

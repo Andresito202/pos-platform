@@ -15,6 +15,31 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  apps/pos-local-service:
+    dependencies:
+      '@pos-platform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@pos-platform/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: 4.23.12
+        version: 4.23.12
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/application:
     dependencies:
       '@pos-platform/domain':
@@ -45,7 +70,18 @@ importers:
 
   packages/domain: {}
 
-  packages/observability: {}
+  packages/observability:
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
+
 
   packages/testing: {}
 

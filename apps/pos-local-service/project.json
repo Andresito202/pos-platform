@@ -1,0 +1,7 @@
+{
+  "name": "@pos-platform/pos-local-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "apps/pos-local-service",
+  "projectType": "application",
+  "tags": ["layer:runtime", "type:application", "scope:local"]
+}
