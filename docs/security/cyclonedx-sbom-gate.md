@@ -2,7 +2,7 @@
 
 ## Alcance
 
-TECH-004 Bloque 3 materializa un Software Bill of Materials interoperable para el grafo resuelto e instalado por CI. El documento emitido usa CycloneDX JSON 1.6 y queda ligado al HEAD revisado y al lockfile.
+TECH-004 Bloque 3 materializa un Software Bill of Materials interoperable para el grafo resuelto reportado por pnpm en CI. El documento emitido usa CycloneDX JSON 1.6 y queda ligado al HEAD revisado y al lockfile.
 
 No es una attestación firmada, una conclusión legal de licencias ni evidencia de un runtime todavía inexistente.
 
@@ -78,13 +78,14 @@ El job `supply-chain-baseline`:
 2. instala con lockfile congelado;
 3. ejecuta vulnerability audit;
 4. genera y valida el SBOM;
-5. publica `cyclonedx-sbom-<reviewed_sha>` por 90 días.
+5. ejecuta el gate SPDX sobre el universo third-party del SBOM;
+6. publica `cyclonedx-sbom-<reviewed_sha>` por 90 días.
 
 El artifact es commit-scoped. Cualquier cambio de HEAD invalida el PASS anterior.
 
 ## Límites deliberados
 
-- El SBOM representa el grafo resuelto/instalado en el runner Linux del gate; no afirma cobertura de paquetes exclusivos de otro SO que pnpm no materialice allí.
-- Licencias y expresiones SPDX se evalúan en el Bloque 4.
+- El SBOM conserva el grafo reportado por `pnpm list`; ese grafo puede incluir dependencias opcionales específicas de otras plataformas que no aparecen como paquetes materializados en el inventory Linux. El inventory instalado debe ser subconjunto del SBOM y Bloque 4 resuelve metadata de licencia para componentes SBOM-only por nombre+versión exactos.
+- Licencias y expresiones SPDX se evalúan en el Bloque 4 mediante `docs/security/license-compatibility-gate.md`.
 - Provenance y attestations se materializan en el Bloque 5.
 - La evidencia no autoriza merge, runtime, release ni producción.
