@@ -13,6 +13,8 @@ import {
 } from "../src/index.js";
 
 const directories: string[] = [];
+const processInstallationId = "018f0000-0000-7000-8000-000000000091";
+const processDeviceId = "018f0000-0000-7000-8000-000000000092";
 
 async function directory(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), "pos-process-"));
@@ -32,8 +34,8 @@ function serviceEnvironment(dataDirectory?: string): NodeJS.ProcessEnv {
     ...base,
     NODE_ENV: "test",
     ...(dataDirectory === undefined ? {} : { POS_DATA_DIRECTORY: dataDirectory }),
-    POS_INSTALLATION_ID: "018f0000-0000-7000-8000-000000000001",
-    POS_DEVICE_ID: "018f0000-0000-7000-8000-000000000002",
+    POS_INSTALLATION_ID: processInstallationId,
+    POS_DEVICE_ID: processDeviceId,
     POS_SERVICE_VERSION: "1.0.0",
     POS_PROTOCOL_MIN: "1.0.0",
     POS_PROTOCOL_MAX: "1.0.0",
@@ -179,8 +181,8 @@ describe("POS Local Service process boundary", () => {
     await waitForLogEvent(child, "runtime.started");
 
     if (process.platform === "win32") {
-      const installationId = "018f0000-0000-7000-8000-000000000001";
-      const deviceId = "018f0000-0000-7000-8000-000000000002";
+      const installationId = processInstallationId;
+      const deviceId = processDeviceId;
       const endpoint = localChannelEndpoint(installationId);
       const report = inspectWindowsNamedPipeSecurity(endpoint);
       expect(report.allowedTrustees).toContain(report.logonSid);
