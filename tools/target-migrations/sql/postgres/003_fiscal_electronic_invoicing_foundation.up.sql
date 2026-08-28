@@ -1893,7 +1893,16 @@ BEGIN
     AND company_id=NEW.company_id
     AND id=NEW.internal_entity_id;
 
-  IF NOT FOUND OR doc.preparation_generation<>NEW.fiscal_preparation_generation THEN
+  IF NOT FOUND OR (
+    doc.preparation_generation<>NEW.fiscal_preparation_generation
+    AND NOT (
+      TG_OP='UPDATE'
+      AND OLD.status='QUEUED'
+      AND NEW.status='CANCELLED'
+      AND doc.status='DRAFT'
+      AND doc.preparation_generation=NEW.fiscal_preparation_generation+1
+    )
+  ) THEN
     RAISE EXCEPTION 'fiscal dispatch must target current document generation';
   END IF;
 
@@ -2270,9 +2279,9 @@ CREATE TRIGGER external_webhook_receipts_update_guard_003 BEFORE UPDATE ON integ
 
 DROP TRIGGER external_webhook_receipts_update_guard ON integrations.external_webhook_receipts;
 
-GRANT INSERT (id,tenant_id,company_id,integration_id,deduplication_key,received_at,payload_schema_version,payload_checksum,authentication_verification_result,replay_verification_result,processing_status,attempt_count,correlation_id,provider_event_id,payload_evidence_reference,next_attempt_at,last_error_code,processed_at,created_at,version) ON integrations.external_webhook_receipts TO pos_platform_app;
-
 REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;
+
+GRANT INSERT (id,tenant_id,company_id,integration_id,deduplication_key,received_at,payload_schema_version,payload_checksum,authentication_verification_result,replay_verification_result,processing_status,attempt_count,correlation_id,provider_event_id,payload_evidence_reference,next_attempt_at,last_error_code,processed_at,created_at,version) ON integrations.external_webhook_receipts TO pos_platform_app;
 
 GRANT INSERT (id,tenant_id,company_id,integration_id,capability_code,dispatch_class,resource_type,internal_operation_id,internal_entity_type,internal_entity_id,idempotency_key,payload_schema_version,payload_checksum,status,correlation_id,provider_request_reference,retry_classification,next_attempt_at,last_reconciled_at,causation_id,created_at,updated_at,version) ON integrations.integration_dispatches TO pos_platform_app;
 

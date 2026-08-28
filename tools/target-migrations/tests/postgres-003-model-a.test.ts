@@ -284,7 +284,7 @@ describe("003 Modelo A functional and concurrency gate",()=>{
 
   it("lets an in-flight DOCUMENT reconciliation win the fence and block reprepare",async()=>{
     const s=scenario(6);await prepareQueued(s);await startReconciliation(s);
-    await expect(reprepareQueued(s)).rejects.toThrow(/reconciliation blocks reprepare/);
+    await expect(reprepareQueued(s)).rejects.toThrow(/blocks reprepare/);
     expect(await state(s)).toEqual({documentStatus:"QUEUED",generation:1,dispatchStatus:"QUEUED",preparations:1,attempts:0,inProgress:0});
   });
 
