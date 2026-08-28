@@ -11,6 +11,7 @@ import {
   LicenseVerifier,
   TrustedClockGuard,
   unsignedLicenseBytes,
+  type SecretStoreKeyProvider,
 } from "../src/index.js";
 
 const directories: string[] = [];
@@ -54,7 +55,8 @@ describe("local security", () => {
   it("encrypts device identity, derives stable device_key_id and detects secret tampering", async () => {
     const dir = await directory();
     mkdirSync(join(dir, "secrets"));
-    const store = new EncryptedFileSecretStore(join(dir, "secrets"), testKeyProvider(randomBytes(32)), installationId);\n    expect(store.protection).toBe("TEST_ONLY");
+    const store = new EncryptedFileSecretStore(join(dir, "secrets"), testKeyProvider(randomBytes(32)), installationId);
+    expect(store.protection).toBe("TEST_ONLY");
     const identity = DeviceIdentity.create(store);
     const reloaded = DeviceIdentity.load(store);
     expect(reloaded.publicKeyPem()).toBe(identity.publicKeyPem());
