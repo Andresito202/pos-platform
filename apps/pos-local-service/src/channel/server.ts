@@ -13,14 +13,16 @@ export class LocalChannelServer {
     const server = createServer((socket) => {
       if (this.sockets.size >= this.maxConnections) { socket.destroy(); return; }
       this.sockets.add(socket); const decoder = new FrameDecoder();
+      let queue = Promise.resolve();
       socket.on("data", (chunk) => {
         try {
           for (const raw of decoder.push(chunk)) {
-            const request = this.authenticator.verify(raw);
-            void this.handler(request.payload).then(
-              (result) => socket.write(encodeFrame(this.authenticator.sign(result, request.protocol_version, request.session_id, request.sequence + 1))),
-              () => socket.destroy(),
-            );
+            queue = queue.then(async () => {
+              if (socket.destroyed) return;
+              const request = this.authenticator.verify(raw);
+              const result = await this.handler(request.payload);
+              socket.write(encodeFrame(this.authenticator.sign(result, request.protocol_version, request.session_id, request.sequence + 1)));
+            }).catch(() => socket.destroy());
           }
         } catch { socket.destroy(); }
       });
