@@ -37,6 +37,14 @@ CREATE TABLE local_security_state (
   singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
   last_trusted_time TEXT NOT NULL
 ) STRICT;
+
+CREATE TABLE local_channel_replay_state (
+  session_id TEXT PRIMARY KEY NOT NULL CHECK(length(session_id) = 36),
+  highest_sequence INTEGER NOT NULL CHECK(highest_sequence > 0),
+  expires_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX local_channel_replay_state_expires_at_idx
+  ON local_channel_replay_state(expires_at);
 `.trim();
 
 const MIGRATIONS = [
