@@ -28,12 +28,15 @@ export class LocalChannelAuthenticator {
   private readonly maxClockSkewMs: number;
   private readonly replayStateStore: LocalChannelReplayStateStore;
 
+  private readonly secret: Buffer;
+
   constructor(
-    private readonly secret: Buffer,
+    secret: Buffer,
     private readonly clock: ChannelClock = systemClock,
     options: LocalChannelAuthenticatorOptions = {},
   ) {
     if (secret.byteLength < 32) throw new Error("local channel secret must contain at least 256 bits");
+    this.secret = Buffer.from(secret);
     this.maxClockSkewMs = options.maxClockSkewMs ?? 30_000;
     if (!Number.isSafeInteger(this.maxClockSkewMs) || this.maxClockSkewMs <= 0) {
       throw new Error("local channel max clock skew must be a positive integer");
