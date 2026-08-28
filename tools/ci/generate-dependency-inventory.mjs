@@ -39,7 +39,7 @@ function walkForPackageJson(directory, results) {
   }
 }
 
-function normalizedLicense(manifest) {
+export function normalizedLicense(manifest) {
   if (typeof manifest.license === "string" && manifest.license.trim()) return manifest.license.trim();
   if (manifest.license && typeof manifest.license.type === "string") return manifest.license.type.trim();
   if (Array.isArray(manifest.licenses)) {

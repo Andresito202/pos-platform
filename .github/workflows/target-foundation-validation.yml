@@ -116,6 +116,20 @@ jobs:
       - name: Generate and validate CycloneDX SBOM
         run: pnpm ci:sbom
 
+      - name: Evaluate SPDX license compatibility
+        run: pnpm ci:license-gate
+
+      - name: Upload license compatibility evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: license-compatibility-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/license-compatibility-report.json
+            artifacts/ci/license-compatibility-report.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload CycloneDX SBOM evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
