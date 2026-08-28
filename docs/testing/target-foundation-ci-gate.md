@@ -137,12 +137,11 @@ El estado correcto es:
 
 `MAIN_PUSH_DETECTIVE_GOVERNANCE = MATERIALIZED / EXECUTED / PASS`
 
-`TECH-004 = IN_PROGRESS / FINAL_CLOSURE_GATE`
+`TECH-004 = DONE / INTEGRATED`
 
 No se promueve por esta evidencia:
 
 - branch protection preventiva nativa;
-- `TECH-004 = DONE / INTEGRATED`;
 - Nx de aplicaciones runtime;
 - lint/E2E del runtime;
 - GitHub native Artifact Attestations;
@@ -201,10 +200,31 @@ GitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM` porque el rep
 
 Cierre final del Bloque 5: `4cc59bb464fb19a3e9f63eddacf1d95bf8da2796`, TARGET #224 / run `33176399945`, CodeQL #35 / run `33176399999` y `Provenance evidence` `SUCCESS`; manifest SHA-256 `9a2889ef2505025ae55d61e3d745160e8655e223a48a554c1ad8c167e2af3810`.
 
-## TECH-004 — Bloque 6 cierre integral
+## TECH-004 — Bloques 6 y 7: cierre e integración
 
-Estado de este commit: `IN_PROGRESS / FINAL_CLOSURE_GATE`.
+Bloque 6 cerró sobre exact HEAD `cc8aba3f8f873eab9ba7a5d93803870487eed810`:
 
-La auditoría integral exige que un único HEAD demuestre TARGET completo, CodeQL, vulnerabilidades, SBOM, licencias, provenance, repository policy, arquitectura, contratos, TypeScript, SQLite, PostgreSQL 16.14, MAT-003 y cero review threads abiertos. También exige que ninguna fuente normativa presente como pendiente un control ya materializado ni convierta una limitación de plataforma en PASS.
+- TARGET #225 / run `33176899684`: `SUCCESS`;
+- CodeQL #36 / run `33176899692`: `SUCCESS`;
+- vulnerability gate: 0 advisories / 0 triage / 0 exceptions;
+- SBOM: 259 components / 10 workspaces / 259 relationships;
+- SPDX: 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY;
+- CodeQL: 48/48 TypeScript / 21/21 JavaScript / 2/2 workflows / 0 SARIF results;
+- review threads: 0.
 
-Este documento no declara el resultado de su propio commit por adelantado. Solo después de CI exact-head fresco y revisión senior del mismo SHA puede la PR pasar a `TECH-004 = CLOSURE_CANDIDATE`; merge continúa requiriendo autorización separada.
+Bloque 7 integró PR #15 mediante merge normal en `main@cf8632c032d0cdd0e7e5c8cb21b532b35294218f`. La evidencia post-merge es:
+
+- TARGET #226 / run `33177520034`: `COMPLETED / SUCCESS`;
+- CodeQL #37 / run `33177520014`: `COMPLETED / SUCCESS`;
+- Main push governance: `SUCCESS`;
+- contratos 57/57, SQLite 13/13, PostgreSQL 001/002/003 160/160, MAT-003 preflight 18/18 y role-readiness 21/21;
+- vulnerability gate: 0 advisories;
+- SBOM SHA-256 interno: `abe30f51fd8ec61729d1f49083ee54d60ee71f4acf5028d1e7e62740c1e81f41`;
+- license report SHA-256: `ae0811d3639d70c6a4867dfbb6c65691ed03912828893bca1d753ced6dec6d27`;
+- CodeQL artifact digest: `sha256:44928ba30ad2e5d3da87655cce0c8d7fa51469e8a8745ecac7f1576780ddf499`;
+- provenance manifest SHA-256: `311fb9827017ebfad109cfe2f809787233fc75a9364c6ea5d6e98bfdcd5b647b`;
+- provenance artifact digest: `sha256:3c1d85153612c3f795c52627beb3764d04b74d15e4ff23d9a6c4c808c59bc165`.
+
+GitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM / PRIVATE_REPOSITORY_ENTERPRISE_CLOUD_PREREQUISITE_NOT_ESTABLISHED`; no se presenta como PASS ni firma. Runtime, packaging, firma de release, promoción y producción siguen fuera del cierre TECH-004.
+
+`TECH-004 = DONE / INTEGRATED`.

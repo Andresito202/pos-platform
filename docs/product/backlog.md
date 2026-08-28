@@ -60,6 +60,12 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - Merge commit canónico: `8676caef419d70732f74489a413ae7fda2c49d0c`.
 - Run post-merge #159 `33142409080`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002/003, Modelo A, MAT-003 preflight y role-readiness.
 - Artifact post-merge exact-head: `int-007-gate-b-8676caef419d70732f74489a413ae7fda2c49d0c`.
+- PR #15: `MERGED / CLOSED`; TECH-004 CI, calidad y supply chain integrado.
+- HEAD exacto de cierre TECH-004: `cc8aba3f8f873eab9ba7a5d93803870487eed810`; TARGET #225 / run `33176899684` y CodeQL #36 / run `33176899692` `SUCCESS`.
+- Merge commit TECH-004: `cf8632c032d0cdd0e7e5c8cb21b532b35294218f`, firma GitHub válida.
+- Post-merge TARGET #226 / run `33177520034`: `SUCCESS`; CodeQL #37 / run `33177520014`: `SUCCESS`; Main push governance: `SUCCESS`.
+- Post-merge supply chain: 194 packages / 11 direct / 10 workspaces, 0 advisories, SBOM 259 components / 259 relationships, SPDX 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY, SARIF 0 results.
+- Post-merge provenance manifest SHA-256: `311fb9827017ebfad109cfe2f809787233fc75a9364c6ea5d6e98bfdcd5b647b`; GitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM`, no PASS.
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub antes de cualquier integración.
 
@@ -111,7 +117,7 @@ Este control es detectivo, no preventivo.
 | `feat/sql003-v2-materialization-20260826` | `INTEGRATED / HISTORICAL` | PR #11 integrada; INT-007 cerrado. No reutilizar para ARCH-003 ni para runtime/providers. |
 | `architecture/executable-boundaries-20260828` | `INTEGRATED / HISTORICAL` | PR #12 integrada; ARCH-003 cerrado. No reutilizar para TECH-003. |
 | `tech/tech003-executable-contracts-20260828` | `INTEGRATED / HISTORICAL` | PR #14 integrada; TECH-003 cerrado. No reutilizar para TECH-004 ni runtime. |
-| `tech/tech004-quality-supply-chain-20260828` | `IN_PROGRESS` | TECH-004; calidad, SAST, supply chain y evidencia de release. Primer slice sin runtime. |
+| `tech/tech004-quality-supply-chain-20260828` | `INTEGRATED / HISTORICAL` | PR #15 integrada; TECH-004 cerrado. No reutilizar para runtime. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -133,21 +139,23 @@ Reglas:
 7. No se usan estados locales históricos (`CLEAN`, upstream 0/0, Docker, PostgreSQL) como hechos presentes.
 8. Un documento V2 abreviado nunca sustituye destructivamente contratos históricos ricos; las remediaciones usan overlays/versionado o reemplazo completo verificable sin pérdida.
 
-## Trabajo principal actual
+## Último bloque cerrado
 
 ### TECH-004 — CI, calidad y supply chain
 
 Prioridad: `P0`
 
-Estado: `IN_PROGRESS / FINAL_CLOSURE_GATE`
+Estado: `DONE / INTEGRATED`
 
-Rama activa: `tech/tech004-quality-supply-chain-20260828`.
+Rama histórica integrada: `tech/tech004-quality-supply-chain-20260828`.
 
-Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST, hardening del inventory, vulnerabilidades, SBOM CycloneDX, compatibilidad SPDX y provenance hash-bound están materializados y ejecutados en la rama activa. GitHub native Artifact Attestations permanece bloqueado por prerrequisito de plataforma para este repositorio privado. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
+PR #15 fue integrada desde exact HEAD `cc8aba3f8f873eab9ba7a5d93803870487eed810` como merge commit `cf8632c032d0cdd0e7e5c8cb21b532b35294218f`. TARGET #225 y CodeQL #36 cerraron el gate pre-merge; post-merge TARGET #226 / run `33177520034` y CodeQL #37 / run `33177520014` finalizaron `SUCCESS`, incluido Main push governance y provenance exact-head.
 
-Los controles que dependen de aplicaciones/runtime — lint de apps, E2E, packaging, firma/release y promoción — permanecen pendientes hasta que existan artefactos ejecutables reales.
+El alcance cerrado incluye repository policy, CodeQL/SAST, vulnerability gate, CycloneDX 1.6, compatibilidad SPDX y provenance hash-bound. GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM`; no se representa como firma ni PASS.
 
-## Último bloque cerrado
+Los controles que requieren aplicaciones/runtime — lint/E2E de apps, packaging, firma de releases y promoción — permanecen diferidos a la línea runtime separada.
+
+## Bloque cerrado anterior
 
 ### TECH-003 — contratos ejecutables compartidos
 
@@ -300,9 +308,9 @@ Ese cierre **no** materializa SQL003; únicamente habilita una tarea posterior s
 
 Prioridad: `P0`
 
-Estado: `IN_PROGRESS`
+Estado: `DONE / INTEGRATED`
 
-Rama activa: `tech/tech004-quality-supply-chain-20260828`.
+Rama histórica integrada: `tech/tech004-quality-supply-chain-20260828`.
 
 Baseline ya materializado:
 
@@ -337,15 +345,15 @@ Diferido hasta que existan artefactos runtime/release reales:
 - runtime/E2E tests;
 - packaging y controles de release/promoción.
 
-TECH-004 no está `DONE` ni integrado. La línea está activa desde `main@148a6546657afed528d3da37b263134a944c09be` y se encuentra en auditoría final del alcance estático. Los gates de runtime/E2E/release se incorporarán en la línea runtime posterior cuando existan artefactos ejecutables reales.
+TECH-004 quedó `DONE / INTEGRATED` mediante PR #15. El cierre exact-head fue `cc8aba3f8f873eab9ba7a5d93803870487eed810`; el merge canónico es `cf8632c032d0cdd0e7e5c8cb21b532b35294218f`. TARGET #226 y CodeQL #37 post-merge quedaron `SUCCESS`, con provenance exact-head verde. Los gates de runtime/E2E/release se incorporarán en la línea runtime posterior cuando existan artefactos ejecutables reales.
 
 ## Orden inmediato obligatorio
 
-1. Mantener **INT-007**, **ARCH-003** y **TECH-003** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
-2. **TECH-004** es la única línea principal activa: endurecer CI/calidad/supply chain sin inventar runtime para satisfacer un gate.
-3. Primer slice TECH-004: SAST/CodeQL, política de vulnerabilidades y evidencia SBOM/licencias/provenance que puedan evaluarse sobre el repositorio actual.
-4. El primer esqueleto de runtime conforme a ADR-005/DEC-010 se inicia solo como tarea separada y sobre el baseline de calidad vigente; al existir apps se extiende TECH-004 con lint/E2E/release gates.
-5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con TECH-004.
+1. Mantener **INT-007**, **ARCH-003**, **TECH-003** y **TECH-004** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
+2. La siguiente línea principal es el runtime TARGET conforme a ADR-005/DEC-010, como tarea separada y sobre `main@cf8632c032d0cdd0e7e5c8cb21b532b35294218f` o un baseline posterior verificado.
+3. Los controles estáticos/supply-chain de TECH-004 pasan a ser baseline obligatorio: cualquier runtime nuevo debe mantenerlos verdes y añadir lint/E2E/packaging/release gates cuando existan artefactos reales.
+4. Providers SIIGO/FACTUS/ALEGRA, producción y promoción de `SEC-G01..SEC-G10` continúan fuera de esta transición y requieren líneas/gates propios.
+5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con la apertura del runtime.
 
 No se inicia NestJS/Electron “por avanzar” dentro del commit de transición de TECH-004.
 
@@ -815,4 +823,5 @@ Una tarea no está cerrada hasta que:
 - This documentation reconciliation changes HEAD, so Blocks 3-4 require fresh TARGET + CodeQL + vulnerability + SBOM + license evidence before final closure. Next technical block is provenance/attestations; runtime remains out of scope.
 
 - TECH-004 Block 5 final closure: `4cc59bb464fb19a3e9f63eddacf1d95bf8da2796`; TARGET #224 / run `33176399945` SUCCESS, CodeQL #35 / run `33176399999` SUCCESS and Provenance evidence SUCCESS. Provenance manifest SHA-256 `9a2889ef2505025ae55d61e3d745160e8655e223a48a554c1ad8c167e2af3810`; 6 exact-head source artifacts; CodeQL 48/48 TypeScript, 21/21 JavaScript, 2/2 workflows and 0 SARIF results.
-- TECH-004 Block 6 audit found and reconciles stale pending language for SBOM/SPDX/provenance, literal escaped newline artifacts introduced during documentation editing, stale CodeQL Block 1 wording and the PR/document split between materialized static controls and runtime-dependent deferred controls. This reconciliation remains `IN_PROGRESS / FINAL_CLOSURE_GATE` until fresh exact-head CI succeeds.
+- TECH-004 Block 6 final closure: `cc8aba3f8f873eab9ba7a5d93803870487eed810`; TARGET #225 / run `33176899684`, CodeQL #36 / run `33176899692` and Provenance evidence `SUCCESS`; 0 advisories, SBOM 259, SPDX 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY, SARIF 0 results, review threads 0.
+- TECH-004 Block 7 integration: PR #15 `MERGED / CLOSED` as `cf8632c032d0cdd0e7e5c8cb21b532b35294218f`; post-merge TARGET #226 / run `33177520034` and CodeQL #37 / run `33177520014` `SUCCESS`, Main push governance `SUCCESS`, provenance manifest SHA-256 `311fb9827017ebfad109cfe2f809787233fc75a9364c6ea5d6e98bfdcd5b647b`. `TECH-004 = DONE / INTEGRATED`.

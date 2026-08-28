@@ -121,7 +121,7 @@ No completado por este baseline porque requiere runtime/release/infraestructura 
 - release promotion;
 - infraestructura productiva, backup/restore y DR.
 
-GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM` hasta demostrar el prerrequisito compatible de Enterprise Cloud. No se maquilla como PASS. TECH-004 continúa `IN_PROGRESS / FINAL_CLOSURE_GATE` hasta que el HEAD de reconciliación pase CI integral.
+GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM` hasta demostrar el prerrequisito compatible de Enterprise Cloud. No se maquilla como PASS. TECH-004 quedó `DONE / INTEGRATED` mediante PR #15: merge `cf8632c032d0cdd0e7e5c8cb21b532b35294218f`, TARGET post-merge #226 / run `33177520034` `SUCCESS`, CodeQL #37 / run `33177520014` `SUCCESS` y provenance manifest SHA-256 `311fb9827017ebfad109cfe2f809787233fc75a9364c6ea5d6e98bfdcd5b647b`.
 
 ## Invariantes
 
