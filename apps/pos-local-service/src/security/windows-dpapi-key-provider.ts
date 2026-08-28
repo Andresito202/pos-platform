@@ -6,6 +6,7 @@ import type { SecretStoreKeyProvider } from "./encrypted-secret-store.js";
 
 const DPAPI_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Security
 
 $path = $env:POS_DPAPI_KEY_PATH
 $context = $env:POS_DPAPI_CONTEXT
