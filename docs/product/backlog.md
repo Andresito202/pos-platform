@@ -6,7 +6,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación normativa: 2026-08-27.
+Última reconciliación normativa: 2026-08-28.
 
 ## Jerarquía relacionada
 
@@ -109,6 +109,8 @@ Este control es detectivo, no preventivo.
 | `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
 | `feat/sql003-v2-materialization-20260826` | `INTEGRATED / HISTORICAL` | PR #11 integrada; INT-007 cerrado. No reutilizar para ARCH-003 ni para runtime/providers. |
+| `architecture/executable-boundaries-20260828` | `INTEGRATED / HISTORICAL` | PR #12 integrada; ARCH-003 cerrado. No reutilizar para TECH-003. |
+| `tech/tech003-executable-contracts-20260828` | `IN_PROGRESS` | TECH-003; contratos comunes ejecutables Zod/versioning/error/idempotency/correlation. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -132,17 +134,27 @@ Reglas:
 
 ## Trabajo principal actual
 
-### ARCH-003 — límites ejecutables de módulos / Nx
+### TECH-003 — contratos ejecutables compartidos
 
 Prioridad: `P0`
 
-Estado: `IN_PROGRESS / DRAFT_PR_12`
+Estado: `IN_PROGRESS`
 
-Rama activa: `architecture/executable-boundaries-20260828`.
+Rama activa: `tech/tech003-executable-contracts-20260828`.
 
-PR #12 materializa únicamente límites ejecutables/Nx; no autoriza API, Electron, providers ni runtime fiscal. Debe permanecer DRAFT hasta CI exact-head verde, revisión independiente y autorización separada de merge.
+Alcance contractual materializado en PR #14: contratos comunes, handshake Desktop↔Local Service, IPC allowlisted, Sync local↔central, HTTP central y matriz ejecutable de compatibilidad cruzada. No crea API NestJS, Electron, POS Local Service, provider adapters ni runtime.
+
+Estado de cierre: `CLOSURE_CANDIDATE`; requiere CI exact-head final, revisión senior final, cero threads abiertos y autorización de merge separada.
 
 ## Último bloque cerrado
+
+### ARCH-003 — límites ejecutables de módulos / Nx
+
+Estado: `DONE / INTEGRATED`.
+
+PR #12 fue integrada como `bc55851c7045105473d546667dce72718638a8b9`; CI post-merge #170 / run `33145497682` fue `SUCCESS`, incluida gobernanza de main, repository policy, ARCH-003 boundary gate, TypeScript, SQLite y PostgreSQL 16.14.
+
+## Bloque cerrado anterior
 
 ### INT-007 — materialización SQL/descriptor 003 sobre bundle V2
 
@@ -282,6 +294,7 @@ Estado: `READY`
 Baseline ya materializado:
 
 - gate TARGET en PR y push a `main`;
+- Nx + límites ejecutables de dependencias integrados por ARCH-003;
 - typecheck del tooling actual;
 - SQLite migrations/regresiones actuales;
 - PostgreSQL 001/002 + MAT-003 tooling;
@@ -297,7 +310,6 @@ Baseline ya materializado:
 
 Pendiente cuando se retome como línea activa:
 
-- Nx cuando se materialicen apps/packages;
 - lint del runtime/aplicaciones;
 - CodeQL/SAST completo;
 - vulnerability scanning con severidad/policy cerrada;
@@ -312,12 +324,11 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 
 ## Orden inmediato obligatorio
 
-1. Mantener **INT-007** `DONE / INTEGRATED`; no reabrir SQL003 salvo defecto reproducible o nueva necesidad contractual versionada.
-2. **ARCH-003** es la única línea principal activa, en PR draft #12; cerrar sus límites ejecutables/Nx con CI exact-head, revisión independiente y merge autorizado por separado.
-3. **TECH-003** sigue después de ARCH-003: contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
-4. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
-5. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
-6. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con ARCH-003.
+1. Mantener **INT-007** y **ARCH-003** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
+2. **TECH-003** es la única línea principal activa: materializar primero contratos comunes Zod/error/versioning/idempotency/correlation y luego fronteras IPC/API específicas.
+3. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
+4. Solo después de TECH-003 iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
+5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con TECH-003.
 
 No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
 
@@ -375,7 +386,7 @@ Continúa no autorizado:
 |---|---|---|---|
 | ARCH-001 | P0 | DONE | Monolito modular, monorepo, local-first y single codebase definidos. |
 | ARCH-002 | P0 | DONE | Contexto, tenancy, deployment y ownership definidos. |
-| ARCH-003 | P0 | IN_PROGRESS | PR draft #12 `architecture/executable-boundaries-20260828`; límites ejecutables/Nx en validación. Sin runtime/API/Electron/providers. |
+| ARCH-003 | P0 | DONE | PR #12 integrada; Nx + límites ejecutables 13/13 PASS y post-merge #170 SUCCESS. |
 | ARCH-004 | P0 | DONE | Contratos renderer/Electron/local/API/hardware/providers definidos; extensión fiscal V2 de INT-006 integrada y revisada, sin runtime. |
 | ARCH-005 | P0 | DONE | Stack objetivo cerrado en ADR-005. |
 
@@ -548,7 +559,7 @@ Continúa no autorizado:
 |---|---|---|---|
 | TECH-001 | P0 | DONE | Modelo conceptual y ownership. |
 | TECH-002 | P0 | DONE | Modelo físico base + migrations 001/002/materialización revisada. |
-| TECH-003 | P0 | READY | Contratos Zod/API/IPC/error/idempotencia/versionado/correlación. |
+| TECH-003 | P0 | IN_PROGRESS | Primer slice: contratos comunes Zod request/response/error/versioning/idempotency/correlation; runtime y endpoints siguen fuera de alcance. |
 | TECH-004 | P0 | READY | CI/calidad/supply chain: baseline materializado; controles de runtime/release pendientes. |
 | TECH-005 | P1 | PLANNED | Observabilidad/backups/restore/update/rollback. |
 | TECH-006 | P1 | PLANNED | Fixtures multi-tenant/concurrencia/recovery. |
@@ -578,7 +589,7 @@ Continúa no autorizado:
 | Hito | Estado | Criterio vigente |
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
-| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 activo en PR draft #12; TECH-003 y esqueleto runtime siguen pendientes. |
+| F1.1 Esqueleto modular y contratos | IN_PROGRESS | ARCH-003 DONE; TECH-003 activo sobre contracts ejecutables; esqueleto runtime aún pendiente. |
 | F1.2 Modelo físico/migrations | DONE | TECH-002 e INT-006 cerrados; migrations 001/002 inmutables; SQL003 integrado por PR #11 con Gate A/B PASS y post-merge #159 SUCCESS. Despliegue productivo no iniciado. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
@@ -735,3 +746,26 @@ Una tarea no está cerrada hasta que:
 
 - INT-007 final exact-head closure: `39c56d030954f3bef20b84f773e4a4f76766a06b`, CI #158 / run `33141808515` SUCCESS, Modelo A concurrent race coverage PASS, Codex exact-head without major issues, 48/48 threads resolved.
 - INT-007 integration closure: PR #11 MERGED/CLOSED as merge commit `8676caef419d70732f74489a413ae7fda2c49d0c`; post-merge CI #159 / run `33142409080` SUCCESS including main governance and exact-head Gate B artifact. INT-007 is DONE; no provider/runtime/production authorization is inferred.
+
+
+- ARCH-003 final closure: PR #12 MERGED/CLOSED; exact implementation HEAD `003c44622d1eeb5f5846b211df45626ac256bf2f`, CI #169 SUCCESS with 13/13 boundary regressions and TARGET evidence; merge commit `bc55851c7045105473d546667dce72718638a8b9`; post-merge #170 SUCCESS.
+- TECH-003 started from canonical `main@bc55851c7045105473d546667dce72718638a8b9` on `tech/tech003-executable-contracts-20260828`; first slice is limited to common executable contracts and does not authorize runtime.
+
+
+- TECH-003 common-contract slice: `bb9ed6be77be136b4f68c661a9621d3ea5f34b0a`, CI #171 / run `33146168057` SUCCESS. Common Zod envelopes/errors/versioning/idempotency are executable; contracts 14/14 PASS and TARGET regressions remain green.
+- TECH-003 handshake slice: materializes DEC-010 Desktop↔Local-Service compatibility snapshot, exact handshake outcomes and deterministic protocol-window negotiation; no named-pipe/Electron/service runtime is created.
+
+
+- TECH-003 IPC + Sync implementation baseline: `169659d5a37d2d3d83e2190231defe752de29439`; subsequent hardening fixed checkpoint/result durability and canonical UUID/UTC handling.
+- TECH-003 Sync review remediation: contiguous local sequences are mandatory; local operations preserve `installation_id`; response correspondence accepts duplicate-free partial subsets; checkpoints stop before conflict/review/dead-letter/retry/waiting outcomes even when their technical result is durable.
+- Next authorized TECH-003 slice after exact-head validation of this remediation: central HTTP contracts only; no NestJS controllers or runtime.
+
+
+- TECH-003 Sync closure candidate: `e42293d9afee0ccc1e5033dcd88d75d9f71959f1`, CI #177 / run `33162848651` SUCCESS; six review threads reconciled and resolved.
+- TECH-003 Block 3 materialization: central-device HTTP transport contracts add verified-principal binding, request/response header-envelope correspondence, configurable measured byte limits, canonical HTTP error mapping, cursor pagination, idempotency header binding and coherent 429/Retry-After/rate-limit metadata. No NestJS/runtime/auth cryptography is implemented.
+
+
+- TECH-003 Block 3 senior hardening after CI #178: raw HTTP headers are not modeled as a closed Zod object; only an extracted allowlisted `contract_headers` subset is schema-validated. This avoids rejecting legitimate transport/proxy/security headers while preserving strict application-header binding. Cursor page responses now enforce the endpoint max item count, and Retry-After derivation parses the canonical error fail-closed.
+
+- TECH-003 Block 4 compatibility gate: IPC, Sync and HTTP now publish an explicit representation matrix and executable cross-boundary regressions for versioning, request/correlation identity, operation/idempotency identity, canonical UUID/UTC handling and UNKNOWN_OUTCOME. Sync deliberately retains its durable result vocabulary instead of importing HTTP error categories or inventing UNKNOWN_OUTCOME.
+- TECH-003 closure order: final exact-head CI + evidence, senior review, zero open threads, then separate merge authorization. TECH-004 runtime work must start from the resulting canonical main in a new branch/PR; it is not mixed into PR #14.
