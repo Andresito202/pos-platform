@@ -135,6 +135,9 @@ describe("LocalDatabase", () => {
 
     const recovered = LocalDatabase.open({ dataDirectory });
     recovered.assertIntegrity();
+    expect(recovered.native.prepare(
+      "SELECT status, result_code FROM runtime_operations WHERE idempotency_key = ?",
+    ).get("crash-recovery:01")).toEqual({ status: "SUCCEEDED", result_code: "COMMITTED" });
     recovered.close();
 
     expect(
