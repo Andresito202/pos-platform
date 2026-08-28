@@ -5,11 +5,13 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   encodeFrame,
   FrameDecoder,
   LocalChannelAuthenticator,
   LocalChannelServer,
+  SqliteReplayStateStore,
   localChannelEndpoint,
 } from "../src/index.js";
 
@@ -80,6 +82,32 @@ describe("local channel", () => {
     expect(() => auth.verify(frame)).toThrow("replay");
     const other = new LocalChannelAuthenticator(randomBytes(32), clock);
     expect(() => other.verify(frame)).toThrow("MAC");
+  });
+
+  it("rejects a replay after service restart while the frame is still time-valid", async () => {
+    const dir = await directory();
+    const secret = randomBytes(32);
+    let database = LocalDatabase.open({ dataDirectory: dir });
+    const frame = new LocalChannelAuthenticator(secret, clock).sign(
+      { message_type: "runtime.status.get" },
+      "1.0.0",
+      sessionId,
+      1,
+    );
+
+    const first = new LocalChannelAuthenticator(secret, clock, {
+      replayStateStore: new SqliteReplayStateStore(database),
+    });
+    expect(first.verify(frame).sequence).toBe(1);
+    database.close();
+
+    database = LocalDatabase.open({ dataDirectory: dir });
+    const afterRestart = new LocalChannelAuthenticator(secret, clock, {
+      replayStateStore: new SqliteReplayStateStore(database),
+    });
+    expect(() => afterRestart.verify(frame)).toThrow("replay");
+    database.close();
+    secret.fill(0);
   });
 
   it("requires canonical TECH-003 handshake before status traffic", async () => {
