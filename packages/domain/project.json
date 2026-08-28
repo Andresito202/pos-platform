@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/domain",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/domain",
+  "projectType": "library",
+  "tags": [
+    "layer:domain",
+    "type:library",
+    "scope:shared"
+  ]
+}

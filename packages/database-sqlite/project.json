@@ -1,0 +1,12 @@
+{
+  "name": "@pos-platform/database-sqlite",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/database-sqlite",
+  "projectType": "library",
+  "tags": [
+    "layer:adapter",
+    "type:library",
+    "scope:local",
+    "dialect:sqlite"
+  ]
+}

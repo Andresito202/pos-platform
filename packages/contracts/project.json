@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/contracts",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/contracts",
+  "projectType": "library",
+  "tags": [
+    "layer:contracts",
+    "type:library",
+    "scope:shared"
+  ]
+}

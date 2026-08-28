@@ -1,0 +1,12 @@
+{
+  "name": "@pos-platform/database-postgres",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/database-postgres",
+  "projectType": "library",
+  "tags": [
+    "layer:adapter",
+    "type:library",
+    "scope:central",
+    "dialect:postgres"
+  ]
+}

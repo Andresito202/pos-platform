@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/testing",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/testing",
+  "projectType": "library",
+  "tags": [
+    "layer:testing",
+    "type:library",
+    "scope:test"
+  ]
+}

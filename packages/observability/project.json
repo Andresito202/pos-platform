@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/observability",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/observability",
+  "projectType": "library",
+  "tags": [
+    "layer:observability",
+    "type:library",
+    "scope:shared"
+  ]
+}
