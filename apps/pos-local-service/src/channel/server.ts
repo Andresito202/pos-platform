@@ -10,6 +10,10 @@ import {
 } from "@pos-platform/contracts";
 import { encodeFrame, FrameDecoder } from "./framing.js";
 import type { LocalChannelAuthenticator } from "./authenticator.js";
+import {
+  inspectWindowsNamedPipeSecurity,
+  restrictCurrentProcessNamedPipeDefaults,
+} from "./windows-pipe-security.js";
 
 export type ChannelHandler = (request: IpcRequest, signal: AbortSignal) => Promise<unknown>;
 
@@ -64,6 +68,10 @@ export class LocalChannelServer {
 
   async start(): Promise<void> {
     if (this.server) throw new Error("local channel server already started");
+    if (process.platform === "win32") {
+      restrictCurrentProcessNamedPipeDefaults();
+    }
+
     const server = createServer((socket) => {
       if (this.sockets.size >= this.maxConnections) {
         socket.destroy();
@@ -167,7 +175,17 @@ export class LocalChannelServer {
         resolve();
       });
     });
-    this.server = server;
+
+    try {
+      if (process.platform === "win32") {
+        inspectWindowsNamedPipeSecurity(this.endpoint);
+      }
+      this.server = server;
+    } catch (error) {
+      for (const socket of this.sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
