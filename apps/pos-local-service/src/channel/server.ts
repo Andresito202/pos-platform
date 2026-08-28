@@ -22,7 +22,7 @@ export class LocalChannelServer {
               const request = this.authenticator.verify(raw);
               const result = await this.handler(request.payload);
               socket.write(encodeFrame(this.authenticator.sign(result, request.protocol_version, request.session_id, request.sequence + 1)));
-            }).catch(() => socket.destroy());
+            }).catch(() => { socket.destroy(); });
           }
         } catch { socket.destroy(); }
       });
