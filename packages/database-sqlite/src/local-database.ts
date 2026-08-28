@@ -86,7 +86,7 @@ function validateDatabaseFile(path: string): void {
 }
 
 function syncFile(path: string): void {
-  const descriptor = openSync(path, "r");
+  const descriptor = openSync(path, "r+");
   try { fsyncSync(descriptor); }
   finally { closeSync(descriptor); }
 }
