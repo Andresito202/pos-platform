@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { SyncBatchRequest, SyncOperation } from "@pos-platform/contracts";
 import { DurableSyncStore, type SyncScope } from "../src/sync/durable-sync-store.js";
+import { DurableSyncComponent } from "../src/sync/durable-sync-component.js";
+import { LocalDatabaseComponent } from "../src/local-database-component.js";
 
 const directories: string[] = [];
 async function directory(): Promise<string> {
@@ -165,6 +167,26 @@ describe("DurableSyncStore", () => {
       "SELECT recovered_at FROM local_sync_dead_letter WHERE operation_id=?",
     ).get(item.operation_id)).toMatchObject({ recovered_at: expect.any(String) });
     database.close();
+  });
+
+  it("recovers IN_FLIGHT operations automatically during runtime component startup", async () => {
+    const dir = await directory();
+    let database = LocalDatabase.open({ dataDirectory: dir });
+    const initialStore = new DurableSyncStore(database);
+    const item = operation(1, "01");
+    initialStore.enqueue(item);
+    expect(initialStore.claimBatch(scope, 1)).not.toBeNull();
+    expect(initialStore.outboxState(item.operation_id)?.status).toBe("IN_FLIGHT");
+    database.close();
+
+    const databaseComponent = new LocalDatabaseComponent(dir);
+    await databaseComponent.start();
+    const syncComponent = new DurableSyncComponent(databaseComponent);
+    await syncComponent.start();
+    expect(syncComponent.store.outboxState(item.operation_id)?.status).toBe("RETRY_WAIT");
+
+    await syncComponent.stop();
+    await databaseComponent.stop();
   });
 
   it("never checkpoints through retry/review/dead-letter results", async () => {
