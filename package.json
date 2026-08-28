@@ -15,7 +15,7 @@
     "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
     "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",
     "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite",
-    "ci:supply-chain-tests": "node --test tools/ci/workspace-manifests.test.mjs tools/ci/generate-dependency-inventory.test.mjs tools/ci/validate-dependency-audit.test.mjs",
+    "ci:supply-chain-tests": "node --test tools/ci/workspace-manifests.test.mjs tools/ci/generate-dependency-inventory.test.mjs tools/ci/validate-dependency-audit.test.mjs tools/ci/run-dependency-vulnerability-audit.test.mjs",
     "ci:vulnerability-audit": "node tools/ci/run-dependency-vulnerability-audit.mjs",
     "ci:vulnerability-tests": "node --test tools/ci/validate-dependency-audit.test.mjs"
   },
