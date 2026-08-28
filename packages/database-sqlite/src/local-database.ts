@@ -236,9 +236,9 @@ export class LocalDatabase {
       "SELECT version, checksum FROM local_schema_migrations ORDER BY version",
     ).all() as Array<{ version: number; checksum: string }>;
 
-    for (const row of existing) {
-      const migration = MIGRATIONS.find((item) => item.version === row.version);
-      if (!migration || migration.checksum !== row.checksum) {
+    for (const [index, row] of existing.entries()) {
+      const migration = MIGRATIONS[index];
+      if (!migration || migration.version !== row.version || migration.checksum !== row.checksum) {
         throw new Error(`local migration ledger mismatch at version ${row.version}`);
       }
     }
