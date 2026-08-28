@@ -112,13 +112,13 @@ Este baseline no completa:
 - vulnerability scanning high/critical materializado y ejecutado; su evidencia es dinámica y debe refrescarse en el HEAD final;
 - SBOM CycloneDX 1.6 materializado; la firma criptográfica queda en provenance/attestations;
 - gate SPDX de compatibilidad de licencias materializado; revisión jurídica futura sigue fuera de lo que puede afirmar CI;
-- provenance/attestations;
+- provenance hash-bound materializado en Bloque 5; GitHub native Artifact Attestations permanece `BLOCKED_BY_PLATFORM` hasta demostrar el prerrequisito de Enterprise Cloud;
 - firma de releases;
 - runtime tests;
 - release controls;
 - gates de infraestructura/backup/restore productivos.
 
-Bloques SAST, hardening de inventory, vulnerabilidades, SBOM y licencias están materializados, pero provenance/attestations y cierre integral siguen pendientes; por tanto `TECH-004` continúa `IN_PROGRESS`.
+Bloques SAST, hardening de inventory, vulnerabilidades, SBOM, licencias y provenance hash-bound están materializados; el cierre integral TECH-004 continúa pendiente. La attestation nativa bloqueada por plataforma no se maquilla como PASS.
 
 ## Invariantes
 
@@ -127,3 +127,4 @@ Bloques SAST, hardening de inventory, vulnerabilidades, SBOM y licencias están 
 3. El runtime TARGET no se materializa por este gate.
 4. Un resultado CI siempre es commit-scoped.
 5. Si cambia el workflow, este documento y `target-foundation-ci-gate.md` deben reconciliarse en el mismo cambio.
+\n### Provenance exact-head\n\nEl job `Provenance evidence` corre después de supply-chain y validación TARGET. Descarga los artifacts exact-head del mismo run, espera CodeQL del mismo SHA, liga IDs/digests de GitHub y valida hashes internos antes de emitir `provenance-manifest.json` + checksum.\n\nLa suite prueba determinismo, tamper, sustitución de metadata y artifact faltante. La policy completa está en `docs/security/provenance-attestations-gate.md`.\n

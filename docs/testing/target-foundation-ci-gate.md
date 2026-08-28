@@ -148,7 +148,7 @@ No se promueve por esta evidencia:
 - CodeQL/SAST sobre lenguajes o runtimes todavía no materializados;
 - vulnerability scanning high/critical materializado y ejecutado en TECH-004; su PASS es commit-scoped y temporal, y debe refrescarse antes de integración;
 - attestación/firma del SBOM; el CycloneDX 1.6 y el gate SPDX sí están materializados, incluida cobertura de nodos opcionales que pnpm reporta fuera del inventory Linux;
-- provenance/attestations de build;
+- GitHub native Artifact Attestations y provenance firmado de build; provenance hash-bound de los artifacts TECH-004 sí está materializado;
 - firma de releases;
 - runtime tests;
 - release controls;
@@ -194,3 +194,4 @@ Cierre ejecutable de Bloque 3: `83ac7d75a77ee371a943fc6cc087e4934eeb1d47`, TARGE
 Checkpoint técnico `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`: TARGET #217 / run `33174019861` y CodeQL #28 / run `33174019863` `SUCCESS`. El gate evaluó 249 componentes third-party: 194 desde inventory instalado y 55 desde metadata de versión exacta en npm; resultado 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY.
 
 El lookup remoto se limita a nombres npm canónicos y SemVer exacto sobre `registry.npmjs.org`, sin redirects y con límite de respuesta de 1 MiB. CodeQL #28 terminó con 0 resultados después de ese hardening. Cualquier commit documental posterior exige evidencia fresca sobre el nuevo HEAD.
+\n## TECH-004 — Bloque 5 provenance / attestations\n\nCheckpoint técnico `39daf1a61798c82b6b8b4c360b173855bd415328`: TARGET #223 / run `33175944576`, CodeQL #34 / run `33175944559` y job `Provenance evidence` `SUCCESS`.\n\nEl manifest une seis artifacts exact-head (TARGET, inventory, vulnerability, SBOM, licenses y CodeQL SARIF), conserva sus artifact IDs/digests y workflow run IDs, verifica hashes internos y liga lockfile + tool/action versions. Manifest SHA-256: `845eeccb488172478fa866eddb39a168f93b11334ca66a098e35cb30feb2dd7b`.\n\nGitHub native Artifact Attestation permanece `BLOCKED_BY_PLATFORM` porque el repositorio es privado y el prerrequisito de GitHub Enterprise Cloud no está establecido. No se añade `id-token: write` ni se presenta una firma inexistente.\n\nEste commit documental cambia HEAD; el cierre final del Bloque 5 requiere TARGET, CodeQL y provenance frescos en ese nuevo SHA.\n
