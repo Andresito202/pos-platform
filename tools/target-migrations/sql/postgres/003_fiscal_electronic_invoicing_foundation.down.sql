@@ -1,0 +1,339 @@
+ALTER TABLE integrations.integration_dispatches ADD CONSTRAINT integration_dispatches_dispatch_class_002_ck CHECK (dispatch_class='NON_FISCAL' AND capability_code NOT IN ('ELECTRONIC_INVOICING','CREDIT_NOTES','SUPPORT_DOCUMENTS') AND internal_entity_type<>'ElectronicDocument') NOT VALID;
+
+ALTER TABLE integrations.integration_dispatches VALIDATE CONSTRAINT integration_dispatches_dispatch_class_002_ck;
+
+ALTER TABLE integrations.integration_dispatches DROP CONSTRAINT integration_dispatches_dispatch_class_003_ck;
+
+CREATE TRIGGER external_webhook_receipts_update_guard BEFORE UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version');
+
+DROP TRIGGER external_webhook_receipts_update_guard_003 ON integrations.external_webhook_receipts;
+
+CREATE TRIGGER external_webhook_receipts_insert_guard BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_initial_status('RECEIVED,REJECTED,PENDING');
+
+DROP TRIGGER external_webhook_receipts_insert_guard_003 ON integrations.external_webhook_receipts;
+
+DROP TRIGGER provider_capability_declarations_fiscal_downgrade_guard ON integrations.provider_capability_declarations;
+
+DROP TRIGGER external_webhook_receipts_fiscal_correlation_guard ON integrations.external_webhook_receipts;
+
+DROP TRIGGER integration_dispatches_fiscal_preparation_guard ON integrations.integration_dispatches;
+
+DROP TRIGGER fiscal_reconciliation_items_immutable_guard ON fiscal.fiscal_reconciliation_items;
+
+DROP TRIGGER fiscal_incidents_state_guard ON fiscal.fiscal_incidents;
+
+DROP TRIGGER fiscal_incidents_update_guard ON fiscal.fiscal_incidents;
+
+DROP TRIGGER fiscal_incidents_insert_guard ON fiscal.fiscal_incidents;
+
+DROP TRIGGER fiscal_reconciliations_state_guard ON fiscal.fiscal_reconciliations;
+
+DROP TRIGGER fiscal_reconciliations_update_guard ON fiscal.fiscal_reconciliations;
+
+DROP TRIGGER fiscal_reconciliations_insert_guard ON fiscal.fiscal_reconciliations;
+
+DROP TRIGGER fiscal_artifacts_immutable_guard ON fiscal.fiscal_artifacts;
+
+DROP TRIGGER fiscal_submission_attempts_root_guard ON fiscal.fiscal_submission_attempts;
+
+DROP TRIGGER fiscal_submission_attempts_number_guard ON fiscal.fiscal_submission_attempts;
+
+DROP TRIGGER fiscal_submission_attempts_state_guard ON fiscal.fiscal_submission_attempts;
+
+DROP TRIGGER fiscal_submission_attempts_update_guard ON fiscal.fiscal_submission_attempts;
+
+DROP TRIGGER fiscal_submission_attempts_insert_guard ON fiscal.fiscal_submission_attempts;
+
+DROP TRIGGER fiscal_document_preparations_current_generation_guard ON fiscal.fiscal_document_preparations;
+
+DROP TRIGGER fiscal_document_preparations_late_evidence_guard ON fiscal.fiscal_document_preparations;
+
+DROP TRIGGER fiscal_document_preparations_numbering_guard ON fiscal.fiscal_document_preparations;
+
+DROP TRIGGER fiscal_document_preparations_state_guard ON fiscal.fiscal_document_preparations;
+
+DROP TRIGGER fiscal_document_preparations_update_guard ON fiscal.fiscal_document_preparations;
+
+DROP TRIGGER fiscal_document_preparations_insert_guard ON fiscal.fiscal_document_preparations;
+
+DROP TRIGGER electronic_documents_current_preparation_guard ON fiscal.electronic_documents;
+
+DROP TRIGGER electronic_documents_reprepare_guard ON fiscal.electronic_documents;
+
+DROP TRIGGER electronic_documents_evidence_guard ON fiscal.electronic_documents;
+
+DROP TRIGGER electronic_documents_state_guard ON fiscal.electronic_documents;
+
+DROP TRIGGER electronic_documents_update_guard ON fiscal.electronic_documents;
+
+DROP TRIGGER electronic_documents_insert_guard ON fiscal.electronic_documents;
+
+DROP TRIGGER fiscal_emission_configuration_versions_numbering_guard ON fiscal.fiscal_emission_configuration_versions;
+
+DROP TRIGGER fiscal_emission_configuration_versions_state_guard ON fiscal.fiscal_emission_configuration_versions;
+
+DROP TRIGGER fiscal_emission_configuration_versions_update_guard ON fiscal.fiscal_emission_configuration_versions;
+
+DROP TRIGGER fiscal_emission_configurations_scope_guard ON fiscal.fiscal_emission_configurations;
+
+DROP TRIGGER fiscal_connections_capability_guard ON fiscal.fiscal_connections;
+
+DROP TRIGGER fiscal_connections_scope_guard ON fiscal.fiscal_connections;
+
+DROP POLICY fiscal_reconciliation_items_tenant_isolation ON fiscal.fiscal_reconciliation_items;
+
+DROP POLICY fiscal_incidents_tenant_isolation ON fiscal.fiscal_incidents;
+
+DROP POLICY fiscal_reconciliations_tenant_isolation ON fiscal.fiscal_reconciliations;
+
+DROP POLICY fiscal_artifacts_tenant_isolation ON fiscal.fiscal_artifacts;
+
+DROP POLICY fiscal_submission_attempts_tenant_isolation ON fiscal.fiscal_submission_attempts;
+
+DROP POLICY fiscal_document_preparations_worker_historical_evidence ON fiscal.fiscal_document_preparations;
+
+DROP POLICY fiscal_document_preparations_worker_frozen ON fiscal.fiscal_document_preparations;
+
+DROP POLICY fiscal_document_preparations_worker_tenant_select ON fiscal.fiscal_document_preparations;
+
+DROP POLICY fiscal_document_preparations_platform_tenant_select ON fiscal.fiscal_document_preparations;
+
+DROP POLICY fiscal_document_preparations_app_tenant_isolation ON fiscal.fiscal_document_preparations;
+
+DROP POLICY electronic_documents_tenant_isolation ON fiscal.electronic_documents;
+
+DROP POLICY fiscal_emission_configuration_versions_worker_numbering_update ON fiscal.fiscal_emission_configuration_versions;
+
+DROP POLICY fiscal_emission_configuration_versions_worker_published_history ON fiscal.fiscal_emission_configuration_versions;
+
+DROP POLICY fiscal_emission_configuration_versions_platform_tenant_select ON fiscal.fiscal_emission_configuration_versions;
+
+DROP POLICY fiscal_emission_configuration_versions_app_tenant_isolation ON fiscal.fiscal_emission_configuration_versions;
+
+DROP POLICY fiscal_emission_configurations_tenant_isolation ON fiscal.fiscal_emission_configurations;
+
+DROP POLICY fiscal_connections_tenant_isolation ON fiscal.fiscal_connections;
+
+DROP INDEX integrations.external_webhook_receipts_fiscal_dispatch_fk_idx;
+
+DROP INDEX integrations.external_webhook_receipts_fiscal_correlation_idx;
+
+DROP INDEX integrations.integration_dispatches_fiscal_preparation_idx;
+
+DROP INDEX fiscal.fiscal_reconciliation_items_preparation_idx;
+
+DROP INDEX fiscal.fiscal_reconciliation_items_incident_idx;
+
+DROP INDEX fiscal.fiscal_reconciliation_items_document_generation_idx;
+
+DROP INDEX fiscal.fiscal_incidents_reconciliation_idx;
+
+DROP INDEX fiscal.fiscal_incidents_attempt_idx;
+
+DROP INDEX fiscal.fiscal_incidents_document_generation_idx;
+
+DROP INDEX fiscal.fiscal_incidents_open_idx;
+
+DROP INDEX fiscal.fiscal_reconciliations_document_generation_idx;
+
+DROP INDEX fiscal.fiscal_reconciliations_connection_idx;
+
+DROP INDEX fiscal.fiscal_reconciliations_work_idx;
+
+DROP INDEX fiscal.fiscal_artifacts_attempt_fk_idx;
+
+DROP INDEX fiscal.fiscal_artifacts_document_generation_idx;
+
+DROP INDEX fiscal.fiscal_submission_attempts_provider_operation_idx;
+
+DROP INDEX fiscal.fiscal_submission_attempts_unknown_idx;
+
+DROP INDEX fiscal.fiscal_submission_attempts_document_generation_idx;
+
+DROP INDEX fiscal.fiscal_submission_attempts_dispatch_fk_idx;
+
+DROP INDEX fiscal.fiscal_document_preparations_cancelled_by_idx;
+
+DROP INDEX fiscal.fiscal_document_preparations_created_by_idx;
+
+DROP INDEX fiscal.fiscal_document_preparations_supersedes_idx;
+
+DROP INDEX fiscal.fiscal_document_preparations_integration_connection_idx;
+
+DROP INDEX fiscal.fiscal_document_preparations_document_generation_idx;
+
+DROP INDEX fiscal.electronic_documents_original_idx;
+
+DROP INDEX fiscal.electronic_documents_uncertain_idx;
+
+DROP INDEX fiscal.electronic_documents_work_idx;
+
+DROP INDEX fiscal.electronic_documents_source_idx;
+
+DROP INDEX fiscal.fiscal_emission_configuration_versions_supersedes_idx;
+
+DROP INDEX fiscal.fiscal_emission_configuration_versions_lookup_idx;
+
+DROP INDEX fiscal.fiscal_emission_configurations_branch_fk_idx;
+
+DROP INDEX fiscal.fiscal_connections_capability_fk_idx;
+
+DROP INDEX fiscal.fiscal_connections_scope_effective_idx;
+
+DROP INDEX fiscal.fiscal_submission_attempts_one_in_progress_uq;
+
+DROP INDEX integrations.integration_dispatches_one_fiscal_per_preparation_uq;
+
+DROP INDEX fiscal.fiscal_document_preparations_provider_document_uq;
+
+DROP INDEX fiscal.fiscal_document_preparations_legal_number_uq;
+
+DROP INDEX fiscal.electronic_documents_legal_identifier_uq;
+
+DROP INDEX fiscal.fiscal_emission_configurations_branch_scope_uq;
+
+DROP INDEX fiscal.fiscal_emission_configurations_company_scope_uq;
+
+ALTER TABLE integrations.external_webhook_receipts DROP CONSTRAINT external_webhook_receipts_fiscal_preparation_fk;
+
+ALTER TABLE integrations.external_webhook_receipts DROP CONSTRAINT external_webhook_receipts_fiscal_document_fk;
+
+ALTER TABLE integrations.external_webhook_receipts DROP CONSTRAINT external_webhook_receipts_fiscal_dispatch_fk;
+
+ALTER TABLE integrations.external_webhook_receipts DROP CONSTRAINT external_webhook_receipts_fiscal_correlation_ck;
+
+ALTER TABLE integrations.integration_dispatches DROP CONSTRAINT integration_dispatches_fiscal_preparation_fk;
+
+ALTER TABLE integrations.integration_dispatches DROP CONSTRAINT integration_dispatches_fiscal_semantic_request_ck;
+
+ALTER TABLE integrations.integration_dispatches DROP CONSTRAINT integration_dispatches_fiscal_preparation_ck;
+
+ALTER TABLE fiscal.fiscal_emission_configuration_versions DROP CONSTRAINT fiscal_emission_configuration_versions_published_validity_excl;
+
+ALTER TABLE fiscal.fiscal_emission_configuration_versions DROP CONSTRAINT fiscal_emission_configuration_versions_supersedes_fk;
+
+ALTER TABLE fiscal.fiscal_connections DROP CONSTRAINT fiscal_connections_company_validity_excl;
+
+REVOKE ALL ON ALL TABLES IN SCHEMA fiscal FROM pos_app,pos_worker,pos_platform_app,pos_platform_admin,pos_reporting;
+
+REVOKE USAGE ON SCHEMA fiscal FROM pos_app,pos_worker,pos_platform_app,pos_platform_admin,pos_reporting;
+
+REVOKE UPDATE (id) ON integrations.external_webhook_receipts FROM pos_app;
+
+REVOKE UPDATE (id) ON integrations.integration_credential_bindings FROM pos_worker;
+
+REVOKE UPDATE (id) ON integrations.integration_capabilities FROM pos_worker;
+
+REVOKE UPDATE (provider_adapter_version_id) ON integrations.provider_adapter_versions FROM pos_app,pos_worker;
+
+REVOKE UPDATE (id) ON integrations.provider_capability_declarations FROM pos_app,pos_worker;
+
+GRANT INSERT ON integrations.integration_dispatches TO pos_platform_app;
+
+REVOKE INSERT (id,tenant_id,company_id,integration_id,capability_code,dispatch_class,resource_type,internal_operation_id,internal_entity_type,internal_entity_id,idempotency_key,payload_schema_version,payload_checksum,status,correlation_id,provider_request_reference,retry_classification,next_attempt_at,last_reconciled_at,causation_id,created_at,updated_at,version) ON integrations.integration_dispatches FROM pos_platform_app;
+
+GRANT INSERT ON integrations.external_webhook_receipts TO pos_platform_app;
+
+REVOKE INSERT (id,tenant_id,company_id,integration_id,deduplication_key,received_at,payload_schema_version,payload_checksum,authentication_verification_result,replay_verification_result,processing_status,attempt_count,correlation_id,provider_event_id,payload_evidence_reference,next_attempt_at,last_error_code,processed_at,created_at,version) ON integrations.external_webhook_receipts FROM pos_platform_app;
+
+DROP TABLE fiscal.fiscal_reconciliation_items;
+
+DROP TABLE fiscal.fiscal_incidents;
+
+DROP TABLE fiscal.fiscal_reconciliations;
+
+DROP TABLE fiscal.fiscal_artifacts;
+
+DROP TABLE fiscal.fiscal_submission_attempts;
+
+DROP TABLE fiscal.fiscal_document_preparations;
+
+DROP TABLE fiscal.electronic_documents;
+
+DROP TABLE fiscal.fiscal_emission_configuration_versions;
+
+DROP TABLE fiscal.fiscal_emission_configurations;
+
+DROP TABLE fiscal.fiscal_connections;
+
+ALTER TABLE integrations.integration_credential_bindings DROP CONSTRAINT integration_credential_bindings_attempt_scope_uq;
+
+ALTER TABLE integrations.integration_capabilities DROP CONSTRAINT integration_capabilities_fiscal_scope_uq;
+
+ALTER TABLE integrations.external_webhook_receipts DROP COLUMN fiscal_correlated_at;
+
+ALTER TABLE integrations.external_webhook_receipts DROP COLUMN fiscal_integration_dispatch_id;
+
+ALTER TABLE integrations.external_webhook_receipts DROP COLUMN fiscal_preparation_generation;
+
+ALTER TABLE integrations.external_webhook_receipts DROP COLUMN fiscal_document_preparation_id;
+
+ALTER TABLE integrations.external_webhook_receipts DROP COLUMN fiscal_electronic_document_id;
+
+ALTER TABLE integrations.integration_dispatches DROP COLUMN fiscal_request_semantic_checksum;
+
+ALTER TABLE integrations.integration_dispatches DROP COLUMN fiscal_request_semantic_version;
+
+ALTER TABLE integrations.integration_dispatches DROP COLUMN fiscal_preparation_generation;
+
+ALTER TABLE integrations.integration_dispatches DROP COLUMN fiscal_document_preparation_id;
+
+DROP FUNCTION fiscal.guard_capability_downgrade();
+
+DROP FUNCTION fiscal.guard_webhook_receipt_insert();
+
+DROP FUNCTION fiscal.guard_fiscal_webhook_correlation();
+
+DROP FUNCTION fiscal.guard_fiscal_dispatch();
+
+DROP FUNCTION fiscal.guard_submission_attempt_root();
+
+DROP FUNCTION fiscal.guard_attempt_number();
+
+DROP FUNCTION fiscal.guard_submission_attempt_state();
+
+DROP FUNCTION fiscal.guard_submission_attempt_update();
+
+DROP FUNCTION fiscal.guard_submission_attempt_insert();
+
+DROP FUNCTION fiscal.guard_fiscal_preparation_late_evidence();
+
+DROP FUNCTION fiscal.guard_fiscal_preparation_numbering();
+
+DROP FUNCTION fiscal.guard_fiscal_preparation_state();
+
+DROP FUNCTION fiscal.guard_fiscal_preparation_update();
+
+DROP FUNCTION fiscal.guard_fiscal_preparation_insert();
+
+DROP FUNCTION fiscal.validate_current_fiscal_preparation_invariant();
+
+DROP FUNCTION fiscal.guard_electronic_document_reprepare();
+
+DROP FUNCTION fiscal.has_correlated_generation_evidence(p_tenant_id uuid,p_document_id uuid,p_generation bigint);
+
+DROP FUNCTION fiscal.guard_electronic_document_evidence();
+
+DROP FUNCTION fiscal.guard_electronic_document_state();
+
+DROP FUNCTION fiscal.guard_electronic_document_update();
+
+DROP FUNCTION fiscal.guard_electronic_document_insert();
+
+DROP FUNCTION fiscal.guard_configuration_scope();
+
+DROP FUNCTION fiscal.guard_connection_scope();
+
+DROP FUNCTION fiscal.guard_configuration_version_state();
+
+DROP FUNCTION fiscal.guard_append_only();
+
+DROP FUNCTION fiscal.guard_state_transition();
+
+DROP FUNCTION fiscal.guard_initial_status();
+
+DROP FUNCTION fiscal.guard_allowed_update_columns();
+
+DROP FUNCTION fiscal.safe_external_text(value text,max_bytes integer);
+
+DROP SCHEMA fiscal;

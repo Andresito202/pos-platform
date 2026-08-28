@@ -18,6 +18,8 @@ import {
   type RoleReadinessConfig,
   type RoleReadinessReceipt,
   ROLE_READINESS_AUTOMATIC_REVERSAL_COMPATIBLE_VERSIONS,
+  ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,
+  ROLE_READINESS_RECEIPT_VERSION,
 } from "../src/postgres-003-role-readiness.js";
 import { postgresDatabase } from "../src/database.js";
 import { validatePostgres002Catalog } from "../src/postgres-introspection.js";
@@ -97,6 +99,16 @@ describe("MAT-003 canonical role readiness materialization",()=>{
     const parsed=validateRoleReadinessReceipt(JSON.parse(await readFile(path,"utf8")));
     expect(sha256(canonicalJson(parsed.receipt_payload)).toString("hex")).toBe(parsed.receipt_sha256);
     expect(parsed.receipt_payload.identities).toMatchObject({session_user:"pos_migrator",effective_role:"pos_schema_owner",target_role:"pos_platform_admin"});
+    expect(parsed.receipt_payload).toMatchObject({
+      receipt_version: ROLE_READINESS_RECEIPT_VERSION,
+      lifecycle_contract_version: ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,
+      governance: {
+        sql_003: "PRESENT_UNAPPLIED",
+        descriptor_003: "PRESENT_UNAPPLIED",
+        migration_003_ledger_entries: 0,
+        fiscal_schema: "ABSENT",
+      },
+    });
     const after=await snapshot(DATABASES[0]);expect(classifyRoleReadiness(after)).toBe("READY");
     expect(after.schema.entries.filter(entry=>entry.grantee==="pos_platform_admin")).toEqual([{grantee:"pos_platform_admin",grantor:"pos_schema_owner",privilege:"USAGE",is_grantable:false}]);
     expect(after.table.entries.filter(entry=>entry.grantee==="pos_platform_admin")).toEqual([]);
@@ -126,10 +138,25 @@ describe("MAT-003 canonical role readiness materialization",()=>{
   it("rechaza recibos parciales, campos desconocidos, versiones y payload manipulados",async()=>{
     const path=receiptPath("validation-source");await applyRoleReadiness(config(DATABASES[0],path));const valid=JSON.parse(await readFile(path,"utf8")) as RoleReadinessReceipt;
     expect(()=>validateRoleReadinessReceipt({...valid,unknown:true})).toThrow("INVALID_RECEIPT");
-    expect(()=>validateRoleReadinessReceipt({...valid,receipt_payload:{...valid.receipt_payload,receipt_version:2}})).toThrow("INVALID_RECEIPT");
-    expect(()=>validateRoleReadinessReceipt({...valid,receipt_payload:{...valid.receipt_payload,lifecycle_contract_version:2}})).toThrow("INVALID_RECEIPT");
+    expect(()=>validateRoleReadinessReceipt({...valid,receipt_payload:{...valid.receipt_payload,receipt_version:3}})).toThrow("INVALID_RECEIPT");
+    expect(()=>validateRoleReadinessReceipt({...valid,receipt_payload:{...valid.receipt_payload,lifecycle_contract_version:3}})).toThrow("INVALID_RECEIPT");
+    expect(()=>validateRoleReadinessReceipt({...valid,receipt_payload:{...valid.receipt_payload,receipt_version:1,lifecycle_contract_version:2}})).toThrow("INVALID_RECEIPT");
     expect(()=>validateRoleReadinessReceipt({...valid,receipt_payload:{...valid.receipt_payload,repository_commit:"0".repeat(40)}})).toThrow("RECEIPT_INTEGRITY_FAILURE");
     const partial=receiptPath("partial-json");await writeFile(partial,'{"receipt_payload":',"utf8");expect(await validateRoleReadinessReversal(config(DATABASES[0]),partial)).toEqual({status:"INVALID_RECEIPT"});
+  });
+
+  it("mantiene validación backwards-compatible de receipts lifecycle v1",async()=>{
+    const path=receiptPath("v1-source");await applyRoleReadiness(config(DATABASES[0],path));
+    const current=JSON.parse(await readFile(path,"utf8")) as RoleReadinessReceipt;
+    const legacyPayload={
+      ...current.receipt_payload,
+      receipt_version:1 as const,
+      lifecycle_contract_version:1 as const,
+      governance:{sql_003:"ABSENT" as const,descriptor_003:"ABSENT" as const,migration_003_ledger_entries:0 as const,fiscal_schema:"ABSENT" as const},
+    };
+    const legacy:RoleReadinessReceipt={receipt_payload:legacyPayload,receipt_sha256:sha256(canonicalJson(legacyPayload)).toString("hex")};
+    expect(validateRoleReadinessReceipt(legacy)).toEqual(legacy);
+    expect(ROLE_READINESS_AUTOMATIC_REVERSAL_COMPATIBLE_VERSIONS).toEqual([1,2]);
   });
 
   it("rechaza reversión sin recibo, target distinto, digest alterado y ACL cambiada",async()=>{

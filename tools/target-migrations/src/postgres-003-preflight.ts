@@ -10,12 +10,13 @@ export interface Mat003DatabaseState {
   database:string; server_version:string; transaction_read_only:true; transaction_isolation:"repeatable read";
   execution_role:string; execution_role_nonsuperuser:true; execution_role_bypassrls:true; required_read_privileges:"VALID";
   global_lock_resource:typeof POSTGRES_MIGRATION_LOCK_RESOURCE; global_lock_acquired:true;
-  predecessor_001:"APPLIED"; predecessor_002:"APPLIED"; catalogs_001_002:"VALID"; fiscal_schema:"ABSENT"; migration_003_ledger_entries:0;
+  predecessor_001:"APPLIED"; predecessor_002:"APPLIED"; catalogs_001_002:"VALID"; fiscal_schema:"ABSENT"; migration_003_ledger_entries:number;
 }
 export interface Mat003PreflightResult {
   preflight_id:"MAT-003-PREFLIGHT"; version:1; result:Mat003PreflightStatus; database_state:Mat003DatabaseState|null;
   checks:Mat003PreflightCheck[]; failure_code:string|null; failure_cause_code:string|null;
 }
+export interface Mat003PreflightOptions { allowClosed003History?:boolean }
 interface CheckDefinition { checkId:string; description:string; affectedSql:string; trustCondition?:boolean }
 interface RuntimeState { database:string; server_version:string; server_version_num:string; transaction_read_only:string; transaction_isolation:string; execution_role:string; rolcanlogin:boolean; rolsuper:boolean; rolbypassrls:boolean }
 class PreflightError extends Error { constructor(readonly code:string){super(code);} }
@@ -71,6 +72,27 @@ const SCOPE_INTEGRITY:CheckDefinition={checkId:"MAT003_AFFECTED_SCOPE_INTEGRITY"
     UNION ALL SELECT p.id::text,p.tenant_id,p.company_id,p.integration_id,c.id::text FROM integrations.resource_ownership_policies p JOIN integrations.integration_capabilities c ON c.tenant_id=p.tenant_id AND c.company_id=p.company_id AND c.integration_id=p.integration_id AND c.ownership_policy_id=p.id AND c.capability_code='DEBIT_NOTES'
   ) affected WHERE NOT EXISTS(SELECT 1 FROM integrations.external_integrations i WHERE i.tenant_id=affected.tenant_id AND i.company_id=affected.company_id AND i.id=affected.integration_id)`};
 
+export const MAT003_BLOCKER_TABLES=[
+  "integrations.external_integrations",
+  "integrations.integration_capabilities",
+  "integrations.integration_dispatches",
+  "integrations.integration_dispatch_attempts",
+  "integrations.external_reference_mappings",
+  "integrations.resource_ownership_policies",
+] as const;
+
+export async function lockMat003BlockerTables(db:SqlExecutor):Promise<void>{
+  await executeRaw(db,`LOCK TABLE ${MAT003_BLOCKER_TABLES.join(",")} IN SHARE MODE`);
+}
+
+export async function assertMat003BlockersAbsent(db:SqlExecutor):Promise<void>{
+  const checks:Mat003PreflightCheck[]=[];
+  for(const definition of BLOCKERS)checks.push(await executeCheck(db,definition));
+  const scope=await executeCheck(db,SCOPE_INTEGRITY);
+  invariant(scope.count===0,"MAT-003 affected scope integrity changed after preflight");
+  invariant(!checks.some(check=>check.status==="BLOCKED"),"MAT-003 blocker state changed after preflight");
+}
+
 function fail(code:string,checks:Mat003PreflightCheck[]=[],cause:string|null=null):Mat003PreflightResult{return{preflight_id:"MAT-003-PREFLIGHT",version:1,result:"FAIL",database_state:null,checks,failure_code:code,failure_cause_code:cause};}
 function invariant(value:unknown,message:string):asserts value{if(!value)throw new MigrationInvariantError(message);}
 function preflightInvariant(value:unknown,code:string):asserts value{if(!value)throw new PreflightError(code);}
@@ -103,7 +125,7 @@ async function acquireLock(db:SqlExecutor):Promise<void>{
   preflightInvariant(row?.acquired,"PREFLIGHT_GLOBAL_LOCK_UNAVAILABLE");
 }
 
-async function inspectPredecessor(db:SqlExecutor,runtime:RuntimeState):Promise<Mat003DatabaseState>{
+async function inspectPredecessor(db:SqlExecutor,runtime:RuntimeState,options:Mat003PreflightOptions):Promise<Mat003DatabaseState>{
   invariant(runtime.server_version_num==="160014","PostgreSQL 16.14 required");
   const sql001=await readArtifact("postgres/001_central_foundation.up.sql");const sql002=await readArtifact("postgres/002_external_integrations_foundation.up.sql");
   const expected001=sha256(sql001).toString("hex");const expected002=sha256(sql002).toString("hex");
@@ -112,9 +134,21 @@ async function inspectPredecessor(db:SqlExecutor,runtime:RuntimeState):Promise<M
   invariant(ledger[0]?.migration_id==="001_central_foundation"&&ledger[0].status==="APPLIED"&&ledger[0].checksum_hex===expected001,"approved 001 predecessor required");
   invariant(ledger[1]?.migration_id==="002_external_integrations_foundation"&&ledger[1].status==="APPLIED"&&ledger[1].checksum_hex===expected002,"approved 002 predecessor required");
   await validatePostgres002Catalog(db);
-  const forbidden=(await queryRows<{fiscal_schema:boolean;entries:string}>(db,`SELECT to_regnamespace('fiscal') IS NOT NULL fiscal_schema,(SELECT count(*)::text FROM platform.target_migration_executions WHERE migration_id LIKE '003\\_%' ESCAPE '\\') entries`))[0];
-  invariant(forbidden&&!forbidden.fiscal_schema,"fiscal schema must be absent"); invariant(forbidden.entries==="0","migration 003 ledger entry must be absent");
-  return{database:runtime.database,server_version:runtime.server_version,transaction_read_only:true,transaction_isolation:"repeatable read",execution_role:runtime.execution_role,execution_role_nonsuperuser:true,execution_role_bypassrls:true,required_read_privileges:"VALID",global_lock_resource:POSTGRES_MIGRATION_LOCK_RESOURCE,global_lock_acquired:true,predecessor_001:"APPLIED",predecessor_002:"APPLIED",catalogs_001_002:"VALID",fiscal_schema:"ABSENT",migration_003_ledger_entries:0};
+  const fiscal=(await queryRows<{present:boolean}>(db,"SELECT to_regnamespace('fiscal') IS NOT NULL present"))[0];
+  invariant(fiscal&&!fiscal.present,"fiscal schema must be absent");
+  const history=await queryRows<{migration_id:string;status:string}>(db,`
+    SELECT migration_id,status FROM platform.target_migration_executions
+    WHERE migration_id LIKE '003\\_%' ESCAPE '\\' ORDER BY migration_id,status
+  `);
+  if(options.allowClosed003History){
+    invariant(
+      history.every(row=>row.migration_id==="003_fiscal_electronic_invoicing_foundation"&&row.status==="ROLLED_BACK"),
+      "migration 003 history must contain only the exact ROLLED_BACK migration",
+    );
+  }else{
+    invariant(history.length===0,"migration 003 ledger entry must be absent");
+  }
+  return{database:runtime.database,server_version:runtime.server_version,transaction_read_only:true,transaction_isolation:"repeatable read",execution_role:runtime.execution_role,execution_role_nonsuperuser:true,execution_role_bypassrls:true,required_read_privileges:"VALID",global_lock_resource:POSTGRES_MIGRATION_LOCK_RESOURCE,global_lock_acquired:true,predecessor_001:"APPLIED",predecessor_002:"APPLIED",catalogs_001_002:"VALID",fiscal_schema:"ABSENT",migration_003_ledger_entries:history.length};
 }
 
 async function executeCheck(db:SqlExecutor,definition:CheckDefinition):Promise<Mat003PreflightCheck>{
@@ -125,14 +159,14 @@ async function executeCheck(db:SqlExecutor,definition:CheckDefinition):Promise<M
 }
 
 export function mat003PreflightExitCode(result:Mat003PreflightResult):0|1|2{return result.result==="PASS"?0:result.result==="BLOCKED"?2:1;}
-export async function runMat003Preflight(url:string|undefined):Promise<Mat003PreflightResult>{
+export async function runMat003Preflight(url:string|undefined,options:Mat003PreflightOptions={}):Promise<Mat003PreflightResult>{
   const urlFailure=mat003PreflightUrlFailureCode(url); if(urlFailure)return fail(urlFailure);
   const database=postgresDatabase(url!,1);
   try{return await database.connection().execute(async connection=>{
     let started=false; let result:Mat003PreflightResult;
     try{
       await executeRaw(connection,"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"); started=true;
-      await acquireLock(connection); const runtime=await verifyRuntime(connection); await verifyPrivileges(connection); const state=await inspectPredecessor(connection,runtime);
+      await acquireLock(connection); const runtime=await verifyRuntime(connection); await verifyPrivileges(connection); const state=await inspectPredecessor(connection,runtime,options);
       const checks:Mat003PreflightCheck[]=[]; for(const definition of BLOCKERS)checks.push(await executeCheck(connection,definition));
       const scope=await executeCheck(connection,SCOPE_INTEGRITY); checks.push(scope);
       result=scope.count>0?fail("PREFLIGHT_AFFECTED_SCOPE_INTEGRITY_FAILED",checks):{preflight_id:"MAT-003-PREFLIGHT",version:1,result:checks.some(check=>check.status==="BLOCKED")?"BLOCKED":"PASS",database_state:state,checks,failure_code:null,failure_cause_code:null};

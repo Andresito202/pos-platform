@@ -6,7 +6,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación normativa: 2026-08-26.
+Última reconciliación normativa: 2026-08-27.
 
 ## Jerarquía relacionada
 
@@ -54,8 +54,9 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 - PR #8: `MERGED / CLOSED`; gobernanza detectiva de pushes a `main` endurecida para validar todo el rango de primer padre y fuentes de estado reconciliadas.
 - PR #4: `MERGED / CLOSED`; propuesta V7 de reconciliación SQL003 integrada con `PROPOSAL_REVIEW = PASS`.
 - PR #9: `MERGED / CLOSED`; remediación contractual autoritativa V2 integrada con `AUTHORITATIVE_CONTRACT_REVIEW = PASS`.
-- HEAD canónico verificado después de PR #9: `be986884cd21aae11f84e64a56158705197325d0`.
-- Run post-merge #64 `33013450713`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002, MAT-003 preflight y role-readiness.
+- PR #10: `MERGED / CLOSED`; reconciliación post-merge de INT-006 integrada.
+- HEAD canónico verificado después de PR #10: `b28ca8850acc6b97385c80627a9d64b7ea607a42`.
+- Run post-merge #67 `33015503869`: `COMPLETED / SUCCESS`, incluidos `Main push governance`, repository/secret policy, dependency inventory, TypeScript, SQLite, PostgreSQL 16.14 migrations 001/002, MAT-003 preflight y role-readiness.
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub antes de cualquier integración.
 
@@ -65,11 +66,11 @@ La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
 - POS Local Service: `ABSENT / NOT_MATERIALIZED`.
 - Nx de aplicaciones/packages: `ABSENT`.
-- SQL 003: `ABSENT`.
-- descriptor 003: `ABSENT`.
-- schema fiscal 003: `ABSENT`.
-- migration 003: `NOT_MATERIALIZED`.
-- bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; SQL/descriptor 003 permanecen `ABSENT / NOT_MATERIALIZED` y requieren autorización separada.
+- SQL 003 DDL: `MATERIALIZED_IN_BRANCH / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; apply→introspection/smoke→down→exact-002→reapply y la suite Modelo A pasan; SQLite 003 permanece `NONE`.
+- descriptor 003: `MATERIALIZED_IN_BRANCH / GATE_A_DONE_FROZEN`; Gate A está cerrado. El checkpoint exact-head vigente antes de este ajuste documental fue `c297d465cbfb9349f53d3f2e368034dddb9ca545`, CI #98 `33077301346` SUCCESS y Codex exact-head sin major issues.
+- schema fiscal 003: `ABSENT / NOT_APPLIED`.
+- migration 003: `IN_PROGRESS / NOT_APPLIED`.
+- bundle autoritativo V2 de INT-006: `INTEGRATED / REVIEWED` por PR #9; la autorización separada para iniciar diseño/materialización SQL003 fue otorgada el 2026-08-26 y queda acotada a INT-007.
 - SIIGO/FACTUS/ALEGRA adapters reales: `DESIGNED / NOT_EVALUATED`.
 - infraestructura productiva/piloto: pendiente.
 - hardware certificado: todos los modelos continúan sin certificación productiva.
@@ -106,6 +107,7 @@ Este control es detectivo, no preventivo.
 | `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a un baseline ya integrado; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
 | `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
 | `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
+| `feat/sql003-v2-materialization-20260826` | `CLOSURE_CANDIDATE / NOT_INTEGRATED` | INT-007; Gate A cerrado y Gate B técnicamente verde en PostgreSQL 16.14; falta evidencia/review exact-head final antes de PASS y merge sigue separado. |
 | `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
 
 Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
@@ -129,7 +131,80 @@ Reglas:
 
 ## Trabajo principal actual
 
-Excepción temporal documentada: no existe una línea principal `IN_PROGRESS` en este corte. INT-006 ya cerró; SQL/descriptor 003 continúan `BLOCKED` hasta autorización explícita y separada, y no se asignará otra línea principal por inferencia. El siguiente trabajo principal debe activarse mediante una decisión explícita sobre ese gate o una selección explícita de otra tarea `READY`.
+### INT-007 — materialización SQL/descriptor 003 sobre bundle V2
+
+Prioridad: `P0`
+
+Estado: `IN_PROGRESS`
+
+Baseline y autorización:
+
+- rama: `feat/sql003-v2-materialization-20260826`;
+- base exacta: `main@b28ca8850acc6b97385c80627a9d64b7ea607a42`;
+- INT-006: `DONE`;
+- bundle V2: `INTEGRATED / REVIEWED`;
+- autorización separada para iniciar diseño/materialización SQL003: `GRANTED 2026-08-26`.
+- Gate A contract remediation commit: `c0df539eb52d370fbfd0902a3df0d1ec94332398`; semantic dispatch checksum, credential binding pinning y definición física de catálogo remediados; evidencia exact-head CI/Codex todavía requerida antes de Gate B.
+- Gate A exhaustiveness hardening: definitions must cover exact set equality for every advertised constraint/index/guard/policy; semantic FISCAL fields are explicitly NOT NULL by CHECK semantics; normative one-IN_PROGRESS and one-FISCAL-dispatch indexes are required.
+- Gate A local-numbering hardening: `AUTHORIZED_RANGE|LOCAL_CONTINGENCY` require non-null start/end/cursor before numeric comparisons so PostgreSQL CHECK three-valued logic cannot admit unusable configurations.
+- Gate A function/transition hardening: all fiscal functions referenced by guards/policies/checks require canonical SQL definitions; migration 003 must validate `integration_dispatches_dispatch_class_003_ck` before retiring 002, and down must validate restored 002 before retiring 003.
+- Gate A preparation-scope hardening: preparation INSERT revalida bajo lock document generation/type, configuration `PUBLISHED` + vigencia + branch, connection vigencia e `ExternalIntegration=ACTIVE`; no basta una FK histórica.
+- Gate A reprepare-closure hardening: deferred current-generation validator requires predecessor preparation `CANCELLED`, any historical FISCAL dispatch `CANCELLED`, and no predecessor numbering left `RESERVED` before commit.
+- Gate A published-config hardening: published fiscal configuration material is immutable; only local numbering cursor/exhaustion plus row-version/timestamp may advance, and terminal versions cannot be rewritten.
+- Gate A branch hardening: preparation branch must equal ElectronicDocument branch at INSERT and deferred current-generation validation.
+- Gate A late-evidence hardening: CANCELLED remote PENDING_EXTERNAL may resolve only to CONSUMED|UNKNOWN_OUTCOME with admissible generation-scoped evidence; local numbering history remains immutable.
+- Gate A webhook fence hardening: VERIFIED auth+replay correlation acquires document→preparation→dispatch fence; provider-specific general-receipt selector remains an explicit versioned external contract with tenant/integration-only matching forbidden.
+- Gate A claim hardening: PostgreSQL revalidates ACTIVE integration, adapter/declaration/capability, credential binding, connection/config and document/preparation/dispatch; FISCAL_EMISSION_SNAPSHOT_V2 external material must be compared fail-closed by the command under the same fence.
+- Gate A claim lock-order hardening: ProviderCapabilityDeclaration→ProviderAdapterVersion→ExternalIntegration→IntegrationCapability→credential binding→FiscalConnection/config/version→document/preparation/dispatch; current capability rows are locked, not merely counted.
+- Gate A configuration-selection hardening: preparation and claim re-resolve effective BRANCH>COMPANY version under locked FiscalConnection coordinator; publication after freeze cannot silently leave an obsolete company-wide snapshot eligible.
+- Gate A preparation lock-order hardening: preparation now locks Declaration→Adapter→ExternalIntegration→IntegrationCapability→FiscalConnection→Config/Version before ElectronicDocument/predecessor; caller must not pre-lock a successor and the FiscalConnection coordinator precedes the BRANCH/COMPANY candidate scan.
+- Gate A declaration lock-mode hardening: ProviderCapabilityDeclaration is consumed with `FOR UPDATE` in preparation and claim, matching downgrade serialization.
+- Gate A claim caller-order hardening: attempt trigger is defense-in-depth only; claim command must own the canonical upstream prefix before Document/Dispatch state mutation and attempt INSERT, with commit before HTTP.
+- Gate A post-claim evidence hardening: live integration/capability/connection/config eligibility is revalidated only when entering `IN_PROGRESS`; response/evidence persistence after durable claim validates immutable root scope and cannot be blocked by later downgrade/expiry.
+- Gate A late-evidence authorization hardening: any mutation of a CANCELLED historical preparation requires durable `VERIFIED_LATE_REMOTE_EVIDENCE_V1` comparator output; late numbering additionally binds `numbering_resolution_reason` to the exact lowercase SHA-256 comparator evidence checksum.
+- Gate A late-evidence value binding: comparator `expected_state_reference` must equal the canonical JSON array of the exact late mutation values (prefix, number, numbering_state, provider_document_id/reference/status); a valid evidence checksum cannot authorize different values.
+- Gate A webhook privilege boundary: historical quarantine runs with invoker privileges; no `SECURITY DEFINER` widening is introduced. An ingress role unable to quarantine fails closed and must defer fiscal linkage to the authorized `pos_worker` correlator.
+- Gate A historical quarantine hardening: accepted late historical evidence and historical webhook correlation quarantine the current pre-terminal generation to `UNKNOWN_OUTCOME` in the same transaction; current QUEUED dispatch remains durable but unclaimable.
+- Gate A webhook timing hardening: fiscal correlation guard is AFTER-write validation/quarantine under invoker privileges; canonical lock acquisition remains a caller precondition and no privilege widening is introduced.
+- Gate A receipt-update transition hardening: 003 creates `external_webhook_receipts_update_guard_003` with the exact 002 lifecycle allowlist plus the five fiscal linkage fields before dropping the narrower 002 guard; down restores 002 first, so there is no permissive window.
+- Gate A receipt lock-order hardening: `external_webhook_receipts_fiscal_correlation_guard` fires only on INSERT or UPDATE OF the five fiscal linkage columns. Ordinary 002 processing-status updates bypass the fiscal fence and cannot acquire receipt-before-document locks.
+- Gate A publication-coordinator hardening: DRAFT→PUBLISHED takes `FiscalConnection FOR UPDATE`; publication command must acquire that coordinator before updating the version so BRANCH>COMPANY selection and publication share the same phantom fence.
+- Gate A webhook-ingress privilege hardening: migration003 converts inherited table-wide `pos_platform_app INSERT` into base-column INSERT only; the five fiscal linkage columns are NULL at ingress and `pos_worker` is the sole fiscal linkage writer under the canonical fence.
+- Gate A dispatch-ingress privilege hardening (self-found during Gate B preparation): migration002 also gives `pos_platform_app` table-wide INSERT on `integration_dispatches`; 003 must convert it to exact base-002-column INSERT so the four fiscal extension columns remain inaccessible while non-fiscal platform dispatch creation remains available.
+- Gate A webhook lock-order clarification: receipt trigger is revalidation only; correlator command must lock document→preparation→dispatch before mutating/inserting the receipt linkage.
+- Gate A connection hardening: FiscalConnection closure is CAS-versioned and irreversible; a closed connection cannot be reopened, extended or rewritten.
+- Gate A closure record: `DONE / FROZEN`; the historical pending/remediation-candidate checkpoints are superseded by exact-head CI #98 and Codex closure on `c297d465cbfb9349f53d3f2e368034dddb9ca545`. Gate B is the only active INT-007 gate.
+
+Alcance autorizado:
+
+- Gate A: descriptor 003, catálogo esperado, constantes/exports y tests estáticos del contrato materializable; incluye definiciones físicas verificables, checksum semántico por dispatch y credential binding generation por attempt;
+- Gate B: SQL PostgreSQL 003 up/down, runner apply/down, introspection, smoke, grants/RLS/guards y pruebas funcionales/concurrencia del target de diez tablas;
+- preservar migrations 001/002 byte-for-byte;
+- mantener SQLite migration 003 en `NONE`;
+- usar exclusivamente Modelo A y `SUBMIT_DOCUMENT` físico V1.
+
+No alcance:
+
+- adapters SIIGO/FACTUS/ALEGRA;
+- HTTP/credenciales/sandbox provider;
+- runtime NestJS/Electron;
+- promoción de `SEC-G01..SEC-G10`;
+- query/retrieve físico V1;
+- merge de la rama sin gate posterior separado.
+
+INT-007 no se considera `DONE` por crear el descriptor ni por producir SQL estático. Requiere DDL ejecutable, validación de catálogo, apply/down, regresión 001/002, CI exact-head y revisión independiente.
+
+Checkpoint consolidado 2026-08-27 — cierre candidato:
+
+- Gate A: `DONE / FROZEN`.
+- Gate B: `CLOSURE_CANDIDATE / TECHNICAL_VALIDATION_PASS / FINAL_EXACT_HEAD_REVIEW_PENDING`.
+- PostgreSQL 003 UP/DOWN: `MATERIALIZED / STATICALLY_VALIDATED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`.
+- Runner/check/down 003 + repository-commit/artifact binding + lifecycle receipt + introspection 003 + smoke físico: `PASS`.
+- Modelo A funcional/concurrencia: `MATERIALIZED / 7_OF_7_PASS` en el baseline de implementación `89d8c5fa9697fd28ecd6685c0824caf73340f489`, CI #156 / run `33130461450`.
+- Regresión PostgreSQL 001/002/003, exact-002 restoration, reapply, SQLite, typecheck, MAT-003 preflight y role-readiness: `PASS` en CI #156.
+- Hallazgos demostrados y corregidos en Gate B: cancelación histórica de dispatch durante reprepare, ACL de webhook ingress, reemplazo 003 del trigger 002 incompatible con `processing_status`, y separación RLS SELECT/UPDATE de `FiscalDocumentPreparation` para `pos_worker`.
+- PR #11: `OPEN / DRAFT / NOT_MERGED`; no se quita DRAFT ni se autoriza merge hasta CI + revisión independiente exact-head del cierre final.
+- Merge, providers, HTTP, credenciales, sandbox, runtime, hardware y SEC-G01..SEC-G10 continúan no autorizados en este gate.
 
 ### INT-006 — remediación contractual autoritativa de migration 003
 
@@ -222,23 +297,26 @@ TECH-004 no está `DONE`; INT-006 ya cerró y TECH-004 permanece `READY` para re
 
 ## Orden inmediato obligatorio
 
-1. Mantener SQL/descriptor 003 `BLOCKED` hasta una autorización explícita y separada; el merge de PR #9 no concede esa autorización.
-2. Si se autoriza SQL003, abrir una tarea/rama nueva desde el `main` exacto y diseñar/materializar únicamente contra el bundle autoritativo V2 integrado; no reutilizar el WIP histórico como implementación.
-3. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
-4. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
-5. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
-6. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
-7. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
+1. Mantener **INT-007 Gate A** `DONE / FROZEN`; no rediseñar el contrato cerrado.
+2. Cerrar exclusivamente **INT-007 Gate B**: la implementación, runner y suite Modelo A ya están verdes; queda generar evidencia exact-head del cierre, ejecutar CI y obtener revisión independiente sobre el mismo SHA.
+3. Cualquier nuevo HEAD invalida la evidencia CI/review anterior; solo un defecto reproducible autoriza cambios adicionales de SQL003.
+4. Declarar Gate B `PASS` únicamente cuando CI exact-head + revisión independiente + cero threads abiertos coincidan; después dejar PR #11 lista para autorización separada de merge.
+5. Integrar INT-007 solo mediante autorización de merge separada y `expected_head_sha` fresco.
+5. Retirar WIP SQL003 histórico solo cuando toda evidencia útil haya sido absorbida y sea demostrable que no se pierde trazabilidad.
+6. **ARCH-003**: materializar reglas ejecutables de límites modulares/Nx sobre el mapa reconciliado.
+7. **TECH-003**: materializar contratos Zod/API/IPC, errores, versionado, idempotencia y correlación.
+8. Retomar TECH-004 a medida que existan runtime/apps y controles ejecutables pendientes.
+9. Solo después iniciar el primer esqueleto de runtime conforme a ADR-005/DEC-010, sin saltar security/data gates.
 
 No se inicia NestJS/Electron “por avanzar” mientras los gates anteriores sigan abiertos.
 
 ## Gate SQL003
 
-### INT-006 / materialización 003
+### INT-007 / materialización 003
 
-Estado de materialización: `BLOCKED`.
+Estado de materialización: `CLOSURE_CANDIDATE / FINAL_EXACT_HEAD_REVIEW_PENDING`.
 
-PR #9 fue revisada, integrada y validada post-merge. Los requisitos técnicos/documentales 1–5 del gate ya están cumplidos. El único bloqueo vigente para abrir una tarea de **diseño/materialización** SQL003 es la autorización explícita y separada del punto 6.
+PR #9 fue revisada, integrada y validada post-merge; PR #10 reconcilió el backlog y el run #67 validó el nuevo `main`. Los requisitos técnicos/documentales 1–5 del gate estaban cumplidos y la autorización explícita y separada del punto 6 fue otorgada el 2026-08-26. La ejecución queda limitada a INT-007 y no autoriza providers, runtime ni promoción de seguridad.
 
 Decisiones cerradas y consolidadas en el bundle autoritativo integrado:
 
@@ -259,16 +337,23 @@ Condición para desbloquear una **tarea posterior de materialización**:
 3. review independiente del HEAD exacto — `PASS`;
 4. `AUTHORITATIVE_CONTRACT_REVIEW = PASS`;
 5. integración documental + post-merge #64 — `PASS`;
-6. autorización separada para iniciar diseño/materialización SQL003 — `PENDING`.
+6. autorización separada para iniciar diseño/materialización SQL003 — `PASS / GRANTED 2026-08-26`.
 
-No autorizado mientras este gate siga bloqueado:
+Autorizado exclusivamente dentro de INT-007:
 
-- SQL 003;
-- descriptor 003;
+- descriptor 003 y catálogo esperado;
+- SQL PostgreSQL 003 up/down;
 - runner/apply/down 003;
-- fiscal schema;
-- adapters provider;
+- schema fiscal y extensiones 003 de tablas `integrations`;
+- introspection/smoke/tests necesarios para demostrar el target.
+
+Continúa no autorizado:
+
+- adapters provider y llamadas HTTP;
+- credenciales/sandbox;
 - promoción de security gates;
+- runtime;
+- query/retrieve físico V1;
 - merge/cherry-pick completo del WIP histórico.
 
 ## Backlog por épica
@@ -336,7 +421,8 @@ No autorizado mientras este gate siga bloqueado:
 | INT-003 | P0 | DONE | Migration 002 materializada/tested/immutable. |
 | INT-004 | P1 | PLANNED | Adapters SIIGO/FACTUS/ALEGRA reales; no mocks como evidencia. |
 | INT-005 | P2 | PLANNED | Evaluar HKA/Odoo sin adapters ficticios. |
-| INT-006 | P0 | DONE | Remediación contractual autoritativa V2 integrada/revisada por PR #9; SQL003 permanece BLOCKED por autorización separada pendiente. |
+| INT-006 | P0 | DONE | Remediación contractual autoritativa V2 integrada/revisada por PR #9; contrato cerrado. |
+| INT-007 | P0 | CLOSURE_CANDIDATE | Gate A DONE/FROZEN; SQL003, runner y Modelo A 7/7 verdes en PostgreSQL 16.14. Falta CI/review exact-head final antes de DONE/PASS; merge separado. |
 
 ### Pagos
 
@@ -482,7 +568,7 @@ No autorizado mientras este gate siga bloqueado:
 |---|---|---|
 | Fase 0 | DONE | Fundación documental/decisiones P0 cerradas. |
 | F1.1 Esqueleto modular y contratos | PLANNED | ARCH-003 + TECH-003 + esqueleto aprobado. |
-| F1.2 Modelo físico/migrations | IN_PROGRESS | TECH-002 e INT-006 DONE; 001/002 materializadas; SQL003 aún no materializada y sigue bajo gate separado. |
+| F1.2 Modelo físico/migrations | CLOSURE_CANDIDATE | TECH-002 e INT-006 DONE; 001/002 inmutables; SQL003 físico + runner/introspection + Modelo A funcional/concurrencia 7/7 PASS en PostgreSQL 16.14 sobre `89d8c5fa9697fd28ecd6685c0824caf73340f489`, CI #156. Falta cierre exact-head CI/review del commit documental final. |
 | F1.3 Seguridad/identidad | PLANNED | SEC gates con evidencia runtime real. |
 | F1.4 CI/calidad | IN_PROGRESS | baseline vigente PASS; pipeline integral depende de runtime/apps y permanece incompleto. |
 | F1.5 Primer corte vertical | PLANNED | Onboarding mínimo autenticado/auditado/idempotente. |
@@ -541,3 +627,96 @@ Una tarea no está cerrada hasta que:
 7. no queda una rama activa sin objetivo o condición de bloqueo;
 8. no se deja una fuente normativa contando un estado incompatible;
 9. ninguna remediación reduce o elimina silenciosamente detalle contractual previamente aprobado.
+- Gate B SQL003 materialization: IN_PROGRESS from final Gate A baseline `126762479cfdd184d282688b5e86ff04fa38c56a`; first atomic slice freezes generated PostgreSQL 003 up/down artifacts from the closed catalog with byte-parity tests. Runner/introspection/smoke remain pending in the next slice.
+
+- Gate B MAT-003 transition: preflight remains read-only and still requires fiscal schema ABSENT + ledger003=0, but its repository test now recognizes the authorized PostgreSQL 003 up/down artifacts as PRESENT_UNAPPLIED; SQLite003 remains NONE.
+
+- Gate B role-readiness transition: lifecycle v2 already reports repository SQL003 as PRESENT_UNAPPLIED when both PostgreSQL artifacts exist; its current-state test now matches that truthful governance value while keeping migration_003_ledger_entries=0 and fiscal_schema=ABSENT.
+
+- Gate B P1 remediation: canonical preparation/claim row locks now receive only column-scoped UPDATE on immutable identity sentinels where PostgreSQL requires an UPDATE privilege; no SECURITY DEFINER or business-column widening is introduced, and down revokes all predecessor-table sentinel grants.
+
+- Gate B P1 remediation: pos_worker historical CANCELLED-preparation RLS no longer calls a helper that re-queries fiscal_document_preparations under FORCE RLS; the policy now evaluates durable external/correlated evidence directly, including VERIFIED_LATE_REMOTE_EVIDENCE_V1 comparator output.
+
+- Gate B self-review hardening: fiscal_connections.id is now explicitly covered by guard_connection_scope identity immutability, making the worker's id-only row-lock sentinel incapable of legitimate mutation while still satisfying PostgreSQL row-lock privilege requirements.
+
+- Gate B Codex remediation: renamed the 003 fiscal receipt/dispatch index to external_webhook_receipts_fiscal_dispatch_fk_idx so migration002 external_webhook_receipts_integration_fk_idx remains untouched on apply/down.
+
+- Gate B Codex remediation: pos_app reprepare receipt fencing now has id-only UPDATE sentinel privilege on integrations.external_webhook_receipts; the existing 002/003 update guards still reject id mutation and down revokes the sentinel.
+
+- Gate B CI remediation: descriptor function-reference coverage now includes function-to-function calls while excluding each function's own CREATE declaration, so nested helper dependencies remain enforced after policy refactors.
+
+- Gate B runner slice: runner 003 apply/down materialized with MAT-003 prerequisite, global migration lock, exact 001/002 checksum verification, artifact/repository-commit ledger binding, durable apply receipt, exact catalog introspection, minimal real-role smoke, guarded fresh/test-only down and exact-002 restoration validation. Exact-head CI/Codex evidence remains pending; Gate B is not PASS.
+
+- Gate B runner CI #101 remediation: la primera ejecución física detectó una incompatibilidad de validación, no de DDL: `validatePostgresCatalog()` conserva correctamente la precondición histórica 001 que prohíbe `electronic_documents` antes de 003. Introspection 003 deja ese validador inmutable y valida el baseline 001 por schemas/tablas/columnas exactas dentro de su propio scope. Evidencia exact-head nueva requerida.
+
+- Gate B runner CI #102 remediation: descriptor y SQL003 contienen el mismo conjunto de 16 policies; introspection se endurece para comparar identidad exacta `schema.table|policy` derivada de `exactPolicyDefinitions`, en vez de una lista de nombres sin scope. Gate B continúa `NO_PASS` hasta evidencia física verde.
+
+- Gate B runner CI #103 remediation: el commit anterior introdujo escapes literales de backticks al serializar el bloque TypeScript por API. Se corrige únicamente esa sintaxis; la regla de comparación exacta `schema.table|policy` no cambia. Evidencia exact-head nueva requerida.
+
+- Gate B runner CI #104 remediation: el parser de policy conservó `\\s` dentro de un regex literal y por ello buscaba una barra invertida real. Se corrige a `\s` sin cambiar el contrato ni el DDL. Evidencia exact-head nueva requerida.
+
+- Gate B runner CI #105 physical finding: PostgreSQL truncó `fiscal_emission_configuration_versions_platform_tenant_isolation` (64 bytes) por `NAMEDATALEN-1=63`. Auditoría de 283 identificadores confirmó que es el único exceso. Se renombra a `fiscal_emission_configuration_versions_platform_tenant_select` (61) y se agrega regresión ejecutable `<=63`; no cambia semántica RLS ni Modelo A.
+
+- Gate B runner CI #106 diagnostic: el límite de identificadores ya pasó, pero introspection reportó divergencia de columnas en `identity.users` pese a que SQL003/MAT-003 no alteran esa tabla. Se mantiene fail-closed y se amplía el error para capturar `actual` vs `expected` antes de decidir remediación.
+
+- Gate B runner CI #107 finding: `actual=[]` confirmó que no había drift de `identity.users`; `information_schema.columns` ocultaba columnas por visibilidad del rol efectivo. Introspection 003 migra sus comprobaciones físicas de columnas a `pg_attribute/pg_class/pg_namespace`, igual que el validator 001, manteniendo comparación exacta y sin depender de grants.
+
+- Gate B runner CI #108 finding: la siguiente capa falló en la matriz de grants porque `information_schema.column_privileges` también depende de visibilidad del rol efectivo. Introspection 003 pasa a reconstruir privilegios efectivos desde `pg_class.relacl` + `pg_attribute.attacl` mediante `aclexplode`, siguiendo el patrón ya probado en migration 002; la matriz esperada permanece intacta.
+
+- Gate B runner CI #109 diagnostic: la matriz ACL ya pasó y el flujo alcanzó `finishApplied`, pero el UPDATE final del ledger recibió `42501 permission denied`. SQL003 no cambia roles de sesión; se añade `verifyRuntime()` post-smoke para capturar `session_user/current_user` exactos antes de cualquier remediación de permisos.
+
+- Gate B runner CI #110 finding: post-smoke se observó `session_user=pos_migrator/current_user=pos_migrator`; `pos_migrator` es deliberadamente `NOINHERIT`, por lo que no puede cerrar el ledger. SQL003 no modifica membresías. El runner reestablece explícitamente `SET ROLE pos_schema_owner` tras el smoke, vuelve a verificar identidad y solo entonces finaliza `APPLIED`; no se conceden privilegios directos nuevos.
+
+- Gate B runner CI #111 finding: apply inicial y down-guard ya pasan; el único fallo restante era idempotencia porque MAT-003 histórico exige pre-003/cero ledger y se invocaba también para `ALREADY_APPLIED` y reapply tras `ROLLED_BACK`. El runner resuelve primero `APPLIED`/`STARTED+target-003` bajo lock; MAT-003 mantiene modo cero-historial estricto por defecto y el reapply usa un modo explícito que admite únicamente historial exacto `ROLLED_BACK`, con fiscal ausente y revalidación completa bajo lock antes de mutar.
+
+- Gate B runner CI #112 remediation: el query de historial state-aware ordenaba por `started_at/execution_id`, columnas no incluidas en el grant SELECT mínimo de MAT-003; eso produjo `42501` y `PREFLIGHT_EXECUTION_FAILED`. Se mantiene least-privilege y se ordena solo por `migration_id/status`, sin ampliar permisos.
+
+- Gate B Codex exact-head review on `89507451f58dffe5db14852d35443668c8dac79e` validated the apply/down state-machine races and committed-down crash gap as real. Remediation: apply DDL transaction SHARE-locks all MAT-003 blocker relations and revalidates blockers before SQL003; down SHARE-locks all fiscal/dependent history relations before zero-history count and holds them through rollback DDL commit; exact-002 pre-003 plus receipt-bound APPLIED is reconciled to ROLLED_BACK. No 001/002/runtime/provider scope change. Fresh exact-head CI + review required.
+
+- Gate B Codex semantic-introspection/ACL findings on `89507451...` confirmed: validator compared several 003 objects only by identity and ignored non-SELECT/INSERT/UPDATE runtime fiscal privileges. Remediation now compares constraint/index/trigger/policy definitions, function bodies, and rejects any runtime fiscal table/column privilege outside the contract. Runner test tampers an RLS policy and grants DELETE on immutable fiscal evidence to prove fail-closed detection. Fresh exact-head CI + Codex required.
+
+- Gate B CI #115 diagnostic: semantic introspection reached PostgreSQL physical runner; first mismatch is canonical rendering of `electronic_documents_authority_identity_ck`. Error output is expanded with normalized actual/expected before changing normalization; no semantic check is removed.
+
+- Gate B CI #116 confirmed PostgreSQL canonical CHECK rendering adds structural parentheses. To avoid weakening boolean precedence, semantic catalog fingerprint derivation now captures physical constraints/indexes/triggers/policies/functions and is surfaced through the existing real mismatch for pinning; no artificial failure is introduced.
+
+- Gate B CI #117 derived PostgreSQL 16.14 physical semantic fingerprint `3d479eb5166e274b4d5d528af9ed901920282e0cb7c05db6922c5bcc6f82b86a`. It is now pinned in POSTGRES_003_DESCRIPTOR. Physical introspection enforces exact object identity plus this aggregate fingerprint over pg_constraint/index/trigger/policy/function semantics; human-readable exact definitions remain in the descriptor, avoiding unsafe source-vs-pretty normalization. Policy tampering remains an executable negative test. ACL validation stays separate and exhaustive.
+
+- Gate B CI #118 typecheck finding was mechanical: the simplification edit accidentally nested validator code inside semanticCatalogFingerprint and removed the exported validator. Rebuilt postgres-003-introspection.ts from stable `89507451...`, then reapplied only the pinned fingerprint assertion and exhaustive fiscal ACL rejection. No contract/security relaxation.
+
+- Gate B Codex exact-head review on `305a23d008967d64ff092aa3d762ed5c58026e60` found 2 valid P1 gaps: semantic fingerprint omitted `pg_trigger.tgenabled`, and fiscal ACL validation omitted `aclexplode.is_grantable`. Remediation adds trigger enablement to the physical fingerprint, rejects any grant option on runtime fiscal table/column privileges, and adds negative tests for disabled immutable guard and WITH GRANT OPTION. New physical fingerprint must be derived on PostgreSQL 16.14 and pinned before closure.
+
+- Gate B CI #120 derived the new PostgreSQL 16.14 physical semantic fingerprint after adding trigger `tgenabled`: `9ed9957213c823c721a01dc3542fbf4b9d78cb5b809c11b3343ce5d02e57c4aa`. Descriptor pin updated; next exact-head CI must exercise trigger-disable and grant-option negative tests.
+
+- Gate B Codex exact-head review on `68c30a7cfa4aa3149a1ba6426a277af9b7ad4aa3` found 3 valid P1 validator gaps: physical column metadata was not fingerprinted, required fiscal function EXECUTE ACLs were not fingerprinted/validated, and integration-extension grants omitted `is_grantable`. Remediation fingerprints complete fiscal + 003 integration column metadata and function `proacl`, rejects grant options on integration-extension ACLs, and adds negative tests for DROP NOT NULL, REVOKE EXECUTE, and WITH GRANT OPTION. A new PostgreSQL 16.14 physical fingerprint must be derived and pinned before closure.
+
+- Gate B CI #122 derived PostgreSQL 16.14 physical semantic fingerprint after adding complete fiscal/integration column metadata and fiscal function `proacl`: `873b344acc299e2df800cd0c1c0a7bef47f48ffde4578cec4fc49008898b4f00`. Descriptor pin updated. Next exact-head CI must exercise DROP NOT NULL, REVOKE EXECUTE and integration WITH GRANT OPTION negative tests.
+
+- Gate B CI #123 reached all new tamper tests but exposed a false-positive source: raw `pg_proc.proacl` array ordering changes after revoke/regrant even when effective EXECUTE semantics are restored. Function ACL fingerprinting is now canonicalized through `aclexplode`, ordered by function identity, grantee, privilege and `is_grantable`; raw proacl representation is removed from the hash. New physical fingerprint required.
+
+- Gate B CI #124 derived the canonical PostgreSQL 16.14 fingerprint after normalizing fiscal function ACLs through ordered `aclexplode`: `51785625647046ba81b7189a9e3c48187d95441fa852b94b0887a785864a33d3`. Descriptor pin updated. Next exact-head CI is the closure run for column metadata, function EXECUTE ACL and integration grant-option coverage.
+
+- Gate B CI #125 isolated function ACL hashing as representation-sensitive after exact revoke/regrant restoration. Function bodies/attributes remain in the semantic fingerprint; runtime EXECUTE ACLs are now validated separately against descriptor-owned exact grants (`safe_external_text`, `has_correlated_generation_evidence` -> pos_app,pos_worker), PUBLIC remains prohibited, and runtime EXECUTE grant options are rejected. Function ACLs are removed from the global hash; new stable fingerprint required.
+
+- Gate B CI #127 derived the stable PostgreSQL 16.14 physical catalog fingerprint after removing runtime function ACLs from the global hash and validating them separately: `3628b68a2c9a74aa8397d08419e3c7ab8e2f38b8242ba45a0a692db7728114e6`. Descriptor pin updated. Next exact-head CI is the closure run for all validator findings.
+
+- Gate B CI #128 proved the global physical fingerprint is still non-deterministic across fresh equivalent databases (`3628...` vs `3109...`). No new pin is accepted. Diagnostic instrumentation now reports per-component SHA-256 for columns, constraints, indexes, triggers, policies and functions so the unstable component can be isolated via repeated execution of the same exact HEAD.
+
+- Gate B fingerprint stability was rechecked on exact HEAD `411c3690926990ddd078e6970fe16ad961694978` with two independent reruns of the same PostgreSQL job. Both produced identical aggregate SHA `3628b68a2c9a74aa8397d08419e3c7ab8e2f38b8242ba45a0a692db7728114e6` and identical per-table column hashes plus identical constraint/index/trigger/policy/function hashes. Descriptor pin restored to that exact-head repeated baseline; next CI is closure evidence, not diagnostic pinning.
+
+- Gate B CI #132 isolated the remaining column-fingerprint divergence to predecessor-owned columns on `integrations.integration_dispatches` and `integrations.external_webhook_receipts`; all ten fiscal table column hashes were identical across both physical variants. SQL003 introspection now fingerprints all `fiscal.*` column metadata plus only the 003-owned extension columns on those two integrations tables. Predecessor-owned integration columns remain governed by exact 001/002 validation and are no longer mixed into the 003 semantic hash.
+
+- Gate B CI #136 closure evidence: PostgreSQL 16.14 completed apply, exact semantic introspection, negative tamper checks, no-op, guarded down, exact-002 restoration and reapply on `158317182e6c604904bf84ec9e2a680313f1b177`. The semantic fingerprint normalizes physical ordinals only for 003-owned columns added to predecessor `integrations` tables, because down/reapply legitimately assigns new `attnum` values while all contract metadata remains exact. Gate B remains `NO_PASS` until fresh independent exact-head review and thread reconciliation.
+
+- Gate B CI #141 remediation evidence: exact-head `f8fe93bf8d4a224ae52c265dcdf947177e0e64c0` closes the three P1 findings from review of `22123a9e...`: no-op validation now fingerprints complete `integrations` semantics, all non-owner fiscal ACL grantees must be contract-listed, and owned index fingerprints include `indisvalid/indisready/indislive`. Executable negative tests tamper an untouched 002 policy, grant DELETE to an unlisted role and invalidate an owned index; all fail closed, restoration succeeds, and apply/no-op/down/exact-002/reapply remain green. Gate B remains `NO_PASS` until independent review of the final documentation SHA.
+
+- Gate B CI #144 additional ACL/RLS evidence: exact-head `62cdea1d6fe6e8e25b19b6e82b16d577c130ada6` closes the three P1 findings from review of `af24046c...`: all predecessor integration tables have exact owner/ENABLE RLS/FORCE RLS state, PUBLIC is rejected at both fiscal table and column ACL levels, and fiscal schema ACLs require the exact non-grantable USAGE matrix with no PUBLIC or unlisted grantees. Negative tamper tests disable integration RLS, grant a fiscal column to PUBLIC and revoke pos_app schema USAGE; all fail closed and exact restoration plus the full physical cycle remain green. Gate B remains `NO_PASS` until independent review of the final documentation SHA.
+
+- Gate B runner/introspection slice closure: `PASS` for SQL003 code HEAD `9c486780594b5ad903ce9f6f749a2ee3fb788d1b`. Evidence: PostgreSQL 16.14 CI #145 / run `33123036689` SUCCESS, 45/45 then-current review threads resolved, and Codex exact-head result `Didn't find any major issues` on the same SHA. Gate B global remains `IN_PROGRESS / NO_PASS` because Modelo A functional and concurrency suites are still `NOT_MATERIALIZED`; PR #11 remains DRAFT and merge is not authorized.
+
+- Gate B checkpoint reconciliation after documentation review: the operational runner/introspection slice is closed with physical evidence, but this does not promote the whole Gate B. Remaining blockers are the executable Modelo A functional suite and the required concurrency races (claim/retry/reprepare/webhook/reconciliation/publication). No merge or next-scope work is authorized.
+
+- Gate B Modelo A materialization: commit `fa2097fc23445e4ba6edea678c0789656f041212` introduced the executable functional/concurrency suite without product SQL remediation first. CI #149 exposed physical defects instead of masking them.
+- Gate B demonstrated remediations: reprepare historical-dispatch cancellation and webhook ingress ACL were corrected; SQL003 now replaces the inherited 002 webhook insert guard that reads nonexistent `NEW.status` with a `processing_status`-aware 003 guard while preserving exact 002 on down.
+- Gate B CI #154 on `415315873b4978a584451124fa0b642bb13f5a37` reached 159/160 tests and 6/7 Modelo A; the sole late-webhook failure proved `pos_worker` RLS could not SELECT the current DRAFT preparation during historical-generation quarantine.
+- Gate B RLS remediation: `pos_worker` now has tenant-scoped SELECT on preparations while UPDATE remains separately restricted to FROZEN or admissible historical-evidence rows. No SECURITY DEFINER and no write-surface widening.
+- Gate B implementation validation: CI #156 / run `33130461450` on `89d8c5fa9697fd28ecd6685c0824caf73340f489` is SUCCESS. Typecheck, SQLite, PostgreSQL 001/002/003, physical runner apply/introspection/down/exact-002/reapply, 7/7 Modelo A, MAT-003 preflight and role-readiness all pass. Gate B remains a closure candidate until the final documentation/evidence HEAD receives fresh exact-head CI and independent review.

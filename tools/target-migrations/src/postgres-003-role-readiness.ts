@@ -11,11 +11,11 @@ import {
   uuidV7,
 } from "./shared.js";
 
-export const ROLE_READINESS_RECEIPT_VERSION = 1 as const;
-export const ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION = 1 as const;
+export const ROLE_READINESS_RECEIPT_VERSION = 2 as const;
+export const ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION = 2 as const;
 export const ROLE_READINESS_TARGET_ROLE = "pos_platform_admin" as const;
 export const ROLE_READINESS_OPERATION_TYPE = "MAT003_PREFLIGHT_CANONICAL_ROLE_READINESS" as const;
-export const ROLE_READINESS_AUTOMATIC_REVERSAL_COMPATIBLE_VERSIONS = [1] as const;
+export const ROLE_READINESS_AUTOMATIC_REVERSAL_COMPATIBLE_VERSIONS = [1, 2] as const;
 
 export type RoleReadinessState = "MISSING" | "READY" | "PARTIAL" | "UNEXPECTED";
 export type ReversalFailureCode =
@@ -76,9 +76,7 @@ interface ArtifactHashes {
   migration_002_down_sha256: string;
 }
 
-export interface RoleReadinessReceiptPayload {
-  receipt_version: 1;
-  lifecycle_contract_version: 1;
+interface RoleReadinessReceiptPayloadBase {
   operation_id: string;
   operation_type: typeof ROLE_READINESS_OPERATION_TYPE;
   operation: "APPLY";
@@ -98,8 +96,26 @@ export interface RoleReadinessReceiptPayload {
   contract_validation_after: "PASS";
   catalog_validation_before: "PASS";
   catalog_validation_after: "PASS";
+}
+
+export interface RoleReadinessReceiptPayloadV1 extends RoleReadinessReceiptPayloadBase {
+  receipt_version: 1;
+  lifecycle_contract_version: 1;
   governance: { sql_003: "ABSENT"; descriptor_003: "ABSENT"; migration_003_ledger_entries: 0; fiscal_schema: "ABSENT" };
 }
+
+export interface RoleReadinessReceiptPayloadV2 extends RoleReadinessReceiptPayloadBase {
+  receipt_version: 2;
+  lifecycle_contract_version: 2;
+  governance: {
+    sql_003: "ABSENT" | "PRESENT_UNAPPLIED";
+    descriptor_003: "PRESENT_UNAPPLIED";
+    migration_003_ledger_entries: 0;
+    fiscal_schema: "ABSENT";
+  };
+}
+
+export type RoleReadinessReceiptPayload = RoleReadinessReceiptPayloadV1 | RoleReadinessReceiptPayloadV2;
 
 export interface RoleReadinessReceipt {
   receipt_payload: RoleReadinessReceiptPayload;
@@ -179,10 +195,28 @@ async function artifactHashes(): Promise<ArtifactHashes> {
   return hashes;
 }
 
-async function verifyRepository003Absent(): Promise<void> {
+async function repository003ArtifactState(): Promise<RoleReadinessReceiptPayloadV2["governance"]> {
   const names = await readdir(new URL("../sql/postgres/", import.meta.url));
-  invariant(!names.some((name) => /^003(?:_|\.|-)/.test(name)), "CATALOG_OR_PREDECESSOR_INVALID");
-  invariant(!("POSTGRES_003_DESCRIPTOR" in contract), "CATALOG_OR_PREDECESSOR_INVALID");
+  const descriptor = contract.POSTGRES_003_DESCRIPTOR;
+  invariant(descriptor?.migrationId === "003_fiscal_electronic_invoicing_foundation", "CATALOG_OR_PREDECESSOR_INVALID");
+  invariant(sameObject(descriptor.dependencies, ["001_central_foundation", "002_external_integrations_foundation"]), "CATALOG_OR_PREDECESSOR_INVALID");
+  invariant(descriptor.sqliteArtifact === "NONE" && descriptor.fiscalTableCount === 10, "CATALOG_OR_PREDECESSOR_INVALID");
+
+  const expectedUp = descriptor.upArtifact.replace("postgres/", "");
+  const expectedDown = descriptor.downArtifact.replace("postgres/", "");
+  const upPresent = names.includes(expectedUp);
+  const downPresent = names.includes(expectedDown);
+  invariant(upPresent === downPresent, "CATALOG_OR_PREDECESSOR_INVALID");
+
+  const unexpected003 = names.filter((name) => /^003(?:_|\.|-)/.test(name) && name !== expectedUp && name !== expectedDown);
+  invariant(unexpected003.length === 0, "CATALOG_OR_PREDECESSOR_INVALID");
+
+  return {
+    sql_003: upPresent ? "PRESENT_UNAPPLIED" : "ABSENT",
+    descriptor_003: "PRESENT_UNAPPLIED",
+    migration_003_ledger_entries: 0,
+    fiscal_schema: "ABSENT",
+  };
 }
 
 async function verifyRuntimeAndTarget(db: SqlExecutor, config: RoleReadinessConfig, expectedUser: string): Promise<void> {
@@ -238,7 +272,7 @@ async function verifyPredecessors(db: SqlExecutor): Promise<void> {
     (SELECT count(*)::text FROM platform.target_migration_executions WHERE migration_id LIKE '003\\_%' ESCAPE '\\') entries,
     to_regnamespace('fiscal') IS NOT NULL fiscal`))[0];
   invariant(governance?.entries === "0" && !governance.fiscal, "CATALOG_OR_PREDECESSOR_INVALID");
-  await verifyRepository003Absent();
+  await repository003ArtifactState();
   try { await validatePostgres002Catalog(db); } catch { throw new ReadinessError("CATALOG_OR_PREDECESSOR_INVALID"); }
 }
 
@@ -394,7 +428,10 @@ export function validateRoleReadinessReceipt(value: unknown): RoleReadinessRecei
   invariant(typeof wrapper.receipt_sha256==="string"&&/^[0-9a-f]{64}$/.test(wrapper.receipt_sha256),"INVALID_RECEIPT");
   exactKeys(wrapper.receipt_payload,["receipt_version","lifecycle_contract_version","operation_id","operation_type","operation","result","repository_commit","artifacts","target","identities","started_at","completed_at","global_lock_resource","state_before","acl_before","state_after","acl_after","contract_validation_before","contract_validation_after","catalog_validation_before","catalog_validation_after","governance"]);
   const payload=wrapper.receipt_payload as Record<string,unknown>;
-  invariant(payload.receipt_version===1&&payload.lifecycle_contract_version===1&&payload.operation_type===ROLE_READINESS_OPERATION_TYPE&&payload.operation==="APPLY"&&payload.result==="SUCCESS"&&payload.state_before==="MISSING"&&payload.state_after==="READY", "INVALID_RECEIPT");
+  const versionPairValid =
+    (payload.receipt_version === 1 && payload.lifecycle_contract_version === 1) ||
+    (payload.receipt_version === 2 && payload.lifecycle_contract_version === 2);
+  invariant(versionPairValid&&payload.operation_type===ROLE_READINESS_OPERATION_TYPE&&payload.operation==="APPLY"&&payload.result==="SUCCESS"&&payload.state_before==="MISSING"&&payload.state_after==="READY", "INVALID_RECEIPT");
   invariant(typeof payload.operation_id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.operation_id),"INVALID_RECEIPT");
   invariant(typeof payload.repository_commit==="string"&&/^[0-9a-f]{40}$/.test(payload.repository_commit),"INVALID_RECEIPT");
   for(const key of ["started_at","completed_at"]){const date=payload[key];invariant(typeof date==="string"&&!Number.isNaN(Date.parse(date))&&new Date(date).toISOString()===date,"INVALID_RECEIPT");}
@@ -402,7 +439,12 @@ export function validateRoleReadinessReceipt(value: unknown): RoleReadinessRecei
   exactKeys(payload.artifacts,["readiness_up_sha256","readiness_down_sha256","migration_001_up_sha256","migration_001_down_sha256","migration_002_up_sha256","migration_002_down_sha256"]);invariant(Object.values(payload.artifacts as Record<string,unknown>).every(item=>typeof item==="string"&&/^[0-9a-f]{64}$/.test(item)),"INVALID_RECEIPT");
   exactKeys(payload.target,["environment_id","database_name","postgres_version_num"]);const target=payload.target as Record<string,unknown>;invariant(typeof target.environment_id==="string"&&target.environment_id.length>0&&typeof target.database_name==="string"&&target.database_name.length>0&&target.postgres_version_num==="160014","INVALID_RECEIPT");
   exactKeys(payload.identities,["session_user","effective_role","target_role","operator_or_job_id"]);const identities=payload.identities as Record<string,unknown>;invariant(identities.session_user==="pos_migrator"&&identities.effective_role==="pos_schema_owner"&&identities.target_role===ROLE_READINESS_TARGET_ROLE&&(identities.operator_or_job_id===null||(typeof identities.operator_or_job_id==="string"&&identities.operator_or_job_id.length>0)),"INVALID_RECEIPT");
-  exactKeys(payload.governance,["sql_003","descriptor_003","migration_003_ledger_entries","fiscal_schema"]);const governance=payload.governance as Record<string,unknown>;invariant(governance.sql_003==="ABSENT"&&governance.descriptor_003==="ABSENT"&&governance.migration_003_ledger_entries===0&&governance.fiscal_schema==="ABSENT","INVALID_RECEIPT");
+  exactKeys(payload.governance,["sql_003","descriptor_003","migration_003_ledger_entries","fiscal_schema"]);const governance=payload.governance as Record<string,unknown>;
+  if (payload.receipt_version === 1) {
+    invariant(governance.sql_003==="ABSENT"&&governance.descriptor_003==="ABSENT"&&governance.migration_003_ledger_entries===0&&governance.fiscal_schema==="ABSENT","INVALID_RECEIPT");
+  } else {
+    invariant((governance.sql_003==="ABSENT"||governance.sql_003==="PRESENT_UNAPPLIED")&&governance.descriptor_003==="PRESENT_UNAPPLIED"&&governance.migration_003_ledger_entries===0&&governance.fiscal_schema==="ABSENT","INVALID_RECEIPT");
+  }
   validateAcl(payload.acl_before);validateAcl(payload.acl_after);invariant(classifyRoleReadiness(payload.acl_before)==="MISSING"&&classifyRoleReadiness(payload.acl_after)==="READY","INVALID_RECEIPT");
   const digest=sha256(canonicalJson(payload)).toString("hex");invariant(digest===wrapper.receipt_sha256,"RECEIPT_INTEGRITY_FAILURE");
   return value as unknown as RoleReadinessReceipt;
@@ -427,7 +469,8 @@ export async function applyRoleReadiness(config:RoleReadinessConfig):Promise<Rol
     try{await database.connection().execute(async(connection)=>{await executeRaw(connection,"BEGIN");try{await prepareLockedOwner(connection,config);before=await inspectRoleReadinessAcl(connection);const state=classifyRoleReadiness(before);invariant(state==="MISSING"||state==="READY",state==="PARTIAL"?"PARTIAL_STATE":"UNEXPECTED_STATE");if(state==="READY"){await executeRaw(connection,"COMMIT");return;}await executeRaw(connection,up);after=await inspectRoleReadinessAcl(connection);invariant(classifyRoleReadiness(after)==="READY","CURRENT_SECURITY_STATE_MISMATCH");await validatePostgres002Catalog(connection);await executeRaw(connection,"COMMIT");committed=true;operationId=uuidV7();}catch(error){try{await executeRaw(connection,"ROLLBACK");}catch{}throw error;}});}finally{await database.destroy();}
     if(!operationId){await freshAdminPostcheck(config,"READY");return {operation:"APPLY",result:"READY_NO_OP",state:"READY",failure_code:null,operation_id:null,receipt_path:null,receipt_sha256:null};}
     const fresh=await freshAdminPostcheck(config,"READY");invariant(sameObject(fresh,after),"CURRENT_SECURITY_STATE_MISMATCH");
-    const payload:RoleReadinessReceiptPayload={receipt_version:1,lifecycle_contract_version:1,operation_id:operationId,operation_type:ROLE_READINESS_OPERATION_TYPE,operation:"APPLY",result:"SUCCESS",repository_commit:config.repositoryCommit,artifacts,target:{environment_id:config.environmentId,database_name:config.expectedDatabase,postgres_version_num:"160014"},identities:{session_user:"pos_migrator",effective_role:"pos_schema_owner",target_role:ROLE_READINESS_TARGET_ROLE,operator_or_job_id:config.operatorOrJobId??null},started_at:startedAt,completed_at:isoNow(),global_lock_resource:POSTGRES_MIGRATION_LOCK_RESOURCE,state_before:"MISSING",acl_before:before!,state_after:"READY",acl_after:after!,contract_validation_before:"PASS",contract_validation_after:"PASS",catalog_validation_before:"PASS",catalog_validation_after:"PASS",governance:{sql_003:"ABSENT",descriptor_003:"ABSENT",migration_003_ledger_entries:0,fiscal_schema:"ABSENT"}};
+    const repositoryGovernance=await repository003ArtifactState();
+    const payload:RoleReadinessReceiptPayloadV2={receipt_version:ROLE_READINESS_RECEIPT_VERSION,lifecycle_contract_version:ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,operation_id:operationId,operation_type:ROLE_READINESS_OPERATION_TYPE,operation:"APPLY",result:"SUCCESS",repository_commit:config.repositoryCommit,artifacts,target:{environment_id:config.environmentId,database_name:config.expectedDatabase,postgres_version_num:"160014"},identities:{session_user:"pos_migrator",effective_role:"pos_schema_owner",target_role:ROLE_READINESS_TARGET_ROLE,operator_or_job_id:config.operatorOrJobId??null},started_at:startedAt,completed_at:isoNow(),global_lock_resource:POSTGRES_MIGRATION_LOCK_RESOURCE,state_before:"MISSING",acl_before:before!,state_after:"READY",acl_after:after!,contract_validation_before:"PASS",contract_validation_after:"PASS",catalog_validation_before:"PASS",catalog_validation_after:"PASS",governance:repositoryGovernance};
     receiptHash=sha256(canonicalJson(payload)).toString("hex");const receipt={receipt_payload:payload,receipt_sha256:receiptHash};
     try{await publishReceipt(config.receiptOutputPath!,receipt);}catch{return {operation:"APPLY",result:"APPLIED_WITHOUT_DURABLE_RECEIPT",state:"READY",failure_code:"RECEIPT_PUBLICATION_FAILED",operation_id:operationId,receipt_path:null,receipt_sha256:null};}
     return {operation:"APPLY",result:"READY_WITH_RECEIPT",state:"READY",failure_code:null,operation_id:operationId,receipt_path:config.receiptOutputPath!,receipt_sha256:receiptHash};

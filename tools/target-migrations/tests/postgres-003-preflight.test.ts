@@ -101,6 +101,26 @@ describe("MAT-003-PREFLIGHT remediated materialization",()=>{
     expect(missingColumns).toEqual(["platform.target_migration_executions.checksum","platform.target_migration_executions.migration_id","platform.target_migration_executions.status"]);
     expect(await runMat003Preflight(databaseUrl(DATABASES[0],"pos_platform_admin"))).toMatchObject({result:"FAIL",failure_code:"PREFLIGHT_READ_PRIVILEGE_MISSING"});
   });
+  it("keeps zero-history preflight strict but permits explicit ROLLED_BACK-only history for runner reapply",async()=>{
+    const executionId=id(900001);
+    await pool.query(`
+      INSERT INTO platform.target_migration_executions(
+        execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,
+        body_committed_at,rolled_back_at,finished_at,runner_version
+      ) VALUES (
+        $1,'003_fiscal_electronic_invoicing_foundation','POSTGRESQL',1,decode(repeat('ab',32),'hex'),
+        'ROLLED_BACK',clock_timestamp()-interval '3 seconds',clock_timestamp()-interval '2 seconds',
+        clock_timestamp()-interval '1 second',clock_timestamp(),'preflight-test'
+      )
+    `,[executionId]);
+    try{
+      expect(await runMat003Preflight(canonical)).toMatchObject({result:"FAIL",failure_code:"PREDECESSOR_OR_CONTRACT_INVALID"});
+      const reapply=await runMat003Preflight(canonical,{allowClosed003History:true});
+      expect(reapply).toMatchObject({result:"PASS",database_state:{migration_003_ledger_entries:1,fiscal_schema:"ABSENT"}});
+    }finally{
+      await pool.query("DELETE FROM platform.target_migration_executions WHERE execution_id=$1",[executionId]);
+    }
+  });
   it("uses REPEATABLE READ, READ ONLY, the shared lock, six checks and always rolls back",async()=>{
     const before=await snapshot(pool);const first=await runMat003Preflight(canonical);const second=await runMat003Preflight(canonical);
     expect(first.result).toBe("PASS");expect(first.checks).toHaveLength(6);expect(first.checks.every(item=>item.status==="PASS")).toBe(true);
@@ -109,7 +129,7 @@ describe("MAT-003-PREFLIGHT remediated materialization",()=>{
   });
   it("makes the shared advisory lock the first database statement after BEGIN and reuses the same transaction for canonical catalog validation",async()=>{
     const source=await readFile(new URL("../src/postgres-003-preflight.ts",import.meta.url),"utf8");
-    expect(source).toContain(`await executeRaw(connection,"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"); started=true;\n      await acquireLock(connection); const runtime=await verifyRuntime(connection); await verifyPrivileges(connection); const state=await inspectPredecessor(connection,runtime);`);
+    expect(source).toContain(`await executeRaw(connection,"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"); started=true;\n      await acquireLock(connection); const runtime=await verifyRuntime(connection); await verifyPrivileges(connection); const state=await inspectPredecessor(connection,runtime,options);`);
     const inspection=source.slice(source.indexOf("async function inspectPredecessor"),source.indexOf("async function executeCheck"));
     expect(inspection).toContain("await validatePostgres002Catalog(db)");expect(inspection).not.toContain("postgresDatabase(");
   });
@@ -184,8 +204,15 @@ describe("MAT-003-PREFLIGHT remediated materialization",()=>{
   it("fails closed on invalid predecessor ledger under the canonical role",async()=>{
     expect(await runMat003Preflight(databaseUrl(DATABASES[1],ROLES.ok))).toMatchObject({result:"FAIL",failure_code:"PREDECESSOR_OR_CONTRACT_INVALID",checks:[]});
   });
-  it("does not create fiscal schema, migration-003 ledger state, or SQL 003",async()=>{
-    expect((await runMat003Preflight(canonical)).result).toBe("PASS");expect(await snapshot(pool)).toMatchObject({fiscal_schema:false,ledger_003:0});
-    expect((await readdir(new URL("../sql/postgres/",import.meta.url))).filter(name=>name.startsWith("003"))).toEqual([]);expect((await readdir(new URL("../sql/sqlite/",import.meta.url))).filter(name=>name.startsWith("003"))).toEqual([]);
+  it("keeps SQL003 repository artifacts PRESENT_UNAPPLIED without creating fiscal DB state",async()=>{
+    const before=await snapshot(pool);
+    expect((await runMat003Preflight(canonical)).result).toBe("PASS");
+    expect(await snapshot(pool)).toEqual(before);
+    expect(await snapshot(pool)).toMatchObject({fiscal_schema:false,ledger_003:0});
+    expect((await readdir(new URL("../sql/postgres/",import.meta.url))).filter(name=>name.startsWith("003")).sort()).toEqual([
+      "003_fiscal_electronic_invoicing_foundation.down.sql",
+      "003_fiscal_electronic_invoicing_foundation.up.sql",
+    ]);
+    expect((await readdir(new URL("../sql/sqlite/",import.meta.url))).filter(name=>name.startsWith("003"))).toEqual([]);
   });
 });
