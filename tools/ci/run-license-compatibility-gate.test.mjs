@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateLicenseCoverage, registryVersionUrl } from "./run-license-compatibility-gate.mjs";
+import { evaluateLicenseCoverage, registryVersionUrl, validateRegistryPackageIdentity } from "./run-license-compatibility-gate.mjs";
 
 const policy={schema:"pos-platform-license-compatibility-policy/v1",allow:{MIT:["preserve-license-text"],"Apache-2.0":["preserve-license-text"]},review:["NOASSERTION","NONE"],deny:["AGPL-3.0-only","AGPL-3.0-or-later","BUSL-1.1","GPL-2.0-only","GPL-2.0-or-later","GPL-3.0-only","GPL-3.0-or-later","SSPL-1.0","UNLICENSED"],allowWith:{}};
 const fp=(name,version,manifest)=>({type:"library","bom-ref":`pkg:npm/${name}@${version}`,name,version,purl:`pkg:npm/${name}@${version}`,properties:[{name:"pos-platform:first-party",value:"true"},{name:"pos-platform:manifest",value:manifest}]});
@@ -27,4 +27,10 @@ test("registry-resolved GPL stays DENY",async()=>{
   const bom={metadata:{component:fp("root","1.0.0","package.json")},components:[tp("copyleft","1.0.0")]};
   const r=await evaluateLicenseCoverage({bom,inventory:{packages:[]},policy,fetchLicense:async()=>({license:"GPL-3.0-only"})});
   assert.equal(r.records[0].decision,"DENY");
+});
+
+test("registry identity rejects non-npm names and non-exact versions",()=>{
+  assert.throws(()=>validateRegistryPackageIdentity("https://evil.example/pkg","1.0.0"),/canonical npm identity/);
+  assert.throws(()=>validateRegistryPackageIdentity("pkg","latest"),/exact SemVer/);
+  assert.deepEqual(validateRegistryPackageIdentity("@scope/pkg","1.2.3-beta.1"),{name:"@scope/pkg",version:"1.2.3-beta.1"});
 });

@@ -6,22 +6,41 @@ import { normalizedLicense } from "./generate-dependency-inventory.mjs";
 import { evaluateSpdxLicenseExpression, validateLicensePolicy } from "./validate-spdx-license.mjs";
 
 export const LICENSE_REGISTRY = "https://registry.npmjs.org/";
+const LICENSE_REGISTRY_ORIGIN = new URL(LICENSE_REGISTRY).origin;
+const MAX_REGISTRY_METADATA_BYTES = 1024 * 1024;
+const EXACT_SEMVER = /^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$/;
+const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/;
+
 function sha256(value){ return createHash("sha256").update(value).digest("hex"); }
+
+export function validateRegistryPackageIdentity(name,version) {
+  if (typeof name!=="string"||!NPM_NAME.test(name)||name.length>214) throw new Error("registry package name is not a canonical npm identity");
+  if (typeof version!=="string"||!EXACT_SEMVER.test(version)) throw new Error("registry package version must be exact SemVer");
+  return {name,version};
+}
 function isFirstParty(component){ return component?.properties?.some((p)=>p.name==="pos-platform:first-party"&&p.value==="true")===true; }
 function sbomSourceCommit(bom){ return bom?.metadata?.properties?.find((p)=>p.name==="pos-platform:source-commit")?.value ?? null; }
 
 export function registryVersionUrl(name,version) {
-  if (typeof name!=="string"||!name||typeof version!=="string"||!version) throw new TypeError("registryVersionUrl requires package name and version");
-  return `${LICENSE_REGISTRY}${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
+  const identity=validateRegistryPackageIdentity(name,version);
+  const url=new URL(`${encodeURIComponent(identity.name)}/${encodeURIComponent(identity.version)}`,LICENSE_REGISTRY);
+  if (url.origin!==LICENSE_REGISTRY_ORIGIN||url.username||url.password||url.search||url.hash) throw new Error("registry URL escaped the pinned npm origin");
+  return url.toString();
 }
 export async function fetchRegistryLicense(name,version,fetchImpl=fetch) {
-  const url=registryVersionUrl(name,version);
-  const response=await fetchImpl(url,{headers:{accept:"application/json"},signal:AbortSignal.timeout(20000)});
-  if (!response.ok) throw new Error(`registry metadata HTTP ${response.status} for ${name}@${version}`);
-  const metadata=await response.json();
-  if (metadata?.name!==name||metadata?.version!==version) throw new Error(`registry metadata identity mismatch for ${name}@${version}`);
+  const identity=validateRegistryPackageIdentity(name,version);
+  const url=registryVersionUrl(identity.name,identity.version);
+  const response=await fetchImpl(url,{method:"GET",headers:{accept:"application/json"},redirect:"error",signal:AbortSignal.timeout(20000)});
+  if (!response.ok) throw new Error(`registry metadata HTTP ${response.status} for ${identity.name}@${identity.version}`);
+  const declaredLength=Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declaredLength)&&declaredLength>MAX_REGISTRY_METADATA_BYTES) throw new Error(`registry metadata too large for ${identity.name}@${identity.version}`);
+  const raw=await response.text();
+  if (Buffer.byteLength(raw,"utf8")>MAX_REGISTRY_METADATA_BYTES) throw new Error(`registry metadata too large for ${identity.name}@${identity.version}`);
+  let metadata;
+  try { metadata=JSON.parse(raw); } catch { throw new Error(`registry metadata is not valid JSON for ${identity.name}@${identity.version}`); }
+  if (metadata?.name!==identity.name||metadata?.version!==identity.version) throw new Error(`registry metadata identity mismatch for ${identity.name}@${identity.version}`);
   const license=normalizedLicense(metadata);
-  if (!license) throw new Error(`registry metadata missing license for ${name}@${version}`);
+  if (!license) throw new Error(`registry metadata missing license for ${identity.name}@${identity.version}`);
   return {license,url};
 }
 async function mapWithConcurrency(items,limit,mapper) {
