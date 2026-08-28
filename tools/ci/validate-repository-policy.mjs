@@ -30,6 +30,11 @@ const manifestPaths = [
   'packages/testing/package.json',
   'tools/target-migrations/package.json',
 ];
+const governedWorkspaceNames = new Set(
+  manifestPaths
+    .filter((manifestPath) => manifestPath.startsWith('packages/'))
+    .map((manifestPath) => readJson(manifestPath).name),
+);
 const forbiddenLifecycleScripts = new Set([
   'preinstall',
   'install',
@@ -56,8 +61,9 @@ for (const manifestPath of manifestPaths) {
 
   for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
     for (const [name, specifier] of Object.entries(manifest[section] ?? {})) {
-      if (!exactSemver.test(specifier)) {
-        addViolation(`${manifestPath}: ${section}.${name} must use an exact SemVer version, found '${specifier}'`);
+      const isGovernedWorkspaceReference = governedWorkspaceNames.has(name) && workspaceSpecifier.test(specifier);
+      if (!exactSemver.test(specifier) && !isGovernedWorkspaceReference) {
+        addViolation(`${manifestPath}: ${section}.${name} must use exact SemVer or a governed workspace: specifier, found '${specifier}'`);
       }
     }
   }
