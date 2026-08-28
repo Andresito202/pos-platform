@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 interface EncryptedSecret {
@@ -27,14 +27,25 @@ export class EncryptedFileSecretStore {
   ) {
     if (!context) throw new Error("secret store context is required");
     const supplied = keyProvider.loadKey(context);
-    if (supplied.byteLength !== 32) throw new Error("secret store key must be exactly 256 bits");
-    this.key = Buffer.from(supplied);
+    try {
+      if (supplied.byteLength !== 32) throw new Error("secret store key must be exactly 256 bits");
+      this.key = Buffer.from(supplied);
+    } finally {
+      supplied.fill(0);
+    }
     this.protection = keyProvider.protection;
   }
 
   private path(name: string): string {
     if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) throw new Error("invalid secret name");
     return join(this.directory, `${name}.secret`);
+  }
+
+  has(name: string): boolean {
+    const target = this.path(name);
+    if (!existsSync(target)) return false;
+    if (lstatSync(target).isSymbolicLink()) throw new Error("secret file cannot be a symbolic link");
+    return true;
   }
 
   write(name: string, plaintext: Buffer): void {
@@ -76,5 +87,9 @@ export class EncryptedFileSecretStore {
     } catch {
       throw new Error("secret envelope authentication failed");
     }
+  }
+
+  destroy(): void {
+    this.key.fill(0);
   }
 }
