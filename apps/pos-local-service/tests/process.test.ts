@@ -41,11 +41,16 @@ function spawnService(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullSt
 }
 
 function spawnServiceWithControl(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams {
-  return spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
+  const child = spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
     cwd: process.cwd(),
     env: { ...environment, NODE_ENV: "test" },
     stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
+  if (!child.stdin || !child.stdout || !child.stderr) {
+    child.kill();
+    throw new Error("controlled service process did not expose piped stdio");
+  }
+  return child as ChildProcessWithoutNullStreams;
 }
 
 function spawnServiceWithFatal(
