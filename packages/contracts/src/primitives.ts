@@ -17,7 +17,7 @@ export const IdempotencyKeySchema = z.string().min(1).max(200).regex(IDEMPOTENCY
 export const Sha256HexSchema = z.string().length(64).regex(SHA256_HEX_PATTERN);
 export const VersionIdentifierSchema = z.string().min(1).max(64).regex(VERSION_IDENTIFIER_PATTERN);
 export const ExpectedVersionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-export const UtcDateTimeSchema = z.iso.datetime().regex(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/);
+export const UtcDateTimeSchema = z.iso.datetime().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/);
 
 export type ContractVersion = z.infer<typeof ContractVersionSchema>;
 export type StableCode = z.infer<typeof StableCodeSchema>;
