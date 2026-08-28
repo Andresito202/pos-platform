@@ -11,8 +11,8 @@ import {
 import { encodeFrame, FrameDecoder } from "./framing.js";
 import type { LocalChannelAuthenticator } from "./authenticator.js";
 import {
+  hardenWindowsNamedPipeSecurity,
   inspectWindowsNamedPipeSecurity,
-  restrictCurrentProcessNamedPipeDefaults,
 } from "./windows-pipe-security.js";
 
 export type ChannelHandler = (request: IpcRequest, signal: AbortSignal) => Promise<unknown>;
@@ -68,11 +68,13 @@ export class LocalChannelServer {
 
   async start(): Promise<void> {
     if (this.server) throw new Error("local channel server already started");
-    if (process.platform === "win32") {
-      restrictCurrentProcessNamedPipeDefaults();
-    }
+    let acceptingTraffic = process.platform !== "win32";
 
     const server = createServer((socket) => {
+      if (!acceptingTraffic) {
+        socket.destroy();
+        return;
+      }
       if (this.sockets.size >= this.maxConnections) {
         socket.destroy();
         return;
@@ -168,18 +170,31 @@ export class LocalChannelServer {
       socket.once("error", () => socket.destroy());
     });
 
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(this.endpoint, () => {
-        server.off("error", reject);
-        resolve();
-      });
-    });
-
     try {
-      if (process.platform === "win32") {
-        inspectWindowsNamedPipeSecurity(this.endpoint);
-      }
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => {
+          server.off("error", onError);
+          reject(error);
+        };
+        server.once("error", onError);
+        server.listen(this.endpoint, () => {
+          server.off("error", onError);
+          try {
+            if (process.platform === "win32") {
+              hardenWindowsNamedPipeSecurity(this.endpoint);
+              inspectWindowsNamedPipeSecurity(this.endpoint);
+              setTimeout(() => {
+                acceptingTraffic = true;
+                resolve();
+              }, 25);
+              return;
+            }
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
       this.server = server;
     } catch (error) {
       for (const socket of this.sockets) socket.destroy();
