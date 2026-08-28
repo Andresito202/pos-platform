@@ -314,8 +314,8 @@ jobs:
       - name: Validate Windows SQLite backup, restore and recovery
         run: pnpm --filter @pos-platform/database-sqlite test
 
-      - name: Validate Windows named-pipe protocol path and DPAPI custody
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/channel.test.ts tests/security.test.ts tests/windows-dpapi.test.ts
+      - name: Validate Windows POS Local Service runtime
+        run: pnpm --filter @pos-platform/pos-local-service test
 
   provenance:
     name: Provenance evidence
