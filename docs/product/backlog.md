@@ -143,7 +143,7 @@ Estado: `IN_PROGRESS`
 
 Rama activa: `tech/tech004-quality-supply-chain-20260828`.
 
-Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST, hardening del inventory y el gate de vulnerabilidades de dependencias están materializados y ejecutados en la rama activa. SBOM, licencias completas y provenance permanecen sin materializar. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
+Primer slice autorizado: controles estáticos y de supply chain que pueden ejecutarse sin runtime productivo. CodeQL/SAST, hardening del inventory, vulnerabilidades, SBOM CycloneDX y compatibilidad SPDX están materializados y ejecutados en la rama activa. Provenance/attestations permanece sin materializar. No autoriza todavía NestJS, Electron, POS Local Service, named pipes, provider adapters ni despliegue productivo.
 
 Los controles que dependen de aplicaciones/runtime — lint de apps, E2E, packaging, firma/release y promoción — permanecen pendientes hasta que existan artefactos ejecutables reales.
 
@@ -326,8 +326,8 @@ Pendiente cuando se retome como línea activa:
 - lint del runtime/aplicaciones;
 - CodeQL/SAST + Bloque 1 hardening: `59d5b57110138236e056ca93c969b0a208f2c293`, TARGET #200 y CodeQL #11 SUCCESS; SARIF 0 results, workspace inventory tests PASS;
 - vulnerability scanning con piso high/critical materializado y ejecutado en Bloque 2; checkpoint 691b5051599c735f393c13d3dad8d67bcde8af01, TARGET #201 y CodeQL #12 SUCCESS, audit 0 advisories;
-- SBOM estándar y firmado;
-- compatibilidad legal de licencias completa;
+- SBOM CycloneDX 1.6 materializado y ejecutado; firma/provenance permanece para Bloque 5;
+- gate SPDX de compatibilidad de licencias materializado y ejecutado; no sustituye revisión jurídica cuando una futura licencia requiera review;
 - provenance/attestations;
 - firma de releases;
 - runtime/E2E tests;
@@ -804,4 +804,8 @@ Una tarea no está cerrada hasta que:
 - TECH-004 Block 2 registry-source hardening: senior review found that inheriting registry configuration could redirect advisory lookup and weaken the meaning of a green audit. The gate now pins `https://registry.npmjs.org/` explicitly and has an executable regression proving `--ignore-registry-errors` is absent. Fresh TARGET + CodeQL + audit evidence is required on the new HEAD.
 
 
-- TECH-004 Block 3 SBOM materialization: CycloneDX JSON 1.6 is generated from the recursive pnpm graph after frozen install, crossed with root/apps/packages/tools workspace discovery. The artifact carries exact npm PURLs, dependency relationships, reviewed source SHA, lockfile digest and a separate SHA-256 digest. Unit regressions cover determinism, complete workspace binding, link resolution, cycles, dangling relations and tamper detection. This commit remains `MATERIALIZED / EXACT_HEAD_EXECUTION_PENDING`; it does not promote license, provenance, runtime or merge gates.
+- TECH-004 Block 3 SBOM closure: `83ac7d75a77ee371a943fc6cc087e4934eeb1d47`, TARGET #213 / run `33172374084` SUCCESS and CodeQL #24 / run `33172374139` SUCCESS. CycloneDX 1.6 emitted 259 components, 10 workspaces and 259 relationship entries; all 194 installed inventory identities are contained in the SBOM and 55 additional identities are optional platform-specific nodes retained by the pnpm graph.
+
+- TECH-004 Block 4 implementation checkpoint: `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`, TARGET #217 / run `33174019861` SUCCESS and CodeQL #28 / run `33174019863` SUCCESS. License gate evaluated 249/249 third-party SBOM components: 194 from installed inventory and 55 from exact npm registry version metadata, with 249 ALLOW / 0 REVIEW_REQUIRED / 0 DENY. License report SHA-256 `396127e73667c5e945fc2b4f60cf2059ee8bc7d7e7c4d9974f81ea97d6bdedd1`.
+- Block 4 hardening: CodeQL #25 exposed the intentional file-to-HTTP metadata lookup. The implementation now accepts only canonical npm names and exact SemVer, pins `registry.npmjs.org`, rejects redirects/query/credentials and caps registry metadata at 1 MiB. Intermediate regex serialization failures #215/#216 remain historical failures; CodeQL #28 finished with 0 SARIF results without suppressions.
+- This documentation reconciliation changes HEAD, so Blocks 3-4 require fresh TARGET + CodeQL + vulnerability + SBOM + license evidence before final closure. Next technical block is provenance/attestations; runtime remains out of scope.
