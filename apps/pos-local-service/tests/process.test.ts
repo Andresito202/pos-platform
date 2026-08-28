@@ -40,6 +40,28 @@ function spawnService(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullSt
   });
 }
 
+function spawnServiceWithFatal(
+  environment: NodeJS.ProcessEnv,
+  mode: "uncaughtException" | "unhandledRejection",
+): ChildProcessWithoutNullStreams {
+  const fault = mode === "uncaughtException"
+    ? 'setImmediate(() => { throw new Error("fatal-process-test"); });'
+    : 'setImmediate(() => { void Promise.reject(new Error("fatal-process-test")); });';
+  const script = `await import("./src/main.ts"); ${fault}`;
+  return spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
+    cwd: process.cwd(),
+    env: environment,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+function captureStdout(child: ChildProcessWithoutNullStreams): () => string {
+  child.stdout.setEncoding("utf8");
+  let output = "";
+  child.stdout.on("data", (chunk: string) => { output += chunk; });
+  return () => output;
+}
+
 function waitForLogEvent(
   child: ChildProcessWithoutNullStreams,
   event: string,
@@ -117,4 +139,16 @@ describe("POS Local Service process boundary", () => {
     const exitCode = await waitForExit(child);
     expect(exitCode).toBe(1);
   });
+
+  for (const mode of ["uncaughtException", "unhandledRejection"] as const) {
+    it(`fails closed and performs bounded shutdown on ${mode}`, async () => {
+      const dataDirectory = await directory();
+      const child = spawnServiceWithFatal(serviceEnvironment(dataDirectory), mode);
+      const stdout = captureStdout(child);
+      expect(await waitForExit(child)).toBe(1);
+      expect(stdout()).toContain('"event":"runtime.started"');
+      expect(stdout()).toContain('"event":"runtime.stopping"');
+      expect(stdout()).toContain(`"reason":"${mode}"`);
+    });
+  }
 });
