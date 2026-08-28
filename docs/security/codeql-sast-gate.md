@@ -59,3 +59,11 @@ El repositorio privado no tiene code scanning habilitado: la primera ejecución 
 El run #10 sobre `5ff292fbf0497748efce5d48d763990b0e0e4763` escaneó 48/48 TypeScript, 6/6 JavaScript y 2/2 GitHub Actions. Produjo un resultado SARIF no bloqueante `js/file-system-race` dentro del scanner de repository policy.
 
 TECH-004 no lo suprime: el candidato de Bloque 1 reemplaza la secuencia path-check/path-read por apertura `O_NOFOLLOW`, `fstat` y lectura del mismo descriptor. El cambio requiere CodeQL y TARGET frescos antes de considerarse cerrado.
+
+## Triage de Bloque 4 — egress de metadata de licencias
+
+CodeQL #25 sobre `64385f79de80e90bce1415e29b3a94a91fba7f6e` produjo `js/file-access-to-http` porque nombre/versión provenientes del SBOM alimentaban la consulta de metadata de licencias.
+
+No se suprimió el finding. El flujo se restringió a nombres npm canónicos y versiones SemVer exactas, origin fijo `https://registry.npmjs.org`, sin redirects/query/credenciales y con respuesta máxima de 1 MiB. Los fallos intermedios #215/#216 fueron errores mecánicos de serialización de regex y permanecen como evidencia histórica.
+
+Sobre `4c5d067c89bd9bd8a42b1f08bbdce61638a88fe9`, CodeQL #28 escaneó 48/48 TypeScript, 19/19 JavaScript y 2/2 workflows con 0 resultados SARIF y 0 bloqueantes. No existe suppress ni excepción asociada.
