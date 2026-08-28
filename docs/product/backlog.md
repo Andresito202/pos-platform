@@ -347,15 +347,46 @@ Diferido hasta que existan artefactos runtime/release reales:
 
 TECH-004 quedó `DONE / INTEGRATED` mediante PR #15. El cierre exact-head fue `cc8aba3f8f873eab9ba7a5d93803870487eed810`; el merge canónico es `cf8632c032d0cdd0e7e5c8cb21b532b35294218f`. TARGET #226 y CodeQL #37 post-merge quedaron `SUCCESS`, con provenance exact-head verde. Los gates de runtime/E2E/release se incorporarán en la línea runtime posterior cuando existan artefactos ejecutables reales.
 
+## Runtime TARGET — roadmap normativo RT-000..RT-010
+
+Esta tabla gobierna la materialización del runtime. **Estado normativo y presencia de código son dimensiones distintas**: un bloque puede tener código parcial y continuar `BLOCKED` o `IN_PROGRESS` hasta demostrar todos sus invariantes.
+
+| ID | Pri | Estado | Materialización actual | Dependencias / criterio mínimo de cierre |
+|---|---|---|---|---|
+| RT-000 | P0 | DONE | `INTEGRATED` por PR #17 | Baseline runtime reconciliado sobre `main`; TARGET, CodeQL y main-push governance post-merge verdes. |
+| RT-001 | P0 | IN_PROGRESS | POS Local Service + config/lifecycle/health/observability en PR #18; hardening activo | Base `RT-000`. Cierre exige config fail-closed, lifecycle/rollback/shutdown idempotente y acotado, manejo fatal, pruebas de proceso real y observabilidad con redacción, backpressure, buffering acotado y fallo de sink. |
+| RT-002 | P0 | BLOCKED | SQLite/WAL/single-writer/migration ledger parcialmente materializados en PR #18 | No cierra antes de RT-001. Debe probar dos procesos escritores reales, crash del owner, stale-lock recovery, pre-migration backup + checkpoint, restore validado, falta de espacio/fallo de backup fail-closed, busy timeout efectivo, ledger inmutable e integrity/restart recovery. |
+| RT-003 | P0 | BLOCKED | Framing/channel parcial en PR #18; gate semántico aún no satisfecho | No cierra antes de RT-001/002. Debe reutilizar TECH-003 como vocabulario canónico, realizar handshake + negociación min/max fail-closed, integrar client/server al proceso, deadlines/cancelación/backpressure/colas acotadas, demostrar restricción Windows/ACL y política de replay. RT-003 es `OS_RESTRICTED / PROTOCOL_VALIDATED`; autenticación criptográfica pertenece a RT-004. |
+| RT-004 | P0 | BLOCKED | Device identity/licensing/clock parcial en PR #18 | No cierra antes de RT-001..003. Debe definir custodia OS-bound de la root key, `device_key_id` y lifecycle/rotate/revoke/replace, proof-of-possession, activación/audit trail, decisión efectiva de licencia, suspensión/revocación/límites/offline policy, signing-key rotation/revocation, autorización por capability y clock trusted obligatorio dentro de la frontera de verificación. |
+| RT-005 | P0 | PLANNED | `NOT_MATERIALIZED` | Requiere RT-001..004 cerrados. Outbox/inbox durable, idempotencia, checkpoints, retries y dead-letter/recovery. |
+| RT-006 | P0 | PLANNED | `NOT_MATERIALIZED` | Requiere RT-005. Primer vertical slice: request → auth → validation → SQLite transaction → outbox → response → restart → retry → audit. |
+| RT-007 | P0 | PLANNED | `NOT_MATERIALIZED` | Requiere RT-006. Electron main + secure preload + context isolation + sandbox + IPC allowlist; sin acceso directo renderer→SQLite/hardware/secrets. |
+| RT-008 | P1 | PLANNED | `NOT_MATERIALIZED` | Requiere RT-007. Renderer React mínimo y UX operativa sobre contratos permitidos. |
+| RT-009 | P0 | PLANNED | `NOT_MATERIALIZED` | Requiere RT-007/008. Windows Service/installer/signing/upgrade/downgrade/rollback/uninstall/recovery. |
+| RT-010 | P0 | PLANNED | `NOT_MATERIALIZED` | Requiere RT-001..009. Gate integral de crash/recovery, security, local-first, Windows, packaging y release. |
+
+### Mapping de gates runtime
+
+- `TECH-005` se materializa progresivamente mediante RT-001/002/005/009/010 para observabilidad, backup/restore, update y rollback; no puede marcarse DONE por pruebas unitarias aisladas.
+- `TECH-006` se materializa mediante RT-002/005/006/010 para fixtures, multiproceso, concurrencia y recovery.
+- `SEC-G04` y `SEC-G07` reciben evidencia candidata desde RT-004; permanecen `PLANNED / NOT_EVALUATED` hasta su gate independiente.
+- `SEC-G05` recibe evidencia candidata desde RT-002/003/005; permanece `PLANNED / NOT_EVALUATED`.
+- `SEC-G06` recibe evidencia candidata desde RT-004/006; permanece `PLANNED / NOT_EVALUATED`.
+- `SEC-G09` y `SEC-G10` dependen además de RT-009/010 y de release/operación reales.
+- Ningún RT promueve automáticamente `SEC-G01..SEC-G10`; cada promoción requiere evidencia y evaluación explícitas.
+
+### Exclusiones de PR #18
+
+PR #18 no autoriza RT-005+, Electron, renderer, negocio comercial, providers SIIGO/FACTUS/ALEGRA, producción, packaging final ni promoción automática de security gates. Mientras RT-001..004 no estén cerrados, la PR permanece `DRAFT / NOT_MERGE_AUTHORIZED`.
+
 ## Orden inmediato obligatorio
 
-1. Mantener **INT-007**, **ARCH-003**, **TECH-003** y **TECH-004** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
-2. La siguiente línea principal es el runtime TARGET conforme a ADR-005/DEC-010, como tarea separada y sobre `main@cf8632c032d0cdd0e7e5c8cb21b532b35294218f` o un baseline posterior verificado.
-3. Los controles estáticos/supply-chain de TECH-004 pasan a ser baseline obligatorio: cualquier runtime nuevo debe mantenerlos verdes y añadir lint/E2E/packaging/release gates cuando existan artefactos reales.
-4. Providers SIIGO/FACTUS/ALEGRA, producción y promoción de `SEC-G01..SEC-G10` continúan fuera de esta transición y requieren líneas/gates propios.
-5. La limpieza de ramas históricas es mantenimiento separado; no mezclarla con la apertura del runtime.
-
-No se inicia NestJS/Electron “por avanzar” dentro del commit de transición de TECH-004.
+1. Mantener **INT-007**, **ARCH-003**, **TECH-003**, **TECH-004** y **RT-000** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
+2. La única línea principal activa es **RT-001 en PR #18** (`runtime/local-foundation-rt001-004-20260828`) sobre base canónica `main@35b9555af4c1bb3db951702dc41d66d24a9d8079`.
+3. RT-002, RT-003 y RT-004 pueden conservar código parcial dentro de la misma PR, pero permanecen bloqueados para cierre hasta satisfacer dependencias y gates de la tabla RT.
+4. **No iniciar RT-005** ni abrir otra rama mientras PR #18 no tenga TARGET + CodeQL exact-head verdes, backlog/PR reconciliados, revisión arquitectónica final y cero findings abiertos.
+5. La evidencia CI debe describir exactamente lo probado; una suite `PASS` no equivale a cierre de RT ni a promoción de `SEC-G01..SEC-G10`.
+6. Providers, producción, Electron/renderer posterior, packaging/release y limpieza de ramas históricas siguen en líneas separadas.
 
 ## Gate SQL003
 
