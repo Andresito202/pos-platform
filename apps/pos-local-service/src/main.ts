@@ -2,6 +2,7 @@ import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
+import { LocalChannelComponent } from "./channel/index.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -70,13 +71,30 @@ if (process.connected && process.env.NODE_ENV === "test") {
 
 try {
   const config = parseServiceConfig(process.env);
+  if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
+    throw new Error("POS Local Service production runtime requires Windows");
+  }
+
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
-  lifecycle = new ServiceLifecycle([localDatabase]);
+  let localChannel: LocalChannelComponent | undefined;
+  const components = [localDatabase];
+
+  if (process.platform === "win32") {
+    localChannel = new LocalChannelComponent(
+      config,
+      localDatabase,
+      () => lifecycle?.state ?? "STARTING",
+    );
+    components.push(localChannel);
+  }
+
+  lifecycle = new ServiceLifecycle(components);
 
   await lifecycle.start();
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
     installation_id: config.installation_id,
+    ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),
   });
   await logger.flush();
 } catch (error) {
