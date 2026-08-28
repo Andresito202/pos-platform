@@ -40,6 +40,14 @@ function spawnService(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullSt
   });
 }
 
+function spawnServiceWithControl(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams {
+  return spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
+    cwd: process.cwd(),
+    env: { ...environment, NODE_ENV: "test" },
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
+  });
+}
+
 function spawnServiceWithFatal(
   environment: NodeJS.ProcessEnv,
   mode: "uncaughtException" | "unhandledRejection",
@@ -125,8 +133,10 @@ function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs = 8_000): 
   });
 }
 
+const posixIt = process.platform === "win32" ? it.skip : it;
+
 describe("POS Local Service process boundary", () => {
-  it("starts as a real child process and shuts down cleanly on SIGTERM", async () => {
+  posixIt("starts as a real child process and shuts down cleanly on SIGTERM", async () => {
     const dataDirectory = await directory();
     const child = spawnService(serviceEnvironment(dataDirectory));
     await waitForLogEvent(child, "runtime.started");
@@ -134,7 +144,7 @@ describe("POS Local Service process boundary", () => {
     expect(await waitForExit(child)).toBe(0);
   });
 
-  it("coalesces near-simultaneous SIGINT and SIGTERM into one shutdown", async () => {
+  posixIt("coalesces near-simultaneous SIGINT and SIGTERM into one shutdown", async () => {
     const dataDirectory = await directory();
     const child = spawnService(serviceEnvironment(dataDirectory));
     const stdout = captureStdout(child);
@@ -147,6 +157,21 @@ describe("POS Local Service process boundary", () => {
     expect(await exited).toBe(0);
     expect(stdout().match(/"event":"runtime.stopping"/g) ?? []).toHaveLength(1);
     expect(stdout().match(/"event":"runtime.stopped"/g) ?? []).toHaveLength(1);
+  });
+
+  it("performs a graceful real-process shutdown through the parent IPC control channel", async () => {
+    const dataDirectory = await directory();
+    const child = spawnServiceWithControl(serviceEnvironment(dataDirectory));
+    const stdout = captureStdout(child);
+    await waitForLogEvent(child, "runtime.started");
+
+    const exited = waitForExit(child);
+    expect(child.send({ type: "pos-platform.test.shutdown" })).toBe(true);
+
+    expect(await exited).toBe(0);
+    expect(stdout().match(/"event":"runtime.stopping"/g) ?? []).toHaveLength(1);
+    expect(stdout().match(/"event":"runtime.stopped"/g) ?? []).toHaveLength(1);
+    expect(stdout()).toContain('"reason":"test.control"');
   });
 
   it("fails closed as a real child process when required config is missing", async () => {
