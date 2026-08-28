@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";\nimport { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";\nimport { fileURLToPath } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +42,52 @@ function seedOperation(database: LocalDatabase, suffix: string): void {
   );
 }
 
+function waitForReady(child: ChildProcessWithoutNullStreams, timeoutMs = 8_000): Promise<void> {
+  child.stdout.setEncoding("utf8");
+  return new Promise((resolve, reject) => {
+    let buffer = "";
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("writer process did not become ready"));
+    }, timeoutMs);
+    timer.unref?.();
+
+    const onData = (chunk: string) => {
+      buffer += chunk;
+      if (buffer.includes("READY\n")) {
+        cleanup();
+        resolve();
+      }
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`writer process exited before ready: code=${code} signal=${signal}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off("data", onData);
+      child.off("exit", onExit);
+    };
+
+    child.stdout.on("data", onData);
+    child.once("exit", onExit);
+  });
+}
+
+function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs = 8_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("writer process did not exit"));
+    }, timeoutMs);
+    timer.unref?.();
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 describe("LocalDatabase", () => {
   it("enforces one writer and permits a new writer after clean shutdown", async () => {
     const dataDirectory = await directory();
@@ -50,6 +96,30 @@ describe("LocalDatabase", () => {
     first.close();
     const next = LocalDatabase.open({ dataDirectory });
     next.close();
+  });
+
+  it("enforces one writer across OS processes and recovers after owner crash", async () => {
+    const dataDirectory = await directory();
+    const fixture = fileURLToPath(new URL("./fixtures/writer-process.ts", import.meta.url));
+    const child = spawn(process.execPath, ["--import", "tsx", fixture, dataDirectory], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    await waitForReady(child);
+
+    expect(() => LocalDatabase.open({ dataDirectory })).toThrow("writer already active");
+
+    expect(child.kill("SIGKILL")).toBe(true);
+    await waitForExit(child);
+
+    const recovered = LocalDatabase.open({ dataDirectory });
+    recovered.assertIntegrity();
+    recovered.close();
+
+    expect(
+      readdirSync(dataDirectory).some((name) => name.startsWith("local-writer.lock.stale.")),
+    ).toBe(true);
   });
 
   it("persists operations across restart with WAL enabled", async () => {
