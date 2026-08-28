@@ -158,4 +158,21 @@ describe("TECH-003 common executable contracts", () => {
       payload_checksum: "A".repeat(64),
     }).success).toBe(false);
   });
+  it("requires seconds in UTC wire timestamps", () => {
+    expect(ResponseEnvelopeSchema.safeParse({ ...baseResponse, server_time: "2026-08-28T05:00Z" }).success).toBe(false);
+  });
+
+  it("normalizes UUID casing before idempotency comparison", () => {
+    const existing = IdempotencyIdentitySchema.parse({
+      operation_id: "550E8400-E29B-41D4-A716-446655440002",
+      idempotency_key: "sale:create:0001",
+      payload_checksum: checksumA,
+    });
+    const incoming = IdempotencyIdentitySchema.parse({
+      operation_id: operationId,
+      idempotency_key: "sale:create:0001",
+      payload_checksum: checksumA,
+    });
+    expect(classifyIdempotency(existing, incoming)).toBe("REPLAY");
+  });
 });
