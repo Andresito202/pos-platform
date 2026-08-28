@@ -285,6 +285,96 @@ describe("local channel", () => {
     }
   }, 15_000);
 
+  it("closes a connection when the per-connection server queue exceeds capacity", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const secret = randomBytes(32);
+    const serverAuthenticator = new LocalChannelAuthenticator(secret, clock);
+    const clientAuthenticator = new LocalChannelAuthenticator(secret, clock);
+    const server = new LocalChannelServer(
+      endpoint,
+      serverAuthenticator,
+      async (request) => compatibleResponse(
+        request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>,
+      ),
+      { min: "1.0.0", max: "1.0.0" },
+      32,
+      1,
+      5_000,
+    );
+    let socket: Socket | undefined;
+
+    try {
+      await server.start();
+      socket = createConnection(endpoint);
+      await new Promise<void>((resolve, reject) => {
+        socket!.once("connect", resolve);
+        socket!.once("error", reject);
+      });
+      const closed = new Promise<void>((resolve) => socket!.once("close", () => resolve()));
+      socket.write(Buffer.concat([
+        encodeFrame(clientAuthenticator.sign(runtimeHandshakeRequest(), "1.0.0", sessionId, 1)),
+        encodeFrame(clientAuthenticator.sign(runtimeStatusRequest(), "1.0.0", sessionId, 3)),
+      ]));
+      await closed;
+    } finally {
+      socket?.destroy();
+      await server.stop();
+      serverAuthenticator.destroy();
+      clientAuthenticator.destroy();
+      secret.fill(0);
+    }
+  }, 15_000);
+
+  it("rejects client requests when the bounded client queue is saturated", async () => {
+    const dir = await directory();
+    const endpoint = localChannelEndpoint(installationId, process.platform, dir);
+    const secret = randomBytes(32);
+    let releaseStatus!: () => void;
+    const statusGate = new Promise<void>((resolve) => { releaseStatus = resolve; });
+
+    const serverAuthenticator = new LocalChannelAuthenticator(secret, clock);
+    const clientAuthenticator = new LocalChannelAuthenticator(secret, clock);
+    const server = new LocalChannelServer(
+      endpoint,
+      serverAuthenticator,
+      async (request) => {
+        if (request.message_type === "runtime.status.get") await statusGate;
+        return compatibleResponse(
+          request as ReturnType<typeof runtimeHandshakeRequest> | ReturnType<typeof runtimeStatusRequest>,
+        );
+      },
+      { min: "1.0.0", max: "1.0.0" },
+    );
+    const client = new LocalChannelClient(
+      endpoint,
+      clientAuthenticator,
+      { min: "1.0.0", max: "1.0.0" },
+      5_000,
+      1,
+    );
+
+    try {
+      await server.start();
+      await client.connect(runtimeHandshakeRequest());
+      const first = client.request(runtimeStatusRequest(
+        "018f0000-0000-7000-8000-000000000020",
+      ));
+      await expect(client.request(runtimeStatusRequest(
+        "018f0000-0000-7000-8000-000000000021",
+      ))).rejects.toThrow("queue capacity exceeded");
+      releaseStatus();
+      await expect(first).resolves.toMatchObject({ status: "SUCCEEDED" });
+    } finally {
+      releaseStatus();
+      await client.close();
+      await server.stop();
+      serverAuthenticator.destroy();
+      clientAuthenticator.destroy();
+      secret.fill(0);
+    }
+  }, 15_000);
+
   it("requires canonical TECH-003 handshake before status traffic", async () => {
     const dir = await directory();
     const endpoint = localChannelEndpoint(installationId, process.platform, dir);
