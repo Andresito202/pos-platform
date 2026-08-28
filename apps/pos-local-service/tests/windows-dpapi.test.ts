@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readdirSync, rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,6 +34,50 @@ describe("Windows DPAPI root key provider", () => {
     const files = readdirSync(dir).filter((name) => name.endsWith(".dpapi"));
     expect(files).toHaveLength(2);
     expect(files.some((name) => name.includes("installation-a"))).toBe(false);
+
+    for (const file of files) {
+      const path = join(dir, file);
+      const script = String.raw`
+$ErrorActionPreference = "Stop"
+$path = $env:POS_DPAPI_TEST_PATH
+$acl = [System.IO.File]::GetAccessControl($path)
+$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$rules = @(
+  $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
+    ForEach-Object { $_.IdentityReference.Value }
+)
+[pscustomobject]@{
+  protected = $acl.AreAccessRulesProtected
+  owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  current = $current
+  rules = $rules
+} | ConvertTo-Json -Compress
+`;
+      const result = spawnSync(
+        "powershell.exe",
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+        {
+          encoding: "utf8",
+          windowsHide: true,
+          env: { ...process.env, POS_DPAPI_TEST_PATH: path },
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      const acl = JSON.parse(result.stdout.trim()) as {
+        protected: boolean;
+        owner: string;
+        current: string;
+        rules: string[] | string;
+      };
+      const rules = Array.isArray(acl.rules) ? acl.rules : [acl.rules];
+      expect(acl.protected).toBe(true);
+      expect(acl.owner).toBe(acl.current);
+      expect(rules).toContain(acl.current);
+      expect(rules).not.toContain("S-1-1-0");
+      expect(rules).not.toContain("S-1-5-7");
+      expect(rules).not.toContain("S-1-5-11");
+      expect(rules).not.toContain("S-1-5-32-545");
+    }
 
     first.fill(0);
     second.fill(0);
