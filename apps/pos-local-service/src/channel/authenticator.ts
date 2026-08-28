@@ -15,7 +15,7 @@ function calculateMac(secret: Buffer, frame: Omit<LocalChannelFrame, "mac">): st
 
 export class LocalChannelAuthenticator {
   private readonly highestSequence = new Map<string, number>();
-  constructor(private readonly secret: Buffer, private readonly clock: ChannelClock = systemClock, private readonly maxClockSkewMs = 30_000) {
+  constructor(private readonly secret: Buffer, private readonly clock: ChannelClock = systemClock, private readonly maxClockSkewMs = 30_000, private readonly maxSessions = 1024) {
     if (secret.byteLength < 32) throw new Error("local channel secret must contain at least 256 bits");
   }
 
@@ -35,7 +35,9 @@ export class LocalChannelAuthenticator {
     if (expected.byteLength !== supplied.byteLength || !timingSafeEqual(expected, supplied)) throw new Error("local channel MAC rejected");
     const skew = Math.abs(this.clock.now().getTime() - Date.parse(frame.sent_at));
     if (!Number.isFinite(skew) || skew > this.maxClockSkewMs) throw new Error("local channel timestamp rejected");
-    const highest = this.highestSequence.get(frame.session_id) ?? 0;
+    const existing = this.highestSequence.get(frame.session_id);
+    if (existing === undefined && this.highestSequence.size >= this.maxSessions) throw new Error("local channel session capacity reached");
+    const highest = existing ?? 0;
     if (frame.sequence <= highest) throw new Error("local channel replay rejected");
     this.highestSequence.set(frame.session_id, frame.sequence);
     return frame;
