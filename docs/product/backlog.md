@@ -6,7 +6,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación normativa: 2026-08-27.
+Última reconciliación normativa: 2026-08-28.
 
 ## Jerarquía relacionada
 
@@ -142,7 +142,9 @@ Estado: `IN_PROGRESS`
 
 Rama activa: `tech/tech003-executable-contracts-20260828`.
 
-Primer slice autorizado por orden canónico: contratos comunes Zod para request/response/error/versioning/idempotency/correlation. No crea API, Electron, provider adapters ni runtime.
+Alcance contractual materializado en PR #14: contratos comunes, handshake Desktop↔Local Service, IPC allowlisted, Sync local↔central, HTTP central y matriz ejecutable de compatibilidad cruzada. No crea API NestJS, Electron, POS Local Service, provider adapters ni runtime.
+
+Estado de cierre: `CLOSURE_CANDIDATE`; requiere CI exact-head final, revisión senior final, cero threads abiertos y autorización de merge separada.
 
 ## Último bloque cerrado
 
@@ -764,3 +766,6 @@ Una tarea no está cerrada hasta que:
 
 
 - TECH-003 Block 3 senior hardening after CI #178: raw HTTP headers are not modeled as a closed Zod object; only an extracted allowlisted `contract_headers` subset is schema-validated. This avoids rejecting legitimate transport/proxy/security headers while preserving strict application-header binding. Cursor page responses now enforce the endpoint max item count, and Retry-After derivation parses the canonical error fail-closed.
+
+- TECH-003 Block 4 compatibility gate: IPC, Sync and HTTP now publish an explicit representation matrix and executable cross-boundary regressions for versioning, request/correlation identity, operation/idempotency identity, canonical UUID/UTC handling and UNKNOWN_OUTCOME. Sync deliberately retains its durable result vocabulary instead of importing HTTP error categories or inventing UNKNOWN_OUTCOME.
+- TECH-003 closure order: final exact-head CI + evidence, senior review, zero open threads, then separate merge authorization. TECH-004 runtime work must start from the resulting canonical main in a new branch/PR; it is not mixed into PR #14.
