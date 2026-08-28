@@ -2,7 +2,7 @@ import { FISCAL_003_TABLE_BLUEPRINT_SQL, FISCAL_003_EXTRA_CONSTRAINT_SQL, FISCAL
 import { FISCAL_003_FUNCTION_DEFINITION_SQL } from "./postgres-003-functions.js";
 import { FISCAL_003_CATALOG_DEFINITIONS } from "./postgres-003-catalog.js";
 import { FISCAL_003_GRANT_MATRIX, FISCAL_003_INTEGRATION_EXTENSION_GRANTS } from "./contract.js";
-import { FISCAL_003_DISPATCH_CLASS_TRANSITION, FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION, FISCAL_003_LEGACY_GRANT_TRANSITIONS } from "./postgres-003-transitions.js";
+import { FISCAL_003_DISPATCH_CLASS_TRANSITION, FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION, FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION, FISCAL_003_LEGACY_GRANT_TRANSITIONS } from "./postgres-003-transitions.js";
 
 type GrantEntry={select:readonly string[];insert:readonly string[];update:readonly string[]};
 type GrantMatrix=Record<string,Record<string,GrantEntry>>;
@@ -81,7 +81,10 @@ export function buildPostgres003UpSql():string{
   const postConstraints=FISCAL_003_EXTRA_CONSTRAINT_SQL.filter((sql)=>!preConstraints.includes(sql));
   const tables=Object.keys(FISCAL_003_TABLE_BLUEPRINT_SQL);
   const rls=tables.flatMap((table)=>[`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`,`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;`]);
-  const genericTriggers=FISCAL_003_TRIGGER_BLUEPRINT_SQL.filter((sql)=>!sql.includes(`TRIGGER ${FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION.successorName} `));
+  const genericTriggers=FISCAL_003_TRIGGER_BLUEPRINT_SQL.filter((sql)=>
+    !sql.includes(`TRIGGER ${FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION.successorName} `)
+    && !sql.includes(`TRIGGER ${FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION.successorName} `)
+  );
   return joinStatements([
     "CREATE SCHEMA fiscal AUTHORIZATION pos_schema_owner;",
     "REVOKE ALL ON SCHEMA fiscal FROM PUBLIC;",
@@ -95,6 +98,7 @@ export function buildPostgres003UpSql():string{
     ...rls,
     ...FISCAL_003_POLICY_BLUEPRINT_SQL,
     ...genericTriggers,
+    ...FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION.upSql,
     ...FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION.upSql,
     ...FISCAL_003_LEGACY_GRANT_TRANSITIONS.receiptIngress.upSql,
     ...FISCAL_003_LEGACY_GRANT_TRANSITIONS.dispatchIngress.upSql,
@@ -116,10 +120,14 @@ export function buildPostgres003DownSql():string{
   const extension=extensionColumnStatements();
   const preConstraints=FISCAL_003_EXTRA_CONSTRAINT_SQL.filter((sql)=>/^ALTER TABLE integrations\.(integration_capabilities|integration_credential_bindings) ADD CONSTRAINT/.test(sql));
   const postConstraints=FISCAL_003_EXTRA_CONSTRAINT_SQL.filter((sql)=>!preConstraints.includes(sql));
-  const genericTriggers=FISCAL_003_TRIGGER_BLUEPRINT_SQL.filter((sql)=>!sql.includes(`TRIGGER ${FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION.successorName} `));
+  const genericTriggers=FISCAL_003_TRIGGER_BLUEPRINT_SQL.filter((sql)=>
+    !sql.includes(`TRIGGER ${FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION.successorName} `)
+    && !sql.includes(`TRIGGER ${FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION.successorName} `)
+  );
   return joinStatements([
     ...FISCAL_003_DISPATCH_CLASS_TRANSITION.downSql,
     ...FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION.downSql,
+    ...FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION.downSql,
     ...[...genericTriggers].reverse().map(triggerDrop),
     ...[...FISCAL_003_POLICY_BLUEPRINT_SQL].reverse().map(policyDrop),
     ...[...FISCAL_003_INDEX_BLUEPRINT_SQL].reverse().map(indexDrop),

@@ -464,6 +464,7 @@ export const FISCAL_003_REQUIRED_GUARDS = [
   "fiscal_incidents_state_guard",
   "fiscal_reconciliation_items_immutable_guard",
   "integration_dispatches_fiscal_preparation_guard",
+  "external_webhook_receipts_insert_guard_003",
   "external_webhook_receipts_update_guard_003",
   "external_webhook_receipts_fiscal_correlation_guard",
   "provider_capability_declarations_fiscal_downgrade_guard",

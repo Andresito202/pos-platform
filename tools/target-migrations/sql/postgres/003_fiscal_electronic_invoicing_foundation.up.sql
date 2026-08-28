@@ -2027,6 +2027,26 @@ BEGIN
 END;
 $function$;
 
+CREATE FUNCTION fiscal.guard_webhook_receipt_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog,fiscal,integrations
+AS $function$
+BEGIN
+  IF NEW.processing_status IS NULL OR NEW.processing_status NOT IN ('RECEIVED','REJECTED','PENDING') THEN
+    RAISE EXCEPTION 'invalid initial processing_status on external_webhook_receipts';
+  END IF;
+  IF NEW.fiscal_electronic_document_id IS NOT NULL
+     OR NEW.fiscal_document_preparation_id IS NOT NULL
+     OR NEW.fiscal_preparation_generation IS NOT NULL
+     OR NEW.fiscal_integration_dispatch_id IS NOT NULL
+     OR NEW.fiscal_correlated_at IS NOT NULL THEN
+    RAISE EXCEPTION 'webhook ingress must not contain fiscal linkage';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
 CREATE FUNCTION fiscal.guard_capability_downgrade()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -2275,6 +2295,10 @@ CREATE TRIGGER external_webhook_receipts_fiscal_correlation_guard AFTER INSERT O
 
 CREATE TRIGGER provider_capability_declarations_fiscal_downgrade_guard BEFORE UPDATE OF support_status ON integrations.provider_capability_declarations FOR EACH ROW EXECUTE FUNCTION fiscal.guard_capability_downgrade();
 
+CREATE TRIGGER external_webhook_receipts_insert_guard_003 BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION fiscal.guard_webhook_receipt_insert();
+
+DROP TRIGGER external_webhook_receipts_insert_guard ON integrations.external_webhook_receipts;
+
 CREATE TRIGGER external_webhook_receipts_update_guard_003 BEFORE UPDATE ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version,fiscal_electronic_document_id,fiscal_document_preparation_id,fiscal_preparation_generation,fiscal_integration_dispatch_id,fiscal_correlated_at');
 
 DROP TRIGGER external_webhook_receipts_update_guard ON integrations.external_webhook_receipts;
@@ -2512,6 +2536,8 @@ ALTER FUNCTION fiscal.guard_submission_attempt_root() OWNER TO pos_schema_owner;
 ALTER FUNCTION fiscal.guard_fiscal_dispatch() OWNER TO pos_schema_owner;
 
 ALTER FUNCTION fiscal.guard_fiscal_webhook_correlation() OWNER TO pos_schema_owner;
+
+ALTER FUNCTION fiscal.guard_webhook_receipt_insert() OWNER TO pos_schema_owner;
 
 ALTER FUNCTION fiscal.guard_capability_downgrade() OWNER TO pos_schema_owner;
 

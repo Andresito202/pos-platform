@@ -2,6 +2,7 @@ import { FISCAL_003_FUNCTION_DEFINITION_SQL, FISCAL_003_REQUIRED_FUNCTIONS } fro
 import { FISCAL_003_EXTERNAL_FENCE_CONTRACTS } from "../src/postgres-003-external-contracts.js";
 import {
   FISCAL_003_DISPATCH_CLASS_TRANSITION,
+  FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION,
   FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION,
   FISCAL_003_RECEIPT_INGRESS_GRANT_TRANSITION,
   FISCAL_003_DISPATCH_INGRESS_GRANT_TRANSITION,
@@ -678,6 +679,27 @@ describe("003 fiscal descriptor contract", () => {
       .toBe("SAME_TRANSACTION_CURRENT_GENERATION_QUARANTINE");
   });
 
+  it("replaces the broken 002 webhook insert guard without a permissive window", () => {
+    const transition=FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION;
+    expect(transition.predecessorName).toBe("external_webhook_receipts_insert_guard");
+    expect(transition.successorName).toBe("external_webhook_receipts_insert_guard_003");
+    expect(transition.predecessorDefinitionSql).toContain("integrations.guard_initial_status('RECEIVED,REJECTED,PENDING')");
+    expect(transition.successorDefinitionSql).toContain("fiscal.guard_webhook_receipt_insert()");
+    expect(transition.upSql).toEqual([
+      transition.successorDefinitionSql,
+      "DROP TRIGGER external_webhook_receipts_insert_guard ON integrations.external_webhook_receipts;",
+    ]);
+    expect(transition.downSql).toEqual([
+      transition.predecessorDefinitionSql,
+      "DROP TRIGGER external_webhook_receipts_insert_guard_003 ON integrations.external_webhook_receipts;",
+    ]);
+    expect(FISCAL_003_EXACT_GUARD_DEFINITIONS[transition.successorName])
+      .toBe(transition.successorDefinitionSql);
+    const sql=FISCAL_003_FUNCTION_DEFINITION_SQL.guard_webhook_receipt_insert;
+    expect(sql).toContain("NEW.processing_status");
+    expect(sql).toContain("webhook ingress must not contain fiscal linkage");
+  });
+
   it("replaces the legacy receipt update allowlist without a permissive window", () => {
     const transition=FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION;
     expect(transition.predecessorName).toBe("external_webhook_receipts_update_guard");
@@ -728,9 +750,9 @@ describe("003 fiscal descriptor contract", () => {
     expect(transition.forbiddenFiscalLinkageColumns).toEqual(
       FISCAL_003_INTEGRATION_EXTENSION_COLUMNS["integrations.external_webhook_receipts"]
     );
-    expect(transition.upSql[0]).toContain("GRANT INSERT (id,tenant_id,company_id,integration_id");
-    expect(transition.upSql[1])
+    expect(transition.upSql[0])
       .toBe("REVOKE INSERT ON integrations.external_webhook_receipts FROM pos_platform_app;");
+    expect(transition.upSql[1]).toContain("GRANT INSERT (id,tenant_id,company_id,integration_id");
     expect(FISCAL_003_INTEGRATION_EXTENSION_GRANTS["integrations.external_webhook_receipts"].pos_platform_app.insert)
       .toEqual([]);
     expect(POSTGRES_003_DESCRIPTOR.legacyGrantTransitions.receiptIngress).toBe(transition);

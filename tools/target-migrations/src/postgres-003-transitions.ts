@@ -30,6 +30,38 @@ export const FISCAL_003_DISPATCH_CLASS_TRANSITION = {
 } as const;
 
 
+
+export const FISCAL_003_RECEIPT_INSERT_GUARD_TRANSITION = {
+  table: "integrations.external_webhook_receipts",
+  predecessorName: "external_webhook_receipts_insert_guard",
+  successorName: "external_webhook_receipts_insert_guard_003",
+  predecessorDefinitionSql: "CREATE TRIGGER external_webhook_receipts_insert_guard BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_initial_status('RECEIVED,REJECTED,PENDING');",
+  successorDefinitionSql: "CREATE TRIGGER external_webhook_receipts_insert_guard_003 BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION fiscal.guard_webhook_receipt_insert();",
+  upSql: [
+    "CREATE TRIGGER external_webhook_receipts_insert_guard_003 BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION fiscal.guard_webhook_receipt_insert();",
+    "DROP TRIGGER external_webhook_receipts_insert_guard ON integrations.external_webhook_receipts;"
+  ],
+  downSql: [
+    "CREATE TRIGGER external_webhook_receipts_insert_guard BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_initial_status('RECEIVED,REJECTED,PENDING');",
+    "DROP TRIGGER external_webhook_receipts_insert_guard_003 ON integrations.external_webhook_receipts;"
+  ],
+  expectedAfterUp: {
+    present: ["external_webhook_receipts_insert_guard_003"],
+    absent: ["external_webhook_receipts_insert_guard"]
+  },
+  expectedAfterDown: {
+    present: ["external_webhook_receipts_insert_guard"],
+    absent: ["external_webhook_receipts_insert_guard_003"]
+  },
+  safety: [
+    "successor is created before the broken 002 predecessor is dropped",
+    "the overlap is fail-closed and creates no permissive ingress window",
+    "003 validates processing_status rather than the nonexistent status column",
+    "general webhook ingress must keep every fiscal linkage column NULL",
+    "down restores the exact frozen 002 trigger before removing the 003 successor"
+  ]
+} as const;
+
 export const FISCAL_003_RECEIPT_UPDATE_GUARD_TRANSITION = {
   table: "integrations.external_webhook_receipts",
   predecessorName: "external_webhook_receipts_update_guard",

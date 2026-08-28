@@ -8,6 +8,10 @@ CREATE TRIGGER external_webhook_receipts_update_guard BEFORE UPDATE ON integrati
 
 DROP TRIGGER external_webhook_receipts_update_guard_003 ON integrations.external_webhook_receipts;
 
+CREATE TRIGGER external_webhook_receipts_insert_guard BEFORE INSERT ON integrations.external_webhook_receipts FOR EACH ROW EXECUTE FUNCTION integrations.guard_initial_status('RECEIVED,REJECTED,PENDING');
+
+DROP TRIGGER external_webhook_receipts_insert_guard_003 ON integrations.external_webhook_receipts;
+
 DROP TRIGGER provider_capability_declarations_fiscal_downgrade_guard ON integrations.provider_capability_declarations;
 
 DROP TRIGGER external_webhook_receipts_fiscal_correlation_guard ON integrations.external_webhook_receipts;
@@ -273,6 +277,8 @@ ALTER TABLE integrations.integration_dispatches DROP COLUMN fiscal_preparation_g
 ALTER TABLE integrations.integration_dispatches DROP COLUMN fiscal_document_preparation_id;
 
 DROP FUNCTION fiscal.guard_capability_downgrade();
+
+DROP FUNCTION fiscal.guard_webhook_receipt_insert();
 
 DROP FUNCTION fiscal.guard_fiscal_webhook_correlation();
 
