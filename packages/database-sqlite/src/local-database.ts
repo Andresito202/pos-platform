@@ -16,7 +16,16 @@ CREATE TABLE runtime_operations (
 ) STRICT;
 CREATE INDEX runtime_operations_status_idx ON runtime_operations(status, created_at);
 `.trim();
-const MIGRATIONS = [{ version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") }] as const;
+const MIGRATION_002 = `
+CREATE TABLE local_security_state (
+  singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
+  last_trusted_time TEXT NOT NULL
+) STRICT;
+`.trim();
+const MIGRATIONS = [
+  { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
+  { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
+] as const;
 
 export interface LocalDatabaseOptions { readonly dataDirectory: string; readonly filename?: string; readonly busyTimeoutMs?: number; }
 

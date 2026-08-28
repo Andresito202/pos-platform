@@ -261,6 +261,7 @@ jobs:
           - pos_local_service_runtime_foundation: PASS
           - sqlite_local_single_writer_and_recovery: PASS
           - authenticated_versioned_local_channel: PASS
+          - device_identity_license_and_clock_integrity: PASS
           - sqlite_migrations: PASS
           - postgres_001_002_003_and_physical_runner: PASS
           - fiscal_model_a_regression: PASS
