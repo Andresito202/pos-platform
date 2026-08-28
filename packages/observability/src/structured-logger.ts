@@ -1,5 +1,5 @@
 const SENSITIVE_KEY = /(?:authorization|cookie|credential|password|private.?key|secret|token)/i;
-const BEARER_VALUE = /\\bBearer\\s+[A-Za-z0-9._~+\\/-]+=*/gi;
+const BEARER_VALUE = /\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi;
 const MAX_DEPTH = 8;
 const MAX_ARRAY = 100;
 
