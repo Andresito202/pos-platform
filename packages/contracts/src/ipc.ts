@@ -15,12 +15,17 @@ export const IpcMessageTypeSchema = z.enum([
   "operation.result.get",
 ]);
 
-function exactMessage<T extends z.ZodType>(messageType: z.infer<typeof IpcMessageTypeSchema>, schema: T) {
-  return schema.refine(
-    (value) => typeof value === "object" && value !== null && "message_type" in value
-      && value.message_type === messageType,
-    { path: ["message_type"], message: `message_type must be ${messageType}` },
-  );
+function exactMessage<
+  T extends z.ZodType,
+  M extends z.infer<typeof IpcMessageTypeSchema>,
+>(messageType: M, schema: T) {
+  return schema
+    .refine(
+      (value) => typeof value === "object" && value !== null && "message_type" in value
+        && value.message_type === messageType,
+      { path: ["message_type"], message: `message_type must be ${messageType}` },
+    )
+    .transform((value) => ({ ...value, message_type: messageType }));
 }
 
 const EmptyPayloadSchema = z.strictObject({});
