@@ -15,12 +15,13 @@
     "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
     "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",
     "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite",
-    "ci:supply-chain-tests": "node --test tools/ci/workspace-manifests.test.mjs tools/ci/generate-dependency-inventory.test.mjs tools/ci/validate-dependency-audit.test.mjs tools/ci/run-dependency-vulnerability-audit.test.mjs tools/ci/generate-cyclonedx-sbom.test.mjs tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs",
+    "ci:supply-chain-tests": "node --test tools/ci/workspace-manifests.test.mjs tools/ci/generate-dependency-inventory.test.mjs tools/ci/validate-dependency-audit.test.mjs tools/ci/run-dependency-vulnerability-audit.test.mjs tools/ci/generate-cyclonedx-sbom.test.mjs tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs tools/ci/provenance-manifest.test.mjs",
     "ci:vulnerability-audit": "node tools/ci/run-dependency-vulnerability-audit.mjs",
     "ci:vulnerability-tests": "node --test tools/ci/validate-dependency-audit.test.mjs",
     "ci:sbom": "node tools/ci/generate-cyclonedx-sbom.mjs",
     "ci:license-gate": "node tools/ci/run-license-compatibility-gate.mjs",
-    "ci:license-tests": "node --test tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs"
+    "ci:license-tests": "node --test tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs",
+    "ci:provenance-tests": "node --test tools/ci/provenance-manifest.test.mjs"
   },
   "devDependencies": {
     "nx": "23.1.2",
