@@ -151,7 +151,7 @@ No se promueve por esta evidencia:
 - NestJS/Fastify;
 - Electron/React/Vite;
 - POS Local Service;
-- SQL/descriptor 003;
+- despliegue productivo de SQL/descriptor PostgreSQL 003 ni SQLite 003;
 - SIIGO/FACTUS/ALEGRA evaluados;
 - POS Platform `PRODUCTION_READY`.
 

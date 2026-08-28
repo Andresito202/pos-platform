@@ -38,13 +38,14 @@ Si dos fuentes normativas actuales se contradicen:
 
 - `main` es la única rama canónica.
 - PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
-- PR #5 integró el baseline de supply chain y la gobernanza detectiva de `main`.
+- PR #5 integró el baseline inicial de supply chain y la gobernanza detectiva de `main`.
+- PR #11 integró SQL/descriptor PostgreSQL 003; PR #12, límites Nx; PR #14, contratos ejecutables; PR #15, TECH-004.
 - PR #6 reconcilió el estado canónico y PR #7 adoptó el nombre comercial `Camacho POS Colombia` con estado registral explícitamente pendiente.
 - El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`; su run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluido `Main push governance = SUCCESS`.
 - La branch protection preventiva nativa no está disponible para este repositorio privado con el plan GitHub actual; se documenta como limitación, no como protección existente.
 - Migrations 001/002 están `MATERIALIZED / TESTED / IMMUTABLE`.
-- SQL/descriptor 003 y schema fiscal 003 continúan ausentes; migration 003 está `NOT_MATERIALIZED`.
-- PR #4 es una reconciliación contractual draft y permanece bloqueada por revisión independiente no disponible por cuota; no autoriza SQL003.
+- SQL/descriptor PostgreSQL 003 y schema fiscal 003 están `INTEGRATED / GATES_CLOSED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`; no están desplegados en producción y SQLite 003 continúa `NONE`.
+- PR #4 y la remediación contractual autoritativa están `MERGED / CLOSED`; PR #11 integró INT-007. Providers, credenciales, sandbox y operación fiscal real siguen fuera de ese cierre.
 - El runtime NestJS/Fastify, Electron/React/Vite y POS Local Service continúa `ABSENT / NOT_MATERIALIZED`.
 - `SEC-G01..SEC-G10` continúan `PLANNED / NOT_EVALUATED`.
 
