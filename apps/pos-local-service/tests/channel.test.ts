@@ -337,6 +337,9 @@ describe("local channel", () => {
       await server.start();
       for (let index = 0; index < 6; index += 1) {
         const report = inspectWindowsNamedPipeSecurity(endpoint);
+        expect(report.allowedTrustees).toContain(report.logonSid);
+        expect(report.allowedTrustees).not.toContain(report.currentSid);
+        expect(report.allowedTrustees).not.toContain("LA");
         expect(report.allowedTrustees).not.toContain("WD");
         expect(report.allowedTrustees).not.toContain("AN");
         expect(report.allowedTrustees).not.toContain("AU");
