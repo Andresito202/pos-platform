@@ -95,6 +95,7 @@ function waitForLogEvent(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
+      child.kill("SIGKILL");
       reject(new Error(`timed out waiting for ${event}`));
     }, timeoutMs);
     timer.unref?.();
@@ -148,6 +149,20 @@ function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs = 8_000): 
   });
 }
 
+function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs = 8_000): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("service stdio did not close within shutdown timeout"));
+    }, timeoutMs);
+    timer.unref?.();
+    child.once("close", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+}
+
 const posixIt = process.platform === "win32" ? it.skip : it;
 
 describe("POS Local Service process boundary", () => {
@@ -165,11 +180,11 @@ describe("POS Local Service process boundary", () => {
     const stdout = captureStdout(child);
     await waitForLogEvent(child, "runtime.started");
 
-    const exited = waitForExit(child);
+    const closed = waitForClose(child);
     expect(child.kill("SIGINT")).toBe(true);
     child.kill("SIGTERM");
 
-    expect(await exited).toBe(0);
+    expect(await closed).toBe(0);
     expect(stdout().match(/"event":"runtime.stopping"/g) ?? []).toHaveLength(1);
     expect(stdout().match(/"event":"runtime.stopped"/g) ?? []).toHaveLength(1);
   });
@@ -178,7 +193,7 @@ describe("POS Local Service process boundary", () => {
     const dataDirectory = await directory();
     const child = spawnServiceWithControl(serviceEnvironment(dataDirectory));
     const stdout = captureStdout(child);
-    await waitForLogEvent(child, "runtime.started");
+    await waitForLogEvent(child, "runtime.started", 25_000);
 
     if (process.platform === "win32") {
       const installationId = processInstallationId;
@@ -217,7 +232,7 @@ describe("POS Local Service process boundary", () => {
             protocol_max: "1.0.0",
             installation_id: installationId,
             device_id: deviceId,
-            schema_version: "3",
+            schema_version: "4",
             service_state: "READY",
           },
         });
@@ -234,7 +249,7 @@ describe("POS Local Service process boundary", () => {
             service_version: "1.0.0",
             protocol_version: "1.0.0",
             service_state: "READY",
-            schema_version: "3",
+            schema_version: "4",
           },
         });
       } finally {

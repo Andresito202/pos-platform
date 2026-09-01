@@ -88,10 +88,80 @@ CREATE TRIGGER local_security_audit_no_delete
   BEGIN SELECT RAISE(ABORT, 'local security audit is append-only'); END;
 `.trim();
 
+
+const MIGRATION_004 = `
+CREATE TABLE local_sync_outbox (
+  operation_id TEXT PRIMARY KEY NOT NULL CHECK(length(operation_id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  operation_type TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  local_sequence INTEGER NOT NULL CHECK(local_sequence > 0),
+  operation_json TEXT NOT NULL,
+  payload_checksum TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+  status TEXT NOT NULL CHECK(status IN ('PENDING','IN_FLIGHT','RETRY_WAIT','ACKNOWLEDGED','DEAD_LETTER')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  next_attempt_at TEXT,
+  last_error_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(tenant_id, operation_type, idempotency_key),
+  UNIQUE(tenant_id, company_id, branch_id, device_id, installation_id, local_sequence)
+) STRICT;
+CREATE INDEX local_sync_outbox_dispatch_idx
+  ON local_sync_outbox(status, next_attempt_at, local_sequence);
+
+CREATE TABLE local_sync_inbox (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
+  result_checksum TEXT NOT NULL CHECK(length(result_checksum) = 64),
+  result_json TEXT NOT NULL,
+  server_status TEXT NOT NULL CHECK(server_status IN (
+    'SERVER_ACCEPTED','SERVER_REJECTED','CONFLICT','WAITING_FOR_DEPENDENCY',
+    'RETRY_SCHEDULED','REVIEW_REQUIRED','DEAD_LETTER'
+  )),
+  committed_at_server TEXT,
+  recorded_at_local TEXT NOT NULL,
+  UNIQUE(operation_id, result_checksum)
+) STRICT;
+CREATE INDEX local_sync_inbox_operation_idx ON local_sync_inbox(operation_id, sequence);
+
+CREATE TABLE local_sync_checkpoint (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  acknowledged_through_local_sequence INTEGER NOT NULL CHECK(acknowledged_through_local_sequence >= 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id, company_id, branch_id, device_id, installation_id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE local_sync_dead_letter (
+  operation_id TEXT PRIMARY KEY NOT NULL CHECK(length(operation_id) = 36),
+  reason_code TEXT NOT NULL,
+  attempts INTEGER NOT NULL CHECK(attempts >= 0),
+  failed_at TEXT NOT NULL,
+  recovered_at TEXT,
+  FOREIGN KEY(operation_id) REFERENCES local_sync_outbox(operation_id)
+) STRICT;
+
+CREATE TRIGGER local_sync_inbox_no_update
+  BEFORE UPDATE ON local_sync_inbox
+  BEGIN SELECT RAISE(ABORT, 'local sync inbox is append-only'); END;
+CREATE TRIGGER local_sync_inbox_no_delete
+  BEFORE DELETE ON local_sync_inbox
+  BEGIN SELECT RAISE(ABORT, 'local sync inbox is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
   { version: 3, sql: MIGRATION_003, checksum: createHash("sha256").update(MIGRATION_003).digest("hex") },
+  { version: 4, sql: MIGRATION_004, checksum: createHash("sha256").update(MIGRATION_004).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
