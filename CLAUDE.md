@@ -10,10 +10,14 @@ realmente en este entorno. Si no ejecutaste el comando, no digas "PASS". Si no v
 runtime, no digas "MATERIALIZED".
 
 ## Estado vigente (revisar docs/product/backlog.md para el estado real, esto puede quedar desactualizado)
-- Fase 1 — fundación técnica ejecutable. `apps/` y `packages/` del TARGET aún no existen.
+- Fase 1 — fundación técnica ejecutable. `apps/` y `packages/` del TARGET ya existen (verificado 2026-09-01):
+  `apps/pos-local-service`; `packages/{application,contracts,database-core,database-postgres,database-sqlite,domain,observability,testing}`.
 - `main` es la única rama canónica. Sin branch protection nativa → toda integración es por
   PR + SHA esperado + CI del HEAD exacto + verificación post-merge (ver docs/governance/repository-governance.md).
 - Migrations PostgreSQL 001/002/003: integradas con gates cerrados. SQLite 003: `NONE`.
+- Un RT marcado `DONE` en el backlog referido a un PR (p.ej. "RT-005 = DONE ... en PR #19") describe el estado
+  del trabajo en esa rama/PR, NO que ya está mergeado a `main`. Verificar merge real con
+  `gh pr view <N> --json state,mergedAt` antes de asumir integración — no inferirlo del backlog.
 
 ## Arquitectura TARGET (única, no forks)
 - Monolito modular, TypeScript estricto, pnpm workspaces + Nx.
