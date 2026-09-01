@@ -9,6 +9,9 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_SERVICE_VERSION",
   "POS_PROTOCOL_MIN",
   "POS_PROTOCOL_MAX",
+  "POS_TENANT_ID",
+  "POS_COMPANY_ID",
+  "POS_BRANCH_ID",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -18,6 +21,18 @@ const ServiceConfigSchema = z.strictObject({
   service_version: ContractVersionSchema,
   protocol_min: ContractVersionSchema,
   protocol_max: ContractVersionSchema,
+  /**
+   * Self-asserted local configuration, same trust tier as installation_id and
+   * device_id above — not derived from a cryptographically verified source.
+   * Deriving tenant_id/company_id from the signed license claims
+   * (packages/contracts/src/local-security.ts) is the target design, but
+   * requires license-provisioning machinery (LIC-003/DEV-003) that does not
+   * exist yet; branch_id has no signed source at all today. Tracked as a
+   * known gap pending SEC-G01/TenantMembership.
+   */
+  tenant_id: z.uuid(),
+  company_id: z.uuid(),
+  branch_id: z.uuid(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({
@@ -44,6 +59,9 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     service_version: environment.POS_SERVICE_VERSION,
     protocol_min: environment.POS_PROTOCOL_MIN,
     protocol_max: environment.POS_PROTOCOL_MAX,
+    tenant_id: environment.POS_TENANT_ID,
+    company_id: environment.POS_COMPANY_ID,
+    branch_id: environment.POS_BRANCH_ID,
   });
   if (!isAbsolute(parsed.data_directory)) {
     throw new Error("data directory must be absolute");

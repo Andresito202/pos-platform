@@ -1,6 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 import {
   IpcRequestSchema,
+  OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeHandshakeResponseSchema,
@@ -110,7 +111,9 @@ export class LocalChannelClient {
         try {
           const response = request.message_type === "runtime.status.get"
             ? await this.exchange(request, RuntimeStatusResponseSchema)
-            : await this.exchange(request, OperationResultResponseSchema);
+            : request.message_type === "operation.confirm"
+              ? await this.exchange(request, OperationConfirmResponseSchema)
+              : await this.exchange(request, OperationResultResponseSchema);
           resolve(response);
         } catch (error) {
           reject(error);

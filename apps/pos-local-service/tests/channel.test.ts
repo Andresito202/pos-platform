@@ -41,7 +41,7 @@ function runtimeHandshakeRequest(protocolMin = "1.0.0", protocolMax = "1.0.0") {
       protocol_max: protocolMax,
       installation_id: installationId,
       device_id: deviceId,
-      schema_version: "4",
+      schema_version: "5",
       service_state: "READY",
     },
   };
@@ -90,7 +90,7 @@ function compatibleResponse(request: ReturnType<typeof runtimeHandshakeRequest> 
       service_version: "1.0.0",
       protocol_version: "1.0.0",
       service_state: "READY",
-      schema_version: "4",
+      schema_version: "5",
     },
   };
 }
@@ -413,7 +413,7 @@ describe("local channel", () => {
       const statusResponse = clientAuth.verify(await receive(socket));
       expect(statusResponse.payload).toMatchObject({
         status: "SUCCEEDED",
-        result: { service_state: "READY", schema_version: "4" },
+        result: { service_state: "READY", schema_version: "5" },
       });
     } finally {
       socket?.destroy();

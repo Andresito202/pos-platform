@@ -13,6 +13,7 @@ export const IpcMessageTypeSchema = z.enum([
   "runtime.handshake",
   "runtime.status.get",
   "operation.result.get",
+  "operation.confirm",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -62,20 +63,40 @@ export const OperationResultSchema = z.strictObject({
 
 export const OperationResultResponseSchema = createResponseEnvelopeSchema(OperationResultSchema);
 
+export const OperationConfirmationSchema = z.strictObject({
+  operation_type: StableCodeSchema,
+  payload: z.json(),
+});
+
+export const OperationConfirmRequestSchema = createRequestEnvelopeSchema(
+  OperationConfirmationSchema,
+).safeExtend({ message_type: z.literal("operation.confirm") });
+
+export const OperationConfirmResultSchema = z.strictObject({
+  operation_id: UuidSchema,
+  status: OperationResultStatusSchema,
+  result_code: StableCodeSchema,
+});
+
+export const OperationConfirmResponseSchema = createResponseEnvelopeSchema(OperationConfirmResultSchema);
+
 export type IpcMessageType = z.infer<typeof IpcMessageTypeSchema>;
 export type OperationResultQuery = z.infer<typeof OperationResultQuerySchema>;
+export type OperationConfirmation = z.infer<typeof OperationConfirmationSchema>;
 
 
 export const IpcRequestSchema = z.union([
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
   OperationResultRequestSchema,
+  OperationConfirmRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,
   OperationResultResponseSchema,
+  OperationConfirmResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

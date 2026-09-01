@@ -15,6 +15,9 @@ import {
 const directories: string[] = [];
 const processInstallationId = "018f0000-0000-7000-8000-000000000091";
 const processDeviceId = "018f0000-0000-7000-8000-000000000092";
+const processTenantId = "018f0000-0000-7000-8000-000000000093";
+const processCompanyId = "018f0000-0000-7000-8000-000000000094";
+const processBranchId = "018f0000-0000-7000-8000-000000000095";
 
 async function directory(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), "pos-process-"));
@@ -39,6 +42,9 @@ function serviceEnvironment(dataDirectory?: string): NodeJS.ProcessEnv {
     POS_SERVICE_VERSION: "1.0.0",
     POS_PROTOCOL_MIN: "1.0.0",
     POS_PROTOCOL_MAX: "1.0.0",
+    POS_TENANT_ID: processTenantId,
+    POS_COMPANY_ID: processCompanyId,
+    POS_BRANCH_ID: processBranchId,
   };
 }
 
@@ -232,7 +238,7 @@ describe("POS Local Service process boundary", () => {
             protocol_max: "1.0.0",
             installation_id: installationId,
             device_id: deviceId,
-            schema_version: "4",
+            schema_version: "5",
             service_state: "READY",
           },
         });
@@ -249,8 +255,40 @@ describe("POS Local Service process boundary", () => {
             service_version: "1.0.0",
             protocol_version: "1.0.0",
             service_state: "READY",
-            schema_version: "4",
+            schema_version: "5",
           },
+        });
+
+        const confirmRequest = {
+          protocol_version: "1.0.0",
+          message_type: "operation.confirm" as const,
+          request_id: "018f0000-0000-7000-8000-000000000013",
+          correlation_id: "018f0000-0000-7000-8000-000000000011",
+          operation_id: "018f0000-0000-7000-8000-000000000014",
+          idempotency_key: "generic:confirm:process-test",
+          payload_schema_version: "1.0.0",
+          payload: { operation_type: "RUNTIME_OPERATION_CONFIRMED", payload: { note: "end-to-end" } },
+        };
+        await expect(client.request(confirmRequest)).resolves.toMatchObject({
+          status: "SUCCEEDED",
+          operation_id: "018f0000-0000-7000-8000-000000000014",
+          result: { status: "SUCCEEDED", result_code: "CONFIRMED" },
+        });
+        // Same idempotency_key + payload replays the same outcome without duplicating writes.
+        await expect(client.request(confirmRequest)).resolves.toMatchObject({
+          status: "SUCCEEDED",
+          operation_id: "018f0000-0000-7000-8000-000000000014",
+          result: { status: "SUCCEEDED", result_code: "CONFIRMED" },
+        });
+        // Same idempotency_key, different payload -> REJECTED, not a socket teardown.
+        await expect(client.request({
+          ...confirmRequest,
+          request_id: "018f0000-0000-7000-8000-000000000015",
+          payload: { operation_type: "RUNTIME_OPERATION_CONFIRMED", payload: { note: "conflicting" } },
+        })).resolves.toMatchObject({
+          status: "REJECTED",
+          result_code: "OPERATION_IDEMPOTENCY_CONFLICT",
+          error: { category: "CONFLICT" },
         });
       } finally {
         await client.close();

@@ -157,11 +157,41 @@ CREATE TRIGGER local_sync_inbox_no_delete
   BEGIN SELECT RAISE(ABORT, 'local sync inbox is append-only'); END;
 `.trim();
 
+const MIGRATION_005 = `
+CREATE TABLE local_operation_audit (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('DEVICE','SYSTEM')),
+  actor_id TEXT,
+  session_id TEXT NOT NULL,
+  action_code TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT,
+  correlation_id TEXT NOT NULL,
+  causation_id TEXT,
+  reason_code TEXT,
+  details_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX local_operation_audit_scope_idx
+  ON local_operation_audit(tenant_id, company_id, branch_id, created_at);
+CREATE TRIGGER local_operation_audit_no_update
+  BEFORE UPDATE ON local_operation_audit
+  BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
+CREATE TRIGGER local_operation_audit_no_delete
+  BEFORE DELETE ON local_operation_audit
+  BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
   { version: 3, sql: MIGRATION_003, checksum: createHash("sha256").update(MIGRATION_003).digest("hex") },
   { version: 4, sql: MIGRATION_004, checksum: createHash("sha256").update(MIGRATION_004).digest("hex") },
+  { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

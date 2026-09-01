@@ -1,6 +1,7 @@
 import { createServer, type Server, type Socket } from "node:net";
 import {
   IpcRequestSchema,
+  OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,
@@ -15,7 +16,7 @@ import {
   inspectWindowsNamedPipeSecurity,
 } from "./windows-pipe-security.js";
 
-export type ChannelHandler = (request: IpcRequest, signal: AbortSignal) => Promise<unknown>;
+export type ChannelHandler = (request: IpcRequest, signal: AbortSignal, sessionId: string) => Promise<unknown>;
 
 function requestWithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
@@ -43,6 +44,8 @@ function validateResponse(request: IpcRequest, input: unknown): unknown {
       return RuntimeStatusResponseSchema.parse(input);
     case "operation.result.get":
       return OperationResultResponseSchema.parse(input);
+    case "operation.confirm":
+      return OperationConfirmResponseSchema.parse(input);
   }
 }
 
@@ -112,7 +115,7 @@ export class LocalChannelServer {
                     max: request.payload.protocol_max,
                   });
                   const rawResponse = await requestWithTimeout(
-                    (signal) => this.handler(request, signal),
+                    (signal) => this.handler(request, signal, frame.session_id),
                     this.requestTimeoutMs,
                   );
                   const response = RuntimeHandshakeResponseSchema.parse(rawResponse);
@@ -140,7 +143,7 @@ export class LocalChannelServer {
                 }
 
                 const rawResponse = await requestWithTimeout(
-                  (signal) => this.handler(request, signal),
+                  (signal) => this.handler(request, signal, frame.session_id),
                   this.requestTimeoutMs,
                 );
                 const response = validateResponse(request, rawResponse) as { protocol_version: string };
