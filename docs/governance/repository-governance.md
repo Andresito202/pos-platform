@@ -52,6 +52,26 @@ La política del proyecto permite únicamente:
 
 No se usa squash ni rebase para integrar a `main` mientras esta política esté vigente.
 
+### Política permanente de "revisión" en proyecto de un solo desarrollador
+
+Este repositorio tiene un único desarrollador y dueño autorizado a escribir en él:
+Wilson Andrés Camacho Culma. No existe ni existirá otro humano autorizado a
+aprobar PRs mientras esta condición se mantenga. Por tanto, la etapa `revisión`
+del flujo de integración de la sección anterior se satisface con la revisión
+del propio autor del diff completo mergeado, documentada con su nombre y fecha
+en el registro del RT/PR correspondiente (ver docs/product/backlog.md).
+
+Esto es política explícita y permanente, no un pendiente caso por caso: no se
+requiere abrir ni volver a abrir un punto de "revisión humana pendiente" por
+esta razón en ningún RT futuro, mientras el proyecto siga siendo de un solo
+desarrollador. Un review automatizado (bot) nunca sustituye esta revisión de
+autor; solo la documenta como evidencia adicional, no como reemplazo.
+
+Si en el futuro se incorpora otro colaborador autorizado a mergear, esta
+política queda revocada desde ese momento y la revisión pasa a requerir un
+segundo humano — eso debe registrarse como decisión versionada nueva, no
+inferirse.
+
 ### Gate pre-merge obligatorio
 
 Inmediatamente antes de cada merge se verifica:
