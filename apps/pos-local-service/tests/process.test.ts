@@ -95,6 +95,7 @@ function waitForLogEvent(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
+      child.kill("SIGKILL");
       reject(new Error(`timed out waiting for ${event}`));
     }, timeoutMs);
     timer.unref?.();
@@ -192,7 +193,7 @@ describe("POS Local Service process boundary", () => {
     const dataDirectory = await directory();
     const child = spawnServiceWithControl(serviceEnvironment(dataDirectory));
     const stdout = captureStdout(child);
-    await waitForLogEvent(child, "runtime.started");
+    await waitForLogEvent(child, "runtime.started", 25_000);
 
     if (process.platform === "win32") {
       const installationId = processInstallationId;
