@@ -6,3 +6,5 @@ export * from "./channel/index.js";
 export * from "./security/index.js";
 export * from "./sync/durable-sync-store.js";
 export * from "./sync/durable-sync-component.js";
+export * from "./operations/operation-confirmation-store.js";
+export * from "./operations/operation-confirmation-component.js";

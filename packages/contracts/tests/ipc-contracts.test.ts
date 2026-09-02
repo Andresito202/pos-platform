@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  OperationConfirmRequestSchema,
   OperationResultRequestSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
@@ -30,6 +31,32 @@ describe("TECH-003 IPC contracts", () => {
       ...metadata,
       message_type: "operation.result.get",
       payload: { operation_id: "550e8400-e29b-41d4-a716-446655440002" },
+    }).success).toBe(false);
+  });
+  it("accepts a domain-agnostic operation confirmation with idempotency", () => {
+    expect(OperationConfirmRequestSchema.safeParse({
+      ...metadata,
+      message_type: "operation.confirm",
+      operation_id: "550e8400-e29b-41d4-a716-446655440020",
+      idempotency_key: "generic:confirm:1",
+      payload: { operation_type: "RUNTIME_OPERATION_CONFIRMED", payload: { note: "example" } },
+    }).success).toBe(true);
+  });
+  it("requires operation_id alongside idempotency_key for operation.confirm", () => {
+    expect(OperationConfirmRequestSchema.safeParse({
+      ...metadata,
+      message_type: "operation.confirm",
+      idempotency_key: "generic:confirm:1",
+      payload: { operation_type: "RUNTIME_OPERATION_CONFIRMED", payload: {} },
+    }).success).toBe(false);
+  });
+  it("rejects unexpected operation.confirm payload fields", () => {
+    expect(OperationConfirmRequestSchema.safeParse({
+      ...metadata,
+      message_type: "operation.confirm",
+      operation_id: "550e8400-e29b-41d4-a716-446655440020",
+      idempotency_key: "generic:confirm:1",
+      payload: { operation_type: "RUNTIME_OPERATION_CONFIRMED", payload: {}, shell: true },
     }).success).toBe(false);
   });
   it("wraps the strict handshake snapshot", () => {

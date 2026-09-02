@@ -4,6 +4,7 @@ import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
+import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -78,14 +79,16 @@ try {
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
   const durableSync = new DurableSyncComponent(localDatabase);
+  const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
   let localChannel: LocalChannelComponent | undefined;
-  const components: RuntimeComponent[] = [localDatabase, durableSync];
+  const components: RuntimeComponent[] = [localDatabase, durableSync, operationConfirmation];
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
       config,
       localDatabase,
       () => lifecycle?.state ?? "STARTING",
+      operationConfirmation,
     );
     components.push(localChannel);
   }

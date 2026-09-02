@@ -1,18 +1,21 @@
+import { randomUUID } from "node:crypto";
 import {
   compareContractVersions,
   negotiateProtocolVersion,
+  type ContractError,
   type IpcRequest,
 } from "@pos-platform/contracts";
 import type { RuntimeComponent, RuntimeState } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
 import type { ServiceConfig } from "../config.js";
+import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import { LocalChannelAuthenticator } from "./authenticator.js";
 import { localChannelEndpoint } from "./endpoint.js";
 import { SqliteReplayStateStore } from "./replay-state.js";
 import { LocalChannelServer } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 
-const LOCAL_SCHEMA_VERSION = "4";
+const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
 
 function incompatibleStatus(
@@ -35,6 +38,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly config: ServiceConfig,
     private readonly localDatabase: LocalDatabaseComponent,
     private readonly runtimeState: () => RuntimeState,
+    private readonly operationConfirmation: OperationConfirmationComponent,
   ) {
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
@@ -56,7 +60,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     const server = new LocalChannelServer(
       this.endpoint,
       authenticator,
-      (request, signal) => this.handle(request, signal),
+      (request, signal, sessionId) => this.handle(request, signal, sessionId),
       { min: this.config.protocol_min, max: this.config.protocol_max },
     );
 
@@ -83,7 +87,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     }
   }
 
-  private async handle(request: IpcRequest, signal: AbortSignal): Promise<unknown> {
+  private async handle(request: IpcRequest, signal: AbortSignal, sessionId: string): Promise<unknown> {
     if (signal.aborted) throw new Error("local channel request aborted");
 
     switch (request.message_type) {
@@ -178,6 +182,89 @@ export class LocalChannelComponent implements RuntimeComponent {
           },
         };
       }
+
+      case "operation.confirm": {
+        if (request.operation_id === undefined || request.idempotency_key === undefined) {
+          return this.rejected(request, "OPERATION_CONFIRM_MISSING_IDEMPOTENCY", {
+            code: "OPERATION_CONFIRM_MISSING_IDEMPOTENCY",
+            category: "VALIDATION",
+            retryable: false,
+            user_message_key: "operation.confirm.missing_idempotency",
+            field_errors: [],
+            current_version: null,
+            required_action: null,
+            diagnostic_id: randomUUID(),
+          });
+        }
+
+        const outcome = this.operationConfirmation.store.confirm(
+          {
+            scope: {
+              tenantId: this.config.tenant_id,
+              companyId: this.config.company_id,
+              branchId: this.config.branch_id,
+              deviceId: this.config.device_id,
+              installationId: this.config.installation_id,
+            },
+            sessionId,
+            actorId: this.config.device_id,
+          },
+          {
+            operationId: request.operation_id,
+            idempotencyKey: request.idempotency_key,
+            correlationId: request.correlation_id,
+            causationId: request.causation_id ?? null,
+            operationType: request.payload.operation_type,
+            payload: request.payload.payload,
+          },
+        );
+
+        if (outcome.kind === "IDEMPOTENCY_CONFLICT") {
+          return this.rejected(request, "OPERATION_IDEMPOTENCY_CONFLICT", {
+            code: "OPERATION_IDEMPOTENCY_CONFLICT",
+            category: "CONFLICT",
+            retryable: false,
+            user_message_key: "operation.confirm.idempotency_conflict",
+            field_errors: [],
+            current_version: null,
+            required_action: null,
+            diagnostic_id: randomUUID(),
+          }, outcome.operationId);
+        }
+
+        return {
+          protocol_version: request.protocol_version,
+          request_id: request.request_id,
+          correlation_id: request.correlation_id,
+          operation_id: outcome.operationId,
+          status: "SUCCEEDED",
+          result_code: outcome.resultCode,
+          result_schema_version: RESULT_SCHEMA_VERSION,
+          error: null,
+          server_time: new Date().toISOString(),
+          result: { operation_id: outcome.operationId, status: "SUCCEEDED", result_code: outcome.resultCode },
+        };
+      }
     }
+  }
+
+  private rejected(
+    request: Extract<IpcRequest, { message_type: "operation.confirm" }>,
+    resultCode: string,
+    error: ContractError,
+    operationId: string | null = null,
+  ) {
+    return {
+      protocol_version: request.protocol_version,
+      request_id: request.request_id,
+      correlation_id: request.correlation_id,
+      operation_id: operationId,
+      status: "REJECTED",
+      result_code: resultCode,
+      result_schema_version: RESULT_SCHEMA_VERSION,
+      error,
+      server_time: new Date().toISOString(),
+      result: null,
+    };
   }
 }
