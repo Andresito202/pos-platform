@@ -3,7 +3,14 @@ import { Money } from "../money.js";
 import { TenantScope } from "../tenant-scope.js";
 import { CashDomainError } from "./cash-domain-errors.js";
 
-export type CashShiftStatus = "OPEN";
+/**
+ * 'CLOSING' (an externally-observable intermediate state while a close is
+ * in flight, per cash-counting-schema.md) is deliberately not modeled: this
+ * implementation's CloseCashShiftUseCase closes atomically in one call, so
+ * nothing here ever needs to represent "closing in progress". Add it only
+ * when a real concurrent-access boundary needs to observe that state.
+ */
+export type CashShiftStatus = "OPEN" | "CLOSED";
 
 export interface OpenCashShiftInput {
   readonly id: string;
@@ -16,21 +23,12 @@ export interface OpenCashShiftInput {
 }
 
 /**
- * CashShift aggregate root, scoped deliberately to CASH-001 (open only).
- * Deferred on purpose, not by oversight: status transitions beyond OPEN
- * (CLOSING/CLOSED), expected_version optimistic concurrency, and
- * business_date/timezone columns all belong to CASH-002/CASH-003, which
- * this vertical does not implement — adding them now with no real consumer
- * would be exactly the speculative interface this project's own rules
- * forbid. The invariant this type enforces today
- * (cash-counting-schema.md, "Reglas" 1: base inicial de un CashMovement
- * OPENING_FLOAT POSTED) is opening amount >= 0; "no otro turno abierto
- * incompatible" is a cross-aggregate rule and lives in the application
- * use case, not here, because a single aggregate cannot see its siblings.
+ * CashShift aggregate root. Immutable — every state change (registering a
+ * movement, closing) returns a new instance, matching the version-per-write
+ * discipline UC-CASH-002/003 both require ("expected_version", "la versión
+ * del turno aumenta").
  */
 export class CashShift {
-  readonly status: CashShiftStatus = "OPEN";
-
   private constructor(
     readonly id: string,
     readonly scope: TenantScope,
@@ -39,6 +37,9 @@ export class CashShift {
     readonly openedByActor: Actor,
     readonly openedAt: Date,
     readonly openingAmount: Money,
+    readonly status: CashShiftStatus,
+    readonly version: number,
+    readonly closedAt: Date | null,
   ) {}
 
   static open(input: OpenCashShiftInput): CashShift {
@@ -46,13 +47,37 @@ export class CashShift {
       throw new CashDomainError("NEGATIVE_OPENING_AMOUNT", "opening amount must be non-negative");
     }
     return new CashShift(
-      input.id,
-      input.scope,
-      input.cashRegisterId,
-      input.originDeviceId,
-      input.openedByActor,
-      input.openedAt,
-      input.openingAmount,
+      input.id, input.scope, input.cashRegisterId, input.originDeviceId,
+      input.openedByActor, input.openedAt, input.openingAmount, "OPEN", 1, null,
+    );
+  }
+
+  /** UC-CASH-003 flow step 17 + concurrency rule 1: every write validates expected_version. */
+  assertOpenAtVersion(expectedVersion: number): void {
+    if (this.status !== "OPEN") {
+      throw new CashDomainError("SHIFT_NOT_OPEN", `cash shift ${this.id} is not open`);
+    }
+    if (this.version !== expectedVersion) {
+      throw new CashDomainError("SHIFT_VERSION_CONFLICT", `expected version ${expectedVersion}, shift is at ${this.version}`);
+    }
+  }
+
+  /** Returns the shift as it is after one accepted movement (UC-CASH-003 step 22). */
+  withNextVersion(): CashShift {
+    return new CashShift(
+      this.id, this.scope, this.cashRegisterId, this.originDeviceId,
+      this.openedByActor, this.openedAt, this.openingAmount, this.status, this.version + 1, this.closedAt,
+    );
+  }
+
+  /** UC-CASH-002 frontier: OPEN -> CLOSED, version advances, closedAt fixed. */
+  close(closedAt: Date): CashShift {
+    if (this.status !== "OPEN") {
+      throw new CashDomainError("SHIFT_NOT_OPEN", `cash shift ${this.id} is not open`);
+    }
+    return new CashShift(
+      this.id, this.scope, this.cashRegisterId, this.originDeviceId,
+      this.openedByActor, this.openedAt, this.openingAmount, "CLOSED", this.version + 1, closedAt,
     );
   }
 }

@@ -26,11 +26,44 @@ export class Money {
     return !this.canonical.startsWith("-");
   }
 
+  isPositive(): boolean {
+    return this.isNonNegative() && !this.equals(Money.zero());
+  }
+
+  isGreaterThan(other: Money): boolean {
+    return this.scaled() > other.scaled();
+  }
+
   equals(other: Money): boolean {
     return this.canonical === other.canonical;
   }
 
+  /** Exact addition via scaled BigInt — never floating point. */
+  add(other: Money): Money {
+    return Money.fromScaled(this.scaled() + other.scaled());
+  }
+
+  /** Exact subtraction via scaled BigInt — never floating point. */
+  subtract(other: Money): Money {
+    return Money.fromScaled(this.scaled() - other.scaled());
+  }
+
   toString(): string {
     return this.canonical;
+  }
+
+  private scaled(): bigint {
+    const negative = this.canonical.startsWith("-");
+    const [whole = "0", fraction = "0"] = this.canonical.replace("-", "").split(".");
+    const value = BigInt(whole) * 1_000_000n + BigInt(fraction);
+    return negative ? -value : value;
+  }
+
+  private static fromScaled(scaled: bigint): Money {
+    const negative = scaled < 0n;
+    const absolute = negative ? -scaled : scaled;
+    const whole = absolute / 1_000_000n;
+    const fraction = (absolute % 1_000_000n).toString().padStart(6, "0");
+    return new Money(`${negative && absolute !== 0n ? "-" : ""}${whole}.${fraction}`);
   }
 }

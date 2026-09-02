@@ -4,6 +4,7 @@ import {
   CashDomainError,
   CashMovement,
   CashShift,
+  CashShiftClosed,
   CashShiftOpened,
   Money,
   TenantScope,
@@ -64,5 +65,59 @@ describe("CashShift.open", () => {
       cashShiftId: shift.id,
       cashRegisterId: shift.cashRegisterId,
     });
+  });
+
+  it("opens at version 1, OPEN, closedAt null", () => {
+    const shift = CashShift.open(validInput());
+    expect(shift.version).toBe(1);
+    expect(shift.status).toBe("OPEN");
+    expect(shift.closedAt).toBeNull();
+  });
+});
+
+describe("CashShift.assertOpenAtVersion", () => {
+  it("passes silently when open and version matches", () => {
+    const shift = CashShift.open(validInput());
+    expect(() => shift.assertOpenAtVersion(1)).not.toThrow();
+  });
+
+  it("rejects a version mismatch (concurrency conflict)", () => {
+    const shift = CashShift.open(validInput());
+    expect(() => shift.assertOpenAtVersion(2)).toThrow(CashDomainError);
+  });
+
+  it("rejects any operation once closed, even at the correct version", () => {
+    const shift = CashShift.open(validInput()).close(new Date("2026-09-02T20:00:00Z"));
+    expect(() => shift.assertOpenAtVersion(shift.version)).toThrow(CashDomainError);
+  });
+});
+
+describe("CashShift.withNextVersion / close", () => {
+  it("withNextVersion advances only the version, keeping identity and status", () => {
+    const shift = CashShift.open(validInput());
+    const advanced = shift.withNextVersion();
+    expect(advanced.version).toBe(2);
+    expect(advanced.status).toBe("OPEN");
+    expect(advanced.id).toBe(shift.id);
+  });
+
+  it("close() transitions OPEN -> CLOSED, advances version, and fixes closedAt", () => {
+    const shift = CashShift.open(validInput());
+    const closedAt = new Date("2026-09-02T20:00:00Z");
+    const closed = shift.close(closedAt);
+    expect(closed.status).toBe("CLOSED");
+    expect(closed.version).toBe(2);
+    expect(closed.closedAt).toBe(closedAt);
+  });
+
+  it("close() rejects a shift that is already closed", () => {
+    const shift = CashShift.open(validInput()).close(new Date("2026-09-02T20:00:00Z"));
+    expect(() => shift.close(new Date("2026-09-02T20:05:00Z"))).toThrow(CashDomainError);
+  });
+
+  it("emits CashShiftClosed referencing the closed shift", () => {
+    const shift = CashShift.open(validInput()).close(new Date("2026-09-02T20:00:00Z"));
+    const event = CashShiftClosed.from(shift);
+    expect(event).toMatchObject({ type: "CashShiftClosed", cashShiftId: shift.id });
   });
 });
