@@ -29,6 +29,17 @@ export class Actor {
     return new Actor("USER", userId);
   }
 
+  /**
+   * Bloque 22 (materialization): reconstructs an actor from an already-
+   * persisted `(actor_type, actor_id)` pair — no path exists to attach a
+   * SYSTEM actor otherwise (no dedicated factory for it, since nothing in
+   * this repository originates one yet). Adapters only, same reasoning as
+   * CashShift.restore().
+   */
+  static restore(type: ActorType, id: string): Actor {
+    return new Actor(type, id);
+  }
+
   equals(other: Actor): boolean {
     return this.type === other.type && this.id === other.id;
   }

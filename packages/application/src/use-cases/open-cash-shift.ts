@@ -8,7 +8,12 @@ import {
   TenantScope,
 } from "@pos-platform/domain";
 import type { CashAuthorizationPort } from "../ports/cash-authorization-port.js";
-import type { CashShiftRepository } from "../ports/cash-shift-repository.js";
+import {
+  IdempotencyKeyConflictError,
+  IncompatibleShiftOpenConflictError,
+  type CashShiftPhysicalContext,
+  type CashShiftRepository,
+} from "../ports/cash-shift-repository.js";
 import type { Clock } from "../ports/clock.js";
 import type { IdGenerator } from "../ports/id-generator.js";
 
@@ -19,6 +24,18 @@ export interface OpenCashShiftCommand {
   readonly openedByActor: Actor;
   readonly openingAmount: string;
   readonly idempotencyKey: string;
+  /**
+   * Bloque 22: physical bookkeeping required by `cash_shifts`/
+   * `cash_movements` (see CashShiftPhysicalContext) that no domain object
+   * carries. Not part of the idempotency checksum (Bloque 17 D5) — these
+   * describe the device/branch's operating context at write time, the same
+   * category as `scope`/`originDeviceId`, which the checksum already
+   * excludes as routing metadata rather than operation payload.
+   */
+  readonly businessDate: string;
+  readonly timezoneId: string;
+  readonly utcOffsetMinutes: number;
+  readonly currencyCode: string;
 }
 
 export type OpenCashShiftResult =
@@ -111,11 +128,8 @@ export class OpenCashShiftUseCase {
 
     const checksum = canonicalizeOpenPayload(command);
 
-    const existing = await this.repository.findOpenByIdempotencyKey(command.scope, command.originDeviceId, command.idempotencyKey);
-    if (existing) {
-      if (existing.checksum === checksum) return { kind: "ALREADY_OPENED", shift: existing.shift };
-      return { kind: "REJECTED", reason: "IDEMPOTENCY_CONFLICT" };
-    }
+    const replay = await this.replayOrConflict(command, checksum);
+    if (replay) return replay;
 
     const incompatible = await this.repository.hasIncompatibleOpenShift(command.scope, command.cashRegisterId, command.originDeviceId);
     if (incompatible) return { kind: "REJECTED", reason: "INCOMPATIBLE_SHIFT_OPEN" };
@@ -139,8 +153,41 @@ export class OpenCashShiftUseCase {
     }
 
     const movement = CashMovement.openingFloat(shift, this.idGenerator.newId(), shift.openedAt);
-    await this.repository.save(shift, movement, command.idempotencyKey, checksum);
+    const physicalContext: CashShiftPhysicalContext = {
+      businessDate: command.businessDate,
+      timezoneId: command.timezoneId,
+      utcOffsetMinutes: command.utcOffsetMinutes,
+      currencyCode: command.currencyCode,
+    };
+    try {
+      await this.repository.save(shift, movement, command.idempotencyKey, checksum, physicalContext);
+    } catch (error) {
+      if (error instanceof IdempotencyKeyConflictError || error instanceof IncompatibleShiftOpenConflictError) {
+        // Bloque 22: a truly concurrent request won one of two possible
+        // physical UNIQUE races between our lookups above and this save —
+        // re-run the exact same replay/conflict decision now that the row
+        // genuinely exists, instead of letting a legitimate retry surface
+        // as an unhandled exception. The idempotency lookup is always
+        // authoritative when it resolves, regardless of which constraint
+        // the adapter actually reported: which of the two fires first
+        // under a true race is an implementation detail neither error
+        // type can rely on (see IncompatibleShiftOpenConflictError).
+        const resolved = await this.replayOrConflict(command, checksum);
+        if (resolved) return resolved;
+        if (error instanceof IncompatibleShiftOpenConflictError) {
+          return { kind: "REJECTED", reason: "INCOMPATIBLE_SHIFT_OPEN" };
+        }
+      }
+      throw error;
+    }
 
     return { kind: "OPENED", shift, event: CashShiftOpened.from(shift) };
+  }
+
+  private async replayOrConflict(command: OpenCashShiftCommand, checksum: string): Promise<OpenCashShiftResult | null> {
+    const existing = await this.repository.findOpenByIdempotencyKey(command.scope, command.originDeviceId, command.idempotencyKey);
+    if (!existing) return null;
+    if (existing.checksum === checksum) return { kind: "ALREADY_OPENED", shift: existing.shift };
+    return { kind: "REJECTED", reason: "IDEMPOTENCY_CONFLICT" };
   }
 }

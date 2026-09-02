@@ -22,6 +22,19 @@ export interface OpenCashShiftInput {
   readonly openingAmount: Money;
 }
 
+export interface RestoreCashShiftInput {
+  readonly id: string;
+  readonly scope: TenantScope;
+  readonly cashRegisterId: string;
+  readonly originDeviceId: string;
+  readonly openedByActor: Actor;
+  readonly openedAt: Date;
+  readonly openingAmount: Money;
+  readonly status: CashShiftStatus;
+  readonly version: number;
+  readonly closedAt: Date | null;
+}
+
 /**
  * CashShift aggregate root. Immutable — every state change (registering a
  * movement, closing) returns a new instance, matching the version-per-write
@@ -49,6 +62,21 @@ export class CashShift {
     return new CashShift(
       input.id, input.scope, input.cashRegisterId, input.originDeviceId,
       input.openedByActor, input.openedAt, input.openingAmount, "OPEN", 1, null,
+    );
+  }
+
+  /**
+   * Bloque 22 (materialization): reconstructs a shift from already-persisted
+   * fields — no invariant re-checking, because a row read back from storage
+   * already satisfied every invariant `open()`/`close()` enforce at the
+   * moment it was written. Adapters use this, application/domain business
+   * flows never should — `open()` remains the only way to create a shift
+   * that didn't already exist.
+   */
+  static restore(input: RestoreCashShiftInput): CashShift {
+    return new CashShift(
+      input.id, input.scope, input.cashRegisterId, input.originDeviceId,
+      input.openedByActor, input.openedAt, input.openingAmount, input.status, input.version, input.closedAt,
     );
   }
 

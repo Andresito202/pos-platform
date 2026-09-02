@@ -186,12 +186,274 @@ CREATE TRIGGER local_operation_audit_no_delete
   BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
 `.trim();
 
+/**
+ * Bloque 22: materializes the 7 Cash tables designed in Bloques 13-21
+ * (cash-physical-design.md, corrected B14/B17/B19/B21) — extends this same
+ * ledger rather than a parallel migration system, per
+ * cash-physical-design.md §5: "Único escritor: POS Local Service", the
+ * exact service that owns this file. Decimal amounts and quantities are
+ * TEXT (physical-conventions.md's canonical-string rule, matching
+ * Money.toString()) — never REAL/number. Sign is enforced with a string
+ * prefix check, not a numeric comparison: SQLite's type-affinity ordering
+ * ranks any non-empty TEXT value above any number, so `amount > 0` on a
+ * TEXT column would be vacuously true for every value, including a
+ * negative one — this is a real SQLite semantic, verified against a live
+ * database in this block's tests, not assumed.
+ *
+ * Column list and nullability were re-verified column-by-column against
+ * `cash-counting-schema.md`'s logical schema (the closed, `PHY-G07` source)
+ * while writing the adapter, catching real drift from an earlier draft of
+ * this migration: `cash_shifts.opening_amount` was removed (the schema's
+ * own rule 1 — "la base inicial se deriva de [la CashMovement OPENING_FLOAT]
+ * y no tiene una segunda autoridad mutable" — forbids a second, redundant
+ * authority for it; readers derive it from the shift's `shift_sequence = 1`
+ * movement instead), `cash_movements.device_reported_at` was added (it was
+ * missing outright), and nullability on `cash_movements.actor_id`/
+ * `reason_code`/`correlation_id`, `cash_counts.calculation_policy_version`/
+ * `calculation_checksum`/`tolerance_policy_version`/`tolerance_policy_checksum`/
+ * `correlation_id`, `cash_difference_reviews.severity`/
+ * `tolerance_policy_version`/`tolerance_policy_checksum`/`correlation_id`,
+ * and `cash_difference_review_actions.reason_code`/
+ * `authorization_policy_version` were corrected to match the schema
+ * document's explicit `NULL` annotations (present = nullable, absent =
+ * required — the same convention the schema uses consistently elsewhere).
+ */
+const MIGRATION_006 = `
+CREATE TABLE cash_registers (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  code TEXT NOT NULL,
+  code_normalized TEXT NOT NULL,
+  name TEXT NOT NULL,
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','RETIRED')),
+  created_at TEXT NOT NULL,
+  retired_at TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  UNIQUE(tenant_id, company_id, branch_id, code_normalized),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, branch_id, id)
+) STRICT;
+
+CREATE TABLE cash_shifts (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  opened_by_actor_type TEXT NOT NULL CHECK(opened_by_actor_type IN ('USER','DEVICE')),
+  opened_by_actor_id TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  business_date TEXT NOT NULL,
+  timezone_id TEXT NOT NULL,
+  utc_offset_minutes INTEGER NOT NULL,
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSING','CLOSED')),
+  closed_by_actor_type TEXT CHECK(closed_by_actor_type IN ('USER','DEVICE')),
+  closed_by_actor_id TEXT,
+  closed_at TEXT,
+  opening_idempotency_key TEXT NOT NULL,
+  opening_request_checksum TEXT NOT NULL,
+  closing_idempotency_key TEXT,
+  closing_request_checksum TEXT,
+  last_movement_sequence INTEGER NOT NULL DEFAULT 0 CHECK(last_movement_sequence >= 0),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_register_id) REFERENCES cash_registers(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, origin_device_id, opening_idempotency_key),
+  UNIQUE(tenant_id, origin_device_id, closing_idempotency_key)
+) STRICT;
+CREATE UNIQUE INDEX cash_shifts_incompatible_idx
+  ON cash_shifts(tenant_id, branch_id, cash_register_id, origin_device_id)
+  WHERE status IN ('OPEN','CLOSING');
+
+CREATE TABLE cash_movements (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  shift_sequence INTEGER NOT NULL CHECK(shift_sequence > 0),
+  movement_type TEXT NOT NULL CHECK(movement_type IN (
+    'OPENING_FLOAT','CASH_SALE','CASH_PAYMENT','CHANGE_GIVEN','CASH_REFUND',
+    'CASH_REVERSAL_COMPENSATION','CASH_WITHDRAWAL','CASH_DEPOSIT','COURIER_COLLECTION',
+    'CASH_EXPENSE','CASH_ADJUSTMENT_POSITIVE','CASH_ADJUSTMENT_NEGATIVE','TRANSFER_TO_SAFE',
+    'TRANSFER_FROM_SAFE','CLOSING_TRANSFER','OTHER_AUTHORIZED'
+  )),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+  amount TEXT NOT NULL CHECK(substr(amount,1,1) != '-' AND amount != '0.000000'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('CREATED','PENDING_APPROVAL','APPROVED','POSTED','REJECTED','FAILED','CANCELLED')),
+  reference_type TEXT NOT NULL,
+  reference_id TEXT,
+  original_cash_movement_id TEXT,
+  reason_code TEXT NOT NULL,
+  evidence_reference TEXT,
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('USER','DEVICE')),
+  actor_id TEXT,
+  approved_by_actor_type TEXT CHECK(approved_by_actor_type IN ('USER','DEVICE')),
+  approved_by_actor_id TEXT,
+  business_date TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  device_reported_at TEXT NOT NULL,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_register_id) REFERENCES cash_registers(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, cash_shift_id, shift_sequence),
+  UNIQUE(tenant_id, origin_device_id, idempotency_key)
+) STRICT;
+CREATE INDEX cash_movements_shift_status_idx ON cash_movements(tenant_id, cash_shift_id, status);
+
+CREATE TABLE cash_counts (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  count_type TEXT NOT NULL CHECK(count_type IN ('PARTIAL','CLOSING','CORRECTION')),
+  status TEXT NOT NULL CHECK(status IN ('IN_PROGRESS','COMPLETED','ABORTED')),
+  blind_mode INTEGER NOT NULL CHECK(blind_mode IN (0,1)),
+  started_shift_version INTEGER NOT NULL CHECK(started_shift_version > 0),
+  movement_cutoff_sequence INTEGER NOT NULL CHECK(movement_cutoff_sequence >= 0),
+  calculation_policy_version TEXT NOT NULL,
+  calculation_checksum TEXT NOT NULL,
+  expected_amount TEXT CHECK(expected_amount IS NULL OR substr(expected_amount,1,1) != '-'),
+  counted_amount TEXT CHECK(counted_amount IS NULL OR substr(counted_amount,1,1) != '-'),
+  difference_amount TEXT,
+  difference_type TEXT CHECK(difference_type IS NULL OR difference_type IN ('SHORTAGE','EXACT','OVERAGE')),
+  severity TEXT,
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  denomination_breakdown_status TEXT NOT NULL CHECK(denomination_breakdown_status IN ('PROVIDED','NOT_PROVIDED')),
+  tolerance_policy_version TEXT NOT NULL,
+  tolerance_policy_checksum TEXT NOT NULL,
+  supersedes_cash_count_id TEXT,
+  started_by_actor_type TEXT NOT NULL CHECK(started_by_actor_type IN ('USER','DEVICE')),
+  started_by_actor_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_by_actor_type TEXT CHECK(completed_by_actor_type IN ('USER','DEVICE')),
+  completed_by_actor_id TEXT,
+  completed_at TEXT,
+  aborted_by_actor_type TEXT CHECK(aborted_by_actor_type IN ('USER','DEVICE')),
+  aborted_by_actor_id TEXT,
+  aborted_at TEXT,
+  abort_reason_code TEXT,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  start_idempotency_key TEXT NOT NULL,
+  start_request_checksum TEXT NOT NULL,
+  completion_idempotency_key TEXT,
+  completion_request_checksum TEXT,
+  correlation_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, supersedes_cash_count_id) REFERENCES cash_counts(tenant_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, origin_device_id, start_idempotency_key),
+  UNIQUE(tenant_id, origin_device_id, completion_idempotency_key),
+  UNIQUE(tenant_id, supersedes_cash_count_id)
+) STRICT;
+CREATE UNIQUE INDEX cash_counts_one_completed_closing_idx
+  ON cash_counts(tenant_id, cash_shift_id)
+  WHERE count_type = 'CLOSING' AND status = 'COMPLETED';
+
+CREATE TABLE cash_count_denominations (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  cash_count_id TEXT NOT NULL CHECK(length(cash_count_id) = 36),
+  line_number INTEGER NOT NULL CHECK(line_number > 0),
+  denomination_code TEXT NOT NULL,
+  denomination_value TEXT NOT NULL CHECK(substr(denomination_value,1,1) != '-' AND denomination_value != '0.000000'),
+  quantity INTEGER NOT NULL CHECK(quantity > 0),
+  line_amount TEXT NOT NULL CHECK(substr(line_amount,1,1) != '-' AND line_amount != '0.000000'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, cash_count_id) REFERENCES cash_counts(tenant_id, id),
+  UNIQUE(tenant_id, cash_count_id, line_number),
+  UNIQUE(tenant_id, cash_count_id, denomination_code)
+) STRICT;
+
+CREATE TABLE cash_difference_reviews (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  cash_count_id TEXT NOT NULL CHECK(length(cash_count_id) = 36),
+  status TEXT NOT NULL CHECK(status IN ('REVIEW_REQUIRED','ACCEPTED','ESCALATED','RESOLVED')),
+  severity TEXT NOT NULL,
+  tolerance_policy_version TEXT NOT NULL,
+  tolerance_policy_checksum TEXT NOT NULL,
+  requires_segregation INTEGER NOT NULL CHECK(requires_segregation IN (0,1)),
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  correlation_id TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_count_id) REFERENCES cash_counts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, cash_count_id)
+) STRICT;
+
+CREATE TABLE cash_difference_review_actions (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  cash_difference_review_id TEXT NOT NULL CHECK(length(cash_difference_review_id) = 36),
+  action_type TEXT NOT NULL CHECK(action_type IN ('CREATED','ACCEPTED','ESCALATED','RESOLVED')),
+  from_status TEXT NOT NULL,
+  to_status TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  note TEXT,
+  evidence_reference TEXT,
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('USER','DEVICE')),
+  actor_id TEXT,
+  authorization_policy_version TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  FOREIGN KEY (tenant_id, cash_difference_review_id) REFERENCES cash_difference_reviews(tenant_id, id),
+  UNIQUE(tenant_id, origin_device_id, idempotency_key)
+) STRICT;
+CREATE TRIGGER cash_difference_review_actions_no_update
+  BEFORE UPDATE ON cash_difference_review_actions
+  BEGIN SELECT RAISE(ABORT, 'cash difference review actions are append-only'); END;
+CREATE TRIGGER cash_difference_review_actions_no_delete
+  BEFORE DELETE ON cash_difference_review_actions
+  BEGIN SELECT RAISE(ABORT, 'cash difference review actions are append-only'); END;
+CREATE TRIGGER cash_movements_no_update
+  BEFORE UPDATE ON cash_movements
+  BEGIN SELECT RAISE(ABORT, 'cash movements are append-only once POSTED'); END;
+CREATE TRIGGER cash_movements_no_delete
+  BEFORE DELETE ON cash_movements
+  BEGIN SELECT RAISE(ABORT, 'cash movements are append-only once POSTED'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
   { version: 3, sql: MIGRATION_003, checksum: createHash("sha256").update(MIGRATION_003).digest("hex") },
   { version: 4, sql: MIGRATION_004, checksum: createHash("sha256").update(MIGRATION_004).digest("hex") },
   { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
+  { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

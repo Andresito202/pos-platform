@@ -22,4 +22,13 @@ export class CashDifferenceReview {
   static required(cashCount: CashCount, id: string, now: Date): CashDifferenceReview {
     return new CashDifferenceReview(id, cashCount.cashShiftId, cashCount.id, now);
   }
+
+  /**
+   * Bloque 22 (materialization): reconstructs a review from an already-
+   * persisted row. No `status` parameter — every row is REVIEW_REQUIRED
+   * today, same as `required()`, since no transition is modeled yet.
+   */
+  static restore(input: { readonly id: string; readonly cashShiftId: string; readonly cashCountId: string; readonly createdAt: Date }): CashDifferenceReview {
+    return new CashDifferenceReview(input.id, input.cashShiftId, input.cashCountId, input.createdAt);
+  }
 }

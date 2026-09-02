@@ -50,14 +50,15 @@ El lookup recibe `scope` como partición — una clave generada bajo el tenant A
 
 `origin_device_id` es parte del tuple — confirmado y justificado arriba. Dos dispositivos que generan el mismo string de clave no colisionan.
 
-### Repository contract — IMPLEMENTADO (Bloque 18, corregido Bloque 19)
+### Repository contract — IMPLEMENTADO (Bloque 18, corregido Bloque 19, materializado Bloque 22)
 
 Este documento originalmente (Bloque 17) diseñó el contrato sin `originDeviceId` en el lookup, seguiendo por analogía el patrón de `findCloseByIdempotencyKey`. Ese diseño resultó objetivamente incompleto y fue implementado tal cual en el Bloque 18 — el Bloque 19, auditando la implementación contra el propio tuple que este documento declara en la sección anterior `(tenant_id, origin_device_id, opening_idempotency_key)`, encontró la inconsistencia y la corrigió. El contrato REAL, vigente en `packages/application/src/ports/cash-shift-repository.ts`, es:
 
 1. `findOpenByIdempotencyKey(scope: TenantScope, originDeviceId: string, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null>` — `originDeviceId` SÍ es un parámetro explícito (a diferencia de lo que este documento decía originalmente), porque sin él dos dispositivos generando el mismo string de clave colisionarían y uno sería rechazado incorrectamente como `IDEMPOTENCY_CONFLICT` para una solicitud que nunca fue un duplicado — un riesgo funcional real, no cosmético. El checksum viaja en el retorno para que el caso de uso distinga replay de conflicto sin una segunda llamada.
-2. `save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void>` — se extendió la firma existente (no se creó `saveOpen`); no necesita `originDeviceId` como parámetro aparte porque `shift.originDeviceId` ya está disponible en el objeto que recibe.
-3. `OpenCashShiftCommand.idempotencyKey: string` — implementado.
+2. `save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string, physicalContext: CashShiftPhysicalContext): Promise<void>` — se extendió la firma existente (no se creó `saveOpen`); no necesita `originDeviceId` como parámetro aparte porque `shift.originDeviceId` ya está disponible en el objeto que recibe. `physicalContext` (Bloque 22 — `businessDate`, `timezoneId`, `utcOffsetMinutes`, `currencyCode`) se agregó al materializar: `cash_shifts`/`cash_movements` exigen estas columnas `NOT NULL` y ningún objeto de dominio las modela (son metadatos operativos, no estado de negocio) — ver `docs/migration/cash-materialization-result.md`.
+3. `OpenCashShiftCommand.idempotencyKey: string` — implementado. Bloque 22 agregó además `businessDate`, `timezoneId`, `utcOffsetMinutes`, `currencyCode`, por el mismo motivo que `physicalContext` en `save()`.
 4. `OpenCashShiftResult` gana `{ kind: "ALREADY_OPENED", shift: CashShift }` y la razón de rechazo `"IDEMPOTENCY_CONFLICT"` — implementado.
+5. La brecha de concurrencia física, dejada explícitamente `DEFERRED` por este documento y por los Bloques 17-19, se cerró en el Bloque 22: `IdempotencyKeyConflictError` (colisión en `opening_idempotency_key`) e `IncompatibleShiftOpenConflictError` (colisión en `cash_shifts_incompatible_idx`) — ambas descubiertas y probadas contra SQLite real, no simuladas — permiten que `OpenCashShiftUseCase` resuelva el resultado correcto cuando el UNIQUE físico gana la carrera antes que el lookup en memoria.
 
 `findMovementByIdempotencyKey`/`findCloseByIdempotencyKey` (CLOSE y MOVEMENT) permanecen exactamente como estaban — sin `originDeviceId` explícito y sin detección de conflicto por checksum. Esa asimetría es real, conocida desde el Bloque 19, y deliberadamente no corregida ahí ni aquí: está fuera del alcance de auditar el contrato de OPEN.
 
@@ -99,10 +100,8 @@ Ningún cambio a `CashCount`/dominio/aplicación — la entidad `CashCountDenomi
 
 ## 3. Pendientes reales
 
-- El único punto NO resuelto por evidencia (verdadera decisión de código, no de negocio): si `save()` gana un parámetro o se agrega `saveOpen()` — trivial, diferido al bloque de implementación, no bloquea el contrato funcional.
-- El hallazgo de `hasIncompatibleOpenShift` sin `originDeviceId` — fuera de alcance de D5/D6, registrado para consideración futura.
-
-Ninguno de los dos afecta la corrección física de una constraint, FK, UNIQUE, tipo o enforcement — no elevan a `HUMAN DECISION REQUIRED`.
+- ~~El único punto NO resuelto por evidencia (verdadera decisión de código, no de negocio): si `save()` gana un parámetro o se agrega `saveOpen()`~~ — resuelto en el Bloque 22: `save()` extendió su firma con `physicalContext`.
+- El hallazgo de `hasIncompatibleOpenShift` sin `originDeviceId` — fuera de alcance de D5/D6, sigue registrado para consideración futura (no tocado por el Bloque 22).
 
 ## 4. Estado final
 
@@ -110,8 +109,10 @@ Ninguno de los dos afecta la corrección física de una constraint, FK, UNIQUE, 
 D5: RESOLVED
 D6: RESOLVED
 
-DDL: NO
-SQL: NO
-MIGRATIONS: NO
-GO_AUTHORIZED: NO
+DDL: MATERIALIZED — CASH ONLY (SQLite, Bloque 22)
+SQL: MATERIALIZED — CASH ONLY (SQLite, Bloque 22)
+MIGRATIONS: MATERIALIZED — CASH ONLY (SQLite, Bloque 22)
+GO_AUTHORIZED: YES — CASH ONLY (Bloque 22)
 ```
+
+Ver `docs/migration/cash-materialization-result.md` para el detalle completo de qué se materializó, qué se probó y qué sigue deliberadamente sin implementar (CASH-002/CASH-003, PostgreSQL).

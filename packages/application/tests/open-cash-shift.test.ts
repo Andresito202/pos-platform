@@ -30,6 +30,10 @@ function command(overrides: Partial<OpenCashShiftCommand> = {}): OpenCashShiftCo
     openedByActor: actor,
     openingAmount: "50000",
     idempotencyKey: "open:1",
+    businessDate: "2026-09-02",
+    timezoneId: "America/Bogota",
+    utcOffsetMinutes: -300,
+    currencyCode: "COP",
     ...overrides,
   };
 }
@@ -246,9 +250,10 @@ describe("OpenCashShiftUseCase", () => {
     });
 
     it(
-      "M — CONCURRENCY (documented limitation, not a false guarantee): two truly concurrent requests with the SAME key " +
-      "can both pass the lookup before either saves, producing two shifts. APPLICATION GUARANTEE covers sequential " +
-      "retries only; PHYSICAL GUARANTEE is DEFERRED to the UNIQUE constraint designed in Bloque 17, not yet materialized.",
+      "M — CONCURRENCY: two truly concurrent requests with the SAME key race past the lookup, but the repository's " +
+      "save-time UNIQUE enforcement (Bloque 22) lets exactly one win OPENED and forces the other to retry into " +
+      "ALREADY_OPENED — never two shifts. This closes the PHYSICAL GUARANTEE gap at the application-fake level; the " +
+      "real SQLite adapter must reproduce the same save-time throw for the guarantee to hold physically.",
       async () => {
         const repository = new InMemoryCashShiftRepository();
         const a = useCase(repository);
@@ -256,12 +261,17 @@ describe("OpenCashShiftUseCase", () => {
 
         const [resultA, resultB] = await Promise.all([a.execute(command()), b.execute(command())]);
 
-        // Both may report OPENED under true interleaving — this in-memory
-        // repository has no atomic check-and-set, exactly like the real
-        // application layer without a database transaction + UNIQUE.
-        const outcomes = [resultA.kind, resultB.kind];
-        expect(outcomes.every((kind) => kind === "OPENED" || kind === "ALREADY_OPENED")).toBe(true);
-        expect(repository.savedOpens.length).toBeGreaterThanOrEqual(1);
+        // Exactly one OPENED, exactly one ALREADY_OPENED — no interleaving
+        // is allowed to produce two shifts, and neither request may be
+        // dropped or error out.
+        const outcomes = [resultA.kind, resultB.kind].sort();
+        expect(outcomes).toEqual(["ALREADY_OPENED", "OPENED"]);
+        expect(repository.savedOpens).toHaveLength(1);
+
+        const opened = resultA.kind === "OPENED" ? resultA : resultB;
+        const replayed = resultA.kind === "ALREADY_OPENED" ? resultA : resultB;
+        if (opened.kind !== "OPENED" || replayed.kind !== "ALREADY_OPENED") throw new Error("unreachable");
+        expect(replayed.shift.id).toBe(opened.shift.id);
       },
     );
 

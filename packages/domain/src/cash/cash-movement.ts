@@ -88,6 +88,27 @@ export class CashMovement {
     });
   }
 
+  /**
+   * Bloque 22 (materialization): reconstructs a movement from an
+   * already-persisted row — no invariant re-checking, mirroring
+   * CashShift.restore()'s reasoning. Adapters only.
+   */
+  static restore(input: {
+    readonly id: string;
+    readonly cashShiftId: string;
+    readonly shiftSequence: number;
+    readonly movementType: CashMovementType;
+    readonly direction: CashMovementDirection;
+    readonly amount: Money;
+    readonly status: CashMovementStatus;
+    readonly occurredAt: Date;
+  }): CashMovement {
+    return new CashMovement(
+      input.id, input.cashShiftId, input.shiftSequence, input.movementType,
+      input.direction, input.amount, input.status, input.occurredAt,
+    );
+  }
+
   signedAmount(): Money {
     return this.direction === "IN" ? this.amount : Money.zero().subtract(this.amount);
   }

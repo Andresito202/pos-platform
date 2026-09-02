@@ -13,6 +13,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@pos-platform/application": "workspace:*",
+    "@pos-platform/domain": "workspace:*",
     "better-sqlite3": "13.0.3",
     "kysely": "0.29.5"
   },

@@ -30,4 +30,25 @@ export class CashCount {
       : differenceAmount.isNonNegative() ? "OVERAGE" : "SHORTAGE";
     return new CashCount(id, shift.id, expectedAmount, countedAmount, differenceAmount, differenceType, movementCutoffSequence, now);
   }
+
+  /**
+   * Bloque 22 (materialization): reconstructs a count from an already-
+   * persisted row — no invariant re-checking, mirroring CashShift.restore().
+   * Adapters only.
+   */
+  static restore(input: {
+    readonly id: string;
+    readonly cashShiftId: string;
+    readonly expectedAmount: Money;
+    readonly countedAmount: Money;
+    readonly differenceAmount: Money;
+    readonly differenceType: CashCountDifferenceType;
+    readonly movementCutoffSequence: number;
+    readonly completedAt: Date;
+  }): CashCount {
+    return new CashCount(
+      input.id, input.cashShiftId, input.expectedAmount, input.countedAmount,
+      input.differenceAmount, input.differenceType, input.movementCutoffSequence, input.completedAt,
+    );
+  }
 }

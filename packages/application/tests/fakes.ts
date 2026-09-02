@@ -13,16 +13,18 @@ import {
   type Role,
   type TenantScope,
 } from "@pos-platform/domain";
-import type {
-  CashAuthorizationPort,
-  CashShiftRepository,
-  CatalogAuthorizationPort,
-  Clock,
-  IdGenerator,
-  InventoryAuthorizationPort,
-  InventoryMovementRepository,
-  ProductRepository,
-  UserRoleAssignmentRepository,
+import {
+  IdempotencyKeyConflictError,
+  type CashAuthorizationPort,
+  type CashShiftPhysicalContext,
+  type CashShiftRepository,
+  type CatalogAuthorizationPort,
+  type Clock,
+  type IdGenerator,
+  type InventoryAuthorizationPort,
+  type InventoryMovementRepository,
+  type ProductRepository,
+  type UserRoleAssignmentRepository,
 } from "../src/index.js";
 
 function scopeKey(scope: TenantScope, suffix: string): string {
@@ -74,11 +76,21 @@ export class InMemoryCashShiftRepository implements CashShiftRepository {
     return this.opensByIdempotencyKey.get(scopeKey(scope, `${originDeviceId}:${idempotencyKey}`)) ?? null;
   }
 
-  async save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void> {
+  async save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string, _physicalContext: CashShiftPhysicalContext): Promise<void> {
+    // Bloque 22: simulates the real adapter's physical UNIQUE at save
+    // time, not just at lookup — a genuinely concurrent caller may have
+    // already committed under this exact key between our caller's lookup
+    // and this call. `_physicalContext` (business_date/timezone/currency)
+    // has no in-memory column to land in — this fake models application
+    // behavior, not physical storage, so it is accepted and ignored.
+    const key = scopeKey(shift.scope, `${shift.originDeviceId}:${idempotencyKey}`);
+    if (this.opensByIdempotencyKey.has(key)) {
+      throw new IdempotencyKeyConflictError(`opening_idempotency_key already exists for ${key}`);
+    }
     this.openRegisterKeys.add(scopeKey(shift.scope, `${shift.cashRegisterId}:${shift.originDeviceId}`));
     this.shiftsById.set(shift.id, shift);
     this.movementsByShift.set(shift.id, [movement]);
-    this.opensByIdempotencyKey.set(scopeKey(shift.scope, `${shift.originDeviceId}:${idempotencyKey}`), { shift, checksum });
+    this.opensByIdempotencyKey.set(key, { shift, checksum });
     this.savedOpens.push({ shift, movement });
   }
 
