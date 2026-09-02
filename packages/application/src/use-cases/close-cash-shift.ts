@@ -12,7 +12,11 @@ import {
   type TenantScope,
 } from "@pos-platform/domain";
 import type { CashAuthorizationPort } from "../ports/cash-authorization-port.js";
-import type { CashShiftRepository } from "../ports/cash-shift-repository.js";
+import {
+  CashCloseConflictError,
+  type CashClosePhysicalContext,
+  type CashShiftRepository,
+} from "../ports/cash-shift-repository.js";
 import type { Clock } from "../ports/clock.js";
 import type { IdGenerator } from "../ports/id-generator.js";
 
@@ -23,6 +27,36 @@ export interface CloseCashShiftCommand {
   readonly expectedVersion: number;
   readonly countedAmount: string;
   readonly idempotencyKey: string;
+  /**
+   * Bloque 23: physical bookkeeping `cash_shifts.closing_idempotency_key`'s
+   * UNIQUE tuple and `cash_counts`/`cash_difference_reviews` require, that
+   * no domain object or this command carried before — CLOSE had no
+   * device-identity concept at all. See CashClosePhysicalContext.
+   */
+  readonly originDeviceId: string;
+  readonly currencyCode: string;
+}
+
+/**
+ * Bloque 23: `cash_counts.start_request_checksum` is `NOT NULL` (unlike
+ * `completion_request_checksum`, nullable) but CLOSE has never compared a
+ * checksum for conflict detection (`findCloseByIdempotencyKey` only
+ * supports replay, per the deliberate, documented asymmetry with OPEN —
+ * Bloque 19 §9). Computing one anyway is not new decision logic: it applies
+ * `canonicalizeOpenPayload`'s already-approved pattern (Bloque 17 D5) to
+ * CLOSE's own fields, purely to satisfy a real NOT NULL column with real
+ * derived data instead of a fabricated placeholder. It is persisted but not
+ * yet compared — closing that gap is out of this block's scope, same as it
+ * was for OPEN before Bloque 19 fixed it.
+ */
+function canonicalizeClosePayload(command: Pick<CloseCashShiftCommand, "cashShiftId" | "actor" | "countedAmount">): string {
+  let canonicalAmount: string;
+  try {
+    canonicalAmount = Money.fromString(command.countedAmount).toString();
+  } catch {
+    canonicalAmount = command.countedAmount;
+  }
+  return [command.cashShiftId, command.actor.type, command.actor.id, canonicalAmount].join("|");
 }
 
 export type CloseCashShiftResult =
@@ -70,6 +104,15 @@ export type CloseCashShiftResult =
  * never legitimately held. UC-CASH-002's own precondition order agrees
  * ("1. Existe un turno abierto. 2. El usuario tiene acceso al turno.") —
  * existence first, access second, before anything else proceeds.
+ *
+ * Concurrency (Bloque 23, materialized): mirrors OpenCashShiftUseCase's
+ * Bloque 22 physical guarantee. Two closes racing the same shift — same
+ * idempotency key or not — can both pass the in-memory
+ * `assertOpenAtVersion` check before either commits; the SQLite adapter's
+ * `UPDATE cash_shifts ... WHERE id = ? AND version = ?` guard (plus the real
+ * UNIQUE constraints on the idempotency keys) makes exactly one win, and
+ * `CashCloseConflictError` lets this use case resolve the loser correctly
+ * instead of silently overwriting or crashing — see the catch block below.
  */
 export class CloseCashShiftUseCase {
   constructor(
@@ -117,7 +160,27 @@ export class CloseCashShiftUseCase {
     const review = count.differenceType === "EXACT" ? null : CashDifferenceReview.required(count, this.idGenerator.newId(), now);
     const closedShift = shift.close(now);
 
-    await this.repository.saveClose(closedShift, count, review, command.idempotencyKey);
+    const physicalContext: CashClosePhysicalContext = {
+      originDeviceId: command.originDeviceId,
+      currencyCode: command.currencyCode,
+      closedByActor: command.actor,
+    };
+    const checksum = canonicalizeClosePayload(command);
+    try {
+      await this.repository.saveClose(closedShift, count, review, command.idempotencyKey, checksum, physicalContext);
+    } catch (error) {
+      if (error instanceof CashCloseConflictError) {
+        // Bloque 23: mirrors OpenCashShiftUseCase's Bloque 22 retry — a
+        // truly concurrent close (same key, or a different one racing this
+        // shift's version) won the physical race between our checks above
+        // and this save. The idempotency lookup is authoritative when it
+        // resolves; otherwise the shift genuinely moved out from under us.
+        const existing = await this.repository.findCloseByIdempotencyKey(command.scope, command.idempotencyKey);
+        if (existing) return { kind: "ALREADY_CLOSED", count: existing };
+        return { kind: "REJECTED", reason: "VERSION_CONFLICT" };
+      }
+      throw error;
+    }
 
     return {
       kind: "CLOSED",

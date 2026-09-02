@@ -1,4 +1,4 @@
-import type { CashCount, CashDifferenceReview, CashMovement, CashShift, TenantScope } from "@pos-platform/domain";
+import type { Actor, CashCount, CashDifferenceReview, CashMovement, CashShift, TenantScope } from "@pos-platform/domain";
 
 /**
  * Bloque 22 (materialization): `cash_shifts`/`cash_movements` (cash-counting-
@@ -18,6 +18,42 @@ export interface CashShiftPhysicalContext {
   readonly timezoneId: string;
   readonly utcOffsetMinutes: number;
   readonly currencyCode: string;
+}
+
+/**
+ * Bloque 23 (CASH-002 materialization): same category of gap as
+ * `CashShiftPhysicalContext` — `cash_shifts.closing_idempotency_key`'s own
+ * UNIQUE tuple and `cash_counts`/`cash_difference_reviews` need
+ * `origin_device_id`/`currency_code`, which `CloseCashShiftCommand` never
+ * carried (CLOSE has no device-identity concept at all today). `businessDate`
+ * isn't needed here — `cash_counts` has no such column.
+ */
+export interface CashClosePhysicalContext {
+  readonly originDeviceId: string;
+  readonly currencyCode: string;
+  /**
+   * `cash_counts.started_by_actor_type/id` is `NOT NULL`, but neither
+   * `CashShift.close()` nor `CashCount.closing()` carries an actor — CLOSE
+   * has no separate "start" step, so `command.actor` (already real data on
+   * `CloseCashShiftCommand`) fills both started_by and completed_by.
+   */
+  readonly closedByActor: Actor;
+}
+
+/**
+ * Bloque 23 (CASH-003 materialization): `cash_movements` needs
+ * `origin_device_id`/`currency_code`/`reason_code`, none of which
+ * `RegisterCashMovementCommand` carried. `reasonCode` is real caller-
+ * supplied data (why this specific movement was made), not a policy value —
+ * unlike the columns MIGRATION_007 relaxed to nullable, this one has an
+ * obvious source, it was just never wired through.
+ */
+export interface CashMovementPhysicalContext {
+  readonly originDeviceId: string;
+  readonly currencyCode: string;
+  readonly reasonCode: string;
+  /** `cash_movements.actor_type` is `NOT NULL`, but `CashMovement` doesn't carry one — only the command does. */
+  readonly actor: Actor;
 }
 
 /**
@@ -65,6 +101,43 @@ export class IncompatibleShiftOpenConflictError extends Error {
 }
 
 /**
+ * Bloque 23: the CASH-002 analogue of the two OPEN conflict errors above.
+ * `saveClose()`'s write touches two constraints that a genuinely concurrent
+ * close can lose: `cash_shifts`'s own `closing_idempotency_key` UNIQUE (or
+ * `cash_counts.completion_idempotency_key`'s UNIQUE) on a same-key race, and
+ * the shift's optimistic-version guard (`UPDATE ... WHERE id = ? AND
+ * version = ?`, checked via the affected-row count) on a different-key race
+ * against the same shift — e.g. two different close attempts, or a close
+ * racing a concurrent movement. Same reasoning as
+ * `IncompatibleShiftOpenConflictError`: which one fires is not something a
+ * caller can rely on, so `CloseCashShiftUseCase` always re-checks the
+ * idempotency lookup first and only falls back to `VERSION_CONFLICT` when
+ * that lookup finds nothing.
+ */
+export class CashCloseConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CashCloseConflictError";
+  }
+}
+
+/**
+ * Bloque 23: the CASH-003 analogue. `saveMovement()`'s write can lose on
+ * `cash_movements`'s `UNIQUE(tenant_id, origin_device_id, idempotency_key)`
+ * (same-key race), `UNIQUE(tenant_id, cash_shift_id, shift_sequence)` (two
+ * writers computed the same `nextMovementSequence()` before either
+ * committed), or the shift's optimistic-version guard — all three collapse
+ * to the same recovery: re-check `findMovementByIdempotencyKey` first,
+ * `VERSION_CONFLICT` otherwise.
+ */
+export class CashMovementConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CashMovementConflictError";
+  }
+}
+
+/**
  * Extended for CASH-002 (close) / CASH-003 (movements) beyond CASH-001's
  * original two methods. Kept as ONE repository, not split into
  * CashMovementRepository/CashCountRepository: CashShift is the aggregate
@@ -72,11 +145,10 @@ export class IncompatibleShiftOpenConflictError extends Error {
  * cash-counting-schema.md's own "Fronteras transaccionales" — a movement or
  * a close always commits together with the shift's version bump), so
  * splitting by entity would cut across a single transactional boundary for
- * no real benefit. `SqliteCashShiftRepository` (Bloque 22) implements the
- * OPEN vertical (CASH-001) for real; the CASH-002/CASH-003 methods below
- * remain unimplemented there — a documented, deliberate gap (see
- * docs/migration/cash-materialization-result.md), not the DDL gate that
- * used to block all of them equally.
+ * no real benefit. `SqliteCashShiftRepository` implements CASH-001 (Bloque
+ * 22), CASH-002 and CASH-003 (Bloque 23) for real, all over the same local
+ * ledger — see docs/migration/cash-materialization-result.md for exactly
+ * what each vertical's physical guarantees cover.
  */
 export interface CashShiftRepository {
   /**
@@ -127,10 +199,16 @@ export interface CashShiftRepository {
    * detect a same-key-different-content conflict (UC-CASH-003 step 16):
    * that needs a persisted checksum to compare against, which only a real
    * adapter can own. Deferred, not fabricated — see this block's report.
+   * Scoped by full `TenantScope`, not `(tenant_id, origin_device_id)` like
+   * OPEN's D5 tuple — that narrower tuple was a specific, evidenced,
+   * owner-approved decision for OPEN only (Bloque 17); it was never made
+   * for MOVEMENT/CLOSE, and this deliberately does not extend it by
+   * inference (Bloque 19 §9, still true in Bloque 23).
    */
   findMovementByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<CashMovement | null>;
-  saveMovement(shift: CashShift, movement: CashMovement, idempotencyKey: string): Promise<void>;
+  saveMovement(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string, physicalContext: CashMovementPhysicalContext): Promise<void>;
 
+  /** Same full-`TenantScope` lookup reasoning as `findMovementByIdempotencyKey` above. */
   findCloseByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<CashCount | null>;
-  saveClose(shift: CashShift, count: CashCount, review: CashDifferenceReview | null, idempotencyKey: string): Promise<void>;
+  saveClose(shift: CashShift, count: CashCount, review: CashDifferenceReview | null, idempotencyKey: string, checksum: string, physicalContext: CashClosePhysicalContext): Promise<void>;
 }

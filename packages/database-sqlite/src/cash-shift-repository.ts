@@ -1,19 +1,25 @@
 import {
   Actor,
+  CashCount,
   CashMovement,
   CashShift,
   Money,
   TenantScope,
   type ActorType,
-  type CashCount,
+  type CashCountDifferenceType,
+  type CashDifferenceReview,
   type CashMovementDirection,
   type CashMovementStatus,
   type CashMovementType,
   type CashShiftStatus,
 } from "@pos-platform/domain";
 import {
+  CashCloseConflictError,
+  CashMovementConflictError,
   IdempotencyKeyConflictError,
   IncompatibleShiftOpenConflictError,
+  type CashClosePhysicalContext,
+  type CashMovementPhysicalContext,
   type CashShiftPhysicalContext,
   type CashShiftRepository,
 } from "@pos-platform/application";
@@ -29,6 +35,7 @@ interface CashShiftRow {
   opened_by_actor_type: string;
   opened_by_actor_id: string;
   opened_at: string;
+  business_date: string;
   status: string;
   closed_at: string | null;
   version: number;
@@ -47,26 +54,24 @@ interface CashMovementRow {
   occurred_at: string;
 }
 
+interface CashCountRow {
+  id: string;
+  cash_shift_id: string;
+  expected_amount: string;
+  counted_amount: string;
+  difference_amount: string;
+  difference_type: string;
+  movement_cutoff_sequence: number;
+  completed_at: string;
+}
+
 const OPENING_MOVEMENT_SEQUENCE = 1;
 
-const NOT_IMPLEMENTED_MOVEMENT =
-  "SqliteCashShiftRepository does not implement movement persistence: RegisterCashMovementCommand does not carry the " +
-  "physical bookkeeping cash_movements requires as NOT NULL beyond what OPENING_FLOAT derives internally (currency_code, " +
-  "business_date, reason_code, correlation_id, device_reported_at). Deferred, not fabricated — see " +
-  "docs/migration/cash-materialization-result.md.";
-
-const NOT_IMPLEMENTED_CLOSE =
-  "SqliteCashShiftRepository does not implement close persistence: no close command carries the physical bookkeeping " +
-  "cash_counts/cash_difference_reviews require as NOT NULL (calculation/tolerance policy versions and checksums, " +
-  "correlation_id, severity...). Deferred, not fabricated — see docs/migration/cash-materialization-result.md.";
-
 /**
- * Bloque 22 (materialization): real SQLite adapter for `CashShiftRepository`,
- * backing the CASH-001 OPEN vertical with genuine physical persistence over
- * `MIGRATION_006` (local-database.ts). Movement/close methods are present
- * for interface compliance but throw explicitly — see the two constants
- * above — rather than insert rows with invented data, per this project's
- * no-fabrication rule. Uses raw `better-sqlite3` prepared statements,
+ * Bloque 22 (CASH-001) + Bloque 23 (CASH-002/CASH-003): real SQLite adapter
+ * for `CashShiftRepository`, backing all three Cash use cases with genuine
+ * physical persistence over `MIGRATION_006`/`MIGRATION_007`
+ * (local-database.ts). Uses raw `better-sqlite3` prepared statements,
  * matching this package's only established pattern (no adapter in this repo
  * uses the `kysely` dependency despite it being declared).
  */
@@ -247,20 +252,229 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
     return row.maxSequence + 1;
   }
 
-  async findMovementByIdempotencyKey(): Promise<CashMovement | null> {
-    throw new Error(NOT_IMPLEMENTED_MOVEMENT);
+  async findMovementByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<CashMovement | null> {
+    // Full TenantScope, not the (tenant_id, origin_device_id) tuple OPEN
+    // uses — see the port doc comment: that narrower tuple was a specific,
+    // evidenced decision for OPEN only (Bloque 17 D5), never made here.
+    const row = this.database.native
+      .prepare(`SELECT * FROM cash_movements WHERE tenant_id = ? AND company_id = ? AND branch_id = ? AND idempotency_key = ?`)
+      .get(scope.tenantId, scope.companyId, scope.branchId, idempotencyKey) as CashMovementRow | undefined;
+    return row ? this.toDomainMovement(row) : null;
   }
 
-  async saveMovement(): Promise<void> {
-    throw new Error(NOT_IMPLEMENTED_MOVEMENT);
+  async saveMovement(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string, physicalContext: CashMovementPhysicalContext): Promise<void> {
+    const priorVersion = shift.version - 1;
+    const occurredAt = movement.occurredAt.toISOString();
+
+    const run = this.database.native.transaction(() => {
+      // businessDate is derived from the owning shift, not re-asked of the
+      // caller: a movement always happens within an already-open shift, and
+      // RegisterCashMovementCommand has no business-date concept of its own.
+      const shiftRow = this.database.native
+        .prepare(`SELECT business_date FROM cash_shifts WHERE id = ?`)
+        .get(shift.id) as { business_date: string } | undefined;
+      if (!shiftRow) throw new Error(`cash shift ${shift.id} not found while saving its movement`);
+
+      const updateResult = this.database.native
+        .prepare(`UPDATE cash_shifts SET version = ?, last_movement_sequence = ? WHERE id = ? AND version = ?`)
+        .run(shift.version, movement.shiftSequence, shift.id, priorVersion);
+      if (updateResult.changes === 0) {
+        throw new CashMovementConflictError(`cash shift ${shift.id} version moved before this movement could be saved (expected prior version ${priorVersion})`);
+      }
+
+      this.database.native
+        .prepare(
+          `INSERT INTO cash_movements (
+            id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id, shift_sequence,
+            movement_type, direction, amount, currency_code, status, reference_type, reason_code,
+            actor_type, actor_id, business_date, occurred_at, device_reported_at, origin_device_id,
+            idempotency_key, request_checksum, correlation_id, version, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          movement.id,
+          shift.scope.tenantId,
+          shift.scope.companyId,
+          shift.scope.branchId,
+          shift.cashRegisterId,
+          movement.cashShiftId,
+          movement.shiftSequence,
+          movement.movementType,
+          movement.direction,
+          movement.amount.toString(),
+          physicalContext.currencyCode,
+          movement.status,
+          // reference_type: no external reference entity is modeled for a
+          // manually-registered movement (register-cash-movement.ts's own
+          // doc comment: no CashRegister/approval-policy source exists).
+          "CASH_MOVEMENT",
+          physicalContext.reasonCode,
+          physicalContext.actor.type,
+          physicalContext.actor.id,
+          shiftRow.business_date,
+          occurredAt,
+          // device_reported_at: same reasoning as OPENING_FLOAT in save() —
+          // this movement is constructed and persisted in the same local
+          // transaction, no reporting delay is possible here.
+          occurredAt,
+          physicalContext.originDeviceId,
+          idempotencyKey,
+          checksum,
+          // correlation_id: the movement's own id — a standalone event with
+          // no richer operation to anchor to, unlike OPEN's shift-anchored
+          // OPENING_FLOAT or CLOSE's count-anchored review.
+          movement.id,
+          1,
+          occurredAt,
+        );
+    });
+
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof CashMovementConflictError) throw error;
+      if (isAnyUniqueConstraintViolation(error)) {
+        throw new CashMovementConflictError(`a concurrent write already claimed this movement's idempotency key or sequence for shift ${shift.id}`);
+      }
+      throw error;
+    }
   }
 
-  async findCloseByIdempotencyKey(): Promise<CashCount | null> {
-    throw new Error(NOT_IMPLEMENTED_CLOSE);
+  async findCloseByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<CashCount | null> {
+    // Full TenantScope, same reasoning as findMovementByIdempotencyKey.
+    // start_idempotency_key used (not completion_idempotency_key): it is the
+    // NOT NULL column, guaranteed populated on every row saveClose() writes.
+    const row = this.database.native
+      .prepare(`SELECT * FROM cash_counts WHERE tenant_id = ? AND company_id = ? AND branch_id = ? AND start_idempotency_key = ?`)
+      .get(scope.tenantId, scope.companyId, scope.branchId, idempotencyKey) as CashCountRow | undefined;
+    return row ? this.toDomainCount(row) : null;
   }
 
-  async saveClose(): Promise<void> {
-    throw new Error(NOT_IMPLEMENTED_CLOSE);
+  async saveClose(
+    shift: CashShift,
+    count: CashCount,
+    review: CashDifferenceReview | null,
+    idempotencyKey: string,
+    checksum: string,
+    physicalContext: CashClosePhysicalContext,
+  ): Promise<void> {
+    const priorVersion = shift.version - 1;
+    const closedAt = shift.closedAt ? shift.closedAt.toISOString() : (() => { throw new Error(`shift ${shift.id} passed to saveClose has no closedAt`); })();
+
+    const run = this.database.native.transaction(() => {
+      const updateResult = this.database.native
+        .prepare(
+          `UPDATE cash_shifts
+           SET status = ?, closed_by_actor_type = ?, closed_by_actor_id = ?, closed_at = ?, version = ?,
+               closing_idempotency_key = ?, closing_request_checksum = ?
+           WHERE id = ? AND version = ?`,
+        )
+        .run(
+          shift.status,
+          physicalContext.closedByActor.type,
+          physicalContext.closedByActor.id,
+          closedAt,
+          shift.version,
+          idempotencyKey,
+          checksum,
+          shift.id,
+          priorVersion,
+        );
+      if (updateResult.changes === 0) {
+        throw new CashCloseConflictError(`cash shift ${shift.id} version moved before this close could be saved (expected prior version ${priorVersion})`);
+      }
+
+      this.database.native
+        .prepare(
+          `INSERT INTO cash_counts (
+            id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id, count_type, status,
+            started_shift_version, movement_cutoff_sequence, expected_amount, counted_amount,
+            difference_amount, difference_type, currency_code, denomination_breakdown_status,
+            started_by_actor_type, started_by_actor_id, started_at, completed_by_actor_type,
+            completed_by_actor_id, completed_at, origin_device_id, start_idempotency_key,
+            start_request_checksum, completion_idempotency_key, completion_request_checksum,
+            correlation_id, version, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          count.id,
+          shift.scope.tenantId,
+          shift.scope.companyId,
+          shift.scope.branchId,
+          shift.cashRegisterId,
+          count.cashShiftId,
+          // count_type/status: CashCount.closing() only ever models this one
+          // case (its own doc comment: "Scoped to the CLOSING count only").
+          "CLOSING",
+          "COMPLETED",
+          priorVersion,
+          count.movementCutoffSequence,
+          count.expectedAmount.toString(),
+          count.countedAmount.toString(),
+          count.differenceAmount.toString(),
+          count.differenceType,
+          physicalContext.currencyCode,
+          // denomination_breakdown_status: CashCount has no denomination
+          // field at all (close-cash-shift.ts's own doc comment) — this
+          // accurately states none was provided, not an invented default.
+          "NOT_PROVIDED",
+          physicalContext.closedByActor.type,
+          physicalContext.closedByActor.id,
+          closedAt,
+          physicalContext.closedByActor.type,
+          physicalContext.closedByActor.id,
+          closedAt,
+          physicalContext.originDeviceId,
+          // start/completion idempotency key+checksum: the same value twice
+          // — CloseCashShiftUseCase has no separate start phase, both
+          // happen atomically in this one call.
+          idempotencyKey,
+          checksum,
+          idempotencyKey,
+          checksum,
+          // correlation_id: the count's own id ties the (optional) review
+          // back to the same logical close operation.
+          count.id,
+          1,
+          closedAt,
+        );
+
+      if (review) {
+        this.database.native
+          .prepare(
+            `INSERT INTO cash_difference_reviews (
+              id, tenant_id, company_id, branch_id, cash_shift_id, cash_count_id, status,
+              requires_segregation, created_at, version, correlation_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            review.id,
+            shift.scope.tenantId,
+            shift.scope.companyId,
+            shift.scope.branchId,
+            review.cashShiftId,
+            review.cashCountId,
+            review.status,
+            // requires_segregation: no segregation-of-duties policy exists
+            // anywhere in this codebase (MIGRATION_007) — left absent
+            // rather than asserting a false "never required".
+            null,
+            review.createdAt.toISOString(),
+            1,
+            count.id,
+          );
+      }
+    });
+
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof CashCloseConflictError) throw error;
+      if (isAnyUniqueConstraintViolation(error)) {
+        throw new CashCloseConflictError(`a concurrent write already claimed this close's idempotency key for shift ${shift.id}`);
+      }
+      throw error;
+    }
   }
 
   private toDomainShift(row: CashShiftRow): CashShift {
@@ -302,10 +516,28 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
       occurredAt: new Date(row.occurred_at),
     });
   }
+
+  private toDomainCount(row: CashCountRow): CashCount {
+    return CashCount.restore({
+      id: row.id,
+      cashShiftId: row.cash_shift_id,
+      expectedAmount: Money.fromString(row.expected_amount),
+      countedAmount: Money.fromString(row.counted_amount),
+      differenceAmount: Money.fromString(row.difference_amount),
+      differenceType: row.difference_type as CashCountDifferenceType,
+      movementCutoffSequence: row.movement_cutoff_sequence,
+      completedAt: new Date(row.completed_at),
+    });
+  }
 }
 
 function isUniqueConstraintViolation(error: unknown, columnHint: string): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as { code?: string }).code;
   return code === "SQLITE_CONSTRAINT_UNIQUE" && error.message.includes(columnHint);
+}
+
+function isAnyUniqueConstraintViolation(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (error as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE";
 }

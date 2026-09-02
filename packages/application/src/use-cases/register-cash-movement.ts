@@ -10,7 +10,11 @@ import {
   type TenantScope,
 } from "@pos-platform/domain";
 import type { CashAuthorizationPort } from "../ports/cash-authorization-port.js";
-import type { CashShiftRepository } from "../ports/cash-shift-repository.js";
+import {
+  CashMovementConflictError,
+  type CashMovementPhysicalContext,
+  type CashShiftRepository,
+} from "../ports/cash-shift-repository.js";
 import type { Clock } from "../ports/clock.js";
 import type { IdGenerator } from "../ports/id-generator.js";
 
@@ -23,6 +27,33 @@ export interface RegisterCashMovementCommand {
   readonly amount: string;
   readonly expectedVersion: number;
   readonly idempotencyKey: string;
+  /**
+   * Bloque 23: physical bookkeeping `cash_movements` requires
+   * (`origin_device_id`/`currency_code`/`reason_code`, all `NOT NULL`) that
+   * this command never carried. See CashMovementPhysicalContext.
+   */
+  readonly originDeviceId: string;
+  readonly currencyCode: string;
+  readonly reasonCode: string;
+}
+
+/**
+ * Bloque 23: `cash_movements.request_checksum` is `NOT NULL`, but MOVEMENT
+ * has never compared a checksum for conflict detection
+ * (`findMovementByIdempotencyKey` only supports replay, per the documented
+ * asymmetry with OPEN — Bloque 19 §9, still true here). Same reasoning as
+ * `canonicalizeClosePayload`: applies the already-approved OPEN pattern to
+ * satisfy a real NOT NULL column with real derived data, not a fabricated
+ * placeholder. Persisted, not yet compared.
+ */
+function canonicalizeMovementPayload(command: Pick<RegisterCashMovementCommand, "cashShiftId" | "movementType" | "direction" | "actor" | "amount">): string {
+  let canonicalAmount: string;
+  try {
+    canonicalAmount = Money.fromString(command.amount).toString();
+  } catch {
+    canonicalAmount = command.amount;
+  }
+  return [command.cashShiftId, command.movementType, command.direction, command.actor.type, command.actor.id, canonicalAmount].join("|");
 }
 
 export type RegisterCashMovementResult =
@@ -95,7 +126,27 @@ export class RegisterCashMovementUseCase {
       occurredAt: this.clock.now(),
     });
     const advancedShift = shift.withNextVersion();
-    await this.repository.saveMovement(advancedShift, movement, command.idempotencyKey);
+    const physicalContext: CashMovementPhysicalContext = {
+      originDeviceId: command.originDeviceId,
+      currencyCode: command.currencyCode,
+      reasonCode: command.reasonCode,
+      actor: command.actor,
+    };
+    const checksum = canonicalizeMovementPayload(command);
+    try {
+      await this.repository.saveMovement(advancedShift, movement, command.idempotencyKey, checksum, physicalContext);
+    } catch (error) {
+      if (error instanceof CashMovementConflictError) {
+        // Bloque 23: mirrors OpenCashShiftUseCase's Bloque 22 retry — a
+        // truly concurrent movement (same idempotency key, the same
+        // computed shift_sequence, or a version race against this shift)
+        // won between our checks above and this save.
+        const existing = await this.repository.findMovementByIdempotencyKey(command.scope, command.idempotencyKey);
+        if (existing) return { kind: "ALREADY_REGISTERED", movement: existing };
+        return { kind: "REJECTED", reason: "VERSION_CONFLICT" };
+      }
+      throw error;
+    }
 
     return { kind: "REGISTERED", shift: advancedShift, movement, event: CashMovementPosted.from(movement) };
   }

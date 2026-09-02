@@ -289,13 +289,52 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
     }
   });
 
-  it("migration ledger: version 6 is recorded with a real checksum, and versions 1-5 remain untouched", async () => {
+  it("schema introspection: MIGRATION_007 relaxes the 9 unmodeled policy columns to nullable, everything else unchanged", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      const countColumns = database.native.prepare("PRAGMA table_info(cash_counts)").all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      for (const name of ["blind_mode", "calculation_policy_version", "calculation_checksum", "tolerance_policy_version", "tolerance_policy_checksum"]) {
+        const column = countColumns.find((c) => c.name === name);
+        expect(column, `cash_counts.${name} should exist`).toBeDefined();
+        expect(column?.notnull, `cash_counts.${name} should be nullable`).toBe(0);
+      }
+      // still required — this migration only touched the 9 unmodeled columns
+      for (const name of ["origin_device_id", "start_idempotency_key", "correlation_id", "version", "currency_code"]) {
+        expect(countColumns.find((c) => c.name === name)?.notnull, `cash_counts.${name} should stay NOT NULL`).toBe(1);
+      }
+
+      const reviewColumns = database.native.prepare("PRAGMA table_info(cash_difference_reviews)").all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      for (const name of ["severity", "tolerance_policy_version", "tolerance_policy_checksum", "requires_segregation"]) {
+        const column = reviewColumns.find((c) => c.name === name);
+        expect(column, `cash_difference_reviews.${name} should exist`).toBeDefined();
+        expect(column?.notnull, `cash_difference_reviews.${name} should be nullable`).toBe(0);
+      }
+      expect(reviewColumns.find((c) => c.name === "correlation_id")?.notnull).toBe(1);
+      expect(reviewColumns.find((c) => c.name === "version")?.notnull).toBe(1);
+
+      // the partial unique index dropped along with the old cash_counts table must be re-created
+      const index = database.native
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'cash_counts_one_completed_closing_idx'")
+        .get();
+      expect(index).toBeDefined();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("migration ledger: versions 6 and 7 are recorded with real checksums, and versions 1-5 remain untouched", async () => {
     const database = LocalDatabase.open({ dataDirectory: await directory() });
     try {
       const rows = database.native
         .prepare("SELECT version, checksum FROM local_schema_migrations ORDER BY version")
         .all() as Array<{ version: number; checksum: string }>;
-      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
       for (const row of rows) expect(row.checksum).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       database.close();
@@ -340,7 +379,7 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
       const rows = second.native.prepare("SELECT version FROM local_schema_migrations ORDER BY version").all() as Array<{
         version: number;
       }>;
-      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
 
       const reloaded = await new SqliteCashShiftRepository(second).findById(scope, opened.shift.id);
       expect(reloaded?.id).toBe(opened.shift.id);

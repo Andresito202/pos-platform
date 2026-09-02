@@ -38,6 +38,8 @@ function command(overrides: Partial<CloseCashShiftCommand> = {}): CloseCashShift
     expectedVersion: 1,
     countedAmount: "200000",
     idempotencyKey: "close:1",
+    originDeviceId: actor.id,
+    currencyCode: "COP",
     ...overrides,
   };
 }

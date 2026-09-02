@@ -447,6 +447,119 @@ CREATE TRIGGER cash_movements_no_delete
   BEGIN SELECT RAISE(ABORT, 'cash movements are append-only once POSTED'); END;
 `.trim();
 
+/**
+ * Bloque 23: corrective migration found while materializing CASH-002 (close)
+ * for real. `cash_counts`/`cash_difference_reviews` (MIGRATION_006) were
+ * built to the full logical schema in cash-counting-schema.md, which
+ * describes a richer CashCount/CashDifferenceReview lifecycle (PARTIAL/
+ * CORRECTION counts, blind-count mode, a versioned calculation algorithm, a
+ * tolerance policy, severity classification, segregation-of-duties) than
+ * `CashCount`/`CashDifferenceReview`/`CloseCashShiftUseCase` actually
+ * implement today (an atomic CLOSING-only count with none of that policy
+ * layer — both classes' own doc comments already say so). Nine columns were
+ * `NOT NULL` with no legitimate value: no algorithm-version or
+ * tolerance-policy concept exists anywhere in this codebase to populate
+ * `calculation_policy_version`/`calculation_checksum`/
+ * `tolerance_policy_version`/`tolerance_policy_checksum`, no blind-mode flag
+ * is tracked (`blind_mode`), and no severity/segregation policy exists
+ * (`severity`, `requires_segregation` on reviews). Writing placeholder
+ * values would have been exactly the kind of fabrication this project
+ * forbids; owner-approved resolution (Bloque 23) is to relax these nine
+ * columns to nullable, so the adapter can persist NULL where there is
+ * genuinely no data instead of inventing policy this application doesn't
+ * have yet — a real physical correction, not a design decision disguised as
+ * one. SQLite has no `ALTER TABLE ... DROP NOT NULL`, so both tables are
+ * rebuilt (create corrected shape, copy any existing rows, drop, rename) —
+ * safe here because neither table has ever had a writer: `SqliteCashShiftRepository.saveClose`
+ * threw `NOT_IMPLEMENTED_CLOSE` unconditionally until this same block, so
+ * both are guaranteed empty, but the copy step is unconditional rather than
+ * assuming that to stay correct even if that ever stops being true.
+ */
+const MIGRATION_007 = `
+CREATE TABLE cash_counts_new (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  count_type TEXT NOT NULL CHECK(count_type IN ('PARTIAL','CLOSING','CORRECTION')),
+  status TEXT NOT NULL CHECK(status IN ('IN_PROGRESS','COMPLETED','ABORTED')),
+  blind_mode INTEGER CHECK(blind_mode IS NULL OR blind_mode IN (0,1)),
+  started_shift_version INTEGER NOT NULL CHECK(started_shift_version > 0),
+  movement_cutoff_sequence INTEGER NOT NULL CHECK(movement_cutoff_sequence >= 0),
+  calculation_policy_version TEXT,
+  calculation_checksum TEXT,
+  expected_amount TEXT CHECK(expected_amount IS NULL OR substr(expected_amount,1,1) != '-'),
+  counted_amount TEXT CHECK(counted_amount IS NULL OR substr(counted_amount,1,1) != '-'),
+  difference_amount TEXT,
+  difference_type TEXT CHECK(difference_type IS NULL OR difference_type IN ('SHORTAGE','EXACT','OVERAGE')),
+  severity TEXT,
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  denomination_breakdown_status TEXT NOT NULL CHECK(denomination_breakdown_status IN ('PROVIDED','NOT_PROVIDED')),
+  tolerance_policy_version TEXT,
+  tolerance_policy_checksum TEXT,
+  supersedes_cash_count_id TEXT,
+  started_by_actor_type TEXT NOT NULL CHECK(started_by_actor_type IN ('USER','DEVICE')),
+  started_by_actor_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_by_actor_type TEXT CHECK(completed_by_actor_type IN ('USER','DEVICE')),
+  completed_by_actor_id TEXT,
+  completed_at TEXT,
+  aborted_by_actor_type TEXT CHECK(aborted_by_actor_type IN ('USER','DEVICE')),
+  aborted_by_actor_id TEXT,
+  aborted_at TEXT,
+  abort_reason_code TEXT,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  start_idempotency_key TEXT NOT NULL,
+  start_request_checksum TEXT NOT NULL,
+  completion_idempotency_key TEXT,
+  completion_request_checksum TEXT,
+  correlation_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, supersedes_cash_count_id) REFERENCES cash_counts_new(tenant_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, origin_device_id, start_idempotency_key),
+  UNIQUE(tenant_id, origin_device_id, completion_idempotency_key),
+  UNIQUE(tenant_id, supersedes_cash_count_id)
+) STRICT;
+INSERT INTO cash_counts_new SELECT * FROM cash_counts;
+DROP TABLE cash_counts;
+ALTER TABLE cash_counts_new RENAME TO cash_counts;
+CREATE UNIQUE INDEX cash_counts_one_completed_closing_idx
+  ON cash_counts(tenant_id, cash_shift_id)
+  WHERE count_type = 'CLOSING' AND status = 'COMPLETED';
+
+CREATE TABLE cash_difference_reviews_new (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  cash_count_id TEXT NOT NULL CHECK(length(cash_count_id) = 36),
+  status TEXT NOT NULL CHECK(status IN ('REVIEW_REQUIRED','ACCEPTED','ESCALATED','RESOLVED')),
+  severity TEXT,
+  tolerance_policy_version TEXT,
+  tolerance_policy_checksum TEXT,
+  requires_segregation INTEGER CHECK(requires_segregation IS NULL OR requires_segregation IN (0,1)),
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  correlation_id TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_count_id) REFERENCES cash_counts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, cash_count_id)
+) STRICT;
+INSERT INTO cash_difference_reviews_new SELECT * FROM cash_difference_reviews;
+DROP TABLE cash_difference_reviews;
+ALTER TABLE cash_difference_reviews_new RENAME TO cash_difference_reviews;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -454,6 +567,7 @@ const MIGRATIONS = [
   { version: 4, sql: MIGRATION_004, checksum: createHash("sha256").update(MIGRATION_004).digest("hex") },
   { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
   { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
+  { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

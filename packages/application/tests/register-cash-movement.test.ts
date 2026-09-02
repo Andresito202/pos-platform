@@ -38,6 +38,9 @@ function command(overrides: Partial<RegisterCashMovementCommand> = {}): Register
     amount: "50000",
     expectedVersion: 1,
     idempotencyKey: "withdrawal:1",
+    originDeviceId: actor.id,
+    currencyCode: "COP",
+    reasonCode: "CASH_WITHDRAWAL",
     ...overrides,
   };
 }
