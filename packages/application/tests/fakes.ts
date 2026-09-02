@@ -46,13 +46,14 @@ export class InMemoryCashShiftRepository implements CashShiftRepository {
   private readonly movementsByShift = new Map<string, CashMovement[]>();
   private readonly movementsByIdempotencyKey = new Map<string, CashMovement>();
   private readonly closesByIdempotencyKey = new Map<string, CashCount>();
+  private readonly opensByIdempotencyKey = new Map<string, { shift: CashShift; checksum: string }>();
 
   readonly savedOpens: { shift: CashShift; movement: CashMovement }[] = [];
   readonly savedMovements: { shift: CashShift; movement: CashMovement }[] = [];
   readonly savedCloses: { shift: CashShift; count: CashCount; review: CashDifferenceReview | null }[] = [];
 
-  seedOpenRegister(scope: TenantScope, cashRegisterId: string): void {
-    this.openRegisterKeys.add(scopeKey(scope, cashRegisterId));
+  seedOpenRegister(scope: TenantScope, cashRegisterId: string, originDeviceId: string): void {
+    this.openRegisterKeys.add(scopeKey(scope, `${cashRegisterId}:${originDeviceId}`));
   }
 
   seedShift(shift: CashShift): void {
@@ -65,14 +66,19 @@ export class InMemoryCashShiftRepository implements CashShiftRepository {
     this.movementsByShift.set(movement.cashShiftId, list);
   }
 
-  async hasIncompatibleOpenShift(scope: TenantScope, cashRegisterId: string): Promise<boolean> {
-    return this.openRegisterKeys.has(scopeKey(scope, cashRegisterId));
+  async hasIncompatibleOpenShift(scope: TenantScope, cashRegisterId: string, originDeviceId: string): Promise<boolean> {
+    return this.openRegisterKeys.has(scopeKey(scope, `${cashRegisterId}:${originDeviceId}`));
   }
 
-  async save(shift: CashShift, movement: CashMovement): Promise<void> {
-    this.openRegisterKeys.add(scopeKey(shift.scope, shift.cashRegisterId));
+  async findOpenByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null> {
+    return this.opensByIdempotencyKey.get(scopeKey(scope, idempotencyKey)) ?? null;
+  }
+
+  async save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void> {
+    this.openRegisterKeys.add(scopeKey(shift.scope, `${shift.cashRegisterId}:${shift.originDeviceId}`));
     this.shiftsById.set(shift.id, shift);
     this.movementsByShift.set(shift.id, [movement]);
+    this.opensByIdempotencyKey.set(scopeKey(shift.scope, idempotencyKey), { shift, checksum });
     this.savedOpens.push({ shift, movement });
   }
 

@@ -12,8 +12,33 @@ import type { CashCount, CashDifferenceReview, CashMovement, CashShift, TenantSc
  * DDL NO-GO gate as CASH-001.
  */
 export interface CashShiftRepository {
-  hasIncompatibleOpenShift(scope: TenantScope, cashRegisterId: string): Promise<boolean>;
-  save(shift: CashShift, movement: CashMovement): Promise<void>;
+  /**
+   * "Solo existe un turno OPEN o CLOSING incompatible por tenant, sucursal,
+   * caja y dispositivo" (cash-counting-schema.md:59) — four dimensions,
+   * `originDeviceId` included. Widened in Bloque 18: the Bloque 17 review
+   * found this method never received it, contradicting the schema's own
+   * text and this project's own physical design (cash-physical-design.md
+   * §7 already specified the 4-column partial unique index). Textually,
+   * this means incompatibility is scoped to the exact 4-tuple — a
+   * different device opening the same register is a different tuple, not
+   * blocked by this specific check. That reading is surprising for a
+   * single physical cash drawer and is flagged, not silently resolved —
+   * see this block's report.
+   */
+  hasIncompatibleOpenShift(scope: TenantScope, cashRegisterId: string, originDeviceId: string): Promise<boolean>;
+
+  /**
+   * Idempotent-replay lookup for OPEN, mirroring findCloseByIdempotencyKey's
+   * shape. Returns the checksum alongside the shift so the use case can
+   * distinguish a same-key-same-payload replay from a same-key-different-
+   * payload conflict (Bloque 17, D5) — unlike findMovementByIdempotencyKey/
+   * findCloseByIdempotencyKey, which only support replay, not conflict
+   * detection, because no real adapter has ever backed them. This one can:
+   * the comparison happens entirely against this in-memory fake, with no
+   * physical persistence dependency.
+   */
+  findOpenByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null>;
+  save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void>;
 
   /** Finds by id regardless of status — callers check `.status` themselves. */
   findById(scope: TenantScope, cashShiftId: string): Promise<CashShift | null>;
