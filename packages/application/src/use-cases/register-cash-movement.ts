@@ -61,7 +61,7 @@ export class RegisterCashMovementUseCase {
     if (!shift) return { kind: "REJECTED", reason: "SHIFT_NOT_FOUND" };
     if (shift.status !== "OPEN") return { kind: "REJECTED", reason: "SHIFT_NOT_OPEN" };
 
-    const authorized = await this.authorization.canRegisterMovement(command.actor, command.movementType);
+    const authorized = await this.authorization.canRegisterMovement(command.actor, command.movementType, command.scope);
     if (!authorized) return { kind: "REJECTED", reason: "NOT_AUTHORIZED" };
 
     let amount: Money;

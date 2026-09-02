@@ -5,3 +5,5 @@ export * from "./ports/cash-authorization-port.js";
 export * from "./use-cases/open-cash-shift.js";
 export * from "./use-cases/register-cash-movement.js";
 export * from "./use-cases/close-cash-shift.js";
+export * from "./ports/user-role-assignment-repository.js";
+export * from "./authorization/role-based-cash-authorization.js";

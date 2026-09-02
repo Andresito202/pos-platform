@@ -40,7 +40,7 @@ export class OpenCashShiftUseCase {
   ) {}
 
   async execute(command: OpenCashShiftCommand): Promise<OpenCashShiftResult> {
-    const authorized = await this.authorization.canOpenShift(command.openedByActor);
+    const authorized = await this.authorization.canOpenShift(command.openedByActor, command.scope);
     if (!authorized) return { kind: "REJECTED", reason: "NOT_AUTHORIZED" };
 
     const incompatible = await this.repository.hasIncompatibleOpenShift(command.scope, command.cashRegisterId);
