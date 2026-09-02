@@ -560,6 +560,168 @@ DROP TABLE cash_difference_reviews;
 ALTER TABLE cash_difference_reviews_new RENAME TO cash_difference_reviews;
 `.trim();
 
+/**
+ * Bloque 23-D: restores Bloque 15's D1 decision (`cash-human-decisions.md`,
+ * RESOLVED, never actually superseded), which MIGRATION_007 contradicted
+ * without knowing D1 existed. D1: `*_policy_version = UUID NOT NULL sin FK
+ * física`, `*_checksum = TEXT NOT NULL` — a reference toward the future,
+ * unmaterialized `CashPolicyVersion` entity, not a new entity itself.
+ *
+ * `CASH_NO_POLICY_SENTINEL_UUID` is the RFC 4122 nil UUID
+ * (`00000000-0000-0000-0000-000000000000`) — deliberately not a UUID v7 (the
+ * version nibble is `0`, never `7`), so it can never collide with a real,
+ * generated `CashPolicyVersion.id` once that entity exists. It does not
+ * claim a published policy exists; it is a fixed, documented technical
+ * marker for "no CashPolicyVersion applies to this row", identical across
+ * every row for the same reason `schema_version` columns elsewhere in this
+ * project (`sync.sync_operations`, `audit.audit_events`) are `NOT NULL`
+ * without a backing `SchemaVersion` entity.
+ *
+ * The two `*_checksum` values are real SHA-256 digests of a fixed, accurate,
+ * English description of the CURRENT, already-implemented behavior (not an
+ * invented business rule): `CASH_CALCULATION_BEHAVIOR_V0` describes
+ * `calculateExpectedCash` (unconditional POSTED-movement fold, no policy),
+ * `CASH_TOLERANCE_BEHAVIOR_V0` describes `CloseCashShiftUseCase`'s review
+ * creation (unconditional whenever `difference_type != 'EXACT'`, no
+ * threshold). Both source strings and their hashes are exported below so
+ * the adapter and this migration's backfill share one literal, never two
+ * hand-copied values that could silently drift apart.
+ *
+ * Same table-rebuild pattern as MIGRATION_007 (SQLite has no `ALTER COLUMN
+ * ... SET NOT NULL`). The `COALESCE` in the copy step both backfills any
+ * row that could somehow already hold NULL (defensive — B23-C confirmed
+ * neither table has ever had a real writer, so this is expected to be a
+ * no-op) and works unchanged whether this runs v1->v8 fresh or v7->v8 on an
+ * already-migrated database.
+ */
+export const CASH_NO_POLICY_SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
+export const CASH_CALCULATION_BEHAVIOR_V0 =
+  "ExpectedCash is computed as an unconditional fold of all POSTED CashMovement rows for the shift up to the closing cutoff sequence, signed by direction (IN adds, OUT subtracts), with no configurable tolerance, rounding, or policy engine; no CashPolicyVersion is applied.";
+export const CASH_TOLERANCE_BEHAVIOR_V0 =
+  "A CashDifferenceReview is created unconditionally whenever the closing count's difference_type is not EXACT (SHORTAGE or OVERAGE); there is no configurable tolerance threshold, materiality band, or approval policy - every non-exact difference is routed to review with no exception.";
+export const CASH_CALCULATION_BEHAVIOR_CHECKSUM = createHash("sha256").update(CASH_CALCULATION_BEHAVIOR_V0).digest("hex");
+export const CASH_TOLERANCE_BEHAVIOR_CHECKSUM = createHash("sha256").update(CASH_TOLERANCE_BEHAVIOR_V0).digest("hex");
+
+const MIGRATION_008 = `
+CREATE TABLE cash_counts_new (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  count_type TEXT NOT NULL CHECK(count_type IN ('PARTIAL','CLOSING','CORRECTION')),
+  status TEXT NOT NULL CHECK(status IN ('IN_PROGRESS','COMPLETED','ABORTED')),
+  blind_mode INTEGER CHECK(blind_mode IS NULL OR blind_mode IN (0,1)),
+  started_shift_version INTEGER NOT NULL CHECK(started_shift_version > 0),
+  movement_cutoff_sequence INTEGER NOT NULL CHECK(movement_cutoff_sequence >= 0),
+  calculation_policy_version TEXT NOT NULL CHECK(length(calculation_policy_version) = 36),
+  calculation_checksum TEXT NOT NULL CHECK(length(calculation_checksum) = 64),
+  expected_amount TEXT CHECK(expected_amount IS NULL OR substr(expected_amount,1,1) != '-'),
+  counted_amount TEXT CHECK(counted_amount IS NULL OR substr(counted_amount,1,1) != '-'),
+  difference_amount TEXT,
+  difference_type TEXT CHECK(difference_type IS NULL OR difference_type IN ('SHORTAGE','EXACT','OVERAGE')),
+  severity TEXT,
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  denomination_breakdown_status TEXT NOT NULL CHECK(denomination_breakdown_status IN ('PROVIDED','NOT_PROVIDED')),
+  tolerance_policy_version TEXT NOT NULL CHECK(length(tolerance_policy_version) = 36),
+  tolerance_policy_checksum TEXT NOT NULL CHECK(length(tolerance_policy_checksum) = 64),
+  supersedes_cash_count_id TEXT,
+  started_by_actor_type TEXT NOT NULL CHECK(started_by_actor_type IN ('USER','DEVICE')),
+  started_by_actor_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_by_actor_type TEXT CHECK(completed_by_actor_type IN ('USER','DEVICE')),
+  completed_by_actor_id TEXT,
+  completed_at TEXT,
+  aborted_by_actor_type TEXT CHECK(aborted_by_actor_type IN ('USER','DEVICE')),
+  aborted_by_actor_id TEXT,
+  aborted_at TEXT,
+  abort_reason_code TEXT,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  start_idempotency_key TEXT NOT NULL,
+  start_request_checksum TEXT NOT NULL,
+  completion_idempotency_key TEXT,
+  completion_request_checksum TEXT,
+  correlation_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, supersedes_cash_count_id) REFERENCES cash_counts_new(tenant_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, origin_device_id, start_idempotency_key),
+  UNIQUE(tenant_id, origin_device_id, completion_idempotency_key),
+  UNIQUE(tenant_id, supersedes_cash_count_id)
+) STRICT;
+INSERT INTO cash_counts_new (
+  id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id, count_type, status,
+  blind_mode, started_shift_version, movement_cutoff_sequence, calculation_policy_version,
+  calculation_checksum, expected_amount, counted_amount, difference_amount, difference_type,
+  severity, currency_code, denomination_breakdown_status, tolerance_policy_version,
+  tolerance_policy_checksum, supersedes_cash_count_id, started_by_actor_type,
+  started_by_actor_id, started_at, completed_by_actor_type, completed_by_actor_id, completed_at,
+  aborted_by_actor_type, aborted_by_actor_id, aborted_at, abort_reason_code, origin_device_id,
+  start_idempotency_key, start_request_checksum, completion_idempotency_key,
+  completion_request_checksum, correlation_id, version, created_at, server_recorded_at
+)
+SELECT
+  id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id, count_type, status,
+  blind_mode, started_shift_version, movement_cutoff_sequence,
+  COALESCE(calculation_policy_version, '${CASH_NO_POLICY_SENTINEL_UUID}'),
+  COALESCE(calculation_checksum, '${CASH_CALCULATION_BEHAVIOR_CHECKSUM}'),
+  expected_amount, counted_amount, difference_amount, difference_type, severity, currency_code,
+  denomination_breakdown_status,
+  COALESCE(tolerance_policy_version, '${CASH_NO_POLICY_SENTINEL_UUID}'),
+  COALESCE(tolerance_policy_checksum, '${CASH_TOLERANCE_BEHAVIOR_CHECKSUM}'),
+  supersedes_cash_count_id, started_by_actor_type, started_by_actor_id, started_at,
+  completed_by_actor_type, completed_by_actor_id, completed_at, aborted_by_actor_type,
+  aborted_by_actor_id, aborted_at, abort_reason_code, origin_device_id, start_idempotency_key,
+  start_request_checksum, completion_idempotency_key, completion_request_checksum,
+  correlation_id, version, created_at, server_recorded_at
+FROM cash_counts;
+DROP TABLE cash_counts;
+ALTER TABLE cash_counts_new RENAME TO cash_counts;
+CREATE UNIQUE INDEX cash_counts_one_completed_closing_idx
+  ON cash_counts(tenant_id, cash_shift_id)
+  WHERE count_type = 'CLOSING' AND status = 'COMPLETED';
+
+CREATE TABLE cash_difference_reviews_new (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  cash_count_id TEXT NOT NULL CHECK(length(cash_count_id) = 36),
+  status TEXT NOT NULL CHECK(status IN ('REVIEW_REQUIRED','ACCEPTED','ESCALATED','RESOLVED')),
+  severity TEXT,
+  tolerance_policy_version TEXT NOT NULL CHECK(length(tolerance_policy_version) = 36),
+  tolerance_policy_checksum TEXT NOT NULL CHECK(length(tolerance_policy_checksum) = 64),
+  requires_segregation INTEGER CHECK(requires_segregation IS NULL OR requires_segregation IN (0,1)),
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  correlation_id TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_count_id) REFERENCES cash_counts(tenant_id, company_id, branch_id, id),
+  FOREIGN KEY (tenant_id, company_id, branch_id, cash_shift_id) REFERENCES cash_shifts(tenant_id, company_id, branch_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, cash_count_id)
+) STRICT;
+INSERT INTO cash_difference_reviews_new (
+  id, tenant_id, company_id, branch_id, cash_shift_id, cash_count_id, status, severity,
+  tolerance_policy_version, tolerance_policy_checksum, requires_segregation, created_at,
+  resolved_at, version, correlation_id
+)
+SELECT
+  id, tenant_id, company_id, branch_id, cash_shift_id, cash_count_id, status, severity,
+  COALESCE(tolerance_policy_version, '${CASH_NO_POLICY_SENTINEL_UUID}'),
+  COALESCE(tolerance_policy_checksum, '${CASH_TOLERANCE_BEHAVIOR_CHECKSUM}'),
+  requires_segregation, created_at, resolved_at, version, correlation_id
+FROM cash_difference_reviews;
+DROP TABLE cash_difference_reviews;
+ALTER TABLE cash_difference_reviews_new RENAME TO cash_difference_reviews;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -568,6 +730,7 @@ const MIGRATIONS = [
   { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
   { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
   { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
+  { version: 8, sql: MIGRATION_008, checksum: createHash("sha256").update(MIGRATION_008).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

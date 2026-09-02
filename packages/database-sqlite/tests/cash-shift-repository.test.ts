@@ -289,19 +289,20 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
     }
   });
 
-  it("schema introspection: MIGRATION_007 relaxes the 9 unmodeled policy columns to nullable, everything else unchanged", async () => {
+  it("schema introspection: MIGRATION_007 left blind_mode/severity/requires_segregation nullable (genuinely unmodeled), MIGRATION_008 restored D1's 6 policy columns to NOT NULL", async () => {
     const database = LocalDatabase.open({ dataDirectory: await directory() });
     try {
       const countColumns = database.native.prepare("PRAGMA table_info(cash_counts)").all() as Array<{
         name: string;
         notnull: number;
       }>;
-      for (const name of ["blind_mode", "calculation_policy_version", "calculation_checksum", "tolerance_policy_version", "tolerance_policy_checksum"]) {
-        const column = countColumns.find((c) => c.name === name);
-        expect(column, `cash_counts.${name} should exist`).toBeDefined();
-        expect(column?.notnull, `cash_counts.${name} should be nullable`).toBe(0);
+      // D1 (Bloque 15) restored by MIGRATION_008 — Bloque 23-D
+      for (const name of ["calculation_policy_version", "calculation_checksum", "tolerance_policy_version", "tolerance_policy_checksum"]) {
+        expect(countColumns.find((c) => c.name === name)?.notnull, `cash_counts.${name} should be NOT NULL again (D1)`).toBe(1);
       }
-      // still required — this migration only touched the 9 unmodeled columns
+      // still genuinely unmodeled — no prior decision covers these (B23-C)
+      expect(countColumns.find((c) => c.name === "blind_mode")?.notnull, "cash_counts.blind_mode should stay nullable").toBe(0);
+      // still required — MIGRATION_007/008 never touched these
       for (const name of ["origin_device_id", "start_idempotency_key", "correlation_id", "version", "currency_code"]) {
         expect(countColumns.find((c) => c.name === name)?.notnull, `cash_counts.${name} should stay NOT NULL`).toBe(1);
       }
@@ -310,10 +311,11 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
         name: string;
         notnull: number;
       }>;
-      for (const name of ["severity", "tolerance_policy_version", "tolerance_policy_checksum", "requires_segregation"]) {
-        const column = reviewColumns.find((c) => c.name === name);
-        expect(column, `cash_difference_reviews.${name} should exist`).toBeDefined();
-        expect(column?.notnull, `cash_difference_reviews.${name} should be nullable`).toBe(0);
+      for (const name of ["tolerance_policy_version", "tolerance_policy_checksum"]) {
+        expect(reviewColumns.find((c) => c.name === name)?.notnull, `cash_difference_reviews.${name} should be NOT NULL again (D1)`).toBe(1);
+      }
+      for (const name of ["severity", "requires_segregation"]) {
+        expect(reviewColumns.find((c) => c.name === name)?.notnull, `cash_difference_reviews.${name} should stay nullable`).toBe(0);
       }
       expect(reviewColumns.find((c) => c.name === "correlation_id")?.notnull).toBe(1);
       expect(reviewColumns.find((c) => c.name === "version")?.notnull).toBe(1);
@@ -328,13 +330,13 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
     }
   });
 
-  it("migration ledger: versions 6 and 7 are recorded with real checksums, and versions 1-5 remain untouched", async () => {
+  it("migration ledger: versions 6, 7 and 8 are recorded with real checksums, and versions 1-5 remain untouched", async () => {
     const database = LocalDatabase.open({ dataDirectory: await directory() });
     try {
       const rows = database.native
         .prepare("SELECT version, checksum FROM local_schema_migrations ORDER BY version")
         .all() as Array<{ version: number; checksum: string }>;
-      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
       for (const row of rows) expect(row.checksum).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       database.close();
@@ -379,7 +381,7 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
       const rows = second.native.prepare("SELECT version FROM local_schema_migrations ORDER BY version").all() as Array<{
         version: number;
       }>;
-      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
       const reloaded = await new SqliteCashShiftRepository(second).findById(scope, opened.shift.id);
       expect(reloaded?.id).toBe(opened.shift.id);

@@ -14,7 +14,15 @@ import {
   type OpenCashShiftCommand,
   type RegisterCashMovementCommand,
 } from "@pos-platform/application";
-import { LocalDatabase, SqliteCashShiftRepository } from "../src/index.js";
+import {
+  CASH_CALCULATION_BEHAVIOR_CHECKSUM,
+  CASH_CALCULATION_BEHAVIOR_V0,
+  CASH_NO_POLICY_SENTINEL_UUID,
+  CASH_TOLERANCE_BEHAVIOR_CHECKSUM,
+  CASH_TOLERANCE_BEHAVIOR_V0,
+  LocalDatabase,
+  SqliteCashShiftRepository,
+} from "../src/index.js";
 
 const directories: string[] = [];
 async function directory(): Promise<string> {
@@ -176,6 +184,66 @@ describe("SqliteCashShiftRepository — CASH-002 (close)", () => {
       };
       expect(shiftRow.status).toBe("CLOSED");
       expect(shiftRow.version).toBe(2);
+
+      // Bloque 23-D: D1's restored NOT NULL sentinel/checksum, verified through the real saveClose() path.
+      const countRow = database.native
+        .prepare(
+          "SELECT calculation_policy_version, calculation_checksum, tolerance_policy_version, tolerance_policy_checksum FROM cash_counts WHERE id = ?",
+        )
+        .get(result.count.id) as {
+        calculation_policy_version: string;
+        calculation_checksum: string;
+        tolerance_policy_version: string;
+        tolerance_policy_checksum: string;
+      };
+      expect(countRow.calculation_policy_version).toBe(CASH_NO_POLICY_SENTINEL_UUID);
+      expect(countRow.calculation_policy_version).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(countRow.tolerance_policy_version).toBe(CASH_NO_POLICY_SENTINEL_UUID);
+      expect(countRow.calculation_checksum).toBe(CASH_CALCULATION_BEHAVIOR_CHECKSUM);
+      expect(countRow.calculation_checksum).toMatch(/^[0-9a-f]{64}$/);
+      expect(countRow.calculation_checksum).not.toContain(CASH_CALCULATION_BEHAVIOR_V0);
+      expect(countRow.tolerance_policy_checksum).toBe(CASH_TOLERANCE_BEHAVIOR_CHECKSUM);
+      expect(countRow.tolerance_policy_checksum).toMatch(/^[0-9a-f]{64}$/);
+      expect(countRow.tolerance_policy_checksum).not.toContain(CASH_TOLERANCE_BEHAVIOR_V0);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("sentinel/checksum are identical regardless of tenant, device, or shift — fixed constants, not per-row values", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      const idGenerator = new SequentialIdGenerator();
+      const clock = new FixedClock(new Date("2026-09-02T20:00:00Z"));
+      seedCashRegister(database);
+      const repository = new SqliteCashShiftRepository(database);
+      const openUseCase = new OpenCashShiftUseCase(repository, new AlwaysAuthorized(), clock, idGenerator);
+      const closeUseCase = new CloseCashShiftUseCase(repository, new AlwaysAuthorized(), clock, idGenerator);
+
+      const otherDeviceActor = Actor.device("018f0000-0000-7000-8000-000000000099");
+      const firstShift = await openUseCase.execute(openCommand({ idempotencyKey: "open:x" }));
+      const secondShift = await openUseCase.execute(
+        openCommand({
+          idempotencyKey: "open:y",
+          originDeviceId: otherDeviceActor.id,
+          openedByActor: otherDeviceActor,
+        }),
+      );
+      if (firstShift.kind !== "OPENED" || secondShift.kind !== "OPENED") throw new Error("unreachable");
+
+      const firstClose = await closeUseCase.execute(closeCommand({ cashShiftId: firstShift.shift.id, idempotencyKey: "close:x" }));
+      const secondClose = await closeUseCase.execute(
+        closeCommand({ cashShiftId: secondShift.shift.id, idempotencyKey: "close:y", originDeviceId: otherDeviceActor.id }),
+      );
+      if (firstClose.kind !== "CLOSED" || secondClose.kind !== "CLOSED") throw new Error("unreachable");
+
+      const rows = database.native
+        .prepare("SELECT id, calculation_policy_version, calculation_checksum FROM cash_counts ORDER BY created_at")
+        .all() as Array<{ id: string; calculation_policy_version: string; calculation_checksum: string }>;
+      expect(rows).toHaveLength(2);
+      // different shifts, different devices, same tenant — sentinel/checksum must still be byte-identical
+      expect(rows[0]!.calculation_policy_version).toBe(rows[1]!.calculation_policy_version);
+      expect(rows[0]!.calculation_checksum).toBe(rows[1]!.calculation_checksum);
     } finally {
       database.close();
     }
@@ -198,11 +266,19 @@ describe("SqliteCashShiftRepository — CASH-002 (close)", () => {
       expect(result.review).not.toBeNull();
 
       const reviewRow = database.native
-        .prepare("SELECT status, cash_count_id, cash_shift_id FROM cash_difference_reviews WHERE id = ?")
-        .get(result.review!.id) as { status: string; cash_count_id: string; cash_shift_id: string };
+        .prepare("SELECT status, cash_count_id, cash_shift_id, tolerance_policy_version, tolerance_policy_checksum FROM cash_difference_reviews WHERE id = ?")
+        .get(result.review!.id) as {
+        status: string;
+        cash_count_id: string;
+        cash_shift_id: string;
+        tolerance_policy_version: string;
+        tolerance_policy_checksum: string;
+      };
       expect(reviewRow.status).toBe("REVIEW_REQUIRED");
       expect(reviewRow.cash_count_id).toBe(result.count.id);
       expect(reviewRow.cash_shift_id).toBe(shift.id);
+      expect(reviewRow.tolerance_policy_version).toBe(CASH_NO_POLICY_SENTINEL_UUID);
+      expect(reviewRow.tolerance_policy_checksum).toBe(CASH_TOLERANCE_BEHAVIOR_CHECKSUM);
     } finally {
       database.close();
     }

@@ -23,7 +23,12 @@ import {
   type CashShiftPhysicalContext,
   type CashShiftRepository,
 } from "@pos-platform/application";
-import type { LocalDatabase } from "./local-database.js";
+import {
+  CASH_CALCULATION_BEHAVIOR_CHECKSUM,
+  CASH_NO_POLICY_SENTINEL_UUID,
+  CASH_TOLERANCE_BEHAVIOR_CHECKSUM,
+  type LocalDatabase,
+} from "./local-database.js";
 
 interface CashShiftRow {
   id: string;
@@ -388,13 +393,15 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
         .prepare(
           `INSERT INTO cash_counts (
             id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id, count_type, status,
-            started_shift_version, movement_cutoff_sequence, expected_amount, counted_amount,
+            started_shift_version, movement_cutoff_sequence, calculation_policy_version,
+            calculation_checksum, expected_amount, counted_amount,
             difference_amount, difference_type, currency_code, denomination_breakdown_status,
+            tolerance_policy_version, tolerance_policy_checksum,
             started_by_actor_type, started_by_actor_id, started_at, completed_by_actor_type,
             completed_by_actor_id, completed_at, origin_device_id, start_idempotency_key,
             start_request_checksum, completion_idempotency_key, completion_request_checksum,
             correlation_id, version, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           count.id,
@@ -409,6 +416,12 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
           "COMPLETED",
           priorVersion,
           count.movementCutoffSequence,
+          // Bloque 23-D: D1 (cash-human-decisions.md, RESOLVED) requires
+          // these NOT NULL as references toward a future, unmaterialized
+          // CashPolicyVersion — not a new entity, not fabricated business
+          // data. See local-database.ts's doc comment on these constants.
+          CASH_NO_POLICY_SENTINEL_UUID,
+          CASH_CALCULATION_BEHAVIOR_CHECKSUM,
           count.expectedAmount.toString(),
           count.countedAmount.toString(),
           count.differenceAmount.toString(),
@@ -418,6 +431,8 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
           // field at all (close-cash-shift.ts's own doc comment) — this
           // accurately states none was provided, not an invented default.
           "NOT_PROVIDED",
+          CASH_NO_POLICY_SENTINEL_UUID,
+          CASH_TOLERANCE_BEHAVIOR_CHECKSUM,
           physicalContext.closedByActor.type,
           physicalContext.closedByActor.id,
           closedAt,
@@ -444,8 +459,9 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
           .prepare(
             `INSERT INTO cash_difference_reviews (
               id, tenant_id, company_id, branch_id, cash_shift_id, cash_count_id, status,
+              tolerance_policy_version, tolerance_policy_checksum,
               requires_segregation, created_at, version, correlation_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             review.id,
@@ -455,6 +471,9 @@ export class SqliteCashShiftRepository implements CashShiftRepository {
             review.cashShiftId,
             review.cashCountId,
             review.status,
+            // Bloque 23-D: same D1 sentinel as cash_counts above.
+            CASH_NO_POLICY_SENTINEL_UUID,
+            CASH_TOLERANCE_BEHAVIOR_CHECKSUM,
             // requires_segregation: no segregation-of-duties policy exists
             // anywhere in this codebase (MIGRATION_007) — left absent
             // rather than asserting a false "never required".
