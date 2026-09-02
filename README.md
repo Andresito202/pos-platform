@@ -8,40 +8,32 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first d
 
 Camacho POS Colombia está en **Fase 1 — fundación técnica ejecutable**.
 
-La Fase 0 documental está cerrada. La fundación física y de tooling existe, pero el runtime de aplicación todavía no está materializado.
+La Fase 0 documental está cerrada. `apps/pos-local-service` y varios `packages/*` ya son runtime real (no solo tooling) — ver el detalle abajo. Sigue sin existir una aplicación POS comercial que un cajero pueda instalar, abrir y usar para vender.
 
-Estado vigente:
+Estado vigente (revisar `docs/product/backlog.md` para el detalle RT-por-RT, esto puede quedar desactualizado):
 
-- `main` es la única rama canónica;
-- migrations PostgreSQL 001/002: `MATERIALIZED / TESTED / IMMUTABLE`;
-- SQLite actual: control/migration tooling materializado; runtime local completo pendiente;
-- External Integrations foundation: materializada en migration 002, central, `NON_FISCAL`;
-- MAT-003 preflight y canonical-role-readiness tooling: materializados/revisados;
-- canonical-role readiness: `APPLIED / REVIEWED` únicamente en `LOCAL_CANONICAL_INTEGRATION`;
-- MAT-003 preflight canónico: `EXECUTED / PASS / REVIEWED`, read-only, cero mutaciones durables;
-- SQL/descriptor PostgreSQL 003 y schema fiscal 003: `INTEGRATED / GATES_CLOSED / PHYSICALLY_VALIDATED_IN_POSTGRESQL_16_14`;
-- migration 003 en entornos compartidos o productivos: `NOT_DEPLOYED`;
+- `main` es la única rama canónica, sin branch protection nativa — toda integración es por PR + SHA esperado + CI del HEAD exacto + verificación post-merge manual (`docs/governance/repository-governance.md`);
+- migrations PostgreSQL 001/002/003: integradas con gates cerrados;
+- `apps/pos-local-service`: **materializado**, no `ABSENT` — RT-000..006 `DONE / INTEGRATED`: lifecycle, SQLite/WAL single-writer con backup/restore/recovery, named pipe local autenticado (DPAPI + HMAC + anti-replay), device identity + license verification (Ed25519), sync durable (outbox/inbox/checkpoint/dead-letter/retry con backoff), y un primer vertical slice runtime (`operation.confirm`: request → auth de dispositivo → validación → transacción SQLite → outbox → respuesta → restart/retry → auditoría);
+- `packages/contracts`, `packages/database-sqlite`, `packages/observability`: real, con tests. `packages/{domain,application,database-core,database-postgres,testing}`: scaffold únicamente (`package.json`/`project.json`, sin `src/`);
+- identidad derivada en el runtime local es de **dispositivo/instalación**, no de usuario — no hay `User`/`Session`/`Role` en el repo todavía;
+- núcleo comercial (Catálogo/Pricing/Inventario/Ventas/Caja/Pagos): modelo físico documentalmente `CLOSED` por dominio, pero el gate de DDL/migración ("primera migración") permanece `NO-GO` para todos ellos — solo el scope `001_central_foundation`/`001_local_migration_control` está `GO_AUTHORIZED` (`docs/architecture/physical-model/traceability.md`);
 - SIIGO/FACTUS/ALEGRA: `DESIGNED / NOT_EVALUATED`;
-- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED`;
-- NestJS/Fastify, Electron/React/Vite y POS Local Service: `ABSENT / NOT_MATERIALIZED`;
+- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED` — ningún RT los promueve automáticamente;
+- NestJS/Fastify (API central), Electron/React/Vite (POS desktop): `ABSENT / NOT_MATERIALIZED`;
 - infraestructura productiva, piloto y hardware certificado: pendientes.
 
-**No existe una aplicación POS productiva completa en este repositorio todavía.** Documentación, migrations, PoC, CI y tooling no se presentan como runtime terminado.
+**No existe una aplicación POS productiva completa en este repositorio todavía.** El runtime local (`pos-local-service`) es real y probado, pero no hay UI, no hay dominio comercial materializado (ventas/caja/inventario/catálogo), y `SEC-G01..G10` siguen sin evaluar. Documentación, migrations, tests y tooling no se presentan como producto terminado.
 
 ## Integraciones recientes de `main`
 
-- PR #2 integró la fundación TARGET y PR #3 retiró el runtime legacy.
-- PR #5 integró el baseline inicial de supply chain y la gobernanza detectiva de `main`.
-- PR #11 integró SQL/descriptor PostgreSQL 003 con Gate A/B cerrados.
-- PR #12 integró límites ejecutables Nx; PR #14, contratos ejecutables; PR #15, TECH-004 completo.
-- PR #6 reconcilió el estado canónico y PR #7 adoptó `Camacho POS Colombia` como nombre comercial, sin renombrar identificadores técnicos.
-- El merge de PR #7 quedó en `940107f8cc0976c130dd4f274928b2df248473f4`.
-- El run post-merge #47 (`32937793013`) terminó `SUCCESS`, incluidos:
-  - `Repository policy and dependency inventory = SUCCESS`;
-  - `TypeScript, SQLite and PostgreSQL 16.14 = SUCCESS`;
-  - `Main push governance = SUCCESS`.
+- PR #18 integró RT-001..004 (POS Local Service: lifecycle, SQLite single-writer, canal local seguro, device trust/licensing).
+- PR #19 integró RT-005 (sync durable: outbox/inbox/checkpoint/dead-letter).
+- PR #20 formalizó la política de revisión de autor único para este repositorio de un solo desarrollador.
+- PR #21 integró RT-006 (primer vertical slice runtime completo, `operation.confirm`).
+- El merge de PR #21 quedó en `77f96fcf7f9580a9e33520a0f284bc7af6e18d8f`.
 
-La evidencia anterior es histórica y commit-scoped. El SHA vigente de `main` siempre se consulta en GitHub; no se infiere desde este README.
+La evidencia anterior es histórica y commit-scoped. El SHA vigente de `main` siempre se consulta en GitHub (`git ls-remote origin main`); no se infiere desde este README.
 
 ## Fuente de verdad
 
