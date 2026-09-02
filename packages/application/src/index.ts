@@ -11,3 +11,7 @@ export * from "./ports/product-repository.js";
 export * from "./ports/catalog-authorization-port.js";
 export * from "./authorization/role-based-catalog-authorization.js";
 export * from "./use-cases/create-product.js";
+export * from "./ports/inventory-movement-repository.js";
+export * from "./ports/inventory-authorization-port.js";
+export * from "./authorization/role-based-inventory-authorization.js";
+export * from "./use-cases/register-inventory-adjustment.js";

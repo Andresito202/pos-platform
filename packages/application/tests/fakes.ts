@@ -8,6 +8,7 @@ import {
   type CashMovementType,
   type CashShift,
   type CompanyScope,
+  type InventoryMovement,
   type Product,
   type Role,
   type TenantScope,
@@ -18,6 +19,8 @@ import type {
   CatalogAuthorizationPort,
   Clock,
   IdGenerator,
+  InventoryAuthorizationPort,
+  InventoryMovementRepository,
   ProductRepository,
   UserRoleAssignmentRepository,
 } from "../src/index.js";
@@ -170,5 +173,43 @@ export class InMemoryProductRepository implements ProductRepository {
     this.byIdempotencyKey.set(companyScopeKey(product.scope, idempotencyKey), product);
     if (product.internalCode) this.internalCodes.add(companyScopeKey(product.scope, product.internalCode));
     this.saved.push(product);
+  }
+}
+
+export class InMemoryInventoryMovementRepository implements InventoryMovementRepository {
+  private readonly movements: InventoryMovement[] = [];
+  private readonly byIdempotencyKey = new Map<string, InventoryMovement>();
+  readonly saved: InventoryMovement[] = [];
+
+  async findByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<InventoryMovement | null> {
+    return this.byIdempotencyKey.get(scopeKey(scope, idempotencyKey)) ?? null;
+  }
+
+  async listPostedMovements(
+    scope: TenantScope,
+    inventoryLocationId: string,
+    presentationId: string,
+    lotId: string | null,
+  ): Promise<readonly InventoryMovement[]> {
+    return this.movements.filter(
+      (movement) =>
+        movement.scope.equals(scope) &&
+        movement.inventoryLocationId === inventoryLocationId &&
+        movement.presentationId === presentationId &&
+        movement.lotId === lotId,
+    );
+  }
+
+  async save(movement: InventoryMovement, idempotencyKey: string): Promise<void> {
+    this.movements.push(movement);
+    this.byIdempotencyKey.set(scopeKey(movement.scope, idempotencyKey), movement);
+    this.saved.push(movement);
+  }
+}
+
+export class FixedInventoryAuthorization implements InventoryAuthorizationPort {
+  constructor(private readonly allow: boolean) {}
+  async canAdjustInventory(_actor: Actor, _scope: TenantScope): Promise<boolean> {
+    return this.allow;
   }
 }
