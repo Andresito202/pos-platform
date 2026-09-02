@@ -697,3 +697,90 @@ export const POSTGRES_003_DESCRIPTOR: FiscalMigrationDescriptor = {
   externalFenceContracts: FISCAL_003_EXTERNAL_FENCE_CONTRACTS,
   mat003PrerequisiteOnly: true,
 };
+
+/**
+ * Bloque 24-B: Cash target migration. Represents the same 7 tables already
+ * materialized in SQLite (packages/database-sqlite/src/local-database.ts,
+ * MIGRATION_006/007/008) — not a new design, a translation to PostgreSQL of
+ * an already-closed physical model (cash-physical-design.md,
+ * cash-counting-schema.md), following 002's descriptor pattern (the last
+ * migration in this harness with a real applyPostgresNNN/downPostgresNNN
+ * pair — 003 remains preflight-only per POSTGRES_003_DESCRIPTOR's own
+ * `mat003PrerequisiteOnly: true`).
+ */
+export const CASH_TABLES = [
+  "cash_registers",
+  "cash_shifts",
+  "cash_movements",
+  "cash_counts",
+  "cash_count_denominations",
+  "cash_difference_reviews",
+  "cash_difference_review_actions",
+] as const;
+
+export const CASH_004_TABLE_COLUMNS = {
+  "cash.cash_registers": [
+    "id","tenant_id","company_id","branch_id","code","code_normalized","name","currency_code",
+    "status","created_at","retired_at","version",
+  ],
+  "cash.cash_shifts": [
+    "id","tenant_id","company_id","branch_id","cash_register_id","origin_device_id",
+    "opened_by_actor_type","opened_by_actor_id","opened_at","business_date","timezone_id",
+    "utc_offset_minutes","currency_code","status","closed_by_actor_type","closed_by_actor_id",
+    "closed_at","opening_idempotency_key","opening_request_checksum","closing_idempotency_key",
+    "closing_request_checksum","last_movement_sequence","version","created_at","server_recorded_at",
+  ],
+  "cash.cash_movements": [
+    "id","tenant_id","company_id","branch_id","cash_register_id","cash_shift_id","shift_sequence",
+    "movement_type","direction","amount","currency_code","status","reference_type","reference_id",
+    "original_cash_movement_id","reason_code","evidence_reference","actor_type","actor_id",
+    "approved_by_actor_type","approved_by_actor_id","business_date","occurred_at",
+    "device_reported_at","origin_device_id","idempotency_key","request_checksum","correlation_id",
+    "version","created_at","server_recorded_at",
+  ],
+  "cash.cash_counts": [
+    "id","tenant_id","company_id","branch_id","cash_register_id","cash_shift_id","count_type",
+    "status","blind_mode","started_shift_version","movement_cutoff_sequence",
+    "calculation_policy_version","calculation_checksum","expected_amount","counted_amount",
+    "difference_amount","difference_type","severity","currency_code",
+    "denomination_breakdown_status","tolerance_policy_version","tolerance_policy_checksum",
+    "supersedes_cash_count_id","started_by_actor_type","started_by_actor_id","started_at",
+    "completed_by_actor_type","completed_by_actor_id","completed_at","aborted_by_actor_type",
+    "aborted_by_actor_id","aborted_at","abort_reason_code","origin_device_id",
+    "start_idempotency_key","start_request_checksum","completion_idempotency_key",
+    "completion_request_checksum","correlation_id","version","created_at","server_recorded_at",
+  ],
+  "cash.cash_count_denominations": [
+    "id","tenant_id","cash_count_id","line_number","denomination_code","denomination_value",
+    "quantity","line_amount","currency_code","created_at",
+  ],
+  "cash.cash_difference_reviews": [
+    "id","tenant_id","company_id","branch_id","cash_shift_id","cash_count_id","status","severity",
+    "tolerance_policy_version","tolerance_policy_checksum","requires_segregation","created_at",
+    "resolved_at","version","correlation_id",
+  ],
+  "cash.cash_difference_review_actions": [
+    "id","tenant_id","cash_difference_review_id","action_type","from_status","to_status",
+    "reason_code","note","evidence_reference","actor_type","actor_id",
+    "authorization_policy_version","idempotency_key","request_checksum","occurred_at",
+    "origin_device_id","created_at","server_recorded_at",
+  ],
+} as const;
+
+export const CASH_004_RLS_TABLES = [...CASH_TABLES] as readonly string[];
+
+export const POSTGRES_004_DESCRIPTOR: MigrationDescriptor = {
+  migrationId: "004_cash_foundation",
+  manifestVersion: 1,
+  dependencies: [POSTGRES_001_DESCRIPTOR.migrationId],
+  upArtifact: "postgres/004_cash_foundation.up.sql",
+  downArtifact: "postgres/004_cash_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: ["cash"],
+  ownedTables: CASH_TABLES.map((name) => `cash.${name}`),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: [],
+  expectedLedgerState: "APPLIED",
+};

@@ -2,6 +2,9 @@ import type { SqlExecutor } from "./database.js";
 import { queryRows } from "./database.js";
 import {
   POSTGRES_TABLE_COLUMNS,
+  CASH_004_RLS_TABLES,
+  CASH_004_TABLE_COLUMNS,
+  CASH_TABLES,
   INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
   PROHIBITED_TABLE_NAMES,
@@ -509,4 +512,137 @@ export async function validatePostgres002Catalog(db: SqlExecutor): Promise<void>
   const expectedGrantKeys=columnGrantsFromSql(bodySql,expectedColumns);
   assertInvariant(sameValues(actualGrantKeys,expectedGrantKeys), "002 role/operation/column grant matrix diverges");
   await validateCatalogSemantics(db,["integrations"],SEMANTIC_DIGEST_002,"002");
+}
+
+function cashTableColumnsFromSql(source: string): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const match of source.matchAll(/CREATE TABLE cash\.([a-z][a-z0-9_]*) \(([\s\S]*?)\n\);/g)) {
+    const columns = match[2]!
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("CONSTRAINT"))
+      .map((line) => line.match(/^([a-z][a-z0-9_]*)\s/)?.[1])
+      .filter((name): name is string => name !== undefined);
+    result.set(match[1]!, columns);
+  }
+  return result;
+}
+
+export async function cashCatalogState(db: SqlExecutor): Promise<"pre-004" | "target-004" | "partial"> {
+  const schemas = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='cash'");
+  if (Number(schemas[0]!.count) === 0) return "pre-004";
+  try {
+    await validatePostgres004Catalog(db);
+    return "target-004";
+  } catch {
+    return "partial";
+  }
+}
+
+/**
+ * Bloque 24-B: real but intentionally lighter than validatePostgres002Catalog
+ * above — this checks the invariants that actually matter for Cash's own
+ * contract (table/column/RLS/constraint/index/trigger identity, and
+ * specifically that D1's 6 columns are NOT NULL and the 3 genuinely
+ * unmodeled ones stay nullable, per B23-D/B24-A) rather than replicating
+ * 002's full per-column grant matrix cross-product. Table-level grants are
+ * still checked (no dangerous privileges for runtime roles, admin stays
+ * read-only), matching the same non-negotiable rule 002 enforces.
+ */
+export async function validatePostgres004Catalog(db: SqlExecutor): Promise<void> {
+  await validatePostgresCatalog(db);
+  const bodySql = await readArtifact("postgres/004_cash_foundation.up.sql");
+  const expectedColumns = cashTableColumnsFromSql(bodySql);
+  assertInvariant(sameValues([...expectedColumns.keys()].sort(), [...CASH_TABLES].sort()), "004 artifact table set diverges");
+
+  const schema = await queryRows<{ owner_name: string; public_create: boolean }>(db, `
+    SELECT pg_get_userbyid(n.nspowner) AS owner_name,
+           EXISTS (SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create
+    FROM pg_namespace n WHERE n.nspname='cash'
+  `);
+  assertInvariant(schema[0]?.owner_name === "pos_schema_owner" && !schema[0].public_create, "cash schema ownership/grants diverge");
+
+  const tables = await queryRows<{ name: string; owner_name: string; rls: boolean; forced: boolean }>(db, `
+    SELECT c.relname AS name, pg_get_userbyid(c.relowner) AS owner_name,
+           c.relrowsecurity AS rls, c.relforcerowsecurity AS forced
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='cash' AND c.relkind='r' ORDER BY c.relname
+  `);
+  assertInvariant(sameValues(tables.map((row) => row.name), [...CASH_TABLES].sort()), "cash table set diverges");
+  for (const table of tables) {
+    assertInvariant(table.owner_name === "pos_schema_owner", `${table.name} owner diverges`);
+    const protectedTable = CASH_004_RLS_TABLES.includes(table.name);
+    assertInvariant(table.rls === protectedTable && table.forced === protectedTable, `${table.name} RLS diverges`);
+  }
+
+  const columns = await queryRows<ColumnRow>(db, `
+    SELECT n.nspname schema_name,c.relname table_name,a.attname column_name,a.attnum ordinal_position
+    FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r' AND n.nspname='cash'
+    ORDER BY c.relname,a.attnum
+  `);
+  for (const [table, expected] of expectedColumns) {
+    const actual = columns.filter((row) => row.table_name === table).map((row) => row.column_name);
+    assertInvariant(sameValues(actual, expected), `cash.${table} columns diverge`);
+  }
+
+  // D1 (Bloque 15, restored Bloque 23-D over SQLite; must hold identically here)
+  const nullability = await queryRows<{ table_name: string; column_name: string; notnull: boolean }>(db, `
+    SELECT c.relname AS table_name, a.attname AS column_name, a.attnotnull AS notnull
+    FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='cash' AND a.attnum>0 AND NOT a.attisdropped
+      AND a.attname IN ('calculation_policy_version','calculation_checksum','tolerance_policy_version','tolerance_policy_checksum','blind_mode','severity','requires_segregation')
+  `);
+  const mustBeNotNull = new Set(["calculation_policy_version", "calculation_checksum", "tolerance_policy_version", "tolerance_policy_checksum"]);
+  const mustBeNullable = new Set(["blind_mode", "severity", "requires_segregation"]);
+  for (const row of nullability) {
+    if (mustBeNotNull.has(row.column_name)) assertInvariant(row.notnull, `D1 violated: cash.${row.table_name}.${row.column_name} must be NOT NULL`);
+    if (mustBeNullable.has(row.column_name)) assertInvariant(!row.notnull, `cash.${row.table_name}.${row.column_name} must stay nullable`);
+  }
+
+  const constraints = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='cash' ORDER BY 1
+  `);
+  const expectedConstraints = [
+    ...capturedNames(bodySql, /CONSTRAINT\s+([a-z][a-z0-9_]*)/gi),
+    ...CASH_TABLES.map((table) => `${table}_pkey`),
+  ].sort();
+  assertInvariant(sameValues(constraints.map((row) => row.name), expectedConstraints), "004 constraint set diverges");
+
+  const indexes = await queryRows<NameRow>(db, "SELECT indexname AS name FROM pg_indexes WHERE schemaname='cash' ORDER BY 1");
+  const constraintIndexes = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace
+    WHERE n.nspname='cash' AND x.contype IN ('p','u','x') ORDER BY 1
+  `);
+  const expectedIndexes = [
+    ...capturedNames(bodySql, /CREATE\s+(?:UNIQUE\s+)?INDEX\s+([a-z][a-z0-9_]*)/gi),
+    ...constraintIndexes.map((row) => row.name),
+  ].sort();
+  assertInvariant(sameValues(indexes.map((row) => row.name), expectedIndexes), "004 index set diverges");
+
+  const triggers = await queryRows<NameRow>(db, `
+    SELECT t.tgname AS name FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='cash' AND NOT t.tgisinternal ORDER BY 1
+  `);
+  assertInvariant(sameValues(triggers.map((row) => row.name), capturedNames(bodySql, /CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+([a-z][a-z0-9_]*)/gi)), "004 trigger set diverges");
+
+  const policies = await queryRows<NameRow>(db, "SELECT policyname AS name FROM pg_policies WHERE schemaname='cash' ORDER BY 1");
+  assertInvariant(sameValues(policies.map((row) => row.name), capturedNames(bodySql, /CREATE\s+POLICY\s+([a-z][a-z0-9_]*)/gi)), "004 policy set diverges");
+
+  const dangerous = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='cash' AND r.rolname IN ('pos_app','pos_worker','pos_platform_admin')
+      AND a.privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')
+  `);
+  assertInvariant(Number(dangerous[0]!.count) === 0, "runtime has dangerous cash table grants");
+  const adminMutation = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='cash' AND r.rolname='pos_platform_admin' AND a.privilege_type<>'SELECT'
+  `);
+  assertInvariant(Number(adminMutation[0]!.count) === 0, "platform admin can mutate cash");
 }

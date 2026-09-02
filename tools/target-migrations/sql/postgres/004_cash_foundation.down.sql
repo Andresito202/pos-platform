@@ -1,0 +1,11 @@
+REVOKE ALL ON ALL TABLES IN SCHEMA cash FROM pos_app, pos_worker, pos_platform_admin;
+REVOKE USAGE ON SCHEMA cash FROM pos_app, pos_worker, pos_platform_admin;
+DROP TABLE cash.cash_difference_review_actions;
+DROP TABLE cash.cash_difference_reviews;
+DROP TABLE cash.cash_count_denominations;
+DROP TABLE cash.cash_counts;
+DROP TABLE cash.cash_movements;
+DROP TABLE cash.cash_shifts;
+DROP TABLE cash.cash_registers;
+DROP FUNCTION cash.guard_append_only();
+DROP SCHEMA cash;

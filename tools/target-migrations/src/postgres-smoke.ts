@@ -372,3 +372,174 @@ export async function runPostgres002Smoke(adminUrl: string): Promise<number> {
     await admin.destroy();
   }
 }
+
+const IDS004 = {
+  registerA: "018f0000-0000-7000-8000-000000004001",
+  shiftA: "018f0000-0000-7000-8000-000000004002",
+  movementA: "018f0000-0000-7000-8000-000000004003",
+  registerB: "018f0000-0000-7000-8000-000000004004",
+  registerC: "018f0000-0000-7000-8000-000000004011",
+  shiftB: "018f0000-0000-7000-8000-000000004005",
+  countA: "018f0000-0000-7000-8000-000000004006",
+  reviewA: "018f0000-0000-7000-8000-000000004007",
+  device: "018f0000-0000-7000-8000-000000004010",
+  device2: "018f0000-0000-7000-8000-000000004012",
+} as const;
+
+const CASH_NO_POLICY_SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
+// Bloque 24-B: same real SHA-256 digests already persisted by SQLite v8 (local-database.ts) — not
+// recomputed here, just reused, per this block's own rule against inventing new checksums.
+const CASH_CALCULATION_BEHAVIOR_CHECKSUM = "ebe75a9c0c6532fffae9830d79d5ad0e6e9fde25cf9ecabbf224718692287464".slice(0, 64);
+const CASH_TOLERANCE_BEHAVIOR_CHECKSUM = "3183578b557dc476986d198b58fbcff1e247fe06205c90665f237fa461b0e4d7".slice(0, 64);
+
+async function removeFixtures004(admin: SqlExecutor): Promise<void> {
+  // cash.cash_movements is append-only by trigger (cash.guard_append_only()) — exactly like
+  // SQLite's equivalent trigger — so real DELETE is rejected even for cleanup. The admin
+  // connection here is the PostgreSQL superuser, which alone can disable/re-enable it.
+  await executeRaw(admin, `
+    ALTER TABLE cash.cash_movements DISABLE TRIGGER cash_movements_no_delete;
+    DELETE FROM cash.cash_difference_reviews;
+    DELETE FROM cash.cash_counts;
+    DELETE FROM cash.cash_movements;
+    DELETE FROM cash.cash_shifts;
+    DELETE FROM cash.cash_registers;
+    DELETE FROM organization.branches WHERE id IN ('${IDS.branchA}','${IDS.branchB}');
+    DELETE FROM organization.companies WHERE id IN ('${IDS.companyA}','${IDS.companyB}');
+    DELETE FROM tenancy.tenants WHERE id IN ('${IDS.tenantA}','${IDS.tenantB}');
+    DELETE FROM identity.users WHERE id IN ('${IDS.userA}','${IDS.userB}');
+    ALTER TABLE cash.cash_movements ENABLE TRIGGER cash_movements_no_delete;
+  `);
+}
+
+async function createFixtures004(admin: SqlExecutor): Promise<void> {
+  await executeRaw(admin, `
+    INSERT INTO identity.users(id,email,email_normalized,full_name,status,created_at,updated_at) VALUES
+      ('${IDS.userA}','004-a@example.test','004-a@example.test','004 A','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.userB}','004-b@example.test','004-b@example.test','004 B','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES
+      ('${IDS.tenantA}','004 Tenant A','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.tenantB}','004 Tenant B','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO organization.companies(id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at) VALUES
+      ('${IDS.companyA}','${IDS.tenantA}','004 Company A','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.companyB}','${IDS.tenantB}','004 Company B','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO organization.branches(id,tenant_id,company_id,name,timezone,status,created_at,updated_at) VALUES
+      ('${IDS.branchA}','${IDS.tenantA}','${IDS.companyA}','004 Branch A','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.branchB}','${IDS.tenantB}','${IDS.companyB}','004 Branch B','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO cash.cash_registers(id,tenant_id,company_id,branch_id,code,code_normalized,name,currency_code,status,created_at,version) VALUES
+      ('${IDS004.registerA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','CR-1','cr-1','Caja principal','COP','ACTIVE',clock_timestamp(),1);
+    INSERT INTO cash.cash_shifts(
+      id,tenant_id,company_id,branch_id,cash_register_id,origin_device_id,opened_by_actor_type,opened_by_actor_id,
+      opened_at,business_date,timezone_id,utc_offset_minutes,currency_code,status,opening_idempotency_key,
+      opening_request_checksum,last_movement_sequence,version,created_at
+    ) VALUES (
+      '${IDS004.shiftA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS004.registerA}','${IDS004.device}','DEVICE','${IDS004.device}',
+      clock_timestamp(),current_date,'America/Bogota',-300,'COP','OPEN','open:seed','${'a'.repeat(64)}',1,1,clock_timestamp()
+    );
+    INSERT INTO cash.cash_movements(
+      id,tenant_id,company_id,branch_id,cash_register_id,cash_shift_id,shift_sequence,movement_type,direction,amount,
+      currency_code,status,reference_type,reason_code,actor_type,actor_id,business_date,occurred_at,device_reported_at,
+      origin_device_id,idempotency_key,request_checksum,correlation_id,version,created_at
+    ) VALUES (
+      '${IDS004.movementA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS004.registerA}','${IDS004.shiftA}',1,'OPENING_FLOAT','IN',100000,
+      'COP','POSTED','CASH_SHIFT_OPEN','CASH_SHIFT_OPENED','DEVICE','${IDS004.device}',current_date,clock_timestamp(),clock_timestamp(),
+      '${IDS004.device}','open:seed','${'a'.repeat(64)}','${IDS004.shiftA}',1,clock_timestamp()
+    );
+  `);
+}
+
+export async function runPostgres004Smoke(adminUrl: string): Promise<number> {
+  const admin = postgresDatabase(adminUrl, 1);
+  let assertions = 0;
+  try {
+    await removeFixtures004(admin);
+    await createFixtures004(admin);
+
+    const insertRegister = (id: string, tenant: string, company: string, branch: string) => `
+      INSERT INTO cash.cash_registers(id,tenant_id,company_id,branch_id,code,code_normalized,name,currency_code,status,created_at,version)
+      VALUES ('${id}','${tenant}','${company}','${branch}','CR-2','cr-2','Caja secundaria','COP','ACTIVE',clock_timestamp(),1)`;
+
+    // registerA was seeded permanently (as admin, outside any rolled-back transaction) so the
+    // shift/movement/count assertions below have a stable FK target across separate transactions.
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      const rows = await queryRows<{ id: string }>(db, "SELECT id::text FROM cash.cash_registers");
+      assert.deepEqual(rows.map((row) => row.id), [IDS004.registerA]); assertions += 1;
+    });
+
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantB, async (db) => {
+      const rows = await queryRows<{ count: string }>(db, "SELECT count(*)::text AS count FROM cash.cash_registers");
+      assert.equal(rows[0]!.count, "0"); assertions += 1;
+    });
+
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, insertRegister(IDS004.registerC, IDS.tenantA, IDS.companyA, IDS.branchA));
+      assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantB, async (db) => {
+      await executeRaw(db, insertRegister(IDS004.registerB, IDS.tenantA, IDS.companyA, IDS.branchA));
+    }), "cross-tenant register insert accepted"); assertions += 1;
+
+    // registerA/shiftA/movementA were seeded permanently — real INSERT capability for OPEN is
+    // exercised here against a second shift (shiftB), on the same register, different device.
+    const openShiftB = `
+      INSERT INTO cash.cash_shifts(
+        id,tenant_id,company_id,branch_id,cash_register_id,origin_device_id,opened_by_actor_type,opened_by_actor_id,
+        opened_at,business_date,timezone_id,utc_offset_minutes,currency_code,status,opening_idempotency_key,
+        opening_request_checksum,last_movement_sequence,version,created_at
+      ) VALUES (
+        '${IDS004.shiftB}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS004.registerA}','${IDS004.device2}','DEVICE','${IDS004.device2}',
+        clock_timestamp(),current_date,'America/Bogota',-300,'COP','OPEN','open:smoke','${'a'.repeat(64)}',1,1,clock_timestamp()
+      )`;
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, openShiftB);
+      const rows = await queryRows<{ id: string }>(db, `SELECT id::text FROM cash.cash_shifts WHERE id = '${IDS004.shiftB}'`);
+      assert.deepEqual(rows.map((row) => row.id), [IDS004.shiftB]); assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `UPDATE cash.cash_movements SET amount = 1 WHERE id = '${IDS004.movementA}'`);
+    }), "append-only movement update accepted"); assertions += 1;
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `DELETE FROM cash.cash_movements WHERE id = '${IDS004.movementA}'`);
+    }), "append-only movement delete accepted"); assertions += 1;
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_platform_admin", null, async (db) => {
+      await executeRaw(db, `UPDATE cash.cash_shifts SET status = 'CLOSED' WHERE id = '${IDS004.shiftA}'`);
+    }), "platform admin mutated cash"); assertions += 1;
+
+    // D1 sentinel (RFC 4122 nil UUID) must be insertable in the policy-version columns even though
+    // it deliberately fails platform.is_uuid_v7() — those two columns have no such CHECK, unlike `id`.
+    const closeShift = `
+      INSERT INTO cash.cash_counts(
+        id,tenant_id,company_id,branch_id,cash_register_id,cash_shift_id,count_type,status,started_shift_version,
+        movement_cutoff_sequence,calculation_policy_version,calculation_checksum,expected_amount,counted_amount,
+        difference_amount,difference_type,currency_code,denomination_breakdown_status,tolerance_policy_version,
+        tolerance_policy_checksum,started_by_actor_type,started_by_actor_id,started_at,completed_by_actor_type,
+        completed_by_actor_id,completed_at,origin_device_id,start_idempotency_key,start_request_checksum,
+        completion_idempotency_key,completion_request_checksum,correlation_id,version,created_at
+      ) VALUES (
+        '${IDS004.countA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS004.registerA}','${IDS004.shiftA}','CLOSING','COMPLETED',1,
+        1,'${CASH_NO_POLICY_SENTINEL_UUID}','${CASH_CALCULATION_BEHAVIOR_CHECKSUM}',100000,100000,
+        0,'EXACT','COP','NOT_PROVIDED','${CASH_NO_POLICY_SENTINEL_UUID}',
+        '${CASH_TOLERANCE_BEHAVIOR_CHECKSUM}','DEVICE','${IDS004.device}',clock_timestamp(),'DEVICE',
+        '${IDS004.device}',clock_timestamp(),'${IDS004.device}','close:smoke','${'a'.repeat(64)}',
+        'close:smoke','${'a'.repeat(64)}','${IDS004.shiftA}',1,clock_timestamp()
+      )`;
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, closeShift);
+      const rows = await queryRows<{ v: string }>(db, `SELECT calculation_policy_version::text AS v FROM cash.cash_counts WHERE id = '${IDS004.countA}'`);
+      assert.equal(rows[0]!.v, CASH_NO_POLICY_SENTINEL_UUID); assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      // id column DOES carry the is_uuid_v7 CHECK — a nil UUID there must be rejected.
+      await executeRaw(db, insertRegister(CASH_NO_POLICY_SENTINEL_UUID, IDS.tenantA, IDS.companyA, IDS.branchA));
+    }), "non-v7 id accepted on cash_registers"); assertions += 1;
+
+    return assertions;
+  } finally {
+    await removeFixtures004(admin).catch(() => undefined);
+    await admin.destroy();
+  }
+}

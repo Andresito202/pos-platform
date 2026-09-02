@@ -1,11 +1,11 @@
-# Cash — resultado de materialización física (Bloques 22-23-D)
+# Cash — resultado de materialización física (Bloques 22 a 24-B)
 
 ## 1. Autorización y alcance
 
-- **Autorización**: owner autorizó explícitamente, en sesión, "MATERIALIZAR CASH" (Bloque 22), luego el cierre de persistencia CASH-002/CASH-003 (Bloque 23), y finalmente la restauración de D1 (Bloque 23-D, tras B24-A NO-GO y la resolución de decisión en B23-C) — alcance limitado a Cash (CASH-001/002/003), sin tocar Sales/Payments/Fiscal/Customer/UI/API/Auth/Sync/Device-identity ni las migraciones 001-005.
+- **Autorización**: owner autorizó explícitamente, en sesión, "MATERIALIZAR CASH" (Bloque 22), luego el cierre de persistencia CASH-002/CASH-003 (Bloque 23), la restauración de D1 (Bloque 23-D, tras B24-A NO-GO y la resolución de decisión en B23-C), y finalmente la materialización física real en PostgreSQL (Bloque 24-B, tras B24-A REVALIDATION PASS) — alcance limitado a Cash (CASH-001/002/003), sin tocar Sales/Payments/Fiscal/Customer/UI/API/Auth/Sync/Device-identity ni las migraciones 001-003/005-008 de ningún motor.
 - **Fecha**: 2026-09-02.
 - **Rama**: `domain/cash-open-vertical-20260901`.
-- **Decisiones intermedias resueltas por el owner** (ver §5): Bloque 22 — extender `OpenCashShiftCommand`/`save()` con `businessDate`/`timezoneId`/`utcOffsetMinutes`/`currencyCode`. Bloque 23 — relajar a nullable, vía nueva migración, las columnas de `cash_counts`/`cash_difference_reviews` sin fuente real de datos; extender `CloseCashShiftCommand`/`RegisterCashMovementCommand` con `originDeviceId`/`currencyCode`/`reasonCode`. Bloque 23-D — revertir 6 de esas 9 columnas a `NOT NULL`, restaurando la Decisión 1 (Bloque 15, `cash-human-decisions.md`), que B23 contradijo sin saberlo; ver §2.4.
+- **Decisiones intermedias resueltas por el owner** (ver §5): Bloque 22 — extender `OpenCashShiftCommand`/`save()` con `businessDate`/`timezoneId`/`utcOffsetMinutes`/`currencyCode`. Bloque 23 — relajar a nullable, vía nueva migración, las columnas de `cash_counts`/`cash_difference_reviews` sin fuente real de datos; extender `CloseCashShiftCommand`/`RegisterCashMovementCommand` con `originDeviceId`/`currencyCode`/`reasonCode`. Bloque 23-D — revertir 6 de esas 9 columnas a `NOT NULL`, restaurando la Decisión 1 (Bloque 15, `cash-human-decisions.md`), que B23 contradijo sin saberlo; ver §2.4. Bloque 24-B — sin decisiones nuevas del owner; materializa el modelo ya cerrado en PostgreSQL real (ver §8).
 
 ## 2. Qué se materializó realmente
 
@@ -126,16 +126,48 @@ Regresión completa ejecutada tras los cambios:
 
 CASH-001 (OPEN) confirmado sin degradación en B23 y en B23-D: las 10 pruebas originales de Bloque 22 en `cash-shift-repository.test.ts` (incluida la de concurrencia real) siguen pasando sin modificación.
 
+## 8. PostgreSQL — materialización física real (Bloque 24-B)
+
+### 8.1 Entorno
+
+`B24-A REVALIDATION` cerró `PASS`; el único punto pendiente era el entorno (`ENVIRONMENT DEFERRED`, Docker Desktop detenido). En B24-B se inició Docker Desktop, se levantó `docker compose -f tools/target-migrations/compose.yaml up -d --wait` (contenedor `postgres:16.14`, `127.0.0.1:55432`, `Healthy`), y se confirmó conectividad real con `SELECT version()` vía `psql` — no un puerto abierto, una query real ejecutada.
+
+### 8.2 Migración `004_cash_foundation`
+
+Traduce, sin rediseñar, el modelo ya cerrado en SQLite v8: schema `cash`, 7 tablas, mismas columnas/nullability/CHECK/UNIQUE/FK/índices parciales, en dialecto PostgreSQL 16 (`uuid`, `numeric(19,6)`, `timestamptz`, `date`, `char(3)`, `boolean`). Sigue el mismo framework que `001`/`002` (`tools/target-migrations`): descriptor (`POSTGRES_004_DESCRIPTOR`), artifacts `sql/postgres/004_cash_foundation.{up,down}.sql`, ledger real (`platform.target_migration_executions`), advisory lock, checksum determinista del artifact, `applyPostgres004`/`downPostgres004`, validador de catálogo (`validatePostgres004Catalog`) y smoke test (`runPostgres004Smoke`) — el próximo número real disponible tras `001`/`002` era `004` (`003` sigue siendo solo preflight, sin `apply`/`down` reales — confirmado leyendo `POSTGRES_003_DESCRIPTOR.mat003PrerequisiteOnly: true` directamente, no asumido). No se reutilizaron los números de versión de SQLite (6/7/8) — son namespaces de ledger completamente distintos, como B24-A ya había anticipado.
+
+**Diferencias de representación física, no de comportamiento** (documentadas, no ocultas, per §25 de este bloque): `amount > 0` es una comparación numérica nativa en PostgreSQL (el truco `substr(amount,1,1) != '-'` de SQLite existe solo por el type-affinity de SQLite sobre `TEXT`); `platform.is_uuid_v7()` valida el formato de cada `id` real (SQLite solo valida longitud=36); `cash.guard_append_only()` reemplaza los triggers `RAISE(ABORT,...)` de SQLite con la misma semántica exacta (verificado físicamente: `UPDATE`/`DELETE` sobre `cash_movements` fallan igual en ambos motores). `cash_count_denominations` gana un `CHECK (line_amount = denomination_value * quantity)` nativo que SQLite no puede expresar — exactamente lo que `cash-physical-design.md §10`/D2 (Bloque 15) ya anticipaba como diferencia legítima entre motores, no una regla nueva.
+
+**Hallazgo real durante la implementación, corregido antes de declarar PASS**: `downPostgres001` (código compartido con `001`/`002`, no tocado desde entonces) solo rechazaba el `down` de `001` si `002` estaba aplicado — no sabía que `004` también depende de `001`. Se amplió la condición para incluir `004_cash_foundation`; verificado que la prueba equivalente de `002` (`postgres-002-migration.test.ts`) sigue pasando sin cambios (su aserción `.includes("002")` sigue siendo válida con el mensaje ampliado).
+
+### 8.3 RLS y roles
+
+`ENABLE`/`FORCE ROW LEVEL SECURITY` en las 7 tablas, política `USING (tenant_id = platform.current_tenant_id()) WITH CHECK (...)` reutilizando la función compartida ya normativa (no se creó una función nueva). `pos_app`/`pos_worker` con `SELECT`/`INSERT` (+`UPDATE` solo en `cash_shifts`, la única tabla que el adapter actualiza); `pos_platform_admin` solo lectura (verificado: 0 grants de mutación); `pos_reporting` sin ningún grant. Verificado con dos tenants reales, vía SQL crudo (smoke test) y vía el adapter real (`OpenCashShiftUseCase` completo): SELECT/INSERT cruzados denegados, `WITH CHECK` impide declarar un `tenant_id` ajeno.
+
+### 8.4 Adapter — `packages/database-postgres`
+
+`PostgresCashShiftRepository implements CashShiftRepository` — el mismo puerto que `SqliteCashShiftRepository`, mismo comportamiento método por método (idempotencia, checksum D1, errores de conflicto), reutilizando `packages/domain`/`packages/application` sin duplicar lógica de negocio. Diferencia de ciclo de vida deliberada y documentada en el propio adapter: se construye por tenant (SQLite no lo necesita porque no tiene RLS) — el llamador, que ya conoce el tenant del comando que va a ejecutar, lo pasa una vez; esto evitó ampliar el contrato del puerto compartido con SQLite por una necesidad exclusiva de PostgreSQL.
+
+### 8.5 Pruebas físicas ejecutadas (todas contra PostgreSQL 16.14 real)
+
+- `tools/target-migrations/tests/postgres-004-migration.test.ts`: **37/37 PASS** — fresh apply, no-op en reintento, dependencia de `001`, fallo de body + rollback + reintento, crash STARTED/post-commit + recuperación, checksum incorrecto rechazado, aplicación concurrente serializada a un único apply, carrera `004 up`/`001 down` resuelta correctamente, `down` rechazado mientras `004` está aplicado, `down` repetido seguro, `UP → introspección → DOWN → verificar ausencia → UP de nuevo → introspección` (ciclo completo real, no solo lectura del SQL), columnas D1 verificadas `NOT NULL` en vivo, `blind_mode`/`severity`/`requires_segregation` verificadas nullable en vivo, RLS `ENABLE`+`FORCE` en las 7 tablas, sin grants peligrosos.
+- `packages/database-postgres/tests/cash-shift-repository.test.ts`: **13/13 PASS** — OPEN (persistencia+round-trip, replay, conflicto, autorización, aislamiento de tenant, concurrencia real con misma clave, concurrencia real con claves distintas sobre el índice de turno incompatible), CLOSE (persistencia exacta, SHORTAGE con review real, concurrencia real con versión), MOVEMENT (persistencia+`ExpectedCash`, replay, concurrencia real con secuencia/versión), y una prueba de rollback (un cierre rechazado no deja `cash_counts` huérfano).
+- Regresión completa tras los cambios: Domain 104/104, Application 102/102, database-sqlite 35/35 (sin cambios), database-postgres 13/13, target-migrations completo 249/249, `pnpm -w typecheck` limpio en 8 proyectos (se sumó `database-postgres`), `architecture:check` PASS sin caché de Nx (`nx run pos-platform-target:architecture-check --skip-nx-cache`, no solo el script interno).
+
+### 8.6 Cross-database validation (SQLite v8 ↔ PostgreSQL)
+
+Misma semántica, no representación idéntica: mismas 7 entidades, mismas 6 columnas D1 `NOT NULL` con el mismo sentinel/checksum exacto (verificado byte a byte, recalculado independientemente en el test de PostgreSQL, no copiado), mismas 3 columnas genuinamente sin modelar (`blind_mode`/`severity`/`requires_segregation`) nullable en ambos motores, mismo contrato de idempotencia OPEN/CLOSE/MOVEMENT, misma guarda optimista `WHERE ... AND version = ?` con el mismo significado de "0 filas = conflicto", misma frontera transaccional (turno+movimiento en OPEN; turno+conteo+review en CLOSE), mismo `ExpectedCash` (fold de movimientos `POSTED`). Sin campos añadidos "porque PostgreSQL los necesitaba".
+
 ## 7. Gobernanza final
 
 ```text
-DDL: MATERIALIZED — CASH ONLY (SQLite)
-SQL: MATERIALIZED — CASH ONLY (SQLite)
-MIGRATIONS: MATERIALIZED — CASH ONLY (SQLite, versions 6, 7, 8)
-POSTGRESQL: NOT EXECUTED — DEFERRED TO B24-B (B24-A quedó NO-GO por la contradicción D1/MIGRATION_007, resuelta en este bloque — requiere B24-A REVALIDATION antes de B24-B)
+DDL: MATERIALIZED — CASH ONLY (SQLite + PostgreSQL)
+SQL: MATERIALIZED — CASH ONLY (SQLite + PostgreSQL)
+MIGRATIONS: MATERIALIZED — CASH ONLY (SQLite versions 6,7,8; PostgreSQL 004_cash_foundation)
+POSTGRESQL: EXECUTED — CASH ONLY (Bloque 24-B, PostgreSQL 16.14 real, 001+004 aplicados, 50/50 pruebas físicas nuevas PASS)
 GO_AUTHORIZED: YES — CASH ONLY
 ```
 
 BLOCKER: 0. MAJOR: 0.
 
-Alcance real: las tres verticales de Cash (CASH-001 apertura, CASH-002 cierre, CASH-003 movimientos) físicamente probadas de extremo a extremo contra SQLite, incluida concurrencia real en las tres. PostgreSQL permanece sin ejecutar por falta de entorno, no fabricado. Validación de moneda, política de aprobación, comparación de checksum de contenido para CLOSE/MOVEMENT, y todo el ciclo de vida rico de CashCount (blind mode, políticas versionadas, severidad, segregación) permanecen deliberadamente sin implementar — documentado en §3, no fabricado.
+Alcance real: las tres verticales de Cash (CASH-001 apertura, CASH-002 cierre, CASH-003 movimientos) físicamente probadas de extremo a extremo en **ambos** motores, incluida concurrencia real en las tres, en ambos. Validación de moneda, política de aprobación, comparación de checksum de contenido para CLOSE/MOVEMENT, y todo el ciclo de vida rico de CashCount (blind mode, políticas versionadas, severidad, segregación) permanecen deliberadamente sin implementar en ninguno de los dos motores — documentado en §3, no fabricado. `CashPolicyVersion` no existe como tabla ni como FK en ningún motor.
