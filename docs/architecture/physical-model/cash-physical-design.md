@@ -65,7 +65,7 @@ Fuente: `cash-counting-schema.md:46-66`; manifest §7.
 | `version` | integer | NOT NULL |
 | `created_at`, `server_recorded_at` | timestamptz | server_recorded_at NULL hasta aceptación central |
 
-PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_register_id)` → `cash_registers(tenant_id, company_id, branch_id, id)` — la candidate key de 4 columnas, no la de 2 (`physical-conventions.md:251,258`; corregido en Bloque 14). UNIQUE: `UNIQUE(tenant_id, id)` y `UNIQUE(tenant_id, company_id, branch_id, id)` (para ser referenciada a su vez por movimientos/conteos/reviews); `UNIQUE(tenant_id, origin_device_id, opening_idempotency_key)` por el mismo patrón de idempotencia usado en movimientos/conteos (`cash-counting-schema.md:108,159-160` — no textual para shift específicamente, **INFERRED**, ver §26 y el Bloque 14); mismo patrón para `closing_idempotency_key`. Índice parcial único de turno incompatible: `(tenant_id, branch_id, cash_register_id, origin_device_id) WHERE status IN ('OPEN','CLOSING')` — tal como exige `cash-counting-schema.md:59,66` ("por tenant, sucursal, caja y dispositivo"). CHECK: `status IN ('OPEN','CLOSING','CLOSED')`.
+PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_register_id)` → `cash_registers(tenant_id, company_id, branch_id, id)` — la candidate key de 4 columnas, no la de 2 (`physical-conventions.md:251,258`; corregido en Bloque 14). UNIQUE: `UNIQUE(tenant_id, id)` y `UNIQUE(tenant_id, company_id, branch_id, id)` (para ser referenciada a su vez por movimientos/conteos/reviews); `UNIQUE(tenant_id, origin_device_id, opening_idempotency_key)` y `UNIQUE(tenant_id, origin_device_id, closing_idempotency_key)` — **RESOLVED en Bloque 17 (D5)**: mismo tuple que movimientos/conteos, derivado (no solo inferido por analogía) del razonamiento local-first de `cash-counting-schema.md:108` ("una clave no se reutiliza entre operaciones de caja distintas") aplicado consistentemente; contrato funcional completo (checksum, retry, conflict) en `docs/migration/cash-owner-decisions-resolved.md`. Índice parcial único de turno incompatible: `(tenant_id, branch_id, cash_register_id, origin_device_id) WHERE status IN ('OPEN','CLOSING')` — tal como exige `cash-counting-schema.md:59,66` ("por tenant, sucursal, caja y dispositivo"). CHECK: `status IN ('OPEN','CLOSING','CLOSED')`.
 
 SQLite: el índice parcial condicional no es tan confiable bajo escritura concurrente como en PostgreSQL — la validación se hace dentro de `BEGIN IMMEDIATE` (`cash-counting-schema.md:66`).
 
@@ -137,7 +137,7 @@ Fuente: `cash-counting-schema.md:165-177`; manifest §9.
 | `line_amount` | `numeric(19,6)`/TEXT | NOT NULL, `> 0` |
 | `currency_code`, `created_at` | — | NOT NULL |
 
-PK: `id`. FK: `(tenant_id, cash_count_id)` → `cash_counts`. UNIQUE: `(tenant_id, cash_count_id, line_number)`; `(tenant_id, cash_count_id, denomination_code)` cuando la política no permite líneas repetidas (`cash-counting-schema.md:171-172`). CHECK: `denomination_value > 0`, `quantity > 0`, `line_amount > 0`. `line_amount = denomination_value * quantity` — enforceable como CHECK nativo en PostgreSQL (`numeric` soporta aritmética); en SQLite (TEXT canónico) no es un CHECK portable — ver §30. Filas inmutables tras completar el conteo (`cash-counting-schema.md:177`).
+PK: `id`. FK: `(tenant_id, cash_count_id)` → `cash_counts`. UNIQUE: `(tenant_id, cash_count_id, line_number)`; `(tenant_id, cash_count_id, denomination_code)` — **sin condición** (`cash-counting-schema.md:171-172` la daba condicional a una política; el owner decidió D6 en Bloque 17: una sola línea por denominación siempre, ver `docs/migration/cash-owner-decisions-resolved.md`). CHECK: `denomination_value > 0`, `quantity > 0`, `line_amount > 0`. `line_amount = denomination_value * quantity` — CHECK nativo en PostgreSQL (`numeric` soporta aritmética); en SQLite (TEXT canónico) enforcement de aplicación/repositorio, resuelto como RESOLVED en Bloque 15 (D2) vía la regla general `physical-conventions.md:260`. Filas inmutables tras completar el conteo (`cash-counting-schema.md:177`).
 
 ## 11. `cash_difference_reviews`
 
@@ -272,10 +272,13 @@ Mismas del manifest §16: sin DDL, sin cambios a 001/002/003, sin `GO_AUTHORIZED
 
 Ningún riesgo se resolvió inventando una respuesta; los tres quedan abiertos para el siguiente gate.
 
-## 26. Puntos que requieren decisión humana
+## 26. Puntos que requerían decisión humana — estado tras Bloques 15-17
 
-1. **`CashPolicyVersion`**: ¿se definen sus columnas de referencia (`*_policy_version`, `*_checksum`) como texto opaco sin FK hasta que exista el contrato, o se bloquea el diseño completo de `cash_counts`/`cash_difference_reviews` hasta entonces? Este documento asumió la primera opción por continuidad con el manifest (§10), pero es una decisión, no un hecho normativo.
-2. **`line_amount` CHECK en SQLite**: ¿trigger, validación exclusiva de aplicación, o columna generada? Ninguna fuente lo especifica.
-3. **Normalización de `code_normalized`**: la función exacta (lowercase, trim, unicode fold) no está definida en `cash-counting-schema.md` ni en `physical-conventions.md`.
-4. **Inmutabilidad de `currency_code` mientras existan turnos**: no expresable como CHECK simple (requiere ver otras filas) — trigger vs. validación de aplicación.
-5. **UNIQUE de idempotencia de `cash_shifts`**: confirmar formalmente el tuple `(tenant_id, origin_device_id, opening/closing_idempotency_key)` contra una fuente explícita, no solo por patrón.
+Historial completo de resolución en `docs/migration/cash-human-decisions.md` (Bloque 15) y `docs/migration/cash-owner-decisions-resolved.md` (Bloque 17). Estado final:
+
+1. **`CashPolicyVersion`** — RESOLVED (Bloque 15, D1): `*_policy_version` = UUID NOT NULL sin FK física, `*_checksum` = TEXT. Sin nueva entidad creada.
+2. **`line_amount` CHECK en SQLite** — RESOLVED (Bloque 15, D2): CHECK nativo en PostgreSQL, enforcement de aplicación en SQLite, vía la regla general `physical-conventions.md:260`.
+3. **Normalización de `code_normalized`** — PARCIAL (Bloque 15, D3): arquitectura resuelta (función versionada, valor original preservado — `physical-conventions.md:102-110`); la transformación exacta (lowercase/trim/Unicode) sigue sin definirse, no bloquea el diseño de columnas/constraints.
+4. **Inmutabilidad de `currency_code`** — RESOLVED (Bloque 15, D4): enforcement de aplicación/repositorio, sin trigger.
+5. **UNIQUE de idempotencia de `cash_shifts`** — RESOLVED (Bloque 17, D5): tuple `(tenant_id, origin_device_id, opening/closing_idempotency_key)`, derivado del mismo razonamiento local-first (DEC-007) ya normativo para movimientos/conteos/acciones — no es una preferencia, es la misma conclusión arquitectónica aplicada consistentemente. Contrato funcional completo (retry/conflict/checksum) en `cash-owner-decisions-resolved.md`.
+6. **UNIQUE condicional de `denomination_code`** — RESOLVED (Bloque 17, D6, decisión del owner): sin condición, siempre activa. Ver §10.

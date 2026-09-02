@@ -70,7 +70,7 @@ Ningún ID sin tenant/scope participa en una FK — regla 1 de `physical-convent
 | cash_registers | `(tenant_id, id)`, `(tenant_id, company_id, branch_id, id)` | soporte de FK | `physical-conventions.md:251` | DERIVED |
 | cash_shifts | `(tenant_id, id)`, `(tenant_id, company_id, branch_id, id)` | soporte de FK | `physical-conventions.md:251` | DERIVED |
 | cash_shifts | parcial `(tenant_id, branch_id, cash_register_id, origin_device_id) WHERE status IN ('OPEN','CLOSING')` | invariante de negocio (turno incompatible) | `cash-counting-schema.md:59,66` | NORMATIVE |
-| cash_shifts | `(tenant_id, origin_device_id, opening_idempotency_key)` / `(..., closing_idempotency_key)` | idempotencia | patrón repetido del documento (línea 108, 159-160), no textual para shift | **INFERRED — ver §21** |
+| cash_shifts | `(tenant_id, origin_device_id, opening_idempotency_key)` / `(..., closing_idempotency_key)` | idempotencia | patrón repetido del documento (línea 108, 159-160) | **RESOLVED — Bloque 17, D5; ver `cash-owner-decisions-resolved.md`** |
 | cash_movements | `(tenant_id, cash_shift_id, shift_sequence)` | integridad de orden | `cash-counting-schema.md:107` | NORMATIVE |
 | cash_movements | `(tenant_id, origin_device_id, idempotency_key)` | idempotencia | `cash-counting-schema.md:108` | NORMATIVE |
 | cash_counts | `(tenant_id, id)`, `(tenant_id, company_id, branch_id, id)` | soporte de FK | `physical-conventions.md:251` | DERIVED |
@@ -79,7 +79,7 @@ Ningún ID sin tenant/scope participa en una FK — regla 1 de `physical-convent
 | cash_counts | `(tenant_id, supersedes_cash_count_id)` cuando existe | cadena lineal, no ramificada | `cash-counting-schema.md:161,183` — **verificado en este bloque, correcto tal cual** | NORMATIVE |
 | cash_counts | parcial `(tenant_id, cash_shift_id) WHERE count_type='CLOSING' AND status='COMPLETED'` | un solo cierre completado por turno | `cash-counting-schema.md:61,162` — **corregida en este bloque** (se agregó `AND status='COMPLETED'`) | NORMATIVE |
 | cash_count_denominations | `(tenant_id, cash_count_id, line_number)` | integridad de orden | `cash-counting-schema.md:171` | NORMATIVE |
-| cash_count_denominations | `(tenant_id, cash_count_id, denomination_code)` cuando la política no permite líneas repetidas | integridad condicional | `cash-counting-schema.md:172` | NORMATIVE (condición de política no definida — ver §21) |
+| cash_count_denominations | `(tenant_id, cash_count_id, denomination_code)`, sin condición | integridad de negocio | `cash-counting-schema.md:172` + decisión del owner (Bloque 17, D6) | **RESOLVED — ver `cash-owner-decisions-resolved.md`** |
 | cash_difference_reviews | `(tenant_id, id)` | soporte de FK | `physical-conventions.md:251` | DERIVED |
 | cash_difference_reviews | `(tenant_id, cash_count_id)` | a lo sumo una Review por conteo | `cash-counting-schema.md:202` | NORMATIVE |
 | cash_difference_review_actions | `(tenant_id, origin_device_id, idempotency_key)` | idempotencia | `cash-counting-schema.md:214` | NORMATIVE |
@@ -175,14 +175,16 @@ Sin archivo de migración todavía — no hay ID que asignar en este bloque (Blo
 
 ## 21. Human decisions (afectan corrección física — bloquean PASS incondicional)
 
-1. **Clave de idempotencia de `cash_shifts`** — el tuple `(tenant_id, origin_device_id, opening/closing_idempotency_key)` es INFERRED por patrón, no dado textualmente para esta tabla. Afecta directamente la corrección de una UNIQUE — **HUMAN DECISION REQUIRED**.
-2. **`line_amount` CHECK en SQLite** — trigger vs. aplicación vs. columna generada; ninguna fuente decide. Afecta el enforcement de una constraint — **HUMAN DECISION REQUIRED**.
-3. **`code_normalized`** — función de normalización no definida — **HUMAN DECISION REQUIRED**.
-4. **Inmutabilidad de `currency_code`** — mecanismo (trigger vs. aplicación) no definido — **HUMAN DECISION REQUIRED**.
-5. **Campos de `CashPolicyVersion`** (`calculation_policy_version`, `tolerance_policy_version`, `tolerance_policy_checksum`, `authorization_policy_version`) — confirmados como texto opaco sin FK hasta que exista el contrato de política; no se introdujeron campos nuevos, son exactamente los que cita `cash-counting-schema.md` en sus columnas — pero su tipo final (texto vs. referencia real) sigue pendiente de esa decisión — **HUMAN DECISION REQUIRED**.
-6. **`UNIQUE (tenant_id, cash_count_id, denomination_code)` condicional** — la condición ("cuando la política no permite líneas repetidas") depende de una política no definida — **HUMAN DECISION REQUIRED** (menor impacto: sin esa política, el diseño simplemente omite esa segunda UNIQUE).
+**Estado tras Bloques 15-17** (histórico de resolución en `cash-human-decisions.md` y `cash-owner-decisions-resolved.md`):
 
-Los 5 puntos humanos originales del Bloque 13 permanecen; se reformulan aquí con precisión sobre cuáles afectan corrección física directa de una constraint.
+1. **Clave de idempotencia de `cash_shifts`** — **RESOLVED** (Bloque 17, D5): `(tenant_id, origin_device_id, opening/closing_idempotency_key)`, derivado del mismo razonamiento local-first ya normativo para movimientos/conteos/acciones, no una inferencia por analogía suelta.
+2. **`line_amount` CHECK en SQLite** — **RESOLVED** (Bloque 15, D2): la regla general `physical-conventions.md:260` ya lo cubría.
+3. **`code_normalized`** — **PARCIAL** (Bloque 15, D3): arquitectura resuelta, transformación exacta sigue pendiente, no bloquea.
+4. **Inmutabilidad de `currency_code`** — **RESOLVED** (Bloque 15, D4): aplicación/repositorio, sin trigger.
+5. **Campos de `CashPolicyVersion`** — **RESOLVED** (Bloque 15, D1): UUID/TEXT, sin FK física, sin nueva entidad.
+6. **`UNIQUE (tenant_id, cash_count_id, denomination_code)` condicional** — **RESOLVED** (Bloque 17, D6, decisión del owner): sin condición, siempre activa.
+
+De las 6 decisiones originales, 5 quedan `RESOLVED` y 1 (`code_normalized`) queda parcialmente resuelta sin bloquear ninguna constraint ya diseñada.
 
 ## 22. Findings
 

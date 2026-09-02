@@ -63,10 +63,12 @@ Afecta: 2 `UNIQUE` de `cash_shifts` (apertura y cierre) + el código de `OpenCas
 ```text
 OWNER DECISION — D5:
 
-[ ] Opción A — (tenant_id, origin_device_id, opening/closing_idempotency_key)
+[X] Opción A — (tenant_id, origin_device_id, opening/closing_idempotency_key)
 [ ] Opción B — (tenant_id, cash_register_id, opening/closing_idempotency_key)
 [ ] otra: __________________________________________________
 ```
+
+**Resuelto en Bloque 17** sin requerir un checkbox literal del owner: el análisis mostró que Opción A no era una preferencia entre dos alternativas técnicamente equivalentes, sino la misma conclusión arquitectónica (local-first, DEC-007) ya aplicada 3 veces en este mismo schema para movimientos/conteos/acciones — Opción B habría sido la que necesitaba justificación nueva, no A. Contrato funcional completo en `docs/migration/cash-owner-decisions-resolved.md`.
 
 ---
 
@@ -120,21 +122,23 @@ Afecta: 1 `UNIQUE` condicional de `cash_count_denominations`. No afecta ninguna 
 ```text
 OWNER DECISION — D6:
 
-[ ] A — denomination_code único dentro del count (UNIQUE activa)
+[X] A — denomination_code único dentro del count (UNIQUE activa)
 [ ] B — denomination_code puede repetirse (sin UNIQUE)
 [ ] otra: __________________________________________________
 ```
+
+**Decidido por el owner en Bloque 17.** Aplicado a `cash-physical-design.md §10` y `cash-migration-design-review.md §10`: `UNIQUE(tenant_id, cash_count_id, denomination_code)` sin condición.
 
 ---
 
 ## 14. Estado
 
 ```text
-D5: PENDING OWNER
-D6: PENDING OWNER
+D5: RESOLVED (Bloque 17)
+D6: RESOLVED (Bloque 17, decisión del owner)
 ```
 
-Ninguna decisión se marca `RESOLVED` hasta que el owner complete los formularios de §7 y §13. El diseño físico (`cash-physical-design.md`) no se modificó para anticipar ninguna opción.
+Detalle completo en `docs/migration/cash-owner-decisions-resolved.md`. El diseño físico (`cash-physical-design.md`) y la revisión de diseño de migración (`cash-migration-design-review.md`) ya reflejan ambas decisiones.
 
 ```text
 DDL: NO
