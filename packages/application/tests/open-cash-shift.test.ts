@@ -178,6 +178,33 @@ describe("OpenCashShiftUseCase", () => {
       expect(repository.savedOpens).toHaveLength(1);
     });
 
+    it("Bloque 19 — retry with the SAME key and an ECONOMICALLY EQUAL but differently-formatted amount is ALREADY_OPENED, not a conflict", async () => {
+      const repository = new InMemoryCashShiftRepository();
+      const first = await useCase(repository).execute(command({ openingAmount: "50000" }));
+      if (first.kind !== "OPENED") throw new Error("unreachable");
+
+      const result = await useCase(repository).execute(command({ openingAmount: "50000.00" }));
+
+      expect(result).toEqual({ kind: "ALREADY_OPENED", shift: first.shift });
+      expect(repository.savedOpens).toHaveLength(1);
+    });
+
+    it("Bloque 19 — a DIFFERENT device using the SAME raw idempotency key does not collide: both succeed as independent operations", async () => {
+      const repository = new InMemoryCashShiftRepository();
+      const shared = new OpenCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
+      const first = await shared.execute(command());
+      if (first.kind !== "OPENED") throw new Error("unreachable");
+
+      const result = await shared.execute(
+        command({ originDeviceId: otherDeviceActor.id, cashRegisterId: "018f0000-0000-7000-8000-000000000099" }),
+      );
+
+      expect(result.kind).toBe("OPENED");
+      if (result.kind !== "OPENED") throw new Error("unreachable");
+      expect(result.shift.id).not.toBe(first.shift.id);
+      expect(repository.savedOpens).toHaveLength(2);
+    });
+
     it("L — two OPEN requests with different keys on different registers both succeed independently", async () => {
       const repository = new InMemoryCashShiftRepository();
       const first = await useCase(repository).execute(command({ idempotencyKey: "open:a" }));

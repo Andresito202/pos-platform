@@ -70,15 +70,15 @@ export class InMemoryCashShiftRepository implements CashShiftRepository {
     return this.openRegisterKeys.has(scopeKey(scope, `${cashRegisterId}:${originDeviceId}`));
   }
 
-  async findOpenByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null> {
-    return this.opensByIdempotencyKey.get(scopeKey(scope, idempotencyKey)) ?? null;
+  async findOpenByIdempotencyKey(scope: TenantScope, originDeviceId: string, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null> {
+    return this.opensByIdempotencyKey.get(scopeKey(scope, `${originDeviceId}:${idempotencyKey}`)) ?? null;
   }
 
   async save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void> {
     this.openRegisterKeys.add(scopeKey(shift.scope, `${shift.cashRegisterId}:${shift.originDeviceId}`));
     this.shiftsById.set(shift.id, shift);
     this.movementsByShift.set(shift.id, [movement]);
-    this.opensByIdempotencyKey.set(scopeKey(shift.scope, idempotencyKey), { shift, checksum });
+    this.opensByIdempotencyKey.set(scopeKey(shift.scope, `${shift.originDeviceId}:${idempotencyKey}`), { shift, checksum });
     this.savedOpens.push({ shift, movement });
   }
 

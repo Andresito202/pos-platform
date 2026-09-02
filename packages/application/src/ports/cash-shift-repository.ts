@@ -28,16 +28,26 @@ export interface CashShiftRepository {
   hasIncompatibleOpenShift(scope: TenantScope, cashRegisterId: string, originDeviceId: string): Promise<boolean>;
 
   /**
-   * Idempotent-replay lookup for OPEN, mirroring findCloseByIdempotencyKey's
-   * shape. Returns the checksum alongside the shift so the use case can
-   * distinguish a same-key-same-payload replay from a same-key-different-
-   * payload conflict (Bloque 17, D5) — unlike findMovementByIdempotencyKey/
-   * findCloseByIdempotencyKey, which only support replay, not conflict
-   * detection, because no real adapter has ever backed them. This one can:
-   * the comparison happens entirely against this in-memory fake, with no
-   * physical persistence dependency.
+   * Idempotent-replay lookup for OPEN. Returns the checksum alongside the
+   * shift so the use case can distinguish a same-key-same-payload replay
+   * from a same-key-different-payload conflict (Bloque 17, D5) — unlike
+   * findMovementByIdempotencyKey/findCloseByIdempotencyKey, which only
+   * support replay, not conflict detection, because no real adapter has
+   * ever backed them. This one can: the comparison happens entirely
+   * against this in-memory fake, with no physical persistence dependency.
+   *
+   * Takes `originDeviceId` explicitly, unlike its movement/close siblings
+   * (Bloque 19 correction): the Bloque 17 identity tuple for OPEN is
+   * `(tenant_id, origin_device_id, opening_idempotency_key)` — omitting
+   * device from the lookup itself (as Bloque 18 originally did, mirroring
+   * the movement/close pattern) meant two different devices generating
+   * the same raw key string would collide and one would be wrongly
+   * rejected as IDEMPOTENCY_CONFLICT for a request that was never a
+   * duplicate. That asymmetry with movement/close is deliberate and
+   * documented, not fixed here — those two are unrelated to this block's
+   * scope (Bloque 19 §9, OPEN vs CLOSE cross-audit).
    */
-  findOpenByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null>;
+  findOpenByIdempotencyKey(scope: TenantScope, originDeviceId: string, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null>;
   save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void>;
 
   /** Finds by id regardless of status — callers check `.status` themselves. */

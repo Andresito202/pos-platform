@@ -35,12 +35,22 @@ export type OpenCashShiftResult =
  * different operations. `scope` and `originDeviceId` are excluded: they
  * are the idempotency key's own namespace/partition, not payload content.
  *
- * Uses `openingAmount` as the raw command string, not its parsed Money
- * canonical form — computing this before Money.fromString() would mean
- * reordering the existing amount-validation step for no functional gain
- * (a genuine retry from the same caller resends the identical string; a
- * caller that reformats "50000" as "50000.00" between calls is an edge
- * case this trade-off accepts, not a case this project's sources define).
+ * Bloque 19 correction: `openingAmount` is canonicalized through
+ * `Money.fromString()` before joining, not used as the raw command
+ * string. Money's own normalization rule (physical-conventions.md,
+ * verified by money.test.ts's "compares by canonical value, not by input
+ * formatting") already establishes "100", "100.0" and "100.00" as the
+ * same value — this checksum's stated job is detecting whether two
+ * requests are the SAME semantic operation, so using the raw string
+ * instead of Money's existing canonical form was an objective
+ * contradiction with that stated purpose (Bloque 18 traded correctness
+ * for avoiding a reorder; Bloque 19 found real evidence the trade wasn't
+ * necessary — parsing here doesn't change when NEGATIVE_OPENING_AMOUNT
+ * or a malformed-amount failure is reported, both still happen at
+ * `CashShift.open()` below, unchanged). A parse failure here falls back
+ * to the raw string for checksum purposes only, since a malformed amount
+ * will fail domain validation on the very next step regardless of what
+ * the checksum recorded.
  *
  * This is a canonical-string comparison, not a cryptographic hash: no
  * source in this repository picks a hashing algorithm for any Cash
@@ -51,7 +61,13 @@ export type OpenCashShiftResult =
  * under an identical idempotency key, which is this function's only job.
  */
 function canonicalizeOpenPayload(command: Pick<OpenCashShiftCommand, "cashRegisterId" | "openedByActor" | "openingAmount">): string {
-  return [command.cashRegisterId, command.openedByActor.type, command.openedByActor.id, command.openingAmount].join("|");
+  let canonicalAmount: string;
+  try {
+    canonicalAmount = Money.fromString(command.openingAmount).toString();
+  } catch {
+    canonicalAmount = command.openingAmount;
+  }
+  return [command.cashRegisterId, command.openedByActor.type, command.openedByActor.id, canonicalAmount].join("|");
 }
 
 /**
@@ -95,7 +111,7 @@ export class OpenCashShiftUseCase {
 
     const checksum = canonicalizeOpenPayload(command);
 
-    const existing = await this.repository.findOpenByIdempotencyKey(command.scope, command.idempotencyKey);
+    const existing = await this.repository.findOpenByIdempotencyKey(command.scope, command.originDeviceId, command.idempotencyKey);
     if (existing) {
       if (existing.checksum === checksum) return { kind: "ALREADY_OPENED", shift: existing.shift };
       return { kind: "REJECTED", reason: "IDEMPOTENCY_CONFLICT" };
