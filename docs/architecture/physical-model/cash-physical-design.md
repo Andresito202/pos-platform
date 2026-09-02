@@ -42,7 +42,7 @@ Fuente: `cash-counting-schema.md:34-44`; manifest §6.
 | `retired_at` | timestamptz | NULL |
 | `version` | integer | NOT NULL, arranca en 1 |
 
-PK: `id`. FK: `(tenant_id, company_id, branch_id)` → Branch, tenant-aware compuesta. UNIQUE: `(tenant_id, company_id, branch_id, code_normalized)` (`cash-counting-schema.md:41`) y `UNIQUE (tenant_id, id)` para ser referenciable por `cash_shifts`/`cash_movements` (`physical-conventions.md:251`). CHECK: `status IN ('ACTIVE','RETIRED')`. Índices: los de las UNIQUE ya cubren el query path principal (lookup por sucursal+código).
+PK: `id`. FK: `(tenant_id, company_id, branch_id)` → Branch, tenant-aware compuesta. UNIQUE: `(tenant_id, company_id, branch_id, code_normalized)` (`cash-counting-schema.md:41`, integridad de negocio); `UNIQUE(tenant_id, id)` y `UNIQUE(tenant_id, company_id, branch_id, id)` para ser referenciable por `cash_shifts`/`cash_movements` verificando la cadena completa (`physical-conventions.md:251,258` — corregido en Bloque 14, ver `docs/migration/cash-migration-design-review.md`). CHECK: `status IN ('ACTIVE','RETIRED')`. Índices: los de las UNIQUE ya cubren el query path principal (lookup por sucursal+código).
 
 No delete en cascada sobre historia financiera (`cash-counting-schema.md:44`) — se retira (`RETIRED`), nunca se borra.
 
@@ -65,7 +65,7 @@ Fuente: `cash-counting-schema.md:46-66`; manifest §7.
 | `version` | integer | NOT NULL |
 | `created_at`, `server_recorded_at` | timestamptz | server_recorded_at NULL hasta aceptación central |
 
-PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_register_id)` → `cash_registers` vía su `UNIQUE(tenant_id, company_id, branch_id, code_normalized)`... en la práctica vía `UNIQUE(tenant_id, id)` de `cash_registers` más scope repetido, siguiendo `physical-conventions.md:251` regla 4 (verificar cadena Company/Branch completa, no FKs independientes). UNIQUE: `UNIQUE(tenant_id, id)` (para ser referenciada por movimientos/conteos); `UNIQUE(tenant_id, origin_device_id, opening_idempotency_key)` por el mismo patrón de idempotencia usado en movimientos/conteos (`cash-counting-schema.md:108,159-160` — no textual para shift específicamente, inferido por consistencia del mismo documento, marcado en §30); mismo patrón para `closing_idempotency_key`. Índice parcial único de turno incompatible: `(tenant_id, branch_id, cash_register_id, origin_device_id) WHERE status IN ('OPEN','CLOSING')` — tal como exige `cash-counting-schema.md:59,66` ("por tenant, sucursal, caja y dispositivo"). CHECK: `status IN ('OPEN','CLOSING','CLOSED')`.
+PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_register_id)` → `cash_registers(tenant_id, company_id, branch_id, id)` — la candidate key de 4 columnas, no la de 2 (`physical-conventions.md:251,258`; corregido en Bloque 14). UNIQUE: `UNIQUE(tenant_id, id)` y `UNIQUE(tenant_id, company_id, branch_id, id)` (para ser referenciada a su vez por movimientos/conteos/reviews); `UNIQUE(tenant_id, origin_device_id, opening_idempotency_key)` por el mismo patrón de idempotencia usado en movimientos/conteos (`cash-counting-schema.md:108,159-160` — no textual para shift específicamente, **INFERRED**, ver §26 y el Bloque 14); mismo patrón para `closing_idempotency_key`. Índice parcial único de turno incompatible: `(tenant_id, branch_id, cash_register_id, origin_device_id) WHERE status IN ('OPEN','CLOSING')` — tal como exige `cash-counting-schema.md:59,66` ("por tenant, sucursal, caja y dispositivo"). CHECK: `status IN ('OPEN','CLOSING','CLOSED')`.
 
 SQLite: el índice parcial condicional no es tan confiable bajo escritura concurrente como en PostgreSQL — la validación se hace dentro de `BEGIN IMMEDIATE` (`cash-counting-schema.md:66`).
 
@@ -90,7 +90,7 @@ Fuente: `cash-counting-schema.md:70-118`; manifest §8.
 | `idempotency_key`, `request_checksum`, `correlation_id` | text/UUID | NOT NULL |
 | `version`, `created_at`, `server_recorded_at` | — | server_recorded_at NULL hasta aceptación |
 
-PK: `id`. FK: `(tenant_id, cash_shift_id)` → `cash_shifts.(tenant_id, id)`; `(tenant_id, branch_id, cash_register_id)` → `cash_registers`. UNIQUE: `(tenant_id, cash_shift_id, shift_sequence)` (`cash-counting-schema.md:107`); `(tenant_id, origin_device_id, idempotency_key)` (`cash-counting-schema.md:108`). CHECK: `amount > 0`; `direction IN ('IN','OUT')`; `movement_type` en los 16 valores cerrados; `status` en los 7 valores cerrados. Índice adicional: `(tenant_id, cash_shift_id, status) WHERE status='POSTED'` — soporta el fold de `ExpectedCash`, único query path documentado para ese cálculo (§13).
+PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_shift_id)` → `cash_shifts(tenant_id, company_id, branch_id, id)`; `(tenant_id, company_id, branch_id, cash_register_id)` → `cash_registers(tenant_id, company_id, branch_id, id)` — ambas de 4 columnas, verificando la cadena completa (corregido en Bloque 14; ver `docs/migration/cash-migration-design-review.md`). UNIQUE: `(tenant_id, cash_shift_id, shift_sequence)` (`cash-counting-schema.md:107`); `(tenant_id, origin_device_id, idempotency_key)` (`cash-counting-schema.md:108`). CHECK: `amount > 0`; `direction IN ('IN','OUT')`; `movement_type` en los 16 valores cerrados; `status` en los 7 valores cerrados. Índice adicional: `(tenant_id, cash_shift_id, status) WHERE status='POSTED'` — soporta el fold de `ExpectedCash`, único query path documentado para ese cálculo (§13).
 
 Append-only: sin UPDATE/DELETE tras `POSTED`; compensación referencia `original_cash_movement_id` y crea fila nueva (`cash-counting-schema.md:110,112`).
 
@@ -120,7 +120,7 @@ Fuente: `cash-counting-schema.md:120-185`; manifest §9.
 | `completion_idempotency_key`, `completion_request_checksum` | — | NULL hasta completar |
 | `correlation_id`, `version`, `created_at`, `server_recorded_at` | — | server_recorded_at NULL hasta aceptación |
 
-PK: `id`. FK: `(tenant_id, cash_shift_id)` → `cash_shifts`; `(tenant_id, supersedes_cash_count_id)` → `cash_counts` (self-referencial, opcional). UNIQUE: `(tenant_id, origin_device_id, start_idempotency_key)`; `(tenant_id, origin_device_id, completion_idempotency_key)` cuando existe; `(tenant_id, supersedes_cash_count_id)` cuando existe; `(tenant_id, cash_shift_id) WHERE count_type='CLOSING'` parcial (`cash-counting-schema.md:157-163`). CHECK: `expected_amount >= 0`, `counted_amount >= 0` (`cash-counting-schema.md:155-156`); enums cerrados de `count_type`/`status`/`difference_type`/`denomination_breakdown_status`.
+PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_shift_id)` → `cash_shifts(tenant_id, company_id, branch_id, id)` (corregido en Bloque 14 — antes 2 columnas contra una candidate key incompatible); `(tenant_id, supersedes_cash_count_id)` → `cash_counts(tenant_id, id)` (self-referencial, opcional, sin cambio — el schema exige cadena lineal, "cero o un sucesor directo", `cash-counting-schema.md:183`, verificado correcto en Bloque 14). UNIQUE: `(tenant_id, origin_device_id, start_idempotency_key)`; `(tenant_id, origin_device_id, completion_idempotency_key)` cuando existe; `(tenant_id, supersedes_cash_count_id)` cuando existe; `(tenant_id, cash_shift_id) WHERE count_type='CLOSING' AND status='COMPLETED'` parcial — **corregido en Bloque 14**: sin `AND status='COMPLETED'` esta constraint bloquearía el reintento legítimo tras un conteo `ABORTED` por conflicto de versión (`cash-counting-schema.md:61,141`, prueba obligatoria #27). CHECK: `expected_amount >= 0`, `counted_amount >= 0` (`cash-counting-schema.md:155-156`); enums cerrados de `count_type`/`status`/`difference_type`/`denomination_breakdown_status`.
 
 ## 10. `cash_count_denominations`
 
@@ -152,7 +152,7 @@ Fuente: `cash-counting-schema.md:187-206`; manifest §10.
 | `requires_segregation` | boolean | NOT NULL |
 | `created_at`, `resolved_at`, `version`, `correlation_id` | — | resolved_at NULL hasta resolución |
 
-PK: `id`. FK: `(tenant_id, cash_count_id)` → `cash_counts`; `(tenant_id, cash_shift_id)` → `cash_shifts`. UNIQUE: `(tenant_id, cash_count_id)` (`cash-counting-schema.md:202` — a lo sumo una Review por conteo). CHECK: enum de `status`; existe solo si diferencia≠0 o política exige revisión explícita (`cash-counting-schema.md:203`, no expresable como CHECK sin acceso al conteo — validación de aplicación, RLS/constraint no sustituyen esto).
+PK: `id`. FK: `(tenant_id, company_id, branch_id, cash_count_id)` → `cash_counts(tenant_id, company_id, branch_id, id)`; `(tenant_id, company_id, branch_id, cash_shift_id)` → `cash_shifts(tenant_id, company_id, branch_id, id)` — ambas de 4 columnas (corregido en Bloque 14). UNIQUE: `(tenant_id, id)` (soporte de FK hacia `cash_difference_review_actions`); `(tenant_id, cash_count_id)` (`cash-counting-schema.md:202` — a lo sumo una Review por conteo). CHECK: enum de `status`; existe solo si diferencia≠0 o política exige revisión explícita (`cash-counting-schema.md:203`, no expresable como CHECK sin acceso al conteo — validación de aplicación, RLS/constraint no sustituyen esto).
 
 ## 12. `cash_difference_review_actions`
 
@@ -162,7 +162,7 @@ Fuente: `cash-counting-schema.md:208-214`; manifest §10.
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tenant_id`, `cash_difference_review_id` | UUID | NOT NULL |
-| `action_type` | enum (mínimo `CREATED`\|`ACCEPTED`\|`ESCALATED`\|`RESOLVED`) | NOT NULL |
+| `action_type` | enum (`CREATED`\|`ACCEPTED`\|`ESCALATED`\|`RESOLVED`) | NOT NULL — fuente dice "Acciones **iniciales**" (`cash-counting-schema.md:212`), mismo calificativo no-exhaustivo que `movement_type` usó y que resultó ampliable; no tratar como cerrado con la misma confianza que `count_type`/`status` |
 | `from_status`, `to_status` | enum | NOT NULL |
 | `reason_code` | text | NOT NULL |
 | `note`, `evidence_reference` | — | NULL |
