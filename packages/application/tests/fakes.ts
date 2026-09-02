@@ -1,16 +1,33 @@
-import type {
-  Actor,
-  CashCount,
-  CashDifferenceReview,
-  CashMovement,
-  CashMovementType,
-  CashShift,
-  TenantScope,
+import {
+  TenantMembership,
+  UserRoleAssignment,
+  type Actor,
+  type CashCount,
+  type CashDifferenceReview,
+  type CashMovement,
+  type CashMovementType,
+  type CashShift,
+  type CompanyScope,
+  type Product,
+  type Role,
+  type TenantScope,
 } from "@pos-platform/domain";
-import type { CashAuthorizationPort, CashShiftRepository, Clock, IdGenerator } from "../src/index.js";
+import type {
+  CashAuthorizationPort,
+  CashShiftRepository,
+  CatalogAuthorizationPort,
+  Clock,
+  IdGenerator,
+  ProductRepository,
+  UserRoleAssignmentRepository,
+} from "../src/index.js";
 
 function scopeKey(scope: TenantScope, suffix: string): string {
   return `${scope.tenantId}:${scope.companyId}:${scope.branchId}:${suffix}`;
+}
+
+function companyScopeKey(scope: CompanyScope, suffix: string): string {
+  return `${scope.tenantId}:${scope.companyId}:${suffix}`;
 }
 
 /**
@@ -107,4 +124,51 @@ export class FixedAuthorization implements CashAuthorizationPort {
   constructor(private readonly allow: boolean) {}
   async canOpenShift(_actor: Actor, _scope: TenantScope): Promise<boolean> { return this.allow; }
   async canRegisterMovement(_actor: Actor, _movementType: CashMovementType, _scope: TenantScope): Promise<boolean> { return this.allow; }
+}
+
+export class FixedCatalogAuthorization implements CatalogAuthorizationPort {
+  constructor(private readonly allow: boolean) {}
+  async canCreateProduct(_actor: Actor, _scope: CompanyScope): Promise<boolean> { return this.allow; }
+}
+
+/**
+ * Shared by both RoleBasedCashAuthorization and RoleBasedCatalogAuthorization
+ * tests — one real rule engine, two ports, no reason to duplicate the fake
+ * that feeds it real UserRoleAssignments.
+ */
+export class InMemoryUserRoleAssignmentRepository implements UserRoleAssignmentRepository {
+  private readonly assignments: UserRoleAssignment[] = [];
+
+  grant(userId: string, role: Role, scope: TenantScope): void {
+    const membership = TenantMembership.active(userId, scope.tenantId, "MEMBER");
+    this.assignments.push(UserRoleAssignment.within(membership, role, scope));
+  }
+
+  async listActiveAssignments(forUserId: string, scope: TenantScope): Promise<readonly UserRoleAssignment[]> {
+    return this.assignments.filter((a) => a.userId === forUserId && a.scope.tenantId === scope.tenantId);
+  }
+
+  async listActiveAssignmentsForCompany(forUserId: string, scope: CompanyScope): Promise<readonly UserRoleAssignment[]> {
+    return this.assignments.filter((a) => a.userId === forUserId && a.scope.tenantId === scope.tenantId);
+  }
+}
+
+export class InMemoryProductRepository implements ProductRepository {
+  private readonly byIdempotencyKey = new Map<string, Product>();
+  private readonly internalCodes = new Set<string>();
+  readonly saved: Product[] = [];
+
+  async findByIdempotencyKey(scope: CompanyScope, idempotencyKey: string): Promise<Product | null> {
+    return this.byIdempotencyKey.get(companyScopeKey(scope, idempotencyKey)) ?? null;
+  }
+
+  async existsByInternalCode(scope: CompanyScope, internalCode: string): Promise<boolean> {
+    return this.internalCodes.has(companyScopeKey(scope, internalCode));
+  }
+
+  async save(product: Product, idempotencyKey: string): Promise<void> {
+    this.byIdempotencyKey.set(companyScopeKey(product.scope, idempotencyKey), product);
+    if (product.internalCode) this.internalCodes.add(companyScopeKey(product.scope, product.internalCode));
+    this.saved.push(product);
+  }
 }

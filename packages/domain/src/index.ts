@@ -16,3 +16,8 @@ export * from "./identity/identity-domain-errors.js";
 export * from "./authorization/role.js";
 export * from "./authorization/user-role-assignment.js";
 export * from "./authorization/cash-role-policy.js";
+export * from "./company-scope.js";
+export * from "./catalog/catalog-domain-errors.js";
+export * from "./catalog/product.js";
+export * from "./catalog/product-created-event.js";
+export * from "./authorization/catalog-role-policy.js";

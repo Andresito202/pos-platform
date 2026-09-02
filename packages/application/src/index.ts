@@ -7,3 +7,7 @@ export * from "./use-cases/register-cash-movement.js";
 export * from "./use-cases/close-cash-shift.js";
 export * from "./ports/user-role-assignment-repository.js";
 export * from "./authorization/role-based-cash-authorization.js";
+export * from "./ports/product-repository.js";
+export * from "./ports/catalog-authorization-port.js";
+export * from "./authorization/role-based-catalog-authorization.js";
+export * from "./use-cases/create-product.js";

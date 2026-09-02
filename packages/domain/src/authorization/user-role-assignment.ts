@@ -1,3 +1,4 @@
+import type { CompanyScope } from "../company-scope.js";
 import { IdentityDomainError } from "../identity/identity-domain-errors.js";
 import type { TenantMembership } from "../identity/tenant-membership.js";
 import { TenantScope } from "../tenant-scope.js";
@@ -30,5 +31,17 @@ export class UserRoleAssignment {
 
   coversScope(requested: TenantScope): boolean {
     return this.scope.equals(requested);
+  }
+
+  /**
+   * Company-level resources (Catalog: "compartido por empresa") are
+   * covered by ANY assignment within that tenant+company, regardless of
+   * which branch it was granted for — permission-matrix.md's own "Crear
+   * producto" row gives BRANCH_MANAGER an unconditional "Sí", so a
+   * branch-scoped assignment already authorizes company-wide catalog
+   * actions per the matrix itself; this is not a widening invented here.
+   */
+  coversCompany(requested: CompanyScope): boolean {
+    return this.scope.tenantId === requested.tenantId && this.scope.companyId === requested.companyId;
   }
 }
