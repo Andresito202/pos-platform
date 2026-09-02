@@ -8,7 +8,7 @@ Traducir `docs/migration/cash-target-migration-manifest.md` (`CASH-MANIFEST-V1`,
 
 ## 2. Alcance
 
-Exactamente 7 tablas, las mismas del manifest aprobado: `cash_registers`, `cash_shifts`, `cash_movements`, `cash_counts`, `cash_count_denominations`, `cash_difference_reviews`, `cash_difference_review_actions`. No se diseña `CashPolicyVersion` (sin contrato normativo — ver §30), no se diseña `expected_cash` (es derivado, §5), no se introduce ninguna otra tabla ni autoridad.
+Exactamente 7 tablas, las mismas del manifest aprobado: `cash_registers`, `cash_shifts`, `cash_movements`, `cash_counts`, `cash_count_denominations`, `cash_difference_reviews`, `cash_difference_review_actions`. No se diseña `CashPolicyVersion` (sin contrato normativo — ver §26), no se diseña `expected_cash` (es derivado, §5), no se introduce ninguna otra tabla ni autoridad.
 
 ## 3. Reglas de diseño
 
@@ -106,12 +106,12 @@ Fuente: `cash-counting-schema.md:120-185`; manifest §9.
 | `status` | enum | `IN_PROGRESS` \| `COMPLETED` \| `ABORTED` |
 | `blind_mode` | boolean | NOT NULL |
 | `started_shift_version`, `movement_cutoff_sequence` | integer | NOT NULL |
-| `calculation_policy_version`, `calculation_checksum` | text | NOT NULL — ver §30 |
+| `calculation_policy_version`, `calculation_checksum` | text | NOT NULL — ver §26 |
 | `expected_amount`, `counted_amount`, `difference_amount` | `numeric(19,6)`/TEXT | NULL hasta completar |
 | `difference_type` | enum | `SHORTAGE`\|`EXACT`\|`OVERAGE`, NULL hasta completar |
 | `severity` | — | NULL hasta completar |
 | `currency_code`, `denomination_breakdown_status` (`PROVIDED`\|`NOT_PROVIDED`) | — | NOT NULL |
-| `tolerance_policy_version`, `tolerance_policy_checksum` | text | NOT NULL — ver §30 |
+| `tolerance_policy_version`, `tolerance_policy_checksum` | text | NOT NULL — ver §26 |
 | `supersedes_cash_count_id` | UUID | NULL |
 | `started_by_actor_type/id`, `started_at` | — | NOT NULL |
 | `completed_by_actor_type/id`, `completed_at` | — | NULL hasta completar |
@@ -148,7 +148,7 @@ Fuente: `cash-counting-schema.md:187-206`; manifest §10.
 | `id` | UUID v7 | PK |
 | `tenant_id`, `company_id`, `branch_id`, `cash_shift_id`, `cash_count_id` | UUID | NOT NULL |
 | `status` | enum | `REVIEW_REQUIRED`\|`ACCEPTED`\|`ESCALATED`\|`RESOLVED` |
-| `severity`, `tolerance_policy_version`, `tolerance_policy_checksum` | — | NOT NULL — ver §30 |
+| `severity`, `tolerance_policy_version`, `tolerance_policy_checksum` | — | NOT NULL — ver §26 |
 | `requires_segregation` | boolean | NOT NULL |
 | `created_at`, `resolved_at`, `version`, `correlation_id` | — | resolved_at NULL hasta resolución |
 
@@ -167,7 +167,7 @@ Fuente: `cash-counting-schema.md:208-214`; manifest §10.
 | `reason_code` | text | NOT NULL |
 | `note`, `evidence_reference` | — | NULL |
 | `actor_type`, `actor_id` | actor | NOT NULL/NULL según tipo |
-| `authorization_policy_version` | text | NOT NULL — ver §30 |
+| `authorization_policy_version` | text | NOT NULL — ver §26 |
 | `idempotency_key`, `request_checksum`, `occurred_at`, `origin_device_id`, `created_at`, `server_recorded_at` | — | server_recorded_at NULL hasta aceptación |
 
 PK: `id`. FK: `(tenant_id, cash_difference_review_id)` → `cash_difference_reviews`. UNIQUE: `(tenant_id, origin_device_id, idempotency_key)` (`cash-counting-schema.md:214`). Append-only, sin UPDATE/DELETE.
@@ -226,9 +226,9 @@ Mismo key + mismo checksum → mismo resultado; mismo key + checksum distinto �
 |---|---|---|
 | Un solo `OPENING_FLOAT` POSTED por turno | cash_movements | UNIQUE parcial `(tenant_id, cash_shift_id) WHERE movement_type='OPENING_FLOAT'` |
 | Un solo turno incompatible OPEN/CLOSING por tenant+branch+register+device | cash_shifts | índice parcial único (§7) |
-| Un solo CashCount CLOSING completado por turno | cash_counts | UNIQUE parcial `(tenant_id, cash_shift_id) WHERE count_type='CLOSING'` |
+| Un solo CashCount CLOSING completado por turno | cash_counts | UNIQUE parcial `(tenant_id, cash_shift_id) WHERE count_type='CLOSING' AND status='COMPLETED'` (corregido en Bloque 14 — esta fila quedó desactualizada respecto a §9 hasta el Bloque 21) |
 | Solo POSTED afecta ExpectedCash | cash_movements | filtrado en el fold (§13), no constraint físico — es una regla de lectura |
-| Denominaciones suman `counted_amount` | cash_count_denominations | aplicación (SQLite) / CHECK posible (PostgreSQL) — ver §30 |
+| Denominaciones suman `counted_amount` | cash_count_denominations | aplicación (SQLite) / CHECK posible (PostgreSQL) — ver §26 |
 | POSTED inmutable | cash_movements | sin UPDATE/DELETE permitido a nivel de aplicación/grants |
 
 ## 20. Matriz PostgreSQL/SQLite
@@ -240,7 +240,7 @@ Mismo key + mismo checksum → mismo resultado; mismo key + checksum distinto �
 | Enums | `CHECK IN (...)` o tipo enum | `CHECK IN (...)` (SQLite no tiene tipo enum nativo) |
 | RLS | Sí, forzada | N/A — único escritor local |
 | Índice parcial | Nativo | Emulado dentro de `BEGIN IMMEDIATE` |
-| CHECK aritmético (line_amount) | Nativo | No portable — ver §30 |
+| CHECK aritmético (line_amount) | Nativo | No portable — ver §26 |
 
 ## 21. Matriz de trazabilidad (muestra representativa)
 

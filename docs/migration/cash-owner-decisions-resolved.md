@@ -50,16 +50,16 @@ El lookup recibe `scope` como partición — una clave generada bajo el tenant A
 
 `origin_device_id` es parte del tuple — confirmado y justificado arriba. Dos dispositivos que generan el mismo string de clave no colisionan.
 
-### Repository contract (diseño, no implementación)
+### Repository contract — IMPLEMENTADO (Bloque 18, corregido Bloque 19)
 
-Cambios que `OpenCashShiftUseCase`/el puerto necesitarán en un bloque de implementación posterior:
+Este documento originalmente (Bloque 17) diseñó el contrato sin `originDeviceId` en el lookup, seguiendo por analogía el patrón de `findCloseByIdempotencyKey`. Ese diseño resultó objetivamente incompleto y fue implementado tal cual en el Bloque 18 — el Bloque 19, auditando la implementación contra el propio tuple que este documento declara en la sección anterior `(tenant_id, origin_device_id, opening_idempotency_key)`, encontró la inconsistencia y la corrigió. El contrato REAL, vigente en `packages/application/src/ports/cash-shift-repository.ts`, es:
 
-1. `CashShiftRepository`: nuevo método `findOpenByIdempotencyKey(scope: TenantScope, idempotencyKey: string): Promise<CashShift | null>` — mismo shape que `findCloseByIdempotencyKey`, sin `originDeviceId` explícito como parámetro (mismo patrón ya establecido para movements/close, aunque la constraint física sí lo incluya).
-2. `CashShiftRepository.save(...)`: necesita ganar un parámetro `idempotencyKey: string` (hoy no lo tiene), o bien un nuevo método `saveOpen(shift, movement, idempotencyKey)` análogo a `saveMovement`/`saveClose` — **cuál de las dos formas se prefiere no está determinado por ninguna fuente y es una decisión de diseño de código menor, no de negocio; se deja para el bloque de implementación**.
-3. `OpenCashShiftCommand`: nuevo campo `idempotencyKey: string`.
-4. `OpenCashShiftResult`: nueva variante `{ kind: "ALREADY_OPENED", shift: CashShift }`; nueva razón de rechazo `"IDEMPOTENCY_CONFLICT"`.
+1. `findOpenByIdempotencyKey(scope: TenantScope, originDeviceId: string, idempotencyKey: string): Promise<{ shift: CashShift; checksum: string } | null>` — `originDeviceId` SÍ es un parámetro explícito (a diferencia de lo que este documento decía originalmente), porque sin él dos dispositivos generando el mismo string de clave colisionarían y uno sería rechazado incorrectamente como `IDEMPOTENCY_CONFLICT` para una solicitud que nunca fue un duplicado — un riesgo funcional real, no cosmético. El checksum viaja en el retorno para que el caso de uso distinga replay de conflicto sin una segunda llamada.
+2. `save(shift: CashShift, movement: CashMovement, idempotencyKey: string, checksum: string): Promise<void>` — se extendió la firma existente (no se creó `saveOpen`); no necesita `originDeviceId` como parámetro aparte porque `shift.originDeviceId` ya está disponible en el objeto que recibe.
+3. `OpenCashShiftCommand.idempotencyKey: string` — implementado.
+4. `OpenCashShiftResult` gana `{ kind: "ALREADY_OPENED", shift: CashShift }` y la razón de rechazo `"IDEMPOTENCY_CONFLICT"` — implementado.
 
-No se implementa nada de esto en este bloque.
+`findMovementByIdempotencyKey`/`findCloseByIdempotencyKey` (CLOSE y MOVEMENT) permanecen exactamente como estaban — sin `originDeviceId` explícito y sin detección de conflicto por checksum. Esa asimetría es real, conocida desde el Bloque 19, y deliberadamente no corregida ahí ni aquí: está fuera del alcance de auditar el contrato de OPEN.
 
 ### Hallazgo relacionado, no resuelto aquí (fuera de alcance de D5)
 
