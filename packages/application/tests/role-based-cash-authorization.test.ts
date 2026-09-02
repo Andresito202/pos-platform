@@ -107,3 +107,61 @@ describe("RoleBasedCashAuthorization.canRegisterMovement", () => {
     expect(await authorization.canRegisterMovement(Actor.device(userId), "CASH_WITHDRAWAL", scopeA)).toBe(false);
   });
 });
+
+describe("RoleBasedCashAuthorization.canCloseShift", () => {
+  it("allows an authenticated user with an operational role covering the exact scope", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "CASHIER", scopeA);
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.forUser(userId), scopeA)).toBe(true);
+  });
+
+  it("denies a user with no assignment at all (missing authorization)", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.forUser(userId), scopeA)).toBe(false);
+  });
+
+  it("denies a role that is not in the 'Cerrar caja propia' matrix row (e.g. CUSTOMER)", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "CUSTOMER", scopeA);
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.forUser(userId), scopeA)).toBe(false);
+  });
+
+  it("TENANT ESCAPE: an assignment valid in tenant A does not authorize closing a shift in tenant B", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "OWNER", scopeA);
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.forUser(userId), scopeB)).toBe(false);
+  });
+
+  it("PRIVILEGE ESCALATION: an assignment scoped to one branch does not authorize closing a shift in a different branch of the same tenant", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "CASHIER", scopeA);
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.forUser(userId), scopeAOtherBranch)).toBe(false);
+  });
+
+  it("AUTHENTICATION CONFUSION: a device actor is never authorized to close a shift, even with a matching role assignment on record for the same id", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "OWNER", scopeA);
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.device(userId), scopeA)).toBe(false);
+  });
+
+  it("MULTIPLE ASSIGNMENTS: authorized if ANY covering assignment has an allowed role, even if others do not", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "CUSTOMER", scopeA);
+    repository.grant(userId, "SUPERVISOR", scopeA);
+    const authorization = new RoleBasedCashAuthorization(repository);
+
+    expect(await authorization.canCloseShift(Actor.forUser(userId), scopeA)).toBe(true);
+  });
+});

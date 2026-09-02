@@ -127,6 +127,7 @@ export class FixedAuthorization implements CashAuthorizationPort {
   constructor(private readonly allow: boolean) {}
   async canOpenShift(_actor: Actor, _scope: TenantScope): Promise<boolean> { return this.allow; }
   async canRegisterMovement(_actor: Actor, _movementType: CashMovementType, _scope: TenantScope): Promise<boolean> { return this.allow; }
+  async canCloseShift(_actor: Actor, _scope: TenantScope): Promise<boolean> { return this.allow; }
 }
 
 export class FixedCatalogAuthorization implements CatalogAuthorizationPort {

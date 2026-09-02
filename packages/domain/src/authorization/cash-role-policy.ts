@@ -21,6 +21,17 @@ const ROLES_THAT_MAY_OPEN_SHIFT: ReadonlySet<Role> = new Set<Role>([
 ]);
 
 /**
+ * "Cerrar caja propia": Sí for all five operational roles, unconditionally —
+ * same value set as "Abrir caja propia" today, but transcribed as its own
+ * row/function on purpose: they are two distinct grants in the matrix, and
+ * collapsing them into one shared check would silently break if a future
+ * matrix revision ever differentiates who may open from who may close.
+ */
+const ROLES_THAT_MAY_CLOSE_SHIFT: ReadonlySet<Role> = new Set<Role>([
+  "OWNER", "GENERAL_ADMIN", "BRANCH_MANAGER", "SUPERVISOR", "CASHIER",
+]);
+
+/**
  * "Registrar egreso de caja" — the closest matrix row to CASH_WITHDRAWAL
  * (the only movement type this codebase implements a use case for).
  * OWNER/GENERAL_ADMIN: "Sí" (unconditional). BRANCH_MANAGER: "Condicional".
@@ -31,6 +42,10 @@ const ROLES_THAT_MAY_WITHDRAW: ReadonlySet<Role> = new Set<Role>(["OWNER", "GENE
 
 export function roleMayOpenCashShift(role: Role): boolean {
   return ROLES_THAT_MAY_OPEN_SHIFT.has(role);
+}
+
+export function roleMayCloseCashShift(role: Role): boolean {
+  return ROLES_THAT_MAY_CLOSE_SHIFT.has(role);
 }
 
 export function roleMayRegisterCashWithdrawal(role: Role): boolean {

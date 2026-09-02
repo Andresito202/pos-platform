@@ -5,6 +5,7 @@ import {
   TenantScope,
   User,
   UserRoleAssignment,
+  roleMayCloseCashShift,
   roleMayOpenCashShift,
   roleMayRegisterCashWithdrawal,
 } from "../src/index.js";
@@ -75,5 +76,17 @@ describe("roleMayRegisterCashWithdrawal (permission-matrix.md, 'Registrar egreso
   it.each(["BRANCH_MANAGER", "SUPERVISOR", "CASHIER"] as const)(
     "fails CLOSED for %s — the matrix says Condicional/Autorizar/'dentro de límite', and no policy value exists to resolve that condition",
     (role) => { expect(roleMayRegisterCashWithdrawal(role)).toBe(false); },
+  );
+});
+
+describe("roleMayCloseCashShift (permission-matrix.md, 'Cerrar caja propia')", () => {
+  it.each(["OWNER", "GENERAL_ADMIN", "BRANCH_MANAGER", "SUPERVISOR", "CASHIER"] as const)(
+    "allows %s (unconditional 'Sí' in the matrix)",
+    (role) => { expect(roleMayCloseCashShift(role)).toBe(true); },
+  );
+
+  it.each(["CUSTOMER", "COURIER", "INVENTORY_OPERATOR", "PURCHASING_OPERATOR", "PLATFORM_OWNER"] as const)(
+    "does not allow %s (not in the matrix row at all)",
+    (role) => { expect(roleMayCloseCashShift(role)).toBe(false); },
   );
 });

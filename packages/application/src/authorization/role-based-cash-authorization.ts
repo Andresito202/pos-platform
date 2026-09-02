@@ -1,4 +1,4 @@
-import { roleMayOpenCashShift, roleMayRegisterCashWithdrawal, type Actor, type CashMovementType, type TenantScope } from "@pos-platform/domain";
+import { roleMayCloseCashShift, roleMayOpenCashShift, roleMayRegisterCashWithdrawal, type Actor, type CashMovementType, type TenantScope } from "@pos-platform/domain";
 import type { CashAuthorizationPort } from "../ports/cash-authorization-port.js";
 import type { UserRoleAssignmentRepository } from "../ports/user-role-assignment-repository.js";
 
@@ -29,5 +29,11 @@ export class RoleBasedCashAuthorization implements CashAuthorizationPort {
     if (movementType !== "CASH_WITHDRAWAL") return false;
     const assignments = await this.assignments.listActiveAssignments(actor.id, scope);
     return assignments.some((assignment) => assignment.coversScope(scope) && roleMayRegisterCashWithdrawal(assignment.role));
+  }
+
+  async canCloseShift(actor: Actor, scope: TenantScope): Promise<boolean> {
+    if (actor.type !== "USER") return false;
+    const assignments = await this.assignments.listActiveAssignments(actor.id, scope);
+    return assignments.some((assignment) => assignment.coversScope(scope) && roleMayCloseCashShift(assignment.role));
   }
 }

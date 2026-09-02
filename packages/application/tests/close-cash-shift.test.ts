@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Actor, CashMovement, CashShift, Money, TenantScope } from "@pos-platform/domain";
 import { CloseCashShiftUseCase, type CloseCashShiftCommand } from "../src/index.js";
-import { FixedClock, InMemoryCashShiftRepository, SequentialIdGenerator } from "./fakes.js";
+import { FixedAuthorization, FixedClock, InMemoryCashShiftRepository, SequentialIdGenerator } from "./fakes.js";
 
 const scope = new TenantScope(
   "018f0000-0000-7000-8000-000000000010",
@@ -33,6 +33,7 @@ function openShift(openingAmount = "200000"): CashShift {
 function command(overrides: Partial<CloseCashShiftCommand> = {}): CloseCashShiftCommand {
   return {
     scope,
+    actor,
     cashShiftId: "018f0000-0000-7000-8000-000000000900",
     expectedVersion: 1,
     countedAmount: "200000",
@@ -46,7 +47,7 @@ describe("CloseCashShiftUseCase", () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
     repository.seedPostedMovement(CashMovement.openingFloat(openShift(), "018f0000-0000-7000-8000-000000000901", openedAt));
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command());
 
@@ -64,7 +65,7 @@ describe("CloseCashShiftUseCase", () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
     repository.seedPostedMovement(CashMovement.openingFloat(openShift(), "018f0000-0000-7000-8000-000000000901", openedAt));
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ countedAmount: "190000" }));
 
@@ -80,7 +81,7 @@ describe("CloseCashShiftUseCase", () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
     repository.seedPostedMovement(CashMovement.openingFloat(openShift(), "018f0000-0000-7000-8000-000000000901", openedAt));
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ countedAmount: "205000" }));
 
@@ -92,17 +93,38 @@ describe("CloseCashShiftUseCase", () => {
 
   it("rejects when the shift does not exist", async () => {
     const repository = new InMemoryCashShiftRepository();
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command());
 
     expect(result).toEqual({ kind: "REJECTED", reason: "SHIFT_NOT_FOUND" });
   });
 
+  it("rejects without consulting idempotency or persisting when the actor is not authorized", async () => {
+    const repository = new InMemoryCashShiftRepository();
+    repository.seedShift(openShift());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(false), clock, new SequentialIdGenerator());
+
+    const result = await useCase.execute(command());
+
+    expect(result).toEqual({ kind: "REJECTED", reason: "NOT_AUTHORIZED" });
+    expect(repository.savedCloses).toHaveLength(0);
+  });
+
+  it("checks authorization BEFORE idempotency replay, so an unauthorized actor cannot learn a shift is already closed", async () => {
+    const repository = new InMemoryCashShiftRepository();
+    repository.seedShift(openShift().close(closedAt));
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(false), clock, new SequentialIdGenerator());
+
+    const result = await useCase.execute(command());
+
+    expect(result).toEqual({ kind: "REJECTED", reason: "NOT_AUTHORIZED" });
+  });
+
   it("rejects when the shift belongs to a different tenant", async () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ scope: otherTenantScope }));
 
@@ -112,7 +134,7 @@ describe("CloseCashShiftUseCase", () => {
   it("rejects a shift that is already closed (genuinely different request, different idempotency key)", async () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift().close(closedAt));
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ idempotencyKey: "a-different-close-attempt" }));
 
@@ -122,7 +144,7 @@ describe("CloseCashShiftUseCase", () => {
   it("rejects a stale expected_version", async () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ expectedVersion: 99 }));
 
@@ -132,7 +154,7 @@ describe("CloseCashShiftUseCase", () => {
   it("rejects a malformed counted amount", async () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ countedAmount: "not-a-number" }));
 
@@ -142,7 +164,7 @@ describe("CloseCashShiftUseCase", () => {
   it("rejects a negative counted amount", async () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ countedAmount: "-1" }));
 
@@ -155,7 +177,7 @@ describe("CloseCashShiftUseCase", () => {
     async () => {
       const repository = new InMemoryCashShiftRepository();
       repository.seedShift(openShift());
-      const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+      const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
       const first = await useCase.execute(command());
       expect(first.kind).toBe("CLOSED");
@@ -169,7 +191,7 @@ describe("CloseCashShiftUseCase", () => {
   it("does not create a movement or another financial event on replay — only one CashCount ever exists", async () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     await useCase.execute(command());
     await useCase.execute(command());
@@ -182,7 +204,7 @@ describe("CloseCashShiftUseCase", () => {
     const repository = new InMemoryCashShiftRepository();
     repository.seedShift(openShift());
     repository.saveClose = async () => { throw new Error("repository unavailable"); };
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     await expect(useCase.execute(command())).rejects.toThrow("repository unavailable");
   });
@@ -195,7 +217,7 @@ describe("CloseCashShiftUseCase", () => {
     const withdrawal = CashMovement.withdrawal(shift, "018f0000-0000-7000-8000-000000000902", 2, Money.fromString("300000"), openedAt);
     repository.seedPostedMovement(opening);
     repository.seedPostedMovement(withdrawal);
-    const useCase = new CloseCashShiftUseCase(repository, clock, new SequentialIdGenerator());
+    const useCase = new CloseCashShiftUseCase(repository, new FixedAuthorization(true), clock, new SequentialIdGenerator());
 
     const result = await useCase.execute(command({ countedAmount: "200000" }));
 

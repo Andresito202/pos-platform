@@ -7,15 +7,18 @@ import {
   CashShiftClosed,
   Money,
   calculateExpectedCash,
+  type Actor,
   type CashShift,
   type TenantScope,
 } from "@pos-platform/domain";
+import type { CashAuthorizationPort } from "../ports/cash-authorization-port.js";
 import type { CashShiftRepository } from "../ports/cash-shift-repository.js";
 import type { Clock } from "../ports/clock.js";
 import type { IdGenerator } from "../ports/id-generator.js";
 
 export interface CloseCashShiftCommand {
   readonly scope: TenantScope;
+  readonly actor: Actor;
   readonly cashShiftId: string;
   readonly expectedVersion: number;
   readonly countedAmount: string;
@@ -33,7 +36,10 @@ export type CloseCashShiftResult =
       readonly shiftClosed: CashShiftClosed;
     }
   | { readonly kind: "ALREADY_CLOSED"; readonly count: CashCount }
-  | { readonly kind: "REJECTED"; readonly reason: "SHIFT_NOT_FOUND" | "SHIFT_NOT_OPEN" | "VERSION_CONFLICT" | "INVALID_COUNTED_AMOUNT" };
+  | {
+      readonly kind: "REJECTED";
+      readonly reason: "SHIFT_NOT_FOUND" | "NOT_AUTHORIZED" | "SHIFT_NOT_OPEN" | "VERSION_CONFLICT" | "INVALID_COUNTED_AMOUNT";
+    };
 
 /**
  * UC-CASH-002, flow steps 1-9, narrowed to what has evidence:
@@ -54,10 +60,21 @@ export type CloseCashShiftResult =
  * legitimate retry of an already-completed close must return the same
  * CashCount even though the shift is now CLOSED — checking "is it open"
  * first would incorrectly reject every successful retry.
+ *
+ * Authorization (Bloque 10 remediation of a Bloque 9 finding:
+ * permission-matrix.md's "Cerrar caja propia" was never wired in) sits
+ * right after the shift lookup, BEFORE the idempotency-replay lookup —
+ * not copied from OpenCashShiftUseCase or RegisterCashMovementUseCase,
+ * but chosen deliberately: an unauthorized actor must not be able to
+ * learn a shift's close state (via ALREADY_CLOSED) by replaying a key it
+ * never legitimately held. UC-CASH-002's own precondition order agrees
+ * ("1. Existe un turno abierto. 2. El usuario tiene acceso al turno.") —
+ * existence first, access second, before anything else proceeds.
  */
 export class CloseCashShiftUseCase {
   constructor(
     private readonly repository: CashShiftRepository,
+    private readonly authorization: CashAuthorizationPort,
     private readonly clock: Clock,
     private readonly idGenerator: IdGenerator,
   ) {}
@@ -65,6 +82,9 @@ export class CloseCashShiftUseCase {
   async execute(command: CloseCashShiftCommand): Promise<CloseCashShiftResult> {
     const shift = await this.repository.findById(command.scope, command.cashShiftId);
     if (!shift) return { kind: "REJECTED", reason: "SHIFT_NOT_FOUND" };
+
+    const authorized = await this.authorization.canCloseShift(command.actor, command.scope);
+    if (!authorized) return { kind: "REJECTED", reason: "NOT_AUTHORIZED" };
 
     const existingClose = await this.repository.findCloseByIdempotencyKey(command.scope, command.idempotencyKey);
     if (existingClose) return { kind: "ALREADY_CLOSED", count: existingClose };
