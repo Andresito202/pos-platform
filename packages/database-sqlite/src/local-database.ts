@@ -243,6 +243,68 @@ CREATE TABLE local_session_assertion (
 ) STRICT;
 `.trim();
 
+// DEC-012 D4: la auditoría local debe poder atribuir una operación a un usuario
+// autenticado. `MIGRATION_005` admitía únicamente 'DEVICE' y 'SYSTEM', así que
+// un acto de usuario solo podía registrarse falseando el actor.
+//
+// SQLite no permite alterar un CHECK, de modo que la tabla se reconstruye. La
+// reconstrucción es puramente estructural: copia las filas existentes tal cual,
+// sin reinterpretar ningún actor histórico. `MIGRATION_005` no se edita — sus
+// bytes y su checksum permanecen inmutables — y los triggers append-only se
+// recrean explícitamente tras el renombrado.
+//
+// Ampliar el CHECK no habilita ninguna operación de usuario: el único escritor
+// de esta tabla emite `'DEVICE'` como literal SQL, no como parámetro, así que
+// ningún llamador puede elegir el actor.
+const MIGRATION_008 = `
+DROP TRIGGER local_operation_audit_no_update;
+DROP TRIGGER local_operation_audit_no_delete;
+
+CREATE TABLE local_operation_audit_rebuilt (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('DEVICE','SYSTEM','USER')),
+  actor_id TEXT,
+  session_id TEXT NOT NULL,
+  action_code TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT,
+  correlation_id TEXT NOT NULL,
+  causation_id TEXT,
+  reason_code TEXT,
+  details_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK(actor_type <> 'USER' OR actor_id IS NOT NULL)
+) STRICT;
+
+INSERT INTO local_operation_audit_rebuilt(
+  sequence, tenant_id, company_id, branch_id, device_id, actor_type, actor_id,
+  session_id, action_code, resource_type, resource_id, correlation_id,
+  causation_id, reason_code, details_json, created_at
+)
+SELECT
+  sequence, tenant_id, company_id, branch_id, device_id, actor_type, actor_id,
+  session_id, action_code, resource_type, resource_id, correlation_id,
+  causation_id, reason_code, details_json, created_at
+FROM local_operation_audit;
+
+DROP TABLE local_operation_audit;
+
+ALTER TABLE local_operation_audit_rebuilt RENAME TO local_operation_audit;
+
+CREATE INDEX local_operation_audit_scope_idx
+  ON local_operation_audit(tenant_id, company_id, branch_id, created_at);
+CREATE TRIGGER local_operation_audit_no_update
+  BEFORE UPDATE ON local_operation_audit
+  BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
+CREATE TRIGGER local_operation_audit_no_delete
+  BEFORE DELETE ON local_operation_audit
+  BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -251,6 +313,7 @@ const MIGRATIONS = [
   { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
   { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
   { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
+  { version: 8, sql: MIGRATION_008, checksum: createHash("sha256").update(MIGRATION_008).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
