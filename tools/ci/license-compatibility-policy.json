@@ -6,8 +6,10 @@
     "BSD-2-Clause": ["preserve-license-text"],
     "BSD-3-Clause": ["preserve-license-text"],
     "BlueOak-1.0.0": ["preserve-license-text"],
+    "CC-BY-4.0": ["preserve-license-text", "preserve-attribution-notice", "indicate-changes-when-material-is-modified"],
     "ISC": ["preserve-license-text"],
     "MIT": ["preserve-license-text"],
+    "MIT-0": [],
     "MPL-2.0": ["preserve-license-text", "preserve-MPL-covered-source-obligations-if-covered-files-are-modified"],
     "Python-2.0": ["preserve-license-text"]
   },
