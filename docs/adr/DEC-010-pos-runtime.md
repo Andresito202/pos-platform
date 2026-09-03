@@ -222,7 +222,41 @@ Los artefactos productivos serán:
 - política de rollback;
 - checksums verificables.
 
-El empaquetador específico se fijará en el esqueleto técnico y deberá demostrar instalación, actualización, desinstalación controlada y firma en Windows 10/11 de 64 bits. Esta elección no altera la topología decidida.
+### Empaquetador Windows — decisión cerrada
+
+**El empaquetador es `electron-builder` con target NSIS.**
+
+Decisión explícita del proyecto, tomada por Wilson Andrés Camacho Culma el 2026-09-03. Cierra la cláusula abierta previa («el empaquetador específico se fijará en el esqueleto técnico»). No se reabre salvo decisión versionada nueva.
+
+Fue seleccionada para el modelo **Electron + Windows** definido en esta ADR: `electron-builder` empaqueta en un mismo flujo la aplicación Electron y el ejecutable del servicio local, y NSIS es el formato de instalador que da control sobre instalación, actualización, desinstalación controlada y recuperación en Windows 10/11 de 64 bits.
+
+Esta elección no altera la topología decidida.
+
+El diseño de actualización y rollback **deberá respetar el contrato definido por RT-009**, no al revés: el empaquetador es un adaptador de ese contrato. En concreto, el flujo de instalación y actualización debe consumir el manifiesto de release y los evaluadores `evaluateUpgrade` y `evaluateRollback` de `@pos-platform/contracts` (`packages/contracts/src/release.ts`, integrado por PR #27 en `main@c178f2d`), que ya materializan las reglas 1, 3 y 7 de «Actualizaciones».
+
+El empaquetador deberá demostrar instalación, actualización, desinstalación controlada y firma en Windows 10/11 de 64 bits. La demostración de **firma** permanece bloqueada: véase la subsección siguiente.
+
+### Firma de código — dependencia externa no satisfecha
+
+**Estado: `BLOCKED / REQUIRES_CERTIFICATE`.**
+
+No existe evidencia de un certificado real de firma de código para Camacho POS Colombia. Mientras no exista, la regla 2 de «Actualizaciones» («toda actualización productiva está firmada») **no puede declararse satisfecha**.
+
+Esta es una dependencia externa real y explícita, no una tarea pendiente de implementación. En particular:
+
+- **No** se generan certificados autofirmados ni simulados para destrabar el gate.
+- **No** se declara la firma resuelta por la existencia de código que la evalúe.
+
+Deben mantenerse separados cuatro conceptos distintos, que no se implican entre sí:
+
+| Concepto | Estado |
+|---|---|
+| Evaluación de una firma (presente/ausente) | Materializado en RT-009-A |
+| Confianza en una clave (`trusted_signing_key_ids`) | Materializado en RT-009-A |
+| Verificación criptográfica real de la firma | **No materializado** — RT-009-B |
+| Generación y empaquetado de artefactos firmados | **No materializado** — RT-009-B |
+
+Que los dos primeros existan y estén probados no constituye evidencia de los dos últimos.
 
 ## Alternativas descartadas
 
