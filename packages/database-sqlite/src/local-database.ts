@@ -212,6 +212,37 @@ CREATE TABLE local_authorization_snapshot (
 ) STRICT;
 `.trim();
 
+// DEC-012: identidad de sesión local. La clave primaria es el binding completo,
+// igual que en `local_authorization_snapshot`, de modo que "existe una única
+// sesión activa por usuario/instalación/dispositivo" es una garantía
+// estructural y no una convención.
+//
+// Esta tabla NO replica `Session` central ni ninguna credencial: guarda la SSA
+// firmada tal como llegó, cuya autoridad sigue siendo el emisor central. No
+// contiene permisos, roles ni asignaciones — la autorización vive en
+// `local_authorization_snapshot` y se decide en `evaluatePermission()`.
+//
+// Una fila expirada se conserva deliberadamente: es lo que impide que una SSA
+// antigua vuelva a entrar por replay una vez superada su vigencia.
+const MIGRATION_007 = `
+CREATE TABLE local_session_assertion (
+  user_id TEXT NOT NULL CHECK(length(user_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  session_id TEXT NOT NULL CHECK(length(session_id) = 36),
+  tenant_membership_id TEXT NOT NULL CHECK(length(tenant_membership_id) = 36),
+  sequence INTEGER NOT NULL CHECK(sequence > 0),
+  issued_at TEXT NOT NULL,
+  offline_valid_until TEXT NOT NULL CHECK(offline_valid_until > issued_at),
+  key_id TEXT NOT NULL,
+  claims_json TEXT NOT NULL,
+  claims_checksum TEXT NOT NULL CHECK(length(claims_checksum) = 64),
+  signature TEXT NOT NULL,
+  activated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, installation_id, device_id)
+) STRICT;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -219,6 +250,7 @@ const MIGRATIONS = [
   { version: 4, sql: MIGRATION_004, checksum: createHash("sha256").update(MIGRATION_004).digest("hex") },
   { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
   { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
+  { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

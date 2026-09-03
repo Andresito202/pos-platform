@@ -412,10 +412,13 @@ describe("SessionAssertionVerifier — sequence", () => {
       // persistente pertenece al bloque de persistencia posterior.
       expect(verifier.verify(signed, BINDING).decision).toBe("VALID");
 
-      const tables = database.native
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as { name: string }[];
-      expect(tables.some((table) => table.name.includes("session_assertion"))).toBe(false);
+      // La tabla de sesión existe en el esquema desde SSA-003, pero el
+      // verificador no escribe en ella: lo que se afirma es la ausencia de
+      // filas, no la ausencia de la tabla.
+      const rows = database.native
+        .prepare("SELECT COUNT(*) AS total FROM local_session_assertion")
+        .get() as { total: number };
+      expect(rows.total).toBe(0);
     } finally {
       database.close();
     }

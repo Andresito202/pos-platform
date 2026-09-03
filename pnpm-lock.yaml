@@ -66,6 +66,9 @@ importers:
 
   apps/pos-local-service:
     dependencies:
+      '@pos-platform/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
