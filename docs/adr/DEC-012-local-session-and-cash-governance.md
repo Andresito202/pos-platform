@@ -2,7 +2,9 @@
 
 ## Estado
 
-`PROPUESTA`. No decidida. No implementada.
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18).
+
+El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
 Este documento **no autoriza implementar nada**. Fija fronteras arquitectónicas para que una decisión humana posterior pueda habilitar identidad local y, después, `CASH-001`, sin rehacer la arquitectura. Siguiendo el patrón de `DEC-011` (`docs/adr/DEC-011-authorization-projection-sas.md:7`), la materialización de cada decisión aquí descrita requiere autorización explícita en un bloque posterior y firma del responsable.
 
@@ -67,6 +69,8 @@ Se autoriza incorporar una prueba de presencia local **únicamente si satisface 
 5. queda vinculada a usuario, sesión y dispositivo.
 
 **El factor concreto NO queda fijado por esta decisión.** La evidencia disponible no autoriza elegir entre PIN, contraseña local u otro mecanismo: hacerlo sería inventar autenticación. Queda como decisión pendiente `P-2` (§13).
+
+> **Superado parcialmente por §18.** La ratificación de `P-2` fija el factor (PIN de 6 dígitos, §18.2) y **corrige la condición 3**: lo que se destruye al expirar la SSA es el material de *sesión y presencia*, **no el verifier enrolado**, que permanece (§18.9). Exigir re-enrolamiento tras cada expiración era operativamente inviable en caja. Las condiciones 1, 2, 4 y 5 se mantienen íntegras. El texto original se conserva para preservar la trazabilidad de la decisión.
 
 Condición previa: debe ratificarse expresamente que la prohibición de `sync-base-schema.md:27` alcanza a *credenciales centrales replicadas* y no a *material generado localmente, acotado a la sesión e inútil contra la autoridad central*. Si esa lectura se rechaza, la única vía compatible es una SSA de vigencia muy corta con reemisión online, lo que degrada la operación offline y tensiona `ADR-003`.
 
@@ -264,6 +268,8 @@ Las migraciones ya aplicadas son inmutables. Ninguna decisión de este documento
 
 Ninguna de estas pendientes puede resolverse por inferencia. Cada una requiere decisión humana registrada.
 
+**Actualización posterior.** `P-2` queda `RATIFICADO`; su registro completo está en §18. Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-3`, `P-5`, `P-6` y `P-7` **continúan abiertos** y ninguna de ellas se ve alterada por §18.
+
 ## 14. Orden de implementación posterior
 
 Sujeto a las autorizaciones de §13; este documento no lo inicia.
@@ -312,3 +318,134 @@ Fronteras SSA/SAS; identidad exclusivamente desde artefacto firmado; el SAS como
 - `docs/use-cases/auth/UC-AUTH-001-login.md`
 - `docs/use-cases/cash/UC-CASH-001-open-register.md`
 - `docs/product/backlog.md`
+
+## 18. Ratificación de `P-2` — prueba de presencia local
+
+Ratificado por el propietario del sistema el 2026-09-03, sobre los análisis `P2-A` (revisión de infraestructura y amenazas), `P2-B` (cuantificación) y `P2-C` (cierre de pendientes).
+
+Esta sección es **aditiva**: no modifica ninguna decisión de §3 a §17. Fija la política que la implementación futura deberá respetar; **no la autoriza**.
+
+### 18.1 T2 — administrador local
+
+**ACEPTADO como riesgo residual `HIGH`.**
+
+Se acepta que un administrador con control completo del terminal puede extraer o manipular el material local, y que una prueba de presencia basada exclusivamente en software no puede impedirlo por completo. **No se promete resistencia frente a un administrador local comprometido.** El control efectivo frente a este escenario es organizativo: restringir quién posee privilegio administrativo sobre los terminales.
+
+Windows Hello y TPM quedan registrados como evolución futura, condicionada a la matriz de hardware de `DEC-009:230`, y **no forman parte de esta política**.
+
+### 18.2 Factor del cajero
+
+PIN numérico de **6 dígitos**. Un PIN de 4 dígitos queda descartado: bajo la política de intentos y enfriamiento ratificada, su espacio se agota en un plazo inaceptable.
+
+Propiedades obligatorias de la implementación futura:
+
+- generado mediante CSPRNG, no elegido por el usuario en la ruta por defecto;
+- individual por usuario — **el factor compartido está prohibido**;
+- nunca almacenado en claro, en ningún soporte;
+- almacenado únicamente como verifier derivado;
+- KDF: `scrypt` (§18.11);
+- nunca registrado en auditoría, logs, mensajes de error ni volcados.
+
+### 18.3 Factor del supervisor — modelo S1
+
+Mismo formato que el cajero: PIN numérico de 6 dígitos.
+
+- Contador de intentos **independiente por usuario**.
+- Un intento fallido de desbloqueo afecta exclusivamente al contador del **supervisor**.
+- No se comparte contador entre cajero y supervisor.
+
+Se acepta que un actor puede provocar un bloqueo temporal acotado de otro usuario. El vector queda limitado por la expiración automática del lockout.
+
+### 18.4 Intentos
+
+Máximo **5**.
+
+### 18.5 Backoff
+
+| Fallo | Retardo |
+|---|---|
+| 1 | 0 s |
+| 2 | 0 s |
+| 3 | 5 s |
+| 4 | 15 s |
+| 5 | `LOCKOUT` |
+
+Los dos primeros fallos sin retardo reconocen que el error de tecleo es la causa mayoritaria real en caja; el límite de tasa lo impone el lockout, no el retardo.
+
+### 18.6 Lockout
+
+Tras 5 fallos:
+
+- duración **15 minutos**;
+- recuperación **automática** al expirar el período;
+- recuperación **anticipada** únicamente mediante supervisor autorizado con presencia;
+- **no existe auto-desbloqueo** por parte del usuario bloqueado ni desbloqueo administrativo local.
+
+Requisitos de persistencia, exigidos por esta ratificación:
+
+- el lockout y sus contadores **deben persistir**;
+- **nunca** dependerán exclusivamente de la memoria del proceso;
+- **nunca** usarán `setTimeout` como autoridad temporal;
+- la expiración se evaluará mediante `TrustedClockGuard`.
+
+El lockout y sus contadores deben sobrevivir al reinicio del proceso y del equipo.
+
+### 18.7 Presencia — modelo P-D híbrido
+
+| Límite | Valor |
+|---|---|
+| Inactividad | **10 minutos** |
+| Ventana máxima | **2 horas** |
+
+La presencia se invalida además por: cambio de operador · logout o cierre de sesión · cambio o reemplazo de SSA · expiración de SSA · lockout correspondiente · cualquier otra invalidación definida por la política versionada.
+
+### 18.8 Operaciones sensibles
+
+Requieren re-presencia, con independencia de las ventanas de §18.7:
+
+`cash.shift.open` · `cash.shift.close` · `cash.expense.register` · `cash.count.*` · `cash.difference.review`
+
+`cash.count.read` queda **fuera** de re-presencia por no producir efecto financiero.
+
+**No se crean todavía** permisos ni casos de uso para *refund*, *void*, *price override*, *discount override*, *inventory adjustment* ni *high-value transaction*. Su incorporación exigirá política versionada y autorización formal.
+
+La política de sensibilidad es **versionada**, no una lista fija en código: su versión debe quedar registrada en cada decisión para que una comprobación de presencia sea reproducible a posteriori.
+
+### 18.9 Ciclo de vida del verifier
+
+**La expiración de una SSA NO destruye el verifier del usuario.** El verifier permanece enrolado.
+
+Lo que expira con la SSA es el material de sesión y presencia asociado a esa SSA. Una nueva SSA deberá volver a establecer presencia según las reglas de §18.7, **sin re-enrolamiento** del cajero.
+
+### 18.10 Rollback
+
+`PREVENTION = NO` · `DETECTION = BEST EFFORT`.
+
+No se promete protección frente a un administrador con control completo del sistema de archivos. Se aprovecharán, cuando corresponda: la integridad autenticada del envelope · `TrustedClockGuard` · la consistencia entre base de datos y envelope · la auditoría append-only · la detección de secuencias incompatibles.
+
+**No se diseñarán mecanismos ficticios de anti-rollback.**
+
+### 18.11 scrypt — parámetros provisionales
+
+| Parámetro | Valor |
+|---|---|
+| `N` | 32768 |
+| `r` | 8 |
+| `p` | 1 |
+| `maxmem` | 64 MiB (67 108 864) |
+
+`maxmem` debe fijarse **explícitamente**: Node exige un margen por encima de `128·N·r`, y omitirlo hace fallar estos parámetros en tiempo de ejecución.
+
+**Estos parámetros NO están validados para producción.** Su estado es:
+
+> `PROVISIONAL — REQUIRES REAL HARDWARE BENCHMARK`
+
+Criterio de aceptación: **`p95 <= 250 ms`**.
+
+El benchmark deberá ejecutarse sobre (1) el terminal POS de menor capacidad soportada y (2) un terminal representativo. **No se ejecutará ni se inventará benchmark alguno mientras el hardware real no esté disponible.**
+
+**Este benchmark es precondición de la implementación definitiva de SSA-004 y de la presencia.** No es precondición de esta ratificación.
+
+### 18.12 Qué NO cambia por esta ratificación
+
+`SEC-G01`, `SEC-G02` y `SEC-G03` permanecen `PLANNED / NOT_EVALUATED`. No se declara autenticación ni autorización completas, ni producción lista. SSA-004, la presencia, el login y Cash siguen sin implementar y sin autorizar. `P-3`, `P-5`, `P-6` y `P-7` de §13 continúan abiertos.
