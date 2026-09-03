@@ -214,6 +214,9 @@ jobs:
       - name: Validate domain rules
         run: pnpm test:domain
 
+      - name: Validate application use cases
+        run: pnpm test:application
+
       - name: Typecheck
         run: pnpm typecheck
 
