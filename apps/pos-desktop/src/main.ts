@@ -41,10 +41,12 @@ export async function bootstrap(serviceChannel: ServiceChannel): Promise<void> {
   assertAllowlistConsistency();
   const bridge = new ChannelBridge(serviceChannel);
   const preloadPath = join(__dirname, "preload.js");
+  const rendererPath = join(__dirname, "renderer", "index.html");
 
   await app.whenReady();
   registerIpcHandlers(bridge);
-  createWindow(preloadPath);
+  const win = createWindow(preloadPath);
+  await win.loadFile(rendererPath);
 
   app.on("window-all-closed", () => {
     void serviceChannel.close().finally(() => app.quit());
@@ -52,7 +54,8 @@ export async function bootstrap(serviceChannel: ServiceChannel): Promise<void> {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow(preloadPath);
+      const w = createWindow(preloadPath);
+      void w.loadFile(rendererPath);
     }
   });
 }
