@@ -211,6 +211,9 @@ jobs:
       - name: Validate executable contracts
         run: pnpm test:contracts
 
+      - name: Validate domain rules
+        run: pnpm test:domain
+
       - name: Typecheck
         run: pnpm typecheck
 
