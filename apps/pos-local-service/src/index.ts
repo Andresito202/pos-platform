@@ -4,6 +4,7 @@ export * from "./lifecycle.js";
 export * from "./local-database-component.js";
 export * from "./channel/index.js";
 export * from "./security/index.js";
+export * from "./authorization/index.js";
 export * from "./sync/durable-sync-store.js";
 export * from "./sync/durable-sync-component.js";
 export * from "./operations/operation-confirmation-store.js";

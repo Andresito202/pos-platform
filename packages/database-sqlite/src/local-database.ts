@@ -186,12 +186,39 @@ CREATE TRIGGER local_operation_audit_no_delete
   BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
 `.trim();
 
+// DEC-011: proyección local de autorización. La clave primaria es el binding
+// completo, de modo que "existe un único snapshot activo por
+// usuario/instalación/dispositivo" es una garantía estructural y no una
+// convención. No se agrega una columna `is_active`: solo se conservan snapshots
+// activos, así que una columna siempre igual a 1 no aportaría nada.
+//
+// Esta tabla NO replica el RBAC central ni crea usuarios, roles o permisos
+// locales. Guarda el snapshot firmado tal como llegó; la autoridad sigue siendo
+// el modelo central que lo emitió.
+const MIGRATION_006 = `
+CREATE TABLE local_authorization_snapshot (
+  user_id TEXT NOT NULL CHECK(length(user_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  snapshot_id TEXT NOT NULL CHECK(length(snapshot_id) = 36),
+  sequence INTEGER NOT NULL CHECK(sequence > 0),
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL CHECK(expires_at > issued_at),
+  claims_json TEXT NOT NULL,
+  claims_checksum TEXT NOT NULL CHECK(length(claims_checksum) = 64),
+  signature TEXT NOT NULL,
+  activated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, installation_id, device_id)
+) STRICT;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
   { version: 3, sql: MIGRATION_003, checksum: createHash("sha256").update(MIGRATION_003).digest("hex") },
   { version: 4, sql: MIGRATION_004, checksum: createHash("sha256").update(MIGRATION_004).digest("hex") },
   { version: 5, sql: MIGRATION_005, checksum: createHash("sha256").update(MIGRATION_005).digest("hex") },
+  { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
