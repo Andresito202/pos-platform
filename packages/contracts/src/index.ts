@@ -12,3 +12,4 @@ export * from "./local-channel.js";
 export * from "./local-security.js";
 export * from "./release.js";
 export * from "./authorization.js";
+export * from "./authorization-snapshot.js";
