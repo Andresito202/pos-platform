@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "electron": ["./types/electron.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "types/**/*.d.ts"]
+}

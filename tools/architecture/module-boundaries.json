@@ -56,6 +56,12 @@
       "layer": "runtime",
       "type": "application",
       "scope": "local"
+    },
+    "@pos-platform/pos-desktop": {
+      "root": "apps/pos-desktop",
+      "layer": "desktop",
+      "type": "application",
+      "scope": "local"
     }
   },
   "allowedLayerDependencies": {
@@ -92,6 +98,10 @@
       "application",
       "contracts",
       "adapter",
+      "observability"
+    ],
+    "desktop": [
+      "contracts",
       "observability"
     ]
   },
@@ -143,6 +153,12 @@
       "react",
       "react-dom",
       "pg"
+    ],
+    "desktop": [
+      "@nestjs/",
+      "pg",
+      "better-sqlite3",
+      "kysely"
     ]
   }
 }
