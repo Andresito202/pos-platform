@@ -1,0 +1,7 @@
+{
+  "name": "@pos-platform/pos-desktop",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "apps/pos-desktop",
+  "projectType": "application",
+  "tags": ["layer:desktop", "type:application", "scope:local"]
+}
