@@ -13,3 +13,4 @@ export * from "./local-security.js";
 export * from "./release.js";
 export * from "./authorization.js";
 export * from "./authorization-snapshot.js";
+export * from "./session-assertion.js";
