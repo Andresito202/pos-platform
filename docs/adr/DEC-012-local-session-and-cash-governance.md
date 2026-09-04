@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) y `B2` queda acotado a una única pregunta de negocio, pendiente (ver §24).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) y `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -864,3 +864,48 @@ Una vez respondida la pregunta de §24.1:
 3. registrar la resolución aquí.
 
 Hasta entonces `B2` sigue bloqueando el gate de §22, que permanece `NO-GO`.
+
+## 25. Resolución de `B2` — regla de turno incompatible
+
+Resuelto el 2026-09-04 tras la decisión de negocio que §24 identificó como el único dato faltante. Cierra el segundo de los cuatro bloqueos de §22. **`B3`, `B4` y RLS no se tocan.**
+
+### 25.1 Decisión de negocio
+
+**Opción A — unicidad por caja física.** Una `CashRegister` representa un único cajón físico de efectivo. Dos terminales **no** pueden operar turnos independientes simultáneos sobre el mismo cajón. Un comercio que necesite dos terminales con efectivo independiente debe provisionar dos `CashRegister` distintas.
+
+### 25.2 Regla canónica
+
+> Para cualquier `tenant_id` + `branch_id` + `cash_register_id` existe **como máximo un** `CashShift` en estado `OPEN` o `CLOSING`, **con independencia del `origin_device_id`**.
+
+Casos derivados:
+
+| Caso | Resultado |
+|---|---|
+| Mismo dispositivo · misma caja · turno `OPEN`/`CLOSING` | **Incompatible** |
+| Otro dispositivo · misma caja · turno `OPEN`/`CLOSING` | **Incompatible** |
+| Mismo dispositivo · otra caja | No incompatible por esta regla |
+| Misma caja · turno `CLOSED` | No impide una apertura nueva |
+| Reintento idempotente de la misma solicitud | **No es una segunda apertura**; se gobierna por la idempotencia existente |
+
+### 25.3 `origin_device_id` conserva su significado
+
+La decisión **no altera** el campo. Sigue siendo procedencia de la operación, identificación del dispositivo originador, componente de la clave de idempotencia (`UNIQUE (tenant_id, origin_device_id, idempotency_key)`), y dimensión de auditoría y trazabilidad. **No se convierte en propiedad ni exclusividad sobre la `CashRegister`.**
+
+### 25.4 Documentos corregidos
+
+- **`UC-CASH-001`** — se añade la sección normativa «Turno incompatible», que define el término distinguiendo `OPEN`/`CLOSING`/`CLOSED`, la irrelevancia del dispositivo y la independencia de la idempotencia. La frontera transaccional pasa a exigir una restricción «por tenant, sucursal y caja», sin la dimensión de terminal que generaba la contradicción de §24.2. Precondición y paso 3 del flujo pasan a remitir a la definición. Las pruebas mínimas distinguen la segunda apertura desde el mismo dispositivo y desde otro.
+- **`cash-counting-schema.md`** — la regla 2 de `CashShift` enuncia el unique lógico por `(tenant_id, branch_id, cash_register_id)` sobre estados `OPEN` y `CLOSING`, con independencia del dispositivo.
+
+Las secciones que ya eran consistentes con la opción A **no se modifican**: la excepción «Caja abierta por otro usuario», la precondición «Caja física activa», el tratamiento de cuarentena de `cash-counting-schema.md:289` y la prueba obligatoria de `:293`.
+
+### 25.5 Concurrencia — conclusiones conservadas
+
+Se mantienen íntegras y ahora son consistentes con una regla definida: la protección de concurrencia debe existir; la verificación previa no la sustituye; las operaciones offline pueden producir conflictos que el nodo local no puede conocer en el momento; la cuarentena y la revisión tratan anomalías y **no legitiman** dos turnos simultáneos; y la idempotencia es un eje independiente de la incompatibilidad.
+
+### 25.6 Consecuencia para el arqueo
+
+La regla evita que dos turnos simultáneos calculen `ExpectedCash` contra el mismo efectivo físico. `CashCount` compara efectivo físico contra un `expected_amount` por turno, y su `counted_amount` sólo puede atribuirse a un turno. **No se introduce ninguna regla de arqueo nueva** y `UC-CASH-002` no se modifica.
+
+### 25.7 Alcance
+
+La unicidad conceptual queda determinada; **la sintaxis del índice parcial pertenece al gate DDL posterior** y no se decide aquí. `B1` (§23) permanece intacto. `B3`, `B4` y RLS siguen abiertos, de modo que el gate de §22 continúa `NO-GO`.

@@ -56,7 +56,7 @@ Estados persistentes:
 Reglas:
 
 1. Cada turno tiene exactamente un CashMovement `OPENING_FLOAT` `POSTED`, protegido por unique parcial tenant-scoped; la base inicial se deriva de ese hecho y no tiene una segunda autoridad mutable.
-2. Solo existe un turno `OPEN` o `CLOSING` incompatible por tenant, sucursal, caja y dispositivo conforme a `UC-CASH-001`.
+2. Existe como máximo un turno en estado `OPEN` o `CLOSING` por `(tenant_id, branch_id, cash_register_id)`, **con independencia de `origin_device_id`**, conforme a la definición normativa de turno incompatible de `UC-CASH-001`. El unique lógico del turno activo es, por tanto, `(tenant_id, branch_id, cash_register_id)` restringido a los estados `OPEN` y `CLOSING`. Una `CashRegister` es un único cajón físico: la regla impide que dos turnos simultáneos calculen `ExpectedCash` contra el mismo efectivo, cuyo `counted_amount` sólo podría atribuirse a uno. `origin_device_id` conserva íntegras sus funciones de procedencia, idempotencia, auditoría y trazabilidad, y no expresa propiedad sobre la caja. Decisión registrada en `DEC-012` §25.
 3. `OPEN -> CLOSING -> CLOSED` es la secuencia normal; un retorno operativo no modifica el turno cerrado y requiere un caso de uso compensatorio explícito.
 4. Un turno `CLOSED` tiene exactamente un CashCount `CLOSING` `COMPLETED`, protegido por unique parcial `(tenant_id, cash_shift_id)` para ese tipo. No se agrega una FK circular desde CashShift.
 5. Un turno `CLOSED` es inmutable y no admite movimientos normales tardíos.
