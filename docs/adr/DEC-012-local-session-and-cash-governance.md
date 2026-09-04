@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). Con los cuatro bloqueos resueltos, la condición de reevaluación de §22.4 queda satisfecha; el gate sigue **`NO-GO`** hasta que esa reevaluación se realice y se resuelvan las dependencias de §22.2.
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -730,7 +730,7 @@ El modelo físico de Cash está **notablemente cerrado** —estados, cardinalida
 
 Abrir una caja sin base inicial es una operación de negocio corriente, pero hoy **no es representable**: exigiría un movimiento de importe cero que el CHECK prohíbe. La resolución determina el CHECK del DDL y no puede inferirse.
 
-**B2 — «Turno incompatible» se usa sin definirse.**
+**B2 — «Turno incompatible» se usa sin definirse.** — **RESUELTO en §25** (2026-09-04).
 
 El calificativo aparece en `cash-counting-schema.md:59, 66, 142, 222, 242, 289, 293` y en `UC-CASH-001:13, 27, 38, 40`, siempre sin definición. La clave del índice parcial único queda indeterminada:
 
@@ -739,11 +739,11 @@ El calificativo aparece en `cash-counting-schema.md:59, 66, 142, 222, 242, 289, 
 
 `cash-counting-schema.md:289` contempla además que «múltiples aperturas incompatibles… se llevan a revisión/cuarentena», lo que sugiere que la restricción podría no ser universalmente preventiva. Las dos lecturas producen DDL distinto y semántica financiera distinta.
 
-**B3 — Escala decimal de `amount` ausente de la matriz normativa.**
+**B3 — Escala decimal de `amount` ausente de la matriz normativa.** — **RESUELTO en §26** (2026-09-04).
 
 `physical-conventions.md:137-146` fija escala para `unit_price`, base, impuesto y descuento; Payment, Refund y Reversal; componentes de Settlement; tasas y porcentajes; factores de conversión; cantidad y peso; importe fiscal normalizado; y `payable_amount`. **No fija escala para el importe de un movimiento de caja.** Adoptar `(19,6)` por analogía con Payment sería inferencia, no evidencia.
 
-**B4 — La `sequence` de la proyección de `CashRegister` no tiene ubicación.**
+**B4 — La `sequence` de la proyección de `CashRegister` no tiene ubicación.** — **RESUELTO en §27** (2026-09-04).
 
 §21.6 estableció que una operación de caja debe registrar con qué versión de la proyección se operó. `cash_cash_shifts` (`cash-counting-schema.md:48`) no contiene esa columna. Las tres ubicaciones posibles —columna directa en el turno, metadato de snapshot separado, o referencia indirecta— no están decididas y afectan al DDL.
 
@@ -970,3 +970,88 @@ Compatible. La fórmula no se modifica. Sumar y restar valores de escala 6 con c
 ### 26.8 Alcance
 
 `B1` (§23) y `B2` (§25) permanecen intactos: el cero de `OPENING_FLOAT` se representa como `0.000000` y el resto de tipos conserva importe estrictamente positivo. `B4` y RLS siguen abiertos, de modo que el gate de §22 continúa `NO-GO`. La sintaxis concreta del tipo en el DDL pertenece a ese gate.
+
+## 27. Resolución de `B4` — procedencia de la proyección de `CashRegister`
+
+Resuelto el 2026-09-04. Cierra el cuarto y último bloqueo estructural de §22.1. **`B1`, `B2` y `B3` no se tocan.** No se autoriza DDL ni migración.
+
+### 27.1 Decisión
+
+**Dato:** la **`sequence` de la proyección de `CashRegister`** vigente en el momento de la apertura. Ni `CashRegister.version`, ni un identificador de snapshot, ni una combinación de ambos.
+
+**Ubicación: alternativa A — columna directa en `CashShift`**, congelada en la apertura e inmutable durante el resto del ciclo del turno.
+
+Estado: **`DECIDED`**.
+
+### 27.2 Respuesta explícita a la pregunta de auditoría
+
+La pregunta era si la auditoría necesita `A) sólo CashRegister.version`, `B) sólo snapshot.sequence`, `C) ambos`, `D) snapshot_id + sequence`, o `E) otra combinación respaldada documentalmente`.
+
+**Respuesta: `B`.**
+
+El requisito no se deriva aquí: ya está redactado. §21.6 lo fijó al resolver `P-5.8`:
+
+> «una operación de caja debe registrar **la secuencia de la proyección de `CashRegister`** vigente en su momento. El modelo actual de `cash_cash_shifts` no contempla ese campo».
+
+Esa frase nombra el dato —*la secuencia de la proyección*— y nombra la tabla —`cash_cash_shifts`—. `B4` no era una pregunta abierta sobre qué persistir, sino sobre si esa frase admitía otra lectura. No la admite: no menciona `version`, no menciona identificador de snapshot, y no menciona ninguna tabla distinta.
+
+### 27.3 Por qué no `CashRegister.version`
+
+§20.7 ya separó los dos contadores y les asignó propósitos que no se solapan:
+
+| Contador | Ámbito | Propósito |
+|---|---|---|
+| `version` de cada registro | Fila del maestro | Concurrencia optimista en el lado **central** |
+| `sequence` del snapshot | Proyección completa de un ámbito | **Anti-replay local** |
+
+`version` es el mecanismo con el que el **central** protege una escritura concurrente sobre la fila (`physical-conventions.md:230-234`: `WHERE id = ? AND version = expected_version`). El POS **nunca escribe** el maestro —§20.2: «Publicar cambios al maestro: **Nadie desde el POS**»—, de modo que `version` no describe ninguna operación local. Persistirla en el turno registraría el estado de una fila remota, no la procedencia del artefacto que el POS verificó y aplicó.
+
+`sequence`, en cambio, es exactamente la coordenada que el POS **acepta y almacena**: es la que la frontera de confianza de §20.5 comprueba y la que el criterio «estrictamente mayor» de §20.7 hace monótona por ámbito.
+
+### 27.4 Por qué no `snapshot_id + sequence`
+
+La alternativa `D` es la formulación literal de `DEC-011:116` —«toda operación se audita con el `snapshot_id` y la `sequence` utilizados»— y por eso merece descarte razonado, no omisión.
+
+1. **`snapshot_id` existe para el SAS porque su contrato lo define.** `packages/contracts/src/authorization-snapshot.ts:78` declara `snapshot_id: UuidSchema`, y `local_authorization_snapshot` lo persiste. El contrato de la proyección de `CashRegister` **no existe**: §20.4 registra que «el emisor central y el transporte» no están materializados, y §20.5 enumera la frontera de confianza sin ningún identificador de artefacto. Exigir `snapshot_id` obligaría a inventar aquí una claim de un contrato que ningún documento ha redactado.
+2. **El par (ámbito, `sequence`) ya direcciona el artefacto.** La proyección es «snapshot completo por ámbito» (§20.4) y su secuencia es estrictamente creciente para ese ámbito (§20.7). El turno porta `tenant_id`, `company_id` y `branch_id` (`cash-counting-schema.md:48`), que son ese ámbito. La tupla es por tanto suficiente para identificar sin ambigüedad qué proyección se aplicó; `snapshot_id` no añadiría poder discriminante.
+3. **`DEC-011:116` rige la auditoría del SAS, no la del maestro.** Ese requisito ya está recogido como invariante 8 de este documento (§4) y se refiere al artefacto de autorización. §21.6 lo invocó como *principio* —registrar con qué versión se operó— y derivó su propio requisito con su propio dato y su propia ubicación. Trasladar además la forma exacta del SAS sería extender por simetría, y §21.3 ya rechazó ese modo de razonar para esta misma entidad.
+
+La combinación `C` (ambos contadores) queda descartada por 27.3: añade un dato sin requisito normativo que lo pida.
+
+### 27.5 Por qué columna directa y no metadato separado ni referencia indirecta
+
+**Alternativa A — columna directa. Seleccionada.** Es el patrón que el propio esquema de Cash ya aplica a toda entrada versionada que congela: `cash-counting-schema.md:125` declara en `CashCount` las columnas `started_shift_version`, `movement_cutoff_sequence`, `calculation_policy_version`, `calculation_checksum`, `tolerance_policy_version` y `tolerance_policy_checksum`, y `:141` describe su semántica: «**Iniciar congela** `started_shift_version` y `movement_cutoff_sequence`». `cash_cash_movement_actions` (`:211`) hace lo mismo con `authorization_policy_version`, e `inventory-receiving-schema.md:63` con `conversion_version`. La convención está escrita y es uniforme: **la procedencia versionada de una entrada se congela como columna de la fila que la consumió**.
+
+**Alternativa B — tabla de metadatos de snapshot separada. Descartada.** Sin precedente en el repositorio para esta clase de dato, y en conflicto con la frontera transaccional de la apertura, enumerada paso a paso en `cash-counting-schema.md:225-232` y en `UC-CASH-001:46-50`: introduciría una escritura y una relación adicionales dentro de un commit ya especificado, sin resolver nada que la columna no resuelva.
+
+**Alternativa C — referencia indirecta a la fila de la proyección. Descartada por evidencia, no por preferencia.** La proyección se reemplaza atómicamente y por completo (§20.4, `catalog-schema.md:243` y `:276`). Una referencia a la fila proyectada **resolvería siempre a la proyección vigente, no a la utilizada**: exactamente lo contrario del requisito de §21.6. Es la única de las tres alternativas que no puede cumplir su objetivo.
+
+### 27.6 Definición de la columna
+
+| Propiedad | Valor | Fuente |
+|---|---|---|
+| Nombre | `cash_register_projection_sequence` | Patrón `<sujeto>_<coordenada>` de `started_shift_version`, `movement_cutoff_sequence`, `calculation_policy_version`, `confirmed_sequence` |
+| Tabla | `cash.cash_shifts` / `cash_cash_shifts` | §21.6 |
+| Tipo | `bigint` en PostgreSQL, `INTEGER` en SQLite | `sync-base-schema.md:104`, `:188`; `physical-conventions.md:230` |
+| Nulabilidad | `NOT NULL` | El requisito de §21.6 no admite excepción, y `CashShift` es `LOCAL_AUTHORITATIVE_SYNCED` (`cash-counting-schema.md:25`): todo turno nace en el POS que lo opera, sobre una proyección previamente aceptada |
+| Mutabilidad | Congelada en la apertura; ninguna transición posterior la modifica | `cash-counting-schema.md:141` |
+
+El nombre sigue una convención existente; **no se introduce ningún concepto nuevo**. La columna no es clave, no participa en unicidad, no interviene en `ExpectedCash` y no condiciona ninguna transición de estado: es evidencia de procedencia.
+
+### 27.7 Alcance de la obligación — el turno, no cada movimiento
+
+§21.6 emplea la expresión «una operación de caja» y a continuación localiza el campo en `cash_cash_shifts`. Se adopta esa localización literal: **la obligación se satisface en la apertura del turno**, y los movimientos, conteos y cierres heredan la procedencia por pertenencia al turno.
+
+Consecuencia registrada, no ocultada: como §21.1 decidió que la proyección **no caduca** y se sustituye por snapshot posterior, una proyección puede reemplazarse mientras un turno está abierto, y el turno seguirá declarando la secuencia con la que se abrió. La exposición es acotada porque lo que la apertura fija es lo financieramente material: la caja concreta, y su `currency_code`, que el maestro declara **inmutable mientras existan turnos asociados** (§20.1, `cash-counting-schema.md:36-44`). Un cambio de `name` o `code` no altera hecho contable alguno, y una retirada sobrevenida es precisamente la anomalía que §21.8 acepta y remite a reconciliación.
+
+Si un bloque posterior exigiera granularidad por movimiento, será una decisión aditiva con su propia evidencia. **No se decide aquí, y no bloquea el DDL**, porque ningún documento la requiere hoy.
+
+### 27.8 Documento corregido
+
+`docs/architecture/physical-model/cash-counting-schema.md` — se incorpora `cash_register_projection_sequence` a las columnas lógicas de `cash.cash_shifts` / `cash_cash_shifts` y se añade la regla que fija su origen, su congelación y su exclusión de la unicidad. No se modifica ninguna otra columna, constraint o estado.
+
+### 27.9 Qué NO decide esta sección
+
+No autoriza DDL, migración ni tabla alguna. No implementa `CASH-001`. No define el contrato del snapshot maestro de `CashRegister` ni su emisor, que siguen sin existir (§20.4). No altera §20, §21, §23, §25 ni §26, ni ninguna decisión sobre SSA o SAS.
+
+Con `B4` resuelto, la condición de reevaluación de §22.4 —`B1`, `B2`, `B3` y `B4` resueltos por decisión registrada— **queda satisfecha**. El gate permanece **`NO-GO`** hasta que esa reevaluación se realice en un bloque propio, que deberá además resolver las dependencias de §22.2: motor de destino de la primera migración de Cash (SQLite o PostgreSQL) y, si es central, las políticas RLS que dependen del contexto confiable de `P-7`, todavía abierto.

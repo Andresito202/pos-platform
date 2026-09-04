@@ -45,7 +45,7 @@ Constraints:
 
 ### `cash.cash_shifts` / `cash_cash_shifts`
 
-Columnas lógicas: `id`, `tenant_id`, `company_id`, `branch_id`, `cash_register_id`, `origin_device_id`, `opened_by_actor_type`, `opened_by_actor_id`, `opened_at`, `business_date`, `timezone_id`, `utc_offset_minutes`, `currency_code`, `status`, `closed_by_actor_type NULL`, `closed_by_actor_id NULL`, `closed_at NULL`, `opening_idempotency_key`, `opening_request_checksum`, `closing_idempotency_key NULL`, `closing_request_checksum NULL`, `last_movement_sequence`, `version`, `created_at`, `server_recorded_at NULL`.
+Columnas lógicas: `id`, `tenant_id`, `company_id`, `branch_id`, `cash_register_id`, `origin_device_id`, `opened_by_actor_type`, `opened_by_actor_id`, `opened_at`, `business_date`, `timezone_id`, `utc_offset_minutes`, `currency_code`, `status`, `closed_by_actor_type NULL`, `closed_by_actor_id NULL`, `closed_at NULL`, `opening_idempotency_key`, `opening_request_checksum`, `closing_idempotency_key NULL`, `closing_request_checksum NULL`, `cash_register_projection_sequence`, `last_movement_sequence`, `version`, `created_at`, `server_recorded_at NULL`.
 
 Estados persistentes:
 
@@ -62,6 +62,7 @@ Reglas:
 5. Un turno `CLOSED` es inmutable y no admite movimientos normales tardíos.
 6. Cada mutación usa `expected_version`; `last_movement_sequence` aumenta monotónicamente dentro del turno.
 7. Apertura y cierre tienen claves/checksums independientes; misma clave y contenido devuelve el mismo resultado, contenido distinto produce conflicto.
+8. `cash_register_projection_sequence` registra la `sequence` de la proyección de `CashRegister` verificada y vigente en el ámbito `(tenant_id, company_id, branch_id)` en el instante de la apertura. Es obligatoria, se congela en la apertura y ninguna transición posterior la modifica; no es clave, no participa en unicidad y no interviene en `ExpectedCash`. Registra procedencia, no autoridad: no sustituye la verificación de la proyección ni concede permiso alguno. Decisión registrada en `DEC-012` §27.
 
 La protección de turno incompatible se expresa con índice parcial en PostgreSQL. SQLite la valida dentro de `BEGIN IMMEDIATE` por el único escritor local y la cubre con pruebas de concurrencia, conforme a la excepción documentada en `physical-conventions.md`.
 
