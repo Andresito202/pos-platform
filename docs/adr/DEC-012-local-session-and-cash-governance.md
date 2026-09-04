@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29) y `M2` —`reference_type`/`reference_id`— queda **`DECIDED`** el 2026-09-04 por ratificación humana, opción C: no se materializan en la primera migración de Cash (ver §30, que registra además la corrección documental de `B1` sin alterar su decisión). `M3` no se ha abordado. El gate sigue **`NO-GO`**.
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29) y `M2` —`reference_type`/`reference_id`— queda **`DECIDED`** el 2026-09-04 por ratificación humana, opción C: no se materializan en la primera migración de Cash (ver §30, que registra además la corrección documental de `B1` sin alterar su decisión). `M3` queda **`CLOSED`** el 2026-09-04 con la opción `G1`, y el motor de la primera materialización queda decidido en `SQLite` (`P-6I`). Con ello la revalidación formal emite **`P-6 = PASS`** en su alcance arquitectónico (ver §31). Ese `PASS` **no** es la autorización de §13, **no** autoriza DDL ni `MIGRATION_009` y **no** inicia implementación.
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -597,6 +597,8 @@ Antes de aceptar una proyección de cajas, el POS debe probar:
 1. `cash_cash_registers` **no tiene** `device_id` ni `installation_id`.
 2. `DEC-011:88` excluye deliberadamente `cash_register_id` del SAS, porque la caja no es sujeto de autorización.
 3. El vínculo con el dispositivo existe, pero **en el turno, no en la caja**: `cash_cash_shifts` incluye `origin_device_id` (`cash-counting-schema.md:48`), y la unicidad de turno incompatible se expresa «por tenant, sucursal, caja y dispositivo» (`:59`).
+
+   **Nota superviniente (2026-09-04).** El texto anterior se conserva íntegro, pero su cita final ya no corresponde al documento vigente. `B2` fue resuelto por decisión de negocio (§25) y la unicidad de turno incompatible es hoy **`(tenant_id, branch_id, cash_register_id)`** restringida a `OPEN` y `CLOSING`, con `origin_device_id` **fuera** de la unicidad (`cash-counting-schema.md:59`). La conclusión de este punto 3 **no cambia**: el vínculo con el dispositivo sigue viviendo en el turno y no en la caja, que es lo que sostiene el binding por sucursal de §20.6. Prevalece §25 sobre la cita.
 
 Por tanto la caja se proyecta por sucursal, y la relación con un terminal concreto es una propiedad del turno.
 
@@ -1347,3 +1349,98 @@ Queda expresamente establecido, en los tres documentos que gobiernan la regla:
 ### 30.6 Estado del gate
 
 De las cinco decisiones de §28.8 quedan resueltas dos —`M1` (§29) y `M2` (esta sección)—. Siguen abiertas `M3`, el motor de la primera migración y la autorización humana de `P-6`. El gate permanece **`NO-GO / PENDING DECISION`**. No se escribe DDL, migración, runtime ni implementación de Cash.
+
+## 31. Cierre de `M3` y revalidación de `P-6` — `P-6J` / `P-6K`
+
+Registrado el 2026-09-04. `M3` queda **`CLOSED`** con la opción **`G1`** ratificada por decisión humana, y la revalidación formal del gate emite **`P-6 = PASS`** en su alcance arquitectónico. Sección aditiva: no altera §20, §21, §23, §25, §26, §27, §29 ni §30.
+
+### 31.1 `M3-G` = `G1` — semántica de la ausencia
+
+**La ausencia de una caja `ACTIVE` en un snapshot completo válido no se traduce localmente a `status = RETIRED`.**
+
+| Escenario | Comportamiento |
+|---|---|
+| Caja presente en el snapshot `N` | Última presencia = `N` |
+| Desaparece en `N+1` | La fila **se conserva**; `status` **no** se altera; su última presencia permanece `N`; **deja de pertenecer a la vista activa** de `N+1` |
+| Reaparece en `N+2` | Su última presencia pasa a `N+2` |
+| El maestro emite `RETIRED` | El estado **sí** se materializa: procede de la fuente autorizada |
+
+Pertenencia a la vista activa:
+
+```
+last_seen_sequence == accepted_snapshot_sequence
+```
+
+**Queda prohibida la inferencia `ausencia == RETIRED`.** Bajo `G2` el POS habría escrito un `status` que el maestro no emitió, contra §20.1 —`status` es dato maestro— y §20.2 —«Publicar cambios al maestro: Nadie desde el POS»—. `G1` propaga la baja igual, pero mediante un hecho local observado y no un valor maestro fabricado.
+
+La fila se conserva además porque de ello depende la integridad referencial: `cash-counting-schema.md:111` exige que un movimiento lleve «referencia tenant-scoped al turno **y caja** de la misma sucursal». Con `G1` esa referencia permanece resoluble indefinidamente.
+
+### 31.2 Modelo de snapshot — dos conceptos separados
+
+1. **Artefacto append-only del snapshot aceptado.** Conserva la evidencia que permite resolver después la tupla `(tenant_id, company_id, branch_id, sequence)`. Es el patrón ya escrito para artefactos firmados en `device-licensing-schema.md:260` y `:280` —«Artefacto append-only»—, y es append-only porque de ello depende que §21.6 sea verificable: sin conservar los artefactos, un turno antiguo declararía una `sequence` cuyo snapshot ya no existe.
+2. **Proyección local `cash_cash_registers`.** Contiene únicamente los campos del maestro (`cash-counting-schema.md:36`) más la metadata técnica estrictamente necesaria para materializar la proyección y probar la procedencia local.
+
+La separación no es estética: un snapshot de cajas contiene N filas, mientras `local_authorization_snapshot` y `local_session_assertion` guardan un sujeto por fila. **No se fuerza metadata criptográfica dentro de la proyección.**
+
+Esto no contradice §27: allí se descartó una tabla de metadatos como lugar donde **el turno** registra su procedencia —que sigue siendo columna directa en `CashShift`—; aquí la tabla guarda **el artefacto recibido**, que es otra cosa.
+
+### 31.3 Procedencia, binding y anti-replay
+
+```
+cash_shift.cash_register_projection_sequence  <-  snapshot.sequence
+```
+
+**Nunca** `cash_register.version`. §20.7 los separa: `version` es concurrencia optimista del lado central sobre una fila que el POS jamás escribe (§20.2); `sequence` es la coordenada que el POS verifica, acepta y almacena, y la única monótona por ámbito.
+
+**Binding:** `(tenant_id, company_id, branch_id)`. Los tres viajan en los claims y los tres se validan contra el ámbito esperado (§20.5); un desajuste rechaza el snapshot completo y **nunca** corrige un claim. `POS_TENANT_ID`, `POS_COMPANY_ID` y `POS_BRANCH_ID` son **contexto esperado, jamás prueba de autorización** (`D7`; `security-gates.md:44`).
+
+**Anti-replay:** se acepta únicamente una `sequence` **estrictamente mayor** que la máxima aceptada para el binding. Igual es reenvío, menor es replay; ninguna desplaza a la activa. `issued_at` no la sustituye, `version` no la sustituye, y la cota persiste y sobrevive al reinicio (§20.7).
+
+### 31.4 Firma y checksum
+
+Se reutiliza íntegra la maquinaria de `SAS`/`SSA`, sin criptografía nueva: **Ed25519** sobre `canonicalJson(claims)`, `key_id` resuelto contra `TrustedSigningKey` (`ACTIVE`/`VERIFY_ONLY`/`REVOKED`), `TrustedClockGuard`, `base64url`, envelope `{ claims, signature }`. **La firma cubre los claims completos** del snapshot.
+
+**Checksum:** `SHA-256(canonicalJson(claims))`, hexadecimal de 64 caracteres, igual que `local_authorization_snapshot.claims_checksum`. Representa integridad determinista y evidencia del contenido aceptado. **No constituye autoridad, autenticación, firma ni anti-replay** (`device-licensing-schema.md:43`: firma inválida, clave no confiable o checksum distinto fallan cerrado).
+
+### 31.5 Atomicidad
+
+`VERIFY → VALIDATE → WRITE → ACTIVATE` dentro de una **única frontera transaccional** (§20.9). Ante fallo: no hay activación parcial, la proyección anterior permanece intacta y **la `sequence` aceptada no avanza**. Es la propiedad ya probada en `SAS-002` y `SSA-003`.
+
+### 31.6 TTL
+
+La proyección de `CashRegister` **no expira por tiempo**: sin `expires_at`, sin gracia offline, sin revalidación periódica (§21). Se actualiza mediante un snapshot válido posterior o un estado explícito del maestro; la ausencia se trata conforme a `G1`.
+
+### 31.7 Auditoría
+
+`binding + sequence` identifican de forma suficiente el artefacto append-only, cuya clave única es `(tenant_id, company_id, branch_id, sequence)`. **No se introduce `snapshot_id` en `CashShift`**: §27 lo descartó y `G1` no lo reintroduce.
+
+### 31.8 Historia financiera
+
+Una baja o una ausencia posterior de una caja **no modifica** ningún `CashShift` ni `CashMovement` histórico, ni ninguna referencia financiera histórica. La conservación física de la fila proyectada es lo que mantiene esas referencias resolubles, y es coherente con §20.1 —«no hay borrado»— y con `cash-counting-schema.md:44` —«sin delete en cascada sobre historia financiera»—.
+
+### 31.9 `P-6` — estado
+
+**`P-6 = PASS`.**
+
+**Alcance del PASS:** el modelo físico y arquitectónico del vertical Cash queda completamente determinado y consistente. Los cuatro bloqueos de §22.1 y las tres indeterminaciones de §28.3 están cerrados, el motor de la primera materialización está decidido (`P-6I`, SQLite) y la revalidación de `P-6K` no halló decisiones estructurales ocultas.
+
+**Lo que este `PASS` no es:**
+
+- **no** equivale a la autorización de §13, que sigue exigiendo decisión humana registrada;
+- **no** autoriza DDL;
+- **no** autoriza `MIGRATION_009`;
+- **no** inicia implementación de `CASH-001` ni de ninguna operación de caja.
+
+### 31.10 Blockers no arquitectónicos
+
+| # | Elemento | Clasificación |
+|---|---|---|
+| 1 | Emisor y transporte del snapshot maestro | **DEPENDENCIA EXTERNA** (§20.4) |
+| 2 | Resolutor de identidad para `opened_by_actor_id` | **RUNTIME** |
+| 3 | Autorización de `P-6` | **GOBERNANZA** (§13) |
+
+Ninguno es un `FAIL` arquitectónico: ninguno contradice una decisión previa ni deja un campo, constraint o relación sin determinar. Los tres impiden implementar; ninguno invalida el modelo.
+
+### 31.11 Propagación documental pendiente
+
+Las decisiones de `M1` (§29), `M2` (§30) y `M3` (esta sección) están registradas **sólo en este documento**. `cash-counting-schema.md` todavía no enuncia el dominio de los `*_actor_type`, ni la exclusión de `reference_type`/`reference_id` de la primera materialización, ni el modelo de proyección de `G1`. Propagarlas corresponde al bloque que lo autorice; no se hace aquí.
