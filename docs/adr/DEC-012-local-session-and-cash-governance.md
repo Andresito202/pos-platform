@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) y `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) y `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -268,7 +268,7 @@ Las migraciones ya aplicadas son inmutables. Ninguna decisión de este documento
 
 Ninguna de estas pendientes puede resolverse por inferencia. Cada una requiere decisión humana registrada.
 
-**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5` queda `DECIDED`: su estructura en §20 y su única decisión abierta —la caducidad de la proyección— resuelta en §21. `P-6` y `P-7` **continúan abiertos** y ninguno se ve alterado por §18, §19 ni §20.
+**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5` queda `DECIDED`: su estructura en §20 y su única decisión abierta —la caducidad de la proyección— resuelta en §21. `P-6` fue evaluado y resultó `NO-GO` (§22); `P-7` **continúa abierto** y ninguno se ve alterado por §18, §19 ni §20.
 
 ## 14. Orden de implementación posterior
 
@@ -712,3 +712,49 @@ Sin TTL, la trazabilidad exige registrar **con qué versión de la proyección s
 Una caja retirada centralmente puede sostener un turno abierto mientras el POS permanezca offline, sin límite temporal. La anomalía se detecta al reconectar y se resuelve mediante revisión, operación tardía o compensación, sin reescribir hechos confirmados.
 
 **Se acepta expresamente**, con el mismo criterio con que `DEC-011:112` acepta que una autorización revocada siga siendo válida hasta `expires_at` mientras el dispositivo esté offline.
+
+## 22. Evaluación de `P-6` — gate DDL de Cash
+
+Evaluado el 2026-09-04. **Resultado: `NO-GO — PENDING DECISION`.** El gate no se abre.
+
+El modelo físico de Cash está **notablemente cerrado** —estados, cardinalidades, idempotencia, secuencias, inmutabilidad y frontera transaccional están especificados—, pero subsisten **cuatro ambigüedades estructurales** que cambian el DDL según cómo se resuelvan. `D5` de este documento sigue siendo una autorización conceptual, no una autorización de migración.
+
+### 22.1 Bloqueos estructurales
+
+**B1 — Base inicial cero: contradicción normativa entre dos documentos.**
+
+- `UC-CASH-001:29` — «El sistema valida que el valor sea **no negativo**» ⇒ cero admitido.
+- `cash-counting-schema.md:105` — «**`amount > 0`**», sin excepción por tipo de movimiento.
+- `cash-counting-schema.md:58` y `:225` — toda apertura crea exactamente un `OPENING_FLOAT` `POSTED` con `shift_sequence=1`, y la base inicial se deriva de ese hecho.
+
+Abrir una caja sin base inicial es una operación de negocio corriente, pero hoy **no es representable**: exigiría un movimiento de importe cero que el CHECK prohíbe. La resolución determina el CHECK del DDL y no puede inferirse.
+
+**B2 — «Turno incompatible» se usa sin definirse.**
+
+El calificativo aparece en `cash-counting-schema.md:59, 66, 142, 222, 242, 289, 293` y en `UC-CASH-001:13, 27, 38, 40`, siempre sin definición. La clave del índice parcial único queda indeterminada:
+
+- `(tenant_id, branch_id, cash_register_id)` — un solo turno por caja, cualquiera sea el terminal; o
+- `(tenant_id, branch_id, cash_register_id, origin_device_id)` — un turno por terminal, permitiendo que dos terminales sostengan turnos simultáneos sobre el mismo cajón físico.
+
+`cash-counting-schema.md:289` contempla además que «múltiples aperturas incompatibles… se llevan a revisión/cuarentena», lo que sugiere que la restricción podría no ser universalmente preventiva. Las dos lecturas producen DDL distinto y semántica financiera distinta.
+
+**B3 — Escala decimal de `amount` ausente de la matriz normativa.**
+
+`physical-conventions.md:137-146` fija escala para `unit_price`, base, impuesto y descuento; Payment, Refund y Reversal; componentes de Settlement; tasas y porcentajes; factores de conversión; cantidad y peso; importe fiscal normalizado; y `payable_amount`. **No fija escala para el importe de un movimiento de caja.** Adoptar `(19,6)` por analogía con Payment sería inferencia, no evidencia.
+
+**B4 — La `sequence` de la proyección de `CashRegister` no tiene ubicación.**
+
+§21.6 estableció que una operación de caja debe registrar con qué versión de la proyección se operó. `cash_cash_shifts` (`cash-counting-schema.md:48`) no contiene esa columna. Las tres ubicaciones posibles —columna directa en el turno, metadato de snapshot separado, o referencia indirecta— no están decididas y afectan al DDL.
+
+### 22.2 Dependencias, no bloqueos del modelo
+
+- **RLS y motor de destino.** `cash-counting-schema.md` no especifica políticas RLS para las tres tablas, y `D5` no declara si la primera migración de Cash es local (SQLite) o central (PostgreSQL). Si es local, RLS no aplica; si es central, sus políticas dependen del contexto confiable de `P-7`, todavía abierto.
+- **Actor.** `opened_by_actor_type` / `opened_by_actor_id` no pueden resolverse contra ninguna proyección local de usuario: no existe, y `sync-base-schema.md:27` prohíbe replicar `User`. **No se creará una tabla `User` local para satisfacer el DDL**; la identidad procede de la SSA verificada.
+
+### 22.3 Qué sí está cerrado
+
+Se registra para no repetir su análisis cuando se reevalúe el gate: tipos y estados de movimiento; `UNIQUE (tenant_id, cash_shift_id, shift_sequence)`; `UNIQUE (tenant_id, origin_device_id, idempotency_key)`; dirección `IN`/`OUT` en lugar de signo ambiguo; moneda coherente entre movimiento, turno y caja, e inmutable mientras existan turnos; sólo `POSTED` participa en `ExpectedCash`; un `POSTED` no se edita ni elimina y la corrección exige movimiento compensatorio; secuencia de apertura en 1; estados `OPEN → CLOSING → CLOSED`; `expected_version` por mutación; claves y checksums de idempotencia independientes para apertura y cierre; frontera transaccional de apertura enumerada paso a paso; y ausencia de delete en cascada sobre historia financiera.
+
+### 22.4 Condición de reevaluación
+
+`P-6` podrá reevaluarse cuando `B1`, `B2`, `B3` y `B4` estén resueltos por decisión registrada. Ninguno admite resolución por inferencia. Hasta entonces el gate de DDL comercial permanece `NO-GO` conforme a `docs/product/backlog.md:362`, y no se crea migración alguna de Cash.
