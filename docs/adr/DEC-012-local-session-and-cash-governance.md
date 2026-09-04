@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) y `P-5` **PROVISIONAL** el 2026-09-04 (ver §20).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) y `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -268,7 +268,7 @@ Las migraciones ya aplicadas son inmutables. Ninguna decisión de este documento
 
 Ninguna de estas pendientes puede resolverse por inferencia. Cada una requiere decisión humana registrada.
 
-**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5` queda `PROVISIONAL` (§20): su estructura queda fijada y resta un único parámetro abierto. `P-6` y `P-7` **continúan abiertos** y ninguno se ve alterado por §18, §19 ni §20.
+**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5` queda `DECIDED`: su estructura en §20 y su única decisión abierta —la caducidad de la proyección— resuelta en §21. `P-6` y `P-7` **continúan abiertos** y ninguno se ve alterado por §18, §19 ni §20.
 
 ## 14. Orden de implementación posterior
 
@@ -617,14 +617,7 @@ No se introduce ninguna abstracción criptográfica nueva.
 
 Propagación: una baja central se refleja emitiendo un snapshot posterior con `sequence` mayor en el que la caja aparece `RETIRED` o ausente. **No existe revocación instantánea offline**, y no se inventa ninguna.
 
-**`PENDING HUMAN DECISION`: ¿caduca la proyección de cajas y con qué ventana?**
-
-No hay fuente normativa. El TTL de 24 h de `DEC-011:104` gobierna el SAS, que es autorización; extenderlo al maestro sería una analogía, no evidencia. Las dos posturas son defendibles y tienen consecuencias opuestas:
-
-- **Sin caducidad** — el maestro no concede privilegio, así que una caja retirada usada offline produce un turno sobre una caja dada de baja, corregible en la reconciliación central. Exposición ilimitada en el tiempo.
-- **Con caducidad** — acota la exposición, pero un POS sin conectividad prolongada se queda sin cajas utilizables y la caja deja de operar.
-
-Mientras no se decida, la ventana máxima de exposición a una baja no propagada **no está acotada** y así debe declararse.
+Propagación por snapshot posterior; **la caducidad de la proyección se resuelve en §21**.
 
 ### 20.9 Atomicidad
 
@@ -635,3 +628,87 @@ Un snapshot inválido —firma, clave, ámbito, secuencia o integridad— **no d
 ### 20.10 Qué NO decide esta sección
 
 No autoriza DDL, migración ni tabla alguna: `P-6` sigue abierto y el gate comercial sigue `NO-GO`. No implementa `CASH-001` ni ninguna operación de caja. No crea contrato, código ni transporte. No resuelve el emisor central. No altera `SSA-*`, `SAS-*` ni ninguna decisión previa de este documento.
+
+## 21. Resolución de `P-5.8` — caducidad de la proyección de `CashRegister`
+
+Resuelto el 2026-09-04. Cierra el único punto que dejaba `P-5` en estado `PROVISIONAL`. Sección aditiva; §20 se conserva y su §20.8 remite aquí.
+
+### 21.1 Decisión
+
+**Opción A — sin caducidad por tiempo.**
+
+Una proyección de `CashRegister` aceptada permanece válida localmente hasta que un snapshot posterior, con secuencia estrictamente mayor, la sustituya, la marque `RETIRED` o la omita. **No se introduce ninguna ventana de frescura ni TTL.**
+
+El riesgo de operar sobre una caja retirada mientras el POS está offline **se acepta explícitamente** como consecuencia del modelo local-first, y se resuelve por reconciliación posterior, no por bloqueo previo.
+
+Estado: **`DECIDED`**.
+
+### 21.2 Evidencia determinante
+
+**1. `DEC-007` ya decidió que la caja opera offline y cuál es su conflicto esperado.** Su «Matriz inicial de autoridad por dominio» registra:
+
+| Dominio | Operación offline | Conflicto esperado |
+|---|---|---|
+| Caja | **Permitida** | **Sesión cerrada o versión inconsistente** |
+| Catálogo | Lectura local; cambios restringidos | **Versión desactualizada** |
+
+Una «versión desactualizada» está tipificada como **conflicto a reconciliar**, no como condición que impida operar. Introducir un TTL convertiría un conflicto previsto y gestionado en una interrupción del servicio, contradiciendo una decisión ya tomada.
+
+**2. El modelo asigna la expirabilidad entidad por entidad, y no se la da a los maestros.** En la tabla de `sync-base-schema.md:65-78`, la columna de ciclo de vida dice:
+
+- `OfflineAuthorizationSnapshot` — «firmado, **expirable** y reemplazable»
+- `GraceAuthorization` — «append-only, **vigencia explícita**»
+- `FeatureEntitlement` — «versión emitida»
+- `LicenseActivation` — «reemplazo crea otra fila»
+- `DeviceActivationResponse` — «append-only, aplicación idempotente»
+
+**`expirable` aparece únicamente en el snapshot de autorización.** Ningún maestro replicado la lleva. La caducidad no es una propiedad genérica de lo replicado: es un atributo que el modelo concede a la autorización y a la gracia porque conceden privilegio.
+
+**3. Existe mecanismo de reconciliación y está definido.** `cash-counting-schema.md:26`: «No se utiliza last-write-wins. **Un conflicto central produce revisión, operación tardía o compensación**; nunca reescribe un movimiento, conteo o cierre confirmado.» El componente resolutor es `SyncConflict` → `SyncReview` (`sync-base-schema.md:76-77`: «resolución versionada, historia preservada», «revisor central autorizado»).
+
+### 21.3 Por qué el TTL del SAS no se extiende al maestro
+
+`DEC-011:104` fija 24 h para el SAS **porque el SAS concede privilegio**: `DEC-011:112` establece que su ventana offline y su ventana de exposición a revocación son la misma magnitud, y por eso su TTL «es una decisión de seguridad y no de conveniencia».
+
+`CashRegister` **no concede privilegio**. `DEC-011:88` lo excluye deliberadamente del SAS: «Una caja es un recurso operativo, no un sujeto de autorización; el permiso se evalúa sobre `branch_id`». Un maestro obsoleto no amplía lo que un usuario puede hacer; a lo sumo permite referirse a un recurso que dejó de existir centralmente.
+
+Igualar ambas ventanas por simetría sería un argumento de consistencia sin sustancia, y el propio repositorio rechaza ese razonamiento al tratar cada entidad por su naturaleza y no por su clase de transporte.
+
+### 21.4 Qué reduce y qué no reduce un TTL
+
+Un TTL **no informa** al POS de que una caja fue retirada: sólo lo detiene transcurrido un plazo, con independencia de que haya ocurrido alguna baja. Por tanto:
+
+| | Con TTL | Sin TTL |
+|---|---|---|
+| Exposición dentro de la ventana | **Presente igualmente** | Presente |
+| Exposición fuera de la ventana | Eliminada, deteniendo la caja | Presente, reconciliable |
+| Disponibilidad offline | **Pérdida cierta** al vencer | Íntegra |
+| Naturaleza del fallo | Interrupción segura pero garantizada | Conflicto raro y corregible |
+
+El TTL cambia un riesgo *raro y reconciliable* por una indisponibilidad *cierta y periódica*. En un punto de venta, la caja detenida es un fallo de negocio inmediato; el turno abierto sobre una caja retirada es una anomalía contable corregible.
+
+**Ninguna política local elimina la ventana de revocación offline.** Sólo la conectividad lo hace. Eso ya está aceptado en `DEC-011:112` para la autorización, con mayor motivo aquí.
+
+### 21.5 Comportamiento offline
+
+Idéntico a 24 h, 48 h, 7 días o un período prolongado: la proyección sigue siendo válida y la caja opera. La propiedad local-first de `ADR-003` se conserva sin degradación por antigüedad.
+
+Al recuperar conectividad se aplica el snapshot posterior, que puede retirar cajas y desencadenar la reconciliación de las operaciones afectadas.
+
+### 21.6 Auditoría — requisito derivado
+
+Sin TTL, la trazabilidad exige registrar **con qué versión de la proyección se operó**. Es la aplicación directa del principio ya establecido en `DEC-011:116` para la autorización: «toda operación se audita con el `snapshot_id` y la `sequence` utilizados… Una operación ejecutada offline bajo una autorización luego revocada no puede deshacerse, pero sí detectarse. Es un requisito de auditoría, no de prevención».
+
+**Requisito para `P-6`:** una operación de caja debe registrar la secuencia de la proyección de `CashRegister` vigente en su momento. El modelo actual de `cash_cash_shifts` no contempla ese campo; incorporarlo corresponde al bloque que autorice el DDL, no a esta decisión.
+
+### 21.7 Opciones descartadas
+
+**B — caducidad independiente.** Contradice `DEC-007`, que registra la operación de caja offline como «Permitida», y convierte un conflicto previsto en indisponibilidad. Sin fuente normativa que la respalde.
+
+**C — política condicional (frescura extra para operaciones financieras).** Sin evidencia. La matriz de `DEC-007` gradúa las políticas por dominio —«Parcialmente permitida» para Devoluciones, «Uso de versión sincronizada» para Pricing— y para Caja dice «Permitida», sin condición de frescura. Adoptar C sería introducir una gradación que el documento no establece.
+
+### 21.8 Riesgo aceptado
+
+Una caja retirada centralmente puede sostener un turno abierto mientras el POS permanezca offline, sin límite temporal. La anomalía se detecta al reconectar y se resuelve mediante revisión, operación tardía o compensación, sin reescribir hechos confirmados.
+
+**Se acepta expresamente**, con el mismo criterio con que `DEC-011:112` acepta que una autorización revocada siga siendo válida hasta `expires_at` mientras el dispositivo esté offline.
