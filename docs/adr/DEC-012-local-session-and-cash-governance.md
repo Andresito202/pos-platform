@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18) y `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -268,7 +268,7 @@ Las migraciones ya aplicadas son inmutables. Ninguna decisión de este documento
 
 Ninguna de estas pendientes puede resolverse por inferencia. Cada una requiere decisión humana registrada.
 
-**Actualización posterior.** `P-2` queda `RATIFICADO`; su registro completo está en §18. Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-3`, `P-5`, `P-6` y `P-7` **continúan abiertos** y ninguna de ellas se ve alterada por §18.
+**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5`, `P-6` y `P-7` **continúan abiertos** y ninguno se ve alterado por §18 ni §19.
 
 ## 14. Orden de implementación posterior
 
@@ -449,3 +449,72 @@ El benchmark deberá ejecutarse sobre (1) el terminal POS de menor capacidad sop
 ### 18.12 Qué NO cambia por esta ratificación
 
 `SEC-G01`, `SEC-G02` y `SEC-G03` permanecen `PLANNED / NOT_EVALUATED`. No se declara autenticación ni autorización completas, ni producción lista. SSA-004, la presencia, el login y Cash siguen sin implementar y sin autorizar. `P-3`, `P-5`, `P-6` y `P-7` de §13 continúan abiertos.
+
+## 19. Resolución de `P-3` — techo de `offline_valid_until`
+
+Resuelto el 2026-09-04 **por derivación de evidencia normativa existente**, no por elección de un valor nuevo. Sección aditiva: no modifica §D3, cuyos tres invariantes se conservan y se completan aquí con su magnitud.
+
+### 19.1 Evidencia determinante
+
+`DEC-011` está **Aceptada como diseño**, decidida por el propietario del sistema el 2026-09-03 (`DEC-011:5-7`), y fija:
+
+- `DEC-011:104` — «**TTL inicial: 24 horas.** Es una política configurable de despliegue, no una constante de negocio: no se codifica en `packages/domain`.»
+- `DEC-011:196`, bajo «Qué queda configurable» — «El TTL, con valor inicial de 24 horas, expresado como política de despliegue.»
+- `DEC-011:112` — «La ventana offline máxima y la ventana de exposición a revocación son la misma magnitud.»
+
+Ese TTL gobierna `SAS.expires_at`. Combinado con el invariante 1 de §D3 —`SSA.offline_valid_until <= SAS.expires_at`—, el techo de la SSA queda determinado sin introducir ningún número nuevo.
+
+### 19.2 Decisión
+
+**El techo de `offline_valid_until` no es una constante independiente: es la ventana del SAS.**
+
+```
+SSA.offline_valid_until  <=  SAS.expires_at  <=  TTL de despliegue vigente
+```
+
+El TTL de despliegue vigente es **24 horas**, por `DEC-011:104`. Ése es, por tanto, el techo efectivo actual de la SSA. Si una política de despliegue posterior modifica el TTL del SAS —cosa que `DEC-011:196` autoriza expresamente—, el techo de la SSA lo sigue automáticamente, sin necesidad de revisar esta decisión.
+
+Estado: **`DECIDED`**. Carácter: **política de despliegue configurable y versionada**, con el mismo régimen que `DEC-011` da al TTL del SAS. No se codifica como constante en `packages/domain`.
+
+### 19.3 Autoridad
+
+| Aspecto | Autoridad |
+|---|---|
+| Valor emitido en cada SSA | **Autoridad central**, dentro de los claims firmados |
+| Techo máximo admisible | **Política de despliegue versionada**, derivada del TTL del SAS |
+| Verificación de la ventana | Cliente local: `SessionAssertionVerifier` (SSA-002) |
+| Verificación del invariante `SSA <= SAS` | **Sin punto de aplicación hoy** — ver §19.5 |
+
+El cliente **rechaza** una SSA cuya ventana exceda el techo aunque su firma sea válida: es defensa en profundidad frente a un emisor mal configurado, no desconfianza del emisor.
+
+### 19.4 Ventana efectiva real
+
+La ventana efectiva no es exactamente el TTL. `TrustedClockGuard` acepta un retroceso de reloj dentro de su tolerancia, hoy `300_000 ms` (`trusted-clock.ts:3`), de modo que una SSA recién expirada puede volver a considerarse vigente durante ese margen.
+
+```
+ventana efectiva  =  TTL  +  tolerancia de retroceso  =  24 h + 5 min
+```
+
+Se registra como **residual conocido y acotado**, no como defecto. Reducirlo exigiría endurecer la tolerancia del reloj, que es una decisión propia y no forma parte de `P-3`.
+
+### 19.5 Invariante `SSA <= SAS`: documentado, no aplicado
+
+**Hallazgo.** El invariante 1 de §D3 no está aplicado en ningún punto del código. `SessionAssertionVerifier` no importa ni conoce el snapshot de autorización, y ningún componente evalúa hoy ambas vigencias a la vez.
+
+En consecuencia, el estado «SSA vigente con SAS expirado» —que el invariante existe para hacer inexpresable— es hoy alcanzable si el emisor emite una SSA más larga que el SAS.
+
+**Requisito para el bloque que introduzca el resolutor de identidad:** ese componente, que será el primero en sostener ambos artefactos a la vez, debe aplicar el invariante y denegar cuando no se cumpla. No se aplica en SSA-002 ni en SSA-003 porque ninguno de los dos ve el otro artefacto, y darles esa visibilidad rompería la separación entre identidad y autorización que `D1` establece.
+
+### 19.6 Relación con la presencia
+
+Las ventanas de presencia ratificadas en §18.7 —inactividad de 10 minutos y ventana máxima de 2 horas— quedan holgadamente contenidas en el techo de 24 horas. La cadena de vigencia efectiva es:
+
+```
+presence_valid_until  <=  SSA.offline_valid_until  <=  SAS.expires_at
+```
+
+**La presencia nunca amplía la ventana de confianza**; sólo puede estrecharla.
+
+### 19.7 Qué no constituye evidencia
+
+Los fixtures de los tests de SSA y SAS emplean ventanas de 24 horas (`2026-09-03T00:00:00Z` → `2026-09-04T00:00:00Z`). **Coinciden con el TTL normativo, pero no son su fuente**: se eligieron por legibilidad aritmética y ningún test afirma un techo. La fuente normativa es exclusivamente `DEC-011:104`. Ningún fixture debe elevarse a política.
