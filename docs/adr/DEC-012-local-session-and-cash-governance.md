@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29) y `M2` —`reference_type`/`reference_id`— queda **`DECIDED`** el 2026-09-04 por ratificación humana, opción C: no se materializan en la primera migración de Cash (ver §30, que registra además la corrección documental de `B1` sin alterar su decisión). `M3` queda **`CLOSED`** el 2026-09-04 con la opción `G1`, y el motor de la primera materialización queda decidido en `SQLite` (`P-6I`). Con ello la revalidación formal emite **`P-6 = PASS`** en su alcance arquitectónico (ver §31). Ese `PASS` **no** es la autorización de §13, **no** autoriza DDL ni `MIGRATION_009` y **no** inicia implementación.
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29) y `M2` —`reference_type`/`reference_id`— queda **`DECIDED`** el 2026-09-04 por ratificación humana, opción C: no se materializan en la primera migración de Cash (ver §30, que registra además la corrección documental de `B1` sin alterar su decisión). `M3` queda **`CLOSED`** el 2026-09-04 con la opción `G1`, y el motor de la primera materialización queda decidido en `SQLite` (`P-6I`). Con ello la revalidación formal emite **`P-6 = PASS`** en su alcance arquitectónico (ver §31). Ese `PASS` **no** era la autorización de §13. Ésta se ratificó el 2026-09-04 con alcance acotado (ver §32): las tres tablas de Cash y los componentes locales de `DEC-013` §24 limitados a `snapshot_type = CASH_REGISTER`. Sales, Catalog, Pricing, Tax y Payments **siguen fuera**; `B-3` y `B-4` permanecen vigentes; la materialización **no ha comenzado**.
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -1444,3 +1444,46 @@ Ninguno es un `FAIL` arquitectónico: ninguno contradice una decisión previa ni
 ### 31.11 Propagación documental pendiente
 
 Las decisiones de `M1` (§29), `M2` (§30) y `M3` (esta sección) están registradas **sólo en este documento**. `cash-counting-schema.md` todavía no enuncia el dominio de los `*_actor_type`, ni la exclusión de `reference_type`/`reference_id` de la primera materialización, ni el modelo de proyección de `G1`. Propagarlas corresponde al bloque que lo autorice; no se hace aquí.
+
+## 32. Ratificación de `P-6` — autorización de materialización
+
+Ratificada el 2026-09-04 por **Wilson Andrés Camacho Culma**, responsable del producto, como decisión humana explícita conforme a §13.
+
+**Relación con el encabezado de este documento.** §Estado declara que este documento «no autoriza implementar nada» y que «la materialización de cada decisión aquí descrita requiere **autorización explícita en un bloque posterior y firma del responsable**». Esta sección **es** esa autorización posterior y firmada. No contradice el encabezado: lo cumple. El cuerpo del documento y §10 se conservan sin edición.
+
+### 32.1 Alcance autorizado
+
+Se autoriza materializar, y **únicamente**:
+
+1. Las tres tablas de `D5`: `cash_register`, `cash_shift`, `cash_movement`.
+2. Los componentes locales **1-8 y 13-14** de `DEC-013` §24 —contrato de claims; tipos y códigos de fallo; tabla de artefacto y proyección SQLite; repositorios; verificador genérico; anti-replay; transacción de activación atómica; integración con checkpoint; auditoría; observabilidad y cota de recuperación—, **acotados exclusivamente a `snapshot_type = CASH_REGISTER`**.
+
+La autorización comprende **sólo la materialización de contratos y decisiones arquitectónicas ya aprobadas**.
+
+### 32.2 Alcance expresamente no autorizado
+
+Sales · Catalog · Pricing · Tax · Payments · `PaymentGroup` · `Payment` · `PaymentAttempt` · `PaymentAllocation` · Refund · Reversal · Settlement · Reconciliation · `UC-PAY-002` · `CASH` como medio de pago · `CARD` como medio de pago · QR dinámico · Bre-B · proveedores · webhooks · Confirmation Engine · audio · confirmación visual · componente 15 de `DEC-013` §24 · **y cualquier capacidad no incluida expresamente en §32.1**.
+
+Las proyecciones locales de `CATALOG`, `PRICING` y `TAX` quedan fuera: el acotamiento a `snapshot_type = CASH_REGISTER` es parte del alcance, no una nota.
+
+Para todo lo anterior siguen vigentes el `NO-GO` de §10 y el de `docs/product/backlog.md:362`.
+
+### 32.3 Bloqueos que esta autorización no resuelve
+
+| Bloqueo | Alcance | Estado |
+|---|---|---|
+| **`B-3`** | Componentes centrales **9-12** de `DEC-013` §24: worker central, publicador desde outbox, KMS/firma, endpoint de descarga | **Vigente** |
+| **`B-4`** | `QR-001` | **Vigente** |
+| **`B-2b`** | Autoridad que pueda autorizar Sales, Catalog, Pricing, Tax y Payments; `DEC-012` no es ese vehículo | **Abierto** |
+
+### 32.4 Límites normativos
+
+1. Esta autorización **no modifica arquitectura**.
+2. **No modifica `DEC-013`**, ni Cash, ni `P-6`, ni `G1`.
+3. **No autoriza decisiones arquitectónicas nuevas.** Autorizar materialización no es autorizar arquitectura: la implementación se limita a contratos aprobados y decisiones cerradas.
+4. Cualquier ampliación de alcance exige un gate nuevo y autorización explícita.
+5. La ratificación **no inicia la implementación**: habilita el gate siguiente.
+
+### 32.5 Estado resultante
+
+`B-2a` **`CLOSED`** · `B-2b` **`OPEN`** · `B-3` y `B-4` **vigentes** · materialización **no iniciada**.
