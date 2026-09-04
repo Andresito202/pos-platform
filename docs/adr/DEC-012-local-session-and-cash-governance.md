@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) y `B2` queda acotado a una única pregunta de negocio, pendiente (ver §24).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -805,3 +805,62 @@ Se corrige **únicamente la fuente inconsistente**: `cash-counting-schema.md:105
 El CHECK general de importe deja de ser incondicional y pasa a estar condicionado por tipo: positivo estricto para todo tipo distinto de `OPENING_FLOAT`, y no negativo para `OPENING_FLOAT`. La prohibición de importes ambiguos se preserva porque la dirección sigue expresada por `IN`/`OUT` y el cero no admite lectura de signo.
 
 **No se escribe SQL aquí, y `B1` resuelto no reabre el gate:** §22 permanece `NO-GO` mientras `B2`, `B3` y `B4` sigan abiertos.
+
+## 24. Análisis de `B2` — «turno incompatible»
+
+Analizado el 2026-09-04. **Resultado: `PENDING HUMAN DECISION`.** No se decide, porque las fuentes normativas se contradicen entre sí y la resolución depende de un hecho de negocio que ningún documento establece. `B1` (§23) permanece intacto; `B3`, `B4` y RLS no se tocan.
+
+Este análisis **acota** el bloqueo: `B2` deja de ser «un término sin definir» y pasa a ser **una única pregunta de negocio**.
+
+### 24.1 La pregunta que falta
+
+> **¿Una misma caja física puede ser operada simultáneamente desde más de un terminal?**
+
+Las dos opciones **sólo divergen en esa configuración**. Si cada terminal tiene su propio cajón, cada cajón es una `CashRegister` distinta y ambas reglas se comportan igual. La divergencia aparece únicamente cuando **un cajón físico es compartido por dos terminales**.
+
+- **Si la respuesta es no** → opción **A**: unicidad por `(tenant, sucursal, caja)`.
+- **Si la respuesta es sí** → opción **B**: unicidad por `(tenant, sucursal, caja, dispositivo)`.
+
+Es un hecho de despliegue y de operación del comercio, no una propiedad derivable de la arquitectura.
+
+### 24.2 Contradicción interna en `UC-CASH-001`
+
+El caso de uso —fuente de máxima prioridad— se contradice consigo mismo:
+
+| Sección | Texto | Implica |
+|---|---|---|
+| Flujo principal, paso 3 | «El sistema verifica que **la caja** no tenga un turno abierto incompatible» | Ámbito de **caja** |
+| Excepciones | «**Caja abierta por otro usuario**», sin calificar el terminal | Ámbito de **caja** |
+| Precondiciones | «**Caja física** activa» | La caja es un cajón físico |
+| Pruebas mínimas | «**segunda apertura**», sin calificar el dispositivo, y separada de «dispositivo ajeno» | Ámbito de **caja** |
+| **Frontera transaccional** | «restricción que impida más de un turno abierto incompatible **por tenant, sucursal, caja y terminal**» | Ámbito de **caja + terminal** |
+
+No existe lectura en la que ambas afirmaciones sean simultáneamente correctas: añadir el terminal a la clave **debilita** la unicidad. Una de las dos es un error de redacción, y el documento no permite determinar cuál.
+
+### 24.3 Evidencia técnica, que inclina pero no zanja
+
+Tres observaciones respaldan la opción **A**, sin sustituir la decisión de negocio:
+
+1. **`origin_device_id` es procedencia e idempotencia, nunca propiedad.** Aparece en `CashShift`, `CashMovement`, `CashCount` y `CashDifferenceReviewAction`, y en todos los casos su función documentada es la misma: segundo componente de la clave de idempotencia —`UNIQUE (tenant_id, origin_device_id, idempotency_key)` (`cash-counting-schema.md:108, 159, 160, 214`)—. En ningún punto expresa exclusividad ni titularidad.
+
+2. **El turno no pertenece al terminal que lo abrió.** `UC-CASH-002` exige como precondición «El usuario tiene **acceso al turno**», no que sea el mismo dispositivo, y su entrada es `cash_shift_id`. Un turno se cierra desde donde haya acceso autorizado.
+
+3. **Coherencia del arqueo.** `CashCount` compara **efectivo físico** contra un `expected_amount` calculado por turno (`:139`, `:141`, `:144`). Dos turnos simultáneos sobre un mismo cajón producirían dos `expected_amount` distintos contra un único `counted_amount` físico, y ninguna de las dos diferencias sería atribuible.
+
+La tercera observación es una **deducción** a partir de hechos documentados, no una regla escrita. Por eso inclina la recomendación pero no la convierte en evidencia normativa.
+
+### 24.4 Recomendación técnica
+
+**Opción A**, si el negocio confirma que no se comparte cajón entre terminales. Es además la opción más segura ante la duda: rechaza también la configuración de cajón compartido, que bajo A sería una mala configuración y bajo B una operación válida.
+
+**No se adopta sin la confirmación**, porque elegir A cuando el negocio sí comparte cajón bloquearía operación legítima, y elegir B cuando no lo comparte permitiría dos custodias simultáneas sobre el mismo efectivo.
+
+### 24.5 Qué exige la resolución
+
+Una vez respondida la pregunta de §24.1:
+
+1. corregir la sección inconsistente de `UC-CASH-001` —Frontera transaccional o Excepciones, según la respuesta—;
+2. definir «turno incompatible» de forma expresa en `cash-counting-schema.md`, eliminando el calificativo sin definición de sus siete apariciones;
+3. registrar la resolución aquí.
+
+Hasta entonces `B2` sigue bloqueando el gate de §22, que permanece `NO-GO`.
