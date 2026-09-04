@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`.
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29); `M2` —catálogo de `reference_type`— queda **`PENDING HUMAN DECISION`**, y `M3` no se ha abordado. El gate sigue **`NO-GO`**.
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -1022,9 +1022,9 @@ La combinación `C` (ambos contadores) queda descartada por 27.3: añade un dato
 
 ### 27.5 Por qué columna directa y no metadato separado ni referencia indirecta
 
-**Alternativa A — columna directa. Seleccionada.** Es el patrón que el propio esquema de Cash ya aplica a toda entrada versionada que congela: `cash-counting-schema.md:125` declara en `CashCount` las columnas `started_shift_version`, `movement_cutoff_sequence`, `calculation_policy_version`, `calculation_checksum`, `tolerance_policy_version` y `tolerance_policy_checksum`, y `:141` describe su semántica: «**Iniciar congela** `started_shift_version` y `movement_cutoff_sequence`». `cash_cash_movement_actions` (`:211`) hace lo mismo con `authorization_policy_version`, e `inventory-receiving-schema.md:63` con `conversion_version`. La convención está escrita y es uniforme: **la procedencia versionada de una entrada se congela como columna de la fila que la consumió**.
+**Alternativa A — columna directa. Seleccionada.** Es el patrón que el propio esquema de Cash ya aplica a toda entrada versionada que congela: `cash-counting-schema.md:126` declara en `CashCount` las columnas `started_shift_version`, `movement_cutoff_sequence`, `calculation_policy_version`, `calculation_checksum`, `tolerance_policy_version` y `tolerance_policy_checksum`, y `:141` describe su semántica: «**Iniciar congela** `started_shift_version` y `movement_cutoff_sequence`». `cash_cash_movement_actions` (`:211`) hace lo mismo con `authorization_policy_version`, e `inventory-receiving-schema.md:63` con `conversion_version`. La convención está escrita y es uniforme: **la procedencia versionada de una entrada se congela como columna de la fila que la consumió**.
 
-**Alternativa B — tabla de metadatos de snapshot separada. Descartada.** Sin precedente en el repositorio para esta clase de dato, y en conflicto con la frontera transaccional de la apertura, enumerada paso a paso en `cash-counting-schema.md:225-232` y en `UC-CASH-001:46-50`: introduciría una escritura y una relación adicionales dentro de un commit ya especificado, sin resolver nada que la columna no resuelva.
+**Alternativa B — tabla de metadatos de snapshot separada. Descartada.** Sin precedente en el repositorio para esta clase de dato, y en conflicto con la frontera transaccional de la apertura, enumerada paso a paso en `cash-counting-schema.md:226-233` y en `UC-CASH-001:46-50`: introduciría una escritura y una relación adicionales dentro de un commit ya especificado, sin resolver nada que la columna no resuelva.
 
 **Alternativa C — referencia indirecta a la fila de la proyección. Descartada por evidencia, no por preferencia.** La proyección se reemplaza atómicamente y por completo (§20.4, `catalog-schema.md:243` y `:276`). Una referencia a la fila proyectada **resolvería siempre a la proyección vigente, no a la utilizada**: exactamente lo contrario del requisito de §21.6. Es la única de las tres alternativas que no puede cumplir su objetivo.
 
@@ -1036,7 +1036,7 @@ La combinación `C` (ambos contadores) queda descartada por 27.3: añade un dato
 | Tabla | `cash.cash_shifts` / `cash_cash_shifts` | §21.6 |
 | Tipo | `bigint` en PostgreSQL, `INTEGER` en SQLite | `sync-base-schema.md:104`, `:188`; `physical-conventions.md:230` |
 | Nulabilidad | `NOT NULL` | El requisito de §21.6 no admite excepción, y `CashShift` es `LOCAL_AUTHORITATIVE_SYNCED` (`cash-counting-schema.md:25`): todo turno nace en el POS que lo opera, sobre una proyección previamente aceptada |
-| Mutabilidad | Congelada en la apertura; ninguna transición posterior la modifica | `cash-counting-schema.md:141` |
+| Mutabilidad | Congelada en la apertura; ninguna transición posterior la modifica | `cash-counting-schema.md:142` |
 
 El nombre sigue una convención existente; **no se introduce ningún concepto nuevo**. La columna no es clave, no participa en unicidad, no interviene en `ExpectedCash` y no condiciona ninguna transición de estado: es evidencia de procedencia.
 
@@ -1068,9 +1068,9 @@ Los cuatro bloqueos de §22.1 están efectivamente cerrados. La reevaluación en
 
 | Bloqueo | Estado | Registro | Efecto sobre el DDL |
 |---|---|---|---|
-| `B1` — base inicial cero | `DECIDED` | §23; `cash-counting-schema.md:105` | `CHECK` de `amount` con excepción única para `OPENING_FLOAT` (`>= 0`) |
+| `B1` — base inicial cero | `DECIDED` | §23; `cash-counting-schema.md:107` | `CHECK` de `amount` con excepción única para `OPENING_FLOAT` (`>= 0`) |
 | `B2` — turno incompatible | `DECIDED` | §25; `cash-counting-schema.md:59` | Índice parcial único `(tenant_id, branch_id, cash_register_id)` sobre `OPEN`/`CLOSING` |
-| `B3` — escala monetaria | `DECIDED` | §26; `physical-conventions.md`, `cash-counting-schema.md:104` | `numeric(19,6)` / TEXT decimal canónico de seis decimales |
+| `B3` — escala monetaria | `DECIDED` | §26; `physical-conventions.md`, `cash-counting-schema.md:106` | `numeric(19,6)` / TEXT decimal canónico de seis decimales |
 | `B4` — procedencia de la proyección | `DECIDED` | §27; `cash-counting-schema.md:48`, regla 8 | Columna `cash_register_projection_sequence` `NOT NULL`, congelada |
 
 Ninguno se reabre.
@@ -1092,11 +1092,11 @@ La pregunta «¿está completo el modelo físico?» sólo es respondible separan
 
 `cash_cash_shifts` declara `opened_by_actor_type` (no nulo) y `closed_by_actor_type NULL`; `cash_cash_movements` declara `actor_type` (no nulo) y `approved_by_actor_type NULL` (`cash-counting-schema.md:48`, `:73`). **Ningún documento enumera sus valores admisibles.** `physical-conventions.md:196` obliga: «estados como `text` con `CHECK` versionado en migración», y `foundation-schema.md:84`, `:248`, `:369` y `:394` declaran explícitamente los suyos (`USER`, `PLATFORM_ACCOUNT`, `SYSTEM`). El runtime local usa un conjunto distinto —`DEVICE`, `SYSTEM`, `USER` en `local_operation_audit` tras `MIGRATION_008`—. No hay forma de escribir el `CHECK` sin decidir.
 
-Lo que sí está determinado: el invariante 7 de §4 excluye `DEVICE` de una operación comercial, de modo que abrir un turno con actor `DEVICE` está prohibido. Lo que **no** está determinado: si `SYSTEM` es admisible —la sección «Importación desde fuentes externas» (`cash-counting-schema.md:275-288`) autoriza crear `CashShift` y `CashMovement` históricos, que necesitan un actor— y si `PLATFORM_ACCOUNT` lo es. Un `CHECK` equivocado no se corrige: SQLite no admite alterarlo y exige reconstruir la tabla, «el punto de mayor riesgo del conjunto» según §D4.
+Lo que sí está determinado: el invariante 7 de §4 excluye `DEVICE` de una operación comercial, de modo que abrir un turno con actor `DEVICE` está prohibido. Lo que **no** está determinado: si `SYSTEM` es admisible —la sección «Importación desde fuentes externas» (`cash-counting-schema.md:276-289`) autoriza crear `CashShift` y `CashMovement` históricos, que necesitan un actor— y si `PLATFORM_ACCOUNT` lo es. Un `CHECK` equivocado no se corrige: SQLite no admite alterarlo y exige reconstruir la tabla, «el punto de mayor riesgo del conjunto» según §D4.
 
 **`M2` — `reference_type` sin catálogo ni regla de copresencia. Bloqueante.**
 
-`cash_cash_movements` declara `reference_type` (no nulo) junto a `reference_id NULL` (`:73`), y ninguna de las constraints de `:100-115` fija qué valores admite ni cuándo `reference_id` debe estar presente o ausente. Es exactamente el defecto que la revisión transversal de `R5` tipificó como blocker `B06` y cerró para `AuditEvent` mediante `resource_reference_kind` con `INSTANCE`/`SYSTEM`/`BATCH`, «la combinación determina de forma verificable si `resource_id` es obligatorio o nulo, sin sentinel» (`traceability.md`, tabla `R5`). El repositorio ya trató esta clase de ambigüedad como bloqueante en su propio proceso; tratarla ahora como cosmética sería incoherente.
+`cash_cash_movements` declara `reference_type` (no nulo) junto a `reference_id NULL` (`:73`), y ninguna de las constraints de `:104-116` fija qué valores admite ni cuándo `reference_id` debe estar presente o ausente. Es exactamente el defecto que la revisión transversal de `R5` tipificó como blocker `B06` y cerró para `AuditEvent` mediante `resource_reference_kind` con `INSTANCE`/`SYSTEM`/`BATCH`, «la combinación determina de forma verificable si `resource_id` es obligatorio o nulo, sin sentinel» (`traceability.md`, tabla `R5`). El repositorio ya trató esta clase de ambigüedad como bloqueante en su propio proceso; tratarla ahora como cosmética sería incoherente.
 
 Agravante de alcance: los valores naturales de `reference_type` nombran agregados —venta, pago, devolución— cuyas tablas `D5` **no autoriza**. Decidir el catálogo obliga a decidir si el discriminador puede referirse a filas que aún no existen y si `reference_id` queda sin FK.
 
@@ -1117,7 +1117,7 @@ Las tres opciones deben mantenerse separadas, y **ambas ramas puras tienen hoy u
 | Opción | Precondición incumplida | Fuente |
 |---|---|---|
 | **A — SQLite local primero** | No existe el emisor ni el transporte del snapshot maestro de `CashRegister`, y su proyección local no tiene tabla (`M3`) | §20.4, 28.3 |
-| **B — PostgreSQL central primero** | `origin_device_id` es no nulo en las tres tablas y `Device`/`Licensing` no está materializado; el manifiesto prohíbe «UUID libres sin FK» (§2, regla 5). Además la aceptación central exige Inbox, excluida de `001` (§2, regla 2) y ausente de `002`/`003` | `first-target-migration-manifest.md:2`, `cash-counting-schema.md:262`, `traceability.md` |
+| **B — PostgreSQL central primero** | `origin_device_id` es no nulo en las tres tablas y `Device`/`Licensing` no está materializado; el manifiesto prohíbe «UUID libres sin FK» (§2, regla 5). Además la aceptación central exige Inbox, excluida de `001` (§2, regla 2) y ausente de `002`/`003` | `first-target-migration-manifest.md:2`, `cash-counting-schema.md:263`, `traceability.md` |
 | **C — unidad coordinada** | Acumula ambas | — |
 
 Que ambas ramas estén bloqueadas **no decide la opción**: decide que la elección no puede tomarse por conveniencia de implementación y que, elegida cualquiera, seguiría faltando infraestructura. La decisión humana debe registrar la opción **y** el orden en que se levantan sus precondiciones.
@@ -1183,3 +1183,108 @@ El criterio de `PASS` exige siete condiciones. Se cumplen la de constraints y re
 ### 28.11 Condición de reevaluación de `P-6`
 
 `P-6` podrá reevaluarse cuando las cinco decisiones de 28.8 estén registradas. Los cuatro bloqueos originales de §22.1 no se reevalúan: quedaron cerrados y su cierre se conserva.
+
+## 29. Resolución de `M1` y evaluación de `M2` — `P-6F`
+
+Ejecutado el 2026-09-04 sobre las dos indeterminaciones que §28.3 aisló. **`M1` queda `DECIDED`; `M2` queda `PENDING HUMAN DECISION`.** `M3`, el motor de migración y `P-7` no se tocan. `B1`–`B4` no se reabren. Sección aditiva.
+
+Por instrucción del bloque, la resolución de `M1` se registra **únicamente aquí**: `cash-counting-schema.md` **no** se modifica. La propagación de la regla al modelo físico queda pendiente para el bloque que la autorice, y hasta entonces ese documento sigue sin enunciar el dominio.
+
+### 29.1 `M1` — dominio de los `*_actor_type` de Cash
+
+**Decisión: el dominio es `{ USER }`, idéntico para los tres campos.**
+
+| Campo | Actores permitidos | Actores rechazados | Evidencia | Decisión |
+|---|---|---|---|---|
+| `cash_cash_shifts.opened_by_actor_type` | `USER` | `DEVICE`, `SYSTEM`, `PLATFORM_ACCOUNT` | `DEC-011:11`; `UC-CASH-001:9,14`; §4 inv. 7 | `DECIDED` |
+| `cash_cash_shifts.closed_by_actor_type` | `USER` | `DEVICE`, `SYSTEM`, `PLATFORM_ACCOUNT` | `UC-CASH-002:5,10,36`; `UC-CASH-002:37` | `DECIDED` |
+| `cash_cash_movements.actor_type` | `USER` | `DEVICE`, `SYSTEM`, `PLATFORM_ACCOUNT` | `UC-CASH-003:300-301,376`; `:1033-1092` | `DECIDED` |
+| `cash_cash_movements.approved_by_actor_type` | `USER` | `DEVICE`, `SYSTEM`, `PLATFORM_ACCOUNT` | `UC-CASH-003:650-664`, `:1055-1075`; `cash-counting-schema.md:216` | `DECIDED` |
+
+#### Análisis por actor
+
+**`USER` — admitido.** `DEC-011:11` establece que «todo vertical comercial —`UC-CASH-001`, `UC-CASH-002`, `UC-CASH-003`, `UC-SALES-001`— exige un usuario autenticado con permiso». `UC-CASH-001` lo repite como precondición («Usuario autenticado», «El usuario tiene permiso»), `UC-CASH-002:5` fija el actor principal en «Cajero o usuario autorizado» y `UC-CASH-003:376` hace que el flujo valide autenticación antes que nada. Los permisos de `UC-CASH-003:1033-1092` se enuncian exclusivamente para roles humanos: cajero, supervisor, administrador, domiciliario.
+
+**`DEVICE` — rechazado, por prohibición expresa.** El invariante 7 de §4 de este documento: «Un actor `DEVICE` nunca obtiene permisos comerciales, ni por inferencia ni por configuración». `D4` añade el fundamento: atribuir actos de usuario al dispositivo «produciría un rastro falso». `RT-006` conserva su ruta `DEVICE` para `operation.confirm`, que no es una operación de caja.
+
+**`SYSTEM` — rechazado, y no por comodidad de la importación.** La pregunta relevante era si la importación histórica lo exige, y **no lo exige**: `cash-counting-schema.md:285` prescribe que un movimiento histórico se produce «preservando tipo, importe, **usuario** y timestamp», y `:291` prohíbe inferir «aprobaciones» o «incidencias». El importador conserva el usuario del sistema de origen; no fabrica un actor técnico.
+
+Fuera de la importación, ningún documento autoriza un movimiento de caja de autoría no humana, y varios lo prohíben de forma explícita: `UC-CASH-002:37` —el cierre calcula la diferencia «sin crear movimientos automáticos»—, `UC-CASH-003:470` —«El sistema no debe ocultarla como ajuste automático»—, su invariante 25 (`:353`) —«La caja no inventa efectivo»—, la regla 6 del ingreso manual (`:492`) —«No puede utilizarse para cuadrar caja silenciosamente»— y `cash-counting-schema.md:216`, que mantiene las aprobaciones críticas sin autoridad vigente en `REVIEW_REQUIRED` o `ESCALATED` en vez de resolverlas automáticamente.
+
+**`PLATFORM_ACCOUNT` — rechazado por ausencia de rol.** `foundation-schema.md:84,248,369,394` lo reserva a la ruta de plataforma, y `physical-conventions.md:320` describe `pos_platform_app` como «onboarding e identidad por ruta de plataforma separada». Ningún documento de Cash le asigna función alguna, y `DEC-011` construye la autorización sobre `user_id` con `assignments` por tenant, condición que una cuenta de plataforma no satisface.
+
+#### Respuestas explícitas
+
+1. **Operación humana de caja:** sólo `USER`.
+2. **Operaciones técnicas/históricas:** también `USER`; el importador preserva el usuario de origen (`cash-counting-schema.md:285`). No aparece ningún actor técnico legítimo.
+3. **¿`DEVICE` puede abrir, cerrar o aprobar?** No, por el invariante 7 de §4.
+4. **¿`SYSTEM` como actor histórico/técnico?** No: la única vía que podría exigirlo —la importación— preserva usuario, y admitirlo abriría la puerta a movimientos automáticos que cuatro reglas distintas prohíben.
+5. **¿`PLATFORM_ACCOUNT` en Cash?** Ningún papel documentado.
+6. **¿Dominio idéntico en los tres campos?** Sí. Lo que difiere no es el dominio sino la obligatoriedad: `opened_by_actor_type` es no nulo; `closed_by_actor_type` y `approved_by_actor_type` son nulos mientras el turno no se cierre o la operación no requiera aprobación.
+7. **Importación histórica:** cubierta sin ampliar el dominio.
+8. **¿Evidencia suficiente?** Sí, y en las cuatro direcciones: una admisión expresa, una prohibición expresa, una vía descartada con su propia cita y una ausencia total de rol.
+
+#### Regla normativa
+
+1. Los cuatro campos admiten exclusivamente el valor `USER`, con `CHECK` versionado conforme a `physical-conventions.md:196`.
+2. La copresencia se expresa como comprobación condicional, no reescribiendo la nulabilidad declarada: `actor_type <> 'USER' OR actor_id IS NOT NULL`, para cada par tipo/identificador. Es el patrón ya materializado en `MIGRATION_008` sobre `local_operation_audit`, y sobrevive sin cambios a una futura ampliación del dominio.
+3. Un par de cierre o de aprobación es **copresente o ausente**: ambos nulos, o ambos presentes.
+4. `opened_by_actor_id` no lleva FK local: `sync-base-schema.md:27` prohíbe replicar `User` y §22.2 lo confirma. La identidad procede de la SSA verificada.
+5. Ampliar el dominio en el futuro exige migración compatible y pruebas de consumidores anteriores (`physical-conventions.md:196`); no es una decisión del adaptador.
+
+**Alcance.** La decisión cubre los cuatro campos de las dos tablas que `D5` autoriza. Los campos de actor de `CashCount`, `CashDifferenceReview` y `CashDifferenceReviewAction` quedan **fuera**: sus tablas no están autorizadas y no se decide por anticipado.
+
+**Impacto en el DDL futuro:** dos `CHECK` de dominio por tabla y cuatro comprobaciones condicionales de copresencia. Ninguna columna cambia de tipo ni de nulabilidad declarada.
+
+### 29.2 `M2` — `reference_type` / `reference_id`
+
+**Estado: `PENDING HUMAN DECISION`.** La documentación determina la *forma* de la solución, pero **no** su contenido, y el contenido es el que hace falta para escribir el DDL.
+
+#### Qué queda cerrado por evidencia
+
+1. **`reference_type` debe ser catálogo cerrado con `CHECK` versionado.** `physical-conventions.md:196` no admite texto libre para un discriminador; el propio bloque lo exigía como condición.
+2. **La copresencia debe ser verificable estructuralmente, no por convención.** `physical-conventions.md:260`: RLS «no reemplaza candidate keys, FKs, checks ni validación del caso de uso». Es la misma exigencia que `R5` impuso a `AuditEvent`.
+3. **La compensación no depende de este par.** `cash-counting-schema.md:73` y su constraint dedicada dan al movimiento compensatorio su propia columna `original_cash_movement_id`, con FK dentro de una tabla que `D5` sí autoriza. `UC-CASH-003:652` —«Toda compensación referencia el movimiento original»— queda satisfecho sin usar `reference_type`.
+4. **`reference_id` no puede ser un UUID libre sin FK.** `first-target-migration-manifest.md` §2, regla 5: «referencias a Device se conservan físicamente nulas mediante checks temporales, **no como UUID libres sin FK**». Es una regla general de la casa, no una excepción de Device.
+5. **Consecuencia de 4 con el alcance de `D5`:** los orígenes naturales de un movimiento —venta, pago, refund— pertenecen a agregados que `D5` **no autoriza** y cuyas tablas no existen en ninguna de las dos series. Hoy no hay destino al que una FK pueda apuntar.
+
+#### Qué queda abierto — y por qué no puede cerrarse por análisis
+
+- **El catálogo exacto.** Ningún documento enumera valores de `reference_type` en ninguna parte. Los tipos de movimiento (`cash-counting-schema.md:77-92`, `UC-CASH-003:242-261`) permiten *inferir* qué agregados podrían aparecer, pero inferir tokens y escribirlos en un `CHECK` es exactamente inventarlos. `UC-CASH-003:261` lo deja abierto de forma explícita: «Los tipos definitivos deben quedar versionados y extensibles».
+- **El tratamiento del movimiento sin origen externo.** `reference_type` está declarado **no nulo** (`cash-counting-schema.md:73`), pero un retiro, un gasto, un ajuste, una transferencia a caja fuerte o el propio `OPENING_FLOAT` no tienen agregado de origen. Caben al menos tres formas —un token de «sin origen», volver nulable la columna, o un discriminador de clase al estilo de `resource_reference_kind`— y **ninguna está documentada**. Elegir una es una decisión de producto sobre cómo se lee la trazabilidad financiera, no una derivación.
+- **Si `reference_id` puede señalar a una entidad inexistente localmente.** La regla 4 dice que no como UUID libre; queda por decidir si se adopta el patrón de check temporal —forzar `NULL` hasta que el agregado exista— o si el catálogo inicial simplemente no incluye esos orígenes.
+
+#### Comparación con `AuditEvent`, sin copia automática
+
+`resource_reference_kind` (`foundation-schema.md:444`, `physical-conventions.md:306`) resuelve el mismo problema formal: un discriminador de tres valores donde `INSTANCE` exige `resource_id` real, `SYSTEM` lo exige nulo porque no hay instancia y `BATCH` lo exige nulo con `operation_id` presente; «No se inventa UUID sentinel». Es el precedente correcto de **forma**.
+
+No es trasladable de **contenido** por dos razones concretas: `AuditEvent` refiere a recursos que existen en su propia migración, mientras que Cash referiría a agregados no autorizados; y el eje de `AuditEvent` es «qué clase de objeto», mientras que en Cash el eje útil es «de qué operación financiera procede el efectivo», que no es la misma pregunta. Adoptar sus tres valores sería resolver una pregunta distinta con la respuesta de otra.
+
+#### Decisión que debe tomar el producto
+
+Una sola, con tres partes inseparables:
+
+1. el **catálogo exacto** de `reference_type`, incluida la forma de representar «sin origen externo»;
+2. si `reference_type` permanece **no nulo** o pasa a nulable;
+3. la **regla de copresencia** por valor: para qué valores `reference_id` es obligatorio, para cuáles debe ser nulo, y si los orígenes cuyos agregados aún no existen quedan excluidos del catálogo inicial o se admiten con check temporal que fuerza `NULL`.
+
+Mientras esa decisión no exista, el DDL de `cash_cash_movements` no puede escribirse sin inventar.
+
+### 29.3 Hallazgo adyacente a `B1` — no se reabre
+
+Al inspeccionar el catálogo de tipos y estados para `M2` aparecieron **dos afirmaciones documentales contrarias a `B1`**, que §23 no examinó:
+
+- `UC-CASH-003:348` — invariante global 20: «Ningún movimiento se crea con importe cero», en un documento que enumera `OPENING_FLOAT` entre sus tipos de movimiento (`:244`);
+- `cash-counting-schema.md:300` — prueba obligatoria 6: «importe cero, signo ambiguo o moneda distinta **se rechazan**».
+
+`B1` (§23) decidió que `OPENING_FLOAT` admite `amount >= 0` y corrigió **únicamente** la línea de la restricción de importe de `cash-counting-schema.md` (§23.5; hoy `:107`). Su argumento de jerarquía —el caso de uso prevalece sobre el modelo físico— se apoyó en `UC-CASH-001`; `UC-CASH-003` es también un caso de uso y dice lo contrario.
+
+**`B1` no se reabre**: la decisión sigue vigente, y su fundamento —`OPENING_FLOAT` declara la base y el cero no introduce signo ambiguo— no queda refutado por estas dos líneas. Pero el conjunto documental **no es coherente**, y una prueba obligatoria que exige rechazar el importe cero contradice de forma directa el `CHECK` que `B1` prescribe. Corregir esas dos líneas exige un bloque propio: excede el alcance de `P-6F`, que sólo autoriza modificar este documento. Se registra aquí para que no se pierda ni se descubra al escribir el DDL.
+
+### 29.4 Estado resultante del gate
+
+`P-6` permanece **`NO-GO / PENDING DECISION`**. De las cinco decisiones de §28.8 queda resuelta una —`M1`—; siguen abiertas `M2`, `M3`, el motor de migración y la autorización humana de `P-6`. No se escribe DDL, migración, runtime ni implementación de Cash.
+
+### 29.5 Corrección de citas por desplazamiento de líneas
+
+La regla 8 que `P-6D` añadió a `cash-counting-schema.md` desplazó **una línea hacia abajo** todo su contenido posterior a la línea 65. Las citas de §27, §28 y §29 quedan corregidas a la numeración vigente. Las de §23 a §26 **no se reescriben**: eran exactas cuando se redactaron y su texto citado se conserva verbatim; para localizarlas en el documento actual debe sumarse `+1` a cualquier número mayor que 65 —así, `:289` corresponde hoy a `:291`, `:139`/`:141`/`:144` a `:140`/`:142`/`:145`, y `:105` a `:107`—. Ninguna decisión cambia; sólo el puntero.
