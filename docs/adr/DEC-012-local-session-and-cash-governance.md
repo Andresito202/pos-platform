@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). Con los cuatro bloqueos resueltos, la condición de reevaluación de §22.4 queda satisfecha; el gate sigue **`NO-GO`** hasta que esa reevaluación se realice y se resuelvan las dependencias de §22.2.
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`.
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -114,6 +114,8 @@ No es DDL especulativo en el sentido del riesgo `R-006` (`docs/product/backlog.m
 **Requisito obligatorio previo.** `cash-counting-schema.md:24` clasifica `CashRegister` como `CENTRAL_MASTER_REPLICATED` —«central; el POS consume versión autorizada»— y no existe mecanismo que siembre cajas en SQLite local. `UC-CASH-001` exige rechazar una caja inexistente o ajena al contexto, lo que presupone que las cajas legítimas están presentes. **Debe definirse el aprovisionamiento confiable de `CashRegister` antes de habilitar esta migración.** Es la misma clase de hueco que `LIC-003`/`DEV-003`, y queda como pendiente `P-5`.
 
 La migración deberá portar además la restricción de base de datos que `UC-CASH-001:40` exige: «Debe existir una restricción que impida más de un turno abierto incompatible por tenant, sucursal, caja y terminal. La verificación previa no sustituye esa protección contra concurrencia».
+
+**Nota superviniente (2026-09-04).** El texto anterior se conserva tal como fue redactado, pero la cita ya no corresponde al documento vigente. `B2` fue resuelto por decisión de negocio (§25) y `UC-CASH-001` fue corregido en consecuencia: la restricción es **«por tenant, sucursal y caja»**, y `origin_device_id` **no participa** en la unicidad. La clave del índice parcial único que deberá portar la migración es `(tenant_id, branch_id, cash_register_id)` restringida a los estados `OPEN` y `CLOSING` (`cash-counting-schema.md:59`, `UC-CASH-001:50`). Prevalece §25 sobre esta cita.
 
 **Esta decisión no crea `MIGRATION_008`.**
 
@@ -758,7 +760,7 @@ Se registra para no repetir su análisis cuando se reevalúe el gate: tipos y es
 
 ### 22.4 Condición de reevaluación
 
-`P-6` podrá reevaluarse cuando `B1`, `B2`, `B3` y `B4` estén resueltos por decisión registrada. Ninguno admite resolución por inferencia. Hasta entonces el gate de DDL comercial permanece `NO-GO` conforme a `docs/product/backlog.md:362`, y no se crea migración alguna de Cash.
+**Condición satisfecha el 2026-09-04**; la reevaluación se ejecutó y su resultado se registra en §28, que sustituye esta condición por la de §28.11. Texto original: `P-6` podrá reevaluarse cuando `B1`, `B2`, `B3` y `B4` estén resueltos por decisión registrada. Ninguno admite resolución por inferencia. Hasta entonces el gate de DDL comercial permanece `NO-GO` conforme a `docs/product/backlog.md:362`, y no se crea migración alguna de Cash.
 
 ## 23. Resolución de `B1` — base inicial cero
 
@@ -1055,3 +1057,129 @@ Si un bloque posterior exigiera granularidad por movimiento, será una decisión
 No autoriza DDL, migración ni tabla alguna. No implementa `CASH-001`. No define el contrato del snapshot maestro de `CashRegister` ni su emisor, que siguen sin existir (§20.4). No altera §20, §21, §23, §25 ni §26, ni ninguna decisión sobre SSA o SAS.
 
 Con `B4` resuelto, la condición de reevaluación de §22.4 —`B1`, `B2`, `B3` y `B4` resueltos por decisión registrada— **queda satisfecha**. El gate permanece **`NO-GO`** hasta que esa reevaluación se realice en un bloque propio, que deberá además resolver las dependencias de §22.2: motor de destino de la primera migración de Cash (SQLite o PostgreSQL) y, si es central, las políticas RLS que dependen del contexto confiable de `P-7`, todavía abierto.
+
+## 28. Reevaluación de `P-6` tras `B1`–`B4` — `P-6E`
+
+Reevaluado el 2026-09-04, satisfecha la condición de §22.4. **Resultado: `NO-GO — PENDING DECISION`.** El gate no se abre. Sección aditiva: no modifica §23, §25, §26 ni §27.
+
+Los cuatro bloqueos de §22.1 están efectivamente cerrados. La reevaluación encuentra que **no eran los únicos** elementos indeterminados del DDL: al examinar el modelo con el detalle que exige escribir `CREATE TABLE`, aparecen tres indeterminaciones estructurales adicionales que §22 no había aislado, más la decisión de motor que ya estaba registrada como dependencia.
+
+### 28.1 Confirmación de los cuatro cierres
+
+| Bloqueo | Estado | Registro | Efecto sobre el DDL |
+|---|---|---|---|
+| `B1` — base inicial cero | `DECIDED` | §23; `cash-counting-schema.md:105` | `CHECK` de `amount` con excepción única para `OPENING_FLOAT` (`>= 0`) |
+| `B2` — turno incompatible | `DECIDED` | §25; `cash-counting-schema.md:59` | Índice parcial único `(tenant_id, branch_id, cash_register_id)` sobre `OPEN`/`CLOSING` |
+| `B3` — escala monetaria | `DECIDED` | §26; `physical-conventions.md`, `cash-counting-schema.md:104` | `numeric(19,6)` / TEXT decimal canónico de seis decimales |
+| `B4` — procedencia de la proyección | `DECIDED` | §27; `cash-counting-schema.md:48`, regla 8 | Columna `cash_register_projection_sequence` `NOT NULL`, congelada |
+
+Ninguno se reabre.
+
+### 28.2 Separación de categorías
+
+La pregunta «¿está completo el modelo físico?» sólo es respondible separando cuatro planos que §22 mezclaba parcialmente:
+
+| Plano | Qué decide | Estado |
+|---|---|---|
+| **A — Modelo físico** | Columnas, dominios, constraints, relaciones | **Incompleto**: tres indeterminaciones (28.3) |
+| **B — Motor de migración** | Dónde se materializa primero | **Pendiente**, y con ambas ramas bloqueadas (28.4) |
+| **C — Seguridad / RLS** | Aislamiento en el motor central | **Determinado por convención**; no bloquea (28.5) |
+| **D — Runtime / identidad** | Quién opera y con qué contexto confiable | **Abierto**, pero es requisito de ejecución, no de DDL (28.6, 28.7) |
+
+### 28.3 Indeterminaciones de modelo físico halladas en la reevaluación
+
+**`M1` — Dominio de los `*_actor_type` de Cash. Bloqueante.**
+
+`cash_cash_shifts` declara `opened_by_actor_type` (no nulo) y `closed_by_actor_type NULL`; `cash_cash_movements` declara `actor_type` (no nulo) y `approved_by_actor_type NULL` (`cash-counting-schema.md:48`, `:73`). **Ningún documento enumera sus valores admisibles.** `physical-conventions.md:196` obliga: «estados como `text` con `CHECK` versionado en migración», y `foundation-schema.md:84`, `:248`, `:369` y `:394` declaran explícitamente los suyos (`USER`, `PLATFORM_ACCOUNT`, `SYSTEM`). El runtime local usa un conjunto distinto —`DEVICE`, `SYSTEM`, `USER` en `local_operation_audit` tras `MIGRATION_008`—. No hay forma de escribir el `CHECK` sin decidir.
+
+Lo que sí está determinado: el invariante 7 de §4 excluye `DEVICE` de una operación comercial, de modo que abrir un turno con actor `DEVICE` está prohibido. Lo que **no** está determinado: si `SYSTEM` es admisible —la sección «Importación desde fuentes externas» (`cash-counting-schema.md:275-288`) autoriza crear `CashShift` y `CashMovement` históricos, que necesitan un actor— y si `PLATFORM_ACCOUNT` lo es. Un `CHECK` equivocado no se corrige: SQLite no admite alterarlo y exige reconstruir la tabla, «el punto de mayor riesgo del conjunto» según §D4.
+
+**`M2` — `reference_type` sin catálogo ni regla de copresencia. Bloqueante.**
+
+`cash_cash_movements` declara `reference_type` (no nulo) junto a `reference_id NULL` (`:73`), y ninguna de las constraints de `:100-115` fija qué valores admite ni cuándo `reference_id` debe estar presente o ausente. Es exactamente el defecto que la revisión transversal de `R5` tipificó como blocker `B06` y cerró para `AuditEvent` mediante `resource_reference_kind` con `INSTANCE`/`SYSTEM`/`BATCH`, «la combinación determina de forma verificable si `resource_id` es obligatorio o nulo, sin sentinel» (`traceability.md`, tabla `R5`). El repositorio ya trató esta clase de ambigüedad como bloqueante en su propio proceso; tratarla ahora como cosmética sería incoherente.
+
+Agravante de alcance: los valores naturales de `reference_type` nombran agregados —venta, pago, devolución— cuyas tablas `D5` **no autoriza**. Decidir el catálogo obliga a decidir si el discriminador puede referirse a filas que aún no existen y si `reference_id` queda sin FK.
+
+**`M3` — La proyección local de `CashRegister` no tiene tabla. Bloqueante si el motor es local.**
+
+§20.7 exige que la secuencia aceptada «persiste y sobrevive al reinicio», y §20.5 exige comprobar la «Integridad de la fila almacenada | Checksum». Las columnas lógicas de `cash_cash_registers` (`:36`) son las del **maestro central** —`id`, scope, `code`, `code_normalized`, `name`, `currency_code`, `status`, `created_at`, `retired_at`, `version`— y **no contienen `sequence`, `issued_at`, `key_id`, checksum ni firma**. El patrón materializado para artefactos firmados es el contrario: `local_authorization_snapshot` y `local_session_assertion` portan `sequence`, `claims_checksum`, `signature` y `activated_at`.
+
+Consecuencia directa sobre `B4`: `cash_register_projection_sequence` es `NOT NULL`, pero **el valor que debe copiar no tiene hoy ubicación de origen declarada**. `B4` fijó dónde se congela la procedencia; no fijó dónde vive la cota anti-replay que la produce. Son dos cosas distintas y sólo una está resuelta.
+
+### 28.4 Motor de la primera migración de Cash
+
+**`PENDIENTE — DECISIÓN HUMANA.** No se elige aquí, y la evidencia no permite elegir.
+
+`docs/migration/first-target-migration-manifest.md:7-11` es «la única autoridad de alcance para las primeras migraciones del stack objetivo» y demuestra que el producto opera **dos series independientes** —`001_central_foundation` en PostgreSQL y `001_local_migration_control` en SQLite—, cada una con su alcance propio. No existe manifiesto de alcance para ninguna migración de Cash en ninguna de las dos series: la central continúa en `002` (External Integrations) y `003` (Fiscal), y la local avanzó hasta `MIGRATION_008` sin manifiesto documental equivalente.
+
+Las tres opciones deben mantenerse separadas, y **ambas ramas puras tienen hoy una precondición documentada incumplida**:
+
+| Opción | Precondición incumplida | Fuente |
+|---|---|---|
+| **A — SQLite local primero** | No existe el emisor ni el transporte del snapshot maestro de `CashRegister`, y su proyección local no tiene tabla (`M3`) | §20.4, 28.3 |
+| **B — PostgreSQL central primero** | `origin_device_id` es no nulo en las tres tablas y `Device`/`Licensing` no está materializado; el manifiesto prohíbe «UUID libres sin FK» (§2, regla 5). Además la aceptación central exige Inbox, excluida de `001` (§2, regla 2) y ausente de `002`/`003` | `first-target-migration-manifest.md:2`, `cash-counting-schema.md:262`, `traceability.md` |
+| **C — unidad coordinada** | Acumula ambas | — |
+
+Que ambas ramas estén bloqueadas **no decide la opción**: decide que la elección no puede tomarse por conveniencia de implementación y que, elegida cualquiera, seguiría faltando infraestructura. La decisión humana debe registrar la opción **y** el orden en que se levantan sus precondiciones.
+
+### 28.5 RLS — clasificación correcta
+
+**Relación: opción `B`.** RLS es requisito **únicamente si Cash se materializa en PostgreSQL**; SQLite no lo implementa y su aislamiento se rige por `physical-conventions.md:353-361`.
+
+**RLS no es una indeterminación del modelo y no bloquea el DDL.** `physical-conventions.md:322-336` ya fija la política completa para toda tabla tenant-scoped central —habilitar y forzar RLS, `SET LOCAL app.tenant_id` por transacción, comparación con `current_setting('app.tenant_id', true)::uuid`, denegación fail-closed ante contexto ausente, FKs con scope—, y `001` materializó `platform.current_tenant_id()` con esa semántica (`first-target-migration-manifest.md:3.1`). Las políticas de las tres tablas de Cash se derivan de esa convención; no hay que inventarlas ni decidirlas.
+
+**Corrección de §22.2.** Aquella sección afirmó que, si el motor es central, «sus políticas dependen del contexto confiable de `P-7`». La reevaluación no sostiene esa afirmación: `P-7` es «el momento y alcance de la migración controlada de `config.ts`» (§13), y `config.ts` pertenece al **POS Local Service**, no al plano central. El contexto tenant del motor central se deriva de identidad, membership y sesión (`security-gates.md:41`), no de la configuración del terminal. Lo que sí depende de `P-7` se enuncia en 28.6.
+
+### 28.6 `P-7` — dependencia real
+
+`P-7` **no condiciona la forma del DDL**: ninguna columna, constraint, índice o política cambia según cómo se resuelva.
+
+`P-7` condiciona **la corrección de los datos que se escriban**. `D7` establece que, para operaciones con actor `USER`, `POS_TENANT_ID`, `POS_COMPANY_ID` y `POS_BRANCH_ID` «dejan de ser autoridad» y que `company_id` y `branch_id` se validan contra los `assignments` del SAS. Las tres tablas de Cash llevan `tenant_id`, `company_id` y `branch_id` no nulos. Mientras `P-7` siga abierto, esos valores proceden de configuración local con «mismo nivel de confianza self-asserted que `installation_id`/`device_id`» (`backlog.md:362`), que es precisamente la amenaza tipificada en `security-gates.md:44`: «Un parámetro libre suplanta `tenant_id`».
+
+Resultado: `P-7` es **requisito de `CASH-001`**, no requisito del DDL. Puede cerrarse después del modelo físico, pero **no después de la primera operación real de caja**, porque las filas escritas antes conservarían scope self-asserted de forma permanente.
+
+### 28.7 `USER` / SSA — qué es DDL y qué es runtime
+
+| Requisito | Plano | Estado |
+|---|---|---|
+| Dominio de `*_actor_type` en las tablas de Cash | **DDL** | `PENDIENTE` (`M1`) |
+| `local_operation_audit` acepta `actor_type='USER'` | DDL | **Materializado** por `MIGRATION_008` |
+| Persistencia de la SSA verificada | DDL | **Materializado** por `MIGRATION_007` |
+| Resolutor de identidad en `application` que produzca `opened_by_actor_id` | **Runtime** | No implementado (§14) |
+| Prueba de presencia | Runtime | Política ratificada (§18); sin implementar |
+| `SAS` como autoridad de permiso `CASH_SHIFT_OPEN` | Runtime | Verificador materializado; emisor central inexistente |
+| Ausencia de proyección local de `User` | Ninguno de los dos | **Cerrado**: `sync-base-schema.md:27` lo prohíbe y §22.2 lo confirma; `opened_by_actor_id` no lleva FK local |
+
+El DDL no necesita que exista un usuario; necesita saber **qué clase de actor admite la columna**. Es la única pieza de este bloque que es requisito de migración.
+
+### 28.8 Decisiones humanas reales que restan
+
+Sólo se enumeran las que ningún documento determina:
+
+1. **Motor de la primera migración de Cash** — opción A, B o C de 28.4, con el orden de levantamiento de sus precondiciones.
+2. **Dominio admisible de los `*_actor_type` de Cash** (`M1`).
+3. **Catálogo de `reference_type` y regla de copresencia con `reference_id`** (`M2`).
+4. **Ubicación y forma de la proyección local de `CashRegister`** —cota anti-replay persistente e integridad—, exigible si el motor elegido es A o C (`M3`).
+5. **La autorización de `P-6` en sí misma.** §13 la define como «Autorizar la materialización de la migración Cash» y añade: «Ninguna de estas pendientes puede resolverse por inferencia. Cada una requiere decisión humana registrada». Un modelo completo **no convierte `P-6` en `PASS`**; sólo lo vuelve autorizable.
+
+**No son decisiones humanas** —están determinadas documentalmente y no deben reabrirse—: `B1`, `B2`, `B3`, `B4`, la escala decimal, la clave del índice parcial único, la inmutabilidad de la moneda, las fronteras transaccionales, la unicidad de idempotencia, la no participación de estados distintos de `POSTED` en `ExpectedCash`, y la forma de las políticas RLS centrales.
+
+### 28.9 Riesgo de implementación prematura
+
+- **`CHECK` de actor equivocado.** Admitir `DEVICE` produciría el rastro falso que §D4 describe —atribuir actos de usuario al dispositivo—; prohibir `USER` haría `CASH-001` irrealizable. Corregirlo exige reconstruir la tabla en SQLite y una migración nueva en PostgreSQL, porque las migraciones aplicadas son inmutables (§10).
+- **`reference_type` sin catálogo.** Reintroduce el defecto que `B06` cerró: un discriminador de texto libre cuya copresencia con `reference_id` no es verificable, sobre una tabla financiera append-only donde una fila mal formada no se edita.
+- **`cash_register_projection_sequence` sin origen.** La columna es `NOT NULL`; sin la tabla de proyección de `M3` no hay valor legítimo que insertar, y la alternativa práctica —rellenarla con un valor inventado— destruiría exactamente la propiedad de auditoría que `B4` acaba de establecer.
+- **Motor equivocado.** Un DDL central hoy crea tablas que no pueden poblarse (sin `Device`, sin Inbox); un DDL local hoy crea tablas cuya caja maestra nadie puede sembrar. En ambos casos se materializa esquema muerto que después condiciona migraciones inmutables.
+- **Escribir antes de `P-7`.** Las primeras filas comerciales del producto quedarían con `tenant_id`/`company_id`/`branch_id` self-asserted, de forma permanente y sin posibilidad de reescritura, sobre historia financiera.
+
+### 28.10 Resultado
+
+**¿Puede autorizarse el DDL de Cash ahora? NO.**
+
+El criterio de `PASS` exige siete condiciones. Se cumplen la de constraints y relaciones en lo ya decidido, y la clasificación correcta de RLS y de `P-7`. **No se cumplen**: modelo físico completo (`M1`, `M2`, `M3`), motor declarado, y ausencia de decisiones estructurales ocultas —que era precisamente lo que esta reevaluación debía comprobar y no confirmó—.
+
+`P-6` permanece **`NO-GO / PENDING DECISION`**. `D5` sigue siendo autorización conceptual. No se crea migración alguna de Cash en ninguna de las dos series.
+
+### 28.11 Condición de reevaluación de `P-6`
+
+`P-6` podrá reevaluarse cuando las cinco decisiones de 28.8 estén registradas. Los cuatro bloqueos originales de §22.1 no se reevalúan: quedaron cerrados y su cierre se conserva.
