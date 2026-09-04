@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) y `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -721,7 +721,8 @@ El modelo físico de Cash está **notablemente cerrado** —estados, cardinalida
 
 ### 22.1 Bloqueos estructurales
 
-**B1 — Base inicial cero: contradicción normativa entre dos documentos.**
+**B1 — Base inicial cero: contradicción normativa entre dos documentos.** — **RESUELTO en §23** (2026-09-04).
+
 
 - `UC-CASH-001:29` — «El sistema valida que el valor sea **no negativo**» ⇒ cero admitido.
 - `cash-counting-schema.md:105` — «**`amount > 0`**», sin excepción por tipo de movimiento.
@@ -758,3 +759,49 @@ Se registra para no repetir su análisis cuando se reevalúe el gate: tipos y es
 ### 22.4 Condición de reevaluación
 
 `P-6` podrá reevaluarse cuando `B1`, `B2`, `B3` y `B4` estén resueltos por decisión registrada. Ninguno admite resolución por inferencia. Hasta entonces el gate de DDL comercial permanece `NO-GO` conforme a `docs/product/backlog.md:362`, y no se crea migración alguna de Cash.
+
+## 23. Resolución de `B1` — base inicial cero
+
+Resuelto el 2026-09-04. Cierra el primero de los cuatro bloqueos de §22. **`B2`, `B3` y `B4` no se tocan.**
+
+### 23.1 Decisión
+
+**Cero válido.** La regla canónica es:
+
+```
+initial_float >= 0
+```
+
+Una apertura de turno con base inicial cero es válida. `OPENING_FLOAT` admite `amount >= 0`; **todo movimiento de otro tipo conserva `amount > 0`**.
+
+### 23.2 Evidencia
+
+**1. Jerarquía documental.** `cash-counting-schema.md:7` declara: «Este documento **materializa conceptualmente** `UC-CASH-001`, `UC-CASH-002`, `UC-CASH-003`, `DEC-002` y `DEC-007`.» El modelo físico **deriva** del caso de uso. Ante una contradicción sobre una regla de negocio, la autoridad es el caso de uso y el error está en el modelo físico.
+
+**2. El caso de uso es inequívoco.** `UC-CASH-001:29` — «El sistema valida que el valor sea **no negativo**». Sus «Pruebas mínimas» exigen probar «**base negativa**», y **no** enumeran una prueba de rechazo de base cero. La regla es: rechazar negativo, admitir cero.
+
+**3. El fundamento declarado de `amount > 0` no alcanza al cero.** La restricción se enuncia como «`amount > 0`; el efecto usa `IN`/`OUT`, **nunca signo ambiguo**». Su propósito es impedir que el importe codifique dirección mediante signo. Cero no tiene signo ambiguo: la restricción sobrepasaba su propia justificación.
+
+**4. El cero es un valor monetario representable.** `physical-conventions.md:169` rechaza «exponente, coma, whitespace, `NaN`, infinito ni **cero negativo**» —no el cero— y `:171` prescribe que «`0` se representa con una sola cifra entera». El modelo decimal contempla el cero explícitamente.
+
+**5. Negocio.** Abrir una caja sin efectivo inicial es una operación corriente. `OPENING_FLOAT` no transfiere valor: **declara** la base del turno, y esa declaración puede ser cero.
+
+### 23.3 Alcance de la excepción
+
+La excepción es **exclusiva de `OPENING_FLOAT`**. No existe evidencia que autorice importe cero en ningún otro tipo, y un movimiento general de importe cero —una venta de 0, un gasto de 0— carece de significado financiero.
+
+Queda expresamente **fuera** de esta decisión, y por tanto prohibido mientras no exista evidencia propia: `IN` de cero, `OUT` de cero, ajustes de cero, gastos de cero y cualquier otro tipo con importe cero.
+
+### 23.4 Invariantes preservados
+
+Ninguno se altera. Con base cero sigue existiendo **exactamente un** `OPENING_FLOAT` `POSTED` con `shift_sequence = 1`; `ExpectedCash` sigue siendo un fold determinista al que ese movimiento aporta cero; la base inicial sigue derivándose del movimiento y no de un saldo mutable duplicado; el historial permanece inmutable; y la idempotencia y el aislamiento tenant no dependen del importe.
+
+### 23.5 Documento corregido
+
+Se corrige **únicamente la fuente inconsistente**: `cash-counting-schema.md:105`. `UC-CASH-001` es correcto tal como está y **no se modifica**.
+
+### 23.6 Consecuencia para el DDL futuro
+
+El CHECK general de importe deja de ser incondicional y pasa a estar condicionado por tipo: positivo estricto para todo tipo distinto de `OPENING_FLOAT`, y no negativo para `OPENING_FLOAT`. La prohibición de importes ambiguos se preserva porque la dirección sigue expresada por `IN`/`OUT` y el cero no admite lectura de signo.
+
+**No se escribe SQL aquí, y `B1` resuelto no reabre el gate:** §22 permanece `NO-GO` mientras `B2`, `B3` y `B4` sigan abiertos.

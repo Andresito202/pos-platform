@@ -102,7 +102,7 @@ Estados persistentes:
 
 Constraints e invariantes:
 
-- `amount > 0`; el efecto usa `IN`/`OUT`, nunca signo ambiguo;
+- `amount > 0` para todo tipo distinto de `OPENING_FLOAT`; el efecto usa `IN`/`OUT`, nunca signo ambiguo. `OPENING_FLOAT` admite `amount >= 0`: declara la base inicial del turno, y una caja puede abrirse sin efectivo. `UC-CASH-001` valida esa base como **no negativa** y sólo exige probar el rechazo de una base negativa; cero no introduce el signo ambiguo que la restricción general previene. Corrección registrada en `DEC-012` §23;
 - moneda igual a CashShift y CashRegister;
 - `UNIQUE (tenant_id, cash_shift_id, shift_sequence)`;
 - `UNIQUE (tenant_id, origin_device_id, idempotency_key)`; una clave no se reutiliza entre operaciones de caja distintas;
