@@ -297,7 +297,7 @@ No se infieren arqueos parciales, arqueo ciego, versiones corregidas, tolerancia
 3. movimiento POSTED cambia ExpectedCash y aumenta secuencia/version;
 4. movimiento no POSTED no afecta ExpectedCash;
 5. reintento no duplica movimiento;
-6. importe cero, signo ambiguo o moneda distinta se rechazan;
+6. importe cero en un tipo distinto de `OPENING_FLOAT`, signo ambiguo o moneda distinta se rechazan; un `OPENING_FLOAT` de importe cero se acepta, conforme a `DEC-012` §23;
 7. arqueo parcial no cierra turno ni crea movimiento;
 8. movimiento durante conteo produce conflicto de versión;
 9. arqueo ciego no revela esperado antes de completar;

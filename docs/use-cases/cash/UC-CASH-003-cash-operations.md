@@ -345,7 +345,7 @@ Después de una operación válida:
 17. El frontend no determina la validez financiera.
 18. Toda operación crítica queda auditada.
 19. Los importes respetan moneda y precisión.
-20. Ningún movimiento se crea con importe cero.
+20. Ningún movimiento se crea con importe cero, **salvo `OPENING_FLOAT`**, que admite importe cero: declarar una base inicial de cero es válido y `UC-CASH-001` sólo exige rechazar una base negativa. Todo movimiento operativo de otro tipo conserva importe estrictamente positivo. Decisión registrada en `DEC-012` §23.
 21. Ningún importe puede ser negativo.
 22. La dirección determina el efecto.
 23. El turno cerrado no admite movimientos normales.

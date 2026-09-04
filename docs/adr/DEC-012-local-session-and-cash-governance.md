@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29); `M2` —catálogo de `reference_type`— queda **`PENDING HUMAN DECISION`**, y `M3` no se ha abordado. El gate sigue **`NO-GO`**.
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26) y `B4` **RESUELTO** por derivación el 2026-09-04 (ver §27). La reevaluación formal del gate se ejecutó el 2026-09-04 con resultado **`NO-GO / PENDING DECISION`** (ver §28): los cuatro bloqueos originales quedan cerrados, pero la reevaluación halló tres indeterminaciones estructurales adicionales —dominio de `*_actor_type`, catálogo de `reference_type` y ubicación de la proyección local de `CashRegister`— además del motor de migración no declarado y de la propia autorización humana de `P-6`. De esas tres, `M1` —dominio de los `*_actor_type`— queda **`DECIDED`** el 2026-09-04 (ver §29) y `M2` —`reference_type`/`reference_id`— queda **`DECIDED`** el 2026-09-04 por ratificación humana, opción C: no se materializan en la primera migración de Cash (ver §30, que registra además la corrección documental de `B1` sin alterar su decisión). `M3` no se ha abordado. El gate sigue **`NO-GO`**.
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -1288,3 +1288,62 @@ Al inspeccionar el catálogo de tipos y estados para `M2` aparecieron **dos afir
 ### 29.5 Corrección de citas por desplazamiento de líneas
 
 La regla 8 que `P-6D` añadió a `cash-counting-schema.md` desplazó **una línea hacia abajo** todo su contenido posterior a la línea 65. Las citas de §27, §28 y §29 quedan corregidas a la numeración vigente. Las de §23 a §26 **no se reescriben**: eran exactas cuando se redactaron y su texto citado se conserva verbatim; para localizarlas en el documento actual debe sumarse `+1` a cualquier número mayor que 65 —así, `:289` corresponde hoy a `:291`, `:139`/`:141`/`:144` a `:140`/`:142`/`:145`, y `:105` a `:107`—. Ninguna decisión cambia; sólo el puntero.
+
+## 30. Ratificación de `M2` y corrección documental de `B1` — `P-6H`
+
+Ratificado por decisión humana el 2026-09-04. **`M2` pasa a `DECIDED` — opción C.** `B1` **no se reabre**: su decisión permanece intacta y sólo se corrigen dos afirmaciones documentales contrarias. Sección aditiva; `B2`, `B3`, `B4`, `M1` y `M3` no se tocan, y no se decide el motor de migración.
+
+### 30.1 `M2` — decisión
+
+**En la primera materialización de `CashMovement` no se materializan `reference_type` ni `reference_id`.**
+
+Esta decisión **no** afirma que esas columnas no vayan a existir. Afirma que **no existen en la primera materialización de Cash**. La deuda queda registrada en 30.3.
+
+### 30.2 Fundamento
+
+1. Ningún agregado externo que pueda originar un movimiento —`Sale`, `Payment`, `Refund`, el pedido del domiciliario— está autorizado por `D5` ni materializado en ninguna de las dos series de migración. Los cinco tipos de movimiento con origen externo (`CASH_SALE`, `CASH_PAYMENT`, `CHANGE_GIVEN`, `CASH_REFUND`, `COURIER_COLLECTION`) son hoy **irrealizables**: la columna no tendría ningún valor legítimo que registrar.
+2. No existe catálogo normativo. Ningún documento del repositorio enumera valores de `reference_type`, y la misma indeterminación persiste sin resolver en Inventory (`inventory-schema.md:17,39,51`).
+3. `first-target-migration-manifest.md` §2 regla 5 prohíbe un identificador libre sin FK: «se conservan físicamente nulas mediante checks temporales, **no como UUID libres sin FK**».
+4. No se admite sentinel. `foundation-schema.md` resolvió el mismo problema formal en `AuditEvent` sin inventar un UUID sentinel, y ese principio se conserva.
+5. No se anticipa un catálogo sin semántica respaldada: `UC-CASH-003:261` deja los tipos definitivos «versionados y extensibles», y fijar tokens hoy sería inventarlos.
+6. **Precedente literal y directamente aplicable.** `sales-schema.md:63`: «`customer_id` no autoriza Customer ni entra a la primera migración mientras `CUST-001` siga diferido: el adaptador **omite la FK/columna** hasta admitir ese agregado, **sin texto libre sustituto**.» Cash queda en la misma situación y adopta la misma solución.
+
+### 30.3 Deuda registrada — condiciones de introducción futura
+
+Cuando un agregado externo sea autorizado y materializado, su referencia entra mediante **una migración propia** que incluye simultáneamente:
+
+1. el catálogo y su versionado;
+2. la columna;
+3. la regla de copresencia, verificable en `CHECK`;
+4. la FK real cuando corresponda;
+5. las reglas de integridad asociadas;
+6. compatibilidad con `append-only` —la columna nace nulable para no exigir backfill sobre historia financiera inmutable—.
+
+**No se anticipan aquí los valores futuros de `reference_type`.** Queda además pendiente, para ese momento, la sub-decisión que `P-6G` aisló: cuando una operación presenta varias referencias candidatas —`UC-CASH-003:409-421` exige «venta; pago; componente» y `:673-687` exige «domiciliario; pedido; venta; pago»— habrá que decidir cuál porta la referencia, o si un único par resulta insuficiente.
+
+### 30.4 Alcance
+
+La decisión afecta al **alcance de la primera migración**, no al modelo conceptual. `cash-counting-schema.md:73` conserva ambas columnas en sus columnas lógicas, igual que `sales-schema.md` conserva `customer_id`. La propagación de esta nota al modelo físico queda pendiente para el bloque que la autorice; este bloque sólo modifica este documento y las dos líneas de `B1`.
+
+`original_cash_movement_id` **no se ve afectado**: es columna propia, con FK dentro de una tabla que `D5` sí autoriza, y satisface por sí sola `UC-CASH-003:652` —«Toda compensación referencia el movimiento original»—.
+
+### 30.5 `B1` — corrección documental, sin cambio de decisión
+
+`B1` decidió en §23 que `OPENING_FLOAT` admite `amount >= 0`. `P-6F` §29.3 halló dos afirmaciones contrarias que §23 no había examinado. Se corrigen **exclusivamente** esas dos:
+
+| Documento | Antes | Ahora |
+|---|---|---|
+| `UC-CASH-003:348` | «Ningún movimiento se crea con importe cero.» | Misma regla, con la excepción expresa de `OPENING_FLOAT` y la reafirmación de importe estrictamente positivo para todo movimiento operativo de otro tipo |
+| `cash-counting-schema.md:300` | «importe cero, signo ambiguo o moneda distinta se rechazan» | El rechazo del importe cero se acota a los tipos distintos de `OPENING_FLOAT`; un `OPENING_FLOAT` de importe cero se acepta |
+
+Queda expresamente establecido, en los tres documentos que gobiernan la regla:
+
+- `OPENING_FLOAT` puede tener `amount = 0`;
+- todo movimiento monetario operativo de otro tipo conserva `amount > 0`;
+- la prohibición general del cero **no** alcanza a `OPENING_FLOAT`.
+
+**La decisión de `B1` no cambia.** No se reabre, no se revalúa y no se altera su fundamento; sólo se hace coherente el conjunto documental con lo ya decidido. Las citas de §29.3 conservan su numeración —ambas correcciones se hicieron en la misma línea— pero su texto es ya el corregido: §29.3 debe leerse como el registro histórico del hallazgo, no como el estado vigente.
+
+### 30.6 Estado del gate
+
+De las cinco decisiones de §28.8 quedan resueltas dos —`M1` (§29) y `M2` (esta sección)—. Siguen abiertas `M3`, el motor de la primera migración y la autorización humana de `P-6`. El gate permanece **`NO-GO / PENDING DECISION`**. No se escribe DDL, migración, runtime ni implementación de Cash.
