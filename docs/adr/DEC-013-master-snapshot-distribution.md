@@ -4,7 +4,7 @@
 
 `PROPUESTA NORMATIVA`. Cierra las decisiones de `SNAPSHOT-ISSUER-1` y `SNAPSHOT-ISSUER-2`.
 
-`ARCHITECTURAL GATE`: **`PASS WITH RECOVERY BLOCK`** · `RECOVERY GATE`: **`BLOCKED`** (§17) · `MATERIALIZATION GATE`: **`NO-GO`**.
+`ARCHITECTURAL GATE`: **`PASS`** · `RECOVERY GATE`: **`PASS`** desde el 2026-09-04 por decisión de `RECOVERY-DECISION-1` (ver §27, que supersede el bloqueo de §17) · `MATERIALIZATION GATE`: **`NO-GO`**.
 
 Este documento **no autoriza implementar nada**. No modifica `DEC-012`, `P-6`, `G1`, Payments ni Sales. Su función es congelar las decisiones para que la materialización no vuelva a descubrirlas.
 
@@ -208,7 +208,7 @@ Para **todos** ellos: `MUST NOT` destruirse la proyección activa · `MUST NOT` 
 
 **Regla fundamental: un error nunca destruye una proyección válida.**
 
-## 17. Recuperación y restauración — `RECOVERY GATE = BLOCKED`
+## 17. Recuperación y restauración — `BLOCKED` (superado por §27)
 
 La coordenada aceptada vive en el mismo SQLite que una restauración reemplaza. Una restauración a un punto anterior **rebaja la cota anti-replay**, y con ella la garantía de monotonía.
 
@@ -233,6 +233,8 @@ La coordenada aceptada vive en el mismo SQLite que una restauración reemplaza. 
 3. **Vincular la coordenada aceptada a un almacén durable fuera de la base restaurable**, definiendo su autoridad y su integración.
 
 Mientras no se elija: **`RECOVERY GATE = BLOCKED`** y **`MATERIALIZATION GATE = NO-GO`**.
+
+**Superado el 2026-09-04.** El texto de esta sección se conserva íntegro como registro del análisis que llevó al bloqueo. La decisión se tomó en §27, que elige la opción 2 acotada a lo que la autoridad central realmente conoce. Prevalece §27.
 
 ## 18. Offline
 
@@ -328,3 +330,89 @@ Payments `MUST NOT` convertirse en un maestro distribuido: sus hechos nacen loca
 ## 26. Gobernanza
 
 Este documento no modifica `DEC-012` ni amplía ningún gate. La materialización exigirá: ratificar las dos decisiones derivadas (§3, §4), resolver §17, y una autorización explícita de migración que nombre los componentes, al modo en que `D5` nombró las tablas de Cash.
+
+## 27. Recuperación — decisión normativa (`RECOVERY-DECISION-1`)
+
+Decidido el 2026-09-04. **Supersede el bloqueo de §17**, cuyo texto se conserva. Sección aditiva: no altera §1-§16 ni §18-§26, ni `DEC-012`, `P-6`, `G1`, Payments o Sales.
+
+### 27.1 Decisión
+
+**Opción 2, acotada a lo que la autoridad central realmente conoce: `CENTRAL ACKNOWLEDGED FLOOR`.**
+
+La autoridad central `MUST` exponer, por `(installation_id, snapshot_type, binding)`, la mayor `sequence` cuya **recepción y activación la instalación le confirmó**. Ese valor es el `acknowledged_floor`. El POS `MUST` obtenerlo antes de aceptar cualquier snapshot en una sesión, y `MUST` tomar como cota efectiva:
+
+```
+effective_floor = max(local accepted_sequence, central acknowledged_floor)
+```
+
+Se `MUST` rechazar todo snapshot con `sequence <= effective_floor`.
+
+### 27.2 Autoridad — límite exacto
+
+| Dato | Autoridad | Naturaleza |
+|---|---|---|
+| `publication_sequence` | **Central** | Hecho central; orden de publicación por binding |
+| `accepted_sequence` | **Instalación** | Hecho **local**; el central no lo conoce |
+| `acknowledged_floor` | **Central** | Hecho central sobre **sus propios acuses**; **cota inferior** del anterior |
+| `transport checkpoint` | Ninguna | Posición de transporte |
+
+La central `MUST NOT` afirmar cuál fue el último snapshot aceptado por una instalación: no lo sabe. Sólo afirma qué le fue confirmado. Una firma `MUST NOT` usarse para convertir en verdad un dato que la autoridad no posee.
+
+### 27.3 Por qué la cota inferior basta
+
+1. La aceptación de un snapshot es una **asignación idempotente de estado completo y auténtico**, no una operación con efecto acumulativo. Reaceptar `152` fija la proyección en el estado `152`; no duplica ningún hecho.
+2. `DEC-012` §21 ya ratificó que la proyección **no caduca**: el POS puede operar indefinidamente sobre un estado maestro antiguo pero auténtico. Un canal que simplemente **retiene** los snapshots nuevos produce esa misma obsolescencia sin necesidad de restauración alguna.
+3. Por tanto la reaceptación posterior a una restauración es una **instancia de una exposición ya aceptada**, no una clase nueva, y queda **acotada** por el `acknowledged_floor`.
+
+### 27.4 Contrato de recuperación
+
+**Autoridad e identidad**
+
+1. La cota se lleva por `installation_id` (`DEC-008`), no por dispositivo ni por tenant.
+2. No existe cota global entre instalaciones. `POS-A` y `POS-B` `MUST` tener cotas independientes.
+
+**Restauración**
+
+3. Una restauración `MUST NOT` crear, aumentar ni legitimar un `accepted_sequence`. Un valor restaurado es **candidato a cota inferior**, nunca prueba de aceptación vigente.
+4. La coordenada aceptada `MUST` actualizarse únicamente dentro de la transacción de activación. Una restauración no es una activación.
+5. Tras una restauración **no se exige detección**: la confirmación de la cota es **incondicional en cada sesión**, de modo que una restauración silenciosa queda cubierta por construcción.
+
+**Offline**
+
+6. El transporte primario es `PULL`: **offline no llega ningún snapshot**, luego una reaceptación offline es estructuralmente imposible.
+7. El canal secundario de §6 `MUST NOT` usarse para activar un snapshot mientras la cota no haya sido confirmada contra la central en la misma sesión en línea.
+8. Offline el POS `MUST` seguir operando sobre la proyección restaurada, que es auténtica.
+
+**Reinstalación**
+
+9. Una reinstalación deja al POS sin `accepted_sequence`. La cota `MUST` provenir de la central para esa `installation_id`.
+10. Una identidad de instalación nueva parte de cota cero: no hay historia local en la que reintroducir nada.
+
+**Conflicto**
+
+11. Si `local > acknowledged_floor`, prevalece el local: la central aún no lo registró.
+12. Si `acknowledged_floor > local`, prevalece la central.
+13. `MUST NOT` adoptarse nunca el menor de los dos.
+
+**Rechazo y auditoría**
+
+14. Todo snapshot con `sequence <= effective_floor` `MUST` rechazarse como `OBSOLETE_SEQUENCE` o `DUPLICATE_SEQUENCE`.
+15. El establecimiento de la cota, su origen y todo rechazo `MUST` ser auditables. Un rechazo silencioso `MUST NOT` ocurrir.
+
+### 27.5 Acuse — estados que no deben confundirse
+
+`DOWNLOADED` → `VERIFIED` → `VALIDATED` → `WRITTEN` → `ACTIVATED` → `ACKNOWLEDGED`.
+
+Descargar `MUST NOT` interpretarse como aceptar; verificar `MUST NOT` como activar; activar `MUST NOT` como acusar. La central sólo conoce `ACKNOWLEDGED`. El acuse `MUST` emitirse únicamente después de un `COMMIT` de activación.
+
+### 27.6 Riesgo residual declarado
+
+Los snapshots **activados localmente y nunca acusados** pueden volver a aceptarse tras una restauración. La ventana es exactamente «lo activado desde el último contacto exitoso». Su reaceptación es una asignación idempotente de estado auténtico, acotada por la cota central, y estrictamente menor que la exposición por retención que la ausencia de TTL ya acepta. **No se mitiga con TTL, timestamps ni LWW.**
+
+### 27.7 Fuera de alcance
+
+Clonación de instalación, pérdida de dispositivo y robo de identidad pertenecen a `DEC-008`. Este documento `MUST NOT` resolverlos. Se registra la dependencia: si dos instalaciones comparten `installation_id`, la cota deja de ser propia de una instalación y la garantía de §27.4 se degrada — es una condición de `DEC-008`, no de este contrato.
+
+### 27.8 Dependencia nueva
+
+La central `MUST` registrar acuses por `(installation_id, snapshot_type, binding)` y exponer el `acknowledged_floor`. Es **infraestructura central adicional**, dentro del worker y del endpoint de descarga ya exigidos por §24; **no introduce una autoridad nueva** ni un artefacto criptográfico nuevo. El componente 15 de §24, «aserción de coordenada firmada», permanece `OUT`: la decisión no lo requiere.
