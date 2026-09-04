@@ -6,3 +6,4 @@ export * from "./session-assertion-verifier.js";
 export * from "./trusted-clock.js";
 export * from "./windows-dpapi-key-provider.js";
 export * from "./security-lifecycle.js";
+export * from "./master-snapshot-verifier.js";

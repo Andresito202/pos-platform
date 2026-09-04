@@ -10,3 +10,4 @@ export * from "./sync/durable-sync-store.js";
 export * from "./sync/durable-sync-component.js";
 export * from "./operations/operation-confirmation-store.js";
 export * from "./operations/operation-confirmation-component.js";
+export * from "./master-data/index.js";

@@ -305,6 +305,162 @@ CREATE TRIGGER local_operation_audit_no_delete
   BEGIN SELECT RAISE(ABORT, 'local operation audit is append-only'); END;
 `.trim();
 
+// DEC-012 §32: materialización autorizada de Cash y de la proyección local de
+// `CashRegister`. Cuatro tablas y ninguna más.
+//
+// El artefacto es append-only porque de él depende que `§21.6` sea verificable:
+// sin conservarlo, un turno antiguo declararía una `sequence` cuyo snapshot ya
+// no existe. `snapshot_type` admite un único valor: `DEC-013` §7 define cuatro,
+// pero §32 sólo autoriza `CASH_REGISTER`, y la restricción es física, no una
+// convención. Ampliarla exige autorización y migración propia.
+//
+// `cash_register` es a la vez tabla de `D5` y proyección local del snapshot:
+// una sola tabla, no dos (`DEC-012` §31.2). `last_seen_sequence` materializa
+// `G1`: la ausencia en un snapshot posterior conserva la fila y su última
+// presencia, y nunca infiere `RETIRED`, que sólo llega del maestro.
+//
+// `cash_shift` y `cash_movement` materializan las decisiones cerradas: `M1`
+// (actor `USER`), `M2` (sin `reference_type`/`reference_id`), `B1` (cero sólo
+// para `OPENING_FLOAT`), `B2` (unicidad de turno activo por caja, sin
+// dispositivo), `B3` (decimal canónico de escala 6) y `B4`
+// (`cash_register_projection_sequence`).
+const MIGRATION_009 = `
+CREATE TABLE local_master_snapshot_artifact (
+  snapshot_type TEXT NOT NULL CHECK(snapshot_type = 'CASH_REGISTER'),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  sequence INTEGER NOT NULL CHECK(sequence > 0),
+  environment TEXT NOT NULL CHECK(environment IN ('PRODUCTION','STAGING','SANDBOX')),
+  key_id TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  claims_json TEXT NOT NULL,
+  claims_checksum TEXT NOT NULL CHECK(length(claims_checksum) = 64),
+  signature TEXT NOT NULL,
+  activated_at TEXT NOT NULL,
+  PRIMARY KEY (snapshot_type, tenant_id, company_id, branch_id, sequence)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER local_master_snapshot_artifact_no_update
+  BEFORE UPDATE ON local_master_snapshot_artifact
+  BEGIN SELECT RAISE(ABORT, 'master snapshot artifact is append-only'); END;
+CREATE TRIGGER local_master_snapshot_artifact_no_delete
+  BEFORE DELETE ON local_master_snapshot_artifact
+  BEGIN SELECT RAISE(ABORT, 'master snapshot artifact is append-only'); END;
+
+CREATE TABLE cash_register (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  code TEXT NOT NULL CHECK(length(code) > 0),
+  code_normalized TEXT NOT NULL CHECK(length(code_normalized) > 0),
+  name TEXT NOT NULL CHECK(length(name) > 0),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','RETIRED')),
+  created_at TEXT NOT NULL,
+  retired_at TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  last_seen_sequence INTEGER NOT NULL CHECK(last_seen_sequence > 0),
+  CHECK ((status = 'RETIRED') = (retired_at IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX cash_register_code_idx
+  ON cash_register(tenant_id, company_id, branch_id, code_normalized);
+
+CREATE TABLE cash_shift (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  opened_by_actor_type TEXT NOT NULL CHECK(opened_by_actor_type = 'USER'),
+  opened_by_actor_id TEXT NOT NULL CHECK(length(opened_by_actor_id) = 36),
+  opened_at TEXT NOT NULL,
+  business_date TEXT NOT NULL CHECK(length(business_date) = 10),
+  timezone_id TEXT NOT NULL CHECK(length(timezone_id) > 0),
+  utc_offset_minutes INTEGER NOT NULL CHECK(utc_offset_minutes BETWEEN -1440 AND 1440),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('OPEN','CLOSING','CLOSED')),
+  closed_by_actor_type TEXT CHECK(closed_by_actor_type IS NULL OR closed_by_actor_type = 'USER'),
+  closed_by_actor_id TEXT CHECK(closed_by_actor_id IS NULL OR length(closed_by_actor_id) = 36),
+  closed_at TEXT,
+  opening_idempotency_key TEXT NOT NULL CHECK(length(opening_idempotency_key) > 0),
+  opening_request_checksum TEXT NOT NULL CHECK(length(opening_request_checksum) = 64),
+  closing_idempotency_key TEXT,
+  closing_request_checksum TEXT CHECK(closing_request_checksum IS NULL OR length(closing_request_checksum) = 64),
+  cash_register_projection_sequence INTEGER NOT NULL CHECK(cash_register_projection_sequence > 0),
+  last_movement_sequence INTEGER NOT NULL CHECK(last_movement_sequence >= 0),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  CHECK ((closed_by_actor_type IS NULL) = (closed_by_actor_id IS NULL)),
+  CHECK (status <> 'CLOSED' OR closed_at IS NOT NULL),
+  CHECK (closed_at IS NULL OR status = 'CLOSED'),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, cash_register_id) REFERENCES cash_register(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX cash_shift_active_idx
+  ON cash_shift(tenant_id, branch_id, cash_register_id)
+  WHERE status IN ('OPEN','CLOSING');
+CREATE UNIQUE INDEX cash_shift_opening_idempotency_idx
+  ON cash_shift(tenant_id, origin_device_id, opening_idempotency_key);
+
+CREATE TABLE cash_movement (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT NOT NULL CHECK(length(cash_register_id) = 36),
+  cash_shift_id TEXT NOT NULL CHECK(length(cash_shift_id) = 36),
+  shift_sequence INTEGER NOT NULL CHECK(shift_sequence > 0),
+  movement_type TEXT NOT NULL CHECK(movement_type IN (
+    'OPENING_FLOAT','CASH_SALE','CASH_PAYMENT','CHANGE_GIVEN','CASH_REFUND',
+    'CASH_REVERSAL_COMPENSATION','CASH_WITHDRAWAL','CASH_DEPOSIT','COURIER_COLLECTION',
+    'CASH_EXPENSE','CASH_ADJUSTMENT_POSITIVE','CASH_ADJUSTMENT_NEGATIVE',
+    'TRANSFER_TO_SAFE','TRANSFER_FROM_SAFE','CLOSING_TRANSFER','OTHER_AUTHORIZED')),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN (
+    'CREATED','PENDING_APPROVAL','APPROVED','POSTED','REJECTED','FAILED','CANCELLED')),
+  original_cash_movement_id TEXT CHECK(original_cash_movement_id IS NULL OR length(original_cash_movement_id) = 36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) > 0),
+  evidence_reference TEXT,
+  actor_type TEXT NOT NULL CHECK(actor_type = 'USER'),
+  actor_id TEXT NOT NULL CHECK(length(actor_id) = 36),
+  approved_by_actor_type TEXT CHECK(approved_by_actor_type IS NULL OR approved_by_actor_type = 'USER'),
+  approved_by_actor_id TEXT CHECK(approved_by_actor_id IS NULL OR length(approved_by_actor_id) = 36),
+  business_date TEXT NOT NULL CHECK(length(business_date) = 10),
+  occurred_at TEXT NOT NULL,
+  device_reported_at TEXT NOT NULL,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  CHECK (movement_type = 'OPENING_FLOAT' OR amount <> '0.000000'),
+  CHECK ((approved_by_actor_type IS NULL) = (approved_by_actor_id IS NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, cash_shift_id) REFERENCES cash_shift(tenant_id, id),
+  FOREIGN KEY (tenant_id, cash_register_id) REFERENCES cash_register(tenant_id, id),
+  FOREIGN KEY (tenant_id, original_cash_movement_id) REFERENCES cash_movement(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX cash_movement_shift_sequence_idx
+  ON cash_movement(tenant_id, cash_shift_id, shift_sequence);
+CREATE UNIQUE INDEX cash_movement_idempotency_idx
+  ON cash_movement(tenant_id, origin_device_id, idempotency_key);
+CREATE UNIQUE INDEX cash_movement_opening_float_idx
+  ON cash_movement(tenant_id, cash_shift_id)
+  WHERE movement_type = 'OPENING_FLOAT' AND status = 'POSTED';
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -314,6 +470,7 @@ const MIGRATIONS = [
   { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
   { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
   { version: 8, sql: MIGRATION_008, checksum: createHash("sha256").update(MIGRATION_008).digest("hex") },
+  { version: 9, sql: MIGRATION_009, checksum: createHash("sha256").update(MIGRATION_009).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
