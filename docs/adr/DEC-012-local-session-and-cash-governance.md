@@ -123,7 +123,7 @@ La migración deberá portar además la restricción de base de datos que `UC-CA
 
 Se fija **`CASH_SHIFT_OPEN`** como representación canónica.
 
-`packages/contracts/src/primitives.ts:5` define `STABLE_CODE_PATTERN = /^[A-Z][A-Z0-9_]*(?:[.:-][A-Z0-9_]+)*$/`, que `PermissionCodeSchema` consume y el SAS aplica en cada snapshot. La forma documentada en `docs/security/permission-matrix.md:225`, `cash.shift.open`, es **rechazada por ese patrón**: un SAS que la transportara fallaría en la frontera de contrato.
+`packages/contracts/src/primitives.ts:5` define `STABLE_CODE_PATTERN = /^[A-Z][A-Z0-9_]*(?:[.:-][A-Z0-9_]+)*$/`, que `PermissionCodeSchema` consume y el SAS aplica en cada snapshot. La forma documentada en `docs/security/permission-matrix.md:227`, `cash.shift.open`, es **rechazada por ese patrón**: un SAS que la transportara fallaría en la frontera de contrato.
 
 No existe evidencia contraria que sobreviva al contrato materializado. La documentación deberá alinearse con el contrato, no al revés: relajar el patrón invalidaría un contrato ya verificado y obligaría a re-verificar `SAS-001/002/003`, mientras que corregir la matriz no tiene coste operativo.
 

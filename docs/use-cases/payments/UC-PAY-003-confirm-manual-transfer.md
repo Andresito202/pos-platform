@@ -90,9 +90,9 @@ El pago se encuentra en `PENDING` y tiene un reporte inmutable asociado a un `Pa
 
 La venta, pedido u obligación asociada existe.
 
-El actor tiene permiso payments.transfer.confirm.
+El actor tiene permiso `payments.transfer.confirm`, en forma canónica `PAYMENTS_TRANSFER_CONFIRM` conforme a `DEC-012` D6. Cubre la familia de medios manuales de este caso de uso —transferencia bancaria, Nequi, Daviplata y QR estático—, no sólo la transferencia bancaria. **No** autoriza reportar el pago, que exige `payments.transfer.report` (`UC-PAY-001:111`).
 
-La cuenta o QR destino estaba vigente cuando se reportó el pago.
+Cuando el medio utiliza una cuenta destino o un QR **versionados por el sistema**, esa versión estaba vigente cuando se reportó el pago. La condición **no aplica** a los medios cuya cuenta destino no está versionada —transferencia bancaria, Nequi y Daviplata—, y el QR estático depende de `QR-001`, todavía no modelado.
 
 La licencia permite confirmación manual.
 
@@ -116,7 +116,7 @@ external_reference;
 
 financial_entity;
 
-destination_account_version;
+destination_account_version, **sólo cuando el medio utiliza una cuenta destino o QR versionados**; depende de `QR-001` y no aplica a los medios de la primera materialización;
 
 reported_amount;
 
@@ -404,7 +404,7 @@ confirmed_amount == expected_amount
 
 el pago puede pasar a CONFIRMED, siempre que se cumplan las demás validaciones.
 
-La venta pasa a PAID únicamente si la suma de pagos confirmados cubre el total pagadero.
+La venta queda cubierta —`PAID` como **proyección de cobertura** del `PaymentGroup`, nunca un estado de `Sale.status`— únicamente si la suma de pagos confirmados cubre el total pagadero. La cobertura se deriva de los pagos confirmados y **no se persiste como alias mutable**.
 
 Diferencias de valor
 
