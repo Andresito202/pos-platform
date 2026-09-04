@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18) y `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) y `P-5` **PROVISIONAL** el 2026-09-04 (ver §20).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -268,7 +268,7 @@ Las migraciones ya aplicadas son inmutables. Ninguna decisión de este documento
 
 Ninguna de estas pendientes puede resolverse por inferencia. Cada una requiere decisión humana registrada.
 
-**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5`, `P-6` y `P-7` **continúan abiertos** y ninguno se ve alterado por §18 ni §19.
+**Actualización posterior.** `P-2` queda `RATIFICADO` (§18) y `P-3` queda `DECIDED` por derivación (§19). Esa ratificación resuelve además la mitad abierta de `P-1`, al fijar que el material de presencia se genera localmente, se acota a la sesión y nunca es utilizable contra la autoridad central —la categoría que `P2-A` identificó como no cubierta por las reglas existentes—. `P-4` quedó materializado por `MIGRATION_007` bajo autorización explícita posterior. `P-5` queda `PROVISIONAL` (§20): su estructura queda fijada y resta un único parámetro abierto. `P-6` y `P-7` **continúan abiertos** y ninguno se ve alterado por §18, §19 ni §20.
 
 ## 14. Orden de implementación posterior
 
@@ -518,3 +518,120 @@ presence_valid_until  <=  SSA.offline_valid_until  <=  SAS.expires_at
 ### 19.7 Qué no constituye evidencia
 
 Los fixtures de los tests de SSA y SAS emplean ventanas de 24 horas (`2026-09-03T00:00:00Z` → `2026-09-04T00:00:00Z`). **Coinciden con el TTL normativo, pero no son su fuente**: se eligieron por legibilidad aritmética y ningún test afirma un techo. La fuente normativa es exclusivamente `DEC-011:104`. Ningún fixture debe elevarse a política.
+
+## 20. Resolución de `P-5` — aprovisionamiento de `CashRegister`
+
+Resuelto el 2026-09-04. Sección aditiva: no modifica §D5 ni ninguna decisión anterior. **Estado `PROVISIONAL`**: siete de los ocho puntos exigidos quedan determinados por evidencia existente; el octavo —la ventana de exposición a revocación— carece de fuente normativa y se marca como decisión humana.
+
+### 20.1 Modelo
+
+`cash-counting-schema.md:36-44` define `cash.cash_registers` / `cash_cash_registers` con columnas lógicas `id`, `tenant_id`, `company_id`, `branch_id`, `code`, `code_normalized`, `name`, `currency_code`, `status`, `created_at`, `retired_at NULL`, `version`, y constraints: FK compuesta a Branch, `UNIQUE (tenant_id, company_id, branch_id, code_normalized)`, estados `ACTIVE`/`RETIRED`, moneda ISO 4217 inmutable mientras existan turnos asociados, y sin delete en cascada sobre historia financiera.
+
+Tres observaciones que gobiernan el resto de la decisión:
+
+- **No existe `device_id` ni `installation_id` en el registro.** El ámbito es tenant/company/branch.
+- **No existe `updated_at`.** El marcador de cambio es `version`.
+- `retired_at` y `status` son el vector de baja; no hay borrado.
+
+### 20.2 Autoridad central
+
+`physical-conventions.md:76` clasifica `CENTRAL_MASTER_REPLICATED` como «PostgreSQL: sí · SQLite: proyección/versiones necesarias · **central; local no publica cambios no autorizados**», y `cash-counting-schema.md:24` lo concreta: «central; el POS consume versión autorizada».
+
+| Operación | Autoridad |
+|---|---|
+| Crear, modificar, retirar, asignar a sucursal | **Central, en exclusiva** |
+| Consumir la proyección | POS Local Service |
+| Publicar cambios al maestro | **Nadie desde el POS** |
+
+### 20.3 Fuente de verdad
+
+| Central (exclusivo) | Local (proyección de sólo lectura) |
+|---|---|
+| Identidad del registro (`id`) | Copia verificada de la versión aceptada |
+| Ámbito (`tenant`, `company`, `branch`) | — |
+| Estado (`ACTIVE`/`RETIRED`) | — |
+| Configuración maestra (`code`, `name`, `currency_code`) | — |
+| `version` | — |
+
+**El POS no posee estado operacional alguno *sobre el registro*.** El estado operacional vive en agregados distintos —`CashShift`, `CashMovement`, `CashCount`—, clasificados `LOCAL_AUTHORITATIVE_SYNCED` (`cash-counting-schema.md:25`). Una operación local de caja **nunca** modifica el registro maestro.
+
+### 20.4 Mecanismo de aprovisionamiento
+
+| Alternativa | Valoración |
+|---|---|
+| **A — Snapshot maestro firmado** | Compatible con el patrón ya documentado para Catalog y con la maquinaria de licencia/SAS/SSA. Ofrece firma, versionado, reemplazo atómico y verificación offline |
+| **B — Sync/inbox existente** | **Descartada por evidencia.** `local_sync_inbox` transporta *resultados de operaciones* (`operation_id`, `result_json`, `server_status`), no datos maestros. Reutilizarlo exigiría desnaturalizarlo |
+| **C — Autoridad → snapshot firmado → transporte → validación → proyección SQLite** | Es A con su cadena completa explicitada. **Seleccionada** |
+
+**Decisión: C.** El patrón no se inventa aquí; ya está escrito para la misma clase de dato:
+
+- `catalog-schema.md:243` — «POS Local Service **reemplaza snapshots por versión aceptada dentro de una transacción; no crea ni fusiona maestros**.»
+- `catalog-schema.md:276` — «SQLite aplica **snapshot completo** de catálogo **atómicamente**.»
+- `device-licensing-schema.md:324` — «Los payloads firmados se **reemplazan atómicamente por secuencia/version superior verificada**; nunca por timestamp de llegada ni last-write-wins.»
+
+La proyección es de **snapshot completo por ámbito**, no incremental por fila: es lo que permite que una baja se propague por ausencia y no exija un evento de borrado.
+
+**Lo que no existe:** el emisor central y el transporte. Es el mismo hueco que ya bloquea SSA y SAS, no uno nuevo, y no se resuelve en este bloque.
+
+### 20.5 Trust boundary
+
+Antes de aceptar una proyección de cajas, el POS debe probar:
+
+| Prueba | Fuente |
+|---|---|
+| Firma Ed25519 válida sobre `canonicalJson(claims)` | Misma maquinaria que licencia, SAS y SSA |
+| `key_id` resuelto contra el trust store, no `REVOKED` | `TrustedSigningKey` |
+| `tenant_id` / `company_id` / `branch_id` del ámbito esperado | Modelo del registro |
+| `sequence` estrictamente mayor que la aceptada para ese ámbito | Anti-replay |
+| `issued_at` coherente con `TrustedClockGuard` | Reloj |
+| Integridad de la fila almacenada | Checksum, patrón de SAS-002/SSA-003 |
+
+**Separación que no debe perderse:** un `CashRegister` correctamente aprovisionado **no implica** que ningún usuario pueda operar sobre él. `DEC-011:88` lo fija: «Una caja es un recurso operativo, no un sujeto de autorización; el permiso se evalúa sobre `branch_id`». El maestro dice *qué cajas existen*; el SAS dice *quién puede operar en esa sucursal*.
+
+### 20.6 Binding — opción A, ligado exclusivamente a sucursal
+
+**Evidencia, no intuición:**
+
+1. `cash_cash_registers` **no tiene** `device_id` ni `installation_id`.
+2. `DEC-011:88` excluye deliberadamente `cash_register_id` del SAS, porque la caja no es sujeto de autorización.
+3. El vínculo con el dispositivo existe, pero **en el turno, no en la caja**: `cash_cash_shifts` incluye `origin_device_id` (`cash-counting-schema.md:48`), y la unicidad de turno incompatible se expresa «por tenant, sucursal, caja y dispositivo» (`:59`).
+
+Por tanto la caja se proyecta por sucursal, y la relación con un terminal concreto es una propiedad del turno.
+
+**Cuestión adyacente, fuera de `P-5`:** si dos terminales pueden sostener turnos simultáneos sobre la misma caja es una regla de negocio de `UC-CASH-001`, no del aprovisionamiento. Corresponde a `P-6`.
+
+### 20.7 Sequence / version
+
+Dos contadores distintos que no deben confundirse:
+
+| Contador | Ámbito | Propósito |
+|---|---|---|
+| `version` de cada registro | Fila del maestro | Concurrencia optimista en el lado **central** |
+| `sequence` del snapshot | Proyección completa de un ámbito | **Anti-replay local** |
+
+Regla de aceptación local, idéntica a SAS-002 y SSA-003: **estrictamente mayor**. Una secuencia igual es un reenvío; una menor, un replay; ninguna desplaza a la proyección activa. Nunca last-write-wins ni precedencia por timestamp. La secuencia persiste y sobrevive al reinicio, y una proyección obsoleta sigue fijando la cota anti-replay.
+
+No se introduce ninguna abstracción criptográfica nueva.
+
+### 20.8 Revocación — punto abierto
+
+Propagación: una baja central se refleja emitiendo un snapshot posterior con `sequence` mayor en el que la caja aparece `RETIRED` o ausente. **No existe revocación instantánea offline**, y no se inventa ninguna.
+
+**`PENDING HUMAN DECISION`: ¿caduca la proyección de cajas y con qué ventana?**
+
+No hay fuente normativa. El TTL de 24 h de `DEC-011:104` gobierna el SAS, que es autorización; extenderlo al maestro sería una analogía, no evidencia. Las dos posturas son defendibles y tienen consecuencias opuestas:
+
+- **Sin caducidad** — el maestro no concede privilegio, así que una caja retirada usada offline produce un turno sobre una caja dada de baja, corregible en la reconciliación central. Exposición ilimitada en el tiempo.
+- **Con caducidad** — acota la exposición, pero un POS sin conectividad prolongada se queda sin cajas utilizables y la caja deja de operar.
+
+Mientras no se decida, la ventana máxima de exposición a una baja no propagada **no está acotada** y así debe declararse.
+
+### 20.9 Atomicidad
+
+`VERIFY → VALIDATE → WRITE → ACTIVATE` dentro de una única frontera transaccional, conforme a `catalog-schema.md:243` y `:276`.
+
+Un snapshot inválido —firma, clave, ámbito, secuencia o integridad— **no destruye la proyección válida anterior**: se rechaza antes de escribir. Es la misma propiedad ya probada en SAS-002 y SSA-003.
+
+### 20.10 Qué NO decide esta sección
+
+No autoriza DDL, migración ni tabla alguna: `P-6` sigue abierto y el gate comercial sigue `NO-GO`. No implementa `CASH-001` ni ninguna operación de caja. No crea contrato, código ni transporte. No resuelve el emisor central. No altera `SSA-*`, `SAS-*` ni ninguna decisión previa de este documento.
