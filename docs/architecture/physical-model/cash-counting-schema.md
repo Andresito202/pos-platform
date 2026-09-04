@@ -102,6 +102,7 @@ Estados persistentes:
 
 Constraints e invariantes:
 
+- `amount` usa la representación decimal exacta de escala **6** y precisión total **19** definida en `physical-conventions.md`; `numeric(19,6)` en PostgreSQL y TEXT decimal canónico en SQLite. Nunca se representa ni se calcula con `number` de JavaScript. Decisión registrada en `DEC-012` §26;
 - `amount > 0` para todo tipo distinto de `OPENING_FLOAT`; el efecto usa `IN`/`OUT`, nunca signo ambiguo. `OPENING_FLOAT` admite `amount >= 0`: declara la base inicial del turno, y una caja puede abrirse sin efectivo. `UC-CASH-001` valida esa base como **no negativa** y sólo exige probar el rechazo de una base negativa; cero no introduce el signo ambiguo que la restricción general previene. Corrección registrada en `DEC-012` §23;
 - moneda igual a CashShift y CashRegister;
 - `UNIQUE (tenant_id, cash_shift_id, shift_sequence)`;

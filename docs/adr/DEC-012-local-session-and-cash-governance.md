@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) y `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25).
+`PROPUESTA`, con `P-2` **RATIFICADO** el 2026-09-03 (ver §18), `P-3` **DECIDED** por derivación el 2026-09-04 (ver §19) `P-5` **DECIDED** el 2026-09-04 (ver §20 y §21) y `P-6` evaluado con resultado **`NO-GO`** el 2026-09-04 (ver §22), de cuyos cuatro bloqueos `B1` queda resuelto (ver §23) `B2` **RESUELTO** el 2026-09-04 tras decisión de negocio (ver §24 y §25) y `B3` **RESUELTO** por derivación el 2026-09-04 (ver §26).
 
 El cuerpo de este documento se conserva exactamente como fue redactado. La ratificación de `P-2` —prueba de presencia local— se registra de forma **aditiva** en §18, sin reescribir ninguna decisión anterior ni eliminar trazabilidad. El resto de pendientes de §13 continúa abierto, y la ratificación de `P-2` **no autoriza implementar** SSA-004, presencia, login ni Cash: fija la política que esa implementación deberá respetar cuando sea autorizada por separado.
 
@@ -909,3 +909,64 @@ La regla evita que dos turnos simultáneos calculen `ExpectedCash` contra el mis
 ### 25.7 Alcance
 
 La unicidad conceptual queda determinada; **la sintaxis del índice parcial pertenece al gate DDL posterior** y no se decide aquí. `B1` (§23) permanece intacto. `B3`, `B4` y RLS siguen abiertos, de modo que el gate de §22 continúa `NO-GO`.
+
+## 26. Resolución de `B3` — escala decimal de los importes de Cash
+
+Resuelto el 2026-09-04 **por derivación de la matriz normativa existente**, no por elección de una escala nueva. Cierra el tercero de los cuatro bloqueos de §22. **`B4` y RLS no se tocan.**
+
+### 26.1 Decisión
+
+**Escala 6, precisión total 19.** `numeric(19,6)` en PostgreSQL y TEXT decimal canónico de seis decimales en SQLite.
+
+La escala es **fija por concepto y no depende de `currency_code`**.
+
+### 26.2 Derivación
+
+`physical-conventions.md:137-146` admite exactamente **tres** escalas, y las dos que no son 6 están excluidas por sus propias condiciones explícitas:
+
+| Escala | Concepto | ¿Aplica a un movimiento de caja? |
+|---|---|---|
+| **10** | Tasa tributaria, porcentaje de descuento, factor de conversión | **No.** Un importe no es una tasa ni un factor |
+| **2** | «importe fiscal o contable normalizado», admitido «**solo después de normalización fiscal/contable explícita**» | **No.** Un movimiento de caja es un hecho operativo, no un importe ya normalizado |
+| **6** | Precio, base, impuesto, descuento, Payment/Refund/Reversal, componentes de Settlement, cantidad, `payable_amount` | **Sí, por eliminación** |
+
+Tres refuerzos independientes:
+
+1. `:148` — «`numeric(19,2)` **no es la representación universal** del dominio financiero… Payment, Refund, Reversal y los componentes de Settlement mantienen capacidad `(19,6)`.»
+2. `:135` — «La escala física es capacidad de representación; **no autoriza redondear antes del punto normativo indicado**.» Adoptar escala 2 para caja forzaría una reducción prematura al registrar el lado en efectivo de un importe que el resto del dominio conserva con seis decimales, que es exactamente lo que esa frase prohíbe.
+3. Regla 4 de la representación SQLite — «La **precisión total no excede 19 dígitos**», y las ocho filas de la matriz usan `numeric(19, s)`. La precisión ya era normativa; lo que faltaba era únicamente la escala del concepto Cash.
+
+### 26.3 Regla canónica
+
+> Todo importe monetario de Cash —`CashMovement.amount` y los importes de arqueo `expected_amount`, `counted_amount` y `difference_amount`— se representa con **precisión total 19 y escala 6**: `numeric(19,6)` en PostgreSQL y TEXT decimal canónico de seis decimales en SQLite. La escala no depende de la moneda. El importe nunca se representa ni se calcula con `number` de JavaScript.
+
+### 26.4 Representación
+
+Rigen las reglas ya vigentes de `physical-conventions.md:167-175`, sin excepción para Cash:
+
+- **Cero:** `0.000000`. Seis decimales, una sola cifra entera, y **`-0` no es admisible**.
+- **Exceso de decimales:** se **rechaza**, no se trunca. La cantidad de decimales debe coincidir exactamente con la escala de la columna, y el adaptador valida la representación canónica **antes** del cast, porque el typmod de PostgreSQL normalizaría silenciosamente una escala léxica excedente.
+- **Normalización:** sólo de ceros a la izquierda. No se admite exponente, coma, whitespace, `NaN` ni infinito.
+- **Cálculo:** coeficiente `BigInt` más escala en el adaptador, y value object decimal en el dominio.
+
+### 26.5 Monedas
+
+**Opción A: escala única fija por concepto.** `currency_code` identifica la moneda ISO 4217 y garantiza coherencia entre movimiento, turno y caja —`cash-counting-schema.md:43` la hace inmutable mientras existan turnos—, pero **no determina la escala**. La matriz de `physical-conventions.md` está indexada por concepto y no por moneda, y ninguna de sus ocho filas condiciona la escala a la divisa.
+
+El caso COP lo confirma en lugar de contradecirlo: `DEC-006` aplica `NEAREST_50_HALF_AWAY_FROM_ZERO_V1` a `payable_amount`, y la matriz precisa que «el resultado queda congelado **sin cambiar la escala de almacenamiento**». Un redondeo específico de moneda altera el valor, nunca la representación.
+
+### 26.6 Redondeo
+
+**NO DECIDIDO para Cash, y no bloquea.**
+
+Las fuentes definen un modo con nombre —`NEAREST_50_HALF_AWAY_FROM_ZERO_V1`— sólo para `payable_amount` y el ajuste comercial COP, y la columna «Punto de reducción/redondeo» indica *cuándo* reduce cada concepto, no un modo general. Para Cash no existe ninguno, y **no se inventa**.
+
+No bloquea `B3` porque ninguna operación del modelo de Cash produce decimales excedentes: los importes se registran a escala fija, `ExpectedCash` es una suma de valores de la misma escala —exacta por construcción—, y un importe que llega del lado comercial ya viene congelado a escala 6. Si un caso de uso futuro introdujera una operación que reduzca escala en Cash, ese modo deberá decidirse entonces.
+
+### 26.7 `ExpectedCash`
+
+Compatible. La fórmula no se modifica. Sumar y restar valores de escala 6 con coeficiente entero es exacto y determinista, sin error binario: las reglas 5 a 8 ya prohíben `number`, prohíben `SUM` nativo de SQLite sobre estas columnas y exigen que los agregados autoritativos se calculen en dominio y se persistan con control de versión dentro de la transacción.
+
+### 26.8 Alcance
+
+`B1` (§23) y `B2` (§25) permanecen intactos: el cero de `OPENING_FLOAT` se representa como `0.000000` y el resto de tipos conserva importe estrictamente positivo. `B4` y RLS siguen abiertos, de modo que el gate de §22 continúa `NO-GO`. La sintaxis concreta del tipo en el DDL pertenece a ese gate.
