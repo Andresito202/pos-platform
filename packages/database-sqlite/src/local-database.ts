@@ -461,6 +461,233 @@ CREATE UNIQUE INDEX cash_movement_opening_float_idx
   WHERE movement_type = 'OPENING_FLOAT' AND status = 'POSTED';
 `.trim();
 
+// Sales V1 (BLOQUE 4C). Tres tablas de dominio y dos tablas de fixture SANDBOX.
+//
+// `sales_document_series_counter` materializa el contador monotónico local por
+// serie documental (`DEC-003` §34). La serie es provisionada centralmente; el
+// POS solo incrementa. Los skips están permitidos; nunca se reutiliza un número.
+// La asignación es atómica con la escritura de `sales_sales`.
+//
+// `sales_sales` y `sales_sale_items` materializan el agregado Sale y sus ítems.
+// La representación monetaria es TEXT a escala 6 — idéntica a `cash_movement` —
+// porque SQLite no tiene DECIMAL nativo. `commercial_rounding_adjustment` es el
+// único campo firmado: puede ser negativo cuando el redondeo NEAREST_50 baja.
+//
+// `sandbox_catalog_product`, `sandbox_catalog_presentation` y
+// `sandbox_price_rule` son fixture de SANDBOX para BLOQUE 4C. NO implementan el
+// sistema de distribución de snapshots CATALOG/PRICING (MATERIALIZATION GATE =
+// NO-GO por DEC-013); existen únicamente para permitir la creación de ventas en
+// el entorno SANDBOX sin infraestructura central. Ampliarlos a un sistema de
+// snapshot propio exige autorización independiente.
+const MIGRATION_010 = `
+CREATE TABLE sales_document_series_counter (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  series TEXT NOT NULL CHECK(length(series) >= 1 AND length(series) <= 20),
+  last_number INTEGER NOT NULL CHECK(last_number >= 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, branch_id, series)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE sales_sales (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  cash_register_id TEXT CHECK(cash_register_id IS NULL OR length(cash_register_id) = 36),
+  cash_shift_id TEXT CHECK(cash_shift_id IS NULL OR length(cash_shift_id) = 36),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  operator_actor_type TEXT NOT NULL CHECK(operator_actor_type = 'USER'),
+  operator_actor_id TEXT NOT NULL CHECK(length(operator_actor_id) = 36),
+  channel TEXT NOT NULL CHECK(length(channel) > 0),
+  status TEXT NOT NULL CHECK(status IN (
+    'DRAFT','SUSPENDED','READY_FOR_PAYMENT','PAYMENT_IN_PROGRESS',
+    'COMPLETED','CANCELLED','EXPIRED'
+  )),
+  business_date TEXT NOT NULL CHECK(length(business_date) = 10),
+  timezone_id TEXT NOT NULL CHECK(length(timezone_id) > 0),
+  utc_offset_minutes INTEGER NOT NULL CHECK(utc_offset_minutes BETWEEN -1440 AND 1440),
+  document_series TEXT NOT NULL CHECK(length(document_series) >= 1 AND length(document_series) <= 20),
+  sale_number INTEGER NOT NULL CHECK(sale_number > 0),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  subtotal_amount TEXT NOT NULL
+    CHECK(subtotal_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(subtotal_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(subtotal_amount) - length(replace(subtotal_amount, '.', '')) = 1)
+    CHECK(subtotal_amount NOT GLOB '0[0-9]*'),
+  discount_amount TEXT NOT NULL
+    CHECK(discount_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(discount_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(discount_amount) - length(replace(discount_amount, '.', '')) = 1)
+    CHECK(discount_amount NOT GLOB '0[0-9]*'),
+  tax_amount TEXT NOT NULL
+    CHECK(tax_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(tax_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(tax_amount) - length(replace(tax_amount, '.', '')) = 1)
+    CHECK(tax_amount NOT GLOB '0[0-9]*'),
+  fiscal_total_amount TEXT NOT NULL
+    CHECK(fiscal_total_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(fiscal_total_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(fiscal_total_amount) - length(replace(fiscal_total_amount, '.', '')) = 1)
+    CHECK(fiscal_total_amount NOT GLOB '0[0-9]*'),
+  commercial_rounding_adjustment TEXT NOT NULL CHECK(
+    (commercial_rounding_adjustment GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND commercial_rounding_adjustment NOT GLOB '*[^0-9.]*'
+     AND length(commercial_rounding_adjustment) - length(replace(commercial_rounding_adjustment, '.', '')) = 1
+     AND commercial_rounding_adjustment NOT GLOB '0[0-9]*')
+    OR
+    (commercial_rounding_adjustment GLOB '-[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND commercial_rounding_adjustment NOT GLOB '*[^0-9.-]*'
+     AND length(commercial_rounding_adjustment) - length(replace(commercial_rounding_adjustment, '.', '')) = 1)
+  ),
+  payable_amount TEXT NOT NULL
+    CHECK(payable_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(payable_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(payable_amount) - length(replace(payable_amount, '.', '')) = 1)
+    CHECK(payable_amount NOT GLOB '0[0-9]*'),
+  pricing_pipeline_version TEXT NOT NULL CHECK(length(pricing_pipeline_version) > 0),
+  pricing_policy_version TEXT NOT NULL CHECK(length(pricing_policy_version) > 0),
+  promotion_policy_version TEXT CHECK(promotion_policy_version IS NULL OR length(promotion_policy_version) > 0),
+  tax_policy_version TEXT NOT NULL CHECK(length(tax_policy_version) > 0),
+  rounding_policy_version TEXT NOT NULL CHECK(length(rounding_policy_version) > 0),
+  pricing_snapshot TEXT NOT NULL,
+  tax_snapshot TEXT NOT NULL,
+  calculation_checksum TEXT NOT NULL CHECK(length(calculation_checksum) = 64),
+  operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  cancelled_at TEXT,
+  expired_at TEXT,
+  server_recorded_at TEXT,
+  CHECK((cash_register_id IS NULL) = (cash_shift_id IS NULL)),
+  CHECK(status <> 'COMPLETED' OR completed_at IS NOT NULL),
+  CHECK(status <> 'CANCELLED' OR cancelled_at IS NOT NULL),
+  CHECK(status <> 'EXPIRED' OR expired_at IS NOT NULL),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (operation_id) REFERENCES runtime_operations(operation_id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX sales_sales_document_idx
+  ON sales_sales(tenant_id, branch_id, document_series, sale_number);
+CREATE UNIQUE INDEX sales_sales_idempotency_idx
+  ON sales_sales(tenant_id, origin_device_id, idempotency_key);
+CREATE UNIQUE INDEX sales_sales_operation_idx
+  ON sales_sales(operation_id);
+CREATE INDEX sales_sales_status_idx
+  ON sales_sales(tenant_id, branch_id, status, created_at);
+
+CREATE TABLE sales_sale_items (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  sale_id TEXT NOT NULL CHECK(length(sale_id) = 36),
+  line_number INTEGER NOT NULL CHECK(line_number > 0),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  variant_id TEXT CHECK(variant_id IS NULL OR length(variant_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  product_name_snapshot TEXT NOT NULL CHECK(length(product_name_snapshot) > 0),
+  presentation_name_snapshot TEXT NOT NULL CHECK(length(presentation_name_snapshot) > 0),
+  identifier_snapshot TEXT,
+  unit_id TEXT NOT NULL CHECK(length(unit_id) = 36),
+  unit_code_snapshot TEXT NOT NULL CHECK(length(unit_code_snapshot) > 0),
+  unit_precision_snapshot INTEGER NOT NULL CHECK(unit_precision_snapshot >= 0),
+  quantity TEXT NOT NULL
+    CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity) - length(replace(quantity, '.', '')) = 1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity <> '0.000000'),
+  unit_price_amount TEXT NOT NULL
+    CHECK(unit_price_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(unit_price_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(unit_price_amount) - length(replace(unit_price_amount, '.', '')) = 1)
+    CHECK(unit_price_amount NOT GLOB '0[0-9]*'),
+  gross_amount TEXT NOT NULL
+    CHECK(gross_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(gross_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(gross_amount) - length(replace(gross_amount, '.', '')) = 1)
+    CHECK(gross_amount NOT GLOB '0[0-9]*'),
+  discount_amount TEXT NOT NULL
+    CHECK(discount_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(discount_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(discount_amount) - length(replace(discount_amount, '.', '')) = 1)
+    CHECK(discount_amount NOT GLOB '0[0-9]*'),
+  taxable_amount TEXT NOT NULL
+    CHECK(taxable_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(taxable_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(taxable_amount) - length(replace(taxable_amount, '.', '')) = 1)
+    CHECK(taxable_amount NOT GLOB '0[0-9]*'),
+  tax_amount TEXT NOT NULL
+    CHECK(tax_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(tax_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(tax_amount) - length(replace(tax_amount, '.', '')) = 1)
+    CHECK(tax_amount NOT GLOB '0[0-9]*'),
+  line_total_amount TEXT NOT NULL
+    CHECK(line_total_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(line_total_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(line_total_amount) - length(replace(line_total_amount, '.', '')) = 1)
+    CHECK(line_total_amount NOT GLOB '0[0-9]*'),
+  pricing_resolution_snapshot TEXT NOT NULL,
+  tax_calculation_snapshot TEXT NOT NULL,
+  lot_id TEXT CHECK(lot_id IS NULL OR length(lot_id) = 36),
+  measurement_source_type TEXT,
+  measurement_evidence_snapshot TEXT,
+  measurement_evidence_checksum TEXT CHECK(
+    measurement_evidence_checksum IS NULL OR length(measurement_evidence_checksum) = 64
+  ),
+  CHECK((measurement_source_type IS NULL) = (measurement_evidence_snapshot IS NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_id) REFERENCES sales_sales(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX sales_sale_items_line_idx
+  ON sales_sale_items(tenant_id, sale_id, line_number);
+
+CREATE TABLE sandbox_catalog_product (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  name TEXT NOT NULL CHECK(length(name) > 0),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  stock_controlled INTEGER NOT NULL CHECK(stock_controlled IN (0, 1)),
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE sandbox_catalog_presentation (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  name TEXT NOT NULL CHECK(length(name) > 0),
+  unit_id TEXT NOT NULL CHECK(length(unit_id) = 36),
+  unit_code TEXT NOT NULL CHECK(length(unit_code) > 0),
+  unit_precision INTEGER NOT NULL CHECK(unit_precision >= 0),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, product_id) REFERENCES sandbox_catalog_product(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE sandbox_price_rule (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX sandbox_price_rule_active_idx
+  ON sandbox_price_rule(tenant_id, presentation_id)
+  WHERE status = 'ACTIVE';
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -471,6 +698,7 @@ const MIGRATIONS = [
   { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
   { version: 8, sql: MIGRATION_008, checksum: createHash("sha256").update(MIGRATION_008).digest("hex") },
   { version: 9, sql: MIGRATION_009, checksum: createHash("sha256").update(MIGRATION_009).digest("hex") },
+  { version: 10, sql: MIGRATION_010, checksum: createHash("sha256").update(MIGRATION_010).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
