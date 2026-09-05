@@ -2,11 +2,32 @@ import { describe, it, expect } from "vitest";
 import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "../src/ipc-allowlist.js";
 
 describe("ipc-allowlist", () => {
-  it("contains exactly the three operational channels", () => {
-    expect(IPC_ALLOWED_CHANNELS).toContain("pos:runtime.status.get");
-    expect(IPC_ALLOWED_CHANNELS).toContain("pos:operation.result.get");
-    expect(IPC_ALLOWED_CHANNELS).toContain("pos:operation.confirm");
-    expect(IPC_ALLOWED_CHANNELS).toHaveLength(3);
+  it("contains exactly the ratified operational and commercial channels", () => {
+    expect(Array.from(IPC_ALLOWED_CHANNELS)).toEqual([
+      "pos:runtime.status.get",
+      "pos:operation.result.get",
+      "pos:operation.confirm",
+      "pos:session.activate",
+      "pos:session.recover",
+      "pos:cash.shift.open",
+      "pos:cash.shift.close",
+      "pos:sale.create",
+    ]);
+  });
+
+  it("exposes every commercial channel with the pos: prefix", () => {
+    for (const channel of [
+      "pos:session.activate",
+      "pos:session.recover",
+      "pos:cash.shift.open",
+      "pos:cash.shift.close",
+      "pos:sale.create",
+    ]) {
+      expect(isAllowedChannel(channel)).toBe(true);
+      // El nombre sin prefijo pertenece a la frontera main ↔ servicio y no
+      // debe ser invocable desde el renderer (`DEC-014` §3.2).
+      expect(isAllowedChannel(channel.slice("pos:".length))).toBe(false);
+    }
   });
 
   it("accepts each channel in the allowlist", () => {

@@ -8,12 +8,31 @@ import {
   VersionIdentifierSchema,
   UuidSchema,
 } from "./primitives.js";
+import {
+  CashShiftCloseRequestSchema,
+  CashShiftCloseResponseSchema,
+  CashShiftOpenRequestSchema,
+  CashShiftOpenResponseSchema,
+  SaleCreateRequestSchema,
+  SaleCreateResponseSchema,
+  SessionActivateRequestSchema,
+  SessionActivateResponseSchema,
+  SessionRecoverRequestSchema,
+  SessionRecoverResponseSchema,
+} from "./ipc-commercial.js";
 
 export const IpcMessageTypeSchema = z.enum([
   "runtime.handshake",
   "runtime.status.get",
   "operation.result.get",
   "operation.confirm",
+  // Operaciones comerciales V1 — `DEC-014` §3.1. Sus esquemas viven en
+  // `ipc-commercial.ts`; aquí se incorporan al transporte.
+  "session.activate",
+  "session.recover",
+  "cash.shift.open",
+  "cash.shift.close",
+  "sale.create",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -90,6 +109,11 @@ export const IpcRequestSchema = z.union([
   RuntimeStatusRequestSchema,
   OperationResultRequestSchema,
   OperationConfirmRequestSchema,
+  SessionActivateRequestSchema,
+  SessionRecoverRequestSchema,
+  CashShiftOpenRequestSchema,
+  CashShiftCloseRequestSchema,
+  SaleCreateRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -97,6 +121,11 @@ export const IpcResponseSchema = z.union([
   RuntimeStatusResponseSchema,
   OperationResultResponseSchema,
   OperationConfirmResponseSchema,
+  SessionActivateResponseSchema,
+  SessionRecoverResponseSchema,
+  CashShiftOpenResponseSchema,
+  CashShiftCloseResponseSchema,
+  SaleCreateResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

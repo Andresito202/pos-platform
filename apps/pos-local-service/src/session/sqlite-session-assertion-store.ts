@@ -12,6 +12,16 @@ import type {
 } from "@pos-platform/application";
 import { canonicalJson } from "../channel/canonical-json.js";
 
+/**
+ * Resultado de buscar la sesión activa de un dispositivo. `AMBIGUOUS` es un
+ * resultado legítimo, no un error: significa que el dispositivo tiene más de
+ * una sesión vigente y que ninguna puede recuperarse sin adivinar.
+ */
+export type DeviceSessionLookup =
+  | { readonly kind: "FOUND"; readonly session: StoredSessionAssertion }
+  | { readonly kind: "NONE" }
+  | { readonly kind: "AMBIGUOUS" };
+
 interface SessionRow {
   claims_json: string;
   claims_checksum: string;
@@ -126,6 +136,49 @@ export class SqliteSessionAssertionStore implements SessionAssertionStore {
 
     const claims = SessionAssertionClaimsSchema.parse(JSON.parse(row.claims_json));
     return { claims, signature: row.signature, activatedAt: row.activated_at };
+  }
+
+  /**
+   * Sesión activa de **este dispositivo**, sin recibir `user_id` del llamador
+   * — `DEC-015` §5.5.
+   *
+   * `session.recover` no puede pedir el binding a quien llama: aceptarlo sería
+   * dejarle nombrar la identidad que va a recuperar. La consulta se ancla en
+   * `installation_id` y `device_id`, ambos derivados de la configuración local,
+   * y el `user_id` sale de la fila encontrada.
+   *
+   * La clave primaria admite varias filas por dispositivo (una por usuario), de
+   * modo que puede haber más de una vigente. En ese caso se devuelve
+   * `AMBIGUOUS` y **no se elige**: escoger una sería adivinar de quién es la
+   * sesión, que es exactamente la suplantación que este contrato impide.
+   *
+   * Devolver la fila no la acredita. Quien la consuma debe volver a verificar
+   * su firma.
+   */
+  loadActiveByDevice(installationId: string, deviceId: string): DeviceSessionLookup {
+    const rows = this.database.native.prepare(
+      `SELECT claims_json, claims_checksum, signature, sequence, offline_valid_until, activated_at
+       FROM local_session_assertion
+       WHERE installation_id=? AND device_id=?`,
+    ).all(installationId, deviceId) as SessionRow[];
+
+    const nowMs = this.now().getTime();
+    const active = rows.filter((row) => nowMs < Date.parse(row.offline_valid_until));
+
+    if (active.length === 0) return { kind: "NONE" };
+    if (active.length > 1) return { kind: "AMBIGUOUS" };
+
+    const row = active[0] as SessionRow;
+    const checksum = createHash("sha256").update(row.claims_json).digest("hex");
+    if (checksum !== row.claims_checksum) {
+      throw new Error("stored session assertion failed its integrity checksum");
+    }
+
+    const claims = SessionAssertionClaimsSchema.parse(JSON.parse(row.claims_json));
+    return {
+      kind: "FOUND",
+      session: { claims, signature: row.signature, activatedAt: row.activated_at },
+    };
   }
 
   highestAcceptedSequence(binding: SessionBinding): number | null {

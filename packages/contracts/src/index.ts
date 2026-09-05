@@ -6,6 +6,7 @@ export * from "./idempotency.js";
 export * from "./primitives.js";
 export * from "./versioning.js";
 export * from "./ipc.js";
+export * from "./ipc-commercial.js";
 export * from "./sync.js";
 export * from "./compatibility.js";
 export * from "./local-channel.js";

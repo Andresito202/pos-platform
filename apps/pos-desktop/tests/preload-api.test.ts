@@ -6,11 +6,17 @@ describe("preload-api", () => {
     expect(RENDERER_API_KEY).toBe("posService");
   });
 
-  it("exposes exactly the three allowed methods", () => {
-    expect(RENDERER_API_METHODS).toContain("runtime.status.get");
-    expect(RENDERER_API_METHODS).toContain("operation.result.get");
-    expect(RENDERER_API_METHODS).toContain("operation.confirm");
-    expect(RENDERER_API_METHODS).toHaveLength(3);
+  it("exposes exactly the ratified methods", () => {
+    expect(Array.from(RENDERER_API_METHODS)).toEqual([
+      "runtime.status.get",
+      "operation.result.get",
+      "operation.confirm",
+      "session.activate",
+      "session.recover",
+      "cash.shift.open",
+      "cash.shift.close",
+      "sale.create",
+    ]);
   });
 
   it("does not expose runtime.handshake to renderer", () => {
