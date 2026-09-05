@@ -1487,3 +1487,33 @@ Para todo lo anterior siguen vigentes el `NO-GO` de §10 y el de `docs/product/b
 ### 32.5 Estado resultante
 
 `B-2a` **`CLOSED`** · `B-2b` **`OPEN`** · `B-3` y `B-4` **vigentes** · materialización **no iniciada**.
+
+---
+
+## §33 Canonicalización de CASH_SHIFT_CLOSE
+
+### 33.1 Contexto
+
+D6 (§27) canonicalizó `CASH_SHIFT_OPEN` como código estable de operación para la apertura de turno. La operación simétrica de cierre de turno (`UC-CASH-002`) no tenía representación canónica.
+
+### 33.2 Decisión
+
+Se canonicalizan los identificadores de la operación de cierre de turno:
+
+| Elemento | Valor canónico |
+|---|---|
+| `operation_type` (outbox) | `CASH_SHIFT_CLOSED` |
+| `aggregate_type` (outbox) | `CASH_SHIFT` |
+| Permiso | `CASH_SHIFT_CLOSE` |
+
+Los tres valores satisfacen `STABLE_CODE_PATTERN` (`packages/contracts/src/primitives.ts:5`).
+
+El permiso `CASH_SHIFT_CLOSE` (forma canónica) corresponde a `cash.shift.close` en la matriz de producto (`docs/security/permission-matrix.md`). Un actor `DEVICE` nunca obtiene este permiso.
+
+### 33.3 Restricciones de actores
+
+Un actor `DEVICE` nunca puede ejecutar `CASH_SHIFT_OPEN` ni `CASH_SHIFT_CLOSE`. Ambos permisos requieren actor `USER` derivado del snapshot de autorización activo. El `actor_id` en el audit trail es siempre `user_id` del snapshot; no se acepta un actor arbitrario del caller.
+
+### 33.4 Alcance
+
+Esta sección es **aditiva**. No modifica ni reinterpreta ninguna decisión de §1–§32. Complementa D6 (§27) añadiendo la forma canónica del cierre.
