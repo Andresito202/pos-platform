@@ -14,3 +14,7 @@ y docs/architecture/data-ownership.md). Antes de escribir código:
    bounded contexts nuevos — no les crees su propio módulo.
 4. Si el cambio requiere cruzar el límite de forma legítima, decláralo explícitamente y propone
    el contrato entre módulos en vez de saltártelo silenciosamente.
+5. **Esto es ejecutable, no una convención:** `pnpm architecture:check` valida
+   capas declaradas, protocolo `workspace:`, imports relativos entre proyectos,
+   dependencias externas prohibidas por capa y las áreas congeladas de
+   `DEC-017` §4.2. Córrelo antes de decir que el cambio respeta los límites.

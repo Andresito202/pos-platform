@@ -28,3 +28,12 @@ Thumbs.db
 # dependencias, auditoría de vulnerabilidades y reporte de licencias. En CI se
 # publica como artefacto del workflow, no como contenido del repositorio.
 artifacts/
+
+# Configuración de Claude Code por desarrollador y respaldos de herramientas
+# locales. `settings.local.json` es por definición local, y un `.graphify-bak`
+# es un respaldo que una herramienta deja al reescribir la configuración: ni uno
+# ni otro describen el proyecto. Las **skills** sí se versionan: son
+# conocimiento del proyecto y ya están en `.claude/skills/`.
+.claude/settings.local.json
+.claude/*.bak
+.claude/settings.json.*-bak
