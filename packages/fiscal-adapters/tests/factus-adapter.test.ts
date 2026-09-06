@@ -502,8 +502,76 @@ describe("rangos de numeración", () => {
     expect(outcome.reasonCode).not.toContain("example");
   });
 
-  it("`describeShape` nombra campos y nunca contenido", () => {
+  it("acepta campos nulos, que es como un API JSON dice «vacío»", async () => {
+    // `.optional()` acepta ausente pero **rechaza `null`**, y un API devuelve
+    // `null` en una columna vacía en vez de omitir la clave. Ése fue el fallo
+    // que costó una ronda entera contra el sandbox.
+    const { adapter: subject } = adapter(() =>
+      json(200, {
+        status: "OK",
+        data: {
+          data: [{
+            id: 389,
+            document: null,
+            prefix: "SETP",
+            from: 990000000,
+            to: null,
+            current: null,
+            resolution_number: "18760000001",
+            start_date: "2026-01-01",
+            end_date: null,
+            technical_key: null,
+            is_expired: null,
+            is_active: null,
+          }],
+          pagination: { total: 1 },
+        },
+      }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    const range = outcome.ranges[0];
+    expect(range?.rangeId).toBe("389");
+    expect(range?.currentNumber).toBeNull();
+    expect(range?.providerActive).toBeNull();
+    expect(range?.providerDocumentCode).toBeNull();
+  });
+
+  it("interpreta banderas de vigencia sin usar truthiness", async () => {
+    // `Boolean("false")` es `true`, y eso invertiría la vigencia de un rango
+    // fiscal. Las formas se reconocen explícitamente.
+    const { adapter: subject } = adapter(() =>
+      json(200, {
+        data: [
+          { prefix: "A", resolution_number: "1", is_active: 1, is_expired: "false" },
+          { prefix: "B", resolution_number: "2", is_active: "true", is_expired: 0 },
+          { prefix: "C", resolution_number: "3", is_active: "quizá", is_expired: "quizá" },
+        ],
+      }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    expect(outcome.ranges[0]?.providerActive).toBe(true);
+    expect(outcome.ranges[0]?.providerExpired).toBe(false);
+    expect(outcome.ranges[1]?.providerActive).toBe(true);
+    expect(outcome.ranges[1]?.providerExpired).toBe(false);
+    // Lo no reconocido queda en `null` —«no lo sé»—, nunca en `false`.
+    expect(outcome.ranges[2]?.providerActive).toBeNull();
+    expect(outcome.ranges[2]?.providerExpired).toBeNull();
+  });
+
+  it("`describeShape` nombra campos y nunca contenido, y MARCA los nulos", () => {
     expect(describeShape({ token: "secreto", n: 42, ok: true })).toBe("{token,n,ok}");
+    // Un nulo era invisible: se resumía igual que una cadena. Ahora se ve.
+    expect(describeShape({ a: "x", b: null })).toBe("{a,b:null}");
+    expect(describeShape(null)).toBe(":null");
     expect(describeShape([{ a: 1 }])).toBe("[{a}]");
     expect(describeShape([])).toBe("[]");
     expect(describeShape("cualquier-secreto")).toBe("");

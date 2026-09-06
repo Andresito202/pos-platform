@@ -472,28 +472,27 @@ implements
         // trae, y ahí la identidad se **deriva** de resolución y prefijo,
         // marcada con prefijo `derived:` para que nadie la envíe como
         // `numbering_range_id` creyendo que es del proveedor.
-        rangeId: range.id === undefined
-          ? `derived:${String(range.resolution_number ?? "sin-resolucion")}:${range.prefix ?? ""}`
-          : String(range.id),
+        rangeId: toNullableString(range.id)
+          ?? `derived:${toNullableString(range.resolution_number) ?? "sin-resolucion"}:${range.prefix ?? ""}`,
         documentType: query.documentType,
         prefix: range.prefix ?? "",
         // La autoridad es siempre del proveedor: los rangos los asocia FACTUS
         // al software ante la DIAN. Nunca `LOCAL`.
         authority: "PROVIDER" as const,
-        resolutionNumber: range.resolution_number === undefined
-          ? null
-          : String(range.resolution_number),
+        resolutionNumber: toNullableString(range.resolution_number),
         rangeFrom: toInteger(range.from),
         rangeTo: toInteger(range.to),
-        currentNumber: range.current === undefined ? null : toInteger(range.current),
+        currentNumber: range.current === null || range.current === undefined
+          ? null
+          : toInteger(range.current),
         validFrom: range.start_date ?? null,
         validUntil: range.end_date ?? null,
         // La vigencia que declara el proveedor manda sobre nuestra aritmética
         // de fechas: él conoce su calendario y sus reglas, nosotros sólo dos
         // cadenas.
-        providerActive: range.is_active ?? null,
-        providerExpired: range.is_expired ?? null,
-        providerDocumentCode: range.document === undefined ? null : String(range.document),
+        providerActive: toBoolean(range.is_active),
+        providerExpired: toBoolean(range.is_expired),
+        providerDocumentCode: toNullableString(range.document),
       })),
     };
   }
@@ -592,30 +591,38 @@ const FactusRangeItemSchema = z.object({
    * cuerpo de emisión, así que sin él no se puede facturar con más de un
    * rango activo.
    */
-  id: z.union([z.string(), z.number()]).optional(),
-  prefix: z.string().optional(),
-  resolution_number: z.union([z.string(), z.number()]).optional(),
+  id: z.union([z.string(), z.number()]).nullish(),
+  prefix: z.string().nullish(),
+  resolution_number: z.union([z.string(), z.number()]).nullish(),
   // `technical_key` es la llave técnica DIAN. Se reconoce para no romper el
   // parseo, pero **no se propaga** a `NumberingRangeSnapshot`: interviene en
   // el cálculo del CUFE y llevarla al núcleo es una decisión de seguridad
   // propia, no un efecto colateral de sincronizar rangos.
-  technical_key: z.string().optional(),
-  from: z.union([z.string(), z.number()]).optional(),
-  to: z.union([z.string(), z.number()]).optional(),
+  technical_key: z.string().nullish(),
+  from: z.union([z.string(), z.number()]).nullish(),
+  to: z.union([z.string(), z.number()]).nullish(),
   /** Consecutivo alcanzado dentro del rango. */
-  current: z.union([z.string(), z.number()]).optional(),
-  start_date: z.string().optional(),
-  end_date: z.string().optional(),
+  current: z.union([z.string(), z.number()]).nullish(),
+  start_date: z.string().nullish(),
+  end_date: z.string().nullish(),
   /**
    * Código de tipo documental **del proveedor**. No se traduce a
    * `FiscalDocumentType`: hacerlo exige la tabla de códigos DIAN, que no
    * existe todavía (`D-9`). Se conserva en crudo para que un consumidor con
    * esa tabla pueda filtrar sin que el adapter invente la correspondencia.
    */
-  document: z.union([z.string(), z.number()]).optional(),
-  /** Autoridad del proveedor sobre la vigencia. Manda sobre nuestra aritmética de fechas. */
-  is_active: z.boolean().optional(),
-  is_expired: z.boolean().optional(),
+  document: z.union([z.string(), z.number()]).nullish(),
+  /**
+   * Autoridad del proveedor sobre la vigencia. Manda sobre nuestra aritmética
+   * de fechas.
+   *
+   * Se acepta `boolean`, número o cadena porque el tipo JSON **no llegó a
+   * observarse**: `describeShape` resume todo primitivo igual. Un `1` o un
+   * `"true"` se interpretan explícitamente en `toBoolean`; cualquier otra cosa
+   * queda en `null`, que es «no lo sé», no «falso».
+   */
+  is_active: z.union([z.boolean(), z.number(), z.string()]).nullish(),
+  is_expired: z.union([z.boolean(), z.number(), z.string()]).nullish(),
 }).loose();
 
 const FactusRangesResponseSchema = z.object({
@@ -634,14 +641,39 @@ function rangeItemsOf(
   return Array.isArray(data) ? data : data.data;
 }
 
-/** Entero tolerante al tipo JSON, sin `NaN` silencioso. */
-function toInteger(value: string | number | undefined): number {
+/** Entero tolerante al tipo JSON y a `null`, sin `NaN` silencioso. */
+function toInteger(value: string | number | null | undefined): number {
   if (typeof value === "number") return Number.isInteger(value) ? value : 0;
   if (typeof value === "string") {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+/**
+ * Booleano explícito, nunca por truthiness.
+ *
+ * `Boolean("false")` es `true`, y eso invertiría la vigencia de un rango
+ * fiscal. Sólo se reconocen las formas listadas; el resto devuelve `null`, que
+ * significa «no lo sé» y deja que mande la aritmética de fechas.
+ */
+function toBoolean(value: boolean | number | string | null | undefined): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1 ? true : value === 0 ? false : null;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+  }
+  return null;
+}
+
+/** Cadena presente y no vacía, o `null`. `null` y `undefined` colapsan igual. */
+function toNullableString(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value);
+  return text === "" ? null : text;
 }
 
 /**
@@ -657,8 +689,15 @@ function toInteger(value: string | number | undefined): number {
  * Misma regla que `ConfigurationFinding`: se nombra el campo, jamás su
  * contenido. Un `string`, un número o una fecha se resumen como cadena vacía,
  * así que un token o un NIT no pueden salir por aquí.
+ *
+ * **`null` sí se marca**, y no es un detalle cosmético: un campo nulo rompe un
+ * `.optional()` —que acepta ausente pero no nulo— y ése fue exactamente el
+ * fallo que costó una ronda entera. Resumido como cadena vacía junto al resto
+ * de primitivos, era invisible en el diagnóstico. `null` no es un valor del
+ * negocio, así que marcarlo no filtra nada.
  */
 export function describeShape(value: unknown, depth = 0): string {
+  if (value === null) return ":null";
   if (Array.isArray(value)) {
     if (depth >= MAX_SHAPE_DEPTH) return "[…]";
     return value.length === 0 ? "[]" : `[${describeShape(value[0], depth + 1)}]`;
