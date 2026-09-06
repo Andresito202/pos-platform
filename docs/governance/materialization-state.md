@@ -75,6 +75,33 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Esquema fiscal (10 tablas `fiscal.*`) | ✅ | ✅ | ❌ | ✅ | ❌ | `003_fiscal_electronic_invoicing_foundation.up.sql` |
 | Aplicación central que use ese esquema | ✅ | ❌ | ❌ | ❌ | ❌ | — (`packages/database-postgres/src` vacío) |
 
+### Plano fiscal
+
+| Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
+|---|---|---|---|---|---|---|
+| Cinco puertos por capacidad | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/fiscal-adapters/src/ports/` |
+| Declaración tipada de credencial (`D-3`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/credential.ts` |
+| Matriz de capacidades y verificación cruzada | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/capability.ts` · `.../src/adapter-declaration.ts` |
+| Escalera de verificación (`D-4`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/verification.ts` |
+| Saldo de bolsa como proyección (`D-5`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/quota.ts` |
+| Adapter de cualquier proveedor | ✅ | ❌ | ❌ | ❌ | ❌ | — |
+
+> **Qué acredita esta sección y qué no.** Acredita que las cinco formas existen,
+> compilan, y que un solo objeto puede satisfacerlas: `port-conformance.test.ts`
+> implementa los cinco puertos con un fake determinista. Acredita también que la
+> forma admite los **tres** contratos de proveedor, no sólo FACTUS:
+> `provider-contracts.test.ts` construye las declaraciones de SIIGO, FACTUS y
+> ALEGRA desde `provider-integration-matrix.md` y comprueba que ninguna se
+> contradice.
+>
+> **No acredita compatibilidad con ningún proveedor.** Los tres siguen en
+> `NOT_EVALUATED`, y la propia escalera lo impone: un fake determinista tiene
+> techo `MOCK_TESTED`, verificado en `verification-and-quota.test.ts`. Ninguna
+> línea de este bloque abre una conexión de red.
+>
+> Comando ejecutado: `pnpm test:fiscal-adapters` — 47 pruebas, 0 fallos.
+> Cableado en CI como paso «Validate fiscal capability ports».
+
 ### CI/CD y cadena de suministro
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
@@ -112,7 +139,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | SaleReturn, notas crédito/débito | documentado | — |
 | API central | documentado | — (`apps/` solo tiene 2 aplicaciones) |
 | Transporte local↔central | documentado | — (sin cliente HTTP saliente) |
-| Adapters de proveedor fiscal | documentado | — |
+| Adapters de proveedor fiscal | documentado | puertos y declaración en `packages/fiscal-adapters/`; **ningún adapter** |
 | Contingencia y reconciliación fiscal ejecutables | documentado | — |
 | Instalador NSIS y firma de código | `DEC-010` | — (`electron-builder` ausente del lockfile) |
 | Periféricos POS | documentado | — |

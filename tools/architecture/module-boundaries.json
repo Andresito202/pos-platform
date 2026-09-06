@@ -39,6 +39,12 @@
       "scope": "local",
       "dialect": "sqlite"
     },
+    "@pos-platform/fiscal-adapters": {
+      "root": "packages/fiscal-adapters",
+      "layer": "adapter",
+      "type": "library",
+      "scope": "shared"
+    },
     "@pos-platform/observability": {
       "root": "packages/observability",
       "layer": "observability",

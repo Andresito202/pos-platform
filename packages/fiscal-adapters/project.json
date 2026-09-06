@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/fiscal-adapters",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/fiscal-adapters",
+  "projectType": "library",
+  "tags": [
+    "layer:adapter",
+    "type:library",
+    "scope:shared"
+  ]
+}

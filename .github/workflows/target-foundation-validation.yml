@@ -217,6 +217,9 @@ jobs:
       - name: Validate application use cases
         run: pnpm test:application
 
+      - name: Validate fiscal capability ports
+        run: pnpm test:fiscal-adapters
+
       - name: Typecheck
         run: pnpm typecheck
 
