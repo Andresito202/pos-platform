@@ -39,13 +39,31 @@ import type { FactusCredentialResolver } from "./credential.js";
  * peticiones por minuto con `429`, `X-RateLimit-*` y `Retry-After`, y que un
  * `reference_code` repetido devuelve la factura ya procesada.
  *
- * **`UNVERIFIED`: la forma exacta del cuerpo de respuesta de emisión.** No se
- * ha ejecutado una sola petición real. Por eso el parseo es defensivo —lee lo
- * que necesita, conserva el estado original del proveedor sin convertirlo en
- * enum, y ante cualquier forma inesperada devuelve `UNCERTAIN` en vez de
- * inventar un resultado fiscal—. El fake determinista de las pruebas codifica
- * **nuestra expectativa**, no comportamiento observado del proveedor: por eso
- * la declaración se queda en `MOCK_TESTED`.
+ * ## Ejecución real contra el sandbox — 2026-09-06
+ *
+ * Verificado ejecutando la suite de sandbox contra `api-sandbox.factus.com.co`
+ * con credenciales V2 reales:
+ *
+ * - **`POST /oauth/token` con `grant_type=password` funciona.** Los cuatro
+ *   valores del cliente son los correctos y la base de sandbox es la correcta.
+ * - **La forma de la respuesta de token queda verificada**: `access_token`,
+ *   `token_type`, `expires_in` y `refresh_token` parsearon contra
+ *   `FactusTokenResponseSchema` sin relajarlo.
+ * - `validateConfiguration` devolvió `VALID` contra el proveedor real.
+ *
+ * **Sigue `UNVERIFIED`:**
+ *
+ * - La forma del cuerpo de emisión (`/v2/bills/validate`). No se ha emitido un
+ *   solo documento.
+ * - `GET /v2/numbering-ranges/dian` **devolvió `UNAVAILABLE`** en esa misma
+ *   ejecución. La ruta, el método o la forma del cuerpo no coinciden con lo
+ *   asumido aquí, y hasta saber cuál de las tres no se corrige a ciegas.
+ *
+ * Por eso el parseo es defensivo —lee lo que necesita, conserva el estado
+ * original del proveedor sin convertirlo en enum, y ante cualquier forma
+ * inesperada devuelve `UNCERTAIN` en vez de inventar un resultado fiscal— y por
+ * eso la declaración **sigue en `MOCK_TESTED`**: la autenticación está
+ * verificada, el adapter completo no.
  */
 
 /**

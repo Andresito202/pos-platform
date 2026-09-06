@@ -7,6 +7,8 @@ import {
   type CredentialReference,
   type FactusCredential,
   type FactusCredentialResolver,
+  type FiscalConfigurationValidationOutcome,
+  type NumberingRangeOutcome,
 } from "../src/index.js";
 
 /**
@@ -66,6 +68,27 @@ const REFERENCE: CredentialReference = {
   version: "1",
 };
 
+/**
+ * Aplana el desenlace a una cadena que **incluye el motivo**.
+ *
+ * Sin esto, un fallo dice «esperaba SYNCHRONIZED, recibí UNAVAILABLE» y se
+ * pierde lo único que permitiría corregirlo: si fue un 404, un 401, un fallo
+ * de transporte o un cuerpo que no encaja con la forma asumida. El sandbox sólo
+ * es accesible desde la máquina del responsable, así que un diagnóstico perdido
+ * cuesta una ronda entera.
+ */
+function describeConfigurationOutcome(outcome: FiscalConfigurationValidationOutcome): string {
+  if (outcome.kind === "VALID") return "VALID";
+  if (outcome.kind === "UNDETERMINED") return `UNDETERMINED: ${outcome.reasonCode}`;
+  return `INCOMPLETE: ${outcome.findings.map((finding) => `${finding.code}(${finding.fieldName ?? "-"})`).join(", ")}`;
+}
+
+function describeRangeOutcome(outcome: NumberingRangeOutcome): string {
+  return outcome.kind === "SYNCHRONIZED"
+    ? "SYNCHRONIZED"
+    : `${outcome.kind}: ${outcome.reasonCode}`;
+}
+
 describe.skipIf(credential === undefined)("FACTUS sandbox real (SANDBOX_VERIFIED)", () => {
   it("autentica contra el sandbox real y valida la configuración", async () => {
     if (credential === undefined) throw new Error("rama imposible");
@@ -98,10 +121,8 @@ describe.skipIf(credential === undefined)("FACTUS sandbox real (SANDBOX_VERIFIED
 
       // Se afirma el desenlace observado, no un PASS: si el proveedor rechaza
       // la credencial, la prueba debe decirlo, no maquillarlo.
-      expect(["VALID", "INCOMPLETE", "UNDETERMINED"]).toContain(outcome.kind);
-      if (outcome.kind !== "VALID") {
-        throw new Error(`configuración no válida contra el sandbox: ${outcome.kind}`);
-      }
+      expect(describeConfigurationOutcome(outcome)).toBe("VALID");
+      if (outcome.kind !== "VALID") throw new Error("rama imposible");
       expect(authorizesIssuance(outcome)).toBe(true);
     } finally {
       adapter.close();
@@ -122,7 +143,10 @@ describe.skipIf(credential === undefined)("FACTUS sandbox real (SANDBOX_VERIFIED
         { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: REFERENCE },
         AbortSignal.timeout(30_000),
       );
-      expect(outcome.kind).toBe("SYNCHRONIZED");
+      // El aserto lleva el motivo: una prueba que oculta su diagnóstico es
+      // inútil justo cuando más falta hace. `UNAVAILABLE` sin `reasonCode` no
+      // distingue un 404 de un cuerpo con otra forma.
+      expect(describeRangeOutcome(outcome)).toBe("SYNCHRONIZED");
       if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
       for (const range of outcome.ranges) {
         expect(range.authority).toBe("PROVIDER");

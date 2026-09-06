@@ -84,7 +84,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Matriz de capacidades y verificación cruzada | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/capability.ts` · `.../src/adapter-declaration.ts` |
 | Escalera de verificación (`D-4`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/verification.ts` |
 | Saldo de bolsa como proyección (`D-5`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/quota.ts` |
-| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · `MOCK_TESTED` |
+| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · `MOCK_TESTED` · auth `SANDBOX_VERIFIED` |
 | Adapter SIIGO | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 | Adapter ALEGRA | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 
@@ -112,6 +112,24 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > `/v2/bills/validate` sigue `UNVERIFIED`. `SANDBOX_VERIFIED` exige ejecutar la
 > suite local con credenciales reales y **mover la declaración a mano**, con la
 > evidencia observada delante.
+
+> **Ejecución real contra el sandbox de FACTUS — 2026-09-06.** El propietario
+> ejecutó la suite local con credenciales V2 reales. Resultado observado:
+> **86 pasan, 1 falla** de 87.
+>
+> | Comprobación | Resultado |
+> |---|---|
+> | `POST /oauth/token`, `grant_type=password`, cuatro valores | **PASS** — 962 ms |
+> | Forma de la respuesta de token (`access_token`, `token_type`, `expires_in`, `refresh_token`) | **PASS** — parseó sin relajar el esquema |
+> | `validateConfiguration` contra el proveedor real | **PASS** — `VALID` |
+> | `GET /v2/numbering-ranges/dian` | **FALLA** — `UNAVAILABLE` |
+>
+> La autenticación pasa de supuesta a verificada. El adapter completo **no**:
+> el endpoint de rangos devolvió `UNAVAILABLE` y la prueba no conservaba el
+> `reasonCode`, así que no se sabe si fue un 404, un 401, un fallo de transporte
+> o un cuerpo con otra forma. **Ese es un defecto de la prueba**, corregido: el
+> aserto incluye ahora el motivo. La declaración se mantiene en `MOCK_TESTED`
+> hasta que la siguiente ejecución diga cuál de las cuatro cosas es.
 
 ### CI/CD y cadena de suministro
 
