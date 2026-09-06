@@ -144,3 +144,31 @@ test("rejects undeclared external imports to prevent phantom dependencies", asyn
   const errors = await validate();
   assert(errors.some((error) => error.includes("without declaring some-transitive-package")));
 });
+
+const frozenPolicy = {
+  ...policy,
+  frozenSourceAreas: { "@pos-platform/domain": ["authorization", "index.ts"] },
+};
+
+test("accepts the frozen source areas a project already declares", async () => {
+  await mkdir(join(root, "packages/domain/src/authorization"), { recursive: true });
+  await writeFile(join(root, "packages/domain/src/authorization/actor.ts"), "export const actor = 1;\n");
+  await writeFile(join(root, "packages/domain/src/index.ts"), 'export * from "./authorization/actor.js";\n');
+  assert.deepEqual(await validateWorkspace(root, frozenPolicy), []);
+});
+
+test("rejects a new area added to a frozen project (DEC-017 4.2)", async () => {
+  await mkdir(join(root, "packages/domain/src/catalog"), { recursive: true });
+  await writeFile(join(root, "packages/domain/src/catalog/product.ts"), "export const product = 1;\n");
+  const errors = await validateWorkspace(root, frozenPolicy);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /@pos-platform\/domain src\/catalog is not in its frozen area set/);
+});
+
+test("rejects a frozen area declared for a project that does not exist", async () => {
+  const errors = await validateWorkspace(root, {
+    ...policy,
+    frozenSourceAreas: { "@pos-platform/ghost": ["index.ts"] },
+  });
+  assert.deepEqual(errors, ["frozenSourceAreas names an undeclared project: @pos-platform/ghost"]);
+});
