@@ -41,6 +41,15 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Completado de venta (único punto) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/sqlite-payment-store.ts` → `completeSaleIfCovered` |
 | Frontera Payments↔Cash | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/cash-port.ts` |
 
+> **Corrección de estado, 2026-09-06.** Payment V1 figuraba aquí como
+> `CANONICALLY_APPLIED` desde `BLOQUE 4E`, y lo era en handler y
+> persistencia, pero **no era alcanzable por el transporte de producción**:
+> los cinco `payment.*` faltaban en el `switch` de enrutamiento y cada
+> intento terminaba en `socket.destroy()`. Cerrado por PR #37. La lección
+> que deja: «materializado» y «alcanzable de extremo a extremo» son
+> propiedades distintas, y una fila de esta tabla debe acreditar la
+> segunda cuando la capacidad se expone por un transporte.
+
 ### Plataforma local
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
@@ -54,6 +63,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Proyección de autorización | ✅ | ✅ | ✅ | ✅ | ❌ | `.../authorization/` · `MIGRATION_006` |
 | Master snapshot | ✅ | ✅ | ✅ | ✅ | ❌ | `.../master-data/` · `MIGRATION_009` |
 | Canal IPC comercial (14 tipos) | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/contracts/src/ipc*.ts` · `.../commercial/` |
+| Enrutamiento del canal → superficie comercial | ✅ | ✅ | ✅ | ✅ | ❌ | `.../channel/local-channel-component.ts` · `tests/channel-routing.test.ts` (Windows) |
 | Shell Electron (main, preload, allowlist) | ✅ | ✅ | ✅ | ✅ | ❌ | `apps/pos-desktop/src/` |
 | Logger estructurado | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/observability/src/` |
 
@@ -117,6 +127,7 @@ que declare el backlog**.
 | D-4 | `packages/database-core`, `database-postgres` y `testing` declarados con `src/` vacío | `module-boundaries.json` vs `find` | boundaries que no gobiernan nada |
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
+| D-7 | El `switch` de enrutamiento de `LocalChannelComponent` no tiene `default`: un tipo de contrato sin `case` resuelve `undefined` en silencio | `local-channel-component.ts` | una regresión sólo se detecta por `channel-routing.test.ts`, que es Windows-only |
 
 ## Linaje archivado
 
