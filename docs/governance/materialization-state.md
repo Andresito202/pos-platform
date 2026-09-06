@@ -122,14 +122,20 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > | `POST /oauth/token`, `grant_type=password`, cuatro valores | **PASS** — 962 ms |
 > | Forma de la respuesta de token (`access_token`, `token_type`, `expires_in`, `refresh_token`) | **PASS** — parseó sin relajar el esquema |
 > | `validateConfiguration` contra el proveedor real | **PASS** — `VALID` |
-> | `GET /v2/numbering-ranges/dian` | **FALLA** — `UNAVAILABLE` |
+> | `GET /v2/numbering-ranges/dian` | **FALLA** — `UNAVAILABLE: UNPARSEABLE_RESPONSE` |
 >
-> La autenticación pasa de supuesta a verificada. El adapter completo **no**:
-> el endpoint de rangos devolvió `UNAVAILABLE` y la prueba no conservaba el
-> `reasonCode`, así que no se sabe si fue un 404, un 401, un fallo de transporte
-> o un cuerpo con otra forma. **Ese es un defecto de la prueba**, corregido: el
-> aserto incluye ahora el motivo. La declaración se mantiene en `MOCK_TESTED`
-> hasta que la siguiente ejecución diga cuál de las cuatro cosas es.
+> La autenticación pasa de supuesta a verificada. El adapter completo **no**.
+>
+> En la primera ejecución el fallo decía sólo `UNAVAILABLE`, porque el aserto
+> descartaba el `reasonCode` —defecto de la prueba, no del adapter, corregido
+> aquí—. Con el motivo delante, la segunda ejecución lo acotó:
+> **`UNPARSEABLE_RESPONSE`**, es decir **hubo HTTP 200**. La ruta
+> `/v2/numbering-ranges/dian` y el Bearer son correctos; un 404 o un 401
+> habrían dado `HTTP_<status>`. Lo que no coincide es la forma del cuerpo
+> frente a `FactusRangesResponseSchema`, que exige `{ data: [ { id, … } ] }`.
+>
+> No se corrige el esquema sin ver la forma real: sería adivinar. La declaración
+> se mantiene en `MOCK_TESTED`.
 
 ### CI/CD y cadena de suministro
 

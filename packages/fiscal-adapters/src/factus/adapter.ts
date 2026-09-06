@@ -55,9 +55,12 @@ import type { FactusCredentialResolver } from "./credential.js";
  *
  * - La forma del cuerpo de emisión (`/v2/bills/validate`). No se ha emitido un
  *   solo documento.
- * - `GET /v2/numbering-ranges/dian` **devolvió `UNAVAILABLE`** en esa misma
- *   ejecución. La ruta, el método o la forma del cuerpo no coinciden con lo
- *   asumido aquí, y hasta saber cuál de las tres no se corrige a ciegas.
+ * - `GET /v2/numbering-ranges/dian` devolvió `UNAVAILABLE: UNPARSEABLE_RESPONSE`.
+ *   Eso acota el problema: **hubo HTTP 200**, así que la ruta y el Bearer son
+ *   correctos —un 404 o un 401 habrían dado `HTTP_<status>`—. Lo que no
+ *   coincide es la forma del cuerpo frente a `FactusRangesResponseSchema`, que
+ *   exige `{ data: [ { id, … } ] }`. Sin ver la forma real no se corrige: se
+ *   adivinaría.
  *
  * Por eso el parseo es defensivo —lee lo que necesita, conserva el estado
  * original del proveedor sin convertirlo en enum, y ante cualquier forma
