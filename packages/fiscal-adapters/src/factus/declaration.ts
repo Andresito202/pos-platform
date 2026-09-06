@@ -7,11 +7,25 @@ import type { FiscalAdapterDeclaration } from "../adapter-declaration.js";
  * oficial el 2026-08-17; la fila de credenciales quedó confirmada además contra
  * credenciales de sandbox reales el 2026-09-06).
  *
- * **`verification` es `MOCK_TESTED` y no puede ser otra cosa hoy.** Los
- * contract tests corren contra un fake determinista, y `D-4` ratificada fija el
- * techo de esa fuente de evidencia. `SANDBOX_VERIFIED` exige ejecutar la suite
- * de sandbox con credenciales reales, cosa que CI no hace y que este entorno no
- * puede hacer: `api-sandbox.factus.com.co` responde 403 al túnel de salida.
+ * ## Verificación por puerto — evidencia del 2026-09-06
+ *
+ * La suite de sandbox se ejecutó contra `api-sandbox.factus.com.co` con
+ * credenciales V2 reales y pasó: **103 de 103**.
+ *
+ * | Puerto | Nivel | Por qué |
+ * |---|---|---|
+ * | `FISCAL_CONFIGURATION_VALIDATION` | `SANDBOX_VERIFIED` | OAuth2 password grant contra el proveedor real y `validateConfiguration` devolviendo `VALID` |
+ * | `NUMBERING_RANGE` | `SANDBOX_VERIFIED` | rangos reales sincronizados, con `id` de FACTUS, autoridad `PROVIDER` y vigencia declarada |
+ * | `DOCUMENT_ISSUANCE` | `MOCK_TESTED` | **no se ha emitido ni un documento** |
+ * | `DOCUMENT_STATUS_QUERY` | `MOCK_TESTED` | sin documento que consultar |
+ * | `DOCUMENT_ARTIFACT` | `MOCK_TESTED` | sin documento del que bajar XML o PDF |
+ *
+ * Los tres `MOCK_TESTED` no lo están por falta de ganas: emitir exige
+ * `Customer`, las tablas de códigos DIAN, `Catalog` y `Tax`, y **ninguna de las
+ * cuatro existe** (`D-9`). El bloqueo es nuestro, no del proveedor.
+ *
+ * Por eso `overallVerification` de este adapter es `MOCK_TESTED`: un adapter no
+ * está más verificado que su puerto peor verificado.
  */
 export const FACTUS_ADAPTER_DECLARATION: FiscalAdapterDeclaration = {
   provider: "FACTUS",
@@ -56,7 +70,13 @@ export const FACTUS_ADAPTER_DECLARATION: FiscalAdapterDeclaration = {
     "SUPPORT_DOCUMENT",
     "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE",
   ],
-  verification: "MOCK_TESTED",
+  verification: {
+    FISCAL_CONFIGURATION_VALIDATION: "SANDBOX_VERIFIED",
+    NUMBERING_RANGE: "SANDBOX_VERIFIED",
+    DOCUMENT_ISSUANCE: "MOCK_TESTED",
+    DOCUMENT_STATUS_QUERY: "MOCK_TESTED",
+    DOCUMENT_ARTIFACT: "MOCK_TESTED",
+  },
   rateLimit: {
     kind: "DECLARED",
     requestsPerMinute: 80,

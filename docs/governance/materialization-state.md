@@ -84,7 +84,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Matriz de capacidades y verificación cruzada | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/capability.ts` · `.../src/adapter-declaration.ts` |
 | Escalera de verificación (`D-4`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/verification.ts` |
 | Saldo de bolsa como proyección (`D-5`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/quota.ts` |
-| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · `MOCK_TESTED` · auth `SANDBOX_VERIFIED` |
+| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · 2 puertos `SANDBOX_VERIFIED`, 3 `MOCK_TESTED` |
 | Adapter SIIGO | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 | Adapter ALEGRA | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 
@@ -113,6 +113,36 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > suite local con credenciales reales y **mover la declaración a mano**, con la
 > evidencia observada delante.
 
+> ## Sandbox de FACTUS — VERDE, 2026-09-06
+>
+> **`pnpm test:fiscal-adapters` con las cuatro variables reales: 103 de 103.**
+> Cero omitidas, cero fallos. La suite de sandbox salió a
+> `api-sandbox.factus.com.co` y pasó.
+>
+> | Puerto | Nivel | Evidencia observada |
+> |---|---|---|
+> | `FISCAL_CONFIGURATION_VALIDATION` | **`SANDBOX_VERIFIED`** | OAuth2 password grant real; `validateConfiguration` → `VALID` |
+> | `NUMBERING_RANGE` | **`SANDBOX_VERIFIED`** | rangos reales con `id` de FACTUS, autoridad `PROVIDER`, vigencia declarada |
+> | `DOCUMENT_ISSUANCE` | `MOCK_TESTED` | **ni un documento emitido** |
+> | `DOCUMENT_STATUS_QUERY` | `MOCK_TESTED` | sin documento que consultar |
+> | `DOCUMENT_ARTIFACT` | `MOCK_TESTED` | sin documento del que bajar XML o PDF |
+>
+> **El adapter como conjunto sigue en `MOCK_TESTED`**, porque no vale más que su
+> puerto peor verificado, y `commerciallyClaimableDocumentTypes` devuelve lista
+> vacía: afirmar «facturamos con FACTUS» es una afirmación sobre **emitir**, y
+> emitir no se ha ejecutado.
+>
+> Los tres `MOCK_TESTED` no lo están por falta de ganas: emitir exige
+> `Customer`, tablas de códigos DIAN, `Catalog` y `Tax`, y ninguna existe
+> (`D-9`). **El bloqueo es nuestro, no de FACTUS.**
+>
+> Esta evidencia obligó a un cambio de tipo: `verification` pasó de un escalar
+> por adapter a un nivel **por puerto**. Con un escalar único había que elegir
+> entre subestimar dos puertos verificados o **sobreafirmar la emisión fiscal**,
+> y lo segundo es exactamente lo que este proyecto no admite.
+>
+> ### Cómo se llegó, en cinco rondas
+>
 > **Ejecución real contra el sandbox de FACTUS — 2026-09-06.** El propietario
 > ejecutó la suite local con credenciales V2 reales. Resultado observado:
 > **86 pasan, 1 falla** de 87.

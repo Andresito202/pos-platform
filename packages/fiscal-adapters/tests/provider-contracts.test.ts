@@ -4,6 +4,7 @@ import {
   commerciallyClaimableDocumentTypes,
   platformSuppliedFieldNames,
   secretFieldNames,
+  overallVerification,
   validateAdapterDeclaration,
   type FiscalAdapterDeclaration,
 } from "../src/index.js";
@@ -48,7 +49,10 @@ const SIIGO: FiscalAdapterDeclaration = {
   },
   supportedPorts: ["DOCUMENT_ISSUANCE", "FISCAL_CONFIGURATION_VALIDATION"],
   supportedDocumentTypes: [],
-  verification: "NOT_EVALUATED",
+  verification: {
+    DOCUMENT_ISSUANCE: "NOT_EVALUATED",
+    FISCAL_CONFIGURATION_VALIDATION: "NOT_EVALUATED",
+  },
   rateLimit: { kind: "UNVERIFIED", policy: "HEADER_DRIVEN_UNTIL_VERIFIED" },
   quota: { kind: "NOT_EVALUATED", reason: "sin endpoint de saldo verificado" },
 };
@@ -94,7 +98,13 @@ const FACTUS: FiscalAdapterDeclaration = {
     "SUPPORT_DOCUMENT",
     "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE",
   ],
-  verification: "NOT_EVALUATED",
+  verification: {
+    DOCUMENT_ISSUANCE: "NOT_EVALUATED",
+    DOCUMENT_STATUS_QUERY: "NOT_EVALUATED",
+    DOCUMENT_ARTIFACT: "NOT_EVALUATED",
+    NUMBERING_RANGE: "NOT_EVALUATED",
+    FISCAL_CONFIGURATION_VALIDATION: "NOT_EVALUATED",
+  },
   rateLimit: {
     kind: "DECLARED",
     requestsPerMinute: 80,
@@ -136,7 +146,12 @@ const ALEGRA: FiscalAdapterDeclaration = {
     "FISCAL_CONFIGURATION_VALIDATION",
   ],
   supportedDocumentTypes: ["SALES_INVOICE", "CREDIT_NOTE"],
-  verification: "NOT_EVALUATED",
+  verification: {
+    DOCUMENT_ISSUANCE: "NOT_EVALUATED",
+    DOCUMENT_STATUS_QUERY: "NOT_EVALUATED",
+    DOCUMENT_ARTIFACT: "NOT_EVALUATED",
+    FISCAL_CONFIGURATION_VALIDATION: "NOT_EVALUATED",
+  },
   rateLimit: {
     kind: "DECLARED",
     requestsPerMinute: 150,
@@ -210,21 +225,59 @@ describe("el hallazgo de §2 queda expresado, no aplanado", () => {
 describe("ninguno de los tres puede reclamarse comercialmente hoy", () => {
   it("con verificación NOT_EVALUATED no hay tipo documental reclamable", () => {
     for (const declaration of ALL) {
-      expect(declaration.verification).toBe("NOT_EVALUATED");
+      expect(overallVerification(declaration)).toBe("NOT_EVALUATED");
       expect(commerciallyClaimableDocumentTypes(declaration)).toEqual([]);
     }
   });
 
   it("MOCK_TESTED tampoco habilita reclamar: un fake verde no es el proveedor", () => {
     expect(
-      commerciallyClaimableDocumentTypes({ ...FACTUS, verification: "MOCK_TESTED" }),
+      commerciallyClaimableDocumentTypes({
+        ...FACTUS,
+        verification: { ...FACTUS.verification, DOCUMENT_ISSUANCE: "MOCK_TESTED" },
+      }),
     ).toEqual([]);
   });
 
-  it("SANDBOX_VERIFIED sí habilita, y sólo lo que la matriz declara SUPPORTED", () => {
+  it("manda el puerto de EMISIÓN, no el resto: autenticarse no es facturar", () => {
+    // El caso real de FACTUS el 2026-09-06: configuración y rangos verificados
+    // contra el proveedor, emisión sin ejecutar. Tener el canal abierto no
+    // habilita a prometer que se factura.
+    const canalAbierto = {
+      ...FACTUS,
+      verification: {
+        FISCAL_CONFIGURATION_VALIDATION: "SANDBOX_VERIFIED",
+        NUMBERING_RANGE: "SANDBOX_VERIFIED",
+        DOCUMENT_ISSUANCE: "MOCK_TESTED",
+        DOCUMENT_STATUS_QUERY: "MOCK_TESTED",
+        DOCUMENT_ARTIFACT: "MOCK_TESTED",
+      },
+    } satisfies FiscalAdapterDeclaration;
+
+    expect(commerciallyClaimableDocumentTypes(canalAbierto)).toEqual([]);
+    // Y el adapter como conjunto vale lo que su puerto peor verificado.
+    expect(overallVerification(canalAbierto)).toBe("MOCK_TESTED");
+  });
+
+  it("SANDBOX_VERIFIED en emisión sí habilita, y sólo lo que la matriz declara SUPPORTED", () => {
     expect(
-      commerciallyClaimableDocumentTypes({ ...ALEGRA, verification: "SANDBOX_VERIFIED" }),
+      commerciallyClaimableDocumentTypes({
+        ...ALEGRA,
+        verification: { ...ALEGRA.verification, DOCUMENT_ISSUANCE: "SANDBOX_VERIFIED" },
+      }),
     ).toEqual(["SALES_INVOICE", "CREDIT_NOTE"]);
+  });
+
+  it("un puerto declarado sin nivel de verificación es una afirmación a medias", () => {
+    const findings = validateAdapterDeclaration({
+      ...ALEGRA,
+      verification: { DOCUMENT_ISSUANCE: "NOT_EVALUATED" },
+    });
+    expect(findings.map((finding) => finding.detail).sort()).toEqual([
+      "DOCUMENT_ARTIFACT",
+      "DOCUMENT_STATUS_QUERY",
+      "FISCAL_CONFIGURATION_VALIDATION",
+    ]);
   });
 });
 

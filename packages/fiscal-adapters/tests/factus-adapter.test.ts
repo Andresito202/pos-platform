@@ -12,6 +12,7 @@ import {
   isVerificationSupportedBySource,
   mayAllocateLocally,
   normalizedResultOf,
+  overallVerification,
   requiresReconciliationBeforeRetry,
   validateAdapterDeclaration,
   type DocumentIssuanceRequest,
@@ -60,8 +61,22 @@ describe("declaración del adapter", () => {
     expect(validateAdapterDeclaration(FACTUS_ADAPTER_DECLARATION)).toEqual([]);
   });
 
-  it("se queda en MOCK_TESTED, que es el techo del fake determinista", () => {
-    expect(FACTUS_ADAPTER_DECLARATION.verification).toBe("MOCK_TESTED");
+  it("declara SANDBOX_VERIFIED sólo en los dos puertos ejecutados contra el proveedor", () => {
+    // Evidencia del 2026-09-06: la suite de sandbox pasó 103/103 contra
+    // `api-sandbox.factus.com.co`, pero sólo ejercitó configuración y rangos.
+    expect(FACTUS_ADAPTER_DECLARATION.verification.FISCAL_CONFIGURATION_VALIDATION)
+      .toBe("SANDBOX_VERIFIED");
+    expect(FACTUS_ADAPTER_DECLARATION.verification.NUMBERING_RANGE).toBe("SANDBOX_VERIFIED");
+
+    // Emisión, consulta y artefactos no se han ejecutado ni una vez: emitir
+    // exige `Customer`, códigos DIAN, `Catalog` y `Tax` (`D-9`).
+    expect(FACTUS_ADAPTER_DECLARATION.verification.DOCUMENT_ISSUANCE).toBe("MOCK_TESTED");
+    expect(FACTUS_ADAPTER_DECLARATION.verification.DOCUMENT_STATUS_QUERY).toBe("MOCK_TESTED");
+    expect(FACTUS_ADAPTER_DECLARATION.verification.DOCUMENT_ARTIFACT).toBe("MOCK_TESTED");
+  });
+
+  it("como conjunto vale lo que su puerto peor verificado", () => {
+    expect(overallVerification(FACTUS_ADAPTER_DECLARATION)).toBe("MOCK_TESTED");
     expect(isVerificationSupportedBySource("MOCK_TESTED", "DETERMINISTIC_FAKE")).toBe(true);
     expect(isVerificationSupportedBySource("SANDBOX_VERIFIED", "DETERMINISTIC_FAKE")).toBe(false);
   });

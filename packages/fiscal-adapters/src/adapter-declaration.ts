@@ -9,7 +9,12 @@ import {
 import { CredentialRequirementSchema } from "./credential.js";
 import { FiscalEnvironmentSchema, FiscalPortNameSchema, FiscalProviderSchema } from "./provider.js";
 import { QuotaObservabilitySchema } from "./quota.js";
-import { VerificationLevelSchema } from "./verification.js";
+import {
+  VerificationLevelSchema,
+  meetsVerification,
+  verificationRank,
+  type VerificationLevel,
+} from "./verification.js";
 
 /**
  * Declaración de un adapter (`D-3` ratificada: declaración tipada en el
@@ -50,7 +55,20 @@ export const FiscalAdapterDeclarationSchema = z.strictObject({
   capabilities: FiscalCapabilityMatrixSchema,
   supportedPorts: z.array(FiscalPortNameSchema).min(1).max(5),
   supportedDocumentTypes: z.array(FiscalDocumentTypeSchema).max(5),
-  verification: VerificationLevelSchema,
+  /**
+   * Nivel de verificación **por puerto**, no uno solo para todo el adapter.
+   *
+   * Lo impuso la evidencia: el 2026-09-06 la suite de sandbox de FACTUS pasó
+   * contra el proveedor real para autenticación, validación de configuración y
+   * rangos de numeración —`SANDBOX_VERIFIED`—, mientras emisión y artefactos
+   * seguían sin ejecutarse ni una vez —`MOCK_TESTED`—.
+   *
+   * Con un escalar único había que elegir entre subestimar tres puertos o
+   * **sobreafirmar dos**, y sobreafirmar la emisión fiscal es exactamente lo
+   * que este proyecto no admite. Un adapter puede tener el canal abierto y la
+   * emisión sin probar; el tipo tiene que poder decirlo.
+   */
+  verification: z.partialRecord(FiscalPortNameSchema, VerificationLevelSchema),
   rateLimit: RateLimitPolicySchema,
   quota: QuotaObservabilitySchema,
 });
@@ -66,6 +84,7 @@ export const DECLARATION_FINDING_CODES = [
   "DUPLICATE_PORT_DECLARED",
   "DUPLICATE_DOCUMENT_TYPE_DECLARED",
   "DUPLICATE_ENVIRONMENT_DECLARED",
+  "PORT_WITHOUT_VERIFICATION_LEVEL",
 ] as const;
 
 export type DeclarationFindingCode = (typeof DECLARATION_FINDING_CODES)[number];
@@ -133,7 +152,32 @@ export function validateAdapterDeclaration(
     findings.push({ code: "STATUS_QUERY_CAPABILITY_WITHOUT_PORT", detail: "DOCUMENT_STATUS_QUERY" });
   }
 
+  // Un puerto declarado sin nivel de verificación es una afirmación a medias:
+  // no se sabe si está probado ni con qué evidencia. Se exige decirlo, aunque
+  // sea `NOT_EVALUATED`.
+  for (const port of declaration.supportedPorts) {
+    if (declaration.verification[port] === undefined) {
+      findings.push({ code: "PORT_WITHOUT_VERIFICATION_LEVEL", detail: port });
+    }
+  }
+
   return findings;
+}
+
+/**
+ * Nivel del adapter como conjunto: **el mínimo de sus puertos declarados**.
+ *
+ * Un adapter no está más verificado que su puerto peor verificado. Promediar o
+ * quedarse con el máximo permitiría presentar como probado un adapter cuya
+ * emisión nunca se ejecutó.
+ */
+export function overallVerification(declaration: FiscalAdapterDeclaration): VerificationLevel {
+  let lowest: VerificationLevel = "CERTIFIED";
+  for (const port of declaration.supportedPorts) {
+    const level = declaration.verification[port] ?? "NOT_EVALUATED";
+    if (verificationRank(level) < verificationRank(lowest)) lowest = level;
+  }
+  return declaration.supportedPorts.length === 0 ? "NOT_EVALUATED" : lowest;
 }
 
 /**
@@ -146,10 +190,11 @@ export function validateAdapterDeclaration(
 export function commerciallyClaimableDocumentTypes(
   declaration: FiscalAdapterDeclaration,
 ): readonly FiscalDocumentType[] {
-  const verified = declaration.verification === "SANDBOX_VERIFIED"
-    || declaration.verification === "PRODUCTION_VERIFIED"
-    || declaration.verification === "CERTIFIED";
-  if (!verified) return [];
+  // Manda el puerto de **emisión**: afirmar «facturamos con este proveedor» es
+  // una afirmación sobre emitir, no sobre autenticarse. Tener el canal abierto
+  // y la emisión sin ejecutar no habilita a prometer nada.
+  const issuance = declaration.verification.DOCUMENT_ISSUANCE ?? "NOT_EVALUATED";
+  if (!meetsVerification(issuance, "SANDBOX_VERIFIED")) return [];
   return declaration.supportedDocumentTypes.filter(
     (documentType) => matrixStateForDocumentType(declaration.capabilities, documentType) === "SUPPORTED",
   );
