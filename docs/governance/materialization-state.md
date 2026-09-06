@@ -98,14 +98,16 @@ pendiente: es trabajo hecho y desconectado.
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo
-que declare el backlog**.
+que declare el backlog**. `main` es la única referencia de esta tabla: `Catalog`,
+`Inventory` y el dominio de `Payment` sí tienen código, pero en el linaje
+preservado que documenta la sección siguiente, no en `main`.
 
 | Capacidad | Backlog dice | Realidad en código |
 |---|---|---|
-| Catalog | `CAT-001 = DONE` | solo `sandbox_catalog_product`, poblado únicamente por tests |
+| Catalog | `CAT-001 = DONE` | en `main`: solo `sandbox_catalog_product`, poblado únicamente por tests. Existe implementación completa en `wip/local-catalog-inventory-payment-20260906` (ver «Linaje preservado») |
 | Pricing | `PRICE-001/002 = DONE` | solo `sandbox_price_rule` |
 | Tax | `TAX-001/002/003 = DONE` | `tax_snapshot` es TEXT congelado; sin motor |
-| Inventory | `INV-001/002 = DONE` | — |
+| Inventory | `INV-001/002 = DONE` | en `main`: nada. Existe implementación completa en `wip/local-catalog-inventory-payment-20260906` (ver «Linaje preservado») |
 | Customer / adquiriente | `CUST-001 = PLANNED` | — (ninguna tabla ni columna) |
 | SaleReturn, notas crédito/débito | documentado | — |
 | API central | documentado | — (`apps/` solo tiene 2 aplicaciones) |
@@ -128,6 +130,7 @@ que declare el backlog**.
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
+| D-8 | `Catalog`, `Inventory` y el dominio de `Payment` existen implementados en un linaje que `main` no puede integrar por merge | rama `wip/local-catalog-inventory-payment-20260906`, commit `a10249f` | dos implementaciones de las mismas capacidades divergiendo; se rehace trabajo ya hecho o se integra un linaje incompatible |
 
 Corrección de `D-3`, 2026-09-06. La redacción original afirmaba que los permisos
 fiscales documentados en minúscula «serían rechazados por el contrato». **Era
@@ -148,9 +151,69 @@ compilación**: verificado quitando `case "payment.cancel"` y observando
 'never'`. La garantía pasó de una prueba de una plataforma a una propiedad del
 tipo, comprobada en cada `pnpm typecheck`.
 
+## Linaje preservado — hallazgo del 2026-09-06
+
+La auditoría forense concluyó que `Catalog` e `Inventory` «no existen». **Era
+cierto del remoto y falso del disco del propietario.** Al preparar la publicación
+de la etiqueta de archivado apareció un volumen grande de trabajo sin commitear
+sobre `domain/cash-open-vertical-20260901`. Se preservó antes de tocar nada:
+
+`wip/local-catalog-inventory-payment-20260906` → `a10249fe5c48c7e1e162b3cc2ee2264ae09485ef`
+· 145 archivos, 14 654 inserciones · publicado en el remoto.
+
+### Qué contiene
+
+| Área | Contenido |
+|---|---|
+| Catalog | `product`, `product-identifier`, `product-presentation`, `product-variant`, `variant-attributes`, `unit-conversion`, `conversion-factor`, 6 eventos de dominio, repositorios SQLite y PostgreSQL, casos de uso `create-product`, `update-product`, `deactivate-product`, `define-conversion`, con pruebas |
+| Inventory | `inventory-movement`, `inventory-reservation`, `inventory-transfer`, `inventory-transfer-line`, `lot`, `on-hand-quantity`, `stock-balance`, 6 eventos, repositorios, 9 casos de uso (reserva, consumo, liberación, ajuste, merma, y el ciclo completo de traslado), con pruebas |
+| Payment | dominio `payment`, `payment-attempt`, `payment-method`, `merchant-collection-identifier`, 4 eventos, puertos de autorización y autenticidad, casos de uso `initiate-payment` y `confirm-payment` |
+| Migraciones | `005_catalog_foundation` y `006_inventory_foundation` (PostgreSQL), con pruebas |
+
+### Por qué no se integra por merge
+
+Verificado sobre el remoto el 2026-09-06:
+
+```
+git merge-base --is-ancestor 503aeb141ee323c822e5c95ad86022dbdb8f0f8a \
+  origin/wip/local-catalog-inventory-payment-20260906   →   cierto
+```
+
+La rama **desciende del linaje hexagonal archivado**. `DEC-017` §4.4 prohíbe
+integrarlo por merge o `cherry-pick`, y la razón es medible:
+
+| Plano | Estado | Evidencia |
+|---|---|---|
+| PostgreSQL `001`–`003` | **idénticos byte a byte** a `main` | comparación de blob SHA |
+| PostgreSQL `004`–`006` | **no existen en `main`** — adición pura, sin colisión de numeración | `git ls-tree` de ambas ramas |
+| SQLite `MIGRATION_001`–`010` | **los diez divergen** del cuerpo homónimo en `main` | SHA-256 por cuerpo de migración |
+
+La colisión de identidad de `DEC-017` §3 es **exclusivamente del plano SQLite**.
+Diez migraciones comparten número y difieren en contenido: mezclarlas rompería
+el linaje de checksums de cualquier base instalada. En PostgreSQL no hay
+colisión: `004`, `005` y `006` son números libres en `main`.
+
+De ahí se sigue que **el rescate no es una decisión única sino dos**, y tienen
+coste muy distinto:
+
+1. **Dominio y aplicación puros** (`packages/domain/src/{catalog,inventory,payment}`,
+   casos de uso y sus pruebas) no tocan migraciones. Su obstáculo es de forma
+   arquitectónica —puertos hexagonales frente al patrón canónico de `DEC-017`—
+   no de identidad de migraciones.
+2. **Persistencia SQLite** (`packages/database-sqlite/src/sqlite-*-repository.ts`)
+   sí depende del esquema divergente y **no es portable tal cual**: requiere
+   migraciones nuevas `MIGRATION_012` en adelante sobre el esquema de `main`.
+
+Ninguna de las dos está decidida. Queda registrada como `D-8`.
+
+**Prohibido mientras tanto:** reimplementar `Catalog` o `Inventory` desde cero
+sin haber leído antes esta rama. Es exactamente el modo de fallo que este
+documento existe para impedir.
+
 ## Linaje archivado
 
 `archive/cash-hexagonal-20260902` → `503aeb141ee323c822e5c95ad86022dbdb8f0f8a`
+**Publicada en el remoto el 2026-09-06** (objeto anotado `f153e8b`).
 
 Arquitectura hexagonal detenida el 2026-09-02: dominio puro, casos de uso con
 puertos, adaptadores PostgreSQL, migración `004_cash_foundation` y 16 suites de
