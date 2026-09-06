@@ -91,20 +91,20 @@ persistencia por plano y aislarlo no compra nada verificable.
 ### 4.4 Archivado del linaje hexagonal
 
 El linaje se archiva en el commit `503aeb141ee323c822e5c95ad86022dbdb8f0f8a`,
-cuya etiqueta prevista es `archive/cash-hexagonal-20260902`.
+bajo la etiqueta anotada `archive/cash-hexagonal-20260902`.
 
-**La etiqueta no está publicada.** Los pushes a `refs/tags/*` son rechazados con
-HTTP 403 por las credenciales de la sesión automatizada, y las herramientas de
-tags disponibles son de sólo lectura. El archivado **no depende de la etiqueta**:
-el SHA queda registrado en este documento y en
-`docs/governance/materialization-state.md`, y la rama
-`domain/cash-open-vertical-20260901` sigue apuntando a él. Para publicarla:
+**Publicada el 2026-09-06** por el propietario desde su máquina, después de que
+los pushes a `refs/tags/*` desde la sesión automatizada fueran rechazados con
+HTTP 403 por alcance de credenciales. Verificado contra el remoto:
 
 ```
-git tag -a archive/cash-hexagonal-20260902 503aeb141ee323c822e5c95ad86022dbdb8f0f8a \
-  -m "Linaje hexagonal archivado (DEC-017 4.4)"
-git push origin archive/cash-hexagonal-20260902
+f153e8bd46817219cb603f7aaa0c42cef22aff88  refs/tags/archive/cash-hexagonal-20260902
+503aeb141ee323c822e5c95ad86022dbdb8f0f8a  refs/tags/archive/cash-hexagonal-20260902^{}
 ```
+
+El objeto anotado `f153e8b` apunta al commit `503aeb1` registrado en este
+documento. El archivado ya no depende sólo del SHA escrito aquí: existe una
+referencia inmutable en el remoto.
 
 **No se elimina.** La rama, sus commits y su contenido permanecen íntegros en
 Git. El archivado es de estado, no destructivo: deja de figurar como trabajo
