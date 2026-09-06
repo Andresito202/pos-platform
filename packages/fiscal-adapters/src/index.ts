@@ -6,4 +6,5 @@ export * from "./outcome.js";
 export * from "./quota.js";
 export * from "./adapter-declaration.js";
 export * from "./ports/index.js";
+export * from "./dian/index.js";
 export * from "./factus/index.js";

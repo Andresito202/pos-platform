@@ -211,6 +211,29 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > La declaración se mantiene en `MOCK_TESTED` hasta que la ejecución local
 > confirme el verde.
 
+> **Tablas de códigos DIAN — primer trozo de `D-9`, 2026-09-06.**
+> `packages/fiscal-adapters/src/dian/codes.ts`. Once tablas con **sólo códigos
+> de fuente verificada**: tipo documental, tipo de operación, documento de
+> identificación, naturaleza jurídica, tributo, responsabilidad fiscal, unidad
+> de medida, estándar de producto, impuesto, forma y método de pago. Fuente
+> única hoy: la documentación oficial de emisión de FACTUS aportada por el
+> propietario — `VERIFICADO_DOC`.
+>
+> **Son parciales y lo dicen.** Cubren lo que la documentación ejemplifica, no
+> el catálogo DIAN completo. Toda consulta devuelve `null` para un código no
+> listado, y `null` significa «no lo sé», nunca «no existe» ni un valor por
+> defecto.
+>
+> Sólo se traduce `"01" → SALES_INVOICE`. Notas crédito y débito, documento
+> soporte y su nota de ajuste **no se traducen**: su código DIAN no está
+> verificado, e inventarlo emitiría bajo el tipo equivocado —un error fiscal,
+> no de programa—.
+>
+> Habilita `selectRangesForDocumentType`, que reparte los rangos del proveedor
+> entre los que corresponden al tipo y los que **no se pueden clasificar**,
+> devolviendo ambas listas: descartar en silencio lo desconocido escondería que
+> el catálogo está incompleto.
+
 ### CI/CD y cadena de suministro
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
@@ -267,7 +290,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
-| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`, y **ninguna de las cuatro existe** | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN parcialmente materializadas 2026-09-06**; las otras tres siguen sin existir | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
 | D-10 | ALEGRA separa crear de timbrar, y un fallo entre ambos pasos deja una factura **creada y sin timbrar** | `provider-payload-shapes.md` §ALEGRA | reintentar a ciegas crearía una segunda factura; es el fallo que ya cerramos para FACTUS, por otra causa y aún abierto para ALEGRA |
 | D-8 | ~~`Catalog`, `Inventory` y el dominio de `Payment` en un linaje no integrable~~ · **CERRADA 2026-09-06 por `DEC-018`** | rama reclasificada como referencia de diseño; `frozenSourceAreas` en `module-boundaries.json` lo impone en CI | — |
 

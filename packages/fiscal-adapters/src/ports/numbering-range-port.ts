@@ -1,6 +1,7 @@
 import * as z from "zod";
 import type { CredentialReference } from "../credential.js";
 import type { FiscalDocumentType } from "../capability.js";
+import { fiscalDocumentTypeForCode } from "../dian/codes.js";
 import type { FiscalEnvironment } from "../provider.js";
 
 /**
@@ -84,6 +85,34 @@ export interface NumberingRangePort {
  */
 export function mayAllocateLocally(snapshot: NumberingRangeSnapshot): boolean {
   return snapshot.authority === "LOCAL";
+}
+
+/**
+ * Reparte los rangos entre los que **sí** corresponden al tipo documental y los
+ * que no se pueden clasificar.
+ *
+ * Emitir con el rango de otro tipo documental es un error fiscal, no de
+ * programa: la DIAN autoriza cada resolución para un tipo concreto. Y descartar
+ * en silencio lo que no se sabe clasificar es igual de peligroso, porque
+ * esconde que el catálogo de códigos está incompleto (`D-9`).
+ *
+ * Por eso devuelve **las dos listas**: nada desaparece.
+ */
+export function selectRangesForDocumentType(
+  ranges: readonly NumberingRangeSnapshot[],
+  documentType: FiscalDocumentType,
+): {
+  readonly matching: readonly NumberingRangeSnapshot[];
+  readonly unclassified: readonly NumberingRangeSnapshot[];
+} {
+  const matching: NumberingRangeSnapshot[] = [];
+  const unclassified: NumberingRangeSnapshot[] = [];
+  for (const range of ranges) {
+    const resolved = fiscalDocumentTypeForCode(range.providerDocumentCode);
+    if (resolved === null) unclassified.push(range);
+    else if (resolved === documentType) matching.push(range);
+  }
+  return { matching, unclassified };
 }
 
 /**
