@@ -29,6 +29,7 @@ jobs:
     env:
       STRIX_LLM: ${{ secrets.STRIX_LLM }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_API_BASE: ${{ secrets.LLM_API_BASE }}
     steps:
       # Mismo pin por SHA que el resto del repo (ver codeql-sast.yml,
       # target-foundation-validation.yml) — política de supply chain de
@@ -40,12 +41,18 @@ jobs:
       # Un control que falla siempre por configuración no aporta señal: nadie
       # puede distinguir «Strix encontró una vulnerabilidad» de «faltan los
       # secretos». Separar ambos casos es lo que devuelve valor al rojo.
+      # Se comprueba lo que la CLI declara, no lo que uno supone. Su banner dice
+      # que `STRIX_LLM` es la única obligatoria; `LLM_API_KEY` es opcional
+      # porque un modelo local se apunta con `LLM_API_BASE`. Exigir ambas
+      # dejaría un modelo local en falso «NOT RUN».
       - name: Check Strix configuration
         id: configuration
         run: |
           missing=""
           [ -n "${STRIX_LLM:-}" ] || missing="${missing} STRIX_LLM"
-          [ -n "${LLM_API_KEY:-}" ] || missing="${missing} LLM_API_KEY"
+          if [ -z "${LLM_API_KEY:-}" ] && [ -z "${LLM_API_BASE:-}" ]; then
+            missing="${missing} LLM_API_KEY-or-LLM_API_BASE"
+          fi
           if [ -n "$missing" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "missing=${missing# }" >> "$GITHUB_OUTPUT"

@@ -10,16 +10,43 @@ los gates `SEC-G01..SEC-G10`, que siguen `PLANNED`.
 
 ## Estado actual: NO CONFIGURADO
 
-El escaneo **no se está ejecutando**. Faltan dos secretos de repositorio:
+El escaneo **no se está ejecutando**. Faltan secretos de repositorio.
 
-| Secreto | Qué es |
-|---|---|
-| `STRIX_LLM` | identificador del modelo que Strix debe usar |
-| `LLM_API_KEY` | clave de API del proveedor de ese modelo |
+Lo que la CLI declara en su propio banner, transcrito del log del job del
+2026-09-06:
 
-Sin ellos la CLI aborta con código 1 tras instalarse correctamente. Verificado en
-el job `Strix AI penetration test` del 2026-09-06: la instalación termina bien y
-`strix` sale mostrando su banner de configuración pidiendo claves.
+```
+Required environment variables:
+• STRIX_LLM - Model name to use (e.g., 'openrouter/z-ai/glm-5.3' or
+  'anthropic/claude-opus-4-7')
+
+Optional environment variables:
+• LLM_API_BASE - Custom API base URL if using local models (e.g., Ollama, LMStudio)
+• EXA_API_KEY  - API key for Exa web search (enables real-time research)
+• PERPLEXITY_API_KEY - API key for Perplexity AI web search (alternative to Exa)
+```
+
+De ahí se sigue la configuración mínima real:
+
+| Secreto | Obligatorio | Qué es |
+|---|---|---|
+| `STRIX_LLM` | **sí** | nombre del modelo con prefijo de proveedor |
+| `LLM_API_KEY` | uno de los dos | clave de API del proveedor alojado |
+| `LLM_API_BASE` | uno de los dos | URL base para un modelo local (Ollama, LMStudio) |
+
+Sin `STRIX_LLM` la CLI aborta con código 1 tras instalarse correctamente.
+
+> **Corrección, 2026-09-06.** La primera versión de este control exigía
+> `STRIX_LLM` **y** `LLM_API_KEY`, lo que es más estricto que el contrato real
+> de la herramienta: con un modelo local no hay clave de API, se apunta
+> `LLM_API_BASE`. Esa configuración habría producido un «NOT RUN» falso. Ahora
+> se exige `STRIX_LLM` y **al menos una** de las otras dos.
+
+## Coste
+
+Cada escaneo consume tokens de la cuenta del proveedor configurado, en cada pull
+request. No es gratis, y esa decisión es del propietario. Mientras no se
+configure, el gate lo dice en vez de fingir.
 
 ## Por qué el fallo se separó del fallo real
 
