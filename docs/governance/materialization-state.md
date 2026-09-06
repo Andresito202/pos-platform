@@ -29,7 +29,19 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 
 `—` significa que no existe, no que esté pendiente de verificar.
 
-## Estado verificado sobre `6bdaf59` (2026-09-06)
+## Estado verificado sobre `f9987f2` (2026-09-06)
+
+> El **tablero** —bloques, capacidades, escalera de valor y porcentajes— vive en
+> [`tablero-materializacion.md`](./tablero-materializacion.md). Aquel documento
+> congela la estructura para que sólo se muevan los porcentajes; éste registra la
+> evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
+> contradecirlo: si discrepan, manda el código.**
+>
+> Censo del 2026-09-06 sobre `f9987f2`: **857 pruebas pasan, 6 omitidas, 0
+> fallos** en 9 proyectos. `pnpm typecheck` PASS · `pnpm architecture:check`
+> PASS · `pnpm ci:repository-policy` PASS (488 archivos).
+> `pnpm test:migrations:postgres` **`NOT_EVALUATED`**: exige una instancia
+> PostgreSQL que el entorno de verificación no tiene.
 
 ### Núcleo comercial local
 
@@ -85,6 +97,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Escalera de verificación (`D-4`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/verification.ts` |
 | Saldo de bolsa como proyección (`D-5`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/quota.ts` |
 | Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · 2 puertos `SANDBOX_VERIFIED`, 3 `MOCK_TESTED` |
+| Tablas de códigos DIAN (parciales, fuente verificada) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/dian/codes.ts` · PR #57 |
 | Adapter SIIGO | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 | Adapter ALEGRA | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 
@@ -290,7 +303,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
-| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN parcialmente materializadas 2026-09-06**; las otras tres siguen sin existir | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN parcialmente materializadas y canónicas en `main` desde PR #57**; las otras tres —`Customer`, `Catalog`, `Tax`— siguen sin existir | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
 | D-10 | ALEGRA separa crear de timbrar, y un fallo entre ambos pasos deja una factura **creada y sin timbrar** | `provider-payload-shapes.md` §ALEGRA | reintentar a ciegas crearía una segunda factura; es el fallo que ya cerramos para FACTUS, por otra causa y aún abierto para ALEGRA |
 | D-8 | ~~`Catalog`, `Inventory` y el dominio de `Payment` en un linaje no integrable~~ · **CERRADA 2026-09-06 por `DEC-018`** | rama reclasificada como referencia de diseño; `frozenSourceAreas` en `module-boundaries.json` lo impone en CI | — |
 
@@ -343,6 +356,21 @@ propietario. Queda como cicatriz registrada, no como problema resuelto.
 
 Regla operativa que se deriva: en este repositorio los PRs se integran con
 **merge commit**, nunca con squash ni rebase.
+
+**Cumplida desde entonces, verificado el 2026-09-06.** Los primeros padres de
+`main` tras el incidente tienen dos padres cada uno:
+
+```
+f9987f2 d2dc4e8 a77afd4   (#57)
+d2dc4e8 674aa1a ec57f40   (#56)
+674aa1a 3b1a42f 50beae0   (#55)
+```
+
+Antes de mergear #57 se probó la combinación **localmente sobre el resultado
+fusionado**, no cada PR por separado: dos PRs verdes en aislamiento pueden
+romperse al juntarse. `git merge origin/main` sobre la cabeza de #57 resolvió sin
+conflicto, y sobre el árbol resultante: 114 pruebas pasan, 2 omitidas, `typecheck`
+PASS, ARCH-003 PASS, política de repositorio PASS.
 
 ## Linaje preservado — hallazgo del 2026-09-06
 
