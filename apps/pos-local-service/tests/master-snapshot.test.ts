@@ -48,7 +48,26 @@ async function directory(): Promise<string> {
   directories.push(value);
   return value;
 }
+
+/**
+ * Bases abiertas por las pruebas. Se cierran antes de borrar el directorio
+ * temporal: en Windows un handle abierto sobre `pos-local.db` —o sobre el
+ * lock de escritor único— hace que `rmSync` falle con `EBUSY` y enmascare
+ * la causa real, tal como ya documenta `session-assertion-verifier.test.ts`.
+ */
+const databases: LocalDatabase[] = [];
+function track(database: LocalDatabase): LocalDatabase {
+  databases.push(database);
+  return database;
+}
 afterEach(() => {
+  for (const database of databases.splice(0)) {
+    try {
+      database.close();
+    } catch {
+      // Un cierre fallido no debe ocultar el fallo real de la prueba.
+    }
+  }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -119,7 +138,7 @@ async function harness(options: {
   store: SqliteMasterSnapshotStore;
   service: MasterSnapshotActivationService;
 }> {
-  const database = LocalDatabase.open({ dataDirectory: await directory() });
+  const database = track(LocalDatabase.open({ dataDirectory: await directory() }));
   const store = new SqliteMasterSnapshotStore(database, () => new Date("2026-09-04T12:00:00.000Z"));
   const verifier = new MasterSnapshotVerifier(
     options.keys ?? keyMap(),
@@ -529,7 +548,7 @@ describe("I. auditoría y observabilidad", () => {
   });
 
   it("notifica al observador tanto la aceptación como el rechazo", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = track(LocalDatabase.open({ dataDirectory: await directory() }));
     const store = new SqliteMasterSnapshotStore(database);
     const events: string[] = [];
     const service = new MasterSnapshotActivationService(
@@ -548,7 +567,7 @@ describe("I. auditoría y observabilidad", () => {
   });
 
   it("avanza el checkpoint sólo tras una activación confirmada", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = track(LocalDatabase.open({ dataDirectory: await directory() }));
     const store = new SqliteMasterSnapshotStore(database);
     const advanced: string[] = [];
     const service = new MasterSnapshotActivationService(

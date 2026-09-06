@@ -51,7 +51,22 @@ async function directory(): Promise<string> {
   directories.push(value);
   return value;
 }
+
+/**
+ * Bases abiertas por `buildEnv`. Se cierran antes de borrar el directorio
+ * temporal: en Windows un handle abierto sobre `pos-local.db` —o sobre el
+ * lock de escritor único— hace que `rmSync` falle con `EBUSY` y enmascare
+ * la causa real, tal como ya documenta `session-assertion-verifier.test.ts`.
+ */
+const databases: LocalDatabase[] = [];
 afterEach(() => {
+  for (const database of databases.splice(0)) {
+    try {
+      database.close();
+    } catch {
+      // Un cierre fallido no debe ocultar el fallo real de la prueba.
+    }
+  }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -78,6 +93,7 @@ function auth(permissions: string[] = ALL_PERMISSIONS): StoredAuthorizationSnaps
 async function buildEnv() {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
+  databases.push(database);
   const sync = new DurableSyncStore(database);
   const cashStore = new SqliteCashShiftStore(database, sync, () => NOW);
   const masterStore = new SqliteMasterSnapshotStore(database, () => NOW);

@@ -42,7 +42,26 @@ async function tmpDir(): Promise<string> {
   directories.push(dir);
   return dir;
 }
+
+/**
+ * Bases abiertas por las pruebas. Se cierran antes de borrar el directorio
+ * temporal: en Windows un handle abierto sobre `pos-local.db` —o sobre el
+ * lock de escritor único— hace que `rmSync` falle con `EBUSY` y enmascare
+ * la causa real, tal como ya documenta `session-assertion-verifier.test.ts`.
+ */
+const databases: LocalDatabase[] = [];
+function track(database: LocalDatabase): LocalDatabase {
+  databases.push(database);
+  return database;
+}
 afterEach(() => {
+  for (const database of databases.splice(0)) {
+    try {
+      database.close();
+    } catch {
+      // Un cierre fallido no debe ocultar el fallo real de la prueba.
+    }
+  }
   for (const d of directories.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -50,7 +69,7 @@ afterEach(() => {
 
 async function buildEnv(now: () => Date = () => new Date("2026-09-05T10:00:00.000Z")) {
   const dir = await tmpDir();
-  const db = LocalDatabase.open({ dataDirectory: dir });
+  const db = track(LocalDatabase.open({ dataDirectory: dir }));
   const durableSync = new DurableSyncStore(db);
   const masterStore = new SqliteMasterSnapshotStore(db, now);
   const shiftStore = new SqliteCashShiftStore(db, durableSync, now);
