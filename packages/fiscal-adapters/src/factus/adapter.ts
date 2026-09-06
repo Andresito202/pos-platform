@@ -55,12 +55,12 @@ import type { FactusCredentialResolver } from "./credential.js";
  *
  * - La forma del cuerpo de emisión (`/v2/bills/validate`). No se ha emitido un
  *   solo documento.
- * - `GET /v2/numbering-ranges/dian` devolvió `UNAVAILABLE: UNPARSEABLE_RESPONSE`.
- *   Eso acota el problema: **hubo HTTP 200**, así que la ruta y el Bearer son
- *   correctos —un 404 o un 401 habrían dado `HTTP_<status>`—. Lo que no
- *   coincide es la forma del cuerpo frente a `FactusRangesResponseSchema`, que
- *   exige `{ data: [ { id, … } ] }`. Sin ver la forma real no se corrige: se
- *   adivinaría.
+ * - **`GET /v2/numbering-ranges/dian` y la forma de su cuerpo**, observados
+ *   directamente: `{ data: [...], message, status }` con elementos de claves
+ *   `end_date`, `from`, `prefix`, `resolution_number`, `start_date`,
+ *   `technical_key`, `to`. La primera versión de este adapter exigía un `id`
+ *   que **FACTUS no devuelve**, y ése era el único motivo del
+ *   `UNPARSEABLE_RESPONSE` observado.
  *
  * Por eso el parseo es defensivo —lee lo que necesita, conserva el estado
  * original del proveedor sin convertirlo en enum, y ante cualquier forma
@@ -421,15 +421,21 @@ implements
     return {
       kind: "SYNCHRONIZED",
       ranges: parsed.data.data.map((range) => ({
-        rangeId: String(range.id),
+        // FACTUS no asigna un `id` al rango. La identidad se deriva de lo que
+        // sí lo identifica ante la DIAN —resolución y prefijo— y se marca como
+        // derivada para que nadie la confunda con un identificador del
+        // proveedor.
+        rangeId: `factus:${String(range.resolution_number ?? "sin-resolucion")}:${range.prefix ?? ""}`,
         documentType: query.documentType,
         prefix: range.prefix ?? "",
         // La autoridad es siempre del proveedor: los rangos los asocia FACTUS
         // al software ante la DIAN. Nunca `LOCAL`.
         authority: "PROVIDER" as const,
-        resolutionNumber: range.resolution_number ?? null,
-        rangeFrom: range.from ?? 0,
-        rangeTo: range.to ?? 0,
+        resolutionNumber: range.resolution_number === undefined
+          ? null
+          : String(range.resolution_number),
+        rangeFrom: toInteger(range.from),
+        rangeTo: toInteger(range.to),
         validFrom: range.start_date ?? null,
         validUntil: range.end_date ?? null,
       })),
@@ -498,17 +504,45 @@ implements
 
 const FACTUS_REQUIRED_FIELDS = ["client_id", "client_secret", "username", "password"];
 
+/**
+ * Forma **verificada** contra el sandbox real el 2026-09-06.
+ *
+ * Observada: `{ data: [...], message, status }`, con elementos de claves
+ * `end_date`, `from`, `prefix`, `resolution_number`, `start_date`,
+ * `technical_key`, `to`.
+ *
+ * La versión anterior exigía un `id` que **FACTUS no devuelve**, y ese era el
+ * único motivo del `UNPARSEABLE_RESPONSE`.
+ *
+ * Los numéricos aceptan `string | number` porque el tipo JSON de `from`, `to` y
+ * `resolution_number` no se observó, sólo su presencia. Aceptar ambos es lo
+ * honesto: asumir uno volvería a fallar por la misma clase de error.
+ */
 const FactusRangesResponseSchema = z.object({
   data: z.array(z.object({
-    id: z.union([z.string(), z.number()]),
     prefix: z.string().optional(),
-    resolution_number: z.string().optional(),
-    from: z.number().int().optional(),
-    to: z.number().int().optional(),
+    resolution_number: z.union([z.string(), z.number()]).optional(),
+    // `technical_key` es la llave técnica DIAN. Se reconoce para no romper el
+    // parseo, pero **no se propaga** a `NumberingRangeSnapshot`: interviene en
+    // el cálculo del CUFE y llevarla al núcleo es una decisión de seguridad
+    // propia, no un efecto colateral de sincronizar rangos.
+    technical_key: z.string().optional(),
+    from: z.union([z.string(), z.number()]).optional(),
+    to: z.union([z.string(), z.number()]).optional(),
     start_date: z.string().optional(),
     end_date: z.string().optional(),
   }).loose()),
 }).loose();
+
+/** Entero tolerante al tipo JSON, sin `NaN` silencioso. */
+function toInteger(value: string | number | undefined): number {
+  if (typeof value === "number") return Number.isInteger(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
 
 function normalizedFromProviderStatus(status: string): "ACCEPTED" | "REJECTED" | null {
   const upper = status.toUpperCase();

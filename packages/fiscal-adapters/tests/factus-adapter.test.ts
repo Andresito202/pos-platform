@@ -263,6 +263,78 @@ describe("rangos de numeración", () => {
     expect(range && mayAllocateLocally(range)).toBe(false);
   });
 
+  it("acepta la forma REAL observada contra el sandbox, que no trae `id`", async () => {
+    // Forma verificada el 2026-09-06 contra `api-sandbox.factus.com.co`:
+    // `{ data: [...], message, status }`, elementos con claves `end_date`,
+    // `from`, `prefix`, `resolution_number`, `start_date`, `technical_key`,
+    // `to`. Ningún valor real aparece aquí, sólo la forma.
+    const { adapter: subject } = adapter(() =>
+      json(200, {
+        status: "OK",
+        message: "ok",
+        data: [{
+          prefix: "SETP",
+          resolution_number: "18760000001",
+          technical_key: "clave-tecnica-de-prueba",
+          from: 990000000,
+          to: 995000000,
+          start_date: "2026-01-01",
+          end_date: "2026-12-31",
+        }],
+      }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    const range = outcome.ranges[0];
+    expect(range?.prefix).toBe("SETP");
+    expect(range?.resolutionNumber).toBe("18760000001");
+    expect(range?.rangeFrom).toBe(990000000);
+    expect(range?.validUntil).toBe("2026-12-31");
+  });
+
+  it("la llave técnica DIAN NO se propaga al snapshot", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ prefix: "SETP", resolution_number: "1", technical_key: "no-debe-salir" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    // Interviene en el cálculo del CUFE. Llevarla al núcleo es una decisión de
+    // seguridad propia, no un efecto colateral de sincronizar rangos.
+    expect(JSON.stringify(outcome)).not.toContain("no-debe-salir");
+  });
+
+  it("tolera que los numéricos vengan como cadena, que es tipo no observado", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ prefix: "SETP", resolution_number: 18760000001, from: "990000000", to: "995000000" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    expect(outcome.ranges[0]?.rangeFrom).toBe(990000000);
+    expect(outcome.ranges[0]?.resolutionNumber).toBe("18760000001");
+  });
+
+  it("deriva una identidad de rango, porque FACTUS no manda `id`", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ prefix: "SETP", resolution_number: "18760000001" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    expect(outcome.ranges[0]?.rangeId).toBe("factus:18760000001:SETP");
+  });
+
   it("el adapter no expone ninguna operación de asignación de consecutivo", () => {
     const surface = Object.getOwnPropertyNames(FactusAdapter.prototype);
     expect(surface).toContain("synchronizeRanges");
