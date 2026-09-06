@@ -56,6 +56,20 @@ function spawnService(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullSt
   });
 }
 
+/**
+ * Lanza el servicio con canal IPC de padre a hijo.
+ *
+ * Además del canal de control de pruebas, este spawn aporta **residencia**: en
+ * POSIX el runtime no registra `LocalChannelComponent` —`main.ts` sólo lo añade
+ * bajo `win32`— de modo que nada referencia el event loop y el proceso termina
+ * por sí mismo con código 0 poco después de `runtime.started`. Eso es el
+ * contrato vigente, no un defecto: la ejecución productiva exige Windows y
+ * POSIX sólo existe bajo pruebas.
+ *
+ * Para observar un apagado dirigido por señal hace falta que el proceso siga
+ * vivo cuando la señal llega. El canal IPC referencia el event loop y cumple
+ * ese papel sin tocar el runtime.
+ */
 function spawnServiceWithControl(environment: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams {
   const child = spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
     cwd: process.cwd(),
@@ -172,17 +186,36 @@ function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs = 8_000):
 const posixIt = process.platform === "win32" ? it.skip : it;
 
 describe("POS Local Service process boundary", () => {
-  posixIt("starts as a real child process and shuts down cleanly on SIGTERM", async () => {
+  posixIt("starts as a real child process and terminates on its own when nothing keeps it resident", async () => {
     const dataDirectory = await directory();
     const child = spawnService(serviceEnvironment(dataDirectory));
     await waitForLogEvent(child, "runtime.started");
-    expect(child.kill("SIGTERM")).toBe(true);
+    // Sin canal IPC y sin `LocalChannelComponent`, nada referencia el event
+    // loop: el proceso agota el loop y sale limpio. La prueba fija ese
+    // contrato en lugar de suponer que POSIX debe permanecer vivo.
     expect(await waitForExit(child)).toBe(0);
+  });
+
+  posixIt("shuts down cleanly on SIGTERM while resident", async () => {
+    const dataDirectory = await directory();
+    const child = spawnServiceWithControl(serviceEnvironment(dataDirectory));
+    const stdout = captureStdout(child);
+    await waitForLogEvent(child, "runtime.started");
+
+    const closed = waitForClose(child);
+    expect(child.kill("SIGTERM")).toBe(true);
+
+    expect(await closed).toBe(0);
+    expect(stdout().match(/"event":"runtime.stopping"/g) ?? []).toHaveLength(1);
+    expect(stdout().match(/"event":"runtime.stopped"/g) ?? []).toHaveLength(1);
+    expect(stdout()).toContain('"reason":"SIGTERM"');
   });
 
   posixIt("coalesces near-simultaneous SIGINT and SIGTERM into one shutdown", async () => {
     const dataDirectory = await directory();
-    const child = spawnService(serviceEnvironment(dataDirectory));
+    // Residente a propósito: el guard `if (termination)` de `terminate` sólo es
+    // observable si el proceso sigue vivo cuando llegan ambas señales.
+    const child = spawnServiceWithControl(serviceEnvironment(dataDirectory));
     const stdout = captureStdout(child);
     await waitForLogEvent(child, "runtime.started");
 
