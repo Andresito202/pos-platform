@@ -84,7 +84,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Matriz de capacidades y verificación cruzada | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/capability.ts` · `.../src/adapter-declaration.ts` |
 | Escalera de verificación (`D-4`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/verification.ts` |
 | Saldo de bolsa como proyección (`D-5`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/quota.ts` |
-| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · `MOCK_TESTED` |
+| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · `MOCK_TESTED` · auth `SANDBOX_VERIFIED` |
 | Adapter SIIGO | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 | Adapter ALEGRA | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 
@@ -112,6 +112,56 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > `/v2/bills/validate` sigue `UNVERIFIED`. `SANDBOX_VERIFIED` exige ejecutar la
 > suite local con credenciales reales y **mover la declaración a mano**, con la
 > evidencia observada delante.
+
+> **Ejecución real contra el sandbox de FACTUS — 2026-09-06.** El propietario
+> ejecutó la suite local con credenciales V2 reales. Resultado observado:
+> **86 pasan, 1 falla** de 87.
+>
+> | Comprobación | Resultado |
+> |---|---|
+> | `POST /oauth/token`, `grant_type=password`, cuatro valores | **PASS** — 962 ms |
+> | Forma de la respuesta de token (`access_token`, `token_type`, `expires_in`, `refresh_token`) | **PASS** — parseó sin relajar el esquema |
+> | `validateConfiguration` contra el proveedor real | **PASS** — `VALID` |
+> | `GET /v2/numbering-ranges/dian` | HTTP 200; falló el parseo, **corregido con la forma observada** |
+>
+> La autenticación pasa de supuesta a verificada. El adapter completo **no**.
+>
+> **Cómo se diagnosticó, en tres rondas.** La primera decía sólo `UNAVAILABLE`,
+> porque el aserto descartaba el `reasonCode` —defecto de la prueba, no del
+> adapter—. Corregido el aserto, la segunda dijo `UNPARSEABLE_RESPONSE`, lo que
+> descartó tres causas de cuatro: hubo **HTTP 200**, luego ruta y Bearer eran
+> correctos. La tercera imprimió la forma del cuerpo, sólo nombres de campo:
+>
+> ```
+> TOP KEYS   : data, message, status
+> data TYPE  : Object[]
+> ITEM KEYS  : end_date, from, prefix, resolution_number, start_date,
+>              technical_key, to
+> ```
+>
+> **Primer diagnóstico, incompleto:** «el esquema exigía un `id` que FACTUS no
+> devuelve». Era el síntoma. La documentación oficial de emisión, aportada
+> después, dio la causa: **`/v2/numbering-ranges` y `/v2/numbering-ranges/dian`
+> son recursos distintos**. El primero devuelve los rangos de FACTUS con su
+> `id` —el `numbering_range_id` que exige emitir—; el segundo, las resoluciones
+> DIAN en crudo. El adapter apuntaba al segundo pidiendo la forma del primero.
+>
+> Corregido: se consulta `/v2/numbering-ranges`, el esquema tolera ambas formas,
+> la identidad usa el `id` real cuando existe y se marca `derived:` cuando no,
+> para que nadie envíe una identidad derivada como `numbering_range_id`.
+>
+> Dos decisiones que deja el hallazgo:
+>
+> - `technical_key` es la llave técnica DIAN, interviene en el cálculo del CUFE.
+>   Se reconoce para no romper el parseo pero **no se propaga** al snapshot:
+>   llevarla al núcleo es una decisión de seguridad propia, no un efecto
+>   colateral de sincronizar rangos. Hay una prueba que lo fija.
+> - FACTUS no asigna `id` al rango, así que la identidad se **deriva** de
+>   resolución y prefijo, y se marca como derivada para que nadie la confunda
+>   con un identificador del proveedor.
+>
+> La declaración se mantiene en `MOCK_TESTED` hasta que la ejecución local
+> confirme el verde.
 
 ### CI/CD y cadena de suministro
 

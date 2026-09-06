@@ -93,22 +93,56 @@ describe("validación del payload congelado, antes de transmitir", () => {
 });
 
 describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
-  it("un estado validado del proveedor produce evidencia ACCEPTED con identidad externa", async () => {
+  it("`is_validated: true` produce evidencia ACCEPTED con identidad externa", async () => {
+    // Forma documentada oficialmente para `POST /v2/bills/validate`: los campos
+    // van directamente bajo `data`, y la evidencia es el booleano
+    // `is_validated`. No hay cadena de estado.
     const { adapter: subject } = adapter(() =>
-      json(201, { data: { bill: { number: "SETP990000001", reference_code: "POS-1", cufe: "abc", status: "1" } } }));
+      json(201, {
+        status: "Created",
+        message: "Documento registrado y validado con éxito",
+        data: {
+          reference_code: "POS-1",
+          number: "SETP990002443",
+          cufe: "a821f2e05cb1b82e0f74",
+          is_validated: true,
+          validated_at: "13-05-2026 08:21:49 AM",
+          errors: {},
+          links: { qr: "https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=x" },
+          totals: { total: "83300.00" },
+        },
+      }));
 
     const outcome = await subject.issue(ISSUE, signal);
     expect(outcome.kind).toBe("EVIDENCED");
     expect(normalizedResultOf(outcome)).toBe("ACCEPTED");
     if (outcome.kind !== "EVIDENCED") throw new Error("rama imposible");
-    expect(outcome.externalIdentity.number).toBe("SETP990000001");
-    expect(outcome.externalIdentity.cufe).toBe("abc");
+    expect(outcome.externalIdentity.number).toBe("SETP990002443");
+    expect(outcome.externalIdentity.cufe).toBe("a821f2e05cb1b82e0f74");
+    expect(outcome.providerStatus.providerStatus).toBe("Created");
   });
 
-  it("un estado rechazado produce evidencia REJECTED, no un fallo técnico", async () => {
+  it("`is_validated: false` produce evidencia REJECTED, no un fallo técnico", async () => {
     const { adapter: subject } = adapter(() =>
-      json(201, { data: { bill: { reference_code: "POS-1", status: "RECHAZADO" } } }));
+      json(201, { status: "Created", data: { reference_code: "POS-1", is_validated: false } }));
     expect(normalizedResultOf(await subject.issue(ISSUE, signal))).toBe("REJECTED");
+  });
+
+  it("`errors` de la DIAN con `is_validated: true` sigue siendo ACCEPTED", async () => {
+    // La documentación es explícita: `errors` trae notificaciones DIAN —FAJ44b,
+    // RUT01— que **no implican rechazo**. Tratarlas como rechazo inventaría
+    // evidencia fiscal negativa sobre una factura válida.
+    const { adapter: subject } = adapter(() =>
+      json(201, {
+        status: "Created",
+        data: {
+          reference_code: "POS-1",
+          number: "SETP990002444",
+          is_validated: true,
+          errors: { FAJ44b: ["advertencia"], RUT01: ["otra"] },
+        },
+      }));
+    expect(normalizedResultOf(await subject.issue(ISSUE, signal))).toBe("ACCEPTED");
   });
 
   it("un timeout DESPUÉS de transmitir es incierto, nunca un resultado inferido", async () => {
@@ -138,9 +172,9 @@ describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
     expect(outcome.kind).toBe("UNCERTAIN");
   });
 
-  it("un estado del proveedor que no reconocemos NO se mapea a un resultado inventado", async () => {
+  it("sin `is_validated` no se infiere resultado: va a revisión", async () => {
     const { adapter: subject } = adapter(() =>
-      json(201, { data: { bill: { reference_code: "POS-1", status: "ESTADO_NUEVO_2027" } } }));
+      json(201, { status: "Created", data: { reference_code: "POS-1", number: "SETP1" } }));
     const outcome = await subject.issue(ISSUE, signal);
     expect(outcome.kind).toBe("UNCERTAIN");
     expect(normalizedResultOf(outcome)).toBeNull();
@@ -163,11 +197,46 @@ describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
     expect(normalizedResultOf(outcome)).toBeNull();
   });
 
-  it("envía el reference_code como mecanismo de idempotencia del proveedor", async () => {
+  it("el `reference_code` viaja en el CUERPO, que es donde FACTUS lo espera", async () => {
     const { adapter: subject, transport } = adapter(() =>
-      json(201, { data: { bill: { reference_code: "POS-1", status: "1" } } }));
+      json(201, { status: "Created", data: { reference_code: "POS-1", is_validated: true } }));
     await subject.issue(ISSUE, signal);
-    expect(transport.requests[1]?.headers["x-reference-code"]).toBe("POS-1");
+    const body = JSON.parse(transport.requests[1]?.body ?? "{}") as { reference_code?: string };
+    expect(body.reference_code).toBe("POS-1");
+    // Y no como cabecera inventada: la documentación no la contempla.
+    expect(transport.requests[1]?.headers["x-reference-code"]).toBeUndefined();
+  });
+
+  it("corta antes de salir si el `reference_code` del cuerpo no es la clave de idempotencia", async () => {
+    const { adapter: subject, transport } = adapter(() => json(201, {}));
+    const divergent = { ...PAYLOAD, reference_code: "OTRO" };
+    const outcome = await subject.issue({
+      ...ISSUE,
+      document: {
+        documentType: "SALES_INVOICE",
+        payload: divergent,
+        checksumSha256: createHash("sha256").update(JSON.stringify(divergent)).digest("hex"),
+      },
+    }, signal);
+
+    expect(outcome.kind).toBe("TECHNICAL_FAILURE");
+    if (outcome.kind !== "TECHNICAL_FAILURE") throw new Error("rama imposible");
+    expect(outcome.diagnostic.code).toBe("REFERENCE_CODE_DOES_NOT_MATCH_IDEMPOTENCY_KEY");
+    // Sólo el token; la factura no se transmitió.
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it("rechaza en validación un cuerpo sin `reference_code`", async () => {
+    const { adapter: subject } = adapter(() => json(200, {}));
+    const withoutReference = { items: [] };
+    const result = await subject.validatePayload({
+      documentType: "SALES_INVOICE",
+      payload: withoutReference,
+      checksumSha256: createHash("sha256").update(JSON.stringify(withoutReference)).digest("hex"),
+    });
+    expect(result.kind).toBe("INVALID");
+    if (result.kind !== "INVALID") throw new Error("rama imposible");
+    expect(result.findings.map((finding) => finding.code)).toContain("REFERENCE_CODE_MISSING");
   });
 });
 
@@ -261,6 +330,92 @@ describe("rangos de numeración", () => {
     const range = outcome.ranges[0];
     expect(range?.authority).toBe("PROVIDER");
     expect(range && mayAllocateLocally(range)).toBe(false);
+  });
+
+  it("acepta la forma REAL observada contra el sandbox, que no trae `id`", async () => {
+    // Forma verificada el 2026-09-06 contra `api-sandbox.factus.com.co`:
+    // `{ data: [...], message, status }`, elementos con claves `end_date`,
+    // `from`, `prefix`, `resolution_number`, `start_date`, `technical_key`,
+    // `to`. Ningún valor real aparece aquí, sólo la forma.
+    const { adapter: subject } = adapter(() =>
+      json(200, {
+        status: "OK",
+        message: "ok",
+        data: [{
+          prefix: "SETP",
+          resolution_number: "18760000001",
+          technical_key: "clave-tecnica-de-prueba",
+          from: 990000000,
+          to: 995000000,
+          start_date: "2026-01-01",
+          end_date: "2026-12-31",
+        }],
+      }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    const range = outcome.ranges[0];
+    expect(range?.prefix).toBe("SETP");
+    expect(range?.resolutionNumber).toBe("18760000001");
+    expect(range?.rangeFrom).toBe(990000000);
+    expect(range?.validUntil).toBe("2026-12-31");
+  });
+
+  it("la llave técnica DIAN NO se propaga al snapshot", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ prefix: "SETP", resolution_number: "1", technical_key: "no-debe-salir" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    // Interviene en el cálculo del CUFE. Llevarla al núcleo es una decisión de
+    // seguridad propia, no un efecto colateral de sincronizar rangos.
+    expect(JSON.stringify(outcome)).not.toContain("no-debe-salir");
+  });
+
+  it("tolera que los numéricos vengan como cadena, que es tipo no observado", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ prefix: "SETP", resolution_number: 18760000001, from: "990000000", to: "995000000" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    expect(outcome.ranges[0]?.rangeFrom).toBe(990000000);
+    expect(outcome.ranges[0]?.resolutionNumber).toBe("18760000001");
+  });
+
+  it("usa el `id` de FACTUS cuando existe: es el `numbering_range_id` de emisión", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ id: 389, prefix: "SETP", resolution_number: "18760000001" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    expect(outcome.ranges[0]?.rangeId).toBe("389");
+  });
+
+  it("marca la identidad como derivada cuando el recurso DIAN no trae `id`", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { data: [{ prefix: "SETP", resolution_number: "18760000001" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    // El prefijo `derived:` impide que alguien lo envíe como
+    // `numbering_range_id` creyendo que es un identificador del proveedor.
+    expect(outcome.ranges[0]?.rangeId).toBe("derived:18760000001:SETP");
   });
 
   it("el adapter no expone ninguna operación de asignación de consecutivo", () => {
