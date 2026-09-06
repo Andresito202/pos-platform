@@ -36,17 +36,55 @@ runtime, no digas "MATERIALIZED".
 - Hechos financieros/inventario/auditoría son append-only cuando el contrato exige historia.
 - Providers (Factus, Siigo, datáfonos, hardware) se integran vía adapters, no definen el dominio.
 
+## Integración en `main` — cómo se mergea
+
+**Los PRs se integran con merge commit. Nunca con squash ni con rebase.**
+
+No es preferencia de estilo: el workflow ejecuta `Main push governance`
+(`tools/ci/validate-main-push-history.sh`), que exige que **todo commit de
+primera línea en `main` sea un merge commit creado por GitHub** y sea el
+`merge_commit_sha` de un PR mergeado contra `main`. Un squash produce un commit
+de un solo padre y el gate lo rechaza:
+
+```
+main introduced non-merge commit <sha>.
+Direct pushes and squash/rebase merges are not accepted.
+```
+
+Ocurrió el 2026-09-06 con los PRs #42 y #43 y dejó `main` en rojo. Son los dos
+únicos commits de la historia que incumplen el control; el incidente está en
+`docs/governance/materialization-state.md`. La historia no se reescribe: el
+siguiente merge correcto devuelve `main` a verde, pero la cicatriz queda.
+
+Si usas la API de GitHub, el parámetro es `merge_method: "merge"`.
+
 ## Fuentes de verdad (léelas antes de proponer cambios grandes)
+- **`docs/governance/materialization-state.md`** — qué existe de verdad en `main`, con ruta y comando de prueba. **Búscalo ahí antes de proponer construir algo.**
+- docs/adr/DEC-017 (arquitectura canónica) · docs/adr/DEC-018 (linaje preservado: leerlo antes de tocar Catalog o Inventory)
 - docs/product/brand.md · docs/product/backlog.md · docs/governance/repository-governance.md
 - docs/README.md (índice) · docs/architecture/module-map.md · docs/architecture/data-ownership.md
 
+> El backlog marca `DONE` cuando el caso de uso está **escrito**, no implementado.
+> Ese malentendido costó trabajo dos veces. Cuando backlog y ledger discrepen,
+> manda el código.
+
 ## Comandos existentes
+Verificados contra `package.json`. No inventes comandos que no estén ahí.
+
 ```
-pnpm typecheck
-pnpm test:migrations:sqlite
+pnpm typecheck                 # los 10 proyectos
+pnpm architecture:check        # ARCH-003: capas, boundaries y áreas congeladas
+pnpm ci:repository-policy      # escaneo de secretos en archivos rastreados
+
+pnpm test:contracts            pnpm test:domain
+pnpm test:application          pnpm test:fiscal-adapters
+pnpm test:runtime              pnpm test:migrations:sqlite
 pnpm test:migrations:postgres
 ```
-No inventes comandos que no estén en package.json/nx.json — verifica antes de sugerir uno nuevo.
+
+Cadena de suministro: `ci:supply-chain-tests`, `ci:dependency-inventory`,
+`ci:vulnerability-audit`, `ci:sbom`, `ci:license-gate`. Los dos últimos exigen
+`GITHUB_SHA` exportado; sin él fallan por contrato, no por regresión.
 
 ## AGENT PIPELINE — POS PLATFORM
 
