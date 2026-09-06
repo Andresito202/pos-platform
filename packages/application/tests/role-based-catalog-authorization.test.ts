@@ -97,3 +97,67 @@ describe("RoleBasedCatalogAuthorization.canCreateProduct", () => {
     expect(await authorization.canCreateProduct(Actor.forUser(userId), companyScopeA)).toBe(true);
   });
 });
+
+describe("RoleBasedCatalogAuthorization.canUpdateProduct ('Editar producto')", () => {
+  it("allows OWNER", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "OWNER", scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canUpdateProduct(Actor.forUser(userId), companyScopeA)).toBe(true);
+  });
+
+  it("fails closed for INVENTORY_OPERATOR — 'Editar producto' marks it Condicional, unlike 'Crear producto' which marks it Sí", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "INVENTORY_OPERATOR", scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canUpdateProduct(Actor.forUser(userId), companyScopeA)).toBe(false);
+  });
+});
+
+describe("RoleBasedCatalogAuthorization.canDeactivateProduct ('Desactivar producto')", () => {
+  it("allows GENERAL_ADMIN", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "GENERAL_ADMIN", scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canDeactivateProduct(Actor.forUser(userId), companyScopeA)).toBe(true);
+  });
+
+  it("fails closed for BRANCH_MANAGER — 'Desactivar producto' marks it Condicional, unlike 'Crear/Editar producto' which mark it Sí", async () => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, "BRANCH_MANAGER", scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canDeactivateProduct(Actor.forUser(userId), companyScopeA)).toBe(false);
+  });
+});
+
+describe("RoleBasedCatalogAuthorization fails closed unconditionally for B26 HD-01/02/03 + the B27 conversion-definition finding", () => {
+  const roles = ["OWNER", "GENERAL_ADMIN", "BRANCH_MANAGER", "SUPERVISOR", "INVENTORY_OPERATOR", "CASHIER"] as const;
+
+  it.each(roles)("canCreateVariant denies %s even though no permission-matrix.md row exists to check against", async (role) => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, role, scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canCreateVariant(Actor.forUser(userId), companyScopeA)).toBe(false);
+  });
+
+  it.each(roles)("canCreatePresentation denies %s", async (role) => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, role, scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canCreatePresentation(Actor.forUser(userId), companyScopeA)).toBe(false);
+  });
+
+  it.each(roles)("canAssignIdentifier denies %s", async (role) => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, role, scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canAssignIdentifier(Actor.forUser(userId), companyScopeA)).toBe(false);
+  });
+
+  it.each(roles)("canDefineConversion denies %s", async (role) => {
+    const repository = new InMemoryUserRoleAssignmentRepository();
+    repository.grant(userId, role, scopeA);
+    const authorization = new RoleBasedCatalogAuthorization(repository);
+    expect(await authorization.canDefineConversion(Actor.forUser(userId), companyScopeA)).toBe(false);
+  });
+});

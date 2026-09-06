@@ -34,6 +34,17 @@ export interface RegisterInventoryMovementInput {
   readonly quantity: Quantity;
   readonly reasonCode: string | null;
   readonly occurredAt: Date;
+  /**
+   * B32 addition: `inventory-schema.md` requires `reference_type`/
+   * `reference_id` on every row, but B27's original shape omitted them
+   * entirely — a real gap, only surfaced now that `RESERVATION_CONSUMPTION`/
+   * `TRANSFER_OUT`/`TRANSFER_IN` need to link back to the aggregate that
+   * caused them (`InventoryReservation`/`InventoryTransfer`). Optional so
+   * every pre-existing call site (Adjustment/Waste, which have no such
+   * aggregate to reference) keeps compiling unchanged.
+   */
+  readonly referenceType?: string | null;
+  readonly referenceId?: string | null;
 }
 
 /**
@@ -67,6 +78,8 @@ export class InventoryMovement {
     readonly reasonCode: string | null,
     readonly status: InventoryMovementStatus,
     readonly occurredAt: Date,
+    readonly referenceType: string | null,
+    readonly referenceId: string | null,
   ) {}
 
   static register(input: RegisterInventoryMovementInput): InventoryMovement {
@@ -76,6 +89,7 @@ export class InventoryMovement {
     return new InventoryMovement(
       input.id, input.scope, input.inventoryLocationId, input.presentationId, input.lotId,
       input.movementType, input.direction, input.quantity, input.reasonCode, "POSTED", input.occurredAt,
+      input.referenceType ?? null, input.referenceId ?? null,
     );
   }
 

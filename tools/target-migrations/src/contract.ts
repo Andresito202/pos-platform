@@ -79,8 +79,21 @@ export const REQUIRED_POLICIES = [
   "audit_events_platform_context",
 ] as const;
 
+/**
+ * Bloque 29: `products`/`product_variants` removed. This list originally
+ * guarded every still-NO-GO commercial domain against premature
+ * materialization (checked schema-agnostically by bare table name in
+ * `validatePostgresCatalog`, which every later migration's own validator
+ * calls first) — Catalog's B26/B27/B28 closure chain and this block's own
+ * authorization now make `catalog.products`/`catalog.product_variants`
+ * (005_catalog_foundation) a real, approved migration, so those two names
+ * no longer belong on a "not yet authorized" list. The remaining entries
+ * (Sales, Payments, Inventory, Devices/Licenses, Tax, Electronic
+ * Documents...) are untouched — none of those gates has been authorized by
+ * this or any prior block, and this guard must keep protecting them.
+ */
 export const PROHIBITED_TABLE_NAMES = [
-  "products","product_variants","barcodes","sales","sale_items","payments",
+  "barcodes","sales","sale_items","payments",
   "inventory_movements","stock_balances","price_lists","tax_rules","electronic_documents",
   "devices","device_keys","licenses","license_activations","inbox_entries","sync_checkpoints",
   "sync_conflicts","sync_reviews","sync_dead_letters","kysely_migration","kysely_migration_lock",
@@ -778,6 +791,132 @@ export const POSTGRES_004_DESCRIPTOR: MigrationDescriptor = {
   checksum: "DERIVED_FROM_UP_ARTIFACT",
   ownedSchemas: ["cash"],
   ownedTables: CASH_TABLES.map((name) => `cash.${name}`),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: [],
+  expectedLedgerState: "APPLIED",
+};
+
+/**
+ * Bloque 29: materializes the 5 Catalog aggregates domain/application
+ * already closed in Bloque 27 (packages/domain/src/catalog/*) —
+ * `packages/database-sqlite`'s MIGRATION_009 is the same model in the
+ * other dialect; this descriptor and 005_catalog_foundation.up.sql are
+ * the PostgreSQL side of the same B29 parity requirement. Follows 004's
+ * descriptor pattern exactly (the last real apply/down pair in this
+ * harness before this one).
+ */
+export const CATALOG_TABLES = [
+  "products",
+  "product_mutation_log",
+  "product_variants",
+  "product_presentations",
+  "product_identifiers",
+  "unit_conversions",
+] as const;
+
+export const CATALOG_005_TABLE_COLUMNS = {
+  "catalog.products": [
+    "id","tenant_id","company_id","internal_code","name","description","category_id","brand_id",
+    "product_type","stock_controlled","lot_controlled","expiration_controlled","serial_controlled",
+    "tax_category_id","base_unit_id","variant_policy","status","version","created_at","updated_at",
+  ],
+  "catalog.product_mutation_log": [
+    "id","tenant_id","company_id","operation","idempotency_key","product_id","snapshot_json","created_at",
+  ],
+  "catalog.product_variants": [
+    "id","tenant_id","company_id","product_id","attributes_json","canonical_key","status","version",
+    "idempotency_key","created_at",
+  ],
+  "catalog.product_presentations": [
+    "id","tenant_id","company_id","product_id","variant_id","name","internal_sku","unit_id",
+    "contained_quantity","variable_quantity","sales_enabled","purchasing_enabled","breakable",
+    "stock_mode","status","version","idempotency_key","created_at",
+  ],
+  "catalog.product_identifiers": [
+    "id","tenant_id","company_id","product_id","variant_id","presentation_id","identifier_type",
+    "raw_value","normalized_value","status","version","idempotency_key","created_at",
+  ],
+  "catalog.unit_conversions": [
+    "id","tenant_id","company_id","product_id","variant_id","source_presentation_id",
+    "target_presentation_id","factor","reversible","requires_authorization","waste_policy",
+    "cost_policy","lot_policy","valid_from","status","version","idempotency_key","created_at",
+  ],
+} as const;
+
+export const CATALOG_005_RLS_TABLES = [...CATALOG_TABLES] as readonly string[];
+
+export const POSTGRES_005_DESCRIPTOR: MigrationDescriptor = {
+  migrationId: "005_catalog_foundation",
+  manifestVersion: 1,
+  dependencies: [POSTGRES_001_DESCRIPTOR.migrationId],
+  upArtifact: "postgres/005_catalog_foundation.up.sql",
+  downArtifact: "postgres/005_catalog_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: ["catalog"],
+  ownedTables: CATALOG_TABLES.map((name) => `catalog.${name}`),
+  ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
+  ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
+  ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
+  requiredExtensions: [],
+  expectedLedgerState: "APPLIED",
+};
+
+/**
+ * B33 (Inventory persistence). `StockBalance` is deliberately absent —
+ * B32 kept it a pure computed value, not a persisted table.
+ */
+export const INVENTORY_TABLES = [
+  "movements",
+  "reservations",
+  "reservation_mutation_log",
+  "transfers",
+  "transfer_lines",
+  "transfer_mutation_log",
+] as const;
+
+export const INVENTORY_006_TABLE_COLUMNS = {
+  "inventory.movements": [
+    "id","tenant_id","company_id","branch_id","inventory_location_id","presentation_id","lot_id",
+    "movement_type","direction","quantity","reason_code","status","occurred_at","reference_type",
+    "reference_id","idempotency_key","created_at",
+  ],
+  "inventory.reservations": [
+    "id","tenant_id","company_id","branch_id","inventory_location_id","presentation_id","lot_id",
+    "reference_type","reference_id","quantity","consumed_quantity","released_quantity","status",
+    "expires_at","version","created_at","updated_at",
+  ],
+  "inventory.reservation_mutation_log": [
+    "id","tenant_id","company_id","operation","idempotency_key","reservation_id","snapshot_json","created_at",
+  ],
+  "inventory.transfers": [
+    "id","tenant_id","company_id","source_branch_id","source_location_id","destination_branch_id",
+    "destination_location_id","status","requested_by_actor_type","requested_by_actor_id",
+    "approved_by_actor_type","approved_by_actor_id","dispatched_by_actor_type","dispatched_by_actor_id",
+    "received_by_actor_type","received_by_actor_id","requested_at","approved_at","dispatched_at",
+    "received_at","cancelled_at","cancellation_reason","version","created_at","updated_at",
+  ],
+  "inventory.transfer_lines": [
+    "id","tenant_id","company_id","transfer_id","presentation_id","lot_id","requested_quantity",
+    "dispatched_quantity","received_quantity",
+  ],
+  "inventory.transfer_mutation_log": [
+    "id","tenant_id","company_id","operation","idempotency_key","transfer_id","snapshot_json","created_at",
+  ],
+} as const;
+
+export const INVENTORY_006_RLS_TABLES = [...INVENTORY_TABLES] as readonly string[];
+
+export const POSTGRES_006_DESCRIPTOR: MigrationDescriptor = {
+  migrationId: "006_inventory_foundation",
+  manifestVersion: 1,
+  dependencies: [POSTGRES_001_DESCRIPTOR.migrationId, POSTGRES_005_DESCRIPTOR.migrationId],
+  upArtifact: "postgres/006_inventory_foundation.up.sql",
+  downArtifact: "postgres/006_inventory_foundation.down.sql",
+  checksum: "DERIVED_FROM_UP_ARTIFACT",
+  ownedSchemas: ["inventory"],
+  ownedTables: INVENTORY_TABLES.map((name) => `inventory.${name}`),
   ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
   ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
   ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",

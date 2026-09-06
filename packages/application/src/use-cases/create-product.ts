@@ -1,5 +1,7 @@
-import { CatalogDomainError, Product, ProductCreated, type Actor, type CompanyScope, type ProductType } from "@pos-platform/domain";
+import { CatalogDomainError, Product, ProductCreated, type Actor, type CompanyScope, type ProductType, type VariantPolicy } from "@pos-platform/domain";
 import type { CatalogAuthorizationPort } from "../ports/catalog-authorization-port.js";
+import { IdempotencyKeyConflictError } from "../ports/cash-shift-repository.js";
+import { CatalogDuplicateConflictError } from "../ports/catalog-conflict-errors.js";
 import type { Clock } from "../ports/clock.js";
 import type { IdGenerator } from "../ports/id-generator.js";
 import type { ProductRepository } from "../ports/product-repository.js";
@@ -19,6 +21,7 @@ export interface CreateProductCommand {
   readonly serialControlled: boolean;
   readonly taxCategoryId: string | null;
   readonly baseUnitId: string;
+  readonly variantPolicy: VariantPolicy;
   readonly idempotencyKey: string;
 }
 
@@ -74,6 +77,7 @@ export class CreateProductUseCase {
         serialControlled: command.serialControlled,
         taxCategoryId: command.taxCategoryId,
         baseUnitId: command.baseUnitId,
+        variantPolicy: command.variantPolicy,
       });
     } catch (error) {
       if (error instanceof CatalogDomainError && error.code === "EMPTY_PRODUCT_NAME") {
@@ -90,7 +94,24 @@ export class CreateProductUseCase {
       if (codeTaken) return { kind: "REJECTED", reason: "INTERNAL_CODE_EXISTS" };
     }
 
-    await this.repository.save(product, command.idempotencyKey);
+    try {
+      await this.repository.save(product, command.idempotencyKey);
+    } catch (error) {
+      // B29: a genuinely concurrent request can win either race between
+      // this use case's own pre-checks and its save() — re-run the
+      // idempotency lookup first (authoritative whenever it resolves,
+      // same discipline Cash's OPEN use case already established), and
+      // only fall back to the internal-code rejection when the race was
+      // never about our own key.
+      if (error instanceof IdempotencyKeyConflictError) {
+        const replay = await this.repository.findByIdempotencyKey(command.scope, command.idempotencyKey);
+        if (replay) return { kind: "ALREADY_CREATED", product: replay };
+      }
+      if (error instanceof CatalogDuplicateConflictError) {
+        return { kind: "REJECTED", reason: "INTERNAL_CODE_EXISTS" };
+      }
+      throw error;
+    }
 
     return { kind: "CREATED", product, event: ProductCreated.from(product, this.clock.now()) };
   }

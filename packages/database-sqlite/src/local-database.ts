@@ -722,6 +722,300 @@ DROP TABLE cash_difference_reviews;
 ALTER TABLE cash_difference_reviews_new RENAME TO cash_difference_reviews;
 `.trim();
 
+/**
+ * Bloque 29: materializes the 5 Catalog aggregates designed in domain/
+ * application by Bloque 27 (`packages/domain/src/catalog/*`) — CompanyScope
+ * (tenant+company, never branch, per `company-scope.ts`'s own doc comment:
+ * Catalog is "compartido por empresa"). Column set mirrors B27's ACTUAL
+ * domain fields exactly, not `catalog-schema.md`'s wider aspirational
+ * superset (default presentations, weight-variable fields, identifier
+ * validity windows, etc. are NOT modeled here — B27 never built them, and
+ * this block does not reinterpret the domain to add them).
+ *
+ * `catalog_product_mutation_log`: Product is the only Catalog aggregate
+ * with more than one mutation (`create`/`update`/`deactivate`, B27) that
+ * writes the SAME row — unlike Variant/Presentation/Identifier/Conversion,
+ * which are create-only and never mutate again. A plain "look up the
+ * current row by idempotency key" would return the WRONG (drifted) result
+ * for an old `update`-idempotency-key replayed after a LATER update
+ * changed the row. This log stores the exact resulting snapshot in JSON at
+ * the moment of each successful mutation — the same established pattern
+ * `local_sync_outbox.operation_json` (MIGRATION_004) already uses for
+ * idempotency-replay payloads in this codebase, not a new one.
+ */
+const MIGRATION_009 = `
+CREATE TABLE catalog_products (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  internal_code TEXT,
+  name TEXT NOT NULL,
+  description TEXT,
+  category_id TEXT NOT NULL CHECK(length(category_id) = 36),
+  brand_id TEXT,
+  product_type TEXT NOT NULL CHECK(product_type IN ('STANDARD','WEIGHTED','SERVICE','COMPOSITE','PREPARED','RETURNABLE','REGULATED')),
+  stock_controlled INTEGER NOT NULL CHECK(stock_controlled IN (0,1)),
+  lot_controlled INTEGER NOT NULL CHECK(lot_controlled IN (0,1)),
+  expiration_controlled INTEGER NOT NULL CHECK(expiration_controlled IN (0,1)),
+  serial_controlled INTEGER NOT NULL CHECK(serial_controlled IN (0,1)),
+  tax_category_id TEXT,
+  base_unit_id TEXT NOT NULL CHECK(length(base_unit_id) = 36),
+  variant_policy TEXT NOT NULL CHECK(variant_policy IN ('NO_VARIANTS','OPTIONAL_VARIANTS','REQUIRED_VARIANTS')),
+  status TEXT NOT NULL CHECK(status IN ('DRAFT','ACTIVE','INACTIVE')),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(expiration_controlled = 0 OR lot_controlled = 1),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, id)
+) STRICT;
+CREATE UNIQUE INDEX catalog_products_internal_code_idx
+  ON catalog_products(tenant_id, company_id, internal_code)
+  WHERE internal_code IS NOT NULL;
+
+CREATE TABLE catalog_product_mutation_log (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  operation TEXT NOT NULL CHECK(operation IN ('CREATE','UPDATE','DEACTIVATE')),
+  idempotency_key TEXT NOT NULL,
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(tenant_id, company_id, operation, idempotency_key)
+) STRICT;
+
+CREATE TABLE catalog_product_variants (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  attributes_json TEXT NOT NULL,
+  canonical_key TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','RETIRED')),
+  version INTEGER NOT NULL CHECK(version > 0),
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, product_id) REFERENCES catalog_products(tenant_id, company_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, id),
+  UNIQUE(tenant_id, company_id, product_id, canonical_key),
+  UNIQUE(tenant_id, company_id, idempotency_key)
+) STRICT;
+
+CREATE TABLE catalog_product_presentations (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  variant_id TEXT,
+  name TEXT NOT NULL,
+  internal_sku TEXT,
+  unit_id TEXT NOT NULL CHECK(length(unit_id) = 36),
+  contained_quantity TEXT NOT NULL CHECK(substr(contained_quantity,1,1) != '-' AND contained_quantity != '0.000000'),
+  variable_quantity INTEGER NOT NULL CHECK(variable_quantity IN (0,1)),
+  sales_enabled INTEGER NOT NULL CHECK(sales_enabled IN (0,1)),
+  purchasing_enabled INTEGER NOT NULL CHECK(purchasing_enabled IN (0,1)),
+  breakable INTEGER NOT NULL CHECK(breakable IN (0,1)),
+  stock_mode TEXT NOT NULL CHECK(stock_mode IN ('INDEPENDENT','CONVERTED_TO_BASE','DERIVED','NON_STOCK')),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  version INTEGER NOT NULL CHECK(version > 0),
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, product_id) REFERENCES catalog_products(tenant_id, company_id, id),
+  FOREIGN KEY (tenant_id, company_id, variant_id) REFERENCES catalog_product_variants(tenant_id, company_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, id),
+  UNIQUE(tenant_id, company_id, idempotency_key)
+) STRICT;
+CREATE UNIQUE INDEX catalog_product_presentations_sku_idx
+  ON catalog_product_presentations(tenant_id, company_id, internal_sku)
+  WHERE internal_sku IS NOT NULL;
+
+CREATE TABLE catalog_product_identifiers (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  variant_id TEXT,
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  identifier_type TEXT NOT NULL CHECK(identifier_type IN ('INTERNAL','EAN_8','EAN_13','UPC','PLU','SUPPLIER_CODE','SCALE_BARCODE','INTERNAL_QR','MANUAL_CODE')),
+  raw_value TEXT NOT NULL,
+  normalized_value TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  version INTEGER NOT NULL CHECK(version > 0),
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, product_id) REFERENCES catalog_products(tenant_id, company_id, id),
+  FOREIGN KEY (tenant_id, company_id, variant_id) REFERENCES catalog_product_variants(tenant_id, company_id, id),
+  FOREIGN KEY (tenant_id, company_id, presentation_id) REFERENCES catalog_product_presentations(tenant_id, company_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, identifier_type, normalized_value),
+  UNIQUE(tenant_id, company_id, idempotency_key)
+) STRICT;
+
+CREATE TABLE catalog_unit_conversions (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  variant_id TEXT,
+  source_presentation_id TEXT NOT NULL CHECK(length(source_presentation_id) = 36),
+  target_presentation_id TEXT NOT NULL CHECK(length(target_presentation_id) = 36),
+  factor TEXT NOT NULL CHECK(substr(factor,1,1) != '-' AND factor != '0.0000000000'),
+  reversible INTEGER NOT NULL CHECK(reversible IN (0,1)),
+  requires_authorization INTEGER NOT NULL CHECK(requires_authorization IN (0,1)),
+  waste_policy TEXT,
+  cost_policy TEXT,
+  lot_policy TEXT,
+  valid_from TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  version INTEGER NOT NULL CHECK(version > 0),
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK(source_presentation_id != target_presentation_id),
+  FOREIGN KEY (tenant_id, company_id, product_id) REFERENCES catalog_products(tenant_id, company_id, id),
+  FOREIGN KEY (tenant_id, company_id, variant_id) REFERENCES catalog_product_variants(tenant_id, company_id, id),
+  FOREIGN KEY (tenant_id, company_id, source_presentation_id) REFERENCES catalog_product_presentations(tenant_id, company_id, id),
+  FOREIGN KEY (tenant_id, company_id, target_presentation_id) REFERENCES catalog_product_presentations(tenant_id, company_id, id),
+  UNIQUE(tenant_id, id),
+  UNIQUE(tenant_id, company_id, source_presentation_id, target_presentation_id),
+  UNIQUE(tenant_id, company_id, idempotency_key)
+) STRICT;
+`.trim();
+
+/**
+ * Bloque 33: materializes B32's Inventory domain/application (`packages/domain/src/inventory/*`)
+ * over real SQLite. `inventory_movements` is genuinely append-only (no
+ * mutation log needed — same posture as `catalog_product_variants`).
+ * `inventory_reservations`/`inventory_transfers` each have MORE than one
+ * mutation type touching the same row (create/consume/release;
+ * request/dispatch/receipt/cancellation) — same idempotency-replay-must-
+ * return-historical-snapshot problem `catalog_product_mutation_log`
+ * solved for Product, reused here as
+ * `inventory_reservation_mutation_log`/`inventory_transfer_mutation_log`.
+ * `presentation_id` gets a REAL FK to `catalog_product_presentations`
+ * (defense in depth on top of B32's application-level
+ * `validateInventoryPresentation` — "Catalog owns identity, Inventory
+ * owns physical stock", B31) wherever it appears; `inventory_location_id`/
+ * `branch_id` stay opaque strings, same treatment Cash gives ids without
+ * a materialized aggregate.
+ */
+const MIGRATION_010 = `
+CREATE TABLE inventory_movements (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  inventory_location_id TEXT NOT NULL CHECK(length(inventory_location_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  lot_id TEXT,
+  movement_type TEXT NOT NULL CHECK(movement_type IN ('POSITIVE_ADJUSTMENT','NEGATIVE_ADJUSTMENT','WASTE','TRANSFER_OUT','TRANSFER_IN','RESERVATION_CONSUMPTION')),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+  quantity TEXT NOT NULL CHECK(substr(quantity,1,1) != '-' AND quantity != '0.000000'),
+  reason_code TEXT,
+  status TEXT NOT NULL CHECK(status = 'POSTED'),
+  occurred_at TEXT NOT NULL,
+  reference_type TEXT,
+  reference_id TEXT,
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, presentation_id) REFERENCES catalog_product_presentations(tenant_id, company_id, id),
+  UNIQUE(tenant_id, company_id, idempotency_key)
+) STRICT;
+CREATE INDEX inventory_movements_scope_idx
+  ON inventory_movements(tenant_id, company_id, branch_id, inventory_location_id, presentation_id, lot_id);
+
+CREATE TABLE inventory_reservations (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  inventory_location_id TEXT NOT NULL CHECK(length(inventory_location_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  lot_id TEXT,
+  reference_type TEXT NOT NULL,
+  reference_id TEXT NOT NULL,
+  quantity TEXT NOT NULL CHECK(substr(quantity,1,1) != '-' AND quantity != '0.000000'),
+  consumed_quantity TEXT NOT NULL CHECK(substr(consumed_quantity,1,1) != '-'),
+  released_quantity TEXT NOT NULL CHECK(substr(released_quantity,1,1) != '-'),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','PARTIALLY_CONSUMED','CONSUMED','RELEASED','EXPIRED')),
+  expires_at TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, company_id, presentation_id) REFERENCES catalog_product_presentations(tenant_id, company_id, id)
+) STRICT;
+CREATE INDEX inventory_reservations_scope_idx
+  ON inventory_reservations(tenant_id, company_id, branch_id, inventory_location_id, presentation_id, lot_id);
+
+CREATE TABLE inventory_reservation_mutation_log (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  operation TEXT NOT NULL CHECK(operation IN ('CREATE','CONSUME','RELEASE')),
+  idempotency_key TEXT NOT NULL,
+  reservation_id TEXT NOT NULL CHECK(length(reservation_id) = 36),
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(tenant_id, company_id, operation, idempotency_key)
+) STRICT;
+
+CREATE TABLE inventory_transfers (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  source_branch_id TEXT NOT NULL CHECK(length(source_branch_id) = 36),
+  source_location_id TEXT NOT NULL CHECK(length(source_location_id) = 36),
+  destination_branch_id TEXT NOT NULL CHECK(length(destination_branch_id) = 36),
+  destination_location_id TEXT NOT NULL CHECK(length(destination_location_id) = 36),
+  status TEXT NOT NULL CHECK(status IN ('REQUESTED','APPROVED','IN_TRANSIT','RECEIVED','PARTIALLY_RECEIVED','CANCELLED','REJECTED')),
+  requested_by_actor_type TEXT NOT NULL,
+  requested_by_actor_id TEXT NOT NULL,
+  approved_by_actor_type TEXT,
+  approved_by_actor_id TEXT,
+  dispatched_by_actor_type TEXT,
+  dispatched_by_actor_id TEXT,
+  received_by_actor_type TEXT,
+  received_by_actor_id TEXT,
+  requested_at TEXT NOT NULL,
+  approved_at TEXT,
+  dispatched_at TEXT,
+  received_at TEXT,
+  cancelled_at TEXT,
+  cancellation_reason TEXT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(source_location_id != destination_location_id)
+) STRICT;
+
+CREATE TABLE inventory_transfer_lines (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  transfer_id TEXT NOT NULL CHECK(length(transfer_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  lot_id TEXT,
+  requested_quantity TEXT NOT NULL CHECK(substr(requested_quantity,1,1) != '-' AND requested_quantity != '0.000000'),
+  dispatched_quantity TEXT NOT NULL CHECK(substr(dispatched_quantity,1,1) != '-'),
+  received_quantity TEXT NOT NULL CHECK(substr(received_quantity,1,1) != '-'),
+  FOREIGN KEY (transfer_id) REFERENCES inventory_transfers(id)
+) STRICT;
+CREATE INDEX inventory_transfer_lines_transfer_idx ON inventory_transfer_lines(transfer_id);
+
+CREATE TABLE inventory_transfer_mutation_log (
+  id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  operation TEXT NOT NULL CHECK(operation IN ('REQUEST','DISPATCH','RECEIPT','CANCELLATION')),
+  idempotency_key TEXT NOT NULL,
+  transfer_id TEXT NOT NULL CHECK(length(transfer_id) = 36),
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(tenant_id, company_id, operation, idempotency_key)
+) STRICT;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -731,6 +1025,8 @@ const MIGRATIONS = [
   { version: 6, sql: MIGRATION_006, checksum: createHash("sha256").update(MIGRATION_006).digest("hex") },
   { version: 7, sql: MIGRATION_007, checksum: createHash("sha256").update(MIGRATION_007).digest("hex") },
   { version: 8, sql: MIGRATION_008, checksum: createHash("sha256").update(MIGRATION_008).digest("hex") },
+  { version: 9, sql: MIGRATION_009, checksum: createHash("sha256").update(MIGRATION_009).digest("hex") },
+  { version: 10, sql: MIGRATION_010, checksum: createHash("sha256").update(MIGRATION_010).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

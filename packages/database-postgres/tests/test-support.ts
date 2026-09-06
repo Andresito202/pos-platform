@@ -109,3 +109,22 @@ export async function applyCashSchema(dbUrl: string): Promise<void> {
     await pool.end();
   }
 }
+
+/** Bloque 29: same pattern as `applyCashSchema`, but for Catalog (001 + 005 only — Catalog does not depend on 004). */
+export async function applyCatalogSchema(dbUrl: string): Promise<void> {
+  const bootstrap = await readSql("bootstrap.sql");
+  const foundation = await readSql("001_central_foundation.up.sql");
+  const catalog = await readSql("005_catalog_foundation.up.sql");
+  const pool = new Pool({ connectionString: dbUrl });
+  try {
+    await pool.query(ROLE_DDL);
+    const database = await pool.query<{ name: string }>("SELECT current_database() AS name");
+    await pool.query(`GRANT CREATE ON DATABASE "${database.rows[0]!.name}" TO pos_schema_owner`);
+    await pool.query("SET ROLE pos_schema_owner");
+    await pool.query(bootstrap);
+    await pool.query(foundation);
+    await pool.query(catalog);
+  } finally {
+    await pool.end();
+  }
+}

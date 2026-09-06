@@ -6,7 +6,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación normativa: 2026-08-28.
+Última reconciliación normativa: 2026-09-02 (Cash/Catalog persistence de la rama `domain/cash-open-vertical-20260901` incorporada como trabajo activo no integrado — ver "Trabajo activo en rama no integrada" abajo).
 
 ## Jerarquía relacionada
 
@@ -388,6 +388,25 @@ PR #18 no autoriza RT-005+, Electron, renderer, negocio comercial, providers SII
 5. La evidencia CI debe describir exactamente lo probado; una suite `PASS` no equivale a cierre de RT ni a promoción de `SEC-G01..SEC-G10`.
 6. Providers, producción, Electron/renderer posterior, packaging/release y limpieza de ramas históricas siguen en líneas separadas.
 
+## Trabajo activo en rama no integrada — Cash + Catalog persistence (línea Bxx)
+
+Esta línea de trabajo es **distinta e independiente** del roadmap runtime RT-000..RT-010 de la sección anterior — no comparte rama, no comparte PR, no ha pasado por el gate de gobernanza de `main`. Se documenta aquí por la regla de esta misma sección (`no se elige una interpretación arbitraria` cuando dos fuentes vigentes — este backlog y `traceability.md` — divergen) y por la Regla de cierre punto 8 (`no se deja una fuente normativa contando un estado incompatible`).
+
+**Rama**: `domain/cash-open-vertical-20260901` (también existe como `origin/domain/cash-open-vertical-20260901`, sin PR asociada — verificado con `gh pr list --head ... --state all`, cero resultados). `503aeb1` **no es ancestro de `main`** (`origin/main` está en `ae93344`, un linaje distinto — reconciliación RT-006 vía PR #22); esta rama vive por completo fuera de `main`. **HEAD real de la rama**: `503aeb1` más un conjunto sustancial de cambios sin commitear (Domain/Application de Catalog y Payment, persistencia SQLite+PostgreSQL de Catalog). **Sin PR abierta ni histórica. Sin CI de exact-head. Sin revisión de autor único (Wilson Andrés Camacho Culma) todavía realizada sobre este diff.** Por Regla de cierre puntos 4 y 6, este trabajo **no** puede marcarse `DONE / INTEGRATED` todavía, aunque tenga evidencia real de ejecución.
+
+Evidencia real (contenedor PostgreSQL 16.14 vivo + SQLite real, sin mocks):
+
+- **Cash** (bloques B14..B24-B, historial completo trazable en los mensajes de commit de esta rama — `git log`, prefijo `feat(cash)`/`fix(cash)`/`docs(cash)`; no tiene sección `## Delta` dedicada en `traceability.md`): apertura/movimientos/cierre/arqueo materializados sobre SQLite y PostgreSQL — transacciones, rollback, constraints, RLS, concurrencia real, idempotencia, aislamiento tenant/company/branch, autorización real (SEC-003 parcial), todos con test real.
+- **Catalog** (bloques B25 readiness, B26 model closure/HD gate, B27 domain/application, B29 persistence — B28-PAYNOTIF es un hilo lateral de Payment sin relación con Catalog; deltas detalladas en `docs/architecture/physical-model/traceability.md` §Delta B25/B26/B27/B29): Product/ProductVariant/ProductPresentation/ProductIdentifier/UnitConversion materializados sobre SQLite (`MIGRATION_009`) y PostgreSQL (`005_catalog_foundation`), con el mismo rigor — 13/13 tests reales por motor, RLS, FK, UNIQUE, rollback, concurrencia, paridad de motor documentada.
+
+Esto **excepciona explícitamente** la regla de una sola línea `IN_PROGRESS` (sección "Flujo oficial de trabajo", punto 1): Cash+Catalog persistence es una única línea de trabajo activa que toca dos épicas de tabla (`CASH-004`, `CAT-002`) por compartir el mismo patrón arquitectónico y el mismo repositorio de adapters (`packages/database-{sqlite,postgres}`).
+
+Decisiones humanas de B26 explícitamente **no resueltas** por esta materialización (siguen fail-closed en autorización, sin implementación de producción): HD-01/02/03 (autorización real de Variant/Presentation/Identifier), HD-06 (clave canónica de variante), HD-07 (default presentations), normalización de identificadores.
+
+**No autoriza** Inventory, Sales, Payments reales, Bre-B, frontend ni API central — cada uno mantiene su propio estado en "Backlog por épica" hasta su propio bloque de cierre.
+
+**Próximo paso decidido explícitamente por el dueño del proyecto (2026-09-02)**: Inventory se trabaja como su propia línea de bloques (readiness → model closure/HD gate → domain/application → persistencia), replicando el patrón que cerró Catalog, no como parte de una corrida única junto con Sales/Payments/Frontend/API — ver `INV-003` abajo.
+
 ## Gate SQL003
 
 ### INT-007 / materialización 003
@@ -470,7 +489,7 @@ Continúa no autorizado:
 | ID | Pri | Estado | Trabajo |
 |---|---|---|---|
 | CAT-001 | P0 | DONE | Producto, identificadores, variantes, presentaciones y conversiones definidos. |
-| CAT-002 | P1 | READY | Persistencia física alineada con DEC-004/TECH-002; preparar implementación futura. |
+| CAT-002 | P1 | IN_PROGRESS | Persistencia real materializada y probada (SQLite `MIGRATION_009` + PostgreSQL `005_catalog_foundation`) en rama `domain/cash-open-vertical-20260901`, sin PR/revisión/merge — ver "Trabajo activo en rama no integrada" arriba. |
 | CAT-003 | P1 | PLANNED | Implementar Catalog multiempresa. |
 | CAT-004 | P3 | DEFERRED | Especialización droguería. |
 
@@ -523,7 +542,7 @@ Continúa no autorizado:
 | CASH-001 | P0 | DONE | Apertura definida. |
 | CASH-002 | P0 | DONE | Cierre/diferencia definidos. |
 | CASH-003 | P0 | DONE | Movimientos, retiros, arqueos y compensaciones definidos. |
-| CASH-004 | P1 | PLANNED | Implementar caja por terminal/turno. |
+| CASH-004 | P1 | IN_PROGRESS | Apertura/movimientos/cierre/arqueo materializados y probados (SQLite + PostgreSQL) en rama `domain/cash-open-vertical-20260901`, sin PR/revisión/merge — ver "Trabajo activo en rama no integrada" arriba. |
 
 ### Ventas
 

@@ -1,14 +1,16 @@
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
-import { CASH_TABLES, INTEGRATION_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_004_DESCRIPTOR, POSTGRES_TABLE_COLUMNS } from "./contract.js";
-import { bootstrapPresence, cashCatalogState, integrationsCatalogState, targetCatalogState, validateBootstrap, validateBtreeGist, validatePostgres002Catalog, validatePostgres004Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
+import { CASH_TABLES, CATALOG_TABLES, INTEGRATION_TABLES, INVENTORY_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_004_DESCRIPTOR, POSTGRES_005_DESCRIPTOR, POSTGRES_006_DESCRIPTOR, POSTGRES_TABLE_COLUMNS } from "./contract.js";
+import { bootstrapPresence, cashCatalogState, catalogSchemaState, integrationsCatalogState, inventorySchemaState, targetCatalogState, validateBootstrap, validateBtreeGist, validatePostgres002Catalog, validatePostgres004Catalog, validatePostgres005Catalog, validatePostgres006Inventory, validatePostgresCatalog } from "./postgres-introspection.js";
 import {
   MANIFEST_VERSION,
   MigrationInvariantError,
   POSTGRES_MIGRATION_ID,
   POSTGRES_002_MIGRATION_ID,
   POSTGRES_004_MIGRATION_ID,
+  POSTGRES_005_MIGRATION_ID,
+  POSTGRES_006_MIGRATION_ID,
   POSTGRES_MIGRATION_LOCK_RESOURCE,
   RUNNER_VERSION,
   SimulatedCrashError,
@@ -16,7 +18,7 @@ import {
   sha256,
   uuidV7,
 } from "./shared.js";
-import { runPostgres002Smoke, runPostgres004Smoke, runPostgresSmoke } from "./postgres-smoke.js";
+import { runPostgres002Smoke, runPostgres004Smoke, runPostgres005Smoke, runPostgres006Smoke, runPostgresSmoke } from "./postgres-smoke.js";
 
 interface RoleDefinition {
   login: boolean;
@@ -311,11 +313,12 @@ export async function downPostgres001(config: Pick<PostgresRunnerConfig, "adminU
       await executeRaw(connection, "SET ROLE pos_schema_owner");
       await acquireMigrationLock(connection);
       try {
-        // Bloque 24-B: widened from a 002-only check to any migration declaring 001 as a
-        // dependency (currently 002 and 004 — 003 remains preflight-only, no real apply/down).
+        // Bloque 24-B (widened again Bloque 29, then Bloque 33): any migration declaring 001
+        // as a dependency (currently 002, 004, 005 and 006 — 003 remains preflight-only, no
+        // real apply/down).
         const dependents = await queryRows<{ migration_id: string }>(connection, `
           SELECT migration_id FROM platform.target_migration_executions
-          WHERE migration_id IN ('002_external_integrations_foundation','004_cash_foundation')
+          WHERE migration_id IN ('002_external_integrations_foundation','004_cash_foundation','005_catalog_foundation','006_inventory_foundation')
             AND status IN ('APPLIED','STARTED')
         `);
         if (dependents.length > 0) throw new MigrationInvariantError(`down 001 rejected because ${dependents.map((row) => row.migration_id).join(", ")} is applied or committed STARTED`);
@@ -596,6 +599,277 @@ export async function downPostgres004(config: Pick<PostgresRunnerConfig, "adminU
           await executeRaw(transaction, downSql);
           if (await cashCatalogState(transaction) !== "pre-004") throw new MigrationInvariantError("down 004 did not restore pre-004 catalog");
           await validatePostgresCatalog(transaction);
+        });
+        await sql`UPDATE platform.target_migration_executions SET status='ROLLED_BACK',rolled_back_at=clock_timestamp(),finished_at=clock_timestamp() WHERE execution_id=${execution.execution_id}::uuid`.execute(connection);
+      } finally {
+        await releaseMigrationLock(connection);
+        await executeRaw(connection, "RESET ROLE");
+      }
+    });
+  } finally {
+    await migrator.destroy();
+  }
+}
+
+/**
+ * Bloque 29: materializes Catalog (packages/domain's B27 model) over real
+ * PostgreSQL, following 004's apply/down pattern exactly — the last real
+ * apply/down pair in this harness before this one.
+ */
+export async function applyPostgres005(config: PostgresRunnerConfig): Promise<PostgresApplyResult> {
+  const admin = postgresDatabase(config.adminUrl, 2);
+  const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
+  const migrator = postgresDatabase(migratorUrl, 1);
+  const upSql = await readArtifact(POSTGRES_005_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
+  const checksumHex = checksum.toString("hex");
+  try {
+    await bootstrapPostgres(admin, migrator);
+    return await migrator.connection().execute(async (connection) => {
+      await executeRaw(connection, "SET ROLE pos_schema_owner");
+      await acquireMigrationLock(connection);
+      try {
+        const dependencySql = await readArtifact(POSTGRES_001_DESCRIPTOR.upArtifact);
+        const dependencyChecksum = sha256(dependencySql);
+        const dependency = await queryRows<ExecutionRow>(connection, `
+          SELECT execution_id,migration_id,checksum,status,body_committed_at,applied_at
+          FROM platform.target_migration_executions
+          WHERE migration_id='001_central_foundation' AND status='APPLIED'
+        `);
+        if (dependency.length !== 1 || !sameChecksum(dependency[0]!.checksum, dependencyChecksum)) {
+          throw new MigrationInvariantError("005 requires approved 001 APPLIED dependency");
+        }
+        await validatePostgresCatalog(connection);
+        const rows = await executionRows(connection, POSTGRES_005_MIGRATION_ID);
+        assertExecutionChecksums(rows, checksum, POSTGRES_005_MIGRATION_ID);
+        const applied = rows.find((row) => row.status === "APPLIED");
+        if (applied) {
+          await validatePostgres005Catalog(connection);
+          return { executionId: applied.execution_id, noOp: true, reconciled: false, checksumHex };
+        }
+        const started = rows.find((row) => row.status === "STARTED");
+        if (started) {
+          const state = await catalogSchemaState(connection);
+          if (state === "partial") throw new MigrationInvariantError("STARTED 005 execution has divergent catalog");
+          if (state === "target-005") {
+            if (started.body_committed_at === null) await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${started.execution_id}::uuid`.execute(connection);
+            await validatePostgres005Catalog(connection);
+            if (!config.skipSmoke) await runPostgres005Smoke(config.adminUrl);
+            await finishApplied(connection, started.execution_id);
+            return { executionId: started.execution_id, noOp: false, reconciled: true, checksumHex };
+          }
+          await markFailed(connection, started.execution_id, "RECONCILED_PRE_005");
+        }
+        const executionId = uuidV7();
+        await sql`INSERT INTO platform.target_migration_executions
+          (execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version)
+          VALUES (${executionId}::uuid,${POSTGRES_005_MIGRATION_ID},'POSTGRESQL',${POSTGRES_005_DESCRIPTOR.manifestVersion},${checksum},'STARTED',clock_timestamp(),${RUNNER_VERSION})`.execute(connection);
+        if (config.simulateCrashAfterStarted) throw new SimulatedCrashError("simulated 005 crash after STARTED");
+        try {
+          await connection.transaction().execute(async (transaction) => {
+            await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+            await executeRaw(transaction, upSql);
+            if (config.injectBodyFailure) await executeRaw(transaction, "SELECT missing_injected_005_body_function()");
+            await validatePostgres005Catalog(transaction);
+          });
+        } catch (error) {
+          await markFailed(connection, executionId, "BODY_005_ROLLED_BACK");
+          throw error;
+        }
+        if (config.simulateCrashAfterBodyCommit) throw new SimulatedCrashError("simulated 005 crash after body COMMIT");
+        await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${executionId}::uuid AND status='STARTED'`.execute(connection);
+        await validatePostgres005Catalog(connection);
+        if (!config.skipSmoke) await runPostgres005Smoke(config.adminUrl);
+        await finishApplied(connection, executionId);
+        return { executionId, noOp: false, reconciled: false, checksumHex };
+      } finally {
+        await releaseMigrationLock(connection);
+        await executeRaw(connection, "RESET ROLE");
+      }
+    });
+  } finally {
+    await migrator.destroy();
+    await admin.destroy();
+  }
+}
+
+export async function downPostgres005(config: Pick<PostgresRunnerConfig, "adminUrl" | "migratorUrl">): Promise<void> {
+  const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
+  const migrator = postgresDatabase(migratorUrl, 1);
+  const downSql = await readArtifact(POSTGRES_005_DESCRIPTOR.downArtifact);
+  const upSql = await readArtifact(POSTGRES_005_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
+  try {
+    await migrator.connection().execute(async (connection) => {
+      await executeRaw(connection, "SET ROLE pos_schema_owner");
+      await acquireMigrationLock(connection);
+      try {
+        // Bloque 33: 006_inventory_foundation's tables carry a real FK to
+        // catalog.product_presentations — dropping catalog out from under
+        // an applied/started 006 would leave that FK dangling.
+        const inventoryDependents = await queryRows<{ migration_id: string }>(connection, `
+          SELECT migration_id FROM platform.target_migration_executions
+          WHERE migration_id = '006_inventory_foundation' AND status IN ('APPLIED','STARTED')
+        `);
+        if (inventoryDependents.length > 0) throw new MigrationInvariantError("down 005 rejected because 006_inventory_foundation is applied or committed STARTED");
+        const rows = await executionRows(connection, POSTGRES_005_MIGRATION_ID);
+        assertExecutionChecksums(rows, checksum, POSTGRES_005_MIGRATION_ID);
+        const initialState = await catalogSchemaState(connection);
+        if (initialState === "pre-005") {
+          const latest = rows[0];
+          const activeStarted = rows.some((row) => row.status === "STARTED");
+          if (latest?.status === "ROLLED_BACK" && !activeStarted) return;
+          if (latest?.status === "STARTED") throw new MigrationInvariantError("down 005 rejected because latest execution is active STARTED");
+          throw new MigrationInvariantError("pre-005 catalog is not backed by latest ROLLED_BACK execution");
+        }
+        await validatePostgres005Catalog(connection);
+        const execution = rows.find((row) => row.status === "APPLIED" || (row.status === "STARTED" && row.body_committed_at !== null));
+        if (!execution) {
+          throw new MigrationInvariantError("no committed 005 execution is eligible for down");
+        }
+        const counts = await queryRows<{ row_count: string }>(connection, `SELECT (${CATALOG_TABLES.map((table) => `(SELECT count(*) FROM catalog.${table})`).join(" + ")})::text AS row_count`);
+        if (Number(counts[0]!.row_count) !== 0) throw new MigrationInvariantError("down 005 refused because catalog data exists");
+        await connection.transaction().execute(async (transaction) => {
+          await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+          await executeRaw(transaction, downSql);
+          if (await catalogSchemaState(transaction) !== "pre-005") throw new MigrationInvariantError("down 005 did not restore pre-005 catalog");
+          await validatePostgresCatalog(transaction);
+        });
+        await sql`UPDATE platform.target_migration_executions SET status='ROLLED_BACK',rolled_back_at=clock_timestamp(),finished_at=clock_timestamp() WHERE execution_id=${execution.execution_id}::uuid`.execute(connection);
+      } finally {
+        await releaseMigrationLock(connection);
+        await executeRaw(connection, "RESET ROLE");
+      }
+    });
+  } finally {
+    await migrator.destroy();
+  }
+}
+
+/**
+ * Bloque 33: materializes Inventory (packages/domain's B32 model) over
+ * real PostgreSQL, following 005's apply/down pattern exactly — the last
+ * real apply/down pair before this one. Unlike 005 (depends only on
+ * 001), 006 depends on BOTH 001 and 005: `inventory.movements`/
+ * `reservations`/`transfer_lines` carry a real FK to
+ * `catalog.product_presentations`.
+ */
+export async function applyPostgres006(config: PostgresRunnerConfig): Promise<PostgresApplyResult> {
+  const admin = postgresDatabase(config.adminUrl, 2);
+  const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
+  const migrator = postgresDatabase(migratorUrl, 1);
+  const upSql = await readArtifact(POSTGRES_006_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
+  const checksumHex = checksum.toString("hex");
+  try {
+    await bootstrapPostgres(admin, migrator);
+    return await migrator.connection().execute(async (connection) => {
+      await executeRaw(connection, "SET ROLE pos_schema_owner");
+      await acquireMigrationLock(connection);
+      try {
+        const dependencyChecks: Array<{ migrationId: string; artifact: string }> = [
+          { migrationId: "001_central_foundation", artifact: POSTGRES_001_DESCRIPTOR.upArtifact },
+          { migrationId: "005_catalog_foundation", artifact: POSTGRES_005_DESCRIPTOR.upArtifact },
+        ];
+        for (const { migrationId, artifact } of dependencyChecks) {
+          const dependencySql = await readArtifact(artifact);
+          const dependencyChecksum = sha256(dependencySql);
+          const dependency = await queryRows<ExecutionRow>(connection, `
+            SELECT execution_id,migration_id,checksum,status,body_committed_at,applied_at
+            FROM platform.target_migration_executions
+            WHERE migration_id='${migrationId}' AND status='APPLIED'
+          `);
+          if (dependency.length !== 1 || !sameChecksum(dependency[0]!.checksum, dependencyChecksum)) {
+            throw new MigrationInvariantError(`006 requires approved ${migrationId} APPLIED dependency`);
+          }
+        }
+        await validatePostgres005Catalog(connection);
+        const rows = await executionRows(connection, POSTGRES_006_MIGRATION_ID);
+        assertExecutionChecksums(rows, checksum, POSTGRES_006_MIGRATION_ID);
+        const applied = rows.find((row) => row.status === "APPLIED");
+        if (applied) {
+          await validatePostgres006Inventory(connection);
+          return { executionId: applied.execution_id, noOp: true, reconciled: false, checksumHex };
+        }
+        const started = rows.find((row) => row.status === "STARTED");
+        if (started) {
+          const state = await inventorySchemaState(connection);
+          if (state === "partial") throw new MigrationInvariantError("STARTED 006 execution has divergent inventory");
+          if (state === "target-006") {
+            if (started.body_committed_at === null) await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${started.execution_id}::uuid`.execute(connection);
+            await validatePostgres006Inventory(connection);
+            if (!config.skipSmoke) await runPostgres006Smoke(config.adminUrl);
+            await finishApplied(connection, started.execution_id);
+            return { executionId: started.execution_id, noOp: false, reconciled: true, checksumHex };
+          }
+          await markFailed(connection, started.execution_id, "RECONCILED_PRE_006");
+        }
+        const executionId = uuidV7();
+        await sql`INSERT INTO platform.target_migration_executions
+          (execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version)
+          VALUES (${executionId}::uuid,${POSTGRES_006_MIGRATION_ID},'POSTGRESQL',${POSTGRES_006_DESCRIPTOR.manifestVersion},${checksum},'STARTED',clock_timestamp(),${RUNNER_VERSION})`.execute(connection);
+        if (config.simulateCrashAfterStarted) throw new SimulatedCrashError("simulated 006 crash after STARTED");
+        try {
+          await connection.transaction().execute(async (transaction) => {
+            await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+            await executeRaw(transaction, upSql);
+            if (config.injectBodyFailure) await executeRaw(transaction, "SELECT missing_injected_006_body_function()");
+            await validatePostgres006Inventory(transaction);
+          });
+        } catch (error) {
+          await markFailed(connection, executionId, "BODY_006_ROLLED_BACK");
+          throw error;
+        }
+        if (config.simulateCrashAfterBodyCommit) throw new SimulatedCrashError("simulated 006 crash after body COMMIT");
+        await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=${executionId}::uuid AND status='STARTED'`.execute(connection);
+        await validatePostgres006Inventory(connection);
+        if (!config.skipSmoke) await runPostgres006Smoke(config.adminUrl);
+        await finishApplied(connection, executionId);
+        return { executionId, noOp: false, reconciled: false, checksumHex };
+      } finally {
+        await releaseMigrationLock(connection);
+        await executeRaw(connection, "RESET ROLE");
+      }
+    });
+  } finally {
+    await migrator.destroy();
+    await admin.destroy();
+  }
+}
+
+export async function downPostgres006(config: Pick<PostgresRunnerConfig, "adminUrl" | "migratorUrl">): Promise<void> {
+  const migratorUrl = config.migratorUrl ?? roleConnectionUrl(config.adminUrl, "pos_migrator");
+  const migrator = postgresDatabase(migratorUrl, 1);
+  const downSql = await readArtifact(POSTGRES_006_DESCRIPTOR.downArtifact);
+  const upSql = await readArtifact(POSTGRES_006_DESCRIPTOR.upArtifact);
+  const checksum = sha256(upSql);
+  try {
+    await migrator.connection().execute(async (connection) => {
+      await executeRaw(connection, "SET ROLE pos_schema_owner");
+      await acquireMigrationLock(connection);
+      try {
+        const rows = await executionRows(connection, POSTGRES_006_MIGRATION_ID);
+        assertExecutionChecksums(rows, checksum, POSTGRES_006_MIGRATION_ID);
+        const initialState = await inventorySchemaState(connection);
+        if (initialState === "pre-006") {
+          const latest = rows[0];
+          const activeStarted = rows.some((row) => row.status === "STARTED");
+          if (latest?.status === "ROLLED_BACK" && !activeStarted) return;
+          if (latest?.status === "STARTED") throw new MigrationInvariantError("down 006 rejected because latest execution is active STARTED");
+          throw new MigrationInvariantError("pre-006 inventory is not backed by latest ROLLED_BACK execution");
+        }
+        await validatePostgres006Inventory(connection);
+        const execution = rows.find((row) => row.status === "APPLIED" || (row.status === "STARTED" && row.body_committed_at !== null));
+        if (!execution) {
+          throw new MigrationInvariantError("no committed 006 execution is eligible for down");
+        }
+        const counts = await queryRows<{ row_count: string }>(connection, `SELECT (${INVENTORY_TABLES.map((table) => `(SELECT count(*) FROM inventory.${table})`).join(" + ")})::text AS row_count`);
+        if (Number(counts[0]!.row_count) !== 0) throw new MigrationInvariantError("down 006 refused because inventory data exists");
+        await connection.transaction().execute(async (transaction) => {
+          await executeRaw(transaction, "SET LOCAL ROLE pos_schema_owner");
+          await executeRaw(transaction, downSql);
+          if (await inventorySchemaState(transaction) !== "pre-006") throw new MigrationInvariantError("down 006 did not restore pre-006 inventory");
+          await validatePostgres005Catalog(transaction);
         });
         await sql`UPDATE platform.target_migration_executions SET status='ROLLED_BACK',rolled_back_at=clock_timestamp(),finished_at=clock_timestamp() WHERE execution_id=${execution.execution_id}::uuid`.execute(connection);
       } finally {

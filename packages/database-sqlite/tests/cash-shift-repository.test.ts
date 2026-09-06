@@ -330,13 +330,13 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
     }
   });
 
-  it("migration ledger: versions 6, 7 and 8 are recorded with real checksums, and versions 1-5 remain untouched", async () => {
+  it("migration ledger: versions 6-10 are recorded with real checksums, and versions 1-5 remain untouched", async () => {
     const database = LocalDatabase.open({ dataDirectory: await directory() });
     try {
       const rows = database.native
         .prepare("SELECT version, checksum FROM local_schema_migrations ORDER BY version")
         .all() as Array<{ version: number; checksum: string }>;
-      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
       for (const row of rows) expect(row.checksum).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       database.close();
@@ -381,7 +381,7 @@ describe("SqliteCashShiftRepository (real SQLite, not a fake)", () => {
       const rows = second.native.prepare("SELECT version FROM local_schema_migrations ORDER BY version").all() as Array<{
         version: number;
       }>;
-      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
       const reloaded = await new SqliteCashShiftRepository(second).findById(scope, opened.shift.id);
       expect(reloaded?.id).toBe(opened.shift.id);

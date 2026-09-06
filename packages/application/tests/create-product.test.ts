@@ -24,6 +24,7 @@ function command(overrides: Partial<CreateProductCommand> = {}): CreateProductCo
     serialControlled: false,
     taxCategoryId: null,
     baseUnitId: "018f0000-0000-7000-8000-000000000060",
+    variantPolicy: "NO_VARIANTS",
     idempotencyKey: "create-product:1",
     ...overrides,
   };

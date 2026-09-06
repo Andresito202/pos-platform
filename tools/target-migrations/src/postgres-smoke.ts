@@ -543,3 +543,320 @@ export async function runPostgres004Smoke(adminUrl: string): Promise<number> {
     await admin.destroy();
   }
 }
+
+const IDS005 = {
+  productA: "018f0000-0000-7000-8000-000000005001",
+  productB: "018f0000-0000-7000-8000-000000005002",
+  variantA: "018f0000-0000-7000-8000-000000005003",
+  variantB: "018f0000-0000-7000-8000-000000005010",
+  presentationA: "018f0000-0000-7000-8000-000000005004",
+  presentationB: "018f0000-0000-7000-8000-000000005005",
+  presentationC: "018f0000-0000-7000-8000-000000005011",
+  identifierA: "018f0000-0000-7000-8000-000000005006",
+  conversionA: "018f0000-0000-7000-8000-000000005007",
+  categoryA: "018f0000-0000-7000-8000-000000005008",
+  unitA: "018f0000-0000-7000-8000-000000005009",
+} as const;
+
+async function removeFixtures005(admin: SqlExecutor): Promise<void> {
+  await executeRaw(admin, `
+    DELETE FROM catalog.unit_conversions;
+    DELETE FROM catalog.product_identifiers;
+    DELETE FROM catalog.product_presentations;
+    DELETE FROM catalog.product_variants;
+    DELETE FROM catalog.product_mutation_log;
+    DELETE FROM catalog.products;
+    DELETE FROM organization.branches WHERE id IN ('${IDS.branchA}','${IDS.branchB}');
+    DELETE FROM organization.companies WHERE id IN ('${IDS.companyA}','${IDS.companyB}');
+    DELETE FROM tenancy.tenants WHERE id IN ('${IDS.tenantA}','${IDS.tenantB}');
+    DELETE FROM identity.users WHERE id IN ('${IDS.userA}','${IDS.userB}');
+  `);
+}
+
+/**
+ * productA/variantA/presentationA are seeded permanently (as admin, outside
+ * any rolled-back transaction) so the child-table assertions below have a
+ * stable FK target across separate transactions — `withRoleTransaction`
+ * always rolls back at the end (same gotcha B24-B's Cash smoke test already
+ * documents), so anything a LATER, separate `withRoleTransaction` call
+ * needs to reference by FK cannot itself have been seeded inside an
+ * earlier `withRoleTransaction`.
+ */
+async function createFixtures005(admin: SqlExecutor): Promise<void> {
+  await executeRaw(admin, `
+    INSERT INTO identity.users(id,email,email_normalized,full_name,status,created_at,updated_at) VALUES
+      ('${IDS.userA}','005-a@example.test','005-a@example.test','005 A','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.userB}','005-b@example.test','005-b@example.test','005 B','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES
+      ('${IDS.tenantA}','005 Tenant A','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.tenantB}','005 Tenant B','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO organization.companies(id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at) VALUES
+      ('${IDS.companyA}','${IDS.tenantA}','005 Company A','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.companyB}','${IDS.tenantB}','005 Company B','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO catalog.products(
+      id,tenant_id,company_id,internal_code,name,category_id,product_type,stock_controlled,lot_controlled,
+      expiration_controlled,serial_controlled,base_unit_id,variant_policy,status,version
+    ) VALUES (
+      '${IDS005.productA}','${IDS.tenantA}','${IDS.companyA}','SKU-SMOKE','Producto Smoke','${IDS005.categoryA}','STANDARD',
+      true,false,false,false,'${IDS005.unitA}','OPTIONAL_VARIANTS','ACTIVE',1
+    );
+    INSERT INTO catalog.product_variants(id,tenant_id,company_id,product_id,attributes_json,canonical_key,status,version,idempotency_key)
+    VALUES ('${IDS005.variantA}','${IDS.tenantA}','${IDS.companyA}','${IDS005.productA}','{"color":"azul"}','color=azul','ACTIVE',1,'create-variant:seed');
+    INSERT INTO catalog.product_presentations(id,tenant_id,company_id,product_id,variant_id,name,internal_sku,unit_id,
+      contained_quantity,variable_quantity,sales_enabled,purchasing_enabled,breakable,stock_mode,status,version,idempotency_key)
+    VALUES ('${IDS005.presentationA}','${IDS.tenantA}','${IDS.companyA}','${IDS005.productA}','${IDS005.variantA}','unidad','SKU-SMOKE-A','${IDS005.unitA}',
+      1,false,true,true,false,'INDEPENDENT','ACTIVE',1,'create-presentation:seed');
+  `);
+}
+
+export async function runPostgres005Smoke(adminUrl: string): Promise<number> {
+  const admin = postgresDatabase(adminUrl, 1);
+  let assertions = 0;
+  try {
+    await removeFixtures005(admin);
+    await createFixtures005(admin);
+
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      const rows = await queryRows<{ id: string }>(db, "SELECT id::text FROM catalog.products");
+      assert.deepEqual(rows.map((row) => row.id), [IDS005.productA]); assertions += 1;
+    });
+
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantB, async (db) => {
+      const rows = await queryRows<{ count: string }>(db, "SELECT count(*)::text AS count FROM catalog.products");
+      assert.equal(rows[0]!.count, "0"); assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantB, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO catalog.products(id,tenant_id,company_id,internal_code,name,category_id,product_type,
+          stock_controlled,lot_controlled,expiration_controlled,serial_controlled,base_unit_id,variant_policy,
+          status,version)
+        VALUES ('${IDS005.productB}','${IDS.tenantA}','${IDS.companyA}','SKU-CROSS','Cross tenant','${IDS005.categoryA}',
+          'STANDARD',true,false,false,false,'${IDS005.unitA}','NO_VARIANTS','ACTIVE',1)`);
+    }), "cross-tenant product insert accepted"); assertions += 1;
+
+    // Real INSERT capability for Variant, exercised against a fresh id
+    // (variantA already exists, seeded permanently above for the FK chain).
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO catalog.product_variants(id,tenant_id,company_id,product_id,attributes_json,canonical_key,status,version,idempotency_key)
+        VALUES ('${IDS005.variantB}','${IDS.tenantA}','${IDS.companyA}','${IDS005.productA}','{"color":"roja"}','color=roja','ACTIVE',1,'create-variant:smoke')`);
+      const rows = await queryRows<{ id: string }>(db, `SELECT id::text FROM catalog.product_variants WHERE id = '${IDS005.variantB}'`);
+      assert.deepEqual(rows.map((row) => row.id), [IDS005.variantB]); assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO catalog.product_presentations(id,tenant_id,company_id,product_id,name,unit_id,contained_quantity,
+          variable_quantity,sales_enabled,purchasing_enabled,breakable,stock_mode,status,version,idempotency_key)
+        VALUES ('${IDS005.presentationC}','${IDS.tenantA}','${IDS.companyA}','018f0000-0000-7000-8000-000000009999',
+          'unidad','${IDS005.unitA}',1,false,true,true,false,'INDEPENDENT','ACTIVE',1,'create-presentation:orphan')`);
+    }), "presentation referencing a non-existent product accepted"); assertions += 1;
+
+    // Real INSERT capability for Presentation, exercised against a fresh id.
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO catalog.product_presentations(id,tenant_id,company_id,product_id,variant_id,name,internal_sku,unit_id,
+          contained_quantity,variable_quantity,sales_enabled,purchasing_enabled,breakable,stock_mode,status,version,idempotency_key)
+        VALUES ('${IDS005.presentationC}','${IDS.tenantA}','${IDS.companyA}','${IDS005.productA}','${IDS005.variantA}','bolsa','SKU-SMOKE-C','${IDS005.unitA}',
+          1,false,true,true,false,'INDEPENDENT','ACTIVE',1,'create-presentation:smoke')`);
+      assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO catalog.product_presentations(id,tenant_id,company_id,product_id,variant_id,name,internal_sku,unit_id,
+          contained_quantity,variable_quantity,sales_enabled,purchasing_enabled,breakable,stock_mode,status,version,idempotency_key)
+        VALUES ('${IDS005.presentationB}','${IDS.tenantA}','${IDS.companyA}','${IDS005.productA}','${IDS005.variantA}','unidad','SKU-SMOKE-A','${IDS005.unitA}',
+          1,false,true,true,false,'INDEPENDENT','ACTIVE',1,'create-presentation:smoke-dup')`);
+    }), "duplicate SKU within the same company accepted"); assertions += 1;
+
+    // Real INSERT capability for Identifier, resolving to the permanently-seeded presentationA.
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO catalog.product_identifiers(id,tenant_id,company_id,product_id,variant_id,presentation_id,identifier_type,
+          raw_value,normalized_value,status,version,idempotency_key)
+        VALUES ('${IDS005.identifierA}','${IDS.tenantA}','${IDS.companyA}','${IDS005.productA}','${IDS005.variantA}','${IDS005.presentationA}',
+          'EAN_13','7701234567890','7701234567890','ACTIVE',1,'assign-identifier:smoke')`);
+      assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_platform_admin", null, async (db) => {
+      await executeRaw(db, `UPDATE catalog.products SET name = 'mutated' WHERE id = '${IDS005.productA}'`);
+    }), "platform admin mutated catalog"); assertions += 1;
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      // id column carries the is_uuid_v7 CHECK — a nil UUID must be rejected.
+      await executeRaw(db, `
+        INSERT INTO catalog.products(id,tenant_id,company_id,internal_code,name,category_id,product_type,
+          stock_controlled,lot_controlled,expiration_controlled,serial_controlled,base_unit_id,variant_policy,
+          status,version)
+        VALUES ('00000000-0000-0000-0000-000000000000','${IDS.tenantA}','${IDS.companyA}','SKU-NIL','Nil UUID','${IDS005.categoryA}',
+          'STANDARD',true,false,false,false,'${IDS005.unitA}','NO_VARIANTS','ACTIVE',1)`);
+    }), "non-v7 id accepted on catalog.products"); assertions += 1;
+
+    return assertions;
+  } finally {
+    await removeFixtures005(admin).catch(() => undefined);
+    await admin.destroy();
+  }
+}
+
+const IDS006 = {
+  productA: "018f0000-0000-7000-8000-000000006001",
+  presentationA: "018f0000-0000-7000-8000-000000006002",
+  presentationB: "018f0000-0000-7000-8000-000000006009",
+  movementA: "018f0000-0000-7000-8000-000000006003",
+  movementB: "018f0000-0000-7000-8000-000000006010",
+  reservationA: "018f0000-0000-7000-8000-000000006004",
+  reservationB: "018f0000-0000-7000-8000-000000006011",
+  transferA: "018f0000-0000-7000-8000-000000006005",
+  transferLineA: "018f0000-0000-7000-8000-000000006006",
+  categoryA: "018f0000-0000-7000-8000-000000006007",
+  unitA: "018f0000-0000-7000-8000-000000006008",
+  sourceLocationA: "018f0000-0000-7000-8000-000000006012",
+  destinationLocationA: "018f0000-0000-7000-8000-000000006013",
+} as const;
+
+async function removeFixtures006(admin: SqlExecutor): Promise<void> {
+  await executeRaw(admin, `
+    DELETE FROM inventory.transfer_mutation_log;
+    DELETE FROM inventory.transfer_lines;
+    DELETE FROM inventory.transfers;
+    DELETE FROM inventory.reservation_mutation_log;
+    DELETE FROM inventory.reservations;
+    DELETE FROM inventory.movements;
+    DELETE FROM catalog.product_presentations WHERE id IN ('${IDS006.presentationA}','${IDS006.presentationB}');
+    DELETE FROM catalog.products WHERE id = '${IDS006.productA}';
+    DELETE FROM organization.branches WHERE id IN ('${IDS.branchA}','${IDS.branchB}');
+    DELETE FROM organization.companies WHERE id IN ('${IDS.companyA}','${IDS.companyB}');
+    DELETE FROM tenancy.tenants WHERE id IN ('${IDS.tenantA}','${IDS.tenantB}');
+    DELETE FROM identity.users WHERE id IN ('${IDS.userA}','${IDS.userB}');
+  `);
+}
+
+/**
+ * productA/presentationA are seeded permanently (as admin, outside any
+ * rolled-back transaction) so the child-table assertions below have a
+ * stable FK target across separate transactions — same
+ * `withRoleTransaction`-always-rolls-back gotcha 005's own smoke test
+ * documents.
+ */
+async function createFixtures006(admin: SqlExecutor): Promise<void> {
+  await executeRaw(admin, `
+    INSERT INTO identity.users(id,email,email_normalized,full_name,status,created_at,updated_at) VALUES
+      ('${IDS.userA}','006-a@example.test','006-a@example.test','006 A','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.userB}','006-b@example.test','006-b@example.test','006 B','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES
+      ('${IDS.tenantA}','006 Tenant A','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.tenantB}','006 Tenant B','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO organization.companies(id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at) VALUES
+      ('${IDS.companyA}','${IDS.tenantA}','006 Company A','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.companyB}','${IDS.tenantB}','006 Company B','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO organization.branches(id,tenant_id,company_id,name,timezone,status,created_at,updated_at) VALUES
+      ('${IDS.branchA}','${IDS.tenantA}','${IDS.companyA}','006 Branch A','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp()),
+      ('${IDS.branchB}','${IDS.tenantA}','${IDS.companyA}','006 Branch B','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp());
+    INSERT INTO catalog.products(
+      id,tenant_id,company_id,internal_code,name,category_id,product_type,stock_controlled,lot_controlled,
+      expiration_controlled,serial_controlled,base_unit_id,variant_policy,status,version
+    ) VALUES (
+      '${IDS006.productA}','${IDS.tenantA}','${IDS.companyA}','SKU-INV-SMOKE','Producto Inventory Smoke','${IDS006.categoryA}','STANDARD',
+      true,false,false,false,'${IDS006.unitA}','NO_VARIANTS','ACTIVE',1
+    );
+    INSERT INTO catalog.product_presentations(id,tenant_id,company_id,product_id,name,unit_id,
+      contained_quantity,variable_quantity,sales_enabled,purchasing_enabled,breakable,stock_mode,status,version,idempotency_key)
+    VALUES ('${IDS006.presentationA}','${IDS.tenantA}','${IDS.companyA}','${IDS006.productA}','unidad','${IDS006.unitA}',
+      1,false,true,true,false,'INDEPENDENT','ACTIVE',1,'create-presentation:inv-seed');
+  `);
+}
+
+export async function runPostgres006Smoke(adminUrl: string): Promise<number> {
+  const admin = postgresDatabase(adminUrl, 1);
+  let assertions = 0;
+  try {
+    await removeFixtures006(admin);
+    await createFixtures006(admin);
+
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO inventory.movements(id,tenant_id,company_id,branch_id,inventory_location_id,presentation_id,
+          movement_type,direction,quantity,reason_code,status,occurred_at,idempotency_key)
+        VALUES ('${IDS006.movementA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}','${IDS006.presentationA}',
+          'POSITIVE_ADJUSTMENT','IN',10,'PHYSICAL_COUNT_CORRECTION','POSTED',clock_timestamp(),'smoke-movement:1')`);
+      const rows = await queryRows<{ id: string }>(db, "SELECT id::text FROM inventory.movements");
+      assert.deepEqual(rows.map((row) => row.id), [IDS006.movementA]); assertions += 1;
+    });
+
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantB, async (db) => {
+      const rows = await queryRows<{ count: string }>(db, "SELECT count(*)::text AS count FROM inventory.movements");
+      assert.equal(rows[0]!.count, "0"); assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantB, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO inventory.movements(id,tenant_id,company_id,branch_id,inventory_location_id,presentation_id,
+          movement_type,direction,quantity,status,occurred_at,idempotency_key)
+        VALUES ('${IDS006.movementB}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}','${IDS006.presentationA}',
+          'POSITIVE_ADJUSTMENT','IN',5,'POSTED',clock_timestamp(),'smoke-movement:cross')`);
+    }), "cross-tenant movement insert accepted"); assertions += 1;
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO inventory.movements(id,tenant_id,company_id,branch_id,inventory_location_id,presentation_id,
+          movement_type,direction,quantity,status,occurred_at,idempotency_key)
+        VALUES ('${IDS006.movementB}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}','018f0000-0000-7000-8000-000000009999',
+          'POSITIVE_ADJUSTMENT','IN',5,'POSTED',clock_timestamp(),'smoke-movement:orphan')`);
+    }), "movement referencing a non-existent presentation accepted"); assertions += 1;
+
+    // Real INSERT capability for Reservation, resolving to the permanently-seeded presentationA.
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO inventory.reservations(id,tenant_id,company_id,branch_id,inventory_location_id,presentation_id,
+          reference_type,reference_id,quantity,consumed_quantity,released_quantity,status,version)
+        VALUES ('${IDS006.reservationA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}','${IDS006.presentationA}',
+          'SALE_SUSPENDED','018f0000-0000-7000-8000-000000006099',6,0,0,'ACTIVE',1)`);
+      const rows = await queryRows<{ id: string }>(db, `SELECT id::text FROM inventory.reservations WHERE id = '${IDS006.reservationA}'`);
+      assert.deepEqual(rows.map((row) => row.id), [IDS006.reservationA]); assertions += 1;
+    });
+
+    // Real INSERT capability for Transfer + line, using two branches of the same company.
+    await withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO inventory.transfers(id,tenant_id,company_id,source_branch_id,source_location_id,
+          destination_branch_id,destination_location_id,status,requested_by_actor_type,requested_by_actor_id,requested_at,version)
+        VALUES ('${IDS006.transferA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}',
+          '${IDS.branchB}','${IDS006.destinationLocationA}','REQUESTED','USER','${IDS.userA}',clock_timestamp(),1)`);
+      await executeRaw(db, `
+        INSERT INTO inventory.transfer_lines(id,tenant_id,company_id,transfer_id,presentation_id,requested_quantity,dispatched_quantity,received_quantity)
+        VALUES ('${IDS006.transferLineA}','${IDS.tenantA}','${IDS.companyA}','${IDS006.transferA}','${IDS006.presentationA}',5,0,0)`);
+      const rows = await queryRows<{ id: string }>(db, `SELECT id::text FROM inventory.transfers WHERE id = '${IDS006.transferA}'`);
+      assert.deepEqual(rows.map((row) => row.id), [IDS006.transferA]); assertions += 1;
+    });
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      await executeRaw(db, `
+        INSERT INTO inventory.transfers(id,tenant_id,company_id,source_branch_id,source_location_id,
+          destination_branch_id,destination_location_id,status,requested_by_actor_type,requested_by_actor_id,requested_at,version)
+        VALUES ('${IDS006.transferA}','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}',
+          '${IDS.branchA}','${IDS006.sourceLocationA}','REQUESTED','USER','${IDS.userA}',clock_timestamp(),1)`);
+    }), "transfer with equal source/destination location accepted"); assertions += 1;
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_platform_admin", null, async (db) => {
+      await executeRaw(db, `UPDATE inventory.reservations SET status = 'RELEASED' WHERE id = '${IDS006.reservationA}'`);
+    }), "platform admin mutated inventory"); assertions += 1;
+
+    await expectRejected(() => withRoleTransaction(adminUrl, "pos_app", IDS.tenantA, async (db) => {
+      // id column carries the is_uuid_v7 CHECK — a nil UUID must be rejected.
+      await executeRaw(db, `
+        INSERT INTO inventory.movements(id,tenant_id,company_id,branch_id,inventory_location_id,presentation_id,
+          movement_type,direction,quantity,status,occurred_at,idempotency_key)
+        VALUES ('00000000-0000-0000-0000-000000000000','${IDS.tenantA}','${IDS.companyA}','${IDS.branchA}','${IDS006.sourceLocationA}','${IDS006.presentationA}',
+          'POSITIVE_ADJUSTMENT','IN',5,'POSTED',clock_timestamp(),'smoke-movement:nil')`);
+    }), "non-v7 id accepted on inventory.movements"); assertions += 1;
+
+    return assertions;
+  } finally {
+    await removeFixtures006(admin).catch(() => undefined);
+    await admin.destroy();
+  }
+}

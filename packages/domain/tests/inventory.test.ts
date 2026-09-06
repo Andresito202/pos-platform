@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  InventoryAdjustmentRecorded,
+  InventoryAdjusted,
   InventoryDomainError,
   InventoryMovement,
   Quantity,
   TenantScope,
   calculateOnHandQuantity,
   roleMayAdjustInventory,
+  roleMayConsumeInventoryReservation,
+  roleMayRegisterWaste,
+  roleMayReleaseInventoryReservation,
+  roleMayReserveInventory,
+  roleMayTransferInventory,
   type Role,
 } from "../src/index.js";
 
@@ -118,18 +123,18 @@ describe("calculateOnHandQuantity", () => {
   });
 });
 
-describe("InventoryAdjustmentRecorded.from", () => {
+describe("InventoryAdjusted.from", () => {
   it("builds the event from a POSITIVE_ADJUSTMENT movement", () => {
     const movement = InventoryMovement.positiveAdjustment(baseInput());
-    const event = InventoryAdjustmentRecorded.from(movement);
-    expect(event.type).toBe("InventoryAdjustmentRecorded");
+    const event = InventoryAdjusted.from(movement);
+    expect(event.type).toBe("InventoryAdjusted");
     expect(event.movementId).toBe(movement.id);
     expect(event.movementType).toBe("POSITIVE_ADJUSTMENT");
   });
 
   it("rejects a non-adjustment movement", () => {
     const waste = InventoryMovement.register({ ...baseInput(), movementType: "WASTE", direction: "OUT" });
-    expect(() => InventoryAdjustmentRecorded.from(waste)).toThrow(TypeError);
+    expect(() => InventoryAdjusted.from(waste)).toThrow(TypeError);
   });
 });
 
@@ -143,5 +148,47 @@ describe("roleMayAdjustInventory", () => {
 
   it.each(denied)("fails closed for %s (Condicional, Autorizar, or No — no policy resolves the condition)", (role) => {
     expect(roleMayAdjustInventory(role)).toBe(false);
+  });
+});
+
+describe("roleMayRegisterWaste — a DIFFERENT permission-matrix row from Ajuste (B31)", () => {
+  const allowed: Role[] = ["OWNER", "GENERAL_ADMIN", "BRANCH_MANAGER", "SUPERVISOR", "INVENTORY_OPERATOR"];
+  const denied: Role[] = ["CASHIER", "CUSTOMER"];
+
+  it.each(allowed)("allows %s (unconditional 'Sí' for Merma)", (role) => {
+    expect(roleMayRegisterWaste(role)).toBe(true);
+  });
+
+  it.each(denied)("fails closed for %s", (role) => {
+    expect(roleMayRegisterWaste(role)).toBe(false);
+  });
+});
+
+describe("roleMayTransferInventory — a DIFFERENT permission-matrix row from both Ajuste and Merma (B31)", () => {
+  const allowed: Role[] = ["OWNER", "GENERAL_ADMIN", "INVENTORY_OPERATOR"];
+  const denied: Role[] = ["BRANCH_MANAGER", "SUPERVISOR", "CASHIER", "CUSTOMER"];
+
+  it.each(allowed)("allows %s (unconditional 'Sí' for Traslado — INVENTORY_OPERATOR unlike Ajuste's 'Condicional')", (role) => {
+    expect(roleMayTransferInventory(role)).toBe(true);
+  });
+
+  it.each(denied)("fails closed for %s", (role) => {
+    expect(roleMayTransferInventory(role)).toBe(false);
+  });
+});
+
+describe("Reserve/Consume/Release authorization — B31 ARCHITECTURAL DECISION: no permission-matrix row, fails closed for every role", () => {
+  const everyRole: Role[] = ["OWNER", "GENERAL_ADMIN", "BRANCH_MANAGER", "SUPERVISOR", "INVENTORY_OPERATOR", "CASHIER", "CUSTOMER"];
+
+  it.each(everyRole)("roleMayReserveInventory fails closed for %s", (role) => {
+    expect(roleMayReserveInventory(role)).toBe(false);
+  });
+
+  it.each(everyRole)("roleMayConsumeInventoryReservation fails closed for %s", (role) => {
+    expect(roleMayConsumeInventoryReservation(role)).toBe(false);
+  });
+
+  it.each(everyRole)("roleMayReleaseInventoryReservation fails closed for %s", (role) => {
+    expect(roleMayReleaseInventoryReservation(role)).toBe(false);
   });
 });

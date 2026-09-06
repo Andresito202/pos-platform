@@ -5,6 +5,12 @@ import {
   CASH_004_RLS_TABLES,
   CASH_004_TABLE_COLUMNS,
   CASH_TABLES,
+  CATALOG_005_RLS_TABLES,
+  CATALOG_005_TABLE_COLUMNS,
+  CATALOG_TABLES,
+  INVENTORY_006_RLS_TABLES,
+  INVENTORY_006_TABLE_COLUMNS,
+  INVENTORY_TABLES,
   INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
   PROHIBITED_TABLE_NAMES,
@@ -645,4 +651,224 @@ export async function validatePostgres004Catalog(db: SqlExecutor): Promise<void>
     WHERE n.nspname='cash' AND r.rolname='pos_platform_admin' AND a.privilege_type<>'SELECT'
   `);
   assertInvariant(Number(adminMutation[0]!.count) === 0, "platform admin can mutate cash");
+}
+
+function catalogTableColumnsFromSql(source: string): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const match of source.matchAll(/CREATE TABLE catalog\.([a-z][a-z0-9_]*) \(([\s\S]*?)\n\);/g)) {
+    const columns = match[2]!
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("CONSTRAINT"))
+      .map((line) => line.match(/^([a-z][a-z0-9_]*)\s/)?.[1])
+      .filter((name): name is string => name !== undefined);
+    result.set(match[1]!, columns);
+  }
+  return result;
+}
+
+export async function catalogSchemaState(db: SqlExecutor): Promise<"pre-005" | "target-005" | "partial"> {
+  const schemas = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='catalog'");
+  if (Number(schemas[0]!.count) === 0) return "pre-005";
+  try {
+    await validatePostgres005Catalog(db);
+    return "target-005";
+  } catch {
+    return "partial";
+  }
+}
+
+/**
+ * Bloque 29: same lighter posture as validatePostgres004Catalog — checks
+ * the invariants that matter for Catalog's own contract (table/column/RLS/
+ * constraint/index/policy identity, no dangerous runtime grants, admin
+ * stays read-only) rather than 002's full grant cross-product. No D1-style
+ * sentinel/nullability check: Catalog has no analogous closed decision
+ * requiring one.
+ */
+export async function validatePostgres005Catalog(db: SqlExecutor): Promise<void> {
+  await validatePostgresCatalog(db);
+  const bodySql = await readArtifact("postgres/005_catalog_foundation.up.sql");
+  const expectedColumns = catalogTableColumnsFromSql(bodySql);
+  assertInvariant(sameValues([...expectedColumns.keys()].sort(), [...CATALOG_TABLES].sort()), "005 artifact table set diverges");
+
+  const schema = await queryRows<{ owner_name: string; public_create: boolean }>(db, `
+    SELECT pg_get_userbyid(n.nspowner) AS owner_name,
+           EXISTS (SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create
+    FROM pg_namespace n WHERE n.nspname='catalog'
+  `);
+  assertInvariant(schema[0]?.owner_name === "pos_schema_owner" && !schema[0].public_create, "catalog schema ownership/grants diverge");
+
+  const tables = await queryRows<{ name: string; owner_name: string; rls: boolean; forced: boolean }>(db, `
+    SELECT c.relname AS name, pg_get_userbyid(c.relowner) AS owner_name,
+           c.relrowsecurity AS rls, c.relforcerowsecurity AS forced
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='catalog' AND c.relkind='r' ORDER BY c.relname
+  `);
+  assertInvariant(sameValues(tables.map((row) => row.name), [...CATALOG_TABLES].sort()), "catalog table set diverges");
+  for (const table of tables) {
+    assertInvariant(table.owner_name === "pos_schema_owner", `${table.name} owner diverges`);
+    const protectedTable = CATALOG_005_RLS_TABLES.includes(table.name);
+    assertInvariant(table.rls === protectedTable && table.forced === protectedTable, `${table.name} RLS diverges`);
+  }
+
+  const columns = await queryRows<ColumnRow>(db, `
+    SELECT n.nspname schema_name,c.relname table_name,a.attname column_name,a.attnum ordinal_position
+    FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r' AND n.nspname='catalog'
+    ORDER BY c.relname,a.attnum
+  `);
+  for (const [table, expected] of expectedColumns) {
+    const actual = columns.filter((row) => row.table_name === table).map((row) => row.column_name);
+    assertInvariant(sameValues(actual, expected), `catalog.${table} columns diverge`);
+  }
+
+  const constraints = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='catalog' ORDER BY 1
+  `);
+  const expectedConstraints = [
+    ...capturedNames(bodySql, /CONSTRAINT\s+([a-z][a-z0-9_]*)/gi),
+    ...CATALOG_TABLES.map((table) => `${table}_pkey`),
+  ].sort();
+  assertInvariant(sameValues(constraints.map((row) => row.name), expectedConstraints), "005 constraint set diverges");
+
+  const indexes = await queryRows<NameRow>(db, "SELECT indexname AS name FROM pg_indexes WHERE schemaname='catalog' ORDER BY 1");
+  const constraintIndexes = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace
+    WHERE n.nspname='catalog' AND x.contype IN ('p','u','x') ORDER BY 1
+  `);
+  const expectedIndexes = [
+    ...capturedNames(bodySql, /CREATE\s+(?:UNIQUE\s+)?INDEX\s+([a-z][a-z0-9_]*)/gi),
+    ...constraintIndexes.map((row) => row.name),
+  ].sort();
+  assertInvariant(sameValues(indexes.map((row) => row.name), expectedIndexes), "005 index set diverges");
+
+  const policies = await queryRows<NameRow>(db, "SELECT policyname AS name FROM pg_policies WHERE schemaname='catalog' ORDER BY 1");
+  assertInvariant(sameValues(policies.map((row) => row.name), capturedNames(bodySql, /CREATE\s+POLICY\s+([a-z][a-z0-9_]*)/gi)), "005 policy set diverges");
+
+  const dangerous = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='catalog' AND r.rolname IN ('pos_app','pos_worker','pos_platform_admin')
+      AND a.privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')
+  `);
+  assertInvariant(Number(dangerous[0]!.count) === 0, "runtime has dangerous catalog table grants");
+  const adminMutation = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='catalog' AND r.rolname='pos_platform_admin' AND a.privilege_type<>'SELECT'
+  `);
+  assertInvariant(Number(adminMutation[0]!.count) === 0, "platform admin can mutate catalog");
+}
+
+function inventoryTableColumnsFromSql(source: string): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const match of source.matchAll(/CREATE TABLE inventory\.([a-z][a-z0-9_]*) \(([\s\S]*?)\n\);/g)) {
+    const columns = match[2]!
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("CONSTRAINT"))
+      .map((line) => line.match(/^([a-z][a-z0-9_]*)\s/)?.[1])
+      .filter((name): name is string => name !== undefined);
+    result.set(match[1]!, columns);
+  }
+  return result;
+}
+
+export async function inventorySchemaState(db: SqlExecutor): Promise<"pre-006" | "target-006" | "partial"> {
+  const schemas = await queryRows<CountRow>(db, "SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='inventory'");
+  if (Number(schemas[0]!.count) === 0) return "pre-006";
+  try {
+    await validatePostgres006Inventory(db);
+    return "target-006";
+  } catch {
+    return "partial";
+  }
+}
+
+/**
+ * Bloque 33: same posture as validatePostgres005Catalog. `movements`/
+ * `reservations`/`transfer_lines` each carry a real FK to
+ * `catalog.product_presentations` — verified indirectly by the
+ * constraint-name-set check below (`_presentation_fk` names) rather
+ * than a bespoke cross-schema query, same level of rigor 005 itself
+ * uses for its own FKs.
+ */
+export async function validatePostgres006Inventory(db: SqlExecutor): Promise<void> {
+  await validatePostgresCatalog(db);
+  const bodySql = await readArtifact("postgres/006_inventory_foundation.up.sql");
+  const expectedColumns = inventoryTableColumnsFromSql(bodySql);
+  assertInvariant(sameValues([...expectedColumns.keys()].sort(), [...INVENTORY_TABLES].sort()), "006 artifact table set diverges");
+
+  const schema = await queryRows<{ owner_name: string; public_create: boolean }>(db, `
+    SELECT pg_get_userbyid(n.nspowner) AS owner_name,
+           EXISTS (SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create
+    FROM pg_namespace n WHERE n.nspname='inventory'
+  `);
+  assertInvariant(schema[0]?.owner_name === "pos_schema_owner" && !schema[0].public_create, "inventory schema ownership/grants diverge");
+
+  const tables = await queryRows<{ name: string; owner_name: string; rls: boolean; forced: boolean }>(db, `
+    SELECT c.relname AS name, pg_get_userbyid(c.relowner) AS owner_name,
+           c.relrowsecurity AS rls, c.relforcerowsecurity AS forced
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='inventory' AND c.relkind='r' ORDER BY c.relname
+  `);
+  assertInvariant(sameValues(tables.map((row) => row.name), [...INVENTORY_TABLES].sort()), "inventory table set diverges");
+  for (const table of tables) {
+    assertInvariant(table.owner_name === "pos_schema_owner", `${table.name} owner diverges`);
+    const protectedTable = INVENTORY_006_RLS_TABLES.includes(table.name);
+    assertInvariant(table.rls === protectedTable && table.forced === protectedTable, `${table.name} RLS diverges`);
+  }
+
+  const columns = await queryRows<ColumnRow>(db, `
+    SELECT n.nspname schema_name,c.relname table_name,a.attname column_name,a.attnum ordinal_position
+    FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE a.attnum>0 AND NOT a.attisdropped AND c.relkind='r' AND n.nspname='inventory'
+    ORDER BY c.relname,a.attnum
+  `);
+  for (const [table, expected] of expectedColumns) {
+    const actual = columns.filter((row) => row.table_name === table).map((row) => row.column_name);
+    assertInvariant(sameValues(actual, expected), `inventory.${table} columns diverge`);
+  }
+
+  const constraints = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace WHERE n.nspname='inventory' ORDER BY 1
+  `);
+  const expectedConstraints = [
+    ...capturedNames(bodySql, /CONSTRAINT\s+([a-z][a-z0-9_]*)/gi),
+    ...INVENTORY_TABLES.map((table) => `${table}_pkey`),
+  ].sort();
+  assertInvariant(sameValues(constraints.map((row) => row.name), expectedConstraints), "006 constraint set diverges");
+
+  const indexes = await queryRows<NameRow>(db, "SELECT indexname AS name FROM pg_indexes WHERE schemaname='inventory' ORDER BY 1");
+  const constraintIndexes = await queryRows<NameRow>(db, `
+    SELECT x.conname AS name FROM pg_constraint x
+    JOIN pg_namespace n ON n.oid=x.connamespace
+    WHERE n.nspname='inventory' AND x.contype IN ('p','u','x') ORDER BY 1
+  `);
+  const expectedIndexes = [
+    ...capturedNames(bodySql, /CREATE\s+(?:UNIQUE\s+)?INDEX\s+([a-z][a-z0-9_]*)/gi),
+    ...constraintIndexes.map((row) => row.name),
+  ].sort();
+  assertInvariant(sameValues(indexes.map((row) => row.name), expectedIndexes), "006 index set diverges");
+
+  const policies = await queryRows<NameRow>(db, "SELECT policyname AS name FROM pg_policies WHERE schemaname='inventory' ORDER BY 1");
+  assertInvariant(sameValues(policies.map((row) => row.name), capturedNames(bodySql, /CREATE\s+POLICY\s+([a-z][a-z0-9_]*)/gi)), "006 policy set diverges");
+
+  const dangerous = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='inventory' AND r.rolname IN ('pos_app','pos_worker','pos_platform_admin')
+      AND a.privilege_type IN ('DELETE','TRUNCATE','REFERENCES','TRIGGER')
+  `);
+  assertInvariant(Number(dangerous[0]!.count) === 0, "runtime has dangerous inventory table grants");
+  const adminMutationInventory = await queryRows<CountRow>(db, `
+    SELECT count(*)::text AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a JOIN pg_roles r ON r.oid=a.grantee
+    WHERE n.nspname='inventory' AND r.rolname='pos_platform_admin' AND a.privilege_type<>'SELECT'
+  `);
+  assertInvariant(Number(adminMutationInventory[0]!.count) === 0, "platform admin can mutate inventory");
 }

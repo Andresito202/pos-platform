@@ -349,3 +349,746 @@ La cadena efectiva al cierre queda explícita:
 `Tooling materializado` no equivale a `ejecución canónica`: ambos estados están registrados de forma separada. El tooling está `MATERIALIZED / REVIEWED`; canonical-role readiness está `APPLIED / REVIEWED`; y el preflight sobre `local-canonical-integration` está `EXECUTED / PASS / REVIEWED`. La ejecución y su revisión observaron los cinco blockers y el trust invariant en `PASS/count=0`, sin evidencia diagnóstica ni mutaciones durables. Esto no completa integración fiscal, no implementa ni verifica SIIGO/FACTUS/ALEGRA, no crea SQL 003 y no promueve `SEC-G01..SEC-G10`.
 
 La revisión conserva como LOW conocido/no bloqueante que el orden de evidencia diagnóstica del preflight no incluye `related_id` como último desempate. No afectó esta ejecución de alcance vacío ni altera el conteo, la clasificación o el comportamiento fail-closed. Los findings del preflight revisado son `CRITICAL=0`, `HIGH=0`, `MEDIUM=0`, `LOW=1 KNOWN / NON_BLOCKING`; la aplicación/revisión operacional de canonical-role readiness cerró por separado con findings en cero.
+
+## Delta B25 — Catalog Readiness / Design Gate
+
+`CATALOG-B25-READINESS = PASS_WITH_DEFERRED_DECISIONS`. Bloque de auditoría pura (read-only), sin código, DDL, migration ni adapter — HEAD no cambia (`503aeb1`). Objetivo: determinar si Catalog está listo para pasar a un bloque formal de diseño/decisiones antes de tocar persistencia.
+
+Hallazgos verificados directamente contra el repositorio:
+
+- `catalog-schema.md` (`TECH-002D`) permanece `IN_REVIEW`, no `APPROVED_FOR_MIGRATION_DESIGN`: dos condiciones propias siguen `pendiente` en su propio gate — constraints de equivalencia/ciclos bajo PostgreSQL y SQLite (R3 validó patrones comunes, no el grafo completo) y auditoría columna por columna contra `UC-CAT-001..006`. `module-boundaries.json` no registra ningún proyecto `catalog`/`database-catalog`; no existe scaffolding de adapter ni migration para Catalog en `tools/target-migrations`.
+- `DEC-004` (Product/ProductVariant/ProductPresentation) está `DONE` y responde sin ambigüedad las preguntas de cardinalidad, SKU, identificadores, stock y pricing — pero `packages/domain` solo materializa `Product` (`catalog/product.ts`): `ProductVariant` y `ProductPresentation` son `DOCUMENTED / MISSING IMPLEMENTATION`, no exportados en `domain/src/index.ts`.
+- Dependencia objetiva confirmada, ya autodocumentada en el propio código (no descubierta ni resuelta aquí): `InventoryMovement.presentationId` (`domain/src/inventory/inventory-movement.ts:30,46-55`) es un `string` sin validar porque "this repository has no ProductPresentation aggregate" — Inventory ya depende físicamente de una entidad de Catalog que todavía no existe como agregado de dominio. No se modificó Cash ni Inventory para esta auditoría.
+- `Product` no tiene `version` ni ciclo de desactivación (`status` fijo en `'ACTIVE'`); `ProductRepository`/`CatalogAuthorizationPort` no tienen implementación SQLite ni PostgreSQL (comentario propio: "No SQLite/PostgreSQL adapter implements this... DDL gate is NO-GO").
+
+`DDL: NOT READY`. `MIGRATION: NOT READY`. No se registra ningún blocker crítico nuevo: las brechas encontradas ya estaban documentadas por el propio código/docs, no son contradicciones nuevas. El siguiente bloque correcto es un diseño formal de persistencia física para `ProductVariant`/`ProductPresentation` (extensión de `catalog-schema.md` hacia `APPROVED_FOR_MIGRATION_DESIGN`) antes de cualquier DDL/migration/adapter — Inventory no puede materializar su propio DDL antes de eso sin fabricar la dependencia.
+
+## Delta B26 — Catalog Model Closure / Human Decisions Gate
+
+`CATALOG-B26-CLOSURE = PASS_WITH_DEFERRED_DECISIONS`. Continuación de B25, también read-only — HEAD no cambia (`503aeb1`), sin código, DDL, migration, adapter ni cambios en Cash/Inventory. Objetivo: cerrar el modelo lógico de Catalog columna por columna y clasificar cada punto abierto como `CLOSED`/`HUMAN DECISION REQUIRED`/`ARCHITECTURAL DECISION`/`IMPLEMENTATION GAP`/`CONTRADICTION`.
+
+Hallazgos nuevos respecto a B25, verificados directamente:
+
+- `permission-matrix.md` §"Productos y precios" solo define `Crear/Editar/Desactivar producto`. UC-CAT-003/004/005 declaran permisos propios (`catalog.identifier.manage`, `catalog.variant.create`, `catalog.presentation.create`) y UC-CAT-006 usa `inventory.presentation.convert` — ninguno tiene fila en la matriz. Autorización de Variant/Presentation/Identifier/Conversion: `HUMAN DECISION REQUIRED`, no se puede copiar `roleMayCreateProduct`.
+- `version` como optimistic-concurrency: semántica exacta ya resuelta por precedente arquitectónico real (`CashShift`: crea en `1`, incrementa en cada mutación aceptada, `expectedVersion` guard) y confirmada compatible con UC-CAT-002 ("verifica versión actual... incrementa la versión") — `ARCHITECTURAL DECISION`, no requiere decisión humana nueva.
+- `variant_policy`: valores y semántica conceptual cerrados en `DEC-004`, pero su mutabilidad post-creación (¿puede cambiar de `REQUIRED_VARIANTS` a `NO_VARIANTS` con Variants ya creadas?, ¿quién autoriza?) no está definida en ningún documento — solo aparece listada bajo "Cambios de alto impacto" de UC-CAT-002 sin regla. `HUMAN DECISION REQUIRED`.
+- Clave canónica de Variant: "normalizar los atributos" nunca se especifica operacionalmente (mayúsculas/Unicode/espacios/orden ya cubierto conceptualmente, pero el algoritmo determinista no existe en ningún documento). `HUMAN DECISION REQUIRED`.
+- `default_sales/purchase/inventory_presentation_id`: exigidas conceptualmente por `DEC-004` ("debe existir como relación explícita") pero **ausentes de la tabla física real** `catalog.product_presentations` en `catalog-schema.md` — gap documento-a-documento, no solo código-a-documento. `IMPLEMENTATION GAP` a nivel de físico, más una `HUMAN DECISION REQUIRED` sobre quién las establece.
+- `Product.stock_controlled` (booleano, todo-o-nada) vs `Presentation.stock_mode` (`INDEPENDENT/CONVERTED_TO_BASE/DERIVED/NON_STOCK`, por presentación): ninguna fuente define su interacción (p. ej. si `stock_controlled=false` debe forzar `NON_STOCK` en todas las presentaciones). No es contradicción (nada incompatible se afirma), es infraespecificación. `HUMAN DECISION REQUIRED`.
+- `business_attributes`: confirmado sin contrato publicado en ningún documento — `catalog-schema.md` ya resuelve el caso por defecto ("mientras no exista contrato publicado solo admite el objeto vacío"). `DEFERRED`, no bloqueante.
+
+`DDL: NO-GO`. `MIGRATIONS: NO-GO`. `ADAPTERS: NO-GO`. `INVENTORY: NO-TOUCH`. Cero `BLOCKER`/`MAJOR` nuevos — todas las brechas son `HUMAN DECISION REQUIRED`/`IMPLEMENTATION GAP` ya delimitadas, no contradicciones activas entre fuentes autoritativas. El siguiente bloque recomendado es **B27 — Catalog Domain/Application Design**, condicionado a que el owner resuelva primero el registro de decisiones humanas de este delta (autorización de Variant/Presentation/Identifier/Conversion, mutabilidad de `variant_policy`, algoritmo de normalización de clave canónica, ownership de default presentations, relación `stock_controlled`↔`stock_mode`).
+
+## Delta B27 — Catalog Domain/Application Design
+
+`CATALOG-B27-DESIGN = PASS_WITH_DEFERRED_DECISIONS`. Materializa Domain +
+Application para Catalog sin persistencia — cero DDL, migration, adapter,
+o cambio en Inventory/Cash/Tax. Respeta la clasificación de B26: cada
+decisión ya cerrada se implementó; ninguna `HUMAN DECISION REQUIRED` se
+resolvió por inferencia — cada una quedó aislada detrás de un puerto
+reemplazable o simplemente sin operación que la ejercite todavía.
+
+Materializado en `packages/domain/src/catalog/` (Product extendido con
+`version`/`status`/`variantPolicy`/`update()`/`deactivate()`;
+`ProductVariant`, `VariantAttributes`, `ProductPresentation`,
+`ProductIdentifier`, `UnitConversion`, `ConversionFactor` nuevos) y
+`packages/application/src/` (`UpdateProductUseCase`,
+`DeactivateProductUseCase`, `CreateVariantUseCase`,
+`CreatePresentationUseCase`, `AssignIdentifierUseCase`,
+`DefineConversionUseCase`, con sus repository ports y dos policy ports —
+`VariantCanonicalKeyPolicy`/`IdentifierNormalizationPolicy` — sin
+implementación real, mismo tratamiento que `CatalogAuthorizationPort` no
+tiene actor real todavía). Los códigos de error cross-entity reutilizan
+textualmente el registro de DEC-004 (`CATALOG_VARIANT_NOT_ALLOWED`,
+`CATALOG_VARIANT_PRODUCT_MISMATCH`, `CATALOG_SKU_DUPLICATE`, etc.) en vez
+de inventar nombres paralelos.
+
+Decisiones B26 tratadas explícitamente: HD-05 (mutabilidad de
+`variant_policy`) — no se ofrece ningún mutator, el campo se fija solo en
+creación. HD-06 (clave canónica) — aislada detrás de
+`VariantCanonicalKeyPolicy`, sin implementación de producción; los tests
+usan un fake declarado como tal. HD-07 (default presentations) — NO
+implementadas, ni siquiera como columna; permanecen fuera del agregado.
+HD-08 (`stock_controlled`↔`stock_mode`) — no se fuerza ninguna relación
+entre ambos; `ProductPresentation.inventoryEnabled` se deriva solo de
+`stockMode`, nunca de `Product.stockControlled`. HD-09 (política de
+borrador) — `Product.create()` sigue produciendo siempre `ACTIVE`; `DRAFT`
+existe en el tipo por fidelidad de schema pero ningún código lo produce.
+HD-01/02/03 (autorización de Variant/Presentation/Identifier) — los
+métodos `roleMayCreateVariant`/`roleMayCreatePresentation`/
+`roleMayAssignIdentifier` fallan cerrado incondicionalmente para los 6
+roles existentes, verificado explícitamente en tests.
+
+Hallazgos nuevos de B27, registrados sin resolver por intuición:
+
+- La ejecución de UC-CAT-006 (`inventory.presentation.convert`) es
+  enteramente de Inventory — UC-CAT-006 nunca describe una definición de
+  conversión propia de Catalog; catalog-schema.md sí la describe (bundleada
+  con `UC-CAT-005`). B27 la modela como `DefineConversionUseCase`,
+  operación separada y propia autorización (`canDefineConversion`, que
+  falla cerrado igual que HD-01..03) — no bundleada dentro de
+  `CreatePresentationUseCase`, porque el pipeline de 10 pasos que B27 fija
+  para esa clase nunca incluye ese paso.
+- Normalización de identificadores (UC-CAT-003: "el sistema normaliza el
+  valor según el tipo", sin algoritmo por tipo) es la misma clase de vacío
+  que HD-06 — aislada detrás de `IdentifierNormalizationPolicy`, sin
+  implementación real.
+- `CONTRADICTION` (MINOR): `catalog.product_identifiers.presentation_id`
+  (catalog-schema.md) no lleva anotación `NULL` — es obligatorio — mientras
+  `DEC-004` permite conceptualmente identificadores informativos en Product/
+  Variant sin resolver a Presentation. B27 sigue catalog-schema.md (y la
+  instrucción explícita del propio bloque: "Identifier -> Presentation, NOT
+  Identifier -> Product"), sin alterar ninguno de los dos documentos.
+- `MINOR`: `ProductVariant` conceptual de `DEC-004` incluye
+  `internal_reference`/`display_name`; la tabla física real de
+  catalog-schema.md los omite. B27 modela solo lo que catalog-schema.md
+  cierra (`canonical_attributes`/`attributes_checksum`), sin inventar los
+  dos campos ausentes.
+- `IMPLEMENTATION GAP` (no bloqueante para B28): campos de presentación por
+  peso (`minimum/maximum/tare_quantity`, `scale_format`), `valid_from`/
+  `valid_until` de Identifier, y detección de ciclos/solapamiento de
+  `UnitConversion` (invariante de grafo, requiere adapter real para
+  probarse) — ninguno modelado en B27, ninguno inventado.
+
+`DDL: NO-GO`. `MIGRATIONS: NO-GO`. `ADAPTERS: NO-GO`. `INVENTORY:
+NO-TOUCH`. `CASH: NO-TOUCH`. `TAX: NO-TOUCH`. Regresión completa limpia:
+Domain 189/189 (104 previos + 85 nuevos), Application 177/177 (102
+previos + 75 nuevos), database-sqlite 35/35, database-postgres 13/13,
+target-migrations 249/249 (los tres últimos sin cambios, confirmando cero
+impacto fuera de Catalog), `pnpm -w typecheck` limpio en 8 proyectos,
+`architecture-check` PASS sin caché — sin imports Domain/Application →
+infraestructura verificados explícitamente. El siguiente bloque
+recomendado es **B28 — Catalog Physical Model** (traducción lógica →
+física, todavía sin DDL), condicionado a que las HD registradas en B26
+(ahora confirmadas, no cerradas por B27) sigan bloqueando cualquier
+columna/invariante física que dependa de ellas.
+
+## Delta B28-PAYNOTIF — Payment Confirmation + POS Notification Contract
+
+`PAYMENT-B28-PAYNOTIF = PASS_WITH_DEFERRED_DECISIONS`. Bloque de
+construcción controlada, Domain + Application únicamente — cero DDL,
+migration, adapter, o cambio en Inventory/Cash/Tax/Catalog. Objetivo:
+dejar preparado (no implementado) el flujo QR/Llave → confirmación
+externa autoritativa → `PaymentConfirmed` → notificación visual/sonora
+del POS, provider-agnostic, sin inventar Bre-B/Nequi/Daviplata/Dale!.
+
+Auditoría previa (Fase 1) encontró una precisión importante, registrada
+antes de implementar: `UC-PAY-001 §2` (Transferencia o QR estático) enruta
+la confirmación de `STATIC_QR` por el flujo MANUAL de `UC-PAY-003`
+(cajero/administrador con `payments.transfer.confirm`), no por una fuente
+externa automatizada — solo `UC-PAY-001 §3` (Tarjeta o proveedor externo)
+describe confirmación automática vía webhook/callback autenticado. El
+flujo pedido por este bloque ("fuente externa confiable confirma") es
+genéricamente el patrón §3, no una extensión de §2. B28-PAYNOTIF NO
+modifica ni contradice UC-PAY-001/UC-PAY-003: construye la confirmación
+automatizada de forma agnóstica al `payment_method` exacto, dejando
+explícito que la asignación de un futuro proveedor Bre-B a `DYNAMIC_QR`/
+`DIGITAL_WALLET` (las categorías ya cerradas más cercanas) es una decisión
+humana pendiente, no resuelta aquí — 0 CONFLICTS BLOCKER/MAJOR.
+
+Materializado en `packages/domain/src/payment/` (`Payment`, `PaymentAttempt`
+— campos y `PaymentAttemptStatus`/`PaymentStatus` transcritos del
+`PAY-007`/`payments-schema.md` reales, narrowed a lo que este flujo
+alcanza; `MerchantCollectionIdentifier` para QR_STATIC/KEY, explícitamente
+nunca prueba de pago; eventos `PaymentInitiated`/`PaymentConfirmed`, ya
+catalogados en `event-catalog.md`, reutilizados verbatim;
+`PaymentConfirmedNotificationRequested`, nombre nuevo permitido
+explícitamente por el bloque, derivado de `PaymentConfirmed` sin mezclar
+máquinas de estado — `Payment.status` nunca depende de si la notificación
+se generó, entregó o deduplicó) y `packages/application/src/`
+(`InitiatePaymentUseCase`, `ConfirmPaymentUseCase`, con
+`PaymentConfirmationAuthenticityPort`/`PosNotificationPort` sin
+implementación real — mismo tratamiento que los ports de Catalog sin
+política de producción).
+
+Orden del pipeline de `ConfirmPaymentUseCase` no es inventado: transcribe
+literalmente la frase de `payments-schema.md` — "verifican autenticidad,
+replay, provider reference, amount, currency, tenant/configuración y
+transición antes de producir el estado autoritativo."
+
+Deduplicación de notificación (Fase 2-F) resuelta como mecanismo
+DISTINTO de la idempotencia del pago: `notificationId` determinístico
+(`payment-confirmed:<paymentId>`), verificado con una prueba dedicada que
+entrega la MISMA notificación 5 veces de forma concurrente y confirma
+exactamente 1 `DELIVERED` + 4 `ALREADY_DELIVERED`, sin pasar por una
+segunda confirmación de pago.
+
+Realtime (Fase 2-G): el canal IPC local (`apps/pos-local-service/src/
+channel/*`) fue auditado, no tocado — confirmado que es request/response
+mismo-proceso (`runtime.handshake`, `operation.confirm`,
+`operation.result.get`, sin tipo de mensaje server-initiated) y por tanto
+no resuelve por sí solo la llegada de un evento remoto. `PosNotificationPort`
+queda como abstracción de transporte, sin adapter.
+
+`DDL: NO-GO`. `MIGRATIONS: NO-GO`. `ADAPTERS: NO-GO`. `INVENTORY/CASH/TAX/
+CATALOG: NO-TOUCH`. `BRE-B: NOT IMPLEMENTED — REQUIRES REAL PROVIDER
+DOCUMENTATION`. Regresión completa limpia: Domain 218/218 (189 previos +
+29 nuevos), Application 203/203 (177 previos + 26 nuevos), database-sqlite
+35/35, database-postgres 13/13, target-migrations 249/249, pos-local-service
+45/45+2 skipped (los últimos cuatro sin cambios, cero impacto fuera de
+Payment), `pnpm -w typecheck` limpio en 8 proyectos, `architecture-check`
+PASS sin caché, sin imports Domain/Application → infraestructura ni
+referencias a proveedores concretos (verificado por grep). El siguiente
+bloque correcto para continuar ESTE hilo es un futuro diseño del webhook
+receiver/adapter real (fuera de alcance mientras `SEC-G04/05` y el
+esquema de firma sigan sin evaluar) — Catalog's own **B28 — Physical
+Model** (arriba) permanece un hilo independiente, sin relación con este
+delta.
+
+## Delta B29 — Catalog Persistence (SQLite + PostgreSQL)
+
+`CATALOG-B29-PERSISTENCE = PASS_WITH_DEFERRED_DECISIONS`. Cierra la
+persistencia del modelo Domain/Application aprobado por B26/B27 sobre
+ambos motores — SQLite (MIGRATION_009) y PostgreSQL
+(`005_catalog_foundation`) — con evidencia real de ejecución, no por
+inspección. Ninguna decisión `HUMAN DECISION REQUIRED` de B26 se resolvió;
+el modelo lógico no se modificó para facilitar persistencia; Cash/
+Inventory/Sales/Tax/Payments no se tocaron salvo dos correcciones a
+guardrails compartidos, documentadas abajo.
+
+**SQLite** (`packages/database-sqlite/`): `MIGRATION_009` agrega 6 tablas
+(`catalog_products`, `catalog_product_mutation_log`,
+`catalog_product_variants`, `catalog_product_presentations`,
+`catalog_product_identifiers`, `catalog_unit_conversions`), campo por
+campo idéntico a los agregados reales de B27 (no al superset aspiracional
+de `catalog-schema.md`). Repositorios nuevos: `SqliteProductRepository`,
+`SqliteProductVariantRepository`, `SqliteProductPresentationRepository`,
+`SqliteProductIdentifierRepository`, `SqliteUnitConversionRepository`,
+usando `better-sqlite3` crudo, mismo patrón de
+`isUniqueConstraintViolation` que Cash. `packages/database-sqlite/tests/
+catalog-repository.test.ts`: 13/13 tests reales (temp-dir SQLite, sin
+mocks) — CREATE/FIND, UNIQUENESS, IDEMPOTENCY con snapshot histórico
+correcto tras un update posterior, OPTIMISTIC CONCURRENCY (lost-update),
+REAL CONCURRENCY (`Promise.all`, exactamente un ganador), DEACTIVATE,
+ROLLBACK (CHECK forzado, cero fila parcial en la tabla de negocio NI en el
+log), reapertura de archivo, FK real product→presentation→identifier,
+cadena Variant+Presentation+Identifier end-to-end, conversión con rechazo
+de par duplicado, aislamiento tenant/company.
+
+**PostgreSQL** (`tools/target-migrations/sql/postgres/
+005_catalog_foundation.{up,down}.sql`): mismas 6 tablas en `CREATE SCHEMA
+catalog`, `uuid` PK con `CHECK (platform.is_uuid_v7(id))`,
+`numeric(19,6)`/`numeric(19,10)` para cantidades/factor,
+`ENABLE`+`FORCE ROW LEVEL SECURITY` en las 6 tablas con política
+`tenant_id = platform.current_tenant_id()`. Descriptor
+(`POSTGRES_005_DESCRIPTOR`) depende únicamente de 001 (no de 004/Cash —
+Catalog es `CompanyScope`, no branch-scoped). `packages/database-postgres/
+src/postgres-{product,product-variant,product-presentation,
+product-identifier,unit-conversion}-repository.ts`: mismo mapping
+domain↔fila que SQLite, usando `PostgresDatabase.withTenantTransaction`
+directamente por método (sin constructor per-tenant — a diferencia de
+Cash, cada método de los ports de Catalog ya recibe `scope`). Error
+mapping: `error.code === '23505' && error.constraint === '<nombre>'` →
+`IdempotencyKeyConflictError`/`CatalogDuplicateConflictError`/
+`ProductConflictError` (puerto nuevo,
+`packages/application/src/ports/catalog-conflict-errors.ts`), reemplazando
+el string-matching que SQLite necesita. `packages/database-postgres/
+tests/catalog-repository.test.ts`: 13/13 tests reales contra el
+contenedor PostgreSQL 16.14 vivo (`target-migrations-postgres-1`) —
+mismo catálogo de casos que SQLite más dos pruebas específicas de
+PostgreSQL: aislamiento por RLS real (no solo `WHERE` a nivel de
+aplicación — una transacción con `app.tenant_id` de OTRO tenant ve cero
+filas, incluso consultando por id exacto) y verificación de que la
+sesión sin contexto de tenant correcto no filtra datos.
+`tools/target-migrations/tests/postgres-005-migration.test.ts`: 35
+aserciones sobre el ciclo de vida completo de la migración (apply/no-op/
+checksum/crash-recovery/concurrencia/down/reapply), igual rigor que
+`postgres-004-migration.test.ts` de Cash.
+
+**Fallas reales encontradas y corregidas durante la ejecución** (ninguna
+asumida, todas reproducidas contra el contenedor real antes de corregir):
+
+1. `PROHIBITED_TABLE_NAMES` (`tools/target-migrations/src/contract.ts`)
+   bloqueaba `products`/`product_variants` por nombre de tabla desnudo
+   (sin importar schema) — guardrail deliberado contra materialización
+   prematura de dominios comerciales, ahora obsoleto para estos dos
+   nombres puntuales dado el cierre B26→B27→B28. Se retiraron SOLO esas
+   dos entradas, con comentario explicando el motivo; las ~18 restantes
+   (Sales, Payments, Inventory, Devices/Licenses, Tax, Documentos
+   Electrónicos, etc.) siguen protegidas sin cambio.
+2. Varios `CHECK` sin `CONSTRAINT <nombre>` explícito en
+   `005_catalog_foundation.up.sql` generaban nombres autogenerados por
+   PostgreSQL que el parser de introspección (regex sobre
+   `CONSTRAINT\s+(...)`) no podía predecir → "constraint set diverges".
+   Se nombraron los 12 CHECK que faltaban, siguiendo la convención ya
+   usada en `004_cash_foundation.up.sql` (cero CHECK sin nombre).
+3. Bug real en `postgres-product-repository.ts`: `insertLog` generaba el
+   id de `catalog.product_mutation_log` (fila de infraestructura propia
+   del adapter, NO un id de agregado de dominio) con `randomUUID()`
+   (UUIDv4) — violaba `catalog_product_mutation_log_id_v7_ck`. Corregido
+   con un generador de UUIDv7 real (RFC 9562: 48 bits de timestamp +
+   cola aleatoria con nibbles de versión/variante correctos), encontrado
+   y corregido recién al escribir los tests del adapter contra el
+   contenedor real — no detectable por typecheck.
+
+**Paridad SQLite↔PostgreSQL** (misma cobertura de test real en ambos
+motores, sin excepción): Create Product, Update Product (optimistic
+concurrency + replay), Deactivate Product, Create Variant, Create
+Presentation, Assign Identifier, Define Conversion, Uniqueness
+(internal_code/canonical_key/sku/identifier natural/conversion pair), FK
+referencial (presentation→product, identifier→presentation), Real
+concurrency (`Promise.all`), Rollback sin fila parcial, Idempotency con
+snapshot histórico fiel, Tenant/company scope isolation. Única asimetría
+intencional: SQLite prueba además "reapertura de archivo" (irrelevante en
+PostgreSQL) y PostgreSQL prueba además aislamiento por RLS real
+(mecanismo que SQLite no tiene). Ninguna divergencia de comportamiento de
+negocio entre motores.
+
+**Invariantes cross-tabla y dónde se aplican** (auditoría explícita,
+FASE 7 de B29): unicidad de `internal_code` → constraint DB (índice
+parcial en ambos motores, ya que es nullable). Optimistic concurrency de
+`Product` (update/deactivate) → aplicación (`expectedVersion` en el
+command) + constraint DB (`UPDATE ... WHERE version = priorVersion`,
+`rowCount 0` → `ProductConflictError`). Idempotencia de las 3 mutaciones
+de Product → tabla dedicada `catalog_product_mutation_log`/
+`catalog.product_mutation_log` (snapshot JSON, no la fila actual).
+Idempotencia de Variant/Presentation/Identifier/Conversion (create-only)
+→ columna `idempotency_key` + UNIQUE directo en su propia tabla.
+Referential integrity Variant→Product, Presentation→Product/Variant,
+Identifier→Product/Variant/Presentation, Conversion→Product/Variant/
+Presentation(x2) → FK compuesto `(tenant_id, company_id, id)` real en
+ambos motores (SQLite con `PRAGMA foreign_keys`, PostgreSQL nativo).
+Unicidad de par de conversión → constraint DB
+(`catalog_unit_conversions_pair_uq` / `UNIQUE(...)` SQLite). Aislamiento
+tenant/company → aplicación (todo repository filtra por `scope` en cada
+query) + RLS real en PostgreSQL (defensa en profundidad; SQLite no tiene
+un mecanismo equivalente, documentado como asimetría de motor, no de
+dominio).
+
+`DDL: GO (Catalog únicamente)`. `MIGRATIONS: GO (SQLite MIGRATION_009,
+PostgreSQL 005_catalog_foundation)`. `ADAPTERS: GO (10 repositorios,
+SQLite + PostgreSQL)`. `INVENTORY/SALES/PAYMENTS-REAL/BRE-B/FRONTEND:
+NO-TOUCH`. `CASH: NO-TOUCH` (ninguna dependencia de Cash forzó tocarlo;
+el descriptor 005 depende solo de 001). Regresión completa limpia: Domain
+218/218, Application 203/203 (sin cambios respecto a B27/B28 — B29 no
+tocó domain/application salvo el nuevo puerto
+`catalog-conflict-errors.ts` y el try/catch de idempotencia-conflicto en
+los 7 use cases de Catalog), database-sqlite 48/48 (35 Cash + 13 Catalog
+nuevos), database-postgres 26/26 (13 Cash + 13 Catalog nuevos — un fallo
+de timing preexistente y no relacionado en el test de concurrencia real
+de Cash reprodujo de forma intermitente al correr el archivo completo,
+mismo test pasa 100% aislado y en dos corridas completas consecutivas;
+no es una regresión de B29, Cash no fue tocado), target-migrations
+284/284 (249 previos + 35 nuevos), pos-local-service 45/45+2 skipped,
+contracts 60/60, observability 4/4 (sin cambios, cero impacto fuera de
+Catalog), `pnpm -w typecheck` limpio en 8 proyectos, `architecture-check`
+PASS sin caché — sin bypass de repository desde domain/application, sin
+ORM/framework nuevo. Decisiones B26 diferidas explícitamente sin
+resolver: HD-01/02/03 (autorización real de Variant/Presentation/
+Identifier — siguen fail-closed), HD-06 (clave canónica —
+`VariantCanonicalKeyPolicy` sin implementación de producción), HD-07
+(default presentations), IdentifierNormalizationPolicy sin
+implementación real. Catalog queda operativo (persistencia demostrada
+con evidencia real en ambos motores); Inventory permanece explícitamente
+`NO-GO` — este bloque no lo autoriza.
+
+## Delta B30 — Inventory Readiness / Design Gate
+
+`INVENTORY-B30-READINESS = PASS_WITH_DEFERRED_DECISIONS`. Bloque de
+auditoría pura (read-only), sin código, DDL, migration ni adapter — HEAD
+no cambia. Mismo posture que B25: determinar si Inventory está listo
+para un bloque formal de model closure/HD gate, no persistencia todavía.
+
+**Dependencia crítica que B25 dejó abierta queda resuelta**: B25
+(`traceability.md:361`) flageó que `InventoryMovement.presentationId`
+era un `string` sin validar porque "this repository has no
+ProductPresentation aggregate" — Inventory ya dependía físicamente de
+una entidad de Catalog que no existía como agregado de dominio. B27/B29
+materializaron `ProductPresentation` completo (domain + application +
+persistencia real en ambos motores); `InventoryMovement` ya puede
+referenciar un agregado real, aunque el código de Inventory sigue sin
+validar la referencia contra un repository (documentado como gap
+explícito en el propio comentario de `inventory-movement.ts:46-55`, sin
+cambios en este bloque).
+
+**Estado real del código existente** (packages/domain/src/inventory/,
+packages/application/src/{ports,use-cases,authorization}, con tests
+reales ya incluidos en la regresión 218/218 Domain y 203/203
+Application reportada en B29 — nada de esto es nuevo de B30):
+
+- `InventoryMovement` (domain): agregado append-only real, seis tipos
+  cerrados (`POSITIVE_ADJUSTMENT`, `NEGATIVE_ADJUSTMENT`, `WASTE`,
+  `TRANSFER_OUT`, `TRANSFER_IN`, `RESERVATION_CONSUMPTION`), solo
+  `positiveAdjustment`/`negativeAdjustment` tienen factory y caso de
+  uso; los otros cuatro son miembros reales sin lógica de negocio
+  todavía, documentado explícitamente como tal (mismo posture que
+  `CashMovementType`'s 14 tipos no tocados).
+- `calculateOnHandQuantity` (domain): fold puro sobre movimientos
+  postados — replica el patrón `calculateExpectedCash` de Cash. Calcula
+  solo `on_hand`, no `reserved`/`available` (`StockBalance` completo no
+  está modelado — `InventoryReservation` no existe en código).
+- `RegisterInventoryAdjustmentUseCase` (application): único caso de uso
+  real — autorización → replay de idempotencia → validación de cantidad
+  → validación de `reasonCode` no vacío → persistir → recalcular
+  on-hand. `expectedVersion` deliberadamente no usado (hecho
+  append-only, sin fila versionada que proteger).
+- `InventoryMovementRepository`/`InventoryAuthorizationPort`: ports sin
+  ningún adapter SQLite/PostgreSQL — mismo comentario explícito que
+  Catalog tenía antes de B29 ("DDL gate is NO-GO").
+- `roleMayAdjustInventory`: única política de autorización — dos roles
+  sin condición (`OWNER`, `GENERAL_ADMIN`); `BRANCH_MANAGER`/
+  `INVENTORY_OPERATOR` ("Condicional") y `SUPERVISOR` ("Autorizar", rol
+  de aprobación en un workflow de dos fases no modelado) fallan cerrado,
+  documentado igual que las HD de Catalog.
+
+**Alcance físico documentado pero SIN código todavía** — brecha real,
+no descubrimiento de contradicción, entre `inventory-schema.md`
+(`TECH-002 R2-B`, `CLOSED` documentalmente) + `inventory-receiving-schema.md`
+(`TECH-002E`/`PHY-G06`, `CLOSED` documentalmente) y el código actual:
+
+- `StockBalance` como proyección persistida con `expected_version`
+  (hoy solo existe como fold puro en memoria, sin fila ni versión).
+- `InventoryReservation` (estados `ACTIVE`/`PARTIALLY_CONSUMED`/
+  `CONSUMED`/`RELEASED`/`EXPIRED`/`CANCELLED`) — sin agregado de
+  dominio.
+- `Lot` (identidad, `deduplication_key` versionada, FEFO/FIFO,
+  `parent_lot_id`) — sin agregado de dominio; `InventoryMovement.lotId`
+  se acepta hoy como `string | null` sin resolver contra ningún Lot.
+- `GoodsReceipt`/`GoodsReceiptLine`/`GoodsReceiptLotAllocation`/
+  `InventoryCostRecord` (schema `purchasing.*`, ownership real de
+  Purchasing/PUR-001 — no de Inventory, aunque el documento físico los
+  describe juntos) — sin ningún agregado de dominio; `PUR-001`/`PUR-002`
+  siguen `PLANNED` en el backlog.
+- `InventoryLocation`/`Supplier` (masters `CENTRAL_MASTER_REPLICATED`)
+  — sin agregado de dominio; nada los referencia todavía salvo como
+  `string` IDs sin validar.
+- `TRANSFER_OUT`/`TRANSFER_IN`/`RESERVATION_CONSUMPTION`/`WASTE`: los
+  cuatro tipos de movimiento restantes no tienen caso de uso propio.
+
+**Hallazgo nuevo de autorización** (no era visible sin leer
+`permission-matrix.md` línea a línea junto al código): la matriz define
+filas de permiso **distintas** para Ajuste, Merma, Traslado y Recepción
+— no una sola política de "ajuste de inventario" cubre las cuatro.
+`roleMayAdjustInventory` cubre correctamente solo Ajuste positivo/
+negativo. Concretamente:
+  - **Merma** (`Registrar merma`): Sí/Sí/Sí/Sí/Sí/Condicional (OWNER,
+    GENERAL_ADMIN, BRANCH_MANAGER, SUPERVISOR, INVENTORY_OPERATOR
+    todos sin condición; solo CASHIER es "Condicional") — fila
+    **cerrada, sin ambigüedad** salvo el único "Condicional" de
+    CASHIER; implementable en B31/B32 sin nueva decisión humana para
+    los primeros cinco roles.
+  - **Traslado** (`Trasladar inventario`): Sí/Sí/Condicional/Autorizar/
+    Sí/No — mismo patrón de HD que Ajuste para `BRANCH_MANAGER`
+    ("Condicional") y `SUPERVISOR` ("Autorizar"), pero
+    `INVENTORY_OPERATOR` aquí es Sí sin condición (a diferencia de
+    Ajuste, donde es "Condicional") — confirma que NO es la misma
+    política reutilizada con otro nombre.
+  - **Recepción** (`Registrar GoodsReceipt confirmado`, sección
+    "Recepción y proveedores"): Sí/Sí/Sí/Sí/Sí/No para OWNER/
+    GENERAL_ADMIN/BRANCH_MANAGER/PURCHASING_OPERATOR/SUPERVISOR/CASHIER
+    — fila **completamente cerrada**, sin ningún "Condicional".
+  - Ninguna de las tres tiene código todavía (`roleMayAdjustInventory`
+    es la única función existente); implementar Traslado/Merma/
+    Recepción como la misma función que Ajuste sería fabricar una
+    autorización que la matriz no otorga.
+
+**Discrepancia de nombre** (MINOR, no bloqueante): el evento de dominio
+existente se llama `InventoryAdjustmentRecorded`
+(`inventory-adjustment-recorded-event.ts`), pero
+`docs/domain/event-catalog.md:151` cataloga el evento equivalente como
+`InventoryAdjusted`. B25 no tocó esto (era Catalog); queda registrado
+aquí para que B31 decida si renombrar o si son eventos deliberadamente
+distintos (el catálogo no lo aclara).
+
+**Ownership confirmado sin ambigüedad** (`data-ownership.md:41,48`,
+`module-map.md:112`): "Inventory es la única autoridad para existencias
+y reservas"; "Purchasing confirma la recepción física, pero Inventory
+es la única autoridad que crea movimientos y deriva saldos; una
+recepción nunca modifica StockBalance por fuera del contrato de
+Inventory." — GoodsReceipt/Supplier pertenecen a Purchasing (PUR-001/
+PUR-002), no a Inventory, aunque estén documentados en el mismo archivo
+físico. Un futuro B-block de Inventory persistence no debe fabricar
+tablas `purchasing.*` bajo pretexto de recepción — esa es otra épica.
+
+`DDL: NOT READY`. `MIGRATIONS: NOT READY`. `ADAPTERS: NOT READY`. No se
+registra ningún blocker nuevo — todas las brechas encontradas ya estaban
+documentadas por el propio código o eran derivables de contrastar
+`permission-matrix.md` con el código, no contradicciones nuevas. El
+siguiente bloque correcto es **B31 — Inventory Model Closure / Human
+Decisions Gate**, mismo patrón que B26: clasificar cada pregunta
+abierta (StockBalance/Reservation/Lot como agregados, las 4 filas de
+autorización distintas, el nombre de evento) como CLOSED / HUMAN
+DECISION REQUIRED / IMPLEMENTATION GAP, sin resolver ninguna por
+inferencia. GoodsReceipt/Purchasing quedan fuera de ese bloque — son
+PUR-001/PUR-002, épica separada.
+
+## Delta B31 — Inventory Model Closure / Human Decisions Gate
+
+`INVENTORY-B31-CLOSURE = PASS_WITH_DEFERRED_DECISIONS`. Continuación de
+B30, también read-only — sin código, DDL, migration ni adapter.
+Objetivo: cerrar el modelo lógico de Inventory operación por operación y
+clasificar cada punto abierto como `CLOSED`/`HUMAN DECISION REQUIRED`/
+`ARCHITECTURAL DECISION`/`IMPLEMENTATION GAP`/`CONTRADICTION`, tomando
+como entrada `docs/use-cases/inventory/UC-INVENTORY-002-manage-stock-lifecycle.md`
+(leído completo por primera vez en este hilo — B30 no lo había citado)
+y la sección Inventory de `docs/architecture/conceptual-data-model.md`
+(líneas 1419-1794).
+
+### Boundary (CLOSED, sin ambigüedad)
+
+`conceptual-data-model.md` separa Inventory de "Recepción y compras
+futuras" con encabezados `##` distintos, no solo por afirmación en
+`data-ownership.md`: `Supplier`, `PurchaseOrder` (diferido `PUR-001`),
+`GoodsReceipt`/`GoodsReceiptLine`/`GoodsReceiptLotAllocation`,
+`InventoryCostRecord` y `SupplierReturn` (diferido `PUR-001`) viven bajo
+ese segundo encabezado — confirma que `InventoryCostRecord`, pese al
+prefijo `Inventory`, es responsabilidad conceptual de Purchasing/
+recepción (costo, no existencia física), no de Inventory. Inventory
+posee: `InventoryPolicy`/`InventoryPolicyVersion`, `InventoryLocation`,
+`StockBalance`, `InventoryMovement`, `Lot`, `InventoryReservation`,
+`InventoryTransfer`/`InventoryTransferLine`.
+
+### Aggregates
+
+- **InventoryMovement**: `CLOSED`, ya codificado y probado. Fuente de
+  verdad; append-only por construcción (sin update/delete). `lotId`
+  aceptado sin resolver contra un agregado `Lot` real — gap ya
+  documentado desde B25, sigue abierto (ver HD-INV-01).
+- **StockBalance**: `CLOSED` semánticamente — clave exacta `(tenant,
+  company, branch, location, presentation, lot opcional)`,
+  `available_quantity = on_hand_quantity - reserved_quantity`
+  (`inventory-receiving-schema.md:135`), `expected_version` en la misma
+  transacción del hecho. `IMPLEMENTATION GAP`: hoy solo existe
+  `calculateOnHandQuantity`, un fold puro sobre `on_hand`, sin fila
+  persistida ni `reserved`/`available`.
+- **InventoryReservation**: `CLOSED` semánticamente (atributos, reglas
+  de reducción de disponibilidad sin tocar existencia física,
+  `idempotency_key`, versión) — **excepto los estados**, ver
+  `CONTRADICTION` abajo. `IMPLEMENTATION GAP`: sin agregado de dominio.
+- **Lot**: `CLOSED` semánticamente para los atributos/estados que
+  `inventory-receiving-schema.md` cierra (`ACTIVE`/`BLOCKED`/
+  `DEPLETED`/`EXPIRED`, `deduplication_key` versionada, FEFO/FIFO
+  gobernado por policy, no hardcoded). `IMPLEMENTATION GAP`: sin
+  agregado; depende además de `InventoryPolicyVersion`, tampoco
+  codificado.
+- **InventoryTransfer` / `InventoryTransferLine`**: `CLOSED` — hallazgo
+  nuevo de este bloque. `conceptual-data-model.md:1556-1641` especifica
+  un agregado propio completo (7 estados, atributos, 12 reglas,
+  cardinalidades con `InventoryTransferLine`), no solo la lista de
+  estados que B30 había visto en `UC-INVENTORY-002`. Resuelve
+  explícitamente la pregunta de B31 FASE 4 ("¿debe existir una
+  operación/aggregate de transferencia?"): **sí**, un traslado nunca se
+  modela como dos `InventoryMovement` sueltos — el agregado conserva
+  identidad/estado/trazabilidad y los movimientos IN/OUT referencian
+  `reference_type = INVENTORY_TRANSFER, reference_id = InventoryTransfer.id`.
+  `IMPLEMENTATION GAP`, no `HUMAN DECISION`.
+
+### Operaciones
+
+- **Ajuste**: implementación parcial ya existente coincide exactamente
+  con `UC-INVENTORY-002` §"Ajustes de inventario" (motivo obligatorio,
+  sin reescribir historial, `expected_version` correctamente omitido
+  por ser hecho append-only). Único punto abierto ya documentado en el
+  propio código: aprobación separada por monto/producto/riesgo —
+  `DEFERRED`, sin umbral definido en ningún documento.
+- **Merma**: sin caso de uso todavía. Motivos cerrados (`DAMAGED`,
+  `EXPIRED`, `SPOILAGE`, `LOSS`, `BREAKAGE`, `QUALITY_REJECTION`,
+  `OTHER_AUTHORIZED`) y autorización casi cerrada (ver Autorización).
+  `IMPLEMENTATION GAP`, listo para B32.
+- **Traslado**: sin caso de uso ni agregado todavía; el agregado ya
+  quedó `CLOSED` arriba. `IMPLEMENTATION GAP`, listo para B32 salvo la
+  autorización de `BRANCH_MANAGER`/`SUPERVISOR` (HD).
+- **Recepción**: confirmado fuera de Inventory (pertenece a Purchasing/
+  `PUR-001`/`PUR-002`). El contrato que Inventory debe exponer queda
+  `CLOSED` por `inventory-receiving-schema.md`/`conceptual-data-model.md`:
+  cada `GoodsReceiptLotAllocation` confirmada origina **exactamente un**
+  `InventoryMovement` de entrada a través del propio puerto de registro
+  de Inventory — Purchasing nunca inserta en `catalog`/`inventory` por
+  fuera de ese contrato ni escribe `StockBalance` directamente. No se
+  crea ningún tipo `GoodsReceipt*` en este bloque.
+- **Reserva/Liberación/Consumo**: sin agregado ni caso de uso.
+  `permission-matrix.md` no tiene fila propia para estas tres — no es
+  una omisión: `UC-INVENTORY-002` define el actor principal como
+  "usuario **o proceso autorizado**" con "módulo de ventas" como actor
+  secundario, es decir, la autorización se hereda de la operación que
+  la origina (confirmación de Sale u otro proceso autorizado), no de un
+  permiso directo de usuario. `ARCHITECTURAL DECISION` (cerrada por
+  evidencia textual), no `HUMAN DECISION`.
+
+### Autorización — matriz real por operación (no una sola política)
+
+| Operación | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | INVENTORY_OPERATOR | CASHIER |
+|---|---|---|---|---|---|---|
+| Ajuste (±) | Sí | Sí | Condicional | Autorizar | Condicional | No |
+| Merma | Sí | Sí | Sí | Sí | Sí | Condicional |
+| Traslado | Sí | Sí | Condicional | Autorizar | Sí | No |
+| Recepción (Purchasing) | Sí | Sí | Sí | Sí | Sí | No |
+
+Confirma el hallazgo de B30: son cuatro filas distintas, no una. Merma y
+Recepción están **completamente cerradas** para sus roles "Sí"
+(implementables sin decisión nueva); Ajuste y Traslado comparten el
+mismo patrón sin definir para `BRANCH_MANAGER`("Condicional")/
+`SUPERVISOR`("Autorizar") — mismo tratamiento de fail-closed que Catalog
+usó para sus HD de autorización.
+
+### Invariantes — hallazgo MAJOR nuevo
+
+`UC-INVENTORY-002` regla 15/§"Salidas de inventario" regla 5: "No se
+debe producir stock negativo salvo política explícita y autorizada."
+Sin `InventoryPolicy` codificada, el default es denegar. **La
+implementación actual de `RegisterInventoryAdjustmentUseCase` no valida
+esto**: un `NEGATIVE_ADJUSTMENT` se persiste sin comprobar el on-hand
+resultante contra `calculateOnHandQuantity`. No es una decisión humana
+— la regla ya está cerrada por el documento — es un **gap de
+implementación real, no cosmético**, a cerrar en B32 antes de dar por
+completa la operación de Ajuste.
+
+### CONTRADICTION — estados de InventoryReservation
+
+`UC-INVENTORY-002:109-114` lista seis estados: `ACTIVE`,
+`PARTIALLY_CONSUMED`, `CONSUMED`, `RELEASED`, `EXPIRED`, `CANCELLED`.
+`conceptual-data-model.md:1539-1543` lista cinco, **omitiendo
+`CANCELLED`**. Ninguna de las dos fuentes es más autoritativa por
+convención de este proyecto — se registra como `CONTRADICTION` real
+entre dos documentos normativos, no se elige una interpretación
+arbitraria (regla general del propio backlog). Bloquea únicamente la
+definición exacta del enum de estados de `InventoryReservation`, no el
+resto del modelo.
+
+### Human Decision Register (HD-INV)
+
+| ID | Pregunta | Bloqueante |
+|---|---|---|
+| HD-INV-01 | ¿Qué combinación de `Product.lotControlled` + un campo de Presentation todavía inexistente + `InventoryPolicy` determina si un movimiento exige `lotId`? `inventory-schema.md` describe las tres fuentes combinadas sin definir la fórmula. | No bloquea Ajuste/Merma/Traslado base (aceptan `lotId` opcional); bloquea la validación estricta de lote obligatorio. |
+| HD-INV-02 | Significado operacional de "Condicional" (`BRANCH_MANAGER`/`INVENTORY_OPERATOR`) y "Autorizar" (`SUPERVISOR`, workflow de dos fases sin agregado documentado) para Ajuste. | No bloquea — ya falla cerrado correctamente en `roleMayAdjustInventory`. |
+| HD-INV-03 | Mismo patrón que HD-INV-02 pero para Traslado (`BRANCH_MANAGER` Condicional, `SUPERVISOR` Autorizar). | No bloquea la definición del agregado `InventoryTransfer`; bloquea únicamente habilitar esos dos roles para ejecutarlo. |
+| HD-INV-04 | Significado de "Condicional" para `CASHIER` en Merma. | No bloquea — default seguro es fail-closed (CASHIER nunca autorizado hasta definir la condición). |
+| HD-INV-05 | `ProductPresentation.stockMode = CONVERTED_TO_BASE`/`DERIVED`: ¿Inventory rastrea existencia directamente en esa `presentationId`, o la enruta a través de `UnitConversion` hacia otra presentación "base" rastreada? Catalog (B26 HD-08) deliberadamente no forzó ninguna relación `stock_controlled`↔`stock_mode` y dejó la pregunta abierta hacia quien consuma `stockMode` — ahora le corresponde a Inventory responderla. | Bloquea la validación de presentación contra `stockMode` en B32 para esos dos modos; no bloquea `INDEPENDENT` (rastreo directo) ni `NON_STOCK` (rechazo directo, ambos sin ambigüedad). |
+| HD-INV-06 | Resolución de la `CONTRADICTION` de estados de `InventoryReservation` (`CANCELLED` presente en `UC-INVENTORY-002`, ausente en `conceptual-data-model.md`). | Bloquea definir el enum exacto de `InventoryReservationStatus` en B32. |
+
+### Alcance de este bloque
+
+`DDL: NO-GO`. `MIGRATIONS: NO-GO`. `ADAPTERS: NO-GO`. `SALES/PAYMENTS-REAL/
+PURCHASING: NO-TOUCH`. Cero código modificado — solo lectura y este
+delta. Un `MAJOR` real encontrado (stock negativo sin validar en
+Ajuste, no una decisión sino una brecha de implementación ya exigida
+por documento) y seis `HD-INV` registradas, ninguna resuelta por
+inferencia. El siguiente bloque correcto es **B32 — Inventory Domain/
+Application Design** (mismo patrón que B27): completar `InventoryMovement`
+(guard de stock negativo, validación de presentación contra Catalog
+real), materializar `StockBalance`/`InventoryReservation`/`Lot`/
+`InventoryTransfer` como agregados de dominio con sus casos de uso
+(Merma, Traslado, Reserva/Consumo/Liberación), y las políticas de
+autorización por operación — todo sin persistencia, condicionado a que
+el owner resuelva primero HD-INV-05 (stockMode↔tracking) y HD-INV-06
+(estados de Reservation) antes de cerrar esos dos agregados
+específicos; el resto de HD-INV no bloquea avanzar con fail-closed.
+
+## Delta B32 — Inventory Domain/Application Design
+
+`INVENTORY-B32-DESIGN = PASS_WITH_DEFERRED_DECISIONS`. Materializa
+Domain + Application para Inventory sin persistencia — cero DDL,
+migration, adapter, o cambio en Cash/Catalog/Payment/Sales/Purchasing.
+Respeta la clasificación de B31: HD-INV-05 (stockMode CONVERTED_TO_BASE/
+DERIVED) y HD-INV-06 (contradicción de estados de Reservation) quedan
+aisladas sin resolverse por inferencia; HD-INV-01/02/03/04 (no
+bloqueantes) fallan cerrado como ya recomendaba B31.
+
+**Domain** (`packages/domain/src/inventory/`): `StockBalance` (nuevo,
+`stock-balance.ts`) — valor puro computado por fold, NO un agregado
+persistido con `expected_version` propio; deliberadamente no se
+pre-compromete con la decisión de si B33 lo cachea como fila
+versionada o lo sigue recalculando, misma postura que
+`calculateExpectedCash` de Cash. `InventoryReservation` (nuevo) —
+agregado mutable real con `expected_version`, ciclo `create`/`consume`/
+`release`/`expire`; implementa únicamente los **cinco** estados en los
+que `UC-INVENTORY-002` y `conceptual-data-model.md` coinciden
+(`ACTIVE`/`PARTIALLY_CONSUMED`/`CONSUMED`/`RELEASED`/`EXPIRED`) — sin
+`cancel()`, para no resolver HD-INV-06 por la vía de los hechos.
+`InventoryTransfer` + `InventoryTransferLine` (nuevos) — agregado
+propio con sus 7 estados (`REQUESTED`/`APPROVED`/`IN_TRANSIT`/
+`RECEIVED`/`PARTIALLY_RECEIVED`/`CANCELLED`/`REJECTED`, sin
+contradicción entre fuentes), confirmando la clasificación `CLOSED` de
+B31: un traslado nunca se modela como dos `InventoryMovement` sueltos.
+`Lot` (nuevo, mínimo) — solo `restore()`, sin `create()`: la creación de
+lotes pertenece a `GoodsReceipt`/Purchasing (`PUR-001`), fuera de
+alcance; Inventory lo modela como forma de referencia de solo lectura.
+`InventoryMovement` extendido con `referenceType`/`referenceId`
+opcionales (B32: `inventory-schema.md` los exige en toda fila, B27
+original los había omitido por completo — gap real, cerrado ahora que
+`RESERVATION_CONSUMPTION`/`TRANSFER_OUT`/`TRANSFER_IN` necesitan
+enlazar de vuelta a la reserva/traslado que los originó). Renombrado
+`InventoryAdjustmentRecorded` → `InventoryAdjusted` (MINOR de B30/B31,
+cerrado: `event-catalog.md:151` es el nombre catalogado). Cinco eventos
+nuevos, todos con nombre tomado literalmente de `event-catalog.md`, no
+inventados: `InventoryLossRecorded` (merma), `InventoryReserved`,
+`InventoryReservationReleased`, `InventoryDeducted` (consumo),
+`InventoryTransferred` (recepción completa o parcial). Autorización:
+`roleMayRegisterWaste`/`roleMayTransferInventory` (filas reales de
+`permission-matrix.md`, distintas entre sí y de `roleMayAdjustInventory`
+— confirma el hallazgo de B30/B31) y
+`roleMayReserveInventory`/`roleMayConsumeInventoryReservation`/
+`roleMayReleaseInventoryReservation` (fallan cerrado incondicionalmente
+para los 7 roles — B31 `ARCHITECTURAL DECISION`: sin fila en la
+matriz y sin actor `SYSTEM` legítimamente construible todavía).
+
+**Application** (`packages/application/src/`): `validateInventoryPresentation`
+(nuevo, `inventory/`) — cierra el gap que B25 encontró y B31 confirmó
+seguía abierto: ningún caso de uso de Inventory validaba
+`presentationId` contra el `ProductPresentationRepository` real de
+Catalog. Rechaza presentación inexistente/inactiva, `NON_STOCK`
+(`inventoryEnabled=false`, inequívoco) y — deliberadamente —
+`CONVERTED_TO_BASE`/`DERIVED` (HD-INV-05 no resuelto: silenciosamente
+soportar cualquiera de esos dos modos habría resuelto la decisión por
+inferencia). Solo `INDEPENDENT` es soportado hoy. `RegisterInventoryAdjustmentUseCase`
+modificado — MAJOR fix de B31: agrega el guard de stock no-negativo que
+nunca existió (`UC-INVENTORY-002` ya lo exigía; con `NEGATIVE_ADJUSTMENT`
+now rejected as `INSUFFICIENT_STOCK` cuando dejaría el on-hand negativo)
+y la validación de presentación — reutiliza el mismo fold ya calculado,
+sin llamada adicional al repository. `RegisterInventoryWasteUseCase`
+(nuevo) — mismo patrón que Ajuste, motivos cerrados por tipo
+(`DAMAGED`/`EXPIRED`/`SPOILAGE`/`LOSS`/`BREAKAGE`/`QUALITY_REJECTION`/
+`OTHER_AUTHORIZED`), autorización propia. `ReserveInventoryUseCase`/
+`ConsumeInventoryReservationUseCase`/`ReleaseInventoryReservationUseCase`
+(nuevos) — `Reserve` calcula disponibilidad vía `StockBalance.compute`
+sobre movimientos + reservas ya existentes (sin tercera fuente
+persistida); `Consume` produce un `InventoryMovement` real
+(`RESERVATION_CONSUMPTION`, referenciando la reserva) Y transiciona la
+reserva, documentando explícitamente que ambas escrituras comparten una
+transacción según `UC-INVENTORY-002` pero secuenciándolas sin adapter
+real (B33 concern); `Release` no toca `InventoryMovement` — la
+capacidad vuelve a estar disponible solo porque `StockBalance.compute`
+deja de contarla. `RequestInventoryTransferUseCase`/
+`DispatchInventoryTransferUseCase`/`ReceiveInventoryTransferUseCase`/
+`CancelInventoryTransferUseCase` (nuevos) — ciclo completo
+Request→Dispatch→Receive con `TRANSFER_OUT`/`TRANSFER_IN` reales por
+línea; **Approve/Reject existen en el dominio pero no tienen caso de
+uso propio** (alcance recortado explícitamente: los tres roles hoy
+autorizados para Traslado son "Sí" incondicional, sin política que
+exija el flujo de dos fases que HD-INV-03 deja indefinido para
+`BRANCH_MANAGER`/`SUPERVISOR`); `Cancel` solo pre-dispatch, post-dispatch
+queda fuera de alcance (requiere compensación explícita, no modelado).
+`Receive` es una llamada terminal única — no soporta una segunda
+recepción completando una línea `PARTIALLY_RECEIVED` de una llamada
+previa (recorte de alcance documentado, no una decisión).
+
+**Hallazgo real durante la implementación** (encontrado por test, no
+supuesto): el primer diseño de `StockBalance.compute` filtraba reservas
+por `status IN ('ACTIVE','PARTIALLY_CONSUMED')` para sumar lo
+reservado — un bug real que habría dejado que una reserva `EXPIRED`
+"liberara" capacidad silenciosamente, contradiciendo la propia regla 4
+de `UC-INVENTORY-002` ("una reserva expirada debe liberarse mediante
+transición explícita"). Corregido sumando `outstandingQuantity()` sobre
+TODAS las reservas sin filtro de estado — la aritmética misma
+(`quantity - consumed - released`) ya da cero para `RELEASED`/
+`CONSUMED` y mantiene el valor correcto para `EXPIRED`. Detectado por
+`stock-balance.test.ts`, no por inspección.
+
+`DDL: NO-GO`. `MIGRATIONS: NO-GO`. `ADAPTERS: NO-GO`. `CASH/CATALOG/
+PAYMENT/SALES/PURCHASING: NO-TOUCH`. Regresión completa limpia: Domain
+299/299 (218 previos + 81 nuevos), Application 243/243 (203 previos +
+40 nuevos), database-sqlite 48/48, database-postgres 26/26,
+target-migrations 284/284, pos-local-service 45/45+2 skipped, contracts
+60/60, observability 4/4 (los últimos siete sin cambios, cero impacto
+fuera de Inventory), `pnpm -w typecheck` limpio en 8 proyectos,
+`architecture-check` PASS sin caché. Decisiones humanas explícitamente
+no resueltas: HD-INV-05 (stockMode↔tracking, bloquea
+`CONVERTED_TO_BASE`/`DERIVED`), HD-INV-06 (estados de Reservation,
+bloquea `cancel()`); HD-INV-01..04 siguen fail-closed sin resolver. El
+siguiente bloque correcto es **B33 — Inventory Persistence (SQLite +
+PostgreSQL)**, mismo patrón que cerró Catalog (B29): materializar los
+puertos ya definidos aquí (`InventoryReservationRepository`,
+`InventoryTransferRepository`, extensión de `InventoryMovementRepository`
+si aplica) sobre ambos motores con evidencia real de transacciones,
+rollback, concurrencia e idempotencia — sin resolver HD-INV-05/06 en el
+camino.
