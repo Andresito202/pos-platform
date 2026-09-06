@@ -139,10 +139,16 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 >              technical_key, to
 > ```
 >
-> **La causa: el esquema exigía un `id` que FACTUS no devuelve.** Corregido con
-> la forma observada, fijado en tres pruebas deterministas, y con los numéricos
-> aceptando `string | number` porque su tipo JSON no llegó a observarse —asumir
-> uno repetiría la misma clase de error—.
+> **Primer diagnóstico, incompleto:** «el esquema exigía un `id` que FACTUS no
+> devuelve». Era el síntoma. La documentación oficial de emisión, aportada
+> después, dio la causa: **`/v2/numbering-ranges` y `/v2/numbering-ranges/dian`
+> son recursos distintos**. El primero devuelve los rangos de FACTUS con su
+> `id` —el `numbering_range_id` que exige emitir—; el segundo, las resoluciones
+> DIAN en crudo. El adapter apuntaba al segundo pidiendo la forma del primero.
+>
+> Corregido: se consulta `/v2/numbering-ranges`, el esquema tolera ambas formas,
+> la identidad usa el `id` real cuando existe y se marca `derived:` cuando no,
+> para que nadie envíe una identidad derivada como `numbering_range_id`.
 >
 > Dos decisiones que deja el hallazgo:
 >

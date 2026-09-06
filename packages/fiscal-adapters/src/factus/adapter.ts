@@ -55,12 +55,28 @@ import type { FactusCredentialResolver } from "./credential.js";
  *
  * - La forma del cuerpo de emisión (`/v2/bills/validate`). No se ha emitido un
  *   solo documento.
- * - **`GET /v2/numbering-ranges/dian` y la forma de su cuerpo**, observados
+ * - **La forma del cuerpo de `/v2/numbering-ranges/dian`**, observada
  *   directamente: `{ data: [...], message, status }` con elementos de claves
  *   `end_date`, `from`, `prefix`, `resolution_number`, `start_date`,
- *   `technical_key`, `to`. La primera versión de este adapter exigía un `id`
- *   que **FACTUS no devuelve**, y ése era el único motivo del
- *   `UNPARSEABLE_RESPONSE` observado.
+ *   `technical_key`, `to` — **sin `id`**.
+ *
+ * ## Corrección de un diagnóstico propio
+ *
+ * De ese `UNPARSEABLE_RESPONSE` concluí primero que «el esquema exigía un `id`
+ * que FACTUS no devuelve». Era el síntoma, no la causa. La documentación
+ * oficial de emisión lo aclara: **`/v2/numbering-ranges` y
+ * `/v2/numbering-ranges/dian` son recursos distintos.** El primero devuelve los
+ * rangos de FACTUS con su `id` —el `numbering_range_id` que exige emitir—; el
+ * segundo, las resoluciones DIAN en crudo. Yo apuntaba al segundo pidiendo la
+ * forma del primero.
+ *
+ * Corregido: se consulta `/v2/numbering-ranges`, el esquema tolera ambas formas
+ * y la identidad usa el `id` real cuando existe.
+ *
+ * La forma del cuerpo de emisión también estaba mal: esperaba `data.bill.*` con
+ * una cadena de estado. La documentada pone los campos bajo `data` y la
+ * evidencia fiscal es el booleano **`is_validated`**. Además `data.errors`
+ * trae notificaciones DIAN que **no implican rechazo**.
  *
  * Por eso el parseo es defensivo —lee lo que necesita, conserva el estado
  * original del proveedor sin convertirlo en enum, y ante cualquier forma
@@ -70,28 +86,43 @@ import type { FactusCredentialResolver } from "./credential.js";
  */
 
 /**
- * Parseo deliberadamente laxo del cuerpo de emisión.
+ * Cuerpo de emisión, con la forma **documentada oficialmente** por Factus para
+ * `POST /v2/bills/validate` (`facturas-crear-y-validar`).
  *
- * Cada campo es opcional porque ninguno está verificado. Un campo ausente
- * degrada el desenlace; nunca lo inventa.
+ * La primera versión de este adapter anidaba mal —esperaba `data.bill.*`— y
+ * usaba una cadena de estado que no existe. La respuesta real pone los campos
+ * directamente bajo `data`, y **la señal de aceptación es el booleano
+ * `is_validated`**, no un código de estado.
+ *
+ * El parseo sigue siendo laxo: cada campo es opcional para que una respuesta
+ * inesperada degrade el desenlace a `UNCERTAIN` en vez de romper.
  */
 const FactusBillResponseSchema = z.object({
-  data: z.object({
-    bill: z.object({
-      number: z.string().optional(),
-      reference_code: z.string().optional(),
-      cufe: z.string().optional(),
-      status: z.union([z.string(), z.number()]).optional(),
-      public_url: z.string().optional(),
-    }).optional(),
-  }).optional(),
   status: z.string().optional(),
   message: z.string().optional(),
+  data: z.object({
+    reference_code: z.string().optional(),
+    number: z.string().optional(),
+    cufe: z.string().optional(),
+    /** `true` si la DIAN validó el documento. Es la evidencia fiscal. */
+    is_validated: z.boolean().optional(),
+    validated_at: z.string().optional(),
+    /**
+     * Notificaciones de la DIAN (FAJ44b, RUT01…). **No implican rechazo**: la
+     * documentación es explícita en que hay que mirar `is_validated`. Tratarlas
+     * como rechazo sería inventar evidencia fiscal negativa.
+     */
+    errors: z.unknown().optional(),
+    document_type: z.object({ code: z.string().optional(), name: z.string().optional() }).loose().optional(),
+    links: z.object({ qr: z.string().optional(), public_url: z.string().optional() }).loose().optional(),
+    totals: z.object({
+      gross_amount: z.string().optional(),
+      taxable_amount: z.string().optional(),
+      tax_amount: z.string().optional(),
+      total: z.string().optional(),
+    }).loose().optional(),
+  }).loose().optional(),
 }).loose();
-
-/** Estados del proveedor que constituyen evidencia fiscal. */
-const ACCEPTED_PROVIDER_STATUSES = new Set(["1", "VALIDADO", "VALIDATED", "ACCEPTED"]);
-const REJECTED_PROVIDER_STATUSES = new Set(["2", "RECHAZADO", "REJECTED"]);
 
 export interface FactusAdapterOptions {
   readonly now: () => number;
@@ -141,6 +172,12 @@ implements
 
     if (document.payload === null || typeof document.payload !== "object") {
       findings.push({ code: "PAYLOAD_NOT_AN_OBJECT", path: "payload" });
+    } else if (typeof referenceCodeOf(document.payload) !== "string") {
+      // `reference_code` es el mecanismo de deduplicación de FACTUS: si se
+      // repite, el API rechaza para evitar duplicados. Sin él, un reintento
+      // tras un desenlace incierto emitiría una segunda factura con otro
+      // consecutivo DIAN. Va en el cuerpo, no en una cabecera.
+      findings.push({ code: "REFERENCE_CODE_MISSING", path: "reference_code" });
     }
 
     return findings.length === 0 ? { kind: "VALID" } : { kind: "INVALID", findings };
@@ -163,6 +200,18 @@ implements
       );
     }
 
+    // La identidad que FACTUS usa para deduplicar debe ser la misma que la
+    // nuestra. Si divergen, un reintento no sería idempotente para el
+    // proveedor y podría emitir una segunda factura. Se corta antes de salir.
+    const referenceCode = referenceCodeOf(request.document.payload);
+    if (referenceCode !== request.idempotencyKey) {
+      return technicalFailure(
+        "REFERENCE_CODE_DOES_NOT_MATCH_IDEMPOTENCY_KEY",
+        request.electronicDocumentId,
+        null,
+      );
+    }
+
     let response: HttpResponse;
     try {
       response = await this.transport.send({
@@ -172,9 +221,6 @@ implements
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
           accept: "application/json",
-          // `reference_code` es el mecanismo de idempotencia del proveedor y no
-          // sustituye la deduplicación interna: se combina con ella.
-          "x-reference-code": request.idempotencyKey,
         },
         body: JSON.stringify(request.document.payload),
         signal,
@@ -214,10 +260,11 @@ implements
       return uncertain("UNPARSEABLE_RESPONSE", request.electronicDocumentId);
     }
 
-    const bill = parsed.data.data?.bill;
+    const bill = parsed.data.data;
     const providerStatus: ProviderStatusEcho = {
       providerCode: "FACTUS",
-      providerStatus: String(bill?.status ?? parsed.data.status ?? ""),
+      // Se conserva el estado original sin convertirlo en enum global.
+      providerStatus: parsed.data.status ?? "",
       httpStatus: response.status,
     };
 
@@ -236,23 +283,23 @@ implements
       };
     }
 
-    const normalized = normalizedFromProviderStatus(providerStatus.providerStatus);
-    if (normalized === null) {
-      // Estado desconocido del proveedor. `electronic-invoicing.md` §Modelo
-      // canónico: se mapea a revisión segura, nunca a un estado inventado.
-      return uncertain("UNRECOGNISED_PROVIDER_STATUS", request.electronicDocumentId);
+    // La evidencia fiscal es el booleano `is_validated`, no una cadena de
+    // estado. Ausente significa que no sabemos, no que fuera rechazada:
+    // `electronic-invoicing.md` §Modelo canónico manda a revisión segura.
+    if (bill?.is_validated === undefined) {
+      return uncertain("VALIDATION_FLAG_ABSENT", request.electronicDocumentId);
     }
 
     return {
       kind: "EVIDENCED",
       transportStatus: "COMPLETED",
-      normalizedResult: normalized,
+      normalizedResult: bill.is_validated ? "ACCEPTED" : "REJECTED",
       externalIdentity: {
-        providerOperationId: bill?.reference_code ?? request.idempotencyKey,
-        providerDocumentId: bill?.number ?? null,
+        providerOperationId: bill.reference_code ?? request.idempotencyKey,
+        providerDocumentId: bill.number ?? null,
         prefix: null,
-        number: bill?.number ?? null,
-        cufe: bill?.cufe ?? null,
+        number: bill.number ?? null,
+        cufe: bill.cufe ?? null,
       },
       providerStatus,
     };
@@ -308,26 +355,25 @@ implements
       return { kind: "INDETERMINATE", reasonCode: "UNPARSEABLE_RESPONSE", providerStatus: null };
     }
 
-    const bill = parsed.data.data?.bill;
+    const bill = parsed.data.data;
     const providerStatus: ProviderStatusEcho = {
       providerCode: "FACTUS",
-      providerStatus: String(bill?.status ?? parsed.data.status ?? ""),
+      providerStatus: parsed.data.status ?? "",
       httpStatus: 200,
     };
-    const normalized = normalizedFromProviderStatus(providerStatus.providerStatus);
-    if (normalized === null) {
-      return { kind: "INDETERMINATE", reasonCode: "UNRECOGNISED_PROVIDER_STATUS", providerStatus };
+    if (bill?.is_validated === undefined) {
+      return { kind: "INDETERMINATE", reasonCode: "VALIDATION_FLAG_ABSENT", providerStatus };
     }
 
     return {
       kind: "FOUND",
-      normalizedResult: normalized,
+      normalizedResult: bill.is_validated ? "ACCEPTED" : "REJECTED",
       externalIdentity: {
-        providerOperationId: bill?.reference_code ?? reference,
-        providerDocumentId: bill?.number ?? null,
+        providerOperationId: bill.reference_code ?? reference,
+        providerDocumentId: bill.number ?? null,
         prefix: null,
-        number: bill?.number ?? null,
-        cufe: bill?.cufe ?? null,
+        number: bill.number ?? null,
+        cufe: bill.cufe ?? null,
       },
       providerStatus,
     };
@@ -421,11 +467,14 @@ implements
     return {
       kind: "SYNCHRONIZED",
       ranges: parsed.data.data.map((range) => ({
-        // FACTUS no asigna un `id` al rango. La identidad se deriva de lo que
-        // sí lo identifica ante la DIAN —resolución y prefijo— y se marca como
-        // derivada para que nadie la confunda con un identificador del
-        // proveedor.
-        rangeId: `factus:${String(range.resolution_number ?? "sin-resolucion")}:${range.prefix ?? ""}`,
+        // Se prefiere el `id` de FACTUS cuando existe: es el
+        // `numbering_range_id` que exige la emisión. El recurso DIAN no lo
+        // trae, y ahí la identidad se **deriva** de resolución y prefijo,
+        // marcada con prefijo `derived:` para que nadie la envíe como
+        // `numbering_range_id` creyendo que es del proveedor.
+        rangeId: range.id === undefined
+          ? `derived:${String(range.resolution_number ?? "sin-resolucion")}:${range.prefix ?? ""}`
+          : String(range.id),
         documentType: query.documentType,
         prefix: range.prefix ?? "",
         // La autoridad es siempre del proveedor: los rangos los asocia FACTUS
@@ -520,6 +569,13 @@ const FACTUS_REQUIRED_FIELDS = ["client_id", "client_secret", "username", "passw
  */
 const FactusRangesResponseSchema = z.object({
   data: z.array(z.object({
+    /**
+     * Presente en `/v2/numbering-ranges` y **ausente** en
+     * `/v2/numbering-ranges/dian`. Es el `numbering_range_id` que exige el
+     * cuerpo de emisión, así que sin él no se puede facturar con más de un
+     * rango activo.
+     */
+    id: z.union([z.string(), z.number()]).optional(),
     prefix: z.string().optional(),
     resolution_number: z.union([z.string(), z.number()]).optional(),
     // `technical_key` es la llave técnica DIAN. Se reconoce para no romper el
@@ -544,11 +600,11 @@ function toInteger(value: string | number | undefined): number {
   return 0;
 }
 
-function normalizedFromProviderStatus(status: string): "ACCEPTED" | "REJECTED" | null {
-  const upper = status.toUpperCase();
-  if (ACCEPTED_PROVIDER_STATUSES.has(upper)) return "ACCEPTED";
-  if (REJECTED_PROVIDER_STATUSES.has(upper)) return "REJECTED";
-  return null;
+/** Lee `reference_code` del cuerpo congelado sin asumir su forma. */
+function referenceCodeOf(payload: unknown): string | undefined {
+  if (payload === null || typeof payload !== "object") return undefined;
+  const value = (payload as { reference_code?: unknown }).reference_code;
+  return typeof value === "string" ? value : undefined;
 }
 
 function technicalFailure(

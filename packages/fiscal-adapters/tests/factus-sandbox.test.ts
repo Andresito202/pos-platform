@@ -151,6 +151,10 @@ describe.skipIf(credential === undefined)("FACTUS sandbox real (SANDBOX_VERIFIED
       for (const range of outcome.ranges) {
         expect(range.authority).toBe("PROVIDER");
       }
+      // `/v2/numbering-ranges` debe traer el `id` de FACTUS. Si todas las
+      // identidades salieran `derived:`, seguiríamos consultando el recurso
+      // equivocado y no podríamos emitir con más de un rango activo.
+      expect(outcome.ranges.every((range) => range.rangeId.startsWith("derived:"))).toBe(false);
     } finally {
       adapter.close();
     }
