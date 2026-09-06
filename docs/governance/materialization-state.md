@@ -84,7 +84,9 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Matriz de capacidades y verificación cruzada | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/capability.ts` · `.../src/adapter-declaration.ts` |
 | Escalera de verificación (`D-4`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/verification.ts` |
 | Saldo de bolsa como proyección (`D-5`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/quota.ts` |
-| Adapter de cualquier proveedor | ✅ | ❌ | ❌ | ❌ | ❌ | — |
+| Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · `MOCK_TESTED` |
+| Adapter SIIGO | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
+| Adapter ALEGRA | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 
 > **Qué acredita esta sección y qué no.** Acredita que las cinco formas existen,
 > compilan, y que un solo objeto puede satisfacerlas: `port-conformance.test.ts`
@@ -99,8 +101,17 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > techo `MOCK_TESTED`, verificado en `verification-and-quota.test.ts`. Ninguna
 > línea de este bloque abre una conexión de red.
 >
-> Comando ejecutado: `pnpm test:fiscal-adapters` — 47 pruebas, 0 fallos.
-> Cableado en CI como paso «Validate fiscal capability ports».
+> Comando ejecutado: `pnpm test:fiscal-adapters` — 85 pruebas pasan, 2 omitidas,
+> 0 fallos. Cableado en CI como paso «Validate fiscal capability ports».
+>
+> **Sobre `MOCK_TESTED` del adapter FACTUS.** Las 2 omitidas son la suite de
+> sandbox, que sólo corre si están las cuatro variables de entorno y **nunca en
+> CI**. El adapter no ha ejecutado ni una petición real: los contract tests
+> comprueban que *el adapter* se comporta bien ante una respuesta dada, no que
+> el proveedor produzca esa respuesta. La forma exacta del cuerpo de
+> `/v2/bills/validate` sigue `UNVERIFIED`. `SANDBOX_VERIFIED` exige ejecutar la
+> suite local con credenciales reales y **mover la declaración a mano**, con la
+> evidencia observada delante.
 
 ### CI/CD y cadena de suministro
 
