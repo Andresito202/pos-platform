@@ -63,11 +63,25 @@ describe("saldo de bolsa como proyección observable (`D-5`)", () => {
     expect(evaluateQuotaSignal(modelled, null)).toEqual({ kind: "UNKNOWN" });
   });
 
+  it("un plan sin bolsa da UNLIMITED, que no es lo mismo que UNKNOWN", () => {
+    // ALEGRA vende documentos ilimitados en plan de pago. Declararlo
+    // `NOT_EVALUATED` sería falso: sí se evaluó, y no hay bolsa que agotar.
+    const unlimited: QuotaObservability = {
+      kind: "NOT_APPLICABLE",
+      reason: "plan de pago con documentos ilimitados",
+    };
+    expect(evaluateQuotaSignal(unlimited, null)).toEqual({ kind: "UNLIMITED" });
+    expect(evaluateQuotaSignal(unlimited, 3)).toEqual({ kind: "UNLIMITED" });
+    // Y no impide emitir, que es lo que un `EXHAUSTED` sí haría.
+    expect(quotaAllowsNewIssuance({ kind: "UNLIMITED" })).toBe(true);
+  });
+
   it("el saldo fiscal NUNCA bloquea una venta comercial, ni agotado", () => {
     const signals: readonly QuotaSignal[] = [
       { kind: "OK", remaining: 10 },
       { kind: "APPROACHING_EXHAUSTION", remaining: 3 },
       { kind: "EXHAUSTED" },
+      { kind: "UNLIMITED" },
       { kind: "UNKNOWN" },
     ];
     for (const signal of signals) {

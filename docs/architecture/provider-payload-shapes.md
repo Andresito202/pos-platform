@@ -160,3 +160,86 @@ proveedor:
 
 Los tres proveedores pueden esperar; **estas cuatro piezas no**, porque ninguna
 factura sale sin ellas.
+
+---
+
+## Qué entrega el proveedor al cliente, y qué integra el POS
+
+Investigación comercial del propietario, 2026-09-06. Nivel:
+`UNVERIFIED_SECUNDARIA` para los detalles de plan; la forma de credencial
+**coincide** con `provider-integration-matrix.md`, que sí es `VERIFICADO_DOC`.
+
+Cada proveedor entrega **tres cosas distintas**, y sólo una es integrable.
+
+### 1. Usuario y contraseña del portal web — **NO se integra. Nunca.**
+
+Es el acceso humano al portal del proveedor. El POS **no automatiza un portal
+web**, y no es una limitación: es una decisión.
+
+- Automatizarlo sería *screen scraping*: se rompe con cada cambio de interfaz
+  del proveedor y no hay contrato que lo sostenga.
+- Ambos proveedores documentan expresamente que **la credencial de API nunca es
+  la contraseña de la cuenta**. Usar la contraseña del portal violaría su propio
+  contrato de uso.
+- Esa contraseña abre además contabilidad, nómina y configuración fiscal. Un POS
+  no necesita ese alcance y no debe tenerlo.
+
+**Regla:** si un cliente sólo tiene usuario y contraseña de portal, **no hay
+integración posible**. Lo que hay es un proveedor al que factura a mano. Decirlo
+es más honesto que prometer una automatización frágil.
+
+### 2. Credenciales de API — **el único camino real**
+
+Confirma exactamente lo que ya declara cada adapter:
+
+| Proveedor | Lo que entrega | Nuestra declaración |
+|---|---|---|
+| ALEGRA | correo de la cuenta + **token de acceso**, desde el menú de configuración | `api_email` + `api_token`, HTTP Basic ✅ |
+| SIIGO | **Id de Cliente** (username) + **Access Key** | `username` + `access_key` + `partner_id` de plataforma ✅ |
+| FACTUS | cuatro valores del portal | OAuth2 password grant ✅ |
+
+**Precondición comercial que hay que decir en la venta:** el acceso a la API de
+SIIGO **no viene en todos los planes** — suele exigir un plan específico o un
+módulo de integración adicional. Un cliente con plan básico de SIIGO puede no
+tener API en absoluto.
+
+Por tanto «nuestro POS es compatible con SIIGO» es **condicional al plan del
+cliente**, no una propiedad del POS. Prometerlo sin esa condición es vender algo
+que puede no existir del lado del cliente.
+
+### 3. Enlaces — **dos tipos, y confundirlos contamina el núcleo**
+
+Los proveedores generan enlaces automáticamente. **No son la misma cosa** y no
+pertenecen al mismo módulo:
+
+| Enlace | Qué es | Dónde vive |
+|---|---|---|
+| **Enlace de la factura** (`public_url`, `qr`) | representación gráfica del documento fiscal, inmutable, atada al CUFE | `DocumentArtifactPort` — **ya modelado** |
+| **Enlace o botón de pago** (PSE, tarjeta) | canal de cobro | **Payments, no Electronic Invoicing** |
+
+El enlace de pago **no es fiscal**. Es un medio de cobro que el proveedor ofrece
+de propina. Meterlo en el puerto fiscal metería una preocupación de cobro dentro
+del canal de facturación, que es justo lo que prohíben `data-ownership.md` r.13
+y r.22.
+
+Encaja además donde ya estaba previsto: el linaje preservado modela
+`STATIC_QR`, `DYNAMIC_QR` y `merchant-collection-identifier` como métodos de
+**pago**, no como artefactos fiscales.
+
+**Decisión:** el enlace de pago que devuelva un proveedor fiscal se trata como
+un método de pago externo del módulo Payments. No entra por `DocumentArtifactPort`.
+
+### Consecuencia sobre el saldo de bolsa
+
+Los tres modelos comerciales son distintos y `D-5` no los cubría todos:
+
+| Proveedor | Modelo | Rama del tipo |
+|---|---|---|
+| FACTUS | bolsa anual divisible entre NITs | `MODELLED` |
+| SIIGO | paquetes anuales cerrados (24, 120…) | `MODELLED` |
+| ALEGRA | **ilimitado** en plan de pago | `NOT_APPLICABLE` |
+
+`NOT_APPLICABLE` no existía. Un proveedor ilimitado sólo podía declararse
+`NOT_EVALUATED`, y eso era **falso**: sí se evaluó, y el resultado es que no hay
+bolsa. La señal correspondiente es `UNLIMITED`, distinta de `UNKNOWN`, porque
+aquí sí se sabe.
