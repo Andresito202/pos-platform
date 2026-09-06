@@ -144,6 +144,7 @@ Se conserva el contrato de `DEC-003` y se explicita su aplicación por concepto.
 | cantidad, peso y unidad convertible | `numeric(19,6)` | TEXT decimal canónico | 6 | regla de unidad/conversión explícita | `DEC-003`, `DEC-004` |
 | importe fiscal o contable normalizado | `numeric(19,2)` | TEXT decimal canónico | 2 | solo después de normalización fiscal/contable explícita | `DEC-003`, `DEC-006` |
 | `payable_amount` y ajuste comercial COP | `numeric(19,6)` | TEXT decimal canónico | 6 | `NEAREST_50_HALF_AWAY_FROM_ZERO_V1`; el resultado queda congelado sin cambiar la escala de almacenamiento | `DEC-006`, `UC-ROUND-001` |
+| importes monetarios de Cash: `CashMovement.amount` y los importes de arqueo `expected_amount`, `counted_amount` y `difference_amount` | `numeric(19,6)` | TEXT decimal canónico | 6 | sin punto de reducción propio: el importe se registra tal como se confirma, y `ExpectedCash` se pliega a escala fija sin redondeo intermedio | `DEC-003`, `UC-CASH-001`, `UC-CASH-003`, `DEC-012` §26 |
 
 `numeric(19,2)` no es la representación universal del dominio financiero. Un valor recibido con dos decimales puede conservar evidencia de esa normalización, pero Payment, Refund, Reversal y los componentes de Settlement mantienen capacidad `(19,6)`.
 

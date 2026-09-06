@@ -47,3 +47,72 @@ pnpm test:migrations:sqlite
 pnpm test:migrations:postgres
 ```
 No inventes comandos que no estén en package.json/nx.json — verifica antes de sugerir uno nuevo.
+
+## AGENT PIPELINE — POS PLATFORM
+
+Antes de escribir cualquier código sigue estas fases en orden.
+No saltes fases. No declares una fase completa sin evidencia.
+
+**FASE 1 — SPEC**
+- Define qué problema resuelve el cambio
+- Identifica los módulos afectados
+- Lista las dependencias y consumidores
+- Documenta los criterios de aceptación
+
+**FASE 2 — PLAN**
+- Lista los archivos que se van a crear o modificar
+- Identifica riesgos
+- Define el orden de ejecución
+- Estima impacto en otros módulos
+
+**FASE 3 — BUILD**
+- Implementa solo lo necesario para el objetivo actual
+- No refactorices por gusto
+- No introduzcas dependencias nuevas sin justificación
+- Sigue la arquitectura establecida del proyecto
+
+**FASE 4 — TEST**
+- Ejecuta las pruebas existentes relacionadas
+- Agrega tests para el nuevo comportamiento
+- Reporta el comando ejecutado y el resultado observado
+- Si un test no puede ejecutarse indica la razón exacta
+
+**FASE 5 — REVIEW**
+- Verifica que el código cumple los criterios de aceptación
+- Confirma que no rompe módulos existentes
+- Revisa seguridad en cualquier endpoint o dato sensible
+- Verifica manejo de errores
+
+**FASE 6 — SIMPLIFY**
+- Elimina código muerto o redundante introducido
+- Verifica que los nombres son claros
+- Confirma que la lógica es la mínima necesaria
+
+**FASE 7 — SHIP**
+- Confirma que CI pasa
+- Verifica el diff final contra main
+- Documenta el cambio en el archivo correspondiente
+- Indica el estado: MATERIALIZED / TESTED / REVIEWED
+
+### Estados de evidencia
+
+Usa siempre estas categorías y nunca declares algo terminado sin evidencia:
+
+- `DOCUMENTED` = existe documentación específica
+- `MATERIALIZED` = existe implementación que cumple la condición
+- `TESTED` = fue ejecutado y se observó el resultado
+- `REVIEWED` = una persona revisó y aprobó
+- `CANONICALLY_APPLIED` = está en main con CI verificado
+- `PRODUCTION_READY` = validado en entorno de producción
+- `NOT_EVALUATED` = no hay evidencia suficiente
+- `REQUIRES_LOCAL_VERIFICATION` = necesita verificación manual
+
+## Política de uso de modelos
+
+- Usa el modelo de mayor capacidad disponible para decisiones críticas de arquitectura y seguridad.
+- Usa modelos de menor costo/capacidad para tareas mecánicas cuando sean suficientes.
+- Nunca reduzcas la capacidad del modelo cuando pueda comprometer seguridad, autenticación,
+  autorización, dinero, pagos, IPC o arquitectura.
+- No repitas análisis completo del repositorio si el contexto ya está establecido.
+- Investiga de nuevo solo cuando exista incertidumbre real, contradicción, riesgo de seguridad,
+  migración o cambio arquitectónico.

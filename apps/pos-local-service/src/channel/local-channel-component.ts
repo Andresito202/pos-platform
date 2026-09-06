@@ -9,10 +9,12 @@ import type { RuntimeComponent, RuntimeState } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
 import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
+import type { CommercialComponent } from "../commercial/commercial-component.js";
+import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
 import { LocalChannelAuthenticator } from "./authenticator.js";
 import { localChannelEndpoint } from "./endpoint.js";
 import { SqliteReplayStateStore } from "./replay-state.js";
-import { LocalChannelServer } from "./server.js";
+import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 
 const LOCAL_SCHEMA_VERSION = "5";
@@ -33,13 +35,16 @@ export class LocalChannelComponent implements RuntimeComponent {
 
   private server: LocalChannelServer | undefined;
   private authenticator: LocalChannelAuthenticator | undefined;
+  private readonly commercialHandler: CommercialRequestHandler;
 
   constructor(
     private readonly config: ServiceConfig,
     private readonly localDatabase: LocalDatabaseComponent,
     private readonly runtimeState: () => RuntimeState,
     private readonly operationConfirmation: OperationConfirmationComponent,
+    private readonly commercial: CommercialComponent,
   ) {
+    this.commercialHandler = new CommercialRequestHandler(config, commercial);
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
@@ -60,8 +65,13 @@ export class LocalChannelComponent implements RuntimeComponent {
     const server = new LocalChannelServer(
       this.endpoint,
       authenticator,
-      (request, signal, sessionId) => this.handle(request, signal, sessionId),
+      (request, signal, context) => this.handle(request, signal, context),
       { min: this.config.protocol_min, max: this.config.protocol_max },
+      undefined,
+      undefined,
+      undefined,
+      // El cierre de la conexión invalida su vínculo de sesión (`DEC-015` §5.6).
+      (connectionId) => this.commercial.bindings.release(connectionId),
     );
 
     try {
@@ -87,10 +97,23 @@ export class LocalChannelComponent implements RuntimeComponent {
     }
   }
 
-  private async handle(request: IpcRequest, signal: AbortSignal, sessionId: string): Promise<unknown> {
+  private async handle(
+    request: IpcRequest,
+    signal: AbortSignal,
+    context: ChannelRequestContext,
+  ): Promise<unknown> {
     if (signal.aborted) throw new Error("local channel request aborted");
 
     switch (request.message_type) {
+      case "session.activate":
+      case "session.recover":
+      case "cash.shift.open":
+      case "cash.shift.close":
+      case "sale.create":
+        // La identidad se resuelve por `connectionId`, que asigna el servidor y
+        // nunca viaja por el cable. La petición no puede aportarla.
+        return this.commercialHandler.handle(request, context.connectionId);
+
       case "runtime.handshake": {
         const identityTrusted =
           request.payload.installation_id === this.config.installation_id
@@ -206,7 +229,7 @@ export class LocalChannelComponent implements RuntimeComponent {
               deviceId: this.config.device_id,
               installationId: this.config.installation_id,
             },
-            sessionId,
+            sessionId: context.transportSessionId,
             actorId: this.config.device_id,
           },
           {

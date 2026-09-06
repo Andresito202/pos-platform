@@ -1,10 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import {
+  CashShiftCloseResponseSchema,
+  CashShiftOpenResponseSchema,
   IpcRequestSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,
+  PaymentCancelResponseSchema,
+  PaymentGetResponseSchema,
+  PaymentRegisterCashResponseSchema,
+  PaymentRegisterTransferResponseSchema,
+  PaymentTransferConfirmResponseSchema,
+  SaleCreateResponseSchema,
+  SessionActivateResponseSchema,
+  SessionRecoverResponseSchema,
   negotiateProtocolVersion,
   type ContractVersionRange,
   type IpcRequest,
@@ -16,7 +27,24 @@ import {
   inspectWindowsNamedPipeSecurity,
 } from "./windows-pipe-security.js";
 
-export type ChannelHandler = (request: IpcRequest, signal: AbortSignal, sessionId: string) => Promise<unknown>;
+/**
+ * Contexto de transporte que el servidor entrega al handler — `DEC-015` §3.
+ *
+ * `transportSessionId` lo elige el cliente y sólo sirve para correlación y
+ * anti-replay. `connectionId` lo genera el servidor por conexión aceptada,
+ * **nunca viaja por el cable** y no es observable ni elegible por el llamador:
+ * por eso es la única clave admisible para vincular identidad de sesión.
+ */
+export interface ChannelRequestContext {
+  readonly transportSessionId: string;
+  readonly connectionId: string;
+}
+
+export type ChannelHandler = (
+  request: IpcRequest,
+  signal: AbortSignal,
+  context: ChannelRequestContext,
+) => Promise<unknown>;
 
 function requestWithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
@@ -46,6 +74,26 @@ function validateResponse(request: IpcRequest, input: unknown): unknown {
       return OperationResultResponseSchema.parse(input);
     case "operation.confirm":
       return OperationConfirmResponseSchema.parse(input);
+    case "session.activate":
+      return SessionActivateResponseSchema.parse(input);
+    case "session.recover":
+      return SessionRecoverResponseSchema.parse(input);
+    case "cash.shift.open":
+      return CashShiftOpenResponseSchema.parse(input);
+    case "cash.shift.close":
+      return CashShiftCloseResponseSchema.parse(input);
+    case "sale.create":
+      return SaleCreateResponseSchema.parse(input);
+    case "payment.register.cash":
+      return PaymentRegisterCashResponseSchema.parse(input);
+    case "payment.register.transfer":
+      return PaymentRegisterTransferResponseSchema.parse(input);
+    case "payment.transfer.confirm":
+      return PaymentTransferConfirmResponseSchema.parse(input);
+    case "payment.cancel":
+      return PaymentCancelResponseSchema.parse(input);
+    case "payment.get":
+      return PaymentGetResponseSchema.parse(input);
   }
 }
 
@@ -61,6 +109,12 @@ export class LocalChannelServer {
     private readonly maxConnections = 32,
     private readonly maxQueuedRequestsPerConnection = 64,
     private readonly requestTimeoutMs = 5_000,
+    /**
+     * Se invoca al cerrarse la conexión. `DEC-015` §5.6 exige que el cierre
+     * invalide el vínculo de sesión: sin este aviso el registro conservaría
+     * identidad de una conexión que ya no existe.
+     */
+    private readonly onConnectionClosed?: (connectionId: string) => void,
   ) {
     if (!Number.isSafeInteger(maxConnections) || maxConnections <= 0) throw new Error("maxConnections must be positive");
     if (!Number.isSafeInteger(maxQueuedRequestsPerConnection) || maxQueuedRequestsPerConnection <= 0) {
@@ -86,6 +140,9 @@ export class LocalChannelServer {
       this.sockets.add(socket);
       const decoder = new FrameDecoder();
       const negotiatedSessions = new Map<string, string>();
+      // Identidad de conexión asignada por el servidor. Se crea aquí, vive
+      // exactamente lo que vive el socket y no se transmite jamás.
+      const connectionId = randomUUID();
       let queuedRequests = 0;
       let queue: Promise<void> = Promise.resolve();
 
@@ -115,7 +172,7 @@ export class LocalChannelServer {
                     max: request.payload.protocol_max,
                   });
                   const rawResponse = await requestWithTimeout(
-                    (signal) => this.handler(request, signal, frame.session_id),
+                    (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
                     this.requestTimeoutMs,
                   );
                   const response = RuntimeHandshakeResponseSchema.parse(rawResponse);
@@ -143,7 +200,7 @@ export class LocalChannelServer {
                 }
 
                 const rawResponse = await requestWithTimeout(
-                  (signal) => this.handler(request, signal, frame.session_id),
+                  (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
                   this.requestTimeoutMs,
                 );
                 const response = validateResponse(request, rawResponse) as { protocol_version: string };
@@ -169,6 +226,7 @@ export class LocalChannelServer {
       socket.once("close", () => {
         negotiatedSessions.clear();
         this.sockets.delete(socket);
+        this.onConnectionClosed?.(connectionId);
       });
       socket.once("error", () => socket.destroy());
     });

@@ -5,6 +5,7 @@ import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
+import { CommercialComponent } from "./commercial/commercial-component.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -80,8 +81,13 @@ try {
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
   const durableSync = new DurableSyncComponent(localDatabase);
   const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
+  // El mapa de claves de sesión llega vacío: no existe aprovisionamiento de
+  // claves en el runtime (`LIC-003`/`DEV-003`), de modo que `session.activate`
+  // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
+  // fabricada.
+  const commercial = new CommercialComponent(config, localDatabase, durableSync);
   let localChannel: LocalChannelComponent | undefined;
-  const components: RuntimeComponent[] = [localDatabase, durableSync, operationConfirmation];
+  const components: RuntimeComponent[] = [localDatabase, durableSync, operationConfirmation, commercial];
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
@@ -89,6 +95,7 @@ try {
       localDatabase,
       () => lifecycle?.state ?? "STARTING",
       operationConfirmation,
+      commercial,
     );
     components.push(localChannel);
   }

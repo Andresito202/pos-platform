@@ -1,0 +1,44 @@
+name: strix-penetration-test
+
+# NOTA DE VERIFICACIÓN (2026-09-05): la especificación original de esta tarea
+# pedía `strix-ai/strix-action@v1` autenticado con `secrets.STRIX_TOKEN`. Se
+# verificó contra el repositorio oficial (github.com/usestrix/strix, README
+# vigente, fetched dos veces) y contra el listado de repos de la organización
+# `usestrix`: NO existe ninguna GitHub Action empaquetada `strix-action` en
+# `usestrix` ni en `strix-ai`. La integración de CI documentada actualmente es
+# instalación por script + CLI, autenticada con `STRIX_LLM` y `LLM_API_KEY`, no
+# con un `STRIX_TOKEN`. Este workflow sigue la documentación oficial vigente en
+# vez de los parámetros originalmente solicitados, conforme a la instrucción
+# explícita de la tarea de preferir la documentación real sobre la inventada.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strix-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-scan:
+    name: Strix AI penetration test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # Mismo pin por SHA que el resto del repo (ver codeql-sast.yml,
+      # target-foundation-validation.yml) — política de supply chain de
+      # TECH-004, no un parámetro propio de Strix.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install Strix
+        run: curl -sSL https://strix.ai/install | bash
+
+      - name: Run Strix
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: strix -n -t ./ --scan-mode quick

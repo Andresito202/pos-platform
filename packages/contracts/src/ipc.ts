@@ -8,12 +8,46 @@ import {
   VersionIdentifierSchema,
   UuidSchema,
 } from "./primitives.js";
+import {
+  PaymentCancelRequestSchema,
+  PaymentCancelResponseSchema,
+  PaymentGetRequestSchema,
+  PaymentGetResponseSchema,
+  PaymentRegisterCashRequestSchema,
+  PaymentRegisterCashResponseSchema,
+  PaymentRegisterTransferRequestSchema,
+  PaymentRegisterTransferResponseSchema,
+  PaymentTransferConfirmRequestSchema,
+  PaymentTransferConfirmResponseSchema,
+  CashShiftCloseRequestSchema,
+  CashShiftCloseResponseSchema,
+  CashShiftOpenRequestSchema,
+  CashShiftOpenResponseSchema,
+  SaleCreateRequestSchema,
+  SaleCreateResponseSchema,
+  SessionActivateRequestSchema,
+  SessionActivateResponseSchema,
+  SessionRecoverRequestSchema,
+  SessionRecoverResponseSchema,
+} from "./ipc-commercial.js";
 
 export const IpcMessageTypeSchema = z.enum([
   "runtime.handshake",
   "runtime.status.get",
   "operation.result.get",
   "operation.confirm",
+  // Operaciones comerciales V1 — `DEC-014` §3.1. Sus esquemas viven en
+  // `ipc-commercial.ts`; aquí se incorporan al transporte.
+  "session.activate",
+  "session.recover",
+  "cash.shift.open",
+  "cash.shift.close",
+  "sale.create",
+  "payment.register.cash",
+  "payment.register.transfer",
+  "payment.transfer.confirm",
+  "payment.cancel",
+  "payment.get",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -90,6 +124,16 @@ export const IpcRequestSchema = z.union([
   RuntimeStatusRequestSchema,
   OperationResultRequestSchema,
   OperationConfirmRequestSchema,
+  SessionActivateRequestSchema,
+  SessionRecoverRequestSchema,
+  CashShiftOpenRequestSchema,
+  CashShiftCloseRequestSchema,
+  SaleCreateRequestSchema,
+  PaymentRegisterCashRequestSchema,
+  PaymentRegisterTransferRequestSchema,
+  PaymentTransferConfirmRequestSchema,
+  PaymentCancelRequestSchema,
+  PaymentGetRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -97,6 +141,16 @@ export const IpcResponseSchema = z.union([
   RuntimeStatusResponseSchema,
   OperationResultResponseSchema,
   OperationConfirmResponseSchema,
+  SessionActivateResponseSchema,
+  SessionRecoverResponseSchema,
+  CashShiftOpenResponseSchema,
+  CashShiftCloseResponseSchema,
+  SaleCreateResponseSchema,
+  PaymentRegisterCashResponseSchema,
+  PaymentRegisterTransferResponseSchema,
+  PaymentTransferConfirmResponseSchema,
+  PaymentCancelResponseSchema,
+  PaymentGetResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

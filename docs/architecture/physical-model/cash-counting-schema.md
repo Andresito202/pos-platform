@@ -45,7 +45,7 @@ Constraints:
 
 ### `cash.cash_shifts` / `cash_cash_shifts`
 
-Columnas lógicas: `id`, `tenant_id`, `company_id`, `branch_id`, `cash_register_id`, `origin_device_id`, `opened_by_actor_type`, `opened_by_actor_id`, `opened_at`, `business_date`, `timezone_id`, `utc_offset_minutes`, `currency_code`, `status`, `closed_by_actor_type NULL`, `closed_by_actor_id NULL`, `closed_at NULL`, `opening_idempotency_key`, `opening_request_checksum`, `closing_idempotency_key NULL`, `closing_request_checksum NULL`, `last_movement_sequence`, `version`, `created_at`, `server_recorded_at NULL`.
+Columnas lógicas: `id`, `tenant_id`, `company_id`, `branch_id`, `cash_register_id`, `origin_device_id`, `opened_by_actor_type`, `opened_by_actor_id`, `opened_at`, `business_date`, `timezone_id`, `utc_offset_minutes`, `currency_code`, `status`, `closed_by_actor_type NULL`, `closed_by_actor_id NULL`, `closed_at NULL`, `opening_idempotency_key`, `opening_request_checksum`, `closing_idempotency_key NULL`, `closing_request_checksum NULL`, `cash_register_projection_sequence`, `last_movement_sequence`, `version`, `created_at`, `server_recorded_at NULL`.
 
 Estados persistentes:
 
@@ -56,12 +56,13 @@ Estados persistentes:
 Reglas:
 
 1. Cada turno tiene exactamente un CashMovement `OPENING_FLOAT` `POSTED`, protegido por unique parcial tenant-scoped; la base inicial se deriva de ese hecho y no tiene una segunda autoridad mutable.
-2. Solo existe un turno `OPEN` o `CLOSING` incompatible por tenant, sucursal, caja y dispositivo conforme a `UC-CASH-001`.
+2. Existe como máximo un turno en estado `OPEN` o `CLOSING` por `(tenant_id, branch_id, cash_register_id)`, **con independencia de `origin_device_id`**, conforme a la definición normativa de turno incompatible de `UC-CASH-001`. El unique lógico del turno activo es, por tanto, `(tenant_id, branch_id, cash_register_id)` restringido a los estados `OPEN` y `CLOSING`. Una `CashRegister` es un único cajón físico: la regla impide que dos turnos simultáneos calculen `ExpectedCash` contra el mismo efectivo, cuyo `counted_amount` sólo podría atribuirse a uno. `origin_device_id` conserva íntegras sus funciones de procedencia, idempotencia, auditoría y trazabilidad, y no expresa propiedad sobre la caja. Decisión registrada en `DEC-012` §25.
 3. `OPEN -> CLOSING -> CLOSED` es la secuencia normal; un retorno operativo no modifica el turno cerrado y requiere un caso de uso compensatorio explícito.
 4. Un turno `CLOSED` tiene exactamente un CashCount `CLOSING` `COMPLETED`, protegido por unique parcial `(tenant_id, cash_shift_id)` para ese tipo. No se agrega una FK circular desde CashShift.
 5. Un turno `CLOSED` es inmutable y no admite movimientos normales tardíos.
 6. Cada mutación usa `expected_version`; `last_movement_sequence` aumenta monotónicamente dentro del turno.
 7. Apertura y cierre tienen claves/checksums independientes; misma clave y contenido devuelve el mismo resultado, contenido distinto produce conflicto.
+8. `cash_register_projection_sequence` registra la `sequence` de la proyección de `CashRegister` verificada y vigente en el ámbito `(tenant_id, company_id, branch_id)` en el instante de la apertura. Es obligatoria, se congela en la apertura y ninguna transición posterior la modifica; no es clave, no participa en unicidad y no interviene en `ExpectedCash`. Registra procedencia, no autoridad: no sustituye la verificación de la proyección ni concede permiso alguno. Decisión registrada en `DEC-012` §27.
 
 La protección de turno incompatible se expresa con índice parcial en PostgreSQL. SQLite la valida dentro de `BEGIN IMMEDIATE` por el único escritor local y la cubre con pruebas de concurrencia, conforme a la excepción documentada en `physical-conventions.md`.
 
@@ -102,7 +103,8 @@ Estados persistentes:
 
 Constraints e invariantes:
 
-- `amount > 0`; el efecto usa `IN`/`OUT`, nunca signo ambiguo;
+- `amount` usa la representación decimal exacta de escala **6** y precisión total **19** definida en `physical-conventions.md`; `numeric(19,6)` en PostgreSQL y TEXT decimal canónico en SQLite. Nunca se representa ni se calcula con `number` de JavaScript. Decisión registrada en `DEC-012` §26;
+- `amount > 0` para todo tipo distinto de `OPENING_FLOAT`; el efecto usa `IN`/`OUT`, nunca signo ambiguo. `OPENING_FLOAT` admite `amount >= 0`: declara la base inicial del turno, y una caja puede abrirse sin efectivo. `UC-CASH-001` valida esa base como **no negativa** y sólo exige probar el rechazo de una base negativa; cero no introduce el signo ambiguo que la restricción general previene. Corrección registrada en `DEC-012` §23;
 - moneda igual a CashShift y CashRegister;
 - `UNIQUE (tenant_id, cash_shift_id, shift_sequence)`;
 - `UNIQUE (tenant_id, origin_device_id, idempotency_key)`; una clave no se reutiliza entre operaciones de caja distintas;
@@ -295,7 +297,7 @@ No se infieren arqueos parciales, arqueo ciego, versiones corregidas, tolerancia
 3. movimiento POSTED cambia ExpectedCash y aumenta secuencia/version;
 4. movimiento no POSTED no afecta ExpectedCash;
 5. reintento no duplica movimiento;
-6. importe cero, signo ambiguo o moneda distinta se rechazan;
+6. importe cero en un tipo distinto de `OPENING_FLOAT`, signo ambiguo o moneda distinta se rechazan; un `OPENING_FLOAT` de importe cero se acepta, conforme a `DEC-012` §23;
 7. arqueo parcial no cierra turno ni crea movimiento;
 8. movimiento durante conteo produce conflicto de versión;
 9. arqueo ciego no revela esperado antes de completar;
