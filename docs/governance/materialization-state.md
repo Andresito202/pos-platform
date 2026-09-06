@@ -127,7 +127,16 @@ que declare el backlog**.
 | D-4 | `packages/database-core`, `database-postgres` y `testing` declarados con `src/` vacío | `module-boundaries.json` vs `find` | boundaries que no gobiernan nada |
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
-| D-7 | El `switch` de enrutamiento de `LocalChannelComponent` no tiene `default`: un tipo de contrato sin `case` resuelve `undefined` en silencio | `local-channel-component.ts` | una regresión sólo se detecta por `channel-routing.test.ts`, que es Windows-only |
+| D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
+
+Sobre `D-7`: la corrección de PR #37 resolvió la instancia —los cinco `payment.*`
+sin `case`— pero no la clase. Un tipo nuevo en el contrato podía volver a caer en
+silencio, y el único guardián era una prueba que sólo corre en Windows. La rama
+`default` con asignación a `never` convierte ese olvido en **error de
+compilación**: verificado quitando `case "payment.cancel"` y observando
+`TS2322: Type '{… message_type: "payment.cancel" …}' is not assignable to type
+'never'`. La garantía pasó de una prueba de una plataforma a una propiedad del
+tipo, comprobada en cada `pnpm typecheck`.
 
 ## Linaje archivado
 

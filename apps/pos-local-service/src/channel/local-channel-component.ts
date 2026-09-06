@@ -273,6 +273,25 @@ export class LocalChannelComponent implements RuntimeComponent {
           result: { operation_id: outcome.operationId, status: "SUCCEEDED", result_code: outcome.resultCode },
         };
       }
+
+      default: {
+        // Exhaustividad garantizada por el compilador. Sin esta rama, un
+        // `message_type` del contrato sin `case` no falla de forma visible: el
+        // `switch` cae al final, `handle` resuelve `undefined`, `validateResponse`
+        // lo rechaza y `server.ts` cierra el socket. Así estuvieron los cinco
+        // `payment.*` desde `BLOQUE 4E`.
+        //
+        // Con la asignación a `never`, ese mismo olvido deja de compilar: `tsc`
+        // señala esta línea al añadir un tipo al contrato sin enrutarlo. La
+        // garantía pasa de ser una prueba —que además sólo corre en Windows— a
+        // ser una propiedad del tipo, verificada en cada `pnpm typecheck`.
+        const unrouted: never = request;
+        throw new Error(
+          `local channel message type not routed: ${
+            String((unrouted as { message_type?: unknown }).message_type)
+          }`,
+        );
+      }
     }
   }
 
