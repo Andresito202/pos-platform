@@ -218,6 +218,8 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
+| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`, y **ninguna de las cuatro existe** | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-10 | ALEGRA separa crear de timbrar, y un fallo entre ambos pasos deja una factura **creada y sin timbrar** | `provider-payload-shapes.md` §ALEGRA | reintentar a ciegas crearía una segunda factura; es el fallo que ya cerramos para FACTUS, por otra causa y aún abierto para ALEGRA |
 | D-8 | ~~`Catalog`, `Inventory` y el dominio de `Payment` en un linaje no integrable~~ · **CERRADA 2026-09-06 por `DEC-018`** | rama reclasificada como referencia de diseño; `frozenSourceAreas` en `module-boundaries.json` lo impone en CI | — |
 
 Corrección de `D-3`, 2026-09-06. La redacción original afirmaba que los permisos
