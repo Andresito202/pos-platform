@@ -1,0 +1,93 @@
+import * as z from "zod";
+import type { CredentialReference } from "../credential.js";
+import type { FiscalDocumentType } from "../capability.js";
+import type { FiscalEnvironment } from "../provider.js";
+
+/**
+ * `NumberingRangePort` — `electronic-invoicing.md` §Puertos.
+ *
+ * - consultar capacidades de rango;
+ * - sincronizar rangos y prefijos;
+ * - validar vigencia conocida;
+ * - **no asignar localmente un consecutivo si el proveedor conserva esa
+ *   autoridad**.
+ *
+ * La última obligación es prohibitiva, y aquí se cumple de la forma más simple
+ * que existe: **este puerto no expone ninguna operación de asignación**. No hay
+ * un método que desactivar ni una bandera que respetar. La autoridad se
+ * consulta; el consecutivo, si es del proveedor, jamás se fabrica desde aquí.
+ *
+ * Además `D-6` del ledger sigue vigente: la numeración comercial
+ * (`sales_document_series_counter`) no es numeración fiscal y reutilizarla
+ * violaría la autorización DIAN.
+ */
+
+export const NUMBERING_AUTHORITIES = ["PROVIDER", "LOCAL", "UNKNOWN"] as const;
+
+export type NumberingAuthority = (typeof NUMBERING_AUTHORITIES)[number];
+
+export const NumberingAuthoritySchema = z.enum(NUMBERING_AUTHORITIES);
+
+export interface NumberingRangeSnapshot {
+  readonly rangeId: string;
+  readonly documentType: FiscalDocumentType;
+  readonly prefix: string;
+  readonly authority: NumberingAuthority;
+  readonly resolutionNumber: string | null;
+  readonly rangeFrom: number;
+  readonly rangeTo: number;
+  readonly validFrom: string | null;
+  readonly validUntil: string | null;
+}
+
+export interface NumberingRangeQuery {
+  readonly documentType: FiscalDocumentType;
+  readonly environment: FiscalEnvironment;
+  readonly credential: CredentialReference;
+}
+
+export type NumberingRangeOutcome =
+  | { readonly kind: "SYNCHRONIZED"; readonly ranges: readonly NumberingRangeSnapshot[] }
+  | { readonly kind: "UNSUPPORTED"; readonly reasonCode: string }
+  | { readonly kind: "UNAVAILABLE"; readonly reasonCode: string };
+
+/** Vigencia conocida. `UNKNOWN` cuando el rango no declara ventana. */
+export type RangeValidity = "VALID" | "EXPIRED" | "NOT_YET_VALID" | "UNKNOWN";
+
+export interface NumberingRangePort {
+  synchronizeRanges(
+    query: NumberingRangeQuery,
+    signal: AbortSignal,
+  ): Promise<NumberingRangeOutcome>;
+}
+
+/**
+ * La prohibición, expresada como predicado consultable.
+ *
+ * Devuelve `true` sólo cuando la autoridad es explícitamente local. `UNKNOWN`
+ * no habilita: no saber quién manda no es permiso para mandar.
+ */
+export function mayAllocateLocally(snapshot: NumberingRangeSnapshot): boolean {
+  return snapshot.authority === "LOCAL";
+}
+
+/** Vigencia evaluada contra un instante dado, sin adivinar la ausente. */
+export function evaluateRangeValidity(
+  snapshot: NumberingRangeSnapshot,
+  atIso: string,
+): RangeValidity {
+  if (snapshot.validFrom === null && snapshot.validUntil === null) return "UNKNOWN";
+  const at = Date.parse(atIso);
+  if (Number.isNaN(at)) return "UNKNOWN";
+  if (snapshot.validFrom !== null) {
+    const from = Date.parse(snapshot.validFrom);
+    if (Number.isNaN(from)) return "UNKNOWN";
+    if (at < from) return "NOT_YET_VALID";
+  }
+  if (snapshot.validUntil !== null) {
+    const until = Date.parse(snapshot.validUntil);
+    if (Number.isNaN(until)) return "UNKNOWN";
+    if (at > until) return "EXPIRED";
+  }
+  return "VALID";
+}
