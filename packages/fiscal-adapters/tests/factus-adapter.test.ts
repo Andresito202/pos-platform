@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   FACTUS_ADAPTER_DECLARATION,
   FactusAdapter,
+  describeShape,
   HttpTransportError,
   authorizesIssuance,
   authorizesReissue,
@@ -416,6 +417,46 @@ describe("rangos de numeración", () => {
     // El prefijo `derived:` impide que alguien lo envíe como
     // `numbering_range_id` creyendo que es un identificador del proveedor.
     expect(outcome.ranges[0]?.rangeId).toBe("derived:18760000001:SETP");
+  });
+
+  it("un cuerpo con otra forma dice CUÁL es, sin filtrar un solo valor", async () => {
+    // Forma paginada típica: la lista va anidada bajo `data.data`.
+    const { adapter: subject } = adapter(() =>
+      json(200, {
+        status: "OK",
+        message: "consulta exitosa",
+        data: {
+          data: [{ id: 389, prefix: "SETP", resolution_number: "18760000001" }],
+          links: { next: "https://example/x?page=2" },
+          meta: { total: 1 },
+        },
+      }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("UNAVAILABLE");
+    if (outcome.kind !== "UNAVAILABLE") throw new Error("rama imposible");
+
+    // El motivo lleva la forma: se cierra el diagnóstico sin otra ronda.
+    expect(outcome.reasonCode).toContain("UNPARSEABLE_RESPONSE(shape=");
+    expect(outcome.reasonCode).toContain("data{data[{id,prefix,resolution_number}]");
+
+    // Y ni un solo VALOR sale por ahí.
+    expect(outcome.reasonCode).not.toContain("SETP");
+    expect(outcome.reasonCode).not.toContain("18760000001");
+    expect(outcome.reasonCode).not.toContain("389");
+    expect(outcome.reasonCode).not.toContain("example");
+  });
+
+  it("`describeShape` nombra campos y nunca contenido", () => {
+    expect(describeShape({ token: "secreto", n: 42, ok: true })).toBe("{token,n,ok}");
+    expect(describeShape([{ a: 1 }])).toBe("[{a}]");
+    expect(describeShape([])).toBe("[]");
+    expect(describeShape("cualquier-secreto")).toBe("");
+    // Un cuerpo que no es JSON se distingue de uno que sí lo es con otra forma.
+    expect(describeShape(undefined)).toBe("");
   });
 
   it("el adapter no expone ninguna operación de asignación de consecutivo", () => {

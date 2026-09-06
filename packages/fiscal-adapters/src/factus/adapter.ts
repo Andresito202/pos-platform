@@ -257,7 +257,7 @@ implements
 
     const parsed = FactusBillResponseSchema.safeParse(safeJson(response.body));
     if (!parsed.success) {
-      return uncertain("UNPARSEABLE_RESPONSE", request.electronicDocumentId);
+      return uncertain(unparseableReason(response.body), request.electronicDocumentId);
     }
 
     const bill = parsed.data.data;
@@ -352,7 +352,7 @@ implements
 
     const parsed = FactusBillResponseSchema.safeParse(safeJson(response.body));
     if (!parsed.success) {
-      return { kind: "INDETERMINATE", reasonCode: "UNPARSEABLE_RESPONSE", providerStatus: null };
+      return { kind: "INDETERMINATE", reasonCode: unparseableReason(response.body), providerStatus: null };
     }
 
     const bill = parsed.data.data;
@@ -462,7 +462,7 @@ implements
     if (response.status !== 200) return { kind: "UNAVAILABLE", reasonCode: `HTTP_${response.status}` };
 
     const parsed = FactusRangesResponseSchema.safeParse(safeJson(response.body));
-    if (!parsed.success) return { kind: "UNAVAILABLE", reasonCode: "UNPARSEABLE_RESPONSE" };
+    if (!parsed.success) return { kind: "UNAVAILABLE", reasonCode: unparseableReason(response.body) };
 
     return {
       kind: "SYNCHRONIZED",
@@ -598,6 +598,53 @@ function toInteger(value: string | number | undefined): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+/**
+ * Describe la **forma** de un cuerpo: sólo nombres de campo y marcas de
+ * array/objeto. **Ningún valor.**
+ *
+ * Existe porque un `UNPARSEABLE_RESPONSE` a secas obliga a una ronda extra
+ * contra el proveedor para averiguar qué llegó, y el sandbox sólo es
+ * alcanzable desde la máquina del responsable: cada ronda perdida cuesta un
+ * día. Con la forma en el propio motivo, el diagnóstico se cierra en la misma
+ * ejecución.
+ *
+ * Misma regla que `ConfigurationFinding`: se nombra el campo, jamás su
+ * contenido. Un `string`, un número o una fecha se resumen como cadena vacía,
+ * así que un token o un NIT no pueden salir por aquí.
+ */
+export function describeShape(value: unknown, depth = 0): string {
+  if (Array.isArray(value)) {
+    if (depth >= MAX_SHAPE_DEPTH) return "[…]";
+    return value.length === 0 ? "[]" : `[${describeShape(value[0], depth + 1)}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    if (depth >= MAX_SHAPE_DEPTH) return "{…}";
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    const shown = keys.slice(0, MAX_SHAPE_KEYS);
+    const body = shown.map((key) => `${key}${describeShape(record[key], depth + 1)}`).join(",");
+    return `{${body}${keys.length > shown.length ? ",…" : ""}}`;
+  }
+  return "";
+}
+
+// Cuatro niveles porque una lista paginada anida `raíz → data → data → ítem`, y
+// las claves del ítem son justo lo que hace falta para corregir el esquema. Con
+// tres, el ítem salía como `{…}` y el diagnóstico quedaba a medias.
+const MAX_SHAPE_DEPTH = 4;
+const MAX_SHAPE_KEYS = 12;
+const MAX_SHAPE_LENGTH = 240;
+
+/** Motivo de parseo fallido que **lleva la forma observada**. */
+function unparseableReason(body: string): string {
+  const shape = describeShape(safeJson(body));
+  if (shape === "") return "UNPARSEABLE_RESPONSE(not-json)";
+  const trimmed = shape.length > MAX_SHAPE_LENGTH
+    ? `${shape.slice(0, MAX_SHAPE_LENGTH)}…`
+    : shape;
+  return `UNPARSEABLE_RESPONSE(shape=${trimmed})`;
 }
 
 /** Lee `reference_code` del cuerpo congelado sin asumir su forma. */
