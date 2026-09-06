@@ -111,6 +111,17 @@
       "observability"
     ]
   },
+  "frozenSourceAreas": {
+    "@pos-platform/domain": [
+      "authorization",
+      "index.ts"
+    ],
+    "@pos-platform/application": [
+      "authorization",
+      "session",
+      "index.ts"
+    ]
+  },
   "forbiddenProjectNames": [
     "@pos-platform/categories",
     "@pos-platform/product-codes",

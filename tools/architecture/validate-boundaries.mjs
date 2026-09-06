@@ -238,6 +238,30 @@ export async function validateWorkspace(workspaceRoot, policyOverride) {
     }
   }
 
+  // `DEC-017` §4.2: `packages/domain` y `packages/application` conservan
+  // únicamente lo que contienen y no se amplían preventivamente. Sin esta
+  // comprobación la norma depende de que alguien la recuerde, y ya hay un
+  // linaje completo de `Catalog`, `Inventory` y `Payment` esperando a que
+  // alguien lo copie aquí (`DEC-018`).
+  for (const [projectName, allowedEntries] of Object.entries(policy.frozenSourceAreas ?? {})) {
+    const project = projects.find((candidate) => candidate.name === projectName);
+    if (!project) {
+      errors.push(`frozenSourceAreas names an undeclared project: ${projectName}`);
+      continue;
+    }
+    const sourceDirectory = join(project.absoluteRoot, "src");
+    if (!(await pathExists(sourceDirectory))) continue;
+    const allowed = new Set(allowedEntries);
+    for (const entry of await readdir(sourceDirectory, { withFileTypes: true })) {
+      if (!allowed.has(entry.name)) {
+        errors.push(
+          `${projectName} src/${entry.name} is not in its frozen area set (DEC-017 4.2); `
+          + `implement it under apps/pos-local-service/src/ instead`,
+        );
+      }
+    }
+  }
+
   const workspacePackages = [];
   for (const parent of ["packages", "apps"]) {
     const directory = join(root, parent);

@@ -157,7 +157,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
-| D-8 | `Catalog`, `Inventory` y el dominio de `Payment` existen implementados en un linaje que `main` no puede integrar por merge | rama `wip/local-catalog-inventory-payment-20260906`, commit `a10249f` | dos implementaciones de las mismas capacidades divergiendo; se rehace trabajo ya hecho o se integra un linaje incompatible |
+| D-8 | ~~`Catalog`, `Inventory` y el dominio de `Payment` en un linaje no integrable~~ · **CERRADA 2026-09-06 por `DEC-018`** | rama reclasificada como referencia de diseño; `frozenSourceAreas` en `module-boundaries.json` lo impone en CI | — |
 
 Corrección de `D-3`, 2026-09-06. La redacción original afirmaba que los permisos
 fiscales documentados en minúscula «serían rechazados por el contrato». **Era
@@ -228,7 +228,7 @@ sobre `domain/cash-open-vertical-20260901`. Se preservó antes de tocar nada:
 | Payment | dominio `payment`, `payment-attempt`, `payment-method`, `merchant-collection-identifier`, 4 eventos, puertos de autorización y autenticidad, casos de uso `initiate-payment` y `confirm-payment` |
 | Migraciones | `005_catalog_foundation` y `006_inventory_foundation` (PostgreSQL), con pruebas |
 
-### Por qué no se integra por merge
+### Por qué no se integra por merge, y qué se decidió
 
 Verificado sobre el remoto el 2026-09-06:
 
@@ -262,11 +262,34 @@ coste muy distinto:
    sí depende del esquema divergente y **no es portable tal cual**: requiere
    migraciones nuevas `MIGRATION_012` en adelante sobre el esquema de `main`.
 
-Ninguna de las dos está decidida. Queda registrada como `D-8`.
+**Decidido en `DEC-018` (2026-09-06): no se porta código, ninguna de las dos.**
 
-**Prohibido mientras tanto:** reimplementar `Catalog` o `Inventory` desde cero
-sin haber leído antes esta rama. Es exactamente el modo de fallo que este
-documento existe para impedir.
+Tres hallazgos lo forzaron, y el primero invalida la recomendación previa de
+«rescatar el dominio puro»:
+
+1. `Payment` y `Cash` del linaje **duplican capacidades que `main` ya tiene
+   canónicas y probadas de extremo a extremo**. Su `PaymentMethod` es más ancho
+   —nueve métodos frente a dos—, pero más ancho sobre el papel no es más
+   avanzado.
+2. Los 30 archivos de dominio del linaje dependen de `../money.js`,
+   `../quantity.js`, `../tenant-scope.js`, `../company-scope.js` y
+   `../actor.js`, **ninguno de los cuales existe en `main`**. `main` implementa
+   el dinero como funciones en `apps/pos-local-service/src/payments/money.ts`.
+   Misma invariante, dos representaciones — y `DEC-017` §3 ya registró que un
+   segundo modelo de dinero «introduciría dos verdades sobre el mismo importe».
+3. `DEC-017` §4.2 **prohíbe expresamente** ampliar `packages/domain` y
+   `packages/application`, que es justo lo que el porte exigiría.
+
+La rama se reclasifica a **referencia de diseño**, mismo estatus que el linaje
+archivado. Se conserva como la especificación más detallada que existe de
+`Catalog`, `Inventory` y de los siete métodos de pago que `main` no soporta.
+`Catalog` e `Inventory` se implementarán en `apps/pos-local-service/src/` con la
+representación monetaria de `main` y migraciones desde `MIGRATION_012`.
+
+**Prohibido:** reimplementar `Catalog` o `Inventory` desde cero sin haber leído
+antes esta rama. Y ya no depende de que alguien lo recuerde: `frozenSourceAreas`
+en `module-boundaries.json` hace fallar CI si aparece un área nueva bajo el
+`src/` de esos dos paquetes.
 
 ## Linaje archivado
 
