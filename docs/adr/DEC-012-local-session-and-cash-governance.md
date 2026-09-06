@@ -1517,3 +1517,43 @@ Un actor `DEVICE` nunca puede ejecutar `CASH_SHIFT_OPEN` ni `CASH_SHIFT_CLOSE`. 
 ### 33.4 Alcance
 
 Esta sección es **aditiva**. No modifica ni reinterpreta ninguna decisión de §1–§32. Complementa D6 (§27) añadiendo la forma canónica del cierre.
+
+---
+
+## 34. Ampliación de `§32` — dominio de `snapshot_type` autorizado
+
+Ratificada el 2026-09-06 por **Wilson Andrés Camacho Culma**, responsable del producto, como decisión humana explícita conforme a §13, tras revisar `docs/governance/catalog-authorization-decision-pack.md`.
+
+**Relación con §32.** §32.1 autorizó los componentes de snapshot maestro «acotados exclusivamente a `snapshot_type = CASH_REGISTER`». Esta sección amplía ese acotamiento y **no revoca ni reinterpreta** ninguna otra cláusula de §32, que conserva su vigencia y su firma.
+
+### 34.1 Alcance autorizado
+
+Se autoriza, y **únicamente**:
+
+1. Admitir en el dominio de `snapshot_type` los cuatro tipos que `DEC-013` §7 ya fija como canónicos: `CATALOG`, `PRICING`, `TAX` y `CASH_REGISTER`.
+2. Reconstruir `local_master_snapshot_artifact` para ampliar su `CHECK`, dado que SQLite no permite alterar una restricción `CHECK` en su sitio.
+3. Ampliar `MasterSnapshotTypeSchema` de `z.literal` a la enumeración correspondiente en `packages/contracts/src/master-snapshot.ts`.
+
+Se autoriza el dominio completo en una sola reconstrucción, y no un tipo por vez, porque cada reconstrucción es el momento de mayor riesgo para una base instalada. El precedente propio es `MIGRATION_011`, que escribió los `CHECK` de Payment con los enums completos de `PAY-007` en lugar del subconjunto de V1 para no verse obligada a reconstruir después.
+
+Admitir un tipo en el dominio **no obliga a materializar su proyección**.
+
+### 34.2 Riesgo aceptado explícitamente
+
+La reconstrucción rompe la invariante de **cero deleciones** que mantienen las once migraciones vigentes. Se acepta a sabiendas, con el patrón ya verificado en `MIGRATION_008` (`local_operation_audit_rebuilt` → `INSERT INTO … SELECT` → `DROP TABLE` → `ALTER TABLE … RENAME TO`, incluida la recreación de índices y triggers), y con las salvaguardas que `LocalDatabase.open` ya aplica: `createVerifiedBackup("pre-migration")` antes de migrar y `assertIntegrity()` después.
+
+### 34.3 Lo que esta autorización **no** concede
+
+No autoriza, y cada uno requiere su propio bloque y su propia evidencia:
+
+1. implementar la proyección local de catálogo, pricing o impuestos;
+2. definir el contrato de payload que `DEC-013` §7 exige por `snapshot_type`;
+3. construir o cablear `MasterSnapshotVerifier` en el runtime;
+4. aprovisionar claves de firma (`LIC-003` / `DEV-003`);
+5. materializar transporte alguno hacia la autoridad central.
+
+Mientras 3, 4 y 5 no existan, un snapshot de cualquiera de los tipos nuevos será rechazado exactamente igual que hoy se rechaza `session.activate`. Esta autorización elimina un bloqueo de gobierno, no una carencia técnica.
+
+### 34.4 Prohibición que se mantiene
+
+Sigue prohibido crear tablas de catálogo, pricing o impuestos fuera de la ruta de snapshot maestro. Una tabla local poblada por otro camino constituiría una segunda autoridad de datos maestros y violaría `DEC-013`. Las tablas `sandbox_*` de `MIGRATION_010` son fixtures de prueba y no se pueblan en producción.
