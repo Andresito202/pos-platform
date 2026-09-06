@@ -36,8 +36,23 @@ export interface NumberingRangeSnapshot {
   readonly resolutionNumber: string | null;
   readonly rangeFrom: number;
   readonly rangeTo: number;
+  /** Consecutivo alcanzado. `null` si el proveedor no lo informa. */
+  readonly currentNumber: number | null;
   readonly validFrom: string | null;
   readonly validUntil: string | null;
+  /**
+   * Vigencia **según el proveedor**. `null` cuando no la declara.
+   *
+   * Cuando existe, manda sobre la aritmética de fechas: el proveedor conoce su
+   * calendario y sus reglas de habilitación; nosotros sólo tenemos dos cadenas.
+   */
+  readonly providerActive: boolean | null;
+  readonly providerExpired: boolean | null;
+  /**
+   * Código de tipo documental **en crudo del proveedor**, sin traducir.
+   * Traducirlo exige la tabla de códigos DIAN, que no existe (`D-9`).
+   */
+  readonly providerDocumentCode: string | null;
 }
 
 export interface NumberingRangeQuery {
@@ -71,12 +86,22 @@ export function mayAllocateLocally(snapshot: NumberingRangeSnapshot): boolean {
   return snapshot.authority === "LOCAL";
 }
 
-/** Vigencia evaluada contra un instante dado, sin adivinar la ausente. */
+/**
+ * Vigencia evaluada contra un instante dado, sin adivinar la ausente.
+ *
+ * Si el proveedor declara su propia vigencia, **manda la suya**: conoce su
+ * calendario y sus reglas de habilitación, y nosotros sólo tenemos dos cadenas
+ * de fecha. Sólo cuando no la declara se cae a la aritmética local.
+ */
 export function evaluateRangeValidity(
   snapshot: NumberingRangeSnapshot,
   atIso: string,
 ): RangeValidity {
-  if (snapshot.validFrom === null && snapshot.validUntil === null) return "UNKNOWN";
+  if (snapshot.providerExpired === true) return "EXPIRED";
+  if (snapshot.providerActive === false && snapshot.providerExpired !== false) return "UNKNOWN";
+  if (snapshot.validFrom === null && snapshot.validUntil === null) {
+    return snapshot.providerActive === true ? "VALID" : "UNKNOWN";
+  }
   const at = Date.parse(atIso);
   if (Number.isNaN(at)) return "UNKNOWN";
   if (snapshot.validFrom !== null) {

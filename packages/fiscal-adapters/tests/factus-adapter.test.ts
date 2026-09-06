@@ -419,17 +419,69 @@ describe("rangos de numeración", () => {
     expect(outcome.ranges[0]?.rangeId).toBe("derived:18760000001:SETP");
   });
 
-  it("un cuerpo con otra forma dice CUÁL es, sin filtrar un solo valor", async () => {
-    // Forma paginada típica: la lista va anidada bajo `data.data`.
+  it("acepta la forma PAGINADA de /v2/numbering-ranges, verificada contra el sandbox", async () => {
+    // Forma observada el 2026-09-06 contra `api-sandbox.factus.com.co`:
+    // `{status, message, data:{data:[…], pagination:{…}}}`.
     const { adapter: subject } = adapter(() =>
       json(200, {
         status: "OK",
         message: "consulta exitosa",
         data: {
-          data: [{ id: 389, prefix: "SETP", resolution_number: "18760000001" }],
-          links: { next: "https://example/x?page=2" },
-          meta: { total: 1 },
+          data: [{
+            id: 389,
+            document: "01",
+            prefix: "SETP",
+            from: 990000000,
+            to: 995000000,
+            current: 990000123,
+            resolution_number: "18760000001",
+            start_date: "2026-01-01",
+            end_date: "2026-12-31",
+            technical_key: "clave-tecnica",
+            is_expired: false,
+            is_active: true,
+          }],
+          pagination: { total: 1, per_page: 10, current_page: 1, last_page: 1 },
         },
+      }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    const range = outcome.ranges[0];
+    // El `id` real, que es el `numbering_range_id` de emisión.
+    expect(range?.rangeId).toBe("389");
+    expect(range?.currentNumber).toBe(990000123);
+    expect(range?.providerActive).toBe(true);
+    expect(range?.providerExpired).toBe(false);
+    expect(range?.providerDocumentCode).toBe("01");
+  });
+
+  it("sigue aceptando la forma PLANA de /v2/numbering-ranges/dian", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, { status: "OK", data: [{ prefix: "SETP", resolution_number: "18760000001" }] }));
+
+    const outcome = await subject.synchronizeRanges(
+      { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("SYNCHRONIZED");
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    // Sin `id`, la identidad se marca derivada.
+    expect(outcome.ranges[0]?.rangeId).toBe("derived:18760000001:SETP");
+    expect(outcome.ranges[0]?.currentNumber).toBeNull();
+  });
+
+  it("una forma desconocida dice CUÁL es, sin filtrar un solo valor", async () => {
+    const { adapter: subject } = adapter(() =>
+      json(200, {
+        status: "OK",
+        message: "consulta exitosa",
+        results: [{ identifier: 389, serie: "SETP", resolucion: "18760000001" }],
+        next: "https://example/x?page=2",
       }));
 
     const outcome = await subject.synchronizeRanges(
@@ -441,7 +493,7 @@ describe("rangos de numeración", () => {
 
     // El motivo lleva la forma: se cierra el diagnóstico sin otra ronda.
     expect(outcome.reasonCode).toContain("UNPARSEABLE_RESPONSE(shape=");
-    expect(outcome.reasonCode).toContain("data{data[{id,prefix,resolution_number}]");
+    expect(outcome.reasonCode).toContain("results[{identifier,serie,resolucion}]");
 
     // Y ni un solo VALOR sale por ahí.
     expect(outcome.reasonCode).not.toContain("SETP");
