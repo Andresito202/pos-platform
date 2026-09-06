@@ -466,7 +466,7 @@ implements
 
     return {
       kind: "SYNCHRONIZED",
-      ranges: parsed.data.data.map((range) => ({
+      ranges: rangeItemsOf(parsed.data.data).map((range) => ({
         // Se prefiere el `id` de FACTUS cuando existe: es el
         // `numbering_range_id` que exige la emisión. El recurso DIAN no lo
         // trae, y ahí la identidad se **deriva** de resolución y prefijo,
@@ -485,8 +485,15 @@ implements
           : String(range.resolution_number),
         rangeFrom: toInteger(range.from),
         rangeTo: toInteger(range.to),
+        currentNumber: range.current === undefined ? null : toInteger(range.current),
         validFrom: range.start_date ?? null,
         validUntil: range.end_date ?? null,
+        // La vigencia que declara el proveedor manda sobre nuestra aritmética
+        // de fechas: él conoce su calendario y sus reglas, nosotros sólo dos
+        // cadenas.
+        providerActive: range.is_active ?? null,
+        providerExpired: range.is_expired ?? null,
+        providerDocumentCode: range.document === undefined ? null : String(range.document),
       })),
     };
   }
@@ -554,41 +561,78 @@ implements
 const FACTUS_REQUIRED_FIELDS = ["client_id", "client_secret", "username", "password"];
 
 /**
- * Forma **verificada** contra el sandbox real el 2026-09-06.
+ * Formas **verificadas contra el sandbox real** el 2026-09-06. Son **dos**, y
+ * confundirlas costó tres rondas de diagnóstico.
  *
- * Observada: `{ data: [...], message, status }`, con elementos de claves
- * `end_date`, `from`, `prefix`, `resolution_number`, `start_date`,
- * `technical_key`, `to`.
+ * `/v2/numbering-ranges` — colección **paginada**:
  *
- * La versión anterior exigía un `id` que **FACTUS no devuelve**, y ese era el
- * único motivo del `UNPARSEABLE_RESPONSE`.
+ * ```
+ * {status, message, data: {data: [ítem…], pagination: {total, per_page, …}}}
+ * ```
  *
- * Los numéricos aceptan `string | number` porque el tipo JSON de `from`, `to` y
- * `resolution_number` no se observó, sólo su presencia. Aceptar ambos es lo
- * honesto: asumir uno volvería a fallar por la misma clase de error.
+ * `/v2/numbering-ranges/dian` — array **plano**:
+ *
+ * ```
+ * {status, message, data: [ítem…]}
+ * ```
+ *
+ * Claves del ítem observadas en el recurso paginado: `id`, `document`,
+ * `prefix`, `from`, `to`, `current`, `resolution_number`, `start_date`,
+ * `end_date`, `technical_key`, `is_expired`, `is_active`. El recurso DIAN no
+ * trae `id`.
+ *
+ * Los numéricos aceptan `string | number` porque su tipo JSON no llegó a
+ * observarse, sólo su presencia. Asumir uno repetiría la misma clase de error
+ * que ya falló.
  */
-const FactusRangesResponseSchema = z.object({
-  data: z.array(z.object({
-    /**
-     * Presente en `/v2/numbering-ranges` y **ausente** en
-     * `/v2/numbering-ranges/dian`. Es el `numbering_range_id` que exige el
-     * cuerpo de emisión, así que sin él no se puede facturar con más de un
-     * rango activo.
-     */
-    id: z.union([z.string(), z.number()]).optional(),
-    prefix: z.string().optional(),
-    resolution_number: z.union([z.string(), z.number()]).optional(),
-    // `technical_key` es la llave técnica DIAN. Se reconoce para no romper el
-    // parseo, pero **no se propaga** a `NumberingRangeSnapshot`: interviene en
-    // el cálculo del CUFE y llevarla al núcleo es una decisión de seguridad
-    // propia, no un efecto colateral de sincronizar rangos.
-    technical_key: z.string().optional(),
-    from: z.union([z.string(), z.number()]).optional(),
-    to: z.union([z.string(), z.number()]).optional(),
-    start_date: z.string().optional(),
-    end_date: z.string().optional(),
-  }).loose()),
+const FactusRangeItemSchema = z.object({
+  /**
+   * Presente en `/v2/numbering-ranges` y **ausente** en
+   * `/v2/numbering-ranges/dian`. Es el `numbering_range_id` que exige el
+   * cuerpo de emisión, así que sin él no se puede facturar con más de un
+   * rango activo.
+   */
+  id: z.union([z.string(), z.number()]).optional(),
+  prefix: z.string().optional(),
+  resolution_number: z.union([z.string(), z.number()]).optional(),
+  // `technical_key` es la llave técnica DIAN. Se reconoce para no romper el
+  // parseo, pero **no se propaga** a `NumberingRangeSnapshot`: interviene en
+  // el cálculo del CUFE y llevarla al núcleo es una decisión de seguridad
+  // propia, no un efecto colateral de sincronizar rangos.
+  technical_key: z.string().optional(),
+  from: z.union([z.string(), z.number()]).optional(),
+  to: z.union([z.string(), z.number()]).optional(),
+  /** Consecutivo alcanzado dentro del rango. */
+  current: z.union([z.string(), z.number()]).optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  /**
+   * Código de tipo documental **del proveedor**. No se traduce a
+   * `FiscalDocumentType`: hacerlo exige la tabla de códigos DIAN, que no
+   * existe todavía (`D-9`). Se conserva en crudo para que un consumidor con
+   * esa tabla pueda filtrar sin que el adapter invente la correspondencia.
+   */
+  document: z.union([z.string(), z.number()]).optional(),
+  /** Autoridad del proveedor sobre la vigencia. Manda sobre nuestra aritmética de fechas. */
+  is_active: z.boolean().optional(),
+  is_expired: z.boolean().optional(),
 }).loose();
+
+const FactusRangesResponseSchema = z.object({
+  data: z.union([
+    // `/v2/numbering-ranges` — colección paginada.
+    z.object({ data: z.array(FactusRangeItemSchema) }).loose(),
+    // `/v2/numbering-ranges/dian` — array plano.
+    z.array(FactusRangeItemSchema),
+  ]),
+}).loose();
+
+/** Extrae los ítems de cualquiera de las dos formas verificadas. */
+function rangeItemsOf(
+  data: z.infer<typeof FactusRangesResponseSchema>["data"],
+): readonly z.infer<typeof FactusRangeItemSchema>[] {
+  return Array.isArray(data) ? data : data.data;
+}
 
 /** Entero tolerante al tipo JSON, sin `NaN` silencioso. */
 function toInteger(value: string | number | undefined): number {

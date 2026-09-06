@@ -146,19 +146,37 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > `id` —el `numbering_range_id` que exige emitir—; el segundo, las resoluciones
 > DIAN en crudo. El adapter apuntaba al segundo pidiendo la forma del primero.
 >
-> Corregido: se consulta `/v2/numbering-ranges`, el esquema tolera ambas formas,
-> la identidad usa el `id` real cuando existe y se marca `derived:` cuando no,
-> para que nadie envíe una identidad derivada como `numbering_range_id`.
+> **Cerrado en la cuarta ronda.** El motivo autodescriptivo devolvió la forma en
+> la propia ejecución, sin otra vuelta contra el proveedor:
 >
-> Dos decisiones que deja el hallazgo:
+> ```
+> UNPARSEABLE_RESPONSE(shape={status,message,data{data[{id,document,prefix,from,
+>   to,current,resolution_number,start_date,end_date,technical_key,is_expired,
+>   is_active,…}],pagination{total,per_page,current_page,last_page,from,to,links[…]}}})
+> ```
 >
-> - `technical_key` es la llave técnica DIAN, interviene en el cálculo del CUFE.
+> Son **dos formas distintas**, y confundirlas fue la causa de todo:
+> `/v2/numbering-ranges` devuelve una colección **paginada** —`data.data[]` con
+> `pagination`— y `/v2/numbering-ranges/dian` un array **plano** —`data[]`—. El
+> esquema acepta ahora ambas, y hay una prueba por cada una.
+>
+> La forma real trajo además cuatro campos que no se conocían: `current`
+> (consecutivo alcanzado), `document` (código de tipo documental del proveedor),
+> `is_active` e `is_expired`.
+>
+> Tres decisiones que deja el hallazgo:
+>
+> - **La vigencia declarada por el proveedor manda** sobre nuestra aritmética de
+>   fechas. Él conoce su calendario y sus reglas de habilitación; nosotros sólo
+>   teníamos dos cadenas. Un rango dentro de fechas pero marcado caducado está
+>   caducado.
+> - `document` se conserva **en crudo, sin traducir**. Traducirlo a
+>   `FiscalDocumentType` exige la tabla de códigos DIAN, que no existe (`D-9`).
+>   Inventar la correspondencia sería el mismo error que ya costó tres rondas.
+> - `technical_key` es la llave técnica DIAN e interviene en el cálculo del CUFE.
 >   Se reconoce para no romper el parseo pero **no se propaga** al snapshot:
 >   llevarla al núcleo es una decisión de seguridad propia, no un efecto
 >   colateral de sincronizar rangos. Hay una prueba que lo fija.
-> - FACTUS no asigna `id` al rango, así que la identidad se **deriva** de
->   resolución y prefijo, y se marca como derivada para que nadie la confunda
->   con un identificador del proveedor.
 >
 > La declaración se mantiene en `MOCK_TESTED` hasta que la ejecución local
 > confirme el verde.

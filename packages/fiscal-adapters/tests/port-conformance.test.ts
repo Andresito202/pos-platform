@@ -84,8 +84,12 @@ const PROVIDER_RANGE: NumberingRangeSnapshot = {
   resolutionNumber: "18760000001",
   rangeFrom: 990_000_000,
   rangeTo: 995_000_000,
+  currentNumber: 990_000_123,
   validFrom: "2026-01-01T00:00:00Z",
   validUntil: "2026-12-31T23:59:59Z",
+  providerActive: null,
+  providerExpired: null,
+  providerDocumentCode: "01",
 };
 
 const fake = new DeterministicFiscalFake();
@@ -121,6 +125,26 @@ describe("el puerto de numeración no ofrece forma de fabricar un consecutivo", 
   it("no saber quién manda tampoco es permiso para mandar", () => {
     expect(mayAllocateLocally({ ...PROVIDER_RANGE, authority: "UNKNOWN" })).toBe(false);
     expect(mayAllocateLocally({ ...PROVIDER_RANGE, authority: "LOCAL" })).toBe(true);
+  });
+
+  it("la vigencia declarada por el proveedor manda sobre la aritmética de fechas", () => {
+    // El proveedor conoce su calendario y sus reglas de habilitación; nosotros
+    // sólo tenemos dos cadenas. Un rango dentro de fechas pero marcado
+    // caducado por FACTUS está caducado.
+    expect(
+      evaluateRangeValidity(
+        { ...PROVIDER_RANGE, providerExpired: true },
+        "2026-06-01T00:00:00Z",
+      ),
+    ).toBe("EXPIRED");
+
+    // Y sin fechas, un `is_active: true` sí resuelve lo que antes era UNKNOWN.
+    expect(
+      evaluateRangeValidity(
+        { ...PROVIDER_RANGE, validFrom: null, validUntil: null, providerActive: true },
+        "2026-06-01T00:00:00Z",
+      ),
+    ).toBe("VALID");
   });
 
   it("evalúa vigencia sin inventar la que no está declarada", () => {
