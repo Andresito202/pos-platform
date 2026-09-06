@@ -26,6 +26,9 @@ jobs:
     name: Strix AI penetration test
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      STRIX_LLM: ${{ secrets.STRIX_LLM }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
     steps:
       # Mismo pin por SHA que el resto del repo (ver codeql-sast.yml,
       # target-foundation-validation.yml) — política de supply chain de
@@ -34,11 +37,45 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Un control que falla siempre por configuración no aporta señal: nadie
+      # puede distinguir «Strix encontró una vulnerabilidad» de «faltan los
+      # secretos». Separar ambos casos es lo que devuelve valor al rojo.
+      - name: Check Strix configuration
+        id: configuration
+        run: |
+          missing=""
+          [ -n "${STRIX_LLM:-}" ] || missing="${missing} STRIX_LLM"
+          [ -n "${LLM_API_KEY:-}" ] || missing="${missing} LLM_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "missing=${missing# }" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report that the scan did not run
+        if: steps.configuration.outputs.configured != 'true'
+        env:
+          MISSING: ${{ steps.configuration.outputs.missing }}
+        run: |
+          echo "::warning title=Strix penetration test NOT RUN::Missing repository secrets: ${MISSING}. No penetration test was performed on this pull request."
+          {
+            echo "## Strix penetration test — **NOT RUN**"
+            echo
+            echo "Missing repository secrets: \`${MISSING}\`."
+            echo
+            echo "**No penetration test was performed on this pull request.**"
+            echo "A green check here does not mean the change was scanned."
+            echo
+            echo "See \`docs/security/strix-penetration-test-gate.md\` to configure it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install Strix
+        if: steps.configuration.outputs.configured == 'true'
         run: curl -sSL https://strix.ai/install | bash
 
+      # Configurado, el fallo vuelve a significar lo único que debe significar:
+      # el escaneo encontró algo, o no pudo completarse.
       - name: Run Strix
-        env:
-          STRIX_LLM: ${{ secrets.STRIX_LLM }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        if: steps.configuration.outputs.configured == 'true'
         run: strix -n -t ./ --scan-mode quick
