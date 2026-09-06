@@ -16,11 +16,13 @@ import {
  * ya materializados en `BLOQUE 4C` (`UC-SALES-001`) y `BLOQUE 4D`
  * (`UC-CASH-001`, `UC-CASH-002`).
  *
- * **Este módulo define forma, no habilita transporte.** Deliberadamente no se
- * añade a `IpcMessageTypeSchema` ni a las uniones `IpcRequestSchema` /
- * `IpcResponseSchema` de `ipc.ts`: incorporarlos allí activaría rutas que
- * ningún handler atiende todavía. La incorporación a la unión pertenece al
- * bloque de implementación, no a la ratificación del contrato.
+ * Incorpora además la superficie de Payment V1 (`DEC-016`):
+ * `payment.register.cash`, `payment.register.transfer`,
+ * `payment.transfer.confirm`, `payment.cancel` y `payment.get`.
+ *
+ * Estos esquemas **sí** están incorporados a `IpcMessageTypeSchema` y a las
+ * uniones de `ipc.ts`: sus handlers existen. (La nota original decía lo
+ * contrario porque el módulo nació antes que ellos.)
  *
  * ## Frontera de confianza
  *
@@ -311,6 +313,192 @@ export const SaleCreateResultSchema = z.strictObject({
 
 export const SaleCreateResponseSchema = createResponseEnvelopeSchema(SaleCreateResultSchema);
 
+// ── payment.register.cash ────────────────────────────────────────────────────
+
+/**
+ * `UC-PAY-001` efectivo — `DEC-016`.
+ *
+ * El llamador **no** aporta `confirmed_amount`, cobertura ni vuelto: la capa
+ * confiable confirma el importe, calcula el vuelto y decide si la venta queda
+ * completa. `tendered_amount` es opcional y sólo forense (`DEC-016` §10.5): no
+ * produce un segundo movimiento de caja.
+ */
+export const PaymentRegisterCashRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    amount: NonNegativeScale6Schema,
+    tendered_amount: NonNegativeScale6Schema.nullable(),
+  }),
+).safeExtend({ message_type: z.literal("payment.register.cash") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentRegisterCashOutcomeSchema = z.enum([
+  "CONFIRMED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "SALE_NOT_FOUND",
+  "SALE_NOT_PAYABLE",
+  "SALE_ALREADY_COMPLETED",
+  "CURRENCY_MISMATCH",
+  "OVERPAYMENT_NOT_ALLOWED",
+  "CASH_SHIFT_MISSING",
+  "CASH_SHIFT_NOT_OPEN",
+  "INSUFFICIENT_TENDER",
+]);
+
+/**
+ * `sale_completed` es el único campo que autoriza la confirmación sonora
+ * (`DEC-016` §13.2), y sólo cuando `outcome` es `CONFIRMED` — nunca en un
+ * reintento `IDEMPOTENT`.
+ */
+export const PaymentRegisterCashResultSchema = z.strictObject({
+  outcome: PaymentRegisterCashOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  sale_completed: z.boolean(),
+  confirmed_coverage: NonNegativeScale6Schema.nullable(),
+  payable_amount: NonNegativeScale6Schema.nullable(),
+  change_amount: NonNegativeScale6Schema.nullable(),
+});
+
+export const PaymentRegisterCashResponseSchema = createResponseEnvelopeSchema(PaymentRegisterCashResultSchema);
+
+// ── payment.register.transfer ────────────────────────────────────────────────
+
+/**
+ * `UC-PAY-003` reporte. Deja el pago en `CREATED`: **no** imputa y **no** puede
+ * completar la venta. `provider_code` y `provider_reference` son metadatos de
+ * atestiguación, nunca autoridad financiera.
+ */
+export const PaymentRegisterTransferRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    amount: NonNegativeScale6Schema,
+    provider_code: z.string().min(1).max(32).regex(/^[A-Z][A-Z0-9_]*$/).nullable(),
+    provider_reference: z.string().min(1).max(128).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("payment.register.transfer") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentRegisterTransferOutcomeSchema = z.enum([
+  "REGISTERED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "SALE_NOT_FOUND",
+  "SALE_NOT_PAYABLE",
+  "SALE_ALREADY_COMPLETED",
+  "CURRENCY_MISMATCH",
+]);
+
+export const PaymentRegisterTransferResultSchema = z.strictObject({
+  outcome: PaymentRegisterTransferOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+});
+
+export const PaymentRegisterTransferResponseSchema = createResponseEnvelopeSchema(PaymentRegisterTransferResultSchema);
+
+// ── payment.transfer.confirm ─────────────────────────────────────────────────
+
+/**
+ * `UC-PAY-003` confirmación por atestiguación manual. Exige
+ * `PAYMENTS_TRANSFER_CONFIRM`, permiso distinto del de reporte para que ambas
+ * responsabilidades puedan separarse.
+ *
+ * Es el punto donde una transferencia produce cobertura y, si con ello la venta
+ * queda cubierta, la completa en la misma transacción.
+ */
+export const PaymentTransferConfirmRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    payment_id: UuidSchema,
+    expected_version: ExpectedVersionSchema,
+  }),
+).safeExtend({ message_type: z.literal("payment.transfer.confirm") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentTransferConfirmOutcomeSchema = z.enum([
+  "CONFIRMED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PAYMENT_NOT_FOUND",
+  "PAYMENT_NOT_CONFIRMABLE",
+  "VERSION_CONFLICT",
+  "OVERPAYMENT_NOT_ALLOWED",
+  "SALE_ALREADY_COMPLETED",
+]);
+
+export const PaymentTransferConfirmResultSchema = z.strictObject({
+  outcome: PaymentTransferConfirmOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  sale_completed: z.boolean(),
+  confirmed_coverage: NonNegativeScale6Schema.nullable(),
+  payable_amount: NonNegativeScale6Schema.nullable(),
+});
+
+export const PaymentTransferConfirmResponseSchema = createResponseEnvelopeSchema(PaymentTransferConfirmResultSchema);
+
+// ── payment.cancel ───────────────────────────────────────────────────────────
+
+/** Cancela un pago no confirmado. Un pago confirmado es inmutable (`DEC-002`). */
+export const PaymentCancelRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    payment_id: UuidSchema,
+    expected_version: ExpectedVersionSchema,
+  }),
+).safeExtend({ message_type: z.literal("payment.cancel") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentCancelOutcomeSchema = z.enum([
+  "CANCELLED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PAYMENT_NOT_FOUND",
+  "PAYMENT_NOT_CANCELLABLE",
+  "VERSION_CONFLICT",
+]);
+
+export const PaymentCancelResultSchema = z.strictObject({
+  outcome: PaymentCancelOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+});
+
+export const PaymentCancelResponseSchema = createResponseEnvelopeSchema(PaymentCancelResultSchema);
+
+// ── payment.get ──────────────────────────────────────────────────────────────
+
+export const PaymentGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ payment_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("payment.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const PaymentGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  payment_id: UuidSchema.nullable(),
+  sale_id: UuidSchema.nullable(),
+  method: StableCodeSchema.nullable(),
+  status: StableCodeSchema.nullable(),
+  expected_amount: NonNegativeScale6Schema.nullable(),
+  confirmed_amount: NonNegativeScale6Schema.nullable(),
+  currency_code: CurrencyCodeSchema.nullable(),
+  version: ExpectedVersionSchema.nullable(),
+});
+
+export const PaymentGetResponseSchema = createResponseEnvelopeSchema(PaymentGetResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -327,6 +515,11 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "payment.register.cash",
+  "payment.register.transfer",
+  "payment.transfer.confirm",
+  "payment.cancel",
+  "payment.get",
 ]);
 
 /**
@@ -341,6 +534,11 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:payment.register.cash",
+  "pos:payment.register.transfer",
+  "pos:payment.transfer.confirm",
+  "pos:payment.cancel",
+  "pos:payment.get",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -349,3 +547,8 @@ export type SessionRecoverResult = z.infer<typeof SessionRecoverResultSchema>;
 export type CashShiftOpenResult = z.infer<typeof CashShiftOpenResultSchema>;
 export type CashShiftCloseResult = z.infer<typeof CashShiftCloseResultSchema>;
 export type SaleCreateResult = z.infer<typeof SaleCreateResultSchema>;
+export type PaymentRegisterCashResult = z.infer<typeof PaymentRegisterCashResultSchema>;
+export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransferResultSchema>;
+export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
+export type PaymentCancelResult = z.infer<typeof PaymentCancelResultSchema>;
+export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;

@@ -12,6 +12,11 @@ describe("ipc-allowlist", () => {
       "pos:cash.shift.open",
       "pos:cash.shift.close",
       "pos:sale.create",
+      "pos:payment.register.cash",
+      "pos:payment.register.transfer",
+      "pos:payment.transfer.confirm",
+      "pos:payment.cancel",
+      "pos:payment.get",
     ]);
   });
 
@@ -22,6 +27,11 @@ describe("ipc-allowlist", () => {
       "pos:cash.shift.open",
       "pos:cash.shift.close",
       "pos:sale.create",
+      "pos:payment.register.cash",
+      "pos:payment.register.transfer",
+      "pos:payment.transfer.confirm",
+      "pos:payment.cancel",
+      "pos:payment.get",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);
       // El nombre sin prefijo pertenece a la frontera main ↔ servicio y no

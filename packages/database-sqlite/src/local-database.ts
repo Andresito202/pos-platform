@@ -688,6 +688,185 @@ CREATE UNIQUE INDEX sandbox_price_rule_active_idx
   WHERE status = 'ACTIVE';
 `.trim();
 
+// Payment V1 (DEC-016). Cuatro tablas: grupo de cobro, componente de pago,
+// intento técnico e imputación confirmada.
+//
+// Los CHECK de estado y método llevan los enums COMPLETOS de `PAY-007` y de
+// `payments-schema.md`, no el subconjunto alcanzable en V1 (DEC-016 §4).
+// Motivo: SQLite no permite alterar un CHECK, de modo que restringirlo al
+// subconjunto obligaría a reconstruir la tabla al habilitar proveedores —el
+// mismo riesgo que DEC-012 D4 documentó para MIGRATION_008—. DEC-016 §9.3 exige
+// que los estados inalcanzables sean «detectables por prueba», no por
+// constraint, y así se verifican.
+//
+// `tendered_amount` y `change_amount` son forense de efectivo (decisión D-5):
+// informan lo entregado y el vuelto SIN producir un segundo movimiento de caja.
+//
+// `payments_payment_allocations` es la ÚNICA fuente de cobertura confirmada. Su
+// índice por sujeto sostiene la guarda de completion de DEC-016 §5.5.
+const MIGRATION_011 = `
+CREATE TABLE payments_payment_groups (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  collection_subject_type TEXT NOT NULL CHECK(collection_subject_type IN ('SALE')),
+  collection_subject_id TEXT NOT NULL CHECK(length(collection_subject_id) = 36),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  expected_payable_amount TEXT NOT NULL
+    CHECK(expected_payable_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(expected_payable_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(expected_payable_amount) - length(replace(expected_payable_amount, '.', '')) = 1)
+    CHECK(expected_payable_amount NOT GLOB '0[0-9]*'),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX payments_payment_groups_subject_idx
+  ON payments_payment_groups(tenant_id, branch_id, collection_subject_type, collection_subject_id);
+
+CREATE TABLE payments_payments (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  payment_group_id TEXT NOT NULL CHECK(length(payment_group_id) = 36),
+  payment_method TEXT NOT NULL CHECK(payment_method IN (
+    'CASH','CARD','TRANSFER','QR','CUSTOMER_CREDIT')),
+  authority_type TEXT NOT NULL CHECK(authority_type IN (
+    'LOCAL_DEVICE','MANUAL_ATTESTATION','EXTERNAL_PROVIDER_AUTHORITATIVE')),
+  status TEXT NOT NULL CHECK(status IN (
+    'CREATED','PENDING','PARTIALLY_CONFIRMED','CONFIRMED','FAILED','CANCELLED','REVIEW_REQUIRED')),
+  expected_amount TEXT NOT NULL
+    CHECK(expected_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(expected_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(expected_amount) - length(replace(expected_amount, '.', '')) = 1)
+    CHECK(expected_amount NOT GLOB '0[0-9]*'),
+  confirmed_amount TEXT NOT NULL
+    CHECK(confirmed_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(confirmed_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(confirmed_amount) - length(replace(confirmed_amount, '.', '')) = 1)
+    CHECK(confirmed_amount NOT GLOB '0[0-9]*'),
+  tendered_amount TEXT CHECK(tendered_amount IS NULL OR (
+    tendered_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND tendered_amount NOT GLOB '*[^0-9.]*'
+    AND length(tendered_amount) - length(replace(tendered_amount, '.', '')) = 1
+    AND tendered_amount NOT GLOB '0[0-9]*')),
+  change_amount TEXT CHECK(change_amount IS NULL OR (
+    change_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND change_amount NOT GLOB '*[^0-9.]*'
+    AND length(change_amount) - length(replace(change_amount, '.', '')) = 1
+    AND change_amount NOT GLOB '0[0-9]*')),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  operator_actor_type TEXT NOT NULL CHECK(operator_actor_type = 'USER'),
+  operator_actor_id TEXT NOT NULL CHECK(length(operator_actor_id) = 36),
+  confirmed_by_actor_type TEXT CHECK(confirmed_by_actor_type IS NULL OR confirmed_by_actor_type = 'USER'),
+  confirmed_by_actor_id TEXT CHECK(confirmed_by_actor_id IS NULL OR length(confirmed_by_actor_id) = 36),
+  provider_code TEXT CHECK(provider_code IS NULL OR length(provider_code) > 0),
+  provider_reference TEXT CHECK(provider_reference IS NULL OR length(provider_reference) > 0),
+  operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  confirmed_at TEXT,
+  cancelled_at TEXT,
+  server_recorded_at TEXT,
+  CHECK((confirmed_by_actor_type IS NULL) = (confirmed_by_actor_id IS NULL)),
+  CHECK(status <> 'CONFIRMED' OR confirmed_at IS NOT NULL),
+  CHECK(status <> 'CANCELLED' OR cancelled_at IS NOT NULL),
+  CHECK(tendered_amount IS NULL OR payment_method = 'CASH'),
+  CHECK((tendered_amount IS NULL) = (change_amount IS NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_group_id) REFERENCES payments_payment_groups(tenant_id, id),
+  FOREIGN KEY (operation_id) REFERENCES runtime_operations(operation_id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX payments_payments_idempotency_idx
+  ON payments_payments(tenant_id, origin_device_id, idempotency_key);
+CREATE UNIQUE INDEX payments_payments_operation_idx
+  ON payments_payments(operation_id);
+CREATE INDEX payments_payments_group_idx
+  ON payments_payments(tenant_id, payment_group_id);
+CREATE INDEX payments_payments_status_idx
+  ON payments_payments(tenant_id, branch_id, status, created_at);
+
+CREATE TABLE payments_payment_attempts (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  payment_id TEXT NOT NULL CHECK(length(payment_id) = 36),
+  attempt_number INTEGER NOT NULL CHECK(attempt_number > 0),
+  payment_method TEXT NOT NULL CHECK(payment_method IN (
+    'CASH','CARD','TRANSFER','QR','CUSTOMER_CREDIT')),
+  authority_type TEXT NOT NULL CHECK(authority_type IN (
+    'LOCAL_DEVICE','MANUAL_ATTESTATION','EXTERNAL_PROVIDER_AUTHORITATIVE')),
+  status TEXT NOT NULL CHECK(status IN (
+    'CREATED','PENDING','PROCESSING','REQUIRES_ACTION','CONFIRMED','DECLINED',
+    'FAILED','EXPIRED','CANCELLED','UNKNOWN','REVIEW_REQUIRED')),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  provider_code TEXT CHECK(provider_code IS NULL OR length(provider_code) > 0),
+  provider_reference_type TEXT CHECK(provider_reference_type IS NULL OR length(provider_reference_type) > 0),
+  provider_reference TEXT CHECK(provider_reference IS NULL OR length(provider_reference) > 0),
+  manual_confirmation_actor_id TEXT CHECK(manual_confirmation_actor_id IS NULL OR length(manual_confirmation_actor_id) = 36),
+  error_code TEXT CHECK(error_code IS NULL OR length(error_code) > 0),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  initiated_at TEXT NOT NULL,
+  provider_reported_at TEXT,
+  confirmed_at TEXT,
+  server_recorded_at TEXT,
+  CHECK(status <> 'CONFIRMED' OR confirmed_at IS NOT NULL),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX payments_payment_attempts_number_idx
+  ON payments_payment_attempts(tenant_id, payment_id, attempt_number);
+CREATE UNIQUE INDEX payments_payment_attempts_provider_reference_idx
+  ON payments_payment_attempts(tenant_id, provider_code, provider_reference_type, provider_reference)
+  WHERE provider_reference IS NOT NULL;
+
+CREATE TABLE payments_payment_allocations (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  payment_group_id TEXT NOT NULL CHECK(length(payment_group_id) = 36),
+  payment_id TEXT NOT NULL CHECK(length(payment_id) = 36),
+  collection_subject_type TEXT NOT NULL CHECK(collection_subject_type IN ('SALE')),
+  collection_subject_id TEXT NOT NULL CHECK(length(collection_subject_id) = 36),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*')
+    CHECK(amount <> '0.000000'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  allocation_sequence INTEGER NOT NULL CHECK(allocation_sequence > 0),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_group_id) REFERENCES payments_payment_groups(tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX payments_payment_allocations_sequence_idx
+  ON payments_payment_allocations(tenant_id, payment_id, allocation_sequence);
+CREATE INDEX payments_payment_allocations_subject_idx
+  ON payments_payment_allocations(tenant_id, collection_subject_type, collection_subject_id);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -699,6 +878,7 @@ const MIGRATIONS = [
   { version: 8, sql: MIGRATION_008, checksum: createHash("sha256").update(MIGRATION_008).digest("hex") },
   { version: 9, sql: MIGRATION_009, checksum: createHash("sha256").update(MIGRATION_009).digest("hex") },
   { version: 10, sql: MIGRATION_010, checksum: createHash("sha256").update(MIGRATION_010).digest("hex") },
+  { version: 11, sql: MIGRATION_011, checksum: createHash("sha256").update(MIGRATION_011).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

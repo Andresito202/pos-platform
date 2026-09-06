@@ -16,6 +16,12 @@ import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SandboxCatalogStore } from "../sales/sandbox-catalog-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
+import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
+import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
+import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-payment-use-case.js";
+import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-payment-use-case.js";
+import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
+import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
 
 /**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
@@ -44,6 +50,11 @@ export class CommercialComponent implements RuntimeComponent {
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
+        readonly registerCashPayment: RegisterCashPaymentUseCase;
+        readonly registerTransferPayment: RegisterTransferPaymentUseCase;
+        readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
+        readonly cancelPayment: CancelPaymentUseCase;
+        readonly getPayment: GetPaymentUseCase;
       }
     | undefined;
 
@@ -70,6 +81,11 @@ export class CommercialComponent implements RuntimeComponent {
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
+  get registerCashPayment(): RegisterCashPaymentUseCase { return this.ready.registerCashPayment; }
+  get registerTransferPayment(): RegisterTransferPaymentUseCase { return this.ready.registerTransferPayment; }
+  get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
+  get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
+  get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -85,6 +101,9 @@ export class CommercialComponent implements RuntimeComponent {
     const cashShiftStore = new SqliteCashShiftStore(database, sync, this.now);
     const masterSnapshotStore = new SqliteMasterSnapshotStore(database, this.now);
     const saleStore = new SqliteSaleStore(database, sync, this.now);
+    // `SqliteCashShiftStore` satisface `CashPort` estructuralmente: Payments no
+    // escribe caja, y `cash/` no importa de `payments/` (`DEC-016` §10).
+    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, this.now);
 
     this.state = {
       sessionStore,
@@ -93,6 +112,11 @@ export class CommercialComponent implements RuntimeComponent {
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(new SandboxCatalogStore(database), saleStore, this.now),
+      registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
+      registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
+      confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
+      cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
+      getPayment: new GetPaymentUseCase(paymentStore, this.now),
     };
   }
 

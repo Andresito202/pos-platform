@@ -10,7 +10,13 @@ const RESULT_SCHEMA_VERSION = "1.0.0";
 
 type CommercialRequest = Extract<
   IpcRequest,
-  { message_type: "session.activate" | "session.recover" | "cash.shift.open" | "cash.shift.close" | "sale.create" }
+  {
+    message_type:
+      | "session.activate" | "session.recover"
+      | "cash.shift.open" | "cash.shift.close" | "sale.create"
+      | "payment.register.cash" | "payment.register.transfer"
+      | "payment.transfer.confirm" | "payment.cancel" | "payment.get";
+  }
 >;
 
 /** Códigos de rechazo propios de la frontera de sesión, no de un caso de uso. */
@@ -34,6 +40,15 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   CATALOG_NOT_FOUND: "NOT_FOUND",
   PRICE_NOT_FOUND: "NOT_FOUND",
   CURRENCY_MISMATCH: "VALIDATION",
+  SALE_NOT_PAYABLE: "CONFLICT",
+  SALE_ALREADY_COMPLETED: "CONFLICT",
+  OVERPAYMENT_NOT_ALLOWED: "CONFLICT",
+  CASH_SHIFT_MISSING: "CONFLICT",
+  CASH_SHIFT_NOT_OPEN: "CONFLICT",
+  INSUFFICIENT_TENDER: "VALIDATION",
+  PAYMENT_NOT_FOUND: "NOT_FOUND",
+  PAYMENT_NOT_CONFIRMABLE: "CONFLICT",
+  PAYMENT_NOT_CANCELLABLE: "CONFLICT",
   REJECTED: "AUTHENTICATION",
   STALE_SEQUENCE: "CONFLICT",
   BINDING_MISMATCH: "AUTHENTICATION",
@@ -141,7 +156,216 @@ export class CommercialRequestHandler {
       case "cash.shift.open": return this.openShift(request, connectionId);
       case "cash.shift.close": return this.closeShift(request, connectionId);
       case "sale.create": return this.createSale(request, connectionId);
+      case "payment.register.cash": return this.registerCashPayment(request, connectionId);
+      case "payment.register.transfer": return this.registerTransferPayment(request, connectionId);
+      case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
+      case "payment.cancel": return this.cancelPayment(request, connectionId);
+      case "payment.get": return this.getPayment(request, connectionId);
     }
+  }
+
+  // ── Payment V1 — `DEC-016` ─────────────────────────────────────────────────
+
+  /**
+   * `payment.register.cash`.
+   *
+   * `sale_completed` sólo puede ser `true` en un resultado `CONFIRMED` real:
+   * es el único disparador admisible de la confirmación sonora futura
+   * (`DEC-016` §13), y un reintento `IDEMPOTENT` nunca lo activa.
+   */
+  private registerCashPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.register.cash" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", payment_id: null, sale_completed: false,
+        confirmed_coverage: null, payable_amount: null, change_amount: null,
+      });
+    }
+
+    const result = this.commercial.registerCashPayment.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: request.payload.sale_id,
+        amount: request.payload.amount,
+        tenderedAmount: request.payload.tendered_amount,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "CONFIRMED") {
+      return succeeded(request, "CONFIRMED", {
+        outcome: "CONFIRMED",
+        payment_id: result.paymentId,
+        sale_completed: result.saleCompleted,
+        confirmed_coverage: result.confirmedCoverage,
+        payable_amount: result.payableAmount,
+        change_amount: result.changeAmount,
+      });
+    }
+    if (result.kind === "IDEMPOTENT") {
+      return succeeded(request, "IDEMPOTENT", {
+        outcome: "IDEMPOTENT", payment_id: result.paymentId, sale_completed: false,
+        confirmed_coverage: null, payable_amount: null, change_amount: null,
+      });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind, payment_id: null, sale_completed: false,
+      confirmed_coverage: null, payable_amount: null, change_amount: null,
+    });
+  }
+
+  /** `payment.register.transfer` — reporte sin confirmar: no imputa ni completa. */
+  private registerTransferPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.register.transfer" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", payment_id: null });
+    }
+
+    const result = this.commercial.registerTransferPayment.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: request.payload.sale_id,
+        amount: request.payload.amount,
+        providerCode: request.payload.provider_code,
+        providerReference: request.payload.provider_reference,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "REGISTERED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, payment_id: null });
+  }
+
+  /** `payment.transfer.confirm` — atestiguación manual; puede completar la venta. */
+  private confirmTransferPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.transfer.confirm" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", payment_id: null, sale_completed: false,
+        confirmed_coverage: null, payable_amount: null,
+      });
+    }
+
+    const result = this.commercial.confirmTransferPayment.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        paymentId: request.payload.payment_id,
+        expectedVersion: request.payload.expected_version,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "CONFIRMED") {
+      return succeeded(request, "CONFIRMED", {
+        outcome: "CONFIRMED",
+        payment_id: result.paymentId,
+        sale_completed: result.saleCompleted,
+        confirmed_coverage: result.confirmedCoverage,
+        payable_amount: result.payableAmount,
+      });
+    }
+    if (result.kind === "IDEMPOTENT") {
+      return succeeded(request, "IDEMPOTENT", {
+        outcome: "IDEMPOTENT", payment_id: result.paymentId, sale_completed: false,
+        confirmed_coverage: null, payable_amount: null,
+      });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind, payment_id: null, sale_completed: false,
+      confirmed_coverage: null, payable_amount: null,
+    });
+  }
+
+  /** `payment.cancel` — sólo pagos no confirmados (`DEC-002`). */
+  private cancelPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.cancel" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", payment_id: null });
+    }
+
+    const result = this.commercial.cancelPayment.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        paymentId: request.payload.payment_id,
+        expectedVersion: request.payload.expected_version,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "CANCELLED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, payment_id: null });
+  }
+
+  /** `payment.get` — lectura acotada al tenant de configuración. */
+  private getPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.get" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      payment_id: null, sale_id: null, method: null, status: null,
+      expected_amount: null, confirmed_amount: null, currency_code: null, version: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.getPayment.execute(
+      this.scope(),
+      authenticated.snapshot,
+      { paymentId: request.payload.payment_id },
+    );
+
+    if (result.kind === "FOUND") {
+      return succeeded(request, "FOUND", {
+        outcome: "FOUND",
+        payment_id: result.payment.paymentId,
+        sale_id: result.payment.saleId,
+        method: result.payment.method,
+        status: result.payment.status,
+        expected_amount: result.payment.expectedAmount,
+        confirmed_amount: result.payment.confirmedAmount,
+        currency_code: result.payment.currencyCode,
+        version: result.payment.version,
+      });
+    }
+    if (result.kind === "NOT_FOUND") {
+      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+    }
+    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
   }
 
   // ── session.activate ───────────────────────────────────────────────────────

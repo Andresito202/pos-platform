@@ -10,6 +10,12 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  // Payment V1 — `DEC-016`.
+  "pos:payment.register.cash",
+  "pos:payment.register.transfer",
+  "pos:payment.transfer.confirm",
+  "pos:payment.cancel",
+  "pos:payment.get",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

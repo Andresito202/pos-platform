@@ -9,6 +9,16 @@ import {
   UuidSchema,
 } from "./primitives.js";
 import {
+  PaymentCancelRequestSchema,
+  PaymentCancelResponseSchema,
+  PaymentGetRequestSchema,
+  PaymentGetResponseSchema,
+  PaymentRegisterCashRequestSchema,
+  PaymentRegisterCashResponseSchema,
+  PaymentRegisterTransferRequestSchema,
+  PaymentRegisterTransferResponseSchema,
+  PaymentTransferConfirmRequestSchema,
+  PaymentTransferConfirmResponseSchema,
   CashShiftCloseRequestSchema,
   CashShiftCloseResponseSchema,
   CashShiftOpenRequestSchema,
@@ -33,6 +43,11 @@ export const IpcMessageTypeSchema = z.enum([
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "payment.register.cash",
+  "payment.register.transfer",
+  "payment.transfer.confirm",
+  "payment.cancel",
+  "payment.get",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -114,6 +129,11 @@ export const IpcRequestSchema = z.union([
   CashShiftOpenRequestSchema,
   CashShiftCloseRequestSchema,
   SaleCreateRequestSchema,
+  PaymentRegisterCashRequestSchema,
+  PaymentRegisterTransferRequestSchema,
+  PaymentTransferConfirmRequestSchema,
+  PaymentCancelRequestSchema,
+  PaymentGetRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -126,6 +146,11 @@ export const IpcResponseSchema = z.union([
   CashShiftOpenResponseSchema,
   CashShiftCloseResponseSchema,
   SaleCreateResponseSchema,
+  PaymentRegisterCashResponseSchema,
+  PaymentRegisterTransferResponseSchema,
+  PaymentTransferConfirmResponseSchema,
+  PaymentCancelResponseSchema,
+  PaymentGetResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

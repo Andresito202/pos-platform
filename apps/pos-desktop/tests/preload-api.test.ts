@@ -16,6 +16,11 @@ describe("preload-api", () => {
       "cash.shift.open",
       "cash.shift.close",
       "sale.create",
+      "payment.register.cash",
+      "payment.register.transfer",
+      "payment.transfer.confirm",
+      "payment.cancel",
+      "payment.get",
     ]);
   });
 

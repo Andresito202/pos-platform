@@ -104,6 +104,33 @@ interface NextSequenceRow {
   next_sequence: number;
 }
 
+/**
+ * Entrada y resultado de `appendCashSale` — `DEC-016` §10.
+ *
+ * Coinciden estructuralmente con `CashPort` de `payments/cash-port.ts`, de modo
+ * que este almacén satisface el puerto **sin que `cash/` importe de
+ * `payments/`**: la dependencia apunta en un solo sentido.
+ */
+export interface AppendCashSaleInput {
+  readonly scope: SyncScope;
+  readonly movementId: string;
+  readonly cashShiftId: string;
+  readonly amount: string;
+  readonly currencyCode: string;
+  readonly operatorUserId: string;
+  readonly businessDate: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly reasonCode: string;
+}
+
+export type AppendCashSaleOutcome =
+  | { readonly kind: "POSTED"; readonly shiftSequence: number }
+  | { readonly kind: "SHIFT_NOT_FOUND" }
+  | { readonly kind: "SHIFT_NOT_OPEN" }
+  | { readonly kind: "CURRENCY_MISMATCH" };
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export class SqliteCashShiftStore {
@@ -320,6 +347,92 @@ export class SqliteCashShiftStore {
     });
 
     return transaction();
+  }
+
+  /**
+   * Asienta un movimiento `CASH_SALE` en un turno abierto — `DEC-016` §10.4.
+   *
+   * Adición para Payment V1. **No altera la semántica de `BLOQUE 4D`**: no toca
+   * `open()` ni `close()`, y produce exactamente el movimiento que `close()` ya
+   * sabe plegar (`IN` + `POSTED`).
+   *
+   * `shift_sequence` se asigna aquí porque es propiedad de Cash; la monotonía la
+   * respalda además `cash_movement_shift_sequence_idx`.
+   *
+   * **No abre transacción propia**: debe invocarse dentro de la del llamador,
+   * para que asiento de caja y confirmación de pago sean un solo hecho.
+   *
+   * `version` del turno **no** se incrementa: esa columna gobierna las
+   * transiciones de ciclo de vida (`OPEN → CLOSING → CLOSED`) que `close()`
+   * verifica con `expectedVersion`. Incrementarla en cada venta haría fallar
+   * todo cierre con un conflicto espurio. La concurrencia de secuencias la
+   * cubre el índice único, no `version`.
+   */
+  appendCashSale(input: AppendCashSaleInput): AppendCashSaleOutcome {
+    const nowIso = this.now().toISOString();
+
+    const shift = this.database.native.prepare(
+      `SELECT status, cash_register_id, currency_code, last_movement_sequence
+       FROM cash_shift WHERE tenant_id=? AND id=?`,
+    ).get(input.scope.tenantId, input.cashShiftId) as
+      | { status: string; cash_register_id: string; currency_code: string; last_movement_sequence: number }
+      | undefined;
+
+    if (shift === undefined) return { kind: "SHIFT_NOT_FOUND" };
+    // Sin esta guarda el dinero entraría en un turno ya cuadrado y cerrado: la
+    // clave foránea resolvería igual y el arqueo quedaría falseado a posteriori.
+    if (shift.status !== "OPEN") return { kind: "SHIFT_NOT_OPEN" };
+    if (shift.currency_code !== input.currencyCode) return { kind: "CURRENCY_MISMATCH" };
+
+    const shiftSequence = shift.last_movement_sequence + 1;
+
+    this.database.native.prepare(
+      `INSERT INTO cash_movement(
+        id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id,
+        shift_sequence, movement_type, direction, amount, currency_code, status,
+        original_cash_movement_id, reason_code, evidence_reference,
+        actor_type, actor_id,
+        approved_by_actor_type, approved_by_actor_id,
+        business_date, occurred_at, device_reported_at, origin_device_id,
+        idempotency_key, request_checksum, correlation_id,
+        version, created_at, server_recorded_at
+      ) VALUES (
+        ?,?,?,?,?,?,
+        ?,'CASH_SALE','IN',?,?,'POSTED',
+        NULL,?,NULL,
+        'USER',?,
+        NULL,NULL,
+        ?,?,?,?,
+        ?,?,?,
+        1,?,NULL
+      )`,
+    ).run(
+      input.movementId,
+      input.scope.tenantId,
+      input.scope.companyId,
+      input.scope.branchId,
+      shift.cash_register_id,
+      input.cashShiftId,
+      shiftSequence,
+      input.amount,
+      input.currencyCode,
+      input.reasonCode,
+      input.operatorUserId,
+      input.businessDate,
+      nowIso,
+      nowIso,
+      input.scope.deviceId,
+      input.idempotencyKey,
+      input.requestChecksum,
+      input.correlationId,
+      nowIso,
+    );
+
+    this.database.native.prepare(
+      "UPDATE cash_shift SET last_movement_sequence=? WHERE tenant_id=? AND id=?",
+    ).run(shiftSequence, input.scope.tenantId, input.cashShiftId);
+
+    return { kind: "POSTED", shiftSequence };
   }
 
   close(input: CloseShiftInput): CloseShiftOutcome {

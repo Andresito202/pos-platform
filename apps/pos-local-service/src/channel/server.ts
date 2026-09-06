@@ -8,6 +8,11 @@ import {
   OperationResultResponseSchema,
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,
+  PaymentCancelResponseSchema,
+  PaymentGetResponseSchema,
+  PaymentRegisterCashResponseSchema,
+  PaymentRegisterTransferResponseSchema,
+  PaymentTransferConfirmResponseSchema,
   SaleCreateResponseSchema,
   SessionActivateResponseSchema,
   SessionRecoverResponseSchema,
@@ -79,6 +84,16 @@ function validateResponse(request: IpcRequest, input: unknown): unknown {
       return CashShiftCloseResponseSchema.parse(input);
     case "sale.create":
       return SaleCreateResponseSchema.parse(input);
+    case "payment.register.cash":
+      return PaymentRegisterCashResponseSchema.parse(input);
+    case "payment.register.transfer":
+      return PaymentRegisterTransferResponseSchema.parse(input);
+    case "payment.transfer.confirm":
+      return PaymentTransferConfirmResponseSchema.parse(input);
+    case "payment.cancel":
+      return PaymentCancelResponseSchema.parse(input);
+    case "payment.get":
+      return PaymentGetResponseSchema.parse(input);
   }
 }
 
