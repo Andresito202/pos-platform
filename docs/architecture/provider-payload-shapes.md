@@ -41,10 +41,38 @@ tener credenciales reales de los tres.
 |---|---|---|
 | Raíz | `reference_code` ✅ único, `document` (`"01"`), `numbering_range_id`, `operation_type` (`"10"`), `observation`, `cash_rounding_amount` (±500) | identidad POS inmutable + rangos del proveedor |
 | `payment_details[]` ✅ | `payment_form` (`"1"` contado, `"2"` crédito), `payment_method_code` (`"10"` efectivo, `"42"` consignación), `amount`, `due_date` (obligatorio si crédito) | Payments V1 — **existe** |
-| `customer{}` ✅ | `identification_document_code`, `identification` (**sin DV**), `dv`, `legal_organization_code` (`"1"` jurídica → `company` obligatorio; `"2"` natural → `names` obligatorio), `tribute_code`, `responsibilities[]`, `address`, `email`, `phone`, `country_code`, `municipality_code` | **NO EXISTE** — `Customer` está en la ruta crítica |
+| `customer{}` ✅ | `identification_document_code`, `identification` (**sin DV**), `dv`, `legal_organization_code` (`"1"` jurídica → `company` obligatorio; `"2"` natural → `names` obligatorio), `tribute_code`, `responsibilities[]`, `address`, `email`, `phone`, `country_code`, `municipality_code` | **forma canónica materializada** — `packages/fiscal-adapters/src/dian/customer.ts`; falta persistirlo (ver abajo) |
 | `items[]` ✅ | `code_reference`, `name`, `quantity`, `price`, `unit_measure_code`, `standard_code`, `discount_rate` **o** `discount_amount` (nunca ambos), `taxes[]` con `code`+`rate` | Catalog y Tax — **NO EXISTEN** |
 
 **Todos los numéricos van como `string` con máximo dos decimales.**
+
+### Qué cubre y qué no la forma canónica del adquiriente
+
+`FiscalCustomer` declara la forma y comprueba lo que se puede comprobar contra
+las tablas DIAN verificadas. **Cada regla dice de dónde sale**:
+`FACTUS_OFFICIAL_DOC` es una exigencia escrita aquí; `DERIVED` es una regla
+nuestra, anotada con su motivo. Confundirlas dejaría al lector sin saber si un
+rechazo viene del proveedor o de nosotros.
+
+Tres decisiones explícitas, y las tres son de omisión:
+
+- **La identificación y el DV son campos distintos.** La documentación es
+  taxativa: `identification` viaja **sin DV**. Un NIT escrito «900123456-7» en
+  ese campo produce el hallazgo `IDENTIFICATION_CARRIES_VERIFICATION_DIGIT`.
+- **El DV no se calcula ni se verifica.** El algoritmo es módulo 11 y es
+  público, pero no está en ninguna fuente verificada de este repositorio. Se
+  comprueba su **forma** —un solo dígito— y su presencia cuando el documento es
+  NIT; su **valor** no. Registrado como `D-12`, con una prueba que fija esa
+  ausencia para que nadie la dé por cubierta.
+- **País y municipio pasan sin validar.** No hay tabla verificada para ninguno
+  de los dos, y validar contra una inventada rechazaría adquirientes correctos.
+
+Y una que condiciona la caja: **el adquiriente ausente no se rellena con el
+tercero genérico de la DIAN.** Una venta de mostrador anónima es el caso
+mayoritario de un POS y la DIAN tiene un tercero para eso, pero sus valores no
+están verificados aquí. `prepareCustomerForIssuance` **bloquea** con el motivo
+`GENERIC_ACQUIRER_NOT_VERIFIED`, que nombra la fuente que falta en lugar de
+suponerla.
 
 ### Qué devuelve — `201 Created`
 
