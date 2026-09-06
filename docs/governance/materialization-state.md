@@ -123,11 +123,30 @@ que declare el backlog**.
 |---|---|---|---|
 | D-1 | `local_sync_outbox` no tiene purga ni retención | cero `DELETE` en `durable-sync-store.ts` | crecimiento monótono del archivo SQLite en uso real |
 | D-2 | Sin transporte, todo queda `PENDING` de forma permanente | sin cliente HTTP saliente | ningún hecho comercial sale del dispositivo |
-| D-3 | Códigos de permiso fiscal documentados en minúscula | `permission-matrix.md` vs `STABLE_CODE_PATTERN` en `primitives.ts` | serían rechazados por el contrato al implementarse |
+| D-3 | La regla que traduce permiso de matriz de producto a forma canónica sólo está escrita caso por caso | `DEC-012` §33.2 la enuncia para `CASH_SHIFT_CLOSE`; no existe enunciado general | cada módulo nuevo la redescubre o la contradice |
 | D-4 | `packages/database-core`, `database-postgres` y `testing` declarados con `src/` vacío | `module-boundaries.json` vs `find` | boundaries que no gobiernan nada |
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
-| D-7 | El `switch` de enrutamiento de `LocalChannelComponent` no tiene `default`: un tipo de contrato sin `case` resuelve `undefined` en silencio | `local-channel-component.ts` | una regresión sólo se detecta por `channel-routing.test.ts`, que es Windows-only |
+| D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
+
+Corrección de `D-3`, 2026-09-06. La redacción original afirmaba que los permisos
+fiscales documentados en minúscula «serían rechazados por el contrato». **Era
+falso.** `permission-matrix.md` usa minúscula con puntos para *todos* los
+permisos —`authorization.policy.create_draft`, `cash.count.abort`,
+`cash.shift.close`—, y `DEC-012` §33.2 documenta la correspondencia:
+`CASH_SHIFT_CLOSE` es la forma canónica de `cash.shift.close`. Son dos espacios
+de nombres deliberados, no una incompatibilidad. Lo que sí falta, y es lo que
+la fila registra ahora, es un enunciado general de esa regla: hoy sólo existe
+caso por caso.
+
+Sobre `D-7`: la corrección de PR #37 resolvió la instancia —los cinco `payment.*`
+sin `case`— pero no la clase. Un tipo nuevo en el contrato podía volver a caer en
+silencio, y el único guardián era una prueba que sólo corre en Windows. La rama
+`default` con asignación a `never` convierte ese olvido en **error de
+compilación**: verificado quitando `case "payment.cancel"` y observando
+`TS2322: Type '{… message_type: "payment.cancel" …}' is not assignable to type
+'never'`. La garantía pasó de una prueba de una plataforma a una propiedad del
+tipo, comprobada en cada `pnpm typecheck`.
 
 ## Linaje archivado
 

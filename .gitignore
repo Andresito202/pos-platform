@@ -23,3 +23,8 @@ env/
 __pycache__/
 .DS_Store
 Thumbs.db
+
+# Evidencia que generan los gates al ejecutarse en local: SBOM, inventario de
+# dependencias, auditoría de vulnerabilidades y reporte de licencias. En CI se
+# publica como artefacto del workflow, no como contenido del repositorio.
+artifacts/
