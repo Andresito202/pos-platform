@@ -161,3 +161,106 @@ Las credenciales nunca entran al repositorio, ni al árbol, ni a la matriz, ni a
 la evidencia. Sólo variables de entorno o el almacén de `SEC-004`. El gate
 `validate-repository-policy.mjs` escanea patrones de secreto en archivos
 rastreados y debe seguir pasando.
+
+---
+
+## 9. Ratificación
+
+Ratificadas el 2026-09-06 por **Wilson Andrés Camacho Culma**, responsable del
+producto. Las cinco decisiones de §5 quedan cerradas así:
+
+| | Decisión | Ratificada |
+|---|---|---|
+| `D-1` | Ubicación | **Opción A** — paquete `packages/fiscal-adapters` con entrada propia en `module-boundaries.json` |
+| `D-2` | Orden | **Puertos y declaración de capacidades primero**, validados contra los tres contratos, antes del primer adapter |
+| `D-3` | Credencial | **Declaración tipada en el adapter**, verificada contra la matriz de capacidades. El núcleo sólo guarda referencia opaca |
+| `D-4` | Evidencia | **Dos niveles separados**: fake determinista en CI (`MOCK_TESTED`); suite de sandbox tras bandera de entorno, ejecutada localmente (`SANDBOX_VERIFIED`) |
+| `D-5` | Saldo de bolsa | **Se modela** — ver §12 |
+
+## 10. SLA verificado, y una suposición que resultó falsa
+
+El `Acuerdo de Nivel de Servicio` fue leído el 2026-09-06.
+
+**Corrección: este gate afirmó antes que el SLA fijaría timeouts, política de
+reintento y tratamiento de `UNKNOWN_OUTCOME`. Es falso.** El documento es un
+acuerdo de **tiempos de respuesta de soporte**, no un SLO técnico. No contiene
+latencia comprometida, porcentaje de disponibilidad ni presupuesto de error.
+
+Lo que sí fija, y es verificable:
+
+| Elemento | Valor |
+|---|---|
+| Disponibilidad declarada | 24/7, 365 días |
+| Horario hábil | lunes a viernes, 8:00–20:00 |
+| Severidad alta — hábil | respuesta en **1 hora** |
+| Severidad alta — día no hábil, 8:00–20:00 | respuesta en **2 horas** |
+| Severidad alta — fuera de esa franja | siguiente día desde las 8:00 |
+| Severidad media | **4 horas hábiles** |
+| Severidad baja | **6 horas hábiles** |
+| Mantenimiento programado | máx. **4 horas por evento**, después de las 20:00, máx. **1 vez al mes**, con preaviso |
+| Exclusión expresa | **fallos de la DIAN** |
+
+**Los tiempos son de atención a la petición de soporte, no de respuesta del
+API.** Por tanto los parámetros técnicos siguen derivándose de la documentación
+del proveedor —80 req/min, HTTP 429, `X-RateLimit-*`, `Retry-After`, ya
+registrados en `provider-integration-matrix.md`— y no del SLA.
+
+Dos consecuencias sí son de diseño:
+
+1. **Ventana de mantenimiento de hasta 4 horas.** La cola fiscal debe sobrevivir
+   una indisponibilidad planificada de ese orden sin perder documentos ni agotar
+   reintentos. Es una cota de diseño concreta, no una estimación.
+2. **La exclusión de fallos DIAN confirma la regla existente.** Un fallo aguas
+   arriba no es un fallo del proveedor y no autoriza inferir aceptación:
+   `UNKNOWN_OUTCOME` se resuelve por consulta o conciliación, nunca por
+   vencimiento de un plazo.
+
+## 11. Marco legal aplicable al diseño
+
+Del contrato de alianza y del acuerdo de confidencialidad:
+
+- **Ley 1581 de 2012** (Habeas Data). Por el canal fiscal circulan datos
+  personales de adquirientes. La clasificación de payloads y respuestas como
+  datos sensibles que ya declara `electronic-invoicing.md` queda anclada a una
+  obligación legal, no sólo a criterio técnico: sin datos personales en logs ni
+  trazas, artefactos con acceso autorizado y política de retención explícita.
+- **El proveedor entrega los datos de acceso por usuario y por paquete
+  adquirido.** Confirma el modelo de una `ExternalIntegration` por cuenta de
+  aliado con credenciales por usuario, y `FiscalConnection` por NIT.
+- **Cesión y subcontratación requieren autorización previa y escrita.** Un
+  tercero no puede operar el canal fiscal por nuestra cuenta sin ese permiso.
+- La confidencialidad cubre expresamente *"cualquier otro dato o información
+  generada o transmitida a través del API"*.
+
+## 12. Custodia de credenciales
+
+Las credenciales de sandbox no son rotativas —es un ambiente gratuito de
+pruebas—, lo que **aumenta** la exigencia de custodia: no hay rotación que
+mitigue una fuga.
+
+Reglas:
+
+1. **Nunca en el repositorio.** Ni en código, ni en pruebas, ni en fixtures, ni
+   en documentación, ni en mensajes de commit, ni en descripciones de PR.
+2. **Sólo variables de entorno** para ejecución local, o el almacén de `SEC-004`
+   para producción. Los nombres de variable son públicos; los valores no.
+3. **Nunca en CI.** La suite de sandbox está apagada por defecto y CI no recibe
+   credenciales de proveedor.
+4. **Redacción obligatoria en logs y errores.** Un mensaje de error del adapter
+   nunca incluye credencial, token ni cabecera de autorización.
+5. **El núcleo guarda referencia opaca**, jamás el valor. Sólo el adapter conoce
+   la forma del secreto que hay detrás.
+6. `validate-repository-policy.mjs` debe seguir pasando: es la red que detecta un
+   descuido.
+
+### Saldo de bolsa (`D-5` ratificada)
+
+El modelo comercial vende una bolsa anual divisible entre NITs. Se modela el
+saldo como **proyección observable**, no como autoridad: la verdad la tiene el
+proveedor. El sistema registra consumo para poder **alertar antes del
+agotamiento**, y nunca bloquea una venta comercial por saldo fiscal — coherente
+con la regla de que la caída fiscal no pierde la venta.
+
+La forma concreta de consulta o reporte de saldo queda `NOT_EVALUATED`: no se
+verificó endpoint oficial para ello. Es el primer punto a resolver contra el
+sandbox real.
