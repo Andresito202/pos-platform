@@ -37,9 +37,9 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
 > contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-07: **969 pruebas pasan, 6 omitidas, 0 fallos** en 9
+> Censo del 2026-09-07: **989 pruebas pasan, 6 omitidas, 0 fallos** en 9
 > proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
-> `pnpm ci:repository-policy` PASS (500 archivos).
+> `pnpm ci:repository-policy` PASS (506 archivos).
 >
 > El desglose por proyecto y comando vive en el
 > [tablero](./tablero-materializacion.md); **esta cabecera no lo duplica**,
