@@ -2,7 +2,7 @@ import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 import type { CashPort } from "./cash-port.js";
-import { bigIntToScale6, scale6ToBigInt } from "./money.js";
+import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 
 /**
  * Persistencia de Payment V1 — `DEC-016`.

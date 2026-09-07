@@ -118,12 +118,17 @@ function key(): string {
 }
 
 describe("MIGRATION_012 — la tabla existe con sus restricciones", () => {
-  it("la base migra a la versión 12", async () => {
+  /**
+   * Afirma que la 012 está **registrada**, no que sea la última. Comprobar el
+   * máximo acoplaba esta prueba a cada migración futura: la 013 la rompió sin
+   * que nada del adquiriente hubiera cambiado.
+   */
+  it("MIGRATION_012 queda registrada en el libro de migraciones", async () => {
     const { database } = await buildEnv();
     const row = database.native
-      .prepare("SELECT max(version) AS version FROM local_schema_migrations")
-      .get() as { version: number };
-    expect(row.version).toBe(12);
+      .prepare("SELECT version FROM local_schema_migrations WHERE version = 12")
+      .get() as { version: number } | undefined;
+    expect(row?.version).toBe(12);
   });
 
   /**

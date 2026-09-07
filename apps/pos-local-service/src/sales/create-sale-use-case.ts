@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { canonicalJson } from "../channel/canonical-json.js";
+import { bigIntToScale6 } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
-import type { SandboxCatalogStore } from "./sandbox-catalog-store.js";
+import type { CatalogFiscalAttribute, SandboxCatalogStore } from "./sandbox-catalog-store.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
 import { calculateSaleLine, calculateSaleTotals } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
@@ -11,7 +12,7 @@ import type { SyncScope } from "../sync/durable-sync-store.js";
 
 export const PRICING_PIPELINE_VERSION = "PRICING_PIPELINE_V1";
 export const PRICING_POLICY_VERSION = "SANDBOX_PRICE_V1";
-export const TAX_POLICY_VERSION = "TAX_POLICY_EXCLUDED_V1";
+export const TAX_POLICY_VERSION = "TAX_POLICY_LINE_RATE_V1";
 export const ROUNDING_POLICY_VERSION = "NEAREST_50_HALF_AWAY_FROM_ZERO_V1";
 
 export const PERMISSION_SALES_SALE_CREATE = "SALES_SALE_CREATE";
@@ -130,6 +131,7 @@ export class CreateSaleUseCase {
       unitPrecision: number;
       priceAmount: string;
       quantity: string;
+      fiscal: CatalogFiscalAttribute | null;
     }> = [];
 
     for (const line of request.lines) {
@@ -163,6 +165,7 @@ export class CreateSaleUseCase {
         unitPrecision: presentation.unit_precision,
         priceAmount: price.amount,
         quantity: line.quantity,
+        fiscal: this.catalogStore.getFiscalAttribute(scope.tenantId, line.presentationId),
       });
     }
 
@@ -170,7 +173,11 @@ export class CreateSaleUseCase {
     const calculatedLines = resolvedLines.map((resolved) => ({
       productId: resolved.productId,
       presentationId: resolved.presentationId,
-      calculation: calculateSaleLine(resolved.priceAmount, resolved.quantity),
+      calculation: calculateSaleLine(
+        resolved.priceAmount,
+        resolved.quantity,
+        resolved.fiscal?.tax_rate ?? null,
+      ),
     }));
 
     const totals = calculateSaleTotals(calculatedLines.map((l) => l.calculation));
@@ -201,13 +208,19 @@ export class CreateSaleUseCase {
       })),
     };
 
+    // El impuesto es **por línea**: dos artículos de la misma venta pueden
+    // tener tasas distintas. El snapshot de la venta ya no declara una tasa
+    // única —afirmarlo era falso en cuanto hubiera dos tipos— y se limita a
+    // decir cuántas líneas quedaron sin atributos fiscales, que es lo que
+    // impide facturarla.
+    const linesWithoutFiscalAttributes = resolvedLines.filter((r) => r.fiscal === null).length;
     const taxSnapshot = {
-      schema_version: 1,
+      schema_version: 2,
       snapshot_type: "TAX",
       policy_version: TAX_POLICY_VERSION,
       environment: "SANDBOX",
-      category: "EXCLUDED",
-      rate: "0.000000",
+      lines_without_fiscal_attributes: linesWithoutFiscalAttributes,
+      tax_amount: bigIntToScale6(totals.taxUnits),
     };
 
     // 7. IDs de operación y sale
@@ -257,14 +270,28 @@ export class CreateSaleUseCase {
           pipeline_version: PRICING_PIPELINE_VERSION,
           policy_version: PRICING_POLICY_VERSION,
         },
-        taxCalculationSnapshot: {
-          schema_version: 1,
-          category: "EXCLUDED",
-          rate: "0.000000",
-          tax_policy_version: TAX_POLICY_VERSION,
-          taxable_amount: checksumInput.lines[index]!.taxable_amount,
-          tax_amount: "0.000000",
-        },
+        // Dos formas, y la diferencia importa: `RATE_APPLIED` afirma que el
+        // impuesto se calculó con una tasa concreta; `NO_FISCAL_ATTRIBUTES`
+        // afirma que el cero es **desconocimiento**, no exención. Emitir una
+        // factura desde una línea de la segunda forma sería declarar exento algo
+        // que nadie ha declarado exento.
+        taxCalculationSnapshot: resolved.fiscal === null
+          ? {
+              schema_version: 2,
+              model: "NO_FISCAL_ATTRIBUTES",
+              tax_policy_version: TAX_POLICY_VERSION,
+              taxable_amount: checksumInput.lines[index]!.taxable_amount,
+              tax_amount: "0.000000",
+            }
+          : {
+              schema_version: 2,
+              model: "RATE_APPLIED",
+              tax_policy_version: TAX_POLICY_VERSION,
+              tax_code: resolved.fiscal.tax_code,
+              rate: resolved.fiscal.tax_rate,
+              taxable_amount: checksumInput.lines[index]!.taxable_amount,
+              tax_amount: bigIntToScale6(calculatedLines[index]!.calculation.taxUnits),
+            },
       })),
       totals,
     };

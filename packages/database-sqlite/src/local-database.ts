@@ -957,6 +957,60 @@ CREATE UNIQUE INDEX customers_customers_idempotency_idx
   ON customers_customers(tenant_id, idempotency_key);
 `.trim();
 
+/**
+ * `MIGRATION_013` — atributos fiscales del catálogo (`D-9`).
+ *
+ * Es lo que le falta a una línea de venta para poder ir en una factura:
+ * `code_reference`, la unidad de medida y el estándar de producto en códigos
+ * DIAN, y **la tasa de impuesto**. Sin esto, `calculateSaleLine` no tiene de
+ * dónde sacar el impuesto y por eso lo dejaba en cero fijo.
+ *
+ * ## No cuelga de `sandbox_catalog_*`, y es deliberado
+ *
+ * Las tablas `sandbox_*` son fixture de `BLOQUE 4C` y desaparecerán cuando
+ * exista el catálogo real. Poner un dato **fiscal** detrás de una clave ajena a
+ * una tabla llamada «sandbox» acoplaría lo permanente a lo desechable. Esta
+ * tabla se referencia por `presentation_id` sin clave ajena, de modo que
+ * sobrevive al reemplazo del catálogo sin migración de datos.
+ *
+ * El precio de esa decisión es que puede haber atributos huérfanos; lo asume el
+ * caso de uso, que resuelve presentación y atributo en la misma operación y
+ * rechaza la venta si la presentación no existe.
+ *
+ * ## La tasa lleva la restricción de precisión del proveedor
+ *
+ * `D-14`: el POS lleva escala 6 y el proveedor acepta dos decimales. En los
+ * importes eso se descubre al emitir; en la **tasa** se puede impedir desde el
+ * origen, porque una tasa DIAN no tiene más de dos decimales. `substr(...,-4) =
+ * '0000'` lo impone en disco.
+ *
+ * La cota de 0–100 se comprueba **sin coma flotante**: una tasa mayor que 100
+ * no es un impuesto, es un error de captura que multiplicaría la base
+ * imponible, y comprobarlo con `CAST(... AS REAL)` metería un `double` en una
+ * tabla fiscal.
+ */
+const MIGRATION_013 = `
+CREATE TABLE catalog_fiscal_attribute (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  code_reference TEXT NOT NULL CHECK(length(code_reference) BETWEEN 1 AND 80),
+  unit_measure_code TEXT NOT NULL CHECK(unit_measure_code GLOB '[A-Z0-9][A-Z0-9-]*'),
+  standard_code TEXT NOT NULL CHECK(standard_code GLOB '[A-Z0-9][A-Z0-9-]*'),
+  tax_code TEXT NOT NULL CHECK(tax_code GLOB '[A-Z0-9][A-Z0-9-]*'),
+  tax_rate TEXT NOT NULL
+    CHECK(tax_rate GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(tax_rate NOT GLOB '*[^0-9.]*')
+    CHECK(length(tax_rate) - length(replace(tax_rate, '.', '')) = 1)
+    CHECK(tax_rate NOT GLOB '0[0-9]*')
+    CHECK(substr(tax_rate, -4) = '0000')
+    CHECK(tax_rate = '100.000000' OR length(substr(tax_rate, 1, instr(tax_rate, '.') - 1)) <= 2),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, presentation_id)
+) WITHOUT ROWID, STRICT;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -970,6 +1024,7 @@ const MIGRATIONS = [
   { version: 10, sql: MIGRATION_010, checksum: createHash("sha256").update(MIGRATION_010).digest("hex") },
   { version: 11, sql: MIGRATION_011, checksum: createHash("sha256").update(MIGRATION_011).digest("hex") },
   { version: 12, sql: MIGRATION_012, checksum: createHash("sha256").update(MIGRATION_012).digest("hex") },
+  { version: 13, sql: MIGRATION_013, checksum: createHash("sha256").update(MIGRATION_013).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

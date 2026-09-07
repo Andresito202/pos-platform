@@ -31,6 +31,25 @@ export interface SandboxPriceRule {
   readonly status: "ACTIVE" | "INACTIVE";
 }
 
+/**
+ * Atributos fiscales de una presentación — `MIGRATION_013`.
+ *
+ * **No es fixture de SANDBOX.** La tabla no cuelga de `sandbox_catalog_*` y
+ * sobrevive al catálogo real; vive aquí porque el caso de uso de venta resuelve
+ * producto, presentación, precio y atributo fiscal en la misma operación, y
+ * partirlo en una clase aparte sólo para una consulta añadiría indirección sin
+ * añadir frontera.
+ */
+export interface CatalogFiscalAttribute {
+  readonly presentation_id: string;
+  readonly code_reference: string;
+  readonly unit_measure_code: string;
+  readonly standard_code: string;
+  readonly tax_code: string;
+  /** Tasa en porcentaje, escala 6. `"19.000000"` es el 19 %. */
+  readonly tax_rate: string;
+}
+
 export interface SandboxCatalogItem {
   readonly product: SandboxProduct;
   readonly presentation: SandboxPresentation;
@@ -131,11 +150,27 @@ export class SandboxCatalogStore {
     };
   }
 
+  /**
+   * Atributos fiscales `ACTIVE` de la presentación, o `null` si no los declara.
+   *
+   * `null` significa «esta presentación no se puede facturar todavía», nunca
+   * «está exenta». Quien lo consume tiene que distinguir las dos cosas.
+   */
+  getFiscalAttribute(tenantId: string, presentationId: string): CatalogFiscalAttribute | null {
+    const row = this.database.native.prepare(
+      `SELECT presentation_id, code_reference, unit_measure_code, standard_code, tax_code, tax_rate
+       FROM catalog_fiscal_attribute
+       WHERE tenant_id=? AND presentation_id=? AND status='ACTIVE'`,
+    ).get(tenantId, presentationId) as CatalogFiscalAttribute | undefined;
+    return row ?? null;
+  }
+
   /** Escritura de fixture para tests. */
   insertFixture(
     product: Omit<SandboxProduct, "stock_controlled"> & { stock_controlled: boolean },
     presentation: SandboxPresentation,
     priceRule: SandboxPriceRule,
+    fiscalAttribute?: CatalogFiscalAttribute,
   ): void {
     this.database.native.prepare(
       `INSERT INTO sandbox_catalog_product(id,tenant_id,company_id,branch_id,name,status,stock_controlled)
@@ -175,5 +210,25 @@ export class SandboxCatalogStore {
       priceRule.currency_code,
       priceRule.status,
     );
+
+    if (fiscalAttribute) {
+      const at = new Date(0).toISOString();
+      this.database.native.prepare(
+        `INSERT INTO catalog_fiscal_attribute(
+          tenant_id, presentation_id, code_reference, unit_measure_code,
+          standard_code, tax_code, tax_rate, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+      ).run(
+        presentation.tenant_id,
+        fiscalAttribute.presentation_id,
+        fiscalAttribute.code_reference,
+        fiscalAttribute.unit_measure_code,
+        fiscalAttribute.standard_code,
+        fiscalAttribute.tax_code,
+        fiscalAttribute.tax_rate,
+        at,
+        at,
+      );
+    }
   }
 }

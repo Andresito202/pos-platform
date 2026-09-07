@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SaleLineCalculation, SaleTotalsCalculation } from "./sale-calculation.js";
-import { bigIntToScale6 } from "./sale-calculation.js";
+import { bigIntToScale6 } from "../money.js";
 
 /**
  * SALE_CALCULATION_CHECKSUM_V1 (BLOQUE 4C).

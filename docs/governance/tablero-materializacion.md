@@ -96,7 +96,7 @@ y `main.ts` **no las instancia**. Verificado: `main.ts` cablea cinco componentes
 | B6 | Catalog | `DOCUMENTED` | 15 |
 | B7 | Inventory | `DOCUMENTED` | 15 |
 | B8 | Pricing | `DOCUMENTED` | 15 |
-| B9 | Tax (motor de impuestos) | `DOCUMENTED` | 15 |
+| B9 | Tax (motor de impuestos) | `CANON` | 85 |
 | B10 | Customer / adquiriente | `CANON` | 85 |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | 15 |
 | B12 | Periféricos POS | `DOCUMENTED` | 15 |
@@ -117,7 +117,13 @@ de extremo a extremo por el handler de producción. **No se añade fila**: las
 tres partes son una sola capacidad, y partirla en tres inflaría el tablero sin
 que el POS haga nada más.
 
-**Bloque B = 600 / 12 = 50 %**
+**B9 pasa a 85 el 2026-09-07.** El impuesto se calcula por línea desde la tasa
+que declara `catalog_fiscal_attribute`, se congela en el snapshot de la línea y
+llega al canal por `sale.create`. **B6 se queda en 15**: el catálogo sigue
+siendo `sandbox_catalog_*` y sólo se le añadieron atributos fiscales; que el
+impuesto ya funcione no materializa el catálogo.
+
+**Bloque B = 670 / 12 = 56 %**
 
 ### Bloque C — Plano fiscal · 15 capacidades
 
@@ -206,13 +212,13 @@ documenta; nada lo implementa.
 | Bloque | Capacidades | Puntos | % |
 |---|---|---|---|
 | A · Plataforma local | 14 | 1140 | **81 %** |
-| B · Núcleo comercial | 12 | 600 | **50 %** |
+| B · Núcleo comercial | 12 | 670 | **56 %** |
 | C · Plano fiscal | 15 | 945 | **63 %** |
 | D · Central y transporte | 6 | 145 | **24 %** |
 | E · Entrega y operación | 9 | 510 | **57 %** |
-| **GLOBAL** | **56** | **3340** | **60 %** |
+| **GLOBAL** | **56** | **3410** | **61 %** |
 
-**32 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
+**33 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
 
 El global es la media simple de las 56 capacidades, no una media de los cinco
 bloques: ponderar por bloque haría que D —seis filas— pesara lo mismo que C
@@ -230,17 +236,17 @@ ejecutados en este contenedor, con el resultado observado:
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
 | `pnpm test:runtime` | `observability` | 4 pasan |
-| `pnpm test:runtime` | `pos-local-service` | 369 pasan · 4 omitidas |
+| `pnpm test:runtime` | `pos-local-service` | 383 pasan · 4 omitidas |
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
-| `pnpm test:fiscal-adapters` | `fiscal-adapters` | 141 pasan · 2 omitidas |
+| `pnpm test:fiscal-adapters` | `fiscal-adapters` | 170 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **915 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **958 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
 | `pnpm typecheck` | PASS · 13 proyectos, `tsc --noEmit` |
 | `pnpm architecture:check` | PASS · ARCH-003 |
-| `pnpm ci:repository-policy` | PASS · 491 archivos rastreados |
+| `pnpm ci:repository-policy` | PASS · 499 archivos rastreados |
 
 **Qué acreditan las 6 omitidas, y por qué no son un hueco oculto:**
 
@@ -270,3 +276,4 @@ se ejecutó.
 |---|---|---|
 | 2026-09-06 | **58 %** | estructura congelada · sandbox de FACTUS verde (C7 y C8 a 85) · verificación por puerto · tablas de códigos DIAN (C6 a 85) |
 | 2026-09-07 | **60 %** | adquiriente materializado, persistido y alcanzable por el canal (B10 a 85) · `MIGRATION_012` · 915 pruebas |
+| 2026-09-07 | **61 %** | el impuesto deja de ser cero: motor por línea desde el catálogo (B9 a 85) · `MIGRATION_013` · una sola aritmética de dinero · 958 pruebas |

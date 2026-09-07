@@ -53,6 +53,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Completado de venta (único punto) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/sqlite-payment-store.ts` → `completeSaleIfCovered` |
 | Frontera Payments↔Cash | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/cash-port.ts` |
 | Adquiriente (`Customer`) — persistencia, casos de uso y canal | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/customers/` · `MIGRATION_012` · `customer.register`/`get`/`find` |
+| Impuesto por línea desde el catálogo (`Tax`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/sales/sale-calculation.ts` · `MIGRATION_013` · `catalog_fiscal_attribute` |
 
 > **Corrección de estado, 2026-09-06.** Payment V1 figuraba aquí como
 > `CANONICALLY_APPLIED` desde `BLOQUE 4E`, y lo era en handler y
@@ -67,7 +68,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
 |---|---|---|---|---|---|---|
-| SQLite `MIGRATION_001..012` | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/database-sqlite/src/local-database.ts` |
+| SQLite `MIGRATION_001..013` | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/database-sqlite/src/local-database.ts` |
 | Idempotencia (`runtime_operations`) | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_001` · `.../operations/` |
 | Identidad de dispositivo y licencia (tablas) | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_003` |
 | Auditoría append-only | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_005` + triggers |
@@ -284,6 +285,56 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > `pnpm test:runtime` 369+4 omitidas · `pnpm test:fiscal-adapters` 141+2 ·
 > `pnpm architecture:check` PASS · `pnpm ci:repository-policy` PASS.
 
+> **El impuesto deja de ser cero — 2026-09-07.**
+>
+> `calculateSaleLine` devolvía `taxUnits: 0n` fijo, con el comentario literal
+> «SANDBOX Tax EXCLUDED: siempre 0». Ahora la tasa viene de
+> `catalog_fiscal_attribute` (`MIGRATION_013`) y el impuesto se calcula por
+> línea, en `BigInt`, sin coma flotante.
+>
+> **El impuesto es por línea, no por venta.** El snapshot de la venta declaraba
+> una tasa única —`category: "EXCLUDED", rate: "0.000000"`—, y eso era falso en
+> cuanto una factura tuviera dos tipos impositivos. Ahora la venta sólo declara
+> **cuántas líneas quedaron sin atributos fiscales**, que es lo que impide
+> facturarla.
+>
+> **Y un cero sin atributos no dice «exento».** El snapshot de línea tiene dos
+> formas: `RATE_APPLIED`, que afirma qué tasa se aplicó, y
+> `NO_FISCAL_ATTRIBUTES`, que afirma que el cero es **desconocimiento**. Emitir
+> desde una línea de la segunda forma declararía exento algo que nadie ha
+> declarado exento.
+>
+> La tabla lleva la restricción de `D-14` **en disco**: una tasa con más de dos
+> decimales significativos no se puede guardar. En los importes el problema se
+> descubre al emitir; en la tasa se puede impedir desde el origen porque una
+> tasa DIAN no tiene más de dos decimales.
+
+> **Una sola aritmética de dinero — 2026-09-07.**
+>
+> Había **tres** implementaciones de `scale6ToBigInt` en la misma aplicación
+> —`sales/sale-calculation.ts`, `payments/money.ts` y
+> `cash/sqlite-cash-shift-store.ts`— y **no se comportaban igual**. Medido antes
+> de tocar nada:
+>
+> ```
+> "18000.000000"   estricta=18000000000   laxa=18000000000   IGUAL
+> "18000.5"        estricta=THROWS        laxa=18000500000   DIVERGEN
+> "18000"          estricta=THROWS        laxa=18000000000   DIVERGEN
+> "18000.1234567"  estricta=THROWS        laxa=18000123456   DIVERGEN
+> ```
+>
+> Cuatro de cinco casos. Es «dos verdades sobre el mismo importe» dentro de una
+> misma venta y su cobro. Unificadas en `src/money.ts` con la versión
+> **estricta**: una cadena que no tiene la forma canónica es un defecto, no un
+> dato que haya que adivinar.
+>
+> **Y se corrigió un defecto latente que la unificación destapó.** La versión
+> estricta rechazaba el negativo, y `commercial_rounding_adjustment` es el único
+> campo firmado del esquema: su `CHECK` tiene una rama `OR` explícita para
+> `-[0-9]*.[0-9]{6}`. `bigIntToScale6` emite ese valor, la base lo guarda, y
+> **leerlo de vuelta lanzaba**. La prueba que exigía ese fallo codificaba el
+> defecto; ahora hay un invariante de ida y vuelta en su lugar.
+
 ### CI/CD y cadena de suministro
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
@@ -359,6 +410,8 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-16 | La **regla exacta de redondeo de la DIAN** para el impuesto de línea no está verificada en este repositorio. Se trunca, por coherencia con `grossUnits` y porque el pagadero pasa después por `NEAREST_50` | `sale-calculation.ts` | la diferencia queda cuatro órdenes por debajo del incremento que llega al cliente, pero es una elección nuestra, no una regla verificada |
+| D-17 | `Catalog` sigue siendo `sandbox_catalog_*`. `catalog_fiscal_attribute` **no** cuelga de él —sobrevive al catálogo real— pero eso admite atributos huérfanos | `MIGRATION_013` sin clave ajena | un atributo fiscal puede quedar apuntando a una presentación borrada |
 | D-15 | La prueba del canal en Windows endurece el named pipe llamando a PowerShell con `Add-Type` y **`timeout: 15_000`**. Compilar C# en un runner frío puede superarlo: falló con `ETIMEDOUT` en `190b60e`, cuyo diff no toca ese archivo, y pasó al reintentar | `windows-pipe-security.ts:384` · run 34080824572 intento 1 rojo, intento 2 verde | CI intermitentemente rojo por causa ajena al cambio, que erosiona la confianza en el gate |
 | D-14 | **El POS lleva el dinero en escala 6 y el proveedor acepta dos decimales.** Un importe con dígitos significativos más allá del segundo decimal no se puede transmitir con fidelidad | `item.ts` · `toProviderDecimal` devuelve `NOT_REPRESENTABLE`, nunca redondea | una báscula produce `0.333333` kg: esa venta no se puede facturar sin una decisión de negocio previa |
 | D-12 | El dígito de verificación del NIT **no se calcula ni se verifica**: se comprueba su forma y su presencia, nunca su valor | `customer.ts` · prueba «un DV con la forma correcta y el valor equivocado NO se detecta» | un DV equivocado con forma válida pasa el filtro y emite contra un tercero que no es |

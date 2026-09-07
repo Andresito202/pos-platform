@@ -2,7 +2,7 @@ import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { DurableSyncStore } from "../sync/durable-sync-store.js";
-import { bigIntToScale6 } from "./sale-calculation.js";
+import { bigIntToScale6 } from "../money.js";
 import type { SaleLineCalculation, SaleTotalsCalculation } from "./sale-calculation.js";
 
 const SALE_PAYLOAD_SCHEMA_VERSION = "1.0.0";

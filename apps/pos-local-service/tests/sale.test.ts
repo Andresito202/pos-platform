@@ -14,10 +14,9 @@ import {
   TAX_POLICY_VERSION,
   ROUNDING_POLICY_VERSION,
 } from "../src/sales/create-sale-use-case.js";
+import { bigIntToScale6, scale6ToBigInt } from "../src/money.js";
 import {
-  scale6ToBigInt,
   nearestFiftyHalfAwayFromZero,
-  bigIntToScale6,
   calculateSaleLine,
   calculateSaleTotals,
 } from "../src/sales/sale-calculation.js";
@@ -31,9 +30,36 @@ async function directory(): Promise<string> {
   directories.push(value);
   return value;
 }
+/**
+ * Bases abiertas por las pruebas. Se cierran **antes** de borrar el directorio.
+ *
+ * En Windows, `rmSync` sobre un `pos-local.db` todavía abierto falla con
+ * `EBUSY` y enmascara la causa real —lo mismo que ya documentan
+ * `payment.test.ts` y `session-assertion-verifier.test.ts`—. En Linux el
+ * `unlink` de un archivo abierto funciona, así que el defecto sólo aparece en
+ * el runner de Windows: exactamente lo que pasó en `b7b3628`.
+ *
+ * Cerrar aquí, y no en cada prueba, evita que la próxima que abra una base
+ * tenga que acordarse.
+ */
+const databases: LocalDatabase[] = [];
 afterEach(() => {
+  for (const database of databases.splice(0)) {
+    try {
+      database.close();
+    } catch {
+      // Un cierre fallido no debe ocultar el fallo real de la prueba.
+    }
+  }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
+
+/** Abre una base rastreada: el `afterEach` la cierra. */
+function openTracked(dataDirectory: string): LocalDatabase {
+  const database = LocalDatabase.open({ dataDirectory });
+  databases.push(database);
+  return database;
+}
 
 const TENANT = "018f0000-0000-7000-8000-000000000001";
 const COMPANY = "018f0000-0000-7000-8000-000000000002";
@@ -124,7 +150,12 @@ function buildStores(database: LocalDatabase): {
   return { catalog, saleStore, useCase };
 }
 
-function insertFixture(catalog: SandboxCatalogStore, amount = "1000.000000", tenantId = TENANT): void {
+function insertFixture(
+  catalog: SandboxCatalogStore,
+  amount = "1000.000000",
+  tenantId = TENANT,
+  taxRate: string | null = null,
+): void {
   catalog.insertFixture(
     {
       id: PRODUCT_ID,
@@ -153,6 +184,16 @@ function insertFixture(catalog: SandboxCatalogStore, amount = "1000.000000", ten
       currency_code: "COP",
       status: "ACTIVE",
     },
+    taxRate === null
+      ? undefined
+      : {
+          presentation_id: PRESENTATION_ID,
+          code_reference: "SKU-CAFE-001",
+          unit_measure_code: "94",
+          standard_code: "999",
+          tax_code: "01",
+          tax_rate: taxRate,
+        },
   );
 }
 
@@ -174,7 +215,23 @@ describe("scale6ToBigInt and bigIntToScale6", () => {
   it("rejects invalid format", () => {
     expect(() => scale6ToBigInt("1000")).toThrow();
     expect(() => scale6ToBigInt("1000.00000")).toThrow();
-    expect(() => scale6ToBigInt("-1.000000")).toThrow();
+    expect(() => scale6ToBigInt("1000.1234567")).toThrow();
+    expect(() => scale6ToBigInt("mil")).toThrow();
+  });
+
+  /**
+   * El negativo **sí** es forma canónica, y antes no lo era.
+   *
+   * `commercial_rounding_adjustment` es el único campo firmado del esquema y su
+   * `CHECK` tiene una rama `OR` explícita para `-[0-9]*.[0-9]{6}`:
+   * `bigIntToScale6` emite ese valor, la base lo acepta y lo guarda. Con la
+   * versión anterior, **leerlo de vuelta lanzaba**. La aserción que exigía ese
+   * fallo codificaba el defecto, no un guardián.
+   */
+  it("la ida y la vuelta cierran, también en negativo", () => {
+    for (const units of [0n, 1n, -1n, 50_000_000n, -50_000_000n, 18_000_000_000n]) {
+      expect(scale6ToBigInt(bigIntToScale6(units))).toBe(units);
+    }
   });
 });
 
@@ -260,7 +317,7 @@ describe("calculateSaleTotals", () => {
 describe("CreateSaleUseCase", () => {
   it("creates a sale atomically: sale, items, counter, outbox and audit in one commit", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -334,7 +391,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns IDEMPOTENT for the same idempotency_key + same checksum", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -365,7 +422,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns IDEMPOTENCY_CONFLICT for same key but different request content", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -387,7 +444,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns UNAUTHORIZED when user lacks SALES_SALE_CREATE permission", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog);
 
@@ -428,7 +485,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns CATALOG_NOT_FOUND when product does not exist", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     // No insertamos fixture
 
@@ -441,7 +498,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns PRICE_NOT_FOUND when no active price for presentation", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
 
     // Insertamos solo producto y presentación, sin precio
@@ -463,7 +520,7 @@ describe("CreateSaleUseCase", () => {
 
   it("enforces cross-tenant isolation: fixture in OTHER_TENANT is invisible to TENANT", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
 
     // Fixture para OTHER_TENANT
@@ -479,7 +536,7 @@ describe("CreateSaleUseCase", () => {
 
   it("increments sale counter monotonically for the same series", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1000.000000");
 
@@ -502,8 +559,8 @@ describe("CreateSaleUseCase", () => {
   it("calculation checksum is deterministic for same inputs", async () => {
     const dir1 = await directory();
     const dir2 = await directory();
-    const db1 = LocalDatabase.open({ dataDirectory: dir1 });
-    const db2 = LocalDatabase.open({ dataDirectory: dir2 });
+    const db1 = openTracked(dir1);
+    const db2 = openTracked(dir2);
 
     const stores1 = buildStores(db1);
     const stores2 = buildStores(db2);
@@ -533,7 +590,7 @@ describe("CreateSaleUseCase", () => {
 
   it("rounding policy version is frozen in calculation_checksum", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -554,5 +611,159 @@ describe("CreateSaleUseCase", () => {
     expect(saleRow.pricing_pipeline_version).toBe(PRICING_PIPELINE_VERSION);
 
     database.close();
+  });
+});
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// Impuesto por línea — `D-9`
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Hasta ahora `calculateSaleLine` devolvía `taxUnits: 0n` fijo, con el
+ * comentario «SANDBOX Tax EXCLUDED: siempre 0». Estas pruebas fijan las dos
+ * cosas que cambian: que el impuesto se calcula de verdad cuando el catálogo
+ * declara una tasa, y que **cuando no la declara el cero queda marcado como
+ * desconocimiento, no como exención**.
+ */
+
+describe("calculateSaleLine — impuesto", () => {
+  it("sin tasa el impuesto es cero y el total de línea es la base", () => {
+    const line = calculateSaleLine("18000.000000", "2.000000");
+    expect(bigIntToScale6(line.taxableUnits)).toBe("36000.000000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("0.000000");
+    expect(bigIntToScale6(line.lineTotalUnits)).toBe("36000.000000");
+  });
+
+  it("con el 19 % calcula el impuesto y lo suma al total de línea", () => {
+    const line = calculateSaleLine("18000.000000", "2.000000", "19.000000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("6840.000000");
+    expect(bigIntToScale6(line.lineTotalUnits)).toBe("42840.000000");
+  });
+
+  it("con el 8 % del INC también", () => {
+    const line = calculateSaleLine("10000.000000", "1.000000", "8.000000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("800.000000");
+  });
+
+  it("una tasa del 0 % es distinta de no tener tasa sólo en el snapshot, no en el importe", () => {
+    expect(bigIntToScale6(calculateSaleLine("100.000000", "1.000000", "0.000000").taxUnits))
+      .toBe("0.000000");
+  });
+
+  /** Sin coma flotante: el resultado es exacto y se trunca, nunca se redondea. */
+  it("trunca a escala 6 en vez de redondear", () => {
+    // 0,333333 % de 100 = 0,333333 → 0,000333 tras dividir por 100
+    const line = calculateSaleLine("100.000000", "1.000000", "0.330000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("0.330000");
+  });
+});
+
+describe("venta con impuesto — extremo a extremo", () => {
+  it("congela la tasa aplicada en el snapshot de la línea", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog, "1000.000000", TENANT, "19.000000");
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+    expect(result.kind).toBe("CREATED");
+
+    const row = database.native.prepare(
+      "SELECT taxable_amount, tax_amount, line_total_amount, tax_calculation_snapshot FROM sales_sale_items",
+    ).get() as {
+      taxable_amount: string; tax_amount: string;
+      line_total_amount: string; tax_calculation_snapshot: string;
+    };
+
+    expect(row.taxable_amount).toBe("1000.000000");
+    expect(row.tax_amount).toBe("190.000000");
+    expect(row.line_total_amount).toBe("1190.000000");
+
+    const snapshot = JSON.parse(row.tax_calculation_snapshot) as Record<string, unknown>;
+    expect(snapshot["model"]).toBe("RATE_APPLIED");
+    expect(snapshot["tax_code"]).toBe("01");
+    expect(snapshot["rate"]).toBe("19.000000");
+    expect(snapshot["tax_amount"]).toBe("190.000000");
+  });
+
+  /**
+   * La afirmación central del bloque: un cero sin atributos fiscales **no dice
+   * «exento»**. Emitir una factura desde una línea así declararía exento algo
+   * que nadie ha declarado exento.
+   */
+  it("sin atributos fiscales el cero queda marcado como desconocimiento", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog, "1000.000000");
+
+    useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+
+    const row = database.native.prepare(
+      "SELECT tax_amount, tax_calculation_snapshot FROM sales_sale_items",
+    ).get() as { tax_amount: string; tax_calculation_snapshot: string };
+
+    expect(row.tax_amount).toBe("0.000000");
+    const snapshot = JSON.parse(row.tax_calculation_snapshot) as Record<string, unknown>;
+    expect(snapshot["model"]).toBe("NO_FISCAL_ATTRIBUTES");
+    expect(snapshot).not.toHaveProperty("rate");
+  });
+
+  it("la venta cuenta cuántas líneas quedaron sin atributos fiscales", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog, "1000.000000");
+
+    useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+
+    const row = database.native.prepare(
+      "SELECT tax_snapshot FROM sales_sales",
+    ).get() as { tax_snapshot: string };
+    const snapshot = JSON.parse(row.tax_snapshot) as Record<string, unknown>;
+
+    expect(snapshot["lines_without_fiscal_attributes"]).toBe(1);
+    // El snapshot de la venta ya no afirma una tasa única: sería falso en cuanto
+    // hubiera dos tipos impositivos en la misma factura.
+    expect(snapshot).not.toHaveProperty("rate");
+    expect(snapshot).not.toHaveProperty("category");
+  });
+});
+
+describe("MIGRATION_013 — la tasa lleva sus restricciones en disco", () => {
+  const insertRate = (database: LocalDatabase, rate: string): void => {
+    database.native.prepare(
+      `INSERT INTO catalog_fiscal_attribute(
+        tenant_id, presentation_id, code_reference, unit_measure_code,
+        standard_code, tax_code, tax_rate, status, created_at, updated_at
+      ) VALUES (?,?,'SKU-1','94','999','01',?,'ACTIVE','t','t')`,
+    ).run(TENANT, PRESENTATION_ID, rate);
+  };
+
+  it("acepta una tasa con dos decimales", async () => {
+    const database = openTracked(await directory());
+    expect(() => { insertRate(database, "19.000000"); }).not.toThrow();
+  });
+
+  /** `D-14` impuesto desde el origen: una tasa DIAN no tiene más de dos decimales. */
+  it("rechaza una tasa con más de dos decimales significativos", async () => {
+    const database = openTracked(await directory());
+    expect(() => { insertRate(database, "19.005000"); }).toThrow();
+  });
+
+  it("rechaza una tasa mayor que 100, que no es un impuesto sino un error de captura", async () => {
+    const database = openTracked(await directory());
+    expect(() => { insertRate(database, "190.000000"); }).toThrow();
+  });
+
+  it("acepta el 100 exacto, que es el límite y no un error", async () => {
+    const database = openTracked(await directory());
+    expect(() => { insertRate(database, "100.000000"); }).not.toThrow();
+  });
+
+  it("rechaza una tasa que no es escala 6", async () => {
+    const database = openTracked(await directory());
+    expect(() => { insertRate(database, "19.00"); }).toThrow();
   });
 });
