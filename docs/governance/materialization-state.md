@@ -100,6 +100,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Adapter FACTUS (cinco puertos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/factus/` · 2 puertos `SANDBOX_VERIFIED`, 3 `MOCK_TESTED` |
 | Tablas de códigos DIAN (parciales, fuente verificada) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/dian/codes.ts` · PR #57 |
 | Forma canónica del adquiriente (`FiscalCustomer`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/dian/customer.ts` |
+| Forma canónica de la línea (`FiscalDocumentItem`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/dian/item.ts` |
 | Adapter SIIGO | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 | Adapter ALEGRA | ✅ | ❌ | ❌ | ❌ | ❌ | — (faltan credenciales de prueba) |
 
@@ -339,6 +340,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-14 | **El POS lleva el dinero en escala 6 y el proveedor acepta dos decimales.** Un importe con dígitos significativos más allá del segundo decimal no se puede transmitir con fidelidad | `item.ts` · `toProviderDecimal` devuelve `NOT_REPRESENTABLE`, nunca redondea | una báscula produce `0.333333` kg: esa venta no se puede facturar sin una decisión de negocio previa |
 | D-12 | El dígito de verificación del NIT **no se calcula ni se verifica**: se comprueba su forma y su presencia, nunca su valor | `customer.ts` · prueba «un DV con la forma correcta y el valor equivocado NO se detecta» | un DV equivocado con forma válida pasa el filtro y emite contra un tercero que no es |
 | D-13 | El adquiriente genérico de la DIAN («consumidor final») **no está verificado**, así que una venta de mostrador anónima **no se puede emitir**: `prepareCustomerForIssuance` bloquea con `GENERIC_ACQUIRER_NOT_VERIFIED` | `customer.ts` | es el caso mayoritario de un POS colombiano y hoy no tiene salida fiscal |
 | D-10 | ALEGRA separa crear de timbrar, y un fallo entre ambos pasos deja una factura **creada y sin timbrar** | `provider-payload-shapes.md` §ALEGRA | reintentar a ciegas crearía una segunda factura; es el fallo que ya cerramos para FACTUS, por otra causa y aún abierto para ALEGRA |
