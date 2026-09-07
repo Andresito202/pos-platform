@@ -231,7 +231,7 @@ ejecutados en este contenedor, con el resultado observado:
 
 | Comando | Proyecto | Resultado |
 |---|---|---|
-| `pnpm test:contracts` | `@pos-platform/contracts` | 225 pasan |
+| `pnpm test:contracts` | `@pos-platform/contracts` | 230 pasan |
 | `pnpm test:domain` | `@pos-platform/domain` | 47 pasan |
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
@@ -240,13 +240,13 @@ ejecutados en este contenedor, con el resultado observado:
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
 | `pnpm test:fiscal-adapters` | `fiscal-adapters` | 170 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **964 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **969 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
 | `pnpm typecheck` | PASS · 13 proyectos, `tsc --noEmit` |
 | `pnpm architecture:check` | PASS · ARCH-003 |
-| `pnpm ci:repository-policy` | PASS · 499 archivos rastreados |
+| `pnpm ci:repository-policy` | PASS · 500 archivos rastreados |
 
 **Qué acreditan las 6 omitidas, y por qué no son un hueco oculto:**
 
@@ -278,3 +278,4 @@ se ejecutó.
 | 2026-09-07 | **60 %** | adquiriente materializado, persistido y alcanzable por el canal (B10 a 85) · `MIGRATION_012` · 915 pruebas |
 | 2026-09-07 | **61 %** | el impuesto deja de ser cero: motor por línea desde el catálogo (B9 a 85) · `MIGRATION_013` · una sola aritmética de dinero · 958 pruebas |
 | 2026-09-07 | **61 %** | **el tablero no se mueve**: `unit_precision` pasa a gobernar la cantidad, pero es un defecto corregido dentro de `Sales V1`, que ya estaba en `CANON`. 964 pruebas |
+| 2026-09-07 | **61 %** | auditoría del trabajo propio: cifras contradictorias corregidas, el pago de cero deja de ser válido, `D-19` registrada. **El tablero tampoco se mueve.** 969 pruebas |

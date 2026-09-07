@@ -144,7 +144,7 @@ existe API.
 
 | Punto | | Evidencia |
 |---|:-:|---|
-| Vitest | ✅ | 915 pruebas |
+| Vitest | ✅ | 969 pruebas |
 | Playwright | ⚠️ | declarado y con `playwright.config.ts`; **cero ficheros `.spec.ts`** |
 | Testcontainers | ❌ | **cero**. CI usa *service containers* de GitHub, que no es lo mismo |
 | k6 | ❌ | **cero**. No hay prueba de carga de ningún tipo |

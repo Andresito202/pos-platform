@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CashShiftOpenRequestSchema,
   CustomerRegisterRequestSchema,
+  PaymentRegisterCashRequestSchema,
+  PaymentRegisterTransferRequestSchema,
   OperationConfirmRequestSchema,
   OperationResultRequestSchema,
   RuntimeHandshakeRequestSchema,
@@ -155,5 +158,67 @@ describe("customer.register — la frontera del adquiriente", () => {
   it("exige clave de idempotencia: registrar un tercero es una operación", () => {
     const { idempotency_key: _omitted, ...withoutKey } = request();
     expect(CustomerRegisterRequestSchema.safeParse(withoutKey).success).toBe(false);
+  });
+});
+
+/**
+ * Auditoría del 2026-09-07: **un pago de cero era válido en el contrato**.
+ *
+ * Comprobado con sonda antes de cambiar nada. En efectivo eso asentaría un
+ * movimiento de caja de importe cero —basura en el libro de caja— sin mover la
+ * cobertura de la venta, y la caja es justo el módulo que no admite ruido.
+ *
+ * La regla **no** se extiende a la apertura ni al conteo de cierre: una caja sí
+ * se abre sin base y se cuenta vacía. Ahí el cero es un dato legítimo y estas
+ * pruebas lo fijan para que nadie lo endurezca por simetría.
+ */
+describe("importes: dónde el cero es un pago y dónde es un dato", () => {
+  const envelope = {
+    ...metadata,
+    operation_id: "550e8400-e29b-41d4-a716-446655440002",
+    idempotency_key: "k:1",
+  };
+  const SALE = "550e8400-e29b-41d4-a716-446655440003";
+
+  it("un pago en efectivo de cero se rechaza", () => {
+    expect(PaymentRegisterCashRequestSchema.safeParse({
+      ...envelope, message_type: "payment.register.cash",
+      payload: { sale_id: SALE, amount: "0.000000", tendered_amount: null },
+    }).success).toBe(false);
+  });
+
+  it("un pago en efectivo positivo se acepta", () => {
+    expect(PaymentRegisterCashRequestSchema.safeParse({
+      ...envelope, message_type: "payment.register.cash",
+      payload: { sale_id: SALE, amount: "1000.000000", tendered_amount: null },
+    }).success).toBe(true);
+  });
+
+  it("un efectivo entregado de cero se rechaza, pero ausente se acepta", () => {
+    const conTendered = (tendered: string | null) =>
+      PaymentRegisterCashRequestSchema.safeParse({
+        ...envelope, message_type: "payment.register.cash",
+        payload: { sale_id: SALE, amount: "1000.000000", tendered_amount: tendered },
+      }).success;
+    expect(conTendered("0.000000")).toBe(false);
+    expect(conTendered(null)).toBe(true);
+  });
+
+  it("una transferencia de cero se rechaza", () => {
+    expect(PaymentRegisterTransferRequestSchema.safeParse({
+      ...envelope, message_type: "payment.register.transfer",
+      payload: { sale_id: SALE, amount: "0.000000", provider_code: null, provider_reference: null },
+    }).success).toBe(false);
+  });
+
+  it("abrir la caja con base cero SÍ se acepta: una caja se abre sin base", () => {
+    expect(CashShiftOpenRequestSchema.safeParse({
+      ...envelope, message_type: "cash.shift.open",
+      payload: {
+        cash_register_id: "550e8400-e29b-41d4-a716-446655440004",
+        opening_amount: "0.000000", business_date: "2026-09-07",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      },
+    }).success).toBe(true);
   });
 });

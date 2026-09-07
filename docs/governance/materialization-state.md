@@ -37,9 +37,14 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
 > contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-07: **915 pruebas pasan, 6 omitidas, 0 fallos** en 9
+> Censo del 2026-09-07: **969 pruebas pasan, 6 omitidas, 0 fallos** en 9
 > proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
-> `pnpm ci:repository-policy` PASS (491 archivos).
+> `pnpm ci:repository-policy` PASS (500 archivos).
+>
+> El desglose por proyecto y comando vive en el
+> [tablero](./tablero-materializacion.md); **esta cabecera no lo duplica**,
+> porque duplicar una cifra es garantizar que una de las dos copias envejezca —
+> pasó con esta misma línea, que decía 915 cuando ya iban 964.
 > `pnpm test:migrations:postgres` **`NOT_EVALUATED`**: exige una instancia
 > PostgreSQL que el entorno de verificación no tiene.
 
@@ -398,6 +403,31 @@ preservado que documenta la sección siguiente, no en `main`.
 > hoy quien tenga `PAYMENTS_PAYMENT_CANCEL` anula cualquier importe sin segundo
 > factor y sin motivo.
 
+> **Auditoría quirúrgica del trabajo propio — 2026-09-07.**
+>
+> Revisión de todo lo materializado en la sesión buscando contradicciones. Tres
+> hallazgos, los tres corregidos en el acto:
+>
+> 1. **Cifras que se contradecían entre documentos propios.** Esta misma
+>    cabecera decía «915 pruebas / 491 archivos» cuando el tablero ya decía 964
+>    y 500. Causa: la cifra estaba duplicada en dos sitios y sólo se actualizó
+>    uno. Ahora la cabecera no duplica el desglose y remite al tablero.
+> 2. **Un pago de cero era válido en el contrato.** Comprobado con sonda. En
+>    efectivo asentaría un movimiento de caja de importe cero sin mover la
+>    cobertura. Los importes de pago pasan a estrictamente positivos; **la
+>    apertura y el conteo de cierre no**, porque una caja sí se abre sin base y
+>    se cuenta vacía, y hay prueba que lo fija en los dos sentidos.
+> 3. **`D-19`**: los códigos DIAN del atributo fiscal se validan en forma, no en
+>    pertenencia.
+>
+> Lo que se comprobó y **estaba bien**: la numeración de deudas no tiene huecos
+> ni duplicados; el `CHECK` de `tax_policy_version` admite el valor nuevo; el
+> llamador **no puede fijar el precio** —la línea de venta sólo lleva producto,
+> presentación y cantidad—; la suma de los totales de línea sigue coincidiendo
+> con el total fiscal tras sumar el impuesto; y las cuatro afirmaciones
+> medibles del `README` —107 líneas de renderer, 13 operaciones comerciales, 10
+> permisos, 2 puertos `SANDBOX_VERIFIED`— se verificaron una por una.
+
 ## Deuda registrada
 
 | # | Deuda | Evidencia | Consecuencia si no se atiende |
@@ -411,6 +441,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-19 | `catalog_fiscal_attribute` comprueba la **forma** de sus códigos DIAN, no su **pertenencia** a las tablas verificadas. Hoy no hay ruta de usuario que inserte —sólo el fixture de pruebas—, pero el caso de uso que se escriba tiene que validar con `validateFiscalDocumentItem` antes de guardar | `MIGRATION_013` · `dian/item.ts` | un atributo con `unit_measure_code: "KGM"` se guardaría y sólo fallaría al emitir |
 | D-18 | **La venta por peso con seis decimales no se puede facturar.** Cuatro de los diez comercios prioritarios venden por peso; `D-14` los golpea directamente. Mitigación disponible hoy: declarar la unidad con `unit_precision` 2 | `business-readiness.md` | una carnicería puede vender y cobrar 333 g y **no** emitir la factura electrónica de esa venta |
 | D-16 | La **regla exacta de redondeo de la DIAN** para el impuesto de línea no está verificada en este repositorio. Se trunca, por coherencia con `grossUnits` y porque el pagadero pasa después por `NEAREST_50` | `sale-calculation.ts` | la diferencia queda cuatro órdenes por debajo del incremento que llega al cliente, pero es una elección nuestra, no una regla verificada |
 | D-17 | `Catalog` sigue siendo `sandbox_catalog_*`. `catalog_fiscal_attribute` **no** cuelga de él —sobrevive al catálogo real— pero eso admite atributos huérfanos | `MIGRATION_013` sin clave ajena | un atributo fiscal puede quedar apuntando a una presentación borrada |
