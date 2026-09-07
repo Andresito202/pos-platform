@@ -282,9 +282,12 @@ export const SaleCreateLineSchema = z.strictObject({
  * introduce cobro, confirmación ni cierre de venta.
  *
  * El precio **no** viaja en la petición. Lo resuelve la capa confiable contra
- * el catálogo, de modo que el llamador no puede fijar lo que se cobra. En V1 ese
- * catálogo es `SandboxCatalogStore`, autorizado exclusivamente para el entorno
- * sandbox por `DEC-014` §5; no es una proyección `CATALOG` y no altera
+ * el catálogo, de modo que el llamador no puede fijar lo que se cobra. Es la
+ * propiedad que impide la manipulación de precios desde el renderer.
+ *
+ * Desde `MIGRATION_014` ese catálogo es `catalog_product` /
+ * `catalog_presentation` / `catalog_price` —el catálogo real—, no el fixture de
+ * sandbox. Sigue sin ser una proyección `CATALOG` distribuida y no altera
  * `DEC-013`.
  */
 export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
@@ -647,6 +650,101 @@ export const CustomerReadResultSchema = z.strictObject({
 
 export const CustomerReadResponseSchema = createResponseEnvelopeSchema(CustomerReadResultSchema);
 
+// ── catalog.product.register ─────────────────────────────────────────────────
+
+/**
+ * Catálogo real.
+ *
+ * Producto, presentación y precio entran **en la misma petición** porque una
+ * caja no puede vender ninguno de los tres por separado: un producto sin
+ * presentación vendible o sin precio no es un artículo, es media fila.
+ *
+ * `unit_precision` gobierna qué cantidad se puede vender de este artículo
+ * —lo comprueba `quantityFitsUnitPrecision` en la capa confiable— y por eso es
+ * obligatorio. Declarar una unidad de peso con precisión 2 es además la
+ * mitigación de `D-18`: por encima de dos decimales la venta no se factura.
+ */
+const BarcodeSchema = z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/);
+
+export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    code: z.string().min(1).max(64),
+    name: z.string().min(1).max(200),
+    stock_controlled: z.boolean(),
+    presentation_name: z.string().min(1).max(200),
+    unit_code: z.string().min(1).max(16),
+    unit_precision: z.number().int().min(0).max(6),
+    barcode: BarcodeSchema.nullable(),
+    price_amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+  }),
+).safeExtend({ message_type: z.literal("catalog.product.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogProductRegisterOutcomeSchema = z.enum([
+  "REGISTERED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "CODE_ALREADY_REGISTERED",
+  "BARCODE_ALREADY_REGISTERED",
+]);
+
+/**
+ * En los dos resultados de duplicado se devuelve **cuál** es el registro que ya
+ * existe: quien captura necesita ir a él, no reintentar a ciegas.
+ */
+export const CatalogProductRegisterResultSchema = z.strictObject({
+  outcome: CatalogProductRegisterOutcomeSchema,
+  product_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+});
+
+export const CatalogProductRegisterResponseSchema =
+  createResponseEnvelopeSchema(CatalogProductRegisterResultSchema);
+
+// ── catalog.item.find · catalog.item.get ─────────────────────────────────────
+
+/**
+ * `catalog.item.find` es el lector de código de barras; `catalog.item.get`
+ * recupera una presentación ya conocida. Dos mensajes en vez de uno con campos
+ * anulables, por la misma razón que en el adquiriente: un contrato que admite
+ * formas inválidas por construcción es peor que dos que no las admiten.
+ */
+export const CatalogItemFindRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ barcode: BarcodeSchema }),
+).safeExtend({ message_type: z.literal("catalog.item.find") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogItemGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ presentation_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("catalog.item.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogItemResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  product_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+  code: z.string().min(1).max(64).nullable(),
+  name: z.string().min(1).max(200).nullable(),
+  presentation_name: z.string().min(1).max(200).nullable(),
+  unit_code: z.string().min(1).max(16).nullable(),
+  unit_precision: z.number().int().min(0).max(6).nullable(),
+  barcode: BarcodeSchema.nullable(),
+  stock_controlled: z.boolean().nullable(),
+  /**
+   * `null` significa **sin precio activo**, no gratis. Una presentación sin
+   * precio no se puede vender y la caja tiene que distinguir las dos cosas.
+   */
+  price_amount: PositiveScale6Schema.nullable(),
+  currency_code: CurrencyCodeSchema.nullable(),
+});
+
+export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -671,6 +769,9 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.register",
   "customer.get",
   "customer.find",
+  "catalog.product.register",
+  "catalog.item.find",
+  "catalog.item.get",
 ]);
 
 /**
@@ -693,6 +794,9 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  "pos:catalog.product.register",
+  "pos:catalog.item.find",
+  "pos:catalog.item.get",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -709,3 +813,5 @@ export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
+export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
+export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;

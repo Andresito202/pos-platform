@@ -20,6 +20,9 @@ describe("ipc-allowlist", () => {
       "pos:customer.register",
       "pos:customer.get",
       "pos:customer.find",
+      "pos:catalog.product.register",
+      "pos:catalog.item.find",
+      "pos:catalog.item.get",
     ]);
   });
 
@@ -38,6 +41,9 @@ describe("ipc-allowlist", () => {
       "pos:customer.register",
       "pos:customer.get",
       "pos:customer.find",
+      "pos:catalog.product.register",
+      "pos:catalog.item.find",
+      "pos:catalog.item.get",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);
       // El nombre sin prefijo pertenece a la frontera main ↔ servicio y no

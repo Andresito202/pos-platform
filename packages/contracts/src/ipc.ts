@@ -18,6 +18,11 @@ import {
   CustomerGetRequestSchema,
   CustomerFindRequestSchema,
   CustomerReadResponseSchema,
+  CatalogProductRegisterRequestSchema,
+  CatalogProductRegisterResponseSchema,
+  CatalogItemFindRequestSchema,
+  CatalogItemGetRequestSchema,
+  CatalogItemResponseSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterCashResponseSchema,
   PaymentRegisterTransferRequestSchema,
@@ -56,6 +61,9 @@ export const IpcMessageTypeSchema = z.enum([
   "customer.register",
   "customer.get",
   "customer.find",
+  "catalog.product.register",
+  "catalog.item.find",
+  "catalog.item.get",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -145,6 +153,9 @@ export const IpcRequestSchema = z.union([
   CustomerRegisterRequestSchema,
   CustomerGetRequestSchema,
   CustomerFindRequestSchema,
+  CatalogProductRegisterRequestSchema,
+  CatalogItemFindRequestSchema,
+  CatalogItemGetRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -164,6 +175,8 @@ export const IpcResponseSchema = z.union([
   PaymentGetResponseSchema,
   CustomerRegisterResponseSchema,
   CustomerReadResponseSchema,
+  CatalogProductRegisterResponseSchema,
+  CatalogItemResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

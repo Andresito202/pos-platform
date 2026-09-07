@@ -11,9 +11,9 @@ ejecutar de verdad.
 
 La respuesta corta, y conviene leerla antes que la tabla:
 
-> **Hoy el POS no puede atender a ninguno de los comercios prioritarios.** No
-> por el tipo de comercio, sino porque las tres piezas que todos necesitan
-> —catálogo real, inventario e interfaz— no existen.
+> **Hoy el POS todavía no puede atender a ninguno de los comercios
+> prioritarios.** El catálogo real ya está (2026-09-07); faltan **inventario** e
+> **interfaz de caja**, y esas dos las necesitan todos.
 
 Los comercios de **venta por peso** tienen además un bloqueo propio, y es el
 hallazgo que más importa de este cruce.
@@ -22,15 +22,17 @@ hallazgo que más importa de este cruce.
 
 | Pieza | Estado | Evidencia |
 |---|---|---|
-| **Catálogo real** | ❌ | sigue siendo `sandbox_catalog_*`, poblado sólo por pruebas |
+| **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` · alcanzable por el canal |
 | **Inventario** | ❌ | ninguna tabla ni caso de uso |
 | **Interfaz de caja** | ❌ | el renderer expone tres llamadas técnicas y **ninguna comercial** |
-| **Lector de código de barras** | ❌ | ninguna abstracción de hardware |
+| **Lector de código de barras** | ⚠️ | el catálogo resuelve **código → artículo** (`catalog.item.find`) y garantiza que un código identifica una sola presentación; falta el periférico que lo lea |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers` en `main`, probados |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` · `MIGRATION_013` |
 
-Mientras esas cuatro primeras filas sigan en ❌, el tipo de comercio es
-irrelevante: **ninguno puede vender**.
+**Actualización del 2026-09-07:** el catálogo real ya existe y el lector tiene a
+qué preguntar. Quedan **inventario** e **interfaz de caja**; mientras esas dos
+sigan en ❌, el tipo de comercio sigue siendo irrelevante y **ninguno puede
+vender** — un cajero no tiene pantalla desde la que hacerlo.
 
 ## Comercios prioritarios, uno por uno
 
@@ -118,3 +120,4 @@ No es una lista de deseos: es el orden en que los bloqueos se desbloquean entre 
 | Fecha | Qué se cruzó |
 |---|---|
 | 2026-09-07 | primer cruce; `unit_precision` pasa a gobernar la cantidad; se documenta el bloqueo fiscal de la venta por peso |
+| 2026-09-07 | catálogo real materializado: la primera de las tres piezas comunes deja de faltar |

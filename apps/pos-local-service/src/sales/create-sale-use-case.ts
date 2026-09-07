@@ -3,7 +3,7 @@ import { createActor, createOperationScope, evaluatePermission, toRoleAssignment
 import { canonicalJson } from "../channel/canonical-json.js";
 import { bigIntToScale6 } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
-import type { CatalogFiscalAttribute, SandboxCatalogStore } from "./sandbox-catalog-store.js";
+import type { CatalogFiscalAttribute, SqliteCatalogStore } from "../catalog/index.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
 import { calculateSaleLine, calculateSaleTotals, quantityFitsUnitPrecision } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
@@ -93,7 +93,7 @@ function requestChecksum(request: CreateSaleRequest, operatorUserId: string): st
  */
 export class CreateSaleUseCase {
   constructor(
-    private readonly catalogStore: SandboxCatalogStore,
+    private readonly catalogStore: SqliteCatalogStore,
     private readonly saleStore: SqliteSaleStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -139,35 +139,39 @@ export class CreateSaleUseCase {
       fiscal: CatalogFiscalAttribute | null;
     }> = [];
 
+    // El catálogo es de la compañía, no de la sucursal: un producto no cambia
+    // de precio por la caja desde la que se venda.
+    const catalogScope = { tenantId: scope.tenantId, companyId: scope.companyId };
+
     for (const line of request.lines) {
-      const product = this.catalogStore.findActiveProduct(scope.tenantId, line.productId);
+      const product = this.catalogStore.findActiveProduct(catalogScope, line.productId);
       if (!product) {
         return { kind: "CATALOG_NOT_FOUND", productId: line.productId, presentationId: line.presentationId };
       }
 
-      const presentation = this.catalogStore.findActivePresentation(scope.tenantId, line.presentationId);
-      if (!presentation || presentation.product_id !== line.productId) {
+      const presentation = this.catalogStore.findActivePresentation(catalogScope, line.presentationId);
+      if (!presentation || presentation.productId !== line.productId) {
         return { kind: "CATALOG_NOT_FOUND", productId: line.productId, presentationId: line.presentationId };
       }
 
       // La cantidad tiene que caber en la precisión de la unidad. Se comprueba
       // **antes** de resolver el precio: una cantidad imposible no debe llegar a
       // multiplicarse por nada.
-      if (!quantityFitsUnitPrecision(line.quantity, presentation.unit_precision)) {
+      if (!quantityFitsUnitPrecision(line.quantity, presentation.unitPrecision)) {
         return {
           kind: "QUANTITY_PRECISION_EXCEEDED",
           presentationId: line.presentationId,
-          unitPrecision: presentation.unit_precision,
+          unitPrecision: presentation.unitPrecision,
         };
       }
 
       // GetActivePrice (PRICING_PIPELINE_V1 paso 1)
-      const price = this.catalogStore.getActivePrice(scope.tenantId, line.presentationId);
+      const price = this.catalogStore.getActivePrice(catalogScope, line.presentationId);
       if (!price) {
         return { kind: "PRICE_NOT_FOUND", presentationId: line.presentationId };
       }
 
-      if (price.currency_code !== request.currencyCode) {
+      if (price.currencyCode !== request.currencyCode) {
         return { kind: "CURRENCY_MISMATCH", presentationId: line.presentationId };
       }
 
@@ -176,12 +180,15 @@ export class CreateSaleUseCase {
         presentationId: line.presentationId,
         productName: product.name,
         presentationName: presentation.name,
-        unitId: presentation.unit_id,
-        unitCode: presentation.unit_code,
-        unitPrecision: presentation.unit_precision,
+        // El catálogo real no tiene una entidad `Unit` propia: la unidad es el
+        // código que declara la presentación. Se conserva el campo del snapshot
+        // por compatibilidad con las ventas ya guardadas.
+        unitId: presentation.id,
+        unitCode: presentation.unitCode,
+        unitPrecision: presentation.unitPrecision,
         priceAmount: price.amount,
         quantity: line.quantity,
-        fiscal: this.catalogStore.getFiscalAttribute(scope.tenantId, line.presentationId),
+        fiscal: this.catalogStore.getFiscalAttribute(catalogScope, line.presentationId),
       });
     }
 
@@ -192,7 +199,7 @@ export class CreateSaleUseCase {
       calculation: calculateSaleLine(
         resolved.priceAmount,
         resolved.quantity,
-        resolved.fiscal?.tax_rate ?? null,
+        resolved.fiscal?.taxRate ?? null,
       ),
     }));
 
@@ -303,8 +310,8 @@ export class CreateSaleUseCase {
               schema_version: 2,
               model: "RATE_APPLIED",
               tax_policy_version: TAX_POLICY_VERSION,
-              tax_code: resolved.fiscal.tax_code,
-              rate: resolved.fiscal.tax_rate,
+              tax_code: resolved.fiscal.taxCode,
+              rate: resolved.fiscal.taxRate,
               taxable_amount: checksumInput.lines[index]!.taxable_amount,
               tax_amount: bigIntToScale6(calculatedLines[index]!.calculation.taxUnits),
             },

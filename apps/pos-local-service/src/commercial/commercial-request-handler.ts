@@ -16,7 +16,8 @@ type CommercialRequest = Extract<
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
-      | "customer.register" | "customer.get" | "customer.find";
+      | "customer.register" | "customer.get" | "customer.find"
+      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get";
   }
 >;
 
@@ -53,6 +54,8 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PAYMENT_NOT_CANCELLABLE: "CONFLICT",
   INVALID: "VALIDATION",
   IDENTITY_ALREADY_REGISTERED: "CONFLICT",
+  CODE_ALREADY_REGISTERED: "CONFLICT",
+  BARCODE_ALREADY_REGISTERED: "CONFLICT",
   REJECTED: "AUTHENTICATION",
   STALE_SEQUENCE: "CONFLICT",
   BINDING_MISMATCH: "AUTHENTICATION",
@@ -168,6 +171,9 @@ export class CommercialRequestHandler {
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
+      case "catalog.product.register": return this.registerProduct(request, connectionId);
+      case "catalog.item.find":
+      case "catalog.item.get": return this.findCatalogItem(request, connectionId);
     }
   }
 
@@ -515,6 +521,110 @@ export class CommercialRequestHandler {
         country_code: result.customer.countryCode,
         municipality_code: result.customer.municipalityCode,
         version: result.version,
+      });
+    }
+    if (result.kind === "NOT_FOUND") {
+      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+    }
+    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  // ── catalog.product.register ───────────────────────────────────────────────
+
+  private registerProduct(
+    request: Extract<CommercialRequest, { message_type: "catalog.product.register" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { product_id: null, presentation_id: null };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.registerProduct.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        code: payload.code,
+        name: payload.name,
+        stockControlled: payload.stock_controlled,
+        presentationName: payload.presentation_name,
+        unitCode: payload.unit_code,
+        unitPrecision: payload.unit_precision,
+        barcode: payload.barcode,
+        priceAmount: payload.price_amount,
+        currencyCode: payload.currency_code,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "REGISTERED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        product_id: result.productId,
+        presentation_id: result.presentationId,
+      });
+    }
+    if (result.kind === "CODE_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, product_id: result.productId, presentation_id: null,
+      });
+    }
+    if (result.kind === "BARCODE_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, product_id: null, presentation_id: result.presentationId,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  // ── catalog.item.find · catalog.item.get ───────────────────────────────────
+
+  /** Las dos formas de buscar comparten resultado porque devuelven lo mismo. */
+  private findCatalogItem(
+    request: Extract<CommercialRequest, { message_type: "catalog.item.find" | "catalog.item.get" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      product_id: null, presentation_id: null, code: null, name: null,
+      presentation_name: null, unit_code: null, unit_precision: null, barcode: null,
+      stock_controlled: null, price_amount: null, currency_code: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.findCatalogItem.execute(
+      this.scope(),
+      authenticated.snapshot,
+      request.message_type === "catalog.item.find"
+        ? { by: "BARCODE", barcode: request.payload.barcode }
+        : { by: "PRESENTATION", presentationId: request.payload.presentation_id },
+    );
+
+    if (result.kind === "FOUND") {
+      const { product, presentation, price } = result.item;
+      return succeeded(request, "FOUND", {
+        outcome: "FOUND",
+        product_id: product.id,
+        presentation_id: presentation.id,
+        code: product.code,
+        name: product.name,
+        presentation_name: presentation.name,
+        unit_code: presentation.unitCode,
+        unit_precision: presentation.unitPrecision,
+        barcode: presentation.barcode,
+        stock_controlled: product.stockControlled,
+        // `null` es «sin precio activo», no gratis.
+        price_amount: price?.amount ?? null,
+        currency_code: price?.currencyCode ?? null,
       });
     }
     if (result.kind === "NOT_FOUND") {

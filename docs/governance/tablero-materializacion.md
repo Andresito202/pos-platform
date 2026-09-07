@@ -93,7 +93,7 @@ y `main.ts` **no las instancia**. Verificado: `main.ts` cablea cinco componentes
 | B3 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | `CANON` | 85 |
 | B4 | Completado de venta como único punto | `CANON` | 85 |
 | B5 | Frontera Payments ↔ Cash | `CANON` | 85 |
-| B6 | Catalog | `DOCUMENTED` | 15 |
+| B6 | Catalog | `CANON` | 85 |
 | B7 | Inventory | `DOCUMENTED` | 15 |
 | B8 | Pricing | `DOCUMENTED` | 15 |
 | B9 | Tax (motor de impuestos) | `CANON` | 85 |
@@ -123,7 +123,15 @@ llega al canal por `sale.create`. **B6 se queda en 15**: el catálogo sigue
 siendo `sandbox_catalog_*` y sólo se le añadieron atributos fiscales; que el
 impuesto ya funcione no materializa el catálogo.
 
-**Bloque B = 670 / 12 = 56 %**
+**B6 pasa a 85 el 2026-09-07.** `MIGRATION_014` con producto, presentación,
+código de barras y precio; `SandboxCatalogStore` **eliminado**, así que la venta
+tiene una sola fuente de catálogo; y `catalog.product.register`,
+`catalog.item.find` y `catalog.item.get` en el canal con prueba de extremo a
+extremo. No incluye categorías ni variantes: ningún comercio prioritario está
+bloqueado hoy por no tenerlas, y añadirlas sin interfaz sería construir sobre una
+suposición.
+
+**Bloque B = 740 / 12 = 62 %**
 
 ### Bloque C — Plano fiscal · 15 capacidades
 
@@ -212,13 +220,13 @@ documenta; nada lo implementa.
 | Bloque | Capacidades | Puntos | % |
 |---|---|---|---|
 | A · Plataforma local | 14 | 1140 | **81 %** |
-| B · Núcleo comercial | 12 | 670 | **56 %** |
+| B · Núcleo comercial | 12 | 740 | **62 %** |
 | C · Plano fiscal | 15 | 945 | **63 %** |
 | D · Central y transporte | 6 | 145 | **24 %** |
 | E · Entrega y operación | 9 | 510 | **57 %** |
-| **GLOBAL** | **56** | **3410** | **61 %** |
+| **GLOBAL** | **56** | **3480** | **62 %** |
 
-**33 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
+**34 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
 
 El global es la media simple de las 56 capacidades, no una media de los cinco
 bloques: ponderar por bloque haría que D —seis filas— pesara lo mismo que C
@@ -236,17 +244,17 @@ ejecutados en este contenedor, con el resultado observado:
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
 | `pnpm test:runtime` | `observability` | 4 pasan |
-| `pnpm test:runtime` | `pos-local-service` | 389 pasan · 4 omitidas |
+| `pnpm test:runtime` | `pos-local-service` | 409 pasan · 4 omitidas |
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
 | `pnpm test:fiscal-adapters` | `fiscal-adapters` | 170 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **969 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **989 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
 | `pnpm typecheck` | PASS · 13 proyectos, `tsc --noEmit` |
 | `pnpm architecture:check` | PASS · ARCH-003 |
-| `pnpm ci:repository-policy` | PASS · 500 archivos rastreados |
+| `pnpm ci:repository-policy` | PASS · 506 archivos rastreados |
 
 **Qué acreditan las 6 omitidas, y por qué no son un hueco oculto:**
 
@@ -279,3 +287,4 @@ se ejecutó.
 | 2026-09-07 | **61 %** | el impuesto deja de ser cero: motor por línea desde el catálogo (B9 a 85) · `MIGRATION_013` · una sola aritmética de dinero · 958 pruebas |
 | 2026-09-07 | **61 %** | **el tablero no se mueve**: `unit_precision` pasa a gobernar la cantidad, pero es un defecto corregido dentro de `Sales V1`, que ya estaba en `CANON`. 964 pruebas |
 | 2026-09-07 | **61 %** | auditoría del trabajo propio: cifras contradictorias corregidas, el pago de cero deja de ser válido, `D-19` registrada. **El tablero tampoco se mueve.** 969 pruebas |
+| 2026-09-07 | **62 %** | catálogo real: `MIGRATION_014`, `SandboxCatalogStore` eliminado, tres operaciones en el canal (B6 a 85) · 989 pruebas |
