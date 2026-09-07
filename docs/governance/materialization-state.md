@@ -54,6 +54,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Frontera Payments↔Cash | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/cash-port.ts` |
 | Adquiriente (`Customer`) — persistencia, casos de uso y canal | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/customers/` · `MIGRATION_012` · `customer.register`/`get`/`find` |
 | Impuesto por línea desde el catálogo (`Tax`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/sales/sale-calculation.ts` · `MIGRATION_013` · `catalog_fiscal_attribute` |
+| La cantidad respeta la precisión de la unidad | ✅ | ✅ | ✅ | ✅ | ❌ | `.../sales/sale-calculation.ts` → `quantityFitsUnitPrecision` |
 
 > **Corrección de estado, 2026-09-06.** Payment V1 figuraba aquí como
 > `CANONICALLY_APPLIED` desde `BLOQUE 4E`, y lo era en handler y
@@ -410,6 +411,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-18 | **La venta por peso con seis decimales no se puede facturar.** Cuatro de los diez comercios prioritarios venden por peso; `D-14` los golpea directamente. Mitigación disponible hoy: declarar la unidad con `unit_precision` 2 | `business-readiness.md` | una carnicería puede vender y cobrar 333 g y **no** emitir la factura electrónica de esa venta |
 | D-16 | La **regla exacta de redondeo de la DIAN** para el impuesto de línea no está verificada en este repositorio. Se trunca, por coherencia con `grossUnits` y porque el pagadero pasa después por `NEAREST_50` | `sale-calculation.ts` | la diferencia queda cuatro órdenes por debajo del incremento que llega al cliente, pero es una elección nuestra, no una regla verificada |
 | D-17 | `Catalog` sigue siendo `sandbox_catalog_*`. `catalog_fiscal_attribute` **no** cuelga de él —sobrevive al catálogo real— pero eso admite atributos huérfanos | `MIGRATION_013` sin clave ajena | un atributo fiscal puede quedar apuntando a una presentación borrada |
 | D-15 | La prueba del canal en Windows endurece el named pipe llamando a PowerShell con `Add-Type` y **`timeout: 15_000`**. Compilar C# en un runner frío puede superarlo: falló con `ETIMEDOUT` en `190b60e`, cuyo diff no toca ese archivo, y pasó al reintentar | `windows-pipe-security.ts:384` · run 34080824572 intento 1 rojo, intento 2 verde | CI intermitentemente rojo por causa ajena al cambio, que erosiona la confianza en el gate |

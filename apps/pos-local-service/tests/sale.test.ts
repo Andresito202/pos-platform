@@ -17,6 +17,7 @@ import {
 import { bigIntToScale6, scale6ToBigInt } from "../src/money.js";
 import {
   nearestFiftyHalfAwayFromZero,
+  quantityFitsUnitPrecision,
   calculateSaleLine,
   calculateSaleTotals,
 } from "../src/sales/sale-calculation.js";
@@ -765,5 +766,78 @@ describe("MIGRATION_013 — la tasa lleva sus restricciones en disco", () => {
   it("rechaza una tasa que no es escala 6", async () => {
     const database = openTracked(await directory());
     expect(() => { insertRate(database, "19.00"); }).toThrow();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Precisión de la unidad — seguridad del dinero
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `unit_precision` existía en el catálogo, se arrastraba hasta el snapshot de la
+ * línea y **no gobernaba nada**. El contrato IPC acepta cualquier escala 6
+ * porque no ve el catálogo, así que se podía vender `0.000001` de una botella y
+ * cobrarlo. Comprobado con sonda antes de escribir la regla.
+ */
+
+describe("quantityFitsUnitPrecision", () => {
+  it("una unidad discreta (precisión 0) sólo admite enteros", () => {
+    expect(quantityFitsUnitPrecision("1.000000", 0)).toBe(true);
+    expect(quantityFitsUnitPrecision("12.000000", 0)).toBe(true);
+    expect(quantityFitsUnitPrecision("0.500000", 0)).toBe(false);
+    expect(quantityFitsUnitPrecision("0.000001", 0)).toBe(false);
+  });
+
+  it("un peso (precisión 3) admite tres decimales y no seis", () => {
+    expect(quantityFitsUnitPrecision("0.333000", 3)).toBe(true);
+    expect(quantityFitsUnitPrecision("1.250000", 3)).toBe(true);
+    expect(quantityFitsUnitPrecision("0.333333", 3)).toBe(false);
+  });
+
+  it("con precisión 6 todo cabe, que es el máximo de la escala", () => {
+    expect(quantityFitsUnitPrecision("0.333333", 6)).toBe(true);
+  });
+});
+
+describe("venta — la cantidad respeta la precisión de la unidad", () => {
+  it("rechaza media botella cuando la unidad es discreta", async () => {
+    const database = openTracked(await directory());
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog);
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), {
+      ...buildRequest(),
+      lines: [{ productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "0.500000" }],
+    });
+
+    expect(result.kind).toBe("QUANTITY_PRECISION_EXCEEDED");
+    if (result.kind !== "QUANTITY_PRECISION_EXCEEDED") throw new Error("estados");
+    expect(result.unitPrecision).toBe(0);
+  });
+
+  /** La cantidad imposible no debe llegar a multiplicarse por ningún precio. */
+  it("y no deja ni venta ni línea en la base", async () => {
+    const database = openTracked(await directory());
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog);
+
+    useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), {
+      ...buildRequest(),
+      lines: [{ productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "0.000001" }],
+    });
+
+    expect((database.native.prepare("SELECT count(*) AS n FROM sales_sales")
+      .get() as { n: number }).n).toBe(0);
+    expect((database.native.prepare("SELECT count(*) AS n FROM sales_sale_items")
+      .get() as { n: number }).n).toBe(0);
+  });
+
+  it("acepta la cantidad entera de siempre", async () => {
+    const database = openTracked(await directory());
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog);
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+    expect(result.kind).toBe("CREATED");
   });
 });

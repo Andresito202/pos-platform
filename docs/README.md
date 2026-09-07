@@ -6,6 +6,26 @@
 
 Este índice define cómo leer la documentación TARGET y qué fuente tiene autoridad sobre cada tipo de decisión. Su objetivo es evitar que README, backlog, ADR, PRs o snapshots históricos contradigan el estado vigente.
 
+## Estado real, con evidencia
+
+Tres documentos miden el proyecto y **mandan sobre cualquier resumen**,
+incluido el `README.md` de la raíz:
+
+- [`governance/tablero-materializacion.md`](governance/tablero-materializacion.md)
+  — 56 capacidades del producto, con su nivel y el comando que lo comprueba.
+  Estructura congelada: sólo se mueve la columna del nivel.
+- [`governance/stack-conformance-audit.md`](governance/stack-conformance-audit.md)
+  — la lámina «STACK OBJETIVO DEFINIDO» contrastada punto por punto contra el
+  árbol real.
+- [`governance/materialization-state.md`](governance/materialization-state.md)
+  — evidencia por capacidad y **el registro de deudas** (`D-1`…`D-18`).
+
+Y uno que cruza producto con realidad:
+
+- [`product/business-readiness.md`](product/business-readiness.md) — qué
+  comercios de `product/business-types.md` puede atender hoy el POS, fila por
+  fila.
+
 ## Jerarquía de fuentes
 
 1. `product/backlog.md` — estado vigente del trabajo, prioridad, dependencia, bloqueo y orden inmediato.

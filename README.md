@@ -8,32 +8,68 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first d
 
 Camacho POS Colombia está en **Fase 1 — fundación técnica ejecutable**.
 
-La Fase 0 documental está cerrada. `apps/pos-local-service` y varios `packages/*` ya son runtime real (no solo tooling) — ver el detalle abajo. Sigue sin existir una aplicación POS comercial que un cajero pueda instalar, abrir y usar para vender.
+Existe un núcleo comercial local que vende, cobra, cuadra caja y registra
+adquirientes, con impuesto por línea; **no existe todavía una interfaz que un
+cajero pueda usar para hacerlo**, ni plataforma central, ni administración de
+usuarios y roles.
 
-Estado vigente (revisar `docs/product/backlog.md` para el detalle RT-por-RT, esto puede quedar desactualizado):
+Las dos fuentes que mandan sobre esta sección, y que se actualizan en cada
+bloque:
 
-- `main` es la única rama canónica, sin branch protection nativa — toda integración es por PR + SHA esperado + CI del HEAD exacto + verificación post-merge manual (`docs/governance/repository-governance.md`);
-- migrations PostgreSQL 001/002/003: integradas con gates cerrados;
-- `apps/pos-local-service`: **materializado**, no `ABSENT` — RT-000..006 `DONE / INTEGRATED`: lifecycle, SQLite/WAL single-writer con backup/restore/recovery, named pipe local autenticado (DPAPI + HMAC + anti-replay), device identity + license verification (Ed25519), sync durable (outbox/inbox/checkpoint/dead-letter/retry con backoff), y un primer vertical slice runtime (`operation.confirm`: request → auth de dispositivo → validación → transacción SQLite → outbox → respuesta → restart/retry → auditoría);
-- `packages/contracts`, `packages/database-sqlite`, `packages/observability`: real, con tests. `packages/{domain,application,database-core,database-postgres,testing}`: scaffold únicamente (`package.json`/`project.json`, sin `src/`);
-- identidad derivada en el runtime local es de **dispositivo/instalación**, no de usuario — no hay `User`/`Session`/`Role` en el repo todavía;
-- núcleo comercial (Catálogo/Pricing/Inventario/Ventas/Caja/Pagos): modelo físico documentalmente `CLOSED` por dominio, pero el gate de DDL/migración ("primera migración") permanece `NO-GO` para todos ellos — solo el scope `001_central_foundation`/`001_local_migration_control` está `GO_AUTHORIZED` (`docs/architecture/physical-model/traceability.md`);
-- SIIGO/FACTUS/ALEGRA: `DESIGNED / NOT_EVALUATED`;
-- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED` — ningún RT los promueve automáticamente;
-- NestJS/Fastify (API central), Electron/React/Vite (POS desktop): `ABSENT / NOT_MATERIALIZED`;
-- infraestructura productiva, piloto y hardware certificado: pendientes.
+- [tablero de materialización](docs/governance/tablero-materializacion.md) —
+  56 capacidades con su nivel y su evidencia;
+- [auditoría de conformidad con el stack](docs/governance/stack-conformance-audit.md)
+  — la lámina del stack objetivo contrastada punto por punto contra el árbol.
 
-**No existe una aplicación POS productiva completa en este repositorio todavía.** El runtime local (`pos-local-service`) es real y probado, pero no hay UI, no hay dominio comercial materializado (ventas/caja/inventario/catálogo), y `SEC-G01..G10` siguen sin evaluar. Documentación, migrations, tests y tooling no se presentan como producto terminado.
+Este README resume; **si discrepa con ellos, mandan ellos**.
 
-## Integraciones recientes de `main`
+### Lo que ya está en `main` y probado
 
-- PR #18 integró RT-001..004 (POS Local Service: lifecycle, SQLite single-writer, canal local seguro, device trust/licensing).
-- PR #19 integró RT-005 (sync durable: outbox/inbox/checkpoint/dead-letter).
-- PR #20 formalizó la política de revisión de autor único para este repositorio de un solo desarrollador.
-- PR #21 integró RT-006 (primer vertical slice runtime completo, `operation.confirm`).
-- El merge de PR #21 quedó en `77f96fcf7f9580a9e33520a0f284bc7af6e18d8f`.
+- **Servicio local POS** (`apps/pos-local-service`): lifecycle, SQLite/WAL con
+  escritor único y backup/restore verificados en Windows, named pipe local
+  autenticado (DPAPI + HMAC + anti-replay), identidad de dispositivo y licencia
+  Ed25519, sync durable (outbox/inbox/checkpoint/dead-letter con backoff).
+- **Sesión y autorización**: SSA firmada y revocable, snapshot de autorización
+  firmado, y un motor de permisos **RBAC** puro que falla cerrado.
+- **Núcleo comercial**: `Sales` (venta → `READY_FOR_PAYMENT`), `Cash`
+  (apertura y cierre de turno), `Payments` (efectivo y transferencia, con la
+  venta completándose en la **misma** transacción que cubre el importe),
+  `Customers` (adquiriente fiscal) e **impuesto por línea** desde el catálogo.
+- **Plano fiscal**: cinco puertos por capacidad, tablas de códigos DIAN con
+  fuente verificada, y el adapter FACTUS con **dos de sus cinco puertos
+  `SANDBOX_VERIFIED`** contra el proveedor real.
+- **Escritorio Electron**: shell con preload allowlisted y renderer aislado.
+- **CI**: validación TARGET (5 jobs, incluido un runner Windows y PostgreSQL
+  16.14 real), CodeQL, SBOM, licencias, auditoría de vulnerabilidades
+  fail-closed y gobernanza de merge de `main`.
 
-La evidencia anterior es histórica y commit-scoped. El SHA vigente de `main` siempre se consulta en GitHub (`git ls-remote origin main`); no se infiere desde este README.
+### Lo que NO existe, dicho sin rodeos
+
+- **Interfaz comercial.** El renderer son ~110 líneas y expone tres llamadas
+  técnicas. Las trece operaciones comerciales tienen contrato, handler y prueba
+  de extremo a extremo contra el canal, y **ninguna llega a una pantalla**.
+- **Administración, roles y super-administrador.** Hay 14 roles y 126 permisos
+  atómicos documentados, y **10 permisos implementados, ninguno de
+  administración**. No hay tabla de roles, ni panel, ni forma de dar de alta un
+  usuario o asignarle un rol desde el producto.
+- **ABAC, MFA y reautenticación.** La matriz de permisos los exige de forma
+  explícita para toda operación financiera y **no hay ninguno**.
+- **Plataforma central.** `packages/database-postgres/src` está vacío: sin API,
+  sin NestJS ni Fastify, sin inbox. Sin cliente HTTP saliente, ningún hecho
+  comercial sale del dispositivo.
+- **Catálogo real.** Sigue siendo `sandbox_catalog_*`, poblado sólo por
+  pruebas. Sin Inventory ni Pricing.
+- **Hardware.** Báscula, lector, impresora, cajón, datáfono y pantalla cliente:
+  ni la abstracción existe.
+- **Empaquetado y despliegue.** Sin instalador (`electron-builder` no está en el
+  lockfile), sin Docker, sin infraestructura.
+- **PWA**, **OpenTelemetry**, **Testcontainers**, **k6** y **linter**: cero
+  declaraciones en el monorepo.
+- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED`.
+
+**No existe una aplicación POS productiva completa en este repositorio.** Lo que
+hay es un núcleo comercial local real, probado y alcanzable por su canal, sin
+interfaz ni plataforma central.
 
 ## Fuente de verdad
 
@@ -49,19 +85,22 @@ Si dos fuentes normativas vigentes se contradicen, no se implementa una interpre
 
 POS Platform utiliza una sola arquitectura TARGET:
 
-- monolito modular;
-- TypeScript estricto;
-- pnpm workspaces + Nx cuando se materialice el runtime;
-- API central NestJS con Fastify;
-- Electron + React + Vite para el POS de escritorio;
-- POS Local Service Node.js/TypeScript como servicio de Windows;
-- PostgreSQL 16 central;
-- SQLite/WAL local;
-- Kysely con migrations físicas separadas por dialecto;
-- Zod para contratos runtime cuando TECH-003 se materialice;
-- Vitest, Playwright, Testcontainers y k6 según el nivel de prueba;
-- OpenTelemetry para observabilidad futura;
-- Docker e infraestructura central pagada para entornos con datos reales.
+Es el **objetivo**, no el estado. La conformidad real, punto por punto y con el
+comando que la comprueba, está en
+[stack-conformance-audit.md](docs/governance/stack-conformance-audit.md).
+
+| Pieza | En `main` |
+|---|---|
+| monolito modular · TypeScript estricto · pnpm + Nx | ✅ |
+| Zod para contratos runtime | ✅ |
+| POS Local Service Node.js/TypeScript | ✅ (no hay host de servicio instalable) |
+| SQLite/WAL local · Kysely con migrations por dialecto | ✅ |
+| PostgreSQL 16 central | migraciones probadas contra 16.14; **sin instancia desplegada** |
+| Electron + React + Vite | shell y renderer mínimo |
+| Vitest | ✅ · **Playwright** config sin specs · **Testcontainers** y **k6** ausentes |
+| API central NestJS con Fastify | ❌ ausente |
+| OpenTelemetry | ❌ ausente |
+| Docker e infraestructura | ❌ ausente |
 
 La PWA puede existir como laboratorio o capacidad web central; no es la autoridad productiva de caja, hardware o SQLite local.
 

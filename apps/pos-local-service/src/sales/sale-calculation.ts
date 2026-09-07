@@ -19,6 +19,32 @@ const SCALE = 1_000_000n; // escala 6: 1 COP = 1_000_000 units
 const ROUNDING_INCREMENT = 50n * SCALE;
 const ROUNDING_HALF = 25n * SCALE;
 
+/**
+ * ¿La cantidad cabe en la precisión que declara la unidad?
+ *
+ * `unit_precision` existía en el catálogo, se arrastraba hasta el snapshot de la
+ * línea y **no gobernaba nada**: el contrato IPC acepta cualquier escala 6
+ * porque no ve el catálogo, así que sin esta comprobación se podía vender
+ * `0.000001` de una botella y cobrarlo.
+ *
+ * Importa a los dos extremos del catálogo de comercios objetivo:
+ *
+ * - una **tienda, licorera o papelería** vende unidades discretas
+ *   (`unit_precision` 0): media unidad es un error de captura, no una venta;
+ * - una **carnicería o un fruver** venden por peso (`unit_precision` 3): tres
+ *   decimales son legítimos y seis no, y además seis no se pueden facturar
+ *   —el proveedor acepta dos— (`D-14`).
+ *
+ * Se comprueba sobre el texto y no sobre un número: convertir a `number` para
+ * contar decimales metería coma flotante en la única ruta que decide qué se
+ * cobra.
+ */
+export function quantityFitsUnitPrecision(quantityText: string, unitPrecision: number): boolean {
+  const fractional = quantityText.split(".")[1];
+  if (fractional === undefined) return true;
+  return /^0*$/.test(fractional.slice(unitPrecision));
+}
+
 /** NEAREST_50_HALF_AWAY_FROM_ZERO_V1 (DEC-006). Entrada y salida en BigInt escala 6. */
 export function nearestFiftyHalfAwayFromZero(value: bigint): bigint {
   if (value >= 0n) {

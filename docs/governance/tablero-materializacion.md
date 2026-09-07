@@ -236,11 +236,11 @@ ejecutados en este contenedor, con el resultado observado:
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
 | `pnpm test:runtime` | `observability` | 4 pasan |
-| `pnpm test:runtime` | `pos-local-service` | 383 pasan · 4 omitidas |
+| `pnpm test:runtime` | `pos-local-service` | 389 pasan · 4 omitidas |
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
 | `pnpm test:fiscal-adapters` | `fiscal-adapters` | 170 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **958 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **964 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
@@ -277,3 +277,4 @@ se ejecutó.
 | 2026-09-06 | **58 %** | estructura congelada · sandbox de FACTUS verde (C7 y C8 a 85) · verificación por puerto · tablas de códigos DIAN (C6 a 85) |
 | 2026-09-07 | **60 %** | adquiriente materializado, persistido y alcanzable por el canal (B10 a 85) · `MIGRATION_012` · 915 pruebas |
 | 2026-09-07 | **61 %** | el impuesto deja de ser cero: motor por línea desde el catálogo (B9 a 85) · `MIGRATION_013` · una sola aritmética de dinero · 958 pruebas |
+| 2026-09-07 | **61 %** | **el tablero no se mueve**: `unit_precision` pasa a gobernar la cantidad, pero es un defecto corregido dentro de `Sales V1`, que ya estaba en `CANON`. 964 pruebas |
