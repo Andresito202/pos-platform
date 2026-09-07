@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="docs/brand/camacho-pos-colombia-logo-960.png"
+       alt="Camacho POS Colombia — Vende. Controla. Sigue operando."
+       width="640">
+</p>
+
 # Camacho POS Colombia
 
 Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first diseñada para operación comercial real, trazabilidad fuerte y evolución controlada desde una sola base de código.
