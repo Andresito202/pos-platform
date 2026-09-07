@@ -30,9 +30,36 @@ async function directory(): Promise<string> {
   directories.push(value);
   return value;
 }
+/**
+ * Bases abiertas por las pruebas. Se cierran **antes** de borrar el directorio.
+ *
+ * En Windows, `rmSync` sobre un `pos-local.db` todavía abierto falla con
+ * `EBUSY` y enmascara la causa real —lo mismo que ya documentan
+ * `payment.test.ts` y `session-assertion-verifier.test.ts`—. En Linux el
+ * `unlink` de un archivo abierto funciona, así que el defecto sólo aparece en
+ * el runner de Windows: exactamente lo que pasó en `b7b3628`.
+ *
+ * Cerrar aquí, y no en cada prueba, evita que la próxima que abra una base
+ * tenga que acordarse.
+ */
+const databases: LocalDatabase[] = [];
 afterEach(() => {
+  for (const database of databases.splice(0)) {
+    try {
+      database.close();
+    } catch {
+      // Un cierre fallido no debe ocultar el fallo real de la prueba.
+    }
+  }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
+
+/** Abre una base rastreada: el `afterEach` la cierra. */
+function openTracked(dataDirectory: string): LocalDatabase {
+  const database = LocalDatabase.open({ dataDirectory });
+  databases.push(database);
+  return database;
+}
 
 const TENANT = "018f0000-0000-7000-8000-000000000001";
 const COMPANY = "018f0000-0000-7000-8000-000000000002";
@@ -290,7 +317,7 @@ describe("calculateSaleTotals", () => {
 describe("CreateSaleUseCase", () => {
   it("creates a sale atomically: sale, items, counter, outbox and audit in one commit", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -364,7 +391,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns IDEMPOTENT for the same idempotency_key + same checksum", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -395,7 +422,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns IDEMPOTENCY_CONFLICT for same key but different request content", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -417,7 +444,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns UNAUTHORIZED when user lacks SALES_SALE_CREATE permission", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog);
 
@@ -458,7 +485,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns CATALOG_NOT_FOUND when product does not exist", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     // No insertamos fixture
 
@@ -471,7 +498,7 @@ describe("CreateSaleUseCase", () => {
 
   it("returns PRICE_NOT_FOUND when no active price for presentation", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
 
     // Insertamos solo producto y presentación, sin precio
@@ -493,7 +520,7 @@ describe("CreateSaleUseCase", () => {
 
   it("enforces cross-tenant isolation: fixture in OTHER_TENANT is invisible to TENANT", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
 
     // Fixture para OTHER_TENANT
@@ -509,7 +536,7 @@ describe("CreateSaleUseCase", () => {
 
   it("increments sale counter monotonically for the same series", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1000.000000");
 
@@ -532,8 +559,8 @@ describe("CreateSaleUseCase", () => {
   it("calculation checksum is deterministic for same inputs", async () => {
     const dir1 = await directory();
     const dir2 = await directory();
-    const db1 = LocalDatabase.open({ dataDirectory: dir1 });
-    const db2 = LocalDatabase.open({ dataDirectory: dir2 });
+    const db1 = openTracked(dir1);
+    const db2 = openTracked(dir2);
 
     const stores1 = buildStores(db1);
     const stores2 = buildStores(db2);
@@ -563,7 +590,7 @@ describe("CreateSaleUseCase", () => {
 
   it("rounding policy version is frozen in calculation_checksum", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
     insertFixture(catalog, "1025.000000");
 
@@ -635,7 +662,7 @@ describe("calculateSaleLine — impuesto", () => {
 describe("venta con impuesto — extremo a extremo", () => {
   it("congela la tasa aplicada en el snapshot de la línea", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, useCase } = buildStores(database);
     insertFixture(catalog, "1000.000000", TENANT, "19.000000");
 
@@ -667,7 +694,7 @@ describe("venta con impuesto — extremo a extremo", () => {
    */
   it("sin atributos fiscales el cero queda marcado como desconocimiento", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, useCase } = buildStores(database);
     insertFixture(catalog, "1000.000000");
 
@@ -685,7 +712,7 @@ describe("venta con impuesto — extremo a extremo", () => {
 
   it("la venta cuenta cuántas líneas quedaron sin atributos fiscales", async () => {
     const dir = await directory();
-    const database = LocalDatabase.open({ dataDirectory: dir });
+    const database = openTracked(dir);
     const { catalog, useCase } = buildStores(database);
     insertFixture(catalog, "1000.000000");
 
@@ -715,28 +742,28 @@ describe("MIGRATION_013 — la tasa lleva sus restricciones en disco", () => {
   };
 
   it("acepta una tasa con dos decimales", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = openTracked(await directory());
     expect(() => { insertRate(database, "19.000000"); }).not.toThrow();
   });
 
   /** `D-14` impuesto desde el origen: una tasa DIAN no tiene más de dos decimales. */
   it("rechaza una tasa con más de dos decimales significativos", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = openTracked(await directory());
     expect(() => { insertRate(database, "19.005000"); }).toThrow();
   });
 
   it("rechaza una tasa mayor que 100, que no es un impuesto sino un error de captura", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = openTracked(await directory());
     expect(() => { insertRate(database, "190.000000"); }).toThrow();
   });
 
   it("acepta el 100 exacto, que es el límite y no un error", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = openTracked(await directory());
     expect(() => { insertRate(database, "100.000000"); }).not.toThrow();
   });
 
   it("rechaza una tasa que no es escala 6", async () => {
-    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    const database = openTracked(await directory());
     expect(() => { insertRate(database, "19.00"); }).toThrow();
   });
 });
