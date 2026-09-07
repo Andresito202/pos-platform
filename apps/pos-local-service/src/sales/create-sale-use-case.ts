@@ -5,7 +5,7 @@ import { bigIntToScale6 } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { CatalogFiscalAttribute, SandboxCatalogStore } from "./sandbox-catalog-store.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
-import { calculateSaleLine, calculateSaleTotals } from "./sale-calculation.js";
+import { calculateSaleLine, calculateSaleTotals, quantityFitsUnitPrecision } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
 import type { CreateSaleOutcome } from "./sqlite-sale-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -56,6 +56,11 @@ export type CreateSaleResult =
   | { readonly kind: "CATALOG_NOT_FOUND"; readonly productId: string; readonly presentationId: string }
   | { readonly kind: "PRICE_NOT_FOUND"; readonly presentationId: string }
   | { readonly kind: "CURRENCY_MISMATCH"; readonly presentationId: string }
+  | {
+      readonly kind: "QUANTITY_PRECISION_EXCEEDED";
+      readonly presentationId: string;
+      readonly unitPrecision: number;
+    }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
@@ -143,6 +148,17 @@ export class CreateSaleUseCase {
       const presentation = this.catalogStore.findActivePresentation(scope.tenantId, line.presentationId);
       if (!presentation || presentation.product_id !== line.productId) {
         return { kind: "CATALOG_NOT_FOUND", productId: line.productId, presentationId: line.presentationId };
+      }
+
+      // La cantidad tiene que caber en la precisión de la unidad. Se comprueba
+      // **antes** de resolver el precio: una cantidad imposible no debe llegar a
+      // multiplicarse por nada.
+      if (!quantityFitsUnitPrecision(line.quantity, presentation.unit_precision)) {
+        return {
+          kind: "QUANTITY_PRECISION_EXCEEDED",
+          presentationId: line.presentationId,
+          unitPrecision: presentation.unit_precision,
+        };
       }
 
       // GetActivePrice (PRICING_PIPELINE_V1 paso 1)

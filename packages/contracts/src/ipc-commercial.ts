@@ -300,6 +300,10 @@ export const SaleCreateOutcomeSchema = z.enum([
   "CATALOG_NOT_FOUND",
   "PRICE_NOT_FOUND",
   "CURRENCY_MISMATCH",
+  // La cantidad no cabe en la precisión que declara la unidad: media botella no
+  // es una venta, es un error de captura. La comprueba la capa confiable, que
+  // es la única que ve el catálogo.
+  "QUANTITY_PRECISION_EXCEEDED",
   "IDEMPOTENCY_CONFLICT",
 ]);
 
