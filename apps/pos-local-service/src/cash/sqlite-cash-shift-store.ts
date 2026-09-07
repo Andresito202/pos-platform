@@ -2,25 +2,9 @@ import { createHash } from "node:crypto";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope, DurableSyncStore } from "../sync/durable-sync-store.js";
+import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 
 const CASH_SHIFT_PAYLOAD_SCHEMA_VERSION = "1.0.0";
-
-// ── Scale-6 helpers ───────────────────────────────────────────────────────────
-
-function scale6ToBigInt(scale6: string): bigint {
-  const dot = scale6.indexOf(".");
-  const intPart = dot === -1 ? scale6 : scale6.slice(0, dot);
-  const fracPart = dot === -1 ? "000000" : scale6.slice(dot + 1).padEnd(6, "0").slice(0, 6);
-  return BigInt(intPart) * 1_000_000n + BigInt(fracPart);
-}
-
-function bigIntToScale6(value: bigint): string {
-  const sign = value < 0n ? "-" : "";
-  const abs = value < 0n ? -value : value;
-  const intPart = abs / 1_000_000n;
-  const fracPart = abs % 1_000_000n;
-  return `${sign}${intPart}.${fracPart.toString().padStart(6, "0")}`;
-}
 
 // ── Input / Output types ──────────────────────────────────────────────────────
 

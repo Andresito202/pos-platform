@@ -14,10 +14,9 @@ import {
   TAX_POLICY_VERSION,
   ROUNDING_POLICY_VERSION,
 } from "../src/sales/create-sale-use-case.js";
+import { bigIntToScale6, scale6ToBigInt } from "../src/money.js";
 import {
-  scale6ToBigInt,
   nearestFiftyHalfAwayFromZero,
-  bigIntToScale6,
   calculateSaleLine,
   calculateSaleTotals,
 } from "../src/sales/sale-calculation.js";
@@ -124,7 +123,12 @@ function buildStores(database: LocalDatabase): {
   return { catalog, saleStore, useCase };
 }
 
-function insertFixture(catalog: SandboxCatalogStore, amount = "1000.000000", tenantId = TENANT): void {
+function insertFixture(
+  catalog: SandboxCatalogStore,
+  amount = "1000.000000",
+  tenantId = TENANT,
+  taxRate: string | null = null,
+): void {
   catalog.insertFixture(
     {
       id: PRODUCT_ID,
@@ -153,6 +157,16 @@ function insertFixture(catalog: SandboxCatalogStore, amount = "1000.000000", ten
       currency_code: "COP",
       status: "ACTIVE",
     },
+    taxRate === null
+      ? undefined
+      : {
+          presentation_id: PRESENTATION_ID,
+          code_reference: "SKU-CAFE-001",
+          unit_measure_code: "94",
+          standard_code: "999",
+          tax_code: "01",
+          tax_rate: taxRate,
+        },
   );
 }
 
@@ -174,7 +188,23 @@ describe("scale6ToBigInt and bigIntToScale6", () => {
   it("rejects invalid format", () => {
     expect(() => scale6ToBigInt("1000")).toThrow();
     expect(() => scale6ToBigInt("1000.00000")).toThrow();
-    expect(() => scale6ToBigInt("-1.000000")).toThrow();
+    expect(() => scale6ToBigInt("1000.1234567")).toThrow();
+    expect(() => scale6ToBigInt("mil")).toThrow();
+  });
+
+  /**
+   * El negativo **sí** es forma canónica, y antes no lo era.
+   *
+   * `commercial_rounding_adjustment` es el único campo firmado del esquema y su
+   * `CHECK` tiene una rama `OR` explícita para `-[0-9]*.[0-9]{6}`:
+   * `bigIntToScale6` emite ese valor, la base lo acepta y lo guarda. Con la
+   * versión anterior, **leerlo de vuelta lanzaba**. La aserción que exigía ese
+   * fallo codificaba el defecto, no un guardián.
+   */
+  it("la ida y la vuelta cierran, también en negativo", () => {
+    for (const units of [0n, 1n, -1n, 50_000_000n, -50_000_000n, 18_000_000_000n]) {
+      expect(scale6ToBigInt(bigIntToScale6(units))).toBe(units);
+    }
   });
 });
 
@@ -554,5 +584,159 @@ describe("CreateSaleUseCase", () => {
     expect(saleRow.pricing_pipeline_version).toBe(PRICING_PIPELINE_VERSION);
 
     database.close();
+  });
+});
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// Impuesto por línea — `D-9`
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Hasta ahora `calculateSaleLine` devolvía `taxUnits: 0n` fijo, con el
+ * comentario «SANDBOX Tax EXCLUDED: siempre 0». Estas pruebas fijan las dos
+ * cosas que cambian: que el impuesto se calcula de verdad cuando el catálogo
+ * declara una tasa, y que **cuando no la declara el cero queda marcado como
+ * desconocimiento, no como exención**.
+ */
+
+describe("calculateSaleLine — impuesto", () => {
+  it("sin tasa el impuesto es cero y el total de línea es la base", () => {
+    const line = calculateSaleLine("18000.000000", "2.000000");
+    expect(bigIntToScale6(line.taxableUnits)).toBe("36000.000000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("0.000000");
+    expect(bigIntToScale6(line.lineTotalUnits)).toBe("36000.000000");
+  });
+
+  it("con el 19 % calcula el impuesto y lo suma al total de línea", () => {
+    const line = calculateSaleLine("18000.000000", "2.000000", "19.000000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("6840.000000");
+    expect(bigIntToScale6(line.lineTotalUnits)).toBe("42840.000000");
+  });
+
+  it("con el 8 % del INC también", () => {
+    const line = calculateSaleLine("10000.000000", "1.000000", "8.000000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("800.000000");
+  });
+
+  it("una tasa del 0 % es distinta de no tener tasa sólo en el snapshot, no en el importe", () => {
+    expect(bigIntToScale6(calculateSaleLine("100.000000", "1.000000", "0.000000").taxUnits))
+      .toBe("0.000000");
+  });
+
+  /** Sin coma flotante: el resultado es exacto y se trunca, nunca se redondea. */
+  it("trunca a escala 6 en vez de redondear", () => {
+    // 0,333333 % de 100 = 0,333333 → 0,000333 tras dividir por 100
+    const line = calculateSaleLine("100.000000", "1.000000", "0.330000");
+    expect(bigIntToScale6(line.taxUnits)).toBe("0.330000");
+  });
+});
+
+describe("venta con impuesto — extremo a extremo", () => {
+  it("congela la tasa aplicada en el snapshot de la línea", async () => {
+    const dir = await directory();
+    const database = LocalDatabase.open({ dataDirectory: dir });
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog, "1000.000000", TENANT, "19.000000");
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+    expect(result.kind).toBe("CREATED");
+
+    const row = database.native.prepare(
+      "SELECT taxable_amount, tax_amount, line_total_amount, tax_calculation_snapshot FROM sales_sale_items",
+    ).get() as {
+      taxable_amount: string; tax_amount: string;
+      line_total_amount: string; tax_calculation_snapshot: string;
+    };
+
+    expect(row.taxable_amount).toBe("1000.000000");
+    expect(row.tax_amount).toBe("190.000000");
+    expect(row.line_total_amount).toBe("1190.000000");
+
+    const snapshot = JSON.parse(row.tax_calculation_snapshot) as Record<string, unknown>;
+    expect(snapshot["model"]).toBe("RATE_APPLIED");
+    expect(snapshot["tax_code"]).toBe("01");
+    expect(snapshot["rate"]).toBe("19.000000");
+    expect(snapshot["tax_amount"]).toBe("190.000000");
+  });
+
+  /**
+   * La afirmación central del bloque: un cero sin atributos fiscales **no dice
+   * «exento»**. Emitir una factura desde una línea así declararía exento algo
+   * que nadie ha declarado exento.
+   */
+  it("sin atributos fiscales el cero queda marcado como desconocimiento", async () => {
+    const dir = await directory();
+    const database = LocalDatabase.open({ dataDirectory: dir });
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog, "1000.000000");
+
+    useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+
+    const row = database.native.prepare(
+      "SELECT tax_amount, tax_calculation_snapshot FROM sales_sale_items",
+    ).get() as { tax_amount: string; tax_calculation_snapshot: string };
+
+    expect(row.tax_amount).toBe("0.000000");
+    const snapshot = JSON.parse(row.tax_calculation_snapshot) as Record<string, unknown>;
+    expect(snapshot["model"]).toBe("NO_FISCAL_ATTRIBUTES");
+    expect(snapshot).not.toHaveProperty("rate");
+  });
+
+  it("la venta cuenta cuántas líneas quedaron sin atributos fiscales", async () => {
+    const dir = await directory();
+    const database = LocalDatabase.open({ dataDirectory: dir });
+    const { catalog, useCase } = buildStores(database);
+    insertFixture(catalog, "1000.000000");
+
+    useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+
+    const row = database.native.prepare(
+      "SELECT tax_snapshot FROM sales_sales",
+    ).get() as { tax_snapshot: string };
+    const snapshot = JSON.parse(row.tax_snapshot) as Record<string, unknown>;
+
+    expect(snapshot["lines_without_fiscal_attributes"]).toBe(1);
+    // El snapshot de la venta ya no afirma una tasa única: sería falso en cuanto
+    // hubiera dos tipos impositivos en la misma factura.
+    expect(snapshot).not.toHaveProperty("rate");
+    expect(snapshot).not.toHaveProperty("category");
+  });
+});
+
+describe("MIGRATION_013 — la tasa lleva sus restricciones en disco", () => {
+  const insertRate = (database: LocalDatabase, rate: string): void => {
+    database.native.prepare(
+      `INSERT INTO catalog_fiscal_attribute(
+        tenant_id, presentation_id, code_reference, unit_measure_code,
+        standard_code, tax_code, tax_rate, status, created_at, updated_at
+      ) VALUES (?,?,'SKU-1','94','999','01',?,'ACTIVE','t','t')`,
+    ).run(TENANT, PRESENTATION_ID, rate);
+  };
+
+  it("acepta una tasa con dos decimales", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    expect(() => { insertRate(database, "19.000000"); }).not.toThrow();
+  });
+
+  /** `D-14` impuesto desde el origen: una tasa DIAN no tiene más de dos decimales. */
+  it("rechaza una tasa con más de dos decimales significativos", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    expect(() => { insertRate(database, "19.005000"); }).toThrow();
+  });
+
+  it("rechaza una tasa mayor que 100, que no es un impuesto sino un error de captura", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    expect(() => { insertRate(database, "190.000000"); }).toThrow();
+  });
+
+  it("acepta el 100 exacto, que es el límite y no un error", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    expect(() => { insertRate(database, "100.000000"); }).not.toThrow();
+  });
+
+  it("rechaza una tasa que no es escala 6", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    expect(() => { insertRate(database, "19.00"); }).toThrow();
   });
 });

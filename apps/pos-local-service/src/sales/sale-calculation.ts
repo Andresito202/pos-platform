@@ -1,7 +1,10 @@
 /**
  * PRICING_PIPELINE_V1 simplificado para BLOQUE 4C SANDBOX.
  *
- * Alcance autorizado: Tax EXCLUDED (0%), sin descuentos ni promociones.
+ * Alcance: impuesto por línea a partir de la tasa que declara el catálogo, sin
+ * descuentos ni promociones. La tasa es opcional: una presentación sin atributos
+ * fiscales produce impuesto cero, y el snapshot de la línea deja constancia de
+ * que ese cero es desconocimiento, no exención.
  * Las cantidades son exactas como BigInt con escala 6 implícita (1 COP = 1_000_000 units).
  *
  * NEAREST_50_HALF_AWAY_FROM_ZERO_V1 (DEC-006):
@@ -10,29 +13,11 @@
  * Todo en BigInt para evitar errores de punto flotante.
  */
 
+import { scale6ToBigInt } from "../money.js";
+
 const SCALE = 1_000_000n; // escala 6: 1 COP = 1_000_000 units
 const ROUNDING_INCREMENT = 50n * SCALE;
 const ROUNDING_HALF = 25n * SCALE;
-
-/** Convierte un TEXT de escala 6 a BigInt con escala 6 implícita. */
-export function scale6ToBigInt(text: string): bigint {
-  // Valida formato: dígitos, un punto, exactamente 6 dígitos decimales
-  if (!/^\d+\.\d{6}$/.test(text)) {
-    throw new Error(`invalid scale-6 amount: ${text}`);
-  }
-  const [integer, fractional] = text.split(".") as [string, string];
-  return BigInt(integer) * SCALE + BigInt(fractional);
-}
-
-/** Convierte BigInt con escala 6 implícita a TEXT de escala 6. */
-export function bigIntToScale6(value: bigint): string {
-  if (value < 0n) {
-    return `-${bigIntToScale6(-value)}`;
-  }
-  const integer = value / SCALE;
-  const fractional = value % SCALE;
-  return `${integer}.${fractional.toString().padStart(6, "0")}`;
-}
 
 /** NEAREST_50_HALF_AWAY_FROM_ZERO_V1 (DEC-006). Entrada y salida en BigInt escala 6. */
 export function nearestFiftyHalfAwayFromZero(value: bigint): bigint {
@@ -56,8 +41,12 @@ export interface SaleLineCalculation {
   readonly discountUnits: 0n;
   /** taxable_amount = gross - discount. */
   readonly taxableUnits: bigint;
-  /** SANDBOX Tax EXCLUDED: siempre 0. */
-  readonly taxUnits: 0n;
+  /**
+   * Impuesto de la línea. Cero **sólo** cuando la presentación no declara
+   * atributos fiscales, y en ese caso el snapshot de la línea lo dice: cero por
+   * desconocimiento no es lo mismo que cero por exención.
+   */
+  readonly taxUnits: bigint;
   /** line_total = taxable_amount + tax_amount. */
   readonly lineTotalUnits: bigint;
 }
@@ -81,6 +70,7 @@ export interface SaleTotalsCalculation {
 export function calculateSaleLine(
   unitPriceText: string,
   quantityText: string,
+  taxRateText: string | null = null,
 ): SaleLineCalculation {
   const unitPriceUnits = scale6ToBigInt(unitPriceText);
   const quantityUnits = scale6ToBigInt(quantityText);
@@ -92,7 +82,20 @@ export function calculateSaleLine(
   const grossUnits = (unitPriceUnits * quantityUnits) / SCALE;
 
   const taxableUnits = grossUnits;
-  const lineTotalUnits = taxableUnits;
+
+  // impuesto = base × tasa / 100, truncado a escala 6.
+  //
+  // Trunca porque es lo que ya hace `grossUnits`, y porque el total pagadero
+  // pasa después por NEAREST_50: la diferencia entre truncar y redondear queda
+  // cuatro órdenes de magnitud por debajo del incremento que llega al cliente.
+  // La regla exacta de redondeo de la DIAN no está verificada en este
+  // repositorio (`D-16`); lo que sí está fijado es que aquí no hay coma
+  // flotante.
+  const taxUnits = taxRateText === null
+    ? 0n
+    : (taxableUnits * scale6ToBigInt(taxRateText)) / (100n * SCALE);
+
+  const lineTotalUnits = taxableUnits + taxUnits;
 
   return {
     unitPriceUnits,
@@ -100,7 +103,7 @@ export function calculateSaleLine(
     grossUnits,
     discountUnits: 0n,
     taxableUnits,
-    taxUnits: 0n,
+    taxUnits,
     lineTotalUnits,
   };
 }
