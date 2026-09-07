@@ -327,6 +327,25 @@ preservado que documenta la sección siguiente, no en `main`.
 | E2E Playwright | configurado | `apps/pos-desktop/e2e/` sin un solo spec |
 | `SEC-G01..G10` | `PLANNED` | — |
 
+> **Auditoría de conformidad con el stack, 2026-09-07.** Se contrastó punto por
+> punto la lámina «STACK OBJETIVO DEFINIDO» contra el árbol real:
+> [`stack-conformance-audit.md`](./stack-conformance-audit.md). **Conformidad
+> global 54 %** sobre 91 puntos de stack.
+>
+> Lo que el barrido devolvió en **cero**: PWA, backend central (NestJS y Fastify
+> incluidos), Docker, object storage, workers, infraestructura portable,
+> OpenTelemetry, Testcontainers, k6, **linter**, y los ocho puntos de hardware.
+>
+> Y el hallazgo que más pesa: **administración y roles al 20 %**. Hay 14 roles y
+> 126 permisos atómicos documentados, y **10 permisos implementados, ninguno de
+> administración**. No existe tabla de roles —los roles viajan dentro del blob
+> firmado que emitiría una plataforma central que no existe—, ni panel de
+> administración, ni panel de super-administrador, ni forma de dar de alta un
+> usuario o asignarle un rol desde el producto. **ABAC, que la matriz exige de
+> forma explícita para toda operación financiera, tiene cero implementación**:
+> hoy quien tenga `PAYMENTS_PAYMENT_CANCEL` anula cualquier importe sin segundo
+> factor y sin motivo.
+
 ## Deuda registrada
 
 | # | Deuda | Evidencia | Consecuencia si no se atiende |
@@ -340,6 +359,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-15 | La prueba del canal en Windows endurece el named pipe llamando a PowerShell con `Add-Type` y **`timeout: 15_000`**. Compilar C# en un runner frío puede superarlo: falló con `ETIMEDOUT` en `190b60e`, cuyo diff no toca ese archivo, y pasó al reintentar | `windows-pipe-security.ts:384` · run 34080824572 intento 1 rojo, intento 2 verde | CI intermitentemente rojo por causa ajena al cambio, que erosiona la confianza en el gate |
 | D-14 | **El POS lleva el dinero en escala 6 y el proveedor acepta dos decimales.** Un importe con dígitos significativos más allá del segundo decimal no se puede transmitir con fidelidad | `item.ts` · `toProviderDecimal` devuelve `NOT_REPRESENTABLE`, nunca redondea | una báscula produce `0.333333` kg: esa venta no se puede facturar sin una decisión de negocio previa |
 | D-12 | El dígito de verificación del NIT **no se calcula ni se verifica**: se comprueba su forma y su presencia, nunca su valor | `customer.ts` · prueba «un DV con la forma correcta y el valor equivocado NO se detecta» | un DV equivocado con forma válida pasa el filtro y emite contra un tercero que no es |
 | D-13 | El adquiriente genérico de la DIAN («consumidor final») **no está verificado**, así que una venta de mostrador anónima **no se puede emitir**: `prepareCustomerForIssuance` bloquea con `GENERIC_ACQUIRER_NOT_VERIFIED` | `customer.ts` | es el caso mayoritario de un POS colombiano y hoy no tiene salida fiscal |
