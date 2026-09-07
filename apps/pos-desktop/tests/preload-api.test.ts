@@ -21,6 +21,9 @@ describe("preload-api", () => {
       "payment.transfer.confirm",
       "payment.cancel",
       "payment.get",
+      "customer.register",
+      "customer.get",
+      "customer.find",
     ]);
   });
 

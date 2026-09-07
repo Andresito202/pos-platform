@@ -16,6 +16,9 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
+  "pos:customer.register",
+  "pos:customer.get",
+  "pos:customer.find",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

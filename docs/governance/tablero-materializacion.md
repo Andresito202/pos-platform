@@ -97,7 +97,7 @@ y `main.ts` **no las instancia**. Verificado: `main.ts` cablea cinco componentes
 | B7 | Inventory | `DOCUMENTED` | 15 |
 | B8 | Pricing | `DOCUMENTED` | 15 |
 | B9 | Tax (motor de impuestos) | `DOCUMENTED` | 15 |
-| B10 | Customer / adquiriente | `DOCUMENTED` | 15 |
+| B10 | Customer / adquiriente | `CANON` | 85 |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | 15 |
 | B12 | Periféricos POS | `DOCUMENTED` | 15 |
 
@@ -109,7 +109,15 @@ linaje no cambia lo que el POS puede hacer hoy.
 **B8 y B9 tienen tabla pero no motor**: `sandbox_price_rule` y un `tax_snapshot`
 que es TEXT congelado. Una tabla sin regla que la calcule no es la capacidad.
 
-**Bloque B = 530 / 12 = 44 %**
+**B10 pasa a 85 el 2026-09-07.** La capacidad es la forma canónica más la
+persistencia más el camino: `FiscalCustomer` en el paquete fiscal,
+`MIGRATION_012` y el módulo `customers/` en el servicio local, y
+`customer.register` · `customer.get` · `customer.find` en el canal, con prueba
+de extremo a extremo por el handler de producción. **No se añade fila**: las
+tres partes son una sola capacidad, y partirla en tres inflaría el tablero sin
+que el POS haga nada más.
+
+**Bloque B = 600 / 12 = 50 %**
 
 ### Bloque C — Plano fiscal · 15 capacidades
 
@@ -198,41 +206,41 @@ documenta; nada lo implementa.
 | Bloque | Capacidades | Puntos | % |
 |---|---|---|---|
 | A · Plataforma local | 14 | 1140 | **81 %** |
-| B · Núcleo comercial | 12 | 530 | **44 %** |
+| B · Núcleo comercial | 12 | 600 | **50 %** |
 | C · Plano fiscal | 15 | 945 | **63 %** |
 | D · Central y transporte | 6 | 145 | **24 %** |
 | E · Entrega y operación | 9 | 510 | **57 %** |
-| **GLOBAL** | **56** | **3270** | **58 %** |
+| **GLOBAL** | **56** | **3340** | **60 %** |
 
-**31 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
+**32 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
 
 El global es la media simple de las 56 capacidades, no una media de los cinco
 bloques: ponderar por bloque haría que D —seis filas— pesara lo mismo que C
 —quince—, y eso no describe el proyecto.
 
-## Censo de pruebas — ejecutado el 2026-09-06 sobre `f9987f2`
+## Censo de pruebas — ejecutado el 2026-09-07 sobre `2b2b81d` + adquiriente
 
 Los porcentajes de arriba se apoyan en esto, no en una impresión. Comandos
 ejecutados en este contenedor, con el resultado observado:
 
 | Comando | Proyecto | Resultado |
 |---|---|---|
-| `pnpm test:contracts` | `@pos-platform/contracts` | 218 pasan |
+| `pnpm test:contracts` | `@pos-platform/contracts` | 225 pasan |
 | `pnpm test:domain` | `@pos-platform/domain` | 47 pasan |
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
 | `pnpm test:runtime` | `observability` | 4 pasan |
-| `pnpm test:runtime` | `pos-local-service` | 345 pasan · 4 omitidas |
+| `pnpm test:runtime` | `pos-local-service` | 369 pasan · 4 omitidas |
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
-| `pnpm test:fiscal-adapters` | `fiscal-adapters` | 114 pasan · 2 omitidas |
+| `pnpm test:fiscal-adapters` | `fiscal-adapters` | 141 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **857 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **915 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
 | `pnpm typecheck` | PASS · 13 proyectos, `tsc --noEmit` |
 | `pnpm architecture:check` | PASS · ARCH-003 |
-| `pnpm ci:repository-policy` | PASS · 488 archivos rastreados |
+| `pnpm ci:repository-policy` | PASS · 491 archivos rastreados |
 
 **Qué acreditan las 6 omitidas, y por qué no son un hueco oculto:**
 
@@ -261,3 +269,4 @@ se ejecutó.
 | Fecha | Global | Qué movió |
 |---|---|---|
 | 2026-09-06 | **58 %** | estructura congelada · sandbox de FACTUS verde (C7 y C8 a 85) · verificación por puerto · tablas de códigos DIAN (C6 a 85) |
+| 2026-09-07 | **60 %** | adquiriente materializado, persistido y alcanzable por el canal (B10 a 85) · `MIGRATION_012` · 915 pruebas |

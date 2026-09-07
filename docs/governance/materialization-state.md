@@ -37,9 +37,9 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
 > contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-06 sobre `f9987f2`: **857 pruebas pasan, 6 omitidas, 0
-> fallos** en 9 proyectos. `pnpm typecheck` PASS · `pnpm architecture:check`
-> PASS · `pnpm ci:repository-policy` PASS (488 archivos).
+> Censo del 2026-09-07: **915 pruebas pasan, 6 omitidas, 0 fallos** en 9
+> proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
+> `pnpm ci:repository-policy` PASS (491 archivos).
 > `pnpm test:migrations:postgres` **`NOT_EVALUATED`**: exige una instancia
 > PostgreSQL que el entorno de verificación no tiene.
 
@@ -52,6 +52,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/payments/` · `MIGRATION_011` |
 | Completado de venta (único punto) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/sqlite-payment-store.ts` → `completeSaleIfCovered` |
 | Frontera Payments↔Cash | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/cash-port.ts` |
+| Adquiriente (`Customer`) — persistencia, casos de uso y canal | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/customers/` · `MIGRATION_012` · `customer.register`/`get`/`find` |
 
 > **Corrección de estado, 2026-09-06.** Payment V1 figuraba aquí como
 > `CANONICALLY_APPLIED` desde `BLOQUE 4E`, y lo era en handler y
@@ -66,7 +67,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
 |---|---|---|---|---|---|---|
-| SQLite `MIGRATION_001..011` | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/database-sqlite/src/local-database.ts` |
+| SQLite `MIGRATION_001..012` | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/database-sqlite/src/local-database.ts` |
 | Idempotencia (`runtime_operations`) | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_001` · `.../operations/` |
 | Identidad de dispositivo y licencia (tablas) | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_003` |
 | Auditoría append-only | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_005` + triggers |
@@ -248,6 +249,40 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > devolviendo ambas listas: descartar en silencio lo desconocido escondería que
 > el catálogo está incompleto.
 
+> **Adquiriente — segunda pieza de `D-9`, 2026-09-07.**
+>
+> Tres capas y una sola forma del dato. `FiscalCustomer` vive en el paquete
+> fiscal, junto a las tablas DIAN contra las que se valida;
+> `customers_customers` guarda **exactamente** esa forma; y el canal la expone
+> con `customer.register`, `customer.get` y `customer.find`. **No hay un segundo
+> modelo de cliente**: dos formas del mismo tercero acabarían discrepando, y la
+> que discrepe al emitir es la que va en el documento fiscal.
+>
+> **Las reglas del adquiriente son restricciones de almacenamiento, no sólo de
+> validación.** `MIGRATION_012` impone en disco lo que `validateFiscalCustomer`
+> comprueba en memoria: identificación sólo dígitos —la documentación es
+> taxativa en que viaja sin DV—, DV de un solo dígito, razón social obligatoria
+> para persona jurídica y nombres para persona natural, y responsabilidades
+> fiscales como array JSON. No es duplicación: el validador informa a un
+> operador con hallazgos que puede corregir; la restricción impide que la fila
+> exista venga de donde venga.
+>
+> **Auditoría y outbox no llevan lo mismo, y es deliberado.** El rastro registra
+> qué se hizo —tipo documental y naturaleza jurídica— y **no** la
+> identificación, el correo, el teléfono ni la dirección. El outbox sí lleva la
+> identidad completa, porque el central necesita el tercero para poder emitir.
+> Son dos destinos con dos necesidades distintas. Hay una prueba por cada uno.
+>
+> **Defecto encontrado y corregido en el camino:** el contrato IPC usaba
+> `StableCodeSchema` para los códigos DIAN, y ese esquema exige empezar por
+> mayúscula. Habría rechazado en la frontera `"31"`, `"13"` y `"1"` —casi todo
+> el catálogo verificado— y sólo se habría visto al llegar la primera petición
+> real. Lo destapó la prueba de extremo a extremo, no la revisión.
+>
+> Comandos ejecutados: `pnpm typecheck` PASS · `pnpm test:contracts` 225 ·
+> `pnpm test:runtime` 369+4 omitidas · `pnpm test:fiscal-adapters` 141+2 ·
+> `pnpm architecture:check` PASS · `pnpm ci:repository-policy` PASS.
+
 ### CI/CD y cadena de suministro
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
@@ -281,7 +316,6 @@ preservado que documenta la sección siguiente, no en `main`.
 | Pricing | `PRICE-001/002 = DONE` | solo `sandbox_price_rule` |
 | Tax | `TAX-001/002/003 = DONE` | `tax_snapshot` es TEXT congelado; sin motor |
 | Inventory | `INV-001/002 = DONE` | en `main`: nada. Existe implementación completa en `wip/local-catalog-inventory-payment-20260906` (ver «Linaje preservado») |
-| Customer / adquiriente | `CUST-001 = PLANNED` | — (ninguna tabla ni columna) |
 | SaleReturn, notas crédito/débito | documentado | — |
 | API central | documentado | — (`apps/` solo tiene 2 aplicaciones) |
 | Transporte local↔central | documentado | — (sin cliente HTTP saliente) |
@@ -304,7 +338,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
-| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57. Forma canónica del adquiriente materializada**; le falta persistencia. `Catalog` y `Tax` siguen sin existir | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
 | D-12 | El dígito de verificación del NIT **no se calcula ni se verifica**: se comprueba su forma y su presencia, nunca su valor | `customer.ts` · prueba «un DV con la forma correcta y el valor equivocado NO se detecta» | un DV equivocado con forma válida pasa el filtro y emite contra un tercero que no es |
 | D-13 | El adquiriente genérico de la DIAN («consumidor final») **no está verificado**, así que una venta de mostrador anónima **no se puede emitir**: `prepareCustomerForIssuance` bloquea con `GENERIC_ACQUIRER_NOT_VERIFIED` | `customer.ts` | es el caso mayoritario de un POS colombiano y hoy no tiene salida fiscal |
 | D-10 | ALEGRA separa crear de timbrar, y un fallo entre ambos pasos deja una factura **creada y sin timbrar** | `provider-payload-shapes.md` §ALEGRA | reintentar a ciegas crearía una segunda factura; es el fallo que ya cerramos para FACTUS, por otra causa y aún abierto para ALEGRA |

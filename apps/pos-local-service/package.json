@@ -14,7 +14,8 @@
     "@pos-platform/contracts": "workspace:*",
     "@pos-platform/observability": "workspace:*",
     "zod": "4.4.3",
-    "@pos-platform/database-sqlite": "workspace:*"
+    "@pos-platform/database-sqlite": "workspace:*",
+    "@pos-platform/fiscal-adapters": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1",

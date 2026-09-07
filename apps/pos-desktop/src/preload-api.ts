@@ -14,6 +14,9 @@ export const RENDERER_API_METHODS = [
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "customer.register",
+  "customer.get",
+  "customer.find",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];

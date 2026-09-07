@@ -22,6 +22,9 @@ import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-pa
 import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-payment-use-case.js";
 import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
+import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
+import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
+import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
 
 /**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
@@ -55,6 +58,8 @@ export class CommercialComponent implements RuntimeComponent {
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
         readonly cancelPayment: CancelPaymentUseCase;
         readonly getPayment: GetPaymentUseCase;
+        readonly registerCustomer: RegisterCustomerUseCase;
+        readonly getCustomer: GetCustomerUseCase;
       }
     | undefined;
 
@@ -86,6 +91,8 @@ export class CommercialComponent implements RuntimeComponent {
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
   get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
+  get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
+  get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -104,6 +111,7 @@ export class CommercialComponent implements RuntimeComponent {
     // `SqliteCashShiftStore` satisface `CashPort` estructuralmente: Payments no
     // escribe caja, y `cash/` no importa de `payments/` (`DEC-016` §10).
     const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, this.now);
+    const customerStore = new SqliteCustomerStore(database, sync, this.now);
 
     this.state = {
       sessionStore,
@@ -117,6 +125,8 @@ export class CommercialComponent implements RuntimeComponent {
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
+      registerCustomer: new RegisterCustomerUseCase(customerStore),
+      getCustomer: new GetCustomerUseCase(customerStore),
     };
   }
 

@@ -15,7 +15,8 @@ type CommercialRequest = Extract<
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer"
-      | "payment.transfer.confirm" | "payment.cancel" | "payment.get";
+      | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
+      | "customer.register" | "customer.get" | "customer.find";
   }
 >;
 
@@ -49,6 +50,8 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PAYMENT_NOT_FOUND: "NOT_FOUND",
   PAYMENT_NOT_CONFIRMABLE: "CONFLICT",
   PAYMENT_NOT_CANCELLABLE: "CONFLICT",
+  INVALID: "VALIDATION",
+  IDENTITY_ALREADY_REGISTERED: "CONFLICT",
   REJECTED: "AUTHENTICATION",
   STALE_SEQUENCE: "CONFLICT",
   BINDING_MISMATCH: "AUTHENTICATION",
@@ -161,6 +164,9 @@ export class CommercialRequestHandler {
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
       case "payment.cancel": return this.cancelPayment(request, connectionId);
       case "payment.get": return this.getPayment(request, connectionId);
+      case "customer.register": return this.registerCustomer(request, connectionId);
+      case "customer.get":
+      case "customer.find": return this.readCustomer(request, connectionId);
     }
   }
 
@@ -360,6 +366,154 @@ export class CommercialRequestHandler {
         confirmed_amount: result.payment.confirmedAmount,
         currency_code: result.payment.currencyCode,
         version: result.payment.version,
+      });
+    }
+    if (result.kind === "NOT_FOUND") {
+      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+    }
+    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  // ── customer.register ──────────────────────────────────────────────────────
+
+  /**
+   * `customer.register` — el adquiriente (`D-9`).
+   *
+   * Los hallazgos viajan al renderer con **código y ruta, nunca el valor del
+   * campo**. Un adquiriente contiene identificación, correo y dirección de una
+   * persona real: devolverlos en el error los llevaría a los registros del
+   * renderer, que es exactamente la frontera que este handler existe para no
+   * cruzar.
+   */
+  private registerCustomer(
+    request: Extract<CommercialRequest, { message_type: "customer.register" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { customer_id: null, version: null, findings: [] };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.registerCustomer.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        customer: {
+          identificationDocumentCode: payload.identification_document_code,
+          identification: payload.identification,
+          verificationDigit: payload.verification_digit,
+          legalOrganizationCode: payload.legal_organization_code,
+          company: payload.company,
+          names: payload.names,
+          tributeCode: payload.tribute_code,
+          fiscalResponsibilityCodes: payload.fiscal_responsibility_codes,
+          email: payload.email,
+          phone: payload.phone,
+          address: payload.address,
+          countryCode: payload.country_code,
+          municipalityCode: payload.municipality_code,
+        },
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "REGISTERED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        customer_id: result.customerId,
+        version: result.version,
+        findings: [],
+      });
+    }
+    if (result.kind === "INVALID") {
+      return rejected(request, "INVALID", {
+        outcome: "INVALID",
+        customer_id: null,
+        version: null,
+        findings: result.findings.map((finding) => ({
+          code: finding.code,
+          path: finding.path,
+          source: finding.source,
+        })),
+      });
+    }
+    if (result.kind === "IDENTITY_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind,
+        customer_id: result.customerId,
+        version: null,
+        findings: [],
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  // ── customer.get · customer.find ───────────────────────────────────────────
+
+  /** Las dos formas de preguntar comparten resultado porque devuelven lo mismo. */
+  private readCustomer(
+    request: Extract<CommercialRequest, { message_type: "customer.get" | "customer.find" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      customer_id: null,
+      identification_document_code: null,
+      identification: null,
+      verification_digit: null,
+      legal_organization_code: null,
+      company: null,
+      names: null,
+      tribute_code: null,
+      fiscal_responsibility_codes: [],
+      email: null,
+      phone: null,
+      address: null,
+      country_code: null,
+      municipality_code: null,
+      version: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.getCustomer.execute(
+      this.scope(),
+      authenticated.snapshot,
+      request.message_type === "customer.get"
+        ? { by: "ID", customerId: request.payload.customer_id }
+        : {
+            by: "IDENTITY",
+            identificationDocumentCode: request.payload.identification_document_code,
+            identification: request.payload.identification,
+          },
+    );
+
+    if (result.kind === "FOUND") {
+      return succeeded(request, "FOUND", {
+        outcome: "FOUND",
+        customer_id: result.customerId,
+        identification_document_code: result.customer.identificationDocumentCode,
+        identification: result.customer.identification,
+        verification_digit: result.customer.verificationDigit,
+        legal_organization_code: result.customer.legalOrganizationCode,
+        company: result.customer.company,
+        names: result.customer.names,
+        tribute_code: result.customer.tributeCode,
+        fiscal_responsibility_codes: [...result.customer.fiscalResponsibilityCodes],
+        email: result.customer.email,
+        phone: result.customer.phone,
+        address: result.customer.address,
+        country_code: result.customer.countryCode,
+        municipality_code: result.customer.municipalityCode,
+        version: result.version,
       });
     }
     if (result.kind === "NOT_FOUND") {
