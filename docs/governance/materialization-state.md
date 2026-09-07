@@ -59,6 +59,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Frontera Payments↔Cash | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/cash-port.ts` |
 | Adquiriente (`Customer`) — persistencia, casos de uso y canal | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/customers/` · `MIGRATION_012` · `customer.register`/`get`/`find` |
 | Impuesto por línea desde el catálogo (`Tax`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/sales/sale-calculation.ts` · `MIGRATION_013` · `catalog_fiscal_attribute` |
+| Catálogo real (producto, presentación, código de barras, precio) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/catalog/` · `MIGRATION_014` · `catalog.product.register` / `item.find` / `item.get` |
 | La cantidad respeta la precisión de la unidad | ✅ | ✅ | ✅ | ✅ | ❌ | `.../sales/sale-calculation.ts` → `quantityFitsUnitPrecision` |
 
 > **Corrección de estado, 2026-09-06.** Payment V1 figuraba aquí como
@@ -74,7 +75,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
 |---|---|---|---|---|---|---|
-| SQLite `MIGRATION_001..013` | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/database-sqlite/src/local-database.ts` |
+| SQLite `MIGRATION_001..014` | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/database-sqlite/src/local-database.ts` |
 | Idempotencia (`runtime_operations`) | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_001` · `.../operations/` |
 | Identidad de dispositivo y licencia (tablas) | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_003` |
 | Auditoría append-only | ✅ | ✅ | ✅ | ✅ | ❌ | `MIGRATION_005` + triggers |
@@ -370,7 +371,6 @@ preservado que documenta la sección siguiente, no en `main`.
 
 | Capacidad | Backlog dice | Realidad en código |
 |---|---|---|
-| Catalog | `CAT-001 = DONE` | en `main`: solo `sandbox_catalog_product`, poblado únicamente por tests. Existe implementación completa en `wip/local-catalog-inventory-payment-20260906` (ver «Linaje preservado») |
 | Pricing | `PRICE-001/002 = DONE` | solo `sandbox_price_rule` |
 | Tax | `TAX-001/002/003 = DONE` | `tax_snapshot` es TEXT congelado; sin motor |
 | Inventory | `INV-001/002 = DONE` | en `main`: nada. Existe implementación completa en `wip/local-catalog-inventory-payment-20260906` (ver «Linaje preservado») |
@@ -428,6 +428,36 @@ preservado que documenta la sección siguiente, no en `main`.
 > medibles del `README` —107 líneas de renderer, 13 operaciones comerciales, 10
 > permisos, 2 puertos `SANDBOX_VERIFIED`— se verificaron una por una.
 
+> **Catálogo real — 2026-09-07.**
+>
+> `MIGRATION_014` sustituye a `sandbox_catalog_*`, que era fixture poblado sólo
+> por pruebas. Trae lo que los diez comercios prioritarios necesitan para vender
+> —referencia, presentación con su unidad, código de barras y precio— y **nada
+> más**: categorías y variantes no entran porque ningún comercio de la lista
+> está bloqueado hoy por no tenerlas.
+>
+> **`SandboxCatalogStore` se eliminó.** La venta lee el catálogo real y no queda
+> ninguna otra lectura del mismo producto: es la misma disciplina que obligó a
+> unificar la aritmética del dinero.
+>
+> Tres restricciones sostienen la caja, y las tres se prueban:
+>
+> - **Un código de barras identifica una sola presentación.** Si dos productos
+>   comparten código, el lector no puede decidir cuál cobrar y el cajero no
+>   tiene forma de notarlo. El índice es parcial porque `barcode` admite `NULL`
+>   y `NULL` no colisiona con `NULL` — hay prueba de los dos casos.
+> - **`unit_precision` entre 0 y 6.** Gobierna qué cantidad se puede vender, y 6
+>   es el máximo de la escala del dinero.
+> - **Un solo precio activo por presentación.** Dos harían que lo cobrado
+>   dependa del orden de lectura.
+>
+> Un producto desactivado deja de encontrarse aunque su presentación siga en la
+> tabla: el artículo se ensambla sobre el producto activo, no sobre la fila.
+>
+> Auditoría y outbox vuelven a llevar cosas distintas: **el rastro registra la
+> referencia y la unidad, no el precio**; el outbox lleva el artículo completo
+> porque el central lo necesita.
+
 ## Deuda registrada
 
 | # | Deuda | Evidencia | Consecuencia si no se atiende |
@@ -440,7 +470,8 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
-| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Tablas DIAN canónicas desde PR #57; `Customer` materializado, persistido y alcanzable por el canal desde 2026-09-07.** Quedan `Catalog` y `Tax` | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Las cuatro están materializadas y son alcanzables por el canal desde 2026-09-07.** Lo que falta ya no es dato sino el ensamblado del cuerpo de emisión y su envío | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-20 | Las tablas `sandbox_catalog_product`, `sandbox_catalog_presentation` y `sandbox_price_rule` quedan **huérfanas**: ningún código las lee desde `MIGRATION_014`. No se borran porque pueden tener datos en instalaciones existentes y en SQLite eliminarlas exige reconstruir | `local-database.ts` | esquema muerto que confunde a quien lea el modelo físico |
 | D-19 | `catalog_fiscal_attribute` comprueba la **forma** de sus códigos DIAN, no su **pertenencia** a las tablas verificadas. Hoy no hay ruta de usuario que inserte —sólo el fixture de pruebas—, pero el caso de uso que se escriba tiene que validar con `validateFiscalDocumentItem` antes de guardar | `MIGRATION_013` · `dian/item.ts` | un atributo con `unit_measure_code: "KGM"` se guardaría y sólo fallaría al emitir |
 | D-18 | **La venta por peso con seis decimales no se puede facturar.** Cuatro de los diez comercios prioritarios venden por peso; `D-14` los golpea directamente. Mitigación disponible hoy: declarar la unidad con `unit_precision` 2 | `business-readiness.md` | una carnicería puede vender y cobrar 333 g y **no** emitir la factura electrónica de esa venta |
 | D-16 | La **regla exacta de redondeo de la DIAN** para el impuesto de línea no está verificada en este repositorio. Se trunca, por coherencia con `grossUnits` y porque el pagadero pasa después por `NEAREST_50` | `sale-calculation.ts` | la diferencia queda cuatro órdenes por debajo del incremento que llega al cliente, pero es una elección nuestra, no una regla verificada |

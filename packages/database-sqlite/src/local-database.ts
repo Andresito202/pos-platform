@@ -1011,6 +1011,98 @@ CREATE TABLE catalog_fiscal_attribute (
 ) WITHOUT ROWID, STRICT;
 `.trim();
 
+/**
+ * `MIGRATION_014` — el catálogo real.
+ *
+ * Sustituye a `sandbox_catalog_*`, que era fixture de `BLOQUE 4C` poblado sólo
+ * por pruebas. Los diez comercios prioritarios de `business-types.md` necesitan
+ * las cuatro cosas que hay aquí y ninguna más para poder vender: una
+ * referencia, una presentación con su unidad, un código de barras y un precio.
+ *
+ * **No trae categorías ni variantes a propósito.** Ningún comercio de la lista
+ * está bloqueado hoy por no tenerlas, y añadirlas sin interfaz que las use
+ * sería construir sobre una suposición.
+ *
+ * ## Las tres restricciones que sostienen la caja
+ *
+ * - **Un código de barras identifica una sola presentación.** Es la más
+ *   importante: si dos productos comparten código, el lector no puede decidir
+ *   cuál cobrar, y el cajero no tiene forma de saber que eligió mal. El índice
+ *   único es parcial porque `barcode` admite `NULL`: no todo producto trae uno,
+ *   y `NULL` no colisiona con `NULL`.
+ * - **`unit_precision` entre 0 y 6.** Gobierna qué cantidad se puede vender
+ *   —`quantityFitsUnitPrecision`—, y 6 es el máximo de la escala del dinero.
+ *   Declarar una unidad de peso con precisión 2 es además la mitigación de
+ *   `D-18`: por encima de dos decimales la venta no se puede facturar.
+ * - **Un solo precio activo por presentación.** Dos precios activos harían que
+ *   lo que se cobra dependa del orden de lectura.
+ *
+ * Las tablas `sandbox_*` **no se borran**: pueden tener datos en instalaciones
+ * existentes y en SQLite eliminarlas exige reconstruir. Quedan huérfanas y sin
+ * ningún lector en el código (`D-20`).
+ */
+const MIGRATION_014 = `
+CREATE TABLE catalog_product (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  code TEXT NOT NULL CHECK(length(code) BETWEEN 1 AND 64),
+  name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 200),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  stock_controlled INTEGER NOT NULL CHECK(stock_controlled IN (0, 1)),
+  registered_by_actor_id TEXT NOT NULL CHECK(length(registered_by_actor_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX catalog_product_code_idx
+  ON catalog_product(tenant_id, company_id, code);
+CREATE UNIQUE INDEX catalog_product_idempotency_idx
+  ON catalog_product(tenant_id, idempotency_key);
+
+CREATE TABLE catalog_presentation (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 200),
+  unit_code TEXT NOT NULL CHECK(length(unit_code) BETWEEN 1 AND 16),
+  unit_precision INTEGER NOT NULL CHECK(unit_precision BETWEEN 0 AND 6),
+  barcode TEXT CHECK(barcode IS NULL OR (
+    length(barcode) BETWEEN 4 AND 64 AND barcode NOT GLOB '*[^0-9A-Za-z-]*')),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, product_id) REFERENCES catalog_product(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX catalog_presentation_barcode_idx
+  ON catalog_presentation(tenant_id, barcode) WHERE barcode IS NOT NULL;
+CREATE INDEX catalog_presentation_product_idx
+  ON catalog_presentation(tenant_id, product_id);
+
+CREATE TABLE catalog_price (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX catalog_price_active_idx
+  ON catalog_price(tenant_id, presentation_id) WHERE status = 'ACTIVE';
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1025,6 +1117,7 @@ const MIGRATIONS = [
   { version: 11, sql: MIGRATION_011, checksum: createHash("sha256").update(MIGRATION_011).digest("hex") },
   { version: 12, sql: MIGRATION_012, checksum: createHash("sha256").update(MIGRATION_012).digest("hex") },
   { version: 13, sql: MIGRATION_013, checksum: createHash("sha256").update(MIGRATION_013).digest("hex") },
+  { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;

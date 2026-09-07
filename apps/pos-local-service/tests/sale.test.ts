@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
-import { SandboxCatalogStore } from "../src/sales/sandbox-catalog-store.js";
+import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
 import { SqliteSaleStore } from "../src/sales/sqlite-sale-store.js";
 import {
   CreateSaleUseCase,
@@ -74,6 +74,7 @@ const OTHER_TENANT = "018f0000-0000-7000-8000-000000000099";
 const PRODUCT_ID = "018f0000-0000-7000-8000-000000000010";
 const PRESENTATION_ID = "018f0000-0000-7000-8000-000000000011";
 const UNIT_ID = "018f0000-0000-7000-8000-000000000012";
+const CORRELATION_ID = "018f0000-0000-7000-8000-0000000000c1";
 const PRICE_RULE_ID = "018f0000-0000-7000-8000-000000000013";
 
 const scope: SyncScope = {
@@ -140,62 +141,60 @@ function buildRequest(overrides: Partial<{
 }
 
 function buildStores(database: LocalDatabase): {
-  catalog: SandboxCatalogStore;
+  catalog: SqliteCatalogStore;
   saleStore: SqliteSaleStore;
   useCase: CreateSaleUseCase;
 } {
   const durableSync = new DurableSyncStore(database);
-  const catalog = new SandboxCatalogStore(database);
+  const catalog = new SqliteCatalogStore(database, durableSync);
   const saleStore = new SqliteSaleStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
   const useCase = new CreateSaleUseCase(catalog, saleStore, () => new Date("2026-09-05T10:00:00.000Z"));
   return { catalog, saleStore, useCase };
 }
 
+/**
+ * Inserta el catálogo de prueba con identificadores fijos.
+ *
+ * No usa `SqliteCatalogStore.register`: ese caso de uso genera los UUID, y las
+ * pruebas necesitan referirse al mismo producto y a la misma presentación desde
+ * la petición de venta. Es un fixture, y por eso escribe directo.
+ */
 function insertFixture(
-  catalog: SandboxCatalogStore,
+  database: LocalDatabase,
   amount = "1000.000000",
   tenantId = TENANT,
   taxRate: string | null = null,
+  unitPrecision = 0,
 ): void {
-  catalog.insertFixture(
-    {
-      id: PRODUCT_ID,
-      tenant_id: tenantId,
-      company_id: COMPANY,
-      branch_id: BRANCH,
-      name: "Café Americano",
-      status: "ACTIVE",
-      stock_controlled: false,
-    },
-    {
-      id: PRESENTATION_ID,
-      tenant_id: tenantId,
-      product_id: PRODUCT_ID,
-      name: "Unidad",
-      unit_id: UNIT_ID,
-      unit_code: "UND",
-      unit_precision: 0,
-      status: "ACTIVE",
-    },
-    {
-      id: PRICE_RULE_ID,
-      tenant_id: tenantId,
-      presentation_id: PRESENTATION_ID,
-      amount,
-      currency_code: "COP",
-      status: "ACTIVE",
-    },
-    taxRate === null
-      ? undefined
-      : {
-          presentation_id: PRESENTATION_ID,
-          code_reference: "SKU-CAFE-001",
-          unit_measure_code: "94",
-          standard_code: "999",
-          tax_code: "01",
-          tax_rate: taxRate,
-        },
-  );
+  const at = "2026-09-01T00:00:00.000Z";
+  database.native.prepare(
+    `INSERT INTO catalog_product(
+      id, tenant_id, company_id, code, name, status, stock_controlled,
+      registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+    ) VALUES (?,?,?,'CAFE-001','Café Americano','ACTIVE',0,?,?,?,1,?,?)`,
+  ).run(PRODUCT_ID, tenantId, COMPANY, USER_ID, `fixture:${tenantId}`, CORRELATION_ID, at, at);
+
+  database.native.prepare(
+    `INSERT INTO catalog_presentation(
+      id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+      status, created_at, updated_at
+    ) VALUES (?,?,?,'Unidad','UND',?,?,'ACTIVE',?,?)`,
+  ).run(PRESENTATION_ID, tenantId, PRODUCT_ID, unitPrecision, `770000000000${tenantId.slice(-1)}`, at, at);
+
+  database.native.prepare(
+    `INSERT INTO catalog_price(
+      id, tenant_id, presentation_id, amount, currency_code, status, created_at, updated_at
+    ) VALUES (?,?,?,?,'COP','ACTIVE',?,?)`,
+  ).run(PRICE_RULE_ID, tenantId, PRESENTATION_ID, amount, at, at);
+
+  if (taxRate !== null) {
+    database.native.prepare(
+      `INSERT INTO catalog_fiscal_attribute(
+        tenant_id, presentation_id, code_reference, unit_measure_code,
+        standard_code, tax_code, tax_rate, status, created_at, updated_at
+      ) VALUES (?,?,'SKU-CAFE-001','94','999','01',?,'ACTIVE',?,?)`,
+    ).run(tenantId, PRESENTATION_ID, taxRate, at, at);
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -320,7 +319,7 @@ describe("CreateSaleUseCase", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
-    insertFixture(catalog, "1025.000000");
+    insertFixture(database, "1025.000000");
 
     const authSnapshot = buildAuthSnapshot();
     const result = useCase.execute(scope, SESSION_ID, authSnapshot, buildRequest());
@@ -394,7 +393,7 @@ describe("CreateSaleUseCase", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
-    insertFixture(catalog, "1025.000000");
+    insertFixture(database, "1025.000000");
 
     const authSnapshot = buildAuthSnapshot();
     const request = buildRequest();
@@ -425,7 +424,7 @@ describe("CreateSaleUseCase", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
-    insertFixture(catalog, "1025.000000");
+    insertFixture(database, "1025.000000");
 
     const authSnapshot = buildAuthSnapshot();
     const firstRequest = buildRequest({ idempotencyKey: "conflict-key" });
@@ -447,7 +446,7 @@ describe("CreateSaleUseCase", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
-    insertFixture(catalog);
+    insertFixture(database);
 
     const now = new Date("2026-09-05T00:00:00.000Z");
     const exp = new Date("2026-09-05T08:00:00.000Z");
@@ -502,15 +501,20 @@ describe("CreateSaleUseCase", () => {
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
 
-    // Insertamos solo producto y presentación, sin precio
+    // Producto y presentación sin precio activo: la venta debe rechazarse.
+    const at = "2026-09-01T00:00:00.000Z";
     database.native.prepare(
-      `INSERT INTO sandbox_catalog_product(id,tenant_id,company_id,branch_id,name,status,stock_controlled)
-       VALUES (?,?,?,?,?,?,?)`,
-    ).run(PRODUCT_ID, TENANT, COMPANY, BRANCH, "Test", "ACTIVE", 0);
+      `INSERT INTO catalog_product(
+        id, tenant_id, company_id, code, name, status, stock_controlled,
+        registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+      ) VALUES (?,?,?,'SIN-PRECIO','Test','ACTIVE',0,?,'fixture:sin-precio',?,1,?,?)`,
+    ).run(PRODUCT_ID, TENANT, COMPANY, USER_ID, CORRELATION_ID, at, at);
     database.native.prepare(
-      `INSERT INTO sandbox_catalog_presentation(id,tenant_id,product_id,name,unit_id,unit_code,unit_precision,status)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(PRESENTATION_ID, TENANT, PRODUCT_ID, "Unidad", UNIT_ID, "UND", 0, "ACTIVE");
+      `INSERT INTO catalog_presentation(
+        id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+        status, created_at, updated_at
+      ) VALUES (?,?,?,'Unidad','UND',0,NULL,'ACTIVE',?,?)`,
+    ).run(PRESENTATION_ID, TENANT, PRODUCT_ID, at, at);
 
     const authSnapshot = buildAuthSnapshot();
     const result = useCase.execute(scope, SESSION_ID, authSnapshot, buildRequest());
@@ -525,7 +529,7 @@ describe("CreateSaleUseCase", () => {
     const { catalog, saleStore, useCase } = buildStores(database);
 
     // Fixture para OTHER_TENANT
-    insertFixture(catalog, "1000.000000", OTHER_TENANT);
+    insertFixture(database, "1000.000000", OTHER_TENANT);
 
     const authSnapshot = buildAuthSnapshot();
     // La venta se crea en TENANT pero el catálogo solo existe en OTHER_TENANT
@@ -539,7 +543,7 @@ describe("CreateSaleUseCase", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
-    insertFixture(catalog, "1000.000000");
+    insertFixture(database, "1000.000000");
 
     const authSnapshot = buildAuthSnapshot();
 
@@ -565,8 +569,8 @@ describe("CreateSaleUseCase", () => {
 
     const stores1 = buildStores(db1);
     const stores2 = buildStores(db2);
-    insertFixture(stores1.catalog, "1025.000000");
-    insertFixture(stores2.catalog, "1025.000000");
+    insertFixture(db1, "1025.000000");
+    insertFixture(db2, "1025.000000");
 
     const authSnapshot = buildAuthSnapshot();
     const r1 = stores1.useCase.execute(scope, SESSION_ID, authSnapshot, buildRequest({ idempotencyKey: "chk-001" }));
@@ -593,7 +597,7 @@ describe("CreateSaleUseCase", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, saleStore, useCase } = buildStores(database);
-    insertFixture(catalog, "1025.000000");
+    insertFixture(database, "1025.000000");
 
     const authSnapshot = buildAuthSnapshot();
     const result = useCase.execute(scope, SESSION_ID, authSnapshot, buildRequest());
@@ -665,7 +669,7 @@ describe("venta con impuesto — extremo a extremo", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, useCase } = buildStores(database);
-    insertFixture(catalog, "1000.000000", TENANT, "19.000000");
+    insertFixture(database, "1000.000000", TENANT, "19.000000");
 
     const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
     expect(result.kind).toBe("CREATED");
@@ -697,7 +701,7 @@ describe("venta con impuesto — extremo a extremo", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, useCase } = buildStores(database);
-    insertFixture(catalog, "1000.000000");
+    insertFixture(database, "1000.000000");
 
     useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
 
@@ -715,7 +719,7 @@ describe("venta con impuesto — extremo a extremo", () => {
     const dir = await directory();
     const database = openTracked(dir);
     const { catalog, useCase } = buildStores(database);
-    insertFixture(catalog, "1000.000000");
+    insertFixture(database, "1000.000000");
 
     useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
 
@@ -803,7 +807,7 @@ describe("venta — la cantidad respeta la precisión de la unidad", () => {
   it("rechaza media botella cuando la unidad es discreta", async () => {
     const database = openTracked(await directory());
     const { catalog, useCase } = buildStores(database);
-    insertFixture(catalog);
+    insertFixture(database);
 
     const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), {
       ...buildRequest(),
@@ -819,7 +823,7 @@ describe("venta — la cantidad respeta la precisión de la unidad", () => {
   it("y no deja ni venta ni línea en la base", async () => {
     const database = openTracked(await directory());
     const { catalog, useCase } = buildStores(database);
-    insertFixture(catalog);
+    insertFixture(database);
 
     useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), {
       ...buildRequest(),
@@ -835,7 +839,7 @@ describe("venta — la cantidad respeta la precisión de la unidad", () => {
   it("acepta la cantidad entera de siempre", async () => {
     const database = openTracked(await directory());
     const { catalog, useCase } = buildStores(database);
-    insertFixture(catalog);
+    insertFixture(database);
 
     const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
     expect(result.kind).toBe("CREATED");

@@ -19,6 +19,9 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  "pos:catalog.product.register",
+  "pos:catalog.item.find",
+  "pos:catalog.item.get",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

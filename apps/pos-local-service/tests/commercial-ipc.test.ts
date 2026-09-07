@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   CashShiftOpenRequestSchema,
+  CatalogItemFindRequestSchema,
+  CatalogProductRegisterRequestSchema,
   CustomerFindRequestSchema,
   CustomerGetRequestSchema,
   CustomerRegisterRequestSchema,
@@ -752,6 +754,97 @@ describe("customer.* — el adquiriente es alcanzable por el canal", () => {
     expect(result.status).toBe("REJECTED");
     expect(result.result["outcome"]).toBe("UNAUTHORIZED");
     expect((database.native.prepare("SELECT count(*) AS n FROM customers_customers")
+      .get() as { n: number }).n).toBe(0);
+  });
+});
+
+// ── catalog.product.register · catalog.item.find ─────────────────────────────
+
+/**
+ * Igual que con el adquiriente: esto no repite las reglas del catálogo —ya
+ * están en `catalog.test.ts`— sino que fija que **la capacidad es alcanzable de
+ * extremo a extremo** por el canal de producción.
+ */
+
+const CATALOG_PERMISSIONS = ["CATALOG_PRODUCT_REGISTER", "CATALOG_PRODUCT_READ"];
+
+function registerProductRequest(overrides: Record<string, unknown> = {}) {
+  return CatalogProductRegisterRequestSchema.parse({
+    ...BASE,
+    message_type: "catalog.product.register",
+    request_id: randomUUID(),
+    correlation_id: randomUUID(),
+    operation_id: randomUUID(),
+    idempotency_key: "catalog:register:ipc:1",
+    payload: {
+      code: "CAFE-001",
+      name: "Café Americano 500 g",
+      stock_controlled: true,
+      presentation_name: "Bolsa 500 g",
+      unit_code: "UND",
+      unit_precision: 0,
+      barcode: "7701234567890",
+      price_amount: "18000.000000",
+      currency_code: "COP",
+    },
+    ...overrides,
+  });
+}
+
+describe("catalog.* — el catálogo es alcanzable por el canal", () => {
+  it("registra un producto y lo devuelve al escanear su código de barras", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CATALOG_PERMISSIONS);
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const registered = response(handler.handle(registerProductRequest(), connection));
+    expect(registered.status).toBe("SUCCEEDED");
+    expect(registered.result["outcome"]).toBe("REGISTERED");
+
+    const found = response(handler.handle(CatalogItemFindRequestSchema.parse({
+      ...BASE,
+      message_type: "catalog.item.find",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      payload: { barcode: "7701234567890" },
+    }), connection));
+
+    expect(found.status).toBe("SUCCEEDED");
+    expect(found.result["presentation_id"]).toBe(registered.result["presentation_id"]);
+    expect(found.result["code"]).toBe("CAFE-001");
+    expect(found.result["unit_precision"]).toBe(0);
+    expect(found.result["price_amount"]).toBe("18000.000000");
+  });
+
+  it("un código de barras repetido se rechaza por el canal y dice cuál lo tiene", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CATALOG_PERMISSIONS);
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const first = response(handler.handle(registerProductRequest(), connection));
+    const second = response(handler.handle(registerProductRequest({
+      idempotency_key: "catalog:register:ipc:2",
+      operation_id: randomUUID(),
+      payload: {
+        code: "CAFE-002", name: "Otro café", stock_controlled: true,
+        presentation_name: "Bolsa", unit_code: "UND", unit_precision: 0,
+        barcode: "7701234567890", price_amount: "20000.000000", currency_code: "COP",
+      },
+    }), connection));
+
+    expect(second.status).toBe("REJECTED");
+    expect(second.result["outcome"]).toBe("BARCODE_ALREADY_REGISTERED");
+    expect(second.result["presentation_id"]).toBe(first.result["presentation_id"]);
+  });
+
+  it("sin vínculo de sesión no se registra nada", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CATALOG_PERMISSIONS);
+    const result = response(handler.handle(registerProductRequest(), randomUUID()));
+    expect(result.status).toBe("REJECTED");
+    expect((database.native.prepare("SELECT count(*) AS n FROM catalog_product")
       .get() as { n: number }).n).toBe(0);
   });
 });

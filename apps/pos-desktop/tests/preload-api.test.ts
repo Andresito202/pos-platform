@@ -24,6 +24,9 @@ describe("preload-api", () => {
       "customer.register",
       "customer.get",
       "customer.find",
+      "catalog.product.register",
+      "catalog.item.find",
+      "catalog.item.get",
     ]);
   });
 

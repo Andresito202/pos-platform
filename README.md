@@ -91,7 +91,8 @@ Este README resume; **si discrepa con ellos, mandan ellos**.
 - **Núcleo comercial**: `Sales` (venta → `READY_FOR_PAYMENT`), `Cash`
   (apertura y cierre de turno), `Payments` (efectivo y transferencia, con la
   venta completándose en la **misma** transacción que cubre el importe),
-  `Customers` (adquiriente fiscal) e **impuesto por línea** desde el catálogo.
+  `Customers` (adquiriente fiscal), **catálogo real** —producto, presentación,
+  código de barras y precio— e **impuesto por línea** desde ese catálogo.
 - **Plano fiscal**: cinco puertos por capacidad, tablas de códigos DIAN con
   fuente verificada, y el adapter FACTUS con **dos de sus cinco puertos
   `SANDBOX_VERIFIED`** contra el proveedor real.
@@ -103,8 +104,9 @@ Este README resume; **si discrepa con ellos, mandan ellos**.
 ### Lo que NO existe, dicho sin rodeos
 
 - **Interfaz comercial.** El renderer son ~110 líneas y expone tres llamadas
-  técnicas. Las trece operaciones comerciales tienen contrato, handler y prueba
-  de extremo a extremo contra el canal, y **ninguna llega a una pantalla**.
+  técnicas. Las **dieciséis** operaciones comerciales tienen contrato, handler y
+  prueba de extremo a extremo contra el canal, y **ninguna llega a una
+  pantalla**.
 - **Administración, roles y super-administrador.** Hay 14 roles y 126 permisos
   atómicos documentados, y **10 permisos implementados, ninguno de
   administración**. No hay tabla de roles, ni panel, ni forma de dar de alta un
@@ -114,8 +116,8 @@ Este README resume; **si discrepa con ellos, mandan ellos**.
 - **Plataforma central.** `packages/database-postgres/src` está vacío: sin API,
   sin NestJS ni Fastify, sin inbox. Sin cliente HTTP saliente, ningún hecho
   comercial sale del dispositivo.
-- **Catálogo real.** Sigue siendo `sandbox_catalog_*`, poblado sólo por
-  pruebas. Sin Inventory ni Pricing.
+- **Inventario.** Ninguna tabla ni caso de uso. Lo exigen todos los comercios
+  prioritarios.
 - **Hardware.** Báscula, lector, impresora, cajón, datáfono y pantalla cliente:
   ni la abstracción existe.
 - **Empaquetado y despliegue.** Sin instalador (`electron-builder` no está en el

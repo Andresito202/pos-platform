@@ -12,7 +12,7 @@ export * from "./sync/durable-sync-component.js";
 export * from "./operations/operation-confirmation-store.js";
 export * from "./operations/operation-confirmation-component.js";
 export * from "./master-data/index.js";
-export * from "./sales/sandbox-catalog-store.js";
+export * from "./catalog/index.js";
 export * from "./sales/sale-calculation.js";
 export * from "./sales/sale-checksum.js";
 export * from "./sales/sqlite-sale-store.js";
