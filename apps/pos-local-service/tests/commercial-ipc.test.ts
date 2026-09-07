@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   CashShiftOpenRequestSchema,
+  CustomerFindRequestSchema,
+  CustomerGetRequestSchema,
+  CustomerRegisterRequestSchema,
   SaleCreateRequestSchema,
   SessionActivateRequestSchema,
   type AuthorizationSnapshotClaims,
@@ -606,5 +609,149 @@ describe("flujo comercial extremo a extremo", () => {
     const retry = response(handler.handle(closeRequest("shift:close:ipc:1") as never, connection));
     expect(retry.result.outcome).toBe("IDEMPOTENT");
     expect(retry.result.expected_cash).toBeNull();
+  });
+});
+
+
+// ── customer.register · customer.get · customer.find ─────────────────────────
+
+/**
+ * Estas pruebas no repiten las reglas del adquiriente —eso ya está cubierto en
+ * `customer.test.ts` y en `fiscal-customer.test.ts`—. Lo que fijan es otra
+ * cosa: que la capacidad **es alcanzable de extremo a extremo** por el canal
+ * de producción.
+ *
+ * Es la lección que dejó Payment V1: estaba implementado y probado, y ningún
+ * cliente podía usarlo porque faltaban los `case` del enrutamiento. Un módulo
+ * sin esta prueba vale `TESTED`, no `CANONICALLY_APPLIED`.
+ */
+
+const CUSTOMER_PERMISSIONS = ["CUSTOMERS_CUSTOMER_REGISTER", "CUSTOMERS_CUSTOMER_READ"];
+
+function registerCustomerRequest(overrides: Record<string, unknown> = {}) {
+  return CustomerRegisterRequestSchema.parse({
+    ...BASE,
+    message_type: "customer.register",
+    request_id: randomUUID(),
+    correlation_id: randomUUID(),
+    operation_id: randomUUID(),
+    idempotency_key: "customer:register:ipc:1",
+    payload: {
+      identification_document_code: "31",
+      identification: "900123456",
+      verification_digit: "7",
+      legal_organization_code: "1",
+      company: "Comercializadora del Valle S.A.S.",
+      names: null,
+      tribute_code: "ZZ",
+      fiscal_responsibility_codes: ["R-99-PN"],
+      email: "facturacion@example.co",
+      phone: "6041234567",
+      address: "Carrera 4 # 5-6",
+      country_code: "CO",
+      municipality_code: "05001",
+    },
+    ...overrides,
+  });
+}
+
+describe("customer.* — el adquiriente es alcanzable por el canal", () => {
+  it("registra un adquiriente y lo devuelve por identidad fiscal", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CUSTOMER_PERMISSIONS);
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const registered = response(handler.handle(registerCustomerRequest(), connection));
+    expect(registered.status).toBe("SUCCEEDED");
+    expect(registered.result["outcome"]).toBe("REGISTERED");
+    const customerId = registered.result["customer_id"];
+    expect(typeof customerId).toBe("string");
+
+    const found = response(handler.handle(CustomerFindRequestSchema.parse({
+      ...BASE,
+      message_type: "customer.find",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      payload: { identification_document_code: "31", identification: "900123456" },
+    }), connection));
+
+    expect(found.status).toBe("SUCCEEDED");
+    expect(found.result["customer_id"]).toBe(customerId);
+    // La identificación vuelve **sin** el dígito de verificación, que viaja aparte.
+    expect(found.result["identification"]).toBe("900123456");
+    expect(found.result["verification_digit"]).toBe("7");
+  });
+
+  it("y también por identificador interno", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CUSTOMER_PERMISSIONS);
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const registered = response(handler.handle(registerCustomerRequest(), connection));
+    const found = response(handler.handle(CustomerGetRequestSchema.parse({
+      ...BASE,
+      message_type: "customer.get",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      payload: { customer_id: registered.result["customer_id"] },
+    }), connection));
+
+    expect(found.status).toBe("SUCCEEDED");
+    expect(found.result["company"]).toBe("Comercializadora del Valle S.A.S.");
+  });
+
+  /**
+   * Los hallazgos llegan al renderer con **código y ruta, nunca el valor del
+   * campo**. Un adquiriente contiene datos personales; devolverlos en el error
+   * los llevaría a los registros del renderer, que es justo la frontera que el
+   * handler existe para no cruzar.
+   */
+  it("un adquiriente inválido devuelve hallazgos sin filtrar datos personales", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CUSTOMER_PERMISSIONS);
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const rejectedResponse = response(handler.handle(registerCustomerRequest({
+      payload: {
+        identification_document_code: "31",
+        identification: "900123456",
+        verification_digit: "7",
+        legal_organization_code: "1",
+        company: null,
+        names: null,
+        tribute_code: "99",
+        fiscal_responsibility_codes: ["R-99-PN"],
+        email: "facturacion@example.co",
+        phone: "6041234567",
+        address: "Carrera 4 # 5-6",
+        country_code: "CO",
+        municipality_code: "05001",
+      },
+    }), connection));
+
+    expect(rejectedResponse.status).toBe("REJECTED");
+    expect(rejectedResponse.result["outcome"]).toBe("INVALID");
+    const findings = rejectedResponse.result["findings"] as Array<Record<string, string>>;
+    expect(findings.map((f) => f.code).sort()).toEqual([
+      "COMPANY_REQUIRED_FOR_LEGAL_ENTITY",
+      "TRIBUTE_CODE_NOT_VERIFIED",
+    ]);
+    const serialized = JSON.stringify(findings);
+    for (const value of ["900123456", "facturacion@example.co", "6041234567", "Carrera 4 # 5-6"]) {
+      expect(serialized).not.toContain(value);
+    }
+  });
+
+  it("sin vínculo de sesión no se registra nada", async () => {
+    const { database, handler } = await buildEnv();
+    seedAuthorization(database, USER, CUSTOMER_PERMISSIONS);
+    const result = response(handler.handle(registerCustomerRequest(), randomUUID()));
+    expect(result.status).toBe("REJECTED");
+    expect(result.result["outcome"]).toBe("UNAUTHORIZED");
+    expect((database.native.prepare("SELECT count(*) AS n FROM customers_customers")
+      .get() as { n: number }).n).toBe(0);
   });
 });

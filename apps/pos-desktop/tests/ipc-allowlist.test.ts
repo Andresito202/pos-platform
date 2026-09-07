@@ -17,6 +17,9 @@ describe("ipc-allowlist", () => {
       "pos:payment.transfer.confirm",
       "pos:payment.cancel",
       "pos:payment.get",
+      "pos:customer.register",
+      "pos:customer.get",
+      "pos:customer.find",
     ]);
   });
 
@@ -32,6 +35,9 @@ describe("ipc-allowlist", () => {
       "pos:payment.transfer.confirm",
       "pos:payment.cancel",
       "pos:payment.get",
+      "pos:customer.register",
+      "pos:customer.get",
+      "pos:customer.find",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);
       // El nombre sin prefijo pertenece a la frontera main ↔ servicio y no

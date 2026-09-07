@@ -13,6 +13,11 @@ import {
   PaymentCancelResponseSchema,
   PaymentGetRequestSchema,
   PaymentGetResponseSchema,
+  CustomerRegisterRequestSchema,
+  CustomerRegisterResponseSchema,
+  CustomerGetRequestSchema,
+  CustomerFindRequestSchema,
+  CustomerReadResponseSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterCashResponseSchema,
   PaymentRegisterTransferRequestSchema,
@@ -48,6 +53,9 @@ export const IpcMessageTypeSchema = z.enum([
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "customer.register",
+  "customer.get",
+  "customer.find",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -134,6 +142,9 @@ export const IpcRequestSchema = z.union([
   PaymentTransferConfirmRequestSchema,
   PaymentCancelRequestSchema,
   PaymentGetRequestSchema,
+  CustomerRegisterRequestSchema,
+  CustomerGetRequestSchema,
+  CustomerFindRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -151,6 +162,8 @@ export const IpcResponseSchema = z.union([
   PaymentTransferConfirmResponseSchema,
   PaymentCancelResponseSchema,
   PaymentGetResponseSchema,
+  CustomerRegisterResponseSchema,
+  CustomerReadResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

@@ -499,6 +499,140 @@ export const PaymentGetResultSchema = z.strictObject({
 
 export const PaymentGetResponseSchema = createResponseEnvelopeSchema(PaymentGetResultSchema);
 
+// ── customer.register ────────────────────────────────────────────────────────
+
+/**
+ * Adquiriente — `D-9`.
+ *
+ * El payload es la forma canónica de `FiscalCustomer` en la nomenclatura del
+ * cable. **`identification` viaja sin dígito de verificación**, que va en su
+ * propio campo: la documentación de emisión es taxativa, y una identificación
+ * con el DV pegado se emitiría tal cual.
+ *
+ * Aquí no se validan los códigos DIAN. Ese trabajo es de la capa confiable,
+ * que devuelve **todos** los hallazgos con su código y su ruta: replicar las
+ * reglas en el contrato crearía dos versiones de la misma regla, y la del
+ * contrato quedaría desactualizada en cuanto se verifique un código nuevo.
+ */
+/**
+ * Un código DIAN **no es un `StableCode`**.
+ *
+ * `StableCodeSchema` exige empezar por mayúscula —`PAYMENT_REGISTER`,
+ * `CASH_SHIFT_OPEN`—, y el catálogo de la DIAN es mayoritariamente numérico:
+ * `"01"` factura de venta, `"31"` NIT, `"13"` cédula, `"1"`/`"2"` naturaleza
+ * jurídica, `"94"` unidad, junto a `"ZZ"` y `"R-99-PN"`. Reutilizar aquel
+ * esquema habría rechazado en la frontera casi todos los códigos verificados,
+ * y sólo se habría visto al llegar la primera petición real.
+ *
+ * Este esquema comprueba **forma, no pertenencia**: que un código exista en la
+ * tabla verificada lo decide `packages/fiscal-adapters/src/dian/codes.ts`, y
+ * duplicar esa decisión aquí crearía dos versiones de la misma regla.
+ */
+const DianCodeSchema = z.string().min(1).max(16).regex(/^[A-Z0-9][A-Z0-9-]*$/);
+
+/** Identificación fiscal **sin** dígito de verificación: sólo dígitos. */
+const FiscalIdentificationSchema = z.string().min(1).max(40).regex(/^[0-9]+$/);
+
+export const CustomerRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    identification_document_code: DianCodeSchema,
+    identification: FiscalIdentificationSchema,
+    verification_digit: z.string().regex(/^[0-9]$/).nullable(),
+    legal_organization_code: DianCodeSchema,
+    company: z.string().min(1).max(200).nullable(),
+    names: z.string().min(1).max(200).nullable(),
+    tribute_code: DianCodeSchema,
+    fiscal_responsibility_codes: z.array(DianCodeSchema).max(32),
+    email: z.string().min(1).max(200).nullable(),
+    phone: z.string().min(1).max(200).nullable(),
+    address: z.string().min(1).max(200).nullable(),
+    country_code: z.string().min(1).max(200).nullable(),
+    municipality_code: z.string().min(1).max(200).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("customer.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CustomerRegisterOutcomeSchema = z.enum([
+  "REGISTERED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "INVALID",
+  "IDEMPOTENCY_CONFLICT",
+  "IDENTITY_ALREADY_REGISTERED",
+]);
+
+/**
+ * Un hallazgo lleva **código y ruta, jamás el valor del campo**, igual que
+ * `PayloadValidationFinding` en el puerto de emisión. Un adquiriente contiene
+ * datos personales; devolverlos en el error los llevaría a los registros del
+ * renderer.
+ *
+ * `customer_id` se puebla también en `IDENTITY_ALREADY_REGISTERED`: quien
+ * captura necesita poder ir al registro que ya existe, no volver a intentarlo.
+ */
+export const CustomerFindingSchema = z.strictObject({
+  code: StableCodeSchema,
+  path: z.string().min(1).max(120),
+  source: StableCodeSchema,
+});
+
+export const CustomerRegisterResultSchema = z.strictObject({
+  outcome: CustomerRegisterOutcomeSchema,
+  customer_id: UuidSchema.nullable(),
+  version: ExpectedVersionSchema.nullable(),
+  findings: z.array(CustomerFindingSchema).max(32),
+});
+
+export const CustomerRegisterResponseSchema = createResponseEnvelopeSchema(CustomerRegisterResultSchema);
+
+// ── customer.get ─────────────────────────────────────────────────────────────
+
+/**
+ * Dos formas de preguntar, y son dos mensajes distintos a propósito.
+ *
+ * `customer.get` toma el identificador interno; `customer.find` toma la
+ * identidad fiscal, que es como pregunta una caja —el cliente da su cédula, no
+ * un UUID—. Un solo mensaje con ambos campos anulables obligaría a un refinamiento
+ * que aceptara exactamente uno, y un contrato que admite formas inválidas por
+ * construcción es peor que dos contratos que no las admiten.
+ */
+export const CustomerGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CustomerFindRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    identification_document_code: DianCodeSchema,
+    identification: FiscalIdentificationSchema,
+  }),
+).safeExtend({ message_type: z.literal("customer.find") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CustomerReadResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  customer_id: UuidSchema.nullable(),
+  identification_document_code: StableCodeSchema.nullable(),
+  identification: FiscalIdentificationSchema.nullable(),
+  verification_digit: z.string().regex(/^[0-9]$/).nullable(),
+  legal_organization_code: StableCodeSchema.nullable(),
+  company: z.string().min(1).max(200).nullable(),
+  names: z.string().min(1).max(200).nullable(),
+  tribute_code: StableCodeSchema.nullable(),
+  fiscal_responsibility_codes: z.array(StableCodeSchema).max(32),
+  email: z.string().min(1).max(200).nullable(),
+  phone: z.string().min(1).max(200).nullable(),
+  address: z.string().min(1).max(200).nullable(),
+  country_code: z.string().min(1).max(200).nullable(),
+  municipality_code: z.string().min(1).max(200).nullable(),
+  version: ExpectedVersionSchema.nullable(),
+});
+
+export const CustomerReadResponseSchema = createResponseEnvelopeSchema(CustomerReadResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -520,6 +654,9 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "customer.register",
+  "customer.get",
+  "customer.find",
 ]);
 
 /**
@@ -539,6 +676,9 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
+  "pos:customer.register",
+  "pos:customer.get",
+  "pos:customer.find",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -552,3 +692,6 @@ export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransf
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
 export type PaymentCancelResult = z.infer<typeof PaymentCancelResultSchema>;
 export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
+export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
+export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
+export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;

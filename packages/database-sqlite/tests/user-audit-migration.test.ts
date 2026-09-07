@@ -101,6 +101,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE local_operation_audit;
       ${LEGACY_AUDIT_TABLE}
       DROP TRIGGER local_schema_migrations_no_delete;
+      DROP TABLE customers_customers;
       DROP TABLE payments_payment_allocations;
       DROP TABLE payments_payment_attempts;
       DROP TABLE payments_payments;
@@ -117,7 +118,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_master_snapshot_artifact_no_update;
       DROP TRIGGER local_master_snapshot_artifact_no_delete;
       DROP TABLE local_master_snapshot_artifact;
-      DELETE FROM local_schema_migrations WHERE version IN (8, 9, 10, 11);
+      DELETE FROM local_schema_migrations WHERE version IN (8, 9, 10, 11, 12);
       CREATE TRIGGER local_schema_migrations_no_delete
         BEFORE DELETE ON local_schema_migrations
         BEGIN SELECT RAISE(ABORT, 'local migration ledger is immutable'); END;
@@ -508,7 +509,7 @@ describe("MIGRATION_008 — ciclo de vida", () => {
       const version = (database.native
         .prepare("SELECT max(version) AS version FROM local_schema_migrations")
         .get() as { version: number }).version;
-      expect(version).toBe(11);
+      expect(version).toBe(12);
       expect(() => insertAudit(database, "USER", USER)).not.toThrow();
     } finally {
       database.close();
@@ -520,7 +521,7 @@ describe("MIGRATION_008 — ciclo de vida", () => {
     const upgraded = LocalDatabase.open({ dataDirectory });
     try {
       expect((upgraded.native.prepare("SELECT max(version) AS version FROM local_schema_migrations")
-        .get() as { version: number }).version).toBe(11);
+        .get() as { version: number }).version).toBe(12);
       expect(() => insertAudit(upgraded, "USER", USER)).not.toThrow();
     } finally {
       upgraded.close();
@@ -552,7 +553,7 @@ describe("MIGRATION_008 — ciclo de vida", () => {
       .all() as { version: number; checksum: string }[];
     first.close();
 
-    expect(ledgerBefore.map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ledgerBefore.map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     for (const row of ledgerBefore) expect(row.checksum).toMatch(/^[a-f0-9]{64}$/);
 
     // Reabrir no altera ningún checksum histórico.

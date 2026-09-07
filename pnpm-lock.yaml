@@ -81,6 +81,9 @@ importers:
       '@pos-platform/database-sqlite':
         specifier: workspace:*
         version: link:../../packages/database-sqlite
+      '@pos-platform/fiscal-adapters':
+        specifier: workspace:*
+        version: link:../../packages/fiscal-adapters
       '@pos-platform/observability':
         specifier: workspace:*
         version: link:../../packages/observability

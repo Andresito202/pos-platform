@@ -867,6 +867,96 @@ CREATE INDEX payments_payment_allocations_subject_idx
   ON payments_payment_allocations(tenant_id, collection_subject_type, collection_subject_id);
 `.trim();
 
+/**
+ * `MIGRATION_012` — el adquiriente (`D-9`).
+ *
+ * Guarda **exactamente** la forma canónica de `FiscalCustomer`
+ * (`packages/fiscal-adapters/src/dian/customer.ts`). No hay un segundo modelo
+ * de cliente: dos formas del mismo dato acabarían discrepando, y el que
+ * discrepe cuando se emite una factura es el que va en el documento fiscal.
+ *
+ * ## El alcance es la compañía, no la sucursal
+ *
+ * Un adquiriente es un tercero de la compañía. Que lo capture la caja 3 de la
+ * sucursal norte no lo hace suyo: la siguiente venta puede ser en otra caja y
+ * volver a pedir la cédula sería un defecto de operación, no una garantía.
+ *
+ * ## Las reglas del adquiriente son restricciones de almacenamiento
+ *
+ * Lo que `validateFiscalCustomer` comprueba en memoria, esta tabla lo impone en
+ * disco. No es duplicación: son dos guardianes de distinto alcance. El
+ * validador informa a un operador con hallazgos que puede corregir; la
+ * restricción impide que exista la fila, venga de donde venga —una escritura
+ * futura, una migración de datos, una consola abierta sobre el archivo—.
+ *
+ * En concreto, y cada una con su motivo:
+ *
+ * - `identification` **sólo dígitos**. La documentación de emisión es taxativa
+ *   en que viaja sin DV; un `900123456-7` almacenado se emitiría tal cual.
+ * - `verification_digit` es **un solo dígito** o `NULL`. Su valor no se
+ *   comprueba —`D-12`— pero su forma sí.
+ * - Persona jurídica exige razón social y persona natural exige nombres. Es la
+ *   regla documentada `legal_organization_code` `"1"`/`"2"`, y aquí impide la
+ *   fila incompleta en vez de descubrirla al emitir.
+ * - `fiscal_responsibility_codes` es un texto JSON, y se exige que sea un
+ *   **array**. SQLite no tiene tipo array; guardar una cadena suelta que luego
+ *   se lea como lista es el fallo silencioso que este CHECK evita.
+ *
+ * ## Unicidad
+ *
+ * Un tercero es único por **tipo de documento e identificación dentro de la
+ * compañía**. Sin este índice, la misma cédula entraría dos veces con dos `id`
+ * distintos y una factura podría emitirse contra la copia desactualizada.
+ */
+const MIGRATION_012 = `
+CREATE TABLE customers_customers (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  identification_document_code TEXT NOT NULL
+    CHECK(length(identification_document_code) BETWEEN 1 AND 8),
+  identification TEXT NOT NULL
+    CHECK(length(identification) BETWEEN 1 AND 40)
+    CHECK(identification NOT GLOB '*[^0-9]*'),
+  verification_digit TEXT
+    CHECK(verification_digit IS NULL OR (
+      length(verification_digit) = 1 AND verification_digit GLOB '[0-9]')),
+  legal_organization_code TEXT NOT NULL
+    CHECK(length(legal_organization_code) BETWEEN 1 AND 8),
+  company TEXT CHECK(company IS NULL OR length(company) BETWEEN 1 AND 200),
+  names TEXT CHECK(names IS NULL OR length(names) BETWEEN 1 AND 200),
+  tribute_code TEXT NOT NULL CHECK(length(tribute_code) BETWEEN 1 AND 8),
+  fiscal_responsibility_codes TEXT NOT NULL
+    CHECK(json_valid(fiscal_responsibility_codes))
+    CHECK(json_type(fiscal_responsibility_codes) = 'array'),
+  email TEXT CHECK(email IS NULL OR length(email) BETWEEN 1 AND 200),
+  phone TEXT CHECK(phone IS NULL OR length(phone) BETWEEN 1 AND 200),
+  address TEXT CHECK(address IS NULL OR length(address) BETWEEN 1 AND 200),
+  country_code TEXT CHECK(country_code IS NULL OR length(country_code) BETWEEN 1 AND 200),
+  municipality_code TEXT
+    CHECK(municipality_code IS NULL OR length(municipality_code) BETWEEN 1 AND 200),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  registered_by_actor_type TEXT NOT NULL CHECK(registered_by_actor_type = 'USER'),
+  registered_by_actor_id TEXT NOT NULL CHECK(length(registered_by_actor_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(legal_organization_code <> '1' OR company IS NOT NULL),
+  CHECK(legal_organization_code <> '2' OR names IS NOT NULL),
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX customers_customers_identity_idx
+  ON customers_customers(
+    tenant_id, company_id, identification_document_code, identification);
+CREATE UNIQUE INDEX customers_customers_idempotency_idx
+  ON customers_customers(tenant_id, idempotency_key);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -879,6 +969,7 @@ const MIGRATIONS = [
   { version: 9, sql: MIGRATION_009, checksum: createHash("sha256").update(MIGRATION_009).digest("hex") },
   { version: 10, sql: MIGRATION_010, checksum: createHash("sha256").update(MIGRATION_010).digest("hex") },
   { version: 11, sql: MIGRATION_011, checksum: createHash("sha256").update(MIGRATION_011).digest("hex") },
+  { version: 12, sql: MIGRATION_012, checksum: createHash("sha256").update(MIGRATION_012).digest("hex") },
 ] as const;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
