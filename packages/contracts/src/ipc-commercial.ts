@@ -44,7 +44,17 @@ import {
 /** Importe a escala 6 no negativo, forma canónica de cable: `"50000.000000"`. */
 const NonNegativeScale6Schema = z.string().regex(/^(?:0|[1-9]\d{0,14})\.\d{6}$/);
 
-/** Cantidad a escala 6 estrictamente positiva: una línea de venta sin cantidad no existe. */
+/**
+ * Escala 6 **estrictamente positiva**.
+ *
+ * Gobierna dos cosas que comparten la misma razón: una línea de venta sin
+ * cantidad no existe, y **un pago de cero no es un pago**. Aceptarlo asentaría
+ * un movimiento de caja de importe cero —basura en el libro de caja— sin mover
+ * la cobertura de la venta.
+ *
+ * No se aplica al importe de apertura ni al conteo de cierre: una caja **sí**
+ * se puede abrir sin base y contar vacía, y ahí el cero es un dato legítimo.
+ */
 const PositiveScale6Schema = z.string()
   .regex(/^(?:0|[1-9]\d{0,14})\.\d{6}$/)
   .refine((value) => /[1-9]/.test(value), { message: "quantity must be greater than zero" });
@@ -330,8 +340,8 @@ export const SaleCreateResponseSchema = createResponseEnvelopeSchema(SaleCreateR
 export const PaymentRegisterCashRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     sale_id: UuidSchema,
-    amount: NonNegativeScale6Schema,
-    tendered_amount: NonNegativeScale6Schema.nullable(),
+    amount: PositiveScale6Schema,
+    tendered_amount: PositiveScale6Schema.nullable(),
   }),
 ).safeExtend({ message_type: z.literal("payment.register.cash") })
   .superRefine((request, context) => {
@@ -380,7 +390,7 @@ export const PaymentRegisterCashResponseSchema = createResponseEnvelopeSchema(Pa
 export const PaymentRegisterTransferRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     sale_id: UuidSchema,
-    amount: NonNegativeScale6Schema,
+    amount: PositiveScale6Schema,
     provider_code: z.string().min(1).max(32).regex(/^[A-Z][A-Z0-9_]*$/).nullable(),
     provider_reference: z.string().min(1).max(128).nullable(),
   }),
