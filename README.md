@@ -1,8 +1,65 @@
+<p align="center">
+  <img src="docs/brand/camacho-pos-colombia-logo-960.png"
+       alt="Camacho POS Colombia — Vende. Controla. Sigue operando."
+       width="640">
+</p>
+
 # Camacho POS Colombia
 
 Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first diseñada para operación comercial real, trazabilidad fuerte y evolución controlada desde una sola base de código.
 
 **Identidad de producto:** `Camacho POS Colombia` es el nombre comercial visible al cliente. `POS Platform`, `pos-platform` y los scopes técnicos `@pos-platform/*` se conservan como identificadores internos para mantener compatibilidad y trazabilidad. El registro empresarial y marcario del nombre comercial permanece pendiente de validación oficial en RUES/SIC y no se presenta como marca registrada.
+
+## Propiedad, autoría y confidencialidad
+
+**Propietario y autor del proyecto:** el titular de la cuenta de GitHub
+[`Andresito202`](https://github.com/Andresito202), bajo cuya cuenta vive este
+repositorio y de quien procede la marca `Camacho POS Colombia`.
+
+**Este repositorio es privado y debe permanecerlo.** No es material público, no
+es una demostración y no está autorizado para redistribución.
+
+### Quién puede autorizar un cambio
+
+Sólo el propietario, a través de la cuenta de GitHub que posee el repositorio.
+En la práctica esa autoridad no la sostiene este texto sino la propia
+plataforma: quien no tenga acceso de escritura a la cuenta no puede integrar
+nada, y `main` sólo admite integración por PR con merge commit y CI verde
+(`docs/governance/repository-governance.md`).
+
+Ninguna contribución —humana o asistida— se integra sin esa autorización.
+Cualquier trabajo asistido por IA en este repositorio queda trazado en el
+mensaje de cada commit con su co-autoría y el enlace a la sesión que lo produjo.
+
+> **Por qué aquí no aparece un correo electrónico.** La cuenta que posee el
+> repositorio ya lleva asociado el correo del propietario, y esa asociación —no
+> una línea de texto— es la que la plataforma verifica. Escribir la dirección en
+> un archivo del repositorio no añadiría autoridad y sí crearía exposición: un
+> correo en un `README` es exactamente el dato que se filtra primero si la
+> visibilidad cambia, y sirve para suplantación y para recuperación de cuenta.
+> La decisión es reversible si el propietario prefiere lo contrario.
+
+## Para qué existe y a quién sirve
+
+Camacho POS Colombia es una plataforma comercial **modular, multiempresa y
+multisucursal para negocios minoristas** (`docs/product/vision.md`). No pretende
+ser una demostración ni un CRUD: desde su primera versión comercial tiene que
+sostener integridad transaccional, seguridad por rol y contexto, auditoría,
+operación local-first y funcionamiento temporal sin Internet.
+
+**Comercios a los que apunta**, en orden de prioridad declarado
+(`docs/product/business-types.md`): tiendas de barrio, minimercados,
+supermercados pequeños y medianos, comercios de perecederos y venta por peso,
+carnicerías, fruver, cacharrerías, papelerías, depósitos de bebidas y licoreras.
+Después, mediante módulos especializados: droguerías, ferreterías, ropa, calzado,
+panaderías, mascotas, aseo y alimentos preparados.
+
+**Un solo núcleo, no un fork por sector.** Cada negocio ve únicamente los
+módulos relevantes para su operación.
+
+**Cuáles de esos comercios puede atender hoy** está medido, fila por fila, en
+[`docs/product/business-readiness.md`](docs/product/business-readiness.md). La
+respuesta corta es que todavía ninguno, y ese documento dice exactamente por qué.
 
 ## Estado real
 

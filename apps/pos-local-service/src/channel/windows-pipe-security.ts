@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 
 const WINDOWS_PIPE_SECURITY_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
@@ -367,6 +367,26 @@ export interface WindowsNamedPipeSecurityReport {
   readonly allowedTrustees: readonly string[];
 }
 
+/**
+ * Tiempo máximo del ayudante de PowerShell.
+ *
+ * **Cada llamada arranca un PowerShell nuevo y recompila el tipo C# con
+ * `Add-Type`**, así que todas pagan el coste del compilador, no sólo la
+ * primera. Con 15 s el margen era tan estrecho que un runner frío lo agotaba:
+ * `D-15` registra dos fallos de CI en la misma sesión sobre diffs que no tocan
+ * este archivo —uno de ellos añadía sólo dos imágenes y texto—.
+ *
+ * Un gate que falla por su cuenta erosiona la confianza en el gate, que es peor
+ * que el minuto de más que cuesta esperar. El coste real es acotado: se paga
+ * una vez al arrancar el servicio, no por petición.
+ */
+const PIPE_SECURITY_TIMEOUT_MS = 60_000;
+
+/** `ETIMEDOUT` de `spawnSync`, distinguido de cualquier otro fallo de arranque. */
+function isTimeout(error: Error | undefined): boolean {
+  return error !== undefined && (error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+}
+
 function invokePipeSecurity(
   action: "harden" | "inspect",
   endpoint: string,
@@ -375,13 +395,13 @@ function invokePipeSecurity(
     throw new Error("Windows named-pipe security requires Windows");
   }
 
-  const result = spawnSync(
+  const spawn = (): SpawnSyncReturns<string> => spawnSync(
     "powershell.exe",
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_PIPE_SECURITY_SCRIPT],
     {
       encoding: "utf8",
       windowsHide: true,
-      timeout: 15_000,
+      timeout: PIPE_SECURITY_TIMEOUT_MS,
       maxBuffer: 64 * 1024,
       env: {
         ...process.env,
@@ -390,6 +410,18 @@ function invokePipeSecurity(
       },
     },
   );
+
+  let result = spawn();
+
+  // Un `ETIMEDOUT` no es un rechazo: es contención de recursos mientras el
+  // compilador de C# trabaja. Se reintenta **una** vez, y sólo ante ese código.
+  //
+  // Reintentar es seguro porque las dos acciones lo admiten: fijar el DACL es
+  // idempotente e inspeccionarlo es de sólo lectura. Y no debilita el fallo
+  // cerrado: si el segundo intento también agota el tiempo, lanza igual que
+  // antes. Lo que **no** se reintenta es un rechazo con `status !== 0`, que
+  // significa que la operación de seguridad falló de verdad.
+  if (isTimeout(result.error)) result = spawn();
 
   if (result.error) {
     throw new Error("Windows named-pipe security helper failed", { cause: result.error });

@@ -74,3 +74,50 @@ Antes del lanzamiento comercial se debe completar, como mínimo:
 6. contratos/licencia, privacidad, tratamiento de datos y soporte;
 7. definición tributaria y facturación de la empresa;
 8. claims comerciales alineados con el estado técnico real.
+
+## Activo de marca
+
+`docs/brand/camacho-pos-colombia-logo.png` — 1521 × 545, RGBA con fondo
+transparente. `docs/brand/camacho-pos-colombia-logo-960.png` es la misma imagen
+a 960 px para encabezados; el `README.md` usa ésa a 640 px de ancho.
+
+### Cómo se obtuvo, y por qué importa
+
+El original que aportó el propietario es un **JPEG con fondo `(247,247,247)`** —
+no blanco — y **84 225 colores distintos** por compresión. Un umbral global de
+brillo habría agujereado el relleno plateado de «CAMACHO» y «COLOMBIA», que en
+esa zona está a un valor casi idéntico al fondo.
+
+Se quitó el fondo por **conectividad desde los bordes**: sólo desaparece el
+fondo que toca el marco, de modo que cualquier zona clara encerrada por el arte
+sobrevive. Después se recortó a la caja del contenido.
+
+**Verificado sobre el resultado, no supuesto:** las cuatro esquinas quedan con
+alfa 0; el relleno claro de las letras sigue opaco; y las seis regiones claras
+restantes se midieron una por una —varianza 27–35 en todas— para confirmar que
+son arte (filo cromado de la «C» y relleno de las letras) y **no** fondo plano
+residual. Borrarlas habría destruido el logotipo.
+
+### Qué NO se cambió
+
+**Nada del contenido.** Ni el símbolo, ni la tipografía, ni los colores, ni la
+bandera, ni el lema «VENDE. CONTROLA. SIGUE OPERANDO.». La única operación fue
+quitar el fondo y recortar el margen muerto.
+
+### Observaciones de diseño, para decidir el propietario
+
+No se aplicó ninguna; se dejan registradas porque afectan a cómo se ve el
+logotipo en uso real, no a lo que comunica:
+
+1. **El lema es pequeño frente al conjunto.** A 640 px de ancho en el `README`
+   queda en torno a 8 px de alto, en el límite de lo legible. Una versión con el
+   lema en línea aparte, o sin lema para usos pequeños, lo resolvería.
+2. **Las letras claras dependen de su contorno oscuro** para leerse. Se sostiene
+   sobre fondo claro y sobre fondo oscuro, que es lo que exige el tema
+   automático de GitHub; conviene no retirar ese contorno en variantes futuras.
+3. **Falta una marca compacta** (sólo el símbolo «C») para favicon, icono de
+   aplicación Electron y barra de tareas. Recortarla del símbolo actual es
+   directo y no exige rediseño.
+
+Estas observaciones **no** constituyen registro marcario. Lo dicho arriba sobre
+RUES/SIC sigue vigente.
