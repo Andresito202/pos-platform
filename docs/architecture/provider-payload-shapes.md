@@ -41,10 +41,42 @@ tener credenciales reales de los tres.
 |---|---|---|
 | Raíz | `reference_code` ✅ único, `document` (`"01"`), `numbering_range_id`, `operation_type` (`"10"`), `observation`, `cash_rounding_amount` (±500) | identidad POS inmutable + rangos del proveedor |
 | `payment_details[]` ✅ | `payment_form` (`"1"` contado, `"2"` crédito), `payment_method_code` (`"10"` efectivo, `"42"` consignación), `amount`, `due_date` (obligatorio si crédito) | Payments V1 — **existe** |
-| `customer{}` ✅ | `identification_document_code`, `identification` (**sin DV**), `dv`, `legal_organization_code` (`"1"` jurídica → `company` obligatorio; `"2"` natural → `names` obligatorio), `tribute_code`, `responsibilities[]`, `address`, `email`, `phone`, `country_code`, `municipality_code` | **forma canónica materializada** — `packages/fiscal-adapters/src/dian/customer.ts`; falta persistirlo (ver abajo) |
-| `items[]` ✅ | `code_reference`, `name`, `quantity`, `price`, `unit_measure_code`, `standard_code`, `discount_rate` **o** `discount_amount` (nunca ambos), `taxes[]` con `code`+`rate` | Catalog y Tax — **NO EXISTEN** |
+| `customer{}` ✅ | `identification_document_code`, `identification` (**sin DV**), `dv`, `legal_organization_code` (`"1"` jurídica → `company` obligatorio; `"2"` natural → `names` obligatorio), `tribute_code`, `responsibilities[]`, `address`, `email`, `phone`, `country_code`, `municipality_code` | **materializado** — `.../dian/customer.ts`, `MIGRATION_012`, módulo `customers/` y canal `customer.*` |
+| `items[]` ✅ | `code_reference`, `name`, `quantity`, `price`, `unit_measure_code`, `standard_code`, `discount_rate` **o** `discount_amount` (nunca ambos), `taxes[]` con `code`+`rate` | **forma canónica materializada** — `.../dian/item.ts`; Catalog y Tax siguen sin persistencia ni motor |
 
 **Todos los numéricos van como `string` con máximo dos decimales.**
+
+### La precisión del proveedor no coincide con la del POS
+
+La línea de arriba —«todos los numéricos van como `string` con máximo dos
+decimales»— es la restricción más incómoda del contrato, porque **el POS lleva
+el dinero en escala 6**.
+
+Un importe con dígitos significativos más allá del segundo decimal **no se puede
+transmitir con fidelidad**. `toProviderDecimal` devuelve el valor exacto o
+`NOT_REPRESENTABLE`, y **nunca redondea**: redondear emitiría una factura que no
+coincide con lo cobrado, y el descuadre aparecería en la contabilidad del
+comerciante, no en un registro nuestro. Sólo la rama `EXACT` lleva el valor, así
+que transmitir lo que se perdió al convertir no compila.
+
+No es un caso teórico: **una báscula produce `0.333333` kg**. Queda registrado
+como `D-14`, y la decisión de qué hacer con ese caso —redondear la cantidad
+antes de vender, cambiar la unidad, o rechazar la venta— es de negocio, no de
+programa.
+
+### Qué cubre y qué no la forma canónica de la línea
+
+`FiscalDocumentItem` declara la forma y comprueba lo comprobable contra las
+tablas DIAN verificadas: unidad de medida, estándar de producto y código de
+impuesto. Las reglas declaran su fuente igual que en el adquiriente.
+
+**El descuento es una unión discriminada.** El contrato admite `discount_rate`
+**o** `discount_amount` y nunca los dos; en vez de comprobarlo en ejecución, una
+línea con las dos formas **no compila**.
+
+Lo que **no** hace: calcular el impuesto. Eso es del motor de precios, que hoy
+tiene `taxUnits: 0n` fijo —comentario literal «SANDBOX Tax EXCLUDED: siempre
+0»—. La forma existe; el motor y el catálogo que la alimentan, no.
 
 ### Qué cubre y qué no la forma canónica del adquiriente
 
