@@ -1103,6 +1103,115 @@ CREATE UNIQUE INDEX catalog_price_active_idx
   ON catalog_price(tenant_id, presentation_id) WHERE status = 'ACTIVE';
 `.trim();
 
+/**
+ * `MIGRATION_015` — Inventario: existencia y libro de movimientos.
+ *
+ * `catalog_product.stock_controlled` existía desde `MIGRATION_014` pero **no
+ * gobernaba nada**: no había existencia que descontar ni movimiento que
+ * registrar. Un comercio de los diez prioritarios —tienda, minimercado,
+ * fruver, carnicería, depósito— no puede operar así: sin existencia no sabe
+ * qué reponer, y sin libro no sabe por qué falta.
+ *
+ * ## Dos tablas y por qué son dos
+ *
+ * - `inventory_movement` es el **libro**: sólo se inserta, nunca se actualiza.
+ *   Es la verdad de por qué la existencia es la que es.
+ * - `inventory_stock` es la **existencia derivada**: la suma del libro,
+ *   mantenida en la misma transacción para no recorrer el libro entero en cada
+ *   escaneo. Que sea derivada la hace comprobable, y hay prueba de que la suma
+ *   del libro y la existencia coinciden.
+ *
+ * ## Lo que el esquema hace imposible
+ *
+ * - **Existencia negativa.** El `GLOB` de `quantity_on_hand` no admite signo:
+ *   una existencia por debajo de cero no se puede escribir. Es la garantía
+ *   estructural contra el «mal calculado en inventarios»; el caso de uso puede
+ *   tener un fallo, la fila no puede mentir.
+ * - **Una venta que sube la existencia.** El `CHECK` que empareja
+ *   `movement_type` con `direction` no admite un `SALE` en `IN` ni una
+ *   `PURCHASE_RECEIPT` en `OUT`. La dirección no es un campo libre.
+ * - **Un movimiento sin responsable ni motivo.** `actor_id` y `reason_code`
+ *   son `NOT NULL`. El ajuste es la vía por la que se roba en un POS: quien
+ *   ajusta queda escrito, y por qué también.
+ * - **El mismo movimiento dos veces.** `idempotency_key` es única por tenant;
+ *   un reintento del canal no descuenta dos veces.
+ *
+ * La existencia es **por sucursal**, no por compañía: el mismo producto tiene
+ * existencias distintas en dos locales, y sumarlas sería afirmar que se puede
+ * vender en uno lo que está en el otro.
+ *
+ * `quantity_after` se guarda en cada movimiento a propósito: permite auditar
+ * el libro sin reconstruirlo, y detectar una divergencia en el punto exacto en
+ * que apareció en lugar de al final.
+ */
+const MIGRATION_015 = `
+CREATE TABLE inventory_stock (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  quantity_on_hand TEXT NOT NULL
+    CHECK(quantity_on_hand GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity_on_hand NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity_on_hand) - length(replace(quantity_on_hand, '.', '')) = 1)
+    CHECK(quantity_on_hand NOT GLOB '0[0-9]*'),
+  last_movement_sequence INTEGER NOT NULL CHECK(last_movement_sequence >= 0),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, branch_id, presentation_id),
+  FOREIGN KEY (tenant_id, presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX inventory_stock_presentation_idx
+  ON inventory_stock(tenant_id, presentation_id);
+
+CREATE TABLE inventory_movement (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  stock_sequence INTEGER NOT NULL CHECK(stock_sequence > 0),
+  movement_type TEXT NOT NULL CHECK(movement_type IN (
+    'OPENING_COUNT','PURCHASE_RECEIPT','SALE_REVERSAL','ADJUSTMENT_POSITIVE','TRANSFER_IN',
+    'SALE','ADJUSTMENT_NEGATIVE','SHRINKAGE','TRANSFER_OUT')),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+  quantity TEXT NOT NULL
+    CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity) - length(replace(quantity, '.', '')) = 1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity <> '0.000000'),
+  quantity_after TEXT NOT NULL
+    CHECK(quantity_after GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity_after NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity_after) - length(replace(quantity_after, '.', '')) = 1)
+    CHECK(quantity_after NOT GLOB '0[0-9]*'),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  sale_id TEXT CHECK(sale_id IS NULL OR length(sale_id) = 36),
+  actor_type TEXT NOT NULL CHECK(actor_type = 'USER'),
+  actor_id TEXT NOT NULL CHECK(length(actor_id) = 36),
+  operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  business_date TEXT NOT NULL CHECK(length(business_date) = 10),
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK ((movement_type IN (
+    'OPENING_COUNT','PURCHASE_RECEIPT','SALE_REVERSAL','ADJUSTMENT_POSITIVE','TRANSFER_IN'
+  )) = (direction = 'IN')),
+  CHECK ((movement_type IN ('SALE','SALE_REVERSAL')) = (sale_id IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX inventory_movement_sequence_idx
+  ON inventory_movement(tenant_id, branch_id, presentation_id, stock_sequence);
+CREATE UNIQUE INDEX inventory_movement_idempotency_idx
+  ON inventory_movement(tenant_id, idempotency_key);
+CREATE INDEX inventory_movement_sale_idx
+  ON inventory_movement(tenant_id, sale_id) WHERE sale_id IS NOT NULL;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1118,7 +1227,17 @@ const MIGRATIONS = [
   { version: 12, sql: MIGRATION_012, checksum: createHash("sha256").update(MIGRATION_012).digest("hex") },
   { version: 13, sql: MIGRATION_013, checksum: createHash("sha256").update(MIGRATION_013).digest("hex") },
   { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
+  { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
 ] as const;
+
+/**
+ * Última versión del esquema local, derivada de `MIGRATIONS`.
+ *
+ * Se exporta para que nadie tenga que escribir el número a mano: una prueba que
+ * afirme «la migración llegó al final» debe seguir diciendo eso cuando se añada
+ * la migración siguiente, no romperse por acoplamiento a un literal.
+ */
+export const LATEST_LOCAL_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 
 const BACKUP_FREE_SPACE_RESERVE_BYTES = 1_048_576n;
 

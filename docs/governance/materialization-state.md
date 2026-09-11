@@ -37,9 +37,9 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
 > contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-07: **989 pruebas pasan, 6 omitidas, 0 fallos** en 9
+> Censo del 2026-09-08: **1021 pruebas pasan, 6 omitidas, 0 fallos** en 9
 > proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
-> `pnpm ci:repository-policy` PASS (506 archivos).
+> `pnpm ci:repository-policy` PASS (513 archivos).
 >
 > El desglose por proyecto y comando vive en el
 > [tablero](./tablero-materializacion.md); **esta cabecera no lo duplica**,
@@ -61,6 +61,8 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Impuesto por línea desde el catálogo (`Tax`) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/sales/sale-calculation.ts` · `MIGRATION_013` · `catalog_fiscal_attribute` |
 | Catálogo real (producto, presentación, código de barras, precio) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/catalog/` · `MIGRATION_014` · `catalog.product.register` / `item.find` / `item.get` |
 | La cantidad respeta la precisión de la unidad | ✅ | ✅ | ✅ | ✅ | ❌ | `.../sales/sale-calculation.ts` → `quantityFitsUnitPrecision` |
+| Inventario (existencia por sucursal y libro de movimientos) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/inventory/` · `MIGRATION_015` · `inventory.stock.receive` / `adjust` / `get` |
+| La venta descuenta existencia en la transacción que la completa | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/inventory-port.ts` · `sqlite-payment-store.ts` → `deductSoldStock` |
 
 > **Corrección de estado, 2026-09-06.** Payment V1 figuraba aquí como
 > `CANONICALLY_APPLIED` desde `BLOQUE 4E`, y lo era en handler y
@@ -83,7 +85,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | SSA y binding de sesión | ✅ | ✅ | ✅ | ✅ | ❌ | `.../session/` · `MIGRATION_007` |
 | Proyección de autorización | ✅ | ✅ | ✅ | ✅ | ❌ | `.../authorization/` · `MIGRATION_006` |
 | Master snapshot | ✅ | ✅ | ✅ | ✅ | ❌ | `.../master-data/` · `MIGRATION_009` |
-| Canal IPC comercial (14 tipos) | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/contracts/src/ipc*.ts` · `.../commercial/` |
+| Canal IPC comercial (19 tipos) | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/contracts/src/ipc*.ts` · `.../commercial/` |
 | Enrutamiento del canal → superficie comercial | ✅ | ✅ | ✅ | ✅ | ❌ | `.../channel/local-channel-component.ts` · `tests/channel-routing.test.ts` (Windows) |
 | Shell Electron (main, preload, allowlist) | ✅ | ✅ | ✅ | ✅ | ❌ | `apps/pos-desktop/src/` |
 | Logger estructurado | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/observability/src/` |
@@ -373,7 +375,6 @@ preservado que documenta la sección siguiente, no en `main`.
 |---|---|---|
 | Pricing | `PRICE-001/002 = DONE` | solo `sandbox_price_rule` |
 | Tax | `TAX-001/002/003 = DONE` | `tax_snapshot` es TEXT congelado; sin motor |
-| Inventory | `INV-001/002 = DONE` | en `main`: nada. Existe implementación completa en `wip/local-catalog-inventory-payment-20260906` (ver «Linaje preservado») |
 | SaleReturn, notas crédito/débito | documentado | — |
 | API central | documentado | — (`apps/` solo tiene 2 aplicaciones) |
 | Transporte local↔central | documentado | — (sin cliente HTTP saliente) |
@@ -471,6 +472,8 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Las cuatro están materializadas y son alcanzables por el canal desde 2026-09-07.** Lo que falta ya no es dato sino el ensamblado del cuerpo de emisión y su envío | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-22 | **Una venta completada no devuelve existencia**, porque `main` todavía no anula ventas: `sales_sales` admite `CANCELLED` pero ningún código lo produce. `SALE_REVERSAL` existe en `MIGRATION_015` y **no tiene emisor**. Se cierra cuando exista anulación de venta o `SaleReturn` (`B11`) | `MIGRATION_015` · `sqlite-payment-store.ts` | un error del cajero deja la mercancía descontada sin forma de devolverla salvo un ajuste manual, que es la vía que `D-21` señala como abusable |
+| D-21 | **No hay reserva entre crear la venta y cobrarla.** La disponibilidad se comprueba al crear y la salida ocurre al completar; en medio, otra venta o un ajuste pueden llevarse la existencia. Mitigado —no resuelto— porque el cobro entero se revierte en ese caso, de modo que nunca queda existencia negativa ni venta cobrada sin mercancía | `create-sale-use-case.ts` · `sqlite-payment-store.ts` → `deductSoldStock` | con dos cajas sobre la misma base, un cobro legítimo puede rechazarse en el último paso |
 | D-20 | Las tablas `sandbox_catalog_product`, `sandbox_catalog_presentation` y `sandbox_price_rule` quedan **huérfanas**: ningún código las lee desde `MIGRATION_014`. No se borran porque pueden tener datos en instalaciones existentes y en SQLite eliminarlas exige reconstruir | `local-database.ts` | esquema muerto que confunde a quien lea el modelo físico |
 | D-19 | `catalog_fiscal_attribute` comprueba la **forma** de sus códigos DIAN, no su **pertenencia** a las tablas verificadas. Hoy no hay ruta de usuario que inserte —sólo el fixture de pruebas—, pero el caso de uso que se escriba tiene que validar con `validateFiscalDocumentItem` antes de guardar | `MIGRATION_013` · `dian/item.ts` | un atributo con `unit_measure_code: "KGM"` se guardaría y sólo fallaría al emitir |
 | D-18 | **La venta por peso con seis decimales no se puede facturar.** Cuatro de los diez comercios prioritarios venden por peso; `D-14` los golpea directamente. Mitigación disponible hoy: declarar la unidad con `unit_precision` 2 | `business-readiness.md` | una carnicería puede vender y cobrar 333 g y **no** emitir la factura electrónica de esa venta |

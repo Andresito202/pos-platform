@@ -27,6 +27,9 @@ describe("preload-api", () => {
       "catalog.product.register",
       "catalog.item.find",
       "catalog.item.get",
+      "inventory.stock.receive",
+      "inventory.stock.adjust",
+      "inventory.stock.get",
     ]);
   });
 

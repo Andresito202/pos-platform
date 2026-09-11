@@ -17,7 +17,8 @@ type CommercialRequest = Extract<
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
-      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get";
+      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
+      | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get";
   }
 >;
 
@@ -43,6 +44,10 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PRICE_NOT_FOUND: "NOT_FOUND",
   CURRENCY_MISMATCH: "VALIDATION",
   QUANTITY_PRECISION_EXCEEDED: "VALIDATION",
+  // No hay existencia: es un conflicto con el estado del inventario, no una
+  // petición mal formada.
+  INSUFFICIENT_STOCK: "CONFLICT",
+  PRESENTATION_NOT_FOUND: "NOT_FOUND",
   SALE_NOT_PAYABLE: "CONFLICT",
   SALE_ALREADY_COMPLETED: "CONFLICT",
   OVERPAYMENT_NOT_ALLOWED: "CONFLICT",
@@ -174,6 +179,9 @@ export class CommercialRequestHandler {
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
+      case "inventory.stock.receive":
+      case "inventory.stock.adjust": return this.moveStock(request, connectionId);
+      case "inventory.stock.get": return this.getStock(request, connectionId);
     }
   }
 
@@ -631,6 +639,91 @@ export class CommercialRequestHandler {
       return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     }
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  // ── Inventario — `MIGRATION_015` ───────────────────────────────────────────
+
+  /**
+   * Recepción y ajuste comparten handler porque comparten forma de respuesta,
+   * **no** permiso: cada caso de uso exige el suyo y el handler no los mezcla.
+   */
+  private moveStock(
+    request: Extract<CommercialRequest, {
+      message_type: "inventory.stock.receive" | "inventory.stock.adjust";
+    }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { stock_sequence: null, quantity_after: null, available: null };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const common = {
+      presentationId: request.payload.presentation_id,
+      quantity: request.payload.quantity,
+      reasonCode: request.payload.reason_code,
+      businessDate: request.payload.business_date,
+      idempotencyKey: request.idempotency_key as string,
+      correlationId: request.correlation_id,
+      causationId: request.causation_id ?? null,
+    };
+
+    const result = request.message_type === "inventory.stock.receive"
+      ? this.commercial.receiveStock.execute(
+          this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
+          { ...common, movementType: request.payload.movement_type },
+        )
+      : this.commercial.adjustStock.execute(
+          this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
+          { ...common, movementType: request.payload.movement_type },
+        );
+
+    if (result.kind === "POSTED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        stock_sequence: result.stockSequence,
+        quantity_after: result.quantityAfter,
+        available: null,
+      });
+    }
+
+    if (result.kind === "INSUFFICIENT_STOCK") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, stock_sequence: null, quantity_after: null,
+        available: result.available,
+      });
+    }
+
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  private getStock(
+    request: Extract<CommercialRequest, { message_type: "inventory.stock.get" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { presentation_id: null, quantity_on_hand: null, last_movement_sequence: null };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.getStock.execute(
+      this.scope(), authenticated.snapshot, request.payload.presentation_id,
+    );
+
+    if (result.kind === "FOUND") {
+      return succeeded(request, "FOUND", {
+        outcome: "FOUND",
+        presentation_id: result.stock.presentationId,
+        quantity_on_hand: result.stock.quantityOnHand,
+        last_movement_sequence: result.stock.lastMovementSequence,
+      });
+    }
+
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
   }
 
   // ── session.activate ───────────────────────────────────────────────────────

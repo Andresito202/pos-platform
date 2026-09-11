@@ -92,7 +92,9 @@ Este README resume; **si discrepa con ellos, mandan ellos**.
   (apertura y cierre de turno), `Payments` (efectivo y transferencia, con la
   venta completándose en la **misma** transacción que cubre el importe),
   `Customers` (adquiriente fiscal), **catálogo real** —producto, presentación,
-  código de barras y precio— e **impuesto por línea** desde ese catálogo.
+  código de barras y precio—, **impuesto por línea** desde ese catálogo e
+  **inventario** —existencia por sucursal sobre un libro append-only, con la
+  mercancía saliendo en la misma transacción que completa la venta—.
 - **Plano fiscal**: cinco puertos por capacidad, tablas de códigos DIAN con
   fuente verificada, y el adapter FACTUS con **dos de sus cinco puertos
   `SANDBOX_VERIFIED`** contra el proveedor real.
@@ -116,8 +118,9 @@ Este README resume; **si discrepa con ellos, mandan ellos**.
 - **Plataforma central.** `packages/database-postgres/src` está vacío: sin API,
   sin NestJS ni Fastify, sin inbox. Sin cliente HTTP saliente, ningún hecho
   comercial sale del dispositivo.
-- **Inventario.** Ninguna tabla ni caso de uso. Lo exigen todos los comercios
-  prioritarios.
+- **Interfaz de caja.** Es la única pieza común que falta para que los comercios
+  prioritarios puedan operar: diecinueve operaciones comerciales tienen contrato,
+  handler y prueba de extremo a extremo, y **ninguna tiene pantalla**.
 - **Hardware.** Báscula, lector, impresora, cajón, datáfono y pantalla cliente:
   ni la abstracción existe.
 - **Empaquetado y despliegue.** Sin instalador (`electron-builder` no está en el

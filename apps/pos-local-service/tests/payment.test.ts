@@ -12,6 +12,7 @@ import {
 } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
+import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import { OpenCashShiftUseCase } from "../src/cash/open-cash-shift-use-case.js";
 import { CloseCashShiftUseCase } from "../src/cash/close-cash-shift-use-case.js";
 import { SqlitePaymentStore } from "../src/payments/sqlite-payment-store.js";
@@ -97,10 +98,11 @@ async function buildEnv() {
   const sync = new DurableSyncStore(database);
   const cashStore = new SqliteCashShiftStore(database, sync, () => NOW);
   const masterStore = new SqliteMasterSnapshotStore(database, () => NOW);
-  const paymentStore = new SqlitePaymentStore(database, sync, cashStore, () => NOW);
+  const inventoryStore = new SqliteInventoryStore(database, sync, () => NOW);
+  const paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
 
   return {
-    database, cashStore,
+    database, cashStore, inventoryStore,
     openShift: new OpenCashShiftUseCase(masterStore, cashStore, () => NOW),
     closeShift: new CloseCashShiftUseCase(cashStore, () => NOW),
     registerCash: new RegisterCashPaymentUseCase(paymentStore, () => NOW),
@@ -192,6 +194,76 @@ function seedSale(
     randomUUID(), at,
   );
   return saleId;
+}
+
+/**
+ * Siembra un producto, su presentación y una línea de venta que lo referencia.
+ *
+ * Las ventas sembradas por `seedSale` no tienen líneas, así que la salida de
+ * mercancía no llega a ejecutarse. Ésta añade lo que falta para que sí lo haga.
+ *
+ * `stockControlled` es parámetro y no constante: una prueba que afirme «sin
+ * control no hay movimiento» necesita una línea **real** de un producto sin
+ * control. Sembrar una venta sin líneas la haría pasar aunque el filtro por
+ * `stock_controlled` no existiera — comprobado por mutación.
+ */
+function seedSaleLine(
+  db: LocalDatabase,
+  saleId: string,
+  quantity = "2.000000",
+  stockControlled = true,
+): { productId: string; presentationId: string } {
+  const productId = randomUUID();
+  const presentationId = randomUUID();
+  const at = NOW.toISOString();
+
+  db.native.prepare(
+    `INSERT INTO catalog_product(
+      id, tenant_id, company_id, code, name, status, stock_controlled,
+      registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+    ) VALUES (?,?,?,?,'Arroz Blanco','ACTIVE',?,?,?,?,1,?,?)`,
+  ).run(
+    productId, TENANT, COMPANY, `ARROZ-${productId.slice(0, 8)}`,
+    stockControlled ? 1 : 0, USER, `catalog:${productId}`, randomUUID(), at, at,
+  );
+
+  db.native.prepare(
+    `INSERT INTO catalog_presentation(
+      id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+      status, created_at, updated_at
+    ) VALUES (?,?,?,'Libra','LBR',2,NULL,'ACTIVE',?,?)`,
+  ).run(presentationId, TENANT, productId, at, at);
+
+  const zero = "0.000000";
+  db.native.prepare(
+    `INSERT INTO sales_sale_items(
+      id, tenant_id, sale_id, line_number,
+      product_id, variant_id, presentation_id,
+      product_name_snapshot, presentation_name_snapshot, identifier_snapshot,
+      unit_id, unit_code_snapshot, unit_precision_snapshot,
+      quantity, unit_price_amount, gross_amount,
+      discount_amount, taxable_amount, tax_amount, line_total_amount,
+      pricing_resolution_snapshot, tax_calculation_snapshot,
+      lot_id, measurement_source_type, measurement_evidence_snapshot, measurement_evidence_checksum
+    ) VALUES (
+      ?,?,?,1,
+      ?,NULL,?,
+      'Arroz Blanco','Libra',NULL,
+      ?,'LBR',2,
+      ?,'5000.000000','10000.000000',
+      ?,'10000.000000',?,'10000.000000',
+      '{}','{}',
+      NULL,NULL,NULL,NULL
+    )`,
+  ).run(
+    randomUUID(), TENANT, saleId,
+    productId, presentationId,
+    presentationId,
+    quantity,
+    zero, zero,
+  );
+
+  return { productId, presentationId };
 }
 
 /** Abre un turno real por el caso de uso de 4D y devuelve su id. */
@@ -974,5 +1046,128 @@ describe("idempotencia anclada en runtime_operations", () => {
       { idempotency_key: "reg:1", result_code: "PAYMENT_REGISTERED" },
       { idempotency_key: "sale_completion:conf:1", result_code: "SALE_COMPLETED" },
     ]);
+  });
+});
+
+// ── Inventario: la mercancía sale con la venta ───────────────────────────────
+
+describe("salida de existencia al completar la venta", () => {
+  /** Da entrada a existencia por el almacén, que aquí es fixture. */
+  function seedStock(
+    env: Awaited<ReturnType<typeof buildEnv>>,
+    presentationId: string,
+    quantity: string,
+  ): void {
+    const outcome = env.inventoryStore.appendMovementInTransaction({
+      scope: SCOPE,
+      sessionId: SESSION,
+      operatorUserId: USER,
+      movementId: randomUUID(),
+      operationId: randomUUID(),
+      presentationId,
+      movementType: "OPENING_COUNT",
+      quantity,
+      reasonCode: "FIXTURE",
+      saleId: null,
+      businessDate: "2026-09-06",
+      idempotencyKey: `fixture-stock:${presentationId}`,
+      requestChecksum: "f".repeat(64),
+      correlationId: randomUUID(),
+      causationId: null,
+    });
+    if (outcome.kind !== "POSTED") throw new Error(`stock fixture failed: ${outcome.kind}`);
+  }
+
+  it("descuenta lo vendido en la misma transacción que completa la venta", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { shiftId, payable: "10000.000000" });
+    const { presentationId } = seedSaleLine(env.database, saleId, "2.000000");
+    seedStock(env, presentationId, "5.000000");
+
+    const result = env.registerCash.execute(
+      SCOPE, SESSION, auth(), cashRequest(saleId, "10000.000000", "pay:stock:1"),
+    );
+
+    expect(result.kind).toBe("CONFIRMED");
+    if (result.kind !== "CONFIRMED") return;
+    expect(result.saleCompleted).toBe(true);
+    expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+
+    const stock = env.inventoryStore.getStock(SCOPE, presentationId);
+    expect(stock?.quantityOnHand).toBe("3.000000");
+
+    const movement = env.database.native.prepare(
+      `SELECT movement_type, direction, quantity, sale_id FROM inventory_movement
+       WHERE tenant_id=? AND sale_id=?`,
+    ).get(TENANT, saleId) as {
+      movement_type: string; direction: string; quantity: string; sale_id: string;
+    };
+    expect(movement.movement_type).toBe("SALE");
+    expect(movement.direction).toBe("OUT");
+    expect(movement.quantity).toBe("2.000000");
+  });
+
+  /**
+   * El caso que obliga a que todo sea una sola transacción: la existencia
+   * desapareció entre crear y cobrar. El cobro **entero** se revierte, de modo
+   * que el cajero lo ve antes de que el dinero quede tomado.
+   */
+  it("revierte el cobro completo si ya no hay existencia que sacar", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { shiftId, payable: "10000.000000" });
+    const { presentationId } = seedSaleLine(env.database, saleId, "2.000000");
+    seedStock(env, presentationId, "1.000000");
+
+    const result = env.registerCash.execute(
+      SCOPE, SESSION, auth(), cashRequest(saleId, "10000.000000", "pay:stock:2"),
+    );
+
+    expect(result.kind).toBe("INSUFFICIENT_STOCK");
+    if (result.kind !== "INSUFFICIENT_STOCK") return;
+    expect(result.presentationId).toBe(presentationId);
+    expect(result.available).toBe("1.000000");
+
+    // Nada quedó escrito: ni pago, ni movimiento de caja, ni salida de mercancía,
+    // y la venta sigue cobrable.
+    const payments = env.database.native.prepare(
+      "SELECT COUNT(*) AS total FROM payments_payments WHERE tenant_id=?",
+    ).get(TENANT) as { total: number };
+    const cashSales = env.database.native.prepare(
+      "SELECT COUNT(*) AS total FROM cash_movement WHERE tenant_id=? AND movement_type='CASH_SALE'",
+    ).get(TENANT) as { total: number };
+    const deductions = env.database.native.prepare(
+      "SELECT COUNT(*) AS total FROM inventory_movement WHERE tenant_id=? AND movement_type='SALE'",
+    ).get(TENANT) as { total: number };
+
+    expect(payments.total).toBe(0);
+    expect(cashSales.total).toBe(0);
+    expect(deductions.total).toBe(0);
+    expect(saleStatus(env.database, saleId).status).toBe("READY_FOR_PAYMENT");
+    expect(env.inventoryStore.getStock(SCOPE, presentationId)?.quantityOnHand).toBe("1.000000");
+  });
+
+  it("un producto sin control de existencia no genera movimiento", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { shiftId, payable: "10000.000000" });
+    // Línea real, con producto sin control y **sin existencia sembrada**: si el
+    // filtro por `stock_controlled` desapareciera, el descuento fallaría por
+    // falta de existencia y esta prueba lo vería.
+    seedSaleLine(env.database, saleId, "2.000000", false);
+
+    const result = env.registerCash.execute(
+      SCOPE, SESSION, auth(), cashRequest(saleId, "10000.000000", "pay:stock:3"),
+    );
+
+    expect(result.kind).toBe("CONFIRMED");
+    const movements = env.database.native.prepare(
+      "SELECT COUNT(*) AS total FROM inventory_movement WHERE tenant_id=?",
+    ).get(TENANT) as { total: number };
+    expect(movements.total).toBe(0);
   });
 });
