@@ -1,0 +1,370 @@
+import { rmSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { LocalDatabase } from "@pos-platform/database-sqlite";
+import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
+import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
+import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
+import { RegisterProductUseCase } from "../src/catalog/register-product-use-case.js";
+import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
+import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js";
+import { AdjustStockUseCase } from "../src/inventory/adjust-stock-use-case.js";
+import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
+import { scale6ToBigInt } from "../src/money.js";
+import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
+import type { SyncScope } from "../src/sync/durable-sync-store.js";
+
+const TENANT = "018f0000-0000-7000-8000-000000000001";
+const COMPANY = "018f0000-0000-7000-8000-000000000002";
+const BRANCH = "018f0000-0000-7000-8000-000000000003";
+const OTHER_BRANCH = "018f0000-0000-7000-8000-000000000033";
+const DEVICE = "018f0000-0000-7000-8000-000000000004";
+const INSTALL = "018f0000-0000-7000-8000-000000000005";
+const USER = "018f0000-0000-7000-8000-000000000006";
+const SESSION = "018f0000-0000-7000-8000-000000000008";
+const CORRELATION = "018f0000-0000-7000-8000-00000000cc01";
+const ABSENT_PRESENTATION = "018f0000-0000-7000-8000-0000000000aa";
+
+const SCOPE: SyncScope = {
+  tenantId: TENANT, companyId: COMPANY, branchId: BRANCH,
+  deviceId: DEVICE, installationId: INSTALL,
+};
+const NOW = new Date("2026-09-07T10:00:00.000Z");
+const ALL = [
+  "CATALOG_PRODUCT_REGISTER",
+  "INVENTORY_STOCK_RECEIVE",
+  "INVENTORY_STOCK_ADJUST",
+  "INVENTORY_STOCK_READ",
+];
+
+const directories: string[] = [];
+const databases: LocalDatabase[] = [];
+afterEach(() => {
+  for (const database of databases.splice(0)) {
+    try { database.close(); } catch { /* no debe ocultar el fallo real */ }
+  }
+  for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
+});
+
+function auth(permissions: string[] = ALL): StoredAuthorizationSnapshot {
+  const claims: AuthorizationSnapshotClaims = {
+    snapshot_id: "018f0000-0000-7000-8000-0000000000ff",
+    user_id: USER, installation_id: INSTALL, device_id: DEVICE,
+    sequence: 1, issued_at: "2026-09-07T00:00:00.000Z",
+    expires_at: "2026-09-08T00:00:00.000Z", key_id: "AUTHZ_KEY_1",
+    assignments: [{
+      tenant_id: TENANT, company_id: COMPANY, branch_id: BRANCH,
+      status: "ACTIVE", valid_from: "2026-09-01T00:00:00.000Z", valid_until: null,
+      role_status: "ACTIVE",
+      permissions: permissions.map((code) => ({ code, status: "ACTIVE" as const })),
+    }],
+  } as AuthorizationSnapshotClaims;
+  return { claims, signature: "stub", activatedAt: NOW.toISOString() };
+}
+
+let seed = 0;
+const key = (): string => { seed += 1; return `idem-inventory-${String(seed)}`; };
+
+async function buildEnv() {
+  const dir = await mkdtemp(join(tmpdir(), "pos-inventory-"));
+  directories.push(dir);
+  const database = LocalDatabase.open({ dataDirectory: dir });
+  databases.push(database);
+  const sync = new DurableSyncStore(database);
+  const catalogStore = new SqliteCatalogStore(database, sync, () => NOW);
+  const store = new SqliteInventoryStore(database, sync, () => NOW);
+
+  const registered = new RegisterProductUseCase(catalogStore).execute(SCOPE, SESSION, auth(), {
+    code: "ARROZ-001",
+    name: "Arroz Blanco",
+    stockControlled: true,
+    presentationName: "Libra",
+    unitCode: "LBR",
+    unitPrecision: 2,
+    barcode: "7709876543210",
+    priceAmount: "3200.000000",
+    currencyCode: "COP",
+    idempotencyKey: key(),
+    correlationId: CORRELATION,
+    causationId: null,
+  });
+  if (registered.kind !== "REGISTERED") throw new Error(`fixture failed: ${registered.kind}`);
+
+  return {
+    database, store,
+    presentationId: registered.presentationId,
+    receive: new ReceiveStockUseCase(store),
+    adjust: new AdjustStockUseCase(store),
+    get: new GetStockUseCase(store),
+  };
+}
+
+const receipt = (presentationId: string, overrides: Record<string, unknown> = {}) => ({
+  presentationId,
+  movementType: "PURCHASE_RECEIPT" as const,
+  quantity: "10.000000",
+  reasonCode: "SUPPLIER_DELIVERY",
+  businessDate: "2026-09-07",
+  idempotencyKey: key(),
+  correlationId: CORRELATION,
+  causationId: null,
+  ...overrides,
+});
+
+describe("entrada de existencia", () => {
+  it("crea la fila de existencia y deja el libro cuadrado con ella", async () => {
+    const { receive, get, database, presentationId } = await buildEnv();
+
+    const posted = receive.execute(SCOPE, SESSION, auth(), receipt(presentationId));
+    expect(posted.kind).toBe("POSTED");
+    if (posted.kind !== "POSTED") return;
+    expect(posted.quantityAfter).toBe("10.000000");
+    expect(posted.stockSequence).toBe(1);
+
+    const found = get.execute(SCOPE, auth(), presentationId);
+    expect(found.kind).toBe("FOUND");
+    if (found.kind !== "FOUND") return;
+    expect(found.stock.quantityOnHand).toBe("10.000000");
+
+    // La existencia es derivada: tiene que coincidir con la suma del libro.
+    const movements = database.native.prepare(
+      "SELECT direction, quantity FROM inventory_movement WHERE tenant_id=? AND presentation_id=?",
+    ).all(TENANT, presentationId) as Array<{ direction: string; quantity: string }>;
+    const ledger = movements.reduce(
+      (total, row) => total + (row.direction === "IN" ? 1n : -1n) * scale6ToBigInt(row.quantity),
+      0n,
+    );
+    expect(ledger).toBe(scale6ToBigInt(found.stock.quantityOnHand));
+  });
+
+  it("acumula sobre lo que ya había y hace avanzar la secuencia", async () => {
+    const { receive, presentationId } = await buildEnv();
+
+    receive.execute(SCOPE, SESSION, auth(), receipt(presentationId));
+    const second = receive.execute(
+      SCOPE, SESSION, auth(), receipt(presentationId, { quantity: "2.500000" }),
+    );
+
+    expect(second.kind).toBe("POSTED");
+    if (second.kind !== "POSTED") return;
+    expect(second.quantityAfter).toBe("12.500000");
+    expect(second.stockSequence).toBe(2);
+  });
+
+  it("no acepta una presentación que no está en el catálogo", async () => {
+    const { receive } = await buildEnv();
+    const outcome = receive.execute(SCOPE, SESSION, auth(), receipt(ABSENT_PRESENTATION));
+    expect(outcome.kind).toBe("PRESENTATION_NOT_FOUND");
+  });
+
+  it("la existencia es por sucursal: otra sucursal parte de cero", async () => {
+    const { receive, get, store, presentationId } = await buildEnv();
+    receive.execute(SCOPE, SESSION, auth(), receipt(presentationId));
+
+    // **La misma base de datos**, otra sucursal. Consultar una segunda base
+    // daría cero siempre y no probaría nada sobre el alcance.
+    const otherScope: SyncScope = { ...SCOPE, branchId: OTHER_BRANCH };
+    expect(store.availableUnits(otherScope, presentationId)).toBe(0n);
+    expect(store.availableUnits(SCOPE, presentationId)).toBe(10_000_000n);
+    expect(get.execute(SCOPE, auth(), presentationId).kind).toBe("FOUND");
+  });
+
+  it("un reintento con la misma clave no suma dos veces", async () => {
+    const { receive, presentationId } = await buildEnv();
+    const request = receipt(presentationId);
+
+    const first = receive.execute(SCOPE, SESSION, auth(), request);
+    const replay = receive.execute(SCOPE, SESSION, auth(), request);
+
+    expect(first.kind).toBe("POSTED");
+    expect(replay.kind).toBe("IDEMPOTENT");
+    if (replay.kind !== "IDEMPOTENT") return;
+    expect(replay.quantityAfter).toBe("10.000000");
+  });
+
+  it("la misma clave con otra cantidad es un conflicto, no un segundo asiento", async () => {
+    const { receive, presentationId } = await buildEnv();
+    const request = receipt(presentationId);
+
+    receive.execute(SCOPE, SESSION, auth(), request);
+    const conflicting = receive.execute(
+      SCOPE, SESSION, auth(), { ...request, quantity: "99.000000" },
+    );
+
+    expect(conflicting.kind).toBe("IDEMPOTENCY_CONFLICT");
+  });
+
+  it("exige INVENTORY_STOCK_RECEIVE", async () => {
+    const { receive, presentationId } = await buildEnv();
+    const outcome = receive.execute(
+      SCOPE, SESSION, auth(["INVENTORY_STOCK_READ"]), receipt(presentationId),
+    );
+    expect(outcome.kind).toBe("UNAUTHORIZED");
+  });
+});
+
+describe("ajuste de existencia", () => {
+  it("resta y deja el motivo y el actor en el rastro", async () => {
+    const { receive, adjust, database, presentationId } = await buildEnv();
+    receive.execute(SCOPE, SESSION, auth(), receipt(presentationId));
+
+    const adjusted = adjust.execute(SCOPE, SESSION, auth(), {
+      presentationId,
+      movementType: "SHRINKAGE",
+      quantity: "1.500000",
+      reasonCode: "DAMAGED_GOODS",
+      businessDate: "2026-09-07",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    });
+
+    expect(adjusted.kind).toBe("POSTED");
+    if (adjusted.kind !== "POSTED") return;
+    expect(adjusted.quantityAfter).toBe("8.500000");
+
+    // Se localiza por el movimiento concreto, no por orden: ambos asientos
+    // comparten `created_at` y ordenar por él no distingue cuál es cuál.
+    const audit = database.native.prepare(
+      `SELECT a.actor_id, a.reason_code
+       FROM local_operation_audit a
+       JOIN inventory_movement m ON m.tenant_id = a.tenant_id AND m.id = a.resource_id
+       WHERE a.tenant_id=? AND a.action_code='INVENTORY_MOVEMENT_APPEND'
+         AND m.movement_type='SHRINKAGE'`,
+    ).get(TENANT) as { actor_id: string; reason_code: string };
+    expect(audit.actor_id).toBe(USER);
+    expect(audit.reason_code).toBe("DAMAGED_GOODS");
+  });
+
+  it("no deja la existencia por debajo de cero", async () => {
+    const { receive, adjust, get, presentationId } = await buildEnv();
+    receive.execute(SCOPE, SESSION, auth(), receipt(presentationId, { quantity: "3.000000" }));
+
+    const outcome = adjust.execute(SCOPE, SESSION, auth(), {
+      presentationId,
+      movementType: "ADJUSTMENT_NEGATIVE",
+      quantity: "4.000000",
+      reasonCode: "COUNT_CORRECTION",
+      businessDate: "2026-09-07",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    });
+
+    expect(outcome.kind).toBe("INSUFFICIENT_STOCK");
+    if (outcome.kind !== "INSUFFICIENT_STOCK") return;
+    expect(outcome.available).toBe("3.000000");
+
+    // Y el rechazo no dejó rastro escrito.
+    const stock = get.execute(SCOPE, auth(), presentationId);
+    expect(stock.kind).toBe("FOUND");
+    if (stock.kind !== "FOUND") return;
+    expect(stock.stock.quantityOnHand).toBe("3.000000");
+    expect(stock.stock.lastMovementSequence).toBe(1);
+  });
+
+  it("recibir no basta para ajustar: son permisos distintos", async () => {
+    const { receive, adjust, presentationId } = await buildEnv();
+    receive.execute(SCOPE, SESSION, auth(), receipt(presentationId));
+
+    const outcome = adjust.execute(
+      SCOPE, SESSION, auth(["INVENTORY_STOCK_RECEIVE", "INVENTORY_STOCK_READ"]),
+      {
+        presentationId,
+        movementType: "ADJUSTMENT_NEGATIVE",
+        quantity: "1.000000",
+        reasonCode: "COUNT_CORRECTION",
+        businessDate: "2026-09-07",
+        idempotencyKey: key(),
+        correlationId: CORRELATION,
+        causationId: null,
+      },
+    );
+
+    expect(outcome.kind).toBe("UNAUTHORIZED");
+  });
+});
+
+describe("consulta de existencia", () => {
+  it("distingue «nunca tuvo movimiento» de «se agotó»", async () => {
+    const { receive, adjust, get, presentationId } = await buildEnv();
+
+    expect(get.execute(SCOPE, auth(), presentationId).kind).toBe("NOT_FOUND");
+
+    receive.execute(SCOPE, SESSION, auth(), receipt(presentationId, { quantity: "1.000000" }));
+    adjust.execute(SCOPE, SESSION, auth(), {
+      presentationId,
+      movementType: "ADJUSTMENT_NEGATIVE",
+      quantity: "1.000000",
+      reasonCode: "COUNT_CORRECTION",
+      businessDate: "2026-09-07",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    });
+
+    const emptied = get.execute(SCOPE, auth(), presentationId);
+    expect(emptied.kind).toBe("FOUND");
+    if (emptied.kind !== "FOUND") return;
+    expect(emptied.stock.quantityOnHand).toBe("0.000000");
+  });
+
+  it("exige INVENTORY_STOCK_READ", async () => {
+    const { get, presentationId } = await buildEnv();
+    const outcome = get.execute(SCOPE, auth(["INVENTORY_STOCK_RECEIVE"]), presentationId);
+    expect(outcome.kind).toBe("UNAUTHORIZED");
+  });
+});
+
+describe("el esquema no admite un movimiento incoherente", () => {
+  it("rechaza una venta que sume existencia", async () => {
+    const { database, presentationId } = await buildEnv();
+
+    expect(() => database.native.prepare(
+      `INSERT INTO inventory_movement(
+        id, tenant_id, company_id, branch_id, presentation_id, stock_sequence,
+        movement_type, direction, quantity, quantity_after, reason_code, sale_id,
+        actor_type, actor_id, operation_id, idempotency_key, correlation_id,
+        business_date, occurred_at, created_at
+      ) VALUES (?,?,?,?,?,1,'SALE','IN','1.000000','1.000000','X',?,'USER',?,?,?,?,'2026-09-07',?,?)`,
+    ).run(
+      "018f0000-0000-7000-8000-0000000000b1", TENANT, COMPANY, BRANCH, presentationId,
+      "018f0000-0000-7000-8000-0000000000b2", USER,
+      "018f0000-0000-7000-8000-0000000000b3", "raw-1", CORRELATION,
+      NOW.toISOString(), NOW.toISOString(),
+    )).toThrow(/CHECK constraint/i);
+  });
+
+  it("rechaza una recepción que declare una venta", async () => {
+    const { database, presentationId } = await buildEnv();
+
+    expect(() => database.native.prepare(
+      `INSERT INTO inventory_movement(
+        id, tenant_id, company_id, branch_id, presentation_id, stock_sequence,
+        movement_type, direction, quantity, quantity_after, reason_code, sale_id,
+        actor_type, actor_id, operation_id, idempotency_key, correlation_id,
+        business_date, occurred_at, created_at
+      ) VALUES (?,?,?,?,?,1,'PURCHASE_RECEIPT','IN','1.000000','1.000000','X',?,'USER',?,?,?,?,'2026-09-07',?,?)`,
+    ).run(
+      "018f0000-0000-7000-8000-0000000000b4", TENANT, COMPANY, BRANCH, presentationId,
+      "018f0000-0000-7000-8000-0000000000b5", USER,
+      "018f0000-0000-7000-8000-0000000000b6", "raw-2", CORRELATION,
+      NOW.toISOString(), NOW.toISOString(),
+    )).toThrow(/CHECK constraint/i);
+  });
+
+  it("rechaza una existencia negativa escrita directamente", async () => {
+    const { database, presentationId } = await buildEnv();
+
+    expect(() => database.native.prepare(
+      `INSERT INTO inventory_stock(
+        tenant_id, company_id, branch_id, presentation_id,
+        quantity_on_hand, last_movement_sequence, version, created_at, updated_at
+      ) VALUES (?,?,?,?,'-1.000000',1,1,?,?)`,
+    ).run(
+      TENANT, COMPANY, BRANCH, presentationId, NOW.toISOString(), NOW.toISOString(),
+    )).toThrow(/CHECK constraint/i);
+  });
+});

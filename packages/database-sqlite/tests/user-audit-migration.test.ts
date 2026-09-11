@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import { LocalDatabase } from "../src/index.js";
+import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/index.js";
 
 /**
  * MIGRATION_008 (DEC-012 D4): amplía `local_operation_audit.actor_type` para
@@ -101,6 +101,8 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE local_operation_audit;
       ${LEGACY_AUDIT_TABLE}
       DROP TRIGGER local_schema_migrations_no_delete;
+      DROP TABLE inventory_movement;
+      DROP TABLE inventory_stock;
       DROP TABLE catalog_price;
       DROP TABLE catalog_presentation;
       DROP TABLE catalog_product;
@@ -122,7 +124,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_master_snapshot_artifact_no_update;
       DROP TRIGGER local_master_snapshot_artifact_no_delete;
       DROP TABLE local_master_snapshot_artifact;
-      DELETE FROM local_schema_migrations WHERE version IN (8, 9, 10, 11, 12, 13, 14);
+      DELETE FROM local_schema_migrations WHERE version > 7;
       CREATE TRIGGER local_schema_migrations_no_delete
         BEFORE DELETE ON local_schema_migrations
         BEGIN SELECT RAISE(ABORT, 'local migration ledger is immutable'); END;
@@ -513,7 +515,7 @@ describe("MIGRATION_008 — ciclo de vida", () => {
       const version = (database.native
         .prepare("SELECT max(version) AS version FROM local_schema_migrations")
         .get() as { version: number }).version;
-      expect(version).toBe(14);
+      expect(version).toBe(LATEST_LOCAL_SCHEMA_VERSION);
       expect(() => insertAudit(database, "USER", USER)).not.toThrow();
     } finally {
       database.close();
@@ -525,7 +527,7 @@ describe("MIGRATION_008 — ciclo de vida", () => {
     const upgraded = LocalDatabase.open({ dataDirectory });
     try {
       expect((upgraded.native.prepare("SELECT max(version) AS version FROM local_schema_migrations")
-        .get() as { version: number }).version).toBe(14);
+        .get() as { version: number }).version).toBe(LATEST_LOCAL_SCHEMA_VERSION);
       expect(() => insertAudit(upgraded, "USER", USER)).not.toThrow();
     } finally {
       upgraded.close();
@@ -557,7 +559,11 @@ describe("MIGRATION_008 — ciclo de vida", () => {
       .all() as { version: number; checksum: string }[];
     first.close();
 
-    expect(ledgerBefore.map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    // El libro de migraciones es contiguo desde 1 hasta la última versión. Es
+    // la afirmación real; escribir la lista a mano sólo la acoplaba al literal.
+    expect(ledgerBefore.map((row) => row.version)).toEqual(
+      Array.from({ length: LATEST_LOCAL_SCHEMA_VERSION }, (_, index) => index + 1),
+    );
     for (const row of ledgerBefore) expect(row.checksum).toMatch(/^[a-f0-9]{64}$/);
 
     // Reabrir no altera ningún checksum histórico.

@@ -69,7 +69,7 @@ traduce así, y sólo así:
 | A6 | SSA y binding de sesión | `CANON` | 85 |
 | A7 | Proyección de autorización | `CANON` | 85 |
 | A8 | Master snapshot | `CANON` | 85 |
-| A9 | Canal IPC comercial (14 tipos) | `CANON` | 85 |
+| A9 | Canal IPC comercial (19 tipos) | `CANON` | 85 |
 | A10 | Enrutamiento del canal → superficie comercial | `CANON` | 85 |
 | A11 | Shell Electron (main, preload, allowlist) | `CANON` | 85 |
 | A12 | Logger estructurado | `CANON` | 85 |
@@ -94,17 +94,25 @@ y `main.ts` **no las instancia**. Verificado: `main.ts` cablea cinco componentes
 | B4 | Completado de venta como único punto | `CANON` | 85 |
 | B5 | Frontera Payments ↔ Cash | `CANON` | 85 |
 | B6 | Catalog | `CANON` | 85 |
-| B7 | Inventory | `DOCUMENTED` | 15 |
+| B7 | Inventory | `CANON` | 85 |
 | B8 | Pricing | `DOCUMENTED` | 15 |
 | B9 | Tax (motor de impuestos) | `CANON` | 85 |
 | B10 | Customer / adquiriente | `CANON` | 85 |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | 15 |
 | B12 | Periféricos POS | `DOCUMENTED` | 15 |
 
-**B6 y B7 tienen implementación completa, pero no en `main`**: viven en
-`wip/local-catalog-inventory-payment-20260906`, y `DEC-018` decidió no portarlas.
-El tablero puntúa `main`, así que valen 15. Que exista trabajo hecho en otro
-linaje no cambia lo que el POS puede hacer hoy.
+**B6 pasó a 85 el 2026-09-07 y B7 el 2026-09-08.** Ninguna se portó desde
+`wip/local-catalog-inventory-payment-20260906` —`DEC-018` decidió no hacerlo—:
+se escribieron contra `main` con el alcance que el POS necesita hoy, que es
+menor que el del linaje. El linaje sigue siendo referencia de diseño, no origen
+de código.
+
+**B7 es existencia por sucursal más libro append-only más el descuento de la
+venta**, las tres cosas: `MIGRATION_015`, el módulo `inventory/` y el
+`InventoryPort` que consume la transacción que produce `COMPLETED`. Una
+existencia que no bajara al vender no sería la capacidad. Lo que **no** trae:
+reserva entre crear y cobrar (`D-21`) y devolución de existencia por venta
+anulada (`D-22`), porque `main` todavía no anula ventas.
 
 **B8 y B9 tienen tabla pero no motor**: `sandbox_price_rule` y un `tax_snapshot`
 que es TEXT congelado. Una tabla sin regla que la calcule no es la capacidad.
@@ -220,41 +228,41 @@ documenta; nada lo implementa.
 | Bloque | Capacidades | Puntos | % |
 |---|---|---|---|
 | A · Plataforma local | 14 | 1140 | **81 %** |
-| B · Núcleo comercial | 12 | 740 | **62 %** |
+| B · Núcleo comercial | 12 | 810 | **68 %** |
 | C · Plano fiscal | 15 | 945 | **63 %** |
 | D · Central y transporte | 6 | 145 | **24 %** |
 | E · Entrega y operación | 9 | 510 | **57 %** |
-| **GLOBAL** | **56** | **3480** | **62 %** |
+| **GLOBAL** | **56** | **3550** | **63 %** |
 
-**34 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
+**35 de 56 capacidades en `CANONICALLY_APPLIED`. Ninguna en `PRODUCTION_READY`.**
 
 El global es la media simple de las 56 capacidades, no una media de los cinco
 bloques: ponderar por bloque haría que D —seis filas— pesara lo mismo que C
 —quince—, y eso no describe el proyecto.
 
-## Censo de pruebas — ejecutado el 2026-09-07 sobre `2b2b81d` + adquiriente
+## Censo de pruebas — ejecutado el 2026-09-08 sobre `dc609e6` + inventario
 
 Los porcentajes de arriba se apoyan en esto, no en una impresión. Comandos
 ejecutados en este contenedor, con el resultado observado:
 
 | Comando | Proyecto | Resultado |
 |---|---|---|
-| `pnpm test:contracts` | `@pos-platform/contracts` | 230 pasan |
+| `pnpm test:contracts` | `@pos-platform/contracts` | 236 pasan |
 | `pnpm test:domain` | `@pos-platform/domain` | 47 pasan |
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
 | `pnpm test:runtime` | `observability` | 4 pasan |
-| `pnpm test:runtime` | `pos-local-service` | 409 pasan · 4 omitidas |
+| `pnpm test:runtime` | `pos-local-service` | 435 pasan · 4 omitidas |
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
 | `pnpm test:fiscal-adapters` | `fiscal-adapters` | 170 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **989 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **1021 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
 | `pnpm typecheck` | PASS · 13 proyectos, `tsc --noEmit` |
 | `pnpm architecture:check` | PASS · ARCH-003 |
-| `pnpm ci:repository-policy` | PASS · 506 archivos rastreados |
+| `pnpm ci:repository-policy` | PASS · 513 archivos rastreados |
 
 **Qué acreditan las 6 omitidas, y por qué no son un hueco oculto:**
 
@@ -288,3 +296,4 @@ se ejecutó.
 | 2026-09-07 | **61 %** | **el tablero no se mueve**: `unit_precision` pasa a gobernar la cantidad, pero es un defecto corregido dentro de `Sales V1`, que ya estaba en `CANON`. 964 pruebas |
 | 2026-09-07 | **61 %** | auditoría del trabajo propio: cifras contradictorias corregidas, el pago de cero deja de ser válido, `D-19` registrada. **El tablero tampoco se mueve.** 969 pruebas |
 | 2026-09-07 | **62 %** | catálogo real: `MIGRATION_014`, `SandboxCatalogStore` eliminado, tres operaciones en el canal (B6 a 85) · 989 pruebas |
+| 2026-09-08 | **63 %** | inventario: `MIGRATION_015`, existencia por sucursal y libro append-only, descuento en la transacción que completa la venta (B7 a 85) · 1021 pruebas |

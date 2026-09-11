@@ -317,6 +317,10 @@ export const SaleCreateOutcomeSchema = z.enum([
   // es una venta, es un error de captura. La comprueba la capa confiable, que
   // es la única que ve el catálogo.
   "QUANTITY_PRECISION_EXCEEDED",
+  // No hay existencia para lo pedido. Se rechaza **al crear**: negarse después
+  // de que el cliente pagó no es una opción, y la salida real ocurre al
+  // completar la venta.
+  "INSUFFICIENT_STOCK",
   "IDEMPOTENCY_CONFLICT",
 ]);
 
@@ -365,6 +369,9 @@ export const PaymentRegisterCashOutcomeSchema = z.enum([
   "CASH_SHIFT_MISSING",
   "CASH_SHIFT_NOT_OPEN",
   "INSUFFICIENT_TENDER",
+  // La venta quedaba cubierta pero no hay existencia que sacar. Todo el cobro
+  // se revierte: el cajero lo ve antes de que el dinero quede tomado.
+  "INSUFFICIENT_STOCK",
 ]);
 
 /**
@@ -452,6 +459,7 @@ export const PaymentTransferConfirmOutcomeSchema = z.enum([
   "VERSION_CONFLICT",
   "OVERPAYMENT_NOT_ALLOWED",
   "SALE_ALREADY_COMPLETED",
+  "INSUFFICIENT_STOCK",
 ]);
 
 export const PaymentTransferConfirmResultSchema = z.strictObject({
@@ -745,6 +753,98 @@ export const CatalogItemResultSchema = z.strictObject({
 
 export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
 
+// ── inventory.stock.receive · inventory.stock.adjust · inventory.stock.get ───
+
+/**
+ * Inventario — `MIGRATION_015`.
+ *
+ * **Recibir y ajustar son dos mensajes, no uno con un campo `tipo`.** Recibir
+ * mercancía es rutina; ajustar es corregir la verdad, y es la vía por la que se
+ * roba en un POS. Separarlos permite que el permiso los separe: el cajero que
+ * recibe el pedido del proveedor no tiene por qué poder cuadrar el inventario a
+ * mano.
+ *
+ * La cantidad es siempre **positiva**: el signo lo da el tipo de movimiento, no
+ * el número. Un contrato que admitiera cantidades negativas dejaría que una
+ * recepción restara existencia.
+ */
+export const InventoryStockReceiveRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    movement_type: z.enum(["OPENING_COUNT", "PURCHASE_RECEIPT", "TRANSFER_IN"]),
+    quantity: PositiveScale6Schema,
+    reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+    business_date: BusinessDateSchema,
+  }),
+).safeExtend({ message_type: z.literal("inventory.stock.receive") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    movement_type: z.enum([
+      "ADJUSTMENT_POSITIVE",
+      "ADJUSTMENT_NEGATIVE",
+      "SHRINKAGE",
+      "TRANSFER_OUT",
+    ]),
+    quantity: PositiveScale6Schema,
+    reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+    business_date: BusinessDateSchema,
+  }),
+).safeExtend({ message_type: z.literal("inventory.stock.adjust") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const InventoryMovementOutcomeSchema = z.enum([
+  "POSTED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PRESENTATION_NOT_FOUND",
+  "INSUFFICIENT_STOCK",
+]);
+
+/**
+ * `quantity_after` viaja en la respuesta porque es lo que la pantalla necesita
+ * mostrar tras el movimiento, y `available` sólo se rellena en el rechazo por
+ * falta de existencia: decir cuánto hay es lo que permite corregir la captura.
+ */
+export const InventoryMovementResultSchema = z.strictObject({
+  outcome: InventoryMovementOutcomeSchema,
+  stock_sequence: z.number().int().positive().nullable(),
+  quantity_after: NonNegativeScale6Schema.nullable(),
+  available: NonNegativeScale6Schema.nullable(),
+});
+
+export const InventoryMovementResponseSchema =
+  createResponseEnvelopeSchema(InventoryMovementResultSchema);
+
+export const InventoryStockGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ presentation_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("inventory.stock.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/**
+ * `NOT_FOUND` y cero **no** son lo mismo y no se colapsan: una presentación que
+ * nunca tuvo movimiento no es una que se agotó, y la diferencia distingue «no
+ * lo manejamos» de «hay que reponer».
+ */
+export const InventoryStockGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  presentation_id: UuidSchema.nullable(),
+  quantity_on_hand: NonNegativeScale6Schema.nullable(),
+  last_movement_sequence: z.number().int().nonnegative().nullable(),
+});
+
+export const InventoryStockGetResponseSchema =
+  createResponseEnvelopeSchema(InventoryStockGetResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -772,6 +872,9 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",
+  "inventory.stock.receive",
+  "inventory.stock.adjust",
+  "inventory.stock.get",
 ]);
 
 /**
@@ -797,6 +900,9 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:catalog.product.register",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
+  "pos:inventory.stock.receive",
+  "pos:inventory.stock.adjust",
+  "pos:inventory.stock.get",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -815,3 +921,5 @@ export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
+export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
+export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;

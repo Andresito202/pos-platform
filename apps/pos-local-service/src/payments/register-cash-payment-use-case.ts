@@ -4,7 +4,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
-import type { SqlitePaymentStore } from "./sqlite-payment-store.js";
+import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
 export const PERMISSION_PAYMENTS_PAYMENT_REGISTER = "PAYMENTS_PAYMENT_REGISTER";
 
@@ -33,6 +33,7 @@ export type RegisterCashPaymentResult =
   | { readonly kind: "SALE_NOT_FOUND" }
   | { readonly kind: "SALE_NOT_PAYABLE" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
+  | InsufficientStockOutcome
   | { readonly kind: "CURRENCY_MISMATCH" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }

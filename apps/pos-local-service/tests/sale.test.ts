@@ -7,6 +7,7 @@ import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
+import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import { SqliteSaleStore } from "../src/sales/sqlite-sale-store.js";
 import {
   CreateSaleUseCase,
@@ -141,14 +142,16 @@ function buildRequest(overrides: Partial<{
 
 function buildStores(database: LocalDatabase): {
   catalog: SqliteCatalogStore;
+  inventory: SqliteInventoryStore;
   saleStore: SqliteSaleStore;
   useCase: CreateSaleUseCase;
 } {
   const durableSync = new DurableSyncStore(database);
   const catalog = new SqliteCatalogStore(database, durableSync);
+  const inventory = new SqliteInventoryStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
   const saleStore = new SqliteSaleStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
-  const useCase = new CreateSaleUseCase(catalog, saleStore, () => new Date("2026-09-05T10:00:00.000Z"));
-  return { catalog, saleStore, useCase };
+  const useCase = new CreateSaleUseCase(catalog, inventory, saleStore, () => new Date("2026-09-05T10:00:00.000Z"));
+  return { catalog, inventory, saleStore, useCase };
 }
 
 /**
@@ -164,14 +167,18 @@ function insertFixture(
   tenantId = TENANT,
   taxRate: string | null = null,
   unitPrecision = 0,
+  stockControlled = false,
 ): void {
   const at = "2026-09-01T00:00:00.000Z";
   database.native.prepare(
     `INSERT INTO catalog_product(
       id, tenant_id, company_id, code, name, status, stock_controlled,
       registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
-    ) VALUES (?,?,?,'CAFE-001','Café Americano','ACTIVE',0,?,?,?,1,?,?)`,
-  ).run(PRODUCT_ID, tenantId, COMPANY, USER_ID, `fixture:${tenantId}`, CORRELATION_ID, at, at);
+    ) VALUES (?,?,?,'CAFE-001','Café Americano','ACTIVE',?,?,?,?,1,?,?)`,
+  ).run(
+    PRODUCT_ID, tenantId, COMPANY, stockControlled ? 1 : 0,
+    USER_ID, `fixture:${tenantId}`, CORRELATION_ID, at, at,
+  );
 
   database.native.prepare(
     `INSERT INTO catalog_presentation(
@@ -842,5 +849,113 @@ describe("venta — la cantidad respeta la precisión de la unidad", () => {
 
     const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
     expect(result.kind).toBe("CREATED");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// INTEGRATION: disponibilidad al crear la venta
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("CreateSaleUseCase y la existencia", () => {
+  /** Da entrada a existencia sin pasar por el caso de uso: aquí es un fixture. */
+  function seedStock(inventory: SqliteInventoryStore, quantity: string): void {
+    const outcome = inventory.appendMovementInTransaction({
+      scope,
+      sessionId: SESSION_ID,
+      operatorUserId: USER_ID,
+      movementId: "018f0000-0000-7000-8000-0000000000d1",
+      operationId: "018f0000-0000-7000-8000-0000000000d2",
+      presentationId: PRESENTATION_ID,
+      movementType: "OPENING_COUNT",
+      quantity,
+      reasonCode: "FIXTURE",
+      saleId: null,
+      businessDate: "2026-09-05",
+      idempotencyKey: `fixture-stock:${quantity}`,
+      requestChecksum: "f".repeat(64),
+      correlationId: "018f0000-0000-7000-8000-000000000020",
+      causationId: null,
+    });
+    if (outcome.kind !== "POSTED") throw new Error(`stock fixture failed: ${outcome.kind}`);
+  }
+
+  it("un producto sin control de existencia se vende aunque no haya inventario", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { useCase } = buildStores(database);
+    insertFixture(database);
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+    expect(result.kind).toBe("CREATED");
+  });
+
+  it("rechaza la venta de un producto controlado sin existencia", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { useCase } = buildStores(database);
+    insertFixture(database, "1000.000000", TENANT, null, 0, true);
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+
+    expect(result.kind).toBe("INSUFFICIENT_STOCK");
+    if (result.kind !== "INSUFFICIENT_STOCK") return;
+    expect(result.available).toBe("0.000000");
+    expect(result.requested).toBe("1.000000");
+    expect(result.presentationId).toBe(PRESENTATION_ID);
+  });
+
+  it("la acepta cuando hay existencia suficiente", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { inventory, useCase } = buildStores(database);
+    insertFixture(database, "1000.000000", TENANT, null, 0, true);
+    seedStock(inventory, "5.000000");
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+    expect(result.kind).toBe("CREATED");
+  });
+
+  /**
+   * La comprobación es por **total pedido**, no por línea. Con 3 en existencia
+   * y dos líneas de 2, comprobar cada línea por separado dejaría pasar la venta
+   * y el descuento posterior encontraría existencia negativa.
+   */
+  it("suma las líneas de la misma presentación antes de comparar", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { inventory, useCase } = buildStores(database);
+    insertFixture(database, "1000.000000", TENANT, null, 0, true);
+    seedStock(inventory, "3.000000");
+
+    const result = useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest({
+      lines: [
+        { productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "2.000000" },
+        { productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "2.000000" },
+      ],
+    }));
+
+    expect(result.kind).toBe("INSUFFICIENT_STOCK");
+    if (result.kind !== "INSUFFICIENT_STOCK") return;
+    expect(result.requested).toBe("4.000000");
+    expect(result.available).toBe("3.000000");
+  });
+
+  it("la venta rechazada no deja venta ni movimiento", async () => {
+    const dir = await directory();
+    const database = openTracked(dir);
+    const { useCase } = buildStores(database);
+    insertFixture(database, "1000.000000", TENANT, null, 0, true);
+
+    useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+
+    const sales = database.native.prepare(
+      "SELECT COUNT(*) AS total FROM sales_sales WHERE tenant_id=?",
+    ).get(TENANT) as { total: number };
+    const movements = database.native.prepare(
+      "SELECT COUNT(*) AS total FROM inventory_movement WHERE tenant_id=?",
+    ).get(TENANT) as { total: number };
+
+    expect(sales.total).toBe(0);
+    expect(movements.total).toBe(0);
   });
 });

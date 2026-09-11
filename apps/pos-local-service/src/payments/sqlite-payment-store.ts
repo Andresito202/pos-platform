@@ -2,6 +2,7 @@ import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 import type { CashPort } from "./cash-port.js";
+import type { InventoryPort } from "./inventory-port.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 
 /**
@@ -135,6 +136,20 @@ export interface PaymentView {
 
 // ── Resultados ────────────────────────────────────────────────────────────────
 
+/**
+ * La venta no se puede completar porque no hay existencia que sacar.
+ *
+ * Es un rechazo **posterior a escribir**: se conoce al descontar, dentro de la
+ * misma transacción que ya imputó el pago, así que viaja por `PaymentRollback`
+ * y deja la transacción revertida. El cajero ve el rechazo **antes** de que el
+ * dinero quede tomado, que es la única forma honesta de fallar aquí.
+ */
+export interface InsufficientStockOutcome {
+  readonly kind: "INSUFFICIENT_STOCK";
+  readonly presentationId: string;
+  readonly available: string;
+}
+
 export type RegisterPaymentOutcome =
   | {
       readonly kind: "CONFIRMED";
@@ -152,7 +167,8 @@ export type RegisterPaymentOutcome =
   | { readonly kind: "CURRENCY_MISMATCH" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }
-  | { readonly kind: "CASH_SHIFT_NOT_OPEN" };
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | InsufficientStockOutcome;
 
 export type ConfirmTransferOutcome =
   | {
@@ -168,7 +184,8 @@ export type ConfirmTransferOutcome =
   | { readonly kind: "PAYMENT_NOT_CONFIRMABLE" }
   | { readonly kind: "VERSION_CONFLICT" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
-  | { readonly kind: "SALE_ALREADY_COMPLETED" };
+  | { readonly kind: "SALE_ALREADY_COMPLETED" }
+  | InsufficientStockOutcome;
 
 export type CancelPaymentOutcome =
   | { readonly kind: "CANCELLED"; readonly paymentId: string }
@@ -189,6 +206,7 @@ export class SqlitePaymentStore {
     private readonly database: LocalDatabase,
     private readonly durableSync: DurableSyncStore,
     private readonly cashPort: CashPort,
+    private readonly inventoryPort: InventoryPort,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -377,6 +395,11 @@ export class SqlitePaymentStore {
     const coverage = this.confirmedCoverage(input.scope.tenantId, saleId);
     if (coverage < scale6ToBigInt(payableAmount)) return { completed: false, coverage };
 
+    // La mercancía sale **antes** de marcar COMPLETED y dentro de esta misma
+    // transacción: una venta cobrada cuya existencia sigue en la estantería es
+    // el descuadre que el inventario existe para impedir.
+    this.deductSoldStock(input, saleId);
+
     const completionKey = `sale_completion:${input.idempotencyKey}`;
     this.insertOperation(completionOperationId, completionKey, input.requestChecksum, "SALE_COMPLETED", nowIso);
 
@@ -393,6 +416,56 @@ export class SqlitePaymentStore {
     );
 
     return { completed: true, coverage };
+  }
+
+  /**
+   * Da salida a lo vendido, sólo de los productos con control de existencia.
+   *
+   * Agrupa por presentación: la misma presentación puede estar en dos líneas de
+   * la misma venta y el libro debe registrar una salida por presentación, no una
+   * por línea. `SUM` se hace en SQLite sobre TEXT de escala 6, así que la suma
+   * se recompone aquí con la aritmética entera del proyecto.
+   */
+  private deductSoldStock(input: CommonInput, saleId: string): void {
+    const lines = this.database.native.prepare(
+      `SELECT i.presentation_id, i.quantity
+       FROM sales_sale_items i
+       JOIN catalog_product p ON p.tenant_id = i.tenant_id AND p.id = i.product_id
+       WHERE i.tenant_id=? AND i.sale_id=? AND p.stock_controlled = 1
+       ORDER BY i.line_number`,
+    ).all(input.scope.tenantId, saleId) as Array<{ presentation_id: string; quantity: string }>;
+
+    if (lines.length === 0) return;
+
+    const byPresentation = new Map<string, bigint>();
+    for (const line of lines) {
+      const accumulated = byPresentation.get(line.presentation_id) ?? 0n;
+      byPresentation.set(line.presentation_id, accumulated + scale6ToBigInt(line.quantity));
+    }
+
+    const businessDate = this.saleBusinessDate(input.scope.tenantId, saleId);
+
+    for (const [presentationId, units] of byPresentation) {
+      const outcome = this.inventoryPort.appendSaleDeduction({
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        saleId,
+        presentationId,
+        quantity: bigIntToScale6(units),
+        businessDate,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      });
+
+      if (outcome.kind === "INSUFFICIENT_STOCK") {
+        throw new PaymentRollback<InsufficientStockOutcome>({
+          kind: "INSUFFICIENT_STOCK",
+          presentationId,
+          available: outcome.available,
+        });
+      }
+    }
   }
 
   /** Localiza o crea el grupo de cobro del sujeto. La unicidad la impone el índice. */
@@ -636,7 +709,7 @@ export class SqlitePaymentStore {
   confirmTransfer(input: ConfirmTransferInput): ConfirmTransferOutcome {
     const nowIso = this.now().toISOString();
 
-    return this.database.native.transaction((): ConfirmTransferOutcome => {
+    return runWithRollback(this.database.native.transaction((): ConfirmTransferOutcome => {
       const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
       if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
 
@@ -719,7 +792,7 @@ export class SqlitePaymentStore {
         confirmedCoverage: bigIntToScale6(completion.coverage),
         payableAmount: sale.payable_amount,
       };
-    })();
+    }));
   }
 
   // ── Cancelación ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { createActor, createOperationScope, evaluatePermission, toRoleAssignment
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { SqlitePaymentStore } from "./sqlite-payment-store.js";
+import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
 export const PERMISSION_PAYMENTS_TRANSFER_REPORT = "PAYMENTS_TRANSFER_REPORT";
 
@@ -27,7 +27,12 @@ export type RegisterTransferPaymentResult =
   | { readonly kind: "SALE_NOT_FOUND" }
   | { readonly kind: "SALE_NOT_PAYABLE" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
-  | { readonly kind: "CURRENCY_MISMATCH" };
+  | { readonly kind: "CURRENCY_MISMATCH" }
+  // Reportar una transferencia no confirma nada, así que no completa la venta y
+  // no llega a descontar existencia. Se declara porque el almacén comparte el
+  // método con el cobro en efectivo: omitirla sería afirmar que ese método no
+  // puede devolverla.
+  | InsufficientStockOutcome;
 
 function requestChecksum(request: RegisterTransferPaymentRequest, operatorUserId: string): string {
   return createHash("sha256")

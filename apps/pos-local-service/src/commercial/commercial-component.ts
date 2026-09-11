@@ -18,6 +18,10 @@ import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
+import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
+import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
+import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
+import { GetStockUseCase } from "../inventory/get-stock-use-case.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
 import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-payment-use-case.js";
@@ -64,6 +68,9 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
+        readonly receiveStock: ReceiveStockUseCase;
+        readonly adjustStock: AdjustStockUseCase;
+        readonly getStock: GetStockUseCase;
       }
     | undefined;
 
@@ -99,6 +106,9 @@ export class CommercialComponent implements RuntimeComponent {
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
+  get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
+  get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
+  get getStock(): GetStockUseCase { return this.ready.getStock; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -116,9 +126,12 @@ export class CommercialComponent implements RuntimeComponent {
     const saleStore = new SqliteSaleStore(database, sync, this.now);
     // `SqliteCashShiftStore` satisface `CashPort` estructuralmente: Payments no
     // escribe caja, y `cash/` no importa de `payments/` (`DEC-016` §10).
-    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, this.now);
     const customerStore = new SqliteCustomerStore(database, sync, this.now);
     const catalogStore = new SqliteCatalogStore(database, sync, this.now);
+    // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
+    // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
+    const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
+    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
 
     this.state = {
       sessionStore,
@@ -126,7 +139,10 @@ export class CommercialComponent implements RuntimeComponent {
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
-      createSale: new CreateSaleUseCase(catalogStore, saleStore, this.now),
+      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, saleStore, this.now),
+      receiveStock: new ReceiveStockUseCase(inventoryStore),
+      adjustStock: new AdjustStockUseCase(inventoryStore),
+      getStock: new GetStockUseCase(inventoryStore),
       registerProduct: new RegisterProductUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),

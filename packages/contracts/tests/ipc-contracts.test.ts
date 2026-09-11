@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CashShiftOpenRequestSchema,
   CustomerRegisterRequestSchema,
+  InventoryStockAdjustRequestSchema,
+  InventoryStockReceiveRequestSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterTransferRequestSchema,
   OperationConfirmRequestSchema,
@@ -220,5 +222,85 @@ describe("importes: dónde el cero es un pago y dónde es un dato", () => {
         timezone_id: "America/Bogota", utc_offset_minutes: -300,
       },
     }).success).toBe(true);
+  });
+});
+
+describe("inventory.stock.* — la frontera del inventario", () => {
+  // El override es **sólo del payload**. Mezclarlo con el sobre —`...overrides`
+  // al final— sustituía el payload entero por el fragmento y hacía que cada
+  // prueba fallara por campos ausentes en vez de por la regla que afirma
+  // comprobar: pasaban por la razón equivocada.
+  const receive = (payload: Record<string, unknown> = {}) => ({
+    ...metadata,
+    message_type: "inventory.stock.receive",
+    operation_id: "550e8400-e29b-41d4-a716-446655440010",
+    idempotency_key: "inventory:receive:1",
+    payload: {
+      presentation_id: "550e8400-e29b-41d4-a716-446655440011",
+      movement_type: "PURCHASE_RECEIPT",
+      quantity: "10.000000",
+      reason_code: "SUPPLIER_DELIVERY",
+      business_date: "2026-09-07",
+      ...payload,
+    },
+  });
+
+  const adjust = (payload: Record<string, unknown> = {}) => ({
+    ...metadata,
+    message_type: "inventory.stock.adjust",
+    operation_id: "550e8400-e29b-41d4-a716-446655440012",
+    idempotency_key: "inventory:adjust:1",
+    payload: {
+      presentation_id: "550e8400-e29b-41d4-a716-446655440011",
+      movement_type: "ADJUSTMENT_NEGATIVE",
+      quantity: "1.000000",
+      reason_code: "COUNT_CORRECTION",
+      business_date: "2026-09-07",
+      ...payload,
+    },
+  });
+
+  it("acepta una recepción bien formada", () => {
+    expect(InventoryStockReceiveRequestSchema.safeParse(receive()).success).toBe(true);
+  });
+
+  /**
+   * Lo que separa recibir de ajustar no es un campo: son dos mensajes. Un
+   * contrato que aceptara `ADJUSTMENT_NEGATIVE` en la recepción dejaría que el
+   * permiso de recibir sirviera para restar existencia.
+   */
+  it("la recepción no admite un tipo de ajuste, ni el ajuste uno de recepción", () => {
+    expect(InventoryStockReceiveRequestSchema.safeParse(
+      receive({ movement_type: "ADJUSTMENT_NEGATIVE" }),
+    ).success).toBe(false);
+    expect(InventoryStockAdjustRequestSchema.safeParse(
+      adjust({ movement_type: "PURCHASE_RECEIPT" }),
+    ).success).toBe(false);
+  });
+
+  it("no admite cantidad cero ni negativa: el signo lo da el tipo", () => {
+    expect(InventoryStockReceiveRequestSchema.safeParse(
+      receive({ quantity: "0.000000" }),
+    ).success).toBe(false);
+    expect(InventoryStockReceiveRequestSchema.safeParse(
+      receive({ quantity: "-1.000000" }),
+    ).success).toBe(false);
+  });
+
+  it("exige motivo: un movimiento sin motivo no es revisable", () => {
+    expect(InventoryStockAdjustRequestSchema.safeParse(
+      adjust({ reason_code: "" }),
+    ).success).toBe(false);
+  });
+
+  it("exige operación idempotente: un reintento no puede descontar dos veces", () => {
+    const { operation_id: _omitted, ...withoutOperation } = receive();
+    expect(InventoryStockReceiveRequestSchema.safeParse(withoutOperation).success).toBe(false);
+  });
+
+  it("no admite campos extra en el payload", () => {
+    expect(InventoryStockReceiveRequestSchema.safeParse(
+      receive({ branch_id: "550e8400-e29b-41d4-a716-446655440013" }),
+    ).success).toBe(false);
   });
 });

@@ -23,6 +23,11 @@ import {
   CatalogItemFindRequestSchema,
   CatalogItemGetRequestSchema,
   CatalogItemResponseSchema,
+  InventoryStockReceiveRequestSchema,
+  InventoryStockAdjustRequestSchema,
+  InventoryMovementResponseSchema,
+  InventoryStockGetRequestSchema,
+  InventoryStockGetResponseSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterCashResponseSchema,
   PaymentRegisterTransferRequestSchema,
@@ -64,6 +69,9 @@ export const IpcMessageTypeSchema = z.enum([
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",
+  "inventory.stock.receive",
+  "inventory.stock.adjust",
+  "inventory.stock.get",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -156,6 +164,9 @@ export const IpcRequestSchema = z.union([
   CatalogProductRegisterRequestSchema,
   CatalogItemFindRequestSchema,
   CatalogItemGetRequestSchema,
+  InventoryStockReceiveRequestSchema,
+  InventoryStockAdjustRequestSchema,
+  InventoryStockGetRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -177,6 +188,8 @@ export const IpcResponseSchema = z.union([
   CustomerReadResponseSchema,
   CatalogProductRegisterResponseSchema,
   CatalogItemResponseSchema,
+  InventoryMovementResponseSchema,
+  InventoryStockGetResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

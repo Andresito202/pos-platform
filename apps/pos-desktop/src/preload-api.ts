@@ -20,6 +20,9 @@ export const RENDERER_API_METHODS = [
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",
+  "inventory.stock.receive",
+  "inventory.stock.adjust",
+  "inventory.stock.get",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];

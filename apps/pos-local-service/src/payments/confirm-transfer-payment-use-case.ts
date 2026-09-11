@@ -3,7 +3,7 @@ import { createActor, createOperationScope, evaluatePermission, toRoleAssignment
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { SqlitePaymentStore } from "./sqlite-payment-store.js";
+import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
 export const PERMISSION_PAYMENTS_TRANSFER_CONFIRM = "PAYMENTS_TRANSFER_CONFIRM";
 
@@ -30,6 +30,7 @@ export type ConfirmTransferPaymentResult =
   | { readonly kind: "PAYMENT_NOT_CONFIRMABLE" }
   | { readonly kind: "VERSION_CONFLICT" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
+  | InsufficientStockOutcome
   | { readonly kind: "SALE_ALREADY_COMPLETED" };
 
 function requestChecksum(request: ConfirmTransferPaymentRequest, operatorUserId: string): string {

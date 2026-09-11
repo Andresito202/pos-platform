@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { canonicalJson } from "../channel/canonical-json.js";
-import { bigIntToScale6 } from "../money.js";
+import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { CatalogFiscalAttribute, SqliteCatalogStore } from "../catalog/index.js";
+import type { SqliteInventoryStore } from "../inventory/index.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
 import { calculateSaleLine, calculateSaleTotals, quantityFitsUnitPrecision } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
@@ -61,6 +62,12 @@ export type CreateSaleResult =
       readonly presentationId: string;
       readonly unitPrecision: number;
     }
+  | {
+      readonly kind: "INSUFFICIENT_STOCK";
+      readonly presentationId: string;
+      readonly available: string;
+      readonly requested: string;
+    }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
@@ -94,6 +101,7 @@ function requestChecksum(request: CreateSaleRequest, operatorUserId: string): st
 export class CreateSaleUseCase {
   constructor(
     private readonly catalogStore: SqliteCatalogStore,
+    private readonly inventoryStore: SqliteInventoryStore,
     private readonly saleStore: SqliteSaleStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -143,6 +151,16 @@ export class CreateSaleUseCase {
     // de precio por la caja desde la que se venda.
     const catalogScope = { tenantId: scope.tenantId, companyId: scope.companyId };
 
+    // La misma presentación puede venir en dos líneas. La disponibilidad se
+    // compara contra el total pedido, no contra cada línea por separado:
+    // comprobarlas de una en una dejaría pasar dos líneas de 3 con 4 en
+    // existencia.
+    const requestedByPresentation = new Map<string, bigint>();
+    for (const line of request.lines) {
+      const accumulated = requestedByPresentation.get(line.presentationId) ?? 0n;
+      requestedByPresentation.set(line.presentationId, accumulated + scale6ToBigInt(line.quantity));
+    }
+
     for (const line of request.lines) {
       const product = this.catalogStore.findActiveProduct(catalogScope, line.productId);
       if (!product) {
@@ -173,6 +191,26 @@ export class CreateSaleUseCase {
 
       if (price.currencyCode !== request.currencyCode) {
         return { kind: "CURRENCY_MISMATCH", presentationId: line.presentationId };
+      }
+
+      // Disponibilidad, sólo si el producto lleva control de existencia.
+      //
+      // Se comprueba **al crear**, no al cobrar: rechazar después de que el
+      // cliente pagó no es una opción, y la salida real ocurre en la
+      // transacción que completa la venta. Entre ambos momentos la existencia
+      // sólo puede bajar por otra venta o por un ajuste; si eso pasa, la
+      // finalización revierte el cobro en vez de dejar existencia negativa.
+      if (product.stockControlled) {
+        const requestedUnits = requestedByPresentation.get(line.presentationId) ?? 0n;
+        const available = this.inventoryStore.availableUnits(scope, line.presentationId);
+        if (available < requestedUnits) {
+          return {
+            kind: "INSUFFICIENT_STOCK",
+            presentationId: line.presentationId,
+            available: bigIntToScale6(available),
+            requested: bigIntToScale6(requestedUnits),
+          };
+        }
       }
 
       resolvedLines.push({

@@ -144,7 +144,7 @@ existe API.
 
 | Punto | | Evidencia |
 |---|:-:|---|
-| Vitest | ✅ | 989 pruebas |
+| Vitest | ✅ | 1021 pruebas |
 | Playwright | ⚠️ | declarado y con `playwright.config.ts`; **cero ficheros `.spec.ts`** |
 | Testcontainers | ❌ | **cero**. CI usa *service containers* de GitHub, que no es lo mismo |
 | k6 | ❌ | **cero**. No hay prueba de carga de ningún tipo |
@@ -302,8 +302,9 @@ no existe:
 3. **Conectar lo que ya está probado y desconectado**: ciclo de seguridad local
    y adquisición de snapshot. `main.ts` instancia cinco componentes y ninguno es
    ésos. Sube dos filas de Seguridad sin escribir lógica nueva.
-4. **Pantallas comerciales.** Trece operaciones con handler y prueba, y ninguna
-   con interfaz. Es el mayor desfase entre lo construido y lo usable.
+4. **Pantallas comerciales.** Diecinueve operaciones con handler y prueba, y
+   ninguna con interfaz. Es el mayor desfase entre lo construido y lo usable, y
+   cada bloque que se materializa por debajo lo agranda en vez de reducirlo.
 5. **Cliente HTTP saliente** (`D-2`). Desbloquea la mitad de Datos y de
    Servicio local.
 6. **Backend central.** El bloque más grande, y del que dependen administración,

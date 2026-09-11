@@ -12,6 +12,9 @@ import {
   CustomerFindRequestSchema,
   CustomerGetRequestSchema,
   CustomerRegisterRequestSchema,
+  InventoryStockAdjustRequestSchema,
+  InventoryStockGetRequestSchema,
+  InventoryStockReceiveRequestSchema,
   SaleCreateRequestSchema,
   SessionActivateRequestSchema,
   type AuthorizationSnapshotClaims,
@@ -845,6 +848,152 @@ describe("catalog.* — el catálogo es alcanzable por el canal", () => {
     const result = response(handler.handle(registerProductRequest(), randomUUID()));
     expect(result.status).toBe("REJECTED");
     expect((database.native.prepare("SELECT count(*) AS n FROM catalog_product")
+      .get() as { n: number }).n).toBe(0);
+  });
+});
+
+// ── inventory.stock.receive · adjust · get ───────────────────────────────────
+
+/**
+ * Igual que en catálogo y adquiriente: esto no repite las reglas del inventario
+ * —están en `inventory.test.ts`— sino que fija que **la capacidad es alcanzable
+ * de extremo a extremo** por el canal de producción, con su permiso.
+ */
+
+const INVENTORY_PERMISSIONS = [
+  "CATALOG_PRODUCT_REGISTER",
+  "INVENTORY_STOCK_RECEIVE",
+  "INVENTORY_STOCK_ADJUST",
+  "INVENTORY_STOCK_READ",
+];
+
+describe("inventory.* — el inventario es alcanzable por el canal", () => {
+  async function withProduct() {
+    const env = await buildEnv();
+    seedAuthorization(env.database, USER, INVENTORY_PERMISSIONS);
+    const connection = randomUUID();
+    env.handler.handle(activateRequest(signSession(sessionClaims())), connection);
+    const registered = response(env.handler.handle(registerProductRequest(), connection));
+    return { ...env, connection, presentationId: registered.result["presentation_id"] as string };
+  }
+
+  it("recibe, ajusta y consulta la existencia por el canal", async () => {
+    const { handler, connection, presentationId } = await withProduct();
+
+    const received = response(handler.handle(InventoryStockReceiveRequestSchema.parse({
+      ...BASE,
+      message_type: "inventory.stock.receive",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      operation_id: randomUUID(),
+      idempotency_key: "inventory:receive:ipc:1",
+      payload: {
+        presentation_id: presentationId,
+        movement_type: "PURCHASE_RECEIPT",
+        quantity: "12.000000",
+        reason_code: "SUPPLIER_DELIVERY",
+        business_date: "2026-09-07",
+      },
+    }), connection));
+
+    expect(received.status).toBe("SUCCEEDED");
+    expect(received.result["outcome"]).toBe("POSTED");
+    expect(received.result["quantity_after"]).toBe("12.000000");
+
+    const adjusted = response(handler.handle(InventoryStockAdjustRequestSchema.parse({
+      ...BASE,
+      message_type: "inventory.stock.adjust",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      operation_id: randomUUID(),
+      idempotency_key: "inventory:adjust:ipc:1",
+      payload: {
+        presentation_id: presentationId,
+        movement_type: "SHRINKAGE",
+        quantity: "2.000000",
+        reason_code: "DAMAGED_GOODS",
+        business_date: "2026-09-07",
+      },
+    }), connection));
+
+    expect(adjusted.status).toBe("SUCCEEDED");
+    expect(adjusted.result["quantity_after"]).toBe("10.000000");
+
+    const stock = response(handler.handle(InventoryStockGetRequestSchema.parse({
+      ...BASE,
+      message_type: "inventory.stock.get",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      payload: { presentation_id: presentationId },
+    }), connection));
+
+    expect(stock.status).toBe("SUCCEEDED");
+    expect(stock.result["quantity_on_hand"]).toBe("10.000000");
+    expect(stock.result["last_movement_sequence"]).toBe(2);
+  });
+
+  it("el canal rechaza el ajuste que dejaría la existencia negativa y dice cuánto hay", async () => {
+    const { handler, connection, presentationId } = await withProduct();
+
+    handler.handle(InventoryStockReceiveRequestSchema.parse({
+      ...BASE,
+      message_type: "inventory.stock.receive",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      operation_id: randomUUID(),
+      idempotency_key: "inventory:receive:ipc:2",
+      payload: {
+        presentation_id: presentationId,
+        movement_type: "PURCHASE_RECEIPT",
+        quantity: "1.000000",
+        reason_code: "SUPPLIER_DELIVERY",
+        business_date: "2026-09-07",
+      },
+    }), connection);
+
+    const rejected = response(handler.handle(InventoryStockAdjustRequestSchema.parse({
+      ...BASE,
+      message_type: "inventory.stock.adjust",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      operation_id: randomUUID(),
+      idempotency_key: "inventory:adjust:ipc:2",
+      payload: {
+        presentation_id: presentationId,
+        movement_type: "ADJUSTMENT_NEGATIVE",
+        quantity: "5.000000",
+        reason_code: "COUNT_CORRECTION",
+        business_date: "2026-09-07",
+      },
+    }), connection));
+
+    expect(rejected.status).toBe("REJECTED");
+    expect(rejected.result["outcome"]).toBe("INSUFFICIENT_STOCK");
+    expect(rejected.result["available"]).toBe("1.000000");
+  });
+
+  it("sin vínculo de sesión no se mueve existencia", async () => {
+    const { database, handler, presentationId } = await withProduct();
+
+    const result = response(handler.handle(InventoryStockReceiveRequestSchema.parse({
+      ...BASE,
+      message_type: "inventory.stock.receive",
+      request_id: randomUUID(),
+      correlation_id: randomUUID(),
+      operation_id: randomUUID(),
+      idempotency_key: "inventory:receive:ipc:3",
+      payload: {
+        presentation_id: presentationId,
+        movement_type: "PURCHASE_RECEIPT",
+        quantity: "1.000000",
+        reason_code: "SUPPLIER_DELIVERY",
+        business_date: "2026-09-07",
+      },
+    }), randomUUID()));
+
+    expect(result.status).toBe("REJECTED");
+    expect(result.result["outcome"]).toBe("UNAUTHORIZED");
+    expect((database.native.prepare("SELECT count(*) AS n FROM inventory_movement")
       .get() as { n: number }).n).toBe(0);
   });
 });

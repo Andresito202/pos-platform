@@ -12,8 +12,9 @@ ejecutar de verdad.
 La respuesta corta, y conviene leerla antes que la tabla:
 
 > **Hoy el POS todavía no puede atender a ninguno de los comercios
-> prioritarios.** El catálogo real ya está (2026-09-07); faltan **inventario** e
-> **interfaz de caja**, y esas dos las necesitan todos.
+> prioritarios.** El catálogo real está (2026-09-07) y el inventario también
+> (2026-09-08); falta la **interfaz de caja**, y la necesitan todos: sin
+> pantalla no hay quien opere lo que ya existe por debajo.
 
 Los comercios de **venta por peso** tienen además un bloqueo propio, y es el
 hallazgo que más importa de este cruce.
@@ -23,16 +24,18 @@ hallazgo que más importa de este cruce.
 | Pieza | Estado | Evidencia |
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` · alcanzable por el canal |
-| **Inventario** | ❌ | ninguna tabla ni caso de uso |
+| **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · recibir, ajustar y consultar por el canal · la venta descuenta al completarse |
 | **Interfaz de caja** | ❌ | el renderer expone tres llamadas técnicas y **ninguna comercial** |
 | **Lector de código de barras** | ⚠️ | el catálogo resuelve **código → artículo** (`catalog.item.find`) y garantiza que un código identifica una sola presentación; falta el periférico que lo lea |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers` en `main`, probados |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` · `MIGRATION_013` |
 
-**Actualización del 2026-09-07:** el catálogo real ya existe y el lector tiene a
-qué preguntar. Quedan **inventario** e **interfaz de caja**; mientras esas dos
-sigan en ❌, el tipo de comercio sigue siendo irrelevante y **ninguno puede
-vender** — un cajero no tiene pantalla desde la que hacerlo.
+**Actualización del 2026-09-08:** con el inventario materializado queda **una
+sola** pieza común en ❌: la **interfaz de caja**. Y mientras siga en ❌ el tipo
+de comercio sigue siendo irrelevante y **ninguno puede vender**, porque un
+cajero no tiene pantalla desde la que hacerlo. Que el motor esté completo no
+vende nada por sí solo; es exactamente la distinción entre *alcanzable* y
+*operativo* que este proyecto se obliga a no confundir.
 
 ## Comercios prioritarios, uno por uno
 
@@ -45,7 +48,7 @@ vender** — un cajero no tiene pantalla desde la que hacerlo.
 | Carnicería | ídem + despiece, transformación, trazabilidad | ❌ |
 | Fruver | ídem + catálogo visual, alertas | ❌ |
 | Cacharrería y variedades | referencias, colores, tallas, precio mayorista/minorista | ❌ |
-| Papelería | código de barras, inventario | ❌ |
+| Papelería | código de barras, inventario | ❌ sólo por la interfaz: código de barras e inventario **ya están** |
 | Depósito de bebidas · licorera | presentaciones, envase retornable | ❌ envase · presentaciones existen en el esquema |
 
 ## El bloqueo propio de la venta por peso
@@ -103,13 +106,14 @@ respetar desde el primer día, no un añadido posterior.
 
 No es una lista de deseos: es el orden en que los bloqueos se desbloquean entre sí.
 
-1. **Catálogo real** con presentaciones, códigos de barras y unidades. Sin él no
-   hay comercio que atender, y ya existen los atributos fiscales que colgarán
-   de él.
-2. **Interfaz de caja.** Trece operaciones construidas y probadas esperan
-   pantalla.
-3. **Inventario.** Lo exigen todos los prioritarios salvo la venta pura de
-   servicios.
+1. ~~**Catálogo real** con presentaciones, códigos de barras y unidades.~~
+   **Hecho el 2026-09-07** (`MIGRATION_014`).
+2. ~~**Inventario.** Lo exigen todos los prioritarios salvo la venta pura de
+   servicios.~~ **Hecho el 2026-09-08** (`MIGRATION_015`), con la salida de
+   mercancía atada a la transacción que completa la venta.
+3. **Interfaz de caja.** Es lo único común que queda: **diecinueve** operaciones
+   construidas y probadas esperan pantalla, y sin ella ninguna es usable por un
+   cajero.
 4. **Decisión de negocio sobre `D-14`** antes de vender a una carnicería o un
    fruver.
 5. **Balanza y lector**, que son los dos periféricos que aparecen en más
