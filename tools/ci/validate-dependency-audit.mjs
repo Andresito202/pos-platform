@@ -119,7 +119,17 @@ export function evaluateDependencyAudit(report, policy, options = {}) {
     }
 
     const id = advisoryIdentity(key, advisory);
-    observedCounts[advisory.severity] += 1;
+    // `metadata.vulnerabilities` de pnpm cuenta **hallazgos**, no avisos: un
+    // aviso con dos hallazgos suma dos. Contar avisos aquí hacía que el gate
+    // fallara con «does not match advisories» en cuanto un aviso afectara a más
+    // de un hallazgo — y ese fallo espurio **enmascara** el aviso bloqueante
+    // real, porque se lanza antes de evaluarlo.
+    //
+    // Evidencia (informe real del 2026-09-11, `pnpm audit --json`): moderate
+    // declaraba 4 con dos avisos de dos hallazgos cada uno, y high declaraba 1
+    // con un aviso de un hallazgo. Las dos severidades encajan con el recuento
+    // de hallazgos y ninguna con el de avisos.
+    observedCounts[advisory.severity] += advisory.findings.length;
     const versions = [...new Set(advisory.findings.map((finding, findingIndex) => {
       assertPlainObject(finding, `advisories.${key}.findings[${findingIndex}]`);
       if (typeof finding.version !== "string" || !finding.version.trim()) {
