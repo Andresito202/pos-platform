@@ -17,7 +17,11 @@ function policy(exceptions = []) {
 
 function report(advisories = {}) {
   const counts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0 };
-  for (const advisory of Object.values(advisories)) counts[advisory.severity] += 1;
+  // Como pnpm: se cuentan hallazgos, no avisos. El helper sumaba uno por aviso
+  // y, como todas las fixtures tenían un solo hallazgo, ocultaba el defecto.
+  for (const advisory of Object.values(advisories)) {
+    counts[advisory.severity] += advisory.findings.length;
+  }
   return { advisories, metadata: { vulnerabilities: counts } };
 }
 
@@ -112,4 +116,35 @@ test("policy cannot weaken the mandatory high and critical floor", () => {
     }, now),
     /must include high/,
   );
+});
+
+/**
+ * Regresión del 2026-09-11.
+ *
+ * `pnpm audit` emitió dos avisos `moderate` con **dos hallazgos cada uno** y
+ * `metadata.vulnerabilities.moderate = 4`. El gate contaba avisos, veía 2, y
+ * abortaba con «does not match advisories» **antes** de evaluar el aviso `high`
+ * bloqueante del mismo informe: un fallo espurio que además escondía el real.
+ */
+test("cuenta hallazgos como pnpm, no avisos, cuando uno afecta a varios", () => {
+  const multiFinding = {
+    ...advisory("moderate"),
+    findings: [
+      { version: "4.1.10", paths: ["a>example-package"], dev: false, optional: false, bundled: false },
+      { version: "4.1.10", paths: ["b>example-package"], dev: false, optional: false, bundled: false },
+    ],
+  };
+
+  const evaluated = evaluateDependencyAudit(
+    report({ 1: multiFinding, 2: { ...advisory("high", "1.6.1", "GHSA-7w5x-hrqm-74c2"), id: 101 } }),
+    policy(),
+    { now },
+  );
+
+  // Dos avisos, tres hallazgos: el `high` se evalúa y bloquea, que es lo que el
+  // recuento equivocado impedía llegar a ver.
+  assert.equal(evaluated.advisoryCount, 2);
+  assert.equal(evaluated.severityCounts.moderate, 2);
+  assert.equal(evaluated.blocking.length, 1);
+  assert.equal(evaluated.blocking[0].severity, "high");
 });
