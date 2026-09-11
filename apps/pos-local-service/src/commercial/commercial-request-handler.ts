@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
+import type {
+  CashShiftCloseResult, CashShiftOpenResult, CatalogItemResult, CatalogProductRegisterResult,
+  ContractError, CustomerReadResult, CustomerRegisterResult, ErrorCategory,
+  InventoryMovementResult, InventoryStockGetResult, IpcRequest,
+  PaymentCancelResult, PaymentGetResult, PaymentRegisterCashResult,
+  PaymentRegisterTransferResult, PaymentTransferConfirmResult,
+  SaleCreateResult, SessionActivateResult, SessionRecoverResult,
+} from "@pos-platform/contracts";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -203,7 +210,7 @@ export class CommercialRequestHandler {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED", payment_id: null, sale_completed: false,
         confirmed_coverage: null, payable_amount: null, change_amount: null,
-      });
+      } satisfies PaymentRegisterCashResult);
     }
 
     const result = this.commercial.registerCashPayment.execute(
@@ -228,18 +235,18 @@ export class CommercialRequestHandler {
         confirmed_coverage: result.confirmedCoverage,
         payable_amount: result.payableAmount,
         change_amount: result.changeAmount,
-      });
+      } satisfies PaymentRegisterCashResult);
     }
     if (result.kind === "IDEMPOTENT") {
       return succeeded(request, "IDEMPOTENT", {
         outcome: "IDEMPOTENT", payment_id: result.paymentId, sale_completed: false,
         confirmed_coverage: null, payable_amount: null, change_amount: null,
-      });
+      } satisfies PaymentRegisterCashResult);
     }
     return rejected(request, result.kind, {
       outcome: result.kind, payment_id: null, sale_completed: false,
       confirmed_coverage: null, payable_amount: null, change_amount: null,
-    });
+    } satisfies PaymentRegisterCashResult);
   }
 
   /** `payment.register.transfer` — reporte sin confirmar: no imputa ni completa. */
@@ -249,7 +256,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", payment_id: null });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", payment_id: null } satisfies PaymentRegisterTransferResult);
     }
 
     const result = this.commercial.registerTransferPayment.execute(
@@ -268,9 +275,9 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "REGISTERED" || result.kind === "IDEMPOTENT") {
-      return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId });
+      return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId } satisfies PaymentRegisterTransferResult);
     }
-    return rejected(request, result.kind, { outcome: result.kind, payment_id: null });
+    return rejected(request, result.kind, { outcome: result.kind, payment_id: null } satisfies PaymentRegisterTransferResult);
   }
 
   /** `payment.transfer.confirm` — atestiguación manual; puede completar la venta. */
@@ -283,7 +290,7 @@ export class CommercialRequestHandler {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED", payment_id: null, sale_completed: false,
         confirmed_coverage: null, payable_amount: null,
-      });
+      } satisfies PaymentTransferConfirmResult);
     }
 
     const result = this.commercial.confirmTransferPayment.execute(
@@ -306,18 +313,18 @@ export class CommercialRequestHandler {
         sale_completed: result.saleCompleted,
         confirmed_coverage: result.confirmedCoverage,
         payable_amount: result.payableAmount,
-      });
+      } satisfies PaymentTransferConfirmResult);
     }
     if (result.kind === "IDEMPOTENT") {
       return succeeded(request, "IDEMPOTENT", {
         outcome: "IDEMPOTENT", payment_id: result.paymentId, sale_completed: false,
         confirmed_coverage: null, payable_amount: null,
-      });
+      } satisfies PaymentTransferConfirmResult);
     }
     return rejected(request, result.kind, {
       outcome: result.kind, payment_id: null, sale_completed: false,
       confirmed_coverage: null, payable_amount: null,
-    });
+    } satisfies PaymentTransferConfirmResult);
   }
 
   /** `payment.cancel` — sólo pagos no confirmados (`DEC-002`). */
@@ -327,7 +334,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", payment_id: null });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", payment_id: null } satisfies PaymentCancelResult);
     }
 
     const result = this.commercial.cancelPayment.execute(
@@ -344,9 +351,9 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "CANCELLED" || result.kind === "IDEMPOTENT") {
-      return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId });
+      return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId } satisfies PaymentCancelResult);
     }
-    return rejected(request, result.kind, { outcome: result.kind, payment_id: null });
+    return rejected(request, result.kind, { outcome: result.kind, payment_id: null } satisfies PaymentCancelResult);
   }
 
   /** `payment.get` — lectura acotada al tenant de configuración. */
@@ -361,7 +368,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies PaymentGetResult);
     }
 
     const result = this.commercial.getPayment.execute(
@@ -381,12 +388,12 @@ export class CommercialRequestHandler {
         confirmed_amount: result.payment.confirmedAmount,
         currency_code: result.payment.currencyCode,
         version: result.payment.version,
-      });
+      } satisfies PaymentGetResult);
     }
     if (result.kind === "NOT_FOUND") {
-      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty } satisfies PaymentGetResult);
     }
-    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty } satisfies PaymentGetResult);
   }
 
   // ── customer.register ──────────────────────────────────────────────────────
@@ -408,7 +415,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies CustomerRegisterResult);
     }
 
     const payload = request.payload;
@@ -444,7 +451,7 @@ export class CommercialRequestHandler {
         customer_id: result.customerId,
         version: result.version,
         findings: [],
-      });
+      } satisfies CustomerRegisterResult);
     }
     if (result.kind === "INVALID") {
       return rejected(request, "INVALID", {
@@ -456,7 +463,7 @@ export class CommercialRequestHandler {
           path: finding.path,
           source: finding.source,
         })),
-      });
+      } satisfies CustomerRegisterResult);
     }
     if (result.kind === "IDENTITY_ALREADY_REGISTERED") {
       return rejected(request, result.kind, {
@@ -464,9 +471,9 @@ export class CommercialRequestHandler {
         customer_id: result.customerId,
         version: null,
         findings: [],
-      });
+      } satisfies CustomerRegisterResult);
     }
-    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    return rejected(request, result.kind, { outcome: result.kind, ...empty } satisfies CustomerRegisterResult);
   }
 
   // ── customer.get · customer.find ───────────────────────────────────────────
@@ -496,7 +503,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies CustomerReadResult);
     }
 
     const result = this.commercial.getCustomer.execute(
@@ -529,12 +536,12 @@ export class CommercialRequestHandler {
         country_code: result.customer.countryCode,
         municipality_code: result.customer.municipalityCode,
         version: result.version,
-      });
+      } satisfies CustomerReadResult);
     }
     if (result.kind === "NOT_FOUND") {
-      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty } satisfies CustomerReadResult);
     }
-    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty } satisfies CustomerReadResult);
   }
 
   // ── catalog.product.register ───────────────────────────────────────────────
@@ -547,7 +554,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies CatalogProductRegisterResult);
     }
 
     const payload = request.payload;
@@ -576,19 +583,19 @@ export class CommercialRequestHandler {
         outcome: result.kind,
         product_id: result.productId,
         presentation_id: result.presentationId,
-      });
+      } satisfies CatalogProductRegisterResult);
     }
     if (result.kind === "CODE_ALREADY_REGISTERED") {
       return rejected(request, result.kind, {
         outcome: result.kind, product_id: result.productId, presentation_id: null,
-      });
+      } satisfies CatalogProductRegisterResult);
     }
     if (result.kind === "BARCODE_ALREADY_REGISTERED") {
       return rejected(request, result.kind, {
         outcome: result.kind, product_id: null, presentation_id: result.presentationId,
-      });
+      } satisfies CatalogProductRegisterResult);
     }
-    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    return rejected(request, result.kind, { outcome: result.kind, ...empty } satisfies CatalogProductRegisterResult);
   }
 
   // ── catalog.item.find · catalog.item.get ───────────────────────────────────
@@ -606,7 +613,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies CatalogItemResult);
     }
 
     const result = this.commercial.findCatalogItem.execute(
@@ -633,12 +640,12 @@ export class CommercialRequestHandler {
         // `null` es «sin precio activo», no gratis.
         price_amount: price?.amount ?? null,
         currency_code: price?.currencyCode ?? null,
-      });
+      } satisfies CatalogItemResult);
     }
     if (result.kind === "NOT_FOUND") {
-      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+      return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty } satisfies CatalogItemResult);
     }
-    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty } satisfies CatalogItemResult);
   }
 
   // ── Inventario — `MIGRATION_015` ───────────────────────────────────────────
@@ -657,7 +664,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies InventoryMovementResult);
     }
 
     const common = {
@@ -686,17 +693,17 @@ export class CommercialRequestHandler {
         stock_sequence: result.stockSequence,
         quantity_after: result.quantityAfter,
         available: null,
-      });
+      } satisfies InventoryMovementResult);
     }
 
     if (result.kind === "INSUFFICIENT_STOCK") {
       return rejected(request, result.kind, {
         outcome: result.kind, stock_sequence: null, quantity_after: null,
         available: result.available,
-      });
+      } satisfies InventoryMovementResult);
     }
 
-    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    return rejected(request, result.kind, { outcome: result.kind, ...empty } satisfies InventoryMovementResult);
   }
 
   private getStock(
@@ -707,7 +714,7 @@ export class CommercialRequestHandler {
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty } satisfies InventoryStockGetResult);
     }
 
     const result = this.commercial.getStock.execute(
@@ -720,10 +727,10 @@ export class CommercialRequestHandler {
         presentation_id: result.stock.presentationId,
         quantity_on_hand: result.stock.quantityOnHand,
         last_movement_sequence: result.stock.lastMovementSequence,
-      });
+      } satisfies InventoryStockGetResult);
     }
 
-    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    return rejected(request, result.kind, { outcome: result.kind, ...empty } satisfies InventoryStockGetResult);
   }
 
   // ── session.activate ───────────────────────────────────────────────────────
@@ -758,7 +765,7 @@ export class CommercialRequestHandler {
         sequence: outcome.sequence,
         current_sequence: null,
         decision: null,
-      });
+      } satisfies SessionActivateResult);
     }
 
     if (outcome.kind === "STALE_SEQUENCE") {
@@ -767,7 +774,7 @@ export class CommercialRequestHandler {
         sequence: null,
         current_sequence: outcome.currentSequence,
         decision: null,
-      });
+      } satisfies SessionActivateResult);
     }
 
     if (outcome.kind === "BINDING_MISMATCH") {
@@ -776,7 +783,7 @@ export class CommercialRequestHandler {
         sequence: null,
         current_sequence: null,
         decision: null,
-      });
+      } satisfies SessionActivateResult);
     }
 
     return rejected(request, "REJECTED", {
@@ -784,7 +791,7 @@ export class CommercialRequestHandler {
       sequence: null,
       current_sequence: null,
       decision: outcome.decision,
-    });
+    } satisfies SessionActivateResult);
   }
 
   // ── session.recover ────────────────────────────────────────────────────────
@@ -808,7 +815,7 @@ export class CommercialRequestHandler {
     if (lookup.kind === "NONE") {
       return succeeded(request, "NONE", {
         outcome: "NONE", session_id: null, offline_valid_until: null, decision: null,
-      });
+      } satisfies SessionRecoverResult);
     }
 
     if (lookup.kind === "AMBIGUOUS") {
@@ -817,7 +824,7 @@ export class CommercialRequestHandler {
         session_id: null,
         offline_valid_until: null,
         decision: "AMBIGUOUS_DEVICE_SESSION",
-      });
+      } satisfies SessionRecoverResult);
     }
 
     const outcome = this.commercial.sessionActivation.recover({
@@ -833,13 +840,13 @@ export class CommercialRequestHandler {
         session_id: outcome.session.claims.session_id,
         offline_valid_until: outcome.session.claims.offline_valid_until,
         decision: null,
-      });
+      } satisfies SessionRecoverResult);
     }
 
     if (outcome.kind === "NONE") {
       return succeeded(request, "NONE", {
         outcome: "NONE", session_id: null, offline_valid_until: null, decision: null,
-      });
+      } satisfies SessionRecoverResult);
     }
 
     return rejected(request, "UNVERIFIABLE", {
@@ -847,7 +854,7 @@ export class CommercialRequestHandler {
       session_id: null,
       offline_valid_until: null,
       decision: outcome.decision,
-    });
+    } satisfies SessionRecoverResult);
   }
 
   // ── cash.shift.open ────────────────────────────────────────────────────────
@@ -858,7 +865,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", shift_id: null });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", shift_id: null } satisfies CashShiftOpenResult);
     }
 
     const result = this.commercial.openCashShift.execute(
@@ -878,9 +885,9 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "OPENED" || result.kind === "IDEMPOTENT") {
-      return succeeded(request, result.kind, { outcome: result.kind, shift_id: result.shiftId });
+      return succeeded(request, result.kind, { outcome: result.kind, shift_id: result.shiftId } satisfies CashShiftOpenResult);
     }
-    return rejected(request, result.kind, { outcome: result.kind, shift_id: null });
+    return rejected(request, result.kind, { outcome: result.kind, shift_id: null } satisfies CashShiftOpenResult);
   }
 
   // ── cash.shift.close ───────────────────────────────────────────────────────
@@ -894,7 +901,7 @@ export class CommercialRequestHandler {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED",
         shift_id: null, expected_cash: null, counted_amount: null, difference_amount: null,
-      });
+      } satisfies CashShiftCloseResult);
     }
 
     const result = this.commercial.closeCashShift.execute(
@@ -918,7 +925,7 @@ export class CommercialRequestHandler {
         expected_cash: result.expectedCash,
         counted_amount: result.countedAmount,
         difference_amount: result.differenceAmount,
-      });
+      } satisfies CashShiftCloseResult);
     }
 
     // `IDEMPOTENT` no reconstruye importes: `MIGRATION_009` no persiste el
@@ -928,13 +935,13 @@ export class CommercialRequestHandler {
         outcome: "IDEMPOTENT",
         shift_id: result.shiftId,
         expected_cash: null, counted_amount: null, difference_amount: null,
-      });
+      } satisfies CashShiftCloseResult);
     }
 
     return rejected(request, result.kind, {
       outcome: result.kind,
       shift_id: null, expected_cash: null, counted_amount: null, difference_amount: null,
-    });
+    } satisfies CashShiftCloseResult);
   }
 
   // ── sale.create ────────────────────────────────────────────────────────────
@@ -948,7 +955,7 @@ export class CommercialRequestHandler {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED",
         sale_id: null, sale_number: null, payable_amount: null, calculation_checksum: null,
-      });
+      } satisfies SaleCreateResult);
     }
 
     const result = this.commercial.createSale.execute(
@@ -980,12 +987,12 @@ export class CommercialRequestHandler {
         sale_number: result.saleNumber,
         payable_amount: result.payableAmount,
         calculation_checksum: result.calculationChecksum,
-      });
+      } satisfies SaleCreateResult);
     }
 
     return rejected(request, result.kind, {
       outcome: result.kind,
       sale_id: null, sale_number: null, payable_amount: null, calculation_checksum: null,
-    });
+    } satisfies SaleCreateResult);
   }
 }

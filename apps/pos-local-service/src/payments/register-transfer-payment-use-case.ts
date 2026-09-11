@@ -3,7 +3,7 @@ import { createActor, createOperationScope, evaluatePermission, toRoleAssignment
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
+import type { SqlitePaymentStore } from "./sqlite-payment-store.js";
 
 export const PERMISSION_PAYMENTS_TRANSFER_REPORT = "PAYMENTS_TRANSFER_REPORT";
 
@@ -27,12 +27,18 @@ export type RegisterTransferPaymentResult =
   | { readonly kind: "SALE_NOT_FOUND" }
   | { readonly kind: "SALE_NOT_PAYABLE" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
-  | { readonly kind: "CURRENCY_MISMATCH" }
-  // Reportar una transferencia no confirma nada, así que no completa la venta y
-  // no llega a descontar existencia. Se declara porque el almacén comparte el
-  // método con el cobro en efectivo: omitirla sería afirmar que ese método no
-  // puede devolverla.
-  | InsufficientStockOutcome;
+  | { readonly kind: "CURRENCY_MISMATCH" };
+
+// `INSUFFICIENT_STOCK` **no** se declara aquí, y es deliberado. Reportar una
+// transferencia retorna `REGISTERED` antes de llegar a completar la venta
+// (`sqlite-payment-store.ts` :620), así que nunca descuenta existencia. Se
+// declaró por un tiempo «porque el almacén comparte el método con el efectivo»,
+// y eso era la salida perezosa: el contrato
+// `PaymentRegisterTransferOutcomeSchema` no admite ese outcome, de modo que un
+// handler que lo emitiera produciría una respuesta que `validateResponse`
+// rechaza y el servidor resuelve **destruyendo el socket**
+// (`channel/server.ts` :213). Como los otros cuatro imposibles de este método,
+// se trata lanzando, no ensanchando el tipo.
 
 function requestChecksum(request: RegisterTransferPaymentRequest, operatorUserId: string): string {
   return createHash("sha256")
@@ -111,7 +117,8 @@ export class RegisterTransferPaymentUseCase {
     }
     if (outcome.kind === "OVERPAYMENT_NOT_ALLOWED"
       || outcome.kind === "CASH_SHIFT_MISSING"
-      || outcome.kind === "CASH_SHIFT_NOT_OPEN") {
+      || outcome.kind === "CASH_SHIFT_NOT_OPEN"
+      || outcome.kind === "INSUFFICIENT_STOCK") {
       throw new Error(`unreachable outcome for transfer registration: ${outcome.kind}`);
     }
     return outcome;
