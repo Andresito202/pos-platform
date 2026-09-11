@@ -5,6 +5,7 @@ import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { CatalogFiscalAttribute, SqliteCatalogStore } from "../catalog/index.js";
 import type { SqliteInventoryStore } from "../inventory/index.js";
+import type { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
 import { calculateSaleLine, calculateSaleTotals, quantityFitsUnitPrecision } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
@@ -102,6 +103,7 @@ export class CreateSaleUseCase {
   constructor(
     private readonly catalogStore: SqliteCatalogStore,
     private readonly inventoryStore: SqliteInventoryStore,
+    private readonly cashShiftStore: SqliteCashShiftStore,
     private readonly saleStore: SqliteSaleStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -289,7 +291,23 @@ export class CreateSaleUseCase {
     const operationId = randomUUID();
     const reqChecksum = requestChecksum(request, operatorUserId);
 
-    // 8. Persistencia atómica
+    // 8. Caja y turno en los que nace la venta.
+    //
+    // Antes se escribían **siempre** `NULL`, y el cobro en efectivo rechazaba
+    // con `CASH_SHIFT_MISSING` incluso con el turno abierto: la venta creada por
+    // el camino canónico no se podía cobrar. Se resuelve aquí, en el momento en
+    // que la venta nace, porque es el único instante en que el turno vigente es
+    // el suyo.
+    //
+    // Sin turno abierto la venta se crea igual, con el par en `NULL`: el esquema
+    // lo admite y hay canales de venta que no pasan por caja. Lo que no puede
+    // ocurrir es que **haya** turno y la venta no lo lleve.
+    const shift = this.cashShiftStore.findOpenShiftForDevice(scope);
+    const cashShift = shift.kind === "FOUND"
+      ? { cashRegisterId: shift.binding.cashRegisterId, shiftId: shift.binding.shiftId }
+      : null;
+
+    // 9. Persistencia atómica
     const storeInput = {
       saleId,
       operationId,
@@ -313,6 +331,7 @@ export class CreateSaleUseCase {
       requestChecksum: reqChecksum,
       correlationId: request.correlationId,
       causationId: request.causationId,
+      cashShift,
       lines: resolvedLines.map((resolved, index) => ({
         itemId: randomUUID(),
         productId: resolved.productId,

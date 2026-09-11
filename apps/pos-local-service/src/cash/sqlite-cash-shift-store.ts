@@ -115,6 +115,36 @@ export type AppendCashSaleOutcome =
   | { readonly kind: "SHIFT_NOT_OPEN" }
   | { readonly kind: "CURRENCY_MISMATCH" };
 
+/**
+ * Turno abierto de **este dispositivo**, para que la venta nazca vinculada a él.
+ *
+ * `sales_sales` admite `cash_register_id` y `cash_shift_id` nulos —su `CHECK`
+ * exige que viajen juntos, no que existan—, pero `CreateSaleUseCase` los
+ * escribía **siempre** `NULL`. Con un turno abierto, la venta quedaba igualmente
+ * sin turno y `payment.register.cash` la rechazaba con `CASH_SHIFT_MISSING`:
+ * una venta creada por el camino canónico **no se podía cobrar en efectivo**.
+ *
+ * Nadie lo detectó porque ninguna prueba encadenaba una venta real con un cobro:
+ * `payment.test.ts` sembraba la venta con turno a mano y `sale.test.ts` nunca
+ * cobraba. Las dos mitades se probaron contra fixtures incompatibles entre sí.
+ *
+ * La resolución es **por dispositivo**, no por caja: la venta no aporta caja y
+ * el servicio local no la declara en su configuración. Un dispositivo es una
+ * caja en la práctica, pero `open()` sólo impide un segundo turno en la **misma**
+ * caja, así que dos turnos abiertos por el mismo dispositivo son alcanzables.
+ *
+ * Sólo `OPEN`: un turno en `CLOSING` se está arqueando y no admite venta nueva.
+ */
+export interface OpenShiftBinding {
+  readonly shiftId: string;
+  readonly cashRegisterId: string;
+}
+
+export type FindOpenShiftOutcome =
+  | { readonly kind: "FOUND"; readonly binding: OpenShiftBinding }
+  | { readonly kind: "NONE" }
+  | { readonly kind: "AMBIGUOUS"; readonly count: number };
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export class SqliteCashShiftStore {
@@ -123,6 +153,28 @@ export class SqliteCashShiftStore {
     private readonly durableSync: DurableSyncStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * Localiza el turno abierto por este dispositivo.
+   *
+   * `AMBIGUOUS` no se resuelve adivinando: vincular la venta a la caja
+   * equivocada imputaría el efectivo a un arqueo ajeno y nadie lo notaría. Sin
+   * vínculo, el cobro en efectivo falla de forma visible y recuperable, que es
+   * el modo de fallo correcto entre los dos.
+   */
+  findOpenShiftForDevice(scope: SyncScope): FindOpenShiftOutcome {
+    const rows = this.database.native.prepare(
+      `SELECT id, cash_register_id FROM cash_shift
+       WHERE tenant_id=? AND branch_id=? AND origin_device_id=? AND status='OPEN'`,
+    ).all(
+      scope.tenantId, scope.branchId, scope.deviceId,
+    ) as Array<{ id: string; cash_register_id: string }>;
+
+    const first = rows[0];
+    if (first === undefined) return { kind: "NONE" };
+    if (rows.length > 1) return { kind: "AMBIGUOUS", count: rows.length };
+    return { kind: "FOUND", binding: { shiftId: first.id, cashRegisterId: first.cash_register_id } };
+  }
 
   open(input: OpenShiftInput): OpenShiftOutcome {
     const nowIso = this.now().toISOString();

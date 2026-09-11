@@ -8,6 +8,7 @@ import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
 import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
+import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
 import { SqliteSaleStore } from "../src/sales/sqlite-sale-store.js";
 import {
   CreateSaleUseCase,
@@ -143,15 +144,18 @@ function buildRequest(overrides: Partial<{
 function buildStores(database: LocalDatabase): {
   catalog: SqliteCatalogStore;
   inventory: SqliteInventoryStore;
+  cashStore: SqliteCashShiftStore;
   saleStore: SqliteSaleStore;
   useCase: CreateSaleUseCase;
 } {
+  const at = (): Date => new Date("2026-09-05T10:00:00.000Z");
   const durableSync = new DurableSyncStore(database);
   const catalog = new SqliteCatalogStore(database, durableSync);
-  const inventory = new SqliteInventoryStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
-  const saleStore = new SqliteSaleStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
-  const useCase = new CreateSaleUseCase(catalog, inventory, saleStore, () => new Date("2026-09-05T10:00:00.000Z"));
-  return { catalog, inventory, saleStore, useCase };
+  const inventory = new SqliteInventoryStore(database, durableSync, at);
+  const cashStore = new SqliteCashShiftStore(database, durableSync, at);
+  const saleStore = new SqliteSaleStore(database, durableSync, at);
+  const useCase = new CreateSaleUseCase(catalog, inventory, cashStore, saleStore, at);
+  return { catalog, inventory, cashStore, saleStore, useCase };
 }
 
 /**

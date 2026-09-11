@@ -37,9 +37,9 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 > evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
 > contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-08: **1021 pruebas pasan, 6 omitidas, 0 fallos** en 9
+> Censo del 2026-09-12: **1026 pruebas pasan, 6 omitidas, 0 fallos** en 9
 > proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
-> `pnpm ci:repository-policy` PASS (513 archivos).
+> `pnpm ci:repository-policy` PASS (514 archivos).
 >
 > El desglose por proyecto y comando vive en el
 > [tablero](./tablero-materializacion.md); **esta cabecera no lo duplica**,
@@ -53,6 +53,7 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 | Capacidad | DOC | MAT | TEST | CANON | PROD | Código en main |
 |---|---|---|---|---|---|---|
 | Sales V1 (venta → `READY_FOR_PAYMENT`) | ✅ | ✅ | ✅ | ✅ | ❌ | `apps/pos-local-service/src/sales/` · `MIGRATION_010` |
+| La venta nace vinculada al turno abierto del dispositivo | ✅ | ✅ | ✅ | ✅ | ❌ | `create-sale-use-case.ts` · `sqlite-cash-shift-store.ts` → `findOpenShiftForDevice` · `tests/sale-payment-vertical.test.ts` |
 | Cash V1 (apertura/cierre de turno) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/cash/` · `MIGRATION_009` |
 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../src/payments/` · `MIGRATION_011` |
 | Completado de venta (único punto) | ✅ | ✅ | ✅ | ✅ | ❌ | `.../payments/sqlite-payment-store.ts` → `completeSaleIfCovered` |
@@ -472,6 +473,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
 | D-11 | «Compatible con SIIGO» es **condicional al plan del cliente**: su API suele exigir plan específico o módulo adicional | `provider-payload-shapes.md` §2 | se promete una integración que el cliente puede no tener contratada |
 | D-9 | Emitir una factura exige `Customer`, tablas de referencia DIAN, `Catalog` y `Tax`. **Las cuatro están materializadas y son alcanzables por el canal desde 2026-09-07.** Lo que falta ya no es dato sino el ensamblado del cuerpo de emisión y su envío | `provider-payload-shapes.md` §«Lo que este documento deja claro» | el adapter fiscal no puede emitir aunque el proveedor responda: no hay con qué armar el cuerpo |
+| D-23 | **Un dispositivo con dos turnos abiertos deja la venta sin caja.** `open()` sólo impide un segundo turno en la **misma** caja, así que un dispositivo puede abrir dos en cajas distintas. `findOpenShiftForDevice` devuelve `AMBIGUOUS` y la venta nace sin vínculo, porque adivinar imputaría el efectivo a un arqueo ajeno sin que nadie lo notara. Se cierra cuando exista vínculo dispositivo→caja (hoy no está ni en `config.ts` ni en el maestro) | `sqlite-cash-shift-store.ts` → `findOpenShiftForDevice` | el cobro en efectivo falla con `CASH_SHIFT_MISSING` y el cajero no sabe que la causa es tener dos turnos abiertos |
 | D-22 | **Una venta completada no devuelve existencia**, porque `main` todavía no anula ventas: `sales_sales` admite `CANCELLED` pero ningún código lo produce. `SALE_REVERSAL` existe en `MIGRATION_015` y **no tiene emisor**. Se cierra cuando exista anulación de venta o `SaleReturn` (`B11`) | `MIGRATION_015` · `sqlite-payment-store.ts` | un error del cajero deja la mercancía descontada sin forma de devolverla salvo un ajuste manual, que es la vía que `D-21` señala como abusable |
 | D-21 | **No hay reserva entre crear la venta y cobrarla.** La disponibilidad se comprueba al crear y la salida ocurre al completar; en medio, otra venta o un ajuste pueden llevarse la existencia. Mitigado —no resuelto— porque el cobro entero se revierte en ese caso, de modo que nunca queda existencia negativa ni venta cobrada sin mercancía | `create-sale-use-case.ts` · `sqlite-payment-store.ts` → `deductSoldStock` | con dos cajas sobre la misma base, un cobro legítimo puede rechazarse en el último paso |
 | D-20 | Las tablas `sandbox_catalog_product`, `sandbox_catalog_presentation` y `sandbox_price_rule` quedan **huérfanas**: ningún código las lee desde `MIGRATION_014`. No se borran porque pueden tener datos en instalaciones existentes y en SQLite eliminarlas exige reconstruir | `local-database.ts` | esquema muerto que confunde a quien lea el modelo físico |

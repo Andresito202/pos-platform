@@ -117,6 +117,21 @@ anulada (`D-22`), porque `main` todavía no anula ventas.
 **B8 y B9 tienen tabla pero no motor**: `sandbox_price_rule` y un `tax_snapshot`
 que es TEXT congelado. Una tabla sin regla que la calcule no es la capacidad.
 
+**Corrección del 2026-09-12.** Una auditoría de la interfaz encontró que
+`CreateSaleUseCase` escribía `cash_register_id` y `cash_shift_id` **siempre
+`NULL`**, de modo que una venta creada por el camino canónico **no se podía
+cobrar en efectivo**: `payment.register.cash` la rechazaba con
+`CASH_SHIFT_MISSING`. B1, B3, B4 y B5 figuraban en `CANON` —definido como
+«alcanzable de extremo a extremo»— y esa afirmación **era falsa en la juntura
+entre venta y cobro**.
+
+El defecto sobrevivió a 1021 pruebas porque **ninguna encadenaba las dos
+mitades**: los pagos se probaban sobre ventas sembradas a mano con turno, y las
+ventas nunca se cobraban. `tests/sale-payment-vertical.test.ts` cierra esa
+juntura y es la prueba que lo habría impedido. Las cuatro filas vuelven a
+sostenerse; **el tablero no sube por ello**, porque no se materializa capacidad
+nueva: se repara una que se daba por buena.
+
 **B10 pasa a 85 el 2026-09-07.** La capacidad es la forma canónica más la
 persistencia más el camino: `FiscalCustomer` en el paquete fiscal,
 `MIGRATION_012` y el módulo `customers/` en el servicio local, y
@@ -240,7 +255,7 @@ El global es la media simple de las 56 capacidades, no una media de los cinco
 bloques: ponderar por bloque haría que D —seis filas— pesara lo mismo que C
 —quince—, y eso no describe el proyecto.
 
-## Censo de pruebas — ejecutado el 2026-09-08 sobre `dc609e6` + inventario
+## Censo de pruebas — ejecutado el 2026-09-12 sobre `02b89bb` + vínculo de turno
 
 Los porcentajes de arriba se apoyan en esto, no en una impresión. Comandos
 ejecutados en este contenedor, con el resultado observado:
@@ -252,17 +267,17 @@ ejecutados en este contenedor, con el resultado observado:
 | `pnpm test:application` | `@pos-platform/application` | 16 pasan |
 | `pnpm test:runtime` | `database-sqlite` | 37 pasan |
 | `pnpm test:runtime` | `observability` | 4 pasan |
-| `pnpm test:runtime` | `pos-local-service` | 435 pasan · 4 omitidas |
+| `pnpm test:runtime` | `pos-local-service` | 440 pasan · 4 omitidas |
 | `pnpm test:runtime` | `pos-desktop` | 63 pasan |
 | `pnpm test:fiscal-adapters` | `fiscal-adapters` | 170 pasan · 2 omitidas |
 | `pnpm test:migrations:sqlite` | `target-migrations` | 13 pasan |
-| **Total** | 9 proyectos | **1021 pasan · 6 omitidas · 0 fallos** |
+| **Total** | 9 proyectos | **1026 pasan · 6 omitidas · 0 fallos** |
 
 | Verificación | Resultado |
 |---|---|
 | `pnpm typecheck` | PASS · 13 proyectos, `tsc --noEmit` |
 | `pnpm architecture:check` | PASS · ARCH-003 |
-| `pnpm ci:repository-policy` | PASS · 513 archivos rastreados |
+| `pnpm ci:repository-policy` | PASS · 514 archivos rastreados |
 
 **Qué acreditan las 6 omitidas, y por qué no son un hueco oculto:**
 
@@ -296,4 +311,5 @@ se ejecutó.
 | 2026-09-07 | **61 %** | **el tablero no se mueve**: `unit_precision` pasa a gobernar la cantidad, pero es un defecto corregido dentro de `Sales V1`, que ya estaba en `CANON`. 964 pruebas |
 | 2026-09-07 | **61 %** | auditoría del trabajo propio: cifras contradictorias corregidas, el pago de cero deja de ser válido, `D-19` registrada. **El tablero tampoco se mueve.** 969 pruebas |
 | 2026-09-07 | **62 %** | catálogo real: `MIGRATION_014`, `SandboxCatalogStore` eliminado, tres operaciones en el canal (B6 a 85) · 989 pruebas |
+| 2026-09-12 | **63 %** | **el tablero no se mueve**: la venta nace vinculada al turno abierto del dispositivo. `B1`/`B3`/`B4`/`B5` figuraban en `CANON` afirmando un extremo a extremo que **no existía** — una venta canónica no se podía cobrar en efectivo. Se repara lo que se daba por bueno; no hay capacidad nueva. 1026 pruebas |
 | 2026-09-08 | **63 %** | inventario: `MIGRATION_015`, existencia por sucursal y libro append-only, descuento en la transacción que completa la venta (B7 a 85) · 1021 pruebas |
