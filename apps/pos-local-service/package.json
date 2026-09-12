@@ -15,7 +15,8 @@
     "@pos-platform/observability": "workspace:*",
     "zod": "4.4.3",
     "@pos-platform/database-sqlite": "workspace:*",
-    "@pos-platform/fiscal-adapters": "workspace:*"
+    "@pos-platform/fiscal-adapters": "workspace:*",
+    "@pos-platform/local-channel": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1",

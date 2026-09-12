@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  inspectWindowsNamedPipeSecurity,
-  loadOrCreateWindowsLocalChannelSecret,
   LocalChannelAuthenticator,
   LocalChannelClient,
   localChannelEndpoint,
+} from "@pos-platform/local-channel";
+import {
+  inspectWindowsNamedPipeSecurity,
+  loadOrCreateWindowsLocalChannelSecret,
 } from "../src/index.js";
 
 const directories: string[] = [];

@@ -19,7 +19,8 @@
     "@pos-platform/observability": "workspace:*",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "@pos-platform/local-channel": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

@@ -2,11 +2,12 @@
  * Entrada de Electron **exclusiva de E2E**.
  *
  * `src/main.ts` exporta `bootstrap(serviceChannel)` y **no se auto-ejecuta**: el
- * canal hacia el POS Local Service se le inyecta. Hoy no existe implementación
- * de `ServiceChannel` alcanzable desde la capa `desktop` —`module-boundaries.json`
- * sólo le permite `contracts` y `observability`, y el cliente real vive en
- * `apps/pos-local-service/src/channel/`—, así que la entrada de producción está
- * bloqueada por una decisión de arquitectura, no por el build.
+ * canal hacia el POS Local Service se le inyecta. Desde el Bloque 4 existe el
+ * adaptador real —`src/local-service-channel.ts` sobre
+ * `@pos-platform/local-channel`—, pero la entrada de producción sigue
+ * bloqueada: el protocolo exige firmar **desde la primera trama**, y decidir de
+ * dónde sale esa clave sin entregarle al Desktop el secreto persistente es una
+ * decisión abierta.
  *
  * Este archivo **no es esa entrada**. Es un doble de prueba, del mismo tipo que
  * `makeServiceChannel()` en `tests/main.test.ts`, y sirve para una sola cosa:

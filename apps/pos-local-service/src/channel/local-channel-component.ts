@@ -11,9 +11,8 @@ import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import type { CommercialComponent } from "../commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
-import { LocalChannelAuthenticator } from "./authenticator.js";
-import { localChannelEndpoint } from "./endpoint.js";
-import { SqliteReplayStateStore } from "./replay-state.js";
+import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
+import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 

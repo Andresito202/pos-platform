@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/local-channel",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "packages/local-channel",
+  "projectType": "library",
+  "tags": [
+    "layer:transport",
+    "type:library",
+    "scope:local"
+  ]
+}

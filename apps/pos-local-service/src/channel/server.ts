@@ -1,27 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import {
-  CashShiftCloseResponseSchema,
-  CashShiftOpenResponseSchema,
   IpcRequestSchema,
-  OperationConfirmResponseSchema,
-  OperationResultResponseSchema,
   RuntimeHandshakeResponseSchema,
-  RuntimeStatusResponseSchema,
-  PaymentCancelResponseSchema,
-  PaymentGetResponseSchema,
-  PaymentRegisterCashResponseSchema,
-  PaymentRegisterTransferResponseSchema,
-  PaymentTransferConfirmResponseSchema,
-  SaleCreateResponseSchema,
-  SessionActivateResponseSchema,
-  SessionRecoverResponseSchema,
   negotiateProtocolVersion,
   type ContractVersionRange,
   type IpcRequest,
 } from "@pos-platform/contracts";
-import { encodeFrame, FrameDecoder } from "./framing.js";
-import type { LocalChannelAuthenticator } from "./authenticator.js";
+import {
+  encodeFrame,
+  FrameDecoder,
+  responseSchemaFor,
+  type LocalChannelAuthenticator,
+} from "@pos-platform/local-channel";
 import {
   hardenWindowsNamedPipeSecurity,
   inspectWindowsNamedPipeSecurity,
@@ -64,37 +55,22 @@ function requestWithTimeout<T>(
   });
 }
 
+/**
+ * Valida la respuesta contra el esquema que gobierna **esa** operación.
+ *
+ * Antes era un `switch` con 14 de los 23 `case`. Los nueve que faltaban
+ * —`customer.*`, `catalog.*`, `inventory.*`— caían al final sin `default`, la
+ * función devolvía `undefined`, y la línea siguiente desreferenciaba
+ * `response.protocol_version`: `TypeError` → `.catch(() => socket.destroy())`.
+ * **Nueve operaciones mataban la conexión en silencio**, y `tsc` no podía verlo
+ * porque el retorno era `unknown` y `undefined` le encaja.
+ *
+ * La tabla de `@pos-platform/local-channel` es `Record<IpcMessageType, …>`: si
+ * el contrato gana una operación y nadie le da respuesta, **no compila**. Y es
+ * la misma que usa el cliente, así que ambos extremos no pueden divergir.
+ */
 function validateResponse(request: IpcRequest, input: unknown): unknown {
-  switch (request.message_type) {
-    case "runtime.handshake":
-      return RuntimeHandshakeResponseSchema.parse(input);
-    case "runtime.status.get":
-      return RuntimeStatusResponseSchema.parse(input);
-    case "operation.result.get":
-      return OperationResultResponseSchema.parse(input);
-    case "operation.confirm":
-      return OperationConfirmResponseSchema.parse(input);
-    case "session.activate":
-      return SessionActivateResponseSchema.parse(input);
-    case "session.recover":
-      return SessionRecoverResponseSchema.parse(input);
-    case "cash.shift.open":
-      return CashShiftOpenResponseSchema.parse(input);
-    case "cash.shift.close":
-      return CashShiftCloseResponseSchema.parse(input);
-    case "sale.create":
-      return SaleCreateResponseSchema.parse(input);
-    case "payment.register.cash":
-      return PaymentRegisterCashResponseSchema.parse(input);
-    case "payment.register.transfer":
-      return PaymentRegisterTransferResponseSchema.parse(input);
-    case "payment.transfer.confirm":
-      return PaymentTransferConfirmResponseSchema.parse(input);
-    case "payment.cancel":
-      return PaymentCancelResponseSchema.parse(input);
-    case "payment.get":
-      return PaymentGetResponseSchema.parse(input);
-  }
+  return responseSchemaFor(request.message_type).parse(input);
 }
 
 export class LocalChannelServer {
