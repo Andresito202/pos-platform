@@ -204,11 +204,35 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
+  // Instrumentación **sólo de la prueba**: cuenta cuántas veces aparece la
+  // señal que gobierna el cha-ching. Producción no se toca.
+  await page.evaluate(() => {
+    const counter = { count: 0 };
+    (globalThis as unknown as { __chime: { count: number } }).__chime = counter;
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof HTMLElement && node.dataset["testid"] === "sale-completed") {
+            counter.count += 1;
+          }
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+
   await page.getByTestId("charge-cash-button").click();
 
   // 4 · La venta queda cobrada. Éste es el estado que gobierna el cha-ching:
   //     `sale-completed` sólo se pinta cuando `sale_completed === true`.
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
+
+  // 4b · La señal se emite **exactamente una vez**. Ni cero —no habría
+  //      cha-ching— ni dos —sonaría repetido para una sola venta—.
+  expect(await page.getByTestId("sale-completed").count()).toBe(1);
+  expect(await page.getByTestId("payment-partial").count()).toBe(0);
+  expect(await page.evaluate(
+    () => (globalThis as unknown as { __chime: { count: number } }).__chime.count,
+  )).toBe(1);
 
   // 5 · La existencia bajó por la venta, consultada por el canal real: 12 − 2.
   const remaining = await page.evaluate(async (presentationId) => {

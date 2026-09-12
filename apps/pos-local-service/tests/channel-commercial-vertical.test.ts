@@ -474,3 +474,320 @@ describe("la vertical comercial atraviesa el socket real hasta SQLite", () => {
     });
   }, 30_000);
 });
+
+/**
+ * Deja el mostrador listo: sesión vinculada, turno abierto, producto en catálogo
+ * y doce unidades de existencia. Todo por el canal real.
+ */
+async function prepareCounter(
+  send: (request: unknown) => Promise<ChannelResponse>,
+  database: LocalDatabase,
+  suffix: string,
+): Promise<{ presentationId: string; productId: string }> {
+  new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+    signAuthorization(authorizationClaims()),
+    { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+  );
+  seedRegister(database);
+
+  await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+  await send(mutating("cash.shift.open", {
+    cash_register_id: REGISTER,
+    opening_amount: "0.000000",
+    business_date: "2026-09-03",
+    timezone_id: "America/Bogota",
+    utc_offset_minutes: -300,
+  }, `${suffix}:shift`));
+
+  const product = await send(mutating("catalog.product.register", {
+    code: `CAFE-${suffix}`,
+    name: "Café Americano 500 g",
+    stock_controlled: true,
+    presentation_name: "Bolsa 500 g",
+    unit_code: "UND",
+    unit_precision: 0,
+    barcode: BARCODE,
+    price_amount: "18000.000000",
+    currency_code: "COP",
+  }, `${suffix}:catalog`));
+  const presentationId = product.result["presentation_id"] as string;
+
+  await send(mutating("inventory.stock.receive", {
+    presentation_id: presentationId,
+    movement_type: "PURCHASE_RECEIPT",
+    quantity: "12.000000",
+    reason_code: "SUPPLIER_DELIVERY",
+    business_date: "2026-09-03",
+  }, `${suffix}:inventory`));
+
+  const found = await send(reading("catalog.item.find", { barcode: BARCODE }));
+  return { presentationId, productId: found.result["product_id"] as string };
+}
+
+/** Crea una venta de `units` unidades del producto preparado. */
+async function createSale(
+  send: (request: unknown) => Promise<ChannelResponse>,
+  ids: { presentationId: string; productId: string },
+  units: string,
+  key: string,
+): Promise<{ saleId: string; payable: string }> {
+  const sale = await send(mutating("sale.create", {
+    cash_register_id: REGISTER,
+    channel: "POS",
+    business_date: "2026-09-03",
+    timezone_id: "America/Bogota",
+    utc_offset_minutes: -300,
+    document_series: "A",
+    currency_code: "COP",
+    lines: [{ product_id: ids.productId, presentation_id: ids.presentationId, quantity: units }],
+  }, key));
+  return {
+    saleId: sale.result["sale_id"] as string,
+    payable: sale.result["payable_amount"] as string,
+  };
+}
+
+function stockOf(database: LocalDatabase, presentationId: string): string {
+  const row = database.native.prepare(
+    "SELECT quantity_on_hand FROM inventory_stock WHERE presentation_id=?",
+  ).get(presentationId) as { quantity_on_hand: string } | undefined;
+  return row?.quantity_on_hand ?? "(sin fila)";
+}
+
+function countOf(database: LocalDatabase, sql: string, ...params: unknown[]): number {
+  return (database.native.prepare(sql).get(...params) as { n: number }).n;
+}
+
+/**
+ * Los pagos no llevan `sale_id`: cuelgan de `payments_payment_groups`, y la
+ * venta se nombra en `collection_subject_id`. Se alcanzan por la imputación,
+ * que es donde el esquema une pago y venta.
+ */
+function paymentsOf(database: LocalDatabase, saleId: string): number {
+  return countOf(
+    database,
+    `SELECT COUNT(DISTINCT payment_id) n FROM payments_payment_allocations
+      WHERE collection_subject_type='SALE' AND collection_subject_id=?`,
+    saleId,
+  );
+}
+
+function allocationsOf(database: LocalDatabase, saleId: string): number {
+  return countOf(
+    database,
+    `SELECT COUNT(*) n FROM payments_payment_allocations
+      WHERE collection_subject_type='SALE' AND collection_subject_id=?`,
+    saleId,
+  );
+}
+
+describe("la vertical resiste el uso real: ventas seguidas, reintentos y saldos", () => {
+  it("dos ventas consecutivas no se contaminan y el inventario baja una vez por venta", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "dos");
+
+      const saleA = await createSale(send, ids, "2.000000", "dos:saleA");
+      const payA = await send(mutating("payment.register.cash", {
+        sale_id: saleA.saleId, amount: saleA.payable, tendered_amount: null,
+      }, "dos:payA"));
+      expect(payA.result["sale_completed"]).toBe(true);
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+
+      const saleB = await createSale(send, ids, "3.000000", "dos:saleB");
+      // Venta independiente: identificador propio e importe propio.
+      expect(saleB.saleId).not.toBe(saleA.saleId);
+      expect(saleB.payable).not.toBe(saleA.payable);
+
+      const payB = await send(mutating("payment.register.cash", {
+        sale_id: saleB.saleId, amount: saleB.payable, tendered_amount: null,
+      }, "dos:payB"));
+      expect(payB.result["sale_completed"]).toBe(true);
+
+      // 12 − 2 − 3. Si alguna venta descontara dos veces, aquí saldría 7 o menos.
+      expect(stockOf(database, ids.presentationId)).toBe("7.000000");
+
+      const completed = database.native.prepare(
+        "SELECT id, status FROM sales_sales WHERE id IN (?,?) ORDER BY id",
+      ).all(saleA.saleId, saleB.saleId) as Array<{ id: string; status: string }>;
+      expect(completed).toHaveLength(2);
+      expect(completed.every((row) => row.status === "COMPLETED")).toBe(true);
+    });
+  }, 30_000);
+
+  it("reintentar el mismo cobro es IDEMPOTENT y no descuenta dos veces", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "retry");
+      const sale = await createSale(send, ids, "2.000000", "retry:sale");
+
+      // El mecanismo de idempotencia del contrato es `idempotency_key`. El
+      // reintento es una trama nueva —nonce y secuencia distintos, de modo que
+      // el anti-replay no la confunde— con la misma clave en el sobre.
+      const payload = { sale_id: sale.saleId, amount: sale.payable, tendered_amount: null };
+      const first = await send(mutating("payment.register.cash", payload, "retry:pay"));
+      expect(first.result["outcome"]).toBe("CONFIRMED");
+      expect(first.result["sale_completed"]).toBe(true);
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+
+      const retry = await send(mutating("payment.register.cash", payload, "retry:pay"));
+      expect(retry.result["outcome"]).toBe("IDEMPOTENT");
+      // Mismo pago, no uno nuevo.
+      expect(retry.result["payment_id"]).toBe(first.result["payment_id"]);
+
+      // Nada se duplicó: ni el pago, ni su imputación, ni el descuento.
+      expect(paymentsOf(database, sale.saleId)).toBe(1);
+      expect(allocationsOf(database, sale.saleId)).toBe(1);
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+    });
+  }, 30_000);
+
+  it("un cobro parcial no completa ni descuenta; el saldo restante sí", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "parcial");
+      const sale = await createSale(send, ids, "2.000000", "parcial:sale");
+
+      const partial = await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: "10000.000000", tendered_amount: null,
+      }, "parcial:pay1"));
+
+      // El pago se confirma —el dinero entró— pero la venta no se completa.
+      expect(partial.result["outcome"]).toBe("CONFIRMED");
+      expect(partial.result["sale_completed"]).toBe(false);
+      expect(
+        (database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+          .get(sale.saleId) as { status: string }).status,
+      ).not.toBe("COMPLETED");
+      // La mercancía no sale del almacén hasta que la venta se completa.
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
+
+      const rest = (BigInt(sale.payable.replace(".", "")) - 10_000_000_000n).toString();
+      const remainder = `${rest.slice(0, -6)}.${rest.slice(-6)}`;
+      const settled = await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: remainder, tendered_amount: null,
+      }, "parcial:pay2"));
+
+      expect(settled.result["sale_completed"]).toBe(true);
+      expect(
+        (database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+          .get(sale.saleId) as { status: string }).status,
+      ).toBe("COMPLETED");
+      // Descontado exactamente una vez, al completarse.
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+
+      // Dos cobros reales, dos imputaciones, una sola venta.
+      expect(paymentsOf(database, sale.saleId)).toBe(2);
+      expect(allocationsOf(database, sale.saleId)).toBe(2);
+    });
+  }, 30_000);
+
+  it("reintentar un cobro PARCIAL es IDEMPOTENT sin aumentar la cobertura", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "rparcial");
+      const sale = await createSale(send, ids, "2.000000", "rparcial:sale");
+
+      const status = (): string => (database.native.prepare(
+        "SELECT status FROM sales_sales WHERE id=?",
+      ).get(sale.saleId) as { status: string }).status;
+
+      // Cobro parcial: la venta queda abierta, de modo que la barrera
+      // `SALE_ALREADY_COMPLETED` **no** puede intervenir. Aquí la única
+      // protección frente al doble cobro es la clave de idempotencia.
+      const payload = { sale_id: sale.saleId, amount: "10000.000000", tendered_amount: null };
+      const first = await send(mutating("payment.register.cash", payload, "rparcial:pay"));
+      expect(first.result["outcome"]).toBe("CONFIRMED");
+      expect(first.result["sale_completed"]).toBe(false);
+      expect(status()).not.toBe("COMPLETED");
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
+
+      // La cobertura real vive en el libro de imputaciones, no en la respuesta.
+      const coverage = (): string => (database.native.prepare(
+        `SELECT COALESCE(SUM(CAST(REPLACE(amount,'.','') AS INTEGER)), 0) total
+           FROM payments_payment_allocations
+          WHERE collection_subject_type='SALE' AND collection_subject_id=?`,
+      ).get(sale.saleId) as { total: number }).total.toString();
+      const coverageBefore = coverage();
+      expect(coverageBefore).toBe("10000000000");
+
+      // Reintento: trama nueva —nonce y secuencia distintos, para que el
+      // anti-replay no la confunda con la anterior— y la misma clave.
+      const retry = await send(mutating("payment.register.cash", payload, "rparcial:pay"));
+
+      expect(retry.result["outcome"]).toBe("IDEMPOTENT");
+      expect(retry.result["payment_id"]).toBe(first.result["payment_id"]);
+      // El contrato devuelve el pago que ya existía y **nada más**: en
+      // `IDEMPOTENT` no reconstruye importes (`DEC-016`). Por eso la cobertura
+      // se comprueba contra el libro, que es donde el dinero cuenta.
+      expect(retry.result["confirmed_coverage"]).toBeNull();
+      expect(coverage()).toBe(coverageBefore);
+
+      // Nada se duplicó, y la venta sigue abierta.
+      expect(paymentsOf(database, sale.saleId)).toBe(1);
+      expect(allocationsOf(database, sale.saleId)).toBe(1);
+      expect(status()).not.toBe("COMPLETED");
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
+
+      // El saldo restante, con clave propia, sí completa la venta.
+      const rest = (BigInt(sale.payable.replace(".", "")) - 10_000_000_000n).toString();
+      const settled = await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId,
+        amount: `${rest.slice(0, -6)}.${rest.slice(-6)}`,
+        tendered_amount: null,
+      }, "rparcial:pay2"));
+
+      expect(settled.result["sale_completed"]).toBe(true);
+      expect(status()).toBe("COMPLETED");
+      expect(paymentsOf(database, sale.saleId)).toBe(2);
+      expect(allocationsOf(database, sale.saleId)).toBe(2);
+      // Descontado una sola vez, al completarse.
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM inventory_movement WHERE presentation_id=? AND movement_type='SALE'",
+        ids.presentationId,
+      )).toBe(1);
+    });
+  }, 30_000);
+
+  it("el estado final en SQLite es coherente y sin duplicados", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "final");
+      const sale = await createSale(send, ids, "2.000000", "final:sale");
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: null,
+      }, "final:pay"));
+
+      const row = database.native.prepare(
+        `SELECT status, cash_register_id, cash_shift_id, payable_amount
+           FROM sales_sales WHERE id=?`,
+      ).get(sale.saleId) as {
+        status: string; cash_register_id: string | null;
+        cash_shift_id: string | null; payable_amount: string;
+      };
+      expect(row.status).toBe("COMPLETED");
+      expect(row.cash_register_id).toBe(REGISTER);
+      expect(row.cash_shift_id).not.toBeNull();
+
+      // El turno al que se ató la venta es el que sigue abierto en esa caja.
+      const shift = database.native.prepare(
+        "SELECT status, cash_register_id FROM cash_shift WHERE id=?",
+      ).get(row.cash_shift_id) as { status: string; cash_register_id: string };
+      expect(shift.status).toBe("OPEN");
+      expect(shift.cash_register_id).toBe(REGISTER);
+
+      // Un grupo de pago, un pago, una imputación por el importe exigido.
+      expect(countOf(database,
+        "SELECT COUNT(*) n FROM payments_payment_groups WHERE collection_subject_id=?", sale.saleId)).toBe(1);
+      expect(paymentsOf(database, sale.saleId)).toBe(1);
+      const allocation = database.native.prepare(
+        "SELECT amount FROM payments_payment_allocations WHERE collection_subject_id=?",
+      ).get(sale.saleId) as { amount: string };
+      expect(allocation.amount).toBe(row.payable_amount);
+
+      // Un solo movimiento de salida por la venta.
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM inventory_movement WHERE presentation_id=? AND movement_type='SALE'",
+        ids.presentationId,
+      )).toBe(1);
+    });
+  }, 30_000);
+});
