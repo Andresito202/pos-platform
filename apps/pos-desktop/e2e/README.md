@@ -1,65 +1,71 @@
 # E2E — `@pos-platform/pos-desktop`
 
-Infraestructura preparada. **No contiene todavía pruebas funcionales del POS.**
+Arranque real de la aplicación Electron compilada, conducido por Playwright.
+**Cinco specs en `boot.spec.ts`**, ejecutados en CI sobre `dist/` recién
+construido.
 
-## Objetivo futuro
+## Qué cubre hoy
 
-```
-renderer/UI → IPC (canal Electron pos:*) → POS Local Service → Use Case → SQLite → respuesta observable
-```
+`boot.spec.ts` lanza el proceso principal compilado y comprueba, sobre la
+ventana real:
 
-## Qué hay aquí
+1. el proceso principal arranca y abre una ventana;
+2. el renderer compilado monta la aplicación;
+3. la superficie comercial está montada en esa ventana;
+4. el preload expone `window.posService` con la superficie completa;
+5. el aislamiento de contexto sigue activo: el renderer no ve Node.
 
-- `playwright.config.ts` — configuración mínima. Sin `projects` de navegador:
-  las pruebas lanzarán la app Electron completa, no una página aislada.
-- Dependencias instaladas en `apps/pos-desktop/package.json`:
-  `@playwright/test@1.63.0` (test runner) y `playwright@1.63.0` (expone
-  `_electron`, no reexportado por `@playwright/test`).
+**Por qué existen estas cinco y no bastaban las unitarias.** `src/main.ts` era
+un proceso principal completo que nunca se había ejecutado. Dos defectos reales
+sólo aparecen al arrancar, y ambos son invisibles para `tsc` y para las pruebas
+de `vitest` sobre jsdom:
 
-## Cómo se lanza Electron con Playwright (API oficial, sin escribir aún)
+- el bundle del renderer se emitía con rutas **absolutas**, que no resuelven
+  bajo `file://` — corregido con `base: "./"` en `vite.config.ts`;
+- el preload se emitía como **ESM**, y `sandbox: true` no admite ESM, así que
+  `contextBridge` nunca corría y `window.posService` quedaba indefinido —
+  corregido con una segunda construcción Vite en formato CJS
+  (`vite.preload.config.ts`).
 
-```ts
-import { test, expect } from "@playwright/test";
-import { _electron as electron } from "playwright";
+Con las 88 unitarias en verde, la aplicación abría una ventana en blanco. Esa
+es la razón de ser de este directorio.
 
-test("la app abre una ventana", async () => {
-  const app = await electron.launch({ args: ["<entrada compilada>"] });
-  const window = await app.firstWindow();
-  await expect(window).toHaveTitle(/.+/);
-  await app.close();
-});
-```
+## Qué **no** cubre
 
-`electron.launch()` sin `executablePath` usa por defecto
-`node_modules/.bin/electron` del propio paquete — ya presente (Electron
-44.1.1). **No requiere descargar un Chromium gestionado por Playwright**:
-Electron trae el suyo empaquetado.
+La cadena hasta SQLite. `smoke-entry.mjs` es una entrada **de prueba** que
+inyecta un `ServiceChannel` de doble: no hay named pipe ni servicio local
+detrás. La cadena completa
+`renderer → IPC → POS Local Service → Use Case → SQLite` sigue siendo objetivo
+futuro y depende de la entrada de producción de Electron, hoy bloqueada por el
+handshake autorizado.
 
-## Bloqueo real, documentado y no resuelto en este pase
+## Cómo se ejecuta
 
-**No existe un paso de compilación del proceso principal.** `tsconfig.json`
-hereda `noEmit: true` de `tsconfig.base.json` y no hay script
-`build:main` en `package.json` (sólo `build:renderer`, vía Vite). Por tanto
-`args: ["<entrada compilada>"]` arriba no tiene hoy un archivo `.js` real al
-que apuntar: `src/main.ts` no se emite.
-
-Esto es una decisión de arquitectura de build (ESM vs CJS, bundler para el
-proceso principal, ubicación de `dist/`) que corresponde a un bloque propio,
-no a la preparación de Playwright. Se deja documentado en vez de improvisar
-un `tsc --outDir` que no armoniza con el resto del pipeline.
-
-## Cómo ejecutar (una vez existan specs)
+El build es requisito: las specs apuntan a `dist/`.
 
 ```bash
-pnpm --filter @pos-platform/pos-desktop test:e2e
+pnpm --filter @pos-platform/pos-desktop build
+xvfb-run -a pnpm --filter @pos-platform/pos-desktop test:e2e
 ```
+
+`xvfb-run` es necesario en entornos sin servidor gráfico (contenedor y CI).
+
+## Dos detalles del lanzamiento que no son opcionales
+
+- **`executablePath` es obligatorio.** Sin él Playwright intenta descargar su
+  propia copia de Electron, y esa descarga falla tras el proxy del entorno. Se
+  apunta al binario que el repositorio ya fija (Electron 44.1.1), que además es
+  el que se empaquetará: `createRequire(import.meta.url)("electron")`.
+- **`--no-sandbox`.** CI ejecuta como root y el sandbox de Chromium rehúsa
+  arrancar ahí. No relaja la seguridad de la aplicación: `WINDOW_SECURITY_CONFIG`
+  —`contextIsolation`, `nodeIntegration` desactivada, `sandbox` del renderer— no
+  se toca, y la quinta spec lo comprueba sobre la ventana real.
 
 ## Chromium
 
-No aplica un paso de instalación de Chromium para este objetivo: las
-pruebas E2E aquí previstas conducen la aplicación Electron, no un navegador
-Playwright gestionado. Si en el futuro se añaden pruebas de navegador puro
-(sin Electron), instalar únicamente Chromium con:
+No se instala Chromium: estas pruebas conducen la aplicación Electron, que trae
+el suyo empaquetado. `playwright.config.ts` no declara `projects` de navegador.
+Si algún día se añaden pruebas de navegador puro:
 
 ```bash
 pnpm --filter @pos-platform/pos-desktop exec playwright install chromium
