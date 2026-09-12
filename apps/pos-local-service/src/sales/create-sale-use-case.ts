@@ -5,6 +5,7 @@ import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { CatalogFiscalAttribute, SqliteCatalogStore } from "../catalog/index.js";
 import type { SqliteInventoryStore } from "../inventory/index.js";
+import type { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
 import { calculateSaleLine, calculateSaleTotals, quantityFitsUnitPrecision } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
@@ -26,6 +27,8 @@ export interface CreateSaleRequestLine {
 }
 
 export interface CreateSaleRequest {
+  /** Caja seleccionada, o `null` cuando la venta no pasa por caja. */
+  readonly cashRegisterId: string | null;
   readonly idempotencyKey: string;
   readonly channel: string;
   readonly businessDate: string;
@@ -102,6 +105,7 @@ export class CreateSaleUseCase {
   constructor(
     private readonly catalogStore: SqliteCatalogStore,
     private readonly inventoryStore: SqliteInventoryStore,
+    private readonly cashShiftStore: SqliteCashShiftStore,
     private readonly saleStore: SqliteSaleStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -289,7 +293,31 @@ export class CreateSaleUseCase {
     const operationId = randomUUID();
     const reqChecksum = requestChecksum(request, operatorUserId);
 
-    // 8. Persistencia atómica
+    // 8. Caja y turno en los que nace la venta.
+    //
+    // La caja la nombra la operación; el turno lo resuelve la capa confiable.
+    // `DEC-012` §25.2 garantiza como máximo un turno activo por caja, así que la
+    // resolución es inequívoca y no hay nada que desempatar. El dispositivo no
+    // participa: §25.3 le niega propiedad sobre la caja, y dos terminales pueden
+    // trabajar la misma caja legítimamente.
+    //
+    // Sin caja nombrada la venta nace sin turno, con el par en `NULL`: el
+    // esquema lo admite y hay canales que no pasan por caja. Con caja nombrada
+    // pero sin turno activo tampoco se vincula, y el cobro en efectivo lo
+    // rechaza luego con `CASH_SHIFT_MISSING`, que es exacto: no hay turno.
+    //
+    // Un turno en `CLOSING` **sí** se vincula, a propósito: existe, y el pago lo
+    // rechaza con `CASH_SHIFT_NOT_OPEN` (`DEC-016` §10.3). Decir «no hay turno»
+    // cuando se está cuadrando sería un diagnóstico falso.
+    const registerId = request.cashRegisterId;
+    const activeShift = registerId === null
+      ? null
+      : this.cashShiftStore.findActiveShiftForRegister(scope, registerId);
+    const cashShift = registerId === null || activeShift === null
+      ? null
+      : { cashRegisterId: registerId, shiftId: activeShift.shiftId };
+
+    // 9. Persistencia atómica
     const storeInput = {
       saleId,
       operationId,
@@ -313,6 +341,7 @@ export class CreateSaleUseCase {
       requestChecksum: reqChecksum,
       correlationId: request.correlationId,
       causationId: request.causationId,
+      cashShift,
       lines: resolvedLines.map((resolved, index) => ({
         itemId: randomUUID(),
         productId: resolved.productId,

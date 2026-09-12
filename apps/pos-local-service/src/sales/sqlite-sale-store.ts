@@ -47,6 +47,14 @@ export interface CreateSaleInput {
   readonly causationId: string | null;
   readonly lines: readonly SaleLineInput[];
   readonly totals: SaleTotalsCalculation;
+  /**
+   * Caja y turno en los que nace la venta, o `null` si no pasa por caja.
+   *
+   * Viajan **juntos** porque el esquema lo impone:
+   * `CHECK((cash_register_id IS NULL) = (cash_shift_id IS NULL))`. Por eso es un
+   * objeto y no dos campos sueltos que pudieran desparejarse.
+   */
+  readonly cashShift: { readonly cashRegisterId: string; readonly shiftId: string } | null;
 }
 
 export type CreateSaleOutcome =
@@ -166,7 +174,7 @@ export class SqliteSaleStore {
           correlation_id, causation_id, version, created_at,
           completed_at, cancelled_at, expired_at, server_recorded_at
         ) VALUES (
-          ?,?,?,?,NULL,NULL,
+          ?,?,?,?,?,?,
           ?,?,?,?,
           ?,?,?,?,?,
           ?,?,?,
@@ -184,6 +192,8 @@ export class SqliteSaleStore {
         input.scope.tenantId,
         input.scope.companyId,
         input.scope.branchId,
+        input.cashShift?.cashRegisterId ?? null,
+        input.cashShift?.shiftId ?? null,
         input.scope.deviceId,
         input.scope.installationId,
         "USER",

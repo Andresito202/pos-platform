@@ -139,7 +139,7 @@ export class CommercialComponent implements RuntimeComponent {
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
-      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, saleStore, this.now),
+      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
