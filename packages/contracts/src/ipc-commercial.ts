@@ -292,6 +292,28 @@ export const SaleCreateLineSchema = z.strictObject({
  */
 export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
+    /**
+     * Caja seleccionada para esta venta, o `null` cuando la operación no pasa
+     * por caja.
+     *
+     * **Es el único selector del turno.** `DEC-012` §25.2 garantiza como máximo
+     * un `CashShift` en `OPEN` o `CLOSING` por `(tenant, sucursal, caja)`, de
+     * modo que nombrar la caja determina el turno sin ambigüedad. La capa
+     * confiable lo resuelve; el llamador **no** puede aportar `cash_shift_id`.
+     *
+     * No lo elige el dispositivo: `DEC-012` §25.3 fija que `origin_device_id`
+     * es procedencia, idempotencia y trazabilidad, y **no** propiedad ni
+     * exclusividad sobre la caja. Dos terminales pueden trabajar la misma caja
+     * legítimamente, y un selector por dispositivo le rompería el cobro al
+     * segundo.
+     *
+     * Nombrar la caja **no** es aportar ámbito: `tenant`, `company`, `branch`,
+     * `device` y `actor` siguen prohibidos y los deriva la capa confiable. El
+     * precedente es `cash.shift.open`, que ya recibe `cash_register_id` del
+     * llamador. La consulta se acota por el `tenant` y la `branch` del contexto
+     * verificado, así que una caja ajena simplemente no resuelve turno.
+     */
+    cash_register_id: UuidSchema.nullable(),
     channel: SaleChannelSchema,
     business_date: BusinessDateSchema,
     timezone_id: TimezoneIdSchema,

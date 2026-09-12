@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"],
+  "//": "preload.ts lo emite vite.preload.config.ts en CommonJS; emitirlo tambien aqui dejaria un preload.js ESM que el sandbox no puede cargar.",
+  "exclude": ["src/preload.ts"]
+}

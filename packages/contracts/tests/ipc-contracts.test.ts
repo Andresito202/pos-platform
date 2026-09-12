@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CashShiftOpenRequestSchema,
   CustomerRegisterRequestSchema,
+  SaleCreateRequestSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
   PaymentRegisterCashRequestSchema,
@@ -301,6 +302,67 @@ describe("inventory.stock.* — la frontera del inventario", () => {
   it("no admite campos extra en el payload", () => {
     expect(InventoryStockReceiveRequestSchema.safeParse(
       receive({ branch_id: "550e8400-e29b-41d4-a716-446655440013" }),
+    ).success).toBe(false);
+  });
+});
+
+describe("sale.create — la caja es el único selector del turno", () => {
+  const payload = (overrides: Record<string, unknown> = {}) => ({
+    cash_register_id: "550e8400-e29b-41d4-a716-446655440020",
+    channel: "POS_LOCAL",
+    business_date: "2026-09-06",
+    timezone_id: "America/Bogota",
+    utc_offset_minutes: -300,
+    document_series: "FS-001",
+    currency_code: "COP",
+    lines: [{
+      product_id: "550e8400-e29b-41d4-a716-446655440021",
+      presentation_id: "550e8400-e29b-41d4-a716-446655440022",
+      quantity: "1.000000",
+    }],
+    ...overrides,
+  });
+  const request = (p: Record<string, unknown>) => ({
+    ...metadata,
+    message_type: "sale.create",
+    operation_id: "550e8400-e29b-41d4-a716-446655440023",
+    idempotency_key: "sale:1",
+    payload: p,
+  });
+
+  it("acepta la caja nombrada por la operación", () => {
+    expect(SaleCreateRequestSchema.safeParse(request(payload())).success).toBe(true);
+  });
+
+  /**
+   * `null` es la venta que no pasa por caja. El esquema lo admite —`DEC-012`
+   * §25.2 no obliga a que toda venta tenga turno— y `sales_sales` lo persiste
+   * con el par en nulo.
+   */
+  it("acepta null: hay ventas que no pasan por caja", () => {
+    expect(SaleCreateRequestSchema.safeParse(
+      request(payload({ cash_register_id: null })),
+    ).success).toBe(true);
+  });
+
+  /**
+   * Nullable **no** es opcional. Omitirlo dejaría que una venta naciera sin que
+   * nadie haya decidido si pasa por caja, y el turno quedaría sin resolver por
+   * descuido en vez de por decisión.
+   */
+  it("no admite omitir el campo: la decisión es explícita", () => {
+    const { cash_register_id: _omitted, ...sinCaja } = payload();
+    expect(SaleCreateRequestSchema.safeParse(request(sinCaja)).success).toBe(false);
+  });
+
+  /**
+   * El llamador nombra la **caja**, nunca el **turno**: el turno lo resuelve la
+   * capa confiable contra `DEC-012` §25.2. Aceptar `cash_shift_id` dejaría que
+   * el renderer imputara efectivo a un arqueo que no le corresponde.
+   */
+  it("no admite que el llamador nombre el turno", () => {
+    expect(SaleCreateRequestSchema.safeParse(
+      request(payload({ cash_shift_id: "550e8400-e29b-41d4-a716-446655440024" })),
     ).success).toBe(false);
   });
 });

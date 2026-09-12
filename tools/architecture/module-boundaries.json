@@ -68,6 +68,12 @@
       "layer": "desktop",
       "type": "application",
       "scope": "local"
+    },
+    "@pos-platform/local-channel": {
+      "root": "packages/local-channel",
+      "layer": "transport",
+      "type": "library",
+      "scope": "local"
     }
   },
   "allowedLayerDependencies": {
@@ -98,17 +104,23 @@
       "database-core",
       "adapter",
       "observability",
-      "testing"
+      "testing",
+      "transport"
     ],
     "runtime": [
       "application",
       "contracts",
       "adapter",
-      "observability"
+      "observability",
+      "transport"
     ],
     "desktop": [
       "contracts",
-      "observability"
+      "observability",
+      "transport"
+    ],
+    "transport": [
+      "contracts"
     ]
   },
   "frozenSourceAreas": {
@@ -176,6 +188,15 @@
       "pg",
       "better-sqlite3",
       "kysely"
+    ],
+    "transport": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "kysely",
+      "pg",
+      "better-sqlite3"
     ]
   }
 }

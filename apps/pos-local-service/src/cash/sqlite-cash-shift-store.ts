@@ -115,6 +115,26 @@ export type AppendCashSaleOutcome =
   | { readonly kind: "SHIFT_NOT_OPEN" }
   | { readonly kind: "CURRENCY_MISMATCH" };
 
+/**
+ * Turno activo de una **caja**. Es la única resolución de turno del sistema.
+ *
+ * `DEC-012` §25.2: como máximo un `CashShift` en `OPEN` o `CLOSING` por
+ * `(tenant_id, branch_id, cash_register_id)`, **con independencia del
+ * `origin_device_id`**. Nombrar la caja determina el turno sin ambigüedad; el
+ * dispositivo no interviene, porque §25.3 le niega expresamente cualquier
+ * propiedad o exclusividad sobre la caja.
+ *
+ * Devuelve también el `status`, y eso es deliberado: `OPEN` y `CLOSING` son
+ * ambos activos para la unicidad, pero sólo `OPEN` admite un cobro en efectivo
+ * (`DEC-016` §10.3). Vincular la venta a un turno en `CLOSING` hace que el pago
+ * la rechace con `CASH_SHIFT_NOT_OPEN` —diagnóstico exacto— en lugar de
+ * `CASH_SHIFT_MISSING`, que sería falso: el turno existe, está cuadrándose.
+ */
+export interface ActiveShift {
+  readonly shiftId: string;
+  readonly status: "OPEN" | "CLOSING";
+}
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export class SqliteCashShiftStore {
@@ -123,6 +143,36 @@ export class SqliteCashShiftStore {
     private readonly durableSync: DurableSyncStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * Turno activo de la caja indicada, o `null` si no hay ninguno.
+   *
+   * **No existe consulta por dispositivo ni por sucursal.** La caja es el único
+   * selector, y el `tenant` y la `branch` salen del contexto confiable, nunca
+   * del llamador: una caja de otro ámbito no resuelve turno porque la consulta
+   * no la alcanza.
+   *
+   * @throws si aparece más de una fila. El índice único parcial lo impide, así
+   * que dos filas sólo pueden venir de corrupción; elegir una imputaría el
+   * efectivo a un arqueo ajeno sin que nadie lo notara.
+   */
+  findActiveShiftForRegister(scope: SyncScope, cashRegisterId: string): ActiveShift | null {
+    const rows = this.database.native.prepare(
+      `SELECT id, status FROM cash_shift
+       WHERE tenant_id=? AND branch_id=? AND cash_register_id=?
+         AND status IN ('OPEN','CLOSING')`,
+    ).all(
+      scope.tenantId, scope.branchId, cashRegisterId,
+    ) as Array<{ id: string; status: "OPEN" | "CLOSING" }>;
+
+    if (rows.length > 1) {
+      throw new Error(
+        `cash_shift uniqueness violated for register ${cashRegisterId}: ${String(rows.length)} active shifts`,
+      );
+    }
+    const only = rows[0];
+    return only === undefined ? null : { shiftId: only.id, status: only.status };
+  }
 
   open(input: OpenShiftInput): OpenShiftOutcome {
     const nowIso = this.now().toISOString();
@@ -156,17 +206,11 @@ export class SqliteCashShiftStore {
 
       // 2. Turno incompatible: OPEN o CLOSING en la misma caja
       //    La verificación previa no sustituye la restricción del índice único.
-      const incompatible = this.database.native.prepare(
-        `SELECT 1 FROM cash_shift
-         WHERE tenant_id=? AND branch_id=? AND cash_register_id=?
-           AND status IN ('OPEN','CLOSING')`,
-      ).get(
-        input.scope.tenantId,
-        input.scope.branchId,
-        input.cashRegisterId,
-      );
-
-      if (incompatible) return { kind: "INCOMPATIBLE_SHIFT" };
+      //    Usa el mismo lector que resuelve el turno de una venta: dos consultas
+      //    distintas para la misma pregunta acabarían divergiendo.
+      if (this.findActiveShiftForRegister(input.scope, input.cashRegisterId) !== null) {
+        return { kind: "INCOMPATIBLE_SHIFT" };
+      }
 
       // 3. runtime_operations
       this.database.native.prepare(

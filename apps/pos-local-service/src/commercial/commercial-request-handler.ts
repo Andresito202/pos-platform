@@ -956,6 +956,7 @@ export class CommercialRequestHandler {
       authenticated.identity.ssaSessionId,
       authenticated.snapshot,
       {
+        cashRegisterId: request.payload.cash_register_id,
         idempotencyKey: request.idempotency_key as string,
         channel: request.payload.channel,
         businessDate: request.payload.business_date,

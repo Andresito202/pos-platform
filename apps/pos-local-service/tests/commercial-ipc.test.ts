@@ -331,25 +331,33 @@ describe("frontera de confianza — el llamador no afirma identidad", () => {
   });
 
   it("el contrato rechaza user_id o actor_type dentro del payload", () => {
-    const attempt = () => SaleCreateRequestSchema.parse({
+    // El payload base es **válido**: se parsea primero para que el rechazo de
+    // abajo sólo pueda venir de `user_id`. Sin este control, añadir cualquier
+    // campo obligatorio al contrato convertiría esta prueba en vacía — lanzaría
+    // por el campo ausente y seguiría pasando sin comprobar nada.
+    const payload = {
+      cash_register_id: REGISTER,
+      channel: "POS",
+      business_date: "2026-09-03",
+      timezone_id: "America/Bogota",
+      utc_offset_minutes: -300,
+      document_series: "A",
+      currency_code: "COP",
+      lines: [{ product_id: REGISTER, presentation_id: REGISTER, quantity: "1.000000" }],
+    };
+    const envelope = {
       ...BASE,
       message_type: "sale.create",
       request_id: randomUUID(),
       correlation_id: randomUUID(),
       operation_id: randomUUID(),
       idempotency_key: "k",
-      payload: {
-        channel: "POS",
-        business_date: "2026-09-03",
-        timezone_id: "America/Bogota",
-        utc_offset_minutes: -300,
-        document_series: "A",
-        currency_code: "COP",
-        user_id: USER,
-        lines: [{ product_id: REGISTER, presentation_id: REGISTER, quantity: "1.000000" }],
-      },
-    });
-    expect(attempt).toThrow();
+    };
+
+    expect(() => SaleCreateRequestSchema.parse({ ...envelope, payload })).not.toThrow();
+    expect(() => SaleCreateRequestSchema.parse({
+      ...envelope, payload: { ...payload, user_id: USER },
+    })).toThrow();
   });
 
   it("una operación mutante exige operation_id e idempotency_key", () => {

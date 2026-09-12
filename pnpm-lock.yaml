@@ -23,6 +23,9 @@ importers:
       '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pos-platform/local-channel':
+        specifier: workspace:*
+        version: link:../../packages/local-channel
       '@pos-platform/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -87,6 +90,9 @@ importers:
       '@pos-platform/fiscal-adapters':
         specifier: workspace:*
         version: link:../../packages/fiscal-adapters
+      '@pos-platform/local-channel':
+        specifier: workspace:*
+        version: link:../../packages/local-channel
       '@pos-platform/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -97,6 +103,9 @@ importers:
       '@types/node':
         specifier: 22.20.1
         version: 22.20.1
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       tsx:
         specifier: 4.23.12
         version: 4.23.12
@@ -185,6 +194,25 @@ importers:
 
   packages/fiscal-adapters:
     dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.20.1)(jsdom@26.1.0)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/local-channel:
+    dependencies:
+      '@pos-platform/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       zod:
         specifier: 4.4.3
         version: 4.4.3

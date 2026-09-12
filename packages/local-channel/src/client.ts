@@ -1,15 +1,13 @@
 import { createConnection, type Socket } from "node:net";
 import {
   IpcRequestSchema,
-  OperationConfirmResponseSchema,
-  OperationResultResponseSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeHandshakeResponseSchema,
-  RuntimeStatusResponseSchema,
   isContractVersionCompatible,
   type ContractVersionRange,
   type IpcRequest,
 } from "@pos-platform/contracts";
+import { responseSchemaFor } from "./response-schemas.js";
 import { randomUUID } from "node:crypto";
 import type { LocalChannelAuthenticator } from "./authenticator.js";
 import { encodeFrame, FrameDecoder } from "./framing.js";
@@ -109,11 +107,15 @@ export class LocalChannelClient {
     return new Promise((resolve, reject) => {
       const run = this.requestQueue.then(async () => {
         try {
-          const response = request.message_type === "runtime.status.get"
-            ? await this.exchange(request, RuntimeStatusResponseSchema)
-            : request.message_type === "operation.confirm"
-              ? await this.exchange(request, OperationConfirmResponseSchema)
-              : await this.exchange(request, OperationResultResponseSchema);
+          // El esquema sale de la tabla exhaustiva, no de una cadena de
+          // ternarios: con ternarios, toda operación no contemplada caía en
+          // `OperationResultResponseSchema` y su respuesta era irreparsable.
+          const response = await this.exchange(
+            request,
+            responseSchemaFor(request.message_type) as {
+              parse(input: unknown): { request_id: string; correlation_id: string };
+            },
+          );
           resolve(response);
         } catch (error) {
           reject(error);

@@ -12,10 +12,12 @@ import {
   FrameDecoder,
   LocalChannelAuthenticator,
   LocalChannelClient,
+  localChannelEndpoint,
+} from "@pos-platform/local-channel";
+import {
   LocalChannelServer,
   SqliteReplayStateStore,
   inspectWindowsNamedPipeSecurity,
-  localChannelEndpoint,
 } from "../src/index.js";
 
 const clock = { now: () => new Date("2026-08-28T00:00:00Z") };

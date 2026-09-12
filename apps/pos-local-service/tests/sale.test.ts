@@ -7,6 +7,7 @@ import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
+import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
 import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import { SqliteSaleStore } from "../src/sales/sqlite-sale-store.js";
 import {
@@ -125,6 +126,9 @@ function buildRequest(overrides: Partial<{
   lines: Array<{ productId: string; presentationId: string; quantity: string }>;
 }> = {}): Parameters<CreateSaleUseCase["execute"]>[3] {
   return {
+    // Las pruebas de Sales V1 no pasan por caja: su objeto es el cálculo y la
+    // persistencia de la venta, no el arqueo.
+    cashRegisterId: null,
     idempotencyKey: overrides.idempotencyKey ?? "sale:test:001",
     channel: "POS_LOCAL",
     businessDate: "2026-09-05",
@@ -146,11 +150,13 @@ function buildStores(database: LocalDatabase): {
   saleStore: SqliteSaleStore;
   useCase: CreateSaleUseCase;
 } {
+  const at = (): Date => new Date("2026-09-05T10:00:00.000Z");
   const durableSync = new DurableSyncStore(database);
   const catalog = new SqliteCatalogStore(database, durableSync);
-  const inventory = new SqliteInventoryStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
-  const saleStore = new SqliteSaleStore(database, durableSync, () => new Date("2026-09-05T10:00:00.000Z"));
-  const useCase = new CreateSaleUseCase(catalog, inventory, saleStore, () => new Date("2026-09-05T10:00:00.000Z"));
+  const inventory = new SqliteInventoryStore(database, durableSync, at);
+  const cashStore = new SqliteCashShiftStore(database, durableSync, at);
+  const saleStore = new SqliteSaleStore(database, durableSync, at);
+  const useCase = new CreateSaleUseCase(catalog, inventory, cashStore, saleStore, at);
   return { catalog, inventory, saleStore, useCase };
 }
 
