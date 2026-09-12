@@ -4,6 +4,11 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { WINDOW_SECURITY_CONFIG } from "./window-security.js";
 import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "./ipc-allowlist.js";
 import { ChannelBridge, type ServiceChannel } from "./channel-bridge.js";
+import {
+  PRELOAD_FILENAME,
+  RENDERER_DIRECTORY,
+  RENDERER_ENTRY_FILENAME,
+} from "./build-layout.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -80,8 +85,8 @@ export async function bootstrap(
 ): Promise<void> {
   assertAllowlistConsistency();
   const bridge = new ChannelBridge(serviceChannel);
-  const preloadPath = join(__dirname, "preload.js");
-  const rendererPath = join(__dirname, "renderer", "index.html");
+  const preloadPath = join(__dirname, PRELOAD_FILENAME);
+  const rendererPath = join(__dirname, RENDERER_DIRECTORY, RENDERER_ENTRY_FILENAME);
 
   await app.whenReady();
   registerIpcHandlers(bridge);

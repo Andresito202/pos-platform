@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { IPC_ALLOWED_CHANNELS } from "../src/ipc-allowlist.js";
 import { WINDOW_SECURITY_CONFIG } from "../src/window-security.js";
 import type { ServiceChannel } from "../src/channel-bridge.js";
+import { PRELOAD_FILENAME } from "../src/build-layout.js";
 
 interface CapturedWindow {
   options: Record<string, unknown>;
@@ -120,7 +121,10 @@ describe("main bootstrap window security", () => {
   it("attaches a preload script to the window", async () => {
     await bootstrapWith(makeServiceChannel());
     const prefs = created[0]?.options["webPreferences"] as Record<string, unknown>;
-    expect(String(prefs["preload"])).toMatch(/preload\.js$/);
+    // Se compara contra `PRELOAD_FILENAME`, no contra un literal: fue un
+    // literal el que hizo que esta prueba siguiera verde mientras el preload
+    // real dejaba de cargarse.
+    expect(String(prefs["preload"]).endsWith(PRELOAD_FILENAME)).toBe(true);
   });
 
   it("loads the local renderer entry point instead of a remote URL", async () => {

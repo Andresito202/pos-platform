@@ -37,3 +37,7 @@ artifacts/
 .claude/settings.local.json
 .claude/*.bak
 .claude/settings.json.*-bak
+
+# Artefactos de ejecucion de Playwright (trazas y capturas de un fallo).
+test-results/
+playwright-report/
