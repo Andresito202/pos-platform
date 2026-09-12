@@ -229,6 +229,12 @@ jobs:
       - name: Validate SQLite migration
         run: pnpm test:migrations:sqlite
 
+      - name: Build the POS desktop shell
+        run: pnpm --filter @pos-platform/pos-desktop build
+
+      - name: Validate that the POS desktop really boots
+        run: xvfb-run -a pnpm --filter @pos-platform/pos-desktop test:e2e
+
       - name: Validate PostgreSQL migrations 001/002/003 including physical runner
         run: pnpm test:migrations:postgres
 
@@ -268,6 +274,8 @@ jobs:
           - semantic_catalog_sha256: ${semantic_catalog_sha256}
           - typecheck: PASS
           - pos_local_service_runtime_test_suite: PASS
+          - pos_desktop_build: PASS
+          - pos_desktop_boot_e2e: PASS
           - sqlite_local_runtime_test_suite: PASS
           - local_channel_runtime_test_suite: PASS
           - local_security_runtime_test_suite: PASS

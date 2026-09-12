@@ -29,13 +29,30 @@ ejecuta el comportamiento · `CANON` integrado en `main` con CI verde ·
 
 `—` significa que no existe, no que esté pendiente de verificar.
 
+### Qué **no** significa `CANON` aquí — corregido el 2026-09-12
+
+`CANON` en este documento significa **exactamente dos cosas**: está en `main` y
+CI está verde. **No dice nada sobre si un llamador la alcanza.**
+
+Durante seis días el tablero definió la misma marca de otra manera —«en `main`,
+con CI verde, y **alcanzable de extremo a extremo**»— y esa tercera condición no
+se verificó nunca en ninguno de los dos documentos. Dos definiciones distintas
+para una sola marca, en dos documentos que declaran no poder contradecirse.
+
+La reachability se acredita ahora en
+[`tablero-materializacion.md`](./tablero-materializacion.md), en peldaños
+separados —`RUNTIME_VERIFIED`, `CALLER_REACHABLE`, `END_TO_END`—, cada uno con su
+propia evidencia. **Una `X` en la columna `CANON` de este documento no autoriza a
+decir que la capacidad es alcanzable.**
+
 ## Estado verificado sobre `f9987f2` (2026-09-06)
 
-> El **tablero** —bloques, capacidades, escalera de valor y porcentajes— vive en
+> El **tablero** —bloques, capacidades y escalera de peldaños— vive en
 > [`tablero-materializacion.md`](./tablero-materializacion.md). Aquel documento
-> congela la estructura para que sólo se muevan los porcentajes; éste registra la
-> evidencia por capacidad. **Ninguno reemplaza al otro y ninguno puede
-> contradecirlo: si discrepan, manda el código.**
+> congela la estructura para que sólo se mueva el peldaño; éste registra la
+> evidencia por capacidad. **El tablero ya no publica porcentajes**: desde el
+> 2026-09-12 publica un recuento de filas por peldaño. **Ninguno reemplaza al
+> otro y ninguno puede contradecirlo: si discrepan, manda el código.**
 >
 > Censo del 2026-09-08: **1021 pruebas pasan, 6 omitidas, 0 fallos** en 9
 > proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
