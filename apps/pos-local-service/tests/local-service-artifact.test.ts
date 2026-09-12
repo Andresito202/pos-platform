@@ -117,8 +117,13 @@ describe("artefacto distribuible de LOCAL_SERVICE", () => {
   it("no arrastra los prebuilds de las demás plataformas", () => {
     const listing = execFileSync("tar", ["-tzf", artifactPath], { encoding: "utf8" });
     // Se filtra por `.node`, no por el directorio: la entrada `prebuilds/` del
-    // propio tar no es un binario.
-    const prebuilds = listing.split("\n").filter((line) => line.endsWith(".node"));
+    // propio tar no es un binario. El `tar` de Windows termina cada renglón en
+    // CRLF, de modo que partir sólo por `\n` deja un `\r` que anula el sufijo:
+    // la prueba fallaba ahí mientras el prebuild sí estaba dentro.
+    const prebuilds = listing
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.endsWith(".node"));
     expect(prebuilds).toHaveLength(1);
   });
 
