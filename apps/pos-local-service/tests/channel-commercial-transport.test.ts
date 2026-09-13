@@ -21,8 +21,12 @@ import { LocalChannelServer } from "../src/index.js";
  * `runtime.status.get`, que sí tenía su esquema.
  *
  * Corre sobre socket POSIX —`localChannelEndpoint` lo admite con directorio de
- * prueba—, así que **se ejecuta en Linux**. El named pipe y su DACL siguen
- * siendo `REQUIRES_LOCAL_VERIFICATION` en Windows.
+ * prueba—, así que **se ejecuta en Linux**.
+ *
+ * El named pipe y su DACL **no** quedan sin verificar por ello: `channel.test.ts`
+ * los ejercita con `windowsIt` y CI ejecuta esa suite en `windows-2022`. Lo que
+ * sigue siendo `REQUIRES_LOCAL_VERIFICATION` es **la identidad del proceso
+ * cliente**, que es otra cosa y todavía no existe.
  */
 
 const clock = { now: () => new Date("2026-08-28T00:00:00Z") };

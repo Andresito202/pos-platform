@@ -125,7 +125,7 @@ tablero. Coincide con la deuda `D-4`.
 ### Monorepo y contratos — 90 % (9/10)
 
 Todo ✅ salvo **contratos API/IPC versionados** ⚠️: el IPC está versionado y
-probado (225 pruebas de contrato); **no existe contrato de API** porque no
+probado (240 pruebas de contrato); **no existe contrato de API** porque no
 existe API.
 
 ### Infraestructura — 21 % (3/14)
@@ -144,8 +144,8 @@ existe API.
 
 | Punto | | Evidencia |
 |---|:-:|---|
-| Vitest | ✅ | 1021 pruebas |
-| Playwright | ⚠️ | declarado y con `playwright.config.ts`; **cero ficheros `.spec.ts`** |
+| Vitest | ✅ | 1154 pruebas (2026-09-13) |
+| Playwright | ✅ | `boot.spec.ts` desde #73 y `real-channel.spec.ts` en rama; CI los ejecuta bajo `xvfb` desde #74 |
 | Testcontainers | ❌ | **cero**. CI usa *service containers* de GitHub, que no es lo mismo |
 | k6 | ❌ | **cero**. No hay prueba de carga de ningún tipo |
 | Lint | ❌ | **no hay linter en el monorepo**: ni ESLint, ni Biome, ni oxlint, ni script `lint` |
@@ -156,6 +156,14 @@ existe API.
 
 **La ausencia de linter es la más sorprendente de la lámina**, porque es la más
 barata de corregir y la única que no depende de ningún bloque anterior.
+
+> **El porcentaje de esta sección no se recalcula, y conviene decir por qué.**
+> La cabecera dice «11/18» y la tabla enumera **10** puntos. El denominador no
+> se puede reconstruir desde lo que está escrito, de modo que recalcularlo
+> tras subir Playwright a ✅ sería inventar una cifra. Queda anotado como
+> defecto del documento: o la tabla recupera los 18 puntos, o la cabecera deja
+> de publicar una fracción que nadie puede verificar. **No se sustituye un dato
+> envejecido por uno fabricado.**
 
 ### Observabilidad — 60 % (6/10)
 

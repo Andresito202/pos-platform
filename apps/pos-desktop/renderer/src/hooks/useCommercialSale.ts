@@ -7,6 +7,7 @@ import type {
 } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
+import { toScale6 } from "../scale6.js";
 
 /** Una línea del carrito, tal y como la devolvió el catálogo. */
 export interface CartLine {
@@ -109,10 +110,15 @@ export function useCommercialSale(): CommercialSaleState & {
     cashRegisterId: string,
     openingAmount: string,
   ): Promise<void> => {
+    const opening = toScale6(openingAmount);
+    if (opening === null) {
+      setError("INVALID_OPENING_AMOUNT");
+      return;
+    }
     await run<CashShiftOpenResult>(
       () => callCommercial("cash.shift.open", {
         cash_register_id: cashRegisterId,
-        opening_amount: openingAmount,
+        opening_amount: opening,
         ...operationTime(new Date()),
       }, newIdempotencyKey()),
       (result) => {
@@ -140,6 +146,11 @@ export function useCommercialSale(): CommercialSaleState & {
   }, [run]);
 
   const addFoundItem = useCallback((quantity: string): void => {
+    const canonical = toScale6(quantity);
+    if (canonical === null) {
+      setError("INVALID_QUANTITY");
+      return;
+    }
     setFoundItem((item) => {
       if (
         item === null
@@ -155,7 +166,7 @@ export function useCommercialSale(): CommercialSaleState & {
         presentationName: item.presentation_name ?? "",
         priceAmount: item.price_amount as string,
         currencyCode: item.currency_code as string,
-        quantity,
+        quantity: canonical,
       }]);
       return null;
     });
