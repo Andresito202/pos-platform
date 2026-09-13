@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CashShiftCloseRequestSchema,
+  PaymentRegisterTransferRequestSchema,
+  PaymentTransferConfirmRequestSchema,
   CashShiftOpenRequestSchema,
   CatalogItemFindRequestSchema,
   PaymentRegisterCashRequestSchema,
@@ -367,5 +369,180 @@ describe("SalePanel · cierre de turno", () => {
     await openShift();
     expect((screen.getByTestId("close-shift-button") as HTMLButtonElement).disabled).toBe(true);
     expect(calls.get("cash.shift.close")).toBeUndefined();
+  });
+});
+
+describe("SalePanel · transferencia", () => {
+  beforeEach(() => { calls.clear(); chime.mockClear(); });
+
+  const PAYMENT = "77777777-7777-4777-8777-777777777777";
+
+  const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
+
+  const fetched = (version: number, status = "REPORTED") => succeeded({
+    outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
+    method: "TRANSFER", status, expected_amount: "3500.000000",
+    confirmed_amount: null, currency_code: "COP", version,
+  });
+
+  const confirmed = (outcome: string, saleCompleted: boolean) => succeeded({
+    outcome, payment_id: PAYMENT, sale_completed: saleCompleted,
+    confirmed_coverage: saleCompleted ? "3500.000000" : "1000.000000",
+    payable_amount: "3500.000000",
+  });
+
+  const rejected = (outcome: string) => ({
+    status: "REJECTED", result_code: outcome,
+    result: {
+      outcome, payment_id: null, sale_completed: false,
+      confirmed_coverage: null, payable_amount: null,
+    },
+  });
+
+  async function reachSale(overrides: Record<string, unknown>): Promise<void> {
+    install({ ...BASE_OVERRIDES, ...overrides });
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+  }
+
+  async function registerTransfer(): Promise<void> {
+    fireEvent.click(screen.getByTestId("register-transfer-button"));
+    await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
+  }
+
+  it("registra la transferencia y toma la versión real de payment.get", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(3),
+    });
+    await registerTransfer();
+
+    const reg = calls.get("payment.register.transfer")![0] as { payload: Record<string, unknown> };
+    expect(PaymentRegisterTransferRequestSchema.safeParse(reg).success).toBe(true);
+    expect(reg.payload["sale_id"]).toBe(SALE);
+    expect(reg.payload["amount"]).toBe("3500.000000");
+    // El contrato los admite nulos; la pantalla no inventa datos del comprobante.
+    expect(reg.payload["provider_code"]).toBeNull();
+    expect(reg.payload["provider_reference"]).toBeNull();
+
+    // payment.get se consulta de verdad: es la única fuente de la versión.
+    expect(calls.get("payment.get")).toHaveLength(1);
+    expect(screen.getByTestId("transfer-status").textContent).toBe("REPORTED");
+    expect(screen.getByTestId("transfer-expected-amount").textContent).toBe("3500.000000");
+  });
+
+  it("registrar NO es cobrar: no suena, no completa y queda pendiente", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(1),
+    });
+    await registerTransfer();
+
+    expect(chime).not.toHaveBeenCalled();
+    expect(screen.getByTestId("transfer-pending")).toBeTruthy();
+    expect(screen.queryByTestId("transfer-sale-completed")).toBeNull();
+    expect(calls.get("payment.transfer.confirm")).toBeUndefined();
+  });
+
+  it("un registro IDEMPOTENT tampoco suena, y su versión también sale de payment.get", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("IDEMPOTENT"),
+      "payment.get": fetched(9),
+    });
+    await registerTransfer();
+
+    expect(chime).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await waitFor(() => { expect(calls.get("payment.transfer.confirm")).toHaveLength(1); });
+    const conf = calls.get("payment.transfer.confirm")![0] as { payload: Record<string, unknown> };
+    // 9, no 1: la versión del pago que ya existía.
+    expect(conf.payload["expected_version"]).toBe(9);
+  });
+
+  it("confirmar con CONFIRMED y venta completada suena exactamente una vez", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(4),
+      "payment.transfer.confirm": confirmed("CONFIRMED", true),
+    });
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await waitFor(() => { expect(screen.getByTestId("transfer-sale-completed")).toBeTruthy(); });
+
+    const conf = calls.get("payment.transfer.confirm")![0] as { payload: Record<string, unknown> };
+    expect(PaymentTransferConfirmRequestSchema.safeParse(conf).success).toBe(true);
+    expect(conf.payload["payment_id"]).toBe(PAYMENT);
+    expect(conf.payload["expected_version"]).toBe(4);
+    // La cobertura viene del servicio, no de la pantalla.
+    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toBe("3500.000000");
+    expect(chime).toHaveBeenCalledTimes(1);
+  });
+
+  it("CONFIRMED sin completar la venta NO suena", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(1),
+      "payment.transfer.confirm": confirmed("CONFIRMED", false),
+    });
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await waitFor(() => { expect(screen.getByTestId("transfer-partial")).toBeTruthy(); });
+    // Cobertura parcial: el dinero entró, la venta no está cobrada.
+    expect(chime).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("transfer-sale-completed")).toBeNull();
+  });
+
+  it("un IDEMPOTENT en la confirmación no vuelve a sonar", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(2),
+      "payment.transfer.confirm": confirmed("IDEMPOTENT", true),
+    });
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await waitFor(() => { expect(screen.getByTestId("transfer-sale-completed")).toBeTruthy(); });
+    // `sale_completed` es cierto, pero el resultado no es CONFIRMED: `DEC-016`
+    // §13.3 impide que un reintento vuelva a sonar.
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it("VERSION_CONFLICT se muestra con su código y no suena", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(1),
+      "payment.transfer.confirm": rejected("VERSION_CONFLICT"),
+    });
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await waitFor(() => { expect(screen.getByTestId("sale-error").textContent).toBe("VERSION_CONFLICT"); });
+    expect(chime).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("transfer-sale-completed")).toBeNull();
+  });
+
+  it("PAYMENT_NOT_CONFIRMABLE se muestra con su código y no suena", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(1),
+      "payment.transfer.confirm": rejected("PAYMENT_NOT_CONFIRMABLE"),
+    });
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("sale-error").textContent).toBe("PAYMENT_NOT_CONFIRMABLE");
+    });
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it("no hay confirmación posible sin transferencia registrada", async () => {
+    await reachSale({});
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
+    expect(calls.get("payment.transfer.confirm")).toBeUndefined();
   });
 });

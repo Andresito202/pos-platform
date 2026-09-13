@@ -86,6 +86,9 @@ const PERMISSIONS = [
   "PAYMENTS_PAYMENT_REGISTER",
   "SALES_RECEIPT_READ",
   "CASH_SHIFT_CLOSE",
+  "PAYMENTS_TRANSFER_REPORT",
+  "PAYMENTS_TRANSFER_CONFIRM",
+  "PAYMENTS_PAYMENT_READ",
 ];
 
 const directories: string[] = [];
@@ -1103,6 +1106,91 @@ describe("el turno se cierra por el canal real y libera la caja", () => {
       // Cerrar sobre un estado que ya no existe es peor que no cerrar: el
       // servicio lo rechaza en vez de arquear contra una fila obsoleta.
       expect(wrong.result["outcome"]).toBe("VERSION_CONFLICT");
+    });
+  }, 30_000);
+});
+
+describe("la transferencia recorre reportar → leer versión → atestiguar", () => {
+  it("registrar no cobra; confirmar sí, y la venta se completa", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "transf");
+      const sale = await createSale(send, ids, "2.000000", "transf:sale");
+
+      const registered = await send(mutating("payment.register.transfer", {
+        sale_id: sale.saleId,
+        amount: sale.payable,
+        provider_code: null,
+        provider_reference: null,
+      }, "transf:report"));
+
+      expect(registered.result["outcome"]).toBe("REGISTERED");
+      const paymentId = registered.result["payment_id"] as string;
+      // El contrato de registro **no** devuelve versión: es el hecho que obliga
+      // a consultar el pago antes de confirmar.
+      expect(registered.result).not.toHaveProperty("version");
+
+      // Reportar no es cobrar: la venta sigue abierta y la mercancía no sale.
+      expect((database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+        .get(sale.saleId) as { status: string }).status).not.toBe("COMPLETED");
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
+
+      const fetched = await send(reading("payment.get", { payment_id: paymentId }));
+      expect(fetched.result["outcome"]).toBe("FOUND");
+      const version = fetched.result["version"] as number;
+      expect(typeof version).toBe("number");
+      // El importe reportado es el que se pidió, leído del estado persistido.
+      expect(fetched.result["expected_amount"]).toBe(sale.payable);
+      // Todavía sin confirmar: lo confirmado es **cero**, no nulo. El pago
+      // existe y su cobertura es ninguna, que no es lo mismo que «no se sabe».
+      expect(fetched.result["confirmed_amount"]).toBe("0.000000");
+      expect(fetched.result["status"]).not.toBe("CONFIRMED");
+
+      const confirmed = await send(mutating("payment.transfer.confirm", {
+        payment_id: paymentId,
+        expected_version: version,
+      }, "transf:confirm"));
+
+      expect(confirmed.result["outcome"]).toBe("CONFIRMED");
+      expect(confirmed.result["sale_completed"]).toBe(true);
+      expect(confirmed.result["confirmed_coverage"]).toBe(sale.payable);
+      expect(confirmed.result["payable_amount"]).toBe(sale.payable);
+
+      // Estado real tras la atestiguación.
+      expect((database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+        .get(sale.saleId) as { status: string }).status).toBe("COMPLETED");
+      const row = database.native.prepare(
+        "SELECT payment_method, status, confirmed_amount FROM payments_payments WHERE id=?",
+      ).get(paymentId) as { payment_method: string; status: string; confirmed_amount: string };
+      expect(row.payment_method).toBe("TRANSFER");
+      expect(row.status).toBe("CONFIRMED");
+      expect(row.confirmed_amount).toBe(sale.payable);
+      // Y ahora sí sale la mercancía: 12 − 2.
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+      expect(paymentsOf(database, sale.saleId)).toBe(1);
+    });
+  }, 30_000);
+
+  it("confirmar con una versión obsoleta se rechaza y no cobra nada", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "transfv");
+      const sale = await createSale(send, ids, "2.000000", "transfv:sale");
+
+      const registered = await send(mutating("payment.register.transfer", {
+        sale_id: sale.saleId, amount: sale.payable,
+        provider_code: null, provider_reference: null,
+      }, "transfv:report"));
+      const paymentId = registered.result["payment_id"] as string;
+
+      const wrong = await send(mutating("payment.transfer.confirm", {
+        payment_id: paymentId, expected_version: 99,
+      }, "transfv:confirm"));
+
+      // Suponer la versión desde la interfaz acabaría exactamente aquí.
+      expect(wrong.result["outcome"]).toBe("VERSION_CONFLICT");
+      expect(wrong.result["sale_completed"]).toBe(false);
+      expect((database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+        .get(sale.saleId) as { status: string }).status).not.toBe("COMPLETED");
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
     });
   }, 30_000);
 });

@@ -132,6 +132,18 @@ export function SalePanel(): React.JSX.Element {
           >
             Cobrar en efectivo
           </button>
+          {/* Reportar la transferencia y atestiguarla son dos actos distintos,
+              con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
+              pantalla no los funde en un botón: el cajero recibe el comprobante
+              y alguien da el dinero por bueno, que no tiene por qué ser el
+              mismo. */}
+          <button
+            data-testid="register-transfer-button"
+            onClick={() => { void sale.registerTransfer(); }}
+            disabled={sale.busy || sale.transfer !== null}
+          >
+            Transferencia
+          </button>
         </div>
       )}
 
@@ -145,6 +157,42 @@ export function SalePanel(): React.JSX.Element {
             Pago registrado ({sale.payment.outcome}) · cobertura{" "}
             <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span>
             {" "}· la venta aún no está cobrada
+          </div>
+        )
+      )}
+
+      {sale.transfer !== null && (
+        <div data-testid="transfer-registered">
+          Transferencia registrada · pago{" "}
+          <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span>
+          {" · estado "}
+          <span data-testid="transfer-status">{sale.transfer.status}</span>
+          {" · reportado "}
+          <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
+          {/* Registrada NO es cobrada: mientras nadie atestigüe, la venta sigue
+              sin completarse y no suena nada. */}
+          <div data-testid="transfer-pending">Pendiente de confirmación</div>
+          <button
+            data-testid="confirm-transfer-button"
+            onClick={() => { void sale.confirmTransfer(); }}
+            disabled={sale.busy}
+          >
+            Confirmar transferencia
+          </button>
+        </div>
+      )}
+
+      {sale.transferConfirmation !== null && (
+        sale.transferConfirmation.sale_completed ? (
+          <div data-testid="transfer-sale-completed">
+            Venta cobrada por transferencia · cobertura{" "}
+            <span data-testid="transfer-confirmed-coverage">
+              {sale.transferConfirmation.confirmed_coverage}
+            </span>
+          </div>
+        ) : (
+          <div data-testid="transfer-partial">
+            Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada
           </div>
         )
       )}

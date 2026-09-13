@@ -379,4 +379,54 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // lo que convierte el POS en usable mas alla del primer dia.
   await expect(page.getByTestId("shift-closed")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("shift-open").count()).toBe(0);
+
+});
+
+/**
+ * El cobro por transferencia, entero y por la cadena real.
+ *
+ * Reportar y atestiguar son dos actos con dos permisos distintos, y la pantalla
+ * los mantiene separados: entre uno y otro la venta sigue sin cobrarse. Se
+ * comprueba aqui contra el servicio real, no contra un doble.
+ */
+test("un cajero cobra por transferencia: reportar, leer version y atestiguar", async () => {
+  const page = await app.firstWindow();
+
+  // Turno nuevo sobre la misma caja, que el cierre anterior libero.
+  await page.getByTestId("reset-button").click();
+  await page.getByTestId("cash-register-input").fill(REGISTER);
+  await page.getByTestId("opening-amount-input").fill("0");
+  await page.getByTestId("open-shift-button").click();
+  await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
+
+  await page.getByTestId("barcode-input").fill(BARCODE);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("1");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+
+  // 1 · Reportar la transferencia.
+  await page.getByTestId("register-transfer-button").click();
+  await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
+
+  // Reportar no es cobrar: queda pendiente y la venta no se declara cobrada.
+  await expect(page.getByTestId("transfer-pending")).toBeVisible();
+  expect(await page.getByTestId("transfer-sale-completed").count()).toBe(0);
+  expect(await page.getByTestId("sale-completed").count()).toBe(0);
+
+  // El estado y el importe salen de `payment.get` contra el servicio real.
+  expect(await page.getByTestId("transfer-status").textContent()).not.toBe("CONFIRMED");
+  const payable = await page.getByTestId("payable-amount").textContent();
+  expect(await page.getByTestId("transfer-expected-amount").textContent()).toBe(payable);
+
+  // 2 · Atestiguar, que es el unico acto que puede completar la venta.
+  await page.getByTestId("confirm-transfer-button").click();
+  await expect(page.getByTestId("transfer-sale-completed")).toBeVisible({ timeout: 15_000 });
+
+  // La cobertura la emite el servicio; la pantalla la muestra.
+  expect(await page.getByTestId("transfer-confirmed-coverage").textContent()).toBe(payable);
+  expect(await page.getByTestId("transfer-partial").count()).toBe(0);
+  expect(await page.getByTestId("sale-error").count()).toBe(0);
 });
