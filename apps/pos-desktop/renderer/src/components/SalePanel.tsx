@@ -104,6 +104,9 @@ export function SalePanel(): React.JSX.Element {
       {sale.sale !== null && (
         <div data-testid="sale-created">
           Total a pagar: <span data-testid="payable-amount">{sale.sale.payableAmount}</span>
+          {/* El identificador se muestra porque el cajero lo necesita para pedir
+              el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
+          {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
           <button
             data-testid="charge-cash-button"
             onClick={() => { void sale.chargeCash(); }}

@@ -252,4 +252,108 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     return (stock as { result: { quantity_on_hand: string } }).result.quantity_on_hand;
   }, prepared.presentationId);
   expect(remaining).toBe("10.000000");
+
+  // ── 6 · El recibo, en la misma sesión y en la misma pantalla ───────────────
+  //
+  // Va dentro de este recorrido y no en una prueba aparte **a propósito**: el
+  // vínculo de sesión vive en el servidor por `connectionId`, de modo que otra
+  // prueba no lo hereda, y reactivar sobre una conexión ya vinculada se rechaza
+  // —correctamente: una conexión tiene una sesión, no dos—. Un cajero tampoco
+  // cambia de sesión para mirar lo que acaba de vender.
+
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // La verdad contra la que se contrasta la pantalla: lo que el canal real
+  // devuelve para esa misma venta.
+  //
+  // El contraste contra SQLite vive donde puede hacerse de verdad —
+  // `channel-commercial-vertical.test.ts`, en el propio servicio, compara la
+  // respuesta del canal con las filas carácter a carácter—. Aquí no se puede:
+  // `LocalDatabase.open` toma el lock de escritor y el servicio lo tiene
+  // (`SQLite writer already active`), que es un mecanismo de producción
+  // haciendo su trabajo. Encadenados, ambos ficheros acreditan pantalla ==
+  // SQLite, y cada eslabón se prueba donde es honesto probarlo.
+  const truth = await page.evaluate(async (id) => {
+    const posService = (globalThis as unknown as {
+      posService: Record<string, (request: unknown) => Promise<unknown>>;
+    }).posService;
+    const response = await posService["sales.receipt.get"]!({
+      protocol_version: "1.0.0",
+      message_type: "sales.receipt.get",
+      request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(),
+      payload_schema_version: "1.0.0",
+      payload: { sale_id: id },
+    });
+    return (response as { result: Record<string, unknown> }).result;
+  }, saleId);
+  expect(truth["outcome"]).toBe("FOUND");
+
+  // A partir de aquí, sólo la interfaz: es lo que hace el cajero cuando el
+  // cliente vuelve con una duda.
+  await page.getByTestId("receipt-sale-id-input").fill(saleId);
+  await page.getByTestId("receipt-load-button").click();
+  await expect(page.getByTestId("receipt")).toBeVisible({ timeout: 15_000 });
+
+  expect(await page.getByTestId("receipt-sale-id").textContent()).toBe(saleId);
+  expect(await page.getByTestId("receipt-document").textContent())
+    .toBe(`${String(truth["document_series"])}-${String(truth["sale_number"])}`);
+  expect(await page.getByTestId("receipt-business-date").textContent()).toBe(truth["business_date"]);
+  expect(await page.getByTestId("receipt-subtotal").textContent()).toBe(truth["subtotal_amount"]);
+  expect(await page.getByTestId("receipt-discount").textContent()).toBe(truth["discount_amount"]);
+  expect(await page.getByTestId("receipt-tax").textContent()).toBe(truth["tax_amount"]);
+  expect(await page.getByTestId("receipt-rounding").textContent())
+    .toBe(truth["commercial_rounding_adjustment"]);
+  expect(await page.getByTestId("receipt-payable").textContent()).toBe(truth["payable_amount"]);
+  expect(await page.getByTestId("receipt-currency").textContent()).toBe(truth["currency_code"]);
+
+  // Las líneas llegan completas a la pantalla, no resumidas.
+  const receiptLines = truth["lines"] as Array<Record<string, unknown>>;
+  expect(await page.getByTestId("receipt-line").count()).toBe(receiptLines.length);
+  expect(await page.getByTestId("receipt-line-name").first().textContent())
+    .toBe(receiptLines[0]!["product_name"]);
+  expect(await page.getByTestId("receipt-line-presentation").first().textContent())
+    .toBe(receiptLines[0]!["presentation_name"]);
+  expect(await page.getByTestId("receipt-line-quantity").first().textContent())
+    .toBe(receiptLines[0]!["quantity"]);
+  expect(await page.getByTestId("receipt-line-unit-price").first().textContent())
+    .toBe(receiptLines[0]!["unit_price_amount"]);
+  expect(await page.getByTestId("receipt-line-total").first().textContent())
+    .toBe(receiptLines[0]!["line_total_amount"]);
+
+  // Y los cobros: importe y cambio, que es lo que el cliente revisa.
+  const receiptPayments = truth["payments"] as Array<Record<string, unknown>>;
+  expect(await page.getByTestId("receipt-payment").count()).toBe(receiptPayments.length);
+  expect(await page.getByTestId("receipt-payment-method").first().textContent())
+    .toBe(receiptPayments[0]!["payment_method"]);
+  expect(await page.getByTestId("receipt-payment-amount").first().textContent())
+    .toBe(receiptPayments[0]!["confirmed_amount"]);
+
+  // ── 7 · Los dos desenlaces que no son un recibo ────────────────────────────
+
+  await page.getByTestId("receipt-sale-id-input").fill("018f0000-0000-7000-8000-0000000000fc");
+  await page.getByTestId("receipt-load-button").click();
+  await expect(page.getByTestId("receipt-not-found")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("receipt").count()).toBe(0);
+  expect(await page.getByTestId("receipt-not-completed").count()).toBe(0);
+
+  // Una venta nueva y sin cobrar existe, y por eso no puede anunciarse como
+  // inexistente: el cajero la tiene delante y lo que debe hacer es cobrarla.
+  await page.getByTestId("reset-button").click();
+  await page.getByTestId("barcode-input").fill(BARCODE);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("1");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+
+  const pendingSale = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  expect(pendingSale).not.toBe(saleId);
+  await page.getByTestId("receipt-sale-id-input").fill(pendingSale);
+  await page.getByTestId("receipt-load-button").click();
+  await expect(page.getByTestId("receipt-not-completed")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("receipt-not-found").count()).toBe(0);
+  expect(await page.getByTestId("receipt").count()).toBe(0);
 });

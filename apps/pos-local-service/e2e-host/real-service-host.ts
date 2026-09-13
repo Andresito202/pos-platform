@@ -65,6 +65,7 @@ const PERMISSIONS = [
   "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
+  "SALES_RECEIPT_READ",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");
