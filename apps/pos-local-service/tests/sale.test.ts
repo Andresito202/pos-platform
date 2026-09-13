@@ -676,7 +676,7 @@ describe("calculateSaleLine — impuesto", () => {
   });
 });
 
-describe("venta con impuesto — extremo a extremo", () => {
+describe("venta con impuesto — caso de uso contra SQLite", () => {
   it("congela la tasa aplicada en el snapshot de la línea", async () => {
     const dir = await directory();
     const database = openTracked(dir);

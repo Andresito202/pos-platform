@@ -24,9 +24,11 @@ import { fileURLToPath } from "node:url";
  * que en producción resuelven DPAPI y el emisor central—. Cliente, socket, MAC,
  * anti-replay, handler comercial y base de datos son los de producción.
  *
- * Corre sobre socket POSIX, así que **se ejecuta en Linux**. El named pipe de
- * Windows, su DACL y la identidad del proceso cliente siguen siendo
- * `REQUIRES_LOCAL_VERIFICATION`.
+ * Corre sobre socket POSIX, así que **se ejecuta en Linux**. El named pipe y su
+ * DACL están cubiertos aparte —`channel.test.ts` bajo `windowsIt`, que CI
+ * ejecuta en `windows-2022`—; lo que sigue siendo `REQUIRES_LOCAL_VERIFICATION`
+ * es **la identidad del proceso cliente**, que aún no existe en ninguna
+ * plataforma.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));

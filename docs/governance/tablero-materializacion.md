@@ -336,7 +336,7 @@ nuestro, no de FACTUS**, y hoy es la ausencia de llamada.
 | # | Capacidad | Peldaño | Evidencia |
 |---|---|---|---|
 | D1 | PostgreSQL migrations 001 / 002 / 003 | `TESTED` | job de CI con PostgreSQL 16.14; `NOT_EVALUATED` en contenedor sin instancia |
-| D2 | Aplicación central que use el esquema | — | `packages/database-postgres/src` **vacío** (`D-4`) |
+| D2 | Aplicación central que use el esquema | — | `packages/database-postgres` **no tiene `src`**: sólo `package.json` y `project.json` (`D-4`) |
 | D3 | API central | `DOCUMENTED` | — |
 | D4 | Transporte saliente local → central | `DOCUMENTED` | **cero cliente HTTP** en `src/sync/` |
 | D5 | Ingesta central y reconciliación | `DOCUMENTED` | — |
@@ -355,7 +355,7 @@ dispositivo**.
 | E1 | Validación TARGET (5 jobs) | `RUNTIME_VERIFIED` | ejecuta en cada PR |
 | E2 | CodeQL SAST | `RUNTIME_VERIFIED` | `success` en el run de #73 |
 | E3 | SBOM · licencias · vulnerabilidades · provenance | `RUNTIME_VERIFIED` | `success` en el run de #73 sobre `b6f0036`, provenance incluida |
-| E4 | Gobernanza de merge de `main` | `IMPLEMENTED` | `skipped` en PR: sólo corre en push a `main`; `NOT_EVALUATED` |
+| E4 | Gobernanza de merge de `main` | `RUNTIME_VERIFIED` | job «Main push governance» `success` en `da23b29`; `skipped` en PR por diseño |
 | E5 | Boundaries ARCH-003 + `frozenSourceAreas` | `RUNTIME_VERIFIED` | `pnpm architecture:check` PASS |
 | E6 | Strix (pentest con IA) | `IMPLEMENTED` | **nunca ha ejecutado un pentest** |
 | E7 | E2E Playwright | `RUNTIME_VERIFIED` | `boot.spec.ts`, 5 specs con Electron real · **ejecutados en CI**, run #469 sobre `da23b29` `success` |
@@ -370,6 +370,13 @@ escribió no protege la rama. Hoy el workflow tiene dos pasos —«Build the POS
 desktop shell» y «Validate that the POS desktop really boots»— sin
 `continue-on-error`, y el run #469 sobre `da23b29` terminó en `success`: si
 Electron dejara de arrancar, `main` se pondría en rojo.
+
+**E4 sube a `RUNTIME_VERIFIED`, y la nota anterior estaba envejecida.** Decía
+`NOT_EVALUATED` porque en una PR el job aparece `skipped` —sólo corre en push a
+`main`—, y de ahí se concluyó que nunca se había observado. Sí se observó: el
+push de `da23b29` lo ejecutó, y el paso «Verify main push comes from a merged
+PR» terminó en `success`. La gobernanza de merge no es una intención: está
+comprobada sobre el commit que hoy es `main`.
 
 **E6 sigue sin subir.** Sin `STRIX_LLM` ni `LLM_API_KEY` emite
 `::warning title=Strix penetration test NOT RUN::` y termina en verde. Un job
@@ -392,9 +399,9 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | `PRODUCTION` | **0** | — |
 | `END_TO_END` | **0** | — |
 | `CALLER_REACHABLE` | **0** | — |
-| `RUNTIME_VERIFIED` | **25** | A1 A2 A4 A5 A6 A7 A8 A9 A10 A11 A12 · B1 B2 B3 B4 B5 B6 B7 B9 B10 · E1 E2 E3 E5 E7 |
+| `RUNTIME_VERIFIED` | **26** | A1 A2 A4 A5 A6 A7 A8 A9 A10 A11 A12 · B1 B2 B3 B4 B5 B6 B7 B9 B10 · E1 E2 E3 E4 E5 E7 |
 | `TESTED` | **15** | A3 A13 A14 · C1..C11 · D1 |
-| `IMPLEMENTED` | **3** | C14 · E4 E6 |
+| `IMPLEMENTED` | **2** | C14 · E6 |
 | `DOCUMENTED` | **12** | B8 B11 B12 · C12 C13 C15 · D3 D4 D5 D6 · E8 E9 |
 | — (nada) | **1** | D2 |
 | **Total** | **56** | las 56 filas aparecen una sola vez; recuento verificado parseando el fichero |
@@ -425,6 +432,7 @@ verdad es esto:
 | B5 | `IMPLEMENTED` | `RUNTIME_VERIFIED` | X-1 cerrado: la venta canónica ya se puede cobrar |
 | B6 B7 B10 | `IMPLEMENTED` | `RUNTIME_VERIFIED` | las nueve operaciones antes rotas ya obtienen respuesta válida |
 | E7 | `DOCUMENTED` | `RUNTIME_VERIFIED` | `boot.spec.ts`, 5 specs · y desde #74 los ejecuta CI |
+| E4 | `IMPLEMENTED` | `RUNTIME_VERIFIED` | el push de `da23b29` ejecutó el job y pasó |
 
 **B1 y B4 no se mueven**: ya estaban en `RUNTIME_VERIFIED` y la evidencia nueva
 no las saca de ahí. **B2 y B3 tampoco**, por las operaciones que les faltan.
@@ -503,5 +511,6 @@ recibo, y cliente HTTP hacia el backend central.
 | 2026-09-07 | 62 % | catálogo real · `MIGRATION_014` · `SandboxCatalogStore` eliminado · 989 pruebas |
 | 2026-09-08 | 63 % | inventario · `MIGRATION_015` · descuento en la transacción que completa la venta · 1021 pruebas |
 | 2026-09-12 | **sin porcentaje** | **cambio de gobernanza**, medido contra `02b89bb`. Se retira `CANONICALLY_APPLIED` y se retira el global. Las 35 filas que lo declaraban se recalculan contra siete peldaños con evidencia separada; **ninguna alcanzaba `CALLER_REACHABLE`**. Se corrige la etiqueta de A1 (`001..011` → `001..015`) y el error aritmético del bloque B (decía 740 / 62 %; la suma real de sus propias filas era 810 / 68 %) |
+| 2026-09-13 | **sin porcentaje** | **barrido de afirmaciones**. E4 sube a `RUNTIME_VERIFIED`: el job «Main push governance» se ejecutó en el push de `da23b29` y pasó; la nota que lo daba por `NOT_EVALUATED` confundía «`skipped` en PR» con «nunca observado». Se corrige la evidencia de D2. Recuento: `RUNTIME_VERIFIED` **26**, `IMPLEMENTED` **2** |
 | 2026-09-12 | **sin porcentaje** | **segunda corrección de gobernanza**, sobre el árbol `da23b29`. `CALLER_REACHABLE` pasa de **7 a 0**: las siete filas se apoyaban en `channel-commercial-transport.test.ts`, cuyo servidor atiende con un cierre de la propia prueba. Verificado que **ningún** fichero de prueba de `main` que construya `LocalChannelServer` menciona `CommercialRequestHandler` ni `CommercialComponent`. Bajan a `RUNTIME_VERIFIED`, que con E7 suma **25 filas**. Se añade a la escalera y a la regla 5 el filo que faltaba: **un socket no es evidencia si detrás hay un doble** |
 | 2026-09-12 | **sin porcentaje** | **merge de la PR #73** (`2e74410`, segundo padre `b6f0036`). X-1 y X-2 dejan de estar vivos en `main`. Reevaluado contra el árbol nuevo, **siete filas alcanzan `CALLER_REACHABLE`** —A9, B1, B4, B5, B6, B7, B10—, A11 sube a `RUNTIME_VERIFIED` y E7 a `TESTED`. Tres más de las cuatro proyectadas: la proyección sólo miró las filas que X-2 rompía, y #73 además aportó la prueba que recorre la vertical por el socket |

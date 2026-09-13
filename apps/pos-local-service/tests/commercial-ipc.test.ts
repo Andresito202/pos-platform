@@ -571,7 +571,7 @@ describe("session.recover — rehidratación desde la SSA durable", () => {
 
 // ── Flujo completo ───────────────────────────────────────────────────────────
 
-describe("flujo comercial extremo a extremo", () => {
+describe("flujo comercial sobre el handler real — sin transporte", () => {
   it("activate → cash.shift.open → sale.create sobre la misma conexión", async () => {
     const { handler, database } = await buildEnv();
     seedAuthorization(database);

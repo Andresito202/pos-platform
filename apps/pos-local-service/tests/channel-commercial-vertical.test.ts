@@ -43,8 +43,10 @@ import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-p
  * real detrás, puenteados **igual que lo hace `local-channel-component.ts`**.
  *
  * Corre sobre socket POSIX —`localChannelEndpoint` lo admite con directorio de
- * prueba—, así que **se ejecuta en Linux**. El named pipe de Windows y su DACL
- * siguen siendo `REQUIRES_LOCAL_VERIFICATION`.
+ * prueba—, así que **se ejecuta en Linux**. El named pipe y su DACL tienen
+ * cobertura propia en `channel.test.ts`, que CI ejecuta en `windows-2022`; lo
+ * que sigue siendo `REQUIRES_LOCAL_VERIFICATION` es **la identidad del proceso
+ * cliente**.
  *
  * TODO EL MATERIAL CRIPTOGRÁFICO DE ESTE ARCHIVO ES EXCLUSIVO DE TEST: se
  * genera en memoria, no se persiste y no sustituye a un trust anchor real.

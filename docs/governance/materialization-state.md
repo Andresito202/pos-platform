@@ -45,7 +45,7 @@ separados —`RUNTIME_VERIFIED`, `CALLER_REACHABLE`, `END_TO_END`—, cada uno c
 propia evidencia. **Una `X` en la columna `CANON` de este documento no autoriza a
 decir que la capacidad es alcanzable.**
 
-## Estado verificado sobre `f9987f2` (2026-09-06)
+## Estado verificado sobre `da23b29` + rama `feat/peer-identity-real-channel` (2026-09-13)
 
 > El **tablero** —bloques, capacidades y escalera de peldaños— vive en
 > [`tablero-materializacion.md`](./tablero-materializacion.md). Aquel documento
@@ -54,16 +54,47 @@ decir que la capacidad es alcanzable.**
 > 2026-09-12 publica un recuento de filas por peldaño. **Ninguno reemplaza al
 > otro y ninguno puede contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-08: **1021 pruebas pasan, 6 omitidas, 0 fallos** en 9
-> proyectos. `pnpm typecheck` PASS · `pnpm architecture:check` PASS ·
-> `pnpm ci:repository-policy` PASS (513 archivos).
+> Censo del 2026-09-13: **1154 pruebas pasan** en **10** proyectos, con **6
+> omitidas por entorno**. `pnpm typecheck` PASS · `pnpm architecture:check`
+> PASS · `pnpm ci:repository-policy` PASS (**546 archivos**).
 >
+> Medido sobre la rama `feat/peer-identity-real-channel` a partir de `da23b29`.
+> La rama aporta 13 de esas pruebas —7 de la vertical por el canal y 6 de
+> normalización a escala 6—, de modo que en `da23b29` puro son **1141**.
+>
+> El décimo proyecto es `@pos-platform/local-channel`, que existe desde #73.
+>
+> Las 6 omitidas son omisiones **legítimas y declaradas**: 2 del sandbox de
+> FACTUS, que `describe.skipIf` salta sin credencial, y 4 marcadas `windowsIt`,
+> que no corren en Linux y **sí corren en CI sobre `windows-2022`**.
+
+> **Aviso de lectura — la línea `Tests` de vitest no dice toda la verdad.**
+>
+> `pnpm --filter @pos-platform/target-migrations test` imprime:
+>
+> ```
+>  Test Files  7 failed | 4 passed (11)
+>       Tests  65 passed | 147 skipped (212)
+> ```
+>
+> Los siete ficheros **fallan** en `beforeAll` con
+> `ECONNREFUSED 127.0.0.1:55432`, y vitest contabiliza sus pruebas como
+> *omitidas*. La línea `Tests` **no menciona un solo fallo**.
+>
+> Quien cite «N pruebas, 0 fallos» leyendo sólo esa línea estará citando una
+> línea que esconde siete ficheros rojos. **Para declarar un censo hay que leer
+> también `Test Files`.** Esas 147 no se cuentan entre las 6 omitidas de arriba:
+> son `pnpm test:migrations:postgres`, que sigue **`REQUIRES_LOCAL_VERIFICATION`**
+> en este contenedor y **sí se ejecuta en CI** contra PostgreSQL 16.14 —paso
+> «Validate PostgreSQL migrations 001/002/003 including physical runner»,
+> `success` en `da23b29`—.
+
 > El desglose por proyecto y comando vive en el
 > [tablero](./tablero-materializacion.md); **esta cabecera no lo duplica**,
-> porque duplicar una cifra es garantizar que una de las dos copias envejezca —
-> pasó con esta misma línea, que decía 915 cuando ya iban 964.
-> `pnpm test:migrations:postgres` **`NOT_EVALUATED`**: exige una instancia
-> PostgreSQL que el entorno de verificación no tiene.
+> porque duplicar una cifra es garantizar que una de las dos copias envejezca.
+> Ya pasó dos veces con esta misma línea: decía 915 cuando ya iban 964, y decía
+> 1021 cuando ya iban 1154. La segunda vez la detectó un barrido, no el propio
+> proceso de actualización.
 
 ### Núcleo comercial local
 
