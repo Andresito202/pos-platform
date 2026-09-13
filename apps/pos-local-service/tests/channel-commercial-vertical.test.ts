@@ -20,6 +20,7 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
+import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
 
@@ -65,6 +66,12 @@ const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
 const REGISTER = "018f0000-0000-7000-8000-00000000aa01";
 const SESSION_KEY_ID = "SESSION_KEY_1";
 const BARCODE = "7701234567890";
+
+/** El alcance con el que el servicio lee: el mismo que usa la sesión activa. */
+const SCOPE = {
+  tenantId: TENANT, companyId: COMPANY, branchId: BRANCH,
+  deviceId: DEVICE, installationId: INSTALLATION,
+};
 
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 const clock = { now: () => NOW };
@@ -790,6 +797,121 @@ describe("la vertical resiste el uso real: ventas seguidas, reintentos y saldos"
         "SELECT COUNT(*) n FROM inventory_movement WHERE presentation_id=? AND movement_type='SALE'",
         ids.presentationId,
       )).toBe(1);
+    });
+  }, 30_000);
+});
+
+describe("el recibo proyecta la venta cobrada sin inventar nada", () => {
+  it("una venta real produce un recibo que coincide con lo que quedó escrito", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "recibo");
+      const sale = await createSale(send, ids, "2.000000", "recibo:sale");
+
+      const receipts = new SqliteReceiptStore(database);
+
+      // Antes de cobrar no hay recibo: entregar un comprobante de algo que no
+      // ha ocurrido es peor que no entregar nada.
+      expect(receipts.getReceipt(SCOPE, sale.saleId)).toBeNull();
+      expect(receipts.saleExists(SCOPE, sale.saleId)).toBe(true);
+
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: "40000.000000",
+      }, "recibo:pay"));
+
+      const receipt = receipts.getReceipt(SCOPE, sale.saleId);
+      expect(receipt).not.toBeNull();
+      if (receipt === null) return;
+
+      // El recibo no recalcula: cada cifra tiene que ser, carácter a carácter,
+      // la que la venta dejó en SQLite. Se compara contra la fila, no contra
+      // un número escrito a mano en la prueba.
+      const row = database.native.prepare(
+        `SELECT document_series, sale_number, currency_code, business_date, completed_at,
+                subtotal_amount, discount_amount, tax_amount, fiscal_total_amount,
+                commercial_rounding_adjustment, payable_amount, calculation_checksum
+           FROM sales_sales WHERE id = ?`,
+      ).get(sale.saleId) as Record<string, string | number>;
+
+      expect(receipt.documentSeries).toBe(row["document_series"]);
+      expect(receipt.saleNumber).toBe(row["sale_number"]);
+      expect(receipt.currencyCode).toBe(row["currency_code"]);
+      expect(receipt.businessDate).toBe(row["business_date"]);
+      expect(receipt.completedAt).toBe(row["completed_at"]);
+      expect(receipt.subtotalAmount).toBe(row["subtotal_amount"]);
+      expect(receipt.discountAmount).toBe(row["discount_amount"]);
+      expect(receipt.taxAmount).toBe(row["tax_amount"]);
+      expect(receipt.fiscalTotalAmount).toBe(row["fiscal_total_amount"]);
+      expect(receipt.commercialRoundingAdjustment).toBe(row["commercial_rounding_adjustment"]);
+      expect(receipt.payableAmount).toBe(row["payable_amount"]);
+      expect(receipt.calculationChecksum).toBe(row["calculation_checksum"]);
+      expect(receipt.payableAmount).toBe(sale.payable);
+
+      // La línea lleva los nombres congelados, no los actuales del catálogo.
+      expect(receipt.lines).toHaveLength(1);
+      const line = receipt.lines[0]!;
+      expect(line.lineNumber).toBe(1);
+      expect(line.productName).toBe("Café Americano 500 g");
+      expect(line.presentationName).toBe("Bolsa 500 g");
+      // `identifier_snapshot` viene **nulo**, y no porque el producto no tenga
+      // código de barras: `create-sale-use-case.ts:354` escribe `null` fijo. La
+      // columna existe desde el principio y nunca se ha poblado —el mismo patrón
+      // que X-1—. El recibo no lo inventa: enseña lo que hay. Deuda `D-23`.
+      expect(line.identifier).toBeNull();
+      expect(line.unitCode).toBe("UND");
+      expect(line.quantity).toBe("2.000000");
+      expect(line.unitPriceAmount).toBe("18000.000000");
+
+      // El cobro, con lo entregado y el cambio: es lo que el cliente comprueba.
+      expect(receipt.payments).toHaveLength(1);
+      const payment = receipt.payments[0]!;
+      expect(payment.paymentMethod).toBe("CASH");
+      expect(payment.confirmedAmount).toBe(sale.payable);
+      expect(payment.tenderedAmount).toBe("40000.000000");
+      expect(payment.changeAmount).not.toBeNull();
+      expect(payment.currencyCode).toBe("COP");
+    });
+  }, 30_000);
+
+  it("un cobro en dos partes aparece como dos pagos, no como uno agregado", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "recibo2");
+      const sale = await createSale(send, ids, "2.000000", "recibo2:sale");
+
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: "10000.000000", tendered_amount: null,
+      }, "recibo2:pay1"));
+      const rest = (BigInt(sale.payable.replace(".", "")) - 10_000_000_000n).toString();
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId,
+        amount: `${rest.slice(0, -6)}.${rest.slice(-6)}`,
+        tendered_amount: null,
+      }, "recibo2:pay2"));
+
+      const receipt = new SqliteReceiptStore(database).getReceipt(SCOPE, sale.saleId);
+      expect(receipt).not.toBeNull();
+      // Dos cobros reales son dos líneas de cobro. Sumarlos escondería al
+      // cliente que pagó en dos veces, que es justo lo que reclama si discute.
+      expect(receipt?.payments).toHaveLength(2);
+    });
+  }, 30_000);
+
+  it("el recibo no se cruza entre comercios: otro tenant no lo alcanza", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "recibo3");
+      const sale = await createSale(send, ids, "1.000000", "recibo3:sale");
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: null,
+      }, "recibo3:pay"));
+
+      const receipts = new SqliteReceiptStore(database);
+      expect(receipts.getReceipt(SCOPE, sale.saleId)).not.toBeNull();
+
+      const otherTenant = { ...SCOPE, tenantId: "018f0000-0000-7000-8000-0000000000ff" };
+      expect(receipts.getReceipt(otherTenant, sale.saleId)).toBeNull();
+      expect(receipts.saleExists(otherTenant, sale.saleId)).toBe(false);
+
+      const otherBranch = { ...SCOPE, branchId: "018f0000-0000-7000-8000-0000000000fe" };
+      expect(receipts.getReceipt(otherBranch, sale.saleId)).toBeNull();
     });
   }, 30_000);
 });
