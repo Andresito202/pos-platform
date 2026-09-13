@@ -167,8 +167,13 @@ les exige es la que siempre debieron tener.
 
 **56 capacidades en 5 bloques.** Estructura congelada el 2026-09-06.
 
-**Árbol evaluado: `origin/main` = `da23b29`**, el 2026-09-12. No se evalúa
+**Árbol evaluado: `origin/main` = `2aa8acc`**, el 2026-09-13. No se evalúa
 ninguna rama: una capacidad en una rama abierta no está en `main`.
+
+`2aa8acc` es el merge de la PR #75 —segundo padre `83542bc`— sobre `da23b29`.
+Trae lo que faltaba para que `CALLER_REACHABLE` dejara de estar vacío: una
+prueba que cruza el transporte real **y** llega al handler de producción y a
+SQLite, y otra que además la invoca desde la interfaz de Electron.
 
 `da23b29` es el merge de la PR #74 sobre `2e74410`. Tocó cuatro ficheros —el
 workflow de CI y tres documentos— y **ni una línea de producción**, de modo que
@@ -193,9 +198,9 @@ y por eso varias filas suben. Al final hay una sección con lo que movió.
 | A6 | SSA y binding de sesión | `RUNTIME_VERIFIED` | `CommercialComponent`; probado por handler, no por transporte |
 | A7 | Proyección de autorización | `RUNTIME_VERIFIED` | idem |
 | A8 | Master snapshot | `RUNTIME_VERIFIED` | `SqliteMasterSnapshotStore` en `commercial-component.ts:125`, consumido por `OpenCashShiftUseCase`; 37 pruebas |
-| A9 | Canal IPC comercial (23 tipos) | `RUNTIME_VERIFIED` | 13 tipos cruzan el socket ida y vuelta · `channel-commercial-transport.test.ts`, **handler de doble**: acredita transporte, no capacidad |
+| A9 | Canal IPC comercial (23 tipos) | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; 10 de 23 tipos siguen sin cruzar |
 | A10 | Enrutamiento del canal → superficie comercial | `RUNTIME_VERIFIED` | `CommercialComponent` en `main.ts:88`; `LocalChannelComponent` sólo en `win32` |
-| A11 | Shell Electron (main, preload, allowlist) | `RUNTIME_VERIFIED` | monta sobre `dist/`; 5 E2E con Electron real · **canal de doble**, no el servicio |
+| A11 | Shell Electron (main, preload, allowlist) | `RUNTIME_VERIFIED` | 6 E2E con Electron real; desde #75 uno de ellos habla con el **servicio real** por `src/start.ts`, no con un doble |
 | A12 | Logger estructurado | `RUNTIME_VERIFIED` | `observability`, 4 pruebas |
 | A13 | Ciclo de seguridad local (DPAPI, identidad, licencia) | `TESTED` | `main.ts` no lo instancia |
 | A14 | Adquisición de snapshot de autorización (SAS-003) | `TESTED` | `main.ts` no lo instancia |
@@ -206,10 +211,12 @@ y por eso varias filas suben. Al final hay una sección con lo que movió.
 mensaje. La tabla compartida `Record<IpcMessageType, z.ZodType>` lo cerró, y
 trece tipos cruzan hoy un `LocalChannelServer` y un `LocalChannelClient` reales.
 
-**No pasa de `RUNTIME_VERIFIED`, y aquí está el motivo.** El servidor de esa
-prueba lo atiende un cierre de la propia prueba: el transporte es real, la
-capacidad al otro lado no. Acredita que el canal transporta y valida veintitrés
-tipos de mensaje —que era el defecto— y nada sobre lo que ocurre después.
+**Sube a `CALLER_REACHABLE` con #75, y no por esa prueba.** El servidor de
+`channel-commercial-transport.test.ts` lo atiende un cierre de la propia prueba:
+acredita que el canal transporta y valida veintitrés tipos de mensaje —que era el
+defecto— y nada sobre lo que ocurre después. Lo que la hace subir es
+`channel-commercial-vertical.test.ts`, donde detrás del socket está el
+`CommercialRequestHandler` de producción y el efecto se lee en SQLite.
 
 Las diez restantes —`session.*`, `operation.*`, `cash.shift.close` y los tres
 pagos que no son efectivo— **nunca han cruzado el socket**; comparten el mismo
@@ -232,26 +239,26 @@ componentes —`LocalDatabaseComponent`, `DurableSyncComponent`,
 `OperationConfirmationComponent`, `CommercialComponent`, `LocalChannelComponent`—
 y ninguno es éstas.
 
-**Ninguna fila del bloque A alcanza `CALLER_REACHABLE`.** El handshake y el
-estado son los únicos casos con cliente real y respuesta que **no** fabrica la
-prueba (`channel.test.ts`: «uses the real client to negotiate TECH-003 and
-validate response identity»), y aun así son operaciones técnicas del propio
-canal, no capacidad comercial. No se les asigna fila propia: son parte de A9.
+**A9 es la única fila del bloque A que alcanza `CALLER_REACHABLE`**, y no pasa
+de ahí: diez de veintitrés tipos —`session.*`, `operation.*`, `cash.shift.close`
+y los tres pagos que no son efectivo— siguen sin cruzar el socket. El resto del
+bloque A es infraestructura local, a la que estos dos peldaños no le aplican
+(regla 3).
 
 ### Bloque B — Núcleo comercial · 12 capacidades
 
 | # | Capacidad | Peldaño | Evidencia |
 |---|---|---|---|
-| B1 | Sales V1 (venta → `READY_FOR_PAYMENT`) | `RUNTIME_VERIFIED` | handler real contra SQLite (`commercial-ipc.test.ts`); **nunca por el socket** |
+| B1 | Sales V1 (venta → `READY_FOR_PAYMENT`) | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
 | B2 | Cash V1 (apertura y cierre de turno) | `RUNTIME_VERIFIED` | `cash.shift.open` cruza → `OPENED`; **`cash.shift.close` no cruza** |
 | B3 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | `RUNTIME_VERIFIED` | `payment.register.cash` cruza → `CONFIRMED`; **`TRANSFER` no cruza** |
-| B4 | Completado de venta como único punto | `RUNTIME_VERIFIED` | handler real contra SQLite (`commercial-ipc.test.ts`); **nunca por el socket** |
-| B5 | Frontera Payments ↔ Cash | `RUNTIME_VERIFIED` | handler real contra SQLite (`commercial-ipc.test.ts`); **nunca por el socket** |
-| B6 | Catalog | `RUNTIME_VERIFIED` | `register` · `find` · `get`: handler real contra SQLite (`commercial-ipc.test.ts`); **nunca por el socket** |
-| B7 | Inventory | `RUNTIME_VERIFIED` | `receive` · `adjust` · `get`: handler real contra SQLite (`commercial-ipc.test.ts`); **nunca por el socket** |
+| B4 | Completado de venta como único punto | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
+| B5 | Frontera Payments ↔ Cash | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
+| B6 | Catalog | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; **`register` no tiene pantalla**: sin alta de catálogo no hay `END_TO_END` |
+| B7 | Inventory | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; `receive` y `adjust` **no tienen pantalla** |
 | B8 | Pricing | `DOCUMENTED` | tabla sin motor |
 | B9 | Tax (motor de impuestos) | `RUNTIME_VERIFIED` | se calcula dentro de `sale.create`; **su salida no se asevera al otro lado** |
-| B10 | Customer / adquiriente | `RUNTIME_VERIFIED` | `register` · `get` · `find`: handler real contra SQLite (`commercial-ipc.test.ts`); **nunca por el socket** |
+| B10 | Customer / adquiriente | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; **ninguna de las tres tiene pantalla** |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | — |
 | B12 | Periféricos POS | `DOCUMENTED` | cero código |
 
@@ -274,25 +281,30 @@ cobrarla— se ejecuta contra el **handler real y SQLite real** en
 `commercial-ipc.test.ts`, y ésa es la evidencia que sostiene a B1, B4 y B5 en
 `RUNTIME_VERIFIED`.
 
-**Lo que no existe es la unión de las dos mitades**, y conviene nombrarlo sin
-rodeos porque es el hueco estructural del tablero:
+**La unión de las dos mitades ya existe**, y es lo que #75 trajo:
 
-| Prueba | Transporte | Handler | Almacenamiento |
-|---|---|---|---|
-| `channel-commercial-transport.test.ts` | **real** | doble | ninguno |
-| `commercial-ipc.test.ts` | **ninguno** | real | real |
+| Prueba | Transporte | Handler | Almacenamiento | Interfaz |
+|---|---|---|---|---|
+| `channel-commercial-transport.test.ts` | **real** | doble | ninguno | — |
+| `commercial-ipc.test.ts` | ninguno | **real** | **real** | — |
+| `channel-commercial-vertical.test.ts` | **real** | **real** | **real** | — |
+| `real-channel.spec.ts` | **real** | **real** | **real** | **real** |
 
-Cada mitad está probada por separado. La cadena completa —socket real *y*
-handler real *y* SQLite— **no la recorre ninguna prueba de `main`**. Por eso
-`CALLER_REACHABLE` está vacío, y por eso lo estará hasta que exista esa prueba.
+La tercera fila es la que acredita `CALLER_REACHABLE`; la cuarta, `END_TO_END`.
 
-**B6, B7 y B10 comparten exactamente la misma situación.** Eran seis de las nueve
-operaciones que X-2 mataba; el defecto del transporte está cerrado, pero la
-respuesta que cruza el socket en esa prueba la fabrica la prueba.
+**B1, B4 y B5 llegan a `END_TO_END` y las demás no, por una razón concreta.**
+`real-channel.spec.ts` mueve desde la pantalla el turno, la búsqueda por código
+de barras, la creación de la venta y el cobro. El alta de catálogo y la entrada
+de existencia las hace por el canal, sí, pero **no por pantalla de cajero**:
+`page.evaluate` no es superficie de producto.
 
-**B2 y B3 tampoco se mueven**, y ahora por dos motivos acumulados: además de la
-mitad que falta para todas, de B2 no cruza el cierre y de B3 no cruza la
-transferencia. Media capacidad probada no es la capacidad.
+**Por eso B6, B7 y B10 se quedan en `CALLER_REACHABLE`.** De B6 falta la pantalla
+de alta de producto; de B7, las de entrada y ajuste de existencia; de B10 no hay
+ninguna. La regla es la misma de siempre: media capacidad alcanzable no es la
+capacidad.
+
+**B2 y B3 tampoco se mueven**: de B2 no cruza el cierre de turno y de B3 no cruza
+la transferencia.
 
 **B8 y B12 se mantienen en `DOCUMENTED`.** `sandbox_price_rule` es una tabla sin
 regla que la calcule; periféricos no tiene una sola línea.
@@ -397,9 +409,9 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | Peldaño | Filas | Cuáles |
 |---|---|---|
 | `PRODUCTION` | **0** | — |
-| `END_TO_END` | **0** | — |
-| `CALLER_REACHABLE` | **0** | — |
-| `RUNTIME_VERIFIED` | **26** | A1 A2 A4 A5 A6 A7 A8 A9 A10 A11 A12 · B1 B2 B3 B4 B5 B6 B7 B9 B10 · E1 E2 E3 E4 E5 E7 |
+| `END_TO_END` | **3** | B1 B4 B5 |
+| `CALLER_REACHABLE` | **4** | A9 · B6 B7 B10 |
+| `RUNTIME_VERIFIED` | **19** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B2 B3 B9 · E1 E2 E3 E4 E5 E7 |
 | `TESTED` | **15** | A3 A13 A14 · C1..C11 · D1 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
 | `DOCUMENTED` | **12** | B8 B11 B12 · C12 C13 C15 · D3 D4 D5 D6 · E8 E9 |
@@ -409,14 +421,17 @@ nada sobre ese job; dice que algo aguas arriba falló.
 `D1` se cuenta en `TESTED` porque el job de CI las ejecuta contra PostgreSQL
 16.14. En un contenedor sin instancia es `NOT_EVALUATED`, y así se anota arriba.
 
-**Ninguna capacidad del POS está acreditada como alcanzable por un llamador
-externo.** No porque el transporte falle —está probado— sino porque ninguna
-prueba de `main` une el transporte real con el handler real. Y por tanto ninguna
-llega a `END_TO_END`: tampoco existe superficie de producto que las invoque,
-porque la entrada de producción de Electron depende del handshake autorizado.
+**Siete capacidades son alcanzables por un llamador externo, y tres de ellas lo
+son desde la pantalla.** Es el primer movimiento real del tablero hacia arriba
+desde que se retiró `CANONICALLY_APPLIED`, y llega por donde el tablero decía que
+llegaría: no apareció código nuevo de producción, apareció la prueba que enchufa
+las dos mitades que ya existían.
 
-Éste es **el hueco más barato de cerrar de todo el tablero**: no falta código de
-producción, falta una prueba que enchufe las dos mitades que ya existen.
+**Lo que separa `CALLER_REACHABLE` de `END_TO_END` es hoy pantalla, no motor.**
+B6, B7 y B10 funcionan por el canal contra el handler real; lo que les falta es
+una pantalla de cajero que las invoque. Es trabajo de interfaz, no de arquitectura.
+
+`PRODUCTION` sigue en cero, y seguirá: exige el entorno de destino.
 
 ### Qué cambió respecto de `02b89bb`
 
@@ -511,6 +526,7 @@ recibo, y cliente HTTP hacia el backend central.
 | 2026-09-07 | 62 % | catálogo real · `MIGRATION_014` · `SandboxCatalogStore` eliminado · 989 pruebas |
 | 2026-09-08 | 63 % | inventario · `MIGRATION_015` · descuento en la transacción que completa la venta · 1021 pruebas |
 | 2026-09-12 | **sin porcentaje** | **cambio de gobernanza**, medido contra `02b89bb`. Se retira `CANONICALLY_APPLIED` y se retira el global. Las 35 filas que lo declaraban se recalculan contra siete peldaños con evidencia separada; **ninguna alcanzaba `CALLER_REACHABLE`**. Se corrige la etiqueta de A1 (`001..011` → `001..015`) y el error aritmético del bloque B (decía 740 / 62 %; la suma real de sus propias filas era 810 / 68 %) |
+| 2026-09-13 | **sin porcentaje** | **merge de la PR #75** (`2aa8acc`, segundo padre `83542bc`). Primer movimiento al alza con evidencia desde el cambio de gobernanza: `CALLER_REACHABLE` **0 → 4** (A9, B6, B7, B10) y `END_TO_END` **0 → 3** (B1, B4, B5). Lo acredita `channel-commercial-vertical.test.ts` —socket real, handler de producción y SQLite— y, para las tres de `END_TO_END`, `real-channel.spec.ts`, que las invoca desde la pantalla de Electron. **Se anota que la previsión era 7 y 6: era incorrecta**, porque contaba filas cuyo alta de catálogo o de existencia sólo se ejecuta por `page.evaluate`, que no es superficie de producto. Se conserva el recuento medido, no el previsto |
 | 2026-09-13 | **sin porcentaje** | **barrido de afirmaciones**. E4 sube a `RUNTIME_VERIFIED`: el job «Main push governance» se ejecutó en el push de `da23b29` y pasó; la nota que lo daba por `NOT_EVALUATED` confundía «`skipped` en PR» con «nunca observado». Se corrige la evidencia de D2. Recuento: `RUNTIME_VERIFIED` **26**, `IMPLEMENTED` **2** |
 | 2026-09-12 | **sin porcentaje** | **segunda corrección de gobernanza**, sobre el árbol `da23b29`. `CALLER_REACHABLE` pasa de **7 a 0**: las siete filas se apoyaban en `channel-commercial-transport.test.ts`, cuyo servidor atiende con un cierre de la propia prueba. Verificado que **ningún** fichero de prueba de `main` que construya `LocalChannelServer` menciona `CommercialRequestHandler` ni `CommercialComponent`. Bajan a `RUNTIME_VERIFIED`, que con E7 suma **25 filas**. Se añade a la escalera y a la regla 5 el filo que faltaba: **un socket no es evidencia si detrás hay un doble** |
 | 2026-09-12 | **sin porcentaje** | **merge de la PR #73** (`2e74410`, segundo padre `b6f0036`). X-1 y X-2 dejan de estar vivos en `main`. Reevaluado contra el árbol nuevo, **siete filas alcanzan `CALLER_REACHABLE`** —A9, B1, B4, B5, B6, B7, B10—, A11 sube a `RUNTIME_VERIFIED` y E7 a `TESTED`. Tres más de las cuatro proyectadas: la proyección sólo miró las filas que X-2 rompía, y #73 además aportó la prueba que recorre la vertical por el socket |
