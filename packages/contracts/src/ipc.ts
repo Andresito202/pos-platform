@@ -28,6 +28,8 @@ import {
   InventoryMovementResponseSchema,
   InventoryStockGetRequestSchema,
   InventoryStockGetResponseSchema,
+  SalesReceiptGetRequestSchema,
+  SalesReceiptGetResponseSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterCashResponseSchema,
   PaymentRegisterTransferRequestSchema,
@@ -72,6 +74,7 @@ export const IpcMessageTypeSchema = z.enum([
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
+  "sales.receipt.get",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -167,6 +170,7 @@ export const IpcRequestSchema = z.union([
   InventoryStockReceiveRequestSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockGetRequestSchema,
+  SalesReceiptGetRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -190,6 +194,7 @@ export const IpcResponseSchema = z.union([
   CatalogItemResponseSchema,
   InventoryMovementResponseSchema,
   InventoryStockGetResponseSchema,
+  SalesReceiptGetResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

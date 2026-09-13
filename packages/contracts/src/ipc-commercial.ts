@@ -867,6 +867,81 @@ export const InventoryStockGetResultSchema = z.strictObject({
 export const InventoryStockGetResponseSchema =
   createResponseEnvelopeSchema(InventoryStockGetResultSchema);
 
+// ── sales.receipt.get ────────────────────────────────────────────────────────
+
+/**
+ * El recibo de una venta cobrada — `DEC-019`.
+ *
+ * **Es una proyección, no un artefacto guardado.** Cada cifra de este resultado
+ * sale ya congelada de `sales_sales` y `sales_sale_items`; el servicio no
+ * recalcula ninguna. Reimprimir es determinista porque sus entradas lo son.
+ *
+ * `NOT_FOUND` y `NOT_COMPLETED` no se colapsan. «Esa venta no es de esta caja» y
+ * «esa venta todavía no está cobrada» piden dos reacciones distintas del cajero,
+ * y un único error le haría buscar un problema donde no lo hay.
+ *
+ * **No lleva cabecera fiscal, ni CUFE, ni QR.** No es un olvido: no existe
+ * identidad de compañía en local y el adapter fiscal no tiene consumidor. El
+ * contrato no admite esos campos precisamente para que nadie los rellene con un
+ * valor inventado — un NIT fabricado en un documento que se entrega a un cliente
+ * es un problema legal, no un hueco de interfaz.
+ */
+export const SalesReceiptGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ sale_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("sales.receipt.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/** El ajuste de redondeo comercial es el único importe del recibo que puede ser negativo. */
+const SignedScale6Schema = z.string().regex(/^-?(?:0|[1-9]\d{0,14})\.\d{6}$/);
+
+export const ReceiptLineSchema = z.strictObject({
+  line_number: z.number().int().positive(),
+  product_name: z.string().min(1),
+  presentation_name: z.string().min(1),
+  identifier: z.string().nullable(),
+  unit_code: z.string().min(1),
+  unit_precision: z.number().int().nonnegative(),
+  quantity: NonNegativeScale6Schema,
+  unit_price_amount: NonNegativeScale6Schema,
+  gross_amount: NonNegativeScale6Schema,
+  discount_amount: NonNegativeScale6Schema,
+  taxable_amount: NonNegativeScale6Schema,
+  tax_amount: NonNegativeScale6Schema,
+  line_total_amount: NonNegativeScale6Schema,
+});
+
+/** `change_amount` sólo tiene sentido en efectivo: una transferencia no devuelve cambio. */
+export const ReceiptPaymentSchema = z.strictObject({
+  payment_method: z.string().min(1),
+  confirmed_amount: NonNegativeScale6Schema,
+  tendered_amount: NonNegativeScale6Schema.nullable(),
+  change_amount: NonNegativeScale6Schema.nullable(),
+  currency_code: z.string().length(3),
+  confirmed_at: z.string().min(1),
+});
+
+export const SalesReceiptGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "NOT_COMPLETED", "UNAUTHORIZED"]),
+  sale_id: UuidSchema.nullable(),
+  document_series: z.string().min(1).nullable(),
+  sale_number: z.number().int().positive().nullable(),
+  currency_code: z.string().length(3).nullable(),
+  business_date: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  lines: z.array(ReceiptLineSchema).nullable(),
+  subtotal_amount: NonNegativeScale6Schema.nullable(),
+  discount_amount: NonNegativeScale6Schema.nullable(),
+  tax_amount: NonNegativeScale6Schema.nullable(),
+  fiscal_total_amount: NonNegativeScale6Schema.nullable(),
+  commercial_rounding_adjustment: SignedScale6Schema.nullable(),
+  payable_amount: NonNegativeScale6Schema.nullable(),
+  payments: z.array(ReceiptPaymentSchema).nullable(),
+  calculation_checksum: z.string().length(64).regex(/^[a-f0-9]{64}$/).nullable(),
+});
+
+export const SalesReceiptGetResponseSchema =
+  createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**

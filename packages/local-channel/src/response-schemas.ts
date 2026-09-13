@@ -8,6 +8,7 @@ import {
   CustomerRegisterResponseSchema,
   InventoryMovementResponseSchema,
   InventoryStockGetResponseSchema,
+  SalesReceiptGetResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   PaymentCancelResponseSchema,
@@ -69,6 +70,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "inventory.stock.receive": InventoryMovementResponseSchema,
   "inventory.stock.adjust": InventoryMovementResponseSchema,
   "inventory.stock.get": InventoryStockGetResponseSchema,
+  "sales.receipt.get": SalesReceiptGetResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {

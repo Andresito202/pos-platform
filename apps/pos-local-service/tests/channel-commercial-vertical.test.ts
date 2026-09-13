@@ -84,6 +84,7 @@ const PERMISSIONS = [
   "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
+  "SALES_RECEIPT_READ",
 ];
 
 const directories: string[] = [];
@@ -912,6 +913,63 @@ describe("el recibo proyecta la venta cobrada sin inventar nada", () => {
 
       const otherBranch = { ...SCOPE, branchId: "018f0000-0000-7000-8000-0000000000fe" };
       expect(receipts.getReceipt(otherBranch, sale.saleId)).toBeNull();
+    });
+  }, 30_000);
+});
+
+describe("el recibo es alcanzable por el canal real, no sólo por el almacén", () => {
+  it("sales.receipt.get cruza el socket y devuelve el recibo de la venta cobrada", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "canalrec");
+      const sale = await createSale(send, ids, "2.000000", "canalrec:sale");
+
+      // Antes de cobrar, la venta existe pero no tiene recibo. El canal lo dice
+      // con NOT_COMPLETED, que no es lo mismo que NOT_FOUND.
+      const pending = await send(reading("sales.receipt.get", { sale_id: sale.saleId }));
+      expect(pending.result["outcome"]).toBe("NOT_COMPLETED");
+      expect(pending.result["lines"]).toBeNull();
+
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: "40000.000000",
+      }, "canalrec:pay"));
+
+      const response = await send(reading("sales.receipt.get", { sale_id: sale.saleId }));
+      expect(response.result["outcome"]).toBe("FOUND");
+      expect(response.result["sale_id"]).toBe(sale.saleId);
+      expect(response.result["payable_amount"]).toBe(sale.payable);
+
+      // Lo que llega al otro lado del socket es el recibo completo, no un
+      // resumen: las lineas y los cobros viajan enteros.
+      const lines = response.result["lines"] as Array<Record<string, unknown>>;
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!["product_name"]).toBe("Café Americano 500 g");
+      expect(lines[0]!["quantity"]).toBe("2.000000");
+      expect(lines[0]!["unit_price_amount"]).toBe("18000.000000");
+
+      const payments = response.result["payments"] as Array<Record<string, unknown>>;
+      expect(payments).toHaveLength(1);
+      expect(payments[0]!["payment_method"]).toBe("CASH");
+      expect(payments[0]!["tendered_amount"]).toBe("40000.000000");
+
+      // El importe que la respuesta transporta es el que quedo escrito, no uno
+      // recalculado en el camino.
+      const row = database.native.prepare(
+        "SELECT payable_amount, calculation_checksum FROM sales_sales WHERE id=?",
+      ).get(sale.saleId) as { payable_amount: string; calculation_checksum: string };
+      expect(response.result["payable_amount"]).toBe(row.payable_amount);
+      expect(response.result["calculation_checksum"]).toBe(row.calculation_checksum);
+    });
+  }, 30_000);
+
+  it("una venta que no existe devuelve NOT_FOUND, no NOT_COMPLETED", async () => {
+    await withRealChannel(async (send, database) => {
+      await prepareCounter(send, database, "canalrec2");
+      const response = await send(reading("sales.receipt.get", {
+        sale_id: "018f0000-0000-7000-8000-0000000000fd",
+      }));
+      // La distincion sobrevive al transporte: es la que le dice al cajero si
+      // debe cobrar la venta o buscarla en otra caja.
+      expect(response.result["outcome"]).toBe("NOT_FOUND");
     });
   }, 30_000);
 });

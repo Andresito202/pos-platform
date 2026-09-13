@@ -30,6 +30,7 @@ describe("preload-api", () => {
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.stock.get",
+      "sales.receipt.get",
     ]);
   });
 
