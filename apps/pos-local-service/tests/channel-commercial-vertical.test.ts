@@ -85,6 +85,7 @@ const PERMISSIONS = [
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
   "SALES_RECEIPT_READ",
+  "CASH_SHIFT_CLOSE",
 ];
 
 const directories: string[] = [];
@@ -970,6 +971,138 @@ describe("el recibo es alcanzable por el canal real, no sólo por el almacén", 
       // La distincion sobrevive al transporte: es la que le dice al cajero si
       // debe cobrar la venta o buscarla en otra caja.
       expect(response.result["outcome"]).toBe("NOT_FOUND");
+    });
+  }, 30_000);
+});
+
+describe("el turno se cierra por el canal real y libera la caja", () => {
+  it("cash.shift.close cruza el socket, arquea y deja abrir el turno siguiente", async () => {
+    await withRealChannel(async (send, database) => {
+      // `prepareCounter` abre el turno; su respuesta trae la versión, que es lo
+      // que el cierre exige y lo que antes no viajaba.
+      const opened = await send(reading("session.activate", {
+        session_assertion: signSession(sessionClaims()),
+      }));
+      expect(opened.status).toBe("SUCCEEDED");
+
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const open = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-03",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "cierre:open"));
+      expect(open.result["outcome"]).toBe("OPENED");
+      const shiftId = open.result["shift_id"] as string;
+      const version = open.result["version"] as number;
+      // La versión viaja de verdad, no es una suposición de la interfaz.
+      expect(version).toBe(1);
+
+      // Mientras el turno siga abierto, la caja no admite otro: es la razón por
+      // la que sin cierre el POS queda inservible al día siguiente.
+      const blocked = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-04",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "cierre:blocked"));
+      expect(blocked.result["outcome"]).toBe("INCOMPATIBLE_SHIFT");
+
+      const closed = await send(mutating("cash.shift.close", {
+        shift_id: shiftId,
+        counted_amount: "50000.000000",
+        expected_version: version,
+      }, "cierre:close"));
+
+      expect(closed.result["outcome"]).toBe("CLOSED");
+      expect(closed.result["shift_id"]).toBe(shiftId);
+      // Sin ventas, lo esperado es la base y la diferencia es cero.
+      expect(closed.result["expected_cash"]).toBe("50000.000000");
+      expect(closed.result["counted_amount"]).toBe("50000.000000");
+      expect(closed.result["difference_amount"]).toBe("0.000000");
+
+      const row = database.native.prepare(
+        "SELECT status FROM cash_shift WHERE id=?",
+      ).get(shiftId) as { status: string };
+      expect(row.status).toBe("CLOSED");
+
+      // Y ahora sí: la caja vuelve a admitir turno. Esto es lo que el cierre
+      // desbloquea, y lo que ninguna prueba demostraba antes.
+      const next = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "20000.000000",
+        business_date: "2026-09-04",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "cierre:next"));
+      expect(next.result["outcome"]).toBe("OPENED");
+      expect(next.result["shift_id"]).not.toBe(shiftId);
+      expect(next.result["version"]).toBe(1);
+    });
+  }, 30_000);
+
+  it("un arqueo con faltante lo declara, no lo esconde", async () => {
+    await withRealChannel(async (send, database) => {
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const open = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-03",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "faltante:open"));
+
+      const closed = await send(mutating("cash.shift.close", {
+        shift_id: open.result["shift_id"] as string,
+        counted_amount: "48000.000000",
+        expected_version: open.result["version"] as number,
+      }, "faltante:close"));
+
+      expect(closed.result["outcome"]).toBe("CLOSED");
+      // Faltan 2.000 y el servicio lo dice con signo. El arqueo no se maquilla.
+      expect(closed.result["difference_amount"]).toBe("-2000.000000");
+    });
+  }, 30_000);
+
+  it("cerrar con una versión que ya no corre se rechaza por conflicto", async () => {
+    await withRealChannel(async (send, database) => {
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const open = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-03",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "conflicto:open"));
+
+      const wrong = await send(mutating("cash.shift.close", {
+        shift_id: open.result["shift_id"] as string,
+        counted_amount: "50000.000000",
+        expected_version: 99,
+      }, "conflicto:close"));
+
+      // Cerrar sobre un estado que ya no existe es peor que no cerrar: el
+      // servicio lo rechaza en vez de arquear contra una fila obsoleta.
+      expect(wrong.result["outcome"]).toBe("VERSION_CONFLICT");
     });
   }, 30_000);
 });

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
+  CashShiftCloseRequestSchema,
   CashShiftOpenRequestSchema,
   CatalogItemFindRequestSchema,
   PaymentRegisterCashRequestSchema,
@@ -89,7 +90,7 @@ async function createSale(): Promise<void> {
 }
 
 const BASE_OVERRIDES = {
-  "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT }),
+  "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 1 }),
   "catalog.item.find": FOUND_ITEM,
   "sale.create": succeeded({
     outcome: "CREATED",
@@ -273,5 +274,98 @@ describe("SalePanel — vertical comercial", () => {
     const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
     expect(request.payload["cash_register_id"]).toBeNull();
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
+  });
+});
+
+describe("SalePanel · cierre de turno", () => {
+  beforeEach(() => { calls.clear(); });
+
+  async function openShift(): Promise<void> {
+    fireEvent.change(screen.getByTestId("cash-register-input"), { target: { value: REGISTER } });
+    fireEvent.change(screen.getByTestId("opening-amount-input"), { target: { value: "0" } });
+    fireEvent.click(screen.getByTestId("open-shift-button"));
+    await waitFor(() => { expect(screen.getByTestId("shift-open")).toBeTruthy(); });
+  }
+
+  it("cierra el turno con la versión que trajo la apertura, no con una supuesta", async () => {
+    install({
+      ...BASE_OVERRIDES,
+      "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 7 }),
+      "cash.shift.close": succeeded({
+        outcome: "CLOSED", shift_id: SHIFT,
+        expected_cash: "50000.000000", counted_amount: "50000.000000",
+        difference_amount: "0.000000",
+      }),
+    });
+    render(<SalePanel />);
+    await openShift();
+
+    fireEvent.change(screen.getByTestId("counted-amount-input"), { target: { value: "50000" } });
+    fireEvent.click(screen.getByTestId("close-shift-button"));
+    await waitFor(() => { expect(screen.getByTestId("shift-close-result")).toBeTruthy(); });
+
+    const envelope = calls.get("cash.shift.close")![0] as { payload: Record<string, unknown> };
+    // La versión es la que entregó el servicio. Si la pantalla la supusiera,
+    // aquí habría un 1 y el cierre fallaría contra un turno real.
+    expect(envelope.payload["expected_version"]).toBe(7);
+    expect(envelope.payload["shift_id"]).toBe(SHIFT);
+    // Lo tecleado se normaliza a escala 6; el cajero no escribe seis decimales.
+    expect(envelope.payload["counted_amount"]).toBe("50000.000000");
+    expect(CashShiftCloseRequestSchema.safeParse(envelope).success).toBe(true);
+  });
+
+  it("muestra el arqueo tal como lo devuelve el servicio, sin restar en pantalla", async () => {
+    install({
+      ...BASE_OVERRIDES,
+      "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 1 }),
+      "cash.shift.close": succeeded({
+        outcome: "CLOSED", shift_id: SHIFT,
+        expected_cash: "50000.000000", counted_amount: "48000.000000",
+        difference_amount: "-2000.000000",
+      }),
+    });
+    render(<SalePanel />);
+    await openShift();
+
+    fireEvent.change(screen.getByTestId("counted-amount-input"), { target: { value: "48000" } });
+    fireEvent.click(screen.getByTestId("close-shift-button"));
+    await waitFor(() => { expect(screen.getByTestId("shift-close-result")).toBeTruthy(); });
+
+    expect(screen.getByTestId("shift-expected-cash").textContent).toBe("50000.000000");
+    expect(screen.getByTestId("shift-counted-amount").textContent).toBe("48000.000000");
+    expect(screen.getByTestId("shift-difference").textContent).toBe("-2000.000000");
+    // El turno deja de estar abierto y la caja vuelve a admitir apertura.
+    expect(screen.queryByTestId("shift-open")).toBeNull();
+    expect(screen.getByTestId("shift-close-result")).toBeTruthy();
+  });
+
+  it("un cierre rechazado no cierra el turno ni se disfraza de éxito", async () => {
+    install({
+      ...BASE_OVERRIDES,
+      "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 1 }),
+      "cash.shift.close": succeeded({
+        outcome: "VERSION_CONFLICT", shift_id: null,
+        expected_cash: null, counted_amount: null, difference_amount: null,
+      }),
+    });
+    render(<SalePanel />);
+    await openShift();
+
+    fireEvent.change(screen.getByTestId("counted-amount-input"), { target: { value: "50000" } });
+    fireEvent.click(screen.getByTestId("close-shift-button"));
+    await waitFor(() => { expect(screen.getByTestId("shift-close-rejected")).toBeTruthy(); });
+
+    expect(screen.getByTestId("shift-close-rejected").textContent).toBe("VERSION_CONFLICT");
+    // El turno sigue abierto: cerrar sobre un estado obsoleto sería peor.
+    expect(screen.getByTestId("shift-open")).toBeTruthy();
+    expect(screen.queryByTestId("shift-close-result")).toBeNull();
+  });
+
+  it("no pide cierre sin efectivo contado", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    expect((screen.getByTestId("close-shift-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.get("cash.shift.close")).toBeUndefined();
   });
 });

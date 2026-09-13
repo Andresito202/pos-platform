@@ -356,4 +356,27 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   await expect(page.getByTestId("receipt-not-completed")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("receipt-not-found").count()).toBe(0);
   expect(await page.getByTestId("receipt").count()).toBe(0);
+
+  // ── 8 · El cierre del turno, que es lo que permite abrir el siguiente ──────
+  //
+  // `DEC-012` §25.2 admite un unico turno OPEN o CLOSING por caja. Sin cierre,
+  // la caja queda inservible al dia siguiente: es el bloqueo que este tramo
+  // levanta, y se comprueba aqui desde la pantalla real.
+
+  await page.getByTestId("counted-amount-input").fill("0");
+  await page.getByTestId("close-shift-button").click();
+  await expect(page.getByTestId("shift-close-result")).toBeVisible({ timeout: 15_000 });
+
+  // El arqueo lo calcula el servicio. La pantalla lo muestra y no lo recalcula.
+  const expectedCash = await page.getByTestId("shift-expected-cash").textContent();
+  const countedAmount = await page.getByTestId("shift-counted-amount").textContent();
+  const difference = await page.getByTestId("shift-difference").textContent();
+  expect(countedAmount).toBe("0.000000");
+  expect(expectedCash).not.toBeNull();
+  expect(difference).not.toBeNull();
+
+  // El turno deja de estar abierto y la caja vuelve a admitir apertura: eso es
+  // lo que convierte el POS en usable mas alla del primer dia.
+  await expect(page.getByTestId("shift-closed")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("shift-open").count()).toBe(0);
 });

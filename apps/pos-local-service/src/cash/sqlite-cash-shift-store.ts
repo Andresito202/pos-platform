@@ -29,8 +29,16 @@ export interface OpenShiftInput {
 }
 
 export type OpenShiftOutcome =
-  | { readonly kind: "OPENED"; readonly shiftId: string }
-  | { readonly kind: "IDEMPOTENT"; readonly shiftId: string }
+  /**
+   * `version` acompaña al turno abierto porque cerrarlo lo exige: el cierre
+   * viaja con `expected_version` y **no existe lectura de turno** por el canal.
+   * Sin este dato el llamador tendría que suponer que un turno recién abierto
+   * está en la versión 1 — cierto hoy, pero es un invariante del dominio y
+   * suponerlo desde fuera lo convierte en una bomba silenciosa el día que algo
+   * más toque la fila.
+   */
+  | { readonly kind: "OPENED"; readonly shiftId: string; readonly version: number }
+  | { readonly kind: "IDEMPOTENT"; readonly shiftId: string; readonly version: number }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "INCOMPATIBLE_SHIFT" };
 
@@ -67,6 +75,7 @@ export type CloseShiftOutcome =
 interface ShiftIdempotencyRow {
   id: string;
   opening_request_checksum: string;
+  version: number;
 }
 
 interface ShiftRow {
@@ -188,7 +197,7 @@ export class SqliteCashShiftStore {
     const transaction = this.database.native.transaction((): OpenShiftOutcome => {
       // 1. Idempotencia: (tenant_id, origin_device_id, opening_idempotency_key)
       const existing = this.database.native.prepare(
-        `SELECT id, opening_request_checksum
+        `SELECT id, opening_request_checksum, version
          FROM cash_shift
          WHERE tenant_id=? AND origin_device_id=? AND opening_idempotency_key=?`,
       ).get(
@@ -201,7 +210,7 @@ export class SqliteCashShiftStore {
         if (existing.opening_request_checksum !== input.requestChecksum) {
           return { kind: "IDEMPOTENCY_CONFLICT" };
         }
-        return { kind: "IDEMPOTENT", shiftId: existing.id };
+        return { kind: "IDEMPOTENT", shiftId: existing.id, version: existing.version };
       }
 
       // 2. Turno incompatible: OPEN o CLOSING en la misma caja
@@ -371,7 +380,10 @@ export class SqliteCashShiftStore {
         recorded_at_local: nowIso,
       });
 
-      return { kind: "OPENED", shiftId: input.shiftId };
+      // El INSERT de arriba fija `version` en 1; se devuelve esa misma
+      // constante y no una relectura, porque la fila acaba de nacer dentro de
+      // esta transacción.
+      return { kind: "OPENED", shiftId: input.shiftId, version: 1 };
     });
 
     return transaction();

@@ -216,6 +216,19 @@ export const CashShiftOpenResultSchema = z.strictObject({
   outcome: CashShiftOpenOutcomeSchema,
   /** Presente en `OPENED` e `IDEMPOTENT`; nulo en todo resultado no exitoso. */
   shift_id: UuidSchema.nullable(),
+  /**
+   * Versión del turno, para que quien lo abrió pueda cerrarlo.
+   *
+   * `cash.shift.close` exige `expected_version` y **no existe operación de
+   * lectura de turno** por el canal, de modo que sin este campo el llamador
+   * tendría que suponer que un turno recién abierto está en la versión 1. Hoy
+   * lo está —el `INSERT` la fija en 1 y nada más la incrementa antes del
+   * cierre—, pero es un invariante del dominio: suponerlo desde la interfaz lo
+   * rompe en silencio el día que otra operación toque la fila.
+   *
+   * Presente en `OPENED` e `IDEMPOTENT`; nulo en el resto.
+   */
+  version: z.number().int().positive().nullable(),
 });
 
 export const CashShiftOpenResponseSchema = createResponseEnvelopeSchema(CashShiftOpenResultSchema);

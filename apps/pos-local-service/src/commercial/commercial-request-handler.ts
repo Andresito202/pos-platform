@@ -942,7 +942,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", shift_id: null });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", shift_id: null, version: null });
     }
 
     const result = this.commercial.openCashShift.execute(
@@ -962,9 +962,12 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "OPENED" || result.kind === "IDEMPOTENT") {
-      return succeeded(request, result.kind, { outcome: result.kind, shift_id: result.shiftId });
+      // La versión viaja con el turno: es lo que el cierre exigirá después.
+      return succeeded(request, result.kind, {
+        outcome: result.kind, shift_id: result.shiftId, version: result.version,
+      });
     }
-    return rejected(request, result.kind, { outcome: result.kind, shift_id: null });
+    return rejected(request, result.kind, { outcome: result.kind, shift_id: null, version: null });
   }
 
   // ── cash.shift.close ───────────────────────────────────────────────────────

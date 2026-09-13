@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type {
+  CashShiftCloseResult,
   CashShiftOpenResult,
   CatalogItemResult,
   PaymentRegisterCashResult,
@@ -23,6 +24,12 @@ export interface CartLine {
 export interface OpenShift {
   readonly shiftId: string;
   readonly cashRegisterId: string;
+  /**
+   * La versión con la que el servicio entregó el turno. El cierre la exige como
+   * `expected_version`, y no hay lectura de turno por el canal: se conserva la
+   * que vino, en vez de suponerla.
+   */
+  readonly version: number;
 }
 
 export interface CommercialSaleState {
@@ -33,6 +40,8 @@ export interface CommercialSaleState {
   readonly lines: readonly CartLine[];
   readonly sale: { readonly saleId: string; readonly payableAmount: string } | null;
   readonly payment: PaymentRegisterCashResult | null;
+  /** Arqueo del turno cerrado: esperado, contado y diferencia. */
+  readonly closedShift: CashShiftCloseResult | null;
 }
 
 /**
@@ -71,6 +80,7 @@ export function useCommercialSale(): CommercialSaleState & {
   addFoundItem(quantity: string): void;
   createSale(): Promise<void>;
   chargeCash(): Promise<void>;
+  closeShift(countedAmount: string): Promise<void>;
   reset(): void;
 } {
   const [busy, setBusy] = useState(false);
@@ -80,6 +90,7 @@ export function useCommercialSale(): CommercialSaleState & {
   const [lines, setLines] = useState<readonly CartLine[]>([]);
   const [sale, setSale] = useState<{ saleId: string; payableAmount: string } | null>(null);
   const [payment, setPayment] = useState<PaymentRegisterCashResult | null>(null);
+  const [closedShift, setClosedShift] = useState<CashShiftCloseResult | null>(null);
 
   /**
    * Un rechazo del servicio no es una excepción: el sobre lo trae como
@@ -122,11 +133,11 @@ export function useCommercialSale(): CommercialSaleState & {
         ...operationTime(new Date()),
       }, newIdempotencyKey()),
       (result) => {
-        if (result.shift_id === null) {
+        if (result.shift_id === null || result.version === null) {
           setError(result.outcome);
           return;
         }
-        setShift({ shiftId: result.shift_id, cashRegisterId });
+        setShift({ shiftId: result.shift_id, cashRegisterId, version: result.version });
       },
     );
   }, [run]);
@@ -217,6 +228,40 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [sale, run]);
 
+  /**
+   * Cerrar el turno con el efectivo contado.
+   *
+   * **La diferencia no se calcula aquí.** El servicio devuelve `expected_cash`,
+   * `counted_amount` y `difference_amount` ya resueltos: restar en la pantalla
+   * sería una segunda verdad sobre el arqueo, y el arqueo es precisamente el
+   * número que nadie puede discutir.
+   *
+   * `expected_version` es la que trajo la apertura. Si otra terminal cerró el
+   * turno entretanto, el servicio responde `VERSION_CONFLICT` y el cajero ve el
+   * código: es mejor que cerrar sobre un estado que ya no existe.
+   */
+  const closeShift = useCallback(async (countedAmount: string): Promise<void> => {
+    const current = shift;
+    if (current === null) return;
+    const counted = toScale6(countedAmount);
+    if (counted === null) {
+      setError("INVALID_COUNTED_AMOUNT");
+      return;
+    }
+    await run<CashShiftCloseResult>(
+      () => callCommercial("cash.shift.close", {
+        shift_id: current.shiftId,
+        counted_amount: counted,
+        expected_version: current.version,
+      }, newIdempotencyKey()),
+      (result) => {
+        setClosedShift(result);
+        // El turno deja de estar abierto sólo si el servicio lo cerró de verdad.
+        if (result.outcome === "CLOSED") setShift(null);
+      },
+    );
+  }, [shift, run]);
+
   const reset = useCallback((): void => {
     setLines([]);
     setSale(null);
@@ -226,7 +271,7 @@ export function useCommercialSale(): CommercialSaleState & {
   }, []);
 
   return {
-    busy, error, shift, foundItem, lines, sale, payment,
-    openShift, findItem, addFoundItem, createSale, chargeCash, reset,
+    busy, error, shift, foundItem, lines, sale, payment, closedShift,
+    openShift, findItem, addFoundItem, createSale, chargeCash, closeShift, reset,
   };
 }

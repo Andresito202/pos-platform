@@ -66,6 +66,7 @@ const PERMISSIONS = [
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
   "SALES_RECEIPT_READ",
+  "CASH_SHIFT_CLOSE",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");

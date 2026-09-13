@@ -15,6 +15,7 @@ export function SalePanel(): React.JSX.Element {
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
+  const [counted, setCounted] = useState("");
 
   return (
     <section data-testid="sale-panel">
@@ -46,6 +47,23 @@ export function SalePanel(): React.JSX.Element {
       ) : (
         <div data-testid="shift-open">
           Turno abierto · caja <span data-testid="shift-register">{sale.shift.cashRegisterId}</span>
+          {/* Cerrar el turno es lo que permite abrir el siguiente: `DEC-012`
+              §25.2 admite un único turno OPEN o CLOSING por caja, así que sin
+              cierre la caja queda inservible al día siguiente. */}
+          <input
+            data-testid="counted-amount-input"
+            value={counted}
+            onChange={(e) => { setCounted(e.target.value); }}
+            placeholder="Efectivo contado"
+            disabled={sale.busy}
+          />
+          <button
+            data-testid="close-shift-button"
+            onClick={() => { void sale.closeShift(counted.trim()); }}
+            disabled={sale.busy || counted.trim() === ""}
+          >
+            Cerrar turno
+          </button>
         </div>
       )}
 
@@ -128,6 +146,23 @@ export function SalePanel(): React.JSX.Element {
             <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span>
             {" "}· la venta aún no está cobrada
           </div>
+        )
+      )}
+
+      {sale.closedShift !== null && (
+        sale.closedShift.outcome === "CLOSED" ? (
+          <div data-testid="shift-close-result">
+            Turno cerrado · esperado{" "}
+            <span data-testid="shift-expected-cash">{sale.closedShift.expected_cash}</span>
+            {" · contado "}
+            <span data-testid="shift-counted-amount">{sale.closedShift.counted_amount}</span>
+            {" · diferencia "}
+            <strong data-testid="shift-difference">{sale.closedShift.difference_amount}</strong>
+          </div>
+        ) : (
+          /* Un cierre rechazado no se disfraza: el código estable es la única
+             pista accionable que tiene el cajero. */
+          <div data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
         )
       )}
 
