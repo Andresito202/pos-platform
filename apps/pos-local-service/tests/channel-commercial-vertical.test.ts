@@ -20,6 +20,7 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
+import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
 
@@ -66,6 +67,12 @@ const REGISTER = "018f0000-0000-7000-8000-00000000aa01";
 const SESSION_KEY_ID = "SESSION_KEY_1";
 const BARCODE = "7701234567890";
 
+/** El alcance con el que el servicio lee: el mismo que usa la sesión activa. */
+const SCOPE = {
+  tenantId: TENANT, companyId: COMPANY, branchId: BRANCH,
+  deviceId: DEVICE, installationId: INSTALLATION,
+};
+
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 const clock = { now: () => NOW };
 
@@ -77,6 +84,11 @@ const PERMISSIONS = [
   "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
+  "SALES_RECEIPT_READ",
+  "CASH_SHIFT_CLOSE",
+  "PAYMENTS_TRANSFER_REPORT",
+  "PAYMENTS_TRANSFER_CONFIRM",
+  "PAYMENTS_PAYMENT_READ",
 ];
 
 const directories: string[] = [];
@@ -790,6 +802,395 @@ describe("la vertical resiste el uso real: ventas seguidas, reintentos y saldos"
         "SELECT COUNT(*) n FROM inventory_movement WHERE presentation_id=? AND movement_type='SALE'",
         ids.presentationId,
       )).toBe(1);
+    });
+  }, 30_000);
+});
+
+describe("el recibo proyecta la venta cobrada sin inventar nada", () => {
+  it("una venta real produce un recibo que coincide con lo que quedó escrito", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "recibo");
+      const sale = await createSale(send, ids, "2.000000", "recibo:sale");
+
+      const receipts = new SqliteReceiptStore(database);
+
+      // Antes de cobrar no hay recibo: entregar un comprobante de algo que no
+      // ha ocurrido es peor que no entregar nada.
+      expect(receipts.getReceipt(SCOPE, sale.saleId)).toBeNull();
+      expect(receipts.saleExists(SCOPE, sale.saleId)).toBe(true);
+
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: "40000.000000",
+      }, "recibo:pay"));
+
+      const receipt = receipts.getReceipt(SCOPE, sale.saleId);
+      expect(receipt).not.toBeNull();
+      if (receipt === null) return;
+
+      // El recibo no recalcula: cada cifra tiene que ser, carácter a carácter,
+      // la que la venta dejó en SQLite. Se compara contra la fila, no contra
+      // un número escrito a mano en la prueba.
+      const row = database.native.prepare(
+        `SELECT document_series, sale_number, currency_code, business_date, completed_at,
+                subtotal_amount, discount_amount, tax_amount, fiscal_total_amount,
+                commercial_rounding_adjustment, payable_amount, calculation_checksum
+           FROM sales_sales WHERE id = ?`,
+      ).get(sale.saleId) as Record<string, string | number>;
+
+      expect(receipt.documentSeries).toBe(row["document_series"]);
+      expect(receipt.saleNumber).toBe(row["sale_number"]);
+      expect(receipt.currencyCode).toBe(row["currency_code"]);
+      expect(receipt.businessDate).toBe(row["business_date"]);
+      expect(receipt.completedAt).toBe(row["completed_at"]);
+      expect(receipt.subtotalAmount).toBe(row["subtotal_amount"]);
+      expect(receipt.discountAmount).toBe(row["discount_amount"]);
+      expect(receipt.taxAmount).toBe(row["tax_amount"]);
+      expect(receipt.fiscalTotalAmount).toBe(row["fiscal_total_amount"]);
+      expect(receipt.commercialRoundingAdjustment).toBe(row["commercial_rounding_adjustment"]);
+      expect(receipt.payableAmount).toBe(row["payable_amount"]);
+      expect(receipt.calculationChecksum).toBe(row["calculation_checksum"]);
+      expect(receipt.payableAmount).toBe(sale.payable);
+
+      // La línea lleva los nombres congelados, no los actuales del catálogo.
+      expect(receipt.lines).toHaveLength(1);
+      const line = receipt.lines[0]!;
+      expect(line.lineNumber).toBe(1);
+      expect(line.productName).toBe("Café Americano 500 g");
+      expect(line.presentationName).toBe("Bolsa 500 g");
+      // `identifier_snapshot` viene **nulo**, y no porque el producto no tenga
+      // código de barras: `create-sale-use-case.ts:354` escribe `null` fijo. La
+      // columna existe desde el principio y nunca se ha poblado —el mismo patrón
+      // que X-1—. El recibo no lo inventa: enseña lo que hay. Deuda `D-23`.
+      expect(line.identifier).toBeNull();
+      expect(line.unitCode).toBe("UND");
+      expect(line.quantity).toBe("2.000000");
+      expect(line.unitPriceAmount).toBe("18000.000000");
+
+      // El cobro, con lo entregado y el cambio: es lo que el cliente comprueba.
+      expect(receipt.payments).toHaveLength(1);
+      const payment = receipt.payments[0]!;
+      expect(payment.paymentMethod).toBe("CASH");
+      expect(payment.confirmedAmount).toBe(sale.payable);
+      expect(payment.tenderedAmount).toBe("40000.000000");
+      expect(payment.changeAmount).not.toBeNull();
+      expect(payment.currencyCode).toBe("COP");
+    });
+  }, 30_000);
+
+  it("un cobro en dos partes aparece como dos pagos, no como uno agregado", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "recibo2");
+      const sale = await createSale(send, ids, "2.000000", "recibo2:sale");
+
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: "10000.000000", tendered_amount: null,
+      }, "recibo2:pay1"));
+      const rest = (BigInt(sale.payable.replace(".", "")) - 10_000_000_000n).toString();
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId,
+        amount: `${rest.slice(0, -6)}.${rest.slice(-6)}`,
+        tendered_amount: null,
+      }, "recibo2:pay2"));
+
+      const receipt = new SqliteReceiptStore(database).getReceipt(SCOPE, sale.saleId);
+      expect(receipt).not.toBeNull();
+      // Dos cobros reales son dos líneas de cobro. Sumarlos escondería al
+      // cliente que pagó en dos veces, que es justo lo que reclama si discute.
+      expect(receipt?.payments).toHaveLength(2);
+    });
+  }, 30_000);
+
+  it("el recibo no se cruza entre comercios: otro tenant no lo alcanza", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "recibo3");
+      const sale = await createSale(send, ids, "1.000000", "recibo3:sale");
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: null,
+      }, "recibo3:pay"));
+
+      const receipts = new SqliteReceiptStore(database);
+      expect(receipts.getReceipt(SCOPE, sale.saleId)).not.toBeNull();
+
+      const otherTenant = { ...SCOPE, tenantId: "018f0000-0000-7000-8000-0000000000ff" };
+      expect(receipts.getReceipt(otherTenant, sale.saleId)).toBeNull();
+      expect(receipts.saleExists(otherTenant, sale.saleId)).toBe(false);
+
+      const otherBranch = { ...SCOPE, branchId: "018f0000-0000-7000-8000-0000000000fe" };
+      expect(receipts.getReceipt(otherBranch, sale.saleId)).toBeNull();
+    });
+  }, 30_000);
+});
+
+describe("el recibo es alcanzable por el canal real, no sólo por el almacén", () => {
+  it("sales.receipt.get cruza el socket y devuelve el recibo de la venta cobrada", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "canalrec");
+      const sale = await createSale(send, ids, "2.000000", "canalrec:sale");
+
+      // Antes de cobrar, la venta existe pero no tiene recibo. El canal lo dice
+      // con NOT_COMPLETED, que no es lo mismo que NOT_FOUND.
+      const pending = await send(reading("sales.receipt.get", { sale_id: sale.saleId }));
+      expect(pending.result["outcome"]).toBe("NOT_COMPLETED");
+      expect(pending.result["lines"]).toBeNull();
+
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: "40000.000000",
+      }, "canalrec:pay"));
+
+      const response = await send(reading("sales.receipt.get", { sale_id: sale.saleId }));
+      expect(response.result["outcome"]).toBe("FOUND");
+      expect(response.result["sale_id"]).toBe(sale.saleId);
+      expect(response.result["payable_amount"]).toBe(sale.payable);
+
+      // Lo que llega al otro lado del socket es el recibo completo, no un
+      // resumen: las lineas y los cobros viajan enteros.
+      const lines = response.result["lines"] as Array<Record<string, unknown>>;
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!["product_name"]).toBe("Café Americano 500 g");
+      expect(lines[0]!["quantity"]).toBe("2.000000");
+      expect(lines[0]!["unit_price_amount"]).toBe("18000.000000");
+
+      const payments = response.result["payments"] as Array<Record<string, unknown>>;
+      expect(payments).toHaveLength(1);
+      expect(payments[0]!["payment_method"]).toBe("CASH");
+      expect(payments[0]!["tendered_amount"]).toBe("40000.000000");
+
+      // El importe que la respuesta transporta es el que quedo escrito, no uno
+      // recalculado en el camino.
+      const row = database.native.prepare(
+        "SELECT payable_amount, calculation_checksum FROM sales_sales WHERE id=?",
+      ).get(sale.saleId) as { payable_amount: string; calculation_checksum: string };
+      expect(response.result["payable_amount"]).toBe(row.payable_amount);
+      expect(response.result["calculation_checksum"]).toBe(row.calculation_checksum);
+    });
+  }, 30_000);
+
+  it("una venta que no existe devuelve NOT_FOUND, no NOT_COMPLETED", async () => {
+    await withRealChannel(async (send, database) => {
+      await prepareCounter(send, database, "canalrec2");
+      const response = await send(reading("sales.receipt.get", {
+        sale_id: "018f0000-0000-7000-8000-0000000000fd",
+      }));
+      // La distincion sobrevive al transporte: es la que le dice al cajero si
+      // debe cobrar la venta o buscarla en otra caja.
+      expect(response.result["outcome"]).toBe("NOT_FOUND");
+    });
+  }, 30_000);
+});
+
+describe("el turno se cierra por el canal real y libera la caja", () => {
+  it("cash.shift.close cruza el socket, arquea y deja abrir el turno siguiente", async () => {
+    await withRealChannel(async (send, database) => {
+      // `prepareCounter` abre el turno; su respuesta trae la versión, que es lo
+      // que el cierre exige y lo que antes no viajaba.
+      const opened = await send(reading("session.activate", {
+        session_assertion: signSession(sessionClaims()),
+      }));
+      expect(opened.status).toBe("SUCCEEDED");
+
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const open = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-03",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "cierre:open"));
+      expect(open.result["outcome"]).toBe("OPENED");
+      const shiftId = open.result["shift_id"] as string;
+      const version = open.result["version"] as number;
+      // La versión viaja de verdad, no es una suposición de la interfaz.
+      expect(version).toBe(1);
+
+      // Mientras el turno siga abierto, la caja no admite otro: es la razón por
+      // la que sin cierre el POS queda inservible al día siguiente.
+      const blocked = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-04",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "cierre:blocked"));
+      expect(blocked.result["outcome"]).toBe("INCOMPATIBLE_SHIFT");
+
+      const closed = await send(mutating("cash.shift.close", {
+        shift_id: shiftId,
+        counted_amount: "50000.000000",
+        expected_version: version,
+      }, "cierre:close"));
+
+      expect(closed.result["outcome"]).toBe("CLOSED");
+      expect(closed.result["shift_id"]).toBe(shiftId);
+      // Sin ventas, lo esperado es la base y la diferencia es cero.
+      expect(closed.result["expected_cash"]).toBe("50000.000000");
+      expect(closed.result["counted_amount"]).toBe("50000.000000");
+      expect(closed.result["difference_amount"]).toBe("0.000000");
+
+      const row = database.native.prepare(
+        "SELECT status FROM cash_shift WHERE id=?",
+      ).get(shiftId) as { status: string };
+      expect(row.status).toBe("CLOSED");
+
+      // Y ahora sí: la caja vuelve a admitir turno. Esto es lo que el cierre
+      // desbloquea, y lo que ninguna prueba demostraba antes.
+      const next = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "20000.000000",
+        business_date: "2026-09-04",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "cierre:next"));
+      expect(next.result["outcome"]).toBe("OPENED");
+      expect(next.result["shift_id"]).not.toBe(shiftId);
+      expect(next.result["version"]).toBe(1);
+    });
+  }, 30_000);
+
+  it("un arqueo con faltante lo declara, no lo esconde", async () => {
+    await withRealChannel(async (send, database) => {
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const open = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-03",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "faltante:open"));
+
+      const closed = await send(mutating("cash.shift.close", {
+        shift_id: open.result["shift_id"] as string,
+        counted_amount: "48000.000000",
+        expected_version: open.result["version"] as number,
+      }, "faltante:close"));
+
+      expect(closed.result["outcome"]).toBe("CLOSED");
+      // Faltan 2.000 y el servicio lo dice con signo. El arqueo no se maquilla.
+      expect(closed.result["difference_amount"]).toBe("-2000.000000");
+    });
+  }, 30_000);
+
+  it("cerrar con una versión que ya no corre se rechaza por conflicto", async () => {
+    await withRealChannel(async (send, database) => {
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const open = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER,
+        opening_amount: "50000.000000",
+        business_date: "2026-09-03",
+        timezone_id: "America/Bogota",
+        utc_offset_minutes: -300,
+      }, "conflicto:open"));
+
+      const wrong = await send(mutating("cash.shift.close", {
+        shift_id: open.result["shift_id"] as string,
+        counted_amount: "50000.000000",
+        expected_version: 99,
+      }, "conflicto:close"));
+
+      // Cerrar sobre un estado que ya no existe es peor que no cerrar: el
+      // servicio lo rechaza en vez de arquear contra una fila obsoleta.
+      expect(wrong.result["outcome"]).toBe("VERSION_CONFLICT");
+    });
+  }, 30_000);
+});
+
+describe("la transferencia recorre reportar → leer versión → atestiguar", () => {
+  it("registrar no cobra; confirmar sí, y la venta se completa", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "transf");
+      const sale = await createSale(send, ids, "2.000000", "transf:sale");
+
+      const registered = await send(mutating("payment.register.transfer", {
+        sale_id: sale.saleId,
+        amount: sale.payable,
+        provider_code: null,
+        provider_reference: null,
+      }, "transf:report"));
+
+      expect(registered.result["outcome"]).toBe("REGISTERED");
+      const paymentId = registered.result["payment_id"] as string;
+      // El contrato de registro **no** devuelve versión: es el hecho que obliga
+      // a consultar el pago antes de confirmar.
+      expect(registered.result).not.toHaveProperty("version");
+
+      // Reportar no es cobrar: la venta sigue abierta y la mercancía no sale.
+      expect((database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+        .get(sale.saleId) as { status: string }).status).not.toBe("COMPLETED");
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
+
+      const fetched = await send(reading("payment.get", { payment_id: paymentId }));
+      expect(fetched.result["outcome"]).toBe("FOUND");
+      const version = fetched.result["version"] as number;
+      expect(typeof version).toBe("number");
+      // El importe reportado es el que se pidió, leído del estado persistido.
+      expect(fetched.result["expected_amount"]).toBe(sale.payable);
+      // Todavía sin confirmar: lo confirmado es **cero**, no nulo. El pago
+      // existe y su cobertura es ninguna, que no es lo mismo que «no se sabe».
+      expect(fetched.result["confirmed_amount"]).toBe("0.000000");
+      expect(fetched.result["status"]).not.toBe("CONFIRMED");
+
+      const confirmed = await send(mutating("payment.transfer.confirm", {
+        payment_id: paymentId,
+        expected_version: version,
+      }, "transf:confirm"));
+
+      expect(confirmed.result["outcome"]).toBe("CONFIRMED");
+      expect(confirmed.result["sale_completed"]).toBe(true);
+      expect(confirmed.result["confirmed_coverage"]).toBe(sale.payable);
+      expect(confirmed.result["payable_amount"]).toBe(sale.payable);
+
+      // Estado real tras la atestiguación.
+      expect((database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+        .get(sale.saleId) as { status: string }).status).toBe("COMPLETED");
+      const row = database.native.prepare(
+        "SELECT payment_method, status, confirmed_amount FROM payments_payments WHERE id=?",
+      ).get(paymentId) as { payment_method: string; status: string; confirmed_amount: string };
+      expect(row.payment_method).toBe("TRANSFER");
+      expect(row.status).toBe("CONFIRMED");
+      expect(row.confirmed_amount).toBe(sale.payable);
+      // Y ahora sí sale la mercancía: 12 − 2.
+      expect(stockOf(database, ids.presentationId)).toBe("10.000000");
+      expect(paymentsOf(database, sale.saleId)).toBe(1);
+    });
+  }, 30_000);
+
+  it("confirmar con una versión obsoleta se rechaza y no cobra nada", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "transfv");
+      const sale = await createSale(send, ids, "2.000000", "transfv:sale");
+
+      const registered = await send(mutating("payment.register.transfer", {
+        sale_id: sale.saleId, amount: sale.payable,
+        provider_code: null, provider_reference: null,
+      }, "transfv:report"));
+      const paymentId = registered.result["payment_id"] as string;
+
+      const wrong = await send(mutating("payment.transfer.confirm", {
+        payment_id: paymentId, expected_version: 99,
+      }, "transfv:confirm"));
+
+      // Suponer la versión desde la interfaz acabaría exactamente aquí.
+      expect(wrong.result["outcome"]).toBe("VERSION_CONFLICT");
+      expect(wrong.result["sale_completed"]).toBe(false);
+      expect((database.native.prepare("SELECT status FROM sales_sales WHERE id=?")
+        .get(sale.saleId) as { status: string }).status).not.toBe("COMPLETED");
+      expect(stockOf(database, ids.presentationId)).toBe("12.000000");
     });
   }, 30_000);
 });

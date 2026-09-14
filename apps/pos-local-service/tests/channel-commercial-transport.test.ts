@@ -140,7 +140,7 @@ const COMMERCIAL_CASES = [
       utc_offset_minutes: -300,
     },
     resultCode: "OPENED",
-    result: { outcome: "OPENED", shift_id: "018f0000-0000-7000-8000-0000000000b2" },
+    result: { outcome: "OPENED", shift_id: "018f0000-0000-7000-8000-0000000000b2", version: 1 },
   },
   {
     messageType: "catalog.item.find",

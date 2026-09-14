@@ -18,7 +18,8 @@ type CommercialRequest = Extract<
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
-      | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get";
+      | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
+      | "sales.receipt.get";
   }
 >;
 
@@ -41,6 +42,9 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   ALREADY_CLOSED: "CONFLICT",
   VERSION_CONFLICT: "CONFLICT",
   CATALOG_NOT_FOUND: "NOT_FOUND",
+  // La venta existe pero no esta cobrada: es un conflicto de estado, no una
+  // ausencia. El cajero tiene que cobrarla, no buscarla en otra caja.
+  NOT_COMPLETED: "CONFLICT",
   PRICE_NOT_FOUND: "NOT_FOUND",
   CURRENCY_MISMATCH: "VALIDATION",
   QUANTITY_PRECISION_EXCEEDED: "VALIDATION",
@@ -182,6 +186,7 @@ export class CommercialRequestHandler {
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
+      case "sales.receipt.get": return this.getReceipt(request, connectionId);
     }
   }
 
@@ -726,6 +731,85 @@ export class CommercialRequestHandler {
     return rejected(request, result.kind, { outcome: result.kind, ...empty });
   }
 
+  // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────
+
+  /**
+   * El recibo de una venta cobrada.
+   *
+   * `NOT_FOUND` y `NOT_COMPLETED` viajan separados hasta el cajero: «esa venta
+   * no es de esta caja» y «esa venta todavía no está cobrada» piden reacciones
+   * distintas, y colapsarlas le haría buscar un problema donde no lo hay.
+   *
+   * Ninguna cifra se calcula aquí. El caso de uso devuelve lo que la venta dejó
+   * escrito, y este método sólo lo renombra al idioma del contrato.
+   */
+  private getReceipt(
+    request: Extract<CommercialRequest, { message_type: "sales.receipt.get" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      sale_id: null, document_series: null, sale_number: null, currency_code: null,
+      business_date: null, completed_at: null, lines: null, subtotal_amount: null,
+      discount_amount: null, tax_amount: null, fiscal_total_amount: null,
+      commercial_rounding_adjustment: null, payable_amount: null, payments: null,
+      calculation_checksum: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.getReceipt.execute(
+      this.scope(), authenticated.snapshot, request.payload.sale_id,
+    );
+
+    if (result.kind !== "FOUND") {
+      return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    }
+
+    const receipt = result.receipt;
+    return succeeded(request, "FOUND", {
+      outcome: "FOUND",
+      sale_id: receipt.saleId,
+      document_series: receipt.documentSeries,
+      sale_number: receipt.saleNumber,
+      currency_code: receipt.currencyCode,
+      business_date: receipt.businessDate,
+      completed_at: receipt.completedAt,
+      lines: receipt.lines.map((line) => ({
+        line_number: line.lineNumber,
+        product_name: line.productName,
+        presentation_name: line.presentationName,
+        identifier: line.identifier,
+        unit_code: line.unitCode,
+        unit_precision: line.unitPrecision,
+        quantity: line.quantity,
+        unit_price_amount: line.unitPriceAmount,
+        gross_amount: line.grossAmount,
+        discount_amount: line.discountAmount,
+        taxable_amount: line.taxableAmount,
+        tax_amount: line.taxAmount,
+        line_total_amount: line.lineTotalAmount,
+      })),
+      subtotal_amount: receipt.subtotalAmount,
+      discount_amount: receipt.discountAmount,
+      tax_amount: receipt.taxAmount,
+      fiscal_total_amount: receipt.fiscalTotalAmount,
+      commercial_rounding_adjustment: receipt.commercialRoundingAdjustment,
+      payable_amount: receipt.payableAmount,
+      payments: receipt.payments.map((payment) => ({
+        payment_method: payment.paymentMethod,
+        confirmed_amount: payment.confirmedAmount,
+        tendered_amount: payment.tenderedAmount,
+        change_amount: payment.changeAmount,
+        currency_code: payment.currencyCode,
+        confirmed_at: payment.confirmedAt,
+      })),
+      calculation_checksum: receipt.calculationChecksum,
+    });
+  }
+
   // ── session.activate ───────────────────────────────────────────────────────
 
   /**
@@ -858,7 +942,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", shift_id: null });
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", shift_id: null, version: null });
     }
 
     const result = this.commercial.openCashShift.execute(
@@ -878,9 +962,12 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "OPENED" || result.kind === "IDEMPOTENT") {
-      return succeeded(request, result.kind, { outcome: result.kind, shift_id: result.shiftId });
+      // La versión viaja con el turno: es lo que el cierre exigirá después.
+      return succeeded(request, result.kind, {
+        outcome: result.kind, shift_id: result.shiftId, version: result.version,
+      });
     }
-    return rejected(request, result.kind, { outcome: result.kind, shift_id: null });
+    return rejected(request, result.kind, { outcome: result.kind, shift_id: null, version: null });
   }
 
   // ── cash.shift.close ───────────────────────────────────────────────────────

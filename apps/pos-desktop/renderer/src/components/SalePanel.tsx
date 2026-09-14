@@ -15,6 +15,7 @@ export function SalePanel(): React.JSX.Element {
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
+  const [counted, setCounted] = useState("");
 
   return (
     <section data-testid="sale-panel">
@@ -46,6 +47,23 @@ export function SalePanel(): React.JSX.Element {
       ) : (
         <div data-testid="shift-open">
           Turno abierto · caja <span data-testid="shift-register">{sale.shift.cashRegisterId}</span>
+          {/* Cerrar el turno es lo que permite abrir el siguiente: `DEC-012`
+              §25.2 admite un único turno OPEN o CLOSING por caja, así que sin
+              cierre la caja queda inservible al día siguiente. */}
+          <input
+            data-testid="counted-amount-input"
+            value={counted}
+            onChange={(e) => { setCounted(e.target.value); }}
+            placeholder="Efectivo contado"
+            disabled={sale.busy}
+          />
+          <button
+            data-testid="close-shift-button"
+            onClick={() => { void sale.closeShift(counted.trim()); }}
+            disabled={sale.busy || counted.trim() === ""}
+          >
+            Cerrar turno
+          </button>
         </div>
       )}
 
@@ -104,12 +122,27 @@ export function SalePanel(): React.JSX.Element {
       {sale.sale !== null && (
         <div data-testid="sale-created">
           Total a pagar: <span data-testid="payable-amount">{sale.sale.payableAmount}</span>
+          {/* El identificador se muestra porque el cajero lo necesita para pedir
+              el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
+          {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
           <button
             data-testid="charge-cash-button"
             onClick={() => { void sale.chargeCash(); }}
             disabled={sale.busy}
           >
             Cobrar en efectivo
+          </button>
+          {/* Reportar la transferencia y atestiguarla son dos actos distintos,
+              con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
+              pantalla no los funde en un botón: el cajero recibe el comprobante
+              y alguien da el dinero por bueno, que no tiene por qué ser el
+              mismo. */}
+          <button
+            data-testid="register-transfer-button"
+            onClick={() => { void sale.registerTransfer(); }}
+            disabled={sale.busy || sale.transfer !== null}
+          >
+            Transferencia
           </button>
         </div>
       )}
@@ -125,6 +158,59 @@ export function SalePanel(): React.JSX.Element {
             <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span>
             {" "}· la venta aún no está cobrada
           </div>
+        )
+      )}
+
+      {sale.transfer !== null && (
+        <div data-testid="transfer-registered">
+          Transferencia registrada · pago{" "}
+          <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span>
+          {" · estado "}
+          <span data-testid="transfer-status">{sale.transfer.status}</span>
+          {" · reportado "}
+          <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
+          {/* Registrada NO es cobrada: mientras nadie atestigüe, la venta sigue
+              sin completarse y no suena nada. */}
+          <div data-testid="transfer-pending">Pendiente de confirmación</div>
+          <button
+            data-testid="confirm-transfer-button"
+            onClick={() => { void sale.confirmTransfer(); }}
+            disabled={sale.busy}
+          >
+            Confirmar transferencia
+          </button>
+        </div>
+      )}
+
+      {sale.transferConfirmation !== null && (
+        sale.transferConfirmation.sale_completed ? (
+          <div data-testid="transfer-sale-completed">
+            Venta cobrada por transferencia · cobertura{" "}
+            <span data-testid="transfer-confirmed-coverage">
+              {sale.transferConfirmation.confirmed_coverage}
+            </span>
+          </div>
+        ) : (
+          <div data-testid="transfer-partial">
+            Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada
+          </div>
+        )
+      )}
+
+      {sale.closedShift !== null && (
+        sale.closedShift.outcome === "CLOSED" ? (
+          <div data-testid="shift-close-result">
+            Turno cerrado · esperado{" "}
+            <span data-testid="shift-expected-cash">{sale.closedShift.expected_cash}</span>
+            {" · contado "}
+            <span data-testid="shift-counted-amount">{sale.closedShift.counted_amount}</span>
+            {" · diferencia "}
+            <strong data-testid="shift-difference">{sale.closedShift.difference_amount}</strong>
+          </div>
+        ) : (
+          /* Un cierre rechazado no se disfraza: el código estable es la única
+             pista accionable que tiene el cajero. */
+          <div data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
         )
       )}
 

@@ -22,6 +22,8 @@ import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
 import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../inventory/get-stock-use-case.js";
+import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
+import { SqliteReceiptStore } from "../receipts/sqlite-receipt-store.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
 import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-payment-use-case.js";
@@ -71,6 +73,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
+        readonly getReceipt: GetReceiptUseCase;
       }
     | undefined;
 
@@ -109,6 +112,7 @@ export class CommercialComponent implements RuntimeComponent {
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
+  get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -143,6 +147,8 @@ export class CommercialComponent implements RuntimeComponent {
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
+      // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
+      getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),

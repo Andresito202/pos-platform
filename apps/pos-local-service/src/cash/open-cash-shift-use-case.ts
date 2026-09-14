@@ -20,8 +20,8 @@ export interface OpenCashShiftRequest {
 }
 
 export type OpenCashShiftResult =
-  | { readonly kind: "OPENED"; readonly shiftId: string }
-  | { readonly kind: "IDEMPOTENT"; readonly shiftId: string }
+  | { readonly kind: "OPENED"; readonly shiftId: string; readonly version: number }
+  | { readonly kind: "IDEMPOTENT"; readonly shiftId: string; readonly version: number }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   | { readonly kind: "REGISTER_NOT_FOUND" }
   | { readonly kind: "REGISTER_INACTIVE" }
@@ -124,8 +124,12 @@ export class OpenCashShiftUseCase {
       causationId: request.causationId,
     });
 
-    if (result.kind === "OPENED") return { kind: "OPENED", shiftId: result.shiftId };
-    if (result.kind === "IDEMPOTENT") return { kind: "IDEMPOTENT", shiftId: result.shiftId };
+    if (result.kind === "OPENED") {
+      return { kind: "OPENED", shiftId: result.shiftId, version: result.version };
+    }
+    if (result.kind === "IDEMPOTENT") {
+      return { kind: "IDEMPOTENT", shiftId: result.shiftId, version: result.version };
+    }
     if (result.kind === "INCOMPATIBLE_SHIFT") return { kind: "INCOMPATIBLE_SHIFT" };
     return { kind: "IDEMPOTENCY_CONFLICT" };
   }
