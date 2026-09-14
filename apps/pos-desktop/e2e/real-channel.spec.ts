@@ -430,3 +430,102 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   expect(await page.getByTestId("transfer-partial").count()).toBe(0);
   expect(await page.getByTestId("sale-error").count()).toBe(0);
 });
+
+/**
+ * El primer dia de la tienda, entero y por la cadena real.
+ *
+ * Hasta aqui el catalogo y la existencia se sembraban con `page.evaluate`, que
+ * es el canal pero **no es superficie de producto**: por eso B6, B7 y B10 se
+ * quedaban en `CALLER_REACHABLE` por mucho que el motor funcionara. Esta prueba
+ * no usa `page.evaluate` para nada: da de alta el producto, mete la mercancia,
+ * la consulta, la ajusta y registra el adquiriente **tecleando en la pantalla**,
+ * contra el servicio real por socket.
+ *
+ * Es tambien la comprobacion de que el POS se puede usar el primer dia, que es
+ * algo que hasta ahora ninguna prueba afirmaba.
+ */
+test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", async () => {
+  const page = await app.firstWindow();
+
+  const code = `COD-${randomUUID().slice(0, 8)}`;
+  const barcode = `77012345${String(Date.now()).slice(-5)}`;
+
+  // --- Alta de producto ----------------------------------------------------
+  await page.getByTestId("product-code-input").fill(code);
+  await page.getByTestId("product-name-input").fill("Panela");
+  await page.getByTestId("presentation-name-input").fill("Bloque 500g");
+  await page.getByTestId("unit-code-input").fill("UND");
+  await page.getByTestId("unit-precision-input").fill("0");
+  await page.getByTestId("product-barcode-input").fill(barcode);
+  await page.getByTestId("product-price-input").fill("2500");
+  await page.getByTestId("product-currency-input").fill("COP");
+  await page.getByTestId("register-product-button").click();
+
+  await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("product-outcome").textContent()).toBe("REGISTERED");
+  const presentationId = await page.getByTestId("presentation-id").textContent();
+  expect(presentationId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // --- Existencia antes de recibir: no es cero, es «sin movimientos» --------
+  await page.getByTestId("inventory-presentation-input").fill(presentationId!);
+  await page.getByTestId("get-stock-button").click();
+  await expect(page.getByTestId("stock-not-found")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("stock-found").count()).toBe(0);
+
+  // --- Entrada de mercancia ------------------------------------------------
+  await page.getByTestId("receive-quantity-input").fill("40");
+  await page.getByTestId("receive-reason-input").fill("PURCHASE");
+  await page.getByTestId("receive-stock-button").click();
+  await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("movement-outcome").textContent()).toBe("POSTED");
+  expect(await page.getByTestId("movement-quantity-after").textContent()).toBe("40.000000");
+
+  // --- Ajuste por merma ----------------------------------------------------
+  await page.getByTestId("adjust-quantity-input").fill("3");
+  await page.getByTestId("adjust-reason-input").fill("BREAKAGE");
+  await page.getByTestId("adjust-movement-select").selectOption("SHRINKAGE");
+  await page.getByTestId("adjust-stock-button").click();
+  await expect(page.getByTestId("movement-quantity-after")).toHaveText("37.000000", { timeout: 15_000 });
+
+  // --- La consulta confirma el saldo que dejaron los dos movimientos -------
+  await page.getByTestId("get-stock-button").click();
+  await expect(page.getByTestId("stock-found")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("stock-quantity").textContent()).toBe("37.000000");
+
+  // --- Adquiriente: no esta, se registra, y entonces si esta ---------------
+  const identification = `10${String(Date.now()).slice(-8)}`;
+  await page.getByTestId("customer-document-code-input").fill("13");
+  await page.getByTestId("customer-identification-input").fill(identification);
+  await page.getByTestId("customer-legal-organization-input").fill("2");
+  // Codigos DIAN reales, los mismos que usan las pruebas del servicio: "ZZ" es
+  // el tributo de no responsable y "R-99-PN" la responsabilidad de persona
+  // natural. Un codigo inventado aqui lo rechazaria el servicio, que es
+  // exactamente lo que debe hacer.
+  await page.getByTestId("customer-tribute-input").fill("ZZ");
+  await page.getByTestId("customer-responsibilities-input").fill("R-99-PN");
+  await page.getByTestId("customer-names-input").fill("Ana Perez");
+
+  await page.getByTestId("find-customer-button").click();
+  await expect(page.getByTestId("customer-not-found")).toBeVisible({ timeout: 15_000 });
+
+  await page.getByTestId("register-customer-button").click();
+  await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
+  const customerId = await page.getByTestId("customer-registered-id").textContent();
+  expect(customerId).toMatch(/^[0-9a-f-]{36}$/);
+
+  await page.getByTestId("find-customer-button").click();
+  await expect(page.getByTestId("customer-found")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("customer-found-id").textContent()).toBe(customerId);
+  expect(await page.getByTestId("customer-found-identification").textContent()).toBe(identification);
+  expect(await page.getByTestId("customer-not-found").count()).toBe(0);
+
+  // --- Y por ID, que es la tercera operacion del bloque --------------------
+  await page.getByTestId("customer-id-input").fill(customerId!);
+  await page.getByTestId("get-customer-button").click();
+  await expect(page.getByTestId("customer-found")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("customer-found-tribute").textContent()).toBe("ZZ");
+
+  expect(await page.getByTestId("catalog-error").count()).toBe(0);
+  expect(await page.getByTestId("inventory-error").count()).toBe(0);
+  expect(await page.getByTestId("customer-error").count()).toBe(0);
+});

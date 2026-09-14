@@ -45,7 +45,7 @@ separados —`RUNTIME_VERIFIED`, `CALLER_REACHABLE`, `END_TO_END`—, cada uno c
 propia evidencia. **Una `X` en la columna `CANON` de este documento no autoriza a
 decir que la capacidad es alcanzable.**
 
-## Estado verificado sobre `da23b29` + rama `feat/peer-identity-real-channel` (2026-09-13)
+## Estado verificado sobre `da1fe74` + rama `feat/security-lifecycle-boot` (2026-09-14)
 
 > El **tablero** —bloques, capacidades y escalera de peldaños— vive en
 > [`tablero-materializacion.md`](./tablero-materializacion.md). Aquel documento
@@ -54,11 +54,17 @@ decir que la capacidad es alcanzable.**
 > 2026-09-12 publica un recuento de filas por peldaño. **Ninguno reemplaza al
 > otro y ninguno puede contradecirlo: si discrepan, manda el código.**
 >
-> Censo del 2026-09-13: **1154 pruebas pasan** en **10** proyectos, con **6
-> omitidas por entorno**. `pnpm typecheck` PASS · `pnpm architecture:check`
-> PASS · `pnpm ci:repository-policy` PASS (**546 archivos**).
+> Censo del 2026-09-14: **1158 pruebas pasan** en **10** proyectos de vitest,
+> con **6 omitidas por entorno**, más **8 pruebas E2E de Electron** bajo `xvfb`,
+> que corren en su propio ejecutor y no entran en esa suma. `pnpm typecheck`
+> PASS · `pnpm architecture:check` PASS · `pnpm ci:repository-policy` PASS
+> (**566 archivos**).
 >
-> Medido sobre la rama `feat/peer-identity-real-channel` a partir de `da23b29`.
+> Desglose: contracts 244 · domain 47 · application 16 · local-channel 4 ·
+> database-sqlite 37 · observability 4 · fiscal-adapters 170 (2 omitidas) ·
+> pos-local-service 499 (4 omitidas) · pos-desktop 124 · migraciones SQLite 13.
+>
+> Medido sobre la rama `feat/security-lifecycle-boot` a partir de `da1fe74`.
 > La rama aporta 13 de esas pruebas —7 de la vertical por el canal y 6 de
 > normalización a escala 6—, de modo que en `da23b29` puro son **1141**.
 >
@@ -511,6 +517,7 @@ preservado que documenta la sección siguiente, no en `main`.
 
 | # | Deuda | Evidencia | Consecuencia si no se atiende |
 |---|---|---|---|
+| D-26 | **CERRADA en `feat/security-lifecycle-boot`.** `CustomerReadResultSchema` validaba los cuatro códigos DIAN con `StableCodeSchema` —que exige inicial alfabética— mientras la petición los admitía con `DianCodeSchema`. Los códigos DIAN reales son numéricos (`13` cédula, `31` NIT, `1`/`2` organización legal), de modo que un adquiriente colombiano corriente **se registraba y su lectura mataba el socket**. La asimetría estaba escrita desde hacía tres bloques en un comentario de `channel-commercial-transport.test.ts` —«no se corrige aquí porque tocaría los contratos»— y el fixture se había rellenado con `"CC"`, `"PERSONA_NATURAL"` y `"NO_APLICA"`, valores que ningún catálogo DIAN contiene, para que la prueba pasara. La encontró la primera pantalla que leyó un adquiriente real contra el servicio real | `ipc-commercial.ts` · `channel-commercial-transport.test.ts:96` · E2E `real-channel.spec.ts` | **regla que deja**: una respuesta nunca puede ser más estricta que la petición que la originó, y doblar un fixture para que pase una prueba mantiene vivo el defecto que la prueba existía para ver |
 | D-1 | `local_sync_outbox` no tiene purga ni retención | cero `DELETE` en `durable-sync-store.ts` | crecimiento monótono del archivo SQLite en uso real |
 | D-2 | Sin transporte, todo queda `PENDING` de forma permanente | sin cliente HTTP saliente | ningún hecho comercial sale del dispositivo |
 | D-3 | La regla que traduce permiso de matriz de producto a forma canónica sólo está escrita caso por caso | `DEC-012` §33.2 la enuncia para `CASH_SHIFT_CLOSE`; no existe enunciado general | cada módulo nuevo la redescubre o la contradice |

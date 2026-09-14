@@ -165,10 +165,17 @@ les exige es la que siempre debieron tener.
 
 ## El tablero
 
-**56 capacidades en 5 bloques.** Estructura congelada el 2026-09-06.
+**57 capacidades en 5 bloques.** Estructura congelada el 2026-09-06; una fila
+añadida el 2026-09-14 (`B13`, recibo de venta), registrada abajo.
 
-**Árbol evaluado: `origin/main` = `2aa8acc`**, el 2026-09-13. No se evalúa
+**Árbol evaluado: `origin/main` = `da1fe74`**, el 2026-09-14. No se evalúa
 ninguna rama: una capacidad en una rama abierta no está en `main`.
+
+`da1fe74` es el merge de la PR #76 —segundo padre `d0ebe55`— sobre `2aa8acc`.
+Trae tres cosas que el cajero puede hacer desde la pantalla y antes no podía:
+cerrar el turno, cobrar por transferencia y pedir el recibo de una venta
+cobrada. CI verde sobre `d0ebe55`, con el job de Windows en `windows-2022` en
+`success`.
 
 `2aa8acc` es el merge de la PR #75 —segundo padre `83542bc`— sobre `da23b29`.
 Trae lo que faltaba para que `CALLER_REACHABLE` dejara de estar vacío: una
@@ -245,13 +252,13 @@ y los tres pagos que no son efectivo— siguen sin cruzar el socket. El resto de
 bloque A es infraestructura local, a la que estos dos peldaños no le aplican
 (regla 3).
 
-### Bloque B — Núcleo comercial · 12 capacidades
+### Bloque B — Núcleo comercial · 13 capacidades
 
 | # | Capacidad | Peldaño | Evidencia |
 |---|---|---|---|
 | B1 | Sales V1 (venta → `READY_FOR_PAYMENT`) | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
-| B2 | Cash V1 (apertura y cierre de turno) | `RUNTIME_VERIFIED` | `cash.shift.open` cruza → `OPENED`; **`cash.shift.close` no cruza** |
-| B3 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | `RUNTIME_VERIFIED` | `payment.register.cash` cruza → `CONFIRMED`; **`TRANSFER` no cruza** |
+| B2 | Cash V1 (apertura y cierre de turno) | `END_TO_END` | apertura y cierre se mueven desde la pantalla en `real-channel.spec.ts`; el cierre viaja con el `version` que devolvió la apertura, nunca un literal |
+| B3 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | `END_TO_END` | `CASH` y `TRANSFER` se cobran desde la pantalla; la transferencia lee su `version` de `payment.get` entre reportar y atestiguar |
 | B4 | Completado de venta como único punto | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
 | B5 | Frontera Payments ↔ Cash | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
 | B6 | Catalog | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; **`register` no tiene pantalla**: sin alta de catálogo no hay `END_TO_END` |
@@ -261,6 +268,7 @@ bloque A es infraestructura local, a la que estos dos peldaños no le aplican
 | B10 | Customer / adquiriente | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; **ninguna de las tres tiene pantalla** |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | — |
 | B12 | Periféricos POS | `DOCUMENTED` | cero código |
+| B13 | Recibo de venta (proyección, `DEC-019`) | `END_TO_END` | `sales.receipt.get` se deriva de la venta cobrada; la pantalla lo pide y distingue `NOT_FOUND` de `NOT_COMPLETED`. Sin tabla, sin migración y sin campo fiscal |
 
 **B5 fue la corrección más cara del tablero, y conviene no olvidar por qué.**
 Hasta `02b89bb`, `CreateSaleUseCase` escribía `cash_register_id` y `cash_shift_id`
@@ -303,8 +311,29 @@ de alta de producto; de B7, las de entrada y ajuste de existencia; de B10 no hay
 ninguna. La regla es la misma de siempre: media capacidad alcanzable no es la
 capacidad.
 
-**B2 y B3 tampoco se mueven**: de B2 no cruza el cierre de turno y de B3 no cruza
-la transferencia.
+**B2 y B3 sí se mueven ahora, y conviene decir qué las movía.** Lo que les
+faltaba no era motor sino llamador: `cash.shift.close` y
+`payment.register.transfer` existían enteros —contrato, dominio, caso de uso,
+almacén, handler, enrutamiento, allowlist y preload— y nadie los invocaba. #76
+añadió el llamador y la pantalla, y ninguna de las dos tocó arquitectura.
+
+Dos detalles que el peldaño no muestra y que son la parte cara:
+
+- El cierre exige `expected_version`, y la apertura no devolvía la versión. Se
+  añadió `version` al resultado de `cash.shift.open` para que la pantalla
+  propague la versión **real**; escribir `expected_version: 1` habría pasado las
+  pruebas y roto el bloqueo optimista en el primer turno reabierto.
+- La transferencia es un flujo de **tres** pasos, no de dos:
+  `payment.register.transfer` devuelve sólo `outcome` y `payment_id`, así que
+  `payment.get` es la única fuente de la versión que `payment.transfer.confirm`
+  exige. Se consulta siempre, también tras un `IDEMPOTENT`, donde el pago ya
+  existía y su versión puede ser cualquiera.
+
+**B13 es fila nueva** (`DEC-019`): el recibo es una **proyección** de la venta
+cobrada, no un artefacto almacenado. No hay `MIGRATION_016`, no hay CUFE, no hay
+QR fiscal y no hay cabecera DIAN. Y destapó `D-23`: `identifier_snapshot` se
+escribe siempre `NULL`, de modo que el recibo no puede mostrar el código del
+producto y hoy afirma `null` por honestidad.
 
 **B8 y B12 se mantienen en `DOCUMENTED`.** `sandbox_price_rule` es una tabla sin
 regla que la calcule; periféricos no tiene una sola línea.
@@ -409,19 +438,19 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | Peldaño | Filas | Cuáles |
 |---|---|---|
 | `PRODUCTION` | **0** | — |
-| `END_TO_END` | **3** | B1 B4 B5 |
+| `END_TO_END` | **6** | B1 B2 B3 B4 B5 B13 |
 | `CALLER_REACHABLE` | **4** | A9 · B6 B7 B10 |
-| `RUNTIME_VERIFIED` | **19** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B2 B3 B9 · E1 E2 E3 E4 E5 E7 |
+| `RUNTIME_VERIFIED` | **17** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B9 · E1 E2 E3 E4 E5 E7 |
 | `TESTED` | **15** | A3 A13 A14 · C1..C11 · D1 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
 | `DOCUMENTED` | **12** | B8 B11 B12 · C12 C13 C15 · D3 D4 D5 D6 · E8 E9 |
 | — (nada) | **1** | D2 |
-| **Total** | **56** | las 56 filas aparecen una sola vez; recuento verificado parseando el fichero |
+| **Total** | **57** | las 57 filas aparecen una sola vez; recuento verificado parseando el fichero |
 
 `D1` se cuenta en `TESTED` porque el job de CI las ejecuta contra PostgreSQL
 16.14. En un contenedor sin instancia es `NOT_EVALUATED`, y así se anota arriba.
 
-**Siete capacidades son alcanzables por un llamador externo, y tres de ellas lo
+**Diez capacidades son alcanzables por un llamador externo, y seis de ellas lo
 son desde la pantalla.** Es el primer movimiento real del tablero hacia arriba
 desde que se retiró `CANONICALLY_APPLIED`, y llega por donde el tablero decía que
 llegaría: no apareció código nuevo de producción, apareció la prueba que enchufa
