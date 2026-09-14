@@ -340,6 +340,45 @@ describe("POS Local Service process boundary", () => {
     expect(stdout()).toContain('"reason":"test.control"');
   }, 30_000);
 
+  /**
+   * DEC-020 sobre el proceso real de produccion.
+   *
+   * En Windows esta prueba ejecuta **DPAPI de verdad**: `ProtectedData.Protect`
+   * bajo `CurrentUser`, el fichero de clave raiz con su ACL, y la recuperacion
+   * del mismo secreto en el arranque siguiente. Que las dos identidades
+   * coincidan es la unica evidencia real de que DPAPI cerro el ciclo; una clave
+   * mal protegida o mal recuperada daria un `device_key_id` distinto.
+   *
+   * En POSIX ejecuta el mismo camino con el proveedor derivado, que no protege
+   * nada pero si obliga a que el ciclo cargar/crear sea correcto.
+   */
+  it("materializes a device identity that survives a real restart", async () => {
+    const dataDirectory = await directory();
+    const environment = serviceEnvironment(dataDirectory);
+
+    const first = spawnServiceWithControl(environment);
+    const firstStarted = await waitForLogEvent(first, "runtime.started", 25_000);
+    const firstExit = waitForExit(first);
+    expect(first.send({ type: "pos-platform.test.shutdown" })).toBe(true);
+    expect(await firstExit).toBe(0);
+
+    const second = spawnServiceWithControl(environment);
+    const secondStarted = await waitForLogEvent(second, "runtime.started", 25_000);
+    const secondExit = waitForExit(second);
+    expect(second.send({ type: "pos-platform.test.shutdown" })).toBe(true);
+    expect(await secondExit).toBe(0);
+
+    const firstFields = firstStarted["fields"] as Record<string, unknown>;
+    const secondFields = secondStarted["fields"] as Record<string, unknown>;
+
+    expect(firstFields["device_key_id"]).toMatch(/^DEVICE_KEY_[0-9A-F]{64}$/);
+    expect(secondFields["device_key_id"]).toBe(firstFields["device_key_id"]);
+
+    const expectedProtection = process.platform === "win32" ? "OS_BOUND" : "TEST_ONLY";
+    expect(firstFields["key_protection"]).toBe(expectedProtection);
+    expect(secondFields["key_protection"]).toBe(expectedProtection);
+  }, 90_000);
+
   it("fails closed as a real child process when required config is missing", async () => {
     const child = spawnService(serviceEnvironment(undefined));
     const exitCode = await waitForExit(child);

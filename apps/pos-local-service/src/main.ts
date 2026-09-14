@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
@@ -6,6 +7,12 @@ import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
+import {
+  InsecureDerivedKeyProvider,
+  LocalSecurityComponent,
+  WindowsDpapiKeyProvider,
+  type SecretStoreKeyProvider,
+} from "./security/index.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -79,6 +86,22 @@ try {
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
+
+  // DEC-020. La rama es por plataforma y no consulta el entorno: en Windows no
+  // existe ruta alguna hacia el proveedor de pruebas. La produccion exige
+  // Windows —lo impone el guard de arriba— de modo que la segunda rama solo es
+  // alcanzable donde la produccion ya esta prohibida.
+  const securityDirectory = join(config.data_directory, "security");
+  const keyProvider: SecretStoreKeyProvider = process.platform === "win32"
+    ? new WindowsDpapiKeyProvider(securityDirectory)
+    : new InsecureDerivedKeyProvider(securityDirectory);
+  const security = new LocalSecurityComponent(
+    localDatabase,
+    { installationId: config.installation_id, deviceId: config.device_id },
+    keyProvider,
+    securityDirectory,
+  );
+
   const durableSync = new DurableSyncComponent(localDatabase);
   const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
   // El mapa de claves de sesión llega vacío: no existe aprovisionamiento de
@@ -87,7 +110,16 @@ try {
   // fabricada.
   const commercial = new CommercialComponent(config, localDatabase, durableSync);
   let localChannel: LocalChannelComponent | undefined;
-  const components: RuntimeComponent[] = [localDatabase, durableSync, operationConfirmation, commercial];
+  // `security` va inmediatamente despues de la base de datos y antes que todo
+  // lo demas: ninguna operacion comercial se sirve si el equipo no pudo
+  // materializar su identidad.
+  const components: RuntimeComponent[] = [
+    localDatabase,
+    security,
+    durableSync,
+    operationConfirmation,
+    commercial,
+  ];
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
@@ -106,6 +138,11 @@ try {
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
     installation_id: config.installation_id,
+    device_key_id: security.deviceKeyId,
+    // `key_protection`, no `secret_protection`: el redactor del logger
+    // convierte en `[REDACTED]` todo campo cuyo nombre contenga «secret».
+    // El nombre se adapta al redactor; el redactor no se toca.
+    key_protection: security.protection,
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),
   });
   await logger.flush();
