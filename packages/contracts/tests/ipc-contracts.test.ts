@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CashShiftOpenRequestSchema,
+  CustomerReadResultSchema,
   CustomerRegisterRequestSchema,
   SaleCreateRequestSchema,
   InventoryStockAdjustRequestSchema,
@@ -364,5 +365,93 @@ describe("sale.create — la caja es el único selector del turno", () => {
     expect(SaleCreateRequestSchema.safeParse(
       request(payload({ cash_shift_id: "550e8400-e29b-41d4-a716-446655440024" })),
     ).success).toBe(false);
+  });
+});
+
+/**
+ * La simetria entre lo que se deja escribir y lo que se deja leer.
+ *
+ * Este bloque existe por un defecto real, encontrado por la pantalla del
+ * adquiriente contra el servicio de verdad: `CustomerReadResultSchema` validaba
+ * los codigos DIAN con `StableCodeSchema`, que exige empezar por mayuscula. Los
+ * codigos DIAN reales son numericos —`13` cedula, `31` NIT, `1` y `2` de
+ * organizacion legal—, de modo que un adquiriente colombiano corriente se
+ * registraba sin problema y **su lectura mataba el socket**: la respuesta no
+ * validaba, el servidor destruia la conexion y el llamador veia «local channel
+ * socket closed before response».
+ *
+ * Lo llamativo es que el razonamiento ya estaba escrito en el propio fichero,
+ * sobre `DianCodeSchema`, y no se habia aplicado a la respuesta.
+ */
+describe("customer.find / customer.get — una respuesta no puede ser mas estricta que su peticion", () => {
+  const found = (over: Record<string, unknown> = {}) => ({
+    outcome: "FOUND" as const,
+    customer_id: "550e8400-e29b-41d4-a716-446655440030",
+    identification_document_code: "13",
+    identification: "1020304050",
+    verification_digit: null,
+    legal_organization_code: "2",
+    company: null,
+    names: "Ana Restrepo",
+    tribute_code: "ZZ",
+    fiscal_responsibility_codes: ["R-99-PN"],
+    email: null,
+    phone: null,
+    address: null,
+    country_code: null,
+    municipality_code: null,
+    version: 1,
+    ...over,
+  });
+
+  it("acepta la cedula de ciudadania, que es numerica", () => {
+    expect(CustomerReadResultSchema.safeParse(found()).success).toBe(true);
+  });
+
+  it("acepta el NIT y la naturaleza juridica, que tambien son numericos", () => {
+    expect(CustomerReadResultSchema.safeParse(found({
+      identification_document_code: "31",
+      legal_organization_code: "1",
+      verification_digit: "7",
+      company: "Comercializadora del Valle S.A.S.",
+      names: null,
+    })).success).toBe(true);
+  });
+
+  it("cada codigo que la peticion admite, la respuesta lo devuelve", () => {
+    for (const code of ["13", "31", "1", "2", "ZZ", "R-99-PN", "O-13", "01", "94"]) {
+      const registrable = CustomerRegisterRequestSchema.safeParse({
+        ...metadata,
+        message_type: "customer.register",
+        operation_id: "550e8400-e29b-41d4-a716-446655440031",
+        idempotency_key: "customer:register:1",
+        payload: {
+          identification_document_code: code,
+          identification: "1020304050",
+          verification_digit: null,
+          legal_organization_code: "2",
+          company: null,
+          names: "Ana Restrepo",
+          tribute_code: "ZZ",
+          fiscal_responsibility_codes: [code],
+          email: null,
+          phone: null,
+          address: null,
+          country_code: null,
+          municipality_code: null,
+        },
+      }).success;
+      const legible = CustomerReadResultSchema.safeParse(found({
+        identification_document_code: code,
+        fiscal_responsibility_codes: [code],
+      })).success;
+      expect([code, registrable, legible]).toEqual([code, registrable, registrable]);
+    }
+  });
+
+  it("sigue rechazando lo que no tiene forma de codigo DIAN", () => {
+    expect(CustomerReadResultSchema.safeParse(found({
+      identification_document_code: "codigo en minuscula",
+    })).success).toBe(false);
   });
 });

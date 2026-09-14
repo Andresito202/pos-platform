@@ -94,24 +94,31 @@ function responseFor(request: unknown, resultCode: string, result: unknown) {
 }
 
 /**
- * Los códigos de la **respuesta** llevan inicial alfabética y los de la
- * **petición** son numéricos, y no es un descuido: el contrato los valida con
- * esquemas distintos —`DianCodeSchema` `/^[A-Z0-9][A-Z0-9-]*$/` a la entrada,
- * `StableCodeSchema` `/^[A-Z][A-Z0-9_]*…/` a la salida—. Un `"13"` que entra
- * válido **no puede salir**. Asimetría registrada; no se corrige aquí porque
- * tocaría los contratos.
+ * Estos códigos son los **mismos** en la petición y en la respuesta, y esa
+ * simetría es hoy una regla del contrato.
+ *
+ * Hasta `D-26` no lo era. Aquí vivía una nota que decía que un `"13"` que entra
+ * válido «no puede salir», que la asimetría quedaba registrada y que no se
+ * corregía «porque tocaría los contratos». El fixture se rellenó entonces con
+ * `"CC"`, `"PERSONA_NATURAL"` y `"NO_APLICA"` —valores inventados que ningún
+ * catálogo DIAN contiene— porque eran los que el esquema roto aceptaba.
+ *
+ * El precio de aquella decisión se cobró donde tenía que cobrarse: la primera
+ * pantalla que leyó un adquiriente real contra el servicio real mató el socket.
+ * Doblar el fixture para que pasara la prueba fue lo que dejó el defecto vivo
+ * tres bloques.
  */
 const CUSTOMER_READ = {
   outcome: "FOUND",
   customer_id: "018f0000-0000-7000-8000-0000000000f1",
-  identification_document_code: "CC",
+  identification_document_code: "13",
   identification: "1020304050",
   verification_digit: null,
-  legal_organization_code: "PERSONA_NATURAL",
+  legal_organization_code: "2",
   company: null,
   names: "Cliente de mostrador",
-  tribute_code: "NO_APLICA",
-  fiscal_responsibility_codes: [],
+  tribute_code: "ZZ",
+  fiscal_responsibility_codes: ["R-99-PN"],
   email: null, phone: null, address: null,
   country_code: null, municipality_code: null,
   version: 1,

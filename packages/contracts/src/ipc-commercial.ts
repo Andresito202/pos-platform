@@ -672,17 +672,33 @@ export const CustomerFindRequestSchema = createRequestEnvelopeSchema(
 ).safeExtend({ message_type: z.literal("customer.find") })
   .superRefine(forbidCallerAssertedIdentity);
 
+/**
+ * Los cuatro códigos DIAN se validan aquí con `DianCodeSchema`, **el mismo
+ * esquema que los admite en la petición**, y no con `StableCodeSchema`.
+ *
+ * No es una preferencia de estilo: `StableCodeSchema` exige que el código
+ * empiece por letra mayúscula, y los códigos DIAN reales son numéricos —`13`
+ * cédula de ciudadanía, `31` NIT, `1` y `2` de organización legal—. Con el
+ * esquema anterior, un adquiriente colombiano corriente se registraba sin
+ * problema y **su lectura mataba el socket**: la respuesta no validaba, el
+ * servidor destruía la conexión y el llamador veía «socket closed before
+ * response».
+ *
+ * La regla general que deja este defecto: **una respuesta nunca puede ser más
+ * estricta que la petición que la originó.** Lo que el contrato dejó escribir,
+ * el contrato tiene que dejar leer.
+ */
 export const CustomerReadResultSchema = z.strictObject({
   outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
   customer_id: UuidSchema.nullable(),
-  identification_document_code: StableCodeSchema.nullable(),
+  identification_document_code: DianCodeSchema.nullable(),
   identification: FiscalIdentificationSchema.nullable(),
   verification_digit: z.string().regex(/^[0-9]$/).nullable(),
-  legal_organization_code: StableCodeSchema.nullable(),
+  legal_organization_code: DianCodeSchema.nullable(),
   company: z.string().min(1).max(200).nullable(),
   names: z.string().min(1).max(200).nullable(),
-  tribute_code: StableCodeSchema.nullable(),
-  fiscal_responsibility_codes: z.array(StableCodeSchema).max(32),
+  tribute_code: DianCodeSchema.nullable(),
+  fiscal_responsibility_codes: z.array(DianCodeSchema).max(32),
   email: z.string().min(1).max(200).nullable(),
   phone: z.string().min(1).max(200).nullable(),
   address: z.string().min(1).max(200).nullable(),

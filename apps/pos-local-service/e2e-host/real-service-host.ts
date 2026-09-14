@@ -70,6 +70,12 @@ const PERMISSIONS = [
   "PAYMENTS_TRANSFER_REPORT",
   "PAYMENTS_TRANSFER_CONFIRM",
   "PAYMENTS_PAYMENT_READ",
+  // Anadidos con las pantallas de administracion: ajustar existencia y el
+  // adquiriente no eran alcanzables desde el producto y por tanto no hacian
+  // falta aqui.
+  "INVENTORY_STOCK_ADJUST",
+  "CUSTOMERS_CUSTOMER_REGISTER",
+  "CUSTOMERS_CUSTOMER_READ",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");
