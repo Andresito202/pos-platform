@@ -6,6 +6,7 @@
   "sideEffects": false,
   "scripts": {
     "start": "tsx src/main.ts",
+    "deposit-credential": "tsx src/fiscal/deposit-cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "build:artifact": "node build-artifact.mjs"
