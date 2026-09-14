@@ -17,7 +17,11 @@ import {
   fiscalSecretName,
 } from "../src/fiscal/fiscal-credential-store.js";
 import { SecretStoreFactusCredentialResolver } from "../src/fiscal/factus-credential-resolver.js";
-import { readDepositInput, runDepositCli } from "../src/fiscal/deposit-fiscal-credential.js";
+import {
+  openFiscalCredentialStore,
+  readDepositInput,
+  runDepositCli,
+} from "../src/fiscal/deposit-fiscal-credential.js";
 
 const REQUIREMENT = FACTUS_ADAPTER_DECLARATION.credential;
 
@@ -205,6 +209,8 @@ describe("Depósito — la operación del operador", () => {
       POS_TENANT_ID: "018f0000-0000-7000-8000-000000000001",
       POS_COMPANY_ID: "018f0000-0000-7000-8000-000000000002",
       POS_BRANCH_ID: "018f0000-0000-7000-8000-000000000003",
+      // `parseServiceConfig` rechaza claves `POS_*` desconocidas, no el resto.
+      NODE_ENV: "test",
     };
   }
   const payload = JSON.stringify({ provider: "FACTUS", environment: "SANDBOX", fields: FIELDS });
@@ -224,9 +230,17 @@ describe("Depósito — la operación del operador", () => {
     });
     for (const value of VALUES) expect(printed).not.toContain(value);
 
-    // Y quedó realmente depositada: se resuelve desde un almacén nuevo.
-    const store = new FiscalCredentialStore(open(join(dir, "security")));
-    expect(store.resolve(store.reference("FACTUS", "SANDBOX"))).toEqual(FIELDS);
+    // Y quedó realmente depositada: se resuelve **por la misma vía que la
+    // escribió**. Construir aquí un almacén a mano daría por supuesto el
+    // proveedor de clave del entorno de pruebas, y `openFiscalCredentialStore`
+    // elige DPAPI en Windows: la lectura fallaría por clave distinta, que es
+    // exactamente lo que ocurrió en CI. Reusar la función elimina la suposición.
+    const reopened = openFiscalCredentialStore(dir, BINDING);
+    try {
+      expect(reopened.store.resolve(reopened.store.reference("FACTUS", "SANDBOX"))).toEqual(FIELDS);
+    } finally {
+      reopened.secrets.destroy();
+    }
   });
 
   it("rechaza una entrada mayor que el tope sin conservarla", async () => {
@@ -241,6 +255,22 @@ describe("Depósito — la operación del operador", () => {
     catch (error) { message = String(error); }
     expect(message).toContain("not valid JSON");
     expect(message).not.toContain(FIELDS.password);
+  });
+
+  it("fuera de Windows y fuera de pruebas se niega a escribir el secreto", async () => {
+    const dir = await directory();
+    const lines: string[] = [];
+    const { NODE_ENV: _test, ...production } = env(dir);
+    const code = await runDepositCli(production, Readable.from([Buffer.from(payload)]), (line) => { lines.push(line); });
+    // En Windows el guardia no aplica y el deposito procede; fuera de Windows
+    // sin `NODE_ENV=test`, se niega. La prueba afirma lo que corresponda a la
+    // plataforma en la que corre, sin inventar el caso contrario.
+    if (process.platform === "win32") {
+      expect(code).toBe(0);
+    } else {
+      expect(code).toBe(1);
+      expect(JSON.parse(lines[0]!)).toEqual({ status: "REJECTED", code: "DEPOSIT_FAILED" });
+    }
   });
 
   it("un proveedor sin requisito verificado se rechaza sin depositar nada", async () => {

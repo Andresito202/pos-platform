@@ -143,6 +143,13 @@ export async function runDepositCli(
   write: (line: string) => void,
 ): Promise<number> {
   try {
+    // Mismo guardia que `main.ts`, y por el mismo motivo: fuera de Windows el
+    // proveedor de clave es el derivado de pruebas, que protege menos. Confiar
+    // en que ese proveedor se niegue por su cuenta dejaria la exigencia de
+    // plataforma implicita en una operacion que **escribe un secreto**.
+    if (process.platform !== "win32" && environment.NODE_ENV !== "test") {
+      throw new Error("fiscal credential deposit requires Windows");
+    }
     const config = parseServiceConfig(environment);
     const input = await readDepositInput(stdin);
     if (input.provider !== "FACTUS") {
