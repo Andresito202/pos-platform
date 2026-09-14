@@ -34,4 +34,20 @@ describe("parseServiceConfig", () => {
   it("rejects unknown POS-prefixed configuration", () => {
     expect(() => parseServiceConfig({ ...valid, POS_UNDECLARED_OPTION: "1" })).toThrow("unknown POS service configuration");
   });
+
+  it("treats the central origin as absent by default", () => {
+    // Sin origen central el outbox acumula durablemente: es el comportamiento
+    // correcto de un equipo local-first sin autoridad a la que hablar.
+    expect(parseServiceConfig(valid).central_base_url).toBeUndefined();
+  });
+
+  it("accepts an https central origin", () => {
+    expect(parseServiceConfig({ ...valid, POS_CENTRAL_BASE_URL: "https://api.camachopos.co" }).central_base_url)
+      .toBe("https://api.camachopos.co");
+  });
+
+  it("rejects a central origin without TLS", () => {
+    // `DEC-007:1563` («HTTPS obligatorio») e `integration-contracts.md:372`.
+    expect(() => parseServiceConfig({ ...valid, POS_CENTRAL_BASE_URL: "http://api.camachopos.co" })).toThrow();
+  });
 });

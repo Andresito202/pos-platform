@@ -379,15 +379,27 @@ nuestro, no de FACTUS**, y hoy es la ausencia de llamada.
 | D1 | PostgreSQL migrations 001 / 002 / 003 | `TESTED` | job de CI con PostgreSQL 16.14; `NOT_EVALUATED` en contenedor sin instancia |
 | D2 | Aplicación central que use el esquema | — | `packages/database-postgres` **no tiene `src`**: sólo `package.json` y `project.json` (`D-4`) |
 | D3 | API central | `DOCUMENTED` | — |
-| D4 | Transporte saliente local → central | `DOCUMENTED` | **cero cliente HTTP** en `src/sync/` |
+| D4 | Transporte saliente local → central | `TESTED` | `SyncDispatcher` cierra `claimBatch → POST → recordResponse`; 14 pruebas en `sync-dispatcher.test.ts` y 4 en `central-sync-component.test.ts`. **No sube de `TESTED`**: el arranque de producción sólo lo instancia si existe `POS_CENTRAL_BASE_URL`, y no hay autoridad a la que apuntarlo (`D3` sigue `DOCUMENTED`) |
 | D5 | Ingesta central y reconciliación | `DOCUMENTED` | — |
 | D6 | Identidad y licencia central | `DOCUMENTED` | — |
 
-**D4 es la deuda `D-2` y sigue siendo la más cara del proyecto.** Verificado:
-`apps/pos-local-service/src/sync/` no contiene cliente HTTP alguno;
-`SnapshotProvider` es un puerto cuyo propio comentario dice que el transporte
-productivo no existe. A5 está instanciado y aun así **ningún dato sale del
-dispositivo**.
+**D4 deja de ser un hueco y pasa a ser una pieza sin contraparte.** El cliente
+existe, está probado y falla cerrado; lo que no existe es el servidor. La regla 1
+de esta escalera —«una capacidad probada que el runtime no instancia se queda en
+`TESTED`»— es exactamente el caso: `main.ts` sólo construye
+`CentralSyncComponent` cuando hay `POS_CENTRAL_BASE_URL`, y ninguna instalación
+real puede tenerlo mientras `D3` siga `DOCUMENTED`.
+
+**Ningún dato sale todavía del dispositivo**, y por dos motivos, no uno: no hay
+destino (`D3`) y no hay credencial de dispositivo (`DEC-008` sin materializar),
+de modo que el componente se niega a temporizar y lo registra una vez. El outbox
+acumula durablemente, que es lo que `DEC-007` pide de un equipo sin conexión.
+
+Lo que sí queda acreditado es la **simetría de contrato**: el doble de transporte
+de las pruebas valida cada petición con `createCentralDeviceHttpRequestSchema` y
+`validateCentralDevicePrincipal` —los mismos que usará la autoridad— de modo que
+una desviación del cliente se detecta en CI sin red. Se comprobó por mutación:
+añadir una sola cabecera fuera del contrato hace caer 8 de 14 pruebas.
 
 ### Bloque E — Entrega y operación · 9 capacidades
 
@@ -441,9 +453,9 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | `END_TO_END` | **6** | B1 B2 B3 B4 B5 B13 |
 | `CALLER_REACHABLE` | **4** | A9 · B6 B7 B10 |
 | `RUNTIME_VERIFIED` | **17** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B9 · E1 E2 E3 E4 E5 E7 |
-| `TESTED` | **15** | A3 A13 A14 · C1..C11 · D1 |
+| `TESTED` | **16** | A3 A13 A14 · C1..C11 · D1 D4 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
-| `DOCUMENTED` | **12** | B8 B11 B12 · C12 C13 C15 · D3 D4 D5 D6 · E8 E9 |
+| `DOCUMENTED` | **11** | B8 B11 B12 · C12 C13 C15 · D3 D5 D6 · E8 E9 |
 | — (nada) | **1** | D2 |
 | **Total** | **57** | las 57 filas aparecen una sola vez; recuento verificado parseando el fichero |
 
@@ -556,6 +568,7 @@ recibo, y cliente HTTP hacia el backend central.
 | 2026-09-08 | 63 % | inventario · `MIGRATION_015` · descuento en la transacción que completa la venta · 1021 pruebas |
 | 2026-09-12 | **sin porcentaje** | **cambio de gobernanza**, medido contra `02b89bb`. Se retira `CANONICALLY_APPLIED` y se retira el global. Las 35 filas que lo declaraban se recalculan contra siete peldaños con evidencia separada; **ninguna alcanzaba `CALLER_REACHABLE`**. Se corrige la etiqueta de A1 (`001..011` → `001..015`) y el error aritmético del bloque B (decía 740 / 62 %; la suma real de sus propias filas era 810 / 68 %) |
 | 2026-09-13 | **sin porcentaje** | **merge de la PR #75** (`2aa8acc`, segundo padre `83542bc`). Primer movimiento al alza con evidencia desde el cambio de gobernanza: `CALLER_REACHABLE` **0 → 4** (A9, B6, B7, B10) y `END_TO_END` **0 → 3** (B1, B4, B5). Lo acredita `channel-commercial-vertical.test.ts` —socket real, handler de producción y SQLite— y, para las tres de `END_TO_END`, `real-channel.spec.ts`, que las invoca desde la pantalla de Electron. **Se anota que la previsión era 7 y 6: era incorrecta**, porque contaba filas cuyo alta de catálogo o de existencia sólo se ejecuta por `page.evaluate`, que no es superficie de producto. Se conserva el recuento medido, no el previsto |
+| 2026-09-14 | **sin porcentaje** | **`D-2` materializado** (`DEC-023`). `D4` sube `DOCUMENTED → TESTED`: `SyncDispatcher` cierra `claimBatch → POST → recordResponse`, con 14 pruebas propias y 4 de componente. **No sube más** por la regla 1: `main.ts` sólo instancia `CentralSyncComponent` si hay `POS_CENTRAL_BASE_URL`, y no hay autoridad a la que apuntarlo. Recuento: `TESTED` **15 → 16**, `DOCUMENTED` **12 → 11** |
 | 2026-09-13 | **sin porcentaje** | **barrido de afirmaciones**. E4 sube a `RUNTIME_VERIFIED`: el job «Main push governance» se ejecutó en el push de `da23b29` y pasó; la nota que lo daba por `NOT_EVALUATED` confundía «`skipped` en PR» con «nunca observado». Se corrige la evidencia de D2. Recuento: `RUNTIME_VERIFIED` **26**, `IMPLEMENTED` **2** |
 | 2026-09-12 | **sin porcentaje** | **segunda corrección de gobernanza**, sobre el árbol `da23b29`. `CALLER_REACHABLE` pasa de **7 a 0**: las siete filas se apoyaban en `channel-commercial-transport.test.ts`, cuyo servidor atiende con un cierre de la propia prueba. Verificado que **ningún** fichero de prueba de `main` que construya `LocalChannelServer` menciona `CommercialRequestHandler` ni `CommercialComponent`. Bajan a `RUNTIME_VERIFIED`, que con E7 suma **25 filas**. Se añade a la escalera y a la regla 5 el filo que faltaba: **un socket no es evidencia si detrás hay un doble** |
 | 2026-09-12 | **sin porcentaje** | **merge de la PR #73** (`2e74410`, segundo padre `b6f0036`). X-1 y X-2 dejan de estar vivos en `main`. Reevaluado contra el árbol nuevo, **siete filas alcanzan `CALLER_REACHABLE`** —A9, B1, B4, B5, B6, B7, B10—, A11 sube a `RUNTIME_VERIFIED` y E7 a `TESTED`. Tres más de las cuatro proyectadas: la proyección sólo miró las filas que X-2 rompía, y #73 además aportó la prueba que recorre la vertical por el socket |

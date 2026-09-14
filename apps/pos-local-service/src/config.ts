@@ -12,6 +12,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_TENANT_ID",
   "POS_COMPANY_ID",
   "POS_BRANCH_ID",
+  "POS_CENTRAL_BASE_URL",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -33,6 +34,17 @@ const ServiceConfigSchema = z.strictObject({
   tenant_id: z.uuid(),
   company_id: z.uuid(),
   branch_id: z.uuid(),
+  /**
+   * Origen de la API central (`D-2`). Ausente significa «este equipo no tiene
+   * autoridad a la que hablar»: el outbox acumula durablemente y no se despacha
+   * nada, que es el comportamiento correcto de un sistema local-first sin
+   * conexion (`DEC-007`).
+   *
+   * Solo transporta el origen. **Ninguna credencial llega por el entorno**: la
+   * credencial de dispositivo es responsabilidad de `DeviceCredentialProvider`,
+   * que hoy se niega por falta de aprovisionamiento (`DEC-008`).
+   */
+  central_base_url: z.url().startsWith("https://").max(2048).optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({
@@ -62,6 +74,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     tenant_id: environment.POS_TENANT_ID,
     company_id: environment.POS_COMPANY_ID,
     branch_id: environment.POS_BRANCH_ID,
+    central_base_url: environment.POS_CENTRAL_BASE_URL,
   });
   if (!isAbsolute(parsed.data_directory)) {
     throw new Error("data directory must be absolute");

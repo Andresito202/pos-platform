@@ -5,6 +5,10 @@ import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
+import { CentralSyncComponent } from "./sync/central-sync-component.js";
+import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
+import { SyncDispatcher } from "./sync/sync-dispatcher.js";
+import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import {
@@ -27,6 +31,13 @@ const logger = new StructuredLogger({
     });
   }),
 });
+
+/**
+ * Cadencia de despacho del outbox (`D-2`). No se expone por entorno: un valor
+ * mal elegido castiga a la autoridad central o retrasa la conciliacion, y no hay
+ * caso de uso que justifique que cada instalacion lo decida por su cuenta.
+ */
+const CENTRAL_SYNC_INTERVAL_MS = 30_000;
 
 let lifecycle: ServiceLifecycle | undefined;
 let termination: Promise<void> | undefined;
@@ -121,6 +132,42 @@ try {
     commercial,
   ];
 
+  // `D-2`. Sin origen central configurado no se construye nada: el outbox
+  // acumula durablemente, que es el comportamiento correcto de un equipo
+  // local-first sin autoridad a la que hablar (`DEC-007`). Con origen
+  // configurado se construye, pero el componente solo temporiza si consigue una
+  // credencial de dispositivo, y hoy no existe aprovisionamiento alguno
+  // (`DEC-008` sin materializar): falla cerrado y lo dice una vez.
+  if (config.central_base_url !== undefined) {
+    const centralBaseUrl = config.central_base_url;
+    components.push(new CentralSyncComponent(
+      () => new SyncDispatcher(
+        durableSync.store,
+        new FetchCentralTransport(),
+        new UnprovisionedDeviceCredentialProvider(),
+        centralBaseUrl,
+        config.protocol_max,
+      ),
+      {
+        tenantId: config.tenant_id,
+        companyId: config.company_id,
+        branchId: config.branch_id,
+        deviceId: config.device_id,
+        installationId: config.installation_id,
+      },
+      CENTRAL_SYNC_INTERVAL_MS,
+      {
+        onOutcome: (outcome) => {
+          if (outcome.kind === "IDLE") return;
+          logger.log(outcome.kind === "DELIVERED" ? "info" : "warn", "sync.dispatch", { ...outcome });
+        },
+        onLifecycle: (reason, detail) => {
+          logger.log(reason === "STARTED" ? "info" : "warn", "sync.dispatch.lifecycle", { reason, ...detail });
+        },
+      },
+    ));
+  }
+
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
       config,
@@ -143,6 +190,7 @@ try {
     // convierte en `[REDACTED]` todo campo cuyo nombre contenga «secret».
     // El nombre se adapta al redactor; el redactor no se toca.
     key_protection: security.protection,
+    central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),
   });
   await logger.flush();
