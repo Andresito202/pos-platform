@@ -18,8 +18,10 @@ import {
   type NumberingRangeQuery,
   type PayloadValidationResult,
 } from "@pos-platform/fiscal-adapters";
+import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
+import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import {
   SqliteFiscalDocumentStore,
   type DocumentScope,
@@ -29,6 +31,7 @@ import { mapPaymentMethodToDian } from "../src/fiscal/payment-method-mapping.js"
 import { SynchronizeNumberingRangesUseCase } from "../src/fiscal/synchronize-numbering-ranges-use-case.js";
 import {
   IssueElectronicDocumentUseCase,
+  PERMISSION_FISCAL_DOCUMENT_ISSUE,
   type IssueElectronicDocumentInput,
 } from "../src/fiscal/issue-electronic-document-use-case.js";
 
@@ -45,6 +48,7 @@ import {
 const TENANT = "018f0000-0000-7000-8000-000000000001";
 const COMPANY = "018f0000-0000-7000-8000-000000000002";
 const BRANCH = "018f0000-0000-7000-8000-000000000003";
+const USER = "018f0000-0000-7000-8000-000000000006";
 const NOW = new Date("2026-09-14T12:00:00.000Z");
 const NOW_ISO = NOW.toISOString();
 
@@ -55,6 +59,26 @@ const ENVIRONMENT = "SANDBOX" as const;
 const DOCUMENT_TYPE = "SALES_INVOICE" as const;
 const RANGE_ID = "FACTUS-RANGE-1";
 const CREDENTIAL: CredentialReference = { secretRef: "fiscal:FACTUS:SANDBOX", version: "v1" };
+
+function auth(permissions: readonly string[] = [PERMISSION_FISCAL_DOCUMENT_ISSUE]): StoredAuthorizationSnapshot {
+  const claims: AuthorizationSnapshotClaims = {
+    snapshot_id: "018f0000-0000-7000-8000-0000000000ff",
+    user_id: USER,
+    installation_id: "018f0000-0000-7000-8000-000000000005",
+    device_id: "018f0000-0000-7000-8000-000000000004",
+    sequence: 1,
+    issued_at: "2026-09-14T00:00:00.000Z",
+    expires_at: "2026-09-15T00:00:00.000Z",
+    key_id: "AUTHZ_KEY_1",
+    assignments: [{
+      tenant_id: TENANT, company_id: COMPANY, branch_id: BRANCH,
+      status: "ACTIVE", valid_from: "2026-09-01T00:00:00.000Z", valid_until: null,
+      role_status: "ACTIVE",
+      permissions: permissions.map((code) => ({ code, status: "ACTIVE" as const })),
+    }],
+  } as AuthorizationSnapshotClaims;
+  return { claims, signature: "stub", activatedAt: NOW_ISO };
+}
 
 const directories: string[] = [];
 const databases: LocalDatabase[] = [];
@@ -627,7 +651,7 @@ describe("IssueElectronicDocumentUseCase — camino feliz", () => {
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const result = await useCase.execute(baseInput(saleId), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(result.kind).toBe("ISSUED");
     if (result.kind !== "ISSUED") return;
     expect(result.document.transportStatus).toBe("COMPLETED");
@@ -635,6 +659,22 @@ describe("IssueElectronicDocumentUseCase — camino feliz", () => {
     expect(result.document.cufe).toBe("a".repeat(96));
     expect(result.document.issuedNumber).toBe("990000001");
     expect(port.callCount).toBe(1);
+  });
+});
+
+describe("IssueElectronicDocumentUseCase — permiso (F5, cruce del canal)", () => {
+  it("sin FISCAL_DOCUMENT_ISSUE: UNAUTHORIZED, y no se toca nada", async () => {
+    const port = new FakeIssuancePort();
+    const { database, useCase } = await buildEnv(port);
+    seedRange(database);
+    const saleId = seedSale(database);
+    seedCatalogLine(database, saleId, 1);
+    seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+
+    const result = await useCase.execute(auth([]), baseInput(saleId), SIGNAL);
+    expect(result.kind).toBe("UNAUTHORIZED");
+    expect(port.callCount).toBe(0);
+    expect((database.native.prepare("SELECT count(*) AS n FROM fiscal_electronic_document").get() as { n: number }).n).toBe(0);
   });
 });
 
@@ -647,11 +687,11 @@ describe("IssueElectronicDocumentUseCase — idempotencia (regla 3)", () => {
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const first = await useCase.execute(baseInput(saleId), SIGNAL);
+    const first = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(first.kind).toBe("ISSUED");
     expect(port.callCount).toBe(1);
 
-    const second = await useCase.execute(baseInput(saleId), SIGNAL);
+    const second = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(second.kind).toBe("ALREADY_ISSUED");
     // La prueba que importa: el puerto no se volvió a llamar.
     expect(port.callCount).toBe(1);
@@ -667,12 +707,12 @@ describe("IssueElectronicDocumentUseCase — desenlace incierto (regla 5 y 6)", 
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const first = await useCase.execute(baseInput(saleId), SIGNAL);
+    const first = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(first.kind).toBe("UNCERTAIN");
     if (first.kind === "UNCERTAIN") expect(first.document.transportStatus).toBe("UNKNOWN_OUTCOME");
     expect(port.callCount).toBe(1);
 
-    const second = await useCase.execute(baseInput(saleId), SIGNAL);
+    const second = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(second.kind).toBe("REQUIRES_RECONCILIATION");
     // La prueba que importa: nunca se transmite una segunda vez sin conciliar.
     expect(port.callCount).toBe(1);
@@ -688,12 +728,12 @@ describe("IssueElectronicDocumentUseCase — fallo técnico es retriable", () =>
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const first = await useCase.execute(baseInput(saleId), SIGNAL);
+    const first = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(first.kind).toBe("TRANSPORT_FAILED");
     if (first.kind !== "TRANSPORT_FAILED") return;
     expect(first.document.attemptCount).toBe(1);
 
-    const second = await useCase.execute(baseInput(saleId), SIGNAL);
+    const second = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(second.kind).toBe("ISSUED");
     if (second.kind !== "ISSUED") return;
     expect(second.document.attemptCount).toBe(2);
@@ -708,7 +748,7 @@ describe("IssueElectronicDocumentUseCase — elegibilidad", () => {
   it("una venta que no existe en el alcance es NOT_ELIGIBLE", async () => {
     const port = new FakeIssuancePort();
     const { useCase } = await buildEnv(port);
-    const result = await useCase.execute(baseInput(randomUUID()), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(randomUUID()), SIGNAL);
     expect(result).toEqual({ kind: "NOT_ELIGIBLE" });
     expect(port.callCount).toBe(0);
   });
@@ -718,7 +758,7 @@ describe("IssueElectronicDocumentUseCase — elegibilidad", () => {
     const { database, useCase } = await buildEnv(port);
     const saleId = seedSale(database);
     database.native.prepare("UPDATE sales_sales SET status='READY_FOR_PAYMENT', completed_at=NULL WHERE id=?").run(saleId);
-    const result = await useCase.execute(baseInput(saleId), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(result).toEqual({ kind: "NOT_ELIGIBLE" });
   });
 });
@@ -731,7 +771,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const result = await useCase.execute(baseInput(saleId), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(result).toEqual({ kind: "BLOCKED", code: "NUMBERING_RANGE_NOT_SYNCHRONIZED" });
     expect(port.callCount).toBe(0);
     expect((database.native.prepare("SELECT count(*) AS n FROM fiscal_electronic_document").get() as { n: number }).n).toBe(0);
@@ -745,7 +785,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const result = await useCase.execute(baseInput(saleId), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(result).toEqual({ kind: "BLOCKED", code: "NUMBERING_RANGE_NOT_VALID" });
   });
 
@@ -757,7 +797,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1, { withFiscalAttribute: false });
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const result = await useCase.execute(baseInput(saleId), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(result.kind).toBe("BLOCKED");
     if (result.kind !== "BLOCKED") return;
     expect(result.code).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
@@ -774,7 +814,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const result = await useCase.execute(baseInput(saleId, { customer: ANONYMOUS_CUSTOMER }), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId, { customer: ANONYMOUS_CUSTOMER }), SIGNAL);
     expect(result.kind).toBe("BLOCKED");
     if (result.kind !== "BLOCKED") return;
     expect(result.code).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
@@ -791,7 +831,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CARD", "10000.000000");
 
-    const result = await useCase.execute(baseInput(saleId), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
     expect(result.kind).toBe("BLOCKED");
     if (result.kind !== "BLOCKED") return;
     expect(result.code).toBe("PAYMENT_METHOD_CODE_NOT_VERIFIED:0");
@@ -809,7 +849,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
 
     // CREDIT_NOTE existe en el contrato canónico pero su código DIAN no está
     // verificado (`dian/codes.ts`): F4 debe bloquear, no inventar el código.
-    const result = await useCase.execute(baseInput(saleId, { documentType: "CREDIT_NOTE" }), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId, { documentType: "CREDIT_NOTE" }), SIGNAL);
     expect(result).toEqual({ kind: "BLOCKED", code: "DOCUMENT_TYPE_CODE_NOT_VERIFIED" });
     expect(port.callCount).toBe(0);
   });
@@ -831,8 +871,8 @@ describe("IssueElectronicDocumentUseCase — dos ventas no colisionan", () => {
     seedCatalogLine(database, saleB, 1);
     seedConfirmedPayment(database, saleB, "CASH", "10000.000000");
 
-    const resultA = await useCase.execute(baseInput(saleA), SIGNAL);
-    const resultB = await useCase.execute(baseInput(saleB), SIGNAL);
+    const resultA = await useCase.execute(auth(), baseInput(saleA), SIGNAL);
+    const resultB = await useCase.execute(auth(), baseInput(saleB), SIGNAL);
     expect(resultA.kind).toBe("ISSUED");
     expect(resultB.kind).toBe("ISSUED");
     if (resultA.kind !== "ISSUED" || resultB.kind !== "ISSUED") return;

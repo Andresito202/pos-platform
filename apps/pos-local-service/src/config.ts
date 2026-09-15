@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import { ContractVersionSchema, compareContractVersions } from "@pos-platform/contracts";
+import { FiscalEnvironmentSchema } from "@pos-platform/fiscal-adapters";
 import * as z from "zod";
 
 const CONFIG_ENVIRONMENT_KEYS = new Set([
@@ -13,6 +14,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_COMPANY_ID",
   "POS_BRANCH_ID",
   "POS_CENTRAL_BASE_URL",
+  "POS_FISCAL_ENVIRONMENT",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -45,6 +47,15 @@ const ServiceConfigSchema = z.strictObject({
    * que hoy se niega por falta de aprovisionamiento (`DEC-008`).
    */
   central_base_url: z.url().startsWith("https://").max(2048).optional(),
+  /**
+   * Ambiente FACTUS en el que corre este equipo (`DEC-021` F5). Ausente
+   * significa «este equipo no emite documentos fiscales»: la pieza de emisión
+   * no se construye y `fiscal.document.issue` falla cerrado, el mismo
+   * comportamiento que `central_base_url` ausente para `D-2`. No transporta
+   * credencial — ésa vive en el almacén de `SEC-004` (`DEC-021` F2) — ni
+   * decide el proveedor, fijo en `FACTUS` mientras sea el único adapter.
+   */
+  fiscal_environment: FiscalEnvironmentSchema.optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({
@@ -75,6 +86,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     company_id: environment.POS_COMPANY_ID,
     branch_id: environment.POS_BRANCH_ID,
     central_base_url: environment.POS_CENTRAL_BASE_URL,
+    fiscal_environment: environment.POS_FISCAL_ENVIRONMENT,
   });
   if (!isAbsolute(parsed.data_directory)) {
     throw new Error("data directory must be absolute");

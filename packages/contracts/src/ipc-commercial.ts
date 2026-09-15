@@ -709,6 +709,84 @@ export const CustomerReadResultSchema = z.strictObject({
 
 export const CustomerReadResponseSchema = createResponseEnvelopeSchema(CustomerReadResultSchema);
 
+// ── fiscal.document.issue ────────────────────────────────────────────────────
+
+/**
+ * Emisión de documento fiscal electrónico — `DEC-021` F5.
+ *
+ * El adquiriente viaja **por referencia**, no por valor: `customer_id` apunta a
+ * un adquiriente ya registrado por `customer.register` (`D-9`), o la petición
+ * declara explícitamente que la venta no tiene uno, con el mismo motivo que
+ * `CustomerAbsenceReason` en la capa confiable. No hay una tercera forma —enviar
+ * los campos del adquiriente sueltos en esta petición— porque eso duplicaría el
+ * modelo canónico que ya vive en `customers_customers` y las dos copias podrían
+ * discreparse.
+ *
+ * `document_type` no se valida aquí contra las tablas DIAN: `StableCodeSchema`
+ * sólo comprueba forma. La traducción a código de proveedor y su verificación
+ * son de `dian/codes.ts`, y un tipo sin código verificado bloquea en la capa
+ * confiable con `DOCUMENT_TYPE_CODE_NOT_VERIFIED`, nunca aquí.
+ */
+const FiscalCustomerReferenceSchema = z.union([
+  z.strictObject({ kind: z.literal("IDENTIFIED"), customer_id: UuidSchema }),
+  z.strictObject({
+    kind: z.literal("NOT_IDENTIFIED"),
+    reason: z.enum(["ANONYMOUS_COUNTER_SALE", "IDENTIFICATION_PENDING"]),
+  }),
+]);
+
+export const FiscalDocumentIssueRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    document_type: StableCodeSchema,
+    customer: FiscalCustomerReferenceSchema,
+    observation: z.string().min(1).max(2000).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("fiscal.document.issue") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const FiscalDocumentIssueOutcomeSchema = z.enum([
+  "UNAUTHORIZED",
+  "ALREADY_ISSUED",
+  "ISSUED",
+  "REQUIRES_RECONCILIATION",
+  "NOT_ELIGIBLE",
+  "BLOCKED",
+  "TRANSPORT_FAILED",
+  "UNCERTAIN",
+]);
+
+/**
+ * Motivo de bloqueo: código y ruta, igual que `CustomerFindingSchema` y
+ * `PayloadValidationFinding` en el puerto de emisión. `detail` conserva los
+ * hallazgos internos de una línea (p. ej. de `validateFiscalDocumentItem`)
+ * cuando el bloqueo los trae; su ausencia no es un error, es que el bloqueo no
+ * los tiene.
+ */
+export const FiscalDocumentIssueReasonSchema = z.strictObject({
+  code: StableCodeSchema,
+  path: z.string().min(1).max(120),
+  detail: z.array(StableCodeSchema).max(32).optional(),
+});
+
+export const FiscalDocumentIssueResultSchema = z.strictObject({
+  outcome: FiscalDocumentIssueOutcomeSchema,
+  document_id: UuidSchema.nullable(),
+  transport_status: StableCodeSchema.nullable(),
+  normalized_result: StableCodeSchema.nullable(),
+  cufe: z.string().min(1).max(200).nullable(),
+  issued_prefix: z.string().min(1).max(40).nullable(),
+  issued_number: z.string().min(1).max(40).nullable(),
+  attempt_count: z.number().int().nonnegative().nullable(),
+  block_code: StableCodeSchema.nullable(),
+  reasons: z.array(FiscalDocumentIssueReasonSchema).max(64),
+});
+
+export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(FiscalDocumentIssueResultSchema);
+
 // ── catalog.product.register ─────────────────────────────────────────────────
 
 /**
@@ -1045,6 +1123,8 @@ export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
+export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
+export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;

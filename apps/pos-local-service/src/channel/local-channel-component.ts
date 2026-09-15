@@ -117,6 +117,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.register":
       case "customer.get":
       case "customer.find":
+      case "fiscal.document.issue":
       case "catalog.product.register":
       case "catalog.item.find":
       case "catalog.item.get":
@@ -126,7 +127,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "sales.receipt.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
-        return this.commercialHandler.handle(request, context.connectionId);
+        return this.commercialHandler.handle(request, context.connectionId, signal);
 
       case "runtime.handshake": {
         const identityTrusted =

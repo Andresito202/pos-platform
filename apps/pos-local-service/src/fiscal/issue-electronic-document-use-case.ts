@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import {
   canonicalDocumentTypeCode,
   type CredentialReference,
@@ -9,6 +10,7 @@ import {
   type FiscalProvider,
 } from "@pos-platform/fiscal-adapters";
 import { canonicalJson } from "../channel/canonical-json.js";
+import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { CatalogScope, SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import {
   assembleFactusBill,
@@ -44,6 +46,8 @@ import {
  * `assembleFactusBill`.
  */
 
+export const PERMISSION_FISCAL_DOCUMENT_ISSUE = "FISCAL_DOCUMENT_ISSUE";
+
 export interface IssueElectronicDocumentInput {
   readonly scope: DocumentScope;
   readonly saleId: string;
@@ -57,6 +61,8 @@ export interface IssueElectronicDocumentInput {
 }
 
 export type IssueElectronicDocumentResult =
+  /** El actor del snapshot no tiene el permiso. Nada se toca. */
+  | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   /** Ya había un documento `COMPLETED` para esta venta y tipo: no se reintenta. */
   | { readonly kind: "ALREADY_ISSUED"; readonly document: StoredElectronicDocument }
   /** Se transmitió en esta llamada y el proveedor evidenció el resultado. */
@@ -89,7 +95,22 @@ export class IssueElectronicDocumentUseCase {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async execute(input: IssueElectronicDocumentInput, signal: AbortSignal): Promise<IssueElectronicDocumentResult> {
+  async execute(
+    authSnapshot: StoredAuthorizationSnapshot,
+    input: IssueElectronicDocumentInput,
+    signal: AbortSignal,
+  ): Promise<IssueElectronicDocumentResult> {
+    // 1. Permiso, antes de tocar nada — mismo orden que el resto de casos de uso
+    // del canal (`RegisterCustomerUseCase`, `GetPaymentUseCase`).
+    const decision = evaluatePermission({
+      actor: createActor("USER", authSnapshot.claims.user_id),
+      permission: PERMISSION_FISCAL_DOCUMENT_ISSUE,
+      scope: createOperationScope(input.scope.tenantId, input.scope.companyId, input.scope.branchId),
+      at: this.now(),
+      assignments: toRoleAssignments(authSnapshot.claims),
+    });
+    if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
+
     // Identidad determinista por (venta, tipo documental), estable entre
     // reintentos (regla 3). No depende de la serie/número comercial: ésos son
     // atributos de negocio, no la identidad fiscal del intento.

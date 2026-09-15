@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
@@ -11,7 +12,9 @@ import { SyncDispatcher } from "./sync/sync-dispatcher.js";
 import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
+import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
+  EncryptedFileSecretStore,
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
   WindowsDpapiKeyProvider,
@@ -115,11 +118,31 @@ try {
 
   const durableSync = new DurableSyncComponent(localDatabase);
   const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
+  // El almacén de la credencial fiscal (`DEC-021` F2/F5) comparte directorio y
+  // proveedor de clave con `security`, pero con **su propio** contexto
+  // criptográfico: la misma separación que impide leer un secreto de
+  // identidad de dispositivo como credencial fiscal, verificada en
+  // `fiscal-credential.test.ts`. No deposita nada: el depósito sigue siendo
+  // una operación de operador, aparte (`deposit-cli.ts`).
+  //
+  // El directorio se crea aquí, no dentro de `security.start()`: este
+  // almacén se construye **antes** de que `lifecycle.start()` llegue a ese
+  // componente, y `keyProvider.loadKey()` exige que el directorio ya exista.
+  // `mkdirSync` con `recursive: true` es idempotente frente al que hace
+  // `security` después.
+  mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
+  const fiscalSecretStore = new EncryptedFileSecretStore(
+    securityDirectory,
+    keyProvider,
+    fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
+  );
   // El mapa de claves de sesión llega vacío: no existe aprovisionamiento de
   // claves en el runtime (`LIC-003`/`DEV-003`), de modo que `session.activate`
   // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
   // fabricada.
-  const commercial = new CommercialComponent(config, localDatabase, durableSync);
+  const commercial = new CommercialComponent(
+    config, localDatabase, durableSync, new Map(), () => new Date(), fiscalSecretStore,
+  );
   let localChannel: LocalChannelComponent | undefined;
   // `security` va inmediatamente despues de la base de datos y antes que todo
   // lo demas: ninguna operacion comercial se sirve si el equipo no pudo
@@ -191,6 +214,10 @@ try {
     // El nombre se adapta al redactor; el redactor no se toca.
     key_protection: security.protection,
     central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
+    // `READY` exige además credencial depositada (F2); eso sólo se sabe
+    // dentro de `commercial.start()`, así que aquí sólo se registra si el
+    // ambiente está configurado, no si la pieza terminó lista.
+    fiscal_issuance: config.fiscal_environment === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),
   });
   await logger.flush();

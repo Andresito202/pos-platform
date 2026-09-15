@@ -3,6 +3,7 @@ import {
   CashShiftOpenRequestSchema,
   CustomerReadResultSchema,
   CustomerRegisterRequestSchema,
+  FiscalDocumentIssueRequestSchema,
   SaleCreateRequestSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
@@ -162,6 +163,63 @@ describe("customer.register — la frontera del adquiriente", () => {
   it("exige clave de idempotencia: registrar un tercero es una operación", () => {
     const { idempotency_key: _omitted, ...withoutKey } = request();
     expect(CustomerRegisterRequestSchema.safeParse(withoutKey).success).toBe(false);
+  });
+});
+
+/**
+ * `fiscal.document.issue` — `DEC-021` F5.
+ *
+ * El adquiriente viaja por referencia (`customer_id` ya registrado) o por
+ * motivo de ausencia declarado; nunca por los campos del adquiriente sueltos
+ * en esta petición, porque eso duplicaría `customer.register`.
+ */
+describe("fiscal.document.issue — la frontera de la emisión", () => {
+  const request = (overrides: Record<string, unknown> = {}) => ({
+    ...metadata,
+    message_type: "fiscal.document.issue",
+    operation_id: "550e8400-e29b-41d4-a716-446655440002",
+    idempotency_key: "fiscal:issue:1",
+    payload: {
+      sale_id: "550e8400-e29b-41d4-a716-446655440030",
+      document_type: "SALES_INVOICE",
+      customer: { kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE" },
+      observation: null,
+    },
+    ...overrides,
+  });
+
+  it("acepta un adquiriente identificado por referencia", () => {
+    expect(FiscalDocumentIssueRequestSchema.safeParse(request({
+      payload: {
+        ...request().payload,
+        customer: { kind: "IDENTIFIED", customer_id: "550e8400-e29b-41d4-a716-446655440031" },
+      },
+    })).success).toBe(true);
+  });
+
+  it("acepta un adquiriente ausente con su motivo", () => {
+    expect(FiscalDocumentIssueRequestSchema.safeParse(request()).success).toBe(true);
+  });
+
+  it("rechaza los campos del adquiriente sueltos en la petición", () => {
+    expect(FiscalDocumentIssueRequestSchema.safeParse(request({
+      payload: { ...request().payload, customer: { kind: "IDENTIFIED", identification: "900123456" } },
+    })).success).toBe(false);
+  });
+
+  it("rechaza un motivo de ausencia que no está en el catálogo", () => {
+    expect(FiscalDocumentIssueRequestSchema.safeParse(request({
+      payload: { ...request().payload, customer: { kind: "NOT_IDENTIFIED", reason: "PORQUE_SI" } },
+    })).success).toBe(false);
+  });
+
+  it("rechaza que el llamador afirme identidad", () => {
+    expect(FiscalDocumentIssueRequestSchema.safeParse(request({ actor_type: "USER" })).success).toBe(false);
+  });
+
+  it("exige clave de idempotencia", () => {
+    const { idempotency_key: _omitted, ...withoutKey } = request();
+    expect(FiscalDocumentIssueRequestSchema.safeParse(withoutKey).success).toBe(false);
   });
 });
 
