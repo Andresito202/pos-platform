@@ -72,6 +72,12 @@ La línea activa contiene:
 
 La ejecución anterior sobre `0afefdb` terminó en `failure` y no acredita la ejecución posterior del workflow nuevo.
 
+### Bloqueo operativo de CI
+
+La evidencia registrada en PR #78 muestra que varias ejecuciones de CI fueron impedidas por el estado de facturación/límite de gasto de la cuenta de GitHub: los jobs no llegaron a obtener runner ni pasos ejecutados. Esto es un bloqueo de ejecución de CI, no evidencia de un defecto del código D-2.
+
+Este hecho no cambia la escalera de evidencia: mientras el persistence gate no ejecute el flujo real y produzca sus logs/artifact, D-2 permanece `TESTED`, no `VERIFIED`.
+
 ## 5. Qué queda congelado mientras se cierra D-2
 
 No abrir ni desarrollar en paralelo:
