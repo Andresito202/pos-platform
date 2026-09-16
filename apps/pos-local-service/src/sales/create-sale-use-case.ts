@@ -117,12 +117,8 @@ export class CreateSaleUseCase {
     request: CreateSaleRequest,
   ): CreateSaleResult {
     const at = this.now();
-
-    // 1. Actor USER desde el snapshot autorizado — no del caller
     const actor = createActor("USER", authSnapshot.claims.user_id);
     const operatorUserId = authSnapshot.claims.user_id;
-
-    // 2. Autorización: SALES_SALE_CREATE
     const assignments = toRoleAssignments(authSnapshot.claims);
     const operationScope = createOperationScope(scope.tenantId, scope.companyId, scope.branchId);
     const decision = evaluatePermission({
@@ -137,7 +133,6 @@ export class CreateSaleUseCase {
       return { kind: "UNAUTHORIZED", reason: decision.reason };
     }
 
-    // 3. Resolución de catálogo y precio para cada línea
     const resolvedLines: Array<{
       productId: string;
       presentationId: string;
@@ -146,19 +141,13 @@ export class CreateSaleUseCase {
       unitId: string;
       unitCode: string;
       unitPrecision: number;
+      identifierSnapshot: string | null;
       priceAmount: string;
       quantity: string;
       fiscal: CatalogFiscalAttribute | null;
     }> = [];
 
-    // El catálogo es de la compañía, no de la sucursal: un producto no cambia
-    // de precio por la caja desde la que se venda.
     const catalogScope = { tenantId: scope.tenantId, companyId: scope.companyId };
-
-    // La misma presentación puede venir en dos líneas. La disponibilidad se
-    // compara contra el total pedido, no contra cada línea por separado:
-    // comprobarlas de una en una dejaría pasar dos líneas de 3 con 4 en
-    // existencia.
     const requestedByPresentation = new Map<string, bigint>();
     for (const line of request.lines) {
       const accumulated = requestedByPresentation.get(line.presentationId) ?? 0n;
@@ -176,9 +165,6 @@ export class CreateSaleUseCase {
         return { kind: "CATALOG_NOT_FOUND", productId: line.productId, presentationId: line.presentationId };
       }
 
-      // La cantidad tiene que caber en la precisión de la unidad. Se comprueba
-      // **antes** de resolver el precio: una cantidad imposible no debe llegar a
-      // multiplicarse por nada.
       if (!quantityFitsUnitPrecision(line.quantity, presentation.unitPrecision)) {
         return {
           kind: "QUANTITY_PRECISION_EXCEEDED",
@@ -187,7 +173,6 @@ export class CreateSaleUseCase {
         };
       }
 
-      // GetActivePrice (PRICING_PIPELINE_V1 paso 1)
       const price = this.catalogStore.getActivePrice(catalogScope, line.presentationId);
       if (!price) {
         return { kind: "PRICE_NOT_FOUND", presentationId: line.presentationId };
@@ -197,13 +182,6 @@ export class CreateSaleUseCase {
         return { kind: "CURRENCY_MISMATCH", presentationId: line.presentationId };
       }
 
-      // Disponibilidad, sólo si el producto lleva control de existencia.
-      //
-      // Se comprueba **al crear**, no al cobrar: rechazar después de que el
-      // cliente pagó no es una opción, y la salida real ocurre en la
-      // transacción que completa la venta. Entre ambos momentos la existencia
-      // sólo puede bajar por otra venta o por un ajuste; si eso pasa, la
-      // finalización revierte el cobro en vez de dejar existencia negativa.
       if (product.stockControlled) {
         const requestedUnits = requestedByPresentation.get(line.presentationId) ?? 0n;
         const available = this.inventoryStore.availableUnits(scope, line.presentationId);
@@ -222,19 +200,20 @@ export class CreateSaleUseCase {
         presentationId: line.presentationId,
         productName: product.name,
         presentationName: presentation.name,
-        // El catálogo real no tiene una entidad `Unit` propia: la unidad es el
-        // código que declara la presentación. Se conserva el campo del snapshot
-        // por compatibilidad con las ventas ya guardadas.
         unitId: presentation.id,
         unitCode: presentation.unitCode,
         unitPrecision: presentation.unitPrecision,
+        // `identifier_snapshot` is the sell identifier frozen at sale creation.
+        // Prefer the presentation barcode because it is the scannable identifier;
+        // fall back to the product code when no barcode exists. Never re-read
+        // either value from Catalog when projecting a historical receipt.
+        identifierSnapshot: presentation.barcode ?? product.code,
         priceAmount: price.amount,
         quantity: line.quantity,
         fiscal: this.catalogStore.getFiscalAttribute(catalogScope, line.presentationId),
       });
     }
 
-    // 4. PRICING_PIPELINE_V1: cálculo de líneas y totales
     const calculatedLines = resolvedLines.map((resolved) => ({
       productId: resolved.productId,
       presentationId: resolved.presentationId,
@@ -246,8 +225,6 @@ export class CreateSaleUseCase {
     }));
 
     const totals = calculateSaleTotals(calculatedLines.map((l) => l.calculation));
-
-    // 5. SALE_CALCULATION_CHECKSUM_V1
     const checksumInput = buildChecksumInput(
       PRICING_PIPELINE_VERSION,
       TAX_POLICY_VERSION,
@@ -258,7 +235,6 @@ export class CreateSaleUseCase {
     );
     const calculationChecksum = computeSaleChecksum(checksumInput);
 
-    // 6. Snapshot de pricing y tax para el sale
     const pricingSnapshot = {
       schema_version: 1,
       pipeline_version: PRICING_PIPELINE_VERSION,
@@ -273,11 +249,6 @@ export class CreateSaleUseCase {
       })),
     };
 
-    // El impuesto es **por línea**: dos artículos de la misma venta pueden
-    // tener tasas distintas. El snapshot de la venta ya no declara una tasa
-    // única —afirmarlo era falso en cuanto hubiera dos tipos— y se limita a
-    // decir cuántas líneas quedaron sin atributos fiscales, que es lo que
-    // impide facturarla.
     const linesWithoutFiscalAttributes = resolvedLines.filter((r) => r.fiscal === null).length;
     const taxSnapshot = {
       schema_version: 2,
@@ -288,27 +259,10 @@ export class CreateSaleUseCase {
       tax_amount: bigIntToScale6(totals.taxUnits),
     };
 
-    // 7. IDs de operación y sale
     const saleId = randomUUID();
     const operationId = randomUUID();
     const reqChecksum = requestChecksum(request, operatorUserId);
 
-    // 8. Caja y turno en los que nace la venta.
-    //
-    // La caja la nombra la operación; el turno lo resuelve la capa confiable.
-    // `DEC-012` §25.2 garantiza como máximo un turno activo por caja, así que la
-    // resolución es inequívoca y no hay nada que desempatar. El dispositivo no
-    // participa: §25.3 le niega propiedad sobre la caja, y dos terminales pueden
-    // trabajar la misma caja legítimamente.
-    //
-    // Sin caja nombrada la venta nace sin turno, con el par en `NULL`: el
-    // esquema lo admite y hay canales que no pasan por caja. Con caja nombrada
-    // pero sin turno activo tampoco se vincula, y el cobro en efectivo lo
-    // rechaza luego con `CASH_SHIFT_MISSING`, que es exacto: no hay turno.
-    //
-    // Un turno en `CLOSING` **sí** se vincula, a propósito: existe, y el pago lo
-    // rechaza con `CASH_SHIFT_NOT_OPEN` (`DEC-016` §10.3). Decir «no hay turno»
-    // cuando se está cuadrando sería un diagnóstico falso.
     const registerId = request.cashRegisterId;
     const activeShift = registerId === null
       ? null
@@ -317,7 +271,6 @@ export class CreateSaleUseCase {
       ? null
       : { cashRegisterId: registerId, shiftId: activeShift.shiftId };
 
-    // 9. Persistencia atómica
     const storeInput = {
       saleId,
       operationId,
@@ -351,7 +304,7 @@ export class CreateSaleUseCase {
         unitId: resolved.unitId,
         unitCode: resolved.unitCode,
         unitPrecision: resolved.unitPrecision,
-        identifierSnapshot: null,
+        identifierSnapshot: resolved.identifierSnapshot,
         calculation: calculatedLines[index]!.calculation,
         pricingResolutionSnapshot: {
           schema_version: 1,
@@ -360,11 +313,6 @@ export class CreateSaleUseCase {
           pipeline_version: PRICING_PIPELINE_VERSION,
           policy_version: PRICING_POLICY_VERSION,
         },
-        // Dos formas, y la diferencia importa: `RATE_APPLIED` afirma que el
-        // impuesto se calculó con una tasa concreta; `NO_FISCAL_ATTRIBUTES`
-        // afirma que el cero es **desconocimiento**, no exención. Emitir una
-        // factura desde una línea de la segunda forma sería declarar exento algo
-        // que nadie ha declarado exento.
         taxCalculationSnapshot: resolved.fiscal === null
           ? {
               schema_version: 2,
