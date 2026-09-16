@@ -2,7 +2,7 @@
 
 ## Scope
 
-Read-only audit of the current desktop → IPC contract → local service → application → persistence path for:
+Deep implementation audit of the desktop → IPC contract → local service → use case → SQLite path for:
 
 - `payment.register.cash`
 - `payment.register.transfer`
@@ -11,40 +11,68 @@ Read-only audit of the current desktop → IPC contract → local service → ap
 - `payment.get`
 - Cash Shift open/current/close semantics
 - `sale.create`
+- transaction/idempotency/outbox coupling
 
-Only mechanical contradictions are candidates for immediate correction. Business-state or architectural changes remain blocked until their invariant is explicit.
+## Architectural verdict
 
-## Findings
+The payment/cash/sale core is structurally coherent around one important invariant: the payment that completes a sale, its allocation, cash movement, inventory decrement and durable outbox effects are designed to commit or roll back together inside the local SQLite transaction. Cash remains behind `CashPort`; Payment does not write cash tables directly. The cash-shift selector remains `cash_register_id` at sale creation and the trusted layer resolves the shift.
 
-### Payment
+No new business state, migration or schema was introduced.
 
-- Payment operations are exposed consistently through preload, Electron allowlist, contracts, local-channel routing and commercial request handling.
-- Renderer commercial calls use the common envelope helper.
-- `payment.cancel` is routed but is not currently represented as a complete cashier-facing workflow in the renderer. This is a product-surface gap, not a safe mechanical fix.
-- Cash payment UI currently supplies the payable amount as the tendered amount. This prevents real change-making. The backend must remain authoritative for insufficiency/change; adding a renderer input is a product/UX change and is deferred.
+## Findings and decisions
 
-### Cash Shift
+### 1. Cash payment path — corrected
 
-- The invariant is `tenant_id + branch_id + cash_register_id`, with at most one OPEN/CLOSING shift independent of `origin_device_id`.
-- `origin_device_id` is provenance/idempotency/audit data, not a selector for shift ownership.
-- Renderer calls open shift using `cash_register_id`; no evidence supports introducing `cash_shift_id` as the sale selector.
-- Any change that changes ownership/selector semantics is blocked because DEC-012 is the governing rule.
+Backend already accepts `tendered_amount`, computes change in the trusted use case, rejects insufficient tender and returns the authoritative `change_amount`. The renderer was the remaining operational defect: it always sent `tendered_amount = payable_amount`, making change impossible in the actual POS surface.
 
-### Sale.create
+Implemented:
 
-- Sale creation is routed through the commercial envelope path.
-- The sale/payment lifecycle is distinct: `sale.create` establishes the payable sale state and payment operations advance/complete it.
-- `identifier_snapshot` is still nullable on created sale items even when a barcode/identifier was used. This is an auditability defect but not a safe contract-only fix; the exact snapshot source and immutability semantics must be preserved end-to-end.
-- There is no stock reservation during the payment window. This creates an optimistic-concurrency window between sale creation and payment completion. Closing it requires an explicit V1 policy or reservation/atomic-completion design; do not silently add a new state/table.
-- No complete sale reversal/devolution workflow was found. Existing reversal concepts do not by themselves prove a complete compensating transaction.
+- `useCommercialSale.chargeCash(tenderedAmount?)` canonicalizes the received cash before sending it.
+- `SalePanel` now exposes `Efectivo recibido`.
+- Empty input preserves the exact-cash behavior for compatibility.
+- The renderer never computes change; it only supplies what the customer physically handed over.
+- Added a focused renderer test for 20,000 received against 3,500 payable, asserting the contractual request and service-returned 16,500 change.
 
-## Immediate action
+### 2. Payment transaction/idempotency
 
-No business-state, schema, migration, or payment semantics were changed by this audit. The safe conclusion is that the current contract/routing layer is substantially aligned, while the remaining issues require product/architecture decisions rather than mechanical patching.
+`SqlitePaymentStore` checks operation idempotency before writes and uses the runtime operation record rather than the payment row as the idempotency authority. Post-write rejection paths use transaction rollback rather than returning a rejection after persistence. This protects the critical cases where a closed/missing cash shift or insufficient stock is discovered after earlier writes in the same transaction.
 
-## Next gated work
+The local outbox is enqueued through the same SQLite transaction, preserving the local fact and its synchronization intent as one commit boundary.
 
-1. Verify exact payment handler/use-case persistence invariants and idempotency behavior.
-2. Verify cash-shift DB invariant and concurrent open behavior against DEC-012 tests.
-3. Verify `sale.create` transaction boundary, inventory mutation, operation state and idempotency.
-4. Only after those checks, implement narrowly scoped defects with tests.
+### 3. Cash Shift
+
+The governing selector remains `tenant + branch + cash_register`, with at most one `OPEN`/`CLOSING` shift independent of `origin_device_id`. A sale can bind to an existing active shift; a `CLOSING` shift is deliberately retained so payment can return `CASH_SHIFT_NOT_OPEN` rather than falsely reporting `CASH_SHIFT_MISSING`.
+
+No change was made to ownership semantics.
+
+### 4. Sale.create
+
+`sale.create` remains the authority for pricing, totals, stock pre-check and sale creation. It passes only `cash_register_id` from the renderer; the renderer does not select `cash_shift_id`.
+
+The known `identifier_snapshot = NULL` defect remains. The catalog has identifiers/barcodes, but correcting this requires preserving the exact identifier model through the sale snapshot and receipt projection; it is not a safe one-line persistence patch and is therefore left as a separate gated implementation.
+
+The payment window remains optimistic regarding stock. Final completion rechecks/decrements inventory transactionally and rolls back the payment when stock is insufficient. A reservation state/table was intentionally not introduced.
+
+There is still no complete sale reversal/devolution workflow. The existing reversal concepts are not treated as implementation evidence.
+
+### 5. Transfer/cancel
+
+Transfer registration and confirmation preserve the intended separation: registration is not confirmation, `payment.get` supplies the persisted version required by confirmation, and confirmation is the completion point. `payment.cancel` is routed and persisted at the backend level but lacks a complete cashier-facing workflow; implementing UI cancellation without a defined operator workflow would be architectural guesswork.
+
+## Changes made in this gate
+
+- Cashier can enter actual cash received.
+- Trusted payment layer remains the authority for insufficiency and change.
+- Focused test covers request normalization, contract validity, returned change and confirmation sound.
+- No schema/state/migration changes.
+
+## Verification status
+
+The repository changes have been committed to the existing PR branch. Tests have **not yet been executed in this environment**, so this gate is not a test PASS. CI must verify typecheck, renderer tests, local-service payment tests and the existing Electron/runtime suites before the PR can be considered green.
+
+## Next gate
+
+1. Run the repository's targeted payment/cash/sale tests and typecheck.
+2. Inspect CI for the branch and resolve any synchronization/regression caused by the renderer API change.
+3. Then tackle `identifier_snapshot` end-to-end with its catalog source and receipt projection test.
+4. Keep reversal/devolution and stock reservation as separate architectural gates; do not mix them into the payment patch.
