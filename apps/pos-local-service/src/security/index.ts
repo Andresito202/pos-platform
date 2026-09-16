@@ -10,3 +10,4 @@ export * from "./local-security-component.js";
 export * from "./insecure-derived-key-provider.js";
 export * from "./master-snapshot-verifier.js";
 export * from "./device-trust-verifier.js";
+export * from "./device-enrollment-service.js";
