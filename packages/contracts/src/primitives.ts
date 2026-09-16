@@ -12,6 +12,21 @@ export const UuidSchema = z.uuid().transform((value) => value.toLowerCase());
 export const UuidV7Schema = UuidSchema.refine((value) => value[14] === "7", {
   message: "UUID must use version 7",
 });
+
+export function uuidV7(now = Date.now()): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  let timestamp = BigInt(now);
+  for (let index = 5; index >= 0; index -= 1) {
+    bytes[index] = Number(timestamp & 0xffn);
+    timestamp >>= 8n;
+  }
+  bytes[6] = (bytes[6]! & 0x0f) | 0x70;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export const ContractVersionSchema = z.string().max(32).regex(CONTRACT_VERSION_PATTERN);
 export const MessageTypeSchema = z.string().min(1).max(128).regex(MESSAGE_TYPE_PATTERN);
 export const StableCodeSchema = z.string().min(1).max(96).regex(STABLE_CODE_PATTERN);
