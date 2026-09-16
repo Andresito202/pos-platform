@@ -1,0 +1,38 @@
+services:
+  central-sync:
+    build:
+      context: ../..
+      dockerfile: infra/central-sync/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      CENTRAL_SYNC_TOKEN: ${CENTRAL_SYNC_TOKEN:?CENTRAL_SYNC_TOKEN is required}
+      PORT: "8787"
+    expose:
+      - "8787"
+    networks:
+      - central-sync
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      - central-sync
+    environment:
+      CENTRAL_SYNC_DOMAIN: ${CENTRAL_SYNC_DOMAIN:?CENTRAL_SYNC_DOMAIN is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - central-sync
+
+networks:
+  central-sync:
+    driver: bridge
+    internal: false
+
+volumes:
+  caddy-data:
+  caddy-config:
