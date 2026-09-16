@@ -6,282 +6,194 @@
 
 # Camacho POS Colombia
 
-Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first diseñada para operación comercial real, trazabilidad fuerte y evolución controlada desde una sola base de código.
+Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first para operación comercial real en Colombia.
 
-**Identidad de producto:** `Camacho POS Colombia` es el nombre comercial visible al cliente. `POS Platform`, `pos-platform` y los scopes técnicos `@pos-platform/*` se conservan como identificadores internos para mantener compatibilidad y trazabilidad. El registro empresarial y marcario del nombre comercial permanece pendiente de validación oficial en RUES/SIC y no se presenta como marca registrada.
+`Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
 
-## Propiedad, autoría y confidencialidad
+## Estado y regla de continuidad — 2026-09-16
 
-**Propietario y autor del proyecto:** el titular de la cuenta de GitHub
-[`Andresito202`](https://github.com/Andresito202), bajo cuya cuenta vive este
-repositorio y de quien procede la marca `Camacho POS Colombia`.
+> **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
 
-**Este repositorio es privado y debe permanecerlo.** No es material público, no
-es una demostración y no está autorizado para redistribución.
+La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-### Quién puede autorizar un cambio
+`claude/pos-camacho-bloque-4c-ld43py`
 
-Sólo el propietario, a través de la cuenta de GitHub que posee el repositorio.
-En la práctica esa autoridad no la sostiene este texto sino la propia
-plataforma: quien no tenga acceso de escritura a la cuenta no puede integrar
-nada, y `main` sólo admite integración por PR con merge commit y CI verde
-(`docs/governance/repository-governance.md`).
+Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
 
-Ninguna contribución —humana o asistida— se integra sin esa autorización.
-Cualquier trabajo asistido por IA en este repositorio queda trazado en el
-mensaje de cada commit con su co-autoría y el enlace a la sesión que lo produjo.
+No se permite abrir una rama paralela, duplicar una arquitectura, rehacer un módulo o inventar un trabajo alternativo porque una IA considere que es “mejor”. Primero se audita lo construido. Sólo se modifica lo existente cuando hay evidencia de defecto, incompatibilidad, requisito nuevo autorizado o gate fallido.
 
-> **Por qué aquí no aparece un correo electrónico.** La cuenta que posee el
-> repositorio ya lleva asociado el correo del propietario, y esa asociación —no
-> una línea de texto— es la que la plataforma verifica. Escribir la dirección en
-> un archivo del repositorio no añadiría autoridad y sí crearía exposición: un
-> correo en un `README` es exactamente el dato que se filtra primero si la
-> visibilidad cambia, y sirve para suplantación y para recuperación de cuenta.
-> La decisión es reversible si el propietario prefiere lo contrario.
+Reglas completas para agentes: [`AGENTS.md`](AGENTS.md) y [`CLAUDE.md`](CLAUDE.md).
 
-## Para qué existe y a quién sirve
+## Fuentes de verdad
 
-Camacho POS Colombia es una plataforma comercial **modular, multiempresa y
-multisucursal para negocios minoristas** (`docs/product/vision.md`). No pretende
-ser una demostración ni un CRUD: desde su primera versión comercial tiene que
-sostener integridad transaccional, seguridad por rol y contexto, auditoría,
-operación local-first y funcionamiento temporal sin Internet.
+El README es un resumen. No autoriza por sí mismo trabajo nuevo.
 
-**Comercios a los que apunta**, en orden de prioridad declarado
-(`docs/product/business-types.md`): tiendas de barrio, minimercados,
-supermercados pequeños y medianos, comercios de perecederos y venta por peso,
-carnicerías, fruver, cacharrerías, papelerías, depósitos de bebidas y licoreras.
-Después, mediante módulos especializados: droguerías, ferreterías, ropa, calzado,
-panaderías, mascotas, aseo y alimentos preparados.
+1. `docs/governance/repository-governance.md` — ramas, PR, integración y evidencia Git.
+2. `docs/governance/tablero-materializacion.md` — niveles de evidencia por capacidad.
+3. `docs/product/backlog.md` — prioridad, dependencia, bloqueo y orden de trabajo.
+4. `docs/architecture/` y `docs/adr/` — arquitectura, ownership y decisiones.
+5. Contratos y código existente — comportamiento real que debe preservarse.
 
-**Un solo núcleo, no un fork por sector.** Cada negocio ve únicamente los
-módulos relevantes para su operación.
+Si dos fuentes normativas contradicen su estado, **se detiene la implementación y se reconcilian primero**.
 
-**Cuáles de esos comercios puede atender hoy** está medido, fila por fila, en
-[`docs/product/business-readiness.md`](docs/product/business-readiness.md). La
-respuesta corta es que todavía ninguno, y ese documento dice exactamente por qué.
+## Qué está construido y se considera base, no terreno para rehacer
 
-## Estado real
+La fundación local y comercial ya existente incluye, según la evidencia registrada en el árbol:
 
-Camacho POS Colombia está en **Fase 1 — fundación técnica ejecutable**.
+- POS Local Service con SQLite/WAL y single-writer.
+- Lifecycle local, identidad de dispositivo/licencia, auditoría e idempotencia.
+- Canal local autenticado/versionado con controles de MAC, anti-replay y allowlist.
+- Sesión/SSA, snapshot de autorización y autorización RBAC fail-closed donde el runtime vigente los instancia.
+- Núcleo comercial: Sales, Cash, Payments, Customers, Catalog, Tax e Inventory en los alcances ya implementados.
+- Outbox/sync durable con claim, respuesta, retry/backoff y dead-letter.
+- Electron + React + Vite como shell/renderer, con los niveles de evidencia que marque el tablero; no se debe asumir que shell significa POS comercial completo.
+- PostgreSQL migrations 001/002/003 con sus gates históricos cerrados; SQLite 003 continúa sin equivalencia inventada.
+- CI de foundation, supply chain, CodeQL y gobernanza de `main`.
 
-Existe un núcleo comercial local que vende, cobra, cuadra caja y registra
-adquirientes, con impuesto por línea; **no existe todavía una interfaz que un
-cajero pueda usar para hacerlo**, ni plataforma central, ni administración de
-usuarios y roles.
+**Estas piezas no se rehacen por iniciativa de una IA.** Si una auditoría encuentra un defecto, se corrige el componente existente y se preserva su contrato salvo decisión arquitectónica explícita.
 
-Las dos fuentes que mandan sobre esta sección, y que se actualizan en cada
-bloque:
+## Trabajo activo — D-2 / Central Sync
 
-- [tablero de materialización](docs/governance/tablero-materializacion.md) —
-  56 capacidades con su nivel y su evidencia;
-- [auditoría de conformidad con el stack](docs/governance/stack-conformance-audit.md)
-  — la lámina del stack objetivo contrastada punto por punto contra el árbol.
+La línea activa está cerrando el transporte saliente del outbox y su evidencia de persistencia.
 
-Este README resume; **si discrepa con ellos, mandan ellos**.
+PR #78 corresponde a D-2: `DurableSyncStore` → `SyncDispatcher` → `CentralTransport`/`FetchCentralTransport`, con validación de contrato, `request_id`, fail-closed de credenciales y backoff/dead-letter.
 
-### Lo que ya está en `main` y probado
+Además, la línea activa contiene un **Central Sync Persistence Gate** dedicado que debe probar contra infraestructura real:
 
-- **Servicio local POS** (`apps/pos-local-service`): lifecycle, SQLite/WAL con
-  escritor único y backup/restore verificados en Windows, named pipe local
-  autenticado (DPAPI + HMAC + anti-replay), identidad de dispositivo y licencia
-  Ed25519, sync durable (outbox/inbox/checkpoint/dead-letter con backoff).
-- **Sesión y autorización**: SSA firmada y revocable, snapshot de autorización
-  firmado, y un motor de permisos **RBAC** puro que falla cerrado.
-- **Núcleo comercial**: `Sales` (venta → `READY_FOR_PAYMENT`), `Cash`
-  (apertura y cierre de turno), `Payments` (efectivo y transferencia, con la
-  venta completándose en la **misma** transacción que cubre el importe),
-  `Customers` (adquiriente fiscal), **catálogo real** —producto, presentación,
-  código de barras y precio—, **impuesto por línea** desde ese catálogo e
-  **inventario** —existencia por sucursal sobre un libro append-only, con la
-  mercancía saliendo en la misma transacción que completa la venta—.
-- **Plano fiscal**: cinco puertos por capacidad, tablas de códigos DIAN con
-  fuente verificada, y el adapter FACTUS con **dos de sus cinco puertos
-  `SANDBOX_VERIFIED`** contra el proveedor real.
-- **Escritorio Electron**: shell con preload allowlisted y renderer aislado.
-- **CI**: validación TARGET (5 jobs, incluido un runner Windows y PostgreSQL
-  16.14 real), CodeQL, SBOM, licencias, auditoría de vulnerabilidades
-  fail-closed y gobernanza de merge de `main`.
+```text
+PostgreSQL 16.14 real
+        ↓
+migration runner real
+        ↓
+central-sync-server real
+        ↓
+HTTP POST real
+        ↓
+sync.sync_operations
+        ↓
+replay HTTP real
+        ↓
+idempotency = una sola persistencia
+```
 
-### Lo que NO existe, dicho sin rodeos
+El workflow es `.github/workflows/central-sync-persistence-gate.yml` y el paquete expone `central-sync:gate`.
 
-- **Interfaz comercial.** El renderer son ~110 líneas y expone tres llamadas
-  técnicas. Las **dieciséis** operaciones comerciales tienen contrato, handler y
-  prueba de extremo a extremo contra el canal, y **ninguna llega a una
-  pantalla**.
-- **Administración, roles y super-administrador.** Hay 14 roles y 126 permisos
-  atómicos documentados, y **10 permisos implementados, ninguno de
-  administración**. No hay tabla de roles, ni panel, ni forma de dar de alta un
-  usuario o asignarle un rol desde el producto.
-- **ABAC, MFA y reautenticación.** La matriz de permisos los exige de forma
-  explícita para toda operación financiera y **no hay ninguno**.
-- **Plataforma central.** `packages/database-postgres/src` está vacío: sin API,
-  sin NestJS ni Fastify, sin inbox. Sin cliente HTTP saliente, ningún hecho
-  comercial sale del dispositivo.
-- **Interfaz de caja.** Es la única pieza común que falta para que los comercios
-  prioritarios puedan operar: diecinueve operaciones comerciales tienen contrato,
-  handler y prueba de extremo a extremo, y **ninguna tiene pantalla**.
-- **Hardware.** Báscula, lector, impresora, cajón, datáfono y pantalla cliente:
-  ni la abstracción existe.
-- **Empaquetado y despliegue.** Sin instalador (`electron-builder` no está en el
-  lockfile), sin Docker, sin infraestructura.
-- **PWA**, **OpenTelemetry**, **Testcontainers**, **k6** y **linter**: cero
-  declaraciones en el monorepo.
-- `SEC-G01..SEC-G10`: `PLANNED / NOT_EVALUATED`.
+### Estado exacto del gate
 
-**No existe una aplicación POS productiva completa en este repositorio.** Lo que
-hay es un núcleo comercial local real, probado y alcanzable por su canal, sin
-interfaz ni plataforma central.
+- Implementación del gate: `IMPLEMENTED`.
+- Workflow dedicado: `IMPLEMENTED`.
+- PostgreSQL 16.14 configurado: `IMPLEMENTED`.
+- Servidor Central Sync real configurado: `IMPLEMENTED`.
+- Persistencia real observada: **pendiente de ejecución del workflow nuevo**.
+- Replay real observado: **pendiente**.
+- Idempotencia real observada: **pendiente**.
+- `CENTRAL-SYNC GATE: VERIFIED`: **NO declarado todavía**.
 
-## Fuente de verdad
+La ejecución anterior sobre el commit `0afefdb` falló y no puede usarse como evidencia del workflow posterior. Un cambio preparado para ejecutar no equivale a una ejecución verificada.
 
-- [Identidad de marca](docs/product/brand.md): nombre comercial, identificadores técnicos preservados y límites de claims.
-- [Backlog maestro](docs/product/backlog.md): estado, prioridad, dependencias, bloqueos y orden inmediato.
-- [Gobernanza del repositorio](docs/governance/repository-governance.md): ramas, PRs, merges y evidencia remota/local.
-- [Índice documental](docs/README.md): jerarquía completa de fuentes.
-- [Mapa de módulos](docs/architecture/module-map.md) y [ownership](docs/architecture/data-ownership.md): bounded contexts y propiedad.
+## PR #78 y `main`
 
-Si dos fuentes normativas vigentes se contradicen, no se implementa una interpretación arbitraria: se reconcilian primero.
+PR #78 es trabajo de la línea activa y **no debe describirse como integrado en `main` mientras no exista merge + verificación post-merge**.
 
-## Arquitectura objetivo
+`main` continúa siendo la fuente canónica del producto. Una rama de trabajo no se vuelve canónica por tener más commits o CI verde.
 
-POS Platform utiliza una sola arquitectura TARGET:
+Flujo obligatorio:
 
-Es el **objetivo**, no el estado. La conformidad real, punto por punto y con el
-comando que la comprueba, está en
-[stack-conformance-audit.md](docs/governance/stack-conformance-audit.md).
+`rama activa → PR → revisión del autor → CI exact-head → autorización → merge commit → CI post-merge → documentación reconciliada`
 
-| Pieza | En `main` |
-|---|---|
-| monolito modular · TypeScript estricto · pnpm + Nx | ✅ |
-| Zod para contratos runtime | ✅ |
-| POS Local Service Node.js/TypeScript | ✅ (no hay host de servicio instalable) |
-| SQLite/WAL local · Kysely con migrations por dialecto | ✅ |
-| PostgreSQL 16 central | migraciones probadas contra 16.14; **sin instancia desplegada** |
-| Electron + React + Vite | shell y renderer mínimo |
-| Vitest | ✅ · **Playwright** config sin specs · **Testcontainers** y **k6** ausentes |
-| API central NestJS con Fastify | ❌ ausente |
-| OpenTelemetry | ❌ ausente |
-| Docker e infraestructura | ❌ ausente |
+No squash, no rebase y no force-push para integrar a `main`.
 
-La PWA puede existir como laboratorio o capacidad web central; no es la autoridad productiva de caja, hardware o SQLite local.
+## Qué NO se debe hacer ahora
 
-## Principios
+Mientras D-2 y su gate no estén cerrados, no se debe abrir trabajo paralelo sobre:
 
-- **Una sola base de código:** no existen forks por tipo de comercio ni una arquitectura paralela para `LOCAL_PERPETUAL`.
-- **Ownership explícito:** cada bounded context posee sus reglas y datos; no escribe directamente tablas internas de otro módulo.
-- **Multi-tenancy por diseño:** tenant/company/branch se derivan y validan desde contexto autorizado; un ID enviado por cliente no constituye autoridad.
-- **Local-first:** una venta ordinaria autorizada no depende de Internet para confirmarse.
-- **Único writer SQLite:** el POS Local Service será el único proceso escritor de la base local.
-- **Idempotencia:** operaciones críticas conservan identidad, checksum, causalidad y evidencia de retry.
-- **Sin last-write-wins genérico:** el reloj local no decide autoridad global.
-- **Append-only/compensación:** hechos financieros, inventario y auditoría no se corrigen mediante sobrescritura destructiva cuando el contrato exige historia.
-- **Providers neutrales:** Factus, Siigo, datáfonos o hardware se integran mediante adapters; no definen el dominio canónico.
-- **Claims verificables:** `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APPLIED` y `PRODUCTION_READY` son niveles distintos.
+- una segunda arquitectura de sync;
+- otra implementación de Central Sync;
+- otra base central o API paralela;
+- una migración nueva para resolver el mismo problema;
+- snapshots/SSA/SAS de entrada como sustituto de D-2;
+- G1/trust bootstrap como supuesto requisito del gate actual;
+- DEC-022 como si ya estuviera ratificada;
+- verticales de negocio nuevas sólo porque el núcleo ya tenga handlers;
+- hardware, packaging o infraestructura productiva como desviación del objetivo activo.
 
-## Módulos
+Si una de estas áreas tiene un defecto que bloquea D-2, primero se documenta la relación y se audita; no se crea una segunda línea.
 
-La granularidad canónica está en [module-map.md](docs/architecture/module-map.md).
-
-Fundación:
-
-- Identity, Tenants, Companies, Branches, Authorization, Devices, Licensing, Audit, Sync.
-
-Núcleo comercial:
-
-- Catalog, Pricing, Tax, Inventory, Purchasing, Suppliers, Sales, Payments, Cash Register, Customers, Reporting.
-
-Operación extendida:
-
-- Orders, Delivery, Couriers, Notifications, Hardware, Support, Subscriptions, External Integrations, Electronic Invoicing.
-
-`Categories`, `Product Codes`, `Units` y `Lots` son subcapacidades de owners existentes; no bounded contexts paralelos.
-
-## Runtime objetivo
+## Arquitectura canónica
 
 ```text
 Renderer React
-    |
-    | preload allowlisted
-    v
+    │
+    │ preload allowlisted
+    ▼
 Electron main
-    |
-    | canal local autenticado/versionado
-    v
+    │
+    │ canal local autenticado/versionado
+    ▼
 POS Local Service
-    |-- dominio y casos de uso locales
-    |-- SQLite/WAL
-    |-- outbox/sync
-    |-- impresión
-    |-- hardware
-    |-- backup/restore
-    |-- dispositivo/licencia
-    `-- actualización/diagnóstico
+    ├── dominio/casos de uso locales
+    ├── SQLite/WAL — único writer
+    ├── outbox/sync
+    ├── auditoría/idempotencia
+    ├── dispositivo/licencia
+    └── backup/diagnóstico
 ```
 
-El renderer no abre SQLite, no ejecuta reglas financieras y no accede directamente a hardware o secretos.
+La arquitectura central futura no reemplaza al POS local. Los providers externos no definen el dominio canónico.
 
-## Estructura actual
+## Niveles de evidencia
 
-```text
-pos-platform/
-|-- .github/workflows/             # CI TARGET vigente
-|-- docs/                          # fuentes normativas y evidencia documental
-|-- poc/                           # laboratorios aislados, no runtime
-|-- tools/ci/                      # repository/supply-chain policy
-|-- tools/target-migrations/       # migrations 001/002 + tooling MAT-003
-|-- package.json
-|-- pnpm-workspace.yaml
-|-- pnpm-lock.yaml
-`-- tsconfig.base.json
-```
+El tablero vigente usa esta escalera:
 
-`apps/` y `packages/` de la arquitectura objetivo todavía no existen.
+`DOCUMENTED → IMPLEMENTED → TESTED → RUNTIME_VERIFIED → CALLER_REACHABLE → END_TO_END → PRODUCTION`
 
-## CI vigente
+No se salta un peldaño. `main` y CI son ejes de integración, no sustitutos de la evidencia de runtime.
 
-El gate actual está documentado en:
+Regla estricta: **si no se ejecutó, no se declara PASS; si no se observó el runtime requerido, no se declara VERIFIED.**
 
-- [TARGET foundation CI](docs/testing/target-foundation-ci-gate.md);
-- [Supply-chain baseline](docs/testing/supply-chain-baseline-ci-gate.md).
+## Qué falta después del bloque actual
 
-El workflow corre en PRs hacia `main`, pushes a `main` y dispatch manual. Es commit-scoped.
+Una vez cerrado D-2 y su gate, el siguiente trabajo se determina desde el backlog y los ADR vigentes. No se selecciona por preferencia de la IA.
 
-El control `Main push governance` es **detectivo**, no branch protection preventiva.
+Entre las capacidades que siguen sin representar un producto POS terminado están, según su evidencia actual:
 
-## Branch protection
+- superficie completa de caja para el operador;
+- administración real de usuarios/roles y controles avanzados de autorización;
+- autoridad central productiva y despliegue;
+- hardware y sus adapters físicos;
+- empaquetado/instalación y operación productiva;
+- observabilidad y pruebas de carga donde correspondan;
+- seguridad `SEC-G01..SEC-G10` cuando sus prerequisitos estén desbloqueados;
+- trust bootstrap/G1, que permanece separado y no se declara resuelto por D-2.
 
-El repositorio es privado y el plan GitHub vigente no habilita branch protection/rulesets preventivos para este caso. GitHub reporta `main` sin protección nativa.
+Esto no constituye un nuevo backlog. Son áreas pendientes ya conocidas; su orden se toma de las fuentes normativas.
 
-Mientras esa limitación exista, el proyecto exige merge normal mediante PR, SHA esperado, CI del HEAD exacto y verificación post-merge. Véase [repository-governance.md](docs/governance/repository-governance.md).
+## Gobernanza
 
-No se hará público el repositorio únicamente para obtener protección de ramas.
+El repositorio es privado. `main` no tiene branch protection preventiva nativa en el plan actual; existe un control compensatorio detectivo de gobernanza.
 
-## SQL003 / facturación electrónica
-
-Migration PostgreSQL 003 está integrada y sus gates de repositorio quedaron cerrados por INT-007 / PR #11. Esto acredita el artefacto, rollback, introspección y pruebas físicas en PostgreSQL 16.14; no acredita despliegue productivo, providers, credenciales, sandbox ni operación fiscal real.
-
-- PR #4 y la remediación autoritativa posterior están `MERGED / CLOSED` como antecedentes contractuales.
-- `wip/sql003-contract-gap-20260825` permanece como evidencia histórica `NOT_INTEGRABLE`.
-- SQLite 003 continúa `NONE`; no se inventa equivalencia física entre dialectos.
-- Todo cambio fiscal posterior conserva Modelo A, historia append-only y gates exact-head.
+Las ramas históricas no son líneas activas. No se reutilizan ni se integran completas. La auditoría de deprecación de ramas registra qué trabajo fue integrado, qué quedó como evidencia y qué no debe reutilizarse.
 
 ## Desarrollo local
 
-El repositorio permite validar el tooling TARGET existente, pero no iniciar el producto completo extremo a extremo.
+Los comandos y sus resultados sólo se consideran evidencia cuando fueron ejecutados realmente en el entorno correspondiente. GitHub no demuestra `git status`, procesos locales, Docker ni PostgreSQL local.
 
-Comandos existentes incluyen, entre otros:
+Comandos base existentes incluyen:
 
 ```powershell
 pnpm typecheck
+pnpm architecture:check
+pnpm test:contracts
+pnpm test:domain
+pnpm test:application
+pnpm test:fiscal-adapters
+pnpm test:runtime
 pnpm test:migrations:sqlite
 pnpm test:migrations:postgres
 ```
 
-La validez de un comando y su resultado se reportan solo cuando se ejecutan realmente en el entorno correspondiente.
+No inventar comandos: verificar `package.json` antes de documentar o ejecutar uno nuevo.
 
-GitHub remoto no demuestra `git status`, Docker, PostgreSQL ni procesos del equipo local. Sin verificación local actual, esos estados son `NOT_EVALUATED / REQUIRES_LOCAL_VERIFICATION`.
+## Principio final
 
-## Próximo trabajo
-
-La cola exacta y sus gates están en [docs/product/backlog.md](docs/product/backlog.md). No se salta directamente al runtime mientras existan reconciliaciones/gates previos vigentes.
+**Una sola línea de desarrollo. Un solo objetivo activo. Una sola fuente de verdad por decisión. Se corrige lo demostrado y se continúa sobre lo construido.**
