@@ -1,8 +1,62 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool, type PoolClient } from "pg";
-import { createSyncBatchRequestSchema, SyncBatchResponseSchema, type SyncBatchRequest, type SyncBatchResponse, type SyncOperation } from "../../../packages/contracts/src/sync.js";
-import { canonicalJson } from "../../../packages/local-channel/src/canonical-json.js";
+
+interface SyncOperation {
+  operation_id: string;
+  tenant_id: string;
+  company_id: string;
+  branch_id: string;
+  device_id: string;
+  installation_id: string;
+  session_id: string;
+  actor_id: string;
+  aggregate_type: string;
+  aggregate_id: string;
+  operation_type: string;
+  authority_policy: string;
+  local_sequence: number;
+  idempotency_key: string;
+  expected_version: number | null;
+  payload_schema_version: string;
+  payload: unknown;
+  payload_checksum: string;
+  causation_id: string | null;
+  correlation_id: string;
+  occurred_at_local: string;
+  recorded_at_local: string;
+}
+
+interface SyncBatchRequest {
+  batch_id: string;
+  tenant_id: string;
+  company_id: string;
+  branch_id: string;
+  device_id: string;
+  installation_id: string;
+  checkpoint_local_sequence: number | null;
+  operations: SyncOperation[];
+}
+
+interface SyncBatchResponse {
+  batch_id: string;
+  tenant_id: string;
+  device_id: string;
+  acknowledged_through_local_sequence: number | null;
+  results: Array<{
+    operation_id: string;
+    correlation_id: string;
+    server_status: "SERVER_ACCEPTED";
+    server_result_code: "COMMITTED";
+    aggregate_id: string;
+    previous_version: number | null;
+    new_version: number | null;
+    received_at_server: string;
+    committed_at_server: string;
+    retryable: false;
+    review_required: false;
+  }>;
+}
 
 const databaseUrl = process.env.DATABASE_URL;
 const syncToken = process.env.CENTRAL_SYNC_TOKEN;
@@ -15,7 +69,23 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT m
 if (!Number.isInteger(maxOperations) || maxOperations < 1) throw new Error("SYNC_MAX_OPERATIONS must be a positive integer");
 
 const pool = new Pool({ connectionString: databaseUrl, max: Number(process.env.DB_POOL_MAX ?? 10) });
+const contractsModulePath = new URL("../../../packages/contracts/src/sync.ts", import.meta.url).href;
+const { createSyncBatchRequestSchema, SyncBatchResponseSchema } = await import(contractsModulePath) as typeof import("../../../packages/contracts/src/sync.js");
 const batchSchema = createSyncBatchRequestSchema(maxOperations);
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("non-finite numbers are not valid channel payloads");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  throw new Error("unsupported channel payload value");
+}
 
 function send(response: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -90,7 +160,7 @@ async function persist(client: PoolClient, operation: SyncOperation, receivedAt:
     throw Object.assign(new Error("idempotency key belongs to another operation_id"), { code: "IDEMPOTENCY_OPERATION_CONFLICT" });
   }
 
-  const committedAt = receivedAt.toISOString();
+  const receivedAtServer = receivedAt.toISOString();
   await client.query(
     `INSERT INTO sync.sync_operations (
        id, tenant_id, company_id, branch_id, source_kind, device_id, installation_id,
@@ -103,7 +173,7 @@ async function persist(client: PoolClient, operation: SyncOperation, receivedAt:
        $5, 'USER', $6, $7, $8, $9,
        $10, $11, $12, NULL,
        $13, $14, $15, $16, decode($17, 'hex'),
-       'SERVER_ACCEPTED', $18, $18, 1
+       'SERVER_ACCEPTED', $18, clock_timestamp(), 1
      )`,
     [
       operation.operation_id,
@@ -123,7 +193,7 @@ async function persist(client: PoolClient, operation: SyncOperation, receivedAt:
       schemaVersion(operation.payload_schema_version),
       JSON.stringify(operation.payload),
       operation.payload_checksum,
-      committedAt,
+      receivedAtServer,
     ],
   );
 }
@@ -137,25 +207,35 @@ async function accept(batch: SyncBatchRequest): Promise<SyncBatchResponse> {
     for (const operation of batch.operations) await persist(client, operation, receivedAt);
     await client.query("COMMIT");
 
-    const committedAt = new Date().toISOString();
+    const committedRows = await pool.query<{ id: string; received_at_server: string; committed_at_server: string }>(
+      `SELECT id, received_at_server, committed_at_server
+         FROM sync.sync_operations
+        WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
+      [batch.tenant_id, batch.operations.map((operation) => operation.operation_id)],
+    );
+    const durable = new Map(committedRows.rows.map((row) => [row.id, row]));
     return SyncBatchResponseSchema.parse({
       batch_id: batch.batch_id,
       tenant_id: batch.tenant_id,
       device_id: batch.device_id,
       acknowledged_through_local_sequence: batch.operations.at(-1)?.local_sequence ?? null,
-      results: batch.operations.map((operation) => ({
-        operation_id: operation.operation_id,
-        correlation_id: operation.correlation_id,
-        server_status: "SERVER_ACCEPTED",
-        server_result_code: "COMMITTED",
-        aggregate_id: operation.aggregate_id,
-        previous_version: null,
-        new_version: null,
-        received_at_server: receivedAt.toISOString(),
-        committed_at_server: committedAt,
-        retryable: false,
-        review_required: false,
-      })),
+      results: batch.operations.map((operation) => {
+        const row = durable.get(operation.operation_id);
+        if (!row) throw new Error(`durable sync row missing for ${operation.operation_id}`);
+        return {
+          operation_id: operation.operation_id,
+          correlation_id: operation.correlation_id,
+          server_status: "SERVER_ACCEPTED",
+          server_result_code: "COMMITTED",
+          aggregate_id: operation.aggregate_id,
+          previous_version: null,
+          new_version: null,
+          received_at_server: new Date(row.received_at_server).toISOString(),
+          committed_at_server: new Date(row.committed_at_server).toISOString(),
+          retryable: false,
+          review_required: false,
+        };
+      }),
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
@@ -180,7 +260,7 @@ const server = createServer(async (request, response) => {
   }
 
   try {
-    const batch = batchSchema.parse(await readJson(request));
+    const batch = batchSchema.parse(await readJson(request)) as SyncBatchRequest;
     send(response, 200, await accept(batch));
   } catch (error) {
     const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
