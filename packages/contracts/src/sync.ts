@@ -7,6 +7,7 @@ import {
   StableCodeSchema,
   UtcDateTimeSchema,
   UuidSchema,
+  UuidV7Schema,
 } from "./primitives.js";
 
 export const SyncAuthorityPolicySchema = z.enum([
@@ -19,7 +20,7 @@ export const SyncAuthorityPolicySchema = z.enum([
 ]);
 
 export const SyncOperationSchema = z.strictObject({
-  operation_id: UuidSchema,
+  operation_id: UuidV7Schema,
   tenant_id: UuidSchema,
   company_id: UuidSchema,
   branch_id: UuidSchema,
@@ -85,7 +86,7 @@ export const SyncBatchRequestSchema = z.strictObject({
 
 export function createSyncBatchRequestSchema(maxOperations: number) {
   if (!Number.isSafeInteger(maxOperations) || maxOperations < 1) {
-    throw new RangeError("maxOperations must be a positive safe integer");
+    throw new RangeError("maxOperations must be a positive integer");
   }
   return SyncBatchRequestSchema.superRefine((batch, context) => {
     if (batch.operations.length > maxOperations) {
@@ -105,7 +106,7 @@ export const SyncServerStatusSchema = z.enum([
 ]);
 
 export const SyncOperationResultSchema = z.strictObject({
-  operation_id: UuidSchema,
+  operation_id: UuidV7Schema,
   correlation_id: UuidSchema,
   server_status: SyncServerStatusSchema,
   server_result_code: StableCodeSchema,
