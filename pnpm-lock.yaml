@@ -246,6 +246,12 @@ importers:
 
   tools/target-migrations:
     dependencies:
+      '@pos-platform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@pos-platform/local-channel':
+        specifier: workspace:*
+        version: link:../../packages/local-channel
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3

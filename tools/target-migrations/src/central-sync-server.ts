@@ -108,6 +108,9 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
 
   if (existing.rowCount) {
     const row = existing.rows[0];
+    if (!row) {
+      throw Object.assign(new Error("existing operation row missing"), { code: "SYNC.INTERNAL_ERROR" });
+    }
     const storedChecksum = Buffer.from(row.payload_checksum).toString("hex");
     if (storedChecksum !== operation.payload_checksum) {
       throw Object.assign(new Error("operation_id replay has a different checksum"), { code: "SYNC.OPERATION_CHECKSUM_CONFLICT" });
@@ -126,7 +129,11 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
     [operation.tenant_id, operation.operation_type, operation.idempotency_key],
   );
   if (idempotency.rowCount) {
-    const storedChecksum = Buffer.from(idempotency.rows[0].payload_checksum).toString("hex");
+    const idempotencyRow = idempotency.rows[0];
+    if (!idempotencyRow) {
+      throw Object.assign(new Error("idempotency row missing"), { code: "SYNC.INTERNAL_ERROR" });
+    }
+    const storedChecksum = Buffer.from(idempotencyRow.payload_checksum).toString("hex");
     if (storedChecksum !== operation.payload_checksum) {
       throw Object.assign(new Error("idempotency key replay has a different checksum"), { code: "SYNC.IDEMPOTENCY_CHECKSUM_CONFLICT" });
     }

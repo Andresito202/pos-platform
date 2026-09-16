@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "@pos-platform/target-migrations",
   "version": "0.0.0",
   "private": true,
@@ -18,6 +18,8 @@
     "test:runner:003": "vitest run tests/postgres-003-runner.test.ts"
   },
   "dependencies": {
+    "@pos-platform/contracts": "workspace:*",
+    "@pos-platform/local-channel": "workspace:*",
     "better-sqlite3": "13.0.3",
     "kysely": "0.29.5",
     "pg": "8.23.0"
