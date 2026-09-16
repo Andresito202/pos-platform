@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -44,15 +45,6 @@ function requestChecksum(request: ConfirmTransferPaymentRequest, operatorUserId:
     .digest("hex");
 }
 
-/**
- * `UC-PAY-003` — confirmación por atestiguación manual.
- *
- * Es el punto en que una transferencia produce cobertura y, si con ello la
- * venta queda cubierta, **la completa en la misma transacción**.
- *
- * El permiso es distinto del de reporte: quien atestigua asume la
- * responsabilidad financiera del hecho.
- */
 export class ConfirmTransferPaymentUseCase {
   constructor(
     private readonly paymentStore: SqlitePaymentStore,
@@ -84,8 +76,8 @@ export class ConfirmTransferPaymentUseCase {
       paymentId: request.paymentId,
       expectedVersion: request.expectedVersion,
       allocationId: randomUUID(),
-      operationId: randomUUID(),
-      saleCompletionOperationId: randomUUID(),
+      operationId: uuidV7(),
+      saleCompletionOperationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request, operatorUserId),
       correlationId: request.correlationId,
