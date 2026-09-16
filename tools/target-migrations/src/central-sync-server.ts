@@ -75,9 +75,22 @@ async function setTenantContext(client: PoolClient, tenantId: string): Promise<v
   await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
 }
 
+function databaseErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
+  const code = String(error.code);
+  const mapped: Record<string, string> = {
+    "23505": "SYNC.UNIQUE_VIOLATION",
+    "23503": "SYNC.FOREIGN_KEY_VIOLATION",
+    "23514": "SYNC.CONSTRAINT_VIOLATION",
+    "22P02": "SYNC.INVALID_DATABASE_VALUE",
+    "42501": "SYNC.PERMISSION_DENIED",
+  };
+  return mapped[code] ?? null;
+}
+
 async function persistOperation(client: PoolClient, operation: SyncOperation, receivedAt: Date): Promise<void> {
   if (payloadChecksum(operation.payload) !== operation.payload_checksum) {
-    throw Object.assign(new Error("payload checksum mismatch"), { code: "PAYLOAD_CHECKSUM_MISMATCH" });
+    throw Object.assign(new Error("payload checksum mismatch"), { code: "SYNC.PAYLOAD_CHECKSUM_MISMATCH" });
   }
 
   const existing = await client.query<{
@@ -97,10 +110,10 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
     const row = existing.rows[0];
     const storedChecksum = Buffer.from(row.payload_checksum).toString("hex");
     if (storedChecksum !== operation.payload_checksum) {
-      throw Object.assign(new Error("operation_id replay has a different checksum"), { code: "OPERATION_CHECKSUM_CONFLICT" });
+      throw Object.assign(new Error("operation_id replay has a different checksum"), { code: "SYNC.OPERATION_CHECKSUM_CONFLICT" });
     }
     if (row.idempotency_key !== operation.idempotency_key || row.operation_type !== operation.operation_type) {
-      throw Object.assign(new Error("operation_id replay has different immutable identity"), { code: "OPERATION_IDENTITY_CONFLICT" });
+      throw Object.assign(new Error("operation_id replay has different immutable identity"), { code: "SYNC.OPERATION_IDENTITY_CONFLICT" });
     }
     return;
   }
@@ -115,9 +128,9 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
   if (idempotency.rowCount) {
     const storedChecksum = Buffer.from(idempotency.rows[0].payload_checksum).toString("hex");
     if (storedChecksum !== operation.payload_checksum) {
-      throw Object.assign(new Error("idempotency key replay has a different checksum"), { code: "IDEMPOTENCY_CHECKSUM_CONFLICT" });
+      throw Object.assign(new Error("idempotency key replay has a different checksum"), { code: "SYNC.IDEMPOTENCY_CHECKSUM_CONFLICT" });
     }
-    throw Object.assign(new Error("idempotency key belongs to another operation_id"), { code: "IDEMPOTENCY_OPERATION_CONFLICT" });
+    throw Object.assign(new Error("idempotency key belongs to another operation_id"), { code: "SYNC.IDEMPOTENCY_OPERATION_CONFLICT" });
   }
 
   const receivedAtIso = receivedAt.toISOString();
@@ -173,6 +186,10 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
 
     await client.query("COMMIT");
 
+    // The tenant setting is transaction-local. Re-enter a transaction before
+    // reading durable evidence so forced RLS cannot silently hide the rows.
+    await client.query("BEGIN");
+    await setTenantContext(client, batch.tenant_id);
     const durable = await client.query<{
       id: string;
       received_at_server: string | Date;
@@ -191,8 +208,9 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
       return latest;
     }, null);
     if (!committedAt || durable.rows.length !== batch.operations.length) {
-      throw new Error("central commit evidence is incomplete");
+      throw Object.assign(new Error("central commit evidence is incomplete"), { code: "SYNC.COMMIT_EVIDENCE_INCOMPLETE" });
     }
+    await client.query("COMMIT");
 
     const result: SyncBatchResponse = {
       batch_id: batch.batch_id,
@@ -342,8 +360,13 @@ const server = createServer(async (request, response) => {
       "x-correlation-id": correlationId,
     });
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "CENTRAL_SYNC_FAILED";
-    const status = code.endsWith("CONFLICT") ? 409 : code === "PAYLOAD_CHECKSUM_MISMATCH" ? 422 : 500;
+    const code = (error && typeof error === "object" && "code" in error ? databaseErrorCode(error) : null)
+      ?? (error && typeof error === "object" && "code" in error ? String(error.code) : null)
+      ?? "SYNC.CENTRAL_SYNC_FAILED";
+    const status = code.includes("CONFLICT") || code === "SYNC.UNIQUE_VIOLATION" ? 409
+      : code === "SYNC.PAYLOAD_CHECKSUM_MISMATCH" ? 422
+      : code === "SYNC.FOREIGN_KEY_VIOLATION" || code === "SYNC.CONSTRAINT_VIOLATION" || code === "SYNC.INVALID_DATABASE_VALUE" ? 422
+      : 500;
     const category = status === 409 ? "CONFLICT" : status === 422 ? "INTEGRITY" : "INTERNAL";
     const body = rejection(requestId, correlationId, envelope.operation_id ?? null, code, category);
     const responseValidation = responseSchema.safeParse({
