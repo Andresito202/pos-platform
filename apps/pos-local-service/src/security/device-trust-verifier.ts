@@ -9,9 +9,6 @@ import {
   type DeviceTrustChallenge,
   type DeviceTrustCredentialClaims,
   type DeviceTrustOperationalKeyClaims,
-  type DeviceTrustProof,
-  type SignedDeviceTrustCredential,
-  type SignedDeviceTrustOperationalKey,
 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { TrustedClockGuard } from "./trusted-clock.js";
@@ -35,6 +32,12 @@ export interface DeviceTrustBinding {
   readonly companyId: string;
   readonly installationId: string;
   readonly deviceId: string;
+}
+
+export interface TrustedDeviceTrustKey {
+  readonly key: KeyObject;
+  readonly status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED";
+  readonly validFrom: string;
 }
 
 export interface DeviceTrustVerificationResult<T> {
@@ -64,7 +67,7 @@ export function unsignedDeviceTrustChallengeBytes(
 export class DeviceTrustVerifier {
   constructor(
     private readonly rootTrustAnchor: KeyObject,
-    private readonly operationalKeys: ReadonlyMap<string, KeyObject>,
+    private readonly operationalKeys: ReadonlyMap<string, TrustedDeviceTrustKey>,
     private readonly trustedClock: TrustedClockGuard,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -105,11 +108,15 @@ export class DeviceTrustVerifier {
     const operationalKey = this.operationalKeys.get(claims.key_id);
 
     if (!operationalKey) return this.result("UNKNOWN_KEY", null, evaluatedAt);
+    if (operationalKey.status === "REVOKED") return this.result("KEY_REVOKED", null, evaluatedAt);
+    if (evaluatedAt.getTime() < Date.parse(operationalKey.validFrom)) {
+      return this.result("KEY_NOT_YET_VALID", null, evaluatedAt);
+    }
 
     const valid = verify(
       null,
       unsignedDeviceTrustCredentialBytes(claims),
-      operationalKey,
+      operationalKey.key,
       Buffer.from(signed.signature, "base64url"),
     );
     if (!valid) return this.result("CREDENTIAL_SIGNATURE_INVALID", null, evaluatedAt);
@@ -192,5 +199,3 @@ export class DeviceTrustVerifier {
     return { decision, value, evaluatedAt: evaluatedAt.toISOString() };
   }
 }
-
-export type { SignedDeviceTrustCredential, SignedDeviceTrustOperationalKey, DeviceTrustProof };
