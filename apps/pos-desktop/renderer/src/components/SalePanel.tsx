@@ -15,6 +15,7 @@ export function SalePanel(): React.JSX.Element {
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
+  const [tendered, setTendered] = useState("");
   const [counted, setCounted] = useState("");
 
   return (
@@ -125,9 +126,18 @@ export function SalePanel(): React.JSX.Element {
           {/* El identificador se muestra porque el cajero lo necesita para pedir
               el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
           {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
+          <label htmlFor="cash-tendered-input">Efectivo recibido</label>
+          <input
+            id="cash-tendered-input"
+            data-testid="cash-tendered-input"
+            value={tendered}
+            onChange={(e) => { setTendered(e.target.value); }}
+            placeholder={sale.sale.payableAmount}
+            disabled={sale.busy}
+          />
           <button
             data-testid="charge-cash-button"
-            onClick={() => { void sale.chargeCash(); }}
+            onClick={() => { void sale.chargeCash(tendered.trim() === "" ? undefined : tendered.trim()); }}
             disabled={sale.busy}
           >
             Cobrar en efectivo
