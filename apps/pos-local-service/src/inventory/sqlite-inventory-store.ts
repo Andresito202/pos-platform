@@ -263,7 +263,7 @@ export class SqliteInventoryStore {
          WHERE tenant_id=? AND branch_id=? AND presentation_id=? AND version=?`,
       ).run(
         quantityAfter, stockSequence, nowIso,
-        input.scope.tenantId, input.scope.companyId, input.presentationId, current.version,
+        input.scope.tenantId, input.scope.branchId, input.presentationId, current.version,
       );
       if (updated.changes !== 1) {
         throw new Error("inventory stock row changed during the transaction");
