@@ -4,8 +4,6 @@ import { Pool, type PoolClient } from "pg";
 import {
   createCentralDeviceHttpRequestSchema,
   createCentralHttpResponseSchema,
-} from "@pos-platform/contracts";
-import {
   SyncBatchResponseSchema,
   createSyncBatchRequestSchema,
   type SyncBatchRequest,
@@ -217,33 +215,6 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
   } finally {
     client.release();
   }
-}
-
-function errorResponse(
-  status: number,
-  requestId: string,
-  correlationId: string,
-  code: string,
-  message: string,
-): void {
-  const body = {
-    protocol_version: protocolVersion,
-    request_id: requestId,
-    correlation_id: correlationId,
-    operation_id: null,
-    status: "REJECTED" as const,
-    result_code: code,
-    result_schema_version: resultSchemaVersion,
-    error: {
-      category: status === 401 ? "AUTHENTICATION" : status === 409 ? "CONFLICT" : "INTERNAL",
-      code,
-      message,
-      retryable: false,
-    },
-    server_time: new Date().toISOString(),
-    result: null,
-  };
-  json({} as ServerResponse, status, body);
 }
 
 const server = createServer(async (request, response) => {
