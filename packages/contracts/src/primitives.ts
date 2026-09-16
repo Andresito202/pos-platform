@@ -9,6 +9,9 @@ const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 const VERSION_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
 export const UuidSchema = z.uuid().transform((value) => value.toLowerCase());
+export const UuidV7Schema = UuidSchema.refine((value) => value[14] === "7", {
+  message: "UUID must use version 7",
+});
 export const ContractVersionSchema = z.string().max(32).regex(CONTRACT_VERSION_PATTERN);
 export const MessageTypeSchema = z.string().min(1).max(128).regex(MESSAGE_TYPE_PATTERN);
 export const StableCodeSchema = z.string().min(1).max(96).regex(STABLE_CODE_PATTERN);
