@@ -27,27 +27,12 @@ export interface CartLine {
 export interface OpenShift {
   readonly shiftId: string;
   readonly cashRegisterId: string;
-  /**
-   * La versión con la que el servicio entregó el turno. El cierre la exige como
-   * `expected_version`, y no hay lectura de turno por el canal: se conserva la
-   * que vino, en vez de suponerla.
-   */
   readonly version: number;
 }
 
-/**
- * Una transferencia reportada y todavía **sin confirmar**.
- *
- * `version` no se supone: `payment.register.transfer` devuelve sólo
- * `payment_id`, y `payment.transfer.confirm` exige `expected_version`. La
- * versión sale de `payment.get`, que es quien lee el estado persistido. Es el
- * mismo motivo por el que el cierre de turno arrastra la suya: una versión
- * inventada en la interfaz es un conflicto silencioso esperando su turno.
- */
 export interface RegisteredTransfer {
   readonly paymentId: string;
   readonly version: number;
-  /** Estado real del pago según el servicio, no según la interfaz. */
   readonly status: string;
   readonly expectedAmount: string;
 }
@@ -60,20 +45,11 @@ export interface CommercialSaleState {
   readonly lines: readonly CartLine[];
   readonly sale: { readonly saleId: string; readonly payableAmount: string } | null;
   readonly payment: PaymentRegisterCashResult | null;
-  /** Arqueo del turno cerrado: esperado, contado y diferencia. */
   readonly closedShift: CashShiftCloseResult | null;
-  /** Transferencia reportada, a la espera de atestiguación. */
   readonly transfer: RegisteredTransfer | null;
-  /** Resultado de confirmar la transferencia. Sólo aquí puede sonar el cha-ching. */
   readonly transferConfirmation: PaymentTransferConfirmResult | null;
 }
 
-/**
- * Contexto temporal de la operación. El renderer **no** lo inventa a medias: la
- * fecha de negocio y la zona salen del reloj del equipo, que es lo que el cajero
- * está viviendo. `utc_offset_minutes` se declara con el signo del contrato
- * —positivo al este de UTC—, inverso al de `getTimezoneOffset`.
- */
 function operationTime(now: Date): {
   business_date: string;
   timezone_id: string;
@@ -89,21 +65,16 @@ function operationTime(now: Date): {
 
 /**
  * El estado de la primera vertical comercial: turno → producto → venta → cobro.
- *
- * **No calcula dinero.** El total que se cobra es `payable_amount`, emitido por
- * la capa confiable al crear la venta: duplicar aquí el orden de cálculo de
- * `DEC-003` sería mover autoridad al renderer.
- *
- * **No resuelve el turno.** Envía `cash_register_id` y nada más; la resolución
- * `caja → CashShift → cash_shift_id` vive en `CreateSaleUseCase` (`DEC-012`
- * §25.2). El renderer no conoce esa regla y no debe conocerla.
+ * El renderer no calcula dinero ni resuelve el turno; ambas decisiones viven
+ * en la capa confiable.
  */
 export function useCommercialSale(): CommercialSaleState & {
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
   createSale(): Promise<void>;
-  chargeCash(): Promise<void>;
+  /** `tenderedAmount` es el efectivo físico recibido; si se omite se cobra exacto. */
+  chargeCash(tenderedAmount?: string): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
@@ -121,11 +92,6 @@ export function useCommercialSale(): CommercialSaleState & {
   const [transferConfirmation, setTransferConfirmation] =
     useState<PaymentTransferConfirmResult | null>(null);
 
-  /**
-   * Un rechazo del servicio no es una excepción: el sobre lo trae como
-   * `REJECTED` con su `result_code` estable. Se muestra tal cual — ocultar el
-   * código le quita al cajero la única pista accionable que tiene.
-   */
   const run = useCallback(async <T,>(
     work: () => Promise<{ status: string; result_code: string; result: T | null }>,
     onSuccess: (result: T) => void,
@@ -217,8 +183,6 @@ export function useCommercialSale(): CommercialSaleState & {
     const currency = lines[0]!.currencyCode;
     await run<SaleCreateResult>(
       () => callCommercial("sale.create", {
-        // El único selector del turno. `null` si no hay caja abierta: la venta
-        // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
         cash_register_id: shift?.cashRegisterId ?? null,
         channel: "POS",
         document_series: "POS1",
@@ -240,15 +204,23 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [lines, shift, run]);
 
-  const chargeCash = useCallback(async (): Promise<void> => {
+  const chargeCash = useCallback(async (tenderedAmount?: string): Promise<void> => {
     const current = sale;
     if (current === null) return;
+
+    const tendered = tenderedAmount === undefined
+      ? current.payableAmount
+      : toScale6(tenderedAmount);
+    if (tendered === null) {
+      setError("INVALID_TENDERED_AMOUNT");
+      return;
+    }
+
     await run<PaymentRegisterCashResult>(
       () => callCommercial("payment.register.cash", {
         sale_id: current.saleId,
-        // Se cobra exactamente el importe que emitió la capa confiable.
         amount: current.payableAmount,
-        tendered_amount: current.payableAmount,
+        tendered_amount: tendered,
       }, newIdempotencyKey()),
       (result) => {
         setPayment(result);
@@ -257,18 +229,6 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [sale, run]);
 
-  /**
-   * Cerrar el turno con el efectivo contado.
-   *
-   * **La diferencia no se calcula aquí.** El servicio devuelve `expected_cash`,
-   * `counted_amount` y `difference_amount` ya resueltos: restar en la pantalla
-   * sería una segunda verdad sobre el arqueo, y el arqueo es precisamente el
-   * número que nadie puede discutir.
-   *
-   * `expected_version` es la que trajo la apertura. Si otra terminal cerró el
-   * turno entretanto, el servicio responde `VERSION_CONFLICT` y el cajero ve el
-   * código: es mejor que cerrar sobre un estado que ya no existe.
-   */
   const closeShift = useCallback(async (countedAmount: string): Promise<void> => {
     const current = shift;
     if (current === null) return;
@@ -285,29 +245,11 @@ export function useCommercialSale(): CommercialSaleState & {
       }, newIdempotencyKey()),
       (result) => {
         setClosedShift(result);
-        // El turno deja de estar abierto sólo si el servicio lo cerró de verdad.
         if (result.outcome === "CLOSED") setShift(null);
       },
     );
   }, [shift, run]);
 
-  /**
-   * Reportar una transferencia — `UC-PAY-002`.
-   *
-   * **Reportar no es cobrar.** El contrato separa el reporte de la
-   * atestiguación en dos operaciones y dos permisos —`PAYMENTS_TRANSFER_REPORT`
-   * y `PAYMENTS_TRANSFER_CONFIRM`—, precisamente para que quien recibe el
-   * comprobante no sea necesariamente quien da el dinero por bueno. La interfaz
-   * respeta esa separación: aquí no suena nada y la venta no se completa.
-   *
-   * Tras registrar se consulta `payment.get`, y no por cortesía: es la única
-   * fuente de `version`, que la confirmación exigirá. También en `IDEMPOTENT`,
-   * donde el pago ya existía y su versión puede ser cualquiera.
-   *
-   * `provider_code` y `provider_reference` viajan nulos porque el contrato los
-   * admite nulos y la pantalla todavía no los pide. Inventar campos que el
-   * contrato no define sería fabricar datos de un comprobante.
-   */
   const registerTransfer = useCallback(async (): Promise<void> => {
     const current = sale;
     if (current === null) return;
@@ -353,19 +295,6 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [sale, run]);
 
-  /**
-   * Atestiguar la transferencia — `UC-PAY-003`.
-   *
-   * Éste es el único punto donde una transferencia puede completar la venta, y
-   * por tanto el único donde puede sonar el cha-ching. La condición no se
-   * reescribe aquí: la decide `shouldPlayChime`, la misma regla que gobierna el
-   * efectivo (`DEC-016` §13), de modo que un `IDEMPOTENT` no vuelve a sonar.
-   *
-   * `expected_version` es la que trajo `payment.get`. Si el pago cambió
-   * entretanto, el servicio responde `VERSION_CONFLICT` y el cajero ve el
-   * código: confirmar sobre un estado que ya no existe sería dar por bueno un
-   * dinero que quizá ya se canceló.
-   */
   const confirmTransfer = useCallback(async (): Promise<void> => {
     const current = transfer;
     if (current === null) return;
