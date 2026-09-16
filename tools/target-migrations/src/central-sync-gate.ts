@@ -1,9 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 
-const BASE = "http://127.0.0.1:8787";
-const TOKEN = process.env.CENTRAL_SYNC_TOKEN ?? "local-validation-token";
+const BASE = process.env.CENTRAL_SYNC_BASE_URL;
+const TOKEN = process.env.CENTRAL_SYNC_TOKEN;
+const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
 const tenantId = "b03eea93-6bab-4417-a8c9-386691c617e7";
+
+if (!BASE) throw new Error("CENTRAL_SYNC_BASE_URL is required");
+if (!TOKEN) throw new Error("CENTRAL_SYNC_TOKEN is required");
+if (!POSTGRES_TEST_URL) throw new Error("POSTGRES_TEST_URL is required");
 
 function uuidV7(now = Date.now()): string {
   const bytes = randomBytes(16);
@@ -109,12 +114,7 @@ async function main(): Promise<void> {
   console.log(firstText);
   if (first.status !== 200) throw new Error("FIRST_POST_FAILED");
 
-  const pool = new Pool({
-    host: process.env.PGHOST ?? "127.0.0.1",
-    port: Number(process.env.PGPORT ?? 55433),
-    user: process.env.PGUSER ?? "postgres",
-    database: process.env.PGDATABASE ?? "pos_target_test",
-  });
+  const pool = new Pool({ connectionString: POSTGRES_TEST_URL });
 
   try {
     const evidence = await pool.query<{
