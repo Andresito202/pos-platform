@@ -223,13 +223,11 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
 }
 
 function rejection(
-  status: number,
   requestId: string,
   correlationId: string,
   operationId: string | null,
   code: string,
-  category: "AUTHENTICATION" | "CONFLICT" | "INTEGRITY" | "INTERNAL",
-  message: string,
+  category: "CONFLICT" | "INTEGRITY" | "INTERNAL",
 ): Record<string, unknown> {
   return {
     protocol_version: protocolVersion,
@@ -251,7 +249,6 @@ function rejection(
     },
     server_time: new Date().toISOString(),
     result: null,
-    status,
   };
 }
 
@@ -346,10 +343,9 @@ const server = createServer(async (request, response) => {
     });
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "CENTRAL_SYNC_FAILED";
-    const message = error instanceof Error ? error.message : "central sync failed";
     const status = code.endsWith("CONFLICT") ? 409 : code === "PAYLOAD_CHECKSUM_MISMATCH" ? 422 : 500;
     const category = status === 409 ? "CONFLICT" : status === 422 ? "INTEGRITY" : "INTERNAL";
-    const body = rejection(status, requestId, correlationId, envelope.operation_id ?? null, code, category, message);
+    const body = rejection(requestId, correlationId, envelope.operation_id ?? null, code, category);
     const responseValidation = responseSchema.safeParse({
       status_code: status,
       contract_headers: {
