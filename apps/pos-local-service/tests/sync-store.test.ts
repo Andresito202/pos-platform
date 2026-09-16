@@ -225,7 +225,7 @@ describe("DurableSyncStore", () => {
     const retry = {
       batch_id: batch.batch_id,
       tenant_id: batch.tenant_id,
-      device_id: batch.deviceId,
+      device_id: batch.device_id,
       acknowledged_through_local_sequence: null,
       results: [{
         operation_id: item.operation_id,
