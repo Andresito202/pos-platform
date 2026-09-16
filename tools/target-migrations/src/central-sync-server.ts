@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool, type PoolClient } from "pg";
 import {
@@ -222,6 +222,39 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
   }
 }
 
+function rejection(
+  status: number,
+  requestId: string,
+  correlationId: string,
+  operationId: string | null,
+  code: string,
+  category: "AUTHENTICATION" | "CONFLICT" | "INTEGRITY" | "INTERNAL",
+  message: string,
+): Record<string, unknown> {
+  return {
+    protocol_version: protocolVersion,
+    request_id: requestId,
+    correlation_id: correlationId,
+    operation_id: operationId,
+    status: "REJECTED",
+    result_code: code,
+    result_schema_version: resultSchemaVersion,
+    error: {
+      code,
+      category,
+      retryable: false,
+      user_message_key: "sync.central_rejected",
+      field_errors: [],
+      current_version: null,
+      required_action: null,
+      diagnostic_id: randomUUID(),
+    },
+    server_time: new Date().toISOString(),
+    result: null,
+    status,
+  };
+}
+
 const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     json(response, 200, { status: "ok" });
@@ -316,18 +349,23 @@ const server = createServer(async (request, response) => {
     const message = error instanceof Error ? error.message : "central sync failed";
     const status = code.endsWith("CONFLICT") ? 409 : code === "PAYLOAD_CHECKSUM_MISMATCH" ? 422 : 500;
     const category = status === 409 ? "CONFLICT" : status === 422 ? "INTEGRITY" : "INTERNAL";
-    const body = {
-      protocol_version: protocolVersion,
-      request_id: requestId,
-      correlation_id: correlationId,
-      operation_id: envelope.operation_id ?? null,
-      status: "REJECTED" as const,
-      result_code: code,
-      result_schema_version: resultSchemaVersion,
-      error: { category, code, message, retryable: false },
-      server_time: new Date().toISOString(),
-      result: null,
-    };
+    const body = rejection(status, requestId, correlationId, envelope.operation_id ?? null, code, category, message);
+    const responseValidation = responseSchema.safeParse({
+      status_code: status,
+      contract_headers: {
+        "content-type": "application/json",
+        "x-pos-api-version": protocolVersion,
+        "x-request-id": requestId,
+        "x-correlation-id": correlationId,
+      },
+      serialized_body_bytes: Buffer.byteLength(JSON.stringify(body), "utf8"),
+      rate_limit: null,
+      body,
+    });
+    if (!responseValidation.success) {
+      json(response, 500, { error: "RESPONSE_CONTRACT_VIOLATION" });
+      return;
+    }
     json(response, status, body, {
       "x-pos-api-version": protocolVersion,
       "x-request-id": requestId,
