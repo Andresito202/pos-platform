@@ -79,7 +79,15 @@ export class DurableSyncStore {
   }
 
   enqueue(input: unknown): EnqueueResult {
-    const operation = SyncOperationSchema.parse(input);
+    const parsed = SyncOperationSchema.parse(input);
+    // `payload_checksum` is a property of the serialized payload, not of the
+    // originating request. Recompute it at the single-writer sync boundary so
+    // every producer (Sale/Cash/Catalog/Inventory/Customer/Payments) shares one
+    // invariant and an incorrect producer cannot persist a misleading digest.
+    const operation: SyncOperation = {
+      ...parsed,
+      payload_checksum: checksum(parsed.payload),
+    };
     const operationJson = canonicalJson(operation);
     const createdAt = this.now().toISOString();
 

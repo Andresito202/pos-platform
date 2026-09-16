@@ -19,7 +19,9 @@ const ADJUST_MOVEMENTS: readonly AdjustMovement[] = [
 ];
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 /**
