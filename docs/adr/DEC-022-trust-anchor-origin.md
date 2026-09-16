@@ -2,205 +2,114 @@
 
 Estado:
 
-`PROPUESTA — PENDIENTE DE RATIFICACIÓN`
+`RATIFICADA — 2026-09-16`
 
-Resuelve las decisiones `B-1` y `B-2` identificadas por el diagnóstico `G1`
-(`G1.1` y `G1.1-F`). No autoriza implementación alguna.
-
----
-
-## Contexto
-
-`G1` estableció, con evidencia, que el repositorio define exhaustivamente el
-**mantenimiento** del conjunto de claves de confianza y **no define su origen**:
-
-| Texto | Documento | Verbo |
-|---|---|---|
-| «El cliente **conserva** claves públicas … autorizados» | `DEC-008:163` | conserva |
-| «artefacto firmado por una raíz **ya confiable**» | `DEC-008:2596` | ya confiable |
-| «La confianza **se actualiza** únicamente mediante un proceso autenticado» | `DEC-008` invariante 5 | se actualiza |
-| «Una clave pública **arbitraria** no se acepta como raíz» | `DEC-008` invariante 4 | arbitraria |
-| «material público **previamente** confiable» | `security-model.md:59` | previamente |
-| «claves públicas **provisionadas** en la instalación» | `DEC-011:96` | provisionadas |
-
-Seis formulaciones de tres documentos. Todas presuponen un conjunto que ya
-existe. Ninguna lo origina.
-
-La ausencia no es un olvido: `DEC-008:13-21` excluye expresamente «formato de
-transporte definitivo» e «implementación específica por sistema operativo», y
-`DEC-008:56` excluye «infraestructura PKI empresarial completa». El origen de la
-raíz cayó en la intersección de esas exclusiones.
-
-Verificado además:
-
-- `Authenticode` no aparece en el repositorio. Cero ocurrencias.
-- «cadena de confianza» aparece dos veces (`DEC-008:682`, `:2416`) y **no se
-  define en ninguna**.
-- No existe política de pinning TLS, CA privada ni certificado esperado.
-- La activación online (`DEC-008:983,1013`) y la offline (`:1096-1114`)
-  **presuponen** la raíz: la respuesta va firmada con `signing_key_id` y ningún
-  campo de la respuesta transporta claves de confianza.
-
-## Problema
-
-La verificación de un artefacto exige una clave; obtener esa clave por una vía
-verificable exige verificar otro artefacto. La recursión **no termina dentro del
-sistema criptográfico**: termina en una premisa no criptográfica que alguien debe
-elegir y declarar.
-
-Elegirla es esta decisión.
-
----
+Esta decisión resuelve B-1 y B-2 de G1.1/G1.1-F y autoriza la implementación D-3 conforme al modelo de confianza aquí definido. La ratificación no autoriza a inventar decisiones no contenidas aquí; las decisiones operativas restantes deben conservar separación de propósito, estado y ámbito.
 
 ## Decisión B-2 — La instalación debe poder completarse sin conectividad
 
-**Sí.** Un equipo debe poder quedar instalado y con su material de confianza
-presente sin disponer de conexión en el momento de la instalación.
+**Sí.** Un equipo debe poder quedar instalado y con su material de confianza presente sin disponer de conexión en el momento de la instalación.
 
-### Fundamento
-
-1. `ADR-003` y `DEC-007` fijan la arquitectura local-first como premisa del
-   producto, no como optimización.
-2. `DEC-010:198` (regla 9 de «Actualizaciones»): «`HYBRID` puede recibir
-   actualización administrada, **sin volver Internet requisito para vender**».
-3. `DEC-010:197` (regla 8): «`LOCAL_PERPETUAL` admite **paquetes offline
-   firmados** según derechos contratados».
-
-Un producto cuya instalación exige Internet contradice las tres. El mercado
-objetivo —comercio minorista colombiano— no garantiza conectividad en el momento
-de la instalación, y `DEC-010` ya decidió admitir explícitamente la modalidad
-offline.
-
-### Consecuencia inmediata
-
-Queda **descartado** que la entrega del trust store dependa del enrollment
-online o de la sesión TLS **como vía única de arranque**. Ambas siguen siendo
-válidas para lo que ya tienen decidido: actualización posterior del conjunto de
-confianza (`DEC-008` §«Actualización de confianza») y protección del canal
-(`integration-contracts.md:208,372`).
-
-### Lo que esta decisión NO dice
-
-No dice que el POS pueda **operar** sin haber contactado nunca con la autoridad.
-No puede: la SSA la emite la autoridad central y sólo ella (`DEC-012` §8).
-`B-2` gobierna la **instalación**, no la apertura de sesión. El primer contacto
-sigue siendo necesario antes de vender; deja de serlo para instalar.
-
----
+La arquitectura local-first y los modos `HYBRID`/`LOCAL_PERPETUAL` hacen de la conectividad una capacidad posterior, no un requisito de instalación. La instalación offline no implica que el POS pueda vender sin haber cumplido las condiciones de activación, autorización y sesión correspondientes.
 
 ## Decisión B-1 — La raíz de confianza es propia y se verifica fuera de banda
 
-**La raíz de confianza de Camacho POS Colombia es propia del producto. Su
-integridad se acredita mediante verificación fuera de banda de su huella, no
-mediante la firma del artefacto que la transporta.**
+La raíz de confianza de Camacho POS Colombia es propia del producto. Su integridad se acredita mediante verificación fuera de banda de su huella, no mediante la firma del artefacto que la transporta.
 
-Y, correlativamente:
+La confianza se separa en tres clases:
 
-| Clase de confianza | Rol que se le concede | Rol que se le niega |
-|---|---|---|
-| **Confianza de plataforma** (firma del artefacto ejecutable, cadena del sistema operativo) | Control de **distribución e integridad del binario**, ya exigido por `DEC-010:191-193` y `secret-key…:237-246` | **No introduce** confianza criptográfica de aplicación. No avala ninguna clave que el artefacto transporte |
-| **Confianza de transporte** (TLS) | Protección de **confidencialidad e integridad del canal**, ya exigida por `integration-contracts.md:208,372` y `DEC-007:1563` | **No introduce** una `TrustedSigningKey` |
-| **Confianza de firma de Camacho** | **Única** fuente de autoridad sobre licencias, SSA, SAS, snapshots maestros y actualizaciones | — |
-
-### Fundamento
-
-1. **`DEC-008:2433` ya lo dice para la plataforma**: «Nunca debe asumirse
-   confianza por el simple hecho de que un archivo pueda ejecutarse.»
-2. **`DEC-008` §«Descarga» regla 3 ya lo dice para el transporte**: «El canal de
-   transporte **no sustituye la firma**.»
-3. **`DEC-008` invariante 10 lo exige**: «Toda confianza tiene **versión y
-   trazabilidad**.» Ni la firma de un instalador ni una sesión TLS dejan
-   evidencia persistente, reverificable ni auditable después del momento en que
-   se evaluaron. Una raíz introducida por cualquiera de las dos sería una raíz
-   cuya procedencia resulta indemostrable al día siguiente.
-4. **`secret-key-and-support-management.md:258` segrega los propósitos**: las
-   credenciales de firma de instaladores «**no se comparten con firma de
-   licencias**», y `device-licensing-schema.md:256` añade que `SIGNING_KEY` y
-   `UPDATE_KEY` «**no se mezclan**». La firma del instalador, por tanto, no puede
-   avalar una clave de licencias aunque la transporte: sería una transferencia de
-   confianza entre propósitos que dos normas vigentes desautorizan.
-5. **`DEC-008:56` excluye «infraestructura PKI empresarial completa»** del
-   alcance. Una raíz propia verificada por huella satisface el requisito sin
-   construir una PKI.
-
-### Qué significa «fuera de banda»
-
-Que la huella de la raíz se confirma por un canal distinto de aquel por el que
-viaja la raíz. La clave pública **no es un secreto**: poseerla no otorga ningún
-derecho, sólo permite verificar firmas. La amenaza que hay que conjurar es la
-**sustitución**, no la divulgación. Por tanto el canal fuera de banda necesita
-**integridad**, no confidencialidad, y una confirmación de huella satisface esa
-propiedad sin infraestructura nueva.
-
-### Lo que esta decisión desbloquea
-
-**El portador deja de ser una decisión arquitectónica y pasa a ser una decisión
-operativa.** Tanto un instalador firmado como un paquete de provisioning
-administrativo pueden transportar la raíz, porque en ambos casos **su aceptación
-queda condicionada a la misma comprobación de huella**, y no a la firma del
-portador. Elegir el portador ya no compromete el modelo de confianza.
-
-Esto resuelve la tensión registrada en `G1.1` §3.4: A y C dejan de ser
-alternativas excluyentes y pasan a ser la misma decisión a distinta escala.
-
-### Consecuencia sobre el modelo del trust store — `B-5`
-
-Queda **resuelta afirmativamente** la pregunta `B-5`: el modelo **debe registrar
-la procedencia**, porque el invariante 10 exige trazabilidad de toda confianza y
-esta decisión sitúa la acreditación en un acto —la verificación de huella— que
-ocurre fuera del sistema y no deja rastro por sí mismo.
-
-Se registra además el hallazgo que lo hace ineludible: la tabla especificada en
-`device-licensing-schema.md:266-268` tiene catorce columnas y **ninguna registra
-cómo llegó la clave ni qué evidencia se aceptó**. La forma especificada es, por
-tanto, insuficiente para esta decisión.
-
-Deben distinguirse dos informaciones que no son la misma:
-
-| Información | Naturaleza |
+| Clase | Rol |
 |---|---|
-| **Quién autorizó la clave** | Autoridad central. Ya modelado: `key_id`, `key_purpose`, `environment`, `key_status` |
-| **Cómo llegó y qué se verificó** | Acto local de aceptación. **No modelado** |
+| Plataforma | Integridad y distribución del binario |
+| Transporte | Confidencialidad e integridad del canal |
+| Firma Camacho | Autoridad criptográfica sobre licencias, SSA, SAS, snapshots maestros y actualizaciones |
 
----
+La firma de plataforma no introduce confianza criptográfica de aplicación y TLS no sustituye las firmas de aplicación.
 
-## Lo que esta decisión NO autoriza
+## Modelo operativo ratificado para D-3
 
-1. Crear `licensing.trusted_signing_keys`. La migración **sigue bloqueada**:
-   `B-3` (propósito), `B-4` (estados) y `B-6` (ámbito) continúan abiertas, y la
-   forma de la tabla depende de las tres.
-2. Implementar portador alguno: ni paquete de provisioning, ni transporte de
-   trust store dentro del instalador.
-3. Generar claves, certificados ni material criptográfico de ninguna clase.
-4. Cablear `sessionSigningKeys`. El mapa vacío sigue siendo el comportamiento
-   correcto (`DEC-015:176-183`).
-5. Tratar la firma de código como resuelta. `RT-009-B` permanece
-   `BLOCKED / REQUIRES_CERTIFICATE` (`DEC-010:239-250`), y esta decisión
-   **reduce** su criticidad para el arranque de confianza sin eliminarla para la
-   distribución.
+```text
+Trust root público propio
+        ↓ fuera de banda
+verificación de fingerprint
+        ↓
+operational DEVICE_TRUST key
+        ↓
+credencial/attestation del dispositivo
+        ↓
+installation_id + device_id + tenant/company
+        ↓
+Central Authority
+```
 
-## Decisiones que siguen abiertas
+La clave privada de dispositivo se genera localmente y nunca abandona el nodo. La renderer/preload layer no recibe secretos de infraestructura. Restaurar una copia de archivos o clonar una instalación no constituye confianza válida.
 
-| # | Decisión | Por qué no se cierra aquí |
-|---|---|---|
-| `B-3` | Store único con `key_purpose` o segregado por propósito | La evidencia apunta a segregación (`device-licensing-schema.md:256`, `secret-key…:258`) pero `SessionAssertionVerifier` no discrimina propósito y `MasterSnapshotVerifier` sí: conciliar las dos formas es trabajo propio |
-| `B-4` | Proyección de los siete estados conceptuales sobre los tres locales | Hay pérdida semántica acreditada: `COMPROMISED` y `RETIRED` no tienen destino y hoy verificarían igual |
-| `B-6` | Ámbito de la raíz: global por ambiente, por tenant, o menor | `UNIQUE (environment, key_purpose, key_id)` no lleva `tenant_id`, pero un `UNIQUE` no es una decisión de negocio |
+## B-3 — Separación por propósito
+
+Se ratifica la separación de propósito criptográfico. `DEVICE_TRUST`, licencias, sesiones, snapshots maestros y actualización no se consideran intercambiables aunque utilicen Ed25519. Toda verificación debe exigir el propósito esperado y rechazar una clave válida para otro propósito.
+
+El trust store puede ser físicamente compartido como estructura de almacenamiento si conserva `key_purpose` y las verificaciones aplican segregación estricta; no se permite una clave de un propósito como autoridad implícita de otro.
+
+## B-4 — Estados de lifecycle
+
+Los estados de lifecycle se mantienen semánticamente distintos. Como mínimo deben poder distinguirse `ACTIVE`, `REVOKED`, `COMPROMISED`, `RETIRED` y estados de provisión/validación que el contrato de la superficie requiera. No se permite colapsar estados con efectos de seguridad distintos en un único estado local que haga indistinguible una clave comprometida de una retirada normal.
+
+La implementación puede proyectar estados en almacenamiento local, pero la decisión de autoridad central y el verifier deben conservar la semántica necesaria para fail-closed.
+
+## B-6 — Ámbito
+
+La raíz propia de producto es de confianza de producto por ambiente; las claves operativas `DEVICE_TRUST` son las que establecen el ámbito de autenticación de dispositivos. El binding de una credencial de dispositivo debe incluir como mínimo tenant/company/installation/device cuando esos identificadores formen parte del contrato de la superficie.
+
+Una clave operativa no puede ampliar por sí sola el ámbito de una credencial ya emitida.
+
+## Enrollment
+
+El enrollment de dispositivo utiliza una activación de un solo uso o mecanismo equivalente, con binding verificable y evidencia auditable. La activación no es la raíz de confianza: autoriza el enrollment de una identidad criptográfica generada localmente.
+
+La autoridad central emite la credencial; el POS local no se convierte en autoridad emisora.
+
+## Reglas de implementación D-3
+
+1. fail-closed para raíz, propósito, estado, ámbito, expiración y binding.
+2. proof-of-possession Ed25519 para demostrar posesión de la clave privada.
+3. TLS protege el transporte, pero no reemplaza la firma ni el trust root.
+4. bearer tokens no son equivalentes a identidad criptográfica del dispositivo.
+5. replay e idempotencia son propiedades obligatorias del enrollment.
+6. revocación y rotación deben poder invalidar una credencial sin borrar evidencia histórica.
+7. backups no incluyen la clave privada de identidad de dispositivo.
+8. restore/clone no reactiva silenciosamente una identidad perdida.
+9. todos los actos de aceptación de confianza/enrollment dejan evidencia sanitizada y reverificable.
+10. la implementación debe distinguir `IMPLEMENTED`, `TESTED`, `RUNTIME_VERIFIED`, `CALLER_REACHABLE`, `END_TO_END` y `PRODUCTION`.
+
+## Lo que NO autoriza
+
+Esta ratificación no autoriza:
+
+- reutilizar la firma de código como raíz de aplicación;
+- introducir PKI empresarial no necesaria;
+- compartir claves privadas con el renderer;
+- crear una segunda autoridad local;
+- copiar el persistence gate para convertirlo en Central Authority;
+- reabrir Payment/Cash/Sale/Inventory ya aprobados sin evidencia de regresión;
+- afirmar sesión real hasta conectar la cadena completa.
+
+## Criterio de cierre D-3
+
+D-3 no se considera terminado por documentación o compilación. El cierre exige, como mínimo:
+
+```text
+trust root verificado
+→ operational DEVICE_TRUST key
+→ device identity
+→ one-shot enrollment
+→ credential issuance
+→ authenticated central boundary
+→ device registry
+→ session bootstrap
+→ replay/revocation/security E2E
+→ runtime evidence
+```
 
 ## Ratificación
 
-Esta decisión queda **propuesta**, no adoptada. Requiere ratificación expresa de
-Wilson Andrés Camacho Culma, con fecha, conforme al precedente de `DEC-010:229`.
-Hasta entonces no debe citarse como decisión vigente ni usarse para desbloquear
-ningún gate.
-
-## Documentos relacionados
-
-- `docs/adr/DEC-008-device-trust-license-activation.md`
-- `docs/adr/DEC-010-pos-runtime.md`
-- `docs/adr/DEC-011-authorization-projection-sas.md`
-- `docs/adr/DEC-012-local-session-and-cash-governance.md`
-- `docs/adr/DEC-015-transport-session-binding.md`
-- `docs/architecture/security-model.md`
-- `docs/security/secret-key-and-support-management.md`
-- `docs/architecture/physical-model/device-licensing-schema.md`
+Ratificada expresamente por el usuario el `2026-09-16`, autorizando la implementación D-3 sobre la línea única activa `claude/pos-camacho-bloque-4c-ld43py`.
