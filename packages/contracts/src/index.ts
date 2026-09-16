@@ -17,4 +17,5 @@ export * from "./authorization-snapshot.js";
 export * from "./session-assertion.js";
 export * from "./master-snapshot.js";
 export * from "./device-trust.js";
+export * from "./device-enrollment.js";
 export { uuidV7 as uuidV7FromModule } from "./uuid-v7.js";
