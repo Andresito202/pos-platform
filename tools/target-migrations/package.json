@@ -8,6 +8,7 @@
     "role-readiness:003:check": "tsx src/postgres-003-role-readiness-cli.ts check",
     "role-readiness:003:apply": "tsx src/postgres-003-role-readiness-cli.ts apply",
     "role-readiness:003:revert": "tsx src/postgres-003-role-readiness-cli.ts revert",
+    "central-sync:start": "tsx src/central-sync-server.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:preflight:003": "vitest run tests/postgres-003-preflight.test.ts",
