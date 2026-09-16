@@ -112,10 +112,29 @@ CI checkout del SHA revisado
 
 La presencia del archivo, un test unitario, un workflow definido o un CI verde de otra ejecución no sustituyen esta evidencia.
 
-## 7. Después del cierre
+## 7. Preparación del siguiente bloque — D-3
+
+Se realizó la preparación arquitectónica de D-3 sin inventar runtime ni duplicar el servidor del gate.
+
+Documento: `docs/governance/d3-central-authority-readiness-2026-09-16.md`.
+
+Estado actual:
+
+```text
+D-2 = TESTED / evidencia runtime pendiente
+D-3 = READINESS / implementación pendiente de decisiones
+```
+
+La línea contiene `tools/target-migrations/src/central-sync-server.ts`, que sirve como evidencia técnica del persistence gate. No se considera todavía la autoridad central productiva.
+
+D-3 no puede materializarse correctamente hasta cerrar las decisiones sobre raíz de confianza, credencial de dispositivo/instalación, autenticación de la frontera central, responsabilidades de Central Authority, ownership de persistencia y límites de runtime/despliegue.
+
+`DEC-022` sigue siendo una propuesta pendiente de ratificación; ninguna implementación puede ratificarla implícitamente.
+
+## 8. Después del cierre
 
 El siguiente objetivo se toma del backlog/ADR vigente. No lo elige la IA por conveniencia. Antes de iniciar otro bloque debe actualizarse/reconciliarse la documentación de estado.
 
-## 8. Regla permanente
+## 9. Regla permanente
 
 > **Una sola línea. Un solo objetivo activo. Continuar lo construido. Corregir lo demostrado. No inventar trabajo paralelo.**
