@@ -10,6 +10,7 @@ import {
   type FiscalCustomer,
   type FiscalCustomerFinding,
 } from "@pos-platform/fiscal-adapters";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -32,12 +33,6 @@ export type RegisterCustomerResult =
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "IDENTITY_ALREADY_REGISTERED"; readonly customerId: string };
 
-/**
- * El checksum se calcula sobre la **identidad fiscal**, no sobre el objeto
- * entero. Repetir el registro cambiando sólo el teléfono no es una operación
- * distinta que deba entrar en conflicto: es el mismo tercero. Lo que sí lo
- * cambia es el documento, la identificación o la naturaleza jurídica.
- */
 function requestChecksum(request: RegisterCustomerRequest, operatorUserId: string): string {
   return createHash("sha256")
     .update(canonicalJson({
@@ -50,14 +45,6 @@ function requestChecksum(request: RegisterCustomerRequest, operatorUserId: strin
     .digest("hex");
 }
 
-/**
- * Registrar un adquiriente — segunda pieza de `D-9`.
- *
- * El orden importa y no es casual: **se valida contra las tablas DIAN antes de
- * tocar la base**. Un adquiriente con un código no verificado no debe llegar
- * nunca a `customers_customers`, porque desde ahí se emitirían facturas.
- * Descubrirlo en el momento de emitir sería tarde: la venta ya está cobrada.
- */
 export class RegisterCustomerUseCase {
   constructor(private readonly customerStore: SqliteCustomerStore) {}
 
@@ -68,7 +55,6 @@ export class RegisterCustomerUseCase {
     request: RegisterCustomerRequest,
     at: Date = new Date(),
   ): RegisterCustomerResult {
-    // 1. Actor USER del snapshot verificado — nunca del llamador.
     const operatorUserId = authSnapshot.claims.user_id;
     const decision = evaluatePermission({
       actor: createActor("USER", operatorUserId),
@@ -79,25 +65,20 @@ export class RegisterCustomerUseCase {
     });
     if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
 
-    // 2. Reglas fiscales antes de escribir. Se devuelven **todos** los
-    //    hallazgos: quien captura en una caja corrige de una vez, no descubre
-    //    un error por intento.
     const findings = validateFiscalCustomer(request.customer);
     if (findings.length > 0) return { kind: "INVALID", findings };
 
-    const outcome = this.customerStore.register({
+    return this.customerStore.register({
       scope,
       sessionId,
       operatorUserId,
       customerId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       customer: request.customer,
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request, operatorUserId),
       correlationId: request.correlationId,
       causationId: request.causationId,
     });
-
-    return outcome;
   }
 }
