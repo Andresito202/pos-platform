@@ -67,6 +67,10 @@ function schemaMajor(value: string): number {
   return major;
 }
 
+function timestamp(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 async function setTenantContext(client: PoolClient, tenantId: string): Promise<void> {
   await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
 }
@@ -171,8 +175,8 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
 
     const durable = await client.query<{
       id: string;
-      received_at_server: string;
-      committed_at_server: string;
+      received_at_server: string | Date;
+      committed_at_server: string | Date;
     }>(
       `SELECT id, received_at_server, committed_at_server
          FROM sync.sync_operations
@@ -182,7 +186,8 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
 
     const rows = new Map(durable.rows.map((row) => [row.id, row]));
     const committedAt = durable.rows.reduce<string | null>((latest, row) => {
-      if (!latest || row.committed_at_server > latest) return row.committed_at_server;
+      const current = timestamp(row.committed_at_server);
+      if (!latest || current > latest) return current;
       return latest;
     }, null);
     if (!committedAt || durable.rows.length !== batch.operations.length) {
@@ -202,8 +207,8 @@ async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatch
         aggregate_id: operation.aggregate_id,
         previous_version: null,
         new_version: null,
-        received_at_server: rows.get(operation.operation_id)?.received_at_server ?? receivedAt.toISOString(),
-        committed_at_server: rows.get(operation.operation_id)?.committed_at_server ?? committedAt,
+        received_at_server: timestamp(rows.get(operation.operation_id)?.received_at_server ?? receivedAt),
+        committed_at_server: timestamp(rows.get(operation.operation_id)?.committed_at_server ?? committedAt),
         retryable: false,
         review_required: false,
       })),
