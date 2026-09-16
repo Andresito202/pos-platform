@@ -2,15 +2,28 @@
 
 ## Estado
 
-`READINESS / ARCHITECTURE PACKAGE MATERIALIZED`
+`IMPLEMENTATION / NON-PRODUCTION TRUST LAYER MATERIALIZED`
 
 D-3 sigue siendo el siguiente objetivo técnico después de D-2. No se ha creado todavía una autoridad central productiva ni se ha convertido el persistence gate en runtime de producto.
 
-La ambigüedad principal de D-3 — la raíz de confianza y el bootstrap de dispositivo — ya está convertida en una propuesta arquitectónica concreta en:
+La ambigüedad principal de D-3 — la raíz de confianza y el bootstrap de dispositivo — está convertida en una propuesta arquitectónica concreta en:
 
 `docs/architecture/dec-022-trust-bootstrap-proposal-2026-09-16.md`
 
-La propuesta continúa explícitamente `PROPOSED / NOT RATIFIED`; documentarla no equivale a ratificarla.
+La propuesta continúa explícitamente `PROPOSED / NOT RATIFIED`. La autorización de avance recibida habilita la materialización no productiva compatible con la propuesta; no crea credenciales reales, no selecciona proveedores operativos y no convierte el persistence gate en autoridad central.
+
+## Bloque materializado en esta secuencia
+
+La línea activa ahora contiene un primer bloque ejecutable de D-3:
+
+- `packages/contracts/src/device-trust.ts` define contratos Zod para claves operativas `DEVICE_TRUST`, credenciales de dispositivo, challenge y proof-of-possession;
+- `apps/pos-local-service/src/security/device-trust-verifier.ts` reutiliza Ed25519 + `canonicalJson` + `TrustedClockGuard` y verifica la cadena root → operational key → device credential → proof;
+- el verificador aplica binding de `tenant_id`, `company_id`, `installation_id` y `device_id`;
+- claves desconocidas, revocadas o todavía no válidas fallan cerrado;
+- la private key del dispositivo no participa en ningún transporte: el contrato sólo recibe su public key y el proof firmado;
+- `apps/pos-local-service/tests/device-trust-verifier.test.ts` cubre validación positiva, unknown/revoked key, binding, tampering y challenge expirado.
+
+Este bloque está **IMPLEMENTED**, no `TESTED` todavía: la ejecución de Vitest/typecheck aún debe realizarse en el entorno del repositorio.
 
 ## Evidencia existente
 
@@ -54,7 +67,7 @@ Esto reutiliza la separación de propósitos ya establecida por SEC-004 y la maq
 
 ## Gaps concretos restantes
 
-1. **Ratificación humana de DEC-022.**
+1. **Ratificación humana de DEC-022.** Sigue abierta; no se ha elegido todavía una política productiva irreversible.
 2. **Contrato de enrollment:** formato exacto y lifecycle de la activación inicial.
 3. **Registro central de devices:** modelo de persistencia y ownership dentro de `Devices`.
 4. **Autenticación de frontera:** middleware/puerto que valide TLS + evidencia de device trust + binding + revocación.
@@ -62,6 +75,7 @@ Esto reutiliza la separación de propósitos ya establecida por SEC-004 y la maq
 6. **Secret management:** selección verificable de KMS/HSM/secret manager para producción.
 7. **Despliegue:** límites entre API, worker, PostgreSQL y componentes administrativos.
 8. **E2E de seguridad:** enrollment, autenticación, revocación, rotación, restore/clone denial y fail-closed.
+9. **Evidencia ejecutable del bloque actual:** typecheck + Vitest + gates de seguridad.
 
 ## Lo que ya NO está ambiguo
 
@@ -77,7 +91,7 @@ No se debe volver a abrir por preferencia:
 - reutilización de contratos e invariantes del persistence gate;
 - ownership por módulos existente.
 
-El mapa de módulos mantiene `Devices`, `Authorization`, `Licensing`, `Audit` y `Sync` como owners distintos, y los componentes de ejecución no crean dominios adicionales. fileciteturn107file0L2-L2
+El mapa de módulos mantiene `Devices`, `Authorization`, `Licensing`, `Audit` y `Sync` como owners distintos, y los componentes de ejecución no crean dominios adicionales.
 
 ## No hacer
 
@@ -85,12 +99,14 @@ El mapa de módulos mantiene `Devices`, `Authorization`, `Licensing`, `Audit` y 
 - No crear otro endpoint paralelo de sync.
 - No introducir snapshots/SSA/SAS como sustitución de la autoridad de escritura.
 - No inventar credenciales en `.env`, código fuente o fixtures productivos.
-- No ratificar DEC-022 implícitamente mediante implementación.
+- No declarar DEC-022 ratificada por el mero hecho de que exista código compatible con la propuesta.
 - No cambiar DEC-008, DEC-010, contratos de sync u ownership para facilitar la implementación.
 
-## Entrada a implementación
+## Entrada a implementación productiva
 
-D-3 podrá pasar a implementación cuando DEC-022 sea ratificada y queden fijados, como mínimo:
+El bloque no productivo puede avanzar antes de la ratificación siempre que sea reversible, no introduzca secretos/credenciales reales y no cierre las decisiones que DEC-022 dejó abiertas.
+
+La implementación productiva de D-3 requiere que DEC-022 sea ratificada y que queden fijados, como mínimo:
 
 ```text
 trust anchor
@@ -111,25 +127,22 @@ D-2 continúa pendiente de ejecución real del persistence gate. La imposibilida
 
 ```text
 D-2 = TESTED / runtime evidence pendiente
-D-3 = READINESS / architecture package materialized
+D-3 = IMPLEMENTATION / non-production trust layer materialized
 DEC-022 = PROPOSED / NOT RATIFIED
 ```
 
-## Próximo movimiento de desarrollo
+## Próximo bloque cohesivo
 
-Una vez ratificada DEC-022, el bloque se ejecutará en una sola secuencia, no en microtrabajos desconectados:
+Sin crear una rama paralela, el siguiente bloque es:
 
 ```text
-1. contratos de trust/enrollment
-2. verifier + key-purpose enforcement
-3. device identity persistence
-4. enrollment service
-5. central device registry
-6. authenticated central boundary
-7. Central Authority runtime
-8. persistence/idempotency integration
-9. security E2E + mutation/security gates
-10. runtime evidence
+1. contrato de enrollment de un solo uso
+2. estado/registro local de enrollment
+3. integración explícita con DeviceIdentity + LocalSecurityLifecycle
+4. puerta de autenticación central preparada, sin endpoint productivo todavía
+5. tests de replay, binding, revocación, rotación y fail-closed
 ```
+
+Después de ese bloque se podrá evaluar si la ratificación de DEC-022 está suficientemente cerrada para construir el registro central y la autoridad productiva.
 
 D-2 queda visible como pendiente de ejecución y se cierra cuando exista el artifact/log exigido; no se utiliza como excusa para crear una segunda arquitectura.
