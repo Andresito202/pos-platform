@@ -8,21 +8,6 @@ import { SessionTrustKeyVerifier } from "../src/security/session-trust-key-verif
 
 const NOW = new Date("2026-09-17T00:00:00.000Z");
 
-function artifact(overrides: Partial<ReturnType<typeof baseClaims>> = {}) {
-  const root = generateKeyPairSync("ed25519");
-  const operational = generateKeyPairSync("ed25519");
-  const claims = { ...baseClaims(), ...overrides, public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }) as string };
-  const parsed = SessionAssertionOperationalKeyClaimsSchema.parse(claims);
-  return {
-    root,
-    operational,
-    artifact: {
-      claims: parsed,
-      signature: sign(null, unsignedSessionAssertionOperationalKeyBytes(parsed), root.privateKey).toString("base64url"),
-    },
-  };
-}
-
 function baseClaims() {
   return {
     key_id: "ssa-2026-01",
@@ -36,8 +21,22 @@ function baseClaims() {
   };
 }
 
-function verifier(rootPublicKey: ReturnType<typeof generateKeyPairSync> extends infer _T ? never : never): never {
-  throw new Error("unreachable");
+function artifact(overrides: Partial<ReturnType<typeof baseClaims>> = {}) {
+  const root = generateKeyPairSync("ed25519");
+  const operational = generateKeyPairSync("ed25519");
+  const claims = {
+    ...baseClaims(),
+    ...overrides,
+    public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }) as string,
+  };
+  const parsed = SessionAssertionOperationalKeyClaimsSchema.parse(claims);
+  return {
+    root,
+    artifact: {
+      claims: parsed,
+      signature: sign(null, unsignedSessionAssertionOperationalKeyBytes(parsed), root.privateKey).toString("base64url"),
+    },
+  };
 }
 
 describe("SessionTrustKeyVerifier", () => {
@@ -46,16 +45,6 @@ describe("SessionTrustKeyVerifier", () => {
     const check = new SessionTrustKeyVerifier(value.root.publicKey, "production", () => NOW).verify(value.artifact);
     expect(check.decision).toBe("VALID");
     expect(check.claims?.key_purpose).toBe("SESSION_ASSERTION");
-  });
-
-  it("rejects a different trust purpose before accepting the artifact", () => {
-    const value = artifact();
-    const claims = { ...value.artifact.claims, key_purpose: "SESSION_ASSERTION" as const };
-    const check = new SessionTrustKeyVerifier(value.root.publicKey, "production", () => NOW).verify({
-      ...value.artifact,
-      claims,
-    });
-    expect(check.decision).toBe("VALID");
   });
 
   it("rejects an environment mismatch", () => {
@@ -81,5 +70,13 @@ describe("SessionTrustKeyVerifier", () => {
       signature,
     });
     expect(check.decision).toBe("ROOT_SIGNATURE_INVALID");
+  });
+
+  it("rejects malformed trust purpose instead of coercing it", () => {
+    const value = artifact();
+    expect(() => new SessionTrustKeyVerifier(value.root.publicKey, "production", () => NOW).verify({
+      ...value.artifact,
+      claims: { ...value.artifact.claims, key_purpose: "DEVICE_TRUST" },
+    })).toThrow();
   });
 });
