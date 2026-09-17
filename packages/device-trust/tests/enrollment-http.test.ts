@@ -1,7 +1,8 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { SignedDeviceTrustCredentialSchema } from "@pos-platform/contracts";
 import {
+  canonicalDeviceTrustJson,
   CentralDeviceCredentialIssuer,
   DeviceEnrollmentHttpHandler,
   type CentralDeviceEnrollmentRepository,
@@ -105,7 +106,7 @@ describe("D-3 enrollment HTTP boundary", () => {
 
   it("rejects malformed JSON and schema-invalid enrollment requests", async () => {
     const handler = validHandler();
-    expect((await handler.handle(context, "{" )).statusCode).toBe(400);
+    expect((await handler.handle(context, "{")).statusCode).toBe(400);
     const invalid = await handler.handle(context, JSON.stringify({ ...request, activation_secret: "short" }));
     expect(invalid.statusCode).toBe(422);
     expect(invalid.body.result_code).toBe("DEVICE_ENROLLMENT_REQUEST_INVALID");
@@ -119,6 +120,7 @@ describe("D-3 enrollment HTTP boundary", () => {
   });
 
   it("does not expose issuer or database exceptions as arbitrary error text", async () => {
+    const validProof = sign(null, Buffer.from(canonicalDeviceTrustJson(request.challenge)), DEVICE.privateKey).toString("base64url");
     const repository: CentralDeviceEnrollmentRepository = {
       findDevice: async () => { throw new Error("database password leaked"); },
       consumeActivationAndIssueCredential: async () => false,
@@ -131,8 +133,12 @@ describe("D-3 enrollment HTTP boundary", () => {
       maxBodyBytes: 16 * 1024,
       maxCredentialLifetimeMs: 60 * 60 * 1000,
     });
-    const result = await handler.handle(context, JSON.stringify({ ...request, proof: { ...request.proof, signature: "A".repeat(86) } }));
-    expect(result.statusCode).toBe(422);
+    const result = await handler.handle(context, JSON.stringify({
+      ...request,
+      proof: { ...request.proof, signature: validProof },
+    }));
+    expect(result.statusCode).toBe(500);
+    expect(result.body.result_code).toBe("DEVICE_ENROLLMENT_FAILED");
     expect(JSON.stringify(result.body)).not.toContain("database password leaked");
   });
 
