@@ -22,8 +22,6 @@ const IDS = {
   branchId: "018f0000-0000-7000-8000-0000000000a6",
 };
 
-const NOW = new Date("2026-09-17T12:00:00.000Z");
-
 function sessionAssertion(operational: ReturnType<typeof generateKeyPairSync>): {
   claims: SessionAssertionClaims;
   signature: string;
@@ -136,16 +134,11 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
 
     try {
       writeFileSync(artifactPath, JSON.stringify(trustArtifact(root, operational, 1, "ACTIVE")), "utf8");
-      service = spawnService(
-        serviceRoot,
-        dataDirectory,
-        root.publicKey.export({ type: "spki", format: "pem" }) as string,
-        artifactPath,
-      );
+      service = spawnService(serviceRoot, dataDirectory, root.publicKey.export({ type: "spki", format: "pem" }) as string, artifactPath);
       const ready = await waitForRuntime(service);
       expect(ready.sessionTrust).toBe("VALID");
 
-      client = new LocalChannelClient("" + ready.endpoint, clientAuthenticator, { min: "1.0.0", max: "1.0.0" });
+      client = new LocalChannelClient(ready.endpoint, clientAuthenticator, { min: "1.0.0", max: "1.0.0" });
       await client.connect({
         protocol_version: "1.0.0",
         message_type: "runtime.handshake",
@@ -176,19 +169,12 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       expect(activate.status).toBe("SUCCEEDED");
 
       await client.close();
+      const stopped = new Promise<void>((resolve) => service!.once("exit", () => resolve()));
       service.kill("SIGTERM");
-      await new Promise<void>((resolve, reject) => {
-        service!.once("exit", () => resolve());
-        setTimeout(() => reject(new Error("service did not stop after SIGTERM")), 10_000).unref();
-      });
+      await stopped;
       service = undefined;
 
-      service = spawnService(
-        serviceRoot,
-        dataDirectory,
-        root.publicKey.export({ type: "spki", format: "pem" }) as string,
-        artifactPath,
-      );
+      service = spawnService(serviceRoot, dataDirectory, root.publicKey.export({ type: "spki", format: "pem" }) as string, artifactPath);
       const restarted = await waitForRuntime(service);
       expect(restarted.sessionTrust).toBe("VALID");
       client = new LocalChannelClient(restarted.endpoint, clientAuthenticator, { min: "1.0.0", max: "1.0.0" });
@@ -221,19 +207,43 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       expect(recovered.status).toBe("SUCCEEDED");
 
       await client.close();
+      const stoppedAgain = new Promise<void>((resolve) => service!.once("exit", () => resolve()));
       service.kill("SIGTERM");
-      await new Promise<void>((resolve) => service!.once("exit", () => resolve()));
+      await stoppedAgain;
       service = undefined;
 
       writeFileSync(artifactPath, JSON.stringify(trustArtifact(root, operational, 2, "REVOKED")), "utf8");
-      service = spawnService(
-        serviceRoot,
-        dataDirectory,
-        root.publicKey.export({ type: "spki", format: "pem" }) as string,
-        artifactPath,
-      );
+      service = spawnService(serviceRoot, dataDirectory, root.publicKey.export({ type: "spki", format: "pem" }) as string, artifactPath);
       const revoked = await waitForRuntime(service);
       expect(revoked.sessionTrust).toBe("INVALID");
+
+      client = new LocalChannelClient(revoked.endpoint, clientAuthenticator, { min: "1.0.0", max: "1.0.0" });
+      await client.connect({
+        protocol_version: "1.0.0",
+        message_type: "runtime.handshake",
+        request_id: crypto.randomUUID(),
+        correlation_id: crypto.randomUUID(),
+        payload_schema_version: "1.0.0",
+        payload: {
+          desktop_version: "1.0.0",
+          service_version: "1.0.0",
+          protocol_min: "1.0.0",
+          protocol_max: "1.0.0",
+          installation_id: IDS.installationId,
+          device_id: IDS.deviceId,
+          schema_version: "5",
+          service_state: "READY",
+        },
+      });
+      const rejected = await client.request({
+        protocol_version: "1.0.0",
+        message_type: "session.activate",
+        request_id: crypto.randomUUID(),
+        correlation_id: crypto.randomUUID(),
+        payload_schema_version: "1.0.0",
+        payload: { session_assertion: assertion },
+      }) as { status: string };
+      expect(rejected.status).toBe("REJECTED");
     } finally {
       await client?.close().catch(() => undefined);
       if (service !== undefined && service.exitCode === null) service.kill("SIGTERM");
