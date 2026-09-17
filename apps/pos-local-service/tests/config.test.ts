@@ -13,6 +13,8 @@ const valid = {
   POS_BRANCH_ID: "018f0000-0000-7000-8000-000000000005",
 };
 
+const rootPublicKeyPem = "-----BEGIN PUBLIC KEY-----\n" + "A".repeat(44) + "\n-----END PUBLIC KEY-----";
+
 describe("parseServiceConfig", () => {
   it("fails closed when required configuration is absent", () => {
     expect(() => parseServiceConfig({})).toThrow();
@@ -49,5 +51,37 @@ describe("parseServiceConfig", () => {
   it("rejects a central origin without TLS", () => {
     // `DEC-007:1563` («HTTPS obligatorio») e `integration-contracts.md:372`.
     expect(() => parseServiceConfig({ ...valid, POS_CENTRAL_BASE_URL: "http://api.camachopos.co" })).toThrow();
+  });
+
+  it("requires session trust environment and root public key as a pair", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_SESSION_TRUST_ENVIRONMENT: "production",
+    })).toThrow("session trust environment and root public key must be configured together");
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+    })).toThrow("session trust environment and root public key must be configured together");
+  });
+
+  it("accepts the complete session trust bootstrap configuration", () => {
+    const parsed = parseServiceConfig({
+      ...valid,
+      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+      POS_SESSION_TRUST_ARTIFACT_PATH: "C:\\ProgramData\\CamachoPOS\\security\\session-trust.json",
+    });
+    expect(parsed.session_trust_environment).toBe("production");
+    expect(parsed.session_trust_root_public_key_pem).toBe(rootPublicKeyPem);
+    expect(parsed.session_trust_artifact_path).toBe("C:\\ProgramData\\CamachoPOS\\security\\session-trust.json");
+  });
+
+  it("rejects a relative session trust artifact path", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+      POS_SESSION_TRUST_ARTIFACT_PATH: "./session-trust.json",
+    })).toThrow("session trust artifact path must be absolute");
   });
 });
