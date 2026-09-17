@@ -69,11 +69,11 @@ describe("parseServiceConfig", () => {
       ...valid,
       POS_SESSION_TRUST_ENVIRONMENT: "production",
       POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
-      POS_SESSION_TRUST_ARTIFACT_PATH: "C:\\ProgramData\\CamachoPOS\\security\\session-trust.json",
+      POS_SESSION_TRUST_ARTIFACT_PATH: "/var/lib/camacho-pos/security/session-trust.json",
     });
     expect(parsed.session_trust_environment).toBe("production");
     expect(parsed.session_trust_root_public_key_pem).toBe(rootPublicKeyPem);
-    expect(parsed.session_trust_artifact_path).toBe("C:\\ProgramData\\CamachoPOS\\security\\session-trust.json");
+    expect(parsed.session_trust_artifact_path).toBe("/var/lib/camacho-pos/security/session-trust.json");
   });
 
   it("rejects a relative session trust artifact path", () => {
