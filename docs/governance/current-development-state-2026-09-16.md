@@ -27,56 +27,11 @@ Una auditoría futura puede corregir defectos en estas áreas, pero no debe crea
 
 ### D-2 — transporte saliente del outbox
 
-PR #78 documenta el bloque D-2. Su alcance incluye:
+PR #78 documenta el bloque D-2. Su alcance incluye `DurableSyncStore` → `SyncDispatcher`, `CentralTransport`, `FetchCentralTransport`, validación simétrica, `request_id`, fail-closed de credenciales y retry/backoff/dead-letter.
 
-- `DurableSyncStore` → `SyncDispatcher`;
-- puerto `CentralTransport` y adapter `FetchCentralTransport`;
-- validación simétrica del contrato;
-- control de `request_id`;
-- fail-closed de credenciales;
-- retry/backoff/dead-letter ya existentes en el store;
-- sin idempotencia falsa a nivel de envelope.
+D-2 continúa pendiente de evidencia runtime real.
 
-D-2 permanece pendiente de evidencia runtime real, pero la línea activa continúa con D-3 para no quedar bloqueada por la disponibilidad operativa de GitHub Actions.
-
-## 4. Central Sync Persistence Gate
-
-La línea activa contiene:
-
-- `tools/target-migrations/src/central-sync-gate.ts`;
-- script `central-sync:gate`;
-- `.github/workflows/central-sync-persistence-gate.yml`;
-- PostgreSQL 16.14 como servicio CI;
-- migration runner real;
-- `central-sync-server` real;
-- readiness `/health`;
-- POST real;
-- comprobación de fila persistida;
-- replay real;
-- comprobación de idempotencia por una sola persistencia;
-- artifact con logs sin secretos.
-
-### Evidencia
-
-| Elemento | Estado |
-|---|---|
-| Código del gate | `IMPLEMENTED` |
-| Script formal | `IMPLEMENTED` |
-| Workflow dedicado | `IMPLEMENTED` |
-| PostgreSQL 16.14 | `IMPLEMENTED` |
-| Servidor real | `IMPLEMENTED` |
-| POST → PostgreSQL observado | `NOT_EVALUATED` para la ejecución nueva |
-| Replay observado | `NOT_EVALUATED` |
-| Idempotencia observada | `NOT_EVALUATED` |
-| Gate `VERIFIED` | **NO** |
-
-### Bloqueo operativo de CI
-
-La evidencia registrada en PR #78 muestra que varias ejecuciones de CI fueron impedidas por el estado de facturación/límite de gasto de la cuenta de GitHub: los jobs no llegaron a obtener runner ni pasos ejecutados. Esto es un bloqueo de ejecución de CI, no evidencia de un defecto del código D-2.
-
-Este hecho no cambia la escalera de evidencia: mientras el persistence gate no ejecute el flujo real y produzca sus logs/artifact, D-2 permanece `TESTED`, no `VERIFIED`.
-
-## 5. D-3 — raíz de confianza y reconciliación del modelo
+## 4. D-3 — raíz de confianza y enrollment central
 
 `DEC-022` fue ratificada el 2026-09-16 y autoriza la implementación D-3.
 
@@ -100,115 +55,84 @@ Session bootstrap
 
 ### Reconciliación ejecutada
 
-Se detectó y corrigió una contradicción real antes de abrir el endpoint central:
+La línea activa eliminó el modelo duplicado de `device-registry.ts`/`DeviceRegistryAuthenticator` y conserva únicamente la cadena canónica `device-trust.ts`. El activation secret se separa del checksum del payload y sólo se entrega al repositorio como `SHA-256(secret)`. El repositorio conserva el consumo one-shot y la persistencia de la credencial en una transacción.
 
-- existía un segundo `device-registry.ts` con una credencial distinta de `device-trust.ts`;
-- existía un segundo `DeviceRegistryAuthenticator` con otra semántica de proof: hash SHA-256 del request y firma del digest hexadecimal;
-- el modelo existente `DeviceTrustVerifier` ya define la cadena canónica root → operational key → signed credential → challenge/proof;
-- la activación central comparaba indebidamente `request_checksum` contra `activation_checksum`, sin separar checksum de payload y secreto one-shot.
+### D-3 implementado en esta línea
 
-La línea activa ahora:
+- contratos/verificador canónicos;
+- enrollment PoP previo a credencial;
+- issuer central de `SignedDeviceTrustCredential`;
+- resultado de enrollment con credencial completa;
+- verificación local de firma operacional y binding;
+- almacén local cifrado de credencial D-3, separado por AAD del secreto de identidad;
+- handler transport-neutral con límites, schema, autenticación inyectable y lifetime de credencial;
+- aplicación `apps/central-authority` separada de `central-sync-server`;
+- repositorio PostgreSQL de Device Registry dentro de Central Authority, no dentro del tooling de migraciones;
+- HTTPS/TLS real con mínimo TLS 1.2;
+- autenticación de transporte bearer separada de la identidad criptográfica del dispositivo;
+- rate limiting acotado en memoria por origen + huella de credencial de transporte;
+- errores internos sanitizados;
+- CLI ejecutable de migration 004;
+- workflow `.github/workflows/d3-security-e2e.yml` para typecheck, tests, PostgreSQL 16.14, migrations 001–004, arranque TLS y comprobación de boundary autenticada;
+- pruebas de persistencia local, PoP, emisión, replay y redacción de errores.
 
-- elimina el contrato duplicado `device-registry.ts`;
-- elimina el autenticador duplicado y sus tests;
-- usa `DeviceEnrollmentProof` para el PoP previo a la existencia de la credencial;
-- hace que el runtime central emita `SignedDeviceTrustCredential` usando `DeviceTrustCredentialClaimsSchema`;
-- devuelve el credential firmado al resultado de enrollment, para que el lado local no pueda marcar enrolamiento sin material criptográfico;
-- verifica en Local Service la firma operacional y el binding de la credencial antes de registrar `DEVICE_ENROLLMENT_COMPLETED`;
-- usa `key_id` como referencia de la operational `DEVICE_TRUST` key, coherente con `DeviceTrustVerifier`;
-- calcula y entrega al repositorio sólo `SHA-256(activation_secret)`;
-- conserva la transacción atómica de consumo de activación + persistencia de credencial;
-- persiste el checksum del objeto firmado canónico, no de un body alternativo;
-- reconcilia `PostgresDeviceRegistryRepository` con el boundary compartido `CentralDeviceEnrollmentRepository`, eliminando la dependencia del runtime duplicado.
+### Seguridad de límites
 
-### Nueva frontera D-3 implementada
+El servidor central no recibe una clave privada del dispositivo ni una clave privada del issuer desde el request. La clave privada del issuer se inyecta desde un fichero de secreto de despliegue. El token bearer sólo autentica el transporte y no sustituye al binding + Ed25519 PoP.
 
-Se añadió `packages/device-trust/src/enrollment-http.ts` como **handler de protocolo transport-neutral**, no como servidor central. Esto resuelve una parte concreta del boundary sin crear una tercera arquitectura:
+La credencial local se escribe cifrada antes de registrar `DEVICE_ENROLLMENT_COMPLETED`; el audit log sólo conserva referencias opacas y nunca el material de la credencial ni el activation secret.
 
-- límite de tamaño del body;
-- `Content-Length` coherente;
-- `application/json` obligatorio;
-- autorización de transporte inyectable y separada de la identidad del dispositivo;
-- parseo estricto con `DeviceEnrollmentRequestSchema`;
-- validación temporal del challenge;
-- lifetime máximo de la credencial decidido por la autoridad central;
-- invocación exclusiva de `CentralDeviceCredentialIssuer`;
-- respuesta con `SignedDeviceTrustCredential` completo sólo después del commit del issuer;
-- mapeo cerrado de errores, sin devolver excepciones de PostgreSQL ni secretos;
-- sin dependencia de Local Service.
-
-Se añadió `packages/device-trust/tests/enrollment-http.test.ts` con cobertura de autorización, límites, JSON/schema, PoP inválido, credencial emitida y redacción de errores internos.
-
-Esto **no** se declara como endpoint central productivo: todavía falta el servidor/aplicación Central Authority que posea TLS, límites de socket, autenticación de transporte real, rate limiting y conexión PostgreSQL administrada. No se reutiliza `central-sync-server` para ese fin.
-
-### Estado de D-3
+### Estado actual de D-3
 
 ```text
 DEC-022                         RATIFICADA
 D-3 contracts/verifier          IMPLEMENTED
 D-3 enrollment PoP              IMPLEMENTED / tests added
-D-3 credential issuance         IMPLEMENTED / tests added
+D-3 credential issuance        IMPLEMENTED / tests added
 D-3 credential response         IMPLEMENTED / tests added
 D-3 local credential verification IMPLEMENTED / tests added
-D-3 postgres repository         IMPLEMENTED / reconciled
-D-3 enrollment protocol handler IMPLEMENTED / not runtime verified
-D-3 migration 004               IMPLEMENTED / no ejecutada
-D-3 central endpoint            PENDIENTE — server/app boundary
-D-3 authenticated boundary      PENDIENTE — transport/TLS/rate-limit
-D-3 local credential persistence PENDIENTE
-D-3 session bootstrap           PENDIENTE
-D-3 security E2E                PENDIENTE
-D-3 runtime VERIFIED            NO
+D-3 local credential persistence IMPLEMENTED / tests added
+D-3 postgres repository         IMPLEMENTED / moved to Central Authority
+D-3 enrollment protocol handler IMPLEMENTED / tests added
+D-3 central server/app          IMPLEMENTED
+D-3 TLS/auth transport         IMPLEMENTED / executable CI gate
+D-3 rate limiting               IMPLEMENTED / bounded in-memory gate
+D-3 migration 004               IMPLEMENTED / executable CLI + CI gate
+D-3 security E2E                IMPLEMENTED / CI gate
+D-3 runtime VERIFIED            NO — CI execution pending
 ```
 
-### Bloqueador de dependencias
+### Evidencia que todavía no puede declararse
 
-`packages/device-trust` y la dependencia workspace añadida a `tools/target-migrations` todavía requieren regeneración del `pnpm-lock.yaml` con pnpm real. No se fabrica manualmente el lockfile. Hasta generar y comprobar ese artefacto, el cambio no se declara `typecheck PASS` ni `VERIFIED`.
+No se declara `VERIFIED` hasta observar una ejecución real del workflow con:
 
-### Criterio de seguridad de la activación
+1. PostgreSQL 16.14 operativo.
+2. migrations 001–004 aplicadas y ledger `APPLIED`.
+3. `device_registry`, activation y credential persistidos realmente.
+4. Central Authority escuchando por TLS.
+5. request sin autenticación rechazado.
+6. enrollment autenticado con PoP válido.
+7. activation consumida una sola vez.
+8. credential persistida y recuperable localmente.
+9. replay rechazado.
+10. artifact de evidencia sin secretos.
 
-```text
-one-shot activation secret
-        ↓
-SHA-256(secret) almacenado centralmente
-        ↓
-POST enrollment
-        ↓
-validación de binding + PoP + credencial firmada
-        ↓
-BEGIN
-  lock activation
-  revalidate status/expiry/checksum
-  persist signed credential
-  consume activation
-  activate device
-COMMIT
-        ↓
-Local Service verifies operational signature + binding
-        ↓
-DEVICE_ENROLLMENT_COMPLETED
-```
+El lockfile sigue pendiente de regeneración con pnpm real; no se fabrica manualmente. El workflow D-3 usa instalación no congelada para poder validar la línea mientras ese artefacto se regenera en un entorno con pnpm.
 
-El secreto de activación no debe persistirse como plaintext en PostgreSQL ni enviarse a ningún componente que no necesite validarlo.
+## 5. Qué permanece congelado
 
-## 6. Qué permanece congelado
-
-No abrir ni desarrollar en paralelo:
+No abrir en paralelo:
 
 - otra arquitectura de sync;
 - otro Central Sync server/API;
-- otra estrategia de persistencia para el mismo gate;
-- otra raíz o formato de credencial para D-3;
-- otro proof-of-possession para D-3;
-- G1/session bootstrap como sustitución de la frontera de confianza D-3;
+- otra raíz o formato de credencial D-3;
+- otro proof-of-possession D-3;
+- otra persistencia para la credencial D-3;
+- G1/session bootstrap como sustitución de D-3;
 - nuevas verticales de negocio por preferencia;
 - hardware, packaging o infraestructura productiva como desviación del objetivo activo.
 
-Si aparece un defecto que bloquea D-3, se audita y se corrige en la misma línea.
-
-## 7. Criterio de cierre D-3
-
-D-3 sólo puede avanzar a `VERIFIED` cuando exista evidencia observable de:
+## 6. Criterio de cierre D-3
 
 ```text
 trust root verified
@@ -225,12 +149,8 @@ trust root verified
 → runtime evidence
 ```
 
-La presencia del archivo, un test unitario o una implementación no sustituyen esta evidencia.
+La implementación está completada en el alcance D-3 autorizado; el único estado abierto de este bloque es la evidencia runtime real y la posterior integración del session bootstrap conforme al ADR vigente.
 
-## 8. Después de D-3
-
-El siguiente objetivo se toma del backlog/ADR vigente. No lo elige la IA por conveniencia. Antes de iniciar otro bloque debe actualizarse/reconciliarse la documentación de estado.
-
-## 9. Regla permanente
+## 7. Regla permanente
 
 > **Una sola línea. Un solo objetivo activo. Continuar lo construido. Corregir lo demostrado. No inventar trabajo paralelo.**
