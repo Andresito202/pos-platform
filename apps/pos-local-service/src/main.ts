@@ -1,3 +1,4 @@
+import { createPublicKey } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
@@ -17,6 +18,9 @@ import {
   EncryptedFileSecretStore,
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
+  SessionTrustKeyResolver,
+  SessionTrustKeyStore,
+  SessionTrustKeyVerifier,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
@@ -136,12 +140,34 @@ try {
     keyProvider,
     fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
   );
-  // El mapa de claves de sesión llega vacío: no existe aprovisionamiento de
-  // claves en el runtime (`LIC-003`/`DEV-003`), de modo que `session.activate`
-  // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
-  // fabricada.
+
+  // G1.2 / DEC-022. La trust key de SSA es un artefacto publico firmado por
+  // el root product-owned; nunca se genera localmente ni se sustituye por la
+  // DEVICE_TRUST key, una credencial bearer o una clave privada del dispositivo.
+  // La ausencia del artefacto mantiene el mapa vacio y, por tanto, el SSA
+  // verifier sigue fallando cerrado sin impedir que el POS local arranque.
+  const sessionTrustKeys = (() => {
+    if (
+      config.session_trust_environment === undefined
+      || config.session_trust_root_public_key_pem === undefined
+    ) {
+      return { keys: new Map(), decision: "MISSING" as const };
+    }
+
+    const sessionTrustStore = new SessionTrustKeyStore(new EncryptedFileSecretStore(
+      securityDirectory,
+      keyProvider,
+      `session-trust:${config.installation_id}:${config.device_id}`,
+    ));
+    const sessionTrustVerifier = new SessionTrustKeyVerifier(
+      createPublicKey(config.session_trust_root_public_key_pem),
+      config.session_trust_environment,
+    );
+    return new SessionTrustKeyResolver(sessionTrustStore, sessionTrustVerifier).resolve();
+  })();
+
   const commercial = new CommercialComponent(
-    config, localDatabase, durableSync, new Map(), () => new Date(), fiscalSecretStore,
+    config, localDatabase, durableSync, sessionTrustKeys.keys, () => new Date(), fiscalSecretStore,
   );
   let localChannel: LocalChannelComponent | undefined;
   // `security` va inmediatamente despues de la base de datos y antes que todo
@@ -214,6 +240,7 @@ try {
     // El nombre se adapta al redactor; el redactor no se toca.
     key_protection: security.protection,
     central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
+    session_trust: sessionTrustKeys.decision,
     // `READY` exige además credencial depositada (F2); eso sólo se sabe
     // dentro de `commercial.start()`, así que aquí sólo se registra si el
     // ambiente está configurado, no si la pieza terminó lista.
