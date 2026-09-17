@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign, randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { Pool } from "pg";
 import { createEnrollmentChallenge, activationSecretChecksum, canonicalDeviceTrustJson } from "@pos-platform/device-trust";
 
@@ -29,7 +29,7 @@ const ids = {
 };
 const deviceKeyId = `d3-ci-device-${ids.device.replaceAll("-", "").slice(0, 16)}`;
 const trustKeyId = `d3-ci-trust-${ids.device.replaceAll("-", "").slice(0, 16)}`;
-const activationSecret = "D3CIActivationSecret_7e7b1b7d3f1d5c8a9f2b4e6c8a1d3f5";
+const activationSecret = `D3CI_${randomBytes(36).toString("base64url")}`;
 const now = new Date();
 const challengeIssued = now.toISOString();
 const challengeExpires = new Date(now.getTime() + 60_000).toISOString();
@@ -112,7 +112,7 @@ try {
   });
   const replayBody = await replay.text();
   if (replay.status !== 409) throw new Error(`activation replay was not rejected as conflict: ${replay.status} ${replayBody}`);
-  if (/password|private.?key|ci-transport-token|D3CIActivationSecret/i.test(replayBody)) throw new Error("replay response leaked sensitive material");
+  if (/password|private.?key|ci-transport-token/i.test(replayBody)) throw new Error("replay response leaked sensitive material");
 
   process.stdout.write(JSON.stringify({
     D3_LIVE_ENROLLMENT: "PASS",
