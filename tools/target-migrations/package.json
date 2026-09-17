@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@pos-platform/target-migrations",
   "version": "0.0.0",
   "private": true,
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
+    "@pos-platform/device-trust": "workspace:*",
     "@pos-platform/local-channel": "workspace:*",
     "better-sqlite3": "13.0.3",
     "kysely": "0.29.5",
