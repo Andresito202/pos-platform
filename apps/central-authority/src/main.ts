@@ -4,6 +4,7 @@ import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { Pool } from "pg";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
 import { PostgresDeviceRegistryRepository } from "./postgres-device-registry-repository.js";
+import { SessionTrustPublication } from "./session-trust-publication.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -83,6 +84,8 @@ const transportToken = required("D3_ENROLLMENT_TRANSPORT_TOKEN");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
 const tlsKey = readFileSync(required("CENTRAL_TLS_KEY_FILE"));
 const tlsCert = readFileSync(required("CENTRAL_TLS_CERT_FILE"));
+const sessionTrustPublication = new SessionTrustPublication(required("SESSION_TRUST_ARTIFACT_FILE"));
+const sessionTrustTransportToken = secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
 const pool = new Pool({ connectionString: databaseUrl, max: 10, application_name: "pos-platform-central-authority" });
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
@@ -105,6 +108,29 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     send(response, 200, { status: "OK", service: "central-authority", protocol_version: "1.0.0" });
     return;
   }
+
+  if (request.method === "GET" && request.url === "/v1/session-trust") {
+    const authorization = request.headers.authorization ?? null;
+    const authorized = authorization !== null
+      && authorization.startsWith("Bearer ")
+      && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
+    if (!authorized) {
+      send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
+      return;
+    }
+    if (!limiter.allow(`${remote}:session-trust`)) {
+      send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
+      return;
+    }
+    try {
+      const bundle = sessionTrustPublication.load();
+      send(response, 200, bundle, { "x-request-id": requestId, "x-correlation-id": correlationId });
+    } catch {
+      send(response, 503, { status: "REJECTED", result_code: "SESSION_TRUST_UNAVAILABLE", request_id: requestId, correlation_id: correlationId });
+    }
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/v1/device-enrollment") {
     send(response, 404, { status: "REJECTED", result_code: "NOT_FOUND" });
     return;
