@@ -44,3 +44,5 @@ export type { Postgres003RunnerConfig, Postgres003DownConfig, Postgres003ApplyRe
 export { POSTGRES_004_DESCRIPTOR, DEVICE_TRUST_004_COLUMNS, DEVICE_TRUST_004_TABLES } from "./postgres-004-contract.js";
 export { applyPostgres004 } from "./postgres-004-runner.js";
 export type { Postgres004RunnerConfig, Postgres004ApplyResult } from "./postgres-004-runner.js";
+export { PostgresDeviceRegistryRepository } from "./d3-device-registry-postgres-repository.js";
+export type { DeviceRegistryRepositoryOptions } from "./d3-device-registry-postgres-repository.js";
