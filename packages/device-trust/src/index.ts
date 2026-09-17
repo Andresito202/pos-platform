@@ -43,30 +43,30 @@ export interface DeviceTrustVerificationResult<T> {
   readonly evaluatedAt: string;
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalDeviceTrustJson(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new Error("non-finite numbers are not valid trust payloads");
     return JSON.stringify(value);
   }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonicalDeviceTrustJson).join(",")}]`;
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalDeviceTrustJson(item)}`).join(",")}}`;
   }
   throw new Error("unsupported trust payload value");
 }
 
 export function unsignedDeviceTrustOperationalKeyBytes(claims: DeviceTrustOperationalKeyClaims): Buffer {
-  return Buffer.from(canonicalJson(DeviceTrustOperationalKeyClaimsSchema.parse(claims)));
+  return Buffer.from(canonicalDeviceTrustJson(DeviceTrustOperationalKeyClaimsSchema.parse(claims)));
 }
 
 export function unsignedDeviceTrustCredentialBytes(claims: DeviceTrustCredentialClaims): Buffer {
-  return Buffer.from(canonicalJson(DeviceTrustCredentialClaimsSchema.parse(claims)));
+  return Buffer.from(canonicalDeviceTrustJson(DeviceTrustCredentialClaimsSchema.parse(claims)));
 }
 
 export function unsignedDeviceTrustChallengeBytes(challenge: DeviceTrustChallenge): Buffer {
-  return Buffer.from(canonicalJson(DeviceTrustChallengeSchema.parse(challenge)));
+  return Buffer.from(canonicalDeviceTrustJson(DeviceTrustChallengeSchema.parse(challenge)));
 }
 
 export class DeviceTrustVerifier {
@@ -142,3 +142,5 @@ export class DeviceTrustVerifier {
     return { decision, value, evaluatedAt: evaluatedAt.toISOString() };
   }
 }
+
+export * from "./enrollment.js";
