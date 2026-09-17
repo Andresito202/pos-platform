@@ -100,8 +100,24 @@ D-3 TLS/auth transport         IMPLEMENTED / executable CI gate
 D-3 rate limiting               IMPLEMENTED / bounded in-memory gate
 D-3 migration 004               IMPLEMENTED / executable CLI + CI gate
 D-3 security E2E                IMPLEMENTED / live HTTPS path added
-D-3 runtime VERIFIED            NO — workflow execution still pending
+D-3 runtime VERIFIED            NO — Actions termina antes de pasos observables
 ```
+
+### Pendiente explícito de GitHub Actions
+
+Issue **#83 — `[CI/ACTIONS] Resolver ejecución previa de D-3 Live Security E2E`** mantiene trazable el bloqueo de infraestructura/Actions.
+
+Evidencia del run `35173270522`, intento 2: GitHub reportó `completed/failure`, el job expuesto no tiene pasos (`steps: []`), no hay logs recuperables y no hubo artifacts. Esto no permite atribuir el fallo a la implementación D-3 ni marcar `RUNTIME_VERIFIED`.
+
+El pendiente de Actions queda separado del trabajo de producto:
+
+1. identificar por qué la ejecución termina antes del primer paso observable;
+2. obtener una ejecución real del workflow;
+3. observar PostgreSQL + migrations + Central Authority TLS + enrollment + persistencia + replay;
+4. conservar artifact sanitizado;
+5. sólo entonces cambiar el nivel de evidencia a `RUNTIME_VERIFIED`, si corresponde.
+
+No se introducirán cambios de producto únicamente para forzar un run.
 
 ### Evidencia que todavía no puede declararse
 
@@ -120,7 +136,17 @@ No se declara `VERIFIED` hasta observar una ejecución real del workflow con:
 
 El lockfile sigue pendiente de regeneración con pnpm real; no se fabrica manualmente. El workflow D-3 usa instalación no congelada para poder validar la línea mientras ese artefacto se regenera en un entorno con pnpm.
 
-## 5. Qué permanece congelado
+## 5. Siguiente superficie: Session Bootstrap — sólo preparación arquitectónica
+
+La sesión **no debe cablearse todavía** contra una clave inventada en `main.ts`.
+
+La implementación actual confirma que `CommercialComponent` recibe `sessionSigningKeys` por inyección y que el runtime de producción pasa un `Map` vacío; por diseño, `session.activate` falla cerrado cuando no existe una clave confiable. El ADR de transporte de sesión también registra que no existe hoy un aprovisionamiento runtime de `TrustedSigningKey`.
+
+DEC-022 prohíbe reutilizar una clave `DEVICE_TRUST` como autoridad implícita de sesión: la separación de propósito criptográfico es obligatoria. Por tanto, el siguiente trabajo debe resolver primero **el origen, almacenamiento, distribución/verificación y lifecycle del trust material de sesión**, no simplemente reemplazar `new Map()` por una generación local.
+
+Se prepara esa superficie en `docs/governance/g1.2-session-bootstrap-readiness.md`. Hasta que el origen de confianza de sesión quede gobernado, no se crea una segunda autoridad local ni se altera el contrato de sesión existente.
+
+## 6. Qué permanece congelado
 
 No abrir en paralelo:
 
@@ -133,7 +159,7 @@ No abrir en paralelo:
 - nuevas verticales de negocio por preferencia;
 - hardware, packaging o infraestructura productiva como desviación del objetivo activo.
 
-## 6. Criterio de cierre D-3
+## 7. Criterio de cierre D-3
 
 ```text
 trust root verified
@@ -150,8 +176,8 @@ trust root verified
 → runtime evidence
 ```
 
-La implementación está completada en el alcance D-3 autorizado; el estado abierto de este bloque es la evidencia runtime real. Después de esa evidencia, el siguiente bloque gobernado es la integración del session bootstrap conforme al ADR vigente.
+La implementación está completada en el alcance D-3 autorizado; el estado abierto de este bloque es la evidencia runtime real. En paralelo, sólo se permite preparar la arquitectura de Session Bootstrap sin inventar una fuente de confianza. Después de resolver su origen y con D-3 runtime observable, se podrá integrar la sesión sobre la cadena gobernada.
 
-## 7. Regla permanente
+## 8. Regla permanente
 
 > **Una sola línea. Un solo objetivo activo. Continuar lo construido. Corregir lo demostrado. No inventar trabajo paralelo.**
