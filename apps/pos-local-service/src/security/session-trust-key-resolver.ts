@@ -19,7 +19,7 @@ export class SessionTrustKeyResolver {
   constructor(
     private readonly store: SessionTrustKeyStore,
     private readonly verifier: SessionTrustKeyVerifier,
-    private readonly installerArtifactPath = process.env.POS_SESSION_TRUST_ARTIFACT_PATH,
+    private readonly installerArtifactPath?: string,
   ) {}
 
   resolve(): SessionTrustKeyResolution {
