@@ -84,8 +84,12 @@ const transportToken = required("D3_ENROLLMENT_TRANSPORT_TOKEN");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
 const tlsKey = readFileSync(required("CENTRAL_TLS_KEY_FILE"));
 const tlsCert = readFileSync(required("CENTRAL_TLS_CERT_FILE"));
-const sessionTrustPublication = new SessionTrustPublication(required("SESSION_TRUST_ARTIFACT_FILE"));
-const sessionTrustTransportToken = secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
+const sessionTrustPublication = process.env.SESSION_TRUST_ARTIFACT_FILE === undefined
+  ? null
+  : new SessionTrustPublication(process.env.SESSION_TRUST_ARTIFACT_FILE);
+const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FILE === undefined
+  ? null
+  : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
 const pool = new Pool({ connectionString: databaseUrl, max: 10, application_name: "pos-platform-central-authority" });
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
@@ -111,7 +115,9 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
 
   if (request.method === "GET" && request.url === "/v1/session-trust") {
     const authorization = request.headers.authorization ?? null;
-    const authorized = authorization !== null
+    const authorized = sessionTrustPublication !== null
+      && sessionTrustTransportToken !== null
+      && authorization !== null
       && authorization.startsWith("Bearer ")
       && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
     if (!authorized) {
