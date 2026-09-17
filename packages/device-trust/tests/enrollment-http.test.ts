@@ -79,6 +79,7 @@ function validHandler() {
     authorize: (value) => value.authorization === "Bearer transport-test",
     maxBodyBytes: 16 * 1024,
     maxCredentialLifetimeMs: 60 * 60 * 1000,
+    now: () => new Date("2099-09-16T12:00:00Z"),
   });
 }
 
@@ -95,6 +96,7 @@ describe("D-3 enrollment HTTP boundary", () => {
       authorize: () => true,
       maxBodyBytes: 1024,
       maxCredentialLifetimeMs: 60 * 60 * 1000,
+      now: () => new Date("2099-09-16T12:00:00Z"),
     });
     const oversized = await handler.handle(context, "x".repeat(1025));
     expect(oversized.statusCode).toBe(413);
@@ -146,6 +148,7 @@ describe("D-3 enrollment HTTP boundary", () => {
       authorize: () => true,
       maxBodyBytes: 16 * 1024,
       maxCredentialLifetimeMs: 60 * 60 * 1000,
+      now: () => new Date("2099-09-16T12:00:00Z"),
     });
     const result = await handler.handle(context, JSON.stringify({
       ...request,
