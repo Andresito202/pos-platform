@@ -11,9 +11,9 @@ export interface SessionTrustKeyResolution {
 
 /**
  * Resolves a signed session-key bundle into the existing `TrustedSigningKey`
- * map consumed by the SSA verifier. The first install may seed the encrypted
- * local store from the public installer artifact; all subsequent starts use
- * the protected local copy.
+ * map consumed by the SSA verifier. The installer artifact is an authenticated
+ * distribution source: newer generations update the protected local store;
+ * older generations never roll it back.
  */
 export class SessionTrustKeyResolver {
   constructor(
@@ -24,7 +24,7 @@ export class SessionTrustKeyResolver {
 
   resolve(): SessionTrustKeyResolution {
     try {
-      if (!this.store.has() && this.installerArtifactPath !== undefined) {
+      if (this.installerArtifactPath !== undefined) {
         const artifact = JSON.parse(readFileSync(this.installerArtifactPath, "utf8"));
         this.store.install(artifact, this.verifier);
       }
