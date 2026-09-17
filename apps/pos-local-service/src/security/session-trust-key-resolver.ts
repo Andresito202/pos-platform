@@ -9,12 +9,9 @@ export interface SessionTrustKeyResolution {
 }
 
 /**
- * Resolves the local, signed session-key artifact into the existing
- * `TrustedSigningKey` map consumed by the SSA verifier.
- *
- * Missing or invalid trust material returns an empty map. This preserves the
- * existing fail-closed session boundary without making unrelated local POS
- * startup depend on session trust being provisioned.
+ * Resolves a signed session-key bundle into the existing `TrustedSigningKey`
+ * map consumed by the SSA verifier. VERIFY_ONLY keys remain available for
+ * validating still-valid assertions; REVOKED keys are removed immediately.
  */
 export class SessionTrustKeyResolver {
   constructor(
@@ -26,16 +23,20 @@ export class SessionTrustKeyResolver {
     if (!this.store.has()) return { keys: new Map(), decision: "MISSING" };
 
     try {
-      const artifact = this.store.load();
-      const result = this.verifier.verify(artifact);
-      if (result.decision !== "VALID" || result.claims === null) {
-        return { keys: new Map(), decision: "INVALID", reason: result.decision };
+      const bundle = this.store.load();
+      const keys = new Map<string, TrustedSigningKey>();
+      for (const artifact of bundle.keys) {
+        const result = this.verifier.verify(artifact);
+        if (result.decision === "REVOKED") continue;
+        if (result.decision !== "VALID" || result.claims === null) {
+          return { keys: new Map(), decision: "INVALID", reason: result.decision };
+        }
+        keys.set(result.claims.key_id, this.verifier.toTrustedSigningKey(result.claims));
       }
-      const trusted = this.verifier.toTrustedSigningKey(result.claims);
-      return {
-        keys: new Map([[result.claims.key_id, trusted]]),
-        decision: "VALID",
-      };
+      if (keys.size === 0) {
+        return { keys: new Map(), decision: "INVALID", reason: "NO_VALID_SESSION_TRUST_KEYS" };
+      }
+      return { keys, decision: "VALID" };
     } catch (error) {
       return {
         keys: new Map(),
