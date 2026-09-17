@@ -48,4 +48,19 @@ describe("SessionTrustKeyResolver", () => {
     expect(result.decision).toBe("VALID");
     expect([...result.keys.keys()]).toEqual(["ssa-2026-01", "ssa-2026-02"]);
   });
+
+  it("does not read the ambient artifact environment when the validated config path is absent", () => {
+    const previous = process.env.POS_SESSION_TRUST_ARTIFACT_PATH;
+    process.env.POS_SESSION_TRUST_ARTIFACT_PATH = "/path/that/must/not/be/read.json";
+    try {
+      const root = generateKeyPairSync("ed25519");
+      const store = { has: () => false } as never;
+      const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
+      const result = new SessionTrustKeyResolver(store, verifier).resolve();
+      expect(result).toEqual({ keys: new Map(), decision: "MISSING" });
+    } finally {
+      if (previous === undefined) delete process.env.POS_SESSION_TRUST_ARTIFACT_PATH;
+      else process.env.POS_SESSION_TRUST_ARTIFACT_PATH = previous;
+    }
+  });
 });
