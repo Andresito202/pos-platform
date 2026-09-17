@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   const aggregateId = uuidV7();
   const occurredAt = new Date().toISOString();
   const payload = { gate: "CENTRAL_SYNC", purpose: "durable-write-verification", nonce: uuidV7() };
+  const idempotencyKey = `central-sync-gate-${operationId}`;
 
   const operation = {
     operation_id: operationId,
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
     operation_type: "SYNC.TEST",
     authority_policy: "APPEND_ONLY_SHARED",
     local_sequence: 1,
-    idempotency_key: `central-sync-gate-${operationId}`,
+    idempotency_key: idempotencyKey,
     expected_version: null,
     payload_schema_version: "1.0.0",
     payload,
@@ -80,7 +81,6 @@ async function main(): Promise<void> {
     batch_id: batchId,
     tenant_id: tenantId,
     company_id: companyId,
-    branch_id: branchId,
     device_id: deviceId,
     installation_id: installationId,
     checkpoint_local_sequence: null,
@@ -182,8 +182,49 @@ async function main(): Promise<void> {
       throw new Error("IDEMPOTENCY_ROW_COUNT_FAILED");
     }
 
+    const conflictOperation = {
+      ...operation,
+      operation_id: uuidV7(),
+      correlation_id: uuidV7(),
+      payload: { ...payload, nonce: uuidV7(), semantic_conflict: true },
+    };
+    const conflictBatch = {
+      ...batch,
+      batch_id: uuidV7(),
+      operations: [{
+        ...conflictOperation,
+        payload_checksum: sha256(conflictOperation.payload),
+      }],
+    };
+    const conflictEnvelope = {
+      request_id: uuidV7(),
+      correlation_id: conflictOperation.correlation_id,
+      payload: conflictBatch,
+    };
+    const conflict = await fetch(`${BASE}/v1/sync/batches`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-pos-request-id": conflictEnvelope.request_id,
+        "x-request-id": conflictEnvelope.request_id,
+        "x-correlation-id": conflictOperation.correlation_id,
+      },
+      body: JSON.stringify(conflictEnvelope),
+    });
+    const conflictText = await conflict.text();
+    console.log(`IDEMPOTENCY_CONFLICT_STATUS=${conflict.status}`);
+    console.log(conflictText);
+    if (conflict.status !== 409) throw new Error("IDEMPOTENCY_CONFLICT_NOT_REJECTED");
+
+    const conflictCount = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM sync.sync_operations WHERE tenant_id = $1 AND idempotency_key = $2`,
+      [tenantId, operation.idempotency_key],
+    );
+    if (conflictCount.rows[0]!.count !== "1") throw new Error("IDEMPOTENCY_CONFLICT_MUTATED_PERSISTENCE");
+
     console.log("POSTGRES_PERSISTENCE=VERIFIED");
     console.log("IDEMPOTENCY_REPLAY=VERIFIED");
+    console.log("IDEMPOTENCY_CONFLICT=VERIFIED");
     console.log("CENTRAL-SYNC GATE: VERIFIED");
   } finally {
     await pool.end();
