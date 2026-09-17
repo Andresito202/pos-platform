@@ -1,6 +1,11 @@
-import { createHash, randomBytes, sign } from "node:crypto";
+import { createHash, randomBytes, sign, type KeyObject } from "node:crypto";
+import {
+  DeviceTrustCredentialClaimsSchema,
+  DeviceTrustKeyPurposeSchema,
+  SignedDeviceTrustCredentialSchema,
+  uuidV7FromModule,
+} from "@pos-platform/contracts";
 import { canonicalJson } from "@pos-platform/local-channel";
-import { uuidV7FromModule } from "@pos-platform/contracts";
 
 export type DeviceRegistryStatus = "PENDING" | "ACTIVE" | "REVOKED" | "COMPROMISED" | "RETIRED";
 
@@ -17,30 +22,29 @@ export type DeviceRegistryRow = {
 };
 
 export type DeviceCredentialIssue = {
-  credentialId: string;
-  device: DeviceRegistryRow;
+  signedCredential: ReturnType<typeof SignedDeviceTrustCredentialSchema.parse>;
   activationId: string;
-  generation: number;
-  issuedAt: string;
-  expiresAt: string;
-  issuerSignature: string;
+  activationSecretChecksum: string;
 };
 
 export interface DeviceRegistryRepository {
   findDevice(deviceId: string): Promise<DeviceRegistryRow | null>;
-  /**
-   * Atomically consumes the activation and persists the issued credential.
-   * Implementations MUST execute both state transitions in one transaction.
-   */
+  /** Atomically consumes the one-shot activation and persists the exact signed credential. */
   consumeActivationAndIssueCredential(input: {
     activationId: string;
-    requestChecksum: string;
+    activationSecretChecksum: string;
     credential: DeviceCredentialIssue;
   }): Promise<boolean>;
 }
 
-export function enrollmentChecksum(input: unknown): string {
-  return createHash("sha256").update(canonicalJson(input)).digest("hex");
+export function activationSecretChecksum(secret: string): string {
+  return createHash("sha256").update(secret, "utf8").digest("hex");
+}
+
+export function credentialChecksum(credential: DeviceCredentialIssue["signedCredential"]): string {
+  return createHash("sha256")
+    .update(canonicalJson(credential))
+    .digest("hex");
 }
 
 export class DeviceRegistryEnrollmentRuntime {
@@ -48,58 +52,53 @@ export class DeviceRegistryEnrollmentRuntime {
 
   async issue(input: {
     activation_id: string;
+    activation_secret: string;
     device_id: string;
-    request_checksum: string;
-    generation: number;
     issued_at: string;
     expires_at: string;
-    issuer_private_key: Parameters<typeof sign>[2];
+    issuer_private_key: KeyObject;
   }): Promise<string> {
     const device = await this.repository.findDevice(input.device_id);
     if (!device) throw new Error("DEVICE_UNKNOWN");
     if (device.status !== "PENDING" && device.status !== "ACTIVE") throw new Error(`DEVICE_${device.status}`);
     if (device.trust_key_purpose !== "DEVICE_TRUST") throw new Error("DEVICE_WRONG_PURPOSE");
-    if (!Number.isInteger(input.generation) || input.generation < 1) throw new Error("INVALID_GENERATION");
+    DeviceTrustKeyPurposeSchema.parse(device.trust_key_purpose);
 
-    const credentialId = uuidV7FromModule();
-    const credentialBody = {
-      credential_id: credentialId,
-      device_id: device.device_id,
-      installation_id: device.installation_id,
+    const credentialClaims = DeviceTrustCredentialClaimsSchema.parse({
+      credential_id: uuidV7FromModule(),
+      key_id: device.trust_key_id,
       tenant_id: device.tenant_id,
       company_id: device.company_id,
-      device_key_id: device.device_key_id,
-      trust_key_id: device.trust_key_id,
-      key_purpose: "DEVICE_TRUST" as const,
-      generation: input.generation,
+      installation_id: device.installation_id,
+      device_id: device.device_id,
+      device_public_key_pem: device.device_public_key,
       issued_at: input.issued_at,
+      not_before: input.issued_at,
       expires_at: input.expires_at,
-    };
+      version: 1,
+    });
 
-    // Sign before consuming the one-shot activation. A signing failure must not
-    // leave an activation irreversibly consumed without a credential.
-    const issuerSignature = sign(
-      null,
-      Buffer.from(canonicalJson(credentialBody)),
-      input.issuer_private_key,
-    ).toString("base64url");
+    const signedCredential = SignedDeviceTrustCredentialSchema.parse({
+      claims: credentialClaims,
+      signature: sign(
+        null,
+        Buffer.from(canonicalJson(credentialClaims)),
+        input.issuer_private_key,
+      ).toString("base64url"),
+    });
 
     const committed = await this.repository.consumeActivationAndIssueCredential({
       activationId: input.activation_id,
-      requestChecksum: input.request_checksum,
+      activationSecretChecksum: activationSecretChecksum(input.activation_secret),
       credential: {
-        credentialId,
-        device,
+        signedCredential,
         activationId: input.activation_id,
-        generation: input.generation,
-        issuedAt: input.issued_at,
-        expiresAt: input.expires_at,
-        issuerSignature,
+        activationSecretChecksum: activationSecretChecksum(input.activation_secret),
       },
     });
 
     if (!committed) throw new Error("ACTIVATION_NOT_CONSUMABLE");
-    return credentialId;
+    return signedCredential.claims.credential_id;
   }
 
   createChallenge(): string {
