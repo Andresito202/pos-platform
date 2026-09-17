@@ -70,7 +70,8 @@ jobs:
       - name: Run D-3 security tests
         run: |
           pnpm --filter @pos-platform/device-trust test
-          pnpm --filter @pos-platform/pos-local-service test -- device-trust-credential-store.test.ts device-enrollment-service.test.ts
+          pnpm --filter @pos-platform/central-authority test -- session-trust-publication.test.ts session-trust-key-issuer.test.ts
+          pnpm --filter @pos-platform/pos-local-service test -- device-trust-credential-store.test.ts device-enrollment-service.test.ts session-trust-key.test.ts session-trust-key-resolver.test.ts session-bootstrap-runtime.test.ts
       - name: Apply PostgreSQL 001-002
         run: |
           pnpm --filter @pos-platform/target-migrations exec tsx -e '
@@ -116,12 +117,15 @@ jobs:
           mkdir -p artifacts/d3
           openssl req -x509 -newkey rsa:2048 -nodes -keyout artifacts/d3/tls.key -out artifacts/d3/tls.crt -subj '/CN=localhost' -days 1
           openssl genpkey -algorithm ED25519 -out artifacts/d3/issuer.key
+          printf '%s\n' 'ci-session-trust-transport-token' > artifacts/d3/session-trust-transport.token
       - name: Start Central Authority
         env:
           CENTRAL_AUTHORITY_PORT: 9443
           CENTRAL_TLS_KEY_FILE: ${{ github.workspace }}/artifacts/d3/tls.key
           CENTRAL_TLS_CERT_FILE: ${{ github.workspace }}/artifacts/d3/tls.crt
           D3_ISSUER_PRIVATE_KEY_FILE: ${{ github.workspace }}/artifacts/d3/issuer.key
+          SESSION_TRUST_ARTIFACT_FILE: ${{ github.workspace }}/infra/trust/session-assertion-operational-key.json
+          SESSION_TRUST_TRANSPORT_TOKEN_FILE: ${{ github.workspace }}/artifacts/d3/session-trust-transport.token
         run: |
           set -euo pipefail
           nohup pnpm --filter @pos-platform/central-authority start > artifacts/d3/central-authority.log 2>&1 &
@@ -131,6 +135,20 @@ jobs:
           done
           cat artifacts/d3/central-authority.log
           exit 1
+      - name: Verify session trust publication boundary
+        env:
+          SESSION_TRUST_TRANSPORT_TOKEN: ci-session-trust-transport-token
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --insecure -o artifacts/d3/session-trust-unauthorized.json -w '%{http_code}' \
+            https://127.0.0.1:9443/v1/session-trust)
+          test "$status" = "401"
+          status=$(curl --silent --show-error --insecure -o artifacts/d3/session-trust.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${SESSION_TRUST_TRANSPORT_TOKEN}" \
+            https://127.0.0.1:9443/v1/session-trust)
+          test "$status" = "200"
+          grep -q 'SESSION_ASSERTION' artifacts/d3/session-trust.json
+          grep -q 'ssa-2026-01' artifacts/d3/session-trust.json
       - name: Verify unauthenticated enrollment rejection
         run: |
           set -euo pipefail
