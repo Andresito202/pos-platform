@@ -121,23 +121,44 @@ La línea activa ahora:
 - persiste el checksum del objeto firmado canónico, no de un body alternativo;
 - reconcilia `PostgresDeviceRegistryRepository` con el boundary compartido `CentralDeviceEnrollmentRepository`, eliminando la dependencia del runtime duplicado.
 
+### Nueva frontera D-3 implementada
+
+Se añadió `packages/device-trust/src/enrollment-http.ts` como **handler de protocolo transport-neutral**, no como servidor central. Esto resuelve una parte concreta del boundary sin crear una tercera arquitectura:
+
+- límite de tamaño del body;
+- `Content-Length` coherente;
+- `application/json` obligatorio;
+- autorización de transporte inyectable y separada de la identidad del dispositivo;
+- parseo estricto con `DeviceEnrollmentRequestSchema`;
+- validación temporal del challenge;
+- lifetime máximo de la credencial decidido por la autoridad central;
+- invocación exclusiva de `CentralDeviceCredentialIssuer`;
+- respuesta con `SignedDeviceTrustCredential` completo sólo después del commit del issuer;
+- mapeo cerrado de errores, sin devolver excepciones de PostgreSQL ni secretos;
+- sin dependencia de Local Service.
+
+Se añadió `packages/device-trust/tests/enrollment-http.test.ts` con cobertura de autorización, límites, JSON/schema, PoP inválido, credencial emitida y redacción de errores internos.
+
+Esto **no** se declara como endpoint central productivo: todavía falta el servidor/aplicación Central Authority que posea TLS, límites de socket, autenticación de transporte real, rate limiting y conexión PostgreSQL administrada. No se reutiliza `central-sync-server` para ese fin.
+
 ### Estado de D-3
 
 ```text
 DEC-022                         RATIFICADA
 D-3 contracts/verifier          IMPLEMENTED
-D-3 enrollment PoP              IMPLEMENTED / tested
-D-3 credential issuance        IMPLEMENTED / tested
-D-3 credential response         IMPLEMENTED / tested
-D-3 local credential verification IMPLEMENTED / tested
+D-3 enrollment PoP              IMPLEMENTED / tests added
+D-3 credential issuance         IMPLEMENTED / tests added
+D-3 credential response         IMPLEMENTED / tests added
+D-3 local credential verification IMPLEMENTED / tests added
 D-3 postgres repository         IMPLEMENTED / reconciled
+D-3 enrollment protocol handler IMPLEMENTED / not runtime verified
 D-3 migration 004               IMPLEMENTED / no ejecutada
-D-3 central endpoint            PENDIENTE
-D-3 authenticated boundary      PENDIENTE
+D-3 central endpoint            PENDIENTE — server/app boundary
+D-3 authenticated boundary      PENDIENTE — transport/TLS/rate-limit
 D-3 local credential persistence PENDIENTE
 D-3 session bootstrap           PENDIENTE
-D-3 security E2E                 PENDIENTE
-D-3 runtime VERIFIED             NO
+D-3 security E2E                PENDIENTE
+D-3 runtime VERIFIED            NO
 ```
 
 ### Bloqueador de dependencias
