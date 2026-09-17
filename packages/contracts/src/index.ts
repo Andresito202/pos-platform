@@ -15,6 +15,7 @@ export * from "./release.js";
 export * from "./authorization.js";
 export * from "./authorization-snapshot.js";
 export * from "./session-assertion.js";
+export * from "./session-trust.js";
 export * from "./master-snapshot.js";
 export * from "./device-trust.js";
 export * from "./device-enrollment.js";
