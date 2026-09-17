@@ -122,7 +122,6 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         [deviceRow.device_id],
       );
       const expectedGeneration = (latest.rows[0]?.generation ?? 0) + 1;
-      if (expectedGeneration !== 1 && expectedGeneration !== claims.version) return this.rollbackFalse(client);
 
       const issuedAt = new Date(claims.issued_at);
       const expiresAt = claims.expires_at ? new Date(claims.expires_at) : null;
@@ -153,7 +152,6 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
           deviceRow.company_id,
           deviceRow.device_key_id,
           claims.key_id,
-          "DEVICE_TRUST",
           expectedGeneration,
           issuedAt,
           expiresAt,
