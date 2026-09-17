@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { TrustedSigningKey } from "./license-verifier.js";
 import { SessionTrustKeyStore } from "./session-trust-key-store.js";
 import { SessionTrustKeyVerifier } from "./session-trust-key-verifier.js";
@@ -10,19 +11,25 @@ export interface SessionTrustKeyResolution {
 
 /**
  * Resolves a signed session-key bundle into the existing `TrustedSigningKey`
- * map consumed by the SSA verifier. VERIFY_ONLY keys remain available for
- * validating still-valid assertions; REVOKED keys are removed immediately.
+ * map consumed by the SSA verifier. The first install may seed the encrypted
+ * local store from the public installer artifact; all subsequent starts use
+ * the protected local copy.
  */
 export class SessionTrustKeyResolver {
   constructor(
     private readonly store: SessionTrustKeyStore,
     private readonly verifier: SessionTrustKeyVerifier,
+    private readonly installerArtifactPath = process.env.POS_SESSION_TRUST_ARTIFACT_PATH,
   ) {}
 
   resolve(): SessionTrustKeyResolution {
-    if (!this.store.has()) return { keys: new Map(), decision: "MISSING" };
-
     try {
+      if (!this.store.has() && this.installerArtifactPath !== undefined) {
+        const artifact = JSON.parse(readFileSync(this.installerArtifactPath, "utf8"));
+        this.store.install(artifact, this.verifier);
+      }
+      if (!this.store.has()) return { keys: new Map(), decision: "MISSING" };
+
       const bundle = this.store.load();
       const keys = new Map<string, TrustedSigningKey>();
       for (const artifact of bundle.keys) {
