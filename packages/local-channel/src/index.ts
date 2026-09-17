@@ -13,12 +13,6 @@
  * el handshake, el versionado y las uniones `IpcRequest`/`IpcResponse`— sigue
  * viviendo en `@pos-platform/contracts`: aquí no se declara protocolo, se
  * implementa el que ya estaba declarado.
- *
- * **Lo que no está aquí es deliberado.** `server.ts`, `windows-pipe-security.ts`
- * y `local-channel-component.ts` se quedan en el servicio: endurecer la DACL de
- * un pipe que no se crea, o gobernar el ciclo de vida de un servidor que no se
- * levanta, no es trabajo de un cliente. Son 1 121 de las 1 661 líneas del módulo
- * original.
  */
 export * from "./framing.js";
 export * from "./canonical-json.js";
@@ -27,3 +21,4 @@ export * from "./authenticator.js";
 export * from "./endpoint.js";
 export * from "./response-schemas.js";
 export * from "./client.js";
+export * from "./windows-production.js";
