@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DeviceEnrollmentRequestSchema,
   DeviceTrustChallengeSchema,
+  SignedDeviceTrustCredentialSchema,
 } from "@pos-platform/contracts";
 import {
   CentralDeviceCredentialIssuer,
@@ -79,16 +80,20 @@ function repository(overrides: Partial<CentralDeviceEnrollmentRepository> = {}):
 }
 
 describe("CentralDeviceCredentialIssuer", () => {
-  it("issues only after a valid pre-enrollment proof of possession", async () => {
+  it("issues only after a valid pre-enrollment proof of possession and returns the credential", async () => {
     const issuer = new CentralDeviceCredentialIssuer(repository(), ISSUER.privateKey, clock());
     const challengeValue = challenge();
-    const credentialId = await issuer.issue({
+    const result = await issuer.issue({
       request: requestFor(challengeValue),
       challenge: challengeValue,
       expires_at: "2026-09-17T12:00:00.000Z",
     });
 
-    expect(credentialId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.status).toBe("ENROLLED");
+    expect(result.credential_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.credential?.claims.credential_id).toBe(result.credential_id);
+    expect(result.credential?.claims.device_id).toBe(binding.device_id);
+    expect(SignedDeviceTrustCredentialSchema.safeParse(result.credential).success).toBe(true);
   });
 
   it("rejects an invalid proof before consuming the one-shot activation", async () => {
