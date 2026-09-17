@@ -34,15 +34,15 @@ const request = {
     installation_id: binding.installationId,
     device_id: binding.deviceId,
     nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    issued_at: "2026-09-16T12:00:00Z",
-    expires_at: "2026-09-16T12:05:00Z",
+    issued_at: "2099-09-16T12:00:00Z",
+    expires_at: "2099-09-16T12:05:00Z",
   },
   proof: {
     challenge_id: "018f0000-0000-7000-8000-000000000020",
     device_key_id: "device-key-http-test",
     signature: "A".repeat(86),
   },
-  requested_at: "2026-09-16T12:00:00Z",
+  requested_at: "2099-09-16T12:00:00Z",
   version: 1,
 };
 
@@ -70,7 +70,7 @@ function issuer(): CentralDeviceCredentialIssuer {
     consumeActivationAndIssueCredential: async () => true,
   };
   return new CentralDeviceCredentialIssuer(repository, ISSUER.privateKey, {
-    now: () => new Date("2026-09-16T12:00:00Z"),
+    now: () => new Date("2099-09-16T12:00:00Z"),
   });
 }
 
@@ -112,11 +112,25 @@ describe("D-3 enrollment HTTP boundary", () => {
     expect(invalid.body.result_code).toBe("DEVICE_ENROLLMENT_REQUEST_INVALID");
   });
 
-  it("invokes the issuer only through the validated D-3 request boundary", async () => {
+  it("rejects an invalid proof before the central repository is mutated", async () => {
     const handler = validHandler();
     const result = await handler.handle(context, JSON.stringify(request));
     expect(result.statusCode).toBe(422);
     expect(result.body.result_code).toBe("ENROLLMENT_PROOF_INVALID");
+  });
+
+  it("returns the complete signed credential after the issuer commits atomically", async () => {
+    const validProof = sign(null, Buffer.from(canonicalDeviceTrustJson(request.challenge)), DEVICE.privateKey).toString("base64url");
+    const handler = validHandler();
+    const result = await handler.handle(context, JSON.stringify({
+      ...request,
+      proof: { ...request.proof, signature: validProof },
+    }));
+    expect(result.statusCode).toBe(200);
+    expect(result.body.result_code).toBe("ENROLLED");
+    const body = result.body.result as { credential_id: string; credential: unknown };
+    expect(body.credential_id).toBeTruthy();
+    expect(SignedDeviceTrustCredentialSchema.safeParse(body.credential).success).toBe(true);
   });
 
   it("does not expose issuer or database exceptions as arbitrary error text", async () => {
@@ -126,7 +140,7 @@ describe("D-3 enrollment HTTP boundary", () => {
       consumeActivationAndIssueCredential: async () => false,
     };
     const failingIssuer = new CentralDeviceCredentialIssuer(repository, ISSUER.privateKey, {
-      now: () => new Date("2026-09-16T12:00:00Z"),
+      now: () => new Date("2099-09-16T12:00:00Z"),
     });
     const handler = new DeviceEnrollmentHttpHandler(failingIssuer, {
       authorize: () => true,
