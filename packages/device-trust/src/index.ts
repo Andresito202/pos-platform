@@ -100,7 +100,7 @@ export class DeviceTrustVerifier {
       return this.result("CREDENTIAL_SIGNATURE_INVALID", null, evaluatedAt);
     }
     if (claims.tenant_id !== binding.tenantId || claims.company_id !== binding.companyId || claims.installation_id !== binding.installationId || claims.device_id !== binding.deviceId) {
-      return this.result("CREDENTIAL_BINDING_MISMATCH", null, evaluatedAt);
+      return this.result("CREDENTIAL_BINDING_MISMATCH", claims, evaluatedAt);
     }
     const time = evaluatedAt.getTime();
     if (time < Date.parse(claims.not_before)) return this.result("CREDENTIAL_NOT_YET_VALID", claims, evaluatedAt);
