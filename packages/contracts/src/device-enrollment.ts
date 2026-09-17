@@ -4,6 +4,8 @@ import { StableCodeSchema, UtcDateTimeSchema, UuidSchema } from "./primitives.js
 export const EnrollmentActivationStatusSchema = z.enum(["ISSUED", "CONSUMED", "REVOKED", "EXPIRED"]);
 export const EnrollmentResultStatusSchema = z.enum(["ENROLLED", "REJECTED"]);
 
+const EnrollmentSignatureSchema = z.string().min(80).max(128).regex(/^[A-Za-z0-9_-]+$/);
+
 export const DeviceEnrollmentActivationSchema = z.strictObject({
   activation_id: UuidSchema,
   tenant_id: UuidSchema,
@@ -21,6 +23,13 @@ export const DeviceEnrollmentActivationSchema = z.strictObject({
   }
 });
 
+/** Proof used before a credential exists. It binds the device key to the server-issued challenge. */
+export const DeviceEnrollmentProofSchema = z.strictObject({
+  challenge_id: UuidSchema,
+  device_key_id: StableCodeSchema,
+  signature: EnrollmentSignatureSchema,
+});
+
 export const DeviceEnrollmentRequestSchema = z.strictObject({
   activation_id: UuidSchema,
   activation_secret: z.string().min(32).max(256).regex(/^[A-Za-z0-9_-]+$/),
@@ -30,8 +39,17 @@ export const DeviceEnrollmentRequestSchema = z.strictObject({
   device_id: UuidSchema,
   device_key_id: StableCodeSchema,
   device_public_key_pem: z.string().min(80).max(4096),
+  challenge_id: UuidSchema,
+  proof: DeviceEnrollmentProofSchema,
   requested_at: UtcDateTimeSchema,
   version: z.number().int().positive(),
+}).superRefine((value, context) => {
+  if (value.proof.challenge_id !== value.challenge_id) {
+    context.addIssue({ code: "custom", path: ["proof", "challenge_id"], message: "proof challenge_id must match request challenge_id" });
+  }
+  if (value.proof.device_key_id !== value.device_key_id) {
+    context.addIssue({ code: "custom", path: ["proof", "device_key_id"], message: "proof device_key_id must match request device_key_id" });
+  }
 });
 
 export const DeviceEnrollmentResultSchema = z.strictObject({
@@ -44,5 +62,6 @@ export const DeviceEnrollmentResultSchema = z.strictObject({
 });
 
 export type DeviceEnrollmentActivation = z.infer<typeof DeviceEnrollmentActivationSchema>;
+export type DeviceEnrollmentProof = z.infer<typeof DeviceEnrollmentProofSchema>;
 export type DeviceEnrollmentRequest = z.infer<typeof DeviceEnrollmentRequestSchema>;
 export type DeviceEnrollmentResult = z.infer<typeof DeviceEnrollmentResultSchema>;
