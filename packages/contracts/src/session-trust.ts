@@ -1,27 +1,12 @@
 import * as z from "zod";
 import { StableCodeSchema, UtcDateTimeSchema } from "./primitives.js";
 
-/**
- * Trust purpose for the Ed25519 key that signs Session Assertions (SSA).
- * This is deliberately distinct from DEVICE_TRUST, licensing, snapshots and
- * update/signing trust. A key with another purpose is not a session authority.
- */
 export const SessionAssertionKeyPurposeSchema = z.literal("SESSION_ASSERTION");
 export type SessionAssertionKeyPurpose = z.infer<typeof SessionAssertionKeyPurposeSchema>;
 
-export const SessionAssertionKeyStatusSchema = z.enum([
-  "ACTIVE",
-  "VERIFY_ONLY",
-  "REVOKED",
-]);
+export const SessionAssertionKeyStatusSchema = z.enum(["ACTIVE", "VERIFY_ONLY", "REVOKED"]);
 export type SessionAssertionKeyStatus = z.infer<typeof SessionAssertionKeyStatusSchema>;
 
-/**
- * Public operational key material distributed to the Local Service.
- *
- * The signature covers exactly these claims. The root trust anchor is external
- * to this contract and must be verified out-of-band as required by DEC-022.
- */
 export const SessionAssertionOperationalKeyClaimsSchema = z.strictObject({
   key_id: StableCodeSchema,
   key_purpose: SessionAssertionKeyPurposeSchema,
@@ -33,11 +18,7 @@ export const SessionAssertionOperationalKeyClaimsSchema = z.strictObject({
   version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
 }).superRefine((claims, context) => {
   if (claims.valid_until !== null && Date.parse(claims.valid_until) <= Date.parse(claims.valid_from)) {
-    context.addIssue({
-      code: "custom",
-      path: ["valid_until"],
-      message: "valid_until must be later than valid_from",
-    });
+    context.addIssue({ code: "custom", path: ["valid_until"], message: "valid_until must be later than valid_from" });
   }
 });
 
@@ -46,8 +27,19 @@ export const SignedSessionAssertionOperationalKeySchema = z.strictObject({
   signature: z.string().min(80).max(128).regex(/^[A-Za-z0-9_-]+$/),
 });
 
+export const SessionAssertionTrustBundleSchema = z.strictObject({
+  version: z.number().int().positive(),
+  keys: z.array(SignedSessionAssertionOperationalKeySchema).min(1).max(16),
+}).superRefine((bundle, context) => {
+  const ids = bundle.keys.map((key) => key.claims.key_id);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: "custom", path: ["keys"], message: "trust bundle contains duplicate key_id values" });
+  }
+});
+
 export type SessionAssertionOperationalKeyClaims = z.infer<typeof SessionAssertionOperationalKeyClaimsSchema>;
 export type SignedSessionAssertionOperationalKey = z.infer<typeof SignedSessionAssertionOperationalKeySchema>;
+export type SessionAssertionTrustBundle = z.infer<typeof SessionAssertionTrustBundleSchema>;
 
 export function unsignedSessionAssertionOperationalKeyBytes(
   claims: SessionAssertionOperationalKeyClaims,
@@ -55,7 +47,6 @@ export function unsignedSessionAssertionOperationalKeyBytes(
   return Buffer.from(canonicalSessionTrustJson(SessionAssertionOperationalKeyClaimsSchema.parse(claims)));
 }
 
-/** Canonical JSON used by the session-trust signature boundary. */
 export function canonicalSessionTrustJson(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
   if (typeof value === "number") {
