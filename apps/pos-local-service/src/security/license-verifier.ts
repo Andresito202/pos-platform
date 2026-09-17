@@ -21,7 +21,7 @@ export type TrustedSigningKeyStatus = "ACTIVE" | "VERIFY_ONLY" | "REVOKED";
 export interface TrustedSigningKey {
   readonly key: KeyObject;
   readonly status: TrustedSigningKeyStatus;
-  /** Optional lifecycle window used by trust domains that rotate operational keys. */
+  /** Optional lifecycle window for trust domains that rotate operational keys. */
   readonly validFrom?: string;
   readonly validUntil?: string | null;
 }
@@ -38,38 +38,49 @@ export interface LicenseVerificationResult {
 
 export class LicenseVerifier {
   constructor(
-    private readonly trustedSigningKeys: ReadonlyMap<string, TrustedSigningKey>,
+    private readonly keys: ReadonlyMap<string, TrustedSigningKey>,
     private readonly trustedClock: TrustedClockGuard,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  verify(input: unknown, binding: LicenseBinding): LicenseVerificationResult {
+  verify(input: unknown, binding: LicenseBinding, online: boolean): LicenseVerificationResult {
     const evaluatedAt = this.now();
     this.trustedClock.accept(evaluatedAt);
-    const at = evaluatedAt.toISOString();
+
     const signed = SignedLicenseSchema.parse(input);
     const claims = LicenseClaimsSchema.parse(signed.claims);
-    const trustedKey = this.trustedSigningKeys.get(claims.key_id);
-    if (!trustedKey) return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: at };
-    if (trustedKey.status === "REVOKED") return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: at };
-
-    let valid = false;
-    try {
-      valid = verify(
-        null,
-        Buffer.from(canonicalJson(claims)),
-        trustedKey.key,
-        Buffer.from(signed.signature, "base64url"),
-      );
-    } catch {
-      valid = false;
+    const trustedKey = this.keys.get(claims.key_id);
+    if (!trustedKey) {
+      return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: evaluatedAt.toISOString() };
     }
-    if (!valid) return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: at };
+    if (trustedKey.status === "REVOKED") {
+      return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: evaluatedAt.toISOString() };
+    }
 
+    const valid = verify(
+      null,
+      Buffer.from(canonicalJson(claims)),
+      trustedKey.key,
+      Buffer.from(signed.signature, "base64url"),
+    );
+    if (!valid) {
+      return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: evaluatedAt.toISOString() };
+    }
     if (claims.installation_id !== binding.installationId || claims.device_id !== binding.deviceId) {
-      return { decision: "BINDING_MISMATCH", claims, evaluatedAt: at };
+      return { decision: "BINDING_MISMATCH", claims, evaluatedAt: evaluatedAt.toISOString() };
     }
-    return { decision: "VALID", claims, evaluatedAt: at };
+
+    const time = evaluatedAt.getTime();
+    if (time < Date.parse(claims.not_before)) {
+      return { decision: "NOT_YET_VALID", claims, evaluatedAt: evaluatedAt.toISOString() };
+    }
+    if (claims.expires_at === null || time <= Date.parse(claims.expires_at)) {
+      return { decision: "VALID", claims, evaluatedAt: evaluatedAt.toISOString() };
+    }
+    if (!online && claims.offline_grace_until !== null && time <= Date.parse(claims.offline_grace_until)) {
+      return { decision: "VALID_OFFLINE_GRACE", claims, evaluatedAt: evaluatedAt.toISOString() };
+    }
+    return { decision: "EXPIRED", claims, evaluatedAt: evaluatedAt.toISOString() };
   }
 }
 
