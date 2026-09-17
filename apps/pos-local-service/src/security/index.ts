@@ -9,6 +9,6 @@ export * from "./security-lifecycle.js";
 export * from "./local-security-component.js";
 export * from "./insecure-derived-key-provider.js";
 export * from "./master-snapshot-verifier.js";
-export * from "./device-trust-verifier.js";
 export * from "./device-enrollment-service.js";
 export * from "./d3-device-registry-runtime.js";
+export * from "@pos-platform/device-trust";
