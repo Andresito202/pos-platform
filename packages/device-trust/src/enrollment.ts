@@ -9,7 +9,7 @@ import {
   type DeviceEnrollmentRequest,
   type DeviceTrustChallenge,
 } from "@pos-platform/contracts";
-import { canonicalDeviceTrustJson } from "./index.js";
+import { canonicalDeviceTrustJson } from "./canonical.js";
 
 export type CentralDeviceRegistryStatus = "PENDING" | "ACTIVE" | "REVOKED" | "COMPROMISED" | "RETIRED";
 
