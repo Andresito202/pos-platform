@@ -49,6 +49,21 @@ export class SessionTrustKeyVerifier {
       return this.result("REVOKED", null, evaluatedAtIso);
     }
 
+    let rootSignatureValid = false;
+    try {
+      rootSignatureValid = verify(
+        null,
+        unsignedSessionAssertionOperationalKeyBytes(claims),
+        this.rootTrustAnchor,
+        Buffer.from(signed.signature, "base64url"),
+      );
+    } catch {
+      rootSignatureValid = false;
+    }
+    if (!rootSignatureValid) {
+      return this.result("ROOT_SIGNATURE_INVALID", null, evaluatedAtIso);
+    }
+
     const time = evaluatedAt.getTime();
     if (time < Date.parse(claims.valid_from)) {
       return this.result("NOT_YET_VALID", null, evaluatedAtIso);
@@ -57,22 +72,20 @@ export class SessionTrustKeyVerifier {
       return this.result("EXPIRED", null, evaluatedAtIso);
     }
 
-    if (!verify(
-      null,
-      unsignedSessionAssertionOperationalKeyBytes(claims),
-      this.rootTrustAnchor,
-      Buffer.from(signed.signature, "base64url"),
-    )) {
-      return this.result("ROOT_SIGNATURE_INVALID", null, evaluatedAtIso);
-    }
-
     return this.result("VALID", claims, evaluatedAtIso);
   }
 
-  toTrustedSigningKey(claims: SessionAssertionOperationalKeyClaims): { key: KeyObject; status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED" } {
+  toTrustedSigningKey(claims: SessionAssertionOperationalKeyClaims): {
+    key: KeyObject;
+    status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED";
+    validFrom: string;
+    validUntil: string | null;
+  } {
     return {
       key: createPublicKey(claims.public_key_pem),
       status: claims.status,
+      validFrom: claims.valid_from,
+      validUntil: claims.valid_until,
     };
   }
 
