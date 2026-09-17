@@ -73,7 +73,8 @@ La línea activa eliminó el modelo duplicado de `device-registry.ts`/`DeviceReg
 - rate limiting acotado en memoria por origen + huella de credencial de transporte;
 - errores internos sanitizados;
 - CLI ejecutable de migration 004;
-- workflow `.github/workflows/d3-security-e2e.yml` para typecheck, tests, PostgreSQL 16.14, migrations 001–004, arranque TLS y comprobación de boundary autenticada;
+- workflow `.github/workflows/d3-live-security-e2e.yml` para typecheck, tests, PostgreSQL 16.14, migrations 001–004, arranque TLS y boundary autenticada;
+- gate ejecutable de enrollment HTTPS real con persistencia central, consumo one-shot y replay;
 - pruebas de persistencia local, PoP, emisión, replay y redacción de errores.
 
 ### Seguridad de límites
@@ -98,8 +99,8 @@ D-3 central server/app          IMPLEMENTED
 D-3 TLS/auth transport         IMPLEMENTED / executable CI gate
 D-3 rate limiting               IMPLEMENTED / bounded in-memory gate
 D-3 migration 004               IMPLEMENTED / executable CLI + CI gate
-D-3 security E2E                IMPLEMENTED / CI gate
-D-3 runtime VERIFIED            NO — CI execution pending
+D-3 security E2E                IMPLEMENTED / live HTTPS path added
+D-3 runtime VERIFIED            NO — workflow execution still pending
 ```
 
 ### Evidencia que todavía no puede declararse
@@ -111,9 +112,9 @@ No se declara `VERIFIED` hasta observar una ejecución real del workflow con:
 3. `device_registry`, activation y credential persistidos realmente.
 4. Central Authority escuchando por TLS.
 5. request sin autenticación rechazado.
-6. enrollment autenticado con PoP válido.
+6. enrollment autenticado con PoP válido sobre HTTPS.
 7. activation consumida una sola vez.
-8. credential persistida y recuperable localmente.
+8. credential persistida centralmente y recuperable por el flujo local.
 9. replay rechazado.
 10. artifact de evidencia sin secretos.
 
@@ -149,7 +150,7 @@ trust root verified
 → runtime evidence
 ```
 
-La implementación está completada en el alcance D-3 autorizado; el único estado abierto de este bloque es la evidencia runtime real y la posterior integración del session bootstrap conforme al ADR vigente.
+La implementación está completada en el alcance D-3 autorizado; el estado abierto de este bloque es la evidencia runtime real. Después de esa evidencia, el siguiente bloque gobernado es la integración del session bootstrap conforme al ADR vigente.
 
 ## 7. Regla permanente
 
