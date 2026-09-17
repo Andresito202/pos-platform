@@ -1,17 +1,18 @@
-import { createHash } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { DeviceTrustCredentialClaimsSchema, SignedDeviceTrustCredentialSchema } from "@pos-platform/contracts";
 import { canonicalJson } from "@pos-platform/local-channel";
+import { createHash } from "node:crypto";
 import type {
   DeviceRegistryRepository,
   DeviceRegistryRow,
   DeviceCredentialIssue,
 } from "./d3-device-registry-runtime.js";
 
-function toBase64Url(value: Buffer): string {
-  return value.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 export type DeviceRegistryRepositoryOptions = { pool: Pool };
+
+function publicKeyPemFromStorage(value: Buffer): string {
+  return value.toString("utf8");
+}
 
 export class PostgresDeviceRegistryRepository implements DeviceRegistryRepository {
   constructor(private readonly options: DeviceRegistryRepositoryOptions) {}
@@ -34,13 +35,13 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
     );
     const row = result.rows[0];
     return row
-      ? { ...row, device_public_key: toBase64Url(Buffer.from(row.device_public_key)) }
+      ? { ...row, device_public_key: publicKeyPemFromStorage(Buffer.from(row.device_public_key)) }
       : null;
   }
 
   async consumeActivationAndIssueCredential(input: {
     activationId: string;
-    requestChecksum: string;
+    activationSecretChecksum: string;
     credential: DeviceCredentialIssue;
   }): Promise<boolean> {
     const client = await this.options.pool.connect();
@@ -70,7 +71,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
       if (activationRow.status !== "ISSUED" || activationRow.expires_at <= new Date()) {
         return this.rollbackFalse(client);
       }
-      if (activationRow.activation_checksum !== input.requestChecksum) {
+      if (activationRow.activation_checksum !== input.activationSecretChecksum) {
         return this.rollbackFalse(client);
       }
 
@@ -94,21 +95,21 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
       if (!rawDevice) return this.rollbackFalse(client);
       const deviceRow: DeviceRegistryRow = {
         ...rawDevice,
-        device_public_key: toBase64Url(Buffer.from(rawDevice.device_public_key)),
+        device_public_key: publicKeyPemFromStorage(Buffer.from(rawDevice.device_public_key)),
       };
 
+      const claims = DeviceTrustCredentialClaimsSchema.parse(input.credential.signedCredential.claims);
+      const signedCredential = SignedDeviceTrustCredentialSchema.parse(input.credential.signedCredential);
       const sameBinding =
-        deviceRow.device_id === input.credential.device.device_id &&
-        deviceRow.installation_id === activationRow.installation_id &&
-        deviceRow.installation_id === input.credential.device.installation_id &&
-        deviceRow.tenant_id === activationRow.tenant_id &&
-        deviceRow.tenant_id === input.credential.device.tenant_id &&
-        deviceRow.company_id === activationRow.company_id &&
-        deviceRow.company_id === input.credential.device.company_id &&
-        deviceRow.device_key_id === input.credential.device.device_key_id &&
-        deviceRow.trust_key_id === input.credential.device.trust_key_id &&
-        deviceRow.trust_key_purpose === "DEVICE_TRUST" &&
-        input.credential.device.trust_key_purpose === "DEVICE_TRUST";
+        claims.device_id === deviceRow.device_id &&
+        claims.installation_id === activationRow.installation_id &&
+        claims.installation_id === deviceRow.installation_id &&
+        claims.tenant_id === activationRow.tenant_id &&
+        claims.tenant_id === deviceRow.tenant_id &&
+        claims.company_id === activationRow.company_id &&
+        claims.company_id === deviceRow.company_id &&
+        claims.key_id === deviceRow.trust_key_id &&
+        claims.device_public_key_pem === deviceRow.device_public_key;
       if (!sameBinding) return this.rollbackFalse(client);
 
       const latest = await client.query<{ generation: number }>(
@@ -121,28 +122,16 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         [deviceRow.device_id],
       );
       const expectedGeneration = (latest.rows[0]?.generation ?? 0) + 1;
-      if (input.credential.generation !== expectedGeneration) return this.rollbackFalse(client);
+      if (expectedGeneration !== 1 && expectedGeneration !== claims.version) return this.rollbackFalse(client);
 
-      const issuedAt = new Date(input.credential.issuedAt);
-      const expiresAt = new Date(input.credential.expiresAt);
-      if (!Number.isFinite(issuedAt.getTime()) || !Number.isFinite(expiresAt.getTime()) || expiresAt <= issuedAt) {
+      const issuedAt = new Date(claims.issued_at);
+      const expiresAt = claims.expires_at ? new Date(claims.expires_at) : null;
+      if (!Number.isFinite(issuedAt.getTime()) || !expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt <= issuedAt) {
         return this.rollbackFalse(client);
       }
 
       const checksum = createHash("sha256")
-        .update(canonicalJson({
-          credential_id: input.credential.credentialId,
-          device_id: deviceRow.device_id,
-          installation_id: deviceRow.installation_id,
-          tenant_id: deviceRow.tenant_id,
-          company_id: deviceRow.company_id,
-          device_key_id: deviceRow.device_key_id,
-          trust_key_id: deviceRow.trust_key_id,
-          key_purpose: "DEVICE_TRUST",
-          generation: input.credential.generation,
-          issued_at: input.credential.issuedAt,
-          expires_at: input.credential.expiresAt,
-        }))
+        .update(canonicalJson(signedCredential))
         .digest("hex");
 
       const inserted = await client.query(
@@ -153,22 +142,24 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, 'DEVICE_TRUST', 'ACTIVE', $8,
-           $9, $10, $11, decode($12, 'base64'), clock_timestamp(), 1
+           $9, $10, $11, decode($12, 'base64'), clock_timestamp(), $13
          )
          RETURNING credential_id`,
         [
-          input.credential.credentialId,
+          claims.credential_id,
           deviceRow.device_id,
           deviceRow.installation_id,
           deviceRow.tenant_id,
           deviceRow.company_id,
           deviceRow.device_key_id,
-          deviceRow.trust_key_id,
-          input.credential.generation,
+          claims.key_id,
+          "DEVICE_TRUST",
+          expectedGeneration,
           issuedAt,
           expiresAt,
           checksum,
-          Buffer.from(input.credential.issuerSignature, "base64url").toString("base64"),
+          Buffer.from(signedCredential.signature, "base64url").toString("base64"),
+          claims.version,
         ],
       );
       if (inserted.rowCount !== 1) return this.rollbackFalse(client);
@@ -177,16 +168,17 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         `UPDATE identity.device_enrollment_activations
             SET status = 'CONSUMED', consumed_at = clock_timestamp(), consumed_credential_id = $2
           WHERE activation_id = $1 AND status = 'ISSUED'`,
-        [input.activationId, input.credential.credentialId],
+        [input.activationId, claims.credential_id],
       );
       if (consumed.rowCount !== 1) return this.rollbackFalse(client);
 
-      await client.query(
+      const activated = await client.query(
         `UPDATE identity.device_registry
             SET status = 'ACTIVE', updated_at = clock_timestamp(), version = version + 1
           WHERE device_id = $1 AND status IN ('PENDING','ACTIVE')`,
         [deviceRow.device_id],
       );
+      if (activated.rowCount !== 1) return this.rollbackFalse(client);
 
       await client.query("COMMIT");
       return true;
