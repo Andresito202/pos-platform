@@ -127,26 +127,19 @@ export class DeviceEnrollmentHttpHandler {
       return rejection(context, 422, "DEVICE_ENROLLMENT_REQUEST_INVALID");
     }
 
-    const requestedAtMs = Date.parse(parsed.data.requested_at);
-    if (!Number.isFinite(requestedAtMs)) {
-      return rejection(context, 422, "DEVICE_ENROLLMENT_REQUEST_TIME_INVALID");
-    }
-
     const issuedAt = Date.parse(parsed.data.challenge.issued_at);
     const expiresAt = Date.parse(parsed.data.challenge.expires_at);
     if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt <= issuedAt) {
       return rejection(context, 422, "DEVICE_ENROLLMENT_CHALLENGE_TIME_INVALID");
     }
 
-    const now = Date.now();
-    const credentialExpiresAt = new Date(now + this.policy.maxCredentialLifetimeMs).toISOString();
-    const requestedExpiry = expiresAt > now ? new Date(Math.min(expiresAt, now + this.policy.maxCredentialLifetimeMs)).toISOString() : null;
+    const credentialExpiresAt = new Date(Date.now() + this.policy.maxCredentialLifetimeMs).toISOString();
 
     try {
       const result = await this.issuer.issue({
         request: parsed.data,
         challenge: parsed.data.challenge,
-        expires_at: requestedExpiry ?? credentialExpiresAt,
+        expires_at: credentialExpiresAt,
       });
       const validated = DeviceEnrollmentResultSchema.parse(result) as DeviceEnrollmentResult;
       return response(context, 200, {
