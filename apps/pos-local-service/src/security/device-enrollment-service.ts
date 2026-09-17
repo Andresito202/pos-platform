@@ -9,6 +9,7 @@ import {
 } from "@pos-platform/contracts";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { DeviceIdentity } from "./device-identity.js";
+import { canonicalDeviceTrustJson, createEnrollmentChallenge } from "@pos-platform/device-trust";
 
 export type EnrollmentDecision =
   | "READY"
@@ -48,9 +49,9 @@ function nowIso(now: () => Date): string {
  *
  * It deliberately does not issue a device credential. The central authority
  * remains the issuer. This component validates a one-time activation envelope,
- * binds it to the local installation/device identity, creates the canonical
- * enrollment request, and records the lifecycle in the append-only security
- * audit. The activation secret is never persisted.
+ * binds it to the local installation/device identity, creates a short-lived
+ * proof-of-possession challenge, and records the lifecycle in the append-only
+ * security audit. The activation secret is never persisted.
  */
 export class DeviceEnrollmentService {
   constructor(
@@ -91,6 +92,20 @@ export class DeviceEnrollmentService {
       return { decision: "PENDING", request: null };
     }
 
+    const issuedAt = nowIso(this.now);
+    const challengeExpiresAt = new Date(Math.min(
+      Date.parse(activation.expires_at),
+      current.getTime() + 5 * 60 * 1000,
+    )).toISOString();
+    const challenge = createEnrollmentChallenge({
+      tenant_id: this.binding.tenantId,
+      installation_id: this.binding.installationId,
+      device_id: this.binding.deviceId,
+      issued_at: issuedAt,
+      expires_at: challengeExpiresAt,
+    });
+    const proofSignature = this.identity.signChallenge(Buffer.from(canonicalDeviceTrustJson(challenge))).toString("base64url");
+
     const request = DeviceEnrollmentRequestSchema.parse({
       activation_id: activation.activation_id,
       activation_secret: activation.activation_secret,
@@ -100,7 +115,13 @@ export class DeviceEnrollmentService {
       device_id: this.binding.deviceId,
       device_key_id: this.identity.deviceKeyId(),
       device_public_key_pem: this.identity.publicKeyPem(),
-      requested_at: nowIso(this.now),
+      challenge,
+      proof: {
+        challenge_id: challenge.challenge_id,
+        device_key_id: this.identity.deviceKeyId(),
+        signature: proofSignature,
+      },
+      requested_at: issuedAt,
       version: 1,
     });
 
@@ -112,6 +133,7 @@ export class DeviceEnrollmentService {
       JSON.stringify({
         activation_id: activation.activation_id,
         device_key_id: request.device_key_id,
+        challenge_id: challenge.challenge_id,
         binding: {
           tenant_id: this.binding.tenantId,
           company_id: this.binding.companyId,
@@ -119,7 +141,7 @@ export class DeviceEnrollmentService {
           device_id: this.binding.deviceId,
         },
       }),
-      nowIso(this.now),
+      issuedAt,
     );
 
     return { decision: "READY", request };
