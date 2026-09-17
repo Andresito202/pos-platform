@@ -81,11 +81,13 @@ export class CentralDeviceCredentialIssuer {
     expires_at: string | null;
   }): Promise<string> {
     const request = DeviceEnrollmentRequestSchema.parse(input.request);
+    const requestChallenge = request.challenge;
     const challenge = DeviceTrustChallengeSchema.parse(input.challenge);
     const now = this.clock.now();
     const nowMs = now.getTime();
 
-    if (challenge.challenge_id !== request.challenge_id) throw new Error("ENROLLMENT_CHALLENGE_MISMATCH");
+    if (challenge.challenge_id !== requestChallenge.challenge_id) throw new Error("ENROLLMENT_CHALLENGE_MISMATCH");
+    if (canonicalDeviceTrustJson(challenge) !== canonicalDeviceTrustJson(requestChallenge)) throw new Error("ENROLLMENT_CHALLENGE_MISMATCH");
     if (challenge.tenant_id !== request.tenant_id || challenge.installation_id !== request.installation_id || challenge.device_id !== request.device_id) {
       throw new Error("ENROLLMENT_CHALLENGE_BINDING_MISMATCH");
     }
@@ -108,6 +110,8 @@ export class CentralDeviceCredentialIssuer {
       Buffer.from(request.proof.signature, "base64url"),
     );
     if (!proofValid) throw new Error("ENROLLMENT_PROOF_INVALID");
+
+    if (input.expires_at !== null && Date.parse(input.expires_at) <= nowMs) throw new Error("CREDENTIAL_EXPIRY_INVALID");
 
     const credentialClaims = DeviceTrustCredentialClaimsSchema.parse({
       credential_id: uuidV7FromModule(),
