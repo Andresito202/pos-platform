@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "@pos-platform/local-channel";
 import type {
   DeviceRegistryRepository,
@@ -7,20 +7,24 @@ import type {
   DeviceCredentialIssue,
 } from "./d3-device-registry-runtime.js";
 
+function toBase64Url(value: Buffer): string {
+  return value.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
 export type DeviceRegistryRepositoryOptions = { pool: Pool };
 
 export class PostgresDeviceRegistryRepository implements DeviceRegistryRepository {
   constructor(private readonly options: DeviceRegistryRepositoryOptions) {}
 
   async findDevice(deviceId: string): Promise<DeviceRegistryRow | null> {
-    const result = await this.options.pool.query<DeviceRegistryRow>(
+    const result = await this.options.pool.query<Omit<DeviceRegistryRow, "device_public_key"> & { device_public_key: Buffer }>(
       `SELECT
          device_id::text,
          installation_id::text,
          tenant_id::text,
          company_id::text,
          device_key_id,
-         encode(device_public_key, 'base64url') AS device_public_key,
+         device_public_key,
          status,
          trust_key_id,
          trust_key_purpose
@@ -28,7 +32,10 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
        WHERE device_id = $1`,
       [deviceId],
     );
-    return result.rows[0] ?? null;
+    const row = result.rows[0];
+    return row
+      ? { ...row, device_public_key: toBase64Url(Buffer.from(row.device_public_key)) }
+      : null;
   }
 
   async consumeActivationAndIssueCredential(input: {
@@ -60,7 +67,6 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
       );
       const activationRow = activation.rows[0];
       if (!activationRow) return this.rollbackFalse(client);
-
       if (activationRow.status !== "ISSUED" || activationRow.expires_at <= new Date()) {
         return this.rollbackFalse(client);
       }
@@ -68,14 +74,14 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         return this.rollbackFalse(client);
       }
 
-      const device = await client.query<DeviceRegistryRow>(
+      const device = await client.query<Omit<DeviceRegistryRow, "device_public_key"> & { device_public_key: Buffer }>(
         `SELECT
            device_id::text,
            installation_id::text,
            tenant_id::text,
            company_id::text,
            device_key_id,
-           encode(device_public_key, 'base64url') AS device_public_key,
+           device_public_key,
            status,
            trust_key_id,
            trust_key_purpose
@@ -84,8 +90,12 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         FOR UPDATE`,
         [activationRow.device_id],
       );
-      const deviceRow = device.rows[0];
-      if (!deviceRow) return this.rollbackFalse(client);
+      const rawDevice = device.rows[0];
+      if (!rawDevice) return this.rollbackFalse(client);
+      const deviceRow: DeviceRegistryRow = {
+        ...rawDevice,
+        device_public_key: toBase64Url(Buffer.from(rawDevice.device_public_key)),
+      };
 
       const sameBinding =
         deviceRow.device_id === input.credential.device.device_id &&
@@ -143,7 +153,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, 'DEVICE_TRUST', 'ACTIVE', $8,
-           $9, $10, $11, decode($12, 'base64url'), clock_timestamp(), 1
+           $9, $10, $11, decode($12, 'base64'), clock_timestamp(), 1
          )
          RETURNING credential_id`,
         [
@@ -158,7 +168,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
           issuedAt,
           expiresAt,
           checksum,
-          input.credential.issuerSignature,
+          Buffer.from(input.credential.issuerSignature, "base64url").toString("base64"),
         ],
       );
       if (inserted.rowCount !== 1) return this.rollbackFalse(client);
@@ -188,7 +198,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
     }
   }
 
-  private async rollbackFalse(client: import("pg").PoolClient): Promise<boolean> {
+  private async rollbackFalse(client: PoolClient): Promise<boolean> {
     await client.query("ROLLBACK");
     return false;
   }
