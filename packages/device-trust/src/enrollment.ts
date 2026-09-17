@@ -1,12 +1,14 @@
 import { createHash, createPublicKey, randomBytes, sign, verify, type KeyObject } from "node:crypto";
 import {
   DeviceEnrollmentRequestSchema,
+  DeviceEnrollmentResultSchema,
   DeviceTrustChallengeSchema,
   DeviceTrustCredentialClaimsSchema,
   DeviceTrustKeyPurposeSchema,
   SignedDeviceTrustCredentialSchema,
   uuidV7FromModule,
   type DeviceEnrollmentRequest,
+  type DeviceEnrollmentResult,
   type DeviceTrustChallenge,
 } from "@pos-platform/contracts";
 import { canonicalDeviceTrustJson } from "./canonical.js";
@@ -79,7 +81,7 @@ export class CentralDeviceCredentialIssuer {
     request: DeviceEnrollmentRequest;
     challenge: DeviceTrustChallenge;
     expires_at: string | null;
-  }): Promise<string> {
+  }): Promise<DeviceEnrollmentResult> {
     const request = DeviceEnrollmentRequestSchema.parse(input.request);
     const requestChallenge = request.challenge;
     const challenge = DeviceTrustChallengeSchema.parse(input.challenge);
@@ -144,6 +146,15 @@ export class CentralDeviceCredentialIssuer {
     });
 
     if (!committed) throw new Error("ACTIVATION_NOT_CONSUMABLE");
-    return signedCredential.claims.credential_id;
+
+    return DeviceEnrollmentResultSchema.parse({
+      status: "ENROLLED",
+      activation_id: request.activation_id,
+      credential_id: signedCredential.claims.credential_id,
+      credential: signedCredential,
+      enrolled_at: now.toISOString(),
+      reason: null,
+      version: 1,
+    });
   }
 }
