@@ -25,8 +25,15 @@ export class SessionTrustKeyResolver {
   resolve(): SessionTrustKeyResolution {
     try {
       if (this.installerArtifactPath !== undefined) {
-        const artifact = JSON.parse(readFileSync(this.installerArtifactPath, "utf8"));
-        this.store.install(artifact, this.verifier);
+        try {
+          const artifact = JSON.parse(readFileSync(this.installerArtifactPath, "utf8"));
+          this.store.install(artifact, this.verifier);
+        } catch (error) {
+          // An already trusted local bundle remains usable offline. A first
+          // bootstrap with no protected copy cannot continue without a valid
+          // installer artifact, so that case remains fail-closed.
+          if (!this.store.has()) throw error;
+        }
       }
       if (!this.store.has()) return { keys: new Map(), decision: "MISSING" };
 
