@@ -1,6 +1,6 @@
 import * as z from "zod";
 import { StableCodeSchema, UtcDateTimeSchema, UuidSchema } from "./primitives.js";
-import { DeviceTrustChallengeSchema } from "./device-trust.js";
+import { DeviceTrustChallengeSchema, SignedDeviceTrustCredentialSchema } from "./device-trust.js";
 
 export const EnrollmentActivationStatusSchema = z.enum(["ISSUED", "CONSUMED", "REVOKED", "EXPIRED"]);
 export const EnrollmentResultStatusSchema = z.enum(["ENROLLED", "REJECTED"]);
@@ -60,9 +60,20 @@ export const DeviceEnrollmentResultSchema = z.strictObject({
   status: EnrollmentResultStatusSchema,
   activation_id: UuidSchema,
   credential_id: UuidSchema.nullable(),
+  credential: SignedDeviceTrustCredentialSchema.nullable(),
   enrolled_at: UtcDateTimeSchema,
   reason: z.string().max(512).nullable(),
   version: z.number().int().positive(),
+}).superRefine((value, context) => {
+  if (value.status === "ENROLLED" && (value.credential_id === null || value.credential === null)) {
+    context.addIssue({ code: "custom", path: ["credential"], message: "ENROLLED result requires credential material" });
+  }
+  if (value.status === "REJECTED" && (value.credential_id !== null || value.credential !== null)) {
+    context.addIssue({ code: "custom", path: ["credential"], message: "REJECTED result cannot carry credential material" });
+  }
+  if (value.credential !== null && value.credential.claims.credential_id !== value.credential_id) {
+    context.addIssue({ code: "custom", path: ["credential"], message: "credential_id must match credential claims" });
+  }
 });
 
 export type DeviceEnrollmentActivation = z.infer<typeof DeviceEnrollmentActivationSchema>;
