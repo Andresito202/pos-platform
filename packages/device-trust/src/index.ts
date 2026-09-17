@@ -10,6 +10,9 @@ import {
   type DeviceTrustCredentialClaims,
   type DeviceTrustOperationalKeyClaims,
 } from "@pos-platform/contracts";
+import { canonicalDeviceTrustJson } from "./canonical.js";
+
+export { canonicalDeviceTrustJson } from "./canonical.js";
 
 export interface DeviceTrustClock {
   now(): Date;
@@ -41,20 +44,6 @@ export interface DeviceTrustVerificationResult<T> {
   readonly decision: DeviceTrustDecision;
   readonly value: T | null;
   readonly evaluatedAt: string;
-}
-
-export function canonicalDeviceTrustJson(value: unknown): string {
-  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("non-finite numbers are not valid trust payloads");
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalDeviceTrustJson).join(",")}]`;
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalDeviceTrustJson(item)}`).join(",")}}`;
-  }
-  throw new Error("unsupported trust payload value");
 }
 
 export function unsignedDeviceTrustOperationalKeyBytes(claims: DeviceTrustOperationalKeyClaims): Buffer {
