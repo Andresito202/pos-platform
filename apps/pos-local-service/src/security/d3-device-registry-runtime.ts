@@ -1,5 +1,6 @@
-import { createHash, randomUUID, sign } from "node:crypto";
+import { createHash, randomBytes, sign } from "node:crypto";
 import { canonicalJson } from "@pos-platform/local-channel";
+import { uuidV7FromModule } from "@pos-platform/contracts";
 
 export type DeviceRegistryStatus = "PENDING" | "ACTIVE" | "REVOKED" | "COMPROMISED" | "RETIRED";
 
@@ -16,6 +17,7 @@ export type DeviceRegistryRow = {
 };
 
 export type DeviceCredentialIssue = {
+  credentialId: string;
   device: DeviceRegistryRow;
   activationId: string;
   generation: number;
@@ -59,7 +61,7 @@ export class DeviceRegistryEnrollmentRuntime {
     if (device.trust_key_purpose !== "DEVICE_TRUST") throw new Error("DEVICE_WRONG_PURPOSE");
     if (!Number.isInteger(input.generation) || input.generation < 1) throw new Error("INVALID_GENERATION");
 
-    const credentialId = randomUUID();
+    const credentialId = uuidV7FromModule();
     const credentialBody = {
       credential_id: credentialId,
       device_id: device.device_id,
@@ -86,6 +88,7 @@ export class DeviceRegistryEnrollmentRuntime {
       activationId: input.activation_id,
       requestChecksum: input.request_checksum,
       credential: {
+        credentialId,
         device,
         activationId: input.activation_id,
         generation: input.generation,
@@ -97,5 +100,9 @@ export class DeviceRegistryEnrollmentRuntime {
 
     if (!committed) throw new Error("ACTIVATION_NOT_CONSUMABLE");
     return credentialId;
+  }
+
+  createChallenge(): string {
+    return randomBytes(32).toString("base64url");
   }
 }
