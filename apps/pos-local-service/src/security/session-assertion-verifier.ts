@@ -44,32 +44,16 @@ export interface SessionAssertionBinding {
 }
 
 export interface SessionAssertionVerificationOptions {
-  /**
-   * Cota superior ya aceptada para este binding. Cuando se proporciona, solo
-   * una secuencia estrictamente mayor es candidata: una igual es un reenvío y
-   * una menor es un replay. No existe last-write-wins.
-   *
-   * Omitirla significa «sin línea base conocida», no «cualquier secuencia es
-   * buena»: el llamador que dispone de estado persistido debe pasarla siempre.
-   */
   readonly highestAcceptedSequence?: number;
 }
 
 export interface SessionAssertionVerificationResult {
   readonly decision: SessionAssertionDecision;
-  /**
-   * Nulo mientras la firma no esté probada. Devolver claims no verificados
-   * invitaría a consumirlos, y una SSA sin firma válida no es evidencia de
-   * ninguna identidad.
-   */
   readonly claims: SessionAssertionClaims | null;
   readonly evaluatedAt: string;
 }
 
 function assertExpectedBinding(binding: SessionAssertionBinding): void {
-  // El contexto esperado es entrada del propio llamador, no del atacante. Un
-  // contexto incompleto es un error de cableado, y aceptarlo silenciosamente
-  // convertiría una comparación vacía en una identidad válida.
   for (const [field, value] of Object.entries(binding)) {
     if (typeof value !== "string" || value.trim() === "") {
       throw new Error(`expected session binding requires ${field}`);
@@ -92,30 +76,30 @@ export class SessionAssertionVerifier {
     assertExpectedBinding(binding);
 
     const evaluatedAt = this.now();
-    // Antes que nada, igual que en SAS-001: un reloj retrocedido podría revivir
-    // una sesión expirada, así que la marca monótona se evalúa primero.
     this.trustedClock.accept(evaluatedAt);
     const at = evaluatedAt.toISOString();
 
     const signed = SignedSessionAssertionSchema.parse(input);
-    // Se canonicaliza el resultado del parseo, no la entrada cruda, para que
-    // los bytes firmados y los verificados sean necesariamente los mismos.
     const claims = SessionAssertionClaimsSchema.parse(signed.claims);
 
     const trustedKey = this.keys.get(claims.key_id);
-    // Una clave desconocida se reporta como firma inválida y no como una causa
-    // propia: distinguirlas revelaría qué identificadores de clave existen.
     if (!trustedKey) return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: at };
 
-    // `VERIFY_ONLY` sigue verificando: es el estado que permite rotar sin una
-    // ventana de corte. Sólo `REVOKED` corta la confianza.
     if (trustedKey.status === "REVOKED") {
       return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: at };
     }
 
-    // `verify` puede lanzar ante material de clave inutilizable. Un fallo de
-    // verificación es una firma no probada, no una excepción que deba propagarse
-    // al llamador: fail-closed sin caída.
+    // The operational key lifecycle is itself trusted material. Enforce its
+    // window on every SSA verification, not only at bootstrap, so an in-memory
+    // key cannot outlive its signed trust window.
+    const time = evaluatedAt.getTime();
+    if (trustedKey.validFrom !== undefined && time < Date.parse(trustedKey.validFrom)) {
+      return { decision: "NOT_YET_VALID", claims: null, evaluatedAt: at };
+    }
+    if (trustedKey.validUntil !== undefined && trustedKey.validUntil !== null && time >= Date.parse(trustedKey.validUntil)) {
+      return { decision: "EXPIRED", claims: null, evaluatedAt: at };
+    }
+
     let valid: boolean;
     try {
       valid = verify(
@@ -129,9 +113,6 @@ export class SessionAssertionVerifier {
     }
     if (!valid) return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: at };
 
-    // A partir de aquí la firma está probada y devolver claims es legítimo. El
-    // binding se compara sobre claims autenticados y nunca sobre datos que el
-    // emisor de la petición pudiera haber elegido: ése es el motivo del orden.
     if (
       claims.user_id !== binding.userId
       || claims.installation_id !== binding.installationId
@@ -140,18 +121,13 @@ export class SessionAssertionVerifier {
       return { decision: "BINDING_MISMATCH", claims, evaluatedAt: at };
     }
 
-    const time = evaluatedAt.getTime();
     if (time < Date.parse(claims.issued_at)) {
       return { decision: "NOT_YET_VALID", claims, evaluatedAt: at };
     }
-    // Vigencia semiabierta [issued_at, offline_valid_until): en el instante
-    // exacto de expiración la sesión ya no vale. Sin gracia.
     if (time >= Date.parse(claims.offline_valid_until)) {
       return { decision: "EXPIRED", claims, evaluatedAt: at };
     }
 
-    // Anti-replay semántico. Se evalúa al final para no revelar el estado de
-    // secuencia de una SSA que además falla algo anterior.
     const baseline = options.highestAcceptedSequence;
     if (baseline !== undefined && claims.sequence <= baseline) {
       return { decision: "SEQUENCE_REPLAY", claims, evaluatedAt: at };
@@ -161,10 +137,6 @@ export class SessionAssertionVerifier {
   }
 }
 
-/**
- * Bytes exactos cubiertos por la firma. El emisor debe firmar esto y nada más;
- * los tests lo usan para producir firmas con material criptográfico de prueba.
- */
 export function unsignedSessionAssertionBytes(claims: SessionAssertionClaims): Buffer {
   return Buffer.from(canonicalJson(SessionAssertionClaimsSchema.parse(claims)));
 }
