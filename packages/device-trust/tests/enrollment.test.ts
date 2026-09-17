@@ -49,7 +49,7 @@ function requestFor(challengeValue: ReturnType<typeof challenge>, signature = si
     ...binding,
     device_key_id: "device-key-1",
     device_public_key_pem: DEVICE_PUBLIC_KEY,
-    challenge_id: challengeValue.challenge_id,
+    challenge: challengeValue,
     proof: {
       challenge_id: challengeValue.challenge_id,
       device_key_id: "device-key-1",
