@@ -111,26 +111,38 @@ La línea activa ahora:
 
 - elimina el contrato duplicado `device-registry.ts`;
 - elimina el autenticador duplicado y sus tests;
-- hace que el runtime de enrollment emita `SignedDeviceTrustCredential` usando `DeviceTrustCredentialClaimsSchema`;
+- usa `DeviceEnrollmentProof` para el PoP previo a la existencia de la credencial;
+- hace que el runtime central emita `SignedDeviceTrustCredential` usando `DeviceTrustCredentialClaimsSchema`;
+- devuelve el credential firmado al resultado de enrollment, para que el lado local no pueda marcar enrolamiento sin material criptográfico;
+- verifica en Local Service la firma operacional y el binding de la credencial antes de registrar `DEVICE_ENROLLMENT_COMPLETED`;
 - usa `key_id` como referencia de la operational `DEVICE_TRUST` key, coherente con `DeviceTrustVerifier`;
 - calcula y entrega al repositorio sólo `SHA-256(activation_secret)`;
 - conserva la transacción atómica de consumo de activación + persistencia de credencial;
-- persiste el checksum del objeto firmado canónico, no de un body alternativo.
+- persiste el checksum del objeto firmado canónico, no de un body alternativo;
+- reconcilia `PostgresDeviceRegistryRepository` con el boundary compartido `CentralDeviceEnrollmentRepository`, eliminando la dependencia del runtime duplicado.
 
 ### Estado de D-3
 
 ```text
-DEC-022                     RATIFICADA
-D-3 contracts/verifier      IMPLEMENTED
-D-3 enrollment runtime      IMPLEMENTED / reconciled
-D-3 postgres repository     IMPLEMENTED / reconciled
-D-3 migration 004            IMPLEMENTED / no ejecutada
-D-3 central endpoint        PENDIENTE
-D-3 authenticated boundary  PENDIENTE
-D-3 session bootstrap       PENDIENTE
-D-3 security E2E             PENDIENTE
-D-3 runtime VERIFIED         NO
+DEC-022                         RATIFICADA
+D-3 contracts/verifier          IMPLEMENTED
+D-3 enrollment PoP              IMPLEMENTED / tested
+D-3 credential issuance        IMPLEMENTED / tested
+D-3 credential response         IMPLEMENTED / tested
+D-3 local credential verification IMPLEMENTED / tested
+D-3 postgres repository         IMPLEMENTED / reconciled
+D-3 migration 004               IMPLEMENTED / no ejecutada
+D-3 central endpoint            PENDIENTE
+D-3 authenticated boundary      PENDIENTE
+D-3 local credential persistence PENDIENTE
+D-3 session bootstrap           PENDIENTE
+D-3 security E2E                 PENDIENTE
+D-3 runtime VERIFIED             NO
 ```
+
+### Bloqueador de dependencias
+
+`packages/device-trust` y la dependencia workspace añadida a `tools/target-migrations` todavía requieren regeneración del `pnpm-lock.yaml` con pnpm real. No se fabrica manualmente el lockfile. Hasta generar y comprobar ese artefacto, el cambio no se declara `typecheck PASS` ni `VERIFIED`.
 
 ### Criterio de seguridad de la activación
 
@@ -141,7 +153,7 @@ SHA-256(secret) almacenado centralmente
         ↓
 POST enrollment
         ↓
-validación de binding + credencial firmada
+validación de binding + PoP + credencial firmada
         ↓
 BEGIN
   lock activation
@@ -150,6 +162,10 @@ BEGIN
   consume activation
   activate device
 COMMIT
+        ↓
+Local Service verifies operational signature + binding
+        ↓
+DEVICE_ENROLLMENT_COMPLETED
 ```
 
 El secreto de activación no debe persistirse como plaintext en PostgreSQL ni enviarse a ningún componente que no necesite validarlo.
