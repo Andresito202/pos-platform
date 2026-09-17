@@ -41,8 +41,8 @@ export class DeviceEnrollmentService {
     private readonly database: LocalDatabase,
     private readonly identity: DeviceIdentity,
     private readonly binding: DeviceEnrollmentBinding,
-    private readonly credentialStore?: DeviceTrustCredentialStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly credentialStore?: DeviceTrustCredentialStore,
   ) {}
 
   prepare(activationInput: unknown): EnrollmentPreparation {
@@ -56,7 +56,6 @@ export class DeviceEnrollmentService {
     if (activation.status === "EXPIRED" || current.getTime() >= Date.parse(activation.expires_at)) {
       return { decision: "ACTIVATION_EXPIRED", request: null };
     }
-
     if (this.credentialStore?.has()) return { decision: "ALREADY_ENROLLED", request: null };
 
     const subject = activationSubject(activation.activation_id);
@@ -69,34 +68,23 @@ export class DeviceEnrollmentService {
     const issuedAt = nowIso(this.now);
     const challengeExpiresAt = new Date(Math.min(Date.parse(activation.expires_at), current.getTime() + 5 * 60 * 1000)).toISOString();
     const challenge = createEnrollmentChallenge({
-      tenant_id: this.binding.tenantId,
-      installation_id: this.binding.installationId,
-      device_id: this.binding.deviceId,
-      issued_at: issuedAt,
-      expires_at: challengeExpiresAt,
+      tenant_id: this.binding.tenantId, installation_id: this.binding.installationId,
+      device_id: this.binding.deviceId, issued_at: issuedAt, expires_at: challengeExpiresAt,
     });
     const proofSignature = this.identity.signChallenge(Buffer.from(canonicalDeviceTrustJson(challenge))).toString("base64url");
     const request = DeviceEnrollmentRequestSchema.parse({
-      activation_id: activation.activation_id,
-      activation_secret: activation.activation_secret,
-      tenant_id: this.binding.tenantId,
-      company_id: this.binding.companyId,
-      installation_id: this.binding.installationId,
-      device_id: this.binding.deviceId,
-      device_key_id: this.identity.deviceKeyId(),
-      device_public_key_pem: this.identity.publicKeyPem(),
+      activation_id: activation.activation_id, activation_secret: activation.activation_secret,
+      tenant_id: this.binding.tenantId, company_id: this.binding.companyId,
+      installation_id: this.binding.installationId, device_id: this.binding.deviceId,
+      device_key_id: this.identity.deviceKeyId(), device_public_key_pem: this.identity.publicKeyPem(),
       challenge,
       proof: { challenge_id: challenge.challenge_id, device_key_id: this.identity.deviceKeyId(), signature: proofSignature },
-      requested_at: issuedAt,
-      version: 1,
+      requested_at: issuedAt, version: 1,
     });
-
     this.database.native.prepare(
       "INSERT INTO local_security_audit(event_type,subject_id,details_json,created_at) VALUES (?,?,?,?)",
     ).run("DEVICE_ENROLLMENT_PENDING", subject, JSON.stringify({
-      activation_id: activation.activation_id,
-      device_key_id: request.device_key_id,
-      challenge_id: challenge.challenge_id,
+      activation_id: activation.activation_id, device_key_id: request.device_key_id, challenge_id: challenge.challenge_id,
       binding: { tenant_id: this.binding.tenantId, company_id: this.binding.companyId, installation_id: this.binding.installationId, device_id: this.binding.deviceId },
     }), issuedAt);
     return { decision: "READY", request };
@@ -120,16 +108,12 @@ export class DeviceEnrollmentService {
       ).run("DEVICE_ENROLLMENT_REJECTED", subject, JSON.stringify({ reason: result.reason }), nowIso(this.now));
       throw new Error(`device enrollment rejected${result.reason ? `: ${result.reason}` : ""}`);
     }
-
     const verification = verifier.verifyCredential(result.credential, {
       tenantId: this.binding.tenantId, companyId: this.binding.companyId,
       installationId: this.binding.installationId, deviceId: this.binding.deviceId,
     });
     if (verification.decision !== "VALID") throw new Error(`device enrollment credential rejected: ${verification.decision}`);
     if (!this.credentialStore) throw new Error("DEVICE_TRUST_CREDENTIAL_STORE_UNAVAILABLE");
-
-    // Persist the verified signed object before declaring enrollment complete.
-    // The audit event is never the credential store and never contains its value.
     this.credentialStore.save(result.credential);
     this.database.native.prepare(
       "INSERT INTO local_security_audit(event_type,subject_id,details_json,created_at) VALUES (?,?,?,?)",
