@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "claims": {
+        "key_id": "ssa-2026-01",
+        "key_purpose": "SESSION_ASSERTION",
+        "environment": "production",
+        "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAb3Gheumus816Hpi8gujpRr7pSW3d7GAxv3/UC3W/jLU=\n-----END PUBLIC KEY-----\n",
+        "status": "ACTIVE",
+        "valid_from": "2026-09-17T00:00:00.000Z",
+        "valid_until": null,
+        "version": 1
+      },
+      "signature": "1s6EFqqMHkg3UMNIFTOywsJ_JSSIwLhgwbG3W91PdXWOhOEwq1abR8LzcjkBLFWeVyTtZmTQII0yKC9xPFpoCQ"
+    }
+  ]
+}
