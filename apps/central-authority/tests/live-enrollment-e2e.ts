@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, sign, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { createEnrollmentChallenge, activationSecretChecksum, canonicalDeviceTrustJson } from "@pos-platform/device-trust";
 
@@ -9,15 +9,14 @@ if (!databaseUrl || !endpoint || !transportToken) throw new Error("D3 live enrol
 
 function uuidV7(): string {
   const now = BigInt(Date.now());
-  const random = new Uint8Array(10);
-  crypto.getRandomValues(random);
-  const bytes = new Uint8Array(16);
+  const random = randomBytes(10);
+  const bytes = Buffer.alloc(16);
   for (let i = 0; i < 6; i += 1) bytes[i] = Number((now >> BigInt(40 - i * 8)) & 0xffn);
   bytes[6] = 0x70 | (random[0] & 0x0f);
   bytes[7] = random[1];
   bytes[8] = 0x80 | (random[2] & 0x3f);
-  bytes.set(random.slice(3), 9);
-  const hex = Buffer.from(bytes).toString("hex");
+  random.copy(bytes, 9, 3);
+  const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -70,7 +69,7 @@ try {
     `INSERT INTO identity.device_registry
       (device_id, installation_id, tenant_id, company_id, device_key_id, device_public_key, algorithm, status, trust_key_id, trust_key_purpose, created_at, updated_at, version)
      VALUES ($1,$2,$3,$4,$5,$6,'Ed25519','PENDING',$7,'DEVICE_TRUST',clock_timestamp(),clock_timestamp(),1)`,
-    [ids.device, ids.installation, ids.tenant, ids.company, deviceKeyId, Buffer.from(publicKeyPem), trustKeyId],
+    [ids.device, ids.installation, ids.tenant, ids.company, ids.device, Buffer.from(publicKeyPem), trustKeyId],
   );
   await pool.query(
     `INSERT INTO identity.device_enrollment_activations
@@ -88,9 +87,7 @@ try {
       "x-correlation-id": `d3-live-${ids.device}`,
     },
     body: JSON.stringify(request),
-    // CI uses an ephemeral self-signed certificate only for this executable security gate.
-    dispatcher: undefined,
-  } as RequestInit & { dispatcher?: unknown });
+  });
   const body = await response.text();
   if (response.status !== 200) throw new Error(`live enrollment failed: ${response.status} ${body}`);
   const parsed = JSON.parse(body) as { status?: string; credential_id?: string; credential?: unknown };
