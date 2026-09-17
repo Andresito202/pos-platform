@@ -15,6 +15,8 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_BRANCH_ID",
   "POS_CENTRAL_BASE_URL",
   "POS_FISCAL_ENVIRONMENT",
+  "POS_SESSION_TRUST_ENVIRONMENT",
+  "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -56,12 +58,27 @@ const ServiceConfigSchema = z.strictObject({
    * decide el proveedor, fijo en `FACTUS` mientras sea el único adapter.
    */
   fiscal_environment: FiscalEnvironmentSchema.optional(),
+  /**
+   * D-3/G1.2 session trust configuration. The root is public trust material,
+   * not a secret; it is intentionally separate from device private keys and
+   * bearer credentials. Both values are optional so an unprovisioned POS keeps
+   * the existing fail-closed session behavior rather than fabricating a key.
+   */
+  session_trust_environment: z.string().min(1).max(128).optional(),
+  session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({
       code: "custom",
       path: ["protocol_max"],
       message: "protocol_max must be greater than or equal to protocol_min",
+    });
+  }
+  if ((value.session_trust_environment === undefined) !== (value.session_trust_root_public_key_pem === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["session_trust_environment"],
+      message: "session trust environment and root public key must be configured together",
     });
   }
 });
@@ -87,6 +104,8 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     branch_id: environment.POS_BRANCH_ID,
     central_base_url: environment.POS_CENTRAL_BASE_URL,
     fiscal_environment: environment.POS_FISCAL_ENVIRONMENT,
+    session_trust_environment: environment.POS_SESSION_TRUST_ENVIRONMENT,
+    session_trust_root_public_key_pem: environment.POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM,
   });
   if (!isAbsolute(parsed.data_directory)) {
     throw new Error("data directory must be absolute");
