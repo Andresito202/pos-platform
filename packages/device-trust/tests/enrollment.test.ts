@@ -13,6 +13,7 @@ import {
 } from "../src/index.js";
 
 const DEVICE = generateKeyPairSync("ed25519");
+const WRONG_DEVICE = generateKeyPairSync("ed25519");
 const ISSUER = generateKeyPairSync("ed25519");
 const DEVICE_PUBLIC_KEY = DEVICE.publicKey.export({ type: "spki", format: "pem" }).toString();
 
@@ -102,7 +103,11 @@ describe("CentralDeviceCredentialIssuer", () => {
     const challengeValue = challenge();
 
     await expect(issuer.issue({
-      request: requestFor(challengeValue, sign(null, Buffer.from("wrong"), DEVICE.privateKey).toString("base64url")),
+      request: requestFor(challengeValue, sign(
+        null,
+        Buffer.from(canonicalDeviceTrustJson(challengeValue)),
+        WRONG_DEVICE.privateKey,
+      ).toString("base64url")),
       challenge: challengeValue,
       expires_at: null,
     })).rejects.toThrow("ENROLLMENT_PROOF_INVALID");
