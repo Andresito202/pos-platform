@@ -15,17 +15,26 @@ export type DeviceRegistryRow = {
   trust_key_purpose: "DEVICE_TRUST";
 };
 
+export type DeviceCredentialIssue = {
+  device: DeviceRegistryRow;
+  activationId: string;
+  generation: number;
+  issuedAt: string;
+  expiresAt: string;
+  issuerSignature: string;
+};
+
 export interface DeviceRegistryRepository {
   findDevice(deviceId: string): Promise<DeviceRegistryRow | null>;
-  consumeActivation(activationId: string, requestChecksum: string): Promise<boolean>;
-  issueCredential(input: {
-    device: DeviceRegistryRow;
+  /**
+   * Atomically consumes the activation and persists the issued credential.
+   * Implementations MUST execute both state transitions in one transaction.
+   */
+  consumeActivationAndIssueCredential(input: {
     activationId: string;
-    generation: number;
-    issuedAt: string;
-    expiresAt: string;
-    issuerSignature: string;
-  }): Promise<void>;
+    requestChecksum: string;
+    credential: DeviceCredentialIssue;
+  }): Promise<boolean>;
 }
 
 export function enrollmentChecksum(input: unknown): string {
@@ -50,9 +59,6 @@ export class DeviceRegistryEnrollmentRuntime {
     if (device.trust_key_purpose !== "DEVICE_TRUST") throw new Error("DEVICE_WRONG_PURPOSE");
     if (!Number.isInteger(input.generation) || input.generation < 1) throw new Error("INVALID_GENERATION");
 
-    const consumed = await this.repository.consumeActivation(input.activation_id, input.request_checksum);
-    if (!consumed) throw new Error("ACTIVATION_NOT_CONSUMABLE");
-
     const credentialId = randomUUID();
     const credentialBody = {
       credential_id: credentialId,
@@ -67,8 +73,29 @@ export class DeviceRegistryEnrollmentRuntime {
       issued_at: input.issued_at,
       expires_at: input.expires_at,
     };
-    const issuerSignature = sign(null, Buffer.from(canonicalJson(credentialBody)), input.issuer_private_key).toString("base64url");
-    await this.repository.issueCredential({ device, activationId: input.activation_id, generation: input.generation, issuedAt: input.issued_at, expiresAt: input.expires_at, issuerSignature });
+
+    // Sign before consuming the one-shot activation. A signing failure must not
+    // leave an activation irreversibly consumed without a credential.
+    const issuerSignature = sign(
+      null,
+      Buffer.from(canonicalJson(credentialBody)),
+      input.issuer_private_key,
+    ).toString("base64url");
+
+    const committed = await this.repository.consumeActivationAndIssueCredential({
+      activationId: input.activation_id,
+      requestChecksum: input.request_checksum,
+      credential: {
+        device,
+        activationId: input.activation_id,
+        generation: input.generation,
+        issuedAt: input.issued_at,
+        expiresAt: input.expires_at,
+        issuerSignature,
+      },
+    });
+
+    if (!committed) throw new Error("ACTIVATION_NOT_CONSUMABLE");
     return credentialId;
   }
 }
