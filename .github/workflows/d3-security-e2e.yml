@@ -1,0 +1,127 @@
+name: D-3 Security E2E
+
+on:
+  push:
+    branches:
+      - main
+      - claude/pos-camacho-bloque-4c-ld43py
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d3-security-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  POSTGRES_ADMIN_URL: postgres://postgres@127.0.0.1:55434/postgres
+  CENTRAL_DATABASE_URL: postgres://pos_platform_app@127.0.0.1:55434/postgres
+  D3_ENROLLMENT_TRANSPORT_TOKEN: ci-transport-token
+
+jobs:
+  d3-security-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 55434:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install workspace dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Typecheck D-3 packages and authority
+        run: |
+          pnpm --filter @pos-platform/contracts typecheck
+          pnpm --filter @pos-platform/device-trust typecheck
+          pnpm --filter @pos-platform/pos-local-service typecheck
+          pnpm --filter @pos-platform/target-migrations typecheck
+          pnpm --filter @pos-platform/central-authority typecheck
+      - name: Run D-3 unit and boundary tests
+        run: |
+          pnpm --filter @pos-platform/device-trust test
+          pnpm --filter @pos-platform/pos-local-service test -- device-trust-credential-store.test.ts device-enrollment-service.test.ts
+      - name: Apply PostgreSQL 001-003 prerequisites
+        run: |
+          pnpm --filter @pos-platform/target-migrations exec tsx -e '
+            import { applyPostgres001, applyPostgres002 } from "./src/postgres.js";
+            import { applyPostgres003 } from "./src/postgres-003-runner.js";
+            const adminUrl = process.env.POSTGRES_ADMIN_URL!;
+            await applyPostgres001({ adminUrl });
+            await applyPostgres002({ adminUrl });
+            await applyPostgres003({ adminUrl, expectedDatabase: "postgres", repositoryCommit: process.env.REVIEWED_SHA! });
+            console.log("D3_PREREQUISITES=APPLIED");
+          '
+      - name: Apply PostgreSQL 004 device trust migration
+        env:
+          POSTGRES_EXPECTED_DATABASE: postgres
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
+        run: pnpm --filter @pos-platform/target-migrations postgres:004:apply
+      - name: Generate ephemeral TLS and issuer keys
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/d3
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout artifacts/d3/tls.key -out artifacts/d3/tls.crt -subj '/CN=localhost' -days 1
+          openssl genpkey -algorithm ED25519 -out artifacts/d3/issuer.key
+      - name: Start Central Authority over TLS
+        env:
+          CENTRAL_AUTHORITY_PORT: 9443
+          CENTRAL_TLS_KEY_FILE: ${{ github.workspace }}/artifacts/d3/tls.key
+          CENTRAL_TLS_CERT_FILE: ${{ github.workspace }}/artifacts/d3/tls.crt
+          D3_ISSUER_PRIVATE_KEY_FILE: ${{ github.workspace }}/artifacts/d3/issuer.key
+        run: |
+          set -euo pipefail
+          nohup pnpm --filter @pos-platform/central-authority start > artifacts/d3/central-authority.log 2>&1 &
+          echo $! > artifacts/d3/central-authority.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --insecure https://127.0.0.1:9443/health > artifacts/d3/health.json; then exit 0; fi
+            sleep 1
+          done
+          cat artifacts/d3/central-authority.log
+          exit 1
+      - name: Verify authenticated HTTPS rejection boundary
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --insecure -o artifacts/d3/unauthorized.json -w '%{http_code}' \
+            -X POST https://127.0.0.1:9443/v1/device-enrollment \
+            -H 'content-type: application/json' --data '{}')
+          test "$status" = "401"
+          ! grep -Eqi 'password|private.?key|token' artifacts/d3/unauthorized.json
+      - name: Upload D-3 evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: d3-security-e2e-${{ env.REVIEWED_SHA }}
+          path: artifacts/d3
+          if-no-files-found: error
+          retention-days: 90
