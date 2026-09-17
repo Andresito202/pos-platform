@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { StableCodeSchema, UtcDateTimeSchema, UuidSchema } from "./primitives.js";
+import { DeviceTrustChallengeSchema } from "./device-trust.js";
 
 export const EnrollmentActivationStatusSchema = z.enum(["ISSUED", "CONSUMED", "REVOKED", "EXPIRED"]);
 export const EnrollmentResultStatusSchema = z.enum(["ENROLLED", "REJECTED"]);
@@ -23,7 +24,7 @@ export const DeviceEnrollmentActivationSchema = z.strictObject({
   }
 });
 
-/** Proof used before a credential exists. It binds the device key to the server-issued challenge. */
+/** Proof used before a credential exists. It binds the device key to the challenge carried by this request. */
 export const DeviceEnrollmentProofSchema = z.strictObject({
   challenge_id: UuidSchema,
   device_key_id: StableCodeSchema,
@@ -39,16 +40,19 @@ export const DeviceEnrollmentRequestSchema = z.strictObject({
   device_id: UuidSchema,
   device_key_id: StableCodeSchema,
   device_public_key_pem: z.string().min(80).max(4096),
-  challenge_id: UuidSchema,
+  challenge: DeviceTrustChallengeSchema,
   proof: DeviceEnrollmentProofSchema,
   requested_at: UtcDateTimeSchema,
   version: z.number().int().positive(),
 }).superRefine((value, context) => {
-  if (value.proof.challenge_id !== value.challenge_id) {
-    context.addIssue({ code: "custom", path: ["proof", "challenge_id"], message: "proof challenge_id must match request challenge_id" });
+  if (value.proof.challenge_id !== value.challenge.challenge_id) {
+    context.addIssue({ code: "custom", path: ["proof", "challenge_id"], message: "proof challenge_id must match challenge" });
   }
   if (value.proof.device_key_id !== value.device_key_id) {
     context.addIssue({ code: "custom", path: ["proof", "device_key_id"], message: "proof device_key_id must match request device_key_id" });
+  }
+  if (value.challenge.tenant_id !== value.tenant_id || value.challenge.installation_id !== value.installation_id || value.challenge.device_id !== value.device_id) {
+    context.addIssue({ code: "custom", path: ["challenge"], message: "challenge binding must match enrollment request" });
   }
 });
 
