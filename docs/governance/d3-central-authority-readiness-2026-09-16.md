@@ -2,126 +2,132 @@
 
 ## Estado
 
-`IMPLEMENTATION / TRUST BOOTSTRAP RATIFIED / NON-PRODUCTION CENTRAL BOUNDARY`
+`IN_PROGRESS / DEC-022 RATIFICADA / NON-PRODUCTION AUTHORITY LAYER`
 
-D-3 es el objetivo técnico activo después de D-2. DEC-022 fue ratificada expresamente el `2026-09-16` y autoriza la implementación D-3 sobre la línea única activa. No se ha creado todavía una autoridad central productiva ni se ha convertido el persistence gate en runtime de producto.
+D-3 está autorizado y continúa sobre la única línea de desarrollo activa. DEC-022 fue ratificada el 2026-09-16. La ratificación fija la raíz de confianza, el enrollment de un solo uso, la identidad criptográfica del dispositivo, el binding y el fail-closed como invariantes; no convierte automáticamente estos componentes en producción.
 
-## DEC-022
+D-2 permanece pendiente de ejecución real del persistence gate. El bloqueo de GitHub Actions por billing es operativo y no constituye evidencia de PASS ni FAIL del código.
 
-`docs/adr/DEC-022-trust-anchor-origin.md` está en estado `RATIFICADA — 2026-09-16`.
+## Materializado
 
-Quedan fijados para implementación:
+- contratos Zod de device trust y enrollment;
+- verificador Ed25519 fail-closed;
+- autenticador de frontera preparado;
+- device registry contracts;
+- boundary de credential issuance;
+- enrollment runtime;
+- emisión atómica: consumo de activation y persistencia de credential deben ocurrir en una única transacción del repositorio;
+- migración PostgreSQL `004_device_trust` como artifact, con tablas de registry, credentials, one-shot activations y authentication events;
+- descriptor y runner 004 con dependencia exacta de 003, checksum derivado del artifact, advisory lock global y ledger `platform.target_migration_executions`;
+- gate de descriptor para columnas, dependencia y artifacts.
 
-- trust root propio del producto, verificado fuera de banda por fingerprint;
-- instalación capaz de recibir material de confianza sin conectividad;
-- separación estricta entre confianza de plataforma, transporte y aplicación;
-- `DEVICE_TRUST` separado de licencias, sesiones y actualización;
-- Ed25519 como mecanismo base;
-- private key de dispositivo generada y protegida localmente;
-- binding de tenant/company/installation/device;
-- enrollment one-shot con evidencia auditable;
-- autoridad central como emisora de credenciales;
-- restore/clone no equivalente a trust;
-- lifecycle de revocación/compromiso/retirement sin colapsar semántica de seguridad.
+## Regla de atomicidad
 
-## Bloque materializado
-
-La línea activa contiene:
-
-- `packages/contracts/src/device-trust.ts` — contratos Zod para claves operativas `DEVICE_TRUST`, credenciales, challenge y proof-of-possession;
-- `apps/pos-local-service/src/security/device-trust-verifier.ts` — cadena root → operational key → credential → proof con fail-closed;
-- `apps/pos-local-service/src/security/device-enrollment-service.ts` — preparación local de enrollment y lifecycle auditado;
-- `apps/pos-local-service/src/security/d3-device-registry-runtime.ts` — frontera de emisión de credenciales;
-- `apps/pos-local-service/tests/device-enrollment-service.test.ts` — gates de lifecycle local;
-- `apps/pos-local-service/src/security/d3-device-registry-runtime.test.ts` — gates de emisión y atomicidad contractual.
-
-El runtime de emisión fue corregido para impedir una transición peligrosa: consumir una activación y después intentar persistir la credencial. La operación ahora exige un único método de repositorio `consumeActivationAndIssueCredential(...)`; su implementación debe realizar ambos cambios dentro de una sola transacción. Además, la firma se calcula antes del consumo para que un error criptográfico no queme una activación.
-
-Este bloque está **IMPLEMENTED**. La ejecución real de typecheck/Vitest todavía requiere el entorno del repositorio; no se declara `TESTED` sin esa evidencia.
-
-## Frontera central
-
-La implementación productiva siguiente debe materializar la persistencia detrás del contrato anterior y después conectar la frontera autenticada:
+No se acepta el patrón:
 
 ```text
-activation
-  ↓
-atomic consume + credential issuance
-  ↓
-DeviceCredential
-  ↓
-DeviceTrustVerifier
-  ↓
-proof-of-possession
-  ↓
-Central Device Registry
-  ↓
-authenticated central boundary
+consume activation
+→ emitir/persistir credential
 ```
 
-No se copia `central-sync-server.ts`. El servidor de persistence gate continúa siendo evidencia de D-2, no la autoridad de dispositivos.
-
-## Gaps concretos restantes
-
-1. Implementación PostgreSQL del repositorio de Device Registry.
-2. Migración/ledger central para identidad y credenciales de dispositivo.
-3. Endpoint central de enrollment separado de `/v1/sync/batches`.
-4. Middleware de autenticación de dispositivo usando trust credential + proof-of-possession.
-5. Revocación/rotación conectada al registry.
-6. Provider de credencial para el outbox D-2 después de enrollment real.
-7. Bootstrap de `SessionAssertionVerifier` con material de confianza realmente aprovisionado, sin claves fabricadas.
-8. E2E de enrollment → authentication → session.
-9. Evidencia runtime de seguridad.
-10. Selección productiva verificable de KMS/HSM/secret manager y despliegue.
-
-## No reabrir
-
-No se vuelve a auditar ni modificar por preferencia:
-
-- Payment/Cash/Sale aprobados;
-- contratos de sync ya cerrados;
-- arquitectura Local Service single-writer;
-- separación renderer/preload;
-- Ed25519/canonicalJson/TrustedClockGuard;
-- D-2 como arquitectura de outbox/persistence.
-
-Sólo evidencia de regresión o contradicción puede reabrir esas superficies.
-
-## Evidencia y estados
+El límite autorizado es:
 
 ```text
-D-2                         TESTED / runtime evidence pendiente
-DEC-022                     RATIFICADA
-D-3 trust contracts         IMPLEMENTED
-D-3 verifier                IMPLEMENTED
-D-3 local enrollment        IMPLEMENTED
-D-3 issuance boundary      IMPLEMENTED
-D-3 central persistence    PENDIENTE
-D-3 central authentication PENDIENTE
+firmar credential
+→ BEGIN
+   consumir activation
+   persistir credential
+  COMMIT
+```
+
+Si la transacción falla, la activation no puede quedar consumida sin credential durable.
+
+## Cadena D-3
+
+```text
+trust anchor product-owned
+        ↓
+operational DEVICE_TRUST key
+        ↓
+device credential / proof-of-possession
+        ↓
+installation_id + device_id + tenant/company binding
+        ↓
+Central Authority
+        ↓
+Session bootstrap
+```
+
+TLS protege el transporte pero no sustituye device trust. Un bearer token tampoco es identidad criptográfica del dispositivo. La private key del dispositivo permanece local y fuera del renderer/preload.
+
+## Ownership
+
+```text
+Devices       → device registry, lifecycle, device identity
+Authorization → user/session authorization
+Licensing     → license state
+Audit         → security evidence
+Sync          → transport, outbox, checkpoints
+Central       → trust lifecycle, credentials, revocation, central configuration
+Local Service → local operational facts and single-writer SQLite/WAL
+```
+
+Central Authority no reescribe ventas, caja, inventario o pagos locales confirmados.
+
+## Gaps restantes
+
+1. Integración del descriptor 004 con el ledger/runner canónico de migraciones sin duplicar autoridad.
+2. Implementación PostgreSQL real del `DeviceRegistryRepository` con enrollment atómico.
+3. Endpoint central de enrollment con validación completa del contrato y activation secret.
+4. Autenticación central usando credential + proof-of-possession + revocation + binding.
+5. Registro durable de eventos de autenticación.
+6. Integración del resultado de device authentication con el bootstrap real de Session.
+7. E2E de replay, revocation, rotation, binding, restore/clone denial y fail-closed.
+8. Ejecución real de typecheck/Vitest y gates en CI o entorno controlado.
+9. Runtime evidence de Central Authority.
+10. Selección operativa verificable de KMS/HSM/secret manager para producción.
+
+## No hacer
+
+- no copiar `central-sync-server.ts` para crear una falsa autoridad;
+- no crear un segundo endpoint de sync;
+- no usar `.env`/fixtures como credenciales productivas;
+- no reabrir Payment/Cash Shift/Sale/Inventory sin regresión o contradicción;
+- no modificar DEC-008, DEC-010, ownership ni contratos cerrados para facilitar D-3;
+- no declarar `TESTED`, `VERIFIED` o `PRODUCTION` sin evidencia ejecutable correspondiente.
+
+## Estado de evidencia
+
+```text
+DEC-022                    RATIFICADA
+D-2 outbound sync          IMPLEMENTED / runtime pendiente
+D-3 trust contracts       IMPLEMENTED
+D-3 verifier              IMPLEMENTED
+D-3 enrollment             IMPLEMENTED / atomic boundary materialized
+D-3 DB artifact            IMPLEMENTED / no aplicado todavía
+D-3 migration runner       IMPLEMENTED / no ejecutado todavía
+D-3 central repository     PENDIENTE
+D-3 central endpoint       PENDIENTE
 D-3 session bootstrap      PENDIENTE
-D-3 security E2E            PENDIENTE
-D-3 runtime VERIFIED        NO
-D-3 production              NO
+D-3 security E2E           PENDIENTE
+D-3 runtime VERIFIED       NO
+Production                NO
 ```
 
-## Siguiente bloque cohesivo
+## Próximo bloque cohesivo
 
 ```text
-PostgreSQL Device Registry
+PostgreSQL DeviceRegistryRepository
         ↓
 atomic enrollment transaction
         ↓
 central enrollment endpoint
         ↓
-DeviceTrust authentication middleware
+authenticated device boundary
         ↓
-credential provider for D-2
+device credential lookup/revocation
         ↓
-session bootstrap
-        ↓
-real SESSION assertion path
-        ↓
-security E2E
+real Session bootstrap
 ```
 
-La implementación debe reutilizar los contratos e invariantes ya materializados y no crear una segunda arquitectura de sync ni una segunda autoridad de persistencia.
+Ese bloque es el siguiente objetivo. No se debe volver a construir ni auditar desde cero lo que ya está materializado salvo evidencia de regresión o contradicción.
