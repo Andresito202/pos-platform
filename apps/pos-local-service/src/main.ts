@@ -39,6 +39,7 @@ const logger = new StructuredLogger({
   }),
 });
 
+/** Cadencia fija de despacho del outbox (`D-2`). */
 const CENTRAL_SYNC_INTERVAL_MS = 30_000;
 
 let lifecycle: ServiceLifecycle | undefined;
@@ -58,6 +59,7 @@ function terminate(reason: string, exitCode: number, error?: unknown): Promise<v
       try {
         logger.log("error", "runtime.stop_failed", { reason, error: stopError });
       } catch {
+        // Exit remains fail-closed if the logger is unavailable.
       }
       exitCode = 1;
     }
@@ -196,7 +198,6 @@ try {
   }
 
   lifecycle = new ServiceLifecycle(components);
-
   await lifecycle.start();
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
