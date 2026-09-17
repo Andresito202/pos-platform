@@ -3,13 +3,15 @@ import {
   DeviceEnrollmentActivationSchema,
   DeviceEnrollmentRequestSchema,
   DeviceEnrollmentResultSchema,
-  type DeviceEnrollmentActivation,
-  type DeviceEnrollmentRequest,
   type DeviceEnrollmentResult,
 } from "@pos-platform/contracts";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { DeviceIdentity } from "./device-identity.js";
-import { canonicalDeviceTrustJson, createEnrollmentChallenge } from "@pos-platform/device-trust";
+import {
+  canonicalDeviceTrustJson,
+  createEnrollmentChallenge,
+  type DeviceTrustVerifier,
+} from "@pos-platform/device-trust";
 
 export type EnrollmentDecision =
   | "READY"
@@ -29,7 +31,7 @@ export interface DeviceEnrollmentBinding {
 
 export interface EnrollmentPreparation {
   readonly decision: EnrollmentDecision;
-  readonly request: DeviceEnrollmentRequest | null;
+  readonly request: ReturnType<typeof DeviceEnrollmentRequestSchema.parse> | null;
 }
 
 function activationFingerprint(activationId: string): string {
@@ -47,11 +49,11 @@ function nowIso(now: () => Date): string {
 /**
  * Local half of D-3 enrollment.
  *
- * It deliberately does not issue a device credential. The central authority
- * remains the issuer. This component validates a one-time activation envelope,
- * binds it to the local installation/device identity, creates a short-lived
- * proof-of-possession challenge, and records the lifecycle in the append-only
- * security audit. The activation secret is never persisted.
+ * It validates a one-time activation envelope, binds it to the local
+ * installation/device identity, creates a short-lived proof-of-possession
+ * challenge, and verifies the centrally issued credential before completion.
+ * It deliberately does not issue credentials and does not persist the
+ * activation secret.
  */
 export class DeviceEnrollmentService {
   constructor(
@@ -147,7 +149,7 @@ export class DeviceEnrollmentService {
     return { decision: "READY", request };
   }
 
-  complete(resultInput: unknown): DeviceEnrollmentResult {
+  complete(resultInput: unknown, verifier: DeviceTrustVerifier): DeviceEnrollmentResult {
     const result = DeviceEnrollmentResultSchema.parse(resultInput);
     const subject = activationSubject(result.activation_id);
     const history = this.database.native.prepare(
@@ -161,7 +163,7 @@ export class DeviceEnrollmentService {
       throw new Error("device enrollment result has no matching pending request");
     }
 
-    if (result.status !== "ENROLLED" || result.credential_id === null) {
+    if (result.status !== "ENROLLED" || result.credential_id === null || result.credential === null) {
       this.database.native.prepare(
         "INSERT INTO local_security_audit(event_type,subject_id,details_json,created_at) VALUES (?,?,?,?)",
       ).run(
@@ -171,6 +173,16 @@ export class DeviceEnrollmentService {
         nowIso(this.now),
       );
       throw new Error(`device enrollment rejected${result.reason ? `: ${result.reason}` : ""}`);
+    }
+
+    const verification = verifier.verifyCredential(result.credential, {
+      tenantId: this.binding.tenantId,
+      companyId: this.binding.companyId,
+      installationId: this.binding.installationId,
+      deviceId: this.binding.deviceId,
+    });
+    if (verification.decision !== "VALID") {
+      throw new Error(`device enrollment credential rejected: ${verification.decision}`);
     }
 
     this.database.native.prepare(
