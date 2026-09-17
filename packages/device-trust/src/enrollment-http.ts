@@ -26,6 +26,8 @@ export type DeviceEnrollmentTransportPolicy = {
   readonly maxBodyBytes: number;
   /** Maximum lifetime accepted for the issued credential. */
   readonly maxCredentialLifetimeMs: number;
+  /** Trusted central-service clock; production supplies the authority clock. */
+  now(): Date;
 };
 
 function headers(context: DeviceEnrollmentTransportContext): Record<string, string> {
@@ -133,7 +135,7 @@ export class DeviceEnrollmentHttpHandler {
       return rejection(context, 422, "DEVICE_ENROLLMENT_CHALLENGE_TIME_INVALID");
     }
 
-    const credentialExpiresAt = new Date(Date.now() + this.policy.maxCredentialLifetimeMs).toISOString();
+    const credentialExpiresAt = new Date(this.policy.now().getTime() + this.policy.maxCredentialLifetimeMs).toISOString();
 
     try {
       const result = await this.issuer.issue({
