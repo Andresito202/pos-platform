@@ -14,6 +14,7 @@
   "dependencies": {
     "@pos-platform/application": "workspace:*",
     "@pos-platform/contracts": "workspace:*",
+    "@pos-platform/device-trust": "workspace:*",
     "@pos-platform/observability": "workspace:*",
     "zod": "4.4.3",
     "@pos-platform/database-sqlite": "workspace:*",
