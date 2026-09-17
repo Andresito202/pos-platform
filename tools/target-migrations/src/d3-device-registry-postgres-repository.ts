@@ -1,12 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import { DeviceTrustCredentialClaimsSchema, SignedDeviceTrustCredentialSchema } from "@pos-platform/contracts";
-import { canonicalJson } from "@pos-platform/local-channel";
+import {
+  activationSecretChecksum,
+  canonicalDeviceTrustJson,
+  type CentralDeviceEnrollmentRepository,
+  type CentralDeviceRegistryRow,
+} from "@pos-platform/device-trust";
 import { createHash } from "node:crypto";
-import type {
-  DeviceRegistryRepository,
-  DeviceRegistryRow,
-  DeviceCredentialIssue,
-} from "./d3-device-registry-runtime.js";
 
 export type DeviceRegistryRepositoryOptions = { pool: Pool };
 
@@ -14,11 +14,11 @@ function publicKeyPemFromStorage(value: Buffer): string {
   return value.toString("utf8");
 }
 
-export class PostgresDeviceRegistryRepository implements DeviceRegistryRepository {
+export class PostgresDeviceRegistryRepository implements CentralDeviceEnrollmentRepository {
   constructor(private readonly options: DeviceRegistryRepositoryOptions) {}
 
-  async findDevice(deviceId: string): Promise<DeviceRegistryRow | null> {
-    const result = await this.options.pool.query<Omit<DeviceRegistryRow, "device_public_key"> & { device_public_key: Buffer }>(
+  async findDevice(deviceId: string): Promise<CentralDeviceRegistryRow | null> {
+    const result = await this.options.pool.query<Omit<CentralDeviceRegistryRow, "device_public_key"> & { device_public_key: Buffer }>(
       `SELECT
          device_id::text,
          installation_id::text,
@@ -39,11 +39,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
       : null;
   }
 
-  async consumeActivationAndIssueCredential(input: {
-    activationId: string;
-    activationSecretChecksum: string;
-    credential: DeviceCredentialIssue;
-  }): Promise<boolean> {
+  async consumeActivationAndIssueCredential(input: Parameters<CentralDeviceEnrollmentRepository["consumeActivationAndIssueCredential"]>[0]): Promise<boolean> {
     const client = await this.options.pool.connect();
     try {
       await client.query("BEGIN");
@@ -75,7 +71,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         return this.rollbackFalse(client);
       }
 
-      const device = await client.query<Omit<DeviceRegistryRow, "device_public_key"> & { device_public_key: Buffer }>(
+      const device = await client.query<Omit<CentralDeviceRegistryRow, "device_public_key"> & { device_public_key: Buffer }>(
         `SELECT
            device_id::text,
            installation_id::text,
@@ -93,13 +89,13 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
       );
       const rawDevice = device.rows[0];
       if (!rawDevice) return this.rollbackFalse(client);
-      const deviceRow: DeviceRegistryRow = {
+      const deviceRow: CentralDeviceRegistryRow = {
         ...rawDevice,
         device_public_key: publicKeyPemFromStorage(Buffer.from(rawDevice.device_public_key)),
       };
 
-      const claims = DeviceTrustCredentialClaimsSchema.parse(input.credential.signedCredential.claims);
-      const signedCredential = SignedDeviceTrustCredentialSchema.parse(input.credential.signedCredential);
+      const claims = DeviceTrustCredentialClaimsSchema.parse(input.credential.claims);
+      const signedCredential = SignedDeviceTrustCredentialSchema.parse(input.credential);
       const sameBinding =
         claims.device_id === deviceRow.device_id &&
         claims.installation_id === activationRow.installation_id &&
@@ -111,6 +107,11 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
         claims.key_id === deviceRow.trust_key_id &&
         claims.device_public_key_pem === deviceRow.device_public_key;
       if (!sameBinding) return this.rollbackFalse(client);
+
+      const expectedChecksum = createHash("sha256")
+        .update(canonicalDeviceTrustJson(signedCredential))
+        .digest("hex");
+      if (expectedChecksum !== input.credentialChecksum) return this.rollbackFalse(client);
 
       const latest = await client.query<{ generation: number }>(
         `SELECT generation
@@ -128,10 +129,6 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
       if (!Number.isFinite(issuedAt.getTime()) || !expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt <= issuedAt) {
         return this.rollbackFalse(client);
       }
-
-      const checksum = createHash("sha256")
-        .update(canonicalJson(signedCredential))
-        .digest("hex");
 
       const inserted = await client.query(
         `INSERT INTO identity.device_credentials (
@@ -155,7 +152,7 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
           expectedGeneration,
           issuedAt,
           expiresAt,
-          checksum,
+          input.credentialChecksum,
           Buffer.from(signedCredential.signature, "base64url").toString("base64"),
           claims.version,
         ],
@@ -193,3 +190,5 @@ export class PostgresDeviceRegistryRepository implements DeviceRegistryRepositor
     return false;
   }
 }
+
+export { activationSecretChecksum };
