@@ -46,7 +46,10 @@ export class ConfirmProviderPaymentUseCase {
     scope: SyncScope,
     request: ConfirmProviderPaymentRequest,
   ): ConfirmProviderPaymentOutcome {
-    if (request.evidence.status !== "APPROVED") {
+    if (request.evidence.status !== "APPROVED"
+      || request.evidence.providerCode.trim() === ""
+      || request.evidence.providerReference.trim() === ""
+      || request.evidence.providerTransactionId.trim() === "") {
       return { kind: "EVIDENCE_NOT_AUTHORIZED" };
     }
 
