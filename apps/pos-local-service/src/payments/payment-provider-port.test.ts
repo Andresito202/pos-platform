@@ -15,6 +15,7 @@ describe("PaymentProviderPort", () => {
       cashRegisterId: "register-3",
       amount: "87000.000000",
       currencyCode: "COP",
+      idempotencyKey: "qr-intent-1",
     };
 
     expect(input.cashRegisterId).toBe("register-3");
