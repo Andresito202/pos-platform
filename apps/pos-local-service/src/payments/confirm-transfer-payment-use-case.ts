@@ -84,6 +84,7 @@ export class ConfirmTransferPaymentUseCase {
       paymentId: request.paymentId,
       expectedVersion: request.expectedVersion,
       allocationId: randomUUID(),
+      attemptId: randomUUID(),
       operationId: randomUUID(),
       saleCompletionOperationId: randomUUID(),
       idempotencyKey: request.idempotencyKey,
