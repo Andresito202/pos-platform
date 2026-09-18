@@ -55,7 +55,9 @@ export class ConfirmProviderPaymentUseCase {
 
     return this.paymentStore.confirmProviderPayment({
       scope,
-      // Provider callbacks have no interactive user session. Use a UUID for this\n      // trusted callback execution so the durable-sync contract remains valid.\n      sessionId: randomUUID(),
+      // Provider callbacks have no interactive user session. Use a UUID for this
+      // trusted callback execution so the durable-sync contract remains valid.
+      sessionId: randomUUID(),
       operatorUserId: scope.deviceId,
       auditActorType: "SYSTEM",
       auditActorId: null,
