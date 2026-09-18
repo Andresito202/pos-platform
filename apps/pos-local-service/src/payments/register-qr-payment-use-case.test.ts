@@ -12,6 +12,31 @@ const scope = {
   installationId: "00000000-0000-0000-0000-000000000005",
 };
 
+const authSnapshot: StoredAuthorizationSnapshot = {
+  claims: {
+    snapshot_id: "00000000-0000-0000-0000-0000000000a0",
+    user_id: "00000000-0000-0000-0000-0000000000a1",
+    installation_id: scope.installationId,
+    device_id: scope.deviceId,
+    sequence: 1,
+    issued_at: "2026-09-18T00:00:00Z",
+    expires_at: "2030-09-18T00:00:00Z",
+    assignments: [{
+      tenant_id: scope.tenantId,
+      company_id: scope.companyId,
+      branch_id: scope.branchId,
+      status: "ACTIVE",
+      valid_from: "2026-09-01T00:00:00Z",
+      valid_until: null,
+      role_status: "ACTIVE",
+      permissions: [{ code: "PAYMENTS_TRANSFER_REPORT", status: "ACTIVE" }],
+    }],
+    key_id: "AUTHZ_KEY_1",
+  },
+  signature: "x".repeat(80),
+  activatedAt: "2026-09-18T00:00:00Z",
+};
+
 const request = {
   saleId: "00000000-0000-0000-0000-000000000006",
   amount: "87000.000000",
@@ -73,7 +98,7 @@ describe("RegisterQrPaymentUseCase", () => {
       register: vi.fn(),
     } as unknown as SqlitePaymentStore;
 
-    const result = await new RegisterQrPaymentUseCase(store, provider).execute(scope, request);
+    const result = await new RegisterQrPaymentUseCase(store, provider).execute(scope, "session-1", authSnapshot, request);
 
     expect(result).toEqual({ kind: "IDEMPOTENT", paymentId: "payment-1" });
     expect(provider.createPaymentIntent).not.toHaveBeenCalled();
