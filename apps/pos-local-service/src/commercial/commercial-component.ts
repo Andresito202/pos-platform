@@ -31,6 +31,8 @@ import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-paym
 import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
 import { ConfirmProviderPaymentUseCase } from "../payments/confirm-provider-payment-use-case.js";
+import { RegisterQrPaymentUseCase } from "../payments/register-qr-payment-use-case.js";
+import type { PaymentProviderPort } from "../payments/payment-provider-port.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
@@ -68,6 +70,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly cancelPayment: CancelPaymentUseCase;
         readonly getPayment: GetPaymentUseCase;
         readonly confirmProviderPayment: ConfirmProviderPaymentUseCase;
+        readonly registerQrPayment: RegisterQrPaymentUseCase | undefined;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
@@ -87,6 +90,7 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly durableSync: DurableSyncComponent,
     private readonly sessionSigningKeys: ReadonlyMap<string, TrustedSigningKey> = new Map(),
     private readonly now: () => Date = () => new Date(),
+    private readonly paymentProvider?: PaymentProviderPort,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -108,6 +112,7 @@ export class CommercialComponent implements RuntimeComponent {
   get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
   get confirmProviderPayment(): ConfirmProviderPaymentUseCase { return this.ready.confirmProviderPayment; }
+  get registerQrPayment(): RegisterQrPaymentUseCase | undefined { return this.ready.registerQrPayment; }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
@@ -160,6 +165,9 @@ export class CommercialComponent implements RuntimeComponent {
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
       confirmProviderPayment: new ConfirmProviderPaymentUseCase(paymentStore),
+      registerQrPayment: this.paymentProvider === undefined
+        ? undefined
+        : new RegisterQrPaymentUseCase(paymentStore, this.paymentProvider),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
     };
