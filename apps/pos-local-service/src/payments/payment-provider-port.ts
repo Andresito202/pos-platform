@@ -16,10 +16,20 @@ export interface PaymentProviderIntent {
   readonly idempotencyKey: string;
 }
 
+export interface PaymentProviderCheckout {
+  /**
+   * Provider-owned checkout surface. The renderer may present the URL but
+   * never constructs or signs it.
+   */
+  readonly kind: "WEB_URL";
+  readonly url: string;
+}
+
 export interface PaymentProviderIntentResult {
   readonly providerCode: string;
   readonly providerReference: string;
   readonly status: "PENDING" | "APPROVED" | "REJECTED";
+  readonly checkout: PaymentProviderCheckout | null;
 }
 
 export interface PaymentProviderEvidence {
