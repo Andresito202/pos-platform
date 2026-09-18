@@ -15,6 +15,7 @@ import {
   InventoryStockAdjustRequestSchema,
   InventoryStockGetRequestSchema,
   InventoryStockReceiveRequestSchema,
+  PaymentRegisterQrRequestSchema,
   SaleCreateRequestSchema,
   SessionActivateRequestSchema,
   type AuthorizationSnapshotClaims,
