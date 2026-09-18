@@ -30,6 +30,7 @@ import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-pa
 import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-payment-use-case.js";
 import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
+import { ConfirmProviderPaymentUseCase } from "../payments/confirm-provider-payment-use-case.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
@@ -66,6 +67,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
         readonly cancelPayment: CancelPaymentUseCase;
         readonly getPayment: GetPaymentUseCase;
+        readonly confirmProviderPayment: ConfirmProviderPaymentUseCase;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
@@ -105,6 +107,7 @@ export class CommercialComponent implements RuntimeComponent {
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
   get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
+  get confirmProviderPayment(): ConfirmProviderPaymentUseCase { return this.ready.confirmProviderPayment; }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
@@ -156,6 +159,7 @@ export class CommercialComponent implements RuntimeComponent {
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
+      confirmProviderPayment: new ConfirmProviderPaymentUseCase(paymentStore),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
     };
