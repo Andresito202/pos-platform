@@ -89,8 +89,8 @@ export class RegisterQrPaymentUseCase {
 
     const outcome: RegisterPaymentOutcome = this.paymentStore.register({
       scope,
-      sessionId: "provider-intent",
-      operatorUserId: scope.deviceId,
+      sessionId,
+      operatorUserId: authSnapshot.claims.user_id,
       saleId: request.saleId,
       amount: request.amount,
       method: "QR",
