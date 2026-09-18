@@ -1005,3 +1005,39 @@ describe("inventory.* — el inventario es alcanzable por el canal", () => {
       .get() as { n: number }).n).toBe(0);
   });
 });
+
+
+// ── payment.register.qr — alcance por el handler comercial ───────────────────
+
+function registerQrPaymentRequest() {
+  return PaymentRegisterQrRequestSchema.parse({
+    ...BASE,
+    message_type: "payment.register.qr",
+    request_id: randomUUID(),
+    correlation_id: randomUUID(),
+    operation_id: randomUUID(),
+    idempotency_key: "payment:register:qr:ipc:1",
+    payload: {
+      sale_id: REGISTER,
+      amount: "50000.000000",
+    },
+  });
+}
+
+describe("payment.register.qr — alcance por el handler real", () => {
+  it("un QR sin proveedor configurado se rechaza antes de crear cualquier pago", async () => {
+    const { handler, database } = await buildEnv();
+    seedAuthorization(database, USER, ["PAYMENTS_TRANSFER_REPORT"]);
+
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const result = response(handler.handle(registerQrPaymentRequest(), connection));
+
+    expect(result.status).toBe("REJECTED");
+    expect(result.result_code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.result.outcome).toBe("PROVIDER_NOT_CONFIGURED");
+    expect((database.native.prepare("SELECT count(*) AS n FROM payments_payments")
+      .get() as { n: number }).n).toBe(0);
+  });
+});
