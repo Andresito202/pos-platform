@@ -131,7 +131,6 @@ export interface ConfirmProviderPaymentInput extends CommonInput {
   readonly receivedAt: string;
   readonly payerReference: string | null;
   readonly allocationId: string;
-  readonly attemptId: string;
   readonly operationId: string;
   readonly saleCompletionOperationId: string;
 }
@@ -938,6 +937,16 @@ export class SqlitePaymentStore {
         return { kind: "PROVIDER_TRANSACTION_CONFLICT" };
       }
 
+      const pendingAttempt = this.database.native.prepare(
+        `SELECT id FROM payments_payment_attempts
+         WHERE tenant_id=? AND payment_id=? AND payment_method='QR'
+           AND status='PENDING'
+         ORDER BY attempt_number DESC
+         LIMIT 1`
+      ).get(input.scope.tenantId, input.paymentId) as { id: string } | undefined;
+
+      if (pendingAttempt === undefined) return { kind: "PAYMENT_NOT_CONFIRMABLE" };
+
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CONFIRMED", nowIso);
 
       this.database.native.prepare(
@@ -955,7 +964,7 @@ export class SqlitePaymentStore {
          WHERE tenant_id=? AND payment_id=? AND id=?`
       ).run(
         input.providerCode, input.providerTransactionId, input.receivedAt, nowIso,
-        input.scope.tenantId, input.paymentId, input.attemptId,
+        input.scope.tenantId, input.paymentId, pendingAttempt.id,
       );
 
       this.insertAllocation(
