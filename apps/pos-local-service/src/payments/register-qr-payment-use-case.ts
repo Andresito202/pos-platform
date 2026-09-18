@@ -49,6 +49,10 @@ export class RegisterQrPaymentUseCase {
     scope: SyncScope,
     request: RegisterQrPaymentRequest,
   ): Promise<RegisterQrPaymentResult> {
+    const checksum = requestChecksum(request);
+    const existing = this.paymentStore.findPaymentByIdempotency(scope, request.idempotencyKey, checksum);
+    if (existing.kind !== "NEW") return existing;
+
     const context = this.paymentStore.getPaymentIntentContext(scope, request.saleId);
     if (context.kind !== "FOUND") {
       return context.kind === "NOT_FOUND"
@@ -93,7 +97,7 @@ export class RegisterQrPaymentUseCase {
       operationId: randomUUID(),
       saleCompletionOperationId: randomUUID(),
       idempotencyKey: request.idempotencyKey,
-      requestChecksum: requestChecksum(request),
+      requestChecksum: checksum,
       correlationId: request.correlationId,
       causationId: request.causationId,
     });
