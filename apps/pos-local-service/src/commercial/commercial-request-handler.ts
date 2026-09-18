@@ -287,14 +287,14 @@ export class CommercialRequestHandler {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, {
-        outcome: "UNAUTHORIZED", payment_id: null, provider_reference: null,
+        outcome: "UNAUTHORIZED", payment_id: null, provider_reference: null, checkout_url: null,
       });
     }
 
     const useCase = this.commercial.registerQrPayment;
     if (useCase === undefined) {
       return rejected(request, "PROVIDER_NOT_CONFIGURED", {
-        outcome: "PROVIDER_NOT_CONFIGURED", payment_id: null, provider_reference: null,
+        outcome: "PROVIDER_NOT_CONFIGURED", payment_id: null, provider_reference: null, checkout_url: null,
       });
     }
 
@@ -314,15 +314,16 @@ export class CommercialRequestHandler {
     if (result.kind === "PENDING") {
       return succeeded(request, "PENDING", {
         outcome: "PENDING", payment_id: result.paymentId, provider_reference: result.providerReference,
+        checkout_url: result.checkoutUrl,
       });
     }
     if (result.kind === "IDEMPOTENT") {
       return succeeded(request, "IDEMPOTENT", {
-        outcome: "IDEMPOTENT", payment_id: result.paymentId, provider_reference: null,
+        outcome: "IDEMPOTENT", payment_id: result.paymentId, provider_reference: null, checkout_url: null,
       });
     }
     return rejected(request, result.kind, {
-      outcome: result.kind, payment_id: null, provider_reference: null,
+      outcome: result.kind, payment_id: null, provider_reference: null, checkout_url: null,
     });
   }
 
