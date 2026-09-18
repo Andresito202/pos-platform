@@ -586,7 +586,7 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-7 | Sonido y confirmación visual (§13) | ubicación fijada; implementación diferida |
 | D-8 | `MIGRATION_011` con las cuatro tablas de §12 | `NOT YET MATERIALIZED` |
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
-| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda; barrido automático sigue `NOT_YET_MATERIALIZED`, exige migración) |
+| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016`; barrido automático y `redirect-url` siguen `NOT_YET_MATERIALIZED`) |
 
 ## 17. Invariantes de Payment V1
 
@@ -700,26 +700,73 @@ veredicto:
 9 tests unitarios, `TESTED` en este turno (mocks de store/provider/confirm,
 sin red).
 
-### 20.2 Lo que NO existe todavía — y por qué
+### 20.2 `MIGRATION_016` — el `transaction.id` aprendido, persistido (2026-09-18)
 
-**El barrido en segundo plano** (recorrer todo pago `QR`/`PENDING` sin
-intervención) es estructuralmente imposible hoy: `payments_payment_attempts`
-no persiste un `transaction.id` aprendido antes de la confirmación —sólo lo
-escribe `confirmProviderPayment`, en el mismo momento en que confirma—. Cerrar
-esto exige una migración (columna nueva, dual-dialect SQLite/Postgres) y por
-gobernanza (§18) **eso requiere autorización explícita que nombre las
-tablas**; no se hizo aquí.
+Autorizada explícitamente y nombrando la tabla, como exige §18. Cierra el
+bloqueo que impedía el barrido en segundo plano: hasta ahora
+`payments_payment_attempts` sólo escribía un `transaction.id` de Wompi **en
+el momento de confirmar** (`confirmProviderPayment`); no había dónde anotar
+uno aprendido antes, por ejemplo desde el redirect de checkout.
 
-**`redirect-url` en `buildWompiWebCheckout`** tampoco se agregó: es el
+- `payments_payment_attempts.observed_provider_transaction_id` /
+  `.observed_provider_transaction_at` — nullable, ambos o ninguno
+  (`CHECK`). **No autoritativo**: aprenderlos no mueve
+  `payments_payments.status` ni `payments_payment_attempts.status`; sólo
+  `confirmProviderPayment` sigue teniendo esa autoridad.
+- Índice único `(tenant_id, provider_code, observed_provider_transaction_id)`
+  — el mismo `transaction.id` de Wompi no puede quedar "observado" en dos
+  intentos del mismo tenant, con la misma disciplina que ya aplica
+  `payments_payment_attempts_provider_reference_idx` a la referencia
+  confirmada.
+- Índice de apoyo `(tenant_id, status, observed_provider_transaction_at)
+  WHERE status='PENDING' AND observed_provider_transaction_id IS NOT NULL` —
+  anticipa la consulta que el futuro barrido necesitará, sin implementarlo.
+- Tabla reconstruida (`CREATE` → `INSERT...SELECT` → `DROP` → `RENAME`),
+  igual que `MIGRATION_008`: SQLite no permite alterar un `CHECK` existente.
+- **Sólo SQLite.** PostgreSQL central no tiene ninguna tabla de `payments_*`
+  materializada todavía (`payments-schema.md` es el contrato físico, pero
+  `tools/target-migrations` no lo aplica) — no hay dialecto que actualizar en
+  paralelo; no es una migración a medias, es que el otro lado no existe aún.
+
+`SqlitePaymentStore.recordObservedProviderTransaction` /
+`.getObservedProviderTransaction` — escritura y lectura mínimas, localizan el
+mismo intento `QR`/`PENDING` que `confirmProviderPayment` usaría. Ninguna
+usada todavía por `ReconcileProviderPaymentUseCase`: conectarlas es parte del
+wiring de §20.3, no de esta migración.
+
+`TESTED` este turno: `pnpm --filter @pos-platform/database-sqlite test`
+(37/37, migración aplica limpio sobre el ledger real) y 5 pruebas de
+integración nuevas en `apps/pos-local-service/tests/payment.test.ts` contra
+un `LocalDatabase` real — round-trip, `PAYMENT_NOT_FOUND`,
+`PAYMENT_NOT_RECONCILABLE` tras confirmar, y los dos `CHECK`/`UNIQUE` de la
+migración disparando de verdad, no simulados.
+
+`pnpm test:migrations:sqlite` (el comando que documenta este archivo) también
+corrió y dio PASS, pero **no prueba esta migración**: ese comando ejecuta
+`tools/target-migrations/tests/sqlite-migration.test.ts`, que valida un
+ledger de ejecución distinto (`001_local_migration_control`), no
+`MIGRATION_016` ni ninguna del array de `local-database.ts`. Se deja
+constancia para que un PASS de ese comando no se lea como evidencia de esta
+migración.
+
+### 20.3 Lo que sigue sin existir — y por qué
+
+**`redirect-url` en `buildWompiWebCheckout`** no se agregó: es el
 prerequisito real para que el renderer aprenda un `transaction.id` en
-producción (sin él, Wompi no redirige), pero es wiring de checkout/UI, no el
-caso de uso de reconciliación en sí. Queda como dependencia documentada, no
-implementada.
+producción (sin él, Wompi no redirige), pero es wiring de checkout/UI, no
+schema ni caso de uso.
 
-### 20.3 Pendiente para autorizar D-2 completo
+**El barrido en segundo plano** en sí (un job que recorra
+`payments_payment_attempts_reconciliation_sweep_idx` e invoque
+`ReconcileProviderPaymentUseCase` por cada fila) tampoco existe: es
+scheduler/infra, deliberadamente fuera de alcance de esta rama.
 
-1. Migración: columna para el `transaction.id` aprendido y aún no confirmado.
+### 20.4 Pendiente para autorizar D-2 completo
+
+1. ~~Migración: columna para el `transaction.id` aprendido y aún no confirmado.~~
+   `MATERIALIZED`/`TESTED` — §20.2.
 2. `redirect-url` en el checkout builder + captura en el renderer/Electron.
-3. IPC real (`payment.qr.reconcile` o equivalente) — wiring en `main.ts`,
-   deliberadamente fuera de alcance en toda esta rama hasta ahora.
-4. Job/scheduler para el barrido periódico una vez exista (1).
+3. Conectar `recordObservedProviderTransaction` al punto que reciba ese
+   redirect, e IPC real (`payment.qr.reconcile` o equivalente) — wiring en
+   `main.ts`, deliberadamente fuera de alcance en toda esta rama hasta ahora.
+4. Job/scheduler para el barrido periódico, leyendo el índice de §20.2.
