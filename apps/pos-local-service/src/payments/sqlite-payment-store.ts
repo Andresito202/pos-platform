@@ -132,6 +132,7 @@ export interface ConfirmProviderPaymentInput extends CommonInput {
   readonly payerReference: string | null;
   readonly allocationId: string;
   readonly attemptId: string;
+  readonly operationId: string;
   readonly saleCompletionOperationId: string;
 }
 
