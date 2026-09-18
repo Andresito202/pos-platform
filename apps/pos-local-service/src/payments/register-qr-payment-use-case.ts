@@ -20,6 +20,7 @@ export type RegisterQrPaymentResult =
   | { readonly kind: "SALE_NOT_PAYABLE" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
   | { readonly kind: "CURRENCY_MISMATCH" }
+  | { readonly kind: "PROVIDER_REJECTED" }
   | { readonly kind: "PROVIDER_REFERENCE_REQUIRED" };
 
 function requestChecksum(request: RegisterQrPaymentRequest): string {
@@ -55,6 +56,8 @@ export class RegisterQrPaymentUseCase {
         : { kind: "SALE_NOT_PAYABLE" };
     }
 
+    if (context.currencyCode !== "COP") return { kind: "CURRENCY_MISMATCH" };
+
     const paymentId = randomUUID();
     const providerIntent = await this.provider.createPaymentIntent({
       paymentId,
@@ -64,10 +67,11 @@ export class RegisterQrPaymentUseCase {
       cashRegisterId: context.cashRegisterId,
       amount: request.amount,
       currencyCode: "COP",
+      idempotencyKey: request.idempotencyKey,
     });
 
     if (providerIntent.status === "REJECTED") {
-      return { kind: "SALE_NOT_PAYABLE" };
+      return { kind: "PROVIDER_REJECTED" };
     }
 
     const outcome: RegisterPaymentOutcome = this.paymentStore.register({
@@ -105,6 +109,8 @@ export class RegisterQrPaymentUseCase {
     if (outcome.kind === "CONFIRMED") {
       throw new Error("QR provider payment must not confirm on intent creation");
     }
-    return outcome as RegisterQrPaymentResult;
+    if (outcome.kind === "SALE_NOT_FOUND" || outcome.kind === "SALE_NOT_PAYABLE" || outcome.kind === "SALE_ALREADY_COMPLETED" || outcome.kind === "CURRENCY_MISMATCH" || outcome.kind === "PROVIDER_REFERENCE_REQUIRED") return outcome;
+    if (outcome.kind === "OVERPAYMENT_NOT_ALLOWED") return outcome;
+    throw new Error(`unexpected QR registration outcome: ${outcome.kind}`);
   }
 }
