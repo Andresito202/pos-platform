@@ -2,7 +2,13 @@ import * as z from "zod";
 import { WompiTransactionSchema, type WompiTransaction } from "./wompi-transaction.js";
 
 export interface WompiApiCredentials {
-  readonly privateKey: string;
+  /**
+   * Wompi's documented status-query endpoint authenticates with the
+   * PUBLIC key (`Authorization: Bearer pub_(test|prod)_...`), not the
+   * private key — verified against Wompi's own docs, not assumed. It is
+   * the same public key already used to build the checkout URL.
+   */
+  readonly publicKey: string;
   /** Overridable for tests; Wompi serves both test and live keys from the same host. */
   readonly baseUrl?: string;
 }
@@ -67,7 +73,7 @@ export async function getWompiTransaction(
   dependencies: WompiHttpClientDependencies = {},
 ): Promise<WompiTransaction> {
   if (!transactionId.trim()) throw new Error("Wompi transaction id is required");
-  if (!credentials.privateKey) throw new Error("Wompi private key is required");
+  if (!credentials.publicKey) throw new Error("Wompi public key is required");
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const timeoutMs = dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -81,7 +87,7 @@ export async function getWompiTransaction(
   try {
     response = await fetchImpl(url, {
       method: "GET",
-      headers: { Authorization: `Bearer ${credentials.privateKey}` },
+      headers: { Authorization: `Bearer ${credentials.publicKey}` },
       signal: controller.signal,
     });
   } catch (cause: unknown) {

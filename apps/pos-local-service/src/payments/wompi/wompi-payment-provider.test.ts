@@ -4,7 +4,6 @@ import { WompiPaymentProvider } from "./wompi-payment-provider.js";
 
 const credentials = {
   checkout: { publicKey: "pub_test_1", integritySecret: "int_secret_1" },
-  api: { privateKey: "prv_test_1" },
   events: { eventsSecret: "events_secret_1" },
 };
 

@@ -8,7 +8,7 @@ import {
   getWompiTransaction,
 } from "./wompi-http-client.js";
 
-const credentials = { privateKey: "prv_test_12345" };
+const credentials = { publicKey: "pub_test_12345" };
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -22,7 +22,7 @@ function textResponse(status: number, body: string): Response {
 }
 
 describe("getWompiTransaction", () => {
-  it("queries GET /v1/transactions/{id} with a bearer private key and returns an approved transaction", async () => {
+  it("queries GET /v1/transactions/{id} with a bearer public key and returns an approved transaction", async () => {
     let capturedUrl: string | undefined;
     let capturedAuth: string | null = null;
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -42,7 +42,7 @@ describe("getWompiTransaction", () => {
     const transaction = await getWompiTransaction("txn-1", credentials, { fetchImpl });
 
     expect(capturedUrl).toBe("https://production.wompi.co/v1/transactions/txn-1");
-    expect(capturedAuth).toBe("Bearer prv_test_12345");
+    expect(capturedAuth).toBe("Bearer pub_test_12345");
     expect(transaction.status).toBe("APPROVED");
     expect(transaction.id).toBe("txn-1");
   });

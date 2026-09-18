@@ -5,13 +5,18 @@ import type {
   PaymentProviderPort,
 } from "../payment-provider-port.js";
 import { buildWompiWebCheckout, type WompiCheckoutCredentials } from "./wompi-checkout-builder.js";
-import { getWompiTransaction, type WompiApiCredentials, type WompiHttpClientDependencies } from "./wompi-http-client.js";
+import { getWompiTransaction, type WompiHttpClientDependencies } from "./wompi-http-client.js";
 import { WOMPI_PROVIDER_CODE, toPaymentProviderEvidence } from "./wompi-transaction.js";
 import { normalizeWompiTransactionUpdatedEvent, type WompiEventsCredentials } from "./wompi-webhook-verifier.js";
 
 export interface WompiPaymentProviderCredentials {
+  /**
+   * `checkout.publicKey` is also what authenticates `GET
+   * /v1/transactions/{id}` (Wompi's status-query endpoint takes the public
+   * key, not the private key — verified against Wompi's docs) — there is no
+   * separate query credential to carry.
+   */
   readonly checkout: WompiCheckoutCredentials;
-  readonly api: WompiApiCredentials;
   readonly events: WompiEventsCredentials;
 }
 
@@ -62,7 +67,7 @@ export class WompiPaymentProvider implements PaymentProviderPort {
   async getPaymentStatus(input: { readonly providerReference: string }): Promise<PaymentProviderEvidence> {
     const transaction = await getWompiTransaction(
       input.providerReference,
-      this.credentials.api,
+      { publicKey: this.credentials.checkout.publicKey },
       this.dependencies,
     );
     return toPaymentProviderEvidence(transaction, this.now());
