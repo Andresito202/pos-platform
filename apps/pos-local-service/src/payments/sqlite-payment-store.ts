@@ -84,6 +84,8 @@ interface CommonInput {
   readonly scope: SyncScope;
   readonly sessionId: string;
   readonly operatorUserId: string;
+  readonly auditActorType?: "USER" | "SYSTEM";
+  readonly auditActorId?: string | null;
   readonly idempotencyKey: string;
   readonly requestChecksum: string;
   readonly correlationId: string;
@@ -330,10 +332,10 @@ export class SqlitePaymentStore {
         actor_type, actor_id, session_id,
         action_code, resource_type, resource_id,
         correlation_id, causation_id, reason_code, details_json, created_at
-      ) VALUES (?,?,?,?,'USER',?,?,?,?,?,?,?,NULL,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
     ).run(
       input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
-      input.operatorUserId, input.sessionId,
+      input.auditActorType ?? "USER", input.auditActorId ?? input.operatorUserId, input.sessionId,
       actionCode, resourceType, resourceId,
       input.correlationId, input.causationId,
       canonicalJson(details), nowIso,
