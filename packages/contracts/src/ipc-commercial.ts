@@ -463,6 +463,46 @@ export const PaymentRegisterTransferResultSchema = z.strictObject({
 
 export const PaymentRegisterTransferResponseSchema = createResponseEnvelopeSchema(PaymentRegisterTransferResultSchema);
 
+// ── payment.register.qr ─────────────────────────────────────────────────────
+
+/**
+ * QR dinámico respaldado por un proveedor. Registrar el intent no confirma el
+ * dinero: crea un Payment PENDING y conserva la referencia del proveedor.
+ */
+export const PaymentRegisterQrRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    amount: PositiveScale6Schema,
+  }),
+).safeExtend({ message_type: z.literal("payment.register.qr") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentRegisterQrOutcomeSchema = z.enum([
+  "PENDING",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "SALE_NOT_FOUND",
+  "SALE_NOT_PAYABLE",
+  "SALE_ALREADY_COMPLETED",
+  "CURRENCY_MISMATCH",
+  "PROVIDER_REJECTED",
+  "PROVIDER_REFERENCE_REQUIRED",
+  "PROVIDER_NOT_CONFIGURED",
+  "OVERPAYMENT_NOT_ALLOWED",
+]);
+
+export const PaymentRegisterQrResultSchema = z.strictObject({
+  outcome: PaymentRegisterQrOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  provider_reference: z.string().min(1).max(128).nullable(),
+});
+
+export const PaymentRegisterQrResponseSchema = createResponseEnvelopeSchema(PaymentRegisterQrResultSchema);
+
 // ── payment.transfer.confirm ─────────────────────────────────────────────────
 
 /**
