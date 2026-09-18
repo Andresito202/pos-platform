@@ -71,7 +71,6 @@ export class ConfirmProviderPaymentUseCase {
       receivedAt: request.evidence.receivedAt,
       payerReference: request.evidence.payerReference ?? null,
       allocationId: randomUUID(),
-      attemptId: randomUUID(),
       saleCompletionOperationId: randomUUID(),
       operationId: randomUUID(),
       idempotencyKey: request.idempotencyKey,
