@@ -586,7 +586,7 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-7 | Sonido y confirmación visual (§13) | ubicación fijada; implementación diferida |
 | D-8 | `MIGRATION_011` con las cuatro tablas de §12 | `NOT YET MATERIALIZED` |
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
-| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 para el desvío respecto de §6 |
+| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda; barrido automático sigue `NOT_YET_MATERIALIZED`, exige migración) |
 
 ## 17. Invariantes de Payment V1
 
@@ -657,3 +657,69 @@ diseño final. Si `D-2` (webhooks/polling/reconciliación) se materializa,
 `PaymentProviderPort` deberá revisarse formalmente contra esta sección —con
 autorización explícita— antes de asumir que el subconjunto de tres estados
 es definitivo.
+
+## 20. Reconciliación bajo demanda — `ReconcileProviderPaymentUseCase` (2026-09-18)
+
+Primer materializado de `D-2`, acotado: **no** es el "polling automático"
+completo que D-2 nombra, sino la pieza que ese polling necesitaría de todos
+modos. Verificado contra la documentación real de Wompi antes de diseñar
+(no asumido):
+
+- El redirect de Web Checkout es explícitamente **"informativo únicamente,
+  nunca un método de validación"** según la documentación de Wompi — igual
+  que exige la regla 5 de §6 ("el frontend jamás envía éxito financiero
+  autoritativo"). Sólo sirve para *aprender* el `transaction.id` real.
+- El webhook sigue siendo la vía primaria; esta reconciliación es la vía de
+  respaldo cuando el webhook se demora, se pierde, o el redirect llega
+  primero.
+- Wompi documenta su propio endpoint de estado como consulta **por
+  `transaction.id`**, recomendando explícitamente re-consultarlo
+  periódicamente — nunca por referencia del comerciante. Confirma la brecha
+  de §19: sin un `transaction.id` ya conocido, no hay nada que reconciliar.
+
+### 20.1 Lo que existe
+
+`apps/pos-local-service/src/payments/reconcile-provider-payment-use-case.ts` —
+recibe `{ paymentId, providerTransactionId }`, exige
+`PAYMENTS_PAYMENT_READ` (única lectura de la autoridad del proveedor),
+descarta pagos que no son `QR`/`PENDING` sin llamar a Wompi, y aplica el
+veredicto:
+
+- `APPROVED` → delega en `ConfirmProviderPaymentUseCase` **sin modificarlo**;
+  la protección real contra doble confirmación son sus guardas existentes
+  (estado `PENDING`/`CREATED`, unicidad de `provider_transaction_id`), no la
+  clave de idempotencia de esta llamada — cada invocación genera la suya
+  propia a propósito (ver el comentario de la clase).
+- `PENDING` → `STILL_PENDING`, sin escribir nada.
+- `REJECTED` → `PROVIDER_REJECTED` con la evidencia; **no cancela el pago**.
+  Cancelar es autoridad del operador (`CancelPaymentUseCase`, ya existente);
+  mezclarlo aquí habría sido una decisión de producto no pedida.
+- Error del cliente Wompi (timeout/HTTP/malformado) → se propaga tal cual;
+  esta capa no infiere estado ante una consulta fallida.
+
+9 tests unitarios, `TESTED` en este turno (mocks de store/provider/confirm,
+sin red).
+
+### 20.2 Lo que NO existe todavía — y por qué
+
+**El barrido en segundo plano** (recorrer todo pago `QR`/`PENDING` sin
+intervención) es estructuralmente imposible hoy: `payments_payment_attempts`
+no persiste un `transaction.id` aprendido antes de la confirmación —sólo lo
+escribe `confirmProviderPayment`, en el mismo momento en que confirma—. Cerrar
+esto exige una migración (columna nueva, dual-dialect SQLite/Postgres) y por
+gobernanza (§18) **eso requiere autorización explícita que nombre las
+tablas**; no se hizo aquí.
+
+**`redirect-url` en `buildWompiWebCheckout`** tampoco se agregó: es el
+prerequisito real para que el renderer aprenda un `transaction.id` en
+producción (sin él, Wompi no redirige), pero es wiring de checkout/UI, no el
+caso de uso de reconciliación en sí. Queda como dependencia documentada, no
+implementada.
+
+### 20.3 Pendiente para autorizar D-2 completo
+
+1. Migración: columna para el `transaction.id` aprendido y aún no confirmado.
+2. `redirect-url` en el checkout builder + captura en el renderer/Electron.
+3. IPC real (`payment.qr.reconcile` o equivalente) — wiring en `main.ts`,
+   deliberadamente fuera de alcance en toda esta rama hasta ahora.
+4. Job/scheduler para el barrido periódico una vez exista (1).
