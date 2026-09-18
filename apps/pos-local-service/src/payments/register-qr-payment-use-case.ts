@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
+import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
+import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { PaymentProviderPort } from "./payment-provider-port.js";
 import type { RegisterPaymentOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
+
+export const PERMISSION_PAYMENTS_TRANSFER_REPORT = "PAYMENTS_TRANSFER_REPORT";
 
 export interface RegisterQrPaymentRequest {
   readonly saleId: string;
@@ -21,7 +25,8 @@ export type RegisterQrPaymentResult =
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
   | { readonly kind: "CURRENCY_MISMATCH" }
   | { readonly kind: "PROVIDER_REJECTED" }
-  | { readonly kind: "PROVIDER_REFERENCE_REQUIRED" };
+  | { readonly kind: "PROVIDER_REFERENCE_REQUIRED" }
+  | { readonly kind: "UNAUTHORIZED" };
 
 function requestChecksum(request: RegisterQrPaymentRequest): string {
   return createHash("sha256")
