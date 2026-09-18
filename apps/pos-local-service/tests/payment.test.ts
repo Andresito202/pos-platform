@@ -603,7 +603,8 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
   it("crea PENDING y sólo evidencia APPROVED inequívoca completa la venta", async () => {
     const env = await buildEnv();
     seedRegister(env.database);
-    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
 
     const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
       saleId, amount: "10000.000000",
@@ -645,7 +646,8 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
   it("rechaza evidencia REJECTED, incompleta o de proveedor/transacción distinta", async () => {
     const env = await buildEnv();
     seedRegister(env.database);
-    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
     const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
       saleId, amount: "10000.000000",
       idempotencyKey: "qr:2", correlationId: randomUUID(), causationId: null,
@@ -680,8 +682,9 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
   it("la misma transacción externa no puede confirmar otro pago", async () => {
     const env = await buildEnv();
     seedRegister(env.database);
-    const sale1 = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
-    const sale2 = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
+    const shiftId = openShift(env);
+    const sale1 = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const sale2 = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
 
     const first = await env.registerQr.execute(SCOPE, SESSION, auth(), {
       saleId: sale1, amount: "10000.000000",
