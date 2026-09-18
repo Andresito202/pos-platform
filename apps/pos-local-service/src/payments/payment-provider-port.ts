@@ -13,6 +13,7 @@ export interface PaymentProviderIntent {
   readonly cashRegisterId: string;
   readonly amount: string;
   readonly currencyCode: "COP";
+  readonly idempotencyKey: string;
 }
 
 export interface PaymentProviderIntentResult {
