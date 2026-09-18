@@ -21,6 +21,9 @@ import { RegisterTransferPaymentUseCase } from "../src/payments/register-transfe
 import { ConfirmTransferPaymentUseCase } from "../src/payments/confirm-transfer-payment-use-case.js";
 import { CancelPaymentUseCase } from "../src/payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../src/payments/get-payment-use-case.js";
+import { RegisterQrPaymentUseCase } from "../src/payments/register-qr-payment-use-case.js";
+import { ConfirmProviderPaymentUseCase } from "../src/payments/confirm-provider-payment-use-case.js";
+import type { PaymentProviderEvidence, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
 import { SqliteMasterSnapshotStore } from "../src/master-data/sqlite-master-snapshot-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
@@ -110,6 +113,8 @@ async function buildEnv() {
     confirmTransfer: new ConfirmTransferPaymentUseCase(paymentStore, () => NOW),
     cancel: new CancelPaymentUseCase(paymentStore, () => NOW),
     get: new GetPaymentUseCase(paymentStore, () => NOW),
+    registerQr: new RegisterQrPaymentUseCase(paymentStore, qrProvider()),
+    confirmProvider: new ConfirmProviderPaymentUseCase(paymentStore),
   };
 }
 
@@ -557,6 +562,153 @@ describe("transferencia por atestiguación manual", () => {
       "SELECT COUNT(*) AS n FROM payments_payment_allocations WHERE tenant_id=?",
     ).get(TENANT) as { n: number };
     expect(allocations.n).toBe(1);
+  });
+});
+
+
+function qrProvider(): PaymentProviderPort {
+  return {
+    async createPaymentIntent() {
+      return { providerCode: "TEST_QR", providerReference: "QR-INTENT-1", status: "PENDING" as const };
+    },
+    async getPaymentStatus(): Promise<PaymentProviderEvidence> {
+      return {
+        providerCode: "TEST_QR",
+        providerReference: "QR-INTENT-1",
+        providerTransactionId: "TX-1",
+        amount: "10000.000000",
+        currencyCode: "COP",
+        status: "APPROVED",
+        receivedAt: NOW.toISOString(),
+      };
+    },
+    async normalizeNotification(): Promise<PaymentProviderEvidence> {
+      return {
+        providerCode: "TEST_QR",
+        providerReference: "QR-INTENT-1",
+        providerTransactionId: "TX-1",
+        amount: "10000.000000",
+        currencyCode: "COP",
+        status: "APPROVED",
+        receivedAt: NOW.toISOString(),
+      };
+    },
+  };
+}
+
+describe("QR — autoridad externa y confirmación por evidencia", () => {
+  it("crea PENDING y sólo evidencia APPROVED inequívoca completa la venta", async () => {
+    const env = await buildEnv();
+    const saleId = seedSale(env.database, { payable: "10000.000000" });
+
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(registered.kind).toBe("PENDING");
+    if (registered.kind !== "PENDING") return;
+
+    const pending = env.get.execute(SCOPE, auth(), registered.paymentId);
+    expect(pending.kind).toBe("FOUND");
+    if (pending.kind !== "FOUND") return;
+    expect(pending.payment.status).toBe("PENDING");
+    expect(pending.payment.confirmedAmount).toBe("0.000000");
+
+    const confirmed = env.confirmProvider.execute(SCOPE, {
+      paymentId: registered.paymentId,
+      expectedVersion: 1,
+      evidence: {
+        providerCode: "TEST_QR",
+        providerReference: registered.providerReference,
+        providerTransactionId: "TX-1",
+        amount: "10000.000000",
+        currencyCode: "COP",
+        status: "APPROVED",
+        receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:1:confirm",
+      correlationId: randomUUID(),
+      causationId: null,
+    });
+
+    expect(confirmed.kind).toBe("CONFIRMED");
+    if (confirmed.kind !== "CONFIRMED") return;
+    expect(confirmed.saleCompleted).toBe(true);
+    expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+  });
+
+  it("rechaza evidencia REJECTED, incompleta o de proveedor/transacción distinta", async () => {
+    const env = await buildEnv();
+    const saleId = seedSale(env.database, { payable: "10000.000000" });
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:2", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    const rejected = env.confirmProvider.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: {
+        providerCode: "TEST_QR", providerReference: registered.providerReference,
+        providerTransactionId: "TX-2", amount: "10000.000000",
+        currencyCode: "COP", status: "REJECTED", receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:2:reject", correlationId: randomUUID(), causationId: null,
+    });
+    expect(rejected.kind).toBe("EVIDENCE_NOT_AUTHORIZED");
+
+    const wrongProvider = env.confirmProvider.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: {
+        providerCode: "OTHER", providerReference: registered.providerReference,
+        providerTransactionId: "TX-2", amount: "10000.000000",
+        currencyCode: "COP", status: "APPROVED", receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:2:wrong-provider", correlationId: randomUUID(), causationId: null,
+    });
+    expect(wrongProvider.kind).toBe("PROVIDER_MISMATCH");
+
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+  });
+
+  it("la misma transacción externa no puede confirmar otro pago", async () => {
+    const env = await buildEnv();
+    const sale1 = seedSale(env.database, { payable: "10000.000000" });
+    const sale2 = seedSale(env.database, { payable: "10000.000000" });
+
+    const first = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId: sale1, amount: "10000.000000",
+      idempotencyKey: "qr:3:a", correlationId: randomUUID(), causationId: null,
+    });
+    const second = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId: sale2, amount: "10000.000000",
+      idempotencyKey: "qr:3:b", correlationId: randomUUID(), causationId: null,
+    });
+    if (first.kind !== "PENDING" || second.kind !== "PENDING") throw new Error("expected PENDING");
+
+    const a = env.confirmProvider.execute(SCOPE, {
+      paymentId: first.paymentId, expectedVersion: 1,
+      evidence: {
+        providerCode: "TEST_QR", providerReference: first.providerReference,
+        providerTransactionId: "TX-SAME", amount: "10000.000000",
+        currencyCode: "COP", status: "APPROVED", receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:3:confirm-a", correlationId: randomUUID(), causationId: null,
+    });
+    expect(a.kind).toBe("CONFIRMED");
+
+    const b = env.confirmProvider.execute(SCOPE, {
+      paymentId: second.paymentId, expectedVersion: 1,
+      evidence: {
+        providerCode: "TEST_QR", providerReference: second.providerReference,
+        providerTransactionId: "TX-SAME", amount: "10000.000000",
+        currencyCode: "COP", status: "APPROVED", receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:3:confirm-b", correlationId: randomUUID(), causationId: null,
+    });
+    expect(b.kind).toBe("PROVIDER_TRANSACTION_CONFLICT");
+    expect(saleStatus(env.database, sale2).status).toBe("PAYMENT_IN_PROGRESS");
   });
 });
 
