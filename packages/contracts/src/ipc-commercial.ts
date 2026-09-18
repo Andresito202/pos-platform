@@ -1029,6 +1029,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "sale.create",
   "payment.register.cash",
   "payment.register.transfer",
+  "payment.register.qr",
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
@@ -1080,6 +1081,7 @@ export type CashShiftCloseResult = z.infer<typeof CashShiftCloseResultSchema>;
 export type SaleCreateResult = z.infer<typeof SaleCreateResultSchema>;
 export type PaymentRegisterCashResult = z.infer<typeof PaymentRegisterCashResultSchema>;
 export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransferResultSchema>;
+export type PaymentRegisterQrResult = z.infer<typeof PaymentRegisterQrResultSchema>;
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
 export type PaymentCancelResult = z.infer<typeof PaymentCancelResultSchema>;
 export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
