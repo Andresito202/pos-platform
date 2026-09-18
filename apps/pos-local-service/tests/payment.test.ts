@@ -571,8 +571,12 @@ describe("transferencia por atestiguación manual", () => {
 
 function qrProvider(): PaymentProviderPort {
   return {
-    async createPaymentIntent() {
-      return { providerCode: "TEST_QR", providerReference: "QR-INTENT-1", status: "PENDING" as const };
+    async createPaymentIntent(input) {
+      return {
+        providerCode: "TEST_QR",
+        providerReference: `QR-INTENT-${input.paymentId}`,
+        status: "PENDING" as const,
+      };
     },
     async getPaymentStatus(): Promise<PaymentProviderEvidence> {
       return {
