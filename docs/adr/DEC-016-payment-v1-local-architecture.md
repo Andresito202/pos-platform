@@ -586,6 +586,7 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-7 | Sonido y confirmación visual (§13) | ubicación fijada; implementación diferida |
 | D-8 | `MIGRATION_011` con las cuatro tablas de §12 | `NOT YET MATERIALIZED` |
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
+| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 para el desvío respecto de §6 |
 
 ## 17. Invariantes de Payment V1
 
@@ -608,3 +609,51 @@ subconjunto V1 y fija la orquestación local.
 
 La materialización exigirá autorización explícita que nombre las tablas, al modo
 en que `DEC-012` D5 nombró las de Cash. Ningún `SEC-Gxx` cambia de estado.
+
+## 19. Nota posterior — desvío verificado respecto de §6 (2026-09-18)
+
+Al materializar el adapter Wompi en `feat/payment-qr-provider-foundation`
+(`apps/pos-local-service/src/payments/payment-provider-port.ts`, ya integrado
+en esa rama antes de esta nota) se verificó que el contrato realmente
+implementado **no** es el `ProviderOutcome` de cuatro variantes que fija §6.
+
+**Lo que existe de verdad:**
+
+```
+PaymentProviderPort
+  createPaymentIntent(intent)      -> PaymentProviderIntentResult
+  getPaymentStatus(providerReference) -> PaymentProviderEvidence
+  normalizeNotification(payload)   -> PaymentProviderEvidence
+```
+
+`PaymentProviderEvidence.status` es `"PENDING" | "APPROVED" | "REJECTED"` — un
+subconjunto cerrado de tres estados, **sin `UNKNOWN`**. `DECLINED`, `VOIDED` y
+`ERROR` de Wompi se pliegan sobre `REJECTED`
+(`apps/pos-local-service/src/payments/wompi/wompi-transaction.ts`,
+`mapWompiStatus`).
+
+**Por qué no se corrigió el código en vez del documento:** modificar el puerto
+para agregar `UNKNOWN` fue explícitamente prohibido al autorizar este trabajo,
+precisamente para no acomodarlo *ad hoc* a un solo proveedor sin una decisión
+deliberada. La regla 1 de §6 (*"ningún proceso infiere éxito por timeout;
+tampoco fracaso"*) se preserva de todos modos: ante timeout, error HTTP o
+respuesta ilegible, el cliente Wompi (`wompi-http-client.ts`) lanza una
+excepción tipada (`WompiTimeoutError`, `WompiHttpError`,
+`WompiMalformedResponseError`, `WompiNetworkError`) en vez de forzar
+`REJECTED` — pero eso es una excepción no tipificada por el contrato de
+retorno, no el resultado de primera clase que §6 exige.
+
+**Brecha adicional encontrada, sin resolver:** `getPaymentStatus` recibe
+`{ providerReference }`, pero la única consulta real de Wompi
+(`GET /v1/transactions/{id}`) es por `transaction.id` propio de Wompi, nunca
+por la referencia que el comerciante genera al crear el checkout. Hoy este
+método no tiene ningún llamador productivo (no existe polling ni
+reconciliación — D-2 sigue `NOT_EVALUATED` en ese sentido), así que se decidió
+no fijar su firma todavía: la decisión correcta depende de cómo se diseñe la
+reconciliación real, no al revés.
+
+**Disposición:** esta nota dispensa el desvío frente a §6, no lo ratifica como
+diseño final. Si `D-2` (webhooks/polling/reconciliación) se materializa,
+`PaymentProviderPort` deberá revisarse formalmente contra esta sección —con
+autorización explícita— antes de asumir que el subconjunto de tres estados
+es definitivo.
