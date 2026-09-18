@@ -111,7 +111,8 @@ export class RegisterTransferPaymentUseCase {
     }
     if (outcome.kind === "OVERPAYMENT_NOT_ALLOWED"
       || outcome.kind === "CASH_SHIFT_MISSING"
-      || outcome.kind === "CASH_SHIFT_NOT_OPEN") {
+      || outcome.kind === "CASH_SHIFT_NOT_OPEN"
+      || outcome.kind === "PROVIDER_REFERENCE_REQUIRED") {
       throw new Error(`unreachable outcome for transfer registration: ${outcome.kind}`);
     }
     return outcome;
