@@ -833,7 +833,7 @@ export class SqlitePaymentStore {
       this.database.native.prepare(
         `UPDATE payments_payment_attempts
          SET status='CONFIRMED', confirmed_at=?, manual_confirmation_actor_id=?, version=version+1
-         WHERE tenant_id=? AND payment_id=? AND attempt_number=1`,
+         WHERE tenant_id=? AND payment_id=? AND id=?`,
       ).run(nowIso, input.operatorUserId, input.scope.tenantId, input.paymentId);
 
       this.insertAllocation(
@@ -953,7 +953,7 @@ export class SqlitePaymentStore {
          WHERE tenant_id=? AND payment_id=? AND attempt_number=1`
       ).run(
         input.providerCode, input.providerTransactionId, input.receivedAt, nowIso,
-        input.scope.tenantId, input.paymentId,
+        input.scope.tenantId, input.paymentId, input.attemptId,
       );
 
       this.insertAllocation(
