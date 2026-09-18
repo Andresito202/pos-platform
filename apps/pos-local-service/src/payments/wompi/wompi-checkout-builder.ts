@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PaymentProviderCheckout, PaymentProviderIntent } from "../payment-provider-port.js";
+import { amountToCents } from "./wompi-money.js";
 
 export interface WompiCheckoutCredentials {
   readonly publicKey: string;
@@ -12,22 +13,6 @@ export interface WompiCheckoutInput {
 }
 
 const WompiCheckoutBaseUrl = "https://checkout.wompi.co/p/";
-
-function amountToCents(amount: string): string {
-  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(amount);
-  if (match === null) throw new Error("Wompi amount must be a non-negative decimal");
-
-  const whole = BigInt(match[1]);
-  const fraction = (match[2] ?? "").padEnd(6, "0");
-
-  // POS money uses scale 6. COP checkout accepts centavos, so the four
-  // sub-cent digits must be zero; silently rounding financial amounts is forbidden.
-  if (fraction.slice(2) !== "0000") {
-    throw new Error("Wompi amount has precision below one COP cent");
-  }
-
-  return (whole * 100n + BigInt(fraction.slice(0, 2))).toString();
-}
 
 function integritySignature(
   reference: string,
