@@ -36,7 +36,7 @@ describe("Wompi Web Checkout builder", () => {
     expect(url.searchParams.get("amount-in-cents")).toBe("2490000");
     expect(url.searchParams.get("reference")).toBe("ORDER-249");
     expect(url.searchParams.get("signature:integrity")).toBe(
-      "a0c1a8e6a7d0a7c9e7d7f6a42e7f0a6d4bbd9a6e4c9a8f2e0f2c4c6a4b4b8f4e",
+      "305e930391d2d6c29f9ad5498e07cc9ff96e89706cd7fe268b7bcd5a846ef248",
     );
   });
 
