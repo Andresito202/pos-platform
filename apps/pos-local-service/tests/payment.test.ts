@@ -576,6 +576,7 @@ function qrProvider(): PaymentProviderPort {
         providerCode: "TEST_QR",
         providerReference: `QR-INTENT-${input.paymentId}`,
         status: "PENDING" as const,
+        checkout: null,
       };
     },
     async getPaymentStatus(): Promise<PaymentProviderEvidence> {
