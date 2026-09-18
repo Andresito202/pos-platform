@@ -144,11 +144,14 @@ function seedRegister(db: LocalDatabase): void {
  */
 function seedSale(
   db: LocalDatabase,
-  options: { saleId?: string; payable?: string; shiftId?: string | null; status?: string } = {},
+  options: { saleId?: string; payable?: string; shiftId?: string | null; cashRegisterId?: string | null; status?: string } = {},
 ): string {
   const saleId = options.saleId ?? randomUUID();
   const payable = options.payable ?? "10000.000000";
   const shiftId = options.shiftId === undefined ? null : options.shiftId;
+  const cashRegisterId = options.cashRegisterId === undefined
+    ? (shiftId === null ? null : REGISTER)
+    : options.cashRegisterId;
   const operationId = randomUUID();
   const at = NOW.toISOString();
   const zero = "0.000000";
@@ -190,7 +193,7 @@ function seedSale(
       NULL,NULL,NULL,NULL
     )`,
   ).run(
-    saleId, TENANT, COMPANY, BRANCH, shiftId === null ? null : REGISTER, shiftId,
+    saleId, TENANT, COMPANY, BRANCH, cashRegisterId, shiftId,
     DEVICE, INSTALL, USER,
     options.status ?? "READY_FOR_PAYMENT",
     saleNumber,
@@ -599,7 +602,8 @@ function qrProvider(): PaymentProviderPort {
 describe("QR — autoridad externa y confirmación por evidencia", () => {
   it("crea PENDING y sólo evidencia APPROVED inequívoca completa la venta", async () => {
     const env = await buildEnv();
-    const saleId = seedSale(env.database, { payable: "10000.000000" });
+    seedRegister(env.database);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
 
     const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
       saleId, amount: "10000.000000",
@@ -609,7 +613,7 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
     expect(registered.kind).toBe("PENDING");
     if (registered.kind !== "PENDING") return;
 
-    const pending = env.get.execute(SCOPE, auth(), registered.paymentId);
+    const pending = env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId });
     expect(pending.kind).toBe("FOUND");
     if (pending.kind !== "FOUND") return;
     expect(pending.payment.status).toBe("PENDING");
@@ -640,7 +644,8 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
 
   it("rechaza evidencia REJECTED, incompleta o de proveedor/transacción distinta", async () => {
     const env = await buildEnv();
-    const saleId = seedSale(env.database, { payable: "10000.000000" });
+    seedRegister(env.database);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
     const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
       saleId, amount: "10000.000000",
       idempotencyKey: "qr:2", correlationId: randomUUID(), causationId: null,
@@ -674,8 +679,9 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
 
   it("la misma transacción externa no puede confirmar otro pago", async () => {
     const env = await buildEnv();
-    const sale1 = seedSale(env.database, { payable: "10000.000000" });
-    const sale2 = seedSale(env.database, { payable: "10000.000000" });
+    seedRegister(env.database);
+    const sale1 = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
+    const sale2 = seedSale(env.database, { cashRegisterId: REGISTER, payable: "10000.000000" });
 
     const first = await env.registerQr.execute(SCOPE, SESSION, auth(), {
       saleId: sale1, amount: "10000.000000",
