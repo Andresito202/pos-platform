@@ -949,7 +949,7 @@ export class SqlitePaymentStore {
 
       this.database.native.prepare(
         `UPDATE payments_payment_attempts
-         SET status="CONFIRMED", provider_code=?, provider_reference_type='PROVIDER_TRANSACTION',
+         SET status='CONFIRMED', provider_code=?, provider_reference_type='PROVIDER_TRANSACTION',
              provider_reference=?, provider_reported_at=?, confirmed_at=?,
              manual_confirmation_actor_id=NULL, version=version+1
          WHERE tenant_id=? AND payment_id=? AND id=?`
