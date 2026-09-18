@@ -14,7 +14,7 @@ type CommercialRequest = Extract<
     message_type:
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
-      | "payment.register.cash" | "payment.register.transfer"
+      | "payment.register.cash" | "payment.register.transfer" | "payment.register.qr"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
@@ -174,6 +174,7 @@ export class CommercialRequestHandler {
       case "sale.create": return this.createSale(request, connectionId);
       case "payment.register.cash": return this.registerCashPayment(request, connectionId);
       case "payment.register.transfer": return this.registerTransferPayment(request, connectionId);
+      case "payment.register.qr": return this.registerQrPayment(request, connectionId);
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
       case "payment.cancel": return this.cancelPayment(request, connectionId);
       case "payment.get": return this.getPayment(request, connectionId);
@@ -276,6 +277,53 @@ export class CommercialRequestHandler {
       return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId });
     }
     return rejected(request, result.kind, { outcome: result.kind, payment_id: null });
+  }
+
+  /** QR respaldado por proveedor: crea intent PENDING; la confirmación llega sólo por infraestructura confiable. */
+  private async registerQrPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.register.qr" }>,
+    connectionId: string,
+  ): Promise<unknown> {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", payment_id: null, provider_reference: null,
+      });
+    }
+
+    const useCase = this.commercial.registerQrPayment;
+    if (useCase === undefined) {
+      return rejected(request, "PROVIDER_NOT_CONFIGURED", {
+        outcome: "PROVIDER_NOT_CONFIGURED", payment_id: null, provider_reference: null,
+      });
+    }
+
+    const result = await useCase.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: request.payload.sale_id,
+        amount: request.payload.amount,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "PENDING") {
+      return succeeded(request, "PENDING", {
+        outcome: "PENDING", payment_id: result.paymentId, provider_reference: result.providerReference,
+      });
+    }
+    if (result.kind === "IDEMPOTENT") {
+      return succeeded(request, "IDEMPOTENT", {
+        outcome: "IDEMPOTENT", payment_id: result.paymentId, provider_reference: null,
+      });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind, payment_id: null, provider_reference: null,
+    });
   }
 
   /** `payment.transfer.confirm` — atestiguación manual; puede completar la venta. */
