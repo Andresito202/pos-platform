@@ -499,6 +499,8 @@ export const PaymentRegisterQrResultSchema = z.strictObject({
   outcome: PaymentRegisterQrOutcomeSchema,
   payment_id: UuidSchema.nullable(),
   provider_reference: z.string().min(1).max(128).nullable(),
+  /** URL de checkout generada por el proveedor; nunca es evidencia financiera. */
+  checkout_url: z.string().url().nullable(),
 });
 
 export const PaymentRegisterQrResponseSchema = createResponseEnvelopeSchema(PaymentRegisterQrResultSchema);
