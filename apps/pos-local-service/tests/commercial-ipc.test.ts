@@ -1033,7 +1033,7 @@ describe("payment.register.qr — alcance por el handler real", () => {
     const connection = randomUUID();
     handler.handle(activateRequest(signSession(sessionClaims())), connection);
 
-    const result = response(handler.handle(registerQrPaymentRequest(), connection));
+    const result = response(await handler.handle(registerQrPaymentRequest(), connection));
 
     expect(result.status).toBe("REJECTED");
     expect(result.result_code).toBe("PROVIDER_NOT_CONFIGURED");
