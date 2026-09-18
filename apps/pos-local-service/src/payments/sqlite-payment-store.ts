@@ -115,6 +115,7 @@ export interface ConfirmTransferInput extends CommonInput {
   readonly paymentId: string;
   readonly expectedVersion: number;
   readonly allocationId: string;
+  readonly attemptId: string;
   readonly operationId: string;
   readonly saleCompletionOperationId: string;
 }
@@ -834,7 +835,7 @@ export class SqlitePaymentStore {
         `UPDATE payments_payment_attempts
          SET status='CONFIRMED', confirmed_at=?, manual_confirmation_actor_id=?, version=version+1
          WHERE tenant_id=? AND payment_id=? AND id=?`,
-      ).run(nowIso, input.operatorUserId, input.scope.tenantId, input.paymentId);
+      ).run(nowIso, input.operatorUserId, input.scope.tenantId, input.paymentId, input.attemptId);
 
       this.insertAllocation(
         input.scope.tenantId, input.allocationId, payment.payment_group_id, input.paymentId,
@@ -950,7 +951,7 @@ export class SqlitePaymentStore {
          SET status="CONFIRMED", provider_code=?, provider_reference_type="PROVIDER_TRANSACTION",
              provider_reference=?, provider_reported_at=?, confirmed_at=?,
              manual_confirmation_actor_id=NULL, version=version+1
-         WHERE tenant_id=? AND payment_id=? AND attempt_number=1`
+         WHERE tenant_id=? AND payment_id=? AND id=?`
       ).run(
         input.providerCode, input.providerTransactionId, input.receivedAt, nowIso,
         input.scope.tenantId, input.paymentId, input.attemptId,
