@@ -518,6 +518,23 @@ export class SqlitePaymentStore {
     return input.groupId;
   }
 
+  findPaymentByIdempotency(scope: SyncScope, idempotencyKey: string, requestChecksum: string):
+    | { kind: "NEW" }
+    | { kind: "IDEMPOTENT"; paymentId: string }
+    | { kind: "IDEMPOTENCY_CONFLICT" } {
+    const row = this.database.native.prepare(
+      `SELECT id, request_checksum FROM payments_payments
+       WHERE tenant_id=? AND origin_device_id=? AND idempotency_key=?`,
+    ).get(scope.tenantId, scope.deviceId, idempotencyKey) as
+      | { id: string; request_checksum: string }
+      | undefined;
+
+    if (row === undefined) return { kind: "NEW" };
+    return row.request_checksum === requestChecksum
+      ? { kind: "IDEMPOTENT", paymentId: row.id }
+      : { kind: "IDEMPOTENCY_CONFLICT" };
+  }
+
   /** Contexto confiable para crear una intención de pago respaldada por proveedor. */
   getPaymentIntentContext(scope: SyncScope, saleId: string):
     | { kind: "FOUND"; cashRegisterId: string; currencyCode: string; payableAmount: string }
