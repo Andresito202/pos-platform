@@ -51,6 +51,7 @@ describe("RegisterQrPaymentUseCase", () => {
       providerCode: "BRE_B",
       providerReference: "intent-1",
       status: "PENDING" as const,
+      checkout: null,
     }));
 
     const store = {
@@ -76,6 +77,7 @@ describe("RegisterQrPaymentUseCase", () => {
       kind: "PENDING",
       paymentId: "payment-1",
       providerReference: "intent-1",
+      checkoutUrl: null,
     });
     expect(createPaymentIntent).toHaveBeenCalledWith(expect.objectContaining({
       cashRegisterId: "00000000-0000-0000-0000-000000000008",
