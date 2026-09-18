@@ -1194,3 +1194,34 @@ describe("la transferencia recorre reportar → leer versión → atestiguar", (
     });
   }, 30_000);
 });
+
+describe("payment.register.qr — transporte real", () => {
+  it("un QR sin proveedor configurado cruza el socket y conserva la respuesta", async () => {
+    await withRealChannel(async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+
+      const activated = await send(reading("session.activate", {
+        session_assertion: signSession(sessionClaims()),
+      }));
+      expect(activated.status).toBe("SUCCEEDED");
+
+      const response = await send(mutating("payment.register.qr", {
+        sale_id: "018f0000-0000-7000-8000-0000000000fd",
+        amount: "10000.000000",
+      }, "qr:transport:1"));
+
+      expect(response.status).toBe("REJECTED");
+      expect(response.result_code).toBe("PROVIDER_NOT_CONFIGURED");
+      expect(response.result["outcome"]).toBe("PROVIDER_NOT_CONFIGURED");
+
+      const count = database.native.prepare(
+        "SELECT COUNT(*) AS count FROM payments_payments",
+      ).get() as { count: number };
+      expect(count.count).toBe(0);
+    });
+  }, 30_000);
+});
