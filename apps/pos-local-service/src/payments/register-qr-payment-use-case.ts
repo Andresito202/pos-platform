@@ -26,6 +26,7 @@ export type RegisterQrPaymentResult =
   | { readonly kind: "CURRENCY_MISMATCH" }
   | { readonly kind: "PROVIDER_REJECTED" }
   | { readonly kind: "PROVIDER_REFERENCE_REQUIRED" }
+  | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "UNAUTHORIZED" };
 
 function requestChecksum(request: RegisterQrPaymentRequest): string {
