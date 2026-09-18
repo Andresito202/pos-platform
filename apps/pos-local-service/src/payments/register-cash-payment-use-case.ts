@@ -134,6 +134,7 @@ export class RegisterCashPaymentUseCase {
       // Inalcanzable: el efectivo confirma siempre. Se trata como defecto.
       throw new Error("cash payment must confirm on registration");
     }
+    if (outcome.kind === "PROVIDER_REFERENCE_REQUIRED") throw new Error("cash payment cannot require provider reference");
     return outcome;
   }
 }
