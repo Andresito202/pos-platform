@@ -74,6 +74,10 @@ export class RegisterQrPaymentUseCase {
       idempotencyKey: request.idempotencyKey,
     });
 
+    if (providerIntent.providerCode.trim() === "" || providerIntent.providerReference.trim() === "") {
+      return { kind: "PROVIDER_REFERENCE_REQUIRED" };
+    }
+
     if (providerIntent.status === "REJECTED") {
       return { kind: "PROVIDER_REJECTED" };
     }
