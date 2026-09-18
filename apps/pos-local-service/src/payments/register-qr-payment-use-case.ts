@@ -53,8 +53,19 @@ export class RegisterQrPaymentUseCase {
 
   async execute(
     scope: SyncScope,
+    sessionId: string,
+    authSnapshot: StoredAuthorizationSnapshot,
     request: RegisterQrPaymentRequest,
   ): Promise<RegisterQrPaymentResult> {
+    const actor = createActor("USER", authSnapshot.claims.user_id);
+    const decision = evaluatePermission({
+      actor,
+      permission: PERMISSION_PAYMENTS_TRANSFER_REPORT,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: new Date(),
+      assignments: toRoleAssignments(authSnapshot.claims),
+    });
+    if (!decision.allowed) return { kind: "UNAUTHORIZED" };
     const checksum = requestChecksum(request);
     const existing = this.paymentStore.findPaymentByIdempotency(scope, request.idempotencyKey, checksum);
     if (existing.kind !== "NEW") return existing;
