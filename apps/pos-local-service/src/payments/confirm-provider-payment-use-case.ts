@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { PaymentProviderEvidence } from "./payment-provider-port.js";
@@ -63,10 +63,10 @@ export class ConfirmProviderPaymentUseCase {
       currencyCode: request.evidence.currencyCode,
       receivedAt: request.evidence.receivedAt,
       payerReference: request.evidence.payerReference ?? null,
-      allocationId: crypto.randomUUID(),
-      attemptId: crypto.randomUUID(),
-      saleCompletionOperationId: crypto.randomUUID(),
-      operationId: crypto.randomUUID(),
+      allocationId: randomUUID(),
+      attemptId: randomUUID(),
+      saleCompletionOperationId: randomUUID(),
+      operationId: randomUUID(),
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request),
       correlationId: request.correlationId,
