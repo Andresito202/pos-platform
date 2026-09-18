@@ -17,7 +17,7 @@ export interface RegisterQrPaymentRequest {
 }
 
 export type RegisterQrPaymentResult =
-  | { readonly kind: "PENDING"; readonly paymentId: string; readonly providerReference: string }
+  | { readonly kind: "PENDING"; readonly paymentId: string; readonly providerReference: string; readonly checkoutUrl: string | null }
   | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "SALE_NOT_FOUND" }
@@ -128,6 +128,9 @@ export class RegisterQrPaymentUseCase {
         kind: "PENDING",
         paymentId: outcome.paymentId,
         providerReference: providerIntent.providerReference,
+        checkoutUrl: providerIntent.checkout?.kind === "WEB_URL"
+          ? providerIntent.checkout.url
+          : null,
       };
     }
     if (outcome.kind === "IDEMPOTENT") return outcome;
