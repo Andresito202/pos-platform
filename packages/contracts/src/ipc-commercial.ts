@@ -17,7 +17,7 @@ import {
  * (`UC-CASH-001`, `UC-CASH-002`).
  *
  * Incorpora además la superficie de Payment V1 (`DEC-016`):
- * `payment.register.cash`, `payment.register.transfer`,
+ * `payment.register.cash`, `payment.register.transfer`, `payment.register.qr`,
  * `payment.transfer.confirm`, `payment.cancel` y `payment.get`.
  *
  * Estos esquemas **sí** están incorporados a `IpcMessageTypeSchema` y a las
@@ -1057,6 +1057,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:sale.create",
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
+  "pos:payment.register.qr",
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
