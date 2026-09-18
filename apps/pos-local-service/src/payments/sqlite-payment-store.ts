@@ -117,6 +117,21 @@ export interface ConfirmTransferInput extends CommonInput {
   readonly saleCompletionOperationId: string;
 }
 
+export interface ConfirmProviderPaymentInput extends CommonInput {
+  readonly paymentId: string;
+  readonly expectedVersion: number;
+  readonly providerCode: string;
+  readonly providerReference: string;
+  readonly providerTransactionId: string;
+  readonly amount: string;
+  readonly currencyCode: "COP";
+  readonly receivedAt: string;
+  readonly payerReference: string | null;
+  readonly allocationId: string;
+  readonly attemptId: string;
+  readonly saleCompletionOperationId: string;
+}
+
 export interface CancelPaymentInput extends CommonInput {
   readonly paymentId: string;
   readonly expectedVersion: number;
@@ -186,6 +201,13 @@ export type ConfirmTransferOutcome =
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
   | InsufficientStockOutcome;
+
+export type ConfirmProviderPaymentOutcome = ConfirmTransferOutcome
+  | { readonly kind: "PROVIDER_MISMATCH" }
+  | { readonly kind: "PROVIDER_TRANSACTION_CONFLICT" }
+  | { readonly kind: "AMOUNT_MISMATCH" }
+  | { readonly kind: "CURRENCY_MISMATCH" }
+  | { readonly kind: "EVIDENCE_NOT_AUTHORIZED" };
 
 export type CancelPaymentOutcome =
   | { readonly kind: "CANCELLED"; readonly paymentId: string }
@@ -795,6 +817,132 @@ export class SqlitePaymentStore {
     }));
   }
 
+  // ── Confirmación autorizada por proveedor ─────────────────────────────────
+
+  /**
+   * Confirma un pago QR a partir de evidencia ya autenticada y normalizada por
+   * `PaymentProviderPort`.
+   *
+   * El proveedor es la autoridad financiera. La evidencia nunca se acepta por
+   * monto solamente: las referencias y los importes deben coincidir con el
+   * Payment pendiente.
+   */
+  confirmProviderPayment(input: ConfirmProviderPaymentInput): ConfirmProviderPaymentOutcome {
+    const nowIso = this.now().toISOString();
+
+    return runWithRollback(this.database.native.transaction((): ConfirmProviderPaymentOutcome => {
+      const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
+      if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
+
+      const payment = this.database.native.prepare(
+        `SELECT p.id, p.payment_group_id, p.payment_method, p.status, p.expected_amount,
+                p.confirmed_amount, p.currency_code, p.version, p.request_checksum,
+                p.provider_code, p.provider_reference,
+                g.collection_subject_id
+         FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+         WHERE p.tenant_id=? AND p.id=?`
+      ).get(input.scope.tenantId, input.paymentId) as
+        | (PaymentRow & { provider_code: string | null; provider_reference: string | null })
+        | undefined;
+
+      if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+      if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+
+      if (payment.payment_method !== "QR"
+        || payment.provider_code !== input.providerCode
+        || payment.provider_reference !== input.providerReference) {
+        return { kind: "PROVIDER_MISMATCH" };
+      }
+
+      if (payment.status !== "PENDING" && payment.status !== "CREATED") {
+        return { kind: "PAYMENT_NOT_CONFIRMABLE" };
+      }
+      if (payment.version !== input.expectedVersion) return { kind: "VERSION_CONFLICT" };
+
+      const saleId = payment.collection_subject_id;
+      const sale = this.loadSale(input.scope.tenantId, saleId);
+      if (sale === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+      if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
+
+      if (input.currencyCode !== sale.currency_code || payment.currency_code !== input.currencyCode) {
+        return { kind: "CURRENCY_MISMATCH" };
+      }
+      if (scale6ToBigInt(input.amount) !== scale6ToBigInt(payment.expected_amount)
+        || scale6ToBigInt(input.amount) !== scale6ToBigInt(sale.payable_amount)
+          - this.confirmedCoverage(input.scope.tenantId, saleId)) {
+        return { kind: "AMOUNT_MISMATCH" };
+      }
+
+      const providerAttempt = this.database.native.prepare(
+        `SELECT payment_id FROM payments_payment_attempts
+         WHERE tenant_id=? AND provider_code=? AND provider_reference_type="PROVIDER_TRANSACTION"
+           AND provider_reference=?`
+      ).get(input.scope.tenantId, input.providerCode, input.providerTransactionId) as
+        | { payment_id: string }
+        | undefined;
+
+      if (providerAttempt !== undefined && providerAttempt.payment_id !== input.paymentId) {
+        return { kind: "PROVIDER_TRANSACTION_CONFLICT" };
+      }
+
+      this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CONFIRMED", nowIso);
+
+      this.database.native.prepare(
+        `UPDATE payments_payments
+         SET status="CONFIRMED", confirmed_amount=expected_amount, confirmed_at=?,
+             version=version+1
+         WHERE tenant_id=? AND id=? AND version=?`
+      ).run(nowIso, input.scope.tenantId, input.paymentId, input.expectedVersion);
+
+      this.database.native.prepare(
+        `UPDATE payments_payment_attempts
+         SET status="CONFIRMED", provider_code=?, provider_reference_type="PROVIDER_TRANSACTION",
+             provider_reference=?, provider_reported_at=?, confirmed_at=?,
+             manual_confirmation_actor_id=NULL, version=version+1
+         WHERE tenant_id=? AND payment_id=? AND attempt_number=1`
+      ).run(
+        input.providerCode, input.providerTransactionId, input.receivedAt, nowIso,
+        input.scope.tenantId, input.paymentId,
+      );
+
+      this.insertAllocation(
+        input.scope.tenantId, input.allocationId, payment.payment_group_id, input.paymentId,
+        saleId, payment.expected_amount, payment.currency_code, nowIso,
+      );
+
+      const saleVersion = this.beginPaymentOnSale(input.scope.tenantId, saleId, sale);
+
+      const details = {
+        amount: payment.expected_amount,
+        method: payment.payment_method,
+        payment_id: input.paymentId,
+        sale_id: saleId,
+        provider_code: input.providerCode,
+        provider_reference: input.providerReference,
+        provider_transaction_id: input.providerTransactionId,
+        received_at: input.receivedAt,
+        payer_reference: input.payerReference,
+      };
+      this.writeAudit(input, "PAYMENT_PROVIDER_CONFIRMED", "PAYMENT", input.paymentId, details, nowIso);
+      this.enqueue(
+        input, input.operationId, input.idempotencyKey,
+        "PAYMENT", input.paymentId, "PAYMENT_PROVIDER_CONFIRMED", details, input.requestChecksum, nowIso,
+      );
+
+      const completion = this.completeSaleIfCovered(
+        input, saleId, sale.payable_amount, saleVersion, input.saleCompletionOperationId, nowIso,
+      );
+
+      return {
+        kind: "CONFIRMED",
+        paymentId: input.paymentId,
+        saleCompleted: completion.completed,
+        confirmedCoverage: bigIntToScale6(completion.coverage),
+        payableAmount: sale.payable_amount,
+      };
+    }));
+  }
   // ── Cancelación ─────────────────────────────────────────────────────────────
 
   /**
