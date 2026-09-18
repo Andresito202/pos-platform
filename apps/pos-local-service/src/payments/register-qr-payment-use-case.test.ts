@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { PaymentProviderPort } from "./payment-provider-port.js";
 import { RegisterQrPaymentUseCase } from "./register-qr-payment-use-case.js";
 import type { SqlitePaymentStore } from "./sqlite-payment-store.js";
@@ -44,7 +45,7 @@ describe("RegisterQrPaymentUseCase", () => {
       normalizeNotification: vi.fn(),
     };
 
-    const result = await new RegisterQrPaymentUseCase(store, provider).execute(scope, request);
+    const result = await new RegisterQrPaymentUseCase(store, provider).execute(scope, "session-1", authSnapshot, request);
 
     expect(result).toEqual({
       kind: "PENDING",
