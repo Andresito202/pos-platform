@@ -27,7 +27,7 @@ const PAYMENT_PAYLOAD_SCHEMA_VERSION = "1.0.0";
 /** Estados de venta desde los que V1 admite recibir pago. */
 const PAYABLE_SALE_STATUSES = new Set(["READY_FOR_PAYMENT", "PAYMENT_IN_PROGRESS"]);
 
-export type PaymentMethod = "CASH" | "TRANSFER";
+export type PaymentMethod = "CASH" | "TRANSFER" | "QR";
 
 interface SaleRow {
   status: string;
@@ -185,6 +185,7 @@ export type RegisterPaymentOutcome =
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "PROVIDER_REFERENCE_REQUIRED" }
   | InsufficientStockOutcome;
 
 export type ConfirmTransferOutcome =
@@ -517,6 +518,30 @@ export class SqlitePaymentStore {
     return input.groupId;
   }
 
+  /** Contexto confiable para crear una intención de pago respaldada por proveedor. */
+  getPaymentIntentContext(scope: SyncScope, saleId: string):
+    | { kind: "FOUND"; cashRegisterId: string; currencyCode: string; payableAmount: string }
+    | { kind: "NOT_FOUND" }
+    | { kind: "SALE_NOT_PAYABLE" } {
+    const sale = this.database.native.prepare(
+      `SELECT status, cash_register_id, currency_code, payable_amount
+       FROM sales_sales WHERE tenant_id=? AND id=?`,
+    ).get(scope.tenantId, saleId) as
+      | { status: string; cash_register_id: string | null; currency_code: string; payable_amount: string }
+      | undefined;
+
+    if (sale === undefined) return { kind: "NOT_FOUND" };
+    if (!PAYABLE_SALE_STATUSES.has(sale.status)) return { kind: "SALE_NOT_PAYABLE" };
+    if (sale.cash_register_id === null) return { kind: "NOT_FOUND" };
+
+    return {
+      kind: "FOUND",
+      cashRegisterId: sale.cash_register_id,
+      currencyCode: sale.currency_code,
+      payableAmount: sale.payable_amount,
+    };
+  }
+
   // ── Registro ────────────────────────────────────────────────────────────────
 
   /**
@@ -562,6 +587,10 @@ export class SqlitePaymentStore {
       const amount = scale6ToBigInt(input.amount);
       const payable = scale6ToBigInt(sale.payable_amount);
       const confirming = input.method === "CASH";
+      const providerAuthoritative = input.method === "QR";
+      if (providerAuthoritative && (input.providerCode === null || input.providerReference === null)) {
+        return { kind: "PROVIDER_REFERENCE_REQUIRED" };
+      }
       if (confirming && this.confirmedCoverage(input.scope.tenantId, input.saleId) + amount > payable) {
         return { kind: "OVERPAYMENT_NOT_ALLOWED" };
       }
@@ -572,7 +601,7 @@ export class SqlitePaymentStore {
       }
 
       const group = this.ensureGroup(input, sale, nowIso);
-      const status = confirming ? "CONFIRMED" : "CREATED";
+      const status = confirming ? "CONFIRMED" : providerAuthoritative ? "PENDING" : "CREATED";
       const resultCode = confirming ? "PAYMENT_CONFIRMED" : "PAYMENT_REGISTERED";
 
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, resultCode, nowIso);
@@ -601,7 +630,7 @@ export class SqlitePaymentStore {
         )`,
       ).run(
         input.paymentId, input.scope.tenantId, input.scope.companyId, input.scope.branchId, group,
-        input.method, confirming ? "LOCAL_DEVICE" : "MANUAL_ATTESTATION", status,
+        input.method, confirming ? "LOCAL_DEVICE" : providerAuthoritative ? "EXTERNAL_PROVIDER_AUTHORITATIVE" : "MANUAL_ATTESTATION", status,
         input.amount, confirming ? input.amount : "0.000000",
         input.tenderedAmount, input.changeAmount, sale.currency_code,
         input.scope.deviceId, input.scope.installationId,
@@ -624,9 +653,11 @@ export class SqlitePaymentStore {
       ).run(
         input.attemptId, input.scope.tenantId, input.scope.companyId, input.scope.branchId,
         input.paymentId,
-        input.method, confirming ? "LOCAL_DEVICE" : "MANUAL_ATTESTATION", status,
+        input.method, confirming ? "LOCAL_DEVICE" : providerAuthoritative ? "EXTERNAL_PROVIDER_AUTHORITATIVE" : "MANUAL_ATTESTATION", status,
         input.amount, sale.currency_code,
-        input.providerCode, input.providerReference === null ? null : "MANUAL_REFERENCE", input.providerReference,
+        input.providerCode,
+        input.providerReference === null ? null : providerAuthoritative ? "PROVIDER_INTENT" : "MANUAL_REFERENCE",
+        input.providerReference,
         confirming ? input.operatorUserId : null,
         `attempt:${input.idempotencyKey}`, input.requestChecksum, input.correlationId, input.causationId,
         nowIso, confirming ? nowIso : null,
