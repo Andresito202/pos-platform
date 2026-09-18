@@ -54,6 +54,8 @@ export class ConfirmProviderPaymentUseCase {
       scope,
       sessionId: "provider",
       operatorUserId: scope.deviceId,
+      auditActorType: "SYSTEM",
+      auditActorId: null,
       paymentId: request.paymentId,
       expectedVersion: request.expectedVersion,
       providerCode: request.evidence.providerCode,
