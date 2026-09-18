@@ -928,7 +928,7 @@ export class SqlitePaymentStore {
 
       const providerAttempt = this.database.native.prepare(
         `SELECT payment_id FROM payments_payment_attempts
-         WHERE tenant_id=? AND provider_code=? AND provider_reference_type="PROVIDER_TRANSACTION"
+         WHERE tenant_id=? AND provider_code=? AND provider_reference_type='PROVIDER_TRANSACTION'
            AND provider_reference=?`
       ).get(input.scope.tenantId, input.providerCode, input.providerTransactionId) as
         | { payment_id: string }
