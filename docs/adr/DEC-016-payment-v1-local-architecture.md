@@ -586,7 +586,7 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-7 | Sonido y confirmación visual (§13) | ubicación fijada; implementación diferida |
 | D-8 | `MIGRATION_011` con las cuatro tablas de §12 | `NOT YET MATERIALIZED` |
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
-| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016`; barrido automático y `redirect-url` siguen `NOT_YET_MATERIALIZED`) |
+| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016` + `redirect-url`; wiring IPC/renderer y barrido automático siguen `NOT_YET_MATERIALIZED`) |
 
 ## 17. Invariantes de Payment V1
 
@@ -749,23 +749,48 @@ ledger de ejecución distinto (`001_local_migration_control`), no
 constancia para que un PASS de ese comando no se lea como evidencia de esta
 migración.
 
-### 20.3 Lo que sigue sin existir — y por qué
+### 20.3 `redirect-url` en `buildWompiWebCheckout` (2026-09-19)
 
-**`redirect-url` en `buildWompiWebCheckout`** no se agregó: es el
-prerequisito real para que el renderer aprenda un `transaction.id` en
-producción (sin él, Wompi no redirige), pero es wiring de checkout/UI, no
-schema ni caso de uso.
+`WompiCheckoutCredentials.redirectUrl` — opcional, validado (`new URL(...)`,
+rechaza vacío o mal formado), y **no forma parte del checksum de
+integridad**: `signature:integrity` sólo firma
+`reference`+`amount-in-cents`+`COP`+`integritySecret`, verificado con una
+prueba que compara la firma con y sin `redirect-url` presente.
+
+Acepta cualquier esquema absoluto, incluido un protocolo custom de Electron
+(`pos-camacho://...`) — el destino real todavía no está decidido (es parte
+del wiring de §20.4 punto 2), así que el validador no se ata a `https:`.
+
+Sigue siendo, por diseño, un dato **no autoritativo**: el comentario en
+`WompiCheckoutCredentials` y `DEC-016` §20 mismo repiten la advertencia
+textual de Wompi ("informativo únicamente, nunca un método de validación").
+Que este campo exista no cambia esa regla ni la relaja.
+
+`TESTED` este turno: 6 pruebas nuevas en `wompi-checkout-builder.test.ts`
+(omitido por defecto, valor propagado tal cual, esquema custom aceptado,
+firma sin cambios, vacío y mal formado rechazados) + toda la suite de
+`payments/wompi` (47/47) y de la app completa (572/576, mismos 4 skips
+preexistentes de plataforma). `ARCH-003` y `ci:repository-policy` PASS.
+
+### 20.4 Lo que sigue sin existir — y por qué
 
 **El barrido en segundo plano** en sí (un job que recorra
 `payments_payment_attempts_reconciliation_sweep_idx` e invoque
-`ReconcileProviderPaymentUseCase` por cada fila) tampoco existe: es
+`ReconcileProviderPaymentUseCase` por cada fila) no existe: es
 scheduler/infra, deliberadamente fuera de alcance de esta rama.
 
-### 20.4 Pendiente para autorizar D-2 completo
+**La captura del redirect en el renderer/Electron** tampoco: `redirect-url`
+ahora puede *configurarse*, pero nada en esta rama todavía escucha esa URL
+ni le pasa el `id` capturado a `recordObservedProviderTransaction`. Es
+wiring de UI/IPC, fuera de alcance por instrucción explícita desde el inicio
+de esta rama.
+
+### 20.5 Pendiente para autorizar D-2 completo
 
 1. ~~Migración: columna para el `transaction.id` aprendido y aún no confirmado.~~
    `MATERIALIZED`/`TESTED` — §20.2.
-2. `redirect-url` en el checkout builder + captura en el renderer/Electron.
+2. ~~`redirect-url` en el checkout builder.~~ `MATERIALIZED`/`TESTED` — §20.3.
+   Falta todavía decidir y capturar el destino real en el renderer/Electron.
 3. Conectar `recordObservedProviderTransaction` al punto que reciba ese
    redirect, e IPC real (`payment.qr.reconcile` o equivalente) — wiring en
    `main.ts`, deliberadamente fuera de alcance en toda esta rama hasta ahora.

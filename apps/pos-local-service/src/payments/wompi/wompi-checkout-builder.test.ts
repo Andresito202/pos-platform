@@ -84,4 +84,71 @@ describe("Wompi Web Checkout builder", () => {
     expect(checkout.url).not.toContain(credentials.integritySecret);
     expect(checkout.url).toContain("signature%3Aintegrity=");
   });
+
+  describe("redirect-url", () => {
+    it("omits the param entirely when no redirect URL is configured", () => {
+      const checkout = buildWompiWebCheckout(
+        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        credentials,
+      );
+
+      const url = new URL(checkout.url);
+      expect(url.searchParams.has("redirect-url")).toBe(false);
+    });
+
+    it("carries a configured redirect URL, exactly as given", () => {
+      const checkout = buildWompiWebCheckout(
+        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { ...credentials, redirectUrl: "https://pos.camacho.test/payments/wompi/return" },
+      );
+
+      const url = new URL(checkout.url);
+      expect(url.searchParams.get("redirect-url")).toBe(
+        "https://pos.camacho.test/payments/wompi/return",
+      );
+    });
+
+    it("accepts a custom Electron protocol as the redirect target", () => {
+      const checkout = buildWompiWebCheckout(
+        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { ...credentials, redirectUrl: "pos-camacho://payments/wompi/return" },
+      );
+
+      const url = new URL(checkout.url);
+      expect(url.searchParams.get("redirect-url")).toBe("pos-camacho://payments/wompi/return");
+    });
+
+    it("does not change the integrity signature — redirect-url is not signed", () => {
+      const withoutRedirect = buildWompiWebCheckout(
+        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        credentials,
+      );
+      const withRedirect = buildWompiWebCheckout(
+        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { ...credentials, redirectUrl: "https://pos.camacho.test/payments/wompi/return" },
+      );
+
+      expect(new URL(withRedirect.url).searchParams.get("signature:integrity")).toBe(
+        new URL(withoutRedirect.url).searchParams.get("signature:integrity"),
+      );
+    });
+
+    it("rejects a blank redirect URL", () => {
+      expect(() =>
+        buildWompiWebCheckout(
+          { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+          { ...credentials, redirectUrl: "   " },
+        ),
+      ).toThrow("must not be blank");
+    });
+
+    it("rejects a malformed redirect URL", () => {
+      expect(() =>
+        buildWompiWebCheckout(
+          { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+          { ...credentials, redirectUrl: "not-a-url" },
+        ),
+      ).toThrow("well-formed URL");
+    });
+  });
 });
