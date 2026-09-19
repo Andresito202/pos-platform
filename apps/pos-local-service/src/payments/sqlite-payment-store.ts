@@ -265,6 +265,26 @@ export type CancelPaymentOutcome =
   | { readonly kind: "PAYMENT_NOT_CANCELLABLE" }
   | { readonly kind: "VERSION_CONFLICT" };
 
+/**
+ * Lo que hace falta para volver a preguntarle al proveedor por un intento
+ * incierto: su identidad ante el proveedor y la versión del pago que la
+ * resolución tendrá que afirmar.
+ */
+export interface UncertainProviderAttemptView {
+  readonly paymentId: string;
+  readonly paymentVersion: number;
+  readonly attemptId: string;
+  readonly providerCode: string | null;
+  /** `null` mientras el proveedor no haya entregado ninguno. */
+  readonly providerTransactionId: string | null;
+  readonly uncertaintyReason: string | null;
+}
+
+export type UncertainProviderAttemptOutcome =
+  | { readonly kind: "FOUND"; readonly attempt: UncertainProviderAttemptView }
+  | { readonly kind: "PAYMENT_NOT_FOUND" }
+  | { readonly kind: "ATTEMPT_NOT_UNCERTAIN" };
+
 export type GetPaymentOutcome =
   | { readonly kind: "FOUND"; readonly payment: PaymentView }
   | { readonly kind: "NOT_FOUND" };
@@ -1341,5 +1361,51 @@ export class SqlitePaymentStore {
 
       return { kind: "DECLINED", paymentId: input.paymentId, attemptId: attempt.id };
     }));
+  }
+
+  /**
+   * Localiza el intento `UNKNOWN` de un pago y lo que se sabe de él.
+   *
+   * Es sólo lectura y está acotada por `tenant_id` y `payment_id`, de modo que
+   * una consulta no puede alcanzar el intento de otro pago ni de otro tenant
+   * por coincidencia. Devuelve `providerTransactionId` tal cual esté —
+   * incluido `null`—: decidir qué hacer sin esa identidad es política del
+   * caso de uso, no del almacén.
+   */
+  findUncertainProviderAttempt(scope: SyncScope, paymentId: string): UncertainProviderAttemptOutcome {
+    const payment = this.database.native.prepare(
+      "SELECT id, version FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(scope.tenantId, paymentId) as { id: string; version: number } | undefined;
+
+    if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+
+    const attempt = this.database.native.prepare(
+      `SELECT id, provider_code, provider_transaction_id, provider_uncertainty_reason
+       FROM payments_payment_attempts
+       WHERE tenant_id=? AND payment_id=? AND status='UNKNOWN'
+       ORDER BY attempt_number DESC
+       LIMIT 1`,
+    ).get(scope.tenantId, paymentId) as
+      | {
+          id: string;
+          provider_code: string | null;
+          provider_transaction_id: string | null;
+          provider_uncertainty_reason: string | null;
+        }
+      | undefined;
+
+    if (attempt === undefined) return { kind: "ATTEMPT_NOT_UNCERTAIN" };
+
+    return {
+      kind: "FOUND",
+      attempt: {
+        paymentId: payment.id,
+        paymentVersion: payment.version,
+        attemptId: attempt.id,
+        providerCode: attempt.provider_code,
+        providerTransactionId: attempt.provider_transaction_id,
+        uncertaintyReason: attempt.provider_uncertainty_reason,
+      },
+    };
   }
 }

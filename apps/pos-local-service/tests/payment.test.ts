@@ -24,6 +24,9 @@ import { GetPaymentUseCase } from "../src/payments/get-payment-use-case.js";
 import { RegisterQrPaymentUseCase } from "../src/payments/register-qr-payment-use-case.js";
 import { ConfirmProviderPaymentUseCase } from "../src/payments/confirm-provider-payment-use-case.js";
 import { ResolveUncertainProviderPaymentUseCase } from "../src/payments/resolve-uncertain-provider-payment-use-case.js";
+import { QueryProviderForUncertainPaymentUseCase } from "../src/payments/query-provider-for-uncertain-payment-use-case.js";
+import { WompiPaymentProvider } from "../src/payments/wompi/wompi-payment-provider.js";
+import { WompiHttpError } from "../src/payments/wompi/wompi-http-client.js";
 import type { PaymentProviderOutcome, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
 import { SqliteMasterSnapshotStore } from "../src/master-data/sqlite-master-snapshot-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
@@ -1313,6 +1316,235 @@ describe("resolución de un intento UNKNOWN", () => {
       "SELECT COUNT(*) AS n FROM local_sync_outbox WHERE operation_type='PAYMENT_PROVIDER_DECLINED'",
     ).get() as { n: number };
     expect(outbox.n).toBe(1);
+  });
+});
+
+// ── Consulta al proveedor para resolver un UNKNOWN ────────────────────────────
+
+/**
+ * El puente entre la consulta real de Wompi y la resolución: una invocación,
+ * una pregunta. El adapter es el de producción; sólo se sustituye `fetch`,
+ * de modo que la normalización de `D-3` se ejerce de verdad.
+ */
+describe("consulta a Wompi para resolver un UNKNOWN", () => {
+  const WOMPI_CREDENTIALS = {
+    checkout: { publicKey: "pub_test_1", integritySecret: "int_secret_1" },
+    events: { eventsSecret: "events_secret_1" },
+  };
+
+  function wompiAnswering(transaction: Record<string, unknown> | number) {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      if (typeof transaction === "number") return new Response("nope", { status: transaction });
+      return new Response(JSON.stringify({ data: transaction }), { status: 200 });
+    }) as typeof fetch;
+    return {
+      provider: new WompiPaymentProvider(WOMPI_CREDENTIALS, { fetchImpl, clock: () => NOW.toISOString() }),
+      calls: () => calls,
+    };
+  }
+
+  async function uncertainQr(options: { providerTransactionId?: string | null } = {}) {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    // El pago se registra con el doble `TEST_QR`; aquí se consulta con el
+    // adapter real, que normaliza como `WOMPI`. La guarda de `provider_code`
+    // rechazaría la resolución, con razón: se alinean las filas para que el
+    // pago sea de verdad un pago Wompi.
+    env.database.native.prepare(
+      "UPDATE payments_payments SET provider_code='WOMPI' WHERE tenant_id=? AND id=?",
+    ).run(TENANT, registered.paymentId);
+
+    const providerTransactionId = options.providerTransactionId === undefined
+      ? "wompi-txn-1"
+      : options.providerTransactionId;
+    env.database.native.prepare(
+      "UPDATE payments_payment_attempts SET provider_code='WOMPI', provider_transaction_id=? WHERE tenant_id=? AND payment_id=?",
+    ).run(providerTransactionId, TENANT, registered.paymentId);
+
+    env.paymentStore.recordProviderUncertainty({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      paymentId: registered.paymentId, reason: "TIMEOUT", observedAt: NOW.toISOString(),
+      operationId: randomUUID(), idempotencyKey: "unknown:1",
+      requestChecksum: "b".repeat(64), correlationId: randomUUID(), causationId: null,
+    });
+
+    return { env, saleId, registered };
+  }
+
+  function queryUseCase(env: Awaited<ReturnType<typeof buildEnv>>, provider: WompiPaymentProvider) {
+    return new QueryProviderForUncertainPaymentUseCase(env.paymentStore, provider, env.resolveUncertain);
+  }
+
+  function attemptRow(env: Awaited<ReturnType<typeof buildEnv>>, paymentId: string) {
+    return env.database.native.prepare(
+      `SELECT status, provider_reference_type, provider_reference, provider_transaction_id,
+              provider_uncertainty_reason
+       FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?`,
+    ).get(TENANT, paymentId) as {
+      status: string;
+      provider_reference_type: string | null;
+      provider_reference: string | null;
+      provider_transaction_id: string | null;
+      provider_uncertainty_reason: string | null;
+    };
+  }
+
+  function wompiTransaction(status: string, reference: string) {
+    return { id: "wompi-txn-1", reference, status, amount_in_cents: 1_000_000, currency: "COP" };
+  }
+
+  // A, G, H, I, J
+  it("APPROVED de Wompi confirma el intento con sus efectos comerciales", async () => {
+    const { env, saleId, registered } = await uncertainQr();
+    const wompi = wompiAnswering(wompiTransaction("APPROVED", registered.providerReference));
+
+    const result = await queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("RESOLVED");
+    if (result.kind !== "RESOLVED") return;
+    expect(result.resolution.kind).toBe("CONFIRMED");
+
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("CONFIRMED");
+    // G y H: las identidades no se mueven.
+    expect(attempt.provider_reference_type).toBe("PROVIDER_INTENT");
+    expect(attempt.provider_reference).toBe(registered.providerReference);
+    expect(attempt.provider_transaction_id).toBe("wompi-txn-1");
+
+    // I: las invariantes comerciales de la confirmación siguen aplicando.
+    const payment = env.database.native.prepare(
+      "SELECT status, confirmed_amount FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { status: string; confirmed_amount: string };
+    expect(payment.status).toBe("CONFIRMED");
+    expect(payment.confirmed_amount).toBe("10000.000000");
+    expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+
+    // J: una invocación, una consulta. Sin barrido ni reintento.
+    expect(wompi.calls()).toBe(1);
+  });
+
+  // B
+  it("DECLINED de Wompi rechaza el intento sin confirmar el pago", async () => {
+    const { env, saleId, registered } = await uncertainQr();
+    const wompi = wompiAnswering(wompiTransaction("DECLINED", registered.providerReference));
+
+    const result = await queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind === "RESOLVED" && result.resolution.kind).toBe("DECLINED");
+    expect(attemptRow(env, registered.paymentId).status).toBe("DECLINED");
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+    expect(wompi.calls()).toBe(1);
+  });
+
+  // C
+  it("PENDING de Wompi deja el intento sin mutar", async () => {
+    const { env, registered } = await uncertainQr();
+    const before = attemptRow(env, registered.paymentId);
+    const wompi = wompiAnswering(wompiTransaction("PENDING", registered.providerReference));
+
+    const result = await queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind === "RESOLVED" && result.resolution.kind).toBe("STILL_UNCERTAIN");
+    expect(attemptRow(env, registered.paymentId)).toEqual(before);
+  });
+
+  // D
+  it("una consulta que tampoco puede determinarse deja el UNKNOWN y su razón", async () => {
+    const { env, registered } = await uncertainQr();
+    const wompi = wompiAnswering(503);
+
+    const result = await queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result).toEqual({ kind: "STILL_UNKNOWN", reason: "PROVIDER_UNAVAILABLE" });
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("UNKNOWN");
+    expect(attempt.provider_uncertainty_reason).toBe("TIMEOUT");
+  });
+
+  // E
+  it("sin identidad del proveedor no consulta nada", async () => {
+    const { env, registered } = await uncertainQr({ providerTransactionId: null });
+    const wompi = wompiAnswering(wompiTransaction("APPROVED", registered.providerReference));
+
+    const result = await queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result).toEqual({ kind: "PROVIDER_IDENTITY_MISSING", uncertaintyReason: "TIMEOUT" });
+    expect(wompi.calls()).toBe(0);
+    expect(attemptRow(env, registered.paymentId).status).toBe("UNKNOWN");
+  });
+
+  // F
+  it("otro tenant no alcanza el intento, y no se consulta al proveedor", async () => {
+    const { env, registered } = await uncertainQr();
+    const wompi = wompiAnswering(wompiTransaction("APPROVED", registered.providerReference));
+    const otherScope = { ...SCOPE, tenantId: "018f0000-0000-7000-8000-0000000000ff" };
+
+    const result = await queryUseCase(env, wompi.provider).execute(otherScope, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result).toEqual({ kind: "PAYMENT_NOT_FOUND" });
+    expect(wompi.calls()).toBe(0);
+    expect(attemptRow(env, registered.paymentId).status).toBe("UNKNOWN");
+  });
+
+  it("un pago cuyo intento no es incierto no se consulta", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+    const wompi = wompiAnswering(wompiTransaction("APPROVED", registered.providerReference));
+
+    const result = await queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result).toEqual({ kind: "ATTEMPT_NOT_UNCERTAIN" });
+    expect(wompi.calls()).toBe(0);
+  });
+
+  it("un fallo de configuración del proveedor se propaga, no se vuelve evidencia", async () => {
+    const { env, registered } = await uncertainQr();
+    const wompi = wompiAnswering(401);
+
+    await expect(queryUseCase(env, wompi.provider).execute(SCOPE, {
+      paymentId: registered.paymentId,
+      idempotencyKey: "query:1", correlationId: randomUUID(), causationId: null,
+    })).rejects.toThrow(WompiHttpError);
+
+    expect(attemptRow(env, registered.paymentId).status).toBe("UNKNOWN");
   });
 });
 
