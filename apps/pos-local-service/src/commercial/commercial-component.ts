@@ -32,6 +32,8 @@ import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
 import { ConfirmProviderPaymentUseCase } from "../payments/confirm-provider-payment-use-case.js";
 import { RegisterQrPaymentUseCase } from "../payments/register-qr-payment-use-case.js";
+import { ResolveUncertainProviderPaymentUseCase } from "../payments/resolve-uncertain-provider-payment-use-case.js";
+import { SweepUncertainProviderPaymentsUseCase } from "../payments/sweep-uncertain-provider-payments-use-case.js";
 import type { PaymentProviderPort } from "../payments/payment-provider-port.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
@@ -71,6 +73,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getPayment: GetPaymentUseCase;
         readonly confirmProviderPayment: ConfirmProviderPaymentUseCase;
         readonly registerQrPayment: RegisterQrPaymentUseCase | undefined;
+        readonly sweepUncertainProviderPayments: SweepUncertainProviderPaymentsUseCase | undefined;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
@@ -113,6 +116,13 @@ export class CommercialComponent implements RuntimeComponent {
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
   get confirmProviderPayment(): ConfirmProviderPaymentUseCase { return this.ready.confirmProviderPayment; }
   get registerQrPayment(): RegisterQrPaymentUseCase | undefined { return this.ready.registerQrPayment; }
+  /**
+   * `undefined` mientras no haya `PaymentProviderPort`: sin proveedor no hay a
+   * quién preguntar, igual que no hay cobro QR que registrar.
+   */
+  get sweepUncertainProviderPayments(): SweepUncertainProviderPaymentsUseCase | undefined {
+    return this.ready.sweepUncertainProviderPayments;
+  }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
@@ -144,6 +154,7 @@ export class CommercialComponent implements RuntimeComponent {
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
     const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
+    const confirmProviderPayment = new ConfirmProviderPaymentUseCase(paymentStore);
 
     this.state = {
       sessionStore,
@@ -164,10 +175,21 @@ export class CommercialComponent implements RuntimeComponent {
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
-      confirmProviderPayment: new ConfirmProviderPaymentUseCase(paymentStore),
+      confirmProviderPayment,
       registerQrPayment: this.paymentProvider === undefined
         ? undefined
         : new RegisterQrPaymentUseCase(paymentStore, this.paymentProvider),
+      // El barrido se monta sobre las mismas piezas que ya existen: el mismo
+      // almacén, el mismo proveedor y la misma resolución. No hay una segunda
+      // vía por la que un `UNKNOWN` pueda acabar resuelto.
+      sweepUncertainProviderPayments: this.paymentProvider === undefined
+        ? undefined
+        : new SweepUncertainProviderPaymentsUseCase(
+            paymentStore,
+            this.paymentProvider,
+            new ResolveUncertainProviderPaymentUseCase(paymentStore, confirmProviderPayment),
+            this.now,
+          ),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
     };

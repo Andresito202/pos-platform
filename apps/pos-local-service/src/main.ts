@@ -7,6 +7,7 @@ import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
+import { UncertainProviderSweepComponent } from "./payments/uncertain-provider-sweep-component.js";
 import {
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
@@ -109,6 +110,21 @@ try {
   // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
   // fabricada.
   const commercial = new CommercialComponent(config, localDatabase, durableSync);
+  // El barrido de intentos `UNKNOWN` (`D-5`/`D-6`). Resuelve su caso de uso al
+  // arrancar —va detras de `commercial`, que es quien lo construye— y sin
+  // `PaymentProviderPort` inyectado no arma temporizador alguno: hoy ese es el
+  // caso, y el log lo dice en vez de callarlo.
+  const uncertainProviderSweep = new UncertainProviderSweepComponent(
+    () => commercial.sweepUncertainProviderPayments,
+    {
+      tenantId: config.tenant_id,
+      companyId: config.company_id,
+      branchId: config.branch_id,
+      deviceId: config.device_id,
+      installationId: config.installation_id,
+    },
+    logger,
+  );
   let localChannel: LocalChannelComponent | undefined;
   // `security` va inmediatamente despues de la base de datos y antes que todo
   // lo demas: ninguna operacion comercial se sirve si el equipo no pudo
@@ -119,6 +135,7 @@ try {
     durableSync,
     operationConfirmation,
     commercial,
+    uncertainProviderSweep,
   ];
 
   if (process.platform === "win32") {
