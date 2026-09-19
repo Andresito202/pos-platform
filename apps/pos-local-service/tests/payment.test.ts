@@ -23,7 +23,6 @@ import { CancelPaymentUseCase } from "../src/payments/cancel-payment-use-case.js
 import { GetPaymentUseCase } from "../src/payments/get-payment-use-case.js";
 import { RegisterQrPaymentUseCase } from "../src/payments/register-qr-payment-use-case.js";
 import { ConfirmProviderPaymentUseCase } from "../src/payments/confirm-provider-payment-use-case.js";
-import { ReconcileProviderPaymentUseCase } from "../src/payments/reconcile-provider-payment-use-case.js";
 import type { PaymentProviderEvidence, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
 import { SqliteMasterSnapshotStore } from "../src/master-data/sqlite-master-snapshot-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
@@ -106,7 +105,7 @@ async function buildEnv() {
   const paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
 
   return {
-    database, cashStore, inventoryStore, paymentStore,
+    database, cashStore, inventoryStore,
     openShift: new OpenCashShiftUseCase(masterStore, cashStore, () => NOW),
     closeShift: new CloseCashShiftUseCase(cashStore, () => NOW),
     registerCash: new RegisterCashPaymentUseCase(paymentStore, () => NOW),
@@ -724,170 +723,6 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
     });
     expect(b.kind).toBe("PROVIDER_TRANSACTION_CONFLICT");
     expect(saleStatus(env.database, sale2).status).toBe("PAYMENT_IN_PROGRESS");
-  });
-});
-
-// ── MIGRATION_016 — transaction id observado antes de confirmar (DEC-016 §20) ──
-
-describe("transacción de proveedor observada antes de confirmar", () => {
-  it("persiste y relee el id observado sin cambiar el estado del pago", async () => {
-    const env = await buildEnv();
-    seedRegister(env.database);
-    const shiftId = openShift(env);
-    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
-    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
-      saleId, amount: "10000.000000",
-      idempotencyKey: "qr:observed:1", correlationId: randomUUID(), causationId: null,
-    });
-    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
-
-    expect(env.paymentStore.getObservedProviderTransaction(SCOPE, registered.paymentId)).toBeNull();
-
-    const recorded = env.paymentStore.recordObservedProviderTransaction(
-      SCOPE, registered.paymentId, "TX-REDIRECT-1", "2026-09-18T12:00:00.000Z",
-    );
-    expect(recorded).toEqual({ kind: "RECORDED" });
-
-    expect(env.paymentStore.getObservedProviderTransaction(SCOPE, registered.paymentId)).toEqual({
-      providerTransactionId: "TX-REDIRECT-1",
-      observedAt: "2026-09-18T12:00:00.000Z",
-    });
-
-    // No autoritativo: el pago sigue PENDING, sólo confirmProviderPayment lo mueve.
-    const pending = env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId });
-    if (pending.kind !== "FOUND") throw new Error("expected FOUND");
-    expect(pending.payment.status).toBe("PENDING");
-  });
-
-  it("recording overwrites a previously observed id (last write wins for this non-authoritative hint)", async () => {
-    const env = await buildEnv();
-    seedRegister(env.database);
-    const shiftId = openShift(env);
-    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
-    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
-      saleId, amount: "10000.000000",
-      idempotencyKey: "qr:observed:2", correlationId: randomUUID(), causationId: null,
-    });
-    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
-
-    env.paymentStore.recordObservedProviderTransaction(SCOPE, registered.paymentId, "TX-A", "2026-09-18T12:00:00.000Z");
-    env.paymentStore.recordObservedProviderTransaction(SCOPE, registered.paymentId, "TX-B", "2026-09-18T12:05:00.000Z");
-
-    expect(env.paymentStore.getObservedProviderTransaction(SCOPE, registered.paymentId)).toEqual({
-      providerTransactionId: "TX-B",
-      observedAt: "2026-09-18T12:05:00.000Z",
-    });
-  });
-
-  it("returns PAYMENT_NOT_FOUND for an unknown payment", async () => {
-    const env = await buildEnv();
-    const outcome = env.paymentStore.recordObservedProviderTransaction(
-      SCOPE, randomUUID(), "TX-1", NOW.toISOString(),
-    );
-    expect(outcome).toEqual({ kind: "PAYMENT_NOT_FOUND" });
-  });
-
-  it("returns PAYMENT_NOT_RECONCILABLE once the payment is already CONFIRMED", async () => {
-    const env = await buildEnv();
-    seedRegister(env.database);
-    const shiftId = openShift(env);
-    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
-    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
-      saleId, amount: "10000.000000",
-      idempotencyKey: "qr:observed:3", correlationId: randomUUID(), causationId: null,
-    });
-    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
-
-    const confirmed = env.confirmProvider.execute(SCOPE, {
-      paymentId: registered.paymentId, expectedVersion: 1,
-      evidence: {
-        providerCode: "TEST_QR", providerReference: registered.providerReference,
-        providerTransactionId: "TX-CONFIRMED", amount: "10000.000000",
-        currencyCode: "COP", status: "APPROVED", receivedAt: NOW.toISOString(),
-      },
-      idempotencyKey: "qr:observed:3:confirm", correlationId: randomUUID(), causationId: null,
-    });
-    expect(confirmed.kind).toBe("CONFIRMED");
-
-    const outcome = env.paymentStore.recordObservedProviderTransaction(
-      SCOPE, registered.paymentId, "TX-LATE", NOW.toISOString(),
-    );
-    expect(outcome).toEqual({ kind: "PAYMENT_NOT_RECONCILABLE" });
-  });
-
-  it("MIGRATION_016 enforces the id/timestamp pair and forbids two attempts from observing the same Wompi transaction", async () => {
-    const env = await buildEnv();
-    seedRegister(env.database);
-    const shiftId = openShift(env);
-    const sale1 = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
-    const sale2 = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
-
-    const first = await env.registerQr.execute(SCOPE, SESSION, auth(), {
-      saleId: sale1, amount: "10000.000000",
-      idempotencyKey: "qr:observed:4:a", correlationId: randomUUID(), causationId: null,
-    });
-    const second = await env.registerQr.execute(SCOPE, SESSION, auth(), {
-      saleId: sale2, amount: "10000.000000",
-      idempotencyKey: "qr:observed:4:b", correlationId: randomUUID(), causationId: null,
-    });
-    if (first.kind !== "PENDING" || second.kind !== "PENDING") throw new Error("expected PENDING");
-
-    // CHECK: no puede haber un id sin su timestamp de observación.
-    expect(() => env.database.native.prepare(
-      `UPDATE payments_payment_attempts SET observed_provider_transaction_id='TX-ORPHAN'
-       WHERE tenant_id=? AND payment_id=?`,
-    ).run(TENANT, first.paymentId)).toThrow(/CHECK/);
-
-    // Índice único: el mismo id de Wompi no puede quedar observado en dos intentos.
-    env.paymentStore.recordObservedProviderTransaction(SCOPE, first.paymentId, "TX-SHARED", NOW.toISOString());
-    expect(() =>
-      env.paymentStore.recordObservedProviderTransaction(SCOPE, second.paymentId, "TX-SHARED", NOW.toISOString()),
-    ).toThrow(/UNIQUE/);
-  });
-
-  it("ReconcileProviderPaymentUseCase persiste el id observado cuando Wompi todavía dice PENDING", async () => {
-    const env = await buildEnv();
-    seedRegister(env.database);
-    const shiftId = openShift(env);
-    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
-    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
-      saleId, amount: "10000.000000",
-      idempotencyKey: "qr:observed:5", correlationId: randomUUID(), causationId: null,
-    });
-    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
-
-    expect(env.paymentStore.getObservedProviderTransaction(SCOPE, registered.paymentId)).toBeNull();
-
-    const pendingProvider: PaymentProviderPort = {
-      createPaymentIntent: qrProvider().createPaymentIntent,
-      async getPaymentStatus(): Promise<PaymentProviderEvidence> {
-        return {
-          providerCode: "TEST_QR", providerReference: registered.providerReference,
-          providerTransactionId: "TX-OBSERVED-1", amount: "10000.000000",
-          currencyCode: "COP", status: "PENDING", receivedAt: NOW.toISOString(),
-        };
-      },
-      normalizeNotification: qrProvider().normalizeNotification,
-    };
-    const reconcile = new ReconcileProviderPaymentUseCase(env.paymentStore, pendingProvider, env.confirmProvider, () => NOW);
-
-    const result = await reconcile.execute(SCOPE, auth(), {
-      paymentId: registered.paymentId,
-      providerTransactionId: "TX-OBSERVED-1",
-      correlationId: randomUUID(),
-      causationId: null,
-    });
-
-    expect(result).toEqual({ kind: "STILL_PENDING" });
-    // No autoritativo: el pago sigue PENDING — sólo confirmProviderPayment lo mueve.
-    const pending = env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId });
-    if (pending.kind !== "FOUND") throw new Error("expected FOUND");
-    expect(pending.payment.status).toBe("PENDING");
-    // Pero el id ya quedó anotado para que un barrido futuro lo encuentre.
-    expect(env.paymentStore.getObservedProviderTransaction(SCOPE, registered.paymentId)).toEqual({
-      providerTransactionId: "TX-OBSERVED-1",
-      observedAt: NOW.toISOString(),
-    });
   });
 });
 

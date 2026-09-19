@@ -13,14 +13,9 @@ export const IPC_ALLOWED_CHANNELS = [
   // Payment V1 — `DEC-016`.
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
-  "pos:payment.register.qr",
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
-  // QR/Wompi — `DEC-016` §20. Reconciliación bajo demanda con evidencia real
-  // del proveedor; el checkout en sí no es un canal comercial (ver
-  // `NATIVE_IPC_CHANNELS`, más abajo).
-  "pos:payment.qr.reconcile",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
@@ -39,23 +34,4 @@ export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];
 
 export function isAllowedChannel(channel: string): channel is IpcAllowedChannel {
   return (IPC_ALLOWED_CHANNELS as readonly string[]).includes(channel);
-}
-
-/**
- * Canales que `main.ts` atiende **fuera** de `ChannelBridge` — nunca se
- * reenvían al servicio local, así que no pertenecen a `IPC_ALLOWED_CHANNELS`
- * (cuyo único propósito es esa frontera de reenvío, per `ChannelBridge`).
- *
- * `payment.qr.checkout.open` abre y observa una ventana de Electron
- * (`qr-checkout-window.ts`, `DEC-016` §20) — no hay caso de uso comercial que
- * invocar, ni sobre que validar contra el contrato de `@pos-platform/contracts`.
- */
-export const NATIVE_IPC_CHANNELS = [
-  "pos:payment.qr.checkout.open",
-] as const;
-
-export type NativeIpcChannel = (typeof NATIVE_IPC_CHANNELS)[number];
-
-export function isNativeChannel(channel: string): channel is NativeIpcChannel {
-  return (NATIVE_IPC_CHANNELS as readonly string[]).includes(channel);
 }

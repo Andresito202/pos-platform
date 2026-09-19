@@ -1212,124 +1212,6 @@ CREATE INDEX inventory_movement_sale_idx
   ON inventory_movement(tenant_id, sale_id) WHERE sale_id IS NOT NULL;
 `.trim();
 
-/**
- * `MIGRATION_016` — id de transacción del proveedor observado antes de
- * confirmar (`DEC-016` §20, D-2).
- *
- * `confirmProviderPayment` ya escribe `provider_reference_type=
- * 'PROVIDER_TRANSACTION'` en `provider_reference`, pero sólo **en el momento
- * de confirmar**. No hay dónde anotar «ya vimos este id de Wompi, pero Wompi
- * todavía dice PENDING» — que es exactamente lo que el redirect de checkout o
- * un webhook con evidencia no concluyente producen. Sin esa fila, la
- * reconciliación bajo demanda (`ReconcileProviderPaymentUseCase`,
- * materializada antes que esta migración) exige que el llamador ya conozca
- * el id; un barrido en segundo plano no tiene de dónde leerlo.
- *
- * `observed_provider_transaction_id`/`observed_provider_transaction_at` son
- * **no autoritativos a propósito**: aprenderlos no confirma nada — el
- * redirect de Wompi es, según su propia documentación, «informativo
- * únicamente, nunca un método de validación», y `DEC-016` §6 regla 5 exige
- * lo mismo para cualquier entrada no confiable. Sólo `confirmProviderPayment`
- * puede mover `payments_payments.status`; esta migración no le da a ningún
- * otro camino nueva autoridad.
- *
- * `CHECK` empareja los dos campos: no puede haber un id sin momento de
- * observación ni viceversa. El índice único evita que dos intentos del mismo
- * tenant/proveedor reclamen haber observado el mismo id de Wompi — igual de
- * estricto que `payments_payment_attempts_provider_reference_idx`, que ya
- * hace esto para la referencia confirmada.
- *
- * `payments_payment_attempts` tiene `CHECK`s que SQLite no permite alterar,
- * así que la tabla se reconstruye siguiendo el mismo patrón de
- * `MIGRATION_008`: crear, copiar, `DROP`, `RENAME`. No la referencia ninguna
- * `FOREIGN KEY` de otra tabla, así que reconstruirla no rompe nada fuera de
- * ella.
- *
- * PostgreSQL central no tiene todavía ninguna tabla de Payments materializada
- * (`payments-schema.md` es el contrato físico, pero no está aplicado en
- * `tools/target-migrations`), así que esta migración es **sólo SQLite** — no
- * hay dialecto Postgres que actualizar en paralelo.
- */
-const MIGRATION_016 = `
-CREATE TABLE payments_payment_attempts_rebuilt (
-  id TEXT NOT NULL CHECK(length(id) = 36),
-  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
-  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
-  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
-  payment_id TEXT NOT NULL CHECK(length(payment_id) = 36),
-  attempt_number INTEGER NOT NULL CHECK(attempt_number > 0),
-  payment_method TEXT NOT NULL CHECK(payment_method IN (
-    'CASH','CARD','TRANSFER','QR','CUSTOMER_CREDIT')),
-  authority_type TEXT NOT NULL CHECK(authority_type IN (
-    'LOCAL_DEVICE','MANUAL_ATTESTATION','EXTERNAL_PROVIDER_AUTHORITATIVE')),
-  status TEXT NOT NULL CHECK(status IN (
-    'CREATED','PENDING','PROCESSING','REQUIRES_ACTION','CONFIRMED','DECLINED',
-    'FAILED','EXPIRED','CANCELLED','UNKNOWN','REVIEW_REQUIRED')),
-  amount TEXT NOT NULL
-    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
-    CHECK(amount NOT GLOB '*[^0-9.]*')
-    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
-    CHECK(amount NOT GLOB '0[0-9]*'),
-  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
-  provider_code TEXT CHECK(provider_code IS NULL OR length(provider_code) > 0),
-  provider_reference_type TEXT CHECK(provider_reference_type IS NULL OR length(provider_reference_type) > 0),
-  provider_reference TEXT CHECK(provider_reference IS NULL OR length(provider_reference) > 0),
-  observed_provider_transaction_id TEXT
-    CHECK(observed_provider_transaction_id IS NULL OR length(observed_provider_transaction_id) > 0),
-  observed_provider_transaction_at TEXT
-    CHECK((observed_provider_transaction_id IS NULL) = (observed_provider_transaction_at IS NULL)),
-  manual_confirmation_actor_id TEXT CHECK(manual_confirmation_actor_id IS NULL OR length(manual_confirmation_actor_id) = 36),
-  error_code TEXT CHECK(error_code IS NULL OR length(error_code) > 0),
-  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
-  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
-  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
-  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
-  version INTEGER NOT NULL CHECK(version > 0),
-  initiated_at TEXT NOT NULL,
-  provider_reported_at TEXT,
-  confirmed_at TEXT,
-  server_recorded_at TEXT,
-  CHECK(status <> 'CONFIRMED' OR confirmed_at IS NOT NULL),
-  PRIMARY KEY (tenant_id, id),
-  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id)
-) WITHOUT ROWID, STRICT;
-
-INSERT INTO payments_payment_attempts_rebuilt(
-  id, tenant_id, company_id, branch_id, payment_id, attempt_number,
-  payment_method, authority_type, status, amount, currency_code,
-  provider_code, provider_reference_type, provider_reference,
-  observed_provider_transaction_id, observed_provider_transaction_at,
-  manual_confirmation_actor_id, error_code,
-  idempotency_key, request_checksum, correlation_id, causation_id,
-  version, initiated_at, provider_reported_at, confirmed_at, server_recorded_at
-)
-SELECT
-  id, tenant_id, company_id, branch_id, payment_id, attempt_number,
-  payment_method, authority_type, status, amount, currency_code,
-  provider_code, provider_reference_type, provider_reference,
-  NULL, NULL,
-  manual_confirmation_actor_id, error_code,
-  idempotency_key, request_checksum, correlation_id, causation_id,
-  version, initiated_at, provider_reported_at, confirmed_at, server_recorded_at
-FROM payments_payment_attempts;
-
-DROP TABLE payments_payment_attempts;
-
-ALTER TABLE payments_payment_attempts_rebuilt RENAME TO payments_payment_attempts;
-
-CREATE UNIQUE INDEX payments_payment_attempts_number_idx
-  ON payments_payment_attempts(tenant_id, payment_id, attempt_number);
-CREATE UNIQUE INDEX payments_payment_attempts_provider_reference_idx
-  ON payments_payment_attempts(tenant_id, provider_code, provider_reference_type, provider_reference)
-  WHERE provider_reference IS NOT NULL;
-CREATE UNIQUE INDEX payments_payment_attempts_observed_transaction_idx
-  ON payments_payment_attempts(tenant_id, provider_code, observed_provider_transaction_id)
-  WHERE observed_provider_transaction_id IS NOT NULL;
-CREATE INDEX payments_payment_attempts_reconciliation_sweep_idx
-  ON payments_payment_attempts(tenant_id, status, observed_provider_transaction_at)
-  WHERE status = 'PENDING' AND observed_provider_transaction_id IS NOT NULL;
-`.trim();
-
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1346,7 +1228,6 @@ const MIGRATIONS = [
   { version: 13, sql: MIGRATION_013, checksum: createHash("sha256").update(MIGRATION_013).digest("hex") },
   { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
-  { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
 ] as const;
 
 /**

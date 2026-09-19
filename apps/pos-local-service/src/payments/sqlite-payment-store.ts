@@ -225,16 +225,6 @@ export type GetPaymentOutcome =
   | { readonly kind: "FOUND"; readonly payment: PaymentView }
   | { readonly kind: "NOT_FOUND" };
 
-export interface ObservedProviderTransaction {
-  readonly providerTransactionId: string;
-  readonly observedAt: string;
-}
-
-export type RecordObservedProviderTransactionOutcome =
-  | { readonly kind: "RECORDED" }
-  | { readonly kind: "PAYMENT_NOT_FOUND" }
-  | { readonly kind: "PAYMENT_NOT_RECONCILABLE" };
-
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export class SqlitePaymentStore {
@@ -276,65 +266,6 @@ export class SqlitePaymentStore {
         currencyCode: row.currency_code,
         version: row.version,
       },
-    };
-  }
-
-  /**
-   * Anota un `transaction.id` de Wompi aprendido antes de confirmar —
-   * `MIGRATION_016`, `DEC-016` §20. **No autoritativo**: no cambia
-   * `payments_payments.status` ni `payments_payment_attempts.status`. Sólo
-   * `confirmProviderPayment` puede hacer eso.
-   *
-   * Localiza el mismo intento `QR`/`PENDING` que `confirmProviderPayment`
-   * confirmaría, para que ambos caminos operen siempre sobre la misma fila.
-   */
-  recordObservedProviderTransaction(
-    scope: SyncScope,
-    paymentId: string,
-    providerTransactionId: string,
-    observedAt: string,
-  ): RecordObservedProviderTransactionOutcome {
-    const pendingAttempt = this.database.native.prepare(
-      `SELECT id FROM payments_payment_attempts
-       WHERE tenant_id=? AND payment_id=? AND payment_method='QR' AND status='PENDING'
-       ORDER BY attempt_number DESC
-       LIMIT 1`,
-    ).get(scope.tenantId, paymentId) as { id: string } | undefined;
-
-    if (pendingAttempt === undefined) {
-      const exists = this.database.native.prepare(
-        `SELECT 1 FROM payments_payments WHERE tenant_id=? AND id=?`,
-      ).get(scope.tenantId, paymentId);
-      return { kind: exists === undefined ? "PAYMENT_NOT_FOUND" : "PAYMENT_NOT_RECONCILABLE" };
-    }
-
-    this.database.native.prepare(
-      `UPDATE payments_payment_attempts
-       SET observed_provider_transaction_id=?, observed_provider_transaction_at=?
-       WHERE tenant_id=? AND id=?`,
-    ).run(providerTransactionId, observedAt, scope.tenantId, pendingAttempt.id);
-
-    return { kind: "RECORDED" };
-  }
-
-  /** Lee lo que `recordObservedProviderTransaction` anotó, si algo. */
-  getObservedProviderTransaction(scope: SyncScope, paymentId: string): ObservedProviderTransaction | null {
-    const row = this.database.native.prepare(
-      `SELECT observed_provider_transaction_id, observed_provider_transaction_at
-       FROM payments_payment_attempts
-       WHERE tenant_id=? AND payment_id=? AND payment_method='QR'
-       ORDER BY attempt_number DESC
-       LIMIT 1`,
-    ).get(scope.tenantId, paymentId) as
-      | { observed_provider_transaction_id: string | null; observed_provider_transaction_at: string | null }
-      | undefined;
-
-    if (row === undefined || row.observed_provider_transaction_id === null || row.observed_provider_transaction_at === null) {
-      return null;
-    }
-    return {
-      providerTransactionId: row.observed_provider_transaction_id,
-      observedAt: row.observed_provider_transaction_at,
     };
   }
 

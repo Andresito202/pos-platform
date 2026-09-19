@@ -588,6 +588,15 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
 | D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016` + `redirect-url` + wiring de Electron + `STILL_PENDING` conectado; barrido automático y aprovisionamiento productivo siguen `NOT_YET_MATERIALIZED`) |
 
+> **PENDIENTE DE ACTUALIZACIÓN — recuperación de alcance del 2026-09-19.** La
+> fila `D-1/D-2` de esta tabla describe el estado de la rama **antes** de la
+> recuperación de alcance del 2026-09-19. De lo que enumera, siguen
+> materializados el checkout (incluido `redirect-url`), la consulta
+> `GET /v1/transactions/{id}` y el webhook; fueron **retirados de la línea
+> activa** la reconciliación bajo demanda, `MIGRATION_016`, el wiring de
+> Electron y la conexión de `STILL_PENDING`. La fila no se reescribe: el aviso
+> al inicio de §20 tiene el detalle y `D-2` sigue abierta.
+
 ## 17. Invariantes de Payment V1
 
 1. Un `Payment` confirmado nunca se modifica destructivamente (`DEC-002`).
@@ -659,6 +668,28 @@ autorización explícita— antes de asumir que el subconjunto de tres estados
 es definitivo.
 
 ## 20. Reconciliación bajo demanda — `ReconcileProviderPaymentUseCase` (2026-09-18)
+
+> **PENDIENTE DE ACTUALIZACIÓN — recuperación de alcance del 2026-09-19.**
+>
+> El código descrito en **§20.1, §20.2, §20.4 y §20.5** fue **retirado de la
+> línea activa** de `feat/payment-qr-provider-foundation` el 2026-09-19: se
+> materializó fuera del alcance autorizado de esta rama (la capa de autoridad
+> de Wompi), sin haber resuelto antes las decisiones D-2/D-3 ni las
+> sub-decisiones SD-1/SD-2/SD-3. Concretamente dejaron de existir en la rama:
+> `reconcile-provider-payment-use-case.ts` (+ su test),
+> `apps/pos-desktop/src/qr-checkout-window.ts` (+ su test), `MIGRATION_016`,
+> los canales `pos:payment.qr.checkout.open` y `payment.qr.reconcile`, y
+> `SqlitePaymentStore.recordObservedProviderTransaction` /
+> `getObservedProviderTransaction`.
+>
+> **§20.3 (`redirect-url` en `buildWompiWebCheckout`) NO fue retirada**: sigue
+> `MATERIALIZED`/`TESTED` en la rama.
+>
+> Estas secciones **no se borran ni se reescriben**: son evidencia histórica
+> válida de lo que se diseñó, se implementó y se probó, y el código es
+> recuperable de la historia de git (`67d4d5d`, `abe73da`). Léelas como
+> registro de un trabajo retirado, no como descripción del estado actual de la
+> rama. Su reescritura queda pendiente de la decisión formal sobre D-2.
 
 Primer materializado de `D-2`, acotado: **no** es el "polling automático"
 completo que D-2 nombra, sino la pieza que ese polling necesitaría de todos
@@ -904,3 +935,11 @@ explícitamente fuera de alcance desde el inicio de esta rama.
    `main.ts` del servicio local (proveedor real, secretos) — fuera de
    alcance hasta ahora.
 6. Job/scheduler para el barrido periódico, leyendo el índice de §20.2.
+
+> **PENDIENTE DE ACTUALIZACIÓN — recuperación de alcance del 2026-09-19.**
+> Los puntos **1, 3 y 4** de esta lista aparecen tachados porque se
+> materializaron el 2026-09-18/19; ese código fue **retirado de la línea
+> activa** el 2026-09-19 (ver el aviso al inicio de §20). Vuelven por tanto a
+> estar **pendientes** en la rama, aunque su diseño y sus pruebas existieron y
+> siguen documentados aquí. El punto **2** (`redirect-url` en el checkout
+> builder) sigue materializado y su tachado es correcto.

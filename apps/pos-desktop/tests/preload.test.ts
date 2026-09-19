@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RENDERER_API_KEY, RENDERER_API_METHODS } from "../src/preload-api.js";
-import { IPC_ALLOWED_CHANNELS, NATIVE_IPC_CHANNELS } from "../src/ipc-allowlist.js";
+import { IPC_ALLOWED_CHANNELS } from "../src/ipc-allowlist.js";
 
 const exposeInMainWorld = vi.fn();
 const invoke = vi.fn();
@@ -48,15 +48,14 @@ describe("preload contextBridge wiring", () => {
     }
   });
 
-  it("routes every method through an allowlisted or native pos: channel", async () => {
+  it("routes every method through an allowlisted pos: channel", async () => {
     const api = await loadPreload();
-    const registered = [...IPC_ALLOWED_CHANNELS, ...NATIVE_IPC_CHANNELS] as readonly string[];
     for (const method of RENDERER_API_METHODS) {
       invoke.mockClear();
       await api[method]?.({ probe: method });
       const channel = invoke.mock.calls[0]?.[0] as string;
       expect(channel).toBe(`pos:${method}`);
-      expect(registered).toContain(channel);
+      expect(IPC_ALLOWED_CHANNELS as readonly string[]).toContain(channel);
     }
   });
 

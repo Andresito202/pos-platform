@@ -15,7 +15,7 @@ type CommercialRequest = Extract<
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer" | "payment.register.qr"
-      | "payment.transfer.confirm" | "payment.cancel" | "payment.get" | "payment.qr.reconcile"
+      | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
@@ -178,7 +178,6 @@ export class CommercialRequestHandler {
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
       case "payment.cancel": return this.cancelPayment(request, connectionId);
       case "payment.get": return this.getPayment(request, connectionId);
-      case "payment.qr.reconcile": return this.reconcileQrPayment(request, connectionId);
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
@@ -326,63 +325,6 @@ export class CommercialRequestHandler {
     return rejected(request, result.kind, {
       outcome: result.kind, payment_id: null, provider_reference: null, checkout_url: null,
     });
-  }
-
-  /**
-   * `payment.qr.reconcile` — `DEC-016` §20. Sólo enruta y aplana; toda la
-   * decisión vive en `ReconcileProviderPaymentUseCase`, que a su vez delega la
-   * confirmación en `ConfirmProviderPaymentUseCase` sin cambiarlo — el
-   * `provider_transaction_id` que trae el sobre es el que un redirect real de
-   * Wompi entregó, nunca evidencia financiera por sí mismo.
-   */
-  private async reconcileQrPayment(
-    request: Extract<CommercialRequest, { message_type: "payment.qr.reconcile" }>,
-    connectionId: string,
-  ): Promise<unknown> {
-    const empty = { payment_id: null, sale_completed: null };
-
-    const authenticated = this.authenticate(connectionId);
-    if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
-    }
-
-    const useCase = this.commercial.reconcileProviderPayment;
-    if (useCase === undefined) {
-      return rejected(request, "PROVIDER_NOT_CONFIGURED", { outcome: "PROVIDER_NOT_CONFIGURED", ...empty });
-    }
-
-    const result = await useCase.execute(
-      this.scope(),
-      authenticated.snapshot,
-      {
-        paymentId: request.payload.payment_id,
-        providerTransactionId: request.payload.provider_transaction_id,
-        correlationId: request.correlation_id,
-        causationId: request.causation_id ?? null,
-      },
-    );
-
-    if (result.kind === "STILL_PENDING") {
-      return succeeded(request, "STILL_PENDING", { outcome: "STILL_PENDING", ...empty });
-    }
-
-    if (result.kind === "EVIDENCE_APPLIED") {
-      const outcome = result.outcome;
-      if (outcome.kind === "CONFIRMED") {
-        return succeeded(request, "CONFIRMED", {
-          outcome: "CONFIRMED", payment_id: outcome.paymentId, sale_completed: outcome.saleCompleted,
-        });
-      }
-      if (outcome.kind === "IDEMPOTENT") {
-        return succeeded(request, "IDEMPOTENT", {
-          outcome: "IDEMPOTENT", payment_id: outcome.paymentId, sale_completed: null,
-        });
-      }
-      return rejected(request, outcome.kind, { outcome: outcome.kind, ...empty });
-    }
-
-    // UNAUTHORIZED, PAYMENT_NOT_FOUND, PAYMENT_NOT_RECONCILABLE, PROVIDER_REJECTED.
-    return rejected(request, result.kind, { outcome: result.kind, ...empty });
   }
 
   /** `payment.transfer.confirm` — atestiguación manual; puede completar la venta. */

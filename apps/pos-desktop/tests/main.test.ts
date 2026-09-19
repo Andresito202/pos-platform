@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { IPC_ALLOWED_CHANNELS, NATIVE_IPC_CHANNELS } from "../src/ipc-allowlist.js";
+import { IPC_ALLOWED_CHANNELS } from "../src/ipc-allowlist.js";
 import { WINDOW_SECURITY_CONFIG } from "../src/window-security.js";
 import type { ServiceChannel } from "../src/channel-bridge.js";
-import type { QrCheckoutWindowManager } from "../src/qr-checkout-window.js";
 import { PRELOAD_FILENAME } from "../src/build-layout.js";
 
 interface CapturedWindow {
@@ -58,16 +57,9 @@ function makeServiceChannel(): ServiceChannel & {
   };
 }
 
-function fakeQrCheckoutWindowManager(): QrCheckoutWindowManager & { openCheckout: ReturnType<typeof vi.fn> } {
-  return { openCheckout: vi.fn().mockResolvedValue({ outcome: "CLOSED_BY_USER", paymentId: "payment-1" }) } as never;
-}
-
-async function bootstrapWith(
-  channel: ServiceChannel,
-  qrCheckoutWindowManager?: QrCheckoutWindowManager,
-): Promise<void> {
+async function bootstrapWith(channel: ServiceChannel): Promise<void> {
   const { bootstrap } = await import("../src/main.js");
-  await bootstrap(channel, undefined, qrCheckoutWindowManager);
+  await bootstrap(channel);
 }
 
 beforeEach(() => {
@@ -78,18 +70,16 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-const ALL_REGISTERED_CHANNELS = [...IPC_ALLOWED_CHANNELS, ...NATIVE_IPC_CHANNELS];
-
 describe("main bootstrap IPC registration", () => {
-  it("registers a handler for every allowlisted channel, commercial and native", async () => {
+  it("registers a handler for every allowlisted channel", async () => {
     await bootstrapWith(makeServiceChannel());
-    expect([...handlers.keys()].sort()).toEqual([...ALL_REGISTERED_CHANNELS].sort());
+    expect([...handlers.keys()].sort()).toEqual([...IPC_ALLOWED_CHANNELS].sort());
   });
 
-  it("registers no channel outside the allowlists", async () => {
+  it("registers no channel outside the allowlist", async () => {
     await bootstrapWith(makeServiceChannel());
     for (const channel of handlers.keys()) {
-      expect(ALL_REGISTERED_CHANNELS).toContain(channel);
+      expect(IPC_ALLOWED_CHANNELS as readonly string[]).toContain(channel);
     }
   });
 
@@ -108,33 +98,6 @@ describe("main bootstrap IPC registration", () => {
     await bootstrapWith(service);
     const handler = handlers.get("pos:runtime.status.get");
     await expect(handler?.({}, {})).rejects.toThrow("servicio local caido");
-  });
-});
-
-describe("main bootstrap — pos:payment.qr.checkout.open (native, not forwarded)", () => {
-  it("opens the checkout window against the current main window, not the service channel", async () => {
-    const service = makeServiceChannel();
-    const manager = fakeQrCheckoutWindowManager();
-    await bootstrapWith(service, manager);
-
-    const handler = handlers.get("pos:payment.qr.checkout.open");
-    const payload = { paymentId: "payment-1", checkoutUrl: "https://checkout.wompi.co/p/?ref=1" };
-    await handler?.({}, payload);
-
-    expect(manager.openCheckout).toHaveBeenCalledWith(payload, created[0]);
-    expect(service.request).not.toHaveBeenCalled();
-  });
-
-  it("rejects a payload missing paymentId or checkoutUrl without ever opening a window", async () => {
-    const manager = fakeQrCheckoutWindowManager();
-    await bootstrapWith(makeServiceChannel(), manager);
-
-    const handler = handlers.get("pos:payment.qr.checkout.open");
-    // El handler lanza de forma síncrona — Electron envuelve ese throw en una
-    // promesa rechazada para el renderer; el arnés de prueba, al invocarlo
-    // directamente, no reproduce ese envoltorio.
-    expect(() => handler?.({}, { paymentId: "payment-1" })).toThrow();
-    expect(manager.openCheckout).not.toHaveBeenCalled();
   });
 });
 

@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  IPC_ALLOWED_CHANNELS,
-  NATIVE_IPC_CHANNELS,
-  isAllowedChannel,
-  isNativeChannel,
-} from "../src/ipc-allowlist.js";
+import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "../src/ipc-allowlist.js";
 
 describe("ipc-allowlist", () => {
   it("contains exactly the ratified operational and commercial channels", () => {
@@ -19,11 +14,9 @@ describe("ipc-allowlist", () => {
       "pos:sale.create",
       "pos:payment.register.cash",
       "pos:payment.register.transfer",
-      "pos:payment.register.qr",
       "pos:payment.transfer.confirm",
       "pos:payment.cancel",
       "pos:payment.get",
-      "pos:payment.qr.reconcile",
       "pos:customer.register",
       "pos:customer.get",
       "pos:customer.find",
@@ -46,11 +39,9 @@ describe("ipc-allowlist", () => {
       "pos:sale.create",
       "pos:payment.register.cash",
       "pos:payment.register.transfer",
-      "pos:payment.register.qr",
       "pos:payment.transfer.confirm",
       "pos:payment.cancel",
       "pos:payment.get",
-      "pos:payment.qr.reconcile",
       "pos:customer.register",
       "pos:customer.get",
       "pos:customer.find",
@@ -91,31 +82,5 @@ describe("ipc-allowlist", () => {
     expect(isAllowedChannel("pos:")).toBe(false);
     expect(isAllowedChannel("pos:runtime.status.get.extra")).toBe(false);
     expect(isAllowedChannel("pos:operation")).toBe(false);
-  });
-});
-
-describe("ipc-allowlist — native channels (not forwarded to the local service)", () => {
-  it("contains exactly the ratified native channels", () => {
-    expect(Array.from(NATIVE_IPC_CHANNELS)).toEqual(["pos:payment.qr.checkout.open"]);
-  });
-
-  it("accepts every native channel", () => {
-    for (const channel of NATIVE_IPC_CHANNELS) {
-      expect(isNativeChannel(channel)).toBe(true);
-    }
-  });
-
-  it("keeps the two allowlists disjoint — a channel is forwarded or native, never both", () => {
-    for (const channel of NATIVE_IPC_CHANNELS) {
-      expect(isAllowedChannel(channel)).toBe(false);
-    }
-    for (const channel of IPC_ALLOWED_CHANNELS) {
-      expect(isNativeChannel(channel)).toBe(false);
-    }
-  });
-
-  it("rejects arbitrary channels as native", () => {
-    expect(isNativeChannel("pos:unknown")).toBe(false);
-    expect(isNativeChannel("")).toBe(false);
   });
 });
