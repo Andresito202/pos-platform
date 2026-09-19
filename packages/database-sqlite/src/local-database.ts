@@ -1212,6 +1212,56 @@ CREATE INDEX inventory_movement_sale_idx
   ON inventory_movement(tenant_id, sale_id) WHERE sale_id IS NOT NULL;
 `.trim();
 
+/**
+ * `MIGRATION_016` — `D-2-bis`: el intento conserva sus dos identidades.
+ *
+ * `payments_payment_attempts` tenía **un solo** par
+ * `(provider_reference_type, provider_reference)`, y la confirmación lo
+ * sobrescribía: el intento nacía con `PROVIDER_INTENT` + la referencia
+ * comercial y terminaba con `PROVIDER_TRANSACTION` + el `transaction.id` del
+ * proveedor. Una identidad reemplazaba a la otra en la misma casilla, aunque
+ * son cosas distintas: la referencia la elige Camacho (`DEC-016` §21, hoy el
+ * `payment_id`), el `transaction.id` lo asigna el proveedor y sólo existe
+ * cuando éste responde.
+ *
+ * La columna nueva les da una casilla a cada una. Tras confirmar, el intento
+ * dice a la vez con qué referencia se abrió el cobro y qué transacción lo
+ * pagó, que es lo que una conciliación futura necesitará leer sin
+ * reconstruir nada.
+ *
+ * **Por qué `016`.** Es el siguiente número del libro, y el libro tiene que
+ * seguir siendo contiguo desde 1: `user-audit-migration.test.ts` lo afirma
+ * como invariante, no como detalle. `DEC-021` §F1 había anotado este número
+ * para el documento fiscal electrónico; esa reserva se resuelve al revés —
+ * el fiscal tomará el siguiente disponible cuando se materialice, y §F1
+ * queda pendiente de actualizarse entonces. Aquí no se implementa nada
+ * fiscal.
+ *
+ * ## Qué hace imposible el índice
+ *
+ * El mismo `transaction.id` no puede quedar asociado a dos intentos del mismo
+ * tenant y proveedor. Es parcial —`WHERE provider_transaction_id IS NOT
+ * NULL`— porque un intento sin respuesta del proveedor todavía no tiene
+ * identidad que proteger, y todos esos `NULL` deben poder convivir.
+ *
+ * Va por `tenant_id` como el resto del esquema: dos tenants distintos pueden
+ * ver el mismo identificador sin que uno bloquee al otro.
+ *
+ * Las filas existentes quedan en `NULL`. No se infiere ningún identificador
+ * histórico: el que se hubiera guardado en `provider_reference` bajo
+ * `PROVIDER_TRANSACTION` no se migra, porque esta rama no tiene ninguna base
+ * persistida de la que hacerlo y adivinarlo sería fabricar evidencia
+ * financiera.
+ */
+const MIGRATION_016 = `
+ALTER TABLE payments_payment_attempts
+  ADD COLUMN provider_transaction_id TEXT
+  CHECK(provider_transaction_id IS NULL OR length(provider_transaction_id) > 0);
+CREATE UNIQUE INDEX payments_payment_attempts_provider_transaction_idx
+  ON payments_payment_attempts(tenant_id, provider_code, provider_transaction_id)
+  WHERE provider_transaction_id IS NOT NULL;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1228,6 +1278,7 @@ const MIGRATIONS = [
   { version: 13, sql: MIGRATION_013, checksum: createHash("sha256").update(MIGRATION_013).digest("hex") },
   { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
+  { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
 ] as const;
 
 /**

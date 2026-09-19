@@ -569,6 +569,21 @@ describe("transferencia por atestiguación manual", () => {
 });
 
 
+/** Las dos identidades de proveedor del intento, tal como quedaron en la fila. */
+function attemptIdentities(
+  env: { database: { native: { prepare: (sql: string) => { get: (...args: string[]) => unknown } } } },
+  paymentId: string,
+): { provider_reference_type: string | null; provider_reference: string | null; provider_transaction_id: string | null } {
+  return env.database.native.prepare(
+    `SELECT provider_reference_type, provider_reference, provider_transaction_id
+     FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?`,
+  ).get(TENANT, paymentId) as {
+    provider_reference_type: string | null;
+    provider_reference: string | null;
+    provider_transaction_id: string | null;
+  };
+}
+
 /** Lee el `details_json` del asiento de auditoría que el store escribió. */
 function cancellationDetails(
   env: { database: { native: { prepare: (sql: string) => { get: (...args: string[]) => unknown } } } },
@@ -695,6 +710,95 @@ describe("QR — autoridad externa y confirmación por evidencia", () => {
     expect(wrongProvider.kind).toBe("PROVIDER_MISMATCH");
 
     expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+  });
+
+  /**
+   * `D-2-bis`. El intento guardaba una sola identidad de proveedor y
+   * confirmar la sustituía: nacía con `PROVIDER_INTENT` + referencia
+   * comercial y terminaba con `PROVIDER_TRANSACTION` + el `transaction.id`.
+   * `MIGRATION_016` le da su propia columna al segundo, así que las dos
+   * conviven y la referencia comercial deja de ser desechable.
+   */
+  it("el intento conserva la referencia comercial y el id del proveedor a la vez", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    // A — al registrar sólo existe la referencia comercial.
+    const atRegister = attemptIdentities(env, registered.paymentId);
+    expect(atRegister).toEqual({
+      provider_reference_type: "PROVIDER_INTENT",
+      provider_reference: registered.providerReference,
+      provider_transaction_id: null,
+    });
+
+    const confirmed = env.confirmProvider.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: {
+        providerCode: "TEST_QR", providerReference: registered.providerReference,
+        providerTransactionId: "TX-1", amount: "10000.000000",
+        currencyCode: "COP", status: "APPROVED", receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:1:confirm", correlationId: randomUUID(), causationId: null,
+    });
+    expect(confirmed.kind).toBe("CONFIRMED");
+
+    // B y C — el id del proveedor se añade; la referencia comercial no se toca.
+    const afterConfirm = attemptIdentities(env, registered.paymentId);
+    expect(afterConfirm).toEqual({
+      provider_reference_type: "PROVIDER_INTENT",
+      provider_reference: registered.providerReference,
+      provider_transaction_id: "TX-1",
+    });
+    expect(afterConfirm.provider_reference).toBe(atRegister.provider_reference);
+
+    // La referencia comercial del pago tampoco cambia.
+    const payment = env.database.native.prepare(
+      "SELECT provider_reference FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { provider_reference: string };
+    expect(payment.provider_reference).toBe(registered.providerReference);
+  });
+
+  /**
+   * `D`. Repetir la misma confirmación no crea una segunda identidad ni
+   * altera las ya persistidas.
+   */
+  it("una segunda confirmación equivalente conserva ambas identidades", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    const evidence = {
+      providerCode: "TEST_QR", providerReference: registered.providerReference,
+      providerTransactionId: "TX-1", amount: "10000.000000",
+      currencyCode: "COP" as const, status: "APPROVED" as const, receivedAt: NOW.toISOString(),
+    };
+    const confirmRequest = {
+      paymentId: registered.paymentId, expectedVersion: 1, evidence,
+      idempotencyKey: "qr:1:confirm", correlationId: randomUUID(), causationId: null,
+    };
+
+    expect(env.confirmProvider.execute(SCOPE, confirmRequest).kind).toBe("CONFIRMED");
+    const afterFirst = attemptIdentities(env, registered.paymentId);
+
+    expect(env.confirmProvider.execute(SCOPE, confirmRequest).kind).toBe("IDEMPOTENT");
+    expect(attemptIdentities(env, registered.paymentId)).toEqual(afterFirst);
+    expect(afterFirst.provider_transaction_id).toBe("TX-1");
+    expect(afterFirst.provider_reference).toBe(registered.providerReference);
   });
 
   it("la misma transacción externa no puede confirmar otro pago", async () => {

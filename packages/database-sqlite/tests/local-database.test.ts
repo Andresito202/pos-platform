@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import { LocalDatabase } from "../src/index.js";
+import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/index.js";
 
 const directories: string[] = [];
 async function directory(): Promise<string> {
@@ -287,5 +287,61 @@ describe("LocalDatabase", () => {
     const dataDirectory = await directory();
     writeFileSync(join(dataDirectory, "local-writer.lock"), "invalid", { mode: 0o600 });
     expect(() => LocalDatabase.open({ dataDirectory })).toThrow("manual recovery required");
+  });
+});
+
+/**
+ * `D-2-bis` / `MIGRATION_016`. El intento guardaba una sola identidad de
+ * proveedor y la confirmación la sustituía; la columna nueva le da su propia
+ * casilla al identificador que asigna el proveedor.
+ */
+describe("MIGRATION_016 — provider_transaction_id", () => {
+  it("deja la columna y su índice en una base nueva", async () => {
+    const dataDirectory = await directory();
+    const db = LocalDatabase.open({ dataDirectory });
+
+    try {
+      const columns = db.native.pragma("table_info(payments_payment_attempts)") as Array<{ name: string }>;
+      expect(columns.map((column) => column.name)).toContain("provider_transaction_id");
+
+      const index = db.native.prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+      ).get("payments_payment_attempts_provider_transaction_idx");
+      expect(index).toBeDefined();
+
+      // Las dos identidades siguen siendo columnas distintas, no una casilla
+      // compartida.
+      expect(columns.map((column) => column.name)).toContain("provider_reference");
+      expect(columns.map((column) => column.name)).toContain("provider_reference_type");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("no reaplica la migración al reabrir una base ya migrada", async () => {
+    const dataDirectory = await directory();
+    const first = LocalDatabase.open({ dataDirectory });
+    const applied = first.native.prepare(
+      "SELECT version FROM local_schema_migrations ORDER BY version",
+    ).all() as Array<{ version: number }>;
+    first.close();
+
+    // Reabrir vuelve a pasar por `applyMigrations`: si `016` se reaplicara, el
+    // `ADD COLUMN` fallaría por columna duplicada.
+    const second = LocalDatabase.open({ dataDirectory });
+    try {
+      const reopened = second.native.prepare(
+        "SELECT version FROM local_schema_migrations ORDER BY version",
+      ).all() as Array<{ version: number }>;
+      expect(reopened).toEqual(applied);
+      // El libro sigue contiguo desde 1: `016` es el siguiente número, no un
+      // salto.
+      expect(reopened.map((row) => row.version)).toEqual(
+        Array.from({ length: LATEST_LOCAL_SCHEMA_VERSION }, (_, index) => index + 1),
+      );
+      expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(16);
+    } finally {
+      second.close();
+    }
   });
 });

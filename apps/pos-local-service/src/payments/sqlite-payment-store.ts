@@ -925,10 +925,14 @@ export class SqlitePaymentStore {
         return { kind: "AMOUNT_MISMATCH" };
       }
 
+      // La identidad del proveedor vive en su propia columna desde
+      // `MIGRATION_016`; antes había que buscarla en `provider_reference`
+      // bajo `PROVIDER_TRANSACTION`, que era la misma casilla que guardaba la
+      // referencia comercial. `payments_payment_attempts_provider_transaction_idx`
+      // respalda esta guarda en el esquema.
       const providerAttempt = this.database.native.prepare(
         `SELECT payment_id FROM payments_payment_attempts
-         WHERE tenant_id=? AND provider_code=? AND provider_reference_type='PROVIDER_TRANSACTION'
-           AND provider_reference=?`
+         WHERE tenant_id=? AND provider_code=? AND provider_transaction_id=?`
       ).get(input.scope.tenantId, input.providerCode, input.providerTransactionId) as
         | { payment_id: string }
         | undefined;
@@ -956,10 +960,14 @@ export class SqlitePaymentStore {
          WHERE tenant_id=? AND id=? AND version=?`
       ).run(nowIso, input.scope.tenantId, input.paymentId, input.expectedVersion);
 
+      // `provider_reference_type` y `provider_reference` **no se tocan**: el
+      // intento conserva la referencia comercial con la que se abrió el cobro
+      // (`D-2-bis`). La identidad que trae el proveedor entra por su propia
+      // columna, así que confirmar deja de ser una sustitución.
       this.database.native.prepare(
         `UPDATE payments_payment_attempts
-         SET status='CONFIRMED', provider_code=?, provider_reference_type='PROVIDER_TRANSACTION',
-             provider_reference=?, provider_reported_at=?, confirmed_at=?,
+         SET status='CONFIRMED', provider_code=?, provider_transaction_id=?,
+             provider_reported_at=?, confirmed_at=?,
              manual_confirmation_actor_id=NULL, version=version+1
          WHERE tenant_id=? AND payment_id=? AND id=?`
       ).run(
