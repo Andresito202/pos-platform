@@ -168,6 +168,23 @@ export type RecordProviderUncertaintyOutcome =
   | { readonly kind: "PAYMENT_NOT_FOUND" }
   | { readonly kind: "ATTEMPT_NOT_UNCERTAINABLE" };
 
+export interface DeclineUncertainPaymentInput extends CommonInput {
+  readonly paymentId: string;
+  readonly providerCode: string;
+  readonly providerTransactionId: string;
+  readonly receivedAt: string;
+  readonly operationId: string;
+}
+
+export type DeclineUncertainPaymentOutcome =
+  | { readonly kind: "DECLINED"; readonly paymentId: string; readonly attemptId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PAYMENT_NOT_FOUND" }
+  | { readonly kind: "ATTEMPT_NOT_RESOLVABLE" }
+  | { readonly kind: "PROVIDER_MISMATCH" }
+  | { readonly kind: "PROVIDER_TRANSACTION_CONFLICT" };
+
 export interface PaymentView {
   readonly paymentId: string;
   readonly saleId: string;
@@ -968,15 +985,30 @@ export class SqlitePaymentStore {
         return { kind: "PROVIDER_TRANSACTION_CONFLICT" };
       }
 
+      // `UNKNOWN` además de `PENDING`: un intento cuya consulta no pudo
+      // determinarse sigue esperando veredicto, y `PAY-007` autoriza
+      // `UNKNOWN → CONFIRMED`. Es la misma confirmación, con la misma
+      // evidencia y las mismas invariantes comerciales; lo único distinto es
+      // de qué estado venía.
       const pendingAttempt = this.database.native.prepare(
-        `SELECT id FROM payments_payment_attempts
+        `SELECT id, provider_transaction_id FROM payments_payment_attempts
          WHERE tenant_id=? AND payment_id=? AND payment_method='QR'
-           AND status='PENDING'
+           AND status IN ('PENDING','UNKNOWN')
          ORDER BY attempt_number DESC
          LIMIT 1`
-      ).get(input.scope.tenantId, input.paymentId) as { id: string } | undefined;
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; provider_transaction_id: string | null }
+        | undefined;
 
       if (pendingAttempt === undefined) return { kind: "PAYMENT_NOT_CONFIRMABLE" };
+
+      // El intento ya podía traer un `transaction.id` aprendido antes de esta
+      // evidencia. Si el que llega es otro, no es una actualización: son dos
+      // transacciones distintas reclamando el mismo intento.
+      if (pendingAttempt.provider_transaction_id !== null
+        && pendingAttempt.provider_transaction_id !== input.providerTransactionId) {
+        return { kind: "PROVIDER_TRANSACTION_CONFLICT" };
+      }
 
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CONFIRMED", nowIso);
 
@@ -1216,6 +1248,98 @@ export class SqlitePaymentStore {
       );
 
       return { kind: "RECORDED", paymentId: input.paymentId, attemptId: attempt.id };
+    }));
+  }
+
+  /**
+   * Resuelve un intento `UNKNOWN` con evidencia de **rechazo comercial**.
+   *
+   * `PAY-007` autoriza `UNKNOWN → DECLINED`. Es la contrapartida de
+   * `confirmProviderPayment`: la misma incertidumbre, resuelta hacia el otro
+   * lado.
+   *
+   * **El pago no se toca.** Un intento rechazado no es un pago fallido:
+   * `PAY-007` admite varios intentos independientes por pago, así que
+   * `payments_payments` sigue `PENDING` y el operador conserva sus opciones —
+   * cobrar por otro medio o cancelar (`PENDING → CANCELLED`, `D-3`). Llevar
+   * el pago a `FAILED` aquí sería una decisión de producto que nadie pidió.
+   * La venta tampoco se toca, y no se imputa cobertura.
+   *
+   * La identidad del proveedor se anota si el intento aún no la tenía; si ya
+   * traía otra, esto es un conflicto, no una corrección.
+   */
+  declineUncertainProviderPayment(input: DeclineUncertainPaymentInput): DeclineUncertainPaymentOutcome {
+    const nowIso = this.now().toISOString();
+
+    return runWithRollback(this.database.native.transaction((): DeclineUncertainPaymentOutcome => {
+      const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
+      if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
+
+      const payment = this.database.native.prepare(
+        `SELECT p.id, p.provider_code, g.collection_subject_id
+         FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+         WHERE p.tenant_id=? AND p.id=?`,
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; provider_code: string | null; collection_subject_id: string }
+        | undefined;
+
+      if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+      if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+      if (payment.provider_code !== input.providerCode) return { kind: "PROVIDER_MISMATCH" };
+
+      // La misma transacción no puede reclamar dos intentos distintos.
+      const claimed = this.database.native.prepare(
+        `SELECT payment_id FROM payments_payment_attempts
+         WHERE tenant_id=? AND provider_code=? AND provider_transaction_id=?`,
+      ).get(input.scope.tenantId, input.providerCode, input.providerTransactionId) as
+        | { payment_id: string }
+        | undefined;
+
+      if (claimed !== undefined && claimed.payment_id !== input.paymentId) {
+        return { kind: "PROVIDER_TRANSACTION_CONFLICT" };
+      }
+
+      const attempt = this.database.native.prepare(
+        `SELECT id, provider_transaction_id FROM payments_payment_attempts
+         WHERE tenant_id=? AND payment_id=? AND status='UNKNOWN'
+         ORDER BY attempt_number DESC
+         LIMIT 1`,
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; provider_transaction_id: string | null }
+        | undefined;
+
+      if (attempt === undefined) return { kind: "ATTEMPT_NOT_RESOLVABLE" };
+
+      if (attempt.provider_transaction_id !== null
+        && attempt.provider_transaction_id !== input.providerTransactionId) {
+        return { kind: "PROVIDER_TRANSACTION_CONFLICT" };
+      }
+
+      this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_PROVIDER_DECLINED", nowIso);
+
+      this.database.native.prepare(
+        `UPDATE payments_payment_attempts
+         SET status='DECLINED', provider_transaction_id=?, provider_reported_at=?,
+             version=version+1
+         WHERE tenant_id=? AND id=?`,
+      ).run(input.providerTransactionId, input.receivedAt, input.scope.tenantId, attempt.id);
+
+      const details = {
+        attempt_id: attempt.id,
+        payment_id: input.paymentId,
+        provider_code: input.providerCode,
+        provider_transaction_id: input.providerTransactionId,
+        received_at: input.receivedAt,
+        sale_id: payment.collection_subject_id,
+      };
+      this.writeAudit(input, "PAYMENT_PROVIDER_DECLINED", "PAYMENT", input.paymentId, details, nowIso);
+      this.enqueue(
+        input, input.operationId, input.idempotencyKey,
+        "PAYMENT", input.paymentId, "PAYMENT_PROVIDER_DECLINED", details, input.requestChecksum, nowIso,
+      );
+
+      return { kind: "DECLINED", paymentId: input.paymentId, attemptId: attempt.id };
     }));
   }
 }

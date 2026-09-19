@@ -23,6 +23,7 @@ import { CancelPaymentUseCase } from "../src/payments/cancel-payment-use-case.js
 import { GetPaymentUseCase } from "../src/payments/get-payment-use-case.js";
 import { RegisterQrPaymentUseCase } from "../src/payments/register-qr-payment-use-case.js";
 import { ConfirmProviderPaymentUseCase } from "../src/payments/confirm-provider-payment-use-case.js";
+import { ResolveUncertainProviderPaymentUseCase } from "../src/payments/resolve-uncertain-provider-payment-use-case.js";
 import type { PaymentProviderOutcome, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
 import { SqliteMasterSnapshotStore } from "../src/master-data/sqlite-master-snapshot-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
@@ -115,6 +116,10 @@ async function buildEnv() {
     get: new GetPaymentUseCase(paymentStore, () => NOW),
     registerQr: new RegisterQrPaymentUseCase(paymentStore, qrProvider()),
     confirmProvider: new ConfirmProviderPaymentUseCase(paymentStore),
+    resolveUncertain: new ResolveUncertainProviderPaymentUseCase(
+      paymentStore,
+      new ConfirmProviderPaymentUseCase(paymentStore),
+    ),
   };
 }
 
@@ -1060,6 +1065,254 @@ describe("incertidumbre del proveedor", () => {
 
     expect(record(env, registered.paymentId, "TIMEOUT").kind).toBe("IDEMPOTENT");
     expect(attemptRow(env, registered.paymentId)).toEqual(after);
+  });
+});
+
+// ── Resolución de la incertidumbre ────────────────────────────────────────────
+
+/**
+ * Un intento `UNKNOWN` no es un final: `PAY-007` lo deja ir a `CONFIRMED` o
+ * `DECLINED` cuando aparece evidencia. Esto aplica ese veredicto; obtener la
+ * evidencia sigue siendo de otra capa.
+ */
+describe("resolución de un intento UNKNOWN", () => {
+  async function uncertainQr(reason: ProviderUncertaintyReason = "TIMEOUT") {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    const recorded = env.paymentStore.recordProviderUncertainty({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      paymentId: registered.paymentId, reason, observedAt: NOW.toISOString(),
+      operationId: randomUUID(), idempotencyKey: "unknown:1",
+      requestChecksum: "b".repeat(64), correlationId: randomUUID(), causationId: null,
+    });
+    if (recorded.kind !== "RECORDED") throw new Error("expected RECORDED");
+
+    return { env, saleId, shiftId, registered };
+  }
+
+  function evidenceFor(
+    registered: { providerReference: string },
+    status: "APPROVED" | "REJECTED" | "PENDING",
+    providerTransactionId = "TX-1",
+  ) {
+    return {
+      providerCode: "TEST_QR",
+      providerReference: registered.providerReference,
+      providerTransactionId,
+      amount: "10000.000000",
+      currencyCode: "COP" as const,
+      status,
+      receivedAt: NOW.toISOString(),
+    };
+  }
+
+  function attemptRow(env: Awaited<ReturnType<typeof buildEnv>>, paymentId: string) {
+    return env.database.native.prepare(
+      `SELECT status, provider_reference_type, provider_reference, provider_transaction_id
+       FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?`,
+    ).get(TENANT, paymentId) as {
+      status: string;
+      provider_reference_type: string | null;
+      provider_reference: string | null;
+      provider_transaction_id: string | null;
+    };
+  }
+
+  // A, D, E, J
+  it("APPROVED lleva el intento a CONFIRMED con los efectos comerciales completos", async () => {
+    const { env, saleId, registered } = await uncertainQr();
+
+    const result = env.resolveUncertain.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "APPROVED"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("CONFIRMED");
+    if (result.kind !== "CONFIRMED") return;
+    expect(result.outcome.kind).toBe("CONFIRMED");
+
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("CONFIRMED");
+    // D y E: las identidades siguen donde estaban.
+    expect(attempt.provider_reference_type).toBe("PROVIDER_INTENT");
+    expect(attempt.provider_reference).toBe(registered.providerReference);
+    expect(attempt.provider_transaction_id).toBe("TX-1");
+
+    // J: los mismos efectos que exige la confirmación existente.
+    const payment = env.database.native.prepare(
+      "SELECT status, confirmed_amount FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { status: string; confirmed_amount: string };
+    expect(payment.status).toBe("CONFIRMED");
+    expect(payment.confirmed_amount).toBe("10000.000000");
+
+    const allocations = env.database.native.prepare(
+      "SELECT COUNT(*) AS n FROM payments_payment_allocations WHERE tenant_id=? AND payment_id=?",
+    ).get(TENANT, registered.paymentId) as { n: number };
+    expect(allocations.n).toBe(1);
+
+    expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+  });
+
+  // B y K
+  it("REJECTED lleva el intento a DECLINED sin confirmar el pago ni completar la venta", async () => {
+    const { env, saleId, registered } = await uncertainQr();
+
+    const result = env.resolveUncertain.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "REJECTED"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("DECLINED");
+    if (result.kind !== "DECLINED") return;
+    expect(result.outcome.kind).toBe("DECLINED");
+
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("DECLINED");
+    expect(attempt.provider_reference).toBe(registered.providerReference);
+    expect(attempt.provider_transaction_id).toBe("TX-1");
+
+    const payment = env.database.native.prepare(
+      "SELECT status, confirmed_at FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { status: string; confirmed_at: string | null };
+    expect(payment.status).toBe("PENDING");
+    expect(payment.confirmed_at).toBeNull();
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+  });
+
+  // C
+  it("PENDING no resuelve nada ni muta el intento", async () => {
+    const { env, registered } = await uncertainQr();
+    const before = attemptRow(env, registered.paymentId);
+
+    const result = env.resolveUncertain.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "PENDING"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("STILL_UNCERTAIN");
+    expect(attemptRow(env, registered.paymentId)).toEqual(before);
+    expect(before.status).toBe("UNKNOWN");
+  });
+
+  // F
+  it("una evidencia con otro transaction id no sobrescribe el ya persistido", async () => {
+    const { env, registered } = await uncertainQr();
+    env.database.native.prepare(
+      "UPDATE payments_payment_attempts SET provider_transaction_id=? WHERE tenant_id=? AND payment_id=?",
+    ).run("TX-KNOWN", TENANT, registered.paymentId);
+
+    const result = env.resolveUncertain.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "APPROVED", "TX-OTRO"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("CONFIRMED");
+    if (result.kind !== "CONFIRMED") return;
+    expect(result.outcome.kind).toBe("PROVIDER_TRANSACTION_CONFLICT");
+
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.provider_transaction_id).toBe("TX-KNOWN");
+    expect(attempt.status).toBe("UNKNOWN");
+  });
+
+  it("un rechazo con otro transaction id tampoco lo sobrescribe", async () => {
+    const { env, registered } = await uncertainQr();
+    env.database.native.prepare(
+      "UPDATE payments_payment_attempts SET provider_transaction_id=? WHERE tenant_id=? AND payment_id=?",
+    ).run("TX-KNOWN", TENANT, registered.paymentId);
+
+    const result = env.resolveUncertain.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "REJECTED", "TX-OTRO"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("DECLINED");
+    if (result.kind !== "DECLINED") return;
+    expect(result.outcome.kind).toBe("PROVIDER_TRANSACTION_CONFLICT");
+    expect(attemptRow(env, registered.paymentId).provider_transaction_id).toBe("TX-KNOWN");
+  });
+
+  // G
+  it("otro tenant no puede resolver el intento", async () => {
+    const { env, registered } = await uncertainQr();
+    const otherScope = { ...SCOPE, tenantId: "018f0000-0000-7000-8000-0000000000ff" };
+
+    const result = env.resolveUncertain.execute(otherScope, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "APPROVED"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("CONFIRMED");
+    if (result.kind !== "CONFIRMED") return;
+    expect(result.outcome.kind).toBe("PAYMENT_NOT_FOUND");
+    expect(attemptRow(env, registered.paymentId).status).toBe("UNKNOWN");
+  });
+
+  // H
+  it("no confirma un pago distinto del que trae la evidencia", async () => {
+    const { env, shiftId, registered } = await uncertainQr();
+    const otherSale = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const other = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId: otherSale, amount: "10000.000000",
+      idempotencyKey: "qr:2", correlationId: randomUUID(), causationId: null,
+    });
+    if (other.kind !== "PENDING") throw new Error("expected PENDING");
+
+    // Se apunta al otro pago, que no está `UNKNOWN`: nada se resuelve ahí.
+    const result = env.resolveUncertain.execute(SCOPE, {
+      paymentId: other.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "REJECTED"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("DECLINED");
+    if (result.kind !== "DECLINED") return;
+    expect(result.outcome.kind).toBe("ATTEMPT_NOT_RESOLVABLE");
+    expect(attemptRow(env, other.paymentId).status).toBe("PENDING");
+    expect(attemptRow(env, registered.paymentId).status).toBe("UNKNOWN");
+  });
+
+  // I
+  it("resolver dos veces con la misma evidencia es idempotente", async () => {
+    const { env, registered } = await uncertainQr();
+    const request = {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: evidenceFor(registered, "REJECTED"),
+      idempotencyKey: "resolve:1", correlationId: randomUUID(), causationId: null,
+    };
+
+    const first = env.resolveUncertain.execute(SCOPE, request);
+    expect(first.kind === "DECLINED" && first.outcome.kind).toBe("DECLINED");
+    const after = attemptRow(env, registered.paymentId);
+
+    const second = env.resolveUncertain.execute(SCOPE, request);
+    expect(second.kind === "DECLINED" && second.outcome.kind).toBe("IDEMPOTENT");
+    expect(attemptRow(env, registered.paymentId)).toEqual(after);
+
+    const audit = env.database.native.prepare(
+      `SELECT COUNT(*) AS n FROM local_operation_audit
+       WHERE tenant_id=? AND resource_id=? AND action_code='PAYMENT_PROVIDER_DECLINED'`,
+    ).get(TENANT, registered.paymentId) as { n: number };
+    expect(audit.n).toBe(1);
+
+    const outbox = env.database.native.prepare(
+      "SELECT COUNT(*) AS n FROM local_sync_outbox WHERE operation_type='PAYMENT_PROVIDER_DECLINED'",
+    ).get() as { n: number };
+    expect(outbox.n).toBe(1);
   });
 });
 
