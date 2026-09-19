@@ -1093,6 +1093,8 @@ export class CommercialRequestHandler {
       authenticated.snapshot,
       {
         cashRegisterId: request.payload.cash_register_id,
+        // Ausente y `null` significan lo mismo aquí: venta sin adquiriente.
+        customerId: request.payload.customer_id ?? null,
         idempotencyKey: request.idempotency_key as string,
         channel: request.payload.channel,
         businessDate: request.payload.business_date,

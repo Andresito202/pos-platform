@@ -55,6 +55,16 @@ export interface CreateSaleInput {
    * objeto y no dos campos sueltos que pudieran desparejarse.
    */
   readonly cashShift: { readonly cashRegisterId: string; readonly shiftId: string } | null;
+  /**
+   * Adquiriente de la venta, o `null` si la operación no lo nombró.
+   *
+   * `MIGRATION_019` **no** pudo poner una FK compuesta hacia
+   * `customers_customers(tenant_id, id)` —SQLite no la admite por
+   * `ADD COLUMN` y el rebuild no cabe bajo este runner; la migración lo
+   * documenta—, así que la pertenencia al tenant se comprueba aquí, dentro de
+   * la transacción. Deuda `D-27`.
+   */
+  readonly customerId: string | null;
 }
 
 export type CreateSaleOutcome =
@@ -70,6 +80,7 @@ export type CreateSaleOutcome =
       readonly saleNumber: number;
       readonly calculationChecksum: string;
     }
+  | { readonly kind: "CUSTOMER_NOT_FOUND"; readonly customerId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" };
 
 interface SaleRow {
@@ -120,7 +131,29 @@ export class SqliteSaleStore {
         };
       }
 
-      // 2. Contador de serie documental — incremento atómico
+      // 2. El adquiriente, si lo hay, tiene que existir **bajo este tenant**.
+      //
+      // Va aquí y no antes por dos razones. Dentro de la transacción, porque
+      // es donde la respuesta sigue siendo cierta en el momento de escribir.
+      // Y después de la idempotencia, porque una repetición legítima ya fue
+      // aceptada con su cliente: volver a validarlo convertiría el borrado
+      // posterior de un cliente en un fallo de una operación que ya ocurrió.
+      //
+      // El filtro lleva `tenant_id` del ámbito verificado, nunca uno aportado
+      // por el llamador, así que el identificador de otro comercio simplemente
+      // no resuelve. Y como esto ocurre **antes de la primera escritura**, el
+      // rechazo sale por `return` sin dejar nada a medias.
+      if (input.customerId !== null) {
+        const customer = this.database.native.prepare(
+          "SELECT 1 AS found FROM customers_customers WHERE tenant_id=? AND id=?",
+        ).get(input.scope.tenantId, input.customerId) as { found: number } | undefined;
+
+        if (customer === undefined) {
+          return { kind: "CUSTOMER_NOT_FOUND", customerId: input.customerId };
+        }
+      }
+
+      // 3. Contador de serie documental — incremento atómico
       const counterRow = this.database.native.prepare(
         `SELECT last_number FROM sales_document_series_counter
          WHERE tenant_id=? AND branch_id=? AND series=?`,
@@ -145,13 +178,13 @@ export class SqliteSaleStore {
         ).run(input.scope.tenantId, input.scope.branchId, input.documentSeries, saleNumber, nowIso);
       }
 
-      // 3. runtime_operations (1:1 con el sale)
+      // 4. runtime_operations (1:1 con el sale)
       this.database.native.prepare(
         `INSERT INTO runtime_operations(operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
          VALUES (?,?,?,'SUCCEEDED','SALE_CREATED',?,?)`,
       ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
 
-      // 4. sale principal
+      // 5. sale principal
       const subtotal = bigIntToScale6(input.totals.subtotalUnits);
       const discount = bigIntToScale6(input.totals.discountUnits);
       const tax = bigIntToScale6(input.totals.taxUnits);
@@ -172,7 +205,8 @@ export class SqliteSaleStore {
           pricing_snapshot, tax_snapshot, calculation_checksum,
           operation_id, idempotency_key, request_checksum,
           correlation_id, causation_id, version, created_at,
-          completed_at, cancelled_at, expired_at, server_recorded_at
+          completed_at, cancelled_at, expired_at, server_recorded_at,
+          customer_id
         ) VALUES (
           ?,?,?,?,?,?,
           ?,?,?,?,
@@ -185,7 +219,8 @@ export class SqliteSaleStore {
           ?,?,?,
           ?,?,?,
           ?,?,?,?,
-          NULL,NULL,NULL,NULL
+          NULL,NULL,NULL,NULL,
+          ?
         )`,
       ).run(
         input.saleId,
@@ -226,9 +261,10 @@ export class SqliteSaleStore {
         input.causationId,
         1,
         nowIso,
+        input.customerId,
       );
 
-      // 5. items
+      // 6. items
       let lineNumber = 1;
       for (const line of input.lines) {
         this.database.native.prepare(

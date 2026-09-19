@@ -15,10 +15,12 @@ import { OpenCashShiftUseCase } from "../src/cash/open-cash-shift-use-case.js";
 import { CloseCashShiftUseCase } from "../src/cash/close-cash-shift-use-case.js";
 import { SqliteMasterSnapshotStore } from "../src/master-data/sqlite-master-snapshot-store.js";
 import { SqliteSaleStore } from "../src/sales/sqlite-sale-store.js";
+import { SqliteCustomerStore } from "../src/customers/sqlite-customer-store.js";
 import { CreateSaleUseCase } from "../src/sales/create-sale-use-case.js";
 import { SqlitePaymentStore } from "../src/payments/sqlite-payment-store.js";
 import { RegisterCashPaymentUseCase } from "../src/payments/register-cash-payment-use-case.js";
 import { GetPaymentUseCase } from "../src/payments/get-payment-use-case.js";
+import { RegisterCustomerUseCase } from "../src/customers/register-customer-use-case.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 
 /**
@@ -78,6 +80,7 @@ const BUSINESS_DATE = "2026-09-06";
 const PERMISSIONS = [
   "CASH_SHIFT_OPEN", "CASH_SHIFT_CLOSE", "CATALOG_PRODUCT_REGISTER",
   "SALES_SALE_CREATE", "PAYMENTS_PAYMENT_REGISTER", "PAYMENTS_PAYMENT_READ",
+  "CUSTOMERS_CUSTOMER_REGISTER",
 ];
 
 const directories: string[] = [];
@@ -153,6 +156,7 @@ async function buildEnv() {
     openShift: new OpenCashShiftUseCase(masterStore, cashStore, at),
     closeShift: new CloseCashShiftUseCase(cashStore, at),
     registerProduct: new RegisterProductUseCase(catalogStore),
+    registerCustomer: new RegisterCustomerUseCase(new SqliteCustomerStore(database, sync, at)),
     createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashStore, saleStore, at),
     registerCash: new RegisterCashPaymentUseCase(paymentStore, at),
     getPayment: new GetPaymentUseCase(paymentStore, at),
@@ -191,12 +195,13 @@ function createSale(
   env: Env,
   item: { productId: string; presentationId: string },
   register: string | null,
-  options: { key?: string; quantity?: string; scope?: SyncScope } = {},
+  options: { key?: string; quantity?: string; scope?: SyncScope; customerId?: string | null } = {},
 ) {
   saleSeed += 1;
   const scope = options.scope ?? SCOPE;
   return env.createSale.execute(scope, SESSION, auth(scope), {
     cashRegisterId: register,
+    ...(options.customerId === undefined ? {} : { customerId: options.customerId }),
     idempotencyKey: options.key ?? `sale:core:${String(saleSeed)}`,
     channel: "POS_LOCAL",
     businessDate: BUSINESS_DATE,
@@ -215,7 +220,7 @@ function createSale(
 
 function saleRow(db: LocalDatabase, saleId: string, tenant = TENANT) {
   return db.native.prepare(
-    `SELECT status, cash_shift_id, cash_register_id, payable_amount, completed_at
+    `SELECT status, cash_shift_id, cash_register_id, payable_amount, completed_at, customer_id
      FROM sales_sales WHERE tenant_id=? AND id=?`,
   ).get(tenant, saleId) as {
     status: string;
@@ -223,6 +228,7 @@ function saleRow(db: LocalDatabase, saleId: string, tenant = TENANT) {
     cash_register_id: string | null;
     payable_amount: string;
     completed_at: string | null;
+    customer_id: string | null;
   };
 }
 
@@ -454,3 +460,188 @@ describe("el núcleo transaccional recorre turno → venta → cobro", () => {
     expect(saleRow(env.database, created.saleId).status).toBe("READY_FOR_PAYMENT");
   });
 });
+
+// ── El adquiriente de la venta (MIGRATION_019) ───────────────────────────────
+
+/**
+ * `sales_sales.customer_id` — quién compra, no quién debe.
+ *
+ * Esto **no** es crédito. Una venta que nombra a su cliente sigue cobrándose
+ * igual y no genera deuda alguna: el cupo, el saldo y los abonos siguen
+ * diferidos a `DEC-005` / `CUST-002`.
+ *
+ * Lo que sí hay que demostrar es la integridad, porque `MIGRATION_019` no pudo
+ * ponerla en el esquema: SQLite no admite una FK compuesta por
+ * `ALTER TABLE … ADD COLUMN`, y una FK simple a `customers_customers(id)`
+ * fallaría con `foreign key mismatch` en la primera venta real porque la clave
+ * del padre es `(tenant_id, id)`. La garantía vive en `SqliteSaleStore.create`,
+ * dentro de la transacción — deuda `D-27` — y por tanto son las pruebas las
+ * que la sostienen.
+ */
+describe("la venta puede nombrar a su adquiriente", () => {
+  const FISCAL_CUSTOMER = {
+    identificationDocumentCode: "13",
+    identification: "1020304050",
+    verificationDigit: null,
+    legalOrganizationCode: "2",
+    company: null,
+    names: "Ana Restrepo",
+    tributeCode: "ZZ",
+    fiscalResponsibilityCodes: ["R-99-PN"],
+    email: null,
+    phone: null,
+    address: null,
+    countryCode: "CO",
+    municipalityCode: "05001",
+  } as const;
+
+  function registerCustomer(env: Env, scope: SyncScope = SCOPE, identification = "1020304050"): string {
+    const result = env.registerCustomer.execute(scope, SESSION, auth(scope), {
+      customer: { ...FISCAL_CUSTOMER, identification },
+      idempotencyKey: `customer:core:${scope.tenantId}:${identification}`,
+      correlationId: randomUUID(),
+      causationId: null,
+    });
+    if (result.kind !== "REGISTERED") throw new Error(`expected REGISTERED, got ${result.kind}`);
+    return result.customerId;
+  }
+
+  // 1
+  it("con cliente, la venta persiste su customer_id y se cobra igual", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:cust:1");
+    const customerId = registerCustomer(env);
+
+    const created = createSale(env, registerProduct(env), CAJA, { customerId });
+    expect(created.kind).toBe("CREATED");
+    if (created.kind !== "CREATED") return;
+
+    expect(saleRow(env.database, created.saleId).customer_id).toBe(customerId);
+
+    // Nombrar al cliente no cambia nada del cobro, y no crea deuda.
+    const paid = env.registerCash.execute(SCOPE, SESSION, auth(), {
+      saleId: created.saleId, amount: created.payableAmount, tenderedAmount: null,
+      idempotencyKey: "pay:cust:1", correlationId: randomUUID(), causationId: null,
+    });
+    expect(paid.kind).toBe("CONFIRMED");
+    expect(saleRow(env.database, created.saleId).status).toBe("COMPLETED");
+    expect(saleRow(env.database, created.saleId).customer_id).toBe(customerId);
+  });
+
+  // 2
+  it("sin cliente la venta funciona exactamente como antes", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:cust:1");
+
+    const omitted = createSale(env, registerProduct(env), CAJA);
+    const explicitNull = createSale(env, registerProduct(env), CAJA, { customerId: null });
+
+    expect(omitted.kind).toBe("CREATED");
+    expect(explicitNull.kind).toBe("CREATED");
+    if (omitted.kind !== "CREATED" || explicitNull.kind !== "CREATED") return;
+    expect(saleRow(env.database, omitted.saleId).customer_id).toBeNull();
+    expect(saleRow(env.database, explicitNull.saleId).customer_id).toBeNull();
+    expect(saleRow(env.database, omitted.saleId).status).toBe("READY_FOR_PAYMENT");
+  });
+
+  // 3
+  it("un cliente inexistente rechaza la venta y no deja nada escrito", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:cust:1");
+    const item = registerProduct(env);
+    const ghost = "018f0000-0000-7000-8000-0000000000ee";
+
+    const salesBefore = countSales(env.database);
+    const created = createSale(env, item, CAJA, { customerId: ghost, key: "sale:cust:ghost" });
+
+    expect(created.kind).toBe("CUSTOMER_NOT_FOUND");
+    expect(countSales(env.database)).toBe(salesBefore);
+    // Ni venta, ni operación canónica, ni número de serie consumido.
+    expect(operationCount(env.database, "sale:cust:ghost")).toBe(0);
+    expect(auditCodes(env.database)).not.toContain("SALE_CREATED");
+    expect(outboxTypes(env.database)).not.toContain("SALE_CREATED");
+  });
+
+  // 4
+  it("un cliente de otro comercio no resuelve: la venta se rechaza", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:cust:1");
+    const item = registerProduct(env);
+
+    // El otro comercio registra su propio adquiriente. Existe, pero no aquí.
+    const foreignCustomer = registerCustomer(env, OTHER_SCOPE, "2030405060");
+    expect(env.database.native.prepare(
+      "SELECT COUNT(*) AS n FROM customers_customers WHERE id=?",
+    ).get(foreignCustomer)).toEqual({ n: 1 });
+
+    const salesBefore = countSales(env.database);
+    const created = createSale(env, item, CAJA, {
+      customerId: foreignCustomer, key: "sale:cust:foreign",
+    });
+
+    expect(created.kind).toBe("CUSTOMER_NOT_FOUND");
+    expect(countSales(env.database)).toBe(salesBefore);
+    expect(operationCount(env.database, "sale:cust:foreign")).toBe(0);
+  });
+
+  // 5
+  it("la idempotencia sigue intacta con cliente, y cambiar de cliente es conflicto", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:cust:1");
+    const item = registerProduct(env);
+    const first = registerCustomer(env);
+    const second = registerCustomer(env, SCOPE, "3040506070");
+
+    const created = createSale(env, item, CAJA, { customerId: first, key: "sale:cust:same" });
+    const replay = createSale(env, item, CAJA, { customerId: first, key: "sale:cust:same" });
+
+    expect(created.kind).toBe("CREATED");
+    expect(replay.kind).toBe("IDEMPOTENT");
+    if (created.kind !== "CREATED" || replay.kind !== "IDEMPOTENT") return;
+    expect(replay.saleId).toBe(created.saleId);
+    expect(countSales(env.database)).toBe(1);
+
+    // La misma clave con otro adquiriente es otra operación, no una
+    // repetición: el checksum lo incluye, así que choca en vez de devolver en
+    // silencio la venta del cliente anterior.
+    const swapped = createSale(env, item, CAJA, { customerId: second, key: "sale:cust:same" });
+    expect(swapped.kind).toBe("IDEMPOTENCY_CONFLICT");
+    expect(countSales(env.database)).toBe(1);
+    expect(saleRow(env.database, created.saleId).customer_id).toBe(first);
+  });
+
+  // 6
+  it("un fallo posterior a la validación revierte también el vínculo con el cliente", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:cust:1");
+    const customerId = registerCustomer(env);
+    const item = registerProduct(env);
+
+    // Cantidad imposible para una unidad discreta: el rechazo ocurre en el
+    // cálculo, después de que el cliente ya fue validado.
+    const salesBefore = countSales(env.database);
+    const created = createSale(env, item, CAJA, {
+      customerId, quantity: "0.500000", key: "sale:cust:rollback",
+    });
+
+    expect(created.kind).toBe("QUANTITY_PRECISION_EXCEEDED");
+    expect(countSales(env.database)).toBe(salesBefore);
+    expect(operationCount(env.database, "sale:cust:rollback")).toBe(0);
+    const items = env.database.native.prepare(
+      "SELECT COUNT(*) AS n FROM sales_sale_items WHERE tenant_id=?",
+    ).get(TENANT) as { n: number };
+    expect(items.n).toBe(0);
+  });
+});
+
+function countSales(db: LocalDatabase, tenant = TENANT): number {
+  return (db.native.prepare(
+    "SELECT COUNT(*) AS n FROM sales_sales WHERE tenant_id=?",
+  ).get(tenant) as { n: number }).n;
+}
+
+function operationCount(db: LocalDatabase, idempotencyKey: string): number {
+  return (db.native.prepare(
+    "SELECT COUNT(*) AS n FROM runtime_operations WHERE idempotency_key=?",
+  ).get(idempotencyKey) as { n: number }).n;
+}

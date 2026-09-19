@@ -327,6 +327,22 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
      * verificado, así que una caja ajena simplemente no resuelve turno.
      */
     cash_register_id: UuidSchema.nullable(),
+    /**
+     * Adquiriente de la venta, cuando la operación lo nombra.
+     *
+     * Opcional a propósito: la venta de mostrador anónima es el caso normal en
+     * una tienda de barrio y sigue siendo válida sin este campo.
+     *
+     * Nombrar al cliente **no** es aportar ámbito. La capa confiable comprueba
+     * que el identificador exista bajo el `tenant` del contexto verificado —no
+     * bajo el que diga el llamador— dentro de la misma transacción que crea la
+     * venta, así que un cliente ajeno no resuelve y la venta no llega a
+     * escribirse.
+     *
+     * Y **no expresa deuda**: decir quién compró no es decir que deba. El
+     * crédito al cliente sigue diferido a `DEC-005` / `CUST-002`.
+     */
+    customer_id: UuidSchema.nullable().optional(),
     channel: SaleChannelSchema,
     business_date: BusinessDateSchema,
     timezone_id: TimezoneIdSchema,
@@ -348,6 +364,9 @@ export const SaleCreateOutcomeSchema = z.enum([
   "CATALOG_NOT_FOUND",
   "PRICE_NOT_FOUND",
   "CURRENCY_MISMATCH",
+  // El adquiriente nombrado no existe bajo este tenant. Se comprueba dentro de
+  // la transacción de creación, así que el rechazo no deja venta a medias.
+  "CUSTOMER_NOT_FOUND",
   // La cantidad no cabe en la precisión que declara la unidad: media botella no
   // es una venta, es un error de captura. La comprueba la capa confiable, que
   // es la única que ve el catálogo.

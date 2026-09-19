@@ -1358,6 +1358,63 @@ CREATE INDEX payments_payment_attempts_uncertain_sweep_idx
   WHERE status = 'UNKNOWN' AND next_attempt_at IS NOT NULL;
 `.trim();
 
+/**
+ * `MIGRATION_019` — la venta puede decir quién compra.
+ *
+ * `customers_customers` existe desde `MIGRATION_012` y guarda al adquiriente
+ * fiscal —identificación, naturaleza jurídica, responsabilidades DIAN—, pero
+ * **ninguna tabla lo referenciaba**: una venta no tenía dónde anotar a su
+ * comprador. Esta columna es lo único que faltaba para que pueda.
+ *
+ * No implementa crédito. Un `customer_id` en la venta dice quién compró, no
+ * que deba nada: la deuda, su cupo y sus abonos siguen diferidos a `DEC-005`
+ * (`CUST-002`), y `payments-schema.md` §93 prohíbe expresamente crear esos
+ * agregados por anticipado. El método `CUSTOMER_CREDIT` ya admitido en
+ * `payment_method` sigue siendo vocabulario reservado, no una autorización.
+ *
+ * ## Por qué NO lleva `REFERENCES` — y por qué eso no es descuido
+ *
+ * La convención del esquema es la clave compuesta: toda FK existente lleva el
+ * tenant delante (`(tenant_id, cash_register_id)`, `(tenant_id, sale_id)`,
+ * `(tenant_id, payment_id)`). Lo correcto aquí sería
+ * `FOREIGN KEY (tenant_id, customer_id) REFERENCES customers_customers(tenant_id, id)`.
+ *
+ * SQLite no lo permite por esta vía, y las tres salidas se comprobaron
+ * ejecutándolas contra `better-sqlite3`, no de memoria:
+ *
+ * 1. `ALTER TABLE … ADD COLUMN` con una FK compuesta es **error de sintaxis**:
+ *    la cláusula `REFERENCES` de `ADD COLUMN` es de una sola columna.
+ * 2. Una FK simple a `customers_customers(id)` **se acepta al crearla** y
+ *    falla con `foreign key mismatch` la primera vez que una venta nombre de
+ *    verdad a un cliente —la PK del padre es `(tenant_id, id)` y no hay índice
+ *    único sobre `id` solo—. Sería un fallo diferido a producción, aplicado
+ *    limpiamente en todos los equipos y roto en la primera venta real. Esa es
+ *    la peor de las tres y por eso no está aquí.
+ * 3. El rebuild de doce pasos daría la FK compuesta, pero `applyMigrations`
+ *    envuelve cada migración en una transacción y `PRAGMA foreign_keys` es
+ *    **no-op dentro de una transacción** (verificado: sigue leyendo `1`).
+ *    Con las FK activas, `DROP TABLE sales_sales` falla porque
+ *    `sales_sale_items` la referencia. El único precedente de rebuild del
+ *    repo —`MIGRATION_008` sobre `local_operation_audit`— funcionó porque
+ *    aquella tabla no tiene hijos; ésta sí.
+ *
+ * Así que la integridad la sostiene la capa confiable: `SqliteSaleStore`
+ * comprueba `(tenant_id, customer_id)` **dentro de la misma transacción** que
+ * crea la venta, antes de escribir nada. El Local Service es el único
+ * escritor, de modo que no hay segunda puerta por la que entre un cliente
+ * ajeno. Queda anotado como `D-27` en `materialization-state.md`: es una
+ * garantía de aplicación donde el esquema querría una estructural, y se cierra
+ * cuando `sales_sales` se reconstruya por cualquier otro motivo.
+ *
+ * El `CHECK` de longitud es la parte que sí cabe en disco: un `customer_id`
+ * que no tenga forma de UUID no entra, venga de donde venga.
+ */
+const MIGRATION_019 = `
+ALTER TABLE sales_sales
+  ADD COLUMN customer_id TEXT
+  CHECK(customer_id IS NULL OR length(customer_id) = 36);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1377,6 +1434,7 @@ const MIGRATIONS = [
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
   { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
+  { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
 ] as const;
 
 /**

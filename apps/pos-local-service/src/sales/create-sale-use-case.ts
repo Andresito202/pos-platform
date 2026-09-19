@@ -29,6 +29,14 @@ export interface CreateSaleRequestLine {
 export interface CreateSaleRequest {
   /** Caja seleccionada, o `null` cuando la venta no pasa por caja. */
   readonly cashRegisterId: string | null;
+  /**
+   * Adquiriente, cuando la operación lo nombra. Ausente o `null` es la venta
+   * de mostrador anónima, que sigue siendo el caso normal.
+   *
+   * Decir quién compra no dice que deba: esto no abre crédito. `DEC-005` sigue
+   * pendiente y `CUST-002` con él.
+   */
+  readonly customerId?: string | null;
   readonly idempotencyKey: string;
   readonly channel: string;
   readonly businessDate: string;
@@ -71,6 +79,7 @@ export type CreateSaleResult =
       readonly available: string;
       readonly requested: string;
     }
+  | { readonly kind: "CUSTOMER_NOT_FOUND"; readonly customerId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
@@ -80,6 +89,10 @@ function requestChecksum(request: CreateSaleRequest, operatorUserId: string): st
       channel: request.channel,
       business_date: request.businessDate,
       currency_code: request.currencyCode,
+      // El adquiriente entra en el checksum: repetir la misma clave cambiando
+      // de cliente es otra operación, no una repetición, y debe chocar en vez
+      // de devolver en silencio la venta del cliente anterior.
+      customer_id: request.customerId ?? null,
       document_series: request.documentSeries,
       lines: request.lines.map((line) => ({
         product_id: line.productId,
@@ -342,6 +355,11 @@ export class CreateSaleUseCase {
       correlationId: request.correlationId,
       causationId: request.causationId,
       cashShift,
+      // Se pasa tal cual y **no se comprueba aquí**: la existencia del
+      // adquiriente sólo es cierta dentro de la transacción que escribe la
+      // venta. Verificarla antes dejaría una ventana entre la comprobación y
+      // la escritura.
+      customerId: request.customerId ?? null,
       lines: resolvedLines.map((resolved, index) => ({
         itemId: randomUUID(),
         productId: resolved.productId,
@@ -390,6 +408,9 @@ export class CreateSaleUseCase {
 
     if (outcome.kind === "IDEMPOTENCY_CONFLICT") {
       return { kind: "IDEMPOTENCY_CONFLICT" };
+    }
+    if (outcome.kind === "CUSTOMER_NOT_FOUND") {
+      return { kind: "CUSTOMER_NOT_FOUND", customerId: outcome.customerId };
     }
 
     return {
