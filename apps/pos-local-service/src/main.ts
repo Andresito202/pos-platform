@@ -8,6 +8,7 @@ import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { UncertainProviderSweepComponent } from "./payments/uncertain-provider-sweep-component.js";
+import { resolveWompiPaymentProvider } from "./payments/wompi/wompi-credential.js";
 import {
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
@@ -109,7 +110,31 @@ try {
   // claves en el runtime (`LIC-003`/`DEV-003`), de modo que `session.activate`
   // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
   // fabricada.
-  const commercial = new CommercialComponent(config, localDatabase, durableSync);
+  // El proveedor de pagos, si este equipo tiene una credencial aprovisionada.
+  //
+  // Se resuelve aqui y no dentro de un componente porque `CommercialComponent`
+  // lo necesita ya construido, y el almacen cifrado no depende del ciclo de
+  // vida: `resolveWompiPaymentProvider` abre el suyo con su propio contexto,
+  // igual que el secreto del canal local. Comparte `keyProvider` sin compartir
+  // clave — el proveedor de clave raiz indexa por contexto.
+  //
+  // `undefined` es un estado legitimo y silencioso en el dominio: un equipo sin
+  // credencial no cobra por QR y el barrido de inciertos queda `disabled`. Una
+  // credencial presente pero rota, en cambio, detiene el arranque.
+  const paymentProvider = resolveWompiPaymentProvider({
+    securityDirectory,
+    keyProvider,
+    binding: { installationId: config.installation_id, deviceId: config.device_id },
+  });
+
+  const commercial = new CommercialComponent(
+    config,
+    localDatabase,
+    durableSync,
+    new Map(),
+    () => new Date(),
+    paymentProvider,
+  );
   // El barrido de intentos `UNKNOWN` (`D-5`/`D-6`). Resuelve su caso de uso al
   // arrancar —va detras de `commercial`, que es quien lo construye— y sin
   // `PaymentProviderPort` inyectado no arma temporizador alguno: hoy ese es el
@@ -152,6 +177,11 @@ try {
   lifecycle = new ServiceLifecycle(components);
 
   await lifecycle.start();
+  // Que hay proveedor, nunca cual es: ni la clave publica entra aqui. El
+  // redactor del logger es una red, no una excusa para acercarle un secreto.
+  logger.log("info", "payments.provider", paymentProvider === undefined
+    ? { configured: false, reason: "NOT_PROVISIONED" }
+    : { configured: true, provider_code: "WOMPI" });
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
     installation_id: config.installation_id,
