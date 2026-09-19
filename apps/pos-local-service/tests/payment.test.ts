@@ -23,7 +23,7 @@ import { CancelPaymentUseCase } from "../src/payments/cancel-payment-use-case.js
 import { GetPaymentUseCase } from "../src/payments/get-payment-use-case.js";
 import { RegisterQrPaymentUseCase } from "../src/payments/register-qr-payment-use-case.js";
 import { ConfirmProviderPaymentUseCase } from "../src/payments/confirm-provider-payment-use-case.js";
-import type { PaymentProviderEvidence, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
+import type { PaymentProviderOutcome, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
 import { SqliteMasterSnapshotStore } from "../src/master-data/sqlite-master-snapshot-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
@@ -569,6 +569,19 @@ describe("transferencia por atestiguación manual", () => {
 });
 
 
+/** Lee el `details_json` del asiento de auditoría que el store escribió. */
+function cancellationDetails(
+  env: { database: { native: { prepare: (sql: string) => { get: (...args: string[]) => unknown } } } },
+  paymentId: string,
+): Record<string, unknown> {
+  const row = env.database.native.prepare(
+    `SELECT details_json FROM local_operation_audit
+     WHERE tenant_id=? AND resource_id=? AND action_code='PAYMENT_CANCELLED'`,
+  ).get(TENANT, paymentId) as { details_json: string } | undefined;
+  if (row === undefined) throw new Error("no PAYMENT_CANCELLED audit row");
+  return JSON.parse(row.details_json) as Record<string, unknown>;
+}
+
 function qrProvider(): PaymentProviderPort {
   return {
     async createPaymentIntent(input) {
@@ -579,8 +592,8 @@ function qrProvider(): PaymentProviderPort {
         checkout: null,
       };
     },
-    async getPaymentStatus(): Promise<PaymentProviderEvidence> {
-      return {
+    async getPaymentStatus(): Promise<PaymentProviderOutcome> {
+      return { kind: "EVIDENCE", evidence: {
         providerCode: "TEST_QR",
         providerReference: "QR-INTENT-1",
         providerTransactionId: "TX-1",
@@ -588,10 +601,10 @@ function qrProvider(): PaymentProviderPort {
         currencyCode: "COP",
         status: "APPROVED",
         receivedAt: NOW.toISOString(),
-      };
+      } };
     },
-    async normalizeNotification(): Promise<PaymentProviderEvidence> {
-      return {
+    async normalizeNotification(): Promise<PaymentProviderOutcome> {
+      return { kind: "EVIDENCE", evidence: {
         providerCode: "TEST_QR",
         providerReference: "QR-INTENT-1",
         providerTransactionId: "TX-1",
@@ -599,7 +612,7 @@ function qrProvider(): PaymentProviderPort {
         currencyCode: "COP",
         status: "APPROVED",
         receivedAt: NOW.toISOString(),
-      };
+      } };
     },
   };
 }
@@ -785,6 +798,110 @@ describe("cancelación", () => {
       "SELECT status FROM payments_payments WHERE tenant_id=? AND id=?",
     ).get(TENANT, registered.paymentId) as { status: string };
     expect(payment.status).toBe("CANCELLED");
+  });
+
+
+  /**
+   * `D-3`. Un pago QR nace `PENDING`. Hasta `D-3` ése era un estado
+   * absorbente: `confirmProviderPayment` exige evidencia autorizada que
+   * ningún flujo productivo entrega todavía, y `cancel` sólo aceptaba
+   * `CREATED`, así que el pago no tenía ninguna salida. El operador se
+   * quedaba con una fila muerta y sin forma de cerrar el cobro.
+   *
+   * `PAY-007` autoriza `Payment: PENDING → CANCELLED`, y para el intento
+   * `PENDING → EXPIRED` — no `CANCELLED`, que sólo aplica a un intento que
+   * nunca salió hacia el proveedor.
+   */
+  it("un pago QR PENDING tiene salida: se cancela y su intento expira", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    const result = env.cancel.execute(SCOPE, SESSION, auth(), {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      idempotencyKey: "cancel:qr:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(result.kind).toBe("CANCELLED");
+
+    const payment = env.database.native.prepare(
+      "SELECT status FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { status: string };
+    expect(payment.status).toBe("CANCELLED");
+
+    const attempt = env.database.native.prepare(
+      "SELECT status FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?",
+    ).get(TENANT, registered.paymentId) as { status: string };
+    expect(attempt.status).toBe("EXPIRED");
+
+    // El evento real que escribió el store, no un payload reconstruido aquí.
+    expect(cancellationDetails(env, registered.paymentId).attempt_status).toBe("EXPIRED");
+  });
+
+  /**
+   * `M-1`. `PAYMENT_CANCELLED` describía igual dos hechos distintos: un
+   * intento que nunca salió del POS y uno enviado al proveedor que se
+   * abandonó sin veredicto. El segundo es compatible con un cobro externo
+   * real, así que la auditoría tiene que poder distinguirlos.
+   */
+  it("la auditoría de cancelación distingue un intento que nunca salió del POS", async () => {
+    const env = await buildEnv();
+    const saleId = seedSale(env.database);
+    const registered = env.registerTransfer.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000", providerCode: null, providerReference: null,
+      idempotencyKey: "t:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "REGISTERED") throw new Error("expected REGISTERED");
+
+    env.cancel.execute(SCOPE, SESSION, auth(), {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      idempotencyKey: "cancel:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    const attempt = env.database.native.prepare(
+      "SELECT status FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?",
+    ).get(TENANT, registered.paymentId) as { status: string };
+    expect(attempt.status).toBe("CANCELLED");
+
+    expect(cancellationDetails(env, registered.paymentId).attempt_status).toBe("CANCELLED");
+  });
+
+  /**
+   * La venta no queda bloqueada por esa salida: sigue en
+   * `PAYMENT_IN_PROGRESS`, que es un estado pagable, así que se puede cobrar
+   * por otro medio. Cancelar el pago no arrastra la venta ni la cierra.
+   */
+  it("cancelar el QR pendiente deja la venta cobrable por otro medio", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    env.cancel.execute(SCOPE, SESSION, auth(), {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      idempotencyKey: "cancel:qr:1", correlationId: randomUUID(), causationId: null,
+    });
+
+    const cash = env.registerCash.execute(SCOPE, SESSION, auth(), cashRequest(saleId, "10000.000000", "pay:cash:1"));
+
+    expect(cash.kind).toBe("CONFIRMED");
+    const sale = env.database.native.prepare(
+      "SELECT status FROM sales_sales WHERE tenant_id=? AND id=?",
+    ).get(TENANT, saleId) as { status: string };
+    expect(sale.status).toBe("COMPLETED");
   });
 
   it("un pago confirmado NO se cancela — DEC-002 prohíbe sobrescribirlo", async () => {

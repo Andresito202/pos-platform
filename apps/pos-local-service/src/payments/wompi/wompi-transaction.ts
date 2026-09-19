@@ -1,5 +1,5 @@
 import * as z from "zod";
-import type { PaymentProviderEvidence } from "../payment-provider-port.js";
+import type { PaymentProviderEvidence, PaymentProviderOutcome } from "../payment-provider-port.js";
 import { centsToAmount } from "./wompi-money.js";
 
 export const WOMPI_PROVIDER_CODE = "WOMPI";
@@ -28,14 +28,19 @@ export const WompiTransactionSchema = z.object({
 export type WompiTransaction = z.infer<typeof WompiTransactionSchema>;
 
 /**
- * `PaymentProviderPort` is a closed three-state contract (`PENDING` /
- * `APPROVED` / `REJECTED`) and this branch's task explicitly forbids adding
- * new internal states to accommodate Wompi. Wompi's `DECLINED`, `VOIDED` and
- * `ERROR` all mean the same thing to the domain: the transaction did not and
- * will not produce money — none of them is authoritative confirmation, so
- * all three fold into `REJECTED`. `APPROVED` and `PENDING` map directly.
+ * `DECLINED` and `VOIDED` are commercial verdicts: Wompi is telling us the
+ * transaction will not produce money, and both fold into `REJECTED`.
+ *
+ * `ERROR` is **not** one of them, and folding it into `REJECTED` (as this
+ * function did until `D-3`) was wrong: `ERROR` is Wompi reporting that its
+ * own processing failed, which says nothing about whether the customer was
+ * charged. Treating it as rejection turned a failure of the provider into a
+ * financial verdict against the customer. It is uncertainty, so it leaves
+ * this function through `toPaymentProviderOutcome` as `UNKNOWN`, never here.
  */
-export function mapWompiStatus(status: WompiTransactionStatus): PaymentProviderEvidence["status"] {
+export function mapWompiStatus(
+  status: Exclude<WompiTransactionStatus, "ERROR">,
+): PaymentProviderEvidence["status"] {
   if (status === "APPROVED") return "APPROVED";
   if (status === "PENDING") return "PENDING";
   return "REJECTED";
@@ -49,20 +54,26 @@ export class WompiCurrencyMismatchError extends Error {
 }
 
 /**
- * Converts a validated Wompi transaction into the boundary evidence type.
+ * Converts a validated Wompi transaction into a boundary outcome.
  * `receivedAt` is when the caller obtained this evidence (query time or
  * webhook delivery time), not a Wompi-side timestamp — the port defines it
  * as receipt time, and Wompi's own timestamps are not part of the contract.
+ *
+ * A transaction Wompi reports as `ERROR` yields `UNKNOWN`: it is authentic,
+ * it has a real id, but it carries no verdict this system may act on.
  */
-export function toPaymentProviderEvidence(
+export function toPaymentProviderOutcome(
   transaction: WompiTransaction,
   receivedAt: string,
-): PaymentProviderEvidence {
+): PaymentProviderOutcome {
   if (transaction.currency !== "COP") {
     throw new WompiCurrencyMismatchError(transaction.currency);
   }
+  if (transaction.status === "ERROR") {
+    return { kind: "UNKNOWN", reason: "PROVIDER_ERROR" };
+  }
 
-  const evidence: PaymentProviderEvidence = {
+  const base: PaymentProviderEvidence = {
     providerCode: WOMPI_PROVIDER_CODE,
     providerReference: transaction.reference,
     providerTransactionId: transaction.id,
@@ -72,7 +83,9 @@ export function toPaymentProviderEvidence(
     receivedAt,
   };
 
-  return transaction.customer_email
-    ? { ...evidence, payerReference: transaction.customer_email }
-    : evidence;
+  const evidence = transaction.customer_email
+    ? { ...base, payerReference: transaction.customer_email }
+    : base;
+
+  return { kind: "EVIDENCE", evidence };
 }

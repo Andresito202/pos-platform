@@ -3,9 +3,15 @@ import {
   WOMPI_PROVIDER_CODE,
   WompiCurrencyMismatchError,
   mapWompiStatus,
-  toPaymentProviderEvidence,
+  toPaymentProviderOutcome,
   type WompiTransaction,
 } from "./wompi-transaction.js";
+
+/** Unwraps the evidence variant, failing loudly when the outcome is UNKNOWN. */
+function evidenceOf(outcome: ReturnType<typeof toPaymentProviderOutcome>) {
+  if (outcome.kind !== "EVIDENCE") throw new Error(`expected EVIDENCE, got ${outcome.kind}`);
+  return outcome.evidence;
+}
 
 function transaction(overrides: Partial<WompiTransaction> = {}): WompiTransaction {
   return {
@@ -24,18 +30,21 @@ describe("mapWompiStatus", () => {
     expect(mapWompiStatus("PENDING")).toBe("PENDING");
   });
 
-  it("folds every non-terminal-success Wompi status into REJECTED without inventing new internal states", () => {
+  /**
+   * `DECLINED` and `VOIDED` are verdicts. `ERROR` is not, and `D-3` took it
+   * out of this function's domain entirely — the type no longer accepts it.
+   */
+  it("folds the two commercial refusals into REJECTED", () => {
     expect(mapWompiStatus("DECLINED")).toBe("REJECTED");
     expect(mapWompiStatus("VOIDED")).toBe("REJECTED");
-    expect(mapWompiStatus("ERROR")).toBe("REJECTED");
   });
 });
 
-describe("toPaymentProviderEvidence", () => {
+describe("toPaymentProviderOutcome", () => {
   it("normalizes an approved transaction into the existing evidence contract", () => {
-    const evidence = toPaymentProviderEvidence(transaction(), "2026-09-18T10:00:00.000Z");
+    const outcome = toPaymentProviderOutcome(transaction(), "2026-09-18T10:00:00.000Z");
 
-    expect(evidence).toEqual({
+    expect(evidenceOf(outcome)).toEqual({
       providerCode: WOMPI_PROVIDER_CODE,
       providerReference: "order-249",
       providerTransactionId: "1234-1600000000-12345",
@@ -47,35 +56,58 @@ describe("toPaymentProviderEvidence", () => {
   });
 
   it("normalizes a pending transaction", () => {
-    const evidence = toPaymentProviderEvidence(
+    const outcome = toPaymentProviderOutcome(
       transaction({ status: "PENDING" }),
       "2026-09-18T10:00:00.000Z",
     );
-    expect(evidence.status).toBe("PENDING");
+    expect(evidenceOf(outcome).status).toBe("PENDING");
   });
 
   it("normalizes a declined transaction as REJECTED", () => {
-    const evidence = toPaymentProviderEvidence(
+    const outcome = toPaymentProviderOutcome(
       transaction({ status: "DECLINED" }),
       "2026-09-18T10:00:00.000Z",
     );
-    expect(evidence.status).toBe("REJECTED");
+    expect(evidenceOf(outcome).status).toBe("REJECTED");
+  });
+
+  it("normalizes a voided transaction as REJECTED", () => {
+    const outcome = toPaymentProviderOutcome(
+      transaction({ status: "VOIDED" }),
+      "2026-09-18T10:00:00.000Z",
+    );
+    expect(evidenceOf(outcome).status).toBe("REJECTED");
+  });
+
+  /**
+   * `D-3`. Wompi reporting `ERROR` means its own processing failed. Until
+   * `D-3` this produced `REJECTED`, turning a provider malfunction into a
+   * verdict against the customer. It is uncertainty, and it carries no
+   * evidence the system may act on.
+   */
+  it("reports a Wompi ERROR transaction as UNKNOWN, never as a rejection", () => {
+    const outcome = toPaymentProviderOutcome(
+      transaction({ status: "ERROR" }),
+      "2026-09-18T10:00:00.000Z",
+    );
+
+    expect(outcome).toEqual({ kind: "UNKNOWN", reason: "PROVIDER_ERROR" });
   });
 
   it("carries the payer reference only when Wompi reports one", () => {
-    const withEmail = toPaymentProviderEvidence(
+    const withEmail = toPaymentProviderOutcome(
       transaction({ customer_email: "buyer@example.test" }),
       "2026-09-18T10:00:00.000Z",
     );
-    expect(withEmail.payerReference).toBe("buyer@example.test");
+    expect(evidenceOf(withEmail).payerReference).toBe("buyer@example.test");
 
-    const withoutEmail = toPaymentProviderEvidence(transaction(), "2026-09-18T10:00:00.000Z");
-    expect(withoutEmail.payerReference).toBeUndefined();
+    const withoutEmail = toPaymentProviderOutcome(transaction(), "2026-09-18T10:00:00.000Z");
+    expect(evidenceOf(withoutEmail).payerReference).toBeUndefined();
   });
 
   it("rejects a non-COP transaction rather than silently converting currency", () => {
     expect(() =>
-      toPaymentProviderEvidence(transaction({ currency: "USD" }), "2026-09-18T10:00:00.000Z"),
+      toPaymentProviderOutcome(transaction({ currency: "USD" }), "2026-09-18T10:00:00.000Z"),
     ).toThrow(WompiCurrencyMismatchError);
   });
 });

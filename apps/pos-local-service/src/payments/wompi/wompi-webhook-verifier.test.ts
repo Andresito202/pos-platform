@@ -63,13 +63,16 @@ describe("normalizeWompiTransactionUpdatedEvent", () => {
     );
 
     expect(evidence).toEqual({
-      providerCode: "WOMPI",
-      providerReference: "order-249",
-      providerTransactionId: "txn-1",
-      amount: "24900.000000",
-      currencyCode: "COP",
-      status: "APPROVED",
-      receivedAt: "2026-09-18T12:00:00.000Z",
+      kind: "EVIDENCE",
+      evidence: {
+        providerCode: "WOMPI",
+        providerReference: "order-249",
+        providerTransactionId: "txn-1",
+        amount: "24900.000000",
+        currencyCode: "COP",
+        status: "APPROVED",
+        receivedAt: "2026-09-18T12:00:00.000Z",
+      },
     });
   });
 
@@ -100,7 +103,7 @@ describe("normalizeWompiTransactionUpdatedEvent", () => {
       "2026-09-18T12:00:00.000Z",
     );
 
-    expect(evidence.status).toBe("PENDING");
+    expect(evidence.kind === "EVIDENCE" && evidence.evidence.status).toBe("PENDING");
   });
 
   it("rejects an event whose checksum does not match its signed properties", async () => {

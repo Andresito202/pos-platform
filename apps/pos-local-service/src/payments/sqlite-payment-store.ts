@@ -1012,6 +1012,25 @@ export class SqlitePaymentStore {
    * Un pago confirmado nunca se cancela: `DEC-002` prohíbe la sobrescritura
    * destructiva de un componente confirmado, y revertirlo es una operación
    * compensatoria (`Refund`/`Reversal`) fuera de V1.
+   *
+   * Cancelables: `CREATED` (transferencia reportada) y `PENDING` (pago con
+   * proveedor que el operador abandona). `PENDING` no lo era, y eso dejaba a
+   * un pago QR sin ninguna salida: nace `PENDING` (§register), sólo
+   * `confirmProviderPayment` podía moverlo, y esa vía exige evidencia
+   * autorizada que hoy ningún flujo productivo entrega. El pago quedaba
+   * absorbente. `PAY-007` autoriza `Payment: PENDING → CANCELLED`.
+   *
+   * El intento **no** sigue al pago a `CANCELLED`: `PAY-007` no autoriza
+   * `PaymentAttempt: PENDING → CANCELLED`. Autoriza `PENDING → EXPIRED`, que
+   * además es lo que de verdad ocurrió — se abandonó un intento en vuelo sin
+   * veredicto del proveedor, no se retiró algo que nunca salió del POS. Un
+   * intento `CREATED` sí se cancela, como hasta ahora.
+   *
+   * Cancelar no es evidencia de que el proveedor no cobrara. Si más tarde
+   * llegara evidencia aprobada sobre este pago, `confirmProviderPayment` la
+   * rechaza con `PAYMENT_NOT_CONFIRMABLE` y la contradicción se pierde:
+   * representarla es `REVIEW_REQUIRED` (`PAY-007` regla 5), que necesita el
+   * camino de resolución de evidencia y queda como dependencia declarada.
    */
   cancel(input: CancelPaymentInput): CancelPaymentOutcome {
     const nowIso = this.now().toISOString();
@@ -1032,7 +1051,9 @@ export class SqlitePaymentStore {
       if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
       if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
       if (payment.status === "CANCELLED") return { kind: "IDEMPOTENT", paymentId: payment.id };
-      if (payment.status !== "CREATED") return { kind: "PAYMENT_NOT_CANCELLABLE" };
+      if (payment.status !== "CREATED" && payment.status !== "PENDING") {
+        return { kind: "PAYMENT_NOT_CANCELLABLE" };
+      }
       if (payment.version !== input.expectedVersion) return { kind: "VERSION_CONFLICT" };
 
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CANCELLED", nowIso);
@@ -1042,12 +1063,30 @@ export class SqlitePaymentStore {
          WHERE tenant_id=? AND id=? AND version=?`,
       ).run(nowIso, input.scope.tenantId, input.paymentId, input.expectedVersion);
 
-      this.database.native.prepare(
-        `UPDATE payments_payment_attempts SET status='CANCELLED', version=version+1
+      const attempt = this.database.native.prepare(
+        `SELECT status FROM payments_payment_attempts
          WHERE tenant_id=? AND payment_id=? AND attempt_number=1`,
-      ).run(input.scope.tenantId, input.paymentId);
+      ).get(input.scope.tenantId, input.paymentId) as { status: string } | undefined;
 
-      const details = { payment_id: input.paymentId, sale_id: payment.collection_subject_id };
+      // `PENDING → EXPIRED`, `CREATED → CANCELLED`: las dos transiciones que
+      // `PAY-007` autoriza para un intento que termina sin veredicto.
+      const attemptStatus = attempt?.status === "PENDING" ? "EXPIRED" : "CANCELLED";
+
+      this.database.native.prepare(
+        `UPDATE payments_payment_attempts SET status=?, version=version+1
+         WHERE tenant_id=? AND payment_id=? AND attempt_number=1`,
+      ).run(attemptStatus, input.scope.tenantId, input.paymentId);
+
+      // `attempt_status` distingue dos cancelaciones que no son el mismo
+      // hecho: `CANCELLED` es un intento que nunca salió del POS, `EXPIRED`
+      // uno que sí se envió al proveedor y se abandonó sin veredicto —
+      // compatible con que exista un cobro externo. El evento sigue siendo
+      // `PAYMENT_CANCELLED`; sólo se audita con qué terminó el intento.
+      const details = {
+        attempt_status: attemptStatus,
+        payment_id: input.paymentId,
+        sale_id: payment.collection_subject_id,
+      };
       this.writeAudit(input, "PAYMENT_CANCELLED", "PAYMENT", input.paymentId, details, nowIso);
       this.enqueue(
         input, input.operationId, input.idempotencyKey,

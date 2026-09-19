@@ -1021,3 +1021,103 @@ haber forma de ir de una transacción del PSP a un pago Camacho: el store no
 expone búsqueda por `provider_reference` ni por `provider_transaction_id`, y
 `ConfirmProviderPaymentUseCase` exige un `paymentId` ya conocido. D-2 hace que
 esa búsqueda sea **expresable**; no la implementa.
+
+## 22. D-3 resuelta — incertidumbre como resultado de primera clase (2026-09-19)
+
+Cierra `D-3` en su dimensión de **contrato**. No cierra persistencia de
+`UNKNOWN`, reconciliación, receptor de webhook ni `REVIEW_REQUIRED`.
+
+### 22.1 Semántica fijada
+
+| Resultado | Significado | Puede producirlo |
+|---|---|---|
+| `PENDING` | el PSP conoce la transacción y no ha llegado a estado final | evidencia positiva de no-finalidad |
+| `APPROVED` | evidencia positiva y verificable de aprobación | única que mueve dinero |
+| `REJECTED` | evidencia positiva de **negativa comercial** | Wompi `DECLINED`, `VOIDED` |
+| `UNKNOWN` | no se pudo determinar el resultado | timeout, red, 5xx/429, respuesta ilegible, Wompi `ERROR` |
+| `REVIEW_REQUIRED` | evidencia contradictoria | **no implementado** — §22.5 |
+
+### 22.2 `UNKNOWN` es una variante, no un valor de `status`
+
+`PaymentProviderEvidence` **no cambió**. `UNKNOWN` no es un `status` suyo: si
+una consulta expira no hay referencia, ni `transaction.id`, ni importe, ni hora
+de recepción que poner en un objeto de evidencia, e inventarlos sería
+exactamente la fabricación que esta frontera existe para impedir.
+
+El puerto devuelve ahora `PaymentProviderOutcome`:
+
+```
+{ kind: "EVIDENCE", evidence }          ← hay respuesta del PSP
+{ kind: "UNKNOWN",  reason }            ← no la hay
+```
+
+Es la forma que `§6` ya documentaba (`ProviderOutcome` con `UNKNOWN { }`,
+variante vacía). El tipo hace **imposible** leer evidencia de un resultado que
+no la tiene.
+
+`reason` ∈ `TIMEOUT` · `NETWORK` · `PROVIDER_UNAVAILABLE` ·
+`MALFORMED_RESPONSE` · `PROVIDER_ERROR`.
+
+### 22.3 Wompi `ERROR` deja de ser `REJECTED`
+
+`mapWompiStatus` plegaba `DECLINED`, `VOIDED` **y `ERROR`** sobre `REJECTED`.
+`ERROR` es Wompi informando de que su propio procesamiento falló: no dice nada
+sobre si al cliente se le cobró. Tratarlo como rechazo convertía una avería del
+proveedor en un veredicto contra el cliente. Ahora produce `UNKNOWN`, y el tipo
+de `mapWompiStatus` ya no acepta `ERROR`.
+
+### 22.4 Qué **no** se convierte en `UNKNOWN`
+
+Un 401/403 o un `transaction.id` que el PSP no reconoce (404) siguen lanzando.
+No son incertidumbre sobre un pago: son un despliegue mal configurado o un
+defecto de correlación. Absorberlos dejaría cada pago leyéndose «incierto»
+mientras la avería real permanece invisible.
+
+### 22.5 Lo que sigue sin existir
+
+- **Persistir `UNKNOWN`.** El `CHECK` de `payments_payment_attempts` ya lo
+  admite, pero **ningún camino de escritura lo produce**, y crearlo es el
+  caso de uso de reconciliación, fuera de alcance. Además, resolver después un
+  `UNKNOWN` exige reconsultar por `transaction.id`, que hoy sólo entra en la
+  base al confirmar: **depende de `D-2-bis`**.
+- **`REVIEW_REQUIRED`.** Exige un camino de resolución de evidencia
+  contradictoria (`PAY-007` regla 5) que no existe. No se inventa aquí.
+- **Receptor de webhook y correlación.** Siguen `NOT_YET_MATERIALIZED`.
+
+### 22.6 Salida del `PENDING` de un pago QR
+
+Un pago QR nace `PENDING` (§4.1 lo declaraba inalcanzable; ver §22.7) y hasta
+ahora **no tenía ninguna salida**: `confirmProviderPayment` exige evidencia
+autorizada que ningún flujo productivo entrega, y `cancel` sólo aceptaba
+`CREATED`. El pago quedaba absorbente.
+
+`cancel` acepta ahora `CREATED` y `PENDING`, conforme a `PAY-007`
+(`Payment: PENDING → CANCELLED`). El **intento** no sigue al pago a
+`CANCELLED` —`PAY-007` no autoriza esa transición— sino a `EXPIRED`
+(`PaymentAttempt: PENDING → EXPIRED`), que además describe lo ocurrido: un
+intento en vuelo abandonado sin veredicto.
+
+La venta no se toca: permanece en `PAYMENT_IN_PROGRESS`, que es un estado
+pagable, de modo que puede cobrarse por otro medio. Probado.
+
+**Cancelar no es evidencia de que el proveedor no cobrara.** Si más tarde
+llegara evidencia aprobada, `confirmProviderPayment` la rechaza con
+`PAYMENT_NOT_CONFIRMABLE` y la contradicción se pierde. Representarla es
+`REVIEW_REQUIRED` (§22.5).
+
+### 22.7 Contradicción con §4.1 y §9.3 — resuelta declarándola
+
+§4.1 dice que `PENDING` **no es alcanzable en V1** y que producirlo es un
+defecto; §9.3 exige que ese defecto sea «detectable por prueba». §2.4 apoya
+ambas en que «V1 no emite ninguna llamada a proveedor».
+
+**Esa premisa dejó de ser cierta** cuando esta rama materializó el adapter
+Wompi: el sistema emite `GET /v1/transactions/{id}` y registra pagos QR en
+`PENDING`. §4.1, §9.3 y §2.4 describen V1; el alcance con proveedor los
+sucede.
+
+No se reescriben: quedan como el registro de lo que V1 fue. A partir de `D-3`,
+para un pago con proveedor, `PENDING` **es un estado de negocio legítimo** —
+el intento está en vuelo— y la prueba que §9.3 pedía se sustituye por las que
+demuestran que ese `PENDING` **tiene salida** (§22.6). Un `PENDING` sin salida
+sí era el defecto; era el que existía.

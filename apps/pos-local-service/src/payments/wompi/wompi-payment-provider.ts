@@ -1,12 +1,21 @@
 import type {
-  PaymentProviderEvidence,
   PaymentProviderIntent,
   PaymentProviderIntentResult,
+  PaymentProviderOutcome,
   PaymentProviderPort,
+  PaymentProviderUncertainty,
 } from "../payment-provider-port.js";
 import { buildWompiWebCheckout, type WompiCheckoutCredentials } from "./wompi-checkout-builder.js";
-import { getWompiTransaction, type WompiHttpClientDependencies } from "./wompi-http-client.js";
-import { WOMPI_PROVIDER_CODE, toPaymentProviderEvidence } from "./wompi-transaction.js";
+import { toPaymentProviderOutcome } from "./wompi-transaction.js";
+import {
+  getWompiTransaction,
+  WompiHttpError,
+  WompiMalformedResponseError,
+  WompiNetworkError,
+  WompiTimeoutError,
+  type WompiHttpClientDependencies,
+} from "./wompi-http-client.js";
+import { WOMPI_PROVIDER_CODE } from "./wompi-transaction.js";
 import { normalizeWompiTransactionUpdatedEvent, type WompiEventsCredentials } from "./wompi-webhook-verifier.js";
 
 export interface WompiPaymentProviderCredentials {
@@ -54,24 +63,62 @@ export class WompiPaymentProvider implements PaymentProviderPort {
 
   /**
    * Wompi's `GET /v1/transactions/{id}` has no lookup-by-reference form, so
-   * the merchant reference is useless here. The port now says so in its own
-   * signature (`providerTransactionId`) instead of leaving it to a comment
-   * — `DEC-016` §21.
+   * the merchant reference is useless here. The port says so in its own
+   * signature (`providerTransactionId`) — `DEC-016` §21.
+   *
+   * A query that cannot be answered returns `UNKNOWN` (`DEC-016` §6 rule 1),
+   * never rejection. What does *not* become `UNKNOWN` is a fault of ours
+   * rather than of the answer: bad credentials, a transaction id the
+   * provider does not recognise, or a malformed request keep throwing, so an
+   * operational defect stays visible instead of hiding behind every payment
+   * looking merely uncertain.
    */
-  async getPaymentStatus(input: { readonly providerTransactionId: string }): Promise<PaymentProviderEvidence> {
-    const transaction = await getWompiTransaction(
-      input.providerTransactionId,
-      { publicKey: this.credentials.checkout.publicKey },
-      this.dependencies,
-    );
-    return toPaymentProviderEvidence(transaction, this.now());
+  async getPaymentStatus(input: { readonly providerTransactionId: string }): Promise<PaymentProviderOutcome> {
+    try {
+      const transaction = await getWompiTransaction(
+        input.providerTransactionId,
+        { publicKey: this.credentials.checkout.publicKey },
+        this.dependencies,
+      );
+      return toPaymentProviderOutcome(transaction, this.now());
+    } catch (cause: unknown) {
+      const reason = uncertaintyFor(cause);
+      if (reason === null) throw cause;
+      return { kind: "UNKNOWN", reason };
+    }
   }
 
-  async normalizeNotification(input: unknown): Promise<PaymentProviderEvidence> {
+  /**
+   * Verification failures keep throwing: an unsigned or forged notification
+   * is an untrusted input, not an uncertain answer, and must never be
+   * softened into `UNKNOWN`.
+   */
+  async normalizeNotification(input: unknown): Promise<PaymentProviderOutcome> {
     return normalizeWompiTransactionUpdatedEvent(input, this.credentials.events, this.now());
   }
 
   private now(): string {
     return this.dependencies.clock ? this.dependencies.clock() : new Date().toISOString();
   }
+}
+
+/**
+ * Which failures mean "we could not determine the outcome" and which mean
+ * "this deployment is broken". `null` means the second: rethrow it.
+ *
+ * `WompiTransactionNotFoundError` is deliberately absent. A 404 on an id we
+ * supplied ourselves is a correlation defect, not a payment whose result is
+ * pending discovery, and swallowing it as `UNKNOWN` would make a wrong id
+ * indistinguishable from a slow provider.
+ */
+function uncertaintyFor(cause: unknown): PaymentProviderUncertainty | null {
+  if (cause instanceof WompiTimeoutError) return "TIMEOUT";
+  if (cause instanceof WompiNetworkError) return "NETWORK";
+  if (cause instanceof WompiMalformedResponseError) return "MALFORMED_RESPONSE";
+  if (cause instanceof WompiHttpError) {
+    // 5xx and 429 say the provider could not answer right now. 401/403 and the
+    // rest say we asked wrongly, which is not uncertainty about the payment.
+    return cause.status >= 500 || cause.status === 429 ? "PROVIDER_UNAVAILABLE" : null;
+  }
+  return null;
 }

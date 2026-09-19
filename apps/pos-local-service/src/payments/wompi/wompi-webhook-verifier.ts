@@ -1,8 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import * as z from "zod";
-import type { PaymentProviderEvidence } from "../payment-provider-port.js";
+import type { PaymentProviderOutcome } from "../payment-provider-port.js";
 import { WompiTransactionSchema } from "./wompi-transaction.js";
-import { toPaymentProviderEvidence } from "./wompi-transaction.js";
+import { toPaymentProviderOutcome } from "./wompi-transaction.js";
 
 export interface WompiEventsCredentials {
   readonly eventsSecret: string;
@@ -100,7 +100,7 @@ export async function normalizeWompiTransactionUpdatedEvent(
   rawPayload: unknown,
   credentials: WompiEventsCredentials,
   receivedAt: string = new Date().toISOString(),
-): Promise<PaymentProviderEvidence> {
+): Promise<PaymentProviderOutcome> {
   const parsed = WompiWebhookEnvelopeSchema.safeParse(rawPayload);
   if (!parsed.success) {
     throw new WompiWebhookMalformedError(parsed.error.message);
@@ -115,5 +115,5 @@ export async function normalizeWompiTransactionUpdatedEvent(
     throw new WompiWebhookSignatureInvalidError();
   }
 
-  return toPaymentProviderEvidence(envelope.data.transaction, receivedAt);
+  return toPaymentProviderOutcome(envelope.data.transaction, receivedAt);
 }
