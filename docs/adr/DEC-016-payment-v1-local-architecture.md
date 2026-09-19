@@ -586,7 +586,7 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-7 | Sonido y confirmación visual (§13) | ubicación fijada; implementación diferida |
 | D-8 | `MIGRATION_011` con las cuatro tablas de §12 | `NOT YET MATERIALIZED` |
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
-| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016` + `redirect-url` + wiring de Electron; barrido automático y aprovisionamiento productivo siguen `NOT_YET_MATERIALIZED`) |
+| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016` + `redirect-url` + wiring de Electron + `STILL_PENDING` conectado; barrido automático y aprovisionamiento productivo siguen `NOT_YET_MATERIALIZED`) |
 
 ## 17. Invariantes de Payment V1
 
@@ -841,18 +841,48 @@ razón que ya fijó `ReconcileProviderPaymentUseCase` en §20.1.
 plataforma) y `pos-desktop` (150/150) — todas PASS. `ARCH-003` (forzado sin
 caché de Nx) y `ci:repository-policy` PASS.
 
-### 20.5 Lo que sigue sin existir — y por qué
+### 20.5 `STILL_PENDING` conectado con `recordObservedProviderTransaction` (2026-09-19)
 
-**`recordObservedProviderTransaction` (`MIGRATION_016`) sigue sin ningún
-llamador.** `ReconcileProviderPaymentUseCase` no la invoca: cuando Wompi
-responde `PENDING` en la reconciliación bajo demanda, el resultado
-`STILL_PENDING` no queda persistido en ningún lado. La columna existe,
-está probada, y nada la usa todavía — conectarla es la pieza que falta
-para que el índice de barrido (`payments_payment_attempts_reconciliation_sweep_idx`)
-tenga algo que leer.
+`ReconcileProviderPaymentUseCase.execute` ahora escribe la observación
+antes de devolver `STILL_PENDING`: si `getPaymentStatus` responde
+`PENDING`, llama a
+`paymentStore.recordObservedProviderTransaction(scope, paymentId,
+providerTransactionId, this.now().toISOString())` y **después** devuelve
+el resultado — la escritura no cambia lo que se reporta ni requiere que
+haya tenido éxito.
+
+**Por qué es seguro ignorar el resultado de la escritura.** Entre el
+`get()` inicial (que confirma `QR`/`PENDING`) y la respuesta de Wompi media
+una llamada HTTP real — una ventana no trivial en la que un webhook
+concurrente podría confirmar o cancelar el mismo pago. Si eso ocurre,
+`recordObservedProviderTransaction` devuelve `PAYMENT_NOT_RECONCILABLE` en
+vez de `RECORDED`; la escritura simplemente no aplica, y `STILL_PENDING`
+se sigue devolviendo tal cual, porque es el veredicto de Wompi el que
+importa aquí, no si la anotación llegó a guardarse. Probado explícitamente
+(`"still reports STILL_PENDING even when recording the observation fails
+to land"`).
+
+Sigue siendo **no autoritativo**: la escritura nunca toca
+`payments_payments.status` ni el `status` del intento — sólo
+`confirmProviderPayment` conserva esa autoridad, sin cambios.
+
+`TESTED` este turno: 2 pruebas unitarias nuevas en
+`reconcile-provider-payment-use-case.test.ts` (la anotación se llama con
+los identificadores correctos; una escritura fallida no cambia el
+resultado) y 1 prueba de integración en `payment.test.ts` contra un
+`LocalDatabase` real — registra un QR, reconcilia con un proveedor de
+prueba que responde `PENDING`, y verifica con
+`getObservedProviderTransaction` que el id quedó anotado mientras el pago
+sigue `PENDING`. Suite completa de `pos-local-service`: 577/581 (mismos 4
+skips preexistentes de plataforma). `ARCH-003` (forzado sin caché de Nx) y
+`ci:repository-policy` PASS.
+
+### 20.6 Lo que sigue sin existir — y por qué
 
 **El barrido en segundo plano** en sí no existe: es scheduler/infra,
-deliberadamente fuera de alcance de esta rama.
+deliberadamente fuera de alcance de esta rama. Ahora sí tiene algo que
+leer (`payments_payment_attempts_reconciliation_sweep_idx` ya recibe filas
+reales), pero nadie lo recorre todavía.
 
 **El destino real de `redirect-url`** tampoco está decidido: el
 `WOMPI_CHECKOUT_RETURN_URL` de `qr-checkout-window.ts` es un valor
@@ -860,7 +890,7 @@ provisional. Aprovisionar `WompiCheckoutCredentials.redirectUrl` en
 `main.ts` del servicio local con ese mismo valor es wiring productivo,
 explícitamente fuera de alcance desde el inicio de esta rama.
 
-### 20.6 Pendiente para autorizar D-2 completo
+### 20.7 Pendiente para autorizar D-2 completo
 
 1. ~~Migración: columna para el `transaction.id` aprendido y aún no confirmado.~~
    `MATERIALIZED`/`TESTED` — §20.2.
@@ -868,8 +898,9 @@ explícitamente fuera de alcance desde el inicio de esta rama.
 3. ~~Wiring del redirect en Electron (`QrCheckoutWindowManager`,
    `payment.qr.checkout.open`, `payment.qr.reconcile`).~~
    `MATERIALIZED`/`TESTED` — §20.4.
-4. Conectar `STILL_PENDING` con `recordObservedProviderTransaction`, decidir
-   el destino real de `redirect-url`, y el wiring productivo en `main.ts`
-   del servicio local (proveedor real, secretos) — todo fuera de alcance
-   hasta ahora.
-5. Job/scheduler para el barrido periódico, leyendo el índice de §20.2.
+4. ~~Conectar `STILL_PENDING` con `recordObservedProviderTransaction`.~~
+   `MATERIALIZED`/`TESTED` — §20.5.
+5. Decidir el destino real de `redirect-url`, y el wiring productivo en
+   `main.ts` del servicio local (proveedor real, secretos) — fuera de
+   alcance hasta ahora.
+6. Job/scheduler para el barrido periódico, leyendo el índice de §20.2.

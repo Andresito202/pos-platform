@@ -50,14 +50,16 @@ export type ReconcileProviderPaymentResult =
  * here would mix an operator-authority action into what is otherwise a
  * provider-authority read. The caller decides.
  *
- * Background/unattended polling (sweeping every stuck `PENDING` payment
- * without a known transaction id) is **out of scope for this use case** —
- * Wompi has no lookup-by-reference endpoint, so nothing can be reconciled
- * without first learning a real transaction id from a redirect or a
- * webhook, and today nothing durably persists a transaction id learned
- * before confirmation. That gap needs a schema decision (a new column on
- * `payments_payment_attempts`, dual-dialect) explicitly authorized before
- * it can be built — see the session report.
+ * A `PENDING` verdict from Wompi is recorded via
+ * `SqlitePaymentStore.recordObservedProviderTransaction`
+ * (`MIGRATION_016`) before returning `STILL_PENDING` — non-authoritative,
+ * best-effort, never touches `status`. That is what makes a future
+ * background sweep buildable at all (`DEC-016` §20.5): it can read
+ * `payments_payment_attempts_reconciliation_sweep_idx` for a transaction
+ * id instead of having none to poll with. The sweep job itself — a
+ * scheduler that walks that index and calls `execute` for each row — is
+ * still **out of scope for this use case**; this only stops throwing the
+ * transaction id away.
  */
 export class ReconcileProviderPaymentUseCase {
   constructor(
@@ -92,7 +94,19 @@ export class ReconcileProviderPaymentUseCase {
       providerReference: request.providerTransactionId,
     });
 
-    if (evidence.status === "PENDING") return { kind: "STILL_PENDING" };
+    if (evidence.status === "PENDING") {
+      // Best-effort, non-authoritative: recording it never confirms
+      // anything (MIGRATION_016, DEC-016 §20) — it only gives a future
+      // reconciliation sweep a transaction id to read instead of nothing.
+      // If the payment stopped being reconcilable in the time this HTTP
+      // round trip took (a concurrent webhook confirmed or cancelled it),
+      // the write is a harmless no-op; the STILL_PENDING verdict below is
+      // Wompi's, unaffected by whether the write landed.
+      this.paymentStore.recordObservedProviderTransaction(
+        scope, request.paymentId, request.providerTransactionId, this.now().toISOString(),
+      );
+      return { kind: "STILL_PENDING" };
+    }
     if (evidence.status === "REJECTED") return { kind: "PROVIDER_REJECTED", evidence };
 
     // A fresh key per call, not one derived from the request: correctness

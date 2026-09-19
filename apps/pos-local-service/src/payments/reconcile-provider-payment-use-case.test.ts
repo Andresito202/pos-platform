@@ -165,8 +165,43 @@ describe("ReconcileProviderPaymentUseCase", () => {
     expect(getPaymentStatus).not.toHaveBeenCalled();
   });
 
-  it("reports STILL_PENDING without touching the payment store", async () => {
-    const store = { get: vi.fn(() => pendingQrPayment()) } as unknown as SqlitePaymentStore;
+  it("reports STILL_PENDING and records the observed transaction id, non-authoritatively", async () => {
+    const recordObservedProviderTransaction = vi.fn(() => ({ kind: "RECORDED" as const }));
+    const store = {
+      get: vi.fn(() => pendingQrPayment()),
+      recordObservedProviderTransaction,
+    } as unknown as SqlitePaymentStore;
+    const provider: PaymentProviderPort = {
+      createPaymentIntent: vi.fn(),
+      getPaymentStatus: vi.fn(async () => evidence({ status: "PENDING" })),
+      normalizeNotification: vi.fn(),
+    };
+    const confirm = { execute: vi.fn() } as unknown as ConfirmProviderPaymentUseCase;
+    const now = () => new Date("2026-09-19T15:00:00.000Z");
+
+    const result = await new ReconcileProviderPaymentUseCase(store, provider, confirm, now).execute(
+      scope,
+      authSnapshot,
+      request,
+    );
+
+    expect(result).toEqual({ kind: "STILL_PENDING" });
+    expect(confirm.execute).not.toHaveBeenCalled();
+    // Recording is non-authoritative: it must never touch payment status —
+    // this only asserts it was called with the right identifiers, not that
+    // it confirms anything.
+    expect(recordObservedProviderTransaction).toHaveBeenCalledWith(
+      scope, request.paymentId, request.providerTransactionId, "2026-09-19T15:00:00.000Z",
+    );
+  });
+
+  it("still reports STILL_PENDING even when recording the observation fails to land", async () => {
+    const store = {
+      get: vi.fn(() => pendingQrPayment()),
+      // e.g. a concurrent webhook confirmed the payment during the HTTP
+      // round trip — recording becomes a harmless no-op, not an error.
+      recordObservedProviderTransaction: vi.fn(() => ({ kind: "PAYMENT_NOT_RECONCILABLE" as const })),
+    } as unknown as SqlitePaymentStore;
     const provider: PaymentProviderPort = {
       createPaymentIntent: vi.fn(),
       getPaymentStatus: vi.fn(async () => evidence({ status: "PENDING" })),
@@ -181,7 +216,6 @@ describe("ReconcileProviderPaymentUseCase", () => {
     );
 
     expect(result).toEqual({ kind: "STILL_PENDING" });
-    expect(confirm.execute).not.toHaveBeenCalled();
   });
 
   it("reports PROVIDER_REJECTED with the evidence and does not cancel the payment itself", async () => {
