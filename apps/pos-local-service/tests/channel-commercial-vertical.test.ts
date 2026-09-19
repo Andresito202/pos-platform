@@ -857,11 +857,11 @@ describe("el recibo proyecta la venta cobrada sin inventar nada", () => {
       expect(line.lineNumber).toBe(1);
       expect(line.productName).toBe("Café Americano 500 g");
       expect(line.presentationName).toBe("Bolsa 500 g");
-      // `identifier_snapshot` viene **nulo**, y no porque el producto no tenga
-      // código de barras: `create-sale-use-case.ts:354` escribe `null` fijo. La
-      // columna existe desde el principio y nunca se ha poblado —el mismo patrón
-      // que X-1—. El recibo no lo inventa: enseña lo que hay. Deuda `D-23`.
-      expect(line.identifier).toBeNull();
+      // `identifier_snapshot` lleva el código con el que se vendió el producto.
+      // Estuvo nulo desde el origen —`create-sale-use-case.ts` escribía `null`
+      // fijo, deuda `D-23`— hasta que la creación de venta empezó a congelarlo.
+      // El recibo sigue sin inventar nada: enseña lo que hay.
+      expect(line.identifier).toBe(BARCODE);
       expect(line.unitCode).toBe("UND");
       expect(line.quantity).toBe("2.000000");
       expect(line.unitPriceAmount).toBe("18000.000000");

@@ -159,6 +159,7 @@ export class CreateSaleUseCase {
       unitId: string;
       unitCode: string;
       unitPrecision: number;
+      barcode: string | null;
       priceAmount: string;
       quantity: string;
       fiscal: CatalogFiscalAttribute | null;
@@ -241,6 +242,7 @@ export class CreateSaleUseCase {
         unitId: presentation.id,
         unitCode: presentation.unitCode,
         unitPrecision: presentation.unitPrecision,
+        barcode: presentation.barcode,
         priceAmount: price.amount,
         quantity: line.quantity,
         fiscal: this.catalogStore.getFiscalAttribute(catalogScope, line.presentationId),
@@ -369,7 +371,13 @@ export class CreateSaleUseCase {
         unitId: resolved.unitId,
         unitCode: resolved.unitCode,
         unitPrecision: resolved.unitPrecision,
-        identifierSnapshot: null,
+        // `D-23`: la columna existía desde el origen y nunca guardó un valor.
+        // Se congela el código de barras de la presentación con la que se
+        // vendió, no el actual del catálogo: el sufijo `_snapshot` significa
+        // que el dato no vuelve a cambiar aunque el catálogo sí. Sigue siendo
+        // `null` cuando la presentación no declara ninguno, que es distinto de
+        // no haberlo mirado nunca.
+        identifierSnapshot: resolved.barcode,
         calculation: calculatedLines[index]!.calculation,
         pricingResolutionSnapshot: {
           schema_version: 1,

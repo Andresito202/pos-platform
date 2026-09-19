@@ -645,3 +645,104 @@ function operationCount(db: LocalDatabase, idempotencyKey: string): number {
     "SELECT COUNT(*) AS n FROM runtime_operations WHERE idempotency_key=?",
   ).get(idempotencyKey) as { n: number }).n;
 }
+
+// ── El identificador con el que se vendió (D-23) ─────────────────────────────
+
+/**
+ * `sales_sale_items.identifier_snapshot` — con qué código se vendió.
+ *
+ * La columna existía desde el origen y **nunca guardó un valor**:
+ * `create-sale-use-case.ts` escribía `null` fijo, de modo que una venta de un
+ * producto con código de barras lo perdía. Lo detectó la primera prueba que la
+ * consumió —el recibo—, que afirmaba `null` por honestidad.
+ *
+ * Lo que estas pruebas fijan no es sólo que ahora se escriba, sino lo que el
+ * sufijo `_snapshot` promete: que el valor **no cambia** aunque el catálogo sí.
+ */
+describe("la venta congela el identificador del producto", () => {
+  function itemRow(db: LocalDatabase, saleId: string) {
+    return db.native.prepare(
+      `SELECT identifier_snapshot, product_name_snapshot, presentation_name_snapshot
+       FROM sales_sale_items WHERE tenant_id=? AND sale_id=?`,
+    ).get(TENANT, saleId) as {
+      identifier_snapshot: string | null;
+      product_name_snapshot: string;
+      presentation_name_snapshot: string;
+    };
+  }
+
+  /** `registerProduct` ya asigna un código de barras; éste lo devuelve. */
+  function barcodeOf(db: LocalDatabase, presentationId: string): string {
+    return (db.native.prepare(
+      "SELECT barcode FROM catalog_presentation WHERE tenant_id=? AND id=?",
+    ).get(TENANT, presentationId) as { barcode: string }).barcode;
+  }
+
+  it("guarda el código de barras de la presentación con la que se vendió", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:id:1");
+    const item = registerProduct(env);
+    const expected = barcodeOf(env.database, item.presentationId);
+
+    const created = createSale(env, item, CAJA);
+    expect(created.kind).toBe("CREATED");
+    if (created.kind !== "CREATED") return;
+
+    expect(itemRow(env.database, created.saleId).identifier_snapshot).toBe(expected);
+  });
+
+  it("es un snapshot: cambiar el catálogo después no reescribe la venta", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:id:1");
+    const item = registerProduct(env);
+    const soldWith = barcodeOf(env.database, item.presentationId);
+
+    const created = createSale(env, item, CAJA);
+    if (created.kind !== "CREATED") throw new Error(created.kind);
+
+    // El comercio reetiqueta el producto al día siguiente.
+    env.database.native.prepare(
+      "UPDATE catalog_presentation SET barcode='7700000000999' WHERE tenant_id=? AND id=?",
+    ).run(TENANT, item.presentationId);
+
+    // La venta sigue diciendo con qué código se vendió, no con cuál se vende hoy.
+    expect(itemRow(env.database, created.saleId).identifier_snapshot).toBe(soldWith);
+    expect(soldWith).not.toBe("7700000000999");
+  });
+
+  it("una presentación sin código de barras deja el snapshot nulo, no vacío", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:id:1");
+    const item = registerProduct(env);
+    // Un producto a granel, sin etiqueta: el catálogo lo admite.
+    env.database.native.prepare(
+      "UPDATE catalog_presentation SET barcode=NULL WHERE tenant_id=? AND id=?",
+    ).run(TENANT, item.presentationId);
+
+    const created = createSale(env, item, CAJA);
+    expect(created.kind).toBe("CREATED");
+    if (created.kind !== "CREATED") return;
+
+    // `null` aquí significa «no tenía código», que es distinto de «no se miró».
+    expect(itemRow(env.database, created.saleId).identifier_snapshot).toBeNull();
+  });
+
+  it("el cálculo no cambia: el identificador no es dinero", async () => {
+    const env = await buildEnv();
+    openShift(env, CAJA, "shift:id:1");
+    const item = registerProduct(env);
+
+    const withBarcode = createSale(env, item, CAJA);
+    env.database.native.prepare(
+      "UPDATE catalog_presentation SET barcode=NULL WHERE tenant_id=? AND id=?",
+    ).run(TENANT, item.presentationId);
+    const withoutBarcode = createSale(env, item, CAJA);
+
+    if (withBarcode.kind !== "CREATED" || withoutBarcode.kind !== "CREATED") throw new Error("sale");
+    // El checksum cubre el cálculo, y el código de barras no entra en él: dos
+    // ventas idénticas en importe siguen teniendo la misma huella aunque una
+    // lleve identificador y la otra no.
+    expect(withoutBarcode.calculationChecksum).toBe(withBarcode.calculationChecksum);
+    expect(withBarcode.payableAmount).toBe(withoutBarcode.payableAmount);
+  });
+});
