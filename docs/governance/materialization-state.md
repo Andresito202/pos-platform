@@ -468,6 +468,53 @@ pendiente: es trabajo hecho y desconectado.
 > `key_id`: un operador que lee `session_assertion: 0` sabe por qué el POS
 > rechaza cada sesión.
 
+> **Bloque 02 — runtime Windows, estado parcial (2026-09-19).**
+>
+> Bloque 02 parcialmente verificado. Runtime, restart y persistence demostrados
+> en Linux/POSIX. Evidencia física Windows pendiente: Named Pipe/DACL, DPAPI,
+> IPC routing y Windows runtime. GitHub Actions Windows runner actualmente no
+> disponible. La ausencia de esta evidencia no implica fallo del código
+> Windows.
+>
+> Lo demostrado y ejecutado: `runtime-restart-persistence.test.ts` recorre dos
+> procesos distintos sobre la misma base —venta cobrada y `COMPLETED` en el
+> primero, leída íntegra y sin duplicar en el segundo—, y `real-channel.spec.ts`
+> conduce Electron real contra servicio real. El job `runtime-windows`
+> (`windows-2022`) existe en `target-foundation-validation.yml:302` y ejecuta
+> los cuatro `windowsIt`; el run 35463020908 sobre `fb8dacf` terminó con
+> `billable.WINDOWS.total_ms: 0` y sin runner asignado, igual que los ~20 runs
+> anteriores en dos workflows distintos, incluidos los de `main`.
+>
+> **Ningún commit de `main` ha sido validado por CI desde al menos el
+> 2026-09-16.**
+
+> **Semántica operativa del outbox, fijada por prueba — 2026-09-19.**
+>
+> Tres propiedades del código ya integrado que ninguna prueba sostenía, y que
+> deciden si un comercio pierde ventas. Ninguna exigió decidir nada:
+>
+> 1. **Atomicidad.** El asiento de outbox vive en la transacción del negocio —
+>    `sqlite-sale-store.ts` lo escribe como paso 7 dentro del mismo
+>    `transaction()`—, de modo que una venta revertida no deja un evento
+>    huérfano anunciando al central una venta que nunca existió.
+> 2. **Una dead letter detiene toda la cola detrás de ella.** `claimBatch`
+>    exige `local_sequence` contigua desde el checkpoint; operaciones sanas y
+>    `PENDING` situadas detrás **no se envían**, el bloqueo **sobrevive al
+>    reinicio** —`recoverInterruptedDispatches` sólo rescata `IN_FLIGHT`— y la
+>    única salida es `requeueDeadLetter`, la revisión manual de `UC-SYNC-003`.
+>    Es correcto según `DEC-007`, que no admite reordenar, y es la diferencia
+>    entre «hay un evento atascado» y «desde ayer no sube ni una venta».
+> 3. **Un fallo de transporte no pierde nada:** el payload sobrevive byte a
+>    byte al fallo y al reinicio, y agotar los intentos deja dead letter con su
+>    motivo y sus intentos, no un borrado.
+>
+> Evidencia: `tests/sync-outbox-semantics.test.ts`, 6/6.
+>
+> **Lo que esto no cierra:** la propiedad 2 está probada pero **no observada**.
+> `UC-SYNC-003` §Observabilidad exige `outbox depth`, `oldest pending age` y
+> `checkpoint lag`, y ninguna de las tres existe. Hoy nada le diría a un
+> operador que su cola lleva días parada.
+
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo
@@ -570,8 +617,8 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-26 | **CERRADA en `feat/security-lifecycle-boot`.** `CustomerReadResultSchema` validaba los cuatro códigos DIAN con `StableCodeSchema` —que exige inicial alfabética— mientras la petición los admitía con `DianCodeSchema`. Los códigos DIAN reales son numéricos (`13` cédula, `31` NIT, `1`/`2` organización legal), de modo que un adquiriente colombiano corriente **se registraba y su lectura mataba el socket**. La asimetría estaba escrita desde hacía tres bloques en un comentario de `channel-commercial-transport.test.ts` —«no se corrige aquí porque tocaría los contratos»— y el fixture se había rellenado con `"CC"`, `"PERSONA_NATURAL"` y `"NO_APLICA"`, valores que ningún catálogo DIAN contiene, para que la prueba pasara. La encontró la primera pantalla que leyó un adquiriente real contra el servicio real | `ipc-commercial.ts` · `channel-commercial-transport.test.ts:96` · E2E `real-channel.spec.ts` | **regla que deja**: una respuesta nunca puede ser más estricta que la petición que la originó, y doblar un fixture para que pase una prueba mantiene vivo el defecto que la prueba existía para ver |
 | D-27 | **`sales_sales.customer_id` no tiene integridad referencial estructural.** La convención del esquema es la FK compuesta con el tenant delante, y aquí correspondería `FOREIGN KEY (tenant_id, customer_id) REFERENCES customers_customers(tenant_id, id)`. SQLite no la admite por `ALTER TABLE … ADD COLUMN` —la cláusula `REFERENCES` de `ADD COLUMN` es de una sola columna, y una FK simple a `customers_customers(id)` se acepta al crearla y falla con `foreign key mismatch` en la primera venta real, porque la PK del padre es compuesta—. El rebuild de doce pasos tampoco cabe: `applyMigrations` envuelve cada migración en una transacción, `PRAGMA foreign_keys` es no-op dentro de una, y `sales_sale_items` referencia `sales_sales`. Las tres se comprobaron ejecutándolas. La pertenencia al tenant la garantiza `SqliteSaleStore.create`, dentro de la misma transacción y antes de la primera escritura. Se cierra cuando `sales_sales` se reconstruya por cualquier otro motivo | `MIGRATION_019` · `sqlite-sale-store.ts` · `commercial-core-flow.test.ts` | un escritor futuro que no pase por el caso de uso podría asociar un cliente de otro tenant; hoy el Local Service es el único escritor y no hay segunda puerta |
 | D-28 | **El ancla de confianza existe y está vacía: no hay emisor.** `local_trust_anchor` (`MIGRATION_022`) ya es el origen real del mapa de claves de los tres verificadores, y `main.ts` lo cablea, pero **nada la puebla en producción**: la emisión de material criptográfico es `LIC-003`/`DEV-003`, que `DEC-011` deja `BLOCKED` «hasta disponer de material real» y sin admitir autofirmados. La consecuencia operativa es exacta y no se disimula: un equipo real arranca con `security.trust_anchors {session_assertion: 0, …}`, `session.activate` rechaza toda SSA y **las 25 operaciones comerciales siguen ruteadas y ninguna alcanzable**. Lo que se cerró fue la ausencia de origen, no la de emisor. Se cierra cuando exista una autoridad que emita, o un procedimiento de aprovisionamiento inicial autorizado por ADR | `MIGRATION_022` · `sqlite-trust-anchor-store.ts` · `main.ts` · `tests/trust-anchor-chain.test.ts` («sin anclas, session.activate rechaza una SSA por lo demás correcta») | el POS no atiende una sola venta en un equipo real; es el comportamiento fail-closed correcto, no un defecto, y por eso es deuda y no bug |
-| D-1 | `local_sync_outbox` no tiene purga ni retención | cero `DELETE` en `durable-sync-store.ts` | crecimiento monótono del archivo SQLite en uso real |
-| D-2 | Sin transporte, todo queda `PENDING` de forma permanente | sin cliente HTTP saliente | ningún hecho comercial sale del dispositivo |
+| D-1 | **La retención del outbox no tiene duración decidida.** Revisado el 2026-09-19: lo que falta no es código de purga, es el número. `DEC-007` §100 lista «cuánto tiempo se conservan los eventos» entre lo que **debe definirse de forma única y verificable** y no lo define en ninguna parte. Lo que sí fija son cotas: la clave de idempotencia «no se elimina antes del periodo de retención» (§288.8), el inbox conserva su checksum «durante toda la ventana de reintento, recuperación y retención aplicable» (§298.12), y la retención «no puede ser menor que la mayor ventana soportada de retry, recuperación y operación offline» (§731); `UC-SYNC-003` añade que una dead letter «no se purga prematuramente». Además `DEC-007` define el estado terminal `ARCHIVED` —único destino de `SERVER_ACCEPTED`, `SERVER_REJECTED` y `DEAD_LETTER`— que **el esquema no tiene**: el `CHECK` de `local_sync_outbox.status` admite cinco estados y `ARCHIVED` no está entre ellos. Sigue sin haber un solo `DELETE`. Se cierra cuando exista una decisión con la duración; implementar la purga antes sería inventarla | `DEC-007` §100.11 · §288.8 · §298.12 · §731 · `MIGRATION_004` (`local-database.ts:105`) · `durable-sync-store.ts` | crecimiento monótono del archivo SQLite en uso real |
+| D-2 | **El outbox no tiene conductor, y esa es la carencia exacta.** Revisado el 2026-09-19: `DurableSyncStore` está materializado y probado —encolado idempotente, contigüidad, checkpoint monótono, reintento exponencial acotado, dead letter, recuperación de `IN_FLIGHT` al arrancar— pero `claimBatch`, `recordResponse` y `recordTransportFailure` **tienen cero llamadores en `src/`**: sólo los invocan las pruebas. No falta únicamente el adaptador HTTP hacia una API central que no existe; falta también el despachador que lo conduciría, y su cadencia y tamaño de lote no están decididos en ninguna ADR. Construirlo hoy exigiría elegir ambos y dejaría infraestructura sin consumidor. Se cierra cuando exista API central y una decisión de cadencia/lote | `durable-sync-store.ts` · `grep claimBatch apps/pos-local-service/src` → sólo la definición | ningún hecho comercial sale del dispositivo |
 | D-3 | La regla que traduce permiso de matriz de producto a forma canónica sólo está escrita caso por caso | `DEC-012` §33.2 la enuncia para `CASH_SHIFT_CLOSE`; no existe enunciado general | cada módulo nuevo la redescubre o la contradice |
 | D-4 | `packages/database-core`, `database-postgres` y `testing` declarados con `src/` vacío | `module-boundaries.json` vs `find` | boundaries que no gobiernan nada |
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
