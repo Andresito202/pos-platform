@@ -42,6 +42,25 @@ function required(name: string): string {
   return value;
 }
 
+/**
+ * Secuencia de la SSA que este arranque publica. Por defecto 1.
+ *
+ * Existe por una razón concreta del contrato, no por comodidad: el almacén de
+ * sesión persiste la cota `highestAcceptedSequence` por binding, de modo que
+ * **un segundo arranque sobre la misma base no puede reutilizar la secuencia
+ * del primero** — se rechazaría como replay, que es precisamente el
+ * comportamiento que `DEC-012` exige y que `channel.test.ts` ya cubre. Un
+ * emisor real entregaría una SSA nueva tras el reinicio; aquí ese número entra
+ * por el entorno.
+ */
+function sessionSequence(): number {
+  const raw = process.env["POS_E2E_SESSION_SEQUENCE"];
+  if (raw === undefined || raw === "") return 1;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) throw new Error("invalid POS_E2E_SESSION_SEQUENCE");
+  return value;
+}
+
 const DATA_DIRECTORY = required("POS_E2E_DATA_DIR");
 const SECRET = Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
 const TENANT = required("POS_E2E_TENANT_ID");
@@ -126,7 +145,7 @@ function sessionClaims(): SessionAssertionClaims {
     device_id: DEVICE,
     issued_at: "2026-09-03T00:00:00.000Z",
     offline_valid_until: "2026-09-04T00:00:00.000Z",
-    sequence: 1,
+    sequence: sessionSequence(),
     key_id: SESSION_KEY_ID,
   } as SessionAssertionClaims;
 }
