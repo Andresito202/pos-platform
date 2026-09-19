@@ -586,7 +586,7 @@ cuenta (`DEC-014` §3.4, `DEC-015` §5.7).
 | D-7 | Sonido y confirmación visual (§13) | ubicación fijada; implementación diferida |
 | D-8 | `MIGRATION_011` con las cuatro tablas de §12 | `NOT YET MATERIALIZED` |
 | D-9 | Método de aposición de movimiento en el almacén de Cash (§10.4) | `NOT YET MATERIALIZED` |
-| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016` + `redirect-url`; wiring IPC/renderer y barrido automático siguen `NOT_YET_MATERIALIZED`) |
+| D-1/D-2 | Adapter Wompi (checkout, consulta y webhook) | parcialmente `MATERIALIZED` en `feat/payment-qr-provider-foundation`; ver §19 (desvío respecto de §6) y §20 (reconciliación bajo demanda + `MIGRATION_016` + `redirect-url` + wiring de Electron; barrido automático y aprovisionamiento productivo siguen `NOT_YET_MATERIALIZED`) |
 
 ## 17. Invariantes de Payment V1
 
@@ -772,26 +772,104 @@ firma sin cambios, vacío y mal formado rechazados) + toda la suite de
 `payments/wompi` (47/47) y de la app completa (572/576, mismos 4 skips
 preexistentes de plataforma). `ARCH-003` y `ci:repository-policy` PASS.
 
-### 20.4 Lo que sigue sin existir — y por qué
+### 20.4 Wiring del redirect en Electron (2026-09-19)
 
-**El barrido en segundo plano** en sí (un job que recorra
-`payments_payment_attempts_reconciliation_sweep_idx` e invoque
-`ReconcileProviderPaymentUseCase` por cada fila) no existe: es
-scheduler/infra, deliberadamente fuera de alcance de esta rama.
+Cierra el punto 3 de §20.5 (antigua numeración): el `id` que Wompi devuelve
+al redirigir ahora tiene un camino real, de extremo a extremo, hasta
+`ReconcileProviderPaymentUseCase` — sin tocar `PaymentProviderPort` ni
+inventar autoridad nueva en ningún punto del camino.
 
-**La captura del redirect en el renderer/Electron** tampoco: `redirect-url`
-ahora puede *configurarse*, pero nada en esta rama todavía escucha esa URL
-ni le pasa el `id` capturado a `recordObservedProviderTransaction`. Es
-wiring de UI/IPC, fuera de alcance por instrucción explícita desde el inicio
-de esta rama.
+**`apps/pos-desktop/src/qr-checkout-window.ts` — `QrCheckoutWindowManager`.**
+Abre el checkout en una `BrowserWindow` propia (mismo
+`WINDOW_SECURITY_CONFIG.webPreferences` que la ventana principal, **sin
+preload**: nunca tiene `posService` ni ninguna API del proceso principal —
+es una ventana de navegador corriente mostrando la página de Wompi).
+Observa `will-navigate` y `will-redirect` (ambos cancelables, antes de que
+la navegación se comprometa — nunca `did-navigate`, que dispara después);
+cuando la URL navegada coincide en origen **y** ruta exactos con el
+`redirect-url` configurado, extrae `id` y cierra la ventana. Cualquier otra
+navegación (banco, 3DS) pasa de largo sin tocarla. `WOMPI_CHECKOUT_RETURN_URL`
+es un sentinel provisional — quien aprovisione
+`WompiCheckoutCredentials.redirectUrl` del lado del servicio local debe usar
+exactamente el mismo valor; ese aprovisionamiento sigue sin existir.
 
-### 20.5 Pendiente para autorizar D-2 completo
+Un test expuso un bug real antes de llegar a `main`: el `close()` de la
+ventana dispara `"closed"` de forma síncrona en algunos caminos, y
+`settle(CLOSED_BY_USER)` ganaba la carrera contra `settle(REDIRECTED)` por
+orden de llamada. Se corrigió resolviendo primero, cerrando después —
+`settle` ya era idempotente, pero el orden importaba.
+
+**`pos:payment.qr.checkout.open` — canal nativo, no comercial.** Vive en
+`NATIVE_IPC_CHANNELS` (`ipc-allowlist.ts`), deliberadamente separado de
+`IPC_ALLOWED_CHANNELS`: `ChannelBridge` reenvía todo lo segundo al servicio
+local, y abrir una ventana no es una operación que el servicio deba conocer.
+`main.ts` lo registra por su cuenta, pasando la ventana principal vigente
+como `parent`.
+
+**`payment.qr.reconcile` — canal comercial nuevo, con esquema propio.**
+Añadido a `packages/contracts/src/ipc-commercial.ts` e `ipc.ts` (contrato),
+enrutado en `local-channel-component.ts` (el `switch` exhaustivo con
+`never` que ya exigía esto — ver §19: es la misma garantía que dejó a los
+cinco `payment.*` originales inalcanzables un bloque entero) y en
+`commercial-request-handler.ts`, con un slot opcional
+`reconcileProviderPayment` en `CommercialComponent` que replica
+exactamente el patrón ya existente de `registerQrPayment`
+(`undefined` sin proveedor inyectado → `PROVIDER_NOT_CONFIGURED`; con uno,
+construye `ReconcileProviderPaymentUseCase` reutilizando la misma instancia
+de `ConfirmProviderPaymentUseCase`). No exige `operation_id`/
+`idempotency_key`: la protección contra doble efecto sigue viniendo de las
+guardas de `confirmProviderPayment`, no de una clave del sobre — igual
+razón que ya fijó `ReconcileProviderPaymentUseCase` en §20.1.
+
+`TESTED` este turno, sin red real en ningún caso:
+- `qr-checkout-window.test.ts` — 20 pruebas (funciones puras de
+  coincidencia/extracción + `QrCheckoutWindowManager` con un `BrowserWindow`
+  simulado).
+- `main.test.ts` — reachability del canal nativo, payload inválido rechazado
+  sin abrir ventana, y las dos pruebas estructurales existentes actualizadas
+  para las dos allowlists (comercial + nativa).
+- `ipc-allowlist.test.ts` / `preload-api.test.ts` / `preload.test.ts` —
+  actualizadas para las listas exactas nuevas.
+- `ipc-contracts.test.ts` — 6 pruebas del esquema `payment.qr.reconcile`.
+- `commercial-ipc.test.ts` — 3 pruebas de alcance real (sin proveedor,
+  sin permiso, `PAYMENT_NOT_FOUND` demostrando que el mensaje atraviesa
+  todo el enrutamiento real) — la misma disciplina de "alcanzable de
+  extremo a extremo" que el archivo ya exige para toda capacidad nueva.
+
+`pnpm typecheck` (los 9 proyectos), suites completas de `contracts` (250),
+`local-channel` (4), `pos-local-service` (575/579, mismos 4 skips de
+plataforma) y `pos-desktop` (150/150) — todas PASS. `ARCH-003` (forzado sin
+caché de Nx) y `ci:repository-policy` PASS.
+
+### 20.5 Lo que sigue sin existir — y por qué
+
+**`recordObservedProviderTransaction` (`MIGRATION_016`) sigue sin ningún
+llamador.** `ReconcileProviderPaymentUseCase` no la invoca: cuando Wompi
+responde `PENDING` en la reconciliación bajo demanda, el resultado
+`STILL_PENDING` no queda persistido en ningún lado. La columna existe,
+está probada, y nada la usa todavía — conectarla es la pieza que falta
+para que el índice de barrido (`payments_payment_attempts_reconciliation_sweep_idx`)
+tenga algo que leer.
+
+**El barrido en segundo plano** en sí no existe: es scheduler/infra,
+deliberadamente fuera de alcance de esta rama.
+
+**El destino real de `redirect-url`** tampoco está decidido: el
+`WOMPI_CHECKOUT_RETURN_URL` de `qr-checkout-window.ts` es un valor
+provisional. Aprovisionar `WompiCheckoutCredentials.redirectUrl` en
+`main.ts` del servicio local con ese mismo valor es wiring productivo,
+explícitamente fuera de alcance desde el inicio de esta rama.
+
+### 20.6 Pendiente para autorizar D-2 completo
 
 1. ~~Migración: columna para el `transaction.id` aprendido y aún no confirmado.~~
    `MATERIALIZED`/`TESTED` — §20.2.
 2. ~~`redirect-url` en el checkout builder.~~ `MATERIALIZED`/`TESTED` — §20.3.
-   Falta todavía decidir y capturar el destino real en el renderer/Electron.
-3. Conectar `recordObservedProviderTransaction` al punto que reciba ese
-   redirect, e IPC real (`payment.qr.reconcile` o equivalente) — wiring en
-   `main.ts`, deliberadamente fuera de alcance en toda esta rama hasta ahora.
-4. Job/scheduler para el barrido periódico, leyendo el índice de §20.2.
+3. ~~Wiring del redirect en Electron (`QrCheckoutWindowManager`,
+   `payment.qr.checkout.open`, `payment.qr.reconcile`).~~
+   `MATERIALIZED`/`TESTED` — §20.4.
+4. Conectar `STILL_PENDING` con `recordObservedProviderTransaction`, decidir
+   el destino real de `redirect-url`, y el wiring productivo en `main.ts`
+   del servicio local (proveedor real, secretos) — todo fuera de alcance
+   hasta ahora.
+5. Job/scheduler para el barrido periódico, leyendo el índice de §20.2.

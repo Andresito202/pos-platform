@@ -8,6 +8,8 @@ import {
   InventoryStockReceiveRequestSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterTransferRequestSchema,
+  PaymentQrReconcileRequestSchema,
+  PaymentQrReconcileResultSchema,
   OperationConfirmRequestSchema,
   OperationResultRequestSchema,
   RuntimeHandshakeRequestSchema,
@@ -453,5 +455,61 @@ describe("customer.find / customer.get — una respuesta no puede ser mas estric
     expect(CustomerReadResultSchema.safeParse(found({
       identification_document_code: "codigo en minuscula",
     })).success).toBe(false);
+  });
+});
+
+describe("payment.qr.reconcile — DEC-016 §20", () => {
+  const payload = {
+    payment_id: "550e8400-e29b-41d4-a716-446655440030",
+    provider_transaction_id: "1292-1602113476-10985",
+  };
+
+  it("accepts a well-formed request without operation_id/idempotency_key", () => {
+    expect(PaymentQrReconcileRequestSchema.safeParse({
+      ...metadata,
+      message_type: "payment.qr.reconcile",
+      payload,
+    }).success).toBe(true);
+  });
+
+  it("rejects a caller-asserted identity field, same as every other commercial message", () => {
+    expect(PaymentQrReconcileRequestSchema.safeParse({
+      ...metadata,
+      message_type: "payment.qr.reconcile",
+      tenant_id: "550e8400-e29b-41d4-a716-446655440099",
+      payload,
+    }).success).toBe(false);
+  });
+
+  it("rejects an unexpected payload field", () => {
+    expect(PaymentQrReconcileRequestSchema.safeParse({
+      ...metadata,
+      message_type: "payment.qr.reconcile",
+      payload: { ...payload, amount: "1000.000000" },
+    }).success).toBe(false);
+  });
+
+  it("rejects a blank provider_transaction_id", () => {
+    expect(PaymentQrReconcileRequestSchema.safeParse({
+      ...metadata,
+      message_type: "payment.qr.reconcile",
+      payload: { ...payload, provider_transaction_id: "" },
+    }).success).toBe(false);
+  });
+
+  it("carries CONFIRMED through unchanged — it reuses ConfirmProviderPaymentOutcome, not a new catalog", () => {
+    expect(PaymentQrReconcileResultSchema.safeParse({
+      outcome: "CONFIRMED",
+      payment_id: payload.payment_id,
+      sale_completed: true,
+    }).success).toBe(true);
+  });
+
+  it("accepts STILL_PENDING with sale_completed null — nothing was decided yet", () => {
+    expect(PaymentQrReconcileResultSchema.safeParse({
+      outcome: "STILL_PENDING",
+      payment_id: payload.payment_id,
+      sale_completed: null,
+    }).success).toBe(true);
   });
 });

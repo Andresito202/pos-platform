@@ -16,6 +16,7 @@ import {
   InventoryStockGetRequestSchema,
   InventoryStockReceiveRequestSchema,
   PaymentRegisterQrRequestSchema,
+  PaymentQrReconcileRequestSchema,
   SaleCreateRequestSchema,
   SessionActivateRequestSchema,
   type AuthorizationSnapshotClaims,
@@ -31,6 +32,7 @@ import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-au
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import type { ServiceConfig } from "../src/config.js";
+import type { PaymentProviderEvidence, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
 
 /**
  * TODO EL MATERIAL CRIPTOGRÁFICO DE ESTE ARCHIVO ES EXCLUSIVO DE TEST.
@@ -155,7 +157,34 @@ function config(): ServiceConfig {
   } as ServiceConfig;
 }
 
-async function buildEnv(options: { trustKeys?: boolean } = {}) {
+/** Doble mínimo — no golpea red; sólo prueba que el wiring llega hasta aquí. */
+function stubPaymentProvider(): PaymentProviderPort {
+  const evidence: PaymentProviderEvidence = {
+    providerCode: "TEST_QR",
+    providerReference: "QR-INTENT-STUB",
+    providerTransactionId: "TX-STUB",
+    amount: "10000.000000",
+    currencyCode: "COP",
+    status: "APPROVED",
+    receivedAt: NOW.toISOString(),
+  };
+  return {
+    async createPaymentIntent(input) {
+      return {
+        providerCode: "TEST_QR",
+        providerReference: `QR-INTENT-${input.paymentId}`,
+        status: "PENDING" as const,
+        checkout: null,
+      };
+    },
+    async getPaymentStatus() { return evidence; },
+    async normalizeNotification() { return evidence; },
+  };
+}
+
+async function buildEnv(
+  options: { trustKeys?: boolean; paymentProvider?: PaymentProviderPort } = {},
+) {
   const dir = await directory();
   const database = track(LocalDatabase.open({ dataDirectory: dir }));
   const durableSync = new DurableSyncStore(database);
@@ -171,6 +200,7 @@ async function buildEnv(options: { trustKeys?: boolean } = {}) {
     { store: durableSync } as never,
     keys,
     () => NOW,
+    options.paymentProvider,
   );
   await commercial.start();
 
@@ -1040,5 +1070,79 @@ describe("payment.register.qr — alcance por el handler real", () => {
     expect(result.result.outcome).toBe("PROVIDER_NOT_CONFIGURED");
     expect((database.native.prepare("SELECT count(*) AS n FROM payments_payments")
       .get() as { n: number }).n).toBe(0);
+  });
+});
+
+// ── payment.qr.reconcile — alcance por el handler comercial (DEC-016 §20) ─────
+
+/**
+ * No repite las pruebas de negocio de `ReconcileProviderPaymentUseCase`
+ * —ya cubiertas en `reconcile-provider-payment-use-case.test.ts`—. Prueba
+ * la misma cosa que ya le costó dos veces a Payment V1: que el mensaje
+ * **llega** por el canal real hasta el caso de uso, en ambos sentidos —sin
+ * proveedor configurado y con uno configurado.
+ */
+function reconcileRequest(overrides: Record<string, unknown> = {}) {
+  return PaymentQrReconcileRequestSchema.parse({
+    ...BASE,
+    message_type: "payment.qr.reconcile",
+    request_id: randomUUID(),
+    correlation_id: randomUUID(),
+    payload: {
+      payment_id: "018f0000-0000-7000-8000-0000000000f1",
+      provider_transaction_id: "TX-STUB",
+    },
+    ...overrides,
+  });
+}
+
+describe("payment.qr.reconcile — alcance por el handler real", () => {
+  it("sin proveedor configurado se rechaza antes de consultar nada", async () => {
+    const { handler, database } = await buildEnv();
+    seedAuthorization(database, USER, ["PAYMENTS_PAYMENT_READ"]);
+
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const result = response(await handler.handle(reconcileRequest(), connection));
+
+    expect(result.status).toBe("REJECTED");
+    expect(result.result_code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.result.outcome).toBe("PROVIDER_NOT_CONFIGURED");
+  });
+
+  it("un actor sin PAYMENTS_PAYMENT_READ no llega a consultar al proveedor", async () => {
+    const { handler, database } = await buildEnv({ paymentProvider: stubPaymentProvider() });
+    seedAuthorization(database, USER, []);
+
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const result = response(await handler.handle(reconcileRequest(), connection));
+
+    expect(result.status).toBe("REJECTED");
+    expect(result.result.outcome).toBe("UNAUTHORIZED");
+  });
+
+  it("con proveedor configurado, la petición llega hasta el caso de uso real (PAYMENT_NOT_FOUND, no un rechazo de wiring)", async () => {
+    const { handler, database, commercial } = await buildEnv({ paymentProvider: stubPaymentProvider() });
+    seedAuthorization(database, USER, ["PAYMENTS_PAYMENT_READ"]);
+
+    // Prueba directa de construcción: el slot dejó de ser `undefined` en
+    // cuanto se inyectó un proveedor — la misma condición que ya gobierna
+    // `registerQrPayment`.
+    expect(commercial.reconcileProviderPayment).toBeDefined();
+
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const result = response(await handler.handle(reconcileRequest(), connection));
+
+    // PAYMENT_NOT_FOUND demuestra que el mensaje atravesó todo el enrutamiento
+    // real (local-channel-component → commercial-request-handler →
+    // ReconcileProviderPaymentUseCase → SqlitePaymentStore.get) en vez de
+    // quedarse en un rechazo de capa de transporte.
+    expect(result.status).toBe("REJECTED");
+    expect(result.result.outcome).toBe("PAYMENT_NOT_FOUND");
   });
 });

@@ -601,6 +601,72 @@ export const PaymentGetResultSchema = z.strictObject({
 
 export const PaymentGetResponseSchema = createResponseEnvelopeSchema(PaymentGetResultSchema);
 
+// ── payment.qr.reconcile ─────────────────────────────────────────────────────
+
+/**
+ * Reconciliación bajo demanda (`DEC-016` §20). El renderer aporta el
+ * `transaction.id` real que Wompi devolvió al redirigir de vuelta al
+ * checkout — nunca evidencia financiera por sí mismo (`DEC-016` §6 regla 5:
+ * "el frontend jamás envía éxito financiero autoritativo"; el redirect de
+ * Wompi es, según su propia documentación, "informativo únicamente, nunca
+ * un método de validación"). La capa confiable decide, consultando a Wompi
+ * directamente (`ReconcileProviderPaymentUseCase`) y aplicando el mismo
+ * `ConfirmProviderPaymentUseCase` que ya usa el webhook — sin duplicarlo.
+ *
+ * No exige `operation_id`/`idempotency_key`: a diferencia de las mutaciones
+ * de Payment V1, lo que protege contra un doble efecto son las guardas ya
+ * existentes de `confirmProviderPayment` (el pago debe seguir
+ * `PENDING`/`CREATED`; el `provider_transaction_id` debe ser único), no una
+ * clave que aporte el llamador — ver el docstring de
+ * `ReconcileProviderPaymentUseCase`. Un reintento sólo repite una consulta
+ * de lectura a Wompi; nunca duplica una confirmación.
+ */
+export const PaymentQrReconcileRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    payment_id: UuidSchema,
+    provider_transaction_id: z.string().min(1).max(128),
+  }),
+).safeExtend({ message_type: z.literal("payment.qr.reconcile") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/**
+ * Los primeros cinco son de `ReconcileProviderPaymentUseCase`, antes de
+ * consultar al proveedor o cuando su veredicto no es `APPROVED`. El resto es
+ * `ConfirmProviderPaymentOutcome` sin cambios — se reutiliza tal cual, igual
+ * que `payment.register.qr` ya reutiliza `RegisterPaymentOutcome`, para no
+ * mantener dos catálogos del mismo resultado.
+ */
+export const PaymentQrReconcileOutcomeSchema = z.enum([
+  "STILL_PENDING",
+  "PROVIDER_REJECTED",
+  "PAYMENT_NOT_FOUND",
+  "PAYMENT_NOT_RECONCILABLE",
+  "UNAUTHORIZED",
+  /** Sin proveedor inyectado — mismo significado que en payment.register.qr. */
+  "PROVIDER_NOT_CONFIGURED",
+  "CONFIRMED",
+  "IDEMPOTENT",
+  "IDEMPOTENCY_CONFLICT",
+  "PAYMENT_NOT_CONFIRMABLE",
+  "VERSION_CONFLICT",
+  "OVERPAYMENT_NOT_ALLOWED",
+  "SALE_ALREADY_COMPLETED",
+  "PROVIDER_MISMATCH",
+  "PROVIDER_TRANSACTION_CONFLICT",
+  "AMOUNT_MISMATCH",
+  "CURRENCY_MISMATCH",
+  "EVIDENCE_NOT_AUTHORIZED",
+  "INSUFFICIENT_STOCK",
+]);
+
+export const PaymentQrReconcileResultSchema = z.strictObject({
+  outcome: PaymentQrReconcileOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  sale_completed: z.boolean().nullable(),
+});
+
+export const PaymentQrReconcileResponseSchema = createResponseEnvelopeSchema(PaymentQrReconcileResultSchema);
+
 // ── customer.register ────────────────────────────────────────────────────────
 
 /**
@@ -1035,6 +1101,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "payment.qr.reconcile",
   "customer.register",
   "customer.get",
   "customer.find",
@@ -1064,6 +1131,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
+  "pos:payment.qr.reconcile",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
