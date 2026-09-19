@@ -15,7 +15,7 @@ import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
 import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import { OpenCashShiftUseCase } from "../src/cash/open-cash-shift-use-case.js";
 import { CloseCashShiftUseCase } from "../src/cash/close-cash-shift-use-case.js";
-import { SqlitePaymentStore } from "../src/payments/sqlite-payment-store.js";
+import { SqlitePaymentStore, type ProviderUncertaintyReason } from "../src/payments/sqlite-payment-store.js";
 import { RegisterCashPaymentUseCase } from "../src/payments/register-cash-payment-use-case.js";
 import { RegisterTransferPaymentUseCase } from "../src/payments/register-transfer-payment-use-case.js";
 import { ConfirmTransferPaymentUseCase } from "../src/payments/confirm-transfer-payment-use-case.js";
@@ -105,7 +105,7 @@ async function buildEnv() {
   const paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
 
   return {
-    database, cashStore, inventoryStore,
+    database, cashStore, inventoryStore, paymentStore,
     openShift: new OpenCashShiftUseCase(masterStore, cashStore, () => NOW),
     closeShift: new CloseCashShiftUseCase(cashStore, () => NOW),
     registerCash: new RegisterCashPaymentUseCase(paymentStore, () => NOW),
@@ -877,6 +877,189 @@ describe("idempotencia", () => {
     const conflict = env.registerCash.execute(SCOPE, SESSION, auth(), cashRequest(saleId, "5000.000000", "pay:1"));
 
     expect(conflict.kind).toBe("IDEMPOTENCY_CONFLICT");
+  });
+});
+
+// ── Incertidumbre del proveedor ───────────────────────────────────────────────
+
+/**
+ * `D-3` dio nombre a la incertidumbre; `MIGRATION_017` le da dónde vivir.
+ * Antes, una consulta que no podía determinar el resultado terminaba en una
+ * excepción y el intento seguía `PENDING`: un cobro que quizá ocurrió de
+ * verdad quedaba indistinguible de uno que simplemente espera al cliente.
+ */
+describe("incertidumbre del proveedor", () => {
+  async function pendingQr() {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+    return { env, saleId, registered };
+  }
+
+  function record(
+    env: Awaited<ReturnType<typeof buildEnv>>,
+    paymentId: string,
+    reason: ProviderUncertaintyReason,
+    key = "unknown:1",
+  ) {
+    return env.paymentStore.recordProviderUncertainty({
+      scope: SCOPE,
+      sessionId: SESSION,
+      operatorUserId: USER,
+      paymentId,
+      reason,
+      observedAt: NOW.toISOString(),
+      operationId: randomUUID(),
+      idempotencyKey: key,
+      requestChecksum: "b".repeat(64),
+      correlationId: randomUUID(),
+      causationId: null,
+    });
+  }
+
+  function attemptRow(env: Awaited<ReturnType<typeof buildEnv>>, paymentId: string) {
+    return env.database.native.prepare(
+      `SELECT status, provider_reference_type, provider_reference, provider_transaction_id,
+              provider_uncertainty_reason, provider_uncertainty_observed_at
+       FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?`,
+    ).get(TENANT, paymentId) as {
+      status: string;
+      provider_reference_type: string | null;
+      provider_reference: string | null;
+      provider_transaction_id: string | null;
+      provider_uncertainty_reason: string | null;
+      provider_uncertainty_observed_at: string | null;
+    };
+  }
+
+  // A–D: las cuatro razones que el puerto puede devolver quedan escritas.
+  it.each([
+    ["TIMEOUT" as const],
+    ["NETWORK" as const],
+    ["PROVIDER_UNAVAILABLE" as const],
+    ["MALFORMED_RESPONSE" as const],
+  ])("persiste un UNKNOWN por %s", async (reason) => {
+    const { env, registered } = await pendingQr();
+
+    expect(record(env, registered.paymentId, reason).kind).toBe("RECORDED");
+
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("UNKNOWN");
+    expect(attempt.provider_uncertainty_reason).toBe(reason);
+    expect(attempt.provider_uncertainty_observed_at).toBe(NOW.toISOString());
+  });
+
+  // E y F: incertidumbre no es veredicto.
+  it("no confirma el pago ni completa la venta", async () => {
+    const { env, saleId, registered } = await pendingQr();
+
+    record(env, registered.paymentId, "TIMEOUT");
+
+    const payment = env.database.native.prepare(
+      "SELECT status, confirmed_at FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { status: string; confirmed_at: string | null };
+    expect(payment.status).toBe("PENDING");
+    expect(payment.confirmed_at).toBeNull();
+
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+
+    // Tampoco imputa cobertura: no existe asignación que pudiera completarla.
+    const allocations = env.database.native.prepare(
+      "SELECT COUNT(*) AS n FROM payments_payment_allocations WHERE tenant_id=? AND payment_id=?",
+    ).get(TENANT, registered.paymentId) as { n: number };
+    expect(allocations.n).toBe(0);
+  });
+
+  // G y H: las identidades de D-2/D-2-bis sobreviven a la incertidumbre.
+  it("conserva la referencia comercial y el id del proveedor si ya se conocía", async () => {
+    const { env, registered } = await pendingQr();
+
+    // Un id ya conocido: lo que ocurriría si el proveedor lo hubiera dado
+    // antes de que la consulta siguiente quedara sin respuesta.
+    env.database.native.prepare(
+      "UPDATE payments_payment_attempts SET provider_transaction_id=? WHERE tenant_id=? AND payment_id=?",
+    ).run("TX-KNOWN", TENANT, registered.paymentId);
+
+    record(env, registered.paymentId, "NETWORK");
+
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.provider_reference_type).toBe("PROVIDER_INTENT");
+    expect(attempt.provider_reference).toBe(registered.providerReference);
+    expect(attempt.provider_transaction_id).toBe("TX-KNOWN");
+  });
+
+  it("deja el id del proveedor en NULL cuando todavía no se conoce", async () => {
+    const { env, registered } = await pendingQr();
+
+    record(env, registered.paymentId, "TIMEOUT");
+
+    expect(attemptRow(env, registered.paymentId).provider_transaction_id).toBeNull();
+  });
+
+  /**
+   * `I`. Lo que hace resoluble la incertidumbre: queda localizable por estado
+   * y trae consigo el momento, la razón y las identidades necesarias para
+   * volver a preguntar. La resolución en sí no existe todavía.
+   */
+  it("deja la operación localizable para una resolución futura", async () => {
+    const { env, registered } = await pendingQr();
+
+    record(env, registered.paymentId, "PROVIDER_UNAVAILABLE");
+
+    const pendientes = env.database.native.prepare(
+      `SELECT payment_id, provider_uncertainty_reason, provider_uncertainty_observed_at
+       FROM payments_payment_attempts
+       WHERE tenant_id=? AND status='UNKNOWN'`,
+    ).all(TENANT) as Array<{ payment_id: string; provider_uncertainty_reason: string; provider_uncertainty_observed_at: string }>;
+
+    expect(pendientes).toEqual([{
+      payment_id: registered.paymentId,
+      provider_uncertainty_reason: "PROVIDER_UNAVAILABLE",
+      provider_uncertainty_observed_at: NOW.toISOString(),
+    }]);
+
+    // El hecho queda además auditado, no sólo en la fila.
+    const audit = env.database.native.prepare(
+      `SELECT details_json FROM local_operation_audit
+       WHERE tenant_id=? AND resource_id=? AND action_code='PAYMENT_PROVIDER_UNCERTAIN'`,
+    ).get(TENANT, registered.paymentId) as { details_json: string } | undefined;
+    expect(audit).toBeDefined();
+    expect(JSON.parse(audit!.details_json)).toMatchObject({
+      reason: "PROVIDER_UNAVAILABLE",
+      payment_id: registered.paymentId,
+    });
+  });
+
+  it("no vuelve incierto un intento ya confirmado", async () => {
+    const { env, registered } = await pendingQr();
+    env.confirmProvider.execute(SCOPE, {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      evidence: {
+        providerCode: "TEST_QR", providerReference: registered.providerReference,
+        providerTransactionId: "TX-1", amount: "10000.000000",
+        currencyCode: "COP", status: "APPROVED", receivedAt: NOW.toISOString(),
+      },
+      idempotencyKey: "qr:1:confirm", correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(record(env, registered.paymentId, "TIMEOUT").kind).toBe("ATTEMPT_NOT_UNCERTAINABLE");
+    expect(attemptRow(env, registered.paymentId).status).toBe("CONFIRMED");
+  });
+
+  it("repetir la misma observación es idempotente", async () => {
+    const { env, registered } = await pendingQr();
+
+    expect(record(env, registered.paymentId, "TIMEOUT").kind).toBe("RECORDED");
+    const after = attemptRow(env, registered.paymentId);
+
+    expect(record(env, registered.paymentId, "TIMEOUT").kind).toBe("IDEMPOTENT");
+    expect(attemptRow(env, registered.paymentId)).toEqual(after);
   });
 });
 

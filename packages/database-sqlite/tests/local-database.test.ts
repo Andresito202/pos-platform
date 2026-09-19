@@ -334,12 +334,11 @@ describe("MIGRATION_016 — provider_transaction_id", () => {
         "SELECT version FROM local_schema_migrations ORDER BY version",
       ).all() as Array<{ version: number }>;
       expect(reopened).toEqual(applied);
-      // El libro sigue contiguo desde 1: `016` es el siguiente número, no un
-      // salto.
+      // El libro sigue contiguo desde 1 hasta la última versión. Acoplarlo a
+      // un literal sólo lo rompería en la migración siguiente.
       expect(reopened.map((row) => row.version)).toEqual(
         Array.from({ length: LATEST_LOCAL_SCHEMA_VERSION }, (_, index) => index + 1),
       );
-      expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(16);
     } finally {
       second.close();
     }

@@ -1262,6 +1262,48 @@ CREATE UNIQUE INDEX payments_payment_attempts_provider_transaction_idx
   WHERE provider_transaction_id IS NOT NULL;
 `.trim();
 
+/**
+ * `MIGRATION_017` — `D-3`: la incertidumbre deja de evaporarse.
+ *
+ * `PaymentProviderOutcome` ya distingue «no se pudo determinar» de «el
+ * proveedor dijo que no», y `payments_payment_attempts.status` ya admitía
+ * `'UNKNOWN'` desde el principio porque `PAY-007` lo exige. Faltaba dónde
+ * escribir **por qué** y **cuándo**: un intento que quedara `UNKNOWN` no
+ * podía decir si fue un timeout, un 5xx o una respuesta ilegible, y la única
+ * huella temporal habría sido el asiento de auditoría.
+ *
+ * No se reutilizó ninguna columna existente. `error_code` habría sido la
+ * tentación —está libre— pero nombra como error lo que `D-3` estableció que
+ * **no** lo es: un timeout no es un fallo del cobro, es una pregunta sin
+ * responder. Y `provider_reported_at` habría mentido en el caso más
+ * frecuente: ante un timeout el proveedor no reportó nada.
+ *
+ * ## Lo que el par hace imposible
+ *
+ * Los dos campos se escriben juntos o no se escriben: el `CHECK` los empareja,
+ * así que no puede existir una razón sin momento ni un momento sin razón. Y la
+ * razón está acotada al conjunto cerrado que el puerto declara, de modo que la
+ * columna no puede guardar una incertidumbre que el contrato no conoce.
+ *
+ * **Deliberadamente sin atar a `status`.** Un `CHECK` del tipo «si hay razón,
+ * el estado es `UNKNOWN`» habría convertido `UNKNOWN` en terminal: al
+ * resolverse a `CONFIRMED` o `DECLINED` la fila dejaría de validar. La razón
+ * sobrevive a la resolución porque es historia de lo que pasó, no el estado
+ * actual.
+ *
+ * Las filas existentes quedan con ambos `NULL`: no hay incertidumbre pasada
+ * que reconstruir, y deducirla sería inventarla.
+ */
+const MIGRATION_017 = `
+ALTER TABLE payments_payment_attempts
+  ADD COLUMN provider_uncertainty_reason TEXT
+  CHECK(provider_uncertainty_reason IS NULL OR provider_uncertainty_reason IN (
+    'TIMEOUT','NETWORK','PROVIDER_UNAVAILABLE','MALFORMED_RESPONSE','PROVIDER_ERROR'));
+ALTER TABLE payments_payment_attempts
+  ADD COLUMN provider_uncertainty_observed_at TEXT
+  CHECK((provider_uncertainty_observed_at IS NULL) = (provider_uncertainty_reason IS NULL));
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1279,6 +1321,7 @@ const MIGRATIONS = [
   { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
+  { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
 ] as const;
 
 /**

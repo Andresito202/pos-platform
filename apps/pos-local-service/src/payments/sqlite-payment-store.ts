@@ -141,6 +141,33 @@ export interface CancelPaymentInput extends CommonInput {
   readonly operationId: string;
 }
 
+/**
+ * Razones por las que una consulta al proveedor no pudo determinar el
+ * resultado. Es el mismo conjunto cerrado que `PaymentProviderUncertainty`
+ * declara en el puerto; la columna lo repite como `CHECK` para que la fila
+ * tampoco pueda guardar una que el contrato no conozca.
+ */
+export type ProviderUncertaintyReason =
+  | "TIMEOUT"
+  | "NETWORK"
+  | "PROVIDER_UNAVAILABLE"
+  | "MALFORMED_RESPONSE"
+  | "PROVIDER_ERROR";
+
+export interface RecordProviderUncertaintyInput extends CommonInput {
+  readonly paymentId: string;
+  readonly reason: ProviderUncertaintyReason;
+  readonly observedAt: string;
+  readonly operationId: string;
+}
+
+export type RecordProviderUncertaintyOutcome =
+  | { readonly kind: "RECORDED"; readonly paymentId: string; readonly attemptId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PAYMENT_NOT_FOUND" }
+  | { readonly kind: "ATTEMPT_NOT_UNCERTAINABLE" };
+
 export interface PaymentView {
   readonly paymentId: string;
   readonly saleId: string;
@@ -1103,5 +1130,92 @@ export class SqlitePaymentStore {
 
       return { kind: "CANCELLED", paymentId: input.paymentId };
     })();
+  }
+
+  // ── Incertidumbre ───────────────────────────────────────────────────────────
+
+  /**
+   * Deja constancia de que una consulta al proveedor **no pudo determinar** el
+   * resultado del intento.
+   *
+   * Hasta aquí una incertidumbre técnica moría en una excepción: el puerto la
+   * devolvía como `UNKNOWN` (`D-3`) y nadie la escribía, así que un intento
+   * cuyo cobro pudo haber ocurrido de verdad seguía indistinguible de uno que
+   * simplemente espera al cliente. Esto la persiste.
+   *
+   * **No es un veredicto.** El pago no se confirma ni se rechaza, la venta no
+   * se toca, y no se imputa cobertura: `UNKNOWN` es estado del *intento*, no
+   * del pago (`PAY-007` lo sitúa sólo en `PaymentAttemptStatus`). La
+   * transición `PENDING → UNKNOWN` es la que `PAY-007` autoriza, y desde ahí
+   * el intento sigue pudiendo ir a `CONFIRMED` o `DECLINED` cuando aparezca
+   * evidencia: por eso esto es el punto de partida de una resolución futura y
+   * no su final.
+   *
+   * Lo que **no** toca: `provider_reference` y `provider_reference_type`
+   * conservan la referencia comercial (`D-2-bis`), y
+   * `provider_transaction_id` se deja como esté — si el proveedor ya lo había
+   * dado, sigue ahí junto a la incertidumbre; si no, sigue `NULL`, porque
+   * inventarlo sería fabricar la identidad que hace falta para resolverla.
+   */
+  recordProviderUncertainty(input: RecordProviderUncertaintyInput): RecordProviderUncertaintyOutcome {
+    const nowIso = this.now().toISOString();
+
+    return runWithRollback(this.database.native.transaction((): RecordProviderUncertaintyOutcome => {
+      const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
+      if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
+
+      const payment = this.database.native.prepare(
+        `SELECT p.id, g.collection_subject_id
+         FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+         WHERE p.tenant_id=? AND p.id=?`,
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; collection_subject_id: string }
+        | undefined;
+
+      if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+      if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+
+      // `PAY-007` autoriza `PENDING → UNKNOWN`. Un intento ya confirmado,
+      // rechazado o cancelado no vuelve a ser incierto: una respuesta tardía
+      // que contradiga un intento terminal es una incidencia
+      // (`REVIEW_REQUIRED`), no una marcha atrás silenciosa.
+      const attempt = this.database.native.prepare(
+        `SELECT id, provider_code, provider_transaction_id FROM payments_payment_attempts
+         WHERE tenant_id=? AND payment_id=? AND status='PENDING'
+         ORDER BY attempt_number DESC
+         LIMIT 1`,
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; provider_code: string | null; provider_transaction_id: string | null }
+        | undefined;
+
+      if (attempt === undefined) return { kind: "ATTEMPT_NOT_UNCERTAINABLE" };
+
+      this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_PROVIDER_UNCERTAIN", nowIso);
+
+      this.database.native.prepare(
+        `UPDATE payments_payment_attempts
+         SET status='UNKNOWN', provider_uncertainty_reason=?, provider_uncertainty_observed_at=?,
+             version=version+1
+         WHERE tenant_id=? AND id=?`,
+      ).run(input.reason, input.observedAt, input.scope.tenantId, attempt.id);
+
+      const details = {
+        attempt_id: attempt.id,
+        payment_id: input.paymentId,
+        provider_code: attempt.provider_code,
+        provider_transaction_id: attempt.provider_transaction_id,
+        reason: input.reason,
+        observed_at: input.observedAt,
+        sale_id: payment.collection_subject_id,
+      };
+      this.writeAudit(input, "PAYMENT_PROVIDER_UNCERTAIN", "PAYMENT", input.paymentId, details, nowIso);
+      this.enqueue(
+        input, input.operationId, input.idempotencyKey,
+        "PAYMENT", input.paymentId, "PAYMENT_PROVIDER_UNCERTAIN", details, input.requestChecksum, nowIso,
+      );
+
+      return { kind: "RECORDED", paymentId: input.paymentId, attemptId: attempt.id };
+    }));
   }
 }
