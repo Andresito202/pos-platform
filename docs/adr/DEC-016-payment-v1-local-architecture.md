@@ -56,7 +56,7 @@ necesita. No se reabre ninguna decisión.
 `CARD` · `QR` · `NEQUI` como métodos **integrados con proveedor** · cualquier
 adapter (Wompi, Mercado Pago, PayU, Bold, datáfonos) · webhooks · polling ·
 checkout · `Refund` (`UC-PAY-004`) · `Reversal` · `Settlement` · `Reconciliation`
-(`UC-PAY-005`) · `Chargeback` · `CUSTOMER_CREDIT` (diferido por `CUST-002`/`DEC-005`)
+(`UC-PAY-005`) · `Chargeback` · `CUSTOMER_CREDIT` (fuera de V1; `DEC-005` ya ratificó su política, `CUST-002`/`PAY-009` la implementarán)
 · crédito autorizado de `DEC-002` · captura de tendered/vuelto · `CashCount` ·
 sonido de confirmación.
 

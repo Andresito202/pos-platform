@@ -90,4 +90,4 @@ Cross-tenant, exactitud monetaria, estados/aliases prohibidos, pago mixto y asig
 
 ## Resultado
 
-Payments base queda cerrado para R2-B y permanece neutral a proveedor. Customer Credit físico continúa diferido por `CUST-002`/`DEC-005`; el método no autoriza crear sus agregados anticipadamente.
+Payments base queda cerrado para R2-B y permanece neutral a proveedor. Customer Credit físico continúa diferido por `CUST-002`/`PAY-009`; el método no autoriza crear sus agregados anticipadamente. La política ya no está en el aire: `DEC-005` la ratificó —el crédito cubre la venta y la obligación se registra en un agregado separado—, pero ratificar no es materializar y la prohibición de adelantarse sigue vigente hasta que `CUST-002` exista.

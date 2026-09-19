@@ -111,7 +111,7 @@ Una mención conceptual sin contrato suficiente se registra como brecha y no se 
 
 | Área conceptual | Estado | Motivo |
 |---|---|---|
-| Clientes y crédito | `DEFERRED` | `CUST-001` y `CUST-002` permanecen `PLANNED`; `DEC-005` está diferida. |
+| Clientes y crédito | `DEFERRED` | `DEC-005` está **ratificada** desde 2026-09-19: el crédito cubre la venta y la obligación vive en un agregado separado. `CUST-001` está materializado en su parte de alta y consulta —tabla, almacén, dos casos de uso y tres operaciones de canal—; `CUST-002` permanece `PLANNED` y es lo único que sigue difiriendo el crédito físico. |
 | Pedidos, domicilios y domiciliarios | `DEFERRED` | El primer núcleo los declara fuera de alcance y no existen casos de uso cerrados. |
 | Reporting analítico y Superset | `DEFERRED` | Reporting no es fuente de verdad; primero deben existir proyecciones operativas verificables. |
 | Notifications | `DEFERRED` | No existe caso de uso dedicado ni contrato de entrega. |

@@ -562,7 +562,7 @@ Continúa no autorizado:
 | ID | Pri | Estado | Trabajo |
 |---|---|---|---|
 | CUST-001 | P1 | PLANNED | Alta/edición/búsqueda/privacidad. |
-| CUST-002 | P1 | PLANNED | Cuenta/cupo/mora/abonos; depende de DEC-005. |
+| CUST-002 | P1 | PLANNED | Cuenta/cupo/mora/abonos. `DEC-005` ya fijó la política; falta implementarla y resolver cupo inicial, autorización y cupo insuficiente. |
 | CUST-003 | P2 | PLANNED | Implementación auditable. |
 
 ### Domicilios
@@ -643,11 +643,17 @@ Continúa no autorizado:
 - DEC-009: baseline operacional productivo.
 - DEC-010: runtime POS.
 
+### Cerradas P1
+
+- DEC-005: crédito al cliente / fiado. El crédito cubre la venta y la obligación
+  se registra en un agregado separado (`adr/DEC-005-customer-credit-policy.md`).
+  Ratifica lo que `DEC-002` §159 ya enunciaba.
+
 ### Pendiente
 
-| ID | Pri | Estado | Bloquea |
-|---|---|---|---|
-| DEC-005 | P1 | DEFERRED | Crédito offline: CUST-002/PAY-009. |
+Ninguna. `CUST-002` y `PAY-009` siguen `PLANNED`, pero lo que les falta ya no es
+una decisión sin tomar: es implementación, más las tres decisiones de producto
+—cupo inicial, autorización y cupo insuficiente— que `DEC-005` deja explícitas.
 
 ## Hitos
 
