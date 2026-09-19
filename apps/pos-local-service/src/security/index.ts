@@ -1,6 +1,7 @@
 export * from "./device-identity.js";
 export * from "./encrypted-secret-store.js";
 export * from "./license-verifier.js";
+export * from "./sqlite-trust-anchor-store.js";
 export * from "./authorization-snapshot-verifier.js";
 export * from "./session-assertion-verifier.js";
 export * from "./trusted-clock.js";

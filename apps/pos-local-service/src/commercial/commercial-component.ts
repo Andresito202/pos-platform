@@ -46,6 +46,19 @@ import { RegisterCustomerUseCase } from "../customers/register-customer-use-case
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
 
 /**
+ * Origen de las claves de firma de sesión.
+ *
+ * El mapa directo sirve a quien ya lo tiene resuelto; la función sirve a quien
+ * lo lee de una tabla que aún no está abierta cuando se construye este
+ * componente. `start()` la invoca una vez y no vuelve a consultarla: rotar un
+ * ancla exige reiniciar el servicio, que es exactamente la ceremonia que
+ * `DEC-011` describe para una rotación.
+ */
+export type SessionSigningKeySource =
+  | ReadonlyMap<string, TrustedSigningKey>
+  | (() => ReadonlyMap<string, TrustedSigningKey>);
+
+/**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
  *
  * No implementa reglas de negocio: construye los casos de uso ya materializados
@@ -54,12 +67,21 @@ import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
  *
  * ## Claves de firma
  *
- * `sessionSigningKeys` se inyecta. Hoy el runtime no dispone de una vía de
- * aprovisionamiento de claves —la misma carencia `LIC-003` / `DEV-003` que ya
- * afecta a licencia y snapshot de autorización— de modo que en producción el
- * mapa llega vacío y `session.activate` **falla cerrado**: una `key_id`
- * desconocida se reporta como `SIGNATURE_INVALID`. Se prefiere esa negativa a
- * fabricar una confianza que nadie ha provisto.
+ * `sessionSigningKeys` se inyecta y admite dos formas: un mapa ya resuelto
+ * —como lo pasan las pruebas— o una función que lo resuelve. La función existe
+ * porque el origen real es una tabla: `main.ts` pasa
+ * `() => security.trustAnchors.keysFor("SESSION_ASSERTION")` y los componentes
+ * se construyen todos antes de que arranque ninguno, de modo que leer el ancla
+ * en el constructor tocaría una base de datos que todavía no está abierta. Se
+ * resuelve una sola vez, en `start()`, después de que `local-security` haya
+ * arrancado.
+ *
+ * Que el origen exista no significa que haya claves. Mientras nadie
+ * provisione un ancla —la carencia `LIC-003` / `DEV-003`, que `DEC-011`
+ * mantiene `BLOCKED`— el mapa resuelto está vacío y `session.activate`
+ * **falla cerrado**: una `key_id` desconocida se reporta como
+ * `SIGNATURE_INVALID`. Se prefiere esa negativa a fabricar una confianza que
+ * nadie ha provisto.
  */
 export class CommercialComponent implements RuntimeComponent {
   readonly name = "commercial";
@@ -102,7 +124,7 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly config: ServiceConfig,
     private readonly localDatabase: LocalDatabaseComponent,
     private readonly durableSync: DurableSyncComponent,
-    private readonly sessionSigningKeys: ReadonlyMap<string, TrustedSigningKey> = new Map(),
+    private readonly sessionSigningKeys: SessionSigningKeySource = new Map(),
     private readonly now: () => Date = () => new Date(),
     private readonly paymentProvider?: PaymentProviderPort,
   ) {
@@ -157,7 +179,9 @@ export class CommercialComponent implements RuntimeComponent {
 
     const sessionStore = new SqliteSessionAssertionStore(database, this.now);
     const verifier = new SessionAssertionVerifier(
-      this.sessionSigningKeys,
+      typeof this.sessionSigningKeys === "function"
+        ? this.sessionSigningKeys()
+        : this.sessionSigningKeys,
       new TrustedClockGuard(database),
       this.now,
     );

@@ -9,6 +9,7 @@ import {
   type SecretStoreProtection,
 } from "./encrypted-secret-store.js";
 import { LocalSecurityLifecycle } from "./security-lifecycle.js";
+import { SqliteTrustAnchorStore } from "./sqlite-trust-anchor-store.js";
 import { TrustedClockGuard } from "./trusted-clock.js";
 
 /** Nombre del secreto bajo el que vive la clave privada del dispositivo. */
@@ -41,8 +42,14 @@ export function deviceIdentityContext(binding: LocalSecurityBinding): string {
  *
  * Lo que **no** hace, y conviene que se lea aquí y no sólo en el ADR: no
  * verifica licencia y no adquiere Authorization Snapshot. Ambas exigen una
- * autoridad central que hoy no existe, y cablearlas contra un mapa de claves
- * vacío o un proveedor en memoria sería fabricar confianza.
+ * autoridad central que hoy no existe, y cablearlas contra un proveedor en
+ * memoria sería fabricar confianza.
+ *
+ * Lo que sí hace desde `MIGRATION_022`: abrir el ancla de confianza
+ * (`trustAnchors`) para que los verificadores lean claves de una tabla en vez
+ * de recibir un mapa vacío por construcción. Abrir el ancla **no** la puebla:
+ * un equipo sin anclas provisionadas sigue fallando cerrado, que es lo que
+ * `DEC-011` exige mientras no exista emisión real.
  */
 export class LocalSecurityComponent implements RuntimeComponent {
   readonly name = "local-security";
@@ -51,6 +58,7 @@ export class LocalSecurityComponent implements RuntimeComponent {
   private identityValue: DeviceIdentity | undefined;
   private deviceKeyIdValue: string | undefined;
   private lifecycleValue: LocalSecurityLifecycle | undefined;
+  private trustAnchorsValue: SqliteTrustAnchorStore | undefined;
 
   constructor(
     private readonly databaseComponent: LocalDatabaseComponent,
@@ -96,6 +104,20 @@ export class LocalSecurityComponent implements RuntimeComponent {
   get secretStore(): EncryptedFileSecretStore {
     if (!this.storeValue) throw new Error("secret store is not ready");
     return this.storeValue;
+  }
+
+  /**
+   * El ancla de confianza del equipo. Las claves públicas con las que los
+   * verificadores de sesión, snapshot y licencia deciden.
+   *
+   * Es de sólo lectura para el runtime: aquí nadie provisiona. Quien lo
+   * consuma debe hacerlo perezosamente —el componente arranca después de la
+   * base de datos y antes que `commercial`, pero los componentes se
+   * *construyen* todos antes de que arranque ninguno.
+   */
+  get trustAnchors(): SqliteTrustAnchorStore {
+    if (!this.trustAnchorsValue) throw new Error("trust anchor store is not ready");
+    return this.trustAnchorsValue;
   }
 
   async start(): Promise<void> {
@@ -153,6 +175,11 @@ export class LocalSecurityComponent implements RuntimeComponent {
       );
     }
 
+    // 5. El ancla de confianza. Sólo se abre: no se siembra, no se genera y no
+    //    se completa con autofirmados. Si está vacía, lo estará también para
+    //    quien verifique.
+    this.trustAnchorsValue = new SqliteTrustAnchorStore(database, this.now);
+
     this.identityValue = identity;
     this.deviceKeyIdValue = deviceKeyId;
     this.lifecycleValue = lifecycle;
@@ -165,5 +192,6 @@ export class LocalSecurityComponent implements RuntimeComponent {
     this.identityValue = undefined;
     this.deviceKeyIdValue = undefined;
     this.lifecycleValue = undefined;
+    this.trustAnchorsValue = undefined;
   }
 }

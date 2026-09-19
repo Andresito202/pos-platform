@@ -1623,6 +1623,79 @@ DROP TABLE catalog_fiscal_attribute;
 ALTER TABLE catalog_fiscal_attribute_rebuilt RENAME TO catalog_fiscal_attribute;
 `.trim();
 
+/**
+ * `MIGRATION_022` — el ancla de confianza tiene dónde vivir (`DEC-011`).
+ *
+ * `DEC-011` §«Modelo de confianza criptográfica» fija que el trust anchor son
+ * **claves públicas provisionadas en la instalación**, con estado `ACTIVE`,
+ * `VERIFY_ONLY` o `REVOKED`, y que la rotación se hace pasando la anterior a
+ * `VERIFY_ONLY` para no necesitar ventana de corte.
+ *
+ * Nunca existió la tabla. `local_device_key_history` guarda la clave **del
+ * equipo** —la privada, en el almacén cifrado— que es lo contrario: aquella
+ * firma, ésta verifica. Sin sitio donde poner las públicas de la autoridad, el
+ * runtime no podía construir el `ReadonlyMap<string, TrustedSigningKey>` que
+ * piden sus tres verificadores, y `main.ts` acababa pasando un mapa vacío. Con
+ * el mapa vacío `session.activate` falla cerrado, y con él **toda** la
+ * superficie comercial: 25 operaciones enrutadas, 0 alcanzables.
+ *
+ * `DEC-011` §«Qué queda fuera de alcance» excluye «cualquier tabla o
+ * migración, que requieren autorización específica». Ésta es esa autorización.
+ *
+ * ## Lo que esta tabla NO es
+ *
+ * **No es un emisor.** Guardar la pública de quien firma no permite firmar
+ * nada. `DEC-011` deja `BLOCKED` el trust anchor de producción «hasta disponer
+ * de material real» y prohíbe expresamente los autofirmados como sustituto:
+ * una instalación sin anclas provisionadas sigue sin poder operar, y eso es la
+ * consecuencia aceptada del modelo fail-closed, no un defecto que esta
+ * migración tape.
+ *
+ * Lo que sí hace es que el lado consumidor deje de ser inalcanzable por
+ * construcción: con material provisionado —real en producción, generado para
+ * la prueba en los tests, que es lo que `DEC-011` autoriza— la cadena entera
+ * se abre.
+ *
+ * ## `purpose`: separación de claves
+ *
+ * Tres verificadores distintos consumen mapas de claves —sesión, snapshot de
+ * autorización y licencia— y **no deben compartir ancla**. Una clave admitida
+ * para verificar una aserción de sesión no puede valer para autorizar
+ * permisos: sin esta columna, comprometer la de menor valor daría la de mayor.
+ * La clave primaria es `(purpose, key_id)` justamente para que el mismo
+ * `key_id` pueda existir con dos propósitos sin colisionar ni heredarse.
+ *
+ * ## Por qué SPKI en base64url y no PEM
+ *
+ * `createPublicKey` acepta ambos, pero PEM lleva saltos de línea y cabeceras
+ * que invitan a recortes y pegados a mano. El DER en `base64url` es una sola
+ * cadena sin caracteres que se puedan perder por el camino, y el `CHECK`
+ * rechaza cualquier cosa fuera del alfabeto.
+ *
+ * `revoked_at` va emparejado con el estado: no puede haber una revocación sin
+ * momento ni un momento sin revocación.
+ */
+const MIGRATION_022 = `
+CREATE TABLE local_trust_anchor (
+  purpose TEXT NOT NULL CHECK(purpose IN (
+    'SESSION_ASSERTION','AUTHORIZATION_SNAPSHOT','LICENSE')),
+  key_id TEXT NOT NULL CHECK(length(key_id) BETWEEN 1 AND 96),
+  algorithm TEXT NOT NULL CHECK(algorithm = 'ED25519'),
+  public_key_spki TEXT NOT NULL
+    CHECK(length(public_key_spki) BETWEEN 1 AND 512)
+    CHECK(public_key_spki NOT GLOB '*[^A-Za-z0-9_-]*'),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','VERIFY_ONLY','REVOKED')),
+  provisioned_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revoked_at TEXT,
+  CHECK((status = 'REVOKED') = (revoked_at IS NOT NULL)),
+  PRIMARY KEY (purpose, key_id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX local_trust_anchor_usable_idx
+  ON local_trust_anchor(purpose, status)
+  WHERE status <> 'REVOKED';
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1645,6 +1718,7 @@ const MIGRATIONS = [
   { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
   { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
   { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
+  { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
 ] as const;
 
 /**

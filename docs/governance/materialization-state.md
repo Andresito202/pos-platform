@@ -143,6 +143,7 @@ decir que la capacidad es alcanzable.**
 | Enrutamiento del canal → superficie comercial | ✅ | ✅ | ✅ | ✅ | ❌ | `.../channel/local-channel-component.ts` · `tests/channel-routing.test.ts` (Windows) |
 | Shell Electron (main, preload, allowlist) | ✅ | ✅ | ✅ | ✅ | ❌ | `apps/pos-desktop/src/` |
 | Logger estructurado | ✅ | ✅ | ✅ | ✅ | ❌ | `packages/observability/src/` |
+| Ancla de confianza local (tabla, lectura y cableado al runtime) | ✅ | ✅ | ✅ | ❌ | ❌ | `MIGRATION_022` · `.../security/sqlite-trust-anchor-store.ts` · `main.ts` — **en rama, no en `main`** |
 
 ### Plataforma central
 
@@ -415,8 +416,57 @@ pendiente: es trabajo hecho y desconectado.
 | Capacidad | Código en main | Evidencia de desconexión |
 |---|---|---|
 | Ciclo de seguridad local (DPAPI, identidad de dispositivo, licencia) | `.../src/security/` | `LocalSecurityLifecycle` solo se instancia en `tests/security.test.ts` |
-| Adquisición de snapshot de autorización (SAS-003) | `.../authorization/snapshot-acquisition.ts` | cero referencias fuera del propio archivo |
+| Adquisición de snapshot de autorización (SAS-003) | `.../authorization/snapshot-acquisition.ts` | cero referencias fuera del propio archivo **y de sus pruebas**. Sigue desconectada, y no por olvido: `SnapshotProvider` no tiene implementación productiva porque el transporte HTTP hacia la API central no existe (`D-2`). Cablearla exigiría inventar el proveedor |
 | Esquema fiscal central | `003_*.up.sql` | ningún consumidor |
+
+> **El mapa de claves de firma deja de estar vacío por construcción — 2026-09-19.**
+>
+> `main.ts` construía `CommercialComponent` con `new Map()` **literal**. La
+> consecuencia no era teórica y no estaba registrada en ninguna parte:
+> `session.activate` rechazaba toda SSA porque ninguna `key_id` podía existir
+> en un mapa vacío, y sin vínculo de sesión el resto de la superficie quedaba
+> detrás de `SESSION_NOT_BOUND`. **Veinticinco operaciones ruteadas, ninguna
+> alcanzable.**
+>
+> `MIGRATION_022` crea `local_trust_anchor` —`(purpose, key_id)` como clave
+> primaria, `WITHOUT ROWID`, `STRICT`, `status` en `ACTIVE`/`VERIFY_ONLY`/
+> `REVOKED` con `revoked_at` atado por `CHECK`—, `SqliteTrustAnchorStore` la
+> lee, `LocalSecurityComponent` la abre en el arranque y `main.ts` pasa
+> `() => security.trustAnchors.keysFor("SESSION_ASSERTION")`. La forma es
+> perezosa porque los componentes se construyen todos antes de que arranque
+> ninguno: leer el ancla en el constructor tocaría una base de datos aún
+> cerrada.
+>
+> **Autorización de la tabla.** `DEC-011` §«Qué queda fuera de alcance» reserva
+> «cualquier tabla o migración» a una autorización específica. La de
+> `MIGRATION_022` es la del propietario del repositorio, dada en esta sesión de
+> forma explícita. Queda anotado aquí porque el ADR exige que se anote, no
+> porque el ADR la conceda.
+>
+> **Qué NO cambia, y es lo que más importa no malinterpretar.** El ancla nace
+> vacía y nadie la puebla: no hay emisor, `DEC-011` mantiene el material de
+> producción `BLOCKED` y prohíbe autofirmados como sustituto. Un equipo real
+> sigue arrancando sin confianza y sigue fallando cerrado. Lo que se cerró es
+> **la ausencia de origen**, no la ausencia de emisor (`D-28`).
+>
+> **Evidencia ejecutada.** `tests/trust-anchor-chain.test.ts`, 10 de 10, contra
+> SQLite real y los casos de uso reales:
+> `pnpm --filter @pos-platform/pos-local-service test` → **710 pasan, 4 saltadas
+> (Windows), 0 fallan**. La prueba central provisiona anclas generadas para el
+> test, adquiere el snapshot por la ruta canónica de `SAS-003`
+> —proveedor → verificador → store, sin llamar a `activate` a mano— y recorre
+> `session.activate` → `cash.shift.open` → `catalog.product.register` →
+> `inventory.stock.receive` → `sale.create` → `payment.register.cash`,
+> comprobando en disco `sales_sales.status = 'COMPLETED'` y la existencia en
+> 10 tras vender 2 de 12. También se prueban la separación por propósito (la
+> clave de sesión **no** verifica un snapshot), `REVOKED` frente a
+> `VERIFY_ONLY`, y que una fila con material ilegible se descarta sin tumbar
+> el arranque.
+>
+> **`usableCount` cuenta claves legibles, no filas.** El log de arranque
+> `security.trust_anchors` emite el recuento por propósito y nunca una
+> `key_id`: un operador que lee `session_assertion: 0` sabe por qué el POS
+> rechaza cada sesión.
 
 ### Documentado, no materializado
 
@@ -519,6 +569,7 @@ preservado que documenta la sección siguiente, no en `main`.
 |---|---|---|---|
 | D-26 | **CERRADA en `feat/security-lifecycle-boot`.** `CustomerReadResultSchema` validaba los cuatro códigos DIAN con `StableCodeSchema` —que exige inicial alfabética— mientras la petición los admitía con `DianCodeSchema`. Los códigos DIAN reales son numéricos (`13` cédula, `31` NIT, `1`/`2` organización legal), de modo que un adquiriente colombiano corriente **se registraba y su lectura mataba el socket**. La asimetría estaba escrita desde hacía tres bloques en un comentario de `channel-commercial-transport.test.ts` —«no se corrige aquí porque tocaría los contratos»— y el fixture se había rellenado con `"CC"`, `"PERSONA_NATURAL"` y `"NO_APLICA"`, valores que ningún catálogo DIAN contiene, para que la prueba pasara. La encontró la primera pantalla que leyó un adquiriente real contra el servicio real | `ipc-commercial.ts` · `channel-commercial-transport.test.ts:96` · E2E `real-channel.spec.ts` | **regla que deja**: una respuesta nunca puede ser más estricta que la petición que la originó, y doblar un fixture para que pase una prueba mantiene vivo el defecto que la prueba existía para ver |
 | D-27 | **`sales_sales.customer_id` no tiene integridad referencial estructural.** La convención del esquema es la FK compuesta con el tenant delante, y aquí correspondería `FOREIGN KEY (tenant_id, customer_id) REFERENCES customers_customers(tenant_id, id)`. SQLite no la admite por `ALTER TABLE … ADD COLUMN` —la cláusula `REFERENCES` de `ADD COLUMN` es de una sola columna, y una FK simple a `customers_customers(id)` se acepta al crearla y falla con `foreign key mismatch` en la primera venta real, porque la PK del padre es compuesta—. El rebuild de doce pasos tampoco cabe: `applyMigrations` envuelve cada migración en una transacción, `PRAGMA foreign_keys` es no-op dentro de una, y `sales_sale_items` referencia `sales_sales`. Las tres se comprobaron ejecutándolas. La pertenencia al tenant la garantiza `SqliteSaleStore.create`, dentro de la misma transacción y antes de la primera escritura. Se cierra cuando `sales_sales` se reconstruya por cualquier otro motivo | `MIGRATION_019` · `sqlite-sale-store.ts` · `commercial-core-flow.test.ts` | un escritor futuro que no pase por el caso de uso podría asociar un cliente de otro tenant; hoy el Local Service es el único escritor y no hay segunda puerta |
+| D-28 | **El ancla de confianza existe y está vacía: no hay emisor.** `local_trust_anchor` (`MIGRATION_022`) ya es el origen real del mapa de claves de los tres verificadores, y `main.ts` lo cablea, pero **nada la puebla en producción**: la emisión de material criptográfico es `LIC-003`/`DEV-003`, que `DEC-011` deja `BLOCKED` «hasta disponer de material real» y sin admitir autofirmados. La consecuencia operativa es exacta y no se disimula: un equipo real arranca con `security.trust_anchors {session_assertion: 0, …}`, `session.activate` rechaza toda SSA y **las 25 operaciones comerciales siguen ruteadas y ninguna alcanzable**. Lo que se cerró fue la ausencia de origen, no la de emisor. Se cierra cuando exista una autoridad que emita, o un procedimiento de aprovisionamiento inicial autorizado por ADR | `MIGRATION_022` · `sqlite-trust-anchor-store.ts` · `main.ts` · `tests/trust-anchor-chain.test.ts` («sin anclas, session.activate rechaza una SSA por lo demás correcta») | el POS no atiende una sola venta en un equipo real; es el comportamiento fail-closed correcto, no un defecto, y por eso es deuda y no bug |
 | D-1 | `local_sync_outbox` no tiene purga ni retención | cero `DELETE` en `durable-sync-store.ts` | crecimiento monótono del archivo SQLite en uso real |
 | D-2 | Sin transporte, todo queda `PENDING` de forma permanente | sin cliente HTTP saliente | ningún hecho comercial sale del dispositivo |
 | D-3 | La regla que traduce permiso de matriz de producto a forma canónica sólo está escrita caso por caso | `DEC-012` §33.2 la enuncia para `CASH_SHIFT_CLOSE`; no existe enunciado general | cada módulo nuevo la redescubre o la contradice |

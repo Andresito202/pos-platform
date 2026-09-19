@@ -477,3 +477,116 @@ describe("MIGRATION_021 — el atributo fiscal cuelga del catálogo (D-17)", () 
     }
   });
 });
+
+describe("MIGRATION_022 — el ancla de confianza local (D-28)", () => {
+  const AT = "2026-09-19T10:00:00.000Z";
+  /** SPKI DER de Ed25519 en `base64url`: 44 bytes → 59 caracteres. */
+  const SPKI = "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE";
+
+  function provision(
+    db: LocalDatabase,
+    overrides: Partial<{ purpose: string; keyId: string; status: string; revokedAt: string | null }> = {},
+  ): void {
+    const purpose = overrides.purpose ?? "SESSION_ASSERTION";
+    const keyId = overrides.keyId ?? "ANCHOR_1";
+    const status = overrides.status ?? "ACTIVE";
+    const revokedAt = overrides.revokedAt === undefined
+      ? (status === "REVOKED" ? AT : null)
+      : overrides.revokedAt;
+    db.native.prepare(
+      `INSERT INTO local_trust_anchor(
+        purpose, key_id, algorithm, public_key_spki, status,
+        provisioned_at, updated_at, revoked_at
+      ) VALUES (?,?,'ED25519',?,?,?,?,?)`,
+    ).run(purpose, keyId, SPKI, status, AT, AT, revokedAt);
+  }
+
+  it("nace vacía: la tabla existe y nadie la puebla", async () => {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      // La condición exacta de `D-28`, y la de `DEC-011`: abrir el ancla no es
+      // emitirla. Un equipo recién instalado no confía en nadie.
+      expect(db.native.prepare(
+        "SELECT COUNT(*) AS n FROM local_trust_anchor",
+      ).get()).toEqual({ n: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("la misma key_id puede existir en dos propósitos y no en uno solo dos veces", async () => {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      provision(db);
+      // Separación por propósito: la clave primaria es el par, no la clave.
+      expect(() => { provision(db, { purpose: "LICENSE" }); }).not.toThrow();
+      expect(() => { provision(db); }).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("el algoritmo y el estado están cerrados por CHECK", async () => {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      expect(() => { provision(db, { status: "TRUSTED" }); }).toThrow();
+      expect(() => {
+        db.native.prepare(
+          `INSERT INTO local_trust_anchor(
+            purpose, key_id, algorithm, public_key_spki, status,
+            provisioned_at, updated_at, revoked_at
+          ) VALUES ('LICENSE','RSA_1','RSA',?,'ACTIVE',?,?,NULL)`,
+        ).run(SPKI, AT, AT);
+      }).toThrow();
+      expect(() => { provision(db, { purpose: "ANYTHING" }); }).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("revocar sin fecha, o fechar sin revocar, es imposible", async () => {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      // El `CHECK` ata las dos columnas en las dos direcciones: un ancla no
+      // puede estar revocada sin decir cuándo, ni llevar fecha de revocación
+      // estando viva. Un registro que miente sobre su propia revocación es
+      // peor que no tenerlo.
+      expect(() => { provision(db, { status: "REVOKED", revokedAt: null }); }).toThrow();
+      expect(() => { provision(db, { status: "ACTIVE", revokedAt: AT }); }).toThrow();
+      expect(() => { provision(db, { status: "REVOKED", revokedAt: AT }); }).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("el material sólo admite el alfabeto base64url", async () => {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      // Una SPKI con `+`, `/` o `=` no es `base64url` y no se decodificaría
+      // igual. El esquema lo rechaza antes de que nadie intente leerla.
+      expect(() => {
+        db.native.prepare(
+          `INSERT INTO local_trust_anchor(
+            purpose, key_id, algorithm, public_key_spki, status,
+            provisioned_at, updated_at, revoked_at
+          ) VALUES ('LICENSE','PADDED_1','ED25519','MCowBQYDK2VwAyEA+w==','ACTIVE',?,?,NULL)`,
+        ).run(AT, AT);
+      }).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("el índice de anclas utilizables excluye las revocadas", async () => {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      const index = db.native.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='local_trust_anchor_usable_idx'",
+      ).get() as { sql: string } | undefined;
+      expect(index?.sql).toContain("WHERE status <> 'REVOKED'");
+      db.assertIntegrity();
+    } finally {
+      db.close();
+    }
+  });
+});

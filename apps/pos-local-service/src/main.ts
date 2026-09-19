@@ -12,6 +12,7 @@ import { resolveWompiPaymentProvider } from "./payments/wompi/wompi-credential.j
 import {
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
+  TRUST_ANCHOR_PURPOSES,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
@@ -106,10 +107,6 @@ try {
 
   const durableSync = new DurableSyncComponent(localDatabase);
   const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
-  // El mapa de claves de sesión llega vacío: no existe aprovisionamiento de
-  // claves en el runtime (`LIC-003`/`DEV-003`), de modo que `session.activate`
-  // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
-  // fabricada.
   // El proveedor de pagos, si este equipo tiene una credencial aprovisionada.
   //
   // Se resuelve aqui y no dentro de un componente porque `CommercialComponent`
@@ -127,11 +124,21 @@ try {
     binding: { installationId: config.installation_id, deviceId: config.device_id },
   });
 
+  // Las claves de sesión salen del ancla de confianza del equipo, no de un
+  // mapa vacío incrustado aquí. Se pasa como función porque `security` todavía
+  // no ha arrancado en este punto —los componentes se construyen todos antes
+  // que arranque ninguno— y `commercial` la resuelve en su propio `start()`,
+  // que corre después.
+  //
+  // El ancla puede estar vacía, y en producción hoy lo está: `DEC-011` mantiene
+  // `BLOCKED` la emisión real y prohíbe autofirmados como sustituto. Un ancla
+  // vacía significa `session.activate` fallando cerrado, que es el
+  // comportamiento correcto mientras nadie haya provisto confianza.
   const commercial = new CommercialComponent(
     config,
     localDatabase,
     durableSync,
-    new Map(),
+    () => security.trustAnchors.keysFor("SESSION_ASSERTION"),
     () => new Date(),
     paymentProvider,
   );
@@ -182,6 +189,16 @@ try {
   logger.log("info", "payments.provider", paymentProvider === undefined
     ? { configured: false, reason: "NOT_PROVISIONED" }
     : { configured: true, provider_code: "WOMPI" });
+  // Cuántas anclas utilizables hay por propósito. Nunca qué claves son: el
+  // recuento es operativo —dice si este equipo puede llegar a autenticar a
+  // alguien— y no revela qué `key_id` existen. Un cero aquí explica por qué
+  // `session.activate` responde `SIGNATURE_INVALID` a todo.
+  logger.log("info", "security.trust_anchors", Object.fromEntries(
+    TRUST_ANCHOR_PURPOSES.map((purpose) => [
+      purpose.toLowerCase(),
+      security.trustAnchors.usableCount(purpose),
+    ]),
+  ));
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
     installation_id: config.installation_id,
