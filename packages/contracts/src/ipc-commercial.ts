@@ -620,6 +620,181 @@ export const PaymentGetResultSchema = z.strictObject({
 
 export const PaymentGetResponseSchema = createResponseEnvelopeSchema(PaymentGetResultSchema);
 
+// ── credit.account.open ──────────────────────────────────────────────────────
+
+/**
+ * Cuenta de crédito de un cliente — `DEC-005`, `CUST-002`.
+ *
+ * El cupo es **explícito y obligatorio**: no existe cupo por defecto del
+ * comercio, y no tener cuenta es no tener crédito. Fiar a alguien es una
+ * decisión deliberada por cliente, así que ninguna otra operación abre cuentas
+ * de paso.
+ *
+ * `customer_id` no es ámbito: la capa confiable comprueba que exista bajo el
+ * `tenant` del contexto verificado, nunca bajo el que diga el llamador.
+ */
+export const CreditAccountOpenRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    customer_id: UuidSchema,
+    credit_limit: NonNegativeScale6Schema,
+    currency_code: CurrencyCodeSchema,
+  }),
+).safeExtend({ message_type: z.literal("credit.account.open") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CreditAccountOpenResultSchema = z.strictObject({
+  outcome: z.enum([
+    "OPENED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "CUSTOMER_NOT_FOUND",
+    "ACCOUNT_ALREADY_EXISTS",
+    "CURRENCY_MISMATCH",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  account_id: UuidSchema.nullable(),
+});
+
+export const CreditAccountOpenResponseSchema = createResponseEnvelopeSchema(CreditAccountOpenResultSchema);
+
+// ── credit.account.get ───────────────────────────────────────────────────────
+
+/**
+ * Cupo, saldo y disponible de un cliente.
+ *
+ * Los tres salen del libro: el saldo es `Σ(INCREASE) − Σ(DECREASE)` recomputado
+ * al leer, no una columna. El llamador no puede aportarlos ni corregirlos.
+ */
+export const CreditAccountGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("credit.account.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CreditAccountGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "CREDIT_ACCOUNT_NOT_FOUND", "UNAUTHORIZED"]),
+  account_id: UuidSchema.nullable(),
+  customer_id: UuidSchema.nullable(),
+  credit_limit: NonNegativeScale6Schema.nullable(),
+  outstanding_balance: NonNegativeScale6Schema.nullable(),
+  available_credit: NonNegativeScale6Schema.nullable(),
+  currency_code: CurrencyCodeSchema.nullable(),
+});
+
+export const CreditAccountGetResponseSchema = createResponseEnvelopeSchema(CreditAccountGetResultSchema);
+
+// ── payment.register.credit ──────────────────────────────────────────────────
+
+/**
+ * Venta a crédito — `DEC-005`.
+ *
+ * No es un cobro paralelo: recorre el mismo `Payment` que el efectivo, con su
+ * misma imputación y su misma finalización de venta. Lo que cambia es que el
+ * crédito **no es efectivo recibido**, así que no exige turno ni asienta en
+ * caja, y que la obligación queda registrada en el libro del cliente.
+ *
+ * El importe viaja; el cupo **no**. Lo recomputa la capa confiable desde el
+ * libro, dentro de la misma transacción que registra la deuda: un cupo enviado
+ * por el llamador sería exactamente lo que el rechazo duro existe para impedir.
+ */
+export const PaymentRegisterCreditRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    amount: PositiveScale6Schema,
+  }),
+).safeExtend({ message_type: z.literal("payment.register.credit") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentRegisterCreditResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CONFIRMED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "SALE_NOT_FOUND",
+    "SALE_NOT_PAYABLE",
+    "SALE_ALREADY_COMPLETED",
+    "CURRENCY_MISMATCH",
+    "OVERPAYMENT_NOT_ALLOWED",
+    "INSUFFICIENT_STOCK",
+    /** La venta no nombra adquiriente: `DEC-002` §159 lo exige para fiar. */
+    "CUSTOMER_REQUIRED",
+    "CREDIT_ACCOUNT_NOT_FOUND",
+    /** Rechazo duro: el saldo nunca puede superar el cupo. Sin override. */
+    "CREDIT_LIMIT_EXCEEDED",
+    /** El despliegue no tiene crédito cableado. */
+    "CREDIT_NOT_AVAILABLE",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  payment_id: UuidSchema.nullable(),
+  sale_completed: z.boolean().nullable(),
+  confirmed_coverage: NonNegativeScale6Schema.nullable(),
+  payable_amount: NonNegativeScale6Schema.nullable(),
+  /** Sólo en `CREDIT_LIMIT_EXCEEDED`: cuánto quedaba de verdad. */
+  available_credit: NonNegativeScale6Schema.nullable(),
+});
+
+export const PaymentRegisterCreditResponseSchema = createResponseEnvelopeSchema(PaymentRegisterCreditResultSchema);
+
+// ── credit.payment.register ──────────────────────────────────────────────────
+
+/**
+ * Abono de un cliente contra su deuda.
+ *
+ * **No es el pago de una venta.** Las ventas que originaron la deuda ya se
+ * completaron al fiarlas; esto reduce el saldo y libera cupo. Por eso no crea
+ * `Payment` ni imputa cobertura.
+ *
+ * En efectivo entra al cajón como `CASH_PAYMENT` y exige turno abierto en la
+ * caja que se nombre — el mismo selector de `DEC-012` §25.2 que usa la venta,
+ * no uno nuevo por sucursal.
+ */
+export const CreditPaymentRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    customer_id: UuidSchema,
+    amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+    method: z.enum(["CASH", "TRANSFER"]),
+    cash_register_id: UuidSchema.nullable(),
+    business_date: BusinessDateSchema,
+  }),
+).safeExtend({ message_type: z.literal("credit.payment.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+    if (request.payload.method === "CASH" && request.payload.cash_register_id === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "cash_register_id"],
+        message: "a cash repayment must name the register where the money enters",
+      });
+    }
+  });
+
+export const CreditPaymentRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "RECORDED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "CREDIT_ACCOUNT_NOT_FOUND",
+    "CURRENCY_MISMATCH",
+    /** Un abono mayor que la deuda crearía saldo a favor: fuera de alcance. */
+    "REPAYMENT_EXCEEDS_BALANCE",
+    "CASH_SHIFT_MISSING",
+    "CASH_SHIFT_NOT_OPEN",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  transaction_id: UuidSchema.nullable(),
+  outstanding_balance: NonNegativeScale6Schema.nullable(),
+  available_credit: NonNegativeScale6Schema.nullable(),
+});
+
+export const CreditPaymentRegisterResponseSchema = createResponseEnvelopeSchema(CreditPaymentRegisterResultSchema);
+
 // ── customer.register ────────────────────────────────────────────────────────
 
 /**

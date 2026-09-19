@@ -409,6 +409,34 @@ export class SqliteCashShiftStore {
    * cubre el índice único, no `version`.
    */
   appendCashSale(input: AppendCashSaleInput): AppendCashSaleOutcome {
+    return this.appendIncomingCash("CASH_SALE", input);
+  }
+
+  /**
+   * Asienta un `CASH_PAYMENT` / `IN` / `POSTED`: el abono en efectivo de un
+   * cliente contra su deuda (`DEC-005`).
+   *
+   * Es dinero que entra al cajón como cualquier otro, así que entra en el
+   * pliegue de `expectedCash` del cierre sin que el cierre conozca el crédito.
+   * Lo único que lo distingue de una venta es el `movement_type`, que
+   * `cash_movement` ya admitía desde el origen: no hay esquema nuevo.
+   */
+  appendCreditRepayment(input: AppendCashSaleInput): AppendCashSaleOutcome {
+    return this.appendIncomingCash("CASH_PAYMENT", input);
+  }
+
+  /**
+   * El asiento de entrada de efectivo, compartido por sus dos motivos.
+   *
+   * `movementType` es lo único que varía, y llega de este almacén —nunca del
+   * llamador—: un puerto que pudiera elegir el tipo de movimiento dejaría que
+   * Payments o Credit escribieran caja con la semántica que quisieran, que es
+   * justo lo que `DEC-016` §10 impide.
+   */
+  private appendIncomingCash(
+    movementType: "CASH_SALE" | "CASH_PAYMENT",
+    input: AppendCashSaleInput,
+  ): AppendCashSaleOutcome {
     const nowIso = this.now().toISOString();
 
     const shift = this.database.native.prepare(
@@ -438,7 +466,7 @@ export class SqliteCashShiftStore {
         version, created_at, server_recorded_at
       ) VALUES (
         ?,?,?,?,?,?,
-        ?,'CASH_SALE','IN',?,?,'POSTED',
+        ?,?,'IN',?,?,'POSTED',
         NULL,?,NULL,
         'USER',?,
         NULL,NULL,
@@ -454,6 +482,7 @@ export class SqliteCashShiftStore {
       shift.cash_register_id,
       input.cashShiftId,
       shiftSequence,
+      movementType,
       input.amount,
       input.currencyCode,
       input.reasonCode,

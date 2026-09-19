@@ -112,7 +112,12 @@ export class RegisterTransferPaymentUseCase {
     if (outcome.kind === "OVERPAYMENT_NOT_ALLOWED"
       || outcome.kind === "CASH_SHIFT_MISSING"
       || outcome.kind === "CASH_SHIFT_NOT_OPEN"
-      || outcome.kind === "PROVIDER_REFERENCE_REQUIRED") {
+      || outcome.kind === "PROVIDER_REFERENCE_REQUIRED"
+      // Exclusivos de `CUSTOMER_CREDIT`: este medio no los puede producir.
+      || outcome.kind === "CUSTOMER_REQUIRED"
+      || outcome.kind === "CREDIT_ACCOUNT_NOT_FOUND"
+      || outcome.kind === "CREDIT_LIMIT_EXCEEDED"
+      || outcome.kind === "CREDIT_NOT_AVAILABLE") {
       throw new Error(`unreachable outcome for transfer registration: ${outcome.kind}`);
     }
     return outcome;

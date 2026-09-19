@@ -3,6 +3,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 import type { CashPort } from "./cash-port.js";
 import type { InventoryPort } from "./inventory-port.js";
+import type { CreditPort } from "./credit-port.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import { firstQueryAt } from "./uncertain-payment-sweep-policy.js";
 
@@ -28,13 +29,14 @@ const PAYMENT_PAYLOAD_SCHEMA_VERSION = "1.0.0";
 /** Estados de venta desde los que V1 admite recibir pago. */
 const PAYABLE_SALE_STATUSES = new Set(["READY_FOR_PAYMENT", "PAYMENT_IN_PROGRESS"]);
 
-export type PaymentMethod = "CASH" | "TRANSFER" | "QR";
+export type PaymentMethod = "CASH" | "TRANSFER" | "QR" | "CUSTOMER_CREDIT";
 
 interface SaleRow {
   status: string;
   currency_code: string;
   payable_amount: string;
   cash_shift_id: string | null;
+  customer_id: string | null;
   version: number;
 }
 
@@ -95,6 +97,8 @@ interface CommonInput {
 
 export interface RegisterPaymentInput extends CommonInput {
   readonly saleId: string;
+  /** Identidad del movimiento del libro de crédito. Sólo `CUSTOMER_CREDIT`. */
+  readonly creditTransactionId?: string;
   readonly amount: string;
   readonly method: PaymentMethod;
   /** Sólo efectivo, forense (`DEC-016` §10.5). */
@@ -232,6 +236,12 @@ export type RegisterPaymentOutcome =
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
   | { readonly kind: "PROVIDER_REFERENCE_REQUIRED" }
+  /** La venta no nombra adquiriente: `DEC-002` §159 lo exige para fiar. */
+  | { readonly kind: "CUSTOMER_REQUIRED" }
+  | { readonly kind: "CREDIT_ACCOUNT_NOT_FOUND" }
+  | { readonly kind: "CREDIT_LIMIT_EXCEEDED"; readonly availableCredit: string }
+  /** El despliegue no tiene crédito cableado. */
+  | { readonly kind: "CREDIT_NOT_AVAILABLE" }
   | InsufficientStockOutcome;
 
 export type ConfirmTransferOutcome =
@@ -368,6 +378,12 @@ export class SqlitePaymentStore {
     private readonly cashPort: CashPort,
     private readonly inventoryPort: InventoryPort,
     private readonly now: () => Date = () => new Date(),
+    /**
+     * Sólo hace falta para `CUSTOMER_CREDIT`. Sin él, registrar una venta a
+     * crédito devuelve `CREDIT_NOT_AVAILABLE` en vez de fallar: un despliegue
+     * que no fía sigue cobrando efectivo, transferencia y QR exactamente igual.
+     */
+    private readonly creditPort?: CreditPort,
   ) {}
 
   // ── Lecturas ────────────────────────────────────────────────────────────────
@@ -418,7 +434,7 @@ export class SqlitePaymentStore {
 
   private loadSale(tenantId: string, saleId: string): SaleRow | undefined {
     return this.database.native.prepare(
-      `SELECT status, currency_code, payable_amount, cash_shift_id, version
+      `SELECT status, currency_code, payable_amount, cash_shift_id, customer_id, version
        FROM sales_sales WHERE tenant_id=? AND id=?`,
     ).get(tenantId, saleId) as SaleRow | undefined;
   }
@@ -738,23 +754,66 @@ export class SqlitePaymentStore {
       // 3. Cobertura: el sobrepago se impide ANTES de confirmar (DEC-002).
       const amount = scale6ToBigInt(input.amount);
       const payable = scale6ToBigInt(sale.payable_amount);
-      const confirming = input.method === "CASH";
+
+      // `confirmsCoverage` y `settlesInCash` eran el mismo booleano hasta
+      // `DEC-005`, porque el único medio que confirmaba en el acto era el
+      // efectivo. Ya no: el crédito **confirma cobertura** —la venta se
+      // completa y la mercancía sale— pero **no liquida en efectivo**, así que
+      // ni exige turno ni asienta en caja (`DEC-002` §146 regla 10: la caja
+      // sólo registra efectivo realmente recibido).
+      const onCredit = input.method === "CUSTOMER_CREDIT";
+      const settlesInCash = input.method === "CASH";
+      const confirmsCoverage = settlesInCash || onCredit;
       const providerAuthoritative = input.method === "QR";
+
       if (providerAuthoritative && (input.providerCode === null || input.providerReference === null)) {
         return { kind: "PROVIDER_REFERENCE_REQUIRED" };
       }
-      if (confirming && this.confirmedCoverage(input.scope.tenantId, input.saleId) + amount > payable) {
+      if (confirmsCoverage && this.confirmedCoverage(input.scope.tenantId, input.saleId) + amount > payable) {
         return { kind: "OVERPAYMENT_NOT_ALLOWED" };
       }
 
-      // 4. Efectivo: exige turno abierto ANTES de escribir nada.
-      if (confirming) {
+      // 4a. Efectivo: exige turno abierto ANTES de escribir nada.
+      if (settlesInCash) {
         if (sale.cash_shift_id === null) return { kind: "CASH_SHIFT_MISSING" };
       }
 
+      // 4b. Crédito: las condiciones de `DEC-002` §159, todas antes de escribir.
+      //
+      // El cupo se comprueba aquí dentro y con el saldo recomputado desde el
+      // libro: entre leerlo fuera y escribir cabría otra venta a crédito del
+      // mismo cliente, y el cupo es precisamente lo que no puede excederse.
+      let creditAccountId: string | null = null;
+      if (onCredit) {
+        if (this.creditPort === undefined) return { kind: "CREDIT_NOT_AVAILABLE" };
+        if (sale.customer_id === null) return { kind: "CUSTOMER_REQUIRED" };
+
+        const account = this.creditPort.findAccountByCustomer(input.scope, sale.customer_id);
+        if (account === null) return { kind: "CREDIT_ACCOUNT_NOT_FOUND" };
+        if (account.currencyCode !== sale.currency_code) return { kind: "CURRENCY_MISMATCH" };
+
+        const outstanding = this.creditPort.outstandingBalance(input.scope, account.accountId);
+        const limit = scale6ToBigInt(account.creditLimit);
+        if (outstanding + amount > limit) {
+          return {
+            kind: "CREDIT_LIMIT_EXCEEDED",
+            availableCredit: bigIntToScale6(limit > outstanding ? limit - outstanding : 0n),
+          };
+        }
+        creditAccountId = account.accountId;
+      }
+
       const group = this.ensureGroup(input, sale, nowIso);
-      const status = confirming ? "CONFIRMED" : providerAuthoritative ? "PENDING" : "CREATED";
-      const resultCode = confirming ? "PAYMENT_CONFIRMED" : "PAYMENT_REGISTERED";
+      const status = confirmsCoverage ? "CONFIRMED" : providerAuthoritative ? "PENDING" : "CREATED";
+      const resultCode = confirmsCoverage ? "PAYMENT_CONFIRMED" : "PAYMENT_REGISTERED";
+      // `MANUAL_ATTESTATION` y no un valor nuevo: el `CHECK` vive en dos tablas
+      // con hijas y SQLite no amplía un `CHECK` sin reconstruirlas, mientras
+      // que **nadie lee** esta columna —sólo se escribe— y `payment_method` ya
+      // distingue el crédito sin ambigüedad. Un usuario con permiso de crédito
+      // que acepta una obligación es exactamente una atestación manual.
+      const authority = settlesInCash
+        ? "LOCAL_DEVICE"
+        : providerAuthoritative ? "EXTERNAL_PROVIDER_AUTHORITATIVE" : "MANUAL_ATTESTATION";
 
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, resultCode, nowIso);
 
@@ -782,15 +841,15 @@ export class SqlitePaymentStore {
         )`,
       ).run(
         input.paymentId, input.scope.tenantId, input.scope.companyId, input.scope.branchId, group,
-        input.method, confirming ? "LOCAL_DEVICE" : providerAuthoritative ? "EXTERNAL_PROVIDER_AUTHORITATIVE" : "MANUAL_ATTESTATION", status,
-        input.amount, confirming ? input.amount : "0.000000",
+        input.method, authority, status,
+        input.amount, confirmsCoverage ? input.amount : "0.000000",
         input.tenderedAmount, input.changeAmount, sale.currency_code,
         input.scope.deviceId, input.scope.installationId,
         input.operatorUserId,
-        confirming ? "USER" : null, confirming ? input.operatorUserId : null,
+        confirmsCoverage ? "USER" : null, confirmsCoverage ? input.operatorUserId : null,
         input.providerCode, input.providerReference,
         input.operationId, input.idempotencyKey, input.requestChecksum, input.correlationId, input.causationId,
-        nowIso, confirming ? nowIso : null,
+        nowIso, confirmsCoverage ? nowIso : null,
       );
 
       this.database.native.prepare(
@@ -805,19 +864,19 @@ export class SqlitePaymentStore {
       ).run(
         input.attemptId, input.scope.tenantId, input.scope.companyId, input.scope.branchId,
         input.paymentId,
-        input.method, confirming ? "LOCAL_DEVICE" : providerAuthoritative ? "EXTERNAL_PROVIDER_AUTHORITATIVE" : "MANUAL_ATTESTATION", status,
+        input.method, authority, status,
         input.amount, sale.currency_code,
         input.providerCode,
         input.providerReference === null ? null : providerAuthoritative ? "PROVIDER_INTENT" : "MANUAL_REFERENCE",
         input.providerReference,
-        confirming ? input.operatorUserId : null,
+        confirmsCoverage ? input.operatorUserId : null,
         `attempt:${input.idempotencyKey}`, input.requestChecksum, input.correlationId, input.causationId,
-        nowIso, confirming ? nowIso : null,
+        nowIso, confirmsCoverage ? nowIso : null,
       );
 
       const saleVersion = this.beginPaymentOnSale(input.scope.tenantId, input.saleId, sale);
 
-      if (!confirming) {
+      if (!confirmsCoverage) {
         const details = { amount: input.amount, method: input.method, payment_id: input.paymentId, sale_id: input.saleId };
         this.writeAudit(input, "PAYMENT_REGISTERED", "PAYMENT", input.paymentId, details, nowIso);
         this.enqueue(
@@ -830,8 +889,46 @@ export class SqlitePaymentStore {
       // Imputación: la cobertura sólo existe a través de esta fila.
       this.insertAllocation(input.scope.tenantId, input.allocationId, group, input.paymentId, input.saleId, input.amount, sale.currency_code, nowIso);
 
-      // Caja: por puerto, jamás escritura directa.
-      const posted = this.cashPort.appendCashSale({
+      // Libro de crédito: la obligación nace en la misma transacción que
+      // confirma el pago que la origina. Si una se escribiera sin la otra, el
+      // comercio habría entregado mercancía que nadie debe.
+      if (onCredit && creditAccountId !== null && this.creditPort !== undefined) {
+        this.creditPort.appendTransaction({
+          scope: input.scope,
+          transactionId: input.creditTransactionId as string,
+          accountId: creditAccountId,
+          transactionType: "SALE_CREDIT",
+          direction: "INCREASE",
+          amount: input.amount,
+          currencyCode: sale.currency_code,
+          saleId: input.saleId,
+          paymentId: input.paymentId,
+          actorId: input.operatorUserId,
+          idempotencyKey: `credit_sale:${input.idempotencyKey}`,
+          requestChecksum: input.requestChecksum,
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+          nowIso,
+        });
+
+        const creditDetails = {
+          account_id: creditAccountId,
+          amount: input.amount,
+          customer_id: sale.customer_id,
+          payment_id: input.paymentId,
+          sale_id: input.saleId,
+        };
+        this.writeAudit(input, "CREDIT_SALE_RECORDED", "CREDIT_ACCOUNT", creditAccountId, creditDetails, nowIso);
+        this.enqueue(
+          input, input.creditTransactionId as string, `credit_sale:${input.idempotencyKey}`,
+          "CREDIT_ACCOUNT", creditAccountId, "CREDIT_SALE_RECORDED", creditDetails,
+          input.requestChecksum, nowIso,
+        );
+      }
+
+      // Caja: por puerto, jamás escritura directa. **Sólo el efectivo.** El
+      // crédito no crea efectivo ficticio (`UC-PAY-004` §1156 regla 9).
+      const posted = settlesInCash ? this.cashPort.appendCashSale({
         scope: input.scope,
         movementId: input.movementId,
         cashShiftId: sale.cash_shift_id as string,
@@ -843,17 +940,17 @@ export class SqlitePaymentStore {
         requestChecksum: input.requestChecksum,
         correlationId: input.correlationId,
         reasonCode: "CASH_SALE",
-      });
+      }) : null;
 
       // Se lanza, no se retorna: en este punto ya hay filas escritas y sólo una
       // excepción revierte la transacción.
-      if (posted.kind === "SHIFT_NOT_OPEN") {
+      if (posted !== null && posted.kind === "SHIFT_NOT_OPEN") {
         throw new PaymentRollback<RegisterPaymentOutcome>({ kind: "CASH_SHIFT_NOT_OPEN" });
       }
-      if (posted.kind === "SHIFT_NOT_FOUND") {
+      if (posted !== null && posted.kind === "SHIFT_NOT_FOUND") {
         throw new PaymentRollback<RegisterPaymentOutcome>({ kind: "CASH_SHIFT_MISSING" });
       }
-      if (posted.kind === "CURRENCY_MISMATCH") {
+      if (posted !== null && posted.kind === "CURRENCY_MISMATCH") {
         throw new PaymentRollback<RegisterPaymentOutcome>({ kind: "CURRENCY_MISMATCH" });
       }
 

@@ -37,6 +37,11 @@ import { SweepUncertainProviderPaymentsUseCase } from "../payments/sweep-uncerta
 import { QueryProviderForUncertainPaymentUseCase } from "../payments/query-provider-for-uncertain-payment-use-case.js";
 import type { PaymentProviderPort } from "../payments/payment-provider-port.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
+import { SqliteCreditStore } from "../credit/sqlite-credit-store.js";
+import { OpenCreditAccountUseCase } from "../credit/open-credit-account-use-case.js";
+import { GetCreditAccountUseCase } from "../credit/get-credit-account-use-case.js";
+import { RegisterCreditPaymentUseCase } from "../credit/register-credit-payment-use-case.js";
+import { RegisterCreditRepaymentUseCase } from "../credit/register-credit-repayment-use-case.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
 
@@ -76,6 +81,10 @@ export class CommercialComponent implements RuntimeComponent {
         readonly registerQrPayment: RegisterQrPaymentUseCase | undefined;
         readonly sweepUncertainProviderPayments: SweepUncertainProviderPaymentsUseCase | undefined;
         readonly queryProviderForUncertainPayment: QueryProviderForUncertainPaymentUseCase | undefined;
+        readonly openCreditAccount: OpenCreditAccountUseCase;
+        readonly getCreditAccount: GetCreditAccountUseCase;
+        readonly registerCreditPayment: RegisterCreditPaymentUseCase;
+        readonly registerCreditRepayment: RegisterCreditRepaymentUseCase;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
@@ -129,6 +138,10 @@ export class CommercialComponent implements RuntimeComponent {
   get queryProviderForUncertainPayment(): QueryProviderForUncertainPaymentUseCase | undefined {
     return this.ready.queryProviderForUncertainPayment;
   }
+  get openCreditAccount(): OpenCreditAccountUseCase { return this.ready.openCreditAccount; }
+  get getCreditAccount(): GetCreditAccountUseCase { return this.ready.getCreditAccount; }
+  get registerCreditPayment(): RegisterCreditPaymentUseCase { return this.ready.registerCreditPayment; }
+  get registerCreditRepayment(): RegisterCreditRepaymentUseCase { return this.ready.registerCreditRepayment; }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
@@ -159,7 +172,14 @@ export class CommercialComponent implements RuntimeComponent {
     // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
-    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
+    // `SqliteCashShiftStore` satisface también `CreditCashPort`: el abono en
+    // efectivo entra al cajón por el mismo puerto, con otro motivo.
+    const creditStore = new SqliteCreditStore(database, sync, cashShiftStore, this.now);
+    // El crédito entra en Payments por un puerto, igual que caja e inventario:
+    // `credit/` nunca importa de `payments/`.
+    const paymentStore = new SqlitePaymentStore(
+      database, sync, cashShiftStore, inventoryStore, this.now, creditStore,
+    );
     const confirmProviderPayment = new ConfirmProviderPaymentUseCase(paymentStore);
     // Una sola resolución para las dos vías que pueden traer evidencia del
     // proveedor. No hay un segundo camino por el que un `UNKNOWN` acabe
@@ -210,6 +230,10 @@ export class CommercialComponent implements RuntimeComponent {
             resolveUncertainProviderPayment,
           ),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
+      openCreditAccount: new OpenCreditAccountUseCase(creditStore, this.now),
+      getCreditAccount: new GetCreditAccountUseCase(creditStore, this.now),
+      registerCreditPayment: new RegisterCreditPaymentUseCase(paymentStore, this.now),
+      registerCreditRepayment: new RegisterCreditRepaymentUseCase(creditStore, this.now),
       getCustomer: new GetCustomerUseCase(customerStore),
     };
   }

@@ -135,6 +135,13 @@ export class RegisterCashPaymentUseCase {
       throw new Error("cash payment must confirm on registration");
     }
     if (outcome.kind === "PROVIDER_REFERENCE_REQUIRED") throw new Error("cash payment cannot require provider reference");
+    if (outcome.kind === "CUSTOMER_REQUIRED"
+      || outcome.kind === "CREDIT_ACCOUNT_NOT_FOUND"
+      || outcome.kind === "CREDIT_LIMIT_EXCEEDED"
+      || outcome.kind === "CREDIT_NOT_AVAILABLE") {
+      // Exclusivos de `CUSTOMER_CREDIT`: el efectivo no los puede producir.
+      throw new Error(`unreachable outcome for cash registration: ${outcome.kind}`);
+    }
     return outcome;
   }
 }

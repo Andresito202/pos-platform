@@ -115,6 +115,10 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "payment.transfer.confirm":
       case "payment.cancel":
       case "payment.get":
+      case "payment.register.credit":
+      case "credit.account.open":
+      case "credit.account.get":
+      case "credit.payment.register":
       case "customer.register":
       case "customer.get":
       case "customer.find":

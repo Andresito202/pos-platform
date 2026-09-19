@@ -1415,6 +1415,133 @@ ALTER TABLE sales_sales
   CHECK(customer_id IS NULL OR length(customer_id) = 36);
 `.trim();
 
+/**
+ * `MIGRATION_020` — el fiado tiene dónde vivir (`CUST-002` / `PAY-009`).
+ *
+ * `DEC-005` ratificó la política: el crédito **cubre** la venta —de modo que
+ * `completeSaleIfCovered` la completa y la mercancía sale— y la obligación se
+ * registra **aparte**. Estas dos tablas son ese «aparte», y nada más.
+ *
+ * ## El saldo no se guarda
+ *
+ * No hay columna de saldo. Se deriva sumando el libro:
+ * `Σ(INCREASE) − Σ(DECREASE)`, recomputado dentro de la transacción que va a
+ * escribir. Es la misma elección que `DEC-016` §5.5 hizo para la cobertura de
+ * una venta, y por la misma razón: un saldo guardado y un libro pueden
+ * discrepar, y cuando discrepan sobre dinero ajeno nadie sabe cuál miente.
+ * Inventario eligió lo contrario —`inventory_stock.quantity_on_hand`— porque su
+ * lectura ocurre por línea de venta y sus movimientos son muchos; el libro de
+ * un cliente de barrio tiene decenas de filas y `..._account_idx` hace la suma
+ * trivial.
+ *
+ * ## Lo que estas tablas deliberadamente NO tienen
+ *
+ * - **`status` en la cuenta.** No tener cuenta *es* no tener crédito; ése es el
+ *   interruptor. Suspender conservando el saldo es una necesidad real y es de
+ *   `CUST-003`; añadir el estado ahora sería inventar una máquina que nadie
+ *   pidió y que ningún caso de uso recorre.
+ * - **Tipos de movimiento más allá de dos.** `SALE_CREDIT` origina la deuda,
+ *   `CUSTOMER_PAYMENT` la reduce. Ajuste y reversión quedan fuera: la ruta de
+ *   reembolso contra crédito es `UC-PAY-004` §661 y está diferida, y anular una
+ *   venta sigue bloqueado por `D-22`. Un `ADJUSTMENT` sin caso de uso es la
+ *   puerta que `D-21` ya señala como abusable.
+ * - **Intereses, mora, antigüedad.** Materializar el saldo es un paso;
+ *   envejecerlo y cobrarlo son otros.
+ *
+ * ## Append-only por contrato
+ *
+ * `customers_credit_transactions` no se actualiza ni se borra: el almacén no
+ * emite `UPDATE` ni `DELETE` contra ella. Es la misma disciplina que
+ * `cash_movement` e `inventory_movement`, que tampoco llevan triggers. Los
+ * triggers `no_update`/`no_delete` existen en el repo para auditoría, inbox y
+ * snapshots; ponerlos sólo en este libro y no en los otros dos libros de dinero
+ * crearía una asimetría que confunde más de lo que protege. Si se quieren, van
+ * en los tres a la vez, y eso es otro bloque.
+ *
+ * ## Las claves foráneas sí son compuestas
+ *
+ * Tablas nuevas, así que la FK compuesta cabe dentro del `CREATE TABLE`: la
+ * limitación que obligó a `D-27` sólo afecta a `ALTER TABLE ADD COLUMN`. Aquí
+ * el aislamiento por tenant es estructural, no de aplicación.
+ */
+const MIGRATION_020 = `
+CREATE TABLE customers_credit_accounts (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  customer_id TEXT NOT NULL CHECK(length(customer_id) = 36),
+  credit_limit TEXT NOT NULL
+    CHECK(credit_limit GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(credit_limit NOT GLOB '*[^0-9.]*')
+    CHECK(length(credit_limit) - length(replace(credit_limit, '.', '')) = 1)
+    CHECK(credit_limit NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  opened_by_actor_type TEXT NOT NULL CHECK(opened_by_actor_type = 'USER'),
+  opened_by_actor_id TEXT NOT NULL CHECK(length(opened_by_actor_id) = 36),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, customer_id) REFERENCES customers_customers(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX customers_credit_accounts_customer_idx
+  ON customers_credit_accounts(tenant_id, customer_id);
+CREATE UNIQUE INDEX customers_credit_accounts_idempotency_idx
+  ON customers_credit_accounts(tenant_id, origin_device_id, idempotency_key);
+
+CREATE TABLE customers_credit_transactions (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  credit_account_id TEXT NOT NULL CHECK(length(credit_account_id) = 36),
+  account_sequence INTEGER NOT NULL CHECK(account_sequence > 0),
+  transaction_type TEXT NOT NULL CHECK(transaction_type IN (
+    'SALE_CREDIT','CUSTOMER_PAYMENT')),
+  direction TEXT NOT NULL CHECK(direction IN ('INCREASE','DECREASE')),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*')
+    CHECK(amount <> '0.000000'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  sale_id TEXT CHECK(sale_id IS NULL OR length(sale_id) = 36),
+  payment_id TEXT CHECK(payment_id IS NULL OR length(payment_id) = 36),
+  actor_type TEXT NOT NULL CHECK(actor_type = 'USER'),
+  actor_id TEXT NOT NULL CHECK(length(actor_id) = 36),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  created_at TEXT NOT NULL,
+  server_recorded_at TEXT,
+  CHECK(transaction_type <> 'SALE_CREDIT' OR direction = 'INCREASE'),
+  CHECK(transaction_type <> 'CUSTOMER_PAYMENT' OR direction = 'DECREASE'),
+  CHECK(transaction_type <> 'SALE_CREDIT' OR (sale_id IS NOT NULL AND payment_id IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, credit_account_id) REFERENCES customers_credit_accounts(tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_id) REFERENCES sales_sales(tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX customers_credit_transactions_sequence_idx
+  ON customers_credit_transactions(tenant_id, credit_account_id, account_sequence);
+CREATE UNIQUE INDEX customers_credit_transactions_idempotency_idx
+  ON customers_credit_transactions(tenant_id, origin_device_id, idempotency_key);
+CREATE INDEX customers_credit_transactions_account_idx
+  ON customers_credit_transactions(tenant_id, credit_account_id);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1435,6 +1562,7 @@ const MIGRATIONS = [
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
   { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
   { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
+  { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
 ] as const;
 
 /**

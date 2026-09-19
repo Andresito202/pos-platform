@@ -107,6 +107,8 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE catalog_presentation;
       DROP TABLE catalog_product;
       DROP TABLE catalog_fiscal_attribute;
+      DROP TABLE customers_credit_transactions;
+      DROP TABLE customers_credit_accounts;
       DROP TABLE customers_customers;
       DROP TABLE payments_payment_allocations;
       DROP TABLE payments_payment_attempts;

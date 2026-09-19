@@ -16,6 +16,8 @@ type CommercialRequest = Extract<
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer" | "payment.register.qr"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
+      | "payment.register.credit"
+      | "credit.account.open" | "credit.account.get" | "credit.payment.register"
       | "customer.register" | "customer.get" | "customer.find"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
@@ -178,6 +180,10 @@ export class CommercialRequestHandler {
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
       case "payment.cancel": return this.cancelPayment(request, connectionId);
       case "payment.get": return this.getPayment(request, connectionId);
+      case "payment.register.credit": return this.registerCreditPayment(request, connectionId);
+      case "credit.account.open": return this.openCreditAccount(request, connectionId);
+      case "credit.account.get": return this.getCreditAccount(request, connectionId);
+      case "credit.payment.register": return this.registerCreditRepayment(request, connectionId);
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
@@ -441,6 +447,182 @@ export class CommercialRequestHandler {
       return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     }
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  // ── crédito al cliente (`DEC-005`) ─────────────────────────────────────────
+
+  /**
+   * `payment.register.credit` — la venta a fiado.
+   *
+   * El cupo no viaja en la petición y el saldo tampoco: los recomputa la capa
+   * confiable desde el libro, dentro de la transacción que registra la deuda.
+   */
+  private registerCreditPayment(
+    request: Extract<CommercialRequest, { message_type: "payment.register.credit" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      payment_id: null, sale_completed: null, confirmed_coverage: null,
+      payable_amount: null, available_credit: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.registerCreditPayment.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: request.payload.sale_id,
+        amount: request.payload.amount,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "CONFIRMED") {
+      return succeeded(request, "CONFIRMED", {
+        outcome: "CONFIRMED",
+        payment_id: result.paymentId,
+        sale_completed: result.saleCompleted,
+        confirmed_coverage: result.confirmedCoverage,
+        payable_amount: result.payableAmount,
+        available_credit: null,
+      });
+    }
+    if (result.kind === "IDEMPOTENT") {
+      return succeeded(request, "IDEMPOTENT", {
+        outcome: "IDEMPOTENT", ...empty, payment_id: result.paymentId,
+      });
+    }
+    if (result.kind === "CREDIT_LIMIT_EXCEEDED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, ...empty, available_credit: result.availableCredit,
+      });
+    }
+    // `REGISTERED` es inalcanzable: el crédito confirma siempre. Que llegue
+    // aquí sería el mismo defecto que un efectivo sin confirmar.
+    if (result.kind === "REGISTERED") {
+      throw new Error("credit payment must confirm on registration");
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  /** `credit.account.open` — el cupo explícito de un cliente. */
+  private openCreditAccount(
+    request: Extract<CommercialRequest, { message_type: "credit.account.open" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", account_id: null });
+    }
+
+    const result = this.commercial.openCreditAccount.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        customerId: request.payload.customer_id,
+        creditLimit: request.payload.credit_limit,
+        currencyCode: request.payload.currency_code,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "OPENED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, { outcome: result.kind, account_id: result.accountId });
+    }
+    if (result.kind === "ACCOUNT_ALREADY_EXISTS") {
+      return rejected(request, result.kind, { outcome: result.kind, account_id: result.accountId });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, account_id: null });
+  }
+
+  /** `credit.account.get` — cupo, saldo derivado y disponible. */
+  private getCreditAccount(
+    request: Extract<CommercialRequest, { message_type: "credit.account.get" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      account_id: null, customer_id: null, credit_limit: null,
+      outstanding_balance: null, available_credit: null, currency_code: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.getCreditAccount.execute(
+      this.scope(),
+      authenticated.snapshot,
+      { customerId: request.payload.customer_id },
+    );
+
+    if (result.kind === "FOUND") {
+      return succeeded(request, "FOUND", {
+        outcome: "FOUND",
+        account_id: result.account.accountId,
+        customer_id: result.account.customerId,
+        credit_limit: result.account.creditLimit,
+        outstanding_balance: result.account.outstandingBalance,
+        available_credit: result.account.availableCredit,
+        currency_code: result.account.currencyCode,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  /** `credit.payment.register` — el abono. No es el cobro de una venta. */
+  private registerCreditRepayment(
+    request: Extract<CommercialRequest, { message_type: "credit.payment.register" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { transaction_id: null, outstanding_balance: null, available_credit: null };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.registerCreditRepayment.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        customerId: request.payload.customer_id,
+        amount: request.payload.amount,
+        currencyCode: request.payload.currency_code,
+        method: request.payload.method,
+        cashRegisterId: request.payload.cash_register_id,
+        businessDate: request.payload.business_date,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "RECORDED") {
+      return succeeded(request, "RECORDED", {
+        outcome: "RECORDED",
+        transaction_id: result.transactionId,
+        outstanding_balance: result.outstandingBalance,
+        available_credit: result.availableCredit,
+      });
+    }
+    if (result.kind === "IDEMPOTENT") {
+      return succeeded(request, "IDEMPOTENT", {
+        outcome: "IDEMPOTENT", ...empty, transaction_id: result.transactionId,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
   }
 
   // ── customer.register ──────────────────────────────────────────────────────
