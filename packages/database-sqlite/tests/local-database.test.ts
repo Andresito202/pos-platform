@@ -344,3 +344,136 @@ describe("MIGRATION_016 — provider_transaction_id", () => {
     }
   });
 });
+
+describe("MIGRATION_021 — el atributo fiscal cuelga del catálogo (D-17)", () => {
+  const TENANT = "018f0000-0000-7000-8000-0000000000a1";
+  const COMPANY = "018f0000-0000-7000-8000-0000000000a2";
+  const PRODUCT = "018f0000-0000-7000-8000-0000000000a3";
+  const PRESENTATION = "018f0000-0000-7000-8000-0000000000a4";
+  const AT = "2026-09-19T10:00:00.000Z";
+
+  /** Un producto y su presentación reales, que es a lo que ahora se cuelga. */
+  function seedCatalog(db: LocalDatabase): void {
+    db.native.prepare(
+      `INSERT INTO catalog_product(
+        id, tenant_id, company_id, code, name, status, stock_controlled,
+        registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+      ) VALUES (?,?,?,'CAFE-001','Cafe','ACTIVE',1,?,?,?,1,?,?)`,
+    ).run(
+      PRODUCT, TENANT, COMPANY, "018f0000-0000-7000-8000-0000000000a6",
+      `catalog:${PRODUCT}`, "018f0000-0000-7000-8000-0000000000a7", AT, AT,
+    );
+    db.native.prepare(
+      `INSERT INTO catalog_presentation(
+        id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+        status, created_at, updated_at
+      ) VALUES (?,?,?,'Bolsa','UND',0,NULL,'ACTIVE',?,?)`,
+    ).run(PRESENTATION, TENANT, PRODUCT, AT, AT);
+  }
+
+  function insertAttribute(db: LocalDatabase, tenantId: string, presentationId: string): void {
+    db.native.prepare(
+      `INSERT INTO catalog_fiscal_attribute(
+        tenant_id, presentation_id, code_reference, unit_measure_code, standard_code,
+        tax_code, tax_rate, status, created_at, updated_at
+      ) VALUES (?,?,'REF-1','UND','999','01','19.000000','ACTIVE',?,?)`,
+    ).run(tenantId, presentationId, AT, AT);
+  }
+
+  it("declara la clave ajena compuesta hacia catalog_presentation", async () => {
+    const dataDirectory = await directory();
+    const db = LocalDatabase.open({ dataDirectory });
+
+    try {
+      const keys = (db.native.pragma("foreign_key_list(catalog_fiscal_attribute)") as Array<{
+        table: string; from: string; to: string;
+      }>).map((key) => `${key.from}->${key.table}.${key.to}`);
+
+      // Compuesta con el tenant delante, como el resto del esquema: una
+      // presentación de otro comercio no resuelve.
+      expect(keys).toContain("tenant_id->catalog_presentation.tenant_id");
+      expect(keys).toContain("presentation_id->catalog_presentation.id");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("acepta el atributo de una presentación que existe", async () => {
+    const dataDirectory = await directory();
+    const db = LocalDatabase.open({ dataDirectory });
+
+    try {
+      seedCatalog(db);
+      expect(() => { insertAttribute(db, TENANT, PRESENTATION); }).not.toThrow();
+      expect(db.native.pragma("foreign_key_check")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  // La condición de cierre de `D-17`: el huérfano deja de ser posible.
+  it("rechaza un atributo que apunta a una presentación inexistente", async () => {
+    const dataDirectory = await directory();
+    const db = LocalDatabase.open({ dataDirectory });
+
+    try {
+      seedCatalog(db);
+      expect(() => { insertAttribute(db, TENANT, "018f0000-0000-7000-8000-0000000000ff"); })
+        .toThrow(/FOREIGN KEY constraint failed/i);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rechaza un atributo que apunta a la presentación de otro comercio", async () => {
+    const dataDirectory = await directory();
+    const db = LocalDatabase.open({ dataDirectory });
+
+    try {
+      seedCatalog(db);
+      // La presentación existe, pero bajo otro tenant. La clave es compuesta,
+      // así que el identificador suelto no basta.
+      expect(() => { insertAttribute(db, "018f0000-0000-7000-8000-0000000000b1", PRESENTATION); })
+        .toThrow(/FOREIGN KEY constraint failed/i);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("conserva las filas y las restricciones al reconstruir la tabla", async () => {
+    const dataDirectory = await directory();
+    const first = LocalDatabase.open({ dataDirectory });
+    seedCatalog(first);
+    insertAttribute(first, TENANT, PRESENTATION);
+    first.close();
+
+    // Reabrir vuelve a pasar por `applyMigrations`: si `021` se reaplicara, el
+    // `CREATE TABLE` fallaría por tabla duplicada.
+    const second = LocalDatabase.open({ dataDirectory });
+    try {
+      const row = second.native.prepare(
+        "SELECT tax_code, tax_rate, status FROM catalog_fiscal_attribute WHERE tenant_id=? AND presentation_id=?",
+      ).get(TENANT, PRESENTATION) as { tax_code: string; tax_rate: string; status: string };
+      expect(row).toEqual({ tax_code: "01", tax_rate: "19.000000", status: "ACTIVE" });
+
+      // Los `CHECK` sobrevivieron a la reconstrucción: la tasa sigue acotada.
+      expect(() => {
+        second.native.prepare(
+          `INSERT INTO catalog_fiscal_attribute(
+            tenant_id, presentation_id, code_reference, unit_measure_code, standard_code,
+            tax_code, tax_rate, status, created_at, updated_at
+          ) VALUES (?,?,'REF-2','UND','999','01','101.000000','ACTIVE',?,?)`,
+        ).run(TENANT, PRESENTATION, AT, AT);
+      }).toThrow();
+
+      // Y no queda rastro de la tabla intermedia.
+      expect(second.native.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+      ).get("catalog_fiscal_attribute_rebuilt")).toBeUndefined();
+
+      second.assertIntegrity();
+    } finally {
+      second.close();
+    }
+  });
+});

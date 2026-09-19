@@ -749,6 +749,16 @@ describe("venta con impuesto — caso de uso contra SQLite", () => {
 });
 
 describe("MIGRATION_013 — la tasa lleva sus restricciones en disco", () => {
+  /**
+   * El catálogo se siembra antes de cada inserción.
+   *
+   * Antes no hacía falta: `catalog_fiscal_attribute` no tenía clave ajena y
+   * un atributo huérfano entraba sin protestar —deuda `D-17`—. Desde
+   * `MIGRATION_021` sí la tiene, así que sin presentación real la inserción
+   * fallaría por la clave y no por el `CHECK` de la tasa, que es lo que estas
+   * pruebas existen para comprobar. Un rechazo por el motivo equivocado es un
+   * verde falso.
+   */
   const insertRate = (database: LocalDatabase, rate: string): void => {
     database.native.prepare(
       `INSERT INTO catalog_fiscal_attribute(
@@ -758,29 +768,34 @@ describe("MIGRATION_013 — la tasa lleva sus restricciones en disco", () => {
     ).run(TENANT, PRESENTATION_ID, rate);
   };
 
+  const seeded = (database: LocalDatabase): LocalDatabase => {
+    insertFixture(database);
+    return database;
+  };
+
   it("acepta una tasa con dos decimales", async () => {
-    const database = openTracked(await directory());
+    const database = seeded(openTracked(await directory()));
     expect(() => { insertRate(database, "19.000000"); }).not.toThrow();
   });
 
   /** `D-14` impuesto desde el origen: una tasa DIAN no tiene más de dos decimales. */
   it("rechaza una tasa con más de dos decimales significativos", async () => {
-    const database = openTracked(await directory());
+    const database = seeded(openTracked(await directory()));
     expect(() => { insertRate(database, "19.005000"); }).toThrow();
   });
 
   it("rechaza una tasa mayor que 100, que no es un impuesto sino un error de captura", async () => {
-    const database = openTracked(await directory());
+    const database = seeded(openTracked(await directory()));
     expect(() => { insertRate(database, "190.000000"); }).toThrow();
   });
 
   it("acepta el 100 exacto, que es el límite y no un error", async () => {
-    const database = openTracked(await directory());
+    const database = seeded(openTracked(await directory()));
     expect(() => { insertRate(database, "100.000000"); }).not.toThrow();
   });
 
   it("rechaza una tasa que no es escala 6", async () => {
-    const database = openTracked(await directory());
+    const database = seeded(openTracked(await directory()));
     expect(() => { insertRate(database, "19.00"); }).toThrow();
   });
 });

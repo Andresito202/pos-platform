@@ -1542,6 +1542,87 @@ CREATE INDEX customers_credit_transactions_account_idx
   ON customers_credit_transactions(tenant_id, credit_account_id);
 `.trim();
 
+/**
+ * `MIGRATION_021` — el atributo fiscal cuelga del catálogo real (`D-17`).
+ *
+ * `catalog_fiscal_attribute` nació en `MIGRATION_013`, **una migración antes**
+ * que el catálogo real: cuando se escribió, `catalog_presentation` todavía no
+ * existía y no había a qué apuntar. Por eso su `presentation_id` quedó sin
+ * clave ajena, y ahí siguió después de que `MIGRATION_014` creara el catálogo.
+ *
+ * La consecuencia que `D-17` anotó es concreta: **un atributo fiscal puede
+ * quedar apuntando a una presentación borrada**. Y no es un huérfano inocuo —
+ * `create-sale-use-case.ts` lee `getFiscalAttribute` por línea para decidir el
+ * impuesto, de modo que un atributo desalineado es una tasa equivocada
+ * esperando su venta.
+ *
+ * ## Por qué aquí sí cabe reconstruir, y en `sales_sales` no cupo
+ *
+ * SQLite no tiene `ADD CONSTRAINT`: una clave ajena sólo entra al crear la
+ * tabla. `D-27` dejó escrito por qué `sales_sales` no se puede reconstruir bajo
+ * este runner —`sales_sale_items` la referencia, y `PRAGMA foreign_keys` es
+ * no-op dentro de la transacción que envuelve cada migración—.
+ *
+ * Aquí **nadie referencia** `catalog_fiscal_attribute`: no tiene tablas hijas,
+ * ni índices propios, ni claves ajenas que rehacer. Es exactamente el caso de
+ * `MIGRATION_008` sobre `local_operation_audit`, el único precedente de
+ * reconstrucción del repositorio, y funciona por la misma razón. Comprobado
+ * ejecutándolo antes de escribirlo: el `DROP` no viola nada, el `RENAME` no
+ * tiene referencias ajenas que reescribir, y la tabla resultante rechaza tanto
+ * un huérfano como un atributo de otro tenant.
+ *
+ * ## Qué hace la copia si encuentra un huérfano
+ *
+ * **Falla, y el arranque se detiene.** El `INSERT … SELECT` comprueba la clave
+ * ajena fila a fila, así que un atributo apuntando a una presentación
+ * inexistente aborta la migración entera.
+ *
+ * Es deliberado. La alternativa —copiar sólo las filas cuya presentación
+ * exista— borraría configuración fiscal en silencio, que es peor que no
+ * arrancar: nadie se enteraría hasta emitir una factura con el impuesto
+ * equivocado. Y el riesgo real es nulo: **ninguna ruta de usuario inserta en
+ * esta tabla** —sólo los fixtures de prueba—, de modo que en una instalación
+ * real la copia no mueve una sola fila.
+ *
+ * La definición se reproduce **íntegra**: mismos `CHECK`, misma clave primaria,
+ * mismo `WITHOUT ROWID, STRICT`. Lo único que cambia es la línea que faltaba.
+ */
+const MIGRATION_021 = `
+CREATE TABLE catalog_fiscal_attribute_rebuilt (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  code_reference TEXT NOT NULL CHECK(length(code_reference) BETWEEN 1 AND 80),
+  unit_measure_code TEXT NOT NULL CHECK(unit_measure_code GLOB '[A-Z0-9][A-Z0-9-]*'),
+  standard_code TEXT NOT NULL CHECK(standard_code GLOB '[A-Z0-9][A-Z0-9-]*'),
+  tax_code TEXT NOT NULL CHECK(tax_code GLOB '[A-Z0-9][A-Z0-9-]*'),
+  tax_rate TEXT NOT NULL
+    CHECK(tax_rate GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(tax_rate NOT GLOB '*[^0-9.]*')
+    CHECK(length(tax_rate) - length(replace(tax_rate, '.', '')) = 1)
+    CHECK(tax_rate NOT GLOB '0[0-9]*')
+    CHECK(substr(tax_rate, -4) = '0000')
+    CHECK(tax_rate = '100.000000' OR length(substr(tax_rate, 1, instr(tax_rate, '.') - 1)) <= 2),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, presentation_id),
+  FOREIGN KEY (tenant_id, presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+INSERT INTO catalog_fiscal_attribute_rebuilt(
+  tenant_id, presentation_id, code_reference, unit_measure_code, standard_code,
+  tax_code, tax_rate, status, created_at, updated_at
+)
+SELECT
+  tenant_id, presentation_id, code_reference, unit_measure_code, standard_code,
+  tax_code, tax_rate, status, created_at, updated_at
+FROM catalog_fiscal_attribute;
+
+DROP TABLE catalog_fiscal_attribute;
+
+ALTER TABLE catalog_fiscal_attribute_rebuilt RENAME TO catalog_fiscal_attribute;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1563,6 +1644,7 @@ const MIGRATIONS = [
   { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
   { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
   { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
+  { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
 ] as const;
 
 /**
