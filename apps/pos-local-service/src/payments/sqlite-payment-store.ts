@@ -4,6 +4,7 @@ import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js"
 import type { CashPort } from "./cash-port.js";
 import type { InventoryPort } from "./inventory-port.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
+import { firstQueryAt } from "./uncertain-payment-sweep-policy.js";
 
 /**
  * Persistencia de Payment V1 — `DEC-016`.
@@ -282,6 +283,75 @@ export interface UncertainProviderAttemptView {
 
 export type UncertainProviderAttemptOutcome =
   | { readonly kind: "FOUND"; readonly attempt: UncertainProviderAttemptView }
+  | { readonly kind: "PAYMENT_NOT_FOUND" }
+  | { readonly kind: "ATTEMPT_NOT_UNCERTAIN" };
+
+/**
+ * Un intento `UNKNOWN` que el barrido puede consultar ahora.
+ *
+ * Trae todo lo que hace falta para preguntar y para resolver sin volver a
+ * leer: la identidad ante el proveedor, la versión del intento —que es con lo
+ * que se reclama— y la del pago —que es lo que la resolución tendrá que
+ * afirmar—.
+ */
+export interface UncertainProviderSweepCandidate {
+  readonly attemptId: string;
+  readonly attemptVersion: number;
+  readonly attemptCount: number;
+  readonly paymentId: string;
+  readonly paymentVersion: number;
+  readonly providerCode: string;
+  readonly providerTransactionId: string;
+  /** `provider_uncertainty_observed_at`: origen de la ventana (`D-5`). */
+  readonly observedAt: string;
+  readonly nextAttemptAt: string;
+}
+
+/** Lo que el proveedor contestó a una consulta del barrido. */
+export type UncertainProviderQueryResult =
+  | "APPROVED"
+  | "REJECTED"
+  | "PENDING"
+  | "UNKNOWN";
+
+export interface RecordUncertainProviderQueryInput extends CommonInput {
+  readonly paymentId: string;
+  readonly attemptId: string;
+  /** Número de esta consulta: `attempt_count` tras reclamarla. */
+  readonly attemptNumber: number;
+  readonly result: UncertainProviderQueryResult;
+  /** Sólo cuando `result` es `UNKNOWN`. */
+  readonly uncertaintyReason: ProviderUncertaintyReason | null;
+  /** `null` cuando no habrá otra consulta automática. */
+  readonly nextAttemptAt: string | null;
+  readonly operationId: string;
+}
+
+export type RecordUncertainProviderQueryOutcome =
+  | { readonly kind: "RECORDED"; readonly paymentId: string; readonly attemptId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PAYMENT_NOT_FOUND" }
+  | { readonly kind: "ATTEMPT_NOT_UNCERTAIN" };
+
+/** Por qué terminó la resolución automática (`D-6`). */
+export type UncertainResolutionAbandonReason =
+  /** Se agotaron los ocho minutos contados desde la incertidumbre. */
+  | "WINDOW_EXHAUSTED"
+  /** Se gastaron las seis consultas que `D-5` autoriza. */
+  | "QUERY_BUDGET_EXHAUSTED";
+
+export interface AbandonUncertainResolutionInput extends CommonInput {
+  readonly paymentId: string;
+  readonly attemptId: string;
+  readonly reason: UncertainResolutionAbandonReason;
+  readonly operationId: string;
+}
+
+export type AbandonUncertainResolutionOutcome =
+  | { readonly kind: "REVIEW_REQUIRED"; readonly paymentId: string; readonly attemptId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "PAYMENT_NOT_FOUND" }
   | { readonly kind: "ATTEMPT_NOT_UNCERTAIN" };
 
@@ -1245,12 +1315,23 @@ export class SqlitePaymentStore {
 
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_PROVIDER_UNCERTAIN", nowIso);
 
+      // `MIGRATION_018`: aquí nace la cita de la resolución automática. El
+      // contador arranca en 0 —nadie ha preguntado todavía— y la primera
+      // consulta se programa con el retardo inicial contado desde
+      // `observedAt`, que es el origen de la ventana que `D-5` fija. Un
+      // intento sin `provider_transaction_id` recibe cita igual: la cita dice
+      // cuándo mirarlo, y es el selector del barrido quien decide que sin esa
+      // identidad no hay nada que preguntar.
       this.database.native.prepare(
         `UPDATE payments_payment_attempts
          SET status='UNKNOWN', provider_uncertainty_reason=?, provider_uncertainty_observed_at=?,
+             attempt_count=0, next_attempt_at=?,
              version=version+1
          WHERE tenant_id=? AND id=?`,
-      ).run(input.reason, input.observedAt, input.scope.tenantId, attempt.id);
+      ).run(
+        input.reason, input.observedAt, firstQueryAt(input.observedAt),
+        input.scope.tenantId, attempt.id,
+      );
 
       const details = {
         attempt_id: attempt.id,
@@ -1407,5 +1488,284 @@ export class SqlitePaymentStore {
         uncertaintyReason: attempt.provider_uncertainty_reason,
       },
     };
+  }
+
+  // ── Barrido de inciertos (`D-5`, `D-6`, `D-7`) ───────────────────────────────
+
+  /**
+   * Intentos `UNKNOWN` a los que **toca** preguntar ahora.
+   *
+   * El selector es exactamente el que `payments_payment_attempts_uncertain_sweep_idx`
+   * respalda, y las cuatro condiciones dicen cosas distintas:
+   *
+   * - `status='UNKNOWN'` deja fuera los terminales y los `REVIEW_REQUIRED`:
+   *   una resolución ya abandonada no vuelve sola al barrido.
+   * - `provider_transaction_id IS NOT NULL` deja fuera lo que no se puede
+   *   preguntar. `GET /v1/transactions/{id}` necesita la identidad que asigna
+   *   el proveedor, y la referencia comercial no la resuelve (`DEC-016` §21):
+   *   un intento sin ella no es un candidato lento, es uno incontestable.
+   * - `next_attempt_at IS NOT NULL` deja fuera lo que no tiene cita: filas
+   *   anteriores a `MIGRATION_018` y las que reclamó otra invocación.
+   * - `next_attempt_at <= now` deja fuera lo que todavía no vence.
+   *
+   * La ventana **no** se filtra aquí a propósito. Un candidato vencido tiene
+   * que entrar para que el barrido lo retire a `REVIEW_REQUIRED` (`D-6`); si
+   * el SQL lo escondiera, nadie lo retiraría nunca y el abandono no existiría.
+   *
+   * Está acotada por `tenant_id` como el resto del almacén, así que un barrido
+   * de un tenant no alcanza los intentos de otro.
+   */
+  findUncertainProviderSweepCandidates(
+    scope: SyncScope,
+    options: { readonly now: Date; readonly limit: number },
+  ): UncertainProviderSweepCandidate[] {
+    const rows = this.database.native.prepare(
+      `SELECT a.id, a.version, a.attempt_count, a.payment_id, a.provider_code,
+              a.provider_transaction_id, a.provider_uncertainty_observed_at, a.next_attempt_at,
+              p.version AS payment_version
+       FROM payments_payment_attempts a
+       JOIN payments_payments p ON p.tenant_id = a.tenant_id AND p.id = a.payment_id
+       WHERE a.tenant_id=? AND a.status='UNKNOWN'
+         AND a.provider_code IS NOT NULL
+         AND a.provider_transaction_id IS NOT NULL
+         AND a.provider_uncertainty_observed_at IS NOT NULL
+         AND a.next_attempt_at IS NOT NULL AND a.next_attempt_at <= ?
+       ORDER BY a.next_attempt_at ASC, a.id ASC
+       LIMIT ?`,
+    ).all(scope.tenantId, options.now.toISOString(), options.limit) as Array<{
+      id: string;
+      version: number;
+      attempt_count: number;
+      payment_id: string;
+      provider_code: string;
+      provider_transaction_id: string;
+      provider_uncertainty_observed_at: string;
+      next_attempt_at: string;
+      payment_version: number;
+    }>;
+
+    return rows.map((row) => ({
+      attemptId: row.id,
+      attemptVersion: row.version,
+      attemptCount: row.attempt_count,
+      paymentId: row.payment_id,
+      paymentVersion: row.payment_version,
+      providerCode: row.provider_code,
+      providerTransactionId: row.provider_transaction_id,
+      observedAt: row.provider_uncertainty_observed_at,
+      nextAttemptAt: row.next_attempt_at,
+    }));
+  }
+
+  /**
+   * Reclama un candidato **antes** de llamar al proveedor.
+   *
+   * `DEC-016` §6 regla 3 prohíbe invocar el puerto dentro de una transacción,
+   * así que no se puede sostener un bloqueo mientras se pregunta. Lo que sí se
+   * puede es dejar el candidato fuera del selector durante la llamada: el
+   * reclamo gasta la consulta —`attempt_count + 1`, que es lo que hace que la
+   * consulta número *n* ocurra con el contador ya en *n*— y aparca la cita en
+   * el fin de la ventana.
+   *
+   * La guarda es `version`, no un lock: el `UPDATE` sólo prospera si nadie
+   * tocó el intento desde que se leyó. Dos invocaciones que vean el mismo
+   * candidato hacen el mismo `UPDATE` y **sólo una modifica una fila**; la
+   * otra recibe `NOT_CLAIMED` y lo suelta. No hace falta un lock distribuido
+   * porque no hay más de un escritor: el Local Service.
+   *
+   * Aparcar en el fin de la ventana y no en `NULL` es deliberado. Si el
+   * proceso muere entre el reclamo y la respuesta, el intento no queda varado
+   * sin cita: el siguiente barrido lo encuentra pasada la ventana y lo retira
+   * a `REVIEW_REQUIRED`, que es exactamente lo que `D-6` quiere que le pase a
+   * una incertidumbre que nadie pudo resolver.
+   */
+  claimUncertainProviderQuery(input: {
+    readonly scope: SyncScope;
+    readonly attemptId: string;
+    readonly expectedAttemptVersion: number;
+    readonly parkedUntil: string;
+  }): "CLAIMED" | "NOT_CLAIMED" {
+    const result = this.database.native.prepare(
+      `UPDATE payments_payment_attempts
+       SET attempt_count=attempt_count+1, next_attempt_at=?, version=version+1
+       WHERE tenant_id=? AND id=? AND version=? AND status='UNKNOWN'`,
+    ).run(input.parkedUntil, input.scope.tenantId, input.attemptId, input.expectedAttemptVersion);
+
+    return result.changes === 1 ? "CLAIMED" : "NOT_CLAIMED";
+  }
+
+  /**
+   * Devuelve el candidato tal y como estaba antes del reclamo.
+   *
+   * Es la contrapartida exacta de `claimUncertainProviderQuery` y existe por
+   * una sola razón: un error tipado del proveedor —credenciales inválidas, un
+   * `transaction.id` que no reconoce— **no es incertidumbre**, así que no
+   * puede gastar una de las seis consultas ni mover la cita. El reclamo se
+   * hace antes de preguntar porque no hay otra forma de excluir el candidato
+   * durante la llamada; cuando la pregunta resulta no haber sido válida, se
+   * deshace.
+   *
+   * No escribe auditoría: no ocurrió nada que auditar. El error viaja hacia
+   * arriba y es allí donde se ve.
+   */
+  releaseUncertainProviderQuery(input: {
+    readonly scope: SyncScope;
+    readonly attemptId: string;
+    readonly expectedAttemptVersion: number;
+    readonly restoredNextAttemptAt: string;
+  }): "RELEASED" | "NOT_RELEASED" {
+    const result = this.database.native.prepare(
+      `UPDATE payments_payment_attempts
+       SET attempt_count=attempt_count-1, next_attempt_at=?, version=version+1
+       WHERE tenant_id=? AND id=? AND version=? AND status='UNKNOWN' AND attempt_count > 0`,
+    ).run(
+      input.restoredNextAttemptAt, input.scope.tenantId, input.attemptId,
+      input.expectedAttemptVersion,
+    );
+
+    return result.changes === 1 ? "RELEASED" : "NOT_RELEASED";
+  }
+
+  /**
+   * Deja constancia de una consulta automática **contestada** y fija la cita
+   * siguiente.
+   *
+   * Un solo asiento sostiene las tres cosas que `D-5` exige poder distinguir:
+   * que se consultó (`attempt_number`), qué contestó el proveedor (`result` y,
+   * si no contestó, `uncertainty_reason`) y cuándo toca volver (`next_attempt_at`,
+   * `null` cuando no habrá otra). Separarlas en tres códigos habría dado tres
+   * registros de un único hecho.
+   *
+   * **No cambia `status`.** Una consulta no resuelve: resolver es de
+   * `confirmProviderPayment` y `declineUncertainProviderPayment`, y el intento
+   * sigue `UNKNOWN` hasta que uno de ellos actúe. Tampoco toca
+   * `provider_uncertainty_reason` ni `provider_uncertainty_observed_at`: la
+   * incertidumbre original es el origen de la ventana y sobrevive a cada
+   * consulta —moverla reiniciaría el reloj del abandono en cada intento, que
+   * es justo lo que una ventana máxima impide—.
+   */
+  recordUncertainProviderQuery(input: RecordUncertainProviderQueryInput): RecordUncertainProviderQueryOutcome {
+    const nowIso = this.now().toISOString();
+
+    return runWithRollback(this.database.native.transaction((): RecordUncertainProviderQueryOutcome => {
+      const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
+      if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
+
+      const payment = this.database.native.prepare(
+        `SELECT p.id, g.collection_subject_id
+         FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+         WHERE p.tenant_id=? AND p.id=?`,
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; collection_subject_id: string }
+        | undefined;
+
+      if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+      if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+
+      const updated = this.database.native.prepare(
+        `UPDATE payments_payment_attempts
+         SET next_attempt_at=?, version=version+1
+         WHERE tenant_id=? AND id=? AND payment_id=? AND status='UNKNOWN'`,
+      ).run(input.nextAttemptAt, input.scope.tenantId, input.attemptId, input.paymentId);
+
+      if (updated.changes !== 1) return { kind: "ATTEMPT_NOT_UNCERTAIN" };
+
+      this.insertOperation(
+        input.operationId, input.idempotencyKey, input.requestChecksum,
+        "PAYMENT_PROVIDER_QUERIED", nowIso,
+      );
+
+      const details = {
+        attempt_id: input.attemptId,
+        attempt_number: input.attemptNumber,
+        next_attempt_at: input.nextAttemptAt,
+        payment_id: input.paymentId,
+        result: input.result,
+        sale_id: payment.collection_subject_id,
+        uncertainty_reason: input.uncertaintyReason,
+      };
+      this.writeAudit(input, "PAYMENT_PROVIDER_QUERIED", "PAYMENT", input.paymentId, details, nowIso);
+      this.enqueue(
+        input, input.operationId, input.idempotencyKey,
+        "PAYMENT", input.paymentId, "PAYMENT_PROVIDER_QUERIED", details, input.requestChecksum, nowIso,
+      );
+
+      return { kind: "RECORDED", paymentId: input.paymentId, attemptId: input.attemptId };
+    }));
+  }
+
+  /**
+   * Termina la resolución automática: `UNKNOWN → REVIEW_REQUIRED` (`D-6`).
+   *
+   * **Nunca `FAILED`.** Agotar la ventana o las consultas no dice que el pago
+   * fracasara; dice que este mecanismo dejó de preguntar. `PAY-007` lo tiene
+   * escrito desde el principio —regla 1: un timeout no produce `FAILED`— y
+   * `REVIEW_REQUIRED` no es terminal, así que una evidencia tardía por una
+   * entrada autorizada sigue pudiendo resolver el intento por las reglas que
+   * ya existen.
+   *
+   * La cita se borra: sin `next_attempt_at` el intento no vuelve al selector,
+   * que es lo que «se acabó lo automático» significa en el esquema.
+   * `provider_uncertainty_reason` y `provider_uncertainty_observed_at` se
+   * conservan — son la historia de por qué se llegó aquí.
+   */
+  abandonUncertainProviderResolution(input: AbandonUncertainResolutionInput): AbandonUncertainResolutionOutcome {
+    const nowIso = this.now().toISOString();
+
+    return runWithRollback(this.database.native.transaction((): AbandonUncertainResolutionOutcome => {
+      const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
+      if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
+
+      const payment = this.database.native.prepare(
+        `SELECT p.id, g.collection_subject_id
+         FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+         WHERE p.tenant_id=? AND p.id=?`,
+      ).get(input.scope.tenantId, input.paymentId) as
+        | { id: string; collection_subject_id: string }
+        | undefined;
+
+      if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+      if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+
+      const attempt = this.database.native.prepare(
+        `SELECT attempt_count FROM payments_payment_attempts
+         WHERE tenant_id=? AND id=? AND payment_id=? AND status='UNKNOWN'`,
+      ).get(input.scope.tenantId, input.attemptId, input.paymentId) as
+        | { attempt_count: number }
+        | undefined;
+
+      if (attempt === undefined) return { kind: "ATTEMPT_NOT_UNCERTAIN" };
+
+      this.insertOperation(
+        input.operationId, input.idempotencyKey, input.requestChecksum,
+        "PAYMENT_PROVIDER_RESOLUTION_ABANDONED", nowIso,
+      );
+
+      this.database.native.prepare(
+        `UPDATE payments_payment_attempts
+         SET status='REVIEW_REQUIRED', next_attempt_at=NULL, version=version+1
+         WHERE tenant_id=? AND id=?`,
+      ).run(input.scope.tenantId, input.attemptId);
+
+      const details = {
+        attempt_id: input.attemptId,
+        attempt_count: attempt.attempt_count,
+        payment_id: input.paymentId,
+        reason: input.reason,
+        sale_id: payment.collection_subject_id,
+      };
+      this.writeAudit(
+        input, "PAYMENT_PROVIDER_RESOLUTION_ABANDONED", "PAYMENT", input.paymentId, details, nowIso,
+      );
+      this.enqueue(
+        input, input.operationId, input.idempotencyKey,
+        "PAYMENT", input.paymentId, "PAYMENT_PROVIDER_RESOLUTION_ABANDONED", details,
+        input.requestChecksum, nowIso,
+      );
+
+      return { kind: "REVIEW_REQUIRED", paymentId: input.paymentId, attemptId: input.attemptId };
+    }));
   }
 }

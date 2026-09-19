@@ -263,6 +263,7 @@ REVIEW_REQUIRED
 5. Un intento terminal puede recibir evidencia tardía contradictoria; eso crea una incidencia, no una modificación silenciosa.
 6. Cada intento conserva proveedor, referencia, idempotency key y correlation ID.
 7. Un pago mixto puede contener varios intentos independientes.
+8. Agotar la resolución automática de un `UNKNOWN` —por la ventana máxima o por el presupuesto de consultas que fije la política vigente— produce `UNKNOWN → REVIEW_REQUIRED`, nunca `UNKNOWN → FAILED`. El agotamiento dice que el mecanismo automático dejó de preguntar, no que el cobro fracasara; la regla 1 ya lo exige para el timeout que abre la incertidumbre y esta regla lo extiende al momento en que se deja de insistir. `REVIEW_REQUIRED` no es terminal, así que una evidencia tardía por una entrada autorizada sigue pudiendo resolver el intento por la regla 2.
 
 ---
 

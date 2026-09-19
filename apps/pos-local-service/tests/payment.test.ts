@@ -25,6 +25,7 @@ import { RegisterQrPaymentUseCase } from "../src/payments/register-qr-payment-us
 import { ConfirmProviderPaymentUseCase } from "../src/payments/confirm-provider-payment-use-case.js";
 import { ResolveUncertainProviderPaymentUseCase } from "../src/payments/resolve-uncertain-provider-payment-use-case.js";
 import { QueryProviderForUncertainPaymentUseCase } from "../src/payments/query-provider-for-uncertain-payment-use-case.js";
+import { SweepUncertainProviderPaymentsUseCase } from "../src/payments/sweep-uncertain-provider-payments-use-case.js";
 import { WompiPaymentProvider } from "../src/payments/wompi/wompi-payment-provider.js";
 import { WompiHttpError } from "../src/payments/wompi/wompi-http-client.js";
 import type { PaymentProviderOutcome, PaymentProviderPort } from "../src/payments/payment-provider-port.js";
@@ -2224,5 +2225,512 @@ describe("salida de existencia al completar la venta", () => {
       "SELECT COUNT(*) AS total FROM inventory_movement WHERE tenant_id=?",
     ).get(TENANT) as { total: number };
     expect(movements.total).toBe(0);
+  });
+});
+
+// ── Barrido de intentos UNKNOWN (D-5 / D-6 / D-7) ────────────────────────────
+
+/**
+ * El barrido bajo demanda: `SweepUncertainProviderPaymentsUseCase`.
+ *
+ * Las pruebas corren contra SQLite real —la misma base, las mismas
+ * migraciones y el mismo almacén que usa el servicio—, porque lo que este
+ * bloque decide vive en columnas: quién es elegible, cuántas veces se
+ * preguntó y cuándo toca la siguiente. Un doble del almacén habría probado la
+ * aritmética y nada del selector.
+ */
+describe("barrido de intentos UNKNOWN", () => {
+  const OBSERVED_AT = NOW.toISOString();
+  const TX = "TX-SWEEP-1";
+
+  /** Instante desplazado `seconds` respecto de la incertidumbre observada. */
+  function at(seconds: number): Date {
+    return new Date(NOW.getTime() + seconds * 1_000);
+  }
+
+  function iso(seconds: number): string {
+    return at(seconds).toISOString();
+  }
+
+  function evidenceOutcome(
+    status: "APPROVED" | "REJECTED" | "PENDING",
+    providerReference: string,
+    providerTransactionId = TX,
+  ): PaymentProviderOutcome {
+    return {
+      kind: "EVIDENCE",
+      evidence: {
+        providerCode: "TEST_QR",
+        providerReference,
+        providerTransactionId,
+        amount: "10000.000000",
+        currencyCode: "COP",
+        status,
+        receivedAt: NOW.toISOString(),
+      },
+    };
+  }
+
+  /**
+   * Doble del puerto que contesta una cosa distinta por consulta y cuenta
+   * cuántas recibió. La última respuesta se repite si se pregunta de más, de
+   * modo que una prueba que espere N consultas falla por la cuenta y no por
+   * un `undefined`.
+   */
+  function sweepProvider(answers: Array<PaymentProviderOutcome | Error>) {
+    const asked: string[] = [];
+    const port: PaymentProviderPort = {
+      async createPaymentIntent(input) {
+        return {
+          providerCode: "TEST_QR",
+          merchantReference: input.merchantReference,
+          status: "PENDING" as const,
+          checkout: null,
+        };
+      },
+      async getPaymentStatus(input) {
+        asked.push(input.providerTransactionId);
+        const answer = answers[asked.length - 1] ?? answers[answers.length - 1]!;
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+      async normalizeNotification(): Promise<PaymentProviderOutcome> {
+        throw new Error("el barrido no normaliza notificaciones");
+      },
+    };
+    return { port, calls: () => asked.length, asked };
+  }
+
+  /** Un QR registrado que ya quedó `UNKNOWN` por un timeout en `OBSERVED_AT`. */
+  async function uncertain(options: { providerTransactionId?: string | null } = {}) {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { cashRegisterId: REGISTER, shiftId, payable: "10000.000000" });
+    const registered = await env.registerQr.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000",
+      idempotencyKey: "qr:1", correlationId: randomUUID(), causationId: null,
+    });
+    if (registered.kind !== "PENDING") throw new Error("expected PENDING");
+
+    // La identidad del proveedor llega por una entrada autorizada —una
+    // redirección o un webhook verificado—; aquí se siembra porque el barrido
+    // la presupone, no la produce.
+    const providerTransactionId = options.providerTransactionId === undefined
+      ? TX
+      : options.providerTransactionId;
+    if (providerTransactionId !== null) {
+      env.database.native.prepare(
+        "UPDATE payments_payment_attempts SET provider_transaction_id=? WHERE tenant_id=? AND payment_id=?",
+      ).run(providerTransactionId, TENANT, registered.paymentId);
+    }
+
+    env.paymentStore.recordProviderUncertainty({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      paymentId: registered.paymentId, reason: "TIMEOUT", observedAt: OBSERVED_AT,
+      operationId: randomUUID(), idempotencyKey: "unknown:1",
+      requestChecksum: "b".repeat(64), correlationId: randomUUID(), causationId: null,
+    });
+
+    return { env, saleId, registered };
+  }
+
+  function sweepAt(
+    env: Awaited<ReturnType<typeof buildEnv>>,
+    provider: PaymentProviderPort,
+    clock: () => Date,
+  ) {
+    return new SweepUncertainProviderPaymentsUseCase(
+      env.paymentStore, provider, env.resolveUncertain, clock,
+    );
+  }
+
+  function run(
+    env: Awaited<ReturnType<typeof buildEnv>>,
+    provider: PaymentProviderPort,
+    seconds: number,
+  ) {
+    return sweepAt(env, provider, () => at(seconds)).execute(SCOPE, {
+      correlationId: randomUUID(), causationId: null,
+    });
+  }
+
+  function attemptRow(env: Awaited<ReturnType<typeof buildEnv>>, paymentId: string) {
+    return env.database.native.prepare(
+      `SELECT status, attempt_count, next_attempt_at, provider_reference_type, provider_reference,
+              provider_transaction_id, provider_uncertainty_reason, provider_uncertainty_observed_at
+       FROM payments_payment_attempts WHERE tenant_id=? AND payment_id=?`,
+    ).get(TENANT, paymentId) as {
+      status: string;
+      attempt_count: number;
+      next_attempt_at: string | null;
+      provider_reference_type: string | null;
+      provider_reference: string | null;
+      provider_transaction_id: string | null;
+      provider_uncertainty_reason: string | null;
+      provider_uncertainty_observed_at: string | null;
+    };
+  }
+
+  // A
+  it("selecciona el UNKNOWN cuya cita ya venció y le pregunta al proveedor", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 15);
+
+    expect(stats.scanned).toBe(1);
+    expect(stats.queried).toBe(1);
+    expect(provider.asked).toEqual([TX]);
+  });
+
+  // B
+  it("no consulta un UNKNOWN sin providerTransactionId", async () => {
+    const { env, registered } = await uncertain({ providerTransactionId: null });
+    const provider = sweepProvider([evidenceOutcome("APPROVED", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 15);
+
+    expect(stats.scanned).toBe(0);
+    expect(provider.calls()).toBe(0);
+    // La cita sigue en pie: lo que falta es identidad, no tiempo.
+    expect(attemptRow(env, registered.paymentId).next_attempt_at).toBe(iso(15));
+  });
+
+  // C
+  it("no selecciona un UNKNOWN cuya cita todavía no vence", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 14);
+
+    expect(stats.scanned).toBe(0);
+    expect(provider.calls()).toBe(0);
+    expect(attemptRow(env, registered.paymentId).attempt_count).toBe(0);
+  });
+
+  // D, J
+  it("la primera consulta PENDING deja el intento UNKNOWN y programa la siguiente a 30 s", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 15);
+
+    expect(stats).toMatchObject({ queried: 1, rescheduled: 1, abandoned: 0, confirmed: 0, declined: 0 });
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("UNKNOWN");
+    expect(attempt.attempt_count).toBe(1);
+    expect(attempt.next_attempt_at).toBe(iso(45));
+    // La incertidumbre original no se mueve: es el origen de la ventana.
+    expect(attempt.provider_uncertainty_reason).toBe("TIMEOUT");
+    expect(attempt.provider_uncertainty_observed_at).toBe(OBSERVED_AT);
+  });
+
+  // E
+  it("el backoff entre consultas es exactamente 15/30/60/120/180", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    // La cita inicial es el primer valor de la lista, contado desde la
+    // incertidumbre observada.
+    const scheduled: string[] = [attemptRow(env, registered.paymentId).next_attempt_at!];
+
+    for (const second of [15, 45, 105, 225, 405]) {
+      await run(env, provider.port, second);
+      const next = attemptRow(env, registered.paymentId).next_attempt_at;
+      if (next !== null) scheduled.push(next);
+    }
+
+    const gaps: number[] = [];
+    let previous = NOW.getTime();
+    for (const moment of scheduled) {
+      gaps.push((Date.parse(moment) - previous) / 1_000);
+      previous = Date.parse(moment);
+    }
+
+    expect(gaps).toEqual([15, 30, 60, 120, 180]);
+    expect(provider.calls()).toBe(5);
+    // Agotada la ventana para otra consulta, la resolución automática termina.
+    expect(attemptRow(env, registered.paymentId).status).toBe("REVIEW_REQUIRED");
+  });
+
+  // F
+  it("la sexta consulta no programa una séptima", async () => {
+    const { env, registered } = await uncertain();
+    // Se sitúa el intento a las puertas de su última consulta: cinco hechas y
+    // la sexta vencida **dentro** de la ventana, para que sea el presupuesto
+    // de consultas —y no el reloj— lo que la prueba observe.
+    env.database.native.prepare(
+      "UPDATE payments_payment_attempts SET attempt_count=5, next_attempt_at=? WHERE tenant_id=? AND payment_id=?",
+    ).run(iso(60), TENANT, registered.paymentId);
+
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+    const stats = await run(env, provider.port, 60);
+
+    expect(stats).toMatchObject({ queried: 1, rescheduled: 0, abandoned: 1 });
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.attempt_count).toBe(6);
+    expect(attempt.next_attempt_at).toBeNull();
+    expect(attempt.status).toBe("REVIEW_REQUIRED");
+
+    // Y una invocación posterior ya no lo encuentra.
+    expect((await run(env, provider.port, 120)).scanned).toBe(0);
+    expect(provider.calls()).toBe(1);
+  });
+
+  // G
+  it("con la ventana vencida pasa a REVIEW_REQUIRED sin llamar al proveedor", async () => {
+    const { env, saleId, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("APPROVED", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 8 * 60);
+
+    expect(stats).toMatchObject({ scanned: 1, queried: 0, abandoned: 1 });
+    expect(provider.calls()).toBe(0);
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("REVIEW_REQUIRED");
+    // Nunca `FAILED`, y ninguna consulta consumida.
+    expect(attempt.attempt_count).toBe(0);
+    expect(attempt.next_attempt_at).toBeNull();
+    const payment = env.database.native.prepare(
+      "SELECT status FROM payments_payments WHERE tenant_id=? AND id=?",
+    ).get(TENANT, registered.paymentId) as { status: string };
+    expect(payment.status).toBe("PENDING");
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+  });
+
+  // H, N, O
+  it("APPROVED confirma el pago, completa la venta y no reprograma", async () => {
+    const { env, saleId, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("APPROVED", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 15);
+
+    expect(stats).toMatchObject({ queried: 1, confirmed: 1, rescheduled: 0, abandoned: 0 });
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("CONFIRMED");
+    expect(attempt.next_attempt_at).toBeNull();
+    expect(attempt.attempt_count).toBe(1);
+    // N: la referencia comercial sigue siendo la del intento.
+    expect(attempt.provider_reference_type).toBe("PROVIDER_INTENT");
+    expect(attempt.provider_reference).toBe(registered.providerReference);
+    // O: la identidad del proveedor sigue siendo la que se consultó.
+    expect(attempt.provider_transaction_id).toBe(TX);
+    expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+  });
+
+  // I
+  it("REJECTED rechaza el intento sin confirmar el pago ni reprogramar", async () => {
+    const { env, saleId, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("REJECTED", registered.providerReference)]);
+
+    const stats = await run(env, provider.port, 15);
+
+    expect(stats).toMatchObject({ queried: 1, declined: 1, rescheduled: 0, abandoned: 0 });
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("DECLINED");
+    expect(attempt.next_attempt_at).toBeNull();
+    expect(attempt.provider_reference).toBe(registered.providerReference);
+    expect(attempt.provider_transaction_id).toBe(TX);
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+  });
+
+  // K
+  it("una respuesta UNKNOWN conserva la incertidumbre original y programa la siguiente", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([
+      { kind: "UNKNOWN", reason: "PROVIDER_UNAVAILABLE" } satisfies PaymentProviderOutcome,
+    ]);
+
+    const stats = await run(env, provider.port, 15);
+
+    expect(stats).toMatchObject({ queried: 1, rescheduled: 1, abandoned: 0 });
+    const attempt = attemptRow(env, registered.paymentId);
+    expect(attempt.status).toBe("UNKNOWN");
+    expect(attempt.attempt_count).toBe(1);
+    expect(attempt.next_attempt_at).toBe(iso(45));
+    // La razón persistida es la que abrió la ventana, no la de esta consulta.
+    expect(attempt.provider_uncertainty_reason).toBe("TIMEOUT");
+    expect(attempt.provider_uncertainty_observed_at).toBe(OBSERVED_AT);
+
+    // La de esta consulta queda en la auditoría, que es su sitio.
+    const audit = env.database.native.prepare(
+      `SELECT details_json FROM local_operation_audit
+       WHERE tenant_id=? AND resource_id=? AND action_code='PAYMENT_PROVIDER_QUERIED'`,
+    ).get(TENANT, registered.paymentId) as { details_json: string };
+    expect(JSON.parse(audit.details_json)).toMatchObject({
+      result: "UNKNOWN", uncertainty_reason: "PROVIDER_UNAVAILABLE", attempt_number: 1,
+    });
+  });
+
+  // L
+  it.each([401, 403, 404])(
+    "un error tipado %i del proveedor se propaga sin consumir intento ni reprogramar",
+    async (status) => {
+      const { env, registered } = await uncertain();
+      const fetchImpl = (async () => new Response("denied", { status })) as typeof fetch;
+      const wompi = new WompiPaymentProvider(
+        {
+          checkout: { publicKey: "pub_test_1", integritySecret: "int_secret_1" },
+          events: { eventsSecret: "events_secret_1" },
+        },
+        { fetchImpl, clock: () => NOW.toISOString() },
+      );
+
+      await expect(run(env, wompi, 15)).rejects.toThrow();
+
+      const attempt = attemptRow(env, registered.paymentId);
+      expect(attempt.status).toBe("UNKNOWN");
+      expect(attempt.attempt_count).toBe(0);
+      expect(attempt.next_attempt_at).toBe(iso(15));
+      // Nada que auditar: la consulta no llegó a ser una consulta.
+      const queried = env.database.native.prepare(
+        `SELECT COUNT(*) AS n FROM local_operation_audit
+         WHERE tenant_id=? AND action_code='PAYMENT_PROVIDER_QUERIED'`,
+      ).get(TENANT) as { n: number };
+      expect(queried.n).toBe(0);
+    },
+  );
+
+  // M
+  it("dos invocaciones simultáneas no producen dos consultas del mismo intento", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    const [first, second] = await Promise.all([
+      run(env, provider.port, 15),
+      run(env, provider.port, 15),
+    ]);
+
+    expect(provider.calls()).toBe(1);
+    expect(first.queried + second.queried).toBe(1);
+    expect(attemptRow(env, registered.paymentId).attempt_count).toBe(1);
+  });
+
+  // M — la guarda que lo sostiene, aislada.
+  it("el reclamo es por versión: dos reclamos con la misma versión sólo prosperan una vez", async () => {
+    const { env, registered } = await uncertain();
+    const [candidate] = env.paymentStore.findUncertainProviderSweepCandidates(SCOPE, {
+      now: at(15), limit: 10,
+    });
+    if (candidate === undefined) throw new Error("expected a candidate");
+
+    const claim = () => env.paymentStore.claimUncertainProviderQuery({
+      scope: SCOPE,
+      attemptId: candidate.attemptId,
+      expectedAttemptVersion: candidate.attemptVersion,
+      parkedUntil: iso(8 * 60),
+    });
+
+    expect(claim()).toBe("CLAIMED");
+    expect(claim()).toBe("NOT_CLAIMED");
+    expect(attemptRow(env, registered.paymentId).attempt_count).toBe(1);
+  });
+
+  // P
+  it("un barrido de otro tenant no alcanza estos intentos", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("APPROVED", registered.providerReference)]);
+    const otherTenant: SyncScope = { ...SCOPE, tenantId: "018f0000-0000-7000-8000-0000000000e1" };
+
+    const stats = await sweepAt(env, provider.port, () => at(15)).execute(otherTenant, {
+      correlationId: randomUUID(), causationId: null,
+    });
+
+    expect(stats.scanned).toBe(0);
+    expect(provider.calls()).toBe(0);
+    expect(attemptRow(env, registered.paymentId).status).toBe("UNKNOWN");
+  });
+
+  // Q
+  it("cada consulta y el abandono dejan auditoría y outbox emparejados", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    await run(env, provider.port, 15);
+    await run(env, provider.port, 8 * 60);
+
+    const audit = env.database.native.prepare(
+      `SELECT action_code, actor_type, actor_id, details_json FROM local_operation_audit
+       WHERE tenant_id=? AND resource_id=?
+         AND action_code IN ('PAYMENT_PROVIDER_UNCERTAIN','PAYMENT_PROVIDER_QUERIED','PAYMENT_PROVIDER_RESOLUTION_ABANDONED')
+       ORDER BY rowid`,
+    ).all(TENANT, registered.paymentId) as Array<{
+      action_code: string; actor_type: string; actor_id: string; details_json: string;
+    }>;
+
+    expect(audit.map((row) => row.action_code)).toEqual([
+      "PAYMENT_PROVIDER_UNCERTAIN",
+      "PAYMENT_PROVIDER_QUERIED",
+      "PAYMENT_PROVIDER_RESOLUTION_ABANDONED",
+    ]);
+
+    // Las cinco cosas que deben poder distinguirse: que se consultó, qué
+    // contestó, cuándo vuelve, cómo se resolvió y por qué se dejó de insistir.
+    expect(JSON.parse(audit[1]!.details_json)).toMatchObject({
+      attempt_number: 1, result: "PENDING", next_attempt_at: iso(45), uncertainty_reason: null,
+    });
+    expect(JSON.parse(audit[2]!.details_json)).toMatchObject({
+      reason: "WINDOW_EXHAUSTED", attempt_count: 1,
+    });
+    // Las escrituras del barrido no tienen sesión interactiva.
+    expect(audit[1]!.actor_type).toBe("SYSTEM");
+    expect(audit[2]!.actor_type).toBe("SYSTEM");
+
+    const outbox = env.database.native.prepare(
+      `SELECT operation_type, operation_json FROM local_sync_outbox
+       WHERE tenant_id=?
+         AND operation_type IN ('PAYMENT_PROVIDER_QUERIED','PAYMENT_PROVIDER_RESOLUTION_ABANDONED')
+       ORDER BY local_sequence`,
+    ).all(TENANT) as Array<{ operation_type: string; operation_json: string }>;
+    expect(outbox.map((row) => row.operation_type)).toEqual([
+      "PAYMENT_PROVIDER_QUERIED",
+      "PAYMENT_PROVIDER_RESOLUTION_ABANDONED",
+    ]);
+    expect(outbox.every((row) => {
+      const operation = JSON.parse(row.operation_json) as { aggregate_id: string };
+      return operation.aggregate_id === registered.paymentId;
+    })).toBe(true);
+  });
+
+  // R
+  it("una invocación no arma temporizadores ni se reencola", async () => {
+    const { env, registered } = await uncertain();
+    const provider = sweepProvider([evidenceOutcome("PENDING", registered.providerReference)]);
+
+    const timers = { setTimeout: 0, setInterval: 0, setImmediate: 0 };
+    const original = {
+      setTimeout: globalThis.setTimeout,
+      setInterval: globalThis.setInterval,
+      setImmediate: globalThis.setImmediate,
+    };
+    globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+      timers.setTimeout += 1;
+      return original.setTimeout(...args);
+    }) as typeof setTimeout;
+    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+      timers.setInterval += 1;
+      return original.setInterval(...args);
+    }) as typeof setInterval;
+    globalThis.setImmediate = ((...args: Parameters<typeof setImmediate>) => {
+      timers.setImmediate += 1;
+      return original.setImmediate(...args);
+    }) as typeof setImmediate;
+
+    try {
+      await run(env, provider.port, 15);
+    } finally {
+      globalThis.setTimeout = original.setTimeout;
+      globalThis.setInterval = original.setInterval;
+      globalThis.setImmediate = original.setImmediate;
+    }
+
+    expect(timers).toEqual({ setTimeout: 0, setInterval: 0, setImmediate: 0 });
+
+    // Y no queda nada corriendo: en el mismo instante el intento ya no es
+    // elegible, así que nadie va a volver a preguntar por su cuenta.
+    expect(provider.calls()).toBe(1);
+    expect((await run(env, provider.port, 15)).scanned).toBe(0);
+    expect(attemptRow(env, registered.paymentId).attempt_count).toBe(1);
   });
 });

@@ -1304,6 +1304,60 @@ ALTER TABLE payments_payment_attempts
   CHECK((provider_uncertainty_observed_at IS NULL) = (provider_uncertainty_reason IS NULL));
 `.trim();
 
+/**
+ * `MIGRATION_018` — `D-7`: el barrido de inciertos tiene dónde contar.
+ *
+ * `MIGRATION_017` dejó escrito **por qué** y **cuándo** un intento quedó
+ * `UNKNOWN`. Faltaba lo que necesita una resolución automática acotada:
+ * cuántas veces se preguntó ya y cuándo toca volver a preguntar. Sin esas dos
+ * casillas, la cadencia sólo podría reconstruirse contando asientos de
+ * `local_operation_audit` —derivar el contador de la auditoría, que `D-7`
+ * prohíbe: la auditoría es historia, no estado de control, y una consulta que
+ * fallara antes de auditar dejaría el contador mintiendo—.
+ *
+ * ## Por qué estos tipos y no otros
+ *
+ * Son literalmente los de `local_sync_outbox`, que ya resuelve el mismo
+ * problema para el envío al servidor: `attempt_count INTEGER NOT NULL DEFAULT
+ * 0 CHECK(attempt_count >= 0)` y `next_attempt_at TEXT`. Se copia la
+ * convención, **no los valores de la política**: la cadencia del outbox
+ * (`DEFAULT_RETRY_POLICY`: 5 intentos, 1 s, tope 60 s) responde a reintentar
+ * un envío propio; ésta responde a preguntarle a un tercero por dinero, y
+ * `D-5` la fija aparte.
+ *
+ * ## Semántica de las dos columnas
+ *
+ * - `attempt_count = 0` significa «nunca consultado automáticamente». La
+ *   consulta número *n* se cuenta **antes** de hacerse, así que la primera
+ *   consulta ocurre con el contador ya en 1.
+ * - `next_attempt_at IS NULL` significa «no hay consulta automática
+ *   pendiente»: o nunca la hubo (filas anteriores a esta migración, y los
+ *   intentos que no son de proveedor), o la resolución automática terminó.
+ *   Un `NULL` **no** es elegible; el selector lo exige explícitamente.
+ *
+ * Las filas existentes quedan con `0` y `NULL`: ningún intento histórico
+ * entra al barrido por el hecho de migrar, que es la única lectura honesta —
+ * nadie los consultó y no hay momento pasado que programar.
+ *
+ * ## El índice
+ *
+ * Es parcial sobre exactamente el selector real —`status='UNKNOWN'` y
+ * `next_attempt_at` no nulo— y su clave es `(tenant_id, next_attempt_at)`,
+ * el orden en que el barrido los quiere: vencidos primero, dentro del tenant.
+ * No sustituye ni relaja ningún índice de unicidad: `..._number_idx`,
+ * `..._provider_reference_idx` y `..._provider_transaction_idx` siguen
+ * exactamente como estaban.
+ */
+const MIGRATION_018 = `
+ALTER TABLE payments_payment_attempts
+  ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0);
+ALTER TABLE payments_payment_attempts
+  ADD COLUMN next_attempt_at TEXT;
+CREATE INDEX payments_payment_attempts_uncertain_sweep_idx
+  ON payments_payment_attempts(tenant_id, next_attempt_at)
+  WHERE status = 'UNKNOWN' AND next_attempt_at IS NOT NULL;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1322,6 +1376,7 @@ const MIGRATIONS = [
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
+  { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
 ] as const;
 
 /**
