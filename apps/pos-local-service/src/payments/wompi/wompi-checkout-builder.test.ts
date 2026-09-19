@@ -16,6 +16,7 @@ function intent(amount: string) {
     amount,
     currencyCode: "COP" as const,
     idempotencyKey: "idempotency-1",
+    merchantReference: "payment-1",
   };
 }
 
@@ -24,7 +25,7 @@ describe("Wompi Web Checkout builder", () => {
     const checkout = buildWompiWebCheckout(
       {
         intent: intent("24900.000000"),
-        providerReference: "ORDER-249",
+        merchantReference: "ORDER-249",
       },
       credentials,
     );
@@ -44,7 +45,7 @@ describe("Wompi Web Checkout builder", () => {
     const checkout = buildWompiWebCheckout(
       {
         intent: intent("24900.000000"),
-        providerReference: "sk8-438k4-xmxm392-sn2m",
+        merchantReference: "sk8-438k4-xmxm392-sn2m",
       },
       {
         publicKey: "pub_test_example",
@@ -65,7 +66,7 @@ describe("Wompi Web Checkout builder", () => {
       buildWompiWebCheckout(
         {
           intent: intent("100.001000"),
-          providerReference: "ORDER-100",
+          merchantReference: "ORDER-100",
         },
         credentials,
       ),
@@ -76,7 +77,7 @@ describe("Wompi Web Checkout builder", () => {
     const checkout = buildWompiWebCheckout(
       {
         intent: intent("1000.000000"),
-        providerReference: "ORDER-1000",
+        merchantReference: "ORDER-1000",
       },
       credentials,
     );
@@ -88,7 +89,7 @@ describe("Wompi Web Checkout builder", () => {
   describe("redirect-url", () => {
     it("omits the param entirely when no redirect URL is configured", () => {
       const checkout = buildWompiWebCheckout(
-        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
         credentials,
       );
 
@@ -98,7 +99,7 @@ describe("Wompi Web Checkout builder", () => {
 
     it("carries a configured redirect URL, exactly as given", () => {
       const checkout = buildWompiWebCheckout(
-        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
         { ...credentials, redirectUrl: "https://pos.camacho.test/payments/wompi/return" },
       );
 
@@ -110,7 +111,7 @@ describe("Wompi Web Checkout builder", () => {
 
     it("accepts a custom Electron protocol as the redirect target", () => {
       const checkout = buildWompiWebCheckout(
-        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
         { ...credentials, redirectUrl: "pos-camacho://payments/wompi/return" },
       );
 
@@ -120,11 +121,11 @@ describe("Wompi Web Checkout builder", () => {
 
     it("does not change the integrity signature — redirect-url is not signed", () => {
       const withoutRedirect = buildWompiWebCheckout(
-        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
         credentials,
       );
       const withRedirect = buildWompiWebCheckout(
-        { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+        { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
         { ...credentials, redirectUrl: "https://pos.camacho.test/payments/wompi/return" },
       );
 
@@ -136,7 +137,7 @@ describe("Wompi Web Checkout builder", () => {
     it("rejects a blank redirect URL", () => {
       expect(() =>
         buildWompiWebCheckout(
-          { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+          { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
           { ...credentials, redirectUrl: "   " },
         ),
       ).toThrow("must not be blank");
@@ -145,7 +146,7 @@ describe("Wompi Web Checkout builder", () => {
     it("rejects a malformed redirect URL", () => {
       expect(() =>
         buildWompiWebCheckout(
-          { intent: intent("1000.000000"), providerReference: "ORDER-1000" },
+          { intent: intent("1000.000000"), merchantReference: "ORDER-1000" },
           { ...credentials, redirectUrl: "not-a-url" },
         ),
       ).toThrow("well-formed URL");

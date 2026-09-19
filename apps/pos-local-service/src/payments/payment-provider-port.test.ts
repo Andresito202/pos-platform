@@ -16,16 +16,39 @@ describe("PaymentProviderPort", () => {
       amount: "87000.000000",
       currencyCode: "COP",
       idempotencyKey: "qr-intent-1",
+      merchantReference: "payment-1",
     };
 
     expect(input.cashRegisterId).toBe("register-3");
     expect(input.amount).toBe("87000.000000");
   });
 
+  /**
+   * `DEC-016` §21. The contract must be able to express two different values
+   * at once; a port that could only carry one would make the distinction
+   * unrepresentable, which is how they were conflated before.
+   */
+  it("keeps the merchant reference separate from the local idempotency key", () => {
+    const input: PaymentProviderIntent = {
+      paymentId: "payment-1",
+      saleId: "sale-1",
+      tenantId: "tenant-1",
+      branchId: "branch-1",
+      cashRegisterId: "register-3",
+      amount: "87000.000000",
+      currencyCode: "COP",
+      idempotencyKey: "caller-chosen-key-1",
+      merchantReference: "payment-1",
+    };
+
+    expect(input.merchantReference).not.toBe(input.idempotencyKey);
+    expect(input.merchantReference).toBe(input.paymentId);
+  });
+
   it("carries a provider-owned checkout URL without making it financial evidence", () => {
     const result: Awaited<ReturnType<PaymentProviderPort["createPaymentIntent"]>> = {
       providerCode: "TEST_QR",
-      providerReference: "intent-1",
+      merchantReference: "payment-1",
       status: "PENDING",
       checkout: { kind: "WEB_URL", url: "https://checkout.example.test/pay/intent-1" },
     };
@@ -54,13 +77,13 @@ describe("PaymentProviderPort", () => {
     const port: PaymentProviderPort = {
       createPaymentIntent: async () => ({
         providerCode: "BRE_B",
-        providerReference: "intent-1",
+        merchantReference: "payment-1",
         status: "PENDING",
         checkout: null,
       }),
       getPaymentStatus: async () => ({
         providerCode: "BRE_B",
-        providerReference: "intent-1",
+        providerReference: "payment-1",
         providerTransactionId: "transaction-1",
         amount: "87000.000000",
         currencyCode: "COP",
@@ -69,7 +92,7 @@ describe("PaymentProviderPort", () => {
       }),
       normalizeNotification: async () => ({
         providerCode: "BRE_B",
-        providerReference: "intent-1",
+        providerReference: "payment-1",
         providerTransactionId: "transaction-1",
         amount: "87000.000000",
         currencyCode: "COP",

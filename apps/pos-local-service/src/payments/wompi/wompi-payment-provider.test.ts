@@ -15,11 +15,14 @@ const intent = {
   cashRegisterId: "register-1",
   amount: "24900.000000",
   currencyCode: "COP" as const,
-  idempotencyKey: "qr-intent-1",
+  // Deliberately unlike `merchantReference`: the adapter must never reach for
+  // this value (`DEC-016` §21).
+  idempotencyKey: "caller-chosen-key-1",
+  merchantReference: "payment-1",
 };
 
 describe("WompiPaymentProvider", () => {
-  it("creates a checkout intent that propagates the idempotency key as the provider reference, without calling the Wompi API", async () => {
+  it("checks out against the merchant reference the caller decided, never the idempotency key, without calling the Wompi API", async () => {
     const provider = new WompiPaymentProvider(credentials, {
       fetchImpl: async () => {
         throw new Error("createPaymentIntent must not perform network calls");
@@ -29,9 +32,10 @@ describe("WompiPaymentProvider", () => {
     const result = await provider.createPaymentIntent(intent);
 
     expect(result.status).toBe("PENDING");
-    expect(result.providerReference).toBe("qr-intent-1");
+    expect(result.merchantReference).toBe("payment-1");
     expect(result.checkout?.kind).toBe("WEB_URL");
-    expect(result.checkout?.url).toContain("reference=qr-intent-1");
+    expect(result.checkout?.url).toContain("reference=payment-1");
+    expect(result.checkout?.url).not.toContain("caller-chosen-key-1");
   });
 
   it("queries the real Wompi transaction endpoint for getPaymentStatus", async () => {
@@ -43,7 +47,7 @@ describe("WompiPaymentProvider", () => {
           JSON.stringify({
             data: {
               id: "wompi-txn-1",
-              reference: "qr-intent-1",
+              reference: "payment-1",
               status: "APPROVED",
               amount_in_cents: 2490000,
               currency: "COP",
@@ -55,12 +59,12 @@ describe("WompiPaymentProvider", () => {
       clock: () => "2026-09-18T12:00:00.000Z",
     });
 
-    const evidence = await provider.getPaymentStatus({ providerReference: "wompi-txn-1" });
+    const evidence = await provider.getPaymentStatus({ providerTransactionId: "wompi-txn-1" });
 
     expect(requestedUrl).toBe("https://production.wompi.co/v1/transactions/wompi-txn-1");
     expect(evidence).toEqual({
       providerCode: "WOMPI",
-      providerReference: "qr-intent-1",
+      providerReference: "payment-1",
       providerTransactionId: "wompi-txn-1",
       amount: "24900.000000",
       currencyCode: "COP",
@@ -111,7 +115,7 @@ describe("WompiPaymentProvider", () => {
         data: {
           transaction: {
             id: "wompi-txn-1",
-            reference: "qr-intent-1",
+            reference: "payment-1",
             status: "APPROVED",
             amount_in_cents: 2490000,
             currency: "COP",

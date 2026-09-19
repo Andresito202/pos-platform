@@ -24,7 +24,11 @@ export interface WompiCheckoutCredentials {
 
 export interface WompiCheckoutInput {
   readonly intent: PaymentProviderIntent;
-  readonly providerReference: string;
+  /**
+   * What Wompi receives as `reference` and what `signature:integrity` signs.
+   * Decided by the application layer (`DEC-016` §21), not here.
+   */
+  readonly merchantReference: string;
 }
 
 const WompiCheckoutBaseUrl = "https://checkout.wompi.co/p/";
@@ -48,12 +52,12 @@ export function buildWompiWebCheckout(
   }
   if (!credentials.publicKey) throw new Error("Wompi public key is required");
   if (!credentials.integritySecret) throw new Error("Wompi integrity secret is required");
-  if (!input.providerReference) throw new Error("Wompi payment reference is required");
+  if (!input.merchantReference) throw new Error("Wompi payment reference is required");
   if (credentials.redirectUrl !== undefined) validateRedirectUrl(credentials.redirectUrl);
 
   const amountInCents = amountToCents(input.intent.amount);
   const signature = integritySignature(
-    input.providerReference,
+    input.merchantReference,
     amountInCents,
     credentials.integritySecret,
   );
@@ -62,7 +66,7 @@ export function buildWompiWebCheckout(
     "public-key": credentials.publicKey,
     currency: "COP",
     "amount-in-cents": amountInCents,
-    reference: input.providerReference,
+    reference: input.merchantReference,
     "signature:integrity": signature,
   });
   if (credentials.redirectUrl !== undefined) {

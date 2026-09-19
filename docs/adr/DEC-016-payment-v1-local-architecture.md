@@ -943,3 +943,81 @@ explícitamente fuera de alcance desde el inicio de esta rama.
 > estar **pendientes** en la rama, aunque su diseño y sus pruebas existieron y
 > siguen documentados aquí. El punto **2** (`redirect-url` en el checkout
 > builder) sigue materializado y su tachado es correcto.
+
+## 21. D-2 resuelta — identidad merchant separada de identidad del proveedor (2026-09-19)
+
+Cierra `D-2` en su dimensión de **identidad**. No cierra polling, barrido ni
+reconciliación automática, que siguen sin materializar.
+
+### 21.1 Las cuatro identidades
+
+| Identidad | Quién la genera | Alcance | Sale hacia el PSP |
+|---|---|---|---|
+| `paymentId` | Camacho (`RegisterQrPaymentUseCase`) | UUID, identidad local del pago | sólo como `merchantReference` |
+| `idempotencyKey` | **el llamador** (§7.2) | `UNIQUE(tenant_id, origin_device_id, …)` | **no** |
+| `merchantReference` | la capa de application | lo que el PSP recibe como referencia | sí |
+| `providerTransactionId` | **el PSP** | en Wompi, `transaction.id` | lo devuelve el PSP |
+
+**En este flujo: `merchantReference = paymentId`.**
+
+### 21.2 Qué cambió en el puerto
+
+`PaymentProviderPort` dejó de usar `providerReference` como nombre para dos
+cosas distintas:
+
+- `PaymentProviderIntent` lleva ahora `merchantReference` **además de**
+  `idempotencyKey`. Son campos separados por contrato, de modo que la
+  distinción es representable y el compilador la sostiene.
+- `PaymentProviderIntentResult.providerReference` → `merchantReference`.
+- `getPaymentStatus({ providerReference })` → `getPaymentStatus({ providerTransactionId })`.
+  Wompi documenta su consulta de estado **sólo** por `transaction.id`; la
+  firma ahora dice eso en vez de dejarlo a un comentario.
+- `PaymentProviderEvidence` **no cambió**: ya separaba correctamente
+  `providerReference` (eco de la referencia merchant) de
+  `providerTransactionId`.
+
+### 21.3 Por qué `merchantReference = paymentId` y no `idempotencyKey`
+
+El adapter Wompi hacía `providerReference = input.idempotencyKey`, citando
+§7.1 fila 2 («hacia proveedor: la misma clave, propagada»). Esa fila está
+marcada **V2**: se ejecutó una decisión diferida. Tres razones para no
+mantenerlo:
+
+1. **Autoridad.** El `idempotencyKey` lo elige el llamador (§7.2) y su esquema
+   admite cualquier ASCII imprimible de hasta 200 caracteres. Convertirlo en la
+   referencia externa dejaba que el renderer decidiera qué texto aparece en los
+   sistemas de un tercero. `paymentId` es un UUID bajo autoridad de Camacho.
+2. **Alcance de unicidad.** `idempotency_key` es único en
+   `(tenant_id, origin_device_id)`. El espacio de `reference` de Wompi es por
+   cuenta de comercio, transversal a dispositivos y tenants.
+3. **Ciclos de vida distintos.** Una clave de idempotencia protege una
+   operación local; una referencia comercial identifica un hecho ante un
+   tercero. Atarlas obliga a que cualquier cambio en una arrastre a la otra.
+
+Esto **no** debilita la protección antifraude: §7.4 ya establece que «la
+protección real contra el doble cobro es la cobertura, no la clave».
+
+### 21.4 Lo que esta decisión NO tocó
+
+- **Persistencia.** Cero cambios de esquema, columnas, índices o constraints.
+  `provider_reference_type` ya discriminaba `PROVIDER_INTENT` /
+  `MANUAL_REFERENCE` / `PROVIDER_TRANSACTION`; el esquema ya modelaba lo que
+  al puerto le faltaba.
+- **`D-2-bis` — deuda declarada, no resuelta.** `confirmProviderPayment`
+  **sobrescribe** `payments_payment_attempts.provider_reference`, cambiando la
+  referencia merchant por el `transaction.id`. Choca con el principio
+  append-only (§17.2). Requiere migración, y la numeración `MIGRATION_016`
+  está reclamada por `DEC-021` §F1. Fuera de alcance aquí.
+- **El contrato IPC.** `payment.register.qr` sigue devolviendo
+  `provider_reference`; hoy transporta la referencia merchant. Renombrar un
+  contrato ratificado (`TECH-003`) es una decisión propia.
+- **`D-3`** (`UNKNOWN`), **`SD-1`/`SD-2`/`SD-3`**, **`D-4`** y la
+  reconciliación siguen exactamente como estaban.
+
+### 21.5 Correlación — sigue sin existir
+
+`getPaymentStatus` continúa **sin ningún llamador productivo**. Y sigue sin
+haber forma de ir de una transacción del PSP a un pago Camacho: el store no
+expone búsqueda por `provider_reference` ni por `provider_transaction_id`, y
+`ConfirmProviderPaymentUseCase` exige un `paymentId` ya conocido. D-2 hace que
+esa búsqueda sea **expresable**; no la implementa.

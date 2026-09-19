@@ -32,41 +32,35 @@ export class WompiPaymentProvider implements PaymentProviderPort {
   ) {}
 
   /**
-   * Web Checkout never calls a Wompi API to "create" anything — the
-   * checkout URL is a client-side redirect Wompi later resolves. There is
-   * therefore no provider-issued reference at this point; DEC-016 §7.1
-   * ("hacia proveedor: la misma clave, propagada") is the documented answer
-   * for what to propagate as that reference, so the idempotency key is
-   * reused as the Wompi `reference` query param.
+   * Web Checkout never calls a Wompi API to "create" anything — the checkout
+   * URL is a client-side redirect Wompi later resolves, so no Wompi-issued
+   * identity exists at this point. The adapter therefore carries the
+   * merchant reference the application layer decided (`DEC-016` §21); it does
+   * not choose one, and in particular does not reach for `idempotencyKey`.
    */
   async createPaymentIntent(input: PaymentProviderIntent): Promise<PaymentProviderIntentResult> {
-    const providerReference = input.idempotencyKey;
     const checkout = buildWompiWebCheckout(
-      { intent: input, providerReference },
+      { intent: input, merchantReference: input.merchantReference },
       this.credentials.checkout,
     );
 
     return {
       providerCode: WOMPI_PROVIDER_CODE,
-      providerReference,
+      merchantReference: input.merchantReference,
       status: "PENDING",
       checkout,
     };
   }
 
   /**
-   * `input.providerReference` must already be the Wompi-issued transaction
-   * id (from a checkout redirect or verified webhook), not the merchant
-   * reference `createPaymentIntent` propagates above — Wompi's `GET
-   * /v1/transactions/{id}` has no lookup-by-reference form. `docs/adr/
-   * DEC-016-payment-v1-local-architecture.md` §19 records why
-   * `PaymentProviderPort` was not changed to carry this distinction
-   * explicitly, and defers that decision to when D-2 (polling/reconciliación)
-   * is actually designed.
+   * Wompi's `GET /v1/transactions/{id}` has no lookup-by-reference form, so
+   * the merchant reference is useless here. The port now says so in its own
+   * signature (`providerTransactionId`) instead of leaving it to a comment
+   * — `DEC-016` §21.
    */
-  async getPaymentStatus(input: { readonly providerReference: string }): Promise<PaymentProviderEvidence> {
+  async getPaymentStatus(input: { readonly providerTransactionId: string }): Promise<PaymentProviderEvidence> {
     const transaction = await getWompiTransaction(
-      input.providerReference,
+      input.providerTransactionId,
       { publicKey: this.credentials.checkout.publicKey },
       this.dependencies,
     );

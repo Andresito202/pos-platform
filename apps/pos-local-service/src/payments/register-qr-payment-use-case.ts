@@ -17,6 +17,11 @@ export interface RegisterQrPaymentRequest {
 }
 
 export type RegisterQrPaymentResult =
+  /**
+   * `providerReference` here is the merchant reference (`DEC-016` §21). The
+   * name is kept because it feeds the ratified `payment.register.qr` IPC
+   * field of the same name; renaming that contract is a separate decision.
+   */
   | { readonly kind: "PENDING"; readonly paymentId: string; readonly providerReference: string; readonly checkoutUrl: string | null }
   | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
@@ -41,9 +46,16 @@ function requestChecksum(request: RegisterQrPaymentRequest): string {
 
 /**
  * Creates a local pending Payment only after the provider has created its
- * payment intent. The returned provider reference is retained as the
- * correlation anchor; approval still requires a separate provider transaction
- * identifier from authorized evidence.
+ * payment intent.
+ *
+ * This use case owns the commercial identity Camacho shows the provider: it
+ * passes `paymentId` as the `merchantReference` (`DEC-016` §21). Two things
+ * it deliberately does not do — let the renderer choose that reference, and
+ * let `idempotencyKey` become it. The key protects the local operation and
+ * is caller-supplied; making it the external reference would hand a
+ * caller-chosen string to a third party and tie two independent lifecycles
+ * together. Approval still requires a `providerTransactionId` from
+ * authorized evidence, which is a different identity again.
  */
 export class RegisterQrPaymentUseCase {
   constructor(
@@ -89,9 +101,10 @@ export class RegisterQrPaymentUseCase {
       amount: request.amount,
       currencyCode: "COP",
       idempotencyKey: request.idempotencyKey,
+      merchantReference: paymentId,
     });
 
-    if (providerIntent.providerCode.trim() === "" || providerIntent.providerReference.trim() === "") {
+    if (providerIntent.providerCode.trim() === "" || providerIntent.merchantReference.trim() === "") {
       return { kind: "PROVIDER_REFERENCE_REQUIRED" };
     }
 
@@ -109,7 +122,7 @@ export class RegisterQrPaymentUseCase {
       tenderedAmount: null,
       changeAmount: null,
       providerCode: providerIntent.providerCode,
-      providerReference: providerIntent.providerReference,
+      providerReference: providerIntent.merchantReference,
       groupId: randomUUID(),
       paymentId,
       attemptId: randomUUID(),
@@ -127,7 +140,7 @@ export class RegisterQrPaymentUseCase {
       return {
         kind: "PENDING",
         paymentId: outcome.paymentId,
-        providerReference: providerIntent.providerReference,
+        providerReference: providerIntent.merchantReference,
         checkoutUrl: providerIntent.checkout?.kind === "WEB_URL"
           ? providerIntent.checkout.url
           : null,
