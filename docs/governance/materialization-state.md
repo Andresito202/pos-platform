@@ -710,6 +710,69 @@ pendiente: es trabajo hecho y desconectado.
 > por el puente, sin panel), `catalog.item.get` (`catalog.item.find` sí lo
 > tiene). `runtime.handshake` queda excluida con razón escrita.
 
+> **QR y cancelación de pago — las dos últimas operaciones de pago sin
+> pantalla, 2026-09-20.**
+>
+> `payment.register.qr` y `payment.cancel` estaban ruteadas por el puente y sin
+> panel. `ProviderPaymentPanel` las cubre junto con la lectura de estado, que es
+> lo que las une: un cobro que nadie completa deja la venta con un componente
+> pendiente, y alguien tiene que poder soltarlo.
+>
+> **Tres distinciones que la pantalla podía borrar y no borra.**
+> *Pendiente no es cobrado*: `payment.register.qr` crea un `Payment` PENDING y
+> la aprobación llega después por otra vía, así que el panel no declara cobrada
+> ninguna venta al registrar el intent —`PaymentProviderPort` lo dice sin
+> rodeos: una imagen QR no es evidencia financiera—.
+> *Sin proveedor no es fallo*: `PROVIDER_NOT_CONFIGURED` es el estado real de
+> toda instalación sin adquiriente y se muestra como tal; ocultar el botón
+> convertiría esa negativa en «la operación no existe».
+> *No cancelable no es error*: un pago confirmado es inmutable (`DEC-002`) y
+> deshacerlo es una operación compensatoria que V1 no implementa —**D-22**—.
+>
+> `provider_reference` y `checkout_url` llegan del servicio y el renderer no los
+> construye: `DEC-016` §21 reserva la referencia comercial a la capa de
+> aplicación. Una prueba comprueba que el payload enviado contiene sólo
+> `sale_id` y `amount`, de modo que no pudieron salir de la pantalla.
+> `expected_version` sale siempre de una lectura previa: el botón de cancelar
+> está cerrado mientras no haya una, porque es control optimista y no un
+> contador propio.
+>
+> **Dos correcciones que vinieron de ejecutar, no de razonar.**
+> Primero: supuse que cancelar un pago ya cancelado devolvía
+> `PAYMENT_NOT_CANCELLABLE`. `sqlite-payment-store.ts:1307` devuelve
+> `IDEMPOTENT` —el pago ya estaba cancelado, que es el mismo hecho—. El código
+> tenía razón y la prueba no; y eso destapó un fallo de modelado propio: el
+> panel pintaba `IDEMPOTENT` como rechazo, haciendo dudar de una cancelación que
+> sí ocurrió. Corregido.
+> Segundo: una relectura de `payment.get` parecía devolver `CREATED` tras
+> cancelar, lo que habría sido un defecto grave del servicio. No lo era: era una
+> carrera de la prueba —`payment-found` no desaparece entre lecturas, así que
+> esperar su visibilidad no espera a la respuesta nueva—. Con una aserción que
+> reintenta sobre el texto, el servicio deja el pago en `CANCELLED`, como debe.
+>
+> **El adaptador Wompi no queda ejercido por esta evidencia.** El E2E prueba el
+> único desenlace de QR que este equipo puede producir de verdad
+> (`PROVIDER_NOT_CONFIGURED`), sin proveedor configurado y sin doble. El camino
+> feliz —intent, referencia, checkout, aprobación— sigue
+> **`REQUIRES_LOCAL_VERIFICATION`**: exige credenciales de sandbox reales, que
+> este entorno no tiene y que no se inventan. La cancelación, en cambio, se
+> prueba entera contra el servicio real sobre una transferencia reportada y sin
+> atestiguar, que es exactamente un pago pendiente cancelable y no necesita
+> proveedor; y `PAYMENT_NOT_CANCELLABLE` se prueba sobre un pago **confirmado**
+> de verdad, que es lo único que esa regla protege.
+>
+> Evidencia: desktop **164/164** (19 ficheros) · contracts 244/244 ·
+> `typecheck` 10/10 · `architecture:check` 16/16 · `ci:repository-policy` PASS
+> (623 ficheros) · `test:runtime` completo, con los **4 tests Windows-gated
+> preexistentes en `skip`** (no cuentan como PASS) · **E2E 14/14** contra
+> Electron compilado y servicio real por socket.
+>
+> **Superficie restante sin pantalla**: `session.activate` (bloqueada por
+> **D-28**) y `catalog.item.get` (`catalog.item.find` sí lo tiene, y comparten
+> handler). `runtime.handshake` queda excluida con razón escrita. Con esto, toda
+> operación comercial del contrato que este repositorio puede ejercer hoy es
+> alcanzable desde la pantalla.
+
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo

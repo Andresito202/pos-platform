@@ -65,6 +65,13 @@ test("el panel de sesion esta montado en la ventana real y no ofrece activar", a
   expect(await window.getByTestId("activate-session-button").count()).toBe(0);
 });
 
+test("el panel de cobro por proveedor esta montado en la ventana real", async () => {
+  const window = await app.firstWindow();
+  await expect(window.getByTestId("provider-payment-panel")).toBeVisible();
+  await expect(window.getByTestId("charge-qr-button")).toBeVisible();
+  await expect(window.getByTestId("cancel-payment-button")).toBeVisible();
+});
+
 /**
  * Alcanzabilidad no es pantalla: el puente enrutaba las cinco operaciones de
  * crédito desde `f342f05`, pero ningún panel las ofrecía. Esta prueba mira la

@@ -103,6 +103,9 @@ const PERMISSIONS = [
   "CUSTOMERS_CREDIT_ACCOUNT_READ",
   "PAYMENTS_CREDIT_AUTHORIZE",
   "CUSTOMERS_CREDIT_REPAYMENT_REGISTER",
+  // Anadido con el panel de proveedor: cancelar un pago abandonado es una
+  // facultad propia, distinta de reportarlo y de atestiguarlo.
+  "PAYMENTS_PAYMENT_CANCEL",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");

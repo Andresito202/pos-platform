@@ -693,3 +693,124 @@ test("la pantalla recupera la sesion de este equipo contra el servicio real", as
   expect(await page.getByTestId("session-unverifiable").count()).toBe(0);
   expect(await page.getByTestId("session-error").count()).toBe(0);
 });
+
+/**
+ * El QR sin adquiriente y la cancelacion de un pago abandonado, por la cadena
+ * real.
+ *
+ * Son las dos ultimas operaciones de pago que quedaban sin pantalla. Se prueban
+ * juntas porque son el mismo problema operativo: un cobro que nadie completa
+ * deja la venta con un componente pendiente, y alguien tiene que poder
+ * soltarlo.
+ *
+ * **La cancelacion se prueba sobre una transferencia, no sobre un QR.** Una
+ * transferencia reportada y sin atestiguar es exactamente un pago pendiente
+ * cancelable, y no necesita proveedor: asi el recorrido entero corre contra el
+ * servicio real sin un solo doble. El QR se ejerce en el unico desenlace que
+ * este equipo puede producir de verdad.
+ */
+test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real", async () => {
+  const page = await app.firstWindow();
+  await page.getByTestId("reset-button").click();
+
+  // --- 1 · Una venta nueva, para no tocar ninguna de las anteriores --------
+  await page.getByTestId("barcode-input").fill(BARCODE);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("1");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  const payable = (await page.getByTestId("payable-amount").textContent())?.trim() ?? "";
+
+  // --- 2 · El QR: este equipo no tiene adquiriente -------------------------
+  //
+  // `PROVIDER_NOT_CONFIGURED` es una negativa tipada, no un fallo, y es el
+  // estado real de toda instalacion sin proveedor. Que llegue a la pantalla es
+  // lo que distingue «no hay adquiriente» de «la operacion no existe».
+  await page.getByTestId("qr-sale-id-input").fill(saleId);
+  await page.getByTestId("qr-amount-input").fill(payable);
+  await page.getByTestId("charge-qr-button").click();
+  await expect(page.getByTestId("qr-provider-not-configured")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("qr-pending").count()).toBe(0);
+  expect(await page.getByTestId("qr-rejected").count()).toBe(0);
+  expect(await page.getByTestId("provider-payment-error").count()).toBe(0);
+
+  // La venta sigue sin cobrar: un QR rechazado no deja rastro de cobertura.
+  expect(await page.getByTestId("sale-completed").count()).toBe(0);
+
+  // --- 3 · Un pago pendiente de verdad: la transferencia reportada ---------
+  await page.getByTestId("register-transfer-button").click();
+  await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
+  const paymentId = (await page.getByTestId("transfer-payment-id").textContent())?.trim() ?? "";
+  expect(paymentId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // --- 4 · Leer antes de ordenar: la version es control optimista ----------
+  await page.getByTestId("payment-id-input").fill(paymentId);
+  await page.getByTestId("read-payment-button").click();
+  await expect(page.getByTestId("payment-found")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("payment-expected-amount").textContent()).toBe(payable);
+  const statusBeforeCancel = await page.getByTestId("payment-status").textContent();
+  expect(statusBeforeCancel).not.toBe("CONFIRMED");
+
+  // --- 5 · Cancelar ---------------------------------------------------------
+  await page.getByTestId("cancel-payment-button").click();
+  await expect(page.getByTestId("payment-cancelled")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("cancelled-payment-id").textContent()).toBe(paymentId);
+  expect(await page.getByTestId("cancel-rejected").count()).toBe(0);
+
+  // La venta sigue sin cobrar: cancelar libera el componente, no lo cobra.
+  expect(await page.getByTestId("sale-completed").count()).toBe(0);
+  expect(await page.getByTestId("transfer-sale-completed").count()).toBe(0);
+
+  // --- 6 · Cancelar lo ya cancelado no es un rechazo ------------------------
+  //
+  // El servicio devuelve `IDEMPOTENT` —el pago ya estaba cancelado, que es el
+  // mismo hecho— y no `PAYMENT_NOT_CANCELLABLE`. Se relee la version primero:
+  // sin eso el intento chocaria antes contra el control de concurrencia.
+  // Se espera al **texto**, no a que el bloque siga visible: `payment-found`
+  // nunca desaparece entre lecturas, asi que esperar su visibilidad no espera
+  // a la respuesta nueva y la asercion leeria el valor anterior.
+  await page.getByTestId("read-payment-button").click();
+  await expect(page.getByTestId("payment-status")).toHaveText("CANCELLED", { timeout: 15_000 });
+  await page.getByTestId("cancel-payment-button").click();
+  await expect(page.getByTestId("payment-already-cancelled")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("cancel-rejected").count()).toBe(0);
+
+  // --- 7 · Un pago confirmado si es inmutable ------------------------------
+  //
+  // Esto es lo que `PAYMENT_NOT_CANCELLABLE` protege de verdad, y no puede
+  // probarse sobre un pago cancelado: hace falta uno **confirmado**. Se cobra
+  // la venta por transferencia y se intenta cancelarla despues. Deshacer un
+  // cobro confirmado es una operacion compensatoria que V1 no implementa
+  // (`DEC-002`, deuda D-22), no una cancelacion.
+  // Venta nueva: la pantalla admite una sola transferencia por venta, y la de
+  // arriba quedo cancelada. Cobrarla de nuevo exige empezar limpio, que es
+  // ademas lo que haria el cajero.
+  await page.getByTestId("reset-button").click();
+  await page.getByTestId("barcode-input").fill(BARCODE);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("1");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+
+  await page.getByTestId("register-transfer-button").click();
+  await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
+  const confirmedPaymentId = (await page.getByTestId("transfer-payment-id").textContent())?.trim() ?? "";
+  expect(confirmedPaymentId).not.toBe(paymentId);
+
+  await page.getByTestId("confirm-transfer-button").click();
+  await expect(page.getByTestId("transfer-sale-completed")).toBeVisible({ timeout: 15_000 });
+
+  await page.getByTestId("payment-id-input").fill(confirmedPaymentId);
+  await page.getByTestId("read-payment-button").click();
+  await expect(page.getByTestId("payment-status")).toHaveText("CONFIRMED", { timeout: 15_000 });
+
+  await page.getByTestId("cancel-payment-button").click();
+  await expect(page.getByTestId("payment-not-cancellable")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("provider-payment-error").count()).toBe(0);
+});
