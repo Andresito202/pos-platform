@@ -4,8 +4,13 @@
 
 Este repositorio no acepta desarrollo paralelo por iniciativa de una IA.
 
-- **Línea activa vigente:** `claude/pos-camacho-bloque-4c-ld43py`
+- **Línea activa vigente:** `feat/payment-qr-provider-foundation`
 - **Rama canónica del producto:** `main`
+- **Línea anterior, ya absorbida:** `claude/pos-camacho-bloque-4c-ld43py` (PR #78).
+  Su HEAD `16a0966` es **ancestro** de la línea activa: `git merge-base
+  --is-ancestor 16a0966 <HEAD>` devuelve verdadero y `git rev-list --count
+  HEAD..origin/claude/pos-camacho-bloque-4c-ld43py` devuelve **0**. No queda
+  nada por rescatar ahí. **No se trabaja sobre ella.**
 - El trabajo nuevo continúa sobre la línea activa mientras la gobernanza no la cambie explícitamente.
 - No abrir otra rama porque una IA considere que su enfoque es más limpio, moderno o conveniente.
 - No duplicar módulos, contratos, migrations, gates o arquitecturas existentes para resolver el mismo problema.
@@ -90,6 +95,34 @@ Si README, backlog, ADR, workflow, PR o código presentan estados incompatibles,
 
 Las ramas históricas pueden contener evidencia o alternativas descartadas. No son líneas de desarrollo activas. El inventario y disposición se mantienen en `docs/product/backlog.md` y en la auditoría de deprecación de ramas.
 
+### Inventario de ramas remotas — medido el 2026-09-20
+
+Columna «suelto» = commits que esa rama tiene y la línea activa no
+(`git rev-list --count HEAD..<rama>`). **Ninguna es trabajo a continuar.**
+
+| Rama remota | Suelto | Qué es |
+|---|---|---|
+| `feat/payment-qr-provider-foundation` | — | **línea activa** |
+| `claude/pos-camacho-bloque-4c-ld43py` | **0** | PR #78, absorbida por completo |
+| `main` | 0 | rama canónica, muy por detrás |
+| `audit/branch-deprecation-record` | 0 | registro de deprecación |
+| `_audit-temp` | 0 | temporal de auditoría |
+| `wip/local-catalog-inventory-payment-20260906` | 491 | linaje preservado (`DEC-018`) |
+| `domain/cash-open-vertical-20260901` | 490 | linaje preservado (`DEC-018`) |
+| `wip/sql003-contract-gap-20260825` | 89 | linaje preservado |
+| `fix/runtime-status-envelope` | 21 | histórica |
+| `feat/selective-pr79-payment-cash-sale` | 4 | extracción selectiva previa |
+| `claude/fiscal-adapter-gate` | 2 | histórica |
+| `claude/sale-cash-shift-binding` | 1 | histórica |
+| `claude/ledger-wip-lineage-correction` | 1 | histórica |
+| `claude/handler-response-typing` | 1 | PR #72, abierta |
+
+**Un número distinto de cero no significa «trabajo pendiente».** Significa que
+esa rama conserva historia que la línea activa no reprodujo commit a commit.
+Extraer algo de ahí exige una auditoría que demuestre que sigue siendo
+necesario y compatible, según la regla dominante de arriba. Recuérdalo antes de
+«aprovechar» nada: integrar ramas históricas completas está prohibido.
+
 ## Regla específica para Claude Code
 
 Claude Code debe tratar estas reglas como restricciones de continuidad del proyecto. Si encuentra una solución alternativa, debe registrarla como hallazgo y **no implementarla en paralelo**. Debe continuar desde el árbol existente o detenerse para reconciliación.
@@ -108,8 +141,19 @@ Este repo distingue niveles de claim. NUNCA afirmes un nivel que no verificaste 
 
 - Fase 1 — fundación técnica ejecutable.
 - `main` es la única rama canónica.
-- La línea activa de desarrollo es `claude/pos-camacho-bloque-4c-ld43py`.
-- PR #78/D-2 es trabajo de la línea activa y todavía no debe describirse como integrado en `main` hasta merge + verificación post-merge.
+- La línea activa de desarrollo es `feat/payment-qr-provider-foundation`.
+- **Unificación 2026-09-20.** `claude/pos-camacho-bloque-4c-ld43py` (PR #78) y
+  `feat/payment-qr-provider-foundation` eran dos líneas vivas desde la misma
+  base `4b7ed344`, con 25 ficheros modificados por ambas y un `MIGRATION_016`
+  distinto en cada una. Se fusionaron en la línea activa (`691b901`), se
+  completó la migración a UUID v7 que el contrato de sync exige (`f74968a`) y
+  se corrigieron los defectos que impedían el verde (`be0bfce`). PR #78 queda
+  **superada, no pendiente**.
+- **Nada de esto está en `main`.** La línea activa va muy por delante de
+  `origin/main` y `main` no ha tenido CI real desde 2026-09-14 (los runs
+  posteriores terminan con 0 ms facturables: no se asigna runner). Verificar
+  siempre con `git rev-list --left-right --count origin/main...HEAD` antes de
+  decir «integrado».
 - El persistence gate de Central Sync está implementado en la línea activa, con workflow dedicado; su ejecución real debe demostrar persistencia y replay antes de declararse `VERIFIED`.
 - Migrations PostgreSQL 001/002/003: integradas con gates cerrados. SQLite 003: `NONE`.
 
