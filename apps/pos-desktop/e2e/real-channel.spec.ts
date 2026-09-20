@@ -668,6 +668,21 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
  * activo. Al montar la ventana todavia no existia, que es justo la diferencia
  * que esta prueba observa.
  */
+/**
+ * El panel de estado contra el servicio real.
+ *
+ * Estuvo roto y ninguna prueba lo veia: el hook enviaba el payload desnudo y
+ * `channel/server.ts` valida todo request entrante con `IpcRequestSchema`, de
+ * modo que el servicio lo rechazaba **siempre**. En la aplicacion real el panel
+ * decia «Sin conexion» con el servicio vivo al otro lado del socket. Los dobles
+ * de prueba lo aceptaban, asi que el defecto solo aparece aqui.
+ */
+test("el panel de estado dice conectado contra el servicio real", async () => {
+  const page = await app.firstWindow();
+  await expect(page.getByTestId("status-connected")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("status-error").count()).toBe(0);
+});
+
 test("la pantalla recupera la sesion de este equipo contra el servicio real", async () => {
   const page = await app.firstWindow();
 

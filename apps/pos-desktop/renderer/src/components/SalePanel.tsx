@@ -17,6 +17,7 @@ export function SalePanel(): React.JSX.Element {
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
   const [saleCustomerId, setSaleCustomerId] = useState("");
+  const [tendered, setTendered] = useState("");
 
   return (
     <section data-testid="sale-panel">
@@ -137,9 +138,19 @@ export function SalePanel(): React.JSX.Element {
           {/* El identificador se muestra porque el cajero lo necesita para pedir
               el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
           {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
+          {/* Lo que el cliente entrega. Vacío significa «el importe justo»,
+              que es lo que ocurría siempre antes de existir este campo: el
+              cambio salía cero en toda venta en efectivo. */}
+          <input
+            data-testid="tendered-amount-input"
+            value={tendered}
+            onChange={(e) => { setTendered(e.target.value); }}
+            placeholder="Efectivo recibido (vacío = importe justo)"
+            disabled={sale.busy}
+          />
           <button
             data-testid="charge-cash-button"
-            onClick={() => { void sale.chargeCash(); }}
+            onClick={() => { void sale.chargeCash(tendered); }}
             disabled={sale.busy}
           >
             Cobrar en efectivo

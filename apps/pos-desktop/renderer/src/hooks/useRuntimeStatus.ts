@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getPosService } from "../pos-service.js";
+import { callCommercial } from "../pos-service.js";
 
 export type RuntimeStatus =
   | { phase: "loading" }
@@ -14,8 +14,16 @@ export function useRuntimeStatus(pollIntervalMs = 5_000): RuntimeStatus {
 
     async function poll(): Promise<void> {
       try {
-        const result = await getPosService()["runtime.status.get"]({});
-        if (!cancelled) setStatus({ phase: "connected", details: result });
+        // El sobre no es opcional: `server.ts` valida **todo** request entrante
+        // con `IpcRequestSchema`, y `RuntimeStatusRequestSchema` exige el sobre
+        // completo. Enviar el payload desnudo hacia que el servicio lo
+        // rechazara siempre, de modo que el panel de estado mostraba «Sin
+        // conexion» incluso con el servicio vivo al otro lado del socket.
+        const response = await callCommercial("runtime.status.get", {});
+        if (response.status !== "SUCCEEDED") {
+          throw new Error(response.result_code);
+        }
+        if (!cancelled) setStatus({ phase: "connected", details: response.result });
       } catch (error) {
         if (!cancelled) {
           setStatus({

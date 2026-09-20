@@ -201,6 +201,40 @@ describe("SalePanel — vertical comercial", () => {
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
   });
 
+  it("el efectivo recibido viaja tal cual lo teclea el cajero", async () => {
+    // Antes se enviaba siempre el importe exacto de la venta, de modo que el
+    // cambio salia cero en toda venta en efectivo.
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.change(screen.getByTestId("tendered-amount-input"), {
+      target: { value: "5000.000000" },
+    });
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => { expect(calls.get("payment.register.cash")).toBeDefined(); });
+
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["tendered_amount"]).toBe("5000.000000");
+    // El importe cobrado sigue siendo el que emitio la capa confiable.
+    expect(request.payload["amount"]).toBe("3500.000000");
+    expect(() => PaymentRegisterCashRequestSchema.parse(request)).not.toThrow();
+  });
+
+  it("vacío sigue significando «el importe justo»", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => { expect(calls.get("payment.register.cash")).toBeDefined(); });
+
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["tendered_amount"]).toBe("3500.000000");
+  });
+
   it("sale.create NO envía cash_shift_id: la resolución no vive en el renderer", async () => {
     install(BASE_OVERRIDES);
     render(<SalePanel />);

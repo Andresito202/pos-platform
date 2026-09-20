@@ -103,7 +103,7 @@ export function useCommercialSale(): CommercialSaleState & {
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
   createSale(customerId?: string): Promise<void>;
-  chargeCash(): Promise<void>;
+  chargeCash(tenderedAmount?: string): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
@@ -253,15 +253,31 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [lines, shift, run]);
 
-  const chargeCash = useCallback(async (): Promise<void> => {
+  /**
+   * `tenderedAmount` es lo que el cliente **entrega**, que no es lo que debe.
+   *
+   * Sin este parámetro se enviaba siempre el importe exacto de la venta, de
+   * modo que el cambio salía cero en toda venta en efectivo: el cajero no
+   * tenía dónde teclear el billete recibido. Omitirlo sigue significando
+   * «entregó el importe justo», que es el caso del pago con tarjeta de la casa
+   * o del importe exacto, y por eso el valor por defecto no cambia el
+   * comportamiento de quien no lo use.
+   *
+   * El cambio lo calcula la capa confiable, no esta vista: aquí sólo viaja lo
+   * que el cajero observó.
+   */
+  const chargeCash = useCallback(async (tenderedAmount?: string): Promise<void> => {
     const current = sale;
     if (current === null) return;
+    const tendered = tenderedAmount === undefined || tenderedAmount.trim() === ""
+      ? current.payableAmount
+      : tenderedAmount.trim();
     await run<PaymentRegisterCashResult>(
       () => callCommercial("payment.register.cash", {
         sale_id: current.saleId,
         // Se cobra exactamente el importe que emitió la capa confiable.
         amount: current.payableAmount,
-        tendered_amount: current.payableAmount,
+        tendered_amount: tendered,
       }, newIdempotencyKey()),
       (result) => {
         setPayment(result);

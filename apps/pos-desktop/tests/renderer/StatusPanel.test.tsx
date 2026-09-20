@@ -25,7 +25,7 @@ describe("StatusPanel", () => {
 
   it("shows connected state after successful response", async () => {
     (window.posService["runtime.status.get"] as ReturnType<typeof vi.fn>)
-      .mockResolvedValue({ status: "SUCCEEDED" });
+      .mockResolvedValue({ status: "SUCCEEDED", result_code: "OK", result: {} });
     render(<StatusPanel />);
     await waitFor(() => {
       expect(screen.getByTestId("status-connected")).toBeTruthy();
@@ -49,6 +49,15 @@ describe("StatusPanel", () => {
     await waitFor(() => {
       expect(window.posService["runtime.status.get"]).toHaveBeenCalledTimes(1);
     });
-    expect(window.posService["runtime.status.get"]).toHaveBeenCalledWith({});
+    // **Corregido 2026-09-20.** Esta asercion exigia `{}` —el payload desnudo—
+    // y con ello fijaba un defecto: `channel/server.ts` valida todo request con
+    // `IpcRequestSchema`, asi que el servicio rechazaba la consulta siempre y
+    // el panel mostraba «Sin conexion» con el servicio vivo. Ahora exige el
+    // sobre, que es lo que el contrato pide. El sobre completo se comprueba
+    // contra el esquema real en `StatusPanelEnvelope.test.tsx`.
+    const [sent] = (window.posService["runtime.status.get"] as ReturnType<typeof vi.fn>).mock.calls[0] as [Record<string, unknown>];
+    expect(sent["message_type"]).toBe("runtime.status.get");
+    expect(sent["payload"]).toEqual({});
+    expect(typeof sent["request_id"]).toBe("string");
   });
 });

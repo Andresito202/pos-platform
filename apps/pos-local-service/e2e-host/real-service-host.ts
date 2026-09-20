@@ -320,6 +320,30 @@ async function main(): Promise<void> {
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
         };
       }
+      // `runtime.status.get` lo sirve `LocalChannelComponent` en produccion, no
+      // el handler comercial. El arnes cablea el servidor directamente contra el
+      // handler, asi que sin este caso la peticion llegaba sin atender, lanzaba
+      // y el servidor **destruia el socket** —fail-closed correcto, pero dejaba
+      // el canal muerto para todo lo demas—. Se replica la misma respuesta.
+      if (request.message_type === "runtime.status.get") {
+        return {
+          protocol_version: request.protocol_version,
+          request_id: request.request_id,
+          correlation_id: request.correlation_id,
+          operation_id: null,
+          status: "SUCCEEDED",
+          result_code: "OK",
+          result_schema_version: "1.0.0",
+          error: null,
+          server_time: NOW.toISOString(),
+          result: {
+            service_version: "1.0.0",
+            protocol_version: request.protocol_version,
+            service_state: "RUNNING",
+            schema_version: "5",
+          },
+        };
+      }
       // El servidor ya validó el sobre; el handshake quedó atendido arriba.
       return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId);
     },
