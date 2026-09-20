@@ -20,7 +20,7 @@ function signedKey(
   const claims = SessionAssertionOperationalKeyClaimsSchema.parse({
     key_id: keyId,
     key_purpose: "SESSION_ASSERTION",
-    environment: "production",
+    environment: "PRODUCTION",
     public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }),
     status,
     valid_from: "2026-01-01T00:00:00.000Z",
@@ -44,21 +44,21 @@ describe("SessionTrustKeyStore", () => {
         "session-trust-store-test",
       );
       const store = new SessionTrustKeyStore(secretStore);
-      const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
+      const verifier = new SessionTrustKeyVerifier(root.publicKey, "PRODUCTION", () => NOW);
       const v1 = SessionAssertionTrustBundleSchema.parse({
         version: 1,
-        keys: [signedKey(root, "ssa-2026-01", "ACTIVE")],
+        keys: [signedKey(root, "SSA-2026-01", "ACTIVE")],
       });
       const v2 = SessionAssertionTrustBundleSchema.parse({
         version: 2,
         keys: [
-          signedKey(root, "ssa-2026-01", "VERIFY_ONLY"),
-          signedKey(root, "ssa-2026-02", "ACTIVE"),
+          signedKey(root, "SSA-2026-01", "VERIFY_ONLY"),
+          signedKey(root, "SSA-2026-02", "ACTIVE"),
         ],
       });
       const revokedV3 = SessionAssertionTrustBundleSchema.parse({
         version: 3,
-        keys: [signedKey(root, "ssa-2026-01", "REVOKED")],
+        keys: [signedKey(root, "SSA-2026-01", "REVOKED")],
       });
 
       expect(store.install(v1, verifier).version).toBe(1);
@@ -69,7 +69,7 @@ describe("SessionTrustKeyStore", () => {
 
       const conflictingV3 = SessionAssertionTrustBundleSchema.parse({
         version: 3,
-        keys: [signedKey(root, "ssa-other", "ACTIVE")],
+        keys: [signedKey(root, "SSA-OTHER", "ACTIVE")],
       });
       expect(() => store.install(conflictingV3, verifier)).toThrow("SESSION_TRUST_BUNDLE_VERSION_CONFLICT");
     } finally {

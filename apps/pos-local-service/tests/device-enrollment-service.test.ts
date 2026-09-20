@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +22,10 @@ async function fixture() {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
   const secretDir = join(dir, "security");
+  // Produccion lo crea `main.ts` con `mkdirSync(..., {mode: 0o700})` antes de
+  // abrir ningun almacen; el arnes tiene que hacer lo mismo o la escritura
+  // falla con ENOENT sobre el fichero temporal.
+  mkdirSync(secretDir, { recursive: true, mode: 0o700 });
   const provider = new InsecureDerivedKeyProvider(secretDir);
   const identityStore = new EncryptedFileSecretStore(secretDir, provider, `test-device:${binding.installationId}:${binding.deviceId}`);
   const identity = DeviceIdentity.create(identityStore);

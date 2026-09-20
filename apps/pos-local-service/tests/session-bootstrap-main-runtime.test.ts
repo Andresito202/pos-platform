@@ -37,7 +37,7 @@ function sessionAssertion(operational: ReturnType<typeof generateKeyPairSync>): 
     issued_at: "2026-09-17T00:00:00.000Z",
     offline_valid_until: "2026-09-18T00:00:00.000Z",
     sequence: 1,
-    key_id: "ssa-runtime-01",
+    key_id: "SSA-RUNTIME-01",
   };
   return {
     claims,
@@ -47,7 +47,7 @@ function sessionAssertion(operational: ReturnType<typeof generateKeyPairSync>): 
 
 function trustArtifact(root: ReturnType<typeof generateKeyPairSync>, operational: ReturnType<typeof generateKeyPairSync>, version: number, status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED") {
   const claims = SessionAssertionOperationalKeyClaimsSchema.parse({
-    key_id: "ssa-runtime-01",
+    key_id: "SSA-RUNTIME-01",
     key_purpose: "SESSION_ASSERTION",
     environment: "production",
     public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }),

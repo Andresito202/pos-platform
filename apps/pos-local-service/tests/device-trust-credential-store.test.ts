@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +10,13 @@ import { InsecureDerivedKeyProvider } from "../src/security/insecure-derived-key
 import { DeviceTrustCredentialStore } from "../src/security/device-trust-credential-store.js";
 
 const dirs: string[] = [];
+
+/**
+ * PEM real, no una cadena de relleno: el esquema exige >=80 caracteres y una
+ * clave inventada no ejercita el formato que el verificador tendra delante.
+ */
+const DEVICE_PUBLIC_KEY_PEM = generateKeyPairSync("ed25519")
+  .publicKey.export({ type: "spki", format: "pem" }).toString();
 const credential = SignedDeviceTrustCredentialSchema.parse({
   claims: {
     credential_id: "018f0000-0000-7000-8000-000000000011",
@@ -17,7 +25,7 @@ const credential = SignedDeviceTrustCredentialSchema.parse({
     company_id: "018f0000-0000-7000-8000-000000000002",
     installation_id: "018f0000-0000-7000-8000-000000000003",
     device_id: "018f0000-0000-7000-8000-000000000004",
-    device_public_key_pem: "-----BEGIN PUBLIC KEY-----\nTEST\n-----END PUBLIC KEY-----",
+    device_public_key_pem: DEVICE_PUBLIC_KEY_PEM,
     issued_at: "2099-09-16T12:00:00Z",
     not_before: "2099-09-16T12:00:00Z",
     expires_at: "2099-09-17T12:00:00Z",

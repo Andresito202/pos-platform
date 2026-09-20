@@ -12,7 +12,7 @@ const branch = "550e8400-e29b-41d4-a716-446655440022";
 const device = "550e8400-e29b-41d4-a716-446655440023";
 const installation = "550e8400-e29b-41d4-a716-446655440030";
 const operation = {
-  operation_id: "550e8400-e29b-41d4-a716-446655440024", tenant_id: tenant, company_id: company, branch_id: branch, device_id: device, installation_id: installation,
+  operation_id: "550e8400-e29b-71d4-a716-446655440024", tenant_id: tenant, company_id: company, branch_id: branch, device_id: device, installation_id: installation,
   session_id: "550e8400-e29b-41d4-a716-446655440025", actor_id: "550e8400-e29b-41d4-a716-446655440026",
   aggregate_type: "SALE", aggregate_id: "550e8400-e29b-41d4-a716-446655440027", operation_type: "SALE.COMPLETE",
   authority_policy: "APPEND_ONLY_SHARED", local_sequence: 1, idempotency_key: "sale:complete:1", expected_version: 0,
@@ -50,12 +50,18 @@ describe("TECH-003 local-central sync contracts", () => {
   it("accepts partial batch result vocabularies independently", () => expect(SyncBatchResponseSchema.safeParse(response).success).toBe(true));
   it("accepts a duplicate-free partial result subset and validates identity binding", () => {
     expect(validateSyncBatchCorrespondence(batch, response)).toBe(true);
-    expect(validateSyncBatchCorrespondence(batch, { ...response, results: [{ ...result, operation_id: company }] })).toBe(false);
+    // Un `operation_id` **ajeno al lote**, no uno invalido: `operation_id` exige
+    // UUID v7, asi que reutilizar aqui el id de compania (v4) probaria que el
+    // esquema rechaza la forma, no que la correspondencia detecta al intruso.
+    expect(validateSyncBatchCorrespondence(batch, {
+      ...response,
+      results: [{ ...result, operation_id: "550e8400-e29b-71d4-a716-4466554400ff" }],
+    })).toBe(false);
     expect(validateSyncBatchCorrespondence(batch, { ...response, results: [{ ...result, correlation_id: company }] })).toBe(false);
 
     const secondOperation = {
       ...operation,
-      operation_id: "550e8400-e29b-41d4-a716-446655440032",
+      operation_id: "550e8400-e29b-71d4-a716-446655440032",
       aggregate_id: "550e8400-e29b-41d4-a716-446655440033",
       correlation_id: "550e8400-e29b-41d4-a716-446655440034",
       local_sequence: 2,

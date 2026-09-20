@@ -15,7 +15,7 @@ function signedKey(root: ReturnType<typeof generateKeyPairSync>, keyId: string, 
   const claims = SessionAssertionOperationalKeyClaimsSchema.parse({
     key_id: keyId,
     key_purpose: "SESSION_ASSERTION",
-    environment: "production",
+    environment: "PRODUCTION",
     public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }),
     status,
     valid_from: "2026-01-01T00:00:00.000Z",
@@ -34,19 +34,19 @@ describe("SessionTrustKeyResolver", () => {
     const bundle = SessionAssertionTrustBundleSchema.parse({
       version: 2,
       keys: [
-        signedKey(root, "ssa-2026-01", "VERIFY_ONLY"),
-        signedKey(root, "ssa-2026-02", "ACTIVE"),
-        signedKey(root, "ssa-2025-01", "REVOKED"),
+        signedKey(root, "SSA-2026-01", "VERIFY_ONLY"),
+        signedKey(root, "SSA-2026-02", "ACTIVE"),
+        signedKey(root, "SSA-2025-01", "REVOKED"),
       ],
     });
     const store = {
       has: () => true,
       load: () => bundle,
     } as never;
-    const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
+    const verifier = new SessionTrustKeyVerifier(root.publicKey, "PRODUCTION", () => NOW);
     const result = new SessionTrustKeyResolver(store, verifier).resolve();
     expect(result.decision).toBe("VALID");
-    expect([...result.keys.keys()]).toEqual(["ssa-2026-01", "ssa-2026-02"]);
+    expect([...result.keys.keys()]).toEqual(["SSA-2026-01", "SSA-2026-02"]);
   });
 
   it("does not read the ambient artifact environment when the validated config path is absent", () => {
@@ -55,7 +55,7 @@ describe("SessionTrustKeyResolver", () => {
     try {
       const root = generateKeyPairSync("ed25519");
       const store = { has: () => false } as never;
-      const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
+      const verifier = new SessionTrustKeyVerifier(root.publicKey, "PRODUCTION", () => NOW);
       const result = new SessionTrustKeyResolver(store, verifier).resolve();
       expect(result).toEqual({ keys: new Map(), decision: "MISSING" });
     } finally {

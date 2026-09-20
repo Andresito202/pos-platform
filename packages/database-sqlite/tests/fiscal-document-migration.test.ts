@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/local-database.js";
 
 /**
- * `MIGRATION_016` — `DEC-021` F1.
+ * `MIGRATION_023` — `DEC-021` F1.
+ *
+ * Renumerada de `016` al unificar las ramas: ambas lineas habian creado un
+ * `MIGRATION_016` distinto.
  *
  * Lo que se prueba aquí no es que las tablas existan: es que **la base rechaza
  * los estados que producirían una factura duplicada ante la DIAN**. Cada
@@ -184,13 +187,13 @@ const ACCEPTED = {
   cufe: "a".repeat(96),
 } as const;
 
-describe("MIGRATION_016 — esquema", () => {
+describe("MIGRATION_023 — esquema", () => {
   it("llega a la última versión y crea las dos tablas de DEC-021 F1", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(16);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(23);
     expect((database.native
       .prepare("SELECT max(version) AS version FROM local_schema_migrations")
-      .get() as { version: number }).version).toBe(16);
+      .get() as { version: number }).version).toBe(LATEST_LOCAL_SCHEMA_VERSION);
 
     const tables = (database.native
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'fiscal_%' ORDER BY name")
@@ -209,7 +212,7 @@ describe("MIGRATION_016 — esquema", () => {
     first.close();
 
     const second = LocalDatabase.open({ dataDirectory });
-    expect((second.native.prepare("SELECT count(*) AS count FROM local_schema_migrations WHERE version=16").get()))
+    expect((second.native.prepare("SELECT count(*) AS count FROM local_schema_migrations WHERE version=23").get()))
       .toEqual({ count: 1 });
     expect(second.native.prepare("SELECT id FROM fiscal_electronic_document WHERE id=?").get(documentId))
       .toEqual({ id: documentId });
@@ -217,7 +220,7 @@ describe("MIGRATION_016 — esquema", () => {
   });
 });
 
-describe("MIGRATION_016 — el desenlace incierto no puede afirmar un resultado fiscal", () => {
+describe("MIGRATION_023 — el desenlace incierto no puede afirmar un resultado fiscal", () => {
   it("rechaza un resultado normalizado sin transporte COMPLETED", async () => {
     const database = await open();
     seedRange(database);
@@ -265,7 +268,7 @@ describe("MIGRATION_016 — el desenlace incierto no puede afirmar un resultado 
   });
 });
 
-describe("MIGRATION_016 — identidad del proveedor sólo con evidencia", () => {
+describe("MIGRATION_023 — identidad del proveedor sólo con evidencia", () => {
   it("rechaza un CUFE sin aceptación", async () => {
     const database = await open();
     seedRange(database);
@@ -304,7 +307,7 @@ describe("MIGRATION_016 — identidad del proveedor sólo con evidencia", () => 
   });
 });
 
-describe("MIGRATION_016 — intentos y resolución", () => {
+describe("MIGRATION_023 — intentos y resolución", () => {
   it("liga CREATED a cero intentos y a no haber salido nunca", async () => {
     const database = await open();
     seedRange(database);
@@ -368,7 +371,7 @@ describe("MIGRATION_016 — intentos y resolución", () => {
   });
 });
 
-describe("MIGRATION_016 — el payload queda congelado", () => {
+describe("MIGRATION_023 — el payload queda congelado", () => {
   it("rechaza cambiar payload, checksum, idempotencia, venta o rango", async () => {
     const database = await open();
     seedRange(database);
@@ -398,7 +401,7 @@ describe("MIGRATION_016 — el payload queda congelado", () => {
   });
 });
 
-describe("MIGRATION_016 — una sola emisión viva por venta", () => {
+describe("MIGRATION_023 — una sola emisión viva por venta", () => {
   it("impide abrir un segundo documento mientras el primero no está resuelto", async () => {
     const database = await open();
     seedRange(database);
@@ -453,7 +456,7 @@ describe("MIGRATION_016 — una sola emisión viva por venta", () => {
   });
 });
 
-describe("MIGRATION_016 — el rango debe existir antes que el documento", () => {
+describe("MIGRATION_023 — el rango debe existir antes que el documento", () => {
   it("rechaza un documento sin rango de numeración persistido", async () => {
     const database = await open();
     const saleId = seedSale(database, randomUUID());

@@ -15,9 +15,9 @@ describe("G1.2 session bootstrap runtime boundary", () => {
     const operational = generateKeyPairSync("ed25519");
     const now = new Date("2026-09-17T12:00:00.000Z");
     const claims = SessionAssertionOperationalKeyClaimsSchema.parse({
-      key_id: "ssa-runtime-01",
+      key_id: "SSA-RUNTIME-01",
       key_purpose: "SESSION_ASSERTION",
-      environment: "production",
+      environment: "PRODUCTION",
       public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }),
       status: "ACTIVE",
       valid_from: "2026-01-01T00:00:00.000Z",
@@ -28,7 +28,7 @@ describe("G1.2 session bootstrap runtime boundary", () => {
       claims,
       signature: sign(null, unsignedSessionAssertionOperationalKeyBytes(claims), root.privateKey).toString("base64url"),
     };
-    const trustVerifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => now);
+    const trustVerifier = new SessionTrustKeyVerifier(root.publicKey, "PRODUCTION", () => now);
     const trustResult = trustVerifier.verify(operationalArtifact);
     expect(trustResult.decision).toBe("VALID");
 

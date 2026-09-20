@@ -85,6 +85,11 @@ test.beforeAll(async () => {
       cwd: serviceRoot,
       env: {
         ...process.env,
+        // `InsecureDerivedKeyProvider` se niega a construirse fuera de
+        // `NODE_ENV=test`, y el arnes lo usa para el almacen de secretos
+        // fiscal. La guarda es correcta; lo que faltaba era declarar que esto
+        // es un entorno de prueba.
+        NODE_ENV: "test",
         POS_E2E_DATA_DIR: dataDirectory,
         POS_E2E_CHANNEL_SECRET: channelSecret,
         POS_E2E_TENANT_ID: TENANT,

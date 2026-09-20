@@ -31,10 +31,20 @@ const binding = {
   deviceId: "018f0000-0000-7000-8000-000000000004",
 };
 
-/** El mismo vinculo en la forma que exigen los *claims* firmados. */
+/** El mismo vinculo en la forma que exigen los *claims* de la credencial. */
 const bindingClaims = {
   tenant_id: binding.tenantId,
   company_id: binding.companyId,
+  installation_id: binding.installationId,
+  device_id: binding.deviceId,
+};
+
+/**
+ * El reto **no lleva comercio**: se emite contra una instalacion y un equipo,
+ * no contra una razon social. Su esquema rechaza `company_id`.
+ */
+const challengeBinding = {
+  tenant_id: binding.tenantId,
   installation_id: binding.installationId,
   device_id: binding.deviceId,
 };
@@ -77,7 +87,7 @@ function makeFixture(now = "2026-09-16T12:00:00Z") {
   };
   const challenge = {
     challenge_id: "018f0000-0000-7000-8000-000000000006",
-    ...bindingClaims,
+    ...challengeBinding,
     nonce: Buffer.from("01234567890123456789012345678901").toString("base64url"),
     issued_at: "2026-09-16T11:59:00Z",
     expires_at: "2026-09-16T12:01:00Z",
@@ -93,9 +103,9 @@ function makeFixture(now = "2026-09-16T12:00:00Z") {
 
 function verifierFor(database: LocalDatabase, fixture: ReturnType<typeof makeFixture>) {
   return new DeviceTrustVerifier(
-    createPublicKey(fixture.root.publicKey),
+    fixture.root.publicKey,
     new Map([["DEVICE_TRUST_KEY_1", {
-      key: createPublicKey(fixture.operational.publicKey),
+      key: fixture.operational.publicKey,
       status: "ACTIVE" as const,
       validFrom: "2026-09-01T00:00:00Z",
     }]]),
@@ -130,16 +140,16 @@ describe("D-3 device trust verifier", () => {
 
     const unknown = makeFixture();
     const unknownVerifier = new DeviceTrustVerifier(
-      createPublicKey(unknown.root.publicKey),
+      unknown.root.publicKey,
       new Map(),
       clockAt(database, unknown.now),
     );
     expect(unknownVerifier.verifyCredential(unknown.signedCredential, binding).decision).toBe("UNKNOWN_KEY");
 
     const revokedVerifier = new DeviceTrustVerifier(
-      createPublicKey(fixture.root.publicKey),
+      fixture.root.publicKey,
       new Map([["DEVICE_TRUST_KEY_1", {
-        key: createPublicKey(fixture.operational.publicKey),
+        key: fixture.operational.publicKey,
         status: "REVOKED" as const,
         validFrom: "2026-09-01T00:00:00Z",
       }]]),
