@@ -5,6 +5,7 @@ import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
+import { SyncHealthReader } from "./sync/sync-health.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { UncertainProviderSweepComponent } from "./payments/uncertain-provider-sweep-component.js";
@@ -199,6 +200,39 @@ try {
       security.trustAnchors.usableCount(purpose),
     ]),
   ));
+  // Salud de la cola de salida (`UC-SYNC-003` §Observabilidad). Se emite en
+  // el arranque y no en un temporizador: la cadencia de muestreo es parte de
+  // la política técnica versionada que `DEC-007` §1300 exige y que todavía no
+  // existe, así que elegir un intervalo aquí sería inventarla.
+  //
+  // Aun emitida una sola vez, es la diferencia entre reiniciar el servicio y
+  // enterarse, o reiniciarlo y seguir a ciegas: con la cola bloqueada por una
+  // dead letter, `outbox_depth`, `oldest_pending_age_ms` y `checkpoint_lag`
+  // crecen y no vuelven a bajar solos.
+  const syncScope = {
+    tenantId: config.tenant_id,
+    companyId: config.company_id,
+    branchId: config.branch_id,
+    deviceId: config.device_id,
+    installationId: config.installation_id,
+  };
+  const syncHealth = new SyncHealthReader(localDatabase.database).read(syncScope);
+  logger.log("info", "sync.health", {
+    outbox_depth: syncHealth.outboxDepth,
+    pending: syncHealth.pending,
+    in_flight: syncHealth.inFlight,
+    retry_waiting: syncHealth.retryWaiting,
+    dead_letter: syncHealth.deadLetter,
+    oldest_pending_age_ms: syncHealth.oldestPendingAgeMs,
+    checkpoint_lag: syncHealth.checkpointLag,
+    checkpoint_sequence: syncHealth.checkpointSequence,
+    highest_local_sequence: syncHealth.highestLocalSequence,
+    verdict_server_accepted: syncHealth.verdicts.serverAccepted,
+    verdict_server_rejected: syncHealth.verdicts.serverRejected,
+    verdict_conflict: syncHealth.verdicts.conflict,
+    verdict_review_required: syncHealth.verdicts.reviewRequired,
+    verdict_waiting_for_dependency: syncHealth.verdicts.waitingForDependency,
+  });
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
     installation_id: config.installation_id,

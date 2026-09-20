@@ -510,10 +510,27 @@ pendiente: es trabajo hecho y desconectado.
 >
 > Evidencia: `tests/sync-outbox-semantics.test.ts`, 6/6.
 >
-> **Lo que esto no cierra:** la propiedad 2 está probada pero **no observada**.
-> `UC-SYNC-003` §Observabilidad exige `outbox depth`, `oldest pending age` y
-> `checkpoint lag`, y ninguna de las tres existe. Hoy nada le diría a un
-> operador que su cola lleva días parada.
+> **Cerrado el 2026-09-20:** la propiedad 2 ya no es sólo probada, es
+> **observable**. `SyncHealthReader` materializa las señales de
+> `UC-SYNC-003` §Observabilidad —`outbox_depth`, `oldest_pending_age_ms`,
+> `checkpoint_lag`, el desglose por estado local y los veredictos recibidos,
+> segmentados por scope— y `main.ts` las emite en el arranque como
+> `sync.health`. Con la cola bloqueada por una dead letter durante un día, las
+> tres crecen y no vuelven a bajar solas; liberar la cabeza de línea las
+> devuelve a cero. Evidencia: `tests/sync-health.test.ts` 7/7 y el log real
+> del runtime.
+>
+> **Dos señales de esa lista siguen sin medirse, y no por omisión.**
+> `review_required` y `waiting_for_dependency` no tienen representación en el
+> `CHECK` de `local_sync_outbox.status` —cinco estados— así que se cuentan
+> como **veredictos recibidos** sobre el inbox, que es lo que de verdad
+> existe, y no como estado local. `clock_offset` exige una hora central de
+> referencia que no hay: `TrustedClockGuard` sólo impide el retroceso del
+> reloj local.
+>
+> **La cadencia de muestreo no se inventó.** Se emite una vez en el arranque
+> porque el intervalo es parte de la política técnica versionada que
+> `DEC-007` §1300 exige y que sigue sin existir (`D-2`).
 
 > **`ONB-002` — el bootstrap transaccional de tenant, materializado (2026-09-20).**
 >

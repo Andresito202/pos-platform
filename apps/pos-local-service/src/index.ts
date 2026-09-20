@@ -9,6 +9,7 @@ export * from "./authorization/index.js";
 export * from "./session/index.js";
 export * from "./sync/durable-sync-store.js";
 export * from "./sync/durable-sync-component.js";
+export * from "./sync/sync-health.js";
 export * from "./operations/operation-confirmation-store.js";
 export * from "./operations/operation-confirmation-component.js";
 export * from "./master-data/index.js";
