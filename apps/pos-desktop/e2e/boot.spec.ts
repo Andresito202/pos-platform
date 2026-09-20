@@ -49,6 +49,23 @@ test("la superficie comercial está montada en la ventana real", async () => {
 });
 
 /**
+ * La sesion es la precondicion de todo lo demas y hasta este bloque no tenia
+ * pantalla: `session.recover` estaba ruteado y nadie lo llamaba, de modo que un
+ * equipo real abria su ventana sin vinculo y cada operacion se rechazaba con
+ * `SESSION_NOT_BOUND` sin explicacion.
+ *
+ * No se exige aqui un desenlace concreto —`boot.spec` corre contra un canal
+ * doble—: se exige que el panel exista en la ventana compilada y que no ofrezca
+ * activar, porque activar necesita una SSA firmada que todavia no existe (D-28).
+ */
+test("el panel de sesion esta montado en la ventana real y no ofrece activar", async () => {
+  const window = await app.firstWindow();
+  await expect(window.getByTestId("session-panel")).toBeVisible();
+  await expect(window.getByTestId("recover-session-button")).toBeVisible();
+  expect(await window.getByTestId("activate-session-button").count()).toBe(0);
+});
+
+/**
  * Alcanzabilidad no es pantalla: el puente enrutaba las cinco operaciones de
  * crédito desde `f342f05`, pero ningún panel las ofrecía. Esta prueba mira la
  * ventana compilada real —no un DOM de prueba— y exige que el panel exista con

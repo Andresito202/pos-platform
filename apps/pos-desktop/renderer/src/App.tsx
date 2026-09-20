@@ -1,3 +1,4 @@
+import { SessionPanel } from "./components/SessionPanel.js";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
@@ -13,6 +14,10 @@ import { CreditPanel } from "./components/CreditPanel.js";
  * entrega el recibo. El adquiriente vive al lado porque se registra cuando el
  * cliente lo pide, no en un momento fijo.
  *
+ * La sesión va antes que todo, incluido el estado del servicio: sin vínculo de
+ * sesión cada operación de abajo se rechaza con `SESSION_NOT_BOUND`, y ésa es
+ * la primera pregunta que hay que poder responder al abrir el equipo.
+ *
  * El fiado va **después** del adquiriente porque lo presupone: `DEC-002` §159
  * exige que la venta nombre un adquiriente para poder fiarla, así que sin
  * cliente registrado no hay cuenta de crédito que abrir.
@@ -21,6 +26,7 @@ export function App(): React.JSX.Element {
   return (
     <main>
       <h1>POS Local</h1>
+      <SessionPanel />
       <StatusPanel />
       <CatalogPanel />
       <InventoryPanel />

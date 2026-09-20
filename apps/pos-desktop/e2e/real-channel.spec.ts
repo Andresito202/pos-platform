@@ -648,3 +648,48 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   expect(await page.getByTestId("credit-error").count()).toBe(0);
   expect(await page.getByTestId("sale-error").count()).toBe(0);
 });
+
+/**
+ * La sesion del equipo, leida de la pantalla contra el servicio real.
+ *
+ * Es la operacion que gobierna todas las demas y era la ultima sin superficie:
+ * `session.recover` estaba ruteado desde `f342f05` y nadie lo llamaba. Aqui se
+ * comprueba lo unico que no puede comprobarse con un doble: que el servicio
+ * real encuentra **la sesion de este equipo** —resuelta por `installation_id` y
+ * `device_id` de la configuracion local, no por nada que mande el llamador— y
+ * que revincula la conexion.
+ *
+ * Va al final a proposito: la sesion existe porque el primer recorrido la
+ * activo. Al montar la ventana todavia no existia, que es justo la diferencia
+ * que esta prueba observa.
+ */
+test("la pantalla recupera la sesion de este equipo contra el servicio real", async () => {
+  const page = await app.firstWindow();
+
+  // El identificador que el servicio firmo al arrancar: la verdad contra la que
+  // se contrasta lo que pinta la pantalla.
+  const expectedSession = (sessionAssertion as { claims: { session_id: string } }).claims.session_id;
+
+  // Antes de pulsar, la pantalla sigue mostrando lo que encontro al montar:
+  // **no habia sesion**, porque el primer recorrido aun no la habia activado.
+  // Sin esta comprobacion la prueba pasaria igual aunque el boton no hiciera
+  // nada, y no demostraria que la recuperacion es lo que cambia el estado.
+  await expect(page.getByTestId("session-none")).toBeVisible();
+  expect(await page.getByTestId("session-active").count()).toBe(0);
+
+  await page.getByTestId("recover-session-button").click();
+  await expect(page.getByTestId("session-active")).toBeVisible({ timeout: 15_000 });
+
+  expect(await page.getByTestId("session-id").textContent()).toBe(expectedSession);
+
+  // La ventana offline sale del servicio y llega literal: es lo que dice hasta
+  // cuando se puede seguir vendiendo sin Internet.
+  const offlineValidUntil = await page.getByTestId("session-offline-valid-until").textContent();
+  expect(offlineValidUntil).toBe(
+    (sessionAssertion as { claims: { offline_valid_until: string } }).claims.offline_valid_until,
+  );
+
+  expect(await page.getByTestId("session-none").count()).toBe(0);
+  expect(await page.getByTestId("session-unverifiable").count()).toBe(0);
+  expect(await page.getByTestId("session-error").count()).toBe(0);
+});

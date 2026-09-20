@@ -653,6 +653,63 @@ pendiente: es trabajo hecho y desconectado.
 > (`COMPLETED`) → abono en efectivo, contrastando cada cifra contra
 > `credit.account.get`.
 
+> **La sesión no tenía pantalla, y sin ella el equipo real no arranca — 2026-09-20.**
+>
+> `session.activate` y `session.recover` estaban ruteados por el puente desde
+> `f342f05` y **nada en el producto los llamaba**: ni un panel ni el proceso
+> principal (`grep` sobre `apps/pos-desktop/src/` y `renderer/src/`: cero
+> invocaciones). Tres consecuencias, todas de instalación real:
+>
+> 1. La ventana abría **sin vínculo de sesión**, y entonces cada operación
+>    comercial se rechazaba con `SESSION_NOT_BOUND` mostrando un error genérico.
+> 2. El servicio **sí** persiste la sesión, pero nadie la recuperaba al
+>    arrancar: el equipo que ayer funcionaba amanecía muerto.
+> 3. `offline_valid_until` no era visible en ninguna parte, y es el dato que
+>    dice hasta cuándo se puede seguir vendiendo sin Internet (`DEC-011`).
+>
+> `SessionPanel` consulta `session.recover` al montar y muestra los tres
+> desenlaces por separado. `NONE` y `UNVERIFIABLE` no son el mismo problema:
+> uno pide activar el equipo, el otro pide mirar por qué la sesión almacenada
+> no se puede verificar, y el panel nombra la causa que emite el servicio
+> (`AMBIGUOUS_DEVICE_SESSION`) sin interpretarla.
+>
+> **Recuperar no es autenticar.** `session.recover` no lleva payload: no
+> presenta credencial ni SSA. El servicio resuelve la sesión por el
+> `installation_id`/`device_id` de la configuración local —nunca por algo que
+> mande el llamador— y revincula la conexión. Es enteramente local y no
+> consulta ninguna autoridad central, que es lo que lo hace alcanzable hoy.
+>
+> **No hay botón de activar, y es deliberado.** `session.activate` exige una
+> SSA firmada por la autoridad emisora (`DEC-011`), que este repositorio no
+> tiene —**D-28**—. Un formulario que fabricase una SSA no sería un login:
+> sería una credencial inventada, y el servicio la rechazaría con
+> `SIGNATURE_INVALID`. Una prueba fija esa ausencia para que nadie la añada por
+> descuido. **Un equipo recién instalado sigue sin poder obtener su primera
+> sesión**: eso no lo resuelve este bloque y no lo resuelve ningún bloque
+> mientras D-28 siga abierta.
+>
+> **Hallazgo colateral: el doble de `App.test.tsx` fijaba tres métodos a mano.**
+> Cuando el panel empezó a consultar al montar, el doble no tenía
+> `session.recover`, la llamada reventaba, el panel degradaba a error y **la
+> suite seguía en verde** porque ninguna aserción lo miraba —comprobado
+> ejecutándolo, no supuesto—. Es la misma deriva de listas fijadas a mano que
+> dejó la superficie comercial inalcanzable durante tres bloques. El doble se
+> deriva ahora de `RENDERER_API_METHODS`.
+>
+> Evidencia: desktop **151/151** (18 ficheros) · contracts 244/244 ·
+> `typecheck` 10/10 · `architecture:check` 16/16 · `ci:repository-policy` PASS
+> (620 ficheros) · `test:runtime` completo, con los **4 tests Windows-gated
+> preexistentes en `skip`** (`windowsIt`; no cuentan como PASS) · **E2E 12/12**
+> contra Electron compilado y servicio real por socket. La prueba de sesión
+> comprueba primero que al montar la pantalla mostraba `NONE` de verdad y sólo
+> después que la recuperación la pone `ACTIVE`: sin esa primera aserción
+> habría pasado igual con un botón que no hiciera nada.
+>
+> **Superficie restante sin pantalla**, tras este bloque: `session.activate`
+> (bloqueada por D-28), `payment.register.qr` y `payment.cancel` (alcanzables
+> por el puente, sin panel), `catalog.item.get` (`catalog.item.find` sí lo
+> tiene). `runtime.handshake` queda excluida con razón escrita.
+
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo
