@@ -103,10 +103,10 @@ Columna «suelto» = commits que esa rama tiene y la línea activa no
 | Rama remota | Suelto | Qué es |
 |---|---|---|
 | `feat/payment-qr-provider-foundation` | — | **línea activa** |
-| `claude/pos-camacho-bloque-4c-ld43py` | **0** | PR #78, absorbida por completo |
+| `claude/pos-camacho-bloque-4c-ld43py` | **0** | PR #78 **cerrada**; absorbida por completo. Pendiente de borrar |
 | `main` | 0 | rama canónica, muy por detrás |
-| `audit/branch-deprecation-record` | 0 | registro de deprecación |
-| `_audit-temp` | 0 | temporal de auditoría |
+| `audit/branch-deprecation-record` | 0 | `ABORTED_AUDIT_REF`. Pendiente de borrar |
+| `_audit-temp` | 0 | `ABORTED_AUDIT_REF`. Pendiente de borrar |
 | `wip/local-catalog-inventory-payment-20260906` | 491 | linaje preservado (`DEC-018`) |
 | `domain/cash-open-vertical-20260901` | 490 | linaje preservado (`DEC-018`) |
 | `wip/sql003-contract-gap-20260825` | 89 | linaje preservado |
@@ -115,7 +115,20 @@ Columna «suelto» = commits que esa rama tiene y la línea activa no
 | `claude/fiscal-adapter-gate` | 2 | histórica |
 | `claude/sale-cash-shift-binding` | 1 | histórica |
 | `claude/ledger-wip-lineage-correction` | 1 | histórica |
-| `claude/handler-response-typing` | 1 | PR #72, abierta |
+| `claude/handler-response-typing` | 1 | PR #72 **cerrada**; superada por `response-schemas.ts` |
+
+### Estado de limpieza — 2026-09-20
+
+- **PRs abiertas: ninguna.** #78 y #72 se cerraron con su justificación escrita
+  en el hilo. Eran el único imán real de confusión: aparecían en `gh pr list`
+  como trabajo vivo.
+- **Tres refs están marcados para borrar** y siguen presentes:
+  `_audit-temp`, `audit/branch-deprecation-record` y
+  `claude/pos-camacho-bloque-4c-ld43py`. Los tres son ancestros estrictos de la
+  línea activa: borrarlos **no pierde un solo commit**. Ninguna herramienta
+  disponible en sesión expone borrado de refs —ni `git push --delete` a través
+  del proxy, ni el conector de GitHub—, así que queda para quien tenga permiso.
+  Comandos y SHAs en `docs/governance/branch-deprecation-audit-2026-09-16.md`.
 
 **Un número distinto de cero no significa «trabajo pendiente».** Significa que
 esa rama conserva historia que la línea activa no reprodujo commit a commit.

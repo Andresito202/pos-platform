@@ -249,3 +249,68 @@ Desde este registro:
 > Todo lo demás es evidencia, historial o producto integrado.
 
 Cualquier agente que reciba una tarea debe comprobar primero este documento y `docs/governance/canonical-development-line.md`.
+
+---
+
+## Actualización 2026-09-20 — unificación y cierre de líneas paralelas
+
+### Qué se cerró
+
+| PR | Rama | Disposición | Razón |
+|---|---|---|---|
+| #78 | `claude/pos-camacho-bloque-4c-ld43py` | **CERRADA** | Absorbida al 100 % en la línea activa |
+| #72 | `claude/handler-response-typing` | **CERRADA** | Superada por `response-schemas.ts` |
+
+**#78 — prueba de absorción.** Su HEAD `16a0966` es ancestro de la línea activa:
+
+```
+git merge-base --is-ancestor 16a0966 <HEAD>                              → verdadero
+git rev-list --count HEAD..origin/claude/pos-camacho-bloque-4c-ld43py    → 0
+```
+
+**#72 — prueba de supersesión.** Buscaba tipar los retornos del handler para que
+`tsc` detectara una operación sin respuesta. La línea activa tiene
+`packages/local-channel/src/response-schemas.ts`, con una tabla
+`Record<IpcMessageType, …>` —exhaustiva en compilación— y validación en runtime
+en ambos extremos (`channel/server.ts:73`, `client.ts:115`). Cubre lo que la PR
+perseguía y añade la verificación en ejecución, que tipar los retornos no daba.
+
+### Refs marcados `ABORTED_AUDIT_REF`, todavía presentes
+
+El borrado de `_audit-temp` y `audit/branch-deprecation-record` **sigue
+pendiente por la misma razón registrada arriba**: ninguna herramienta disponible
+en la sesión expone borrado de refs —ni `git push --delete` a través del proxy,
+ni el conector de GitHub—. No se simula.
+
+A estos dos se añade ahora `claude/pos-camacho-bloque-4c-ld43py`, por el mismo
+criterio: es ancestro estricto de la línea activa, así que borrar el ref **no
+pierde un solo commit**.
+
+SHAs en el momento de la comprobación:
+
+| Ref | SHA | Estado |
+|---|---|---|
+| `_audit-temp` | `bf39de72` | ancestro estricto |
+| `audit/branch-deprecation-record` | `bf39de72` | ancestro estricto |
+| `claude/pos-camacho-bloque-4c-ld43py` | `16a0966f` | ancestro estricto |
+
+Comandos para quien tenga permiso de borrado:
+
+```
+git push origin --delete _audit-temp
+git push origin --delete audit/branch-deprecation-record
+git push origin --delete claude/pos-camacho-bloque-4c-ld43py
+```
+
+### Lo que NO se borra, y por qué
+
+Toda rama con historia propia queda intacta. El criterio es estricto y
+mecánico: se borra **sólo** si `git merge-base --is-ancestor <rama> HEAD`
+devuelve verdadero, es decir, si no contiene un solo commit que la línea activa
+no alcance. Nueve ramas fallan esa prueba y por tanto se conservan, entre ellas
+el linaje preservado de `DEC-018`
+(`wip/local-catalog-inventory-payment-20260906`, 491 commits, y
+`domain/cash-open-vertical-20260901`, 490).
+
+**Un número distinto de cero no es trabajo pendiente**: es historia conservada
+que la regla dominante prohíbe integrar en bloque.
