@@ -95,6 +95,14 @@ const PERMISSIONS = [
   "INVENTORY_STOCK_ADJUST",
   "CUSTOMERS_CUSTOMER_REGISTER",
   "CUSTOMERS_CUSTOMER_READ",
+  // Anadidos con el panel de credito: las cuatro facultades de `DEC-005` son
+  // distintas entre si a proposito —autorizar una venta fiada no es abrir una
+  // cuenta, ni recibir un abono— y el arnes las concede todas porque la prueba
+  // recorre el ciclo entero con un solo operador.
+  "CUSTOMERS_CREDIT_ACCOUNT_MANAGE",
+  "CUSTOMERS_CREDIT_ACCOUNT_READ",
+  "PAYMENTS_CREDIT_AUTHORIZE",
+  "CUSTOMERS_CREDIT_REPAYMENT_REGISTER",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");

@@ -48,6 +48,20 @@ test("la superficie comercial está montada en la ventana real", async () => {
   await expect(window.getByTestId("open-shift-button")).toBeVisible();
 });
 
+/**
+ * Alcanzabilidad no es pantalla: el puente enrutaba las cinco operaciones de
+ * crédito desde `f342f05`, pero ningún panel las ofrecía. Esta prueba mira la
+ * ventana compilada real —no un DOM de prueba— y exige que el panel exista con
+ * sus tres acciones: abrir cuenta, fiar una venta y registrar un abono.
+ */
+test("el panel de crédito está montado en la ventana real", async () => {
+  const window = await app.firstWindow();
+  await expect(window.getByTestId("credit-panel")).toBeVisible();
+  await expect(window.getByTestId("open-credit-account-button")).toBeVisible();
+  await expect(window.getByTestId("charge-to-credit-button")).toBeVisible();
+  await expect(window.getByTestId("register-repayment-button")).toBeVisible();
+});
+
 test("el preload expone window.posService con la superficie completa", async () => {
   const window = await app.firstWindow();
   const exposed = await window.evaluate(() => {

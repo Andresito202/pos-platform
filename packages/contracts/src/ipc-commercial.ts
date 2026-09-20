@@ -1281,6 +1281,13 @@ export type PaymentRegisterQrResult = z.infer<typeof PaymentRegisterQrResultSche
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
 export type PaymentCancelResult = z.infer<typeof PaymentCancelResultSchema>;
 export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
+// Crédito de cliente (`DEC-005`). Los esquemas existían desde `CUST-002`; los
+// tipos inferidos faltaban, y sin ellos el renderer no podía leer un resultado
+// de crédito sin declararlo a mano.
+export type CreditAccountOpenResult = z.infer<typeof CreditAccountOpenResultSchema>;
+export type CreditAccountGetResult = z.infer<typeof CreditAccountGetResultSchema>;
+export type PaymentRegisterCreditResult = z.infer<typeof PaymentRegisterCreditResultSchema>;
+export type CreditPaymentRegisterResult = z.infer<typeof CreditPaymentRegisterResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;

@@ -102,7 +102,7 @@ export function useCommercialSale(): CommercialSaleState & {
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
-  createSale(): Promise<void>;
+  createSale(customerId?: string): Promise<void>;
   chargeCash(): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
@@ -212,7 +212,19 @@ export function useCommercialSale(): CommercialSaleState & {
     });
   }, []);
 
-  const createSale = useCallback(async (): Promise<void> => {
+  /**
+   * `customerId` es opcional porque la venta de mostrador no lo necesita, pero
+   * **fiar exige nombrarlo al crear la venta**: `SqlitePaymentStore.register`
+   * rechaza con `CUSTOMER_REQUIRED` toda venta con `customer_id` nulo
+   * (`sqlite-payment-store.ts`), y la venta no admite adquiriente después. Sin
+   * este parámetro el panel de crédito podría abrir cuentas y recibir abonos,
+   * pero ninguna venta creada desde la pantalla podría cobrarse a crédito.
+   *
+   * Nombrar al cliente no es aportar ámbito: la capa confiable comprueba que
+   * exista bajo el `tenant` del contexto verificado, dentro de la misma
+   * transacción que crea la venta.
+   */
+  const createSale = useCallback(async (customerId?: string): Promise<void> => {
     if (lines.length === 0) return;
     const currency = lines[0]!.currencyCode;
     await run<SaleCreateResult>(
@@ -220,6 +232,7 @@ export function useCommercialSale(): CommercialSaleState & {
         // El único selector del turno. `null` si no hay caja abierta: la venta
         // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
         cash_register_id: shift?.cashRegisterId ?? null,
+        customer_id: customerId === undefined || customerId === "" ? null : customerId,
         channel: "POS",
         document_series: "POS1",
         currency_code: currency,

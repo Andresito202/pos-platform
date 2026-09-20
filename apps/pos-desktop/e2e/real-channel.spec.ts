@@ -529,3 +529,122 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   expect(await page.getByTestId("inventory-error").count()).toBe(0);
   expect(await page.getByTestId("customer-error").count()).toBe(0);
 });
+
+/**
+ * Fiar una venta, entero y por la cadena real.
+ *
+ * `f342f05` dejo las cinco operaciones de credito ruteadas hasta el servicio, y
+ * el panel las ofrece desde esta sesion. Nada de eso demuestra todavia que un
+ * cajero pueda **fiar**: la deuda nace de una venta con adquiriente, y la venta
+ * solo admite adquiriente en el momento de crearse. Este recorrido lo hace
+ * entero desde la pantalla —alta del cliente, apertura de cuenta, venta a su
+ * nombre, cobro a credito y abono— contra el servicio real por socket.
+ *
+ * Las cifras no se afirman de memoria: cada una se contrasta contra la que
+ * emite `credit.account.get` despues del hecho.
+ */
+test("un cajero fia una venta y recibe el abono, por la cadena real", async () => {
+  const page = await app.firstWindow();
+  await page.getByTestId("reset-button").click();
+
+  // --- 1 · El cliente al que se le va a fiar -------------------------------
+  const identification = `11${String(Date.now()).slice(-8)}`;
+  await page.getByTestId("customer-document-code-input").fill("13");
+  await page.getByTestId("customer-identification-input").fill(identification);
+  await page.getByTestId("customer-legal-organization-input").fill("2");
+  await page.getByTestId("customer-tribute-input").fill("ZZ");
+  await page.getByTestId("customer-responsibilities-input").fill("R-99-PN");
+  await page.getByTestId("customer-names-input").fill("Rosa Quintero");
+  await page.getByTestId("register-customer-button").click();
+  await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
+  const customerId = (await page.getByTestId("customer-registered-id").textContent())?.trim() ?? "";
+  expect(customerId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // --- 2 · La cuenta de credito, con su cupo -------------------------------
+  await page.getByTestId("credit-customer-id-input").fill(customerId);
+  await page.getByTestId("credit-limit-input").fill("50000.000000");
+  await page.getByTestId("credit-currency-input").fill("COP");
+  await page.getByTestId("open-credit-account-button").click();
+  await expect(page.getByTestId("credit-opened")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("credit-opened-outcome").textContent()).toBe("OPENED");
+  expect((await page.getByTestId("credit-opened-account-id").textContent())?.trim())
+    .toMatch(/^[0-9a-f-]{36}$/);
+
+  // Recien abierta no debe nada y el cupo esta entero.
+  await page.getByTestId("read-credit-account-button").click();
+  await expect(page.getByTestId("credit-account")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("credit-account-limit").textContent()).toBe("50000.000000");
+  expect(await page.getByTestId("credit-account-balance").textContent()).toBe("0.000000");
+  expect(await page.getByTestId("credit-account-available").textContent()).toBe("50000.000000");
+
+  // --- 3 · La venta, a nombre del cliente ----------------------------------
+  //
+  // El adquiriente va en la creacion o no va: `SqlitePaymentStore.register`
+  // rechaza con `CUSTOMER_REQUIRED` toda venta con `customer_id` nulo.
+  await page.getByTestId("barcode-input").fill(BARCODE);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("1");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("sale-customer-id-input").fill(customerId);
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  const payable = (await page.getByTestId("payable-amount").textContent())?.trim() ?? "";
+  expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // --- 4 · Fiarla ----------------------------------------------------------
+  await page.getByTestId("credit-sale-id-input").fill(saleId);
+  await page.getByTestId("credit-charge-amount-input").fill(payable);
+  await page.getByTestId("charge-to-credit-button").click();
+  await expect(page.getByTestId("credit-charged")).toBeVisible({ timeout: 15_000 });
+
+  // Fiar **cobra la venta**: la cobertura la da el credito, y la mercancia sale.
+  expect(await page.getByTestId("credit-charged-completed").textContent()).toBe("COMPLETED");
+  expect(await page.getByTestId("credit-limit-exceeded").count()).toBe(0);
+  expect(await page.getByTestId("credit-charge-rejected").count()).toBe(0);
+
+  // Y deja deuda: el saldo es el importe fiado y el cupo baja en la misma cifra.
+  await page.getByTestId("read-credit-account-button").click();
+  await expect(page.getByTestId("credit-account-balance")).toHaveText(payable, { timeout: 15_000 });
+  const availableAfterCharge = await page.getByTestId("credit-account-available").textContent();
+  expect(availableAfterCharge).not.toBe("50000.000000");
+
+  // --- 5 · Un abono parcial en efectivo ------------------------------------
+  //
+  // El turno sigue abierto del recorrido anterior, que es lo que el efectivo
+  // exige: un abono en efectivo entra al cajon (`DEC-002` §146 regla 10).
+  await page.getByTestId("credit-repayment-amount-input").fill("5000.000000");
+  await page.getByTestId("credit-repayment-method-select").selectOption("CASH");
+  await page.getByTestId("credit-repayment-register-input").fill(REGISTER);
+  // La fecha de negocio la teclea el cajero: el abono no la deduce del reloj
+  // del equipo, igual que ninguna otra operacion con efecto contable.
+  const today = new Date();
+  const businessDate = [
+    String(today.getFullYear()),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
+  await page.getByTestId("credit-repayment-date-input").fill(businessDate);
+  await page.getByTestId("register-repayment-button").click();
+  await expect(page.getByTestId("credit-repaid")).toBeVisible({ timeout: 15_000 });
+  expect((await page.getByTestId("credit-repaid-transaction-id").textContent())?.trim())
+    .toMatch(/^[0-9a-f-]{36}$/);
+
+  // El saldo que declara el abono es el mismo que devuelve la consulta: la
+  // pantalla no lo recalcula, y las dos rutas de lectura coinciden.
+  const balanceAfterRepayment = (await page.getByTestId("credit-repaid-balance").textContent())?.trim() ?? "";
+  const availableAfterRepayment = (await page.getByTestId("credit-repaid-available").textContent())?.trim() ?? "";
+  expect(balanceAfterRepayment).not.toBe(payable);
+
+  await page.getByTestId("read-credit-account-button").click();
+  await expect(page.getByTestId("credit-account-balance"))
+    .toHaveText(balanceAfterRepayment, { timeout: 15_000 });
+  expect(await page.getByTestId("credit-account-available").textContent())
+    .toBe(availableAfterRepayment);
+
+  expect(await page.getByTestId("credit-repayment-rejected").count()).toBe(0);
+  expect(await page.getByTestId("credit-error").count()).toBe(0);
+  expect(await page.getByTestId("sale-error").count()).toBe(0);
+});

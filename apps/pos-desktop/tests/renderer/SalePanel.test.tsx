@@ -26,6 +26,7 @@ const PRODUCT = "22222222-2222-4222-8222-222222222222";
 const PRESENTATION = "33333333-3333-4333-8333-333333333333";
 const SHIFT = "44444444-4444-4444-8444-444444444444";
 const SALE = "55555555-5555-4555-8555-555555555555";
+const CUSTOMER = "77777777-7777-4777-8777-777777777777";
 const PAYMENT = "66666666-6666-4666-8666-666666666666";
 
 const calls = new Map<string, unknown[]>();
@@ -168,6 +169,36 @@ describe("SalePanel — vertical comercial", () => {
     expect(request.payload["cash_register_id"]).toBe(REGISTER);
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
     expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
+  });
+
+  it("una venta de mostrador va sin adquiriente: customer_id nulo, no ausente", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+
+    const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["customer_id"]).toBeNull();
+    expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
+  });
+
+  it("nombrar al adquiriente al crear la venta es lo único que permite fiarla", async () => {
+    // Una venta ya creada no admite adquiriente después, y sin él
+    // `SqlitePaymentStore.register` la rechaza con `CUSTOMER_REQUIRED`. Por eso
+    // el dato viaja en la creación o no viaja.
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    fireEvent.change(screen.getByTestId("sale-customer-id-input"), {
+      target: { value: CUSTOMER },
+    });
+    await createSale();
+
+    const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["customer_id"]).toBe(CUSTOMER);
+    expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
   });
 
   it("sale.create NO envía cash_shift_id: la resolución no vive en el renderer", async () => {

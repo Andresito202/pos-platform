@@ -16,6 +16,7 @@ export function SalePanel(): React.JSX.Element {
   const [barcode, setBarcode] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
+  const [saleCustomerId, setSaleCustomerId] = useState("");
 
   return (
     <section data-testid="sale-panel">
@@ -111,9 +112,20 @@ export function SalePanel(): React.JSX.Element {
           </li>
         ))}
       </ul>
+      {/* El adquiriente se nombra **al crear la venta** o no se nombra nunca:
+          una venta ya creada no lo admite después, y sin él no puede fiarse
+          (`CUSTOMER_REQUIRED`). Vacío para la venta de mostrador, que es la
+          mayoría. */}
+      <input
+        data-testid="sale-customer-id-input"
+        value={saleCustomerId}
+        onChange={(e) => { setSaleCustomerId(e.target.value); }}
+        placeholder="ID del adquiriente (opcional, obligatorio para fiar)"
+        disabled={sale.busy || sale.sale !== null}
+      />
       <button
         data-testid="create-sale-button"
-        onClick={() => { void sale.createSale(); }}
+        onClick={() => { void sale.createSale(saleCustomerId); }}
         disabled={sale.busy || sale.lines.length === 0 || sale.sale !== null}
       >
         Crear venta

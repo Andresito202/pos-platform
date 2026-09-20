@@ -612,6 +612,47 @@ pendiente: es trabajo hecho y desconectado.
 >
 > Evidencia: desktop 129/129 · E2E 8/8 contra Electron y servicio reales.
 
+> **El panel de crédito, y el eslabón que faltaba para fiar — 2026-09-20.**
+>
+> El bloque anterior dejó las cinco operaciones de `DEC-005` ruteadas hasta el
+> servicio y anotó que **alcanzabilidad no es pantalla**. `CreditPanel` es esa
+> pantalla: abrir cuenta, consultarla, fiar una venta y registrar un abono.
+>
+> **Construirlo destapó que fiar seguía siendo imposible desde el producto.**
+> `SqlitePaymentStore.register` rechaza con `CUSTOMER_REQUIRED` toda venta con
+> `customer_id` nulo, y una venta **no admite adquiriente después de creada**.
+> `SalePanel` nunca había enviado `customer_id` —el contrato lo acepta desde
+> `sale.create` y el servicio lo resuelve bajo el `tenant` del contexto
+> verificado—, así que toda venta nacida en la pantalla era incobrable a
+> crédito. Un panel de crédito completo sobre esa base habría podido abrir
+> cuentas y recibir abonos sin poder fiar ni una sola venta.
+>
+> El arreglo es el mínimo: `createSale(customerId?)` y un campo opcional en
+> `SalePanel`. La venta de mostrador sigue yendo sin adquiriente —`null`
+> explícito, no ausente— y dos pruebas fijan ambos casos contra
+> `SaleCreateRequestSchema`.
+>
+> **Nombrar al cliente no es aportar ámbito**, y el panel no lo confunde:
+> ningún sobre lleva `tenant_id`. El límite de cupo se muestra pero no se
+> negocia —`CREDIT_LIMIT_EXCEEDED` es rechazo duro sin override, y lo único
+> que se pinta es cuánto quedaba, para cobrar la diferencia por otro medio—.
+>
+> El arnés E2E recibió las cuatro facultades de `DEC-005`, que son distintas
+> entre sí a propósito: autorizar una venta fiada no es abrir una cuenta ni
+> recibir un abono.
+>
+> **Lo que esto no da todavía:** no hay reverso. Fiar por error se deshace con
+> un abono, que no es lo mismo —deja los dos hechos en el libro—. El reverso
+> sigue en **D-22**, sin decidir.
+>
+> Evidencia: desktop **141/141** (17 ficheros) · `test:runtime` completo ·
+> contracts 244/244 · `typecheck` 10/10 · `architecture:check` 16/16 ·
+> `ci:repository-policy` PASS · **E2E 10/10** contra Electron compilado y
+> servicio real por socket, incluido el ciclo entero de crédito: alta del
+> cliente → apertura de cuenta → venta a su nombre → cobro a crédito
+> (`COMPLETED`) → abono en efectivo, contrastando cada cifra contra
+> `credit.account.get`.
+
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo
