@@ -61,7 +61,8 @@ const IDS = {
   branchId: "018f0000-0000-7000-8000-0000000000a6",
 } as const;
 
-const KEY_ID = "SSA-BOOT-ORDER-01";
+const SSA_KEY_ID = "SSA-BOOT-ORDER-01";
+const SAS_KEY_ID = "SAS-BOOT-ORDER-01";
 
 interface LogRecord {
   readonly event: string;
@@ -77,25 +78,36 @@ function signed<T>(claims: T, bytes: Buffer, key: ReturnType<typeof generateKeyP
 
 function writeMaterial(directory: string): { trustPath: string; artifactPath: string; rootPem: string } {
   const root = generateKeyPairSync("ed25519");
-  const operational = generateKeyPairSync("ed25519");
+  // Una clave por proposito (`D-31`). Firmar identidad y firmar permisos son
+  // dominios distintos: compartir clave haria que quien pudiera emitir una
+  // pudiera emitir la otra, y revocar una obligase a revocar ambas.
+  const sessionKey = generateKeyPairSync("ed25519");
+  const snapshotKey = generateKeyPairSync("ed25519");
 
   // `environment` y `key_id` son `StableCodeSchema`: mayusculas. El artefacto
-  // publicado por `G1.2` usa minusculas y por eso no parsea — carencia aparte,
-  // registrada; aqui se genera material que el contrato admite.
-  const keyClaims = SessionAssertionOperationalKeyClaimsSchema.parse({
-    key_id: KEY_ID,
-    key_purpose: "SESSION_ASSERTION",
-    environment: "PRODUCTION",
-    public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }),
-    status: "ACTIVE",
-    valid_from: "2026-01-01T00:00:00.000Z",
-    valid_until: null,
-    version: 1,
-  });
+  // publicado por `G1.2` usa minusculas y por eso no parsea — `D-30`, aparte;
+  // aqui se genera material que el contrato admite.
+  const publish = (keyId: string, purpose: string, key: ReturnType<typeof generateKeyPairSync>) => {
+    const claims = SessionAssertionOperationalKeyClaimsSchema.parse({
+      key_id: keyId,
+      key_purpose: purpose,
+      environment: "PRODUCTION",
+      public_key_pem: key.publicKey.export({ type: "spki", format: "pem" }),
+      status: "ACTIVE",
+      valid_from: "2026-01-01T00:00:00.000Z",
+      valid_until: null,
+      version: 1,
+    });
+    return signed(claims, unsignedSessionAssertionOperationalKeyBytes(claims), root);
+  };
+
   const trustPath = join(directory, "session-trust.json");
   writeFileSync(trustPath, JSON.stringify(SessionAssertionTrustBundleSchema.parse({
     version: 1,
-    keys: [signed(keyClaims, unsignedSessionAssertionOperationalKeyBytes(keyClaims), root)],
+    keys: [
+      publish(SSA_KEY_ID, "SESSION_ASSERTION", sessionKey),
+      publish(SAS_KEY_ID, "AUTHORIZATION_SNAPSHOT", snapshotKey),
+    ],
   })));
 
   // Vigencia relativa al reloj real: el servicio arranca ahora y una SSA
@@ -112,7 +124,7 @@ function writeMaterial(directory: string): { trustPath: string; artifactPath: st
     issued_at: at(-60_000),
     offline_valid_until: at(6 * 3_600_000),
     sequence: 1,
-    key_id: KEY_ID,
+    key_id: SSA_KEY_ID,
   });
   const snapshotClaims = AuthorizationSnapshotClaimsSchema.parse({
     snapshot_id: "018f0000-0000-7000-8000-0000000000c0",
@@ -132,15 +144,15 @@ function writeMaterial(directory: string): { trustPath: string; artifactPath: st
       role_status: "ACTIVE",
       permissions: [{ code: "CATALOG_PRODUCT_REGISTER", status: "ACTIVE" }],
     }],
-    key_id: KEY_ID,
+    key_id: SAS_KEY_ID,
   });
 
   const artifactPath = join(directory, "operator-session.json");
   writeFileSync(artifactPath, JSON.stringify({
     version: 1,
-    session_assertion: signed(sessionClaims, unsignedSessionAssertionBytes(sessionClaims), operational),
+    session_assertion: signed(sessionClaims, unsignedSessionAssertionBytes(sessionClaims), sessionKey),
     authorization_snapshot: signed(
-      snapshotClaims, Buffer.from(canonicalJson(snapshotClaims)), operational,
+      snapshotClaims, Buffer.from(canonicalJson(snapshotClaims)), snapshotKey,
     ),
   }));
 
@@ -212,8 +224,8 @@ async function bootOnce(directory: string): Promise<Map<string, LogRecord>> {
   }
 }
 
-describe("DEC-025 — orden de arranque del aprovisionamiento", () => {
-  it("activa la SSA en el PRIMER arranque de un equipo recien aprovisionado", async () => {
+describe("DEC-025 — aprovisionamiento de sesion en el arranque", () => {
+  it("aprovisiona la sesion del operador en el PRIMER arranque", async () => {
     const directory = mkdtempSync(join(tmpdir(), "boot-order-"));
     try {
       const records = await bootOnce(directory);
@@ -222,19 +234,27 @@ describe("DEC-025 — orden de arranque del aprovisionamiento", () => {
       // pasaria en silencio, que es justo el modo de fallo que se persigue.
       const trust = records.get("security.session_trust");
       expect(trust, "el arranque no emitio security.session_trust").toBeDefined();
-      expect(trust?.fields).toMatchObject({ decision: "VALID", provisioned: 1 });
+      expect(trust?.fields).toMatchObject({ decision: "VALID", provisioned: 2 });
 
-      // El ancla esta poblada ANTES de que `commercial` resuelva su mapa. Si la
-      // provision vuelve a quedar detras de `lifecycle.start()`, aqui se lee 0.
+      // `D-31`: las DOS anclas pobladas. Con el contrato anterior —un solo
+      // proposito posible— esta linea decia `authorization_snapshot=0` con
+      // material impecable, y no habia ninguna ruta para cambiarlo.
+      //
+      // `D-32`: y estan pobladas ANTES de que `commercial` resuelva su mapa,
+      // que es lo que hace que el PRIMER arranque valga. Si la provision
+      // vuelve a quedar detras de `lifecycle.start()`, la SSA se rechaza.
       const anchors = records.get("security.trust_anchors");
       expect(anchors, "el arranque no emitio security.trust_anchors").toBeDefined();
-      expect(anchors?.fields?.["usable"]).toContain("session_assertion=1");
+      expect(anchors?.fields?.["usable"]).toBe(
+        "session_assertion=1 authorization_snapshot=1 license=0",
+      );
 
+      // El desenlace completo: los dos sobres verificados y aplicados por las
+      // rutas canonicas (`SSA-002` y `SAS-003`). Es la invariante `D1` de
+      // `DEC-025` —«los dos sobres, o ninguno»— cumplida de extremo a extremo.
       const session = records.get("security.operator_session");
       expect(session, "el arranque no emitio security.operator_session").toBeDefined();
-      // La asercion del defecto: la SSA se activo. Con la provision tardia esto
-      // era `SESSION_REJECTED` con detalle `SIGNATURE_INVALID`.
-      expect(session?.fields).not.toMatchObject({ decision: "SESSION_REJECTED" });
+      expect(session?.fields).toEqual({ decision: "PROVISIONED" });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

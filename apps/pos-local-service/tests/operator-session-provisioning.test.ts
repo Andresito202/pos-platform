@@ -169,15 +169,26 @@ describe("DEC-025 — lectura del artefacto de aprovisionamiento", () => {
 describe("DEC-025 — el firmador produce firmas que el servicio verifica", () => {
   it("firma una SSA y un SAS que verifican con los bytes canónicos del servicio", () => {
     const workspace = directory();
-    const privateKeyPath = join(workspace, "operational.pem");
+    // Dos claves distintas (`D-31`): identidad y permisos son dominios
+    // criptograficos separados y el equipo los verifica contra anclas
+    // distintas. Usar la misma aqui haria pasar la prueba aunque el firmador
+    // volviese a firmar los dos sobres con una sola.
+    const snapshotKeyPair = generateKeyPairSync("ed25519");
+    const sessionKeyPath = join(workspace, "session.pem");
+    const snapshotKeyPath = join(workspace, "snapshot.pem");
     writeFileSync(
-      privateKeyPath,
+      sessionKeyPath,
       KEY.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
       "utf8",
     );
+    writeFileSync(
+      snapshotKeyPath,
+      snapshotKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      "utf8",
+    );
 
-    // Sin `key_id`: lo pone el firmador desde `--key-id`, que es lo que ata el
-    // artefacto a una clave concreta del ancla.
+    // Sin `key_id`: lo pone el firmador, que es lo que ata cada sobre a una
+    // clave concreta del ancla.
     const { key_id: _sessionKey, ...sessionInput } = sessionClaims();
     const { key_id: _snapshotKey, ...snapshotInput } = snapshotClaims();
     const inputPath = join(workspace, "input.json");
@@ -192,8 +203,10 @@ describe("DEC-025 — el firmador produce firmas que el servicio verifica", () =
     );
     const run = spawnSync(process.execPath, [
       signer,
-      "--key", privateKeyPath,
-      "--key-id", "SESSION_KEY_1",
+      "--session-key", sessionKeyPath,
+      "--session-key-id", "SESSION_KEY_1",
+      "--snapshot-key", snapshotKeyPath,
+      "--snapshot-key-id", "SNAPSHOT_KEY_1",
       "--input", inputPath,
       "--output", outputPath,
     ], { encoding: "utf8" });
@@ -217,9 +230,21 @@ describe("DEC-025 — el firmador produce firmas que el servicio verifica", () =
     expect(verify(
       null,
       unsignedAuthorizationSnapshotBytes(read.artifact.authorization_snapshot.claims),
-      KEY.publicKey,
+      snapshotKeyPair.publicKey,
       Buffer.from(read.artifact.authorization_snapshot.signature, "base64url"),
     )).toBe(true);
+
+    // Y **cada sobre con SU clave**: cruzarlas no verifica. Sin esto, firmar
+    // ambos con una sola clave seguiria pasando las dos aserciones de arriba.
+    expect(verify(
+      null,
+      unsignedAuthorizationSnapshotBytes(read.artifact.authorization_snapshot.claims),
+      KEY.publicKey,
+      Buffer.from(read.artifact.authorization_snapshot.signature, "base64url"),
+    )).toBe(false);
+
+    expect(read.artifact.session_assertion.claims.key_id).toBe("SESSION_KEY_1");
+    expect(read.artifact.authorization_snapshot.claims.key_id).toBe("SNAPSHOT_KEY_1");
   });
 
   /** `DEC-025` D3.3: el binding tiene que ser el mismo en los dos sobres. */
@@ -242,7 +267,8 @@ describe("DEC-025 — el firmador produce firmas que el servicio verifica", () =
 
     const run = spawnSync(process.execPath, [
       fileURLToPath(new URL("../../../tools/provisioning/sign-operator-session.mjs", import.meta.url)),
-      "--key", privateKeyPath, "--key-id", "SESSION_KEY_1",
+      "--session-key", privateKeyPath, "--session-key-id", "SESSION_KEY_1",
+      "--snapshot-key", privateKeyPath, "--snapshot-key-id", "SNAPSHOT_KEY_1",
       "--input", inputPath, "--output", join(workspace, "artifact.json"),
     ], { encoding: "utf8" });
 

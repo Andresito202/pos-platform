@@ -8,7 +8,6 @@ import {
 export type SessionTrustKeyDecision =
   | "VALID"
   | "ROOT_SIGNATURE_INVALID"
-  | "PURPOSE_MISMATCH"
   | "ENVIRONMENT_MISMATCH"
   | "REVOKED"
   | "NOT_YET_VALID"
@@ -21,7 +20,10 @@ export interface SessionTrustVerificationResult {
 }
 
 /**
- * Verifies the centrally issued public key used to sign Session Assertions.
+ * Verifies a centrally issued public key published in the session trust
+ * bundle. Since `D-31` the bundle carries one key per purpose
+ * (`SESSION_ASSERTION`, `AUTHORIZATION_SNAPSHOT`), and the purpose inside the
+ * root-signed claims is what routes each key to its own trust anchor.
  *
  * The root key is injected from product/deployment trust material. This class
  * never generates, stores or accepts a private session-signing key.
@@ -39,9 +41,15 @@ export class SessionTrustKeyVerifier {
     const signed = SignedSessionAssertionOperationalKeySchema.parse(input);
     const claims = signed.claims;
 
-    if (claims.key_purpose !== "SESSION_ASSERTION") {
-      return this.result("PURPOSE_MISMATCH", null, evaluatedAtIso);
-    }
+    // Aqui **no** se compara el proposito contra un valor esperado, por dos
+    // razones. La primera es que ese `if` era inalcanzable: `parse` corre
+    // antes y el esquema es estricto, asi que un proposito que no admita el
+    // contrato lanza y nunca llega a compararse —lo fija la prueba «rejects
+    // malformed trust purpose instead of coercing it»—. La segunda es `D-31`:
+    // desde que el bundle publica una clave por proposito, el proposito ya no
+    // es una condicion que cumplir sino **el destino de la clave**. Viaja
+    // dentro de los claims firmados por la raiz, de modo que decide a que
+    // ancla entra y no lo elige quien instala el fichero.
     if (claims.environment !== this.expectedEnvironment) {
       return this.result("ENVIRONMENT_MISMATCH", null, evaluatedAtIso);
     }

@@ -18,14 +18,29 @@ rastreado y esta herramienta no le pide excepción.
 
 ```bash
 node tools/provisioning/sign-operator-session.mjs \
-  --key    /ruta/segura/operational-private-key.pem \
-  --key-id SESSION_KEY_1 \
-  --input  ./operador.json \
-  --output ./operator-session.json
+  --session-key     /ruta/segura/session-assertion-private-key.pem \
+  --session-key-id  SESSION_KEY_1 \
+  --snapshot-key    /ruta/segura/authorization-snapshot-private-key.pem \
+  --snapshot-key-id SNAPSHOT_KEY_1 \
+  --input           ./operador.json \
+  --output          ./operator-session.json
 ```
 
-`--key-id` tiene que ser el `key_id` que el equipo tiene provisionado en
-`local_trust_anchor`; si no coincide, el verificador rechaza la firma.
+**Dos claves, una por sobre** (`D-31`). Firmar identidad
+(`SESSION_ASSERTION`) y firmar permisos (`AUTHORIZATION_SNAPSHOT`) son
+dominios criptográficos distintos, y el equipo los verifica contra anclas
+distintas. Compartir una clave anularía esa separación: quien pudiera emitir
+una emitiría la otra, y revocar una obligaría a revocar ambas.
+
+Cada `--*-key-id` tiene que ser el `key_id` que el equipo tiene provisionado
+en `local_trust_anchor` **para ese propósito**; si no coincide, el verificador
+rechaza la firma. Los dos ids tienen que ser distintos entre sí: el bundle de
+confianza exige `key_id` único, y el firmador lo comprueba antes de firmar.
+
+> **Antes esto tomaba una sola `--key`** y firmaba los dos sobres con ella.
+> Funcionaba sólo en apariencia: el ancla de `AUTHORIZATION_SNAPSHOT` no se
+> poblaba nunca, así que el segundo sobre no llegaba a verificarse y el
+> aprovisionamiento se detenía ahí en todo arranque.
 
 ## Entrada
 

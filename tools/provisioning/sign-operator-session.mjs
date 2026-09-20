@@ -12,8 +12,16 @@
  *
  * Uso:
  *   node tools/provisioning/sign-operator-session.mjs \
- *     --key <ruta-clave-privada-pem> --key-id <id-en-el-ancla> \
+ *     --session-key <ruta-pem> --session-key-id <id-en-el-ancla> \
+ *     --snapshot-key <ruta-pem> --snapshot-key-id <id-en-el-ancla> \
  *     --input <ruta-json-de-entrada> --output <ruta-artefacto>
+ *
+ * **Dos claves, una por sobre** (`D-31`). Firmar identidad (`SESSION_ASSERTION`)
+ * y firmar permisos (`AUTHORIZATION_SNAPSHOT`) son dominios criptograficos
+ * distintos y el equipo los verifica contra anclas distintas. Antes se pasaba
+ * una sola `--key` y se firmaban ambos sobres con ella: eso solo funcionaba
+ * porque el ancla de permisos no se poblaba nunca y el segundo sobre no
+ * llegaba a verificarse.
  *
  * El JSON de entrada lleva el binding del equipo, la identidad del operador y
  * sus asignaciones de rol. Se documenta con un ejemplo en
@@ -62,18 +70,27 @@ function assertSameBinding(session, snapshot) {
 }
 
 function main() {
-  const privateKey = createPrivateKey(readFileSync(argument("key"), "utf8"));
-  const keyId = argument("key-id");
+  const sessionKey = createPrivateKey(readFileSync(argument("session-key"), "utf8"));
+  const snapshotKey = createPrivateKey(readFileSync(argument("snapshot-key"), "utf8"));
+  const sessionKeyId = argument("session-key-id");
+  const snapshotKeyId = argument("snapshot-key-id");
   const input = JSON.parse(readFileSync(argument("input"), "utf8"));
 
-  const sessionClaims = { ...input.session_assertion, key_id: keyId };
-  const snapshotClaims = { ...input.authorization_snapshot, key_id: keyId };
+  // El bundle exige `key_id` unico en todo el artefacto, asi que dos sobres
+  // con el mismo id no llegarian a instalarse. Se dice aqui, donde se puede
+  // corregir, y no como un rechazo opaco en el mostrador.
+  if (sessionKeyId === snapshotKeyId) {
+    throw new Error("--session-key-id y --snapshot-key-id tienen que ser distintos: son claves de propositos distintos");
+  }
+
+  const sessionClaims = { ...input.session_assertion, key_id: sessionKeyId };
+  const snapshotClaims = { ...input.authorization_snapshot, key_id: snapshotKeyId };
   assertSameBinding(sessionClaims, snapshotClaims);
 
   const artifact = {
     version: 1,
-    session_assertion: signClaims(sessionClaims, privateKey),
-    authorization_snapshot: signClaims(snapshotClaims, privateKey),
+    session_assertion: signClaims(sessionClaims, sessionKey),
+    authorization_snapshot: signClaims(snapshotClaims, snapshotKey),
   };
 
   writeFileSync(argument("output"), `${JSON.stringify(artifact, null, 2)}\n`, "utf8");

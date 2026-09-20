@@ -234,18 +234,23 @@ try {
     name: "session-trust-provisioning",
     start: async () => {
       if (sessionTrust.decision === "VALID") {
-        for (const [keyId, trusted] of sessionTrust.keys) {
+        for (const publication of sessionTrust.keys) {
+          // El proposito lo pone la clave, no esta linea. Estuvo escrito
+          // `"SESSION_ASSERTION"` a mano —era el unico que el contrato
+          // admitia— y con ello el ancla de `AUTHORIZATION_SNAPSHOT` no tenia
+          // forma de poblarse: `D-31`.
           security.trustAnchors.provision({
-            purpose: "SESSION_ASSERTION",
-            keyId,
-            publicKeySpki: trusted.key.export({ type: "spki", format: "der" }).toString("base64url"),
-            status: trusted.status,
+            purpose: publication.purpose,
+            keyId: publication.keyId,
+            publicKeySpki: publication.trusted.key
+              .export({ type: "spki", format: "der" }).toString("base64url"),
+            status: publication.trusted.status,
           });
         }
       }
       logger.log("info", "security.session_trust", {
         decision: sessionTrust.decision,
-        provisioned: sessionTrust.decision === "VALID" ? sessionTrust.keys.size : 0,
+        provisioned: sessionTrust.decision === "VALID" ? sessionTrust.keys.length : 0,
       });
     },
     stop: async () => {},

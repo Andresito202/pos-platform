@@ -42,7 +42,7 @@ más de lo que es:
 | `local_trust_anchor` provisionado desde artefacto verificado | ✅ `G1.2`, `main.ts:271-280` |
 | Material criptográfico real (raíz + clave operacional) | ✅ `infra/trust/` |
 | Techo de vigencia de la SSA (24 h) | ✅ ratificado en `DEC-012` §19 |
-| Contrato SAS + `AuthorizationSnapshotVerifier` + `SnapshotAcquisitionService` | ⚠️ **existen y NO se construyen en producción** |
+| Contrato SAS + `AuthorizationSnapshotVerifier` + `SnapshotAcquisitionService` | ⚠️ **existían y NO se construían en producción** — cableados por este ADR |
 | Emisor de SSA | ❌ |
 | Emisor de SAS | ❌ |
 
@@ -92,8 +92,8 @@ rutas que ya existen:
 
 ```
 artefacto  →  verificación contra `local_trust_anchor`
-           ├─ SSA  →  SessionActivation.activate   (SSA-002)
-           └─ SAS  →  SnapshotAcquisitionService   (SAS-003: provider → verifier → store)
+           ├─ SSA  →  ancla `SESSION_ASSERTION`      →  SessionActivation.activate   (SSA-002)
+           └─ SAS  →  ancla `AUTHORIZATION_SNAPSHOT` →  SnapshotAcquisitionService   (SAS-003)
 ```
 
 El `SnapshotProvider` que faltaba se implementa leyendo el artefacto, que es
@@ -137,18 +137,24 @@ que es `SEC-G02` y sigue fuera de alcance.
 ## Ejecución medida — 2026-09-20
 
 **Este ADR se escribió sin haber arrancado nunca el servicio.** Se arrancó, y
-la ruta de consumo que describe `D2` **no llega hasta el final**. Se deja
-escrito aquí porque el riesgo de este documento es leerse como una capacidad
-disponible:
+la ruta de consumo que describe `D2` no llegaba al final. Tres defectos, los
+tres encontrados por ejecutar y no por leer; dos corregidos, uno abierto:
 
-| Paso de `D2` | Observado |
+| Paso de `D2` | Estado |
 |---|---|
 | Lectura del artefacto | ✅ |
-| Provisión del ancla desde `G1.2` | ✅ `decision: VALID, provisioned: 1` — con material generado para la prueba |
-| SSA → `SessionActivation.activate` | ✅ **tras corregir el orden de arranque** (`D-32`) |
-| SAS → `SnapshotAcquisitionService` | ❌ `SNAPSHOT_REJECTED / VERIFICATION_FAILED` (`D-31`) |
+| Provisión del ancla desde `G1.2` | ✅ `decision: VALID, provisioned: 2` |
+| SSA → `SessionActivation.activate` | ✅ tras corregir el orden de arranque (`D-32`) |
+| SAS → `SnapshotAcquisitionService` | ✅ tras admitir su propósito en el bundle (`D-31`) |
 
-Tres hallazgos, los tres por ejecutar y no por leer:
+Arranque real sobre un equipo sin provisionar, con material generado para la
+prueba:
+
+```
+security.session_trust    → {"decision":"VALID","provisioned":2}
+security.trust_anchors    → {"usable":"session_assertion=1 authorization_snapshot=1 license=0"}
+security.operator_session → {"decision":"PROVISIONED"}
+```
 
 1. **`D-32`, corregido.** La provisión del ancla estaba detrás de
    `lifecycle.start()` y sus consumidores resuelven las claves durante su
@@ -156,20 +162,23 @@ Tres hallazgos, los tres por ejecutar y no por leer:
    rechazaba su propia sesión con `SIGNATURE_INVALID` y sólo funcionaba al
    segundo. Justo el arranque para el que existe este ADR era el único que no
    podía funcionar.
-2. **`D-31`, abierto y bloqueante.** `SessionAssertionKeyPurposeSchema` es
-   `z.literal("SESSION_ASSERTION")`: el bundle **no puede publicar** la clave
-   de propósito `AUTHORIZATION_SNAPSHOT` contra la que `D2` verifica el
-   segundo sobre. No hay ruta para provisionar ese propósito, así que
-   `PROVISIONED` es inalcanzable con el cableado de hoy. Decidirlo es de ADR:
-   una clave por propósito o una compartida.
+2. **`D-31`, corregido.** `SessionAssertionKeyPurposeSchema` era
+   `z.literal("SESSION_ASSERTION")`: el bundle **no podía publicar** la clave
+   contra la que `D2` verifica el segundo sobre, y no existía ninguna otra ruta
+   al ancla. Ahora publica **una clave por propósito**, y el propósito —que
+   viaja dentro de los claims firmados por la raíz— decide a qué ancla entra
+   cada clave. El firmador toma en consecuencia dos claves, una por sobre.
 3. **`D-30`, abierto.** El artefacto real de `G1.2` no parsea contra su propio
    contrato —`key_id` y `environment` en minúsculas frente a
-   `StableCodeSchema`—, así que un equipo apuntado al material publicado no
-   provisiona nada.
+   `StableCodeSchema`—, así que un equipo apuntado al material **publicado** no
+   provisiona nada. Es lo único que separa esto de un mostrador real, y su
+   cierre depende de la clave raíz del propietario.
 
-Mientras `D-31` siga abierta, **este ADR está `IMPLEMENTED` y no
-`RUNTIME_VERIFIED`**: su invariante `D1` —«los dos sobres, o ninguno»— no se
-puede satisfacer.
+**Alcance de lo demostrado, sin estirarlo:** la cadena completa se ejecuta de
+extremo a extremo en Linux, en un proceso aparte, con material generado para
+la prueba. Eso es `RUNTIME_VERIFIED` de la ruta de consumo. **No** es
+`END_TO_END` en un equipo real: falta `D-30` y falta Windows. El peldaño que
+se declara es el primero, no el segundo.
 
 ## Consecuencias
 
