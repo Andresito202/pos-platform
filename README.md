@@ -16,9 +16,24 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-`claude/pos-camacho-bloque-4c-ld43py`
+**`feat/payment-qr-provider-foundation`**
 
 Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
+
+La fuente única de verdad, legible por máquina, es
+[`tools/governance/active-line.txt`](tools/governance/active-line.txt). Antes de
+escribir nada:
+
+```bash
+./tools/governance/check-active-line.sh
+```
+
+Sale `1` si no estás en la línea activa. Las sesiones de Claude Code lo ejecutan
+solas: `.claude/hooks/session-start.sh` lo lanza al arrancar.
+
+> `claude/pos-camacho-bloque-4c-ld43py` fue la línea anterior. Quedó **absorbida
+> por completo** el 2026-09-20 —su HEAD `16a0966` es ancestro de la línea
+> activa— y PR #78 está cerrada. No se trabaja sobre ella.
 
 No se permite abrir una rama paralela, duplicar una arquitectura, rehacer un módulo o inventar un trabajo alternativo porque una IA considere que es “mejor”. Primero se audita lo construido. Sólo se modifica lo existente cuando hay evidencia de defecto, incompatibilidad, requisito nuevo autorizado o gate fallido.
 

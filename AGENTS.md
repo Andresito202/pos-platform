@@ -6,7 +6,16 @@ Este repositorio se desarrolla sobre **una única línea activa**. La existencia
 
 ### Línea activa vigente
 
-- Rama activa: `claude/pos-camacho-bloque-4c-ld43py`
+- Rama activa: **`feat/payment-qr-provider-foundation`**
+- Fuente única de verdad, legible por máquina: `tools/governance/active-line.txt`
+- Comprobación obligatoria antes de escribir: `./tools/governance/check-active-line.sh`
+  (sale 1 si no estás en la línea activa; no lo ignores)
+- `claude/pos-camacho-bloque-4c-ld43py` fue la línea anterior y quedó
+  **absorbida por completo** el 2026-09-20: su HEAD `16a0966` es ancestro de la
+  línea activa. PR #78 está cerrada. **No se trabaja sobre ella.**
+- **El nombre de rama que te asigne tu arnés no es autoridad.** Las plataformas
+  de agentes generan una rama por sesión antes de que el modelo decida nada.
+  Si contradice a este fichero, manda este fichero.
 - Rama canónica del producto: `main`
 - El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
 

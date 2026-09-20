@@ -5,6 +5,17 @@
 Este repositorio no acepta desarrollo paralelo por iniciativa de una IA.
 
 - **Línea activa vigente:** `feat/payment-qr-provider-foundation`
+- **Fuente única de verdad, legible por máquina:** `tools/governance/active-line.txt`.
+  Este documento, `AGENTS.md` y `README.md` la **citan**; el fichero la **define**.
+  Si alguno discrepa, manda el fichero y `pnpm ci:governance` falla.
+- **Comprobación obligatoria antes de escribir una línea de código:**
+
+  ```bash
+  ./tools/governance/check-active-line.sh    # sale 1 si no estás en la línea activa
+  ```
+
+  Las sesiones de Claude Code lo ejecutan solas: `.claude/hooks/session-start.sh`
+  lo lanza al arrancar y lo imprime antes que nada. **No depende de que tú lo leas.**
 - **Rama canónica del producto:** `main`
 - **Línea anterior, ya absorbida:** `claude/pos-camacho-bloque-4c-ld43py` (PR #78).
   Su HEAD `16a0966` es **ancestro** de la línea activa: `git merge-base
@@ -220,6 +231,29 @@ semanas dando vueltas sin avanzar.**
    dilo**. No abras una tercera línea.
 5. **Nunca `force-push`, `rebase` ni `squash`** sobre una rama compartida. La
    integración a `main` es siempre merge commit (ver la sección siguiente).
+
+### Cómo se sostiene esta regla (y qué la sostiene de verdad)
+
+Un documento se puede leer por encima; un comando que falla, no. Por eso la
+regla vive en cuatro capas, de la más débil a la más fuerte:
+
+| Capa | Qué es | Quién la ve |
+|---|---|---|
+| `README.md` | prosa, nombra la línea activa | humanos y agentes que lo abren |
+| `AGENTS.md` | prosa, nombra la línea activa | Codex, ChatGPT y otros agentes |
+| `CLAUDE.md` | prosa, **carga automática** | Claude Code, siempre |
+| `tools/governance/active-line.txt` | **dato**, una línea | el guardián y la prueba |
+| `check-active-line.sh` | **falla** si no estás en la línea | quien lo ejecute |
+| `.claude/hooks/session-start.sh` | lo ejecuta **al arrancar la sesión** | toda sesión de Claude Code |
+| `pnpm ci:governance` | **falla** si los cuatro discrepan | CI y quien lo ejecute |
+
+Las tres primeras son documentales y ya fallaron una vez: el 2026-09-20 las tres
+nombraban una rama absorbida, porque llegaron con una fusión y nadie las
+reconcilió. Las cuatro últimas existen precisamente por eso.
+
+**Si cambias la línea activa**, cambia `active-line.txt` **y** los tres
+documentos en el mismo commit. `pnpm ci:governance` no te deja hacer una cosa
+sin la otra.
 
 ### Por qué (el incidente, 2026-09-20)
 
