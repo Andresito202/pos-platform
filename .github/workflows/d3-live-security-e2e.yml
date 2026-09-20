@@ -4,7 +4,10 @@ on:
   push:
     branches:
       - main
-      - claude/pos-camacho-bloque-4c-ld43py
+      # Linea activa (`tools/governance/active-line.txt`). Antes apuntaba a
+      # `claude/pos-camacho-bloque-4c-ld43py`, absorbida el 2026-09-20: estas
+      # puertas no corrian sobre la linea activa.
+      - feat/payment-qr-provider-foundation
   pull_request:
     branches: [main]
   workflow_dispatch:

@@ -14,6 +14,10 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 > **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
 
+> ### ¿Eres una IA o un agente?
+> Lee **[`START-HERE.md`](START-HERE.md)** antes de escribir nada. Son dos
+> minutos y evita que rehagas trabajo que ya existe.
+
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
 **`feat/payment-qr-provider-foundation`**
@@ -69,9 +73,11 @@ La fundación local y comercial ya existente incluye, según la evidencia regist
 
 ## Trabajo activo — D-2 / Central Sync
 
-La línea activa está cerrando el transporte saliente del outbox y su evidencia de persistencia.
-
-PR #78 corresponde a D-2: `DurableSyncStore` → `SyncDispatcher` → `CentralTransport`/`FetchCentralTransport`, con validación de contrato, `request_id`, fail-closed de credenciales y backoff/dead-letter.
+El transporte saliente del outbox —`DurableSyncStore` → `SyncDispatcher` →
+`CentralTransport`/`FetchCentralTransport`, con validación de contrato,
+`request_id`, fail-closed de credenciales y backoff/dead-letter— **ya está en la
+línea activa** desde la unificación del 2026-09-20. Lo que falta es su evidencia
+de persistencia ejecutada contra infraestructura real.
 
 Además, la línea activa contiene un **Central Sync Persistence Gate** dedicado que debe probar contra infraestructura real:
 
@@ -108,7 +114,19 @@ La ejecución anterior sobre el commit `0afefdb` falló y no puede usarse como e
 
 ## PR #78 y `main`
 
-PR #78 es trabajo de la línea activa y **no debe describirse como integrado en `main` mientras no exista merge + verificación post-merge**.
+**PR #78 está cerrada desde el 2026-09-20.** Su contenido quedó **absorbido por
+completo** en la línea activa: su HEAD `16a0966` es ancestro de ella y
+`git rev-list --count HEAD..origin/claude/pos-camacho-bloque-4c-ld43py` devuelve
+`0`. No queda nada que rescatar ahí y **no se trabaja sobre esa rama**.
+
+Lo que sigue siendo cierto: **nada de esto está en `main`**. La línea activa va
+muy por delante de `origin/main`, y `main` no tiene CI real desde el 2026-09-14
+—los runs posteriores terminan con 0 ms facturables: no se asigna runner—.
+Verifica siempre antes de decir «integrado»:
+
+```bash
+git fetch origin main && git rev-list --left-right --count origin/main...HEAD
+```
 
 `main` continúa siendo la fuente canónica del producto. Una rama de trabajo no se vuelve canónica por tener más commits o CI verde.
 

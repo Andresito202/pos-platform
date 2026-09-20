@@ -1,5 +1,7 @@
 # Camacho POS Colombia (pos-platform)
 
+> **Punto de entrada para cualquier agente: [`START-HERE.md`](START-HERE.md).**
+
 ## REGLA DOMINANTE — UNA SOLA LÍNEA DE DESARROLLO
 
 Este repositorio no acepta desarrollo paralelo por iniciativa de una IA.

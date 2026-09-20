@@ -2,6 +2,9 @@
 
 ## Regla principal: una sola línea de desarrollo
 
+> **Empieza por [`START-HERE.md`](START-HERE.md).** Son dos minutos y evita que
+> rehagas trabajo que ya existe.
+
 Este repositorio se desarrolla sobre **una única línea activa**. La existencia de una idea técnicamente interesante no autoriza a abrir otra línea.
 
 ### Línea activa vigente

@@ -19,6 +19,10 @@ if [ -x "$ROOT/tools/governance/check-active-line.sh" ]; then
 else
   echo "AVISO: falta tools/governance/check-active-line.sh" >&2
 fi
+echo ""
+echo "  Punto de entrada obligatorio : START-HERE.md"
+echo "  Lo ya construido             : docs/governance/materialization-state.md"
+echo "  Antes de construir algo, MIRA si ya existe. No rehagas trabajo."
 echo "════════════════════════════════════════════════════════════════════"
 
 # Dependencias. `install` y no `ci`: el contenedor se cachea tras el hook y
