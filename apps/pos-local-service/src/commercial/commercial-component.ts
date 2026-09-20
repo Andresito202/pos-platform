@@ -102,6 +102,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly sessionStore: SqliteSessionAssertionStore;
         readonly sessionActivation: SessionActivationService;
         readonly authorizationStore: SqliteAuthorizationSnapshotStore;
+        readonly trustedClock: TrustedClockGuard;
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
@@ -175,6 +176,7 @@ export class CommercialComponent implements RuntimeComponent {
   get sessionStore(): SqliteSessionAssertionStore { return this.ready.sessionStore; }
   get sessionActivation(): SessionActivationService { return this.ready.sessionActivation; }
   get authorizationStore(): SqliteAuthorizationSnapshotStore { return this.ready.authorizationStore; }
+  get trustedClock(): TrustedClockGuard { return this.ready.trustedClock; }
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
@@ -219,11 +221,15 @@ export class CommercialComponent implements RuntimeComponent {
     const sync = this.durableSync.store;
 
     const sessionStore = new SqliteSessionAssertionStore(database, this.now);
+    // Un solo guardián de reloj por base: el aprovisionamiento de `DEC-025`
+    // verifica el snapshot con este mismo, en vez de abrir un segundo sobre el
+    // mismo estado persistido.
+    const trustedClock = new TrustedClockGuard(database);
     const verifier = new SessionAssertionVerifier(
       typeof this.sessionSigningKeys === "function"
         ? this.sessionSigningKeys()
         : this.sessionSigningKeys,
-      new TrustedClockGuard(database),
+      trustedClock,
       this.now,
     );
 
@@ -287,6 +293,7 @@ export class CommercialComponent implements RuntimeComponent {
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
+      trustedClock,
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),

@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { StableCodeSchema, UtcDateTimeSchema, UuidSchema } from "./primitives.js";
+import { SignedAuthorizationSnapshotSchema } from "./authorization-snapshot.js";
 
 /**
  * Contrato de la Signed Session Assertion (SSA), definida por `DEC-012`. Es la
@@ -80,3 +81,28 @@ export const SignedSessionAssertionSchema = z.strictObject({
 
 export type SessionAssertionClaims = z.infer<typeof SessionAssertionClaimsSchema>;
 export type SignedSessionAssertion = z.infer<typeof SignedSessionAssertionSchema>;
+
+/**
+ * Artefacto de aprovisionamiento inicial de sesión de operador — `DEC-025` D1.
+ *
+ * Lo firma el propietario fuera del repositorio con la clave operacional y lo
+ * consume el POS Local Service al arrancar. No es un emisor central: es el
+ * bootstrap que `D-28` admite mientras esa autoridad no exista.
+ *
+ * **Los dos sobres, o ninguno.** Entregar sólo la SSA daría una sesión válida
+ * sin un solo permiso: el POS arrancaría y rechazaría toda operación con
+ * `UNAUTHORIZED`. Por eso los dos campos son obligatorios y el consumidor falla
+ * cerrado si falta uno — parecer que avanza sin avanzar es el error que este
+ * contrato existe para impedir.
+ *
+ * No introduce envoltorio nuevo: reutiliza `{ claims, signature }`, el mismo de
+ * la licencia, el SAS y la publicación de clave operacional.
+ */
+export const OperatorSessionProvisioningArtifactSchema = z.strictObject({
+  version: z.literal(1),
+  session_assertion: SignedSessionAssertionSchema,
+  authorization_snapshot: SignedAuthorizationSnapshotSchema,
+});
+
+export type OperatorSessionProvisioningArtifact =
+  z.infer<typeof OperatorSessionProvisioningArtifactSchema>;

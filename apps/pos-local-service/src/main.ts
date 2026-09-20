@@ -28,6 +28,9 @@ import {
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
+import { readOperatorSessionArtifact, ArtifactSnapshotProvider } from "./session/operator-session-artifact.js";
+import { SnapshotAcquisitionService } from "./authorization/snapshot-acquisition.js";
+import { AuthorizationSnapshotVerifier } from "./security/authorization-snapshot-verifier.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -297,6 +300,59 @@ try {
       security.trustAnchors.usableCount(purpose),
     ]),
   ));
+  // Aprovisionamiento inicial de sesión de operador (`DEC-025`).
+  //
+  // Ocurre **después** de provisionar el ancla, porque la verificación de los
+  // dos sobres se hace contra ella: adelantarlo los rechazaría siempre.
+  //
+  // Los tres desenlaces se tratan distinto a propósito:
+  //   ABSENT  — equipo sin aprovisionar. Estado normal, no error.
+  //   INVALID — alguien tocó el fichero. No se activa nada y **no se degrada
+  //             lo que hubiera**: un fichero manipulable no puede dejar el
+  //             equipo sin sesión ni instalarle una falsa.
+  //   PRESENT — se verifica y se activa por las rutas canónicas. Si la SSA no
+  //             verifica no se intenta el snapshot: una sesión sin permisos
+  //             arrancaría el POS para rechazarlo todo, que es peor que no
+  //             arrancar sesión.
+  const operatorSession = await (async () => {
+    if (config.operator_session_artifact_path === undefined) {
+      return { decision: "ABSENT" as const };
+    }
+    const read = readOperatorSessionArtifact(config.operator_session_artifact_path);
+    if (read.decision !== "PRESENT") return read;
+
+    const binding = {
+      userId: read.artifact.session_assertion.claims.user_id,
+      installationId: config.installation_id,
+      deviceId: config.device_id,
+    };
+
+    const activation = commercial.sessionActivation.activate(
+      read.artifact.session_assertion, binding,
+    );
+    if (activation.kind !== "ACTIVATED") {
+      return { decision: "SESSION_REJECTED" as const, detail: activation.kind };
+    }
+
+    const acquisition = await new SnapshotAcquisitionService(
+      new ArtifactSnapshotProvider(read.artifact),
+      new AuthorizationSnapshotVerifier(
+        security.trustAnchors.keysFor("AUTHORIZATION_SNAPSHOT"),
+        commercial.trustedClock,
+      ),
+      commercial.authorizationStore,
+    ).acquire(binding);
+    if (acquisition.kind !== "ACQUIRED") {
+      return { decision: "SNAPSHOT_REJECTED" as const, detail: acquisition.kind };
+    }
+    return { decision: "PROVISIONED" as const };
+  })();
+
+  // Nunca el operador ni el artefacto: sólo si este equipo quedó aprovisionado
+  // y, cuando no, en qué paso se detuvo. Un `SNAPSHOT_REJECTED` explica por qué
+  // la sesión existe y las operaciones responden `UNAUTHORIZED`.
+  logger.log("info", "security.operator_session", operatorSession);
+
   // Salud de la cola de salida (`UC-SYNC-003` §Observabilidad). Se emite en
   // el arranque y no en un temporizador: la cadencia de muestreo es parte de
   // la política técnica versionada que `DEC-007` §1300 exige y que todavía no

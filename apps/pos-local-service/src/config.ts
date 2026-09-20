@@ -18,6 +18,9 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_SESSION_TRUST_ENVIRONMENT",
   "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM",
   "POS_SESSION_TRUST_ARTIFACT_PATH",
+  // `DEC-025`: artefacto de aprovisionamiento de sesión de operador. Ausente
+  // significa equipo sin aprovisionar, que es un estado normal y no un error.
+  "POS_OPERATOR_SESSION_ARTIFACT_PATH",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -36,6 +39,7 @@ const ServiceConfigSchema = z.strictObject({
   session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
   /** Public signed bundle supplied by the installer; never contains private keys. */
   session_trust_artifact_path: z.string().min(1).max(4096).optional(),
+  operator_session_artifact_path: z.string().min(1).max(4096).optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
@@ -45,6 +49,9 @@ const ServiceConfigSchema = z.strictObject({
   }
   if (value.session_trust_artifact_path !== undefined && !isAbsolute(value.session_trust_artifact_path)) {
     context.addIssue({ code: "custom", path: ["session_trust_artifact_path"], message: "session trust artifact path must be absolute" });
+  }
+  if (value.operator_session_artifact_path !== undefined && !isAbsolute(value.operator_session_artifact_path)) {
+    context.addIssue({ code: "custom", path: ["operator_session_artifact_path"], message: "operator session artifact path must be absolute" });
   }
 });
 export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
@@ -68,6 +75,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_environment: environment.POS_SESSION_TRUST_ENVIRONMENT,
     session_trust_root_public_key_pem: environment.POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM,
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
+    operator_session_artifact_path: environment.POS_OPERATOR_SESSION_ARTIFACT_PATH,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };
