@@ -16,6 +16,18 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
+  // QR con proveedor — `DEC-016`. Se expone aunque este equipo no tenga
+  // credencial: sin proveedor el servicio responde `PROVIDER_NOT_CONFIGURED`,
+  // que es una negativa tipada. Ocultar el canal convertiría esa negativa en
+  // «la operación no existe», que es peor diagnóstico para el cajero.
+  "pos:payment.register.qr",
+  // Crédito de cliente — `DEC-005`. El módulo estaba completo en el servicio
+  // —caso de uso, handler, esquema y pruebas— y era inalcanzable desde el
+  // producto porque estos cuatro canales nunca se añadieron aquí.
+  "pos:payment.register.credit",
+  "pos:credit.account.open",
+  "pos:credit.account.get",
+  "pos:credit.payment.register",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",

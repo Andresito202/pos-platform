@@ -577,6 +577,41 @@ pendiente: es trabajo hecho y desconectado.
 > `001_central_foundation.up.sql` sobre un servidor vivo. Sin dobles de base
 > de datos.
 
+> **Crédito y QR eran inalcanzables desde el producto — corregido 2026-09-20.**
+>
+> `DEC-005` quedó **completo en el servicio local** —caso de uso, store,
+> handler, esquema IPC y pruebas— y **el cajero no podía invocarlo de ninguna
+> forma**: sus cuatro canales nunca se añadieron a `ipc-allowlist.ts` ni a
+> `preload-api.ts`, y `payment.register.qr` tampoco. Cinco operaciones
+> ratificadas por `IpcMessageTypeSchema`, ruteadas por el servicio, ausentes
+> de la superficie del Desktop.
+>
+> **Por qué ninguna prueba lo vio, que es lo que más importa del hallazgo.**
+> Había **tres listas fijadas a mano** —`ipc-allowlist.test.ts`,
+> `preload-api.test.ts` y `preload.test.ts`— y las tres se comparaban entre
+> sí: la allowlist contra sí misma, el preload contra la allowlist. Todas
+> pasaban en verde mientras estuvieran igual de incompletas. Faltaba la
+> comparación contra la única fuente que sabe qué operaciones existen: el
+> contrato.
+>
+> `tests/ipc-surface-parity.test.ts` cierra ese hueco: deriva de
+> `IpcMessageTypeSchema` y exige que toda operación esté expuesta salvo
+> `runtime.handshake`, excluida con razón escrita —negocia protocolo entre el
+> proceso principal y el servicio, el renderer no participa—. Añadir un tipo
+> al contrato sin exponerlo ni excluirlo deliberadamente rompe la prueba.
+>
+> `payment.register.qr` se expone aunque el equipo no tenga credencial: el
+> servicio responde `PROVIDER_NOT_CONFIGURED`, una negativa tipada. Ocultar el
+> canal convertiría esa negativa en «la operación no existe», peor diagnóstico
+> para el cajero.
+>
+> **Lo que esto no da todavía:** alcanzabilidad no es pantalla. El transporte
+> está completo de extremo a extremo —verificado en el Electron real, donde
+> `window.posService` ya expone los cinco métodos— pero el renderer no tiene
+> panel de crédito. Ésa es la pieza siguiente.
+>
+> Evidencia: desktop 129/129 · E2E 8/8 contra Electron y servicio reales.
+
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo
