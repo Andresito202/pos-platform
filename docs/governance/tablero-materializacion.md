@@ -261,11 +261,11 @@ bloque A es infraestructura local, a la que estos dos peldaños no le aplican
 | B3 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | `END_TO_END` | `CASH` y `TRANSFER` se cobran desde la pantalla; la transferencia lee su `version` de `payment.get` entre reportar y atestiguar |
 | B4 | Completado de venta como único punto | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
 | B5 | Frontera Payments ↔ Cash | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
-| B6 | Catalog | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; **`register` no tiene pantalla**: sin alta de catálogo no hay `END_TO_END` |
-| B7 | Inventory | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; `receive` y `adjust` **no tienen pantalla** |
+| B6 | Catalog | `END_TO_END` | **Sube el 2026-09-20.** La evidencia decía «`register` no tiene pantalla» y había dejado de ser cierta: `CatalogPanel` existe y `real-channel.spec.ts:452` da de alta desde la ventana real, **sin `page.evaluate`**. Faltaba la otra mitad, y se añade aquí: la vertical lee ahora el efecto **donde queda escrito** —`catalog_product`, `catalog_presentation` y `catalog_price`, las tres filas de la transacción de alta— en vez de darlo por bueno con la respuesta del handler. Regla 6 cumplida por sus dos lados |
+| B7 | Inventory | `END_TO_END` | **Sube el 2026-09-20 sin código nuevo: sólo estaba mal medido.** «`receive` y `adjust` no tienen pantalla» era falso — `real-channel.spec.ts:452` recibe 40, ajusta 3 por merma y consulta el saldo resultante desde `InventoryPanel`, y distingue «sin movimientos» de «cero». El efecto en base ya se leía donde queda escrito: `stockOf` consulta `inventory_stock` y cuatro aserciones lo comprueban |
 | B8 | Pricing | `DOCUMENTED` | tabla sin motor |
 | B9 | Tax (motor de impuestos) | `RUNTIME_VERIFIED` | se calcula dentro de `sale.create`; **su salida no se asevera al otro lado** |
-| B10 | Customer / adquiriente | `CALLER_REACHABLE` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite; **ninguna de las tres tiene pantalla** |
+| B10 | Customer / adquiriente | `END_TO_END` | **Sube el 2026-09-20.** «Ninguna de las tres tiene pantalla» había dejado de ser cierto: `real-channel.spec.ts:500` recorre las tres desde `CustomerPanel` —busca y no está, registra, vuelve a buscar y está, y la recupera por ID—. Faltaba leer el efecto donde queda escrito, y se añade: la vertical comprueba la fila de `customers_customers` incluidos `tenant_id` y `company_id`, que **el llamador nunca envía** —la operación rechaza un sobre que los lleve— y por tanto sólo pueden venir del contexto verificado |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | — |
 | B12 | Periféricos POS | `DOCUMENTED` | cero código |
 | B13 | Recibo de venta (proyección, `DEC-019`) | `END_TO_END` | `sales.receipt.get` se deriva de la venta cobrada; la pantalla lo pide y distingue `NOT_FOUND` de `NOT_COMPLETED`. Sin tabla, sin migración y sin campo fiscal |
@@ -480,8 +480,8 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | Peldaño | Filas | Cuáles |
 |---|---|---|
 | `PRODUCTION` | **0** | — |
-| `END_TO_END` | **7** | B1 B2 B3 B4 B5 B13 · C19 |
-| `CALLER_REACHABLE` | **4** | A9 · B6 B7 B10 |
+| `END_TO_END` | **10** | B1 B2 B3 B4 B5 B6 B7 B10 B13 · C19 |
+| `CALLER_REACHABLE` | **1** | A9 |
 | `RUNTIME_VERIFIED` | **17** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B9 · E1 E2 E3 E4 E5 E7 |
 | `TESTED` | **19** | A3 A13 A14 · C1..C11 C16 C17 C18 · D1 D4 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
@@ -492,20 +492,28 @@ nada sobre ese job; dice que algo aguas arriba falló.
 `D1` se cuenta en `TESTED` porque el job de CI las ejecuta contra PostgreSQL
 16.14. En un contenedor sin instancia es `NOT_EVALUATED`, y así se anota arriba.
 
-**Once capacidades son alcanzables por un llamador externo, y siete de ellas lo
-son desde la pantalla.** Diez llegaron por donde el tablero decía que llegarían:
-no apareció código nuevo de producción, apareció la prueba que enchufa las dos
-mitades que ya existían. La undécima, `C19`, sí fue código nuevo: `DEC-021` F5
-conectó por primera vez un caso de uso fiscal al canal comercial, y el
-2026-09-20 sube a `END_TO_END` al cerrarse `D-19`.
+**Once capacidades son alcanzables por un llamador externo, y diez de ellas lo
+son desde la pantalla.**
 
-**Lo que separa `CALLER_REACHABLE` de `END_TO_END` es hoy pantalla, no motor.**
-B6, B7 y B10 funcionan por el canal contra el handler real; lo que les falta es
-una pantalla de cajero que las invoque. Es trabajo de interfaz, no de
-arquitectura. **Pendiente de reconciliar:** la evidencia de B6 dice que
-«`register` no tiene pantalla», y `CatalogPanel` existe y el E2E la conduce. Esa
-fila no se mueve aquí porque mover un peldaño exige su propia evidencia medida,
-y ésta es la de `C19`, no la de `B6`.
+**Lo que separaba `CALLER_REACHABLE` de `END_TO_END` era pantalla, no motor — y
+ya no lo es.** B6, B7 y B10 decían «no tiene pantalla», y el 2026-09-20 se
+comprobó que las tres la tenían desde hacía bloques: `CatalogPanel`,
+`InventoryPanel` y `CustomerPanel` están montados y `real-channel.spec.ts:452`
+los conduce en un solo recorrido, sin `page.evaluate`. Lo que de verdad faltaba
+era la otra mitad de la regla 6 —leer el efecto **donde queda escrito**— y era
+distinta en cada fila: B7 ya la tenía (`stockOf` sobre `inventory_stock`), B6 y
+B10 no, y se añadió.
+
+**La lección se anota porque volverá a pasar.** Una evidencia escrita envejece
+en silencio: sigue ahí, sigue leyéndose como verdad, y nadie la vuelve a medir
+porque no falla nada. Tres filas se quedaron un bloque entero por debajo de su
+peldaño real por una frase que había dejado de ser cierta. **El peldaño se
+mide contra el árbol, no se hereda del documento.**
+
+Queda `A9` sola en `CALLER_REACHABLE`, y su evidencia también está vencida
+—dice «10 de 23 tipos», y el contrato tiene hoy **29**—. No se mueve aquí: el
+recuento por tipo es una medición propia que este bloque no ejecutó, y anotarla
+sin hacerla sería repetir el defecto que este párrafo acaba de describir.
 
 `PRODUCTION` sigue en cero, y seguirá: exige el entorno de destino.
 
@@ -601,6 +609,7 @@ recibo, y cliente HTTP hacia el backend central.
 | 2026-09-07 | 61 % | auditoría del trabajo propio · `D-19` registrada. **Tampoco se mueve.** 969 pruebas |
 | 2026-09-07 | 62 % | catálogo real · `MIGRATION_014` · `SandboxCatalogStore` eliminado · 989 pruebas |
 | 2026-09-08 | 63 % | inventario · `MIGRATION_015` · descuento en la transacción que completa la venta · 1021 pruebas |
+| 2026-09-20 | **sin porcentaje** | **Dos puertas que no miraban, y tres filas mal medidas.** (1) `architecture:check` llevaba en rojo desde la unificación de ramas: `@pos-platform/device-trust` y `@pos-platform/central-authority` no estaban en `module-boundaries.json` **ni tenían `project.json`**. Se declaran con **capas nuevas**, no metiéndolas en las existentes: `security` (device-trust: puro sobre `contracts` y `node:crypto`, con el mismo veto de drivers y frameworks que `transport`) y `central-runtime` (central-authority: aplicación central que **sí** necesita `pg`). Reusar `adapter` para device-trust le habría permitido abrir una base de datos; reusar `runtime` para central-authority habría obligado a quitar `pg` de su lista de vetos, es decir, a **permitir que el POS Local Service importase PostgreSQL**. Ninguna de las dos se hizo: la regla vieja queda intacta y `central-runtime` veta `better-sqlite3` por simetría, porque un servicio central tampoco debe abrir una SQLite local. Las cuatro reglas se comprobaron **mutando el árbol**, no leyendo el fichero. (2) Al comprobarlas apareció un defecto peor: `pnpm architecture:check` devolvía **PASS con la violación viva**. El target de Nx cacheaba sobre `{projectRoot}`, que en el proyecto raíz **no incluye los ficheros de los demás proyectos**, que son justo los que el validador lee. Se desactiva la caché de ese target: una puerta de arquitectura que tarda 3 s no necesita caché, y un acierto de caché equivocado es peor que esperar. (3) `ci:repository-policy` rechazaba `infra/trust/camacho-pos-session-trust-root-public.pem` **por su extensión, sin abrirlo** —es una clave pública Ed25519, y una raíz de confianza existe para distribuirse—, mientras dejaba pasar sin mirar un `.json` del mismo directorio con un PEM incrustado. Esa asimetría es la prueba de que la heurística miraba nombres, no material. La excepción **no es una lista de rutas** —una ruta permitida deja de mirar el contenido para siempre— sino una condición sobre el contenido: entra sólo el fichero cuyo texto **entero** son bloques PEM y **todos** públicos. Seis mutaciones lo comprueban, incluida la que rompe cualquier allowlist: una clave privada anexada debajo de una pública, que sigue rechazada. (4) B6, B7 y B10 suben a `END_TO_END`: su evidencia decía «no tiene pantalla» y las tres la tenían; lo que faltaba era leer el efecto donde queda escrito, que B7 ya tenía y B6 y B10 no. Recuento: `END_TO_END` **7 → 10**, `CALLER_REACHABLE` **4 → 1**, total **61** sin cambio. Gates: architecture PASS, repository-policy PASS (744 ficheros), governance 16/16, supply-chain 39, licencias 13, unidad 1134, e2e 16/16 |
 | 2026-09-20 | **sin porcentaje** | **`D-19` cerrada — C19 sube a `END_TO_END`**. `catalog_fiscal_attribute` tenía dos lectores y **cero escritores**: ninguna ruta de usuario podía dar a una presentación sus códigos DIAN, así que ningún producto dado de alta por el POS se podía facturar. Se cierra con una **operación nueva**, `catalog.fiscal.attribute.set`, no con un campo más en `catalog.product.register`: un código fiscal equivocado se corrige y el alta ocurre una sola vez, y añadir es menos invasivo sobre una superficie ratificada que modificarla. El caso de uso valida con `validateFiscalDocumentItem` **antes** de escribir —lo que la propia deuda exigía—, sobre un ítem sonda neutro y filtrando los hallazgos a las rutas del atributo, porque la tabla comprueba la **forma** de los códigos con `GLOB` y no su **pertenencia**: `"95"`, `"998"` y `"99"` se guardarían sin protesta para reventar al emitir. Reutiliza el permiso `CATALOG_PRODUCT_REGISTER` en vez de inventar uno que habría que sembrar en los roles. **La prueba que afirmaba el bloqueo ahora afirma lo contrario, y ese cambio es la evidencia:** `real-channel.spec.ts` declara los códigos desde la ventana de Electron, `LINE_FISCAL_ATTRIBUTE_MISSING` desaparece, el mostrador anónimo queda bloqueado por su única causa restante (`GENERIC_ACQUIRER_NOT_VERIFIED`, `D-13`) y con adquiriente identificado la factura sale **`ISSUED`** con CUFE y número — 16/16 E2E con `xvfb-run`. `channel-commercial-vertical.test.ts` deja de sembrar el atributo a mano y lo declara por el socket real; se añaden 7 pruebas propias de la operación (escritura, idempotencia, conflicto de clave, corrección, códigos no verificados, tasa fuera de rango y aislamiento por tenant) y 4 de renderer. Ese `ISSUED` es contra `FakeIssuancePort`: el proveedor real sigue siendo `F6`, por eso la columna de proveedor de C19 no se mueve. Recuento: `END_TO_END` **6 → 7**, `CALLER_REACHABLE` **5 → 4**, total **61** (sin cambio: C19 se mueve, no se crea) |
 | 2026-09-12 | **sin porcentaje** | **cambio de gobernanza**, medido contra `02b89bb`. Se retira `CANONICALLY_APPLIED` y se retira el global. Las 35 filas que lo declaraban se recalculan contra siete peldaños con evidencia separada; **ninguna alcanzaba `CALLER_REACHABLE`**. Se corrige la etiqueta de A1 (`001..011` → `001..015`) y el error aritmético del bloque B (decía 740 / 62 %; la suma real de sus propias filas era 810 / 68 %) |
 | 2026-09-13 | **sin porcentaje** | **merge de la PR #75** (`2aa8acc`, segundo padre `83542bc`). Primer movimiento al alza con evidencia desde el cambio de gobernanza: `CALLER_REACHABLE` **0 → 4** (A9, B6, B7, B10) y `END_TO_END` **0 → 3** (B1, B4, B5). Lo acredita `channel-commercial-vertical.test.ts` —socket real, handler de producción y SQLite— y, para las tres de `END_TO_END`, `real-channel.spec.ts`, que las invoca desde la pantalla de Electron. **Se anota que la previsión era 7 y 6: era incorrecta**, porque contaba filas cuyo alta de catálogo o de existencia sólo se ejecuta por `page.evaluate`, que no es superficie de producto. Se conserva el recuento medido, no el previsto |

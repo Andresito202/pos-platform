@@ -590,6 +590,27 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       expect(customer.result["outcome"]).toBe("REGISTERED");
       const customerId = customer.result["customer_id"] as string;
 
+      // El adquiriente se lee **donde queda escrito**, que es lo que a `B10`
+      // le faltaba para `END_TO_END`. `tenant_id` y `company_id` se comprueban
+      // aquí a propósito: el llamador nunca los envía —la operación rechaza un
+      // sobre que los lleve— y salen del contexto verificado. Que la fila los
+      // tenga es lo que demuestra que la derivación ocurrió.
+      const storedCustomer = database.native.prepare(
+        `SELECT tenant_id, company_id, identification_document_code, identification,
+                legal_organization_code, names, tribute_code, fiscal_responsibility_codes
+         FROM customers_customers WHERE tenant_id=? AND id=?`,
+      ).get(TENANT, customerId);
+      expect(storedCustomer).toEqual({
+        tenant_id: TENANT,
+        company_id: COMPANY,
+        identification_document_code: "13",
+        identification: "1020304050",
+        legal_organization_code: "2",
+        names: "Cliente Vertical",
+        tribute_code: "ZZ",
+        fiscal_responsibility_codes: JSON.stringify(["R-99-PN"]),
+      });
+
       const product = await send(mutating("catalog.product.register", {
         code: "FISCV-002", name: "Producto fiscal 2", stock_controlled: false,
         presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
@@ -674,6 +695,31 @@ describe("la vertical comercial atraviesa el socket real hasta SQLite", () => {
       }, "vertical:catalog:1"));
       expect(product.result["outcome"]).toBe("REGISTERED");
       const presentationId = product.result["presentation_id"] as string;
+
+      // 3b · El efecto se lee **donde queda escrito**, no en la respuesta.
+      //      La respuesta la construye el handler; la fila la escribió el
+      //      almacén, y son dos afirmaciones distintas. Es lo que la regla 6
+      //      del tablero exige para `END_TO_END`, y lo que a `B6` le faltaba:
+      //      producto, presentación y precio son una sola transacción, porque
+      //      un producto sin presentación vendible no sirve en una caja.
+      const storedProduct = database.native.prepare(
+        "SELECT code, name, stock_controlled, status FROM catalog_product WHERE tenant_id=? AND id=?",
+      ).get(TENANT, product.result["product_id"]);
+      expect(storedProduct).toEqual({
+        code: "CAFE-001", name: "Café Americano 500 g", stock_controlled: 1, status: "ACTIVE",
+      });
+      const storedPresentation = database.native.prepare(
+        "SELECT name, unit_code, unit_precision, barcode, status FROM catalog_presentation WHERE tenant_id=? AND id=?",
+      ).get(TENANT, presentationId);
+      expect(storedPresentation).toEqual({
+        name: "Bolsa 500 g", unit_code: "UND", unit_precision: 0, barcode: BARCODE, status: "ACTIVE",
+      });
+      const storedPrice = database.native.prepare(
+        "SELECT amount, currency_code, status FROM catalog_price WHERE tenant_id=? AND presentation_id=?",
+      ).get(TENANT, presentationId);
+      expect(storedPrice).toEqual({
+        amount: "18000.000000", currency_code: "COP", status: "ACTIVE",
+      });
 
       // 4 · Recibe existencia.
       const received = await send(mutating("inventory.stock.receive", {

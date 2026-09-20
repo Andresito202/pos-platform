@@ -74,6 +74,53 @@ decir que la capacidad es alcanzable.**
 > FACTUS, que `describe.skipIf` salta sin credencial, y 4 marcadas `windowsIt`,
 > que no corren en Linux y **sí corren en CI sobre `windows-2022`**.
 
+> **Dos puertas que no miraban — 2026-09-20.**
+>
+> Las dos llevaban tiempo en rojo o en verde **sin estar mirando lo que dicen
+> que miran**, y las dos se repararon con la misma disciplina: no basta con que
+> la puerta pase, hay que **mutar el árbol** y comprobar que rechaza.
+>
+> **1 · `architecture:check` devolvía PASS con la violación viva.** El target de
+> Nx cachea sobre `{projectRoot}`, que en el proyecto raíz **no incluye los
+> ficheros de los demás proyectos** —que son justamente los que el validador
+> lee—. Con una dependencia prohibida introducida a mano, `node
+> tools/architecture/validate-boundaries.mjs` la rechazaba y `pnpm
+> architecture:check` respondía `PASS · Cache: 1/1 hit (100%)`. Se desactiva la
+> caché de ese target. Una puerta de 3 s no necesita caché; un acierto de caché
+> equivocado convierte la puerta en decoración.
+>
+> **2 · `ci:repository-policy` juzgaba por la extensión, no por el material.**
+> Rechazaba `infra/trust/camacho-pos-session-trust-root-public.pem` **sin
+> abrirlo**. Es una clave **pública** Ed25519, y una raíz de confianza existe
+> para distribuirse: es lo que permite verificar contra una raíz conocida. La
+> prueba de que la heurística no miraba el contenido está en el mismo
+> directorio: `session-assertion-operational-key.json` lleva un PEM incrustado y
+> pasaba sin abrirse, sólo por su extensión.
+>
+> La reparación **no es una lista de rutas permitidas**. Una ruta permitida deja
+> de mirar el contenido para siempre y admite cualquier cosa que después se
+> escriba con ese nombre. Es una condición sobre el contenido: entra sólo el
+> fichero cuyo texto **entero** son bloques PEM y **todos** públicos. Seis
+> mutaciones lo comprueban, y la que importa es la que rompería cualquier
+> allowlist —una clave privada anexada debajo de una pública—: sigue rechazada.
+> Los nombres de la lista (`id_rsa`, `id_ed25519`) **no admiten excepción**: son
+> nombres de clave privada por convención y no existe un fichero público que se
+> llame así.
+>
+> Ninguna de las tres rutas de `infra/trust/` contiene material privado:
+> se verificó leyendo las tres.
+>
+> **3 · Dos paquetes fuera de toda gobernanza de capas.**
+> `@pos-platform/device-trust` y `@pos-platform/central-authority` llegaron con
+> la unificación de ramas sin entrada en `module-boundaries.json` **y sin
+> `project.json`**. Se declaran con capas nuevas —`security` y
+> `central-runtime`— y no metiéndolas en las existentes, por una razón medible:
+> `adapter` no veta `better-sqlite3` ni `pg`, de modo que device-trust habría
+> quedado autorizado a abrir una base de datos; y `runtime` **veta `pg`**
+> precisamente para que el POS Local Service no hable PostgreSQL, así que meter
+> ahí a Central Authority habría exigido quitar ese veto. Una capa nueva
+> conserva las dos reglas; reutilizar una existente habría debilitado una.
+
 > **Aviso de lectura — la línea `Tests` de vitest no dice toda la verdad.**
 >
 > `pnpm --filter @pos-platform/target-migrations test` imprime:

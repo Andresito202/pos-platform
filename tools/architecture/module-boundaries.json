@@ -74,6 +74,18 @@
       "layer": "transport",
       "type": "library",
       "scope": "local"
+    },
+    "@pos-platform/device-trust": {
+      "root": "packages/device-trust",
+      "layer": "security",
+      "type": "library",
+      "scope": "shared"
+    },
+    "@pos-platform/central-authority": {
+      "root": "apps/central-authority",
+      "layer": "central-runtime",
+      "type": "application",
+      "scope": "central"
     }
   },
   "allowedLayerDependencies": {
@@ -112,7 +124,17 @@
       "contracts",
       "adapter",
       "observability",
-      "transport"
+      "transport",
+      "security"
+    ],
+    "security": [
+      "contracts"
+    ],
+    "central-runtime": [
+      "contracts",
+      "security",
+      "adapter",
+      "observability"
     ],
     "desktop": [
       "contracts",
@@ -196,6 +218,21 @@
       "react-dom",
       "kysely",
       "pg",
+      "better-sqlite3"
+    ],
+    "security": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "kysely",
+      "pg",
+      "better-sqlite3"
+    ],
+    "central-runtime": [
+      "electron",
+      "react",
+      "react-dom",
       "better-sqlite3"
     ]
   }

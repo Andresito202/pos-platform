@@ -90,6 +90,44 @@ const sensitiveBasenames = new Set([
 ]);
 const sensitiveExtensions = new Set(['.pem', '.key', '.p12', '.pfx', '.jks', '.keystore']);
 
+/**
+ * Etiquetas PEM que **no** contienen material privado.
+ *
+ * Una clave pública de raíz de confianza existe para distribuirse: es lo que
+ * permite verificar contra una raíz conocida. Prohibirla por su extensión
+ * confunde el continente con el contenido, y la prueba de que la heurística no
+ * miraba el material es que un `.json` con un PEM incrustado pasaba sin
+ * abrirse mientras el `.pem` de al lado se rechazaba sin leerse.
+ */
+const publicPemLabels = new Set(['PUBLIC KEY', 'CERTIFICATE']);
+
+const pemBlock = /-----BEGIN ([A-Z0-9 ]+)-----[\r\n]+[A-Za-z0-9+/=\s]*?-----END \1-----/g;
+
+/**
+ * `true` sólo si el fichero **entero** son bloques PEM y **todos** son
+ * públicos.
+ *
+ * Exige las dos cosas a la vez a propósito. Bastaría con «contiene un bloque
+ * público» para que una clave privada anexada debajo entrase con él; aquí lo
+ * que queda fuera de los bloques tiene que ser espacio en blanco y nada más,
+ * así que anexar material lo convierte en violación en vez de en excepción.
+ *
+ * No es una lista de rutas permitidas: una ruta permitida deja de mirar el
+ * contenido para siempre y admite cualquier cosa que después se escriba con
+ * ese nombre. Esto vuelve a decidir con cada fichero y cada commit.
+ */
+function isExclusivelyPublicPem(buffer) {
+  if (buffer.includes(0)) return false;
+  const text = buffer.toString('utf8');
+  let blocks = 0;
+  for (const match of text.matchAll(pemBlock)) {
+    if (!publicPemLabels.has(match[1])) return false;
+    blocks += 1;
+  }
+  if (blocks === 0) return false;
+  return text.replace(pemBlock, '').trim() === '';
+}
+
 const secretPatterns = [
   ['private-key', patternFromFragments('-'.repeat(5), 'BEGIN ', '(?:RSA |EC |OPENSSH )?', 'PRIVATE KEY', '-'.repeat(5))],
   ['aws-access-key', patternFromFragments('\\bA', 'KIA', '[0-9A-Z]{16}\\b')],
@@ -125,13 +163,26 @@ for (const relativePath of trackedFiles) {
   const base = path.basename(relativePath);
   const extension = path.extname(relativePath).toLowerCase();
 
-  if (sensitiveBasenames.has(base) || sensitiveExtensions.has(extension)) {
+  // Los nombres de la lista son nombres de clave privada por convención
+  // (`id_rsa`, `id_ed25519`): no existe un fichero público que se llame así,
+  // de modo que **no** admiten excepción por contenido.
+  if (sensitiveBasenames.has(base)) {
     addViolation(`${relativePath}: sensitive credential/key file must not be tracked`);
     continue;
   }
 
   const buffer = readTrackedRegularFile(relativePath);
-  if (buffer === null || buffer.includes(0)) continue;
+  if (buffer === null) continue;
+
+  if (sensitiveExtensions.has(extension) && !isExclusivelyPublicPem(buffer)) {
+    addViolation(`${relativePath}: sensitive credential/key file must not be tracked`);
+    continue;
+  }
+
+  // Sin `continue` cuando se admite: un fichero que entra por ser público
+  // sigue pasando por el escaneo de contenido de abajo, que es el que caza una
+  // clave privada de verdad. La regla de extensión nunca fue la única.
+  if (buffer.includes(0)) continue;
 
   const text = buffer.toString('utf8');
   for (const [patternName, pattern] of secretPatterns) {

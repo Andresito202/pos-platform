@@ -13,7 +13,7 @@
   },
   "targetDefaults": {
     "architecture-check": {
-      "cache": true,
+      "cache": false,
       "inputs": [
         "default",
         "sharedGlobals"

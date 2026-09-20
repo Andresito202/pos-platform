@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/central-authority",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "apps/central-authority",
+  "projectType": "application",
+  "tags": [
+    "layer:central-runtime",
+    "type:application",
+    "scope:central"
+  ]
+}
