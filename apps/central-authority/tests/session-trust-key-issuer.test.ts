@@ -11,9 +11,9 @@ describe("SessionTrustKeyIssuer", () => {
     const issuerKeys = generateKeyPairSync("ed25519");
     const operationalKeys = generateKeyPairSync("ed25519");
     const claims: SessionAssertionOperationalKeyClaims = {
-      key_id: "ssa-2026-01",
+      key_id: "SSA-2026-01",
       key_purpose: "SESSION_ASSERTION",
-      environment: "production",
+      environment: "PRODUCTION",
       public_key_pem: operationalKeys.publicKey.export({ type: "spki", format: "pem" }) as string,
       status: "ACTIVE",
       valid_from: "2026-01-01T00:00:00.000Z",

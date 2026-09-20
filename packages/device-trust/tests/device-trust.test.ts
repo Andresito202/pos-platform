@@ -72,6 +72,28 @@ function clock(acceptCount?: { value: number }): DeviceTrustClock {
   };
 }
 
+/**
+ * Altera la firma **garantizando** que los bytes cambian.
+ *
+ * Dos intentos anteriores fallaron y la razón importa. El original era
+ * `slice(0, -1) + "A"`: si la firma ya terminaba en «A» no cambiaba nada.
+ * El segundo intento —cambiar ese último carácter por otro distinto— tampoco
+ * bastó, y ahí está lo fino: una firma Ed25519 son 64 bytes = 512 bits, y en
+ * base64url **el último carácter sólo aporta 2 bits significativos**; los
+ * otros 4 son relleno que el decodificador descarta. `A` (`000000`) y `B`
+ * (`000001`) comparten los 2 bits altos, así que decodifican a los mismos 64
+ * bytes: la firma «manipulada» seguía siendo válida y el verificador la
+ * aceptaba con razón.
+ *
+ * Medido: con el tamper por carácter, 2 de 5 suites en rojo. Manipular el
+ * **byte** es la única forma de garantizar que la firma cambia.
+ */
+function tamperSignature(signature: string): string {
+  const bytes = Buffer.from(signature, "base64url");
+  bytes[0] = bytes[0]! ^ 0xff;
+  return bytes.toString("base64url");
+}
+
 function verifier(status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED" = "ACTIVE", trustClock: DeviceTrustClock = clock()): DeviceTrustVerifier {
   return new DeviceTrustVerifier(
     ROOT.publicKey,
@@ -92,7 +114,7 @@ describe("DeviceTrustVerifier", () => {
   });
 
   it("distinguishes an invalid root signature from a credential signature failure", () => {
-    const tampered = { ...signedOperationalKey, signature: `${signedOperationalKey.signature.slice(0, -1)}A` };
+    const tampered = { ...signedOperationalKey, signature: tamperSignature(signedOperationalKey.signature) };
     const result = verifier().verifyOperationalKey(tampered);
     expect(result.decision).toBe("OPERATIONAL_KEY_SIGNATURE_INVALID");
     expect(result.value).toBeNull();
@@ -180,7 +202,7 @@ describe("DeviceTrustVerifier", () => {
       challenge_id: challenge.challenge_id,
       signature: sign(null, unsignedDeviceTrustChallengeBytes(challenge), DEVICE.privateKey).toString("base64url"),
     };
-    const tamperedProof = { ...proof, signature: `${proof.signature.slice(0, -1)}A` };
+    const tamperedProof = { ...proof, signature: tamperSignature(proof.signature) };
 
     const result = verifier().verifyProof(signedCredential, challenge, tamperedProof, binding);
     expect(result.decision).toBe("PROOF_SIGNATURE_INVALID");

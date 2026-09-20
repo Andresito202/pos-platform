@@ -12,9 +12,9 @@ describe("SessionTrustPublication", () => {
       version: 1,
       keys: [{
         claims: {
-          key_id: "ssa-ci-01",
+          key_id: "SSA-CI-01",
           key_purpose: "SESSION_ASSERTION",
-          environment: "production",
+          environment: "PRODUCTION",
           public_key_pem: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAuzra6on92WSA0WExaDPQ1GSYi2RqyUSPdbHRCtuQNH0=\n-----END PUBLIC KEY-----\n",
           status: "ACTIVE",
           valid_from: "2026-01-01T00:00:00.000Z",

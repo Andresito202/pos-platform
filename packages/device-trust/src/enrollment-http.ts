@@ -68,11 +68,21 @@ function rejection(
   });
 }
 
+/**
+ * Centinela para una excepción que este límite **no reconoce**.
+ *
+ * No es un código de dominio: nadie lo lanza a propósito. Significa «algo se
+ * rompió aquí dentro y no sabemos qué», y por eso se traduce a 500 y no a un
+ * error de cliente. `central-authority/main.ts` lo marca además `retryable`,
+ * que es la misma lectura: avería del servidor, no petición mal formada.
+ */
+const UNRECOGNIZED_FAILURE = "DEVICE_ENROLLMENT_FAILED";
+
 function errorCode(error: unknown): string {
   if (error instanceof Error && error.message.length <= 128 && /^[A-Z0-9_.-]+$/.test(error.message)) {
     return error.message;
   }
-  return "DEVICE_ENROLLMENT_FAILED";
+  return UNRECOGNIZED_FAILURE;
 }
 
 /**
@@ -154,8 +164,13 @@ export class DeviceEnrollmentHttpHandler {
       });
     } catch (error) {
       const code = errorCode(error);
+      // El centinela se comprueba **antes** que los prefijos: empieza por
+      // `DEVICE_` y sin esta guarda cualquier excepción interna —un fallo de
+      // base de datos, un crash— salía como 422, culpando al llamador de una
+      // avería del servidor y sin marcarse nunca como error de servidor.
       const statusCode: DeviceEnrollmentTransportResponse["statusCode"] =
-        code === "ACTIVATION_NOT_CONSUMABLE" ? 409
+        code === UNRECOGNIZED_FAILURE ? 500
+          : code === "ACTIVATION_NOT_CONSUMABLE" ? 409
           : code.startsWith("ENROLLMENT_") || code.startsWith("DEVICE_") || code === "CREDENTIAL_EXPIRY_INVALID" ? 422
           : 500;
       return rejection(context, statusCode, code, statusCode >= 500);

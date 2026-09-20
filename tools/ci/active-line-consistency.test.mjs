@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { globSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -103,4 +104,26 @@ test("el punto de entrada explica cómo no rehacer trabajo", () => {
   const entrada = read("START-HERE.md");
   assert.ok(entrada.includes("materialization-state.md"), "START-HERE.md no dice dónde mirar lo ya hecho");
   assert.ok(/check-active-line\.sh/.test(entrada), "START-HERE.md no da el comando de comprobación");
+});
+
+test("ningún workspace con pruebas queda fuera de las puertas", () => {
+  // Tres workspaces vivían fuera de todo comando agregado —`central-authority`,
+  // `device-trust` y `local-channel`— con 10 pruebas en rojo que ninguna puerta
+  // ejecutaba. El barrido daba verde porque no las miraba.
+  const scripts = JSON.parse(read("package.json")).scripts;
+  const agregados = Object.values(scripts).join(" ");
+  const manifiestos = globSync("{apps,packages,tools}/*/package.json", { cwd: ROOT });
+
+  const fuera = [];
+  for (const relativo of manifiestos) {
+    const manifiesto = JSON.parse(read(relativo));
+    if (manifiesto.scripts?.test === undefined) continue;
+    if (!agregados.includes(manifiesto.name)) fuera.push(manifiesto.name);
+  }
+
+  assert.deepEqual(
+    fuera,
+    [],
+    `estos workspaces tienen pruebas que ninguna puerta ejecuta: ${fuera.join(", ")}`,
+  );
 });
