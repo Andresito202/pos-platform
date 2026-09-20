@@ -31,7 +31,7 @@ faltaba *pantalla*; ahora falta *autoridad*.
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` |
 | **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · la venta descuenta al completarse |
-| **Interfaz de caja** | ✅ | **29 de las 32 operaciones del contrato tienen pantalla**, repartidas en 11 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
+| **Interfaz de caja** | ✅ | **31 de las 34 operaciones del contrato tienen pantalla**, repartidas en 11 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers`, alcanzables por el canal y desde la pantalla |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
@@ -137,7 +137,8 @@ contrato, no por lectura de documentos.
 | crédito | ✅ | `customers_credit_accounts` / `customers_credit_transactions` |
 | merma | ✅ | movimiento `SHRINKAGE` |
 | multisucursal | ⚠️ | `branch_id` está en el modelo y en el contexto autorizado; **no hay operación ni pantalla** de gestión de sucursales |
-| múltiples presentaciones | ✅ | **Cerrado el 2026-09-20.** `catalog.presentation.add` añade una presentación con su precio a un producto ya dado de alta, con pantalla en `CatalogPanel`. `DEC-004` fija `Product 1 ─── 1..N ProductPresentation` y el esquema lo admitía; faltaba la operación. **Sin conversión:** cada presentación lleva su propia existencia (`DEC-004` §1129), así que vender una paca de 12 **no** descuenta 12 unidades — `contained_quantity`/`conversion_factor` (`DEC-004` §747) no están materializados |
+| múltiples presentaciones | ✅ | **Cerrado el 2026-09-20.** `catalog.presentation.add` añade una presentación con su precio a un producto ya dado de alta, con pantalla en `CatalogPanel` |
+| conversión entre presentaciones | ✅ | **Cerrado el 2026-09-20.** `catalog_unit_conversion` (`MIGRATION_024`, `DEC-004` §1579) declara `1 origen = factor destino`; `inventory.conversion.apply` la ejecuta de forma **atómica** (§1736): salida en origen y entrada en destino en una transacción, con tipos de movimiento propios `CONVERSION_OUT`/`CONVERSION_IN` (`MIGRATION_025`). No redondea: si `cantidad × factor` no da exacto o no cabe en la precisión del destino, rechaza. El factor lo pone el catálogo, nunca el mostrador |
 | compras · proveedores | ❌ | **sin tabla.** `PURCHASE_RECEIPT` es un tipo de movimiento de inventario, no un documento de compra: no hay proveedor, ni orden, ni costo |
 | promociones | ❌ | sin tabla |
 | lotes | ❌ | sin tabla |
@@ -159,7 +160,7 @@ todos por igual y por eso no se repite en cada fila.
 | Comercio | Qué le falta, además de la credencial |
 |---|---|
 | **Papelería** | **Nada más.** Código de barras, inventario, caja, venta y cobro existen y tienen pantalla. Es el comercio más cercano a operable |
-| **Tienda de barrio** | **Nada más**, desde el 2026-09-20: la segunda presentación ya se puede declarar. Queda pendiente la *conversión* entre ellas si el tendero abre pacas para vender unidades |
+| **Tienda de barrio** | **Nada más**, desde el 2026-09-20: declara la segunda presentación y abre pacas para vender unidades |
 | **Licorera · depósito de bebidas** | Envase retornable (la segunda presentación ya está) |
 | **Cacharrería y variedades** | Referencias, colores, tallas, variantes · precio mayorista/minorista |
 | **Minimercado** | Compras y proveedores |
@@ -237,10 +238,9 @@ No es una lista de deseos: es el orden en que los bloqueos se desbloquean.
    alcanzable en un equipo real.
 6. **Decisión de negocio sobre `D-14`** antes de vender a una carnicería o un
    fruver; y **fuente documental de `D-13`** para la venta de mostrador anónima.
-7. ~~**Segunda presentación por producto.**~~ — hecha el 2026-09-20
-   (`catalog.presentation.add`). Queda su continuación natural: la
-   **conversión** entre presentaciones, que exige `contained_quantity` y una
-   migración, y que hace falta en cuanto un tendero abra pacas.
+7. ~~**Segunda presentación por producto** y ~~**conversión entre ellas**~~ —
+   hechas el 2026-09-20 (`catalog.presentation.add`,
+   `catalog.conversion.declare`, `inventory.conversion.apply`).
 8. **Balanza y lector**, los dos periféricos que aparecen en más comercios.
 
 ## Qué NO cubre este cruce

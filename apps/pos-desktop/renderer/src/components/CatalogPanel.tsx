@@ -39,6 +39,7 @@ export function CatalogPanel(): React.JSX.Element {
   const [addUnitPrecision, setAddUnitPrecision] = useState("0");
   const [addBarcode, setAddBarcode] = useState("");
   const [addPrice, setAddPrice] = useState("");
+  const [factor, setFactor] = useState("12");
 
   // Prerrellenar copiando al estado, no calculando el valor mostrado: si el
   // campo fuese un valor derivado, borrarlo volvería a mostrar la presentación
@@ -326,6 +327,38 @@ export function CatalogPanel(): React.JSX.Element {
           código, para poder ir a ella en vez de reintentar a ciegas. */}
       {catalog.addedPresentationId !== null && (
         <span data-testid="added-presentation-id">{catalog.addedPresentationId}</span>
+      )}
+
+      <h4>Equivalencia entre las dos</h4>
+      {/* `1 origen = factor destino`. Origen es la presentación de arriba,
+          destino la del alta. Declarar no convierte: deja escrito el factor. */}
+      <input
+        data-testid="conversion-factor-input"
+        value={factor}
+        onChange={(e) => { setFactor(e.target.value); }}
+        placeholder="Cuántas del destino produce una del origen"
+        disabled={catalog.busy}
+      />
+      <button
+        data-testid="declare-conversion-button"
+        onClick={() => {
+          void catalog.declareConversion({
+            productId: addProductId.trim(),
+            sourcePresentationId: catalog.addedPresentationId ?? "",
+            targetPresentationId: catalog.product?.presentationId ?? "",
+            factor,
+            reversible: true,
+          });
+        }}
+        disabled={
+          catalog.busy || catalog.addedPresentationId === null
+          || catalog.product === null || factor.trim() === ""
+        }
+      >
+        Declarar equivalencia
+      </button>
+      {catalog.conversionOutcome !== null && (
+        <div data-testid="conversion-declare-outcome">{catalog.conversionOutcome}</div>
       )}
 
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}

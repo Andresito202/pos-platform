@@ -37,11 +37,14 @@ export const IPC_ALLOWED_CHANNELS = [
   // D-19 — escritura de atributos fiscales de la presentación.
   "pos:catalog.fiscal.attribute.set",
   "pos:catalog.presentation.add",
+  "pos:catalog.conversion.declare",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   // Inventario — `MIGRATION_015`.
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
+  // Abrir una paca y convertirla en unidades (`DEC-004` §1736).
+  "pos:inventory.conversion.apply",
   "pos:inventory.stock.get",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",

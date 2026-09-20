@@ -40,6 +40,8 @@ export function InventoryPanel(): React.JSX.Element {
   const [adjustQuantity, setAdjustQuantity] = useState("");
   const [adjustReason, setAdjustReason] = useState("COUNT_CORRECTION");
   const [businessDate, setBusinessDate] = useState(today());
+  const [conversionTarget, setConversionTarget] = useState("");
+  const [conversionQuantity, setConversionQuantity] = useState("");
 
   const target = presentationId.trim();
 
@@ -170,6 +172,60 @@ export function InventoryPanel(): React.JSX.Element {
       {inventory.stock !== null && inventory.stock.outcome === "UNAUTHORIZED" && (
         <div data-testid="stock-unauthorized">{inventory.stock.outcome}</div>
       )}
+      <h3>Abrir presentación</h3>
+      {/* El factor no se teclea: lo pone el catálogo. Pedirlo aquí convertiría
+          esto en un ajuste de existencia con otro nombre. */}
+      <input
+        data-testid="conversion-target-input"
+        value={conversionTarget}
+        onChange={(e) => { setConversionTarget(e.target.value); }}
+        placeholder="Presentación destino"
+        disabled={inventory.busy}
+      />
+      <input
+        data-testid="conversion-quantity-input"
+        value={conversionQuantity}
+        onChange={(e) => { setConversionQuantity(e.target.value); }}
+        placeholder="Cuántas abrir"
+        disabled={inventory.busy}
+      />
+      <button
+        data-testid="apply-conversion-button"
+        onClick={() => {
+          void inventory.applyConversion(
+            target, conversionTarget.trim(), conversionQuantity,
+            "BREAK_PACK", businessDate.trim(),
+          );
+        }}
+        disabled={
+          inventory.busy || target === ""
+          || conversionTarget.trim() === "" || conversionQuantity.trim() === ""
+        }
+      >
+        Abrir
+      </button>
+
+      {inventory.conversion !== null && (
+        <div data-testid="conversion-result">
+          <span data-testid="conversion-outcome">{inventory.conversion.outcome}</span>
+          {inventory.conversion.source_quantity_after !== null && (
+            <span data-testid="conversion-source-after">
+              {inventory.conversion.source_quantity_after}
+            </span>
+          )}
+          {inventory.conversion.target_quantity_after !== null && (
+            <span data-testid="conversion-target-after">
+              {inventory.conversion.target_quantity_after}
+            </span>
+          )}
+          {/* Lo que explica el rechazo: existencia disponible, o la cantidad
+              que no cabía en la unidad destino. */}
+          {inventory.conversion.detail_quantity !== null && (
+            <span data-testid="conversion-detail">{inventory.conversion.detail_quantity}</span>
+          )}
+        </div>
+      )}
+
       {inventory.error !== null && <div data-testid="inventory-error">{inventory.error}</div>}
     </section>
   );

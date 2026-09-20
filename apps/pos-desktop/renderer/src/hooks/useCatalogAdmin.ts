@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type {
+  CatalogConversionDeclareResult,
   CatalogFiscalAttributeSetResult,
   CatalogPresentationAddResult,
   CatalogProductRegisterResult,
@@ -64,6 +65,15 @@ export interface PresentationInput {
   readonly currencyCode: string;
 }
 
+export interface ConversionInput {
+  readonly productId: string;
+  readonly sourcePresentationId: string;
+  readonly targetPresentationId: string;
+  /** Cuántas unidades de destino produce una de origen: `12`, `12,5`. */
+  readonly factor: string;
+  readonly reversible: boolean;
+}
+
 export interface CatalogAdminState {
   readonly busy: boolean;
   readonly product: RegisteredProduct | null;
@@ -73,6 +83,7 @@ export interface CatalogAdminState {
   readonly fiscalOutcome: CatalogFiscalAttributeSetResult["outcome"] | null;
   readonly fiscalFindings: readonly FiscalAttributeFinding[];
   readonly presentationOutcome: CatalogPresentationAddResult["outcome"] | null;
+  readonly conversionOutcome: CatalogConversionDeclareResult["outcome"] | null;
   /** La presentación recién añadida, o la que ya usaba el código de barras. */
   readonly addedPresentationId: string | null;
 }
@@ -81,6 +92,7 @@ export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
   setFiscalAttribute(input: FiscalAttributeInput): Promise<void>;
   addPresentation(input: PresentationInput): Promise<void>;
+  declareConversion(input: ConversionInput): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<RegisteredProduct | null>(null);
@@ -92,6 +104,8 @@ export function useCatalogAdmin(): CatalogAdminState & {
   const [presentationOutcome, setPresentationOutcome] =
     useState<CatalogPresentationAddResult["outcome"] | null>(null);
   const [addedPresentationId, setAddedPresentationId] = useState<string | null>(null);
+  const [conversionOutcome, setConversionOutcome] =
+    useState<CatalogConversionDeclareResult["outcome"] | null>(null);
 
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
     setBusy(true);
@@ -227,9 +241,43 @@ export function useCatalogAdmin(): CatalogAdminState & {
     }
   }, []);
 
+  /** Declarar no convierte nada: deja escrito el factor. */
+  const declareConversion = useCallback(async (input: ConversionInput): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setConversionOutcome(null);
+    try {
+      const factor = toScale6(input.factor);
+      if (factor === null) {
+        setError("FACTOR_NOT_SCALE6");
+        return;
+      }
+      const response = await callCommercial<CatalogConversionDeclareResult>(
+        "catalog.conversion.declare",
+        {
+          product_id: input.productId.trim(),
+          source_presentation_id: input.sourcePresentationId.trim(),
+          target_presentation_id: input.targetPresentationId.trim(),
+          factor,
+          reversible: input.reversible,
+        },
+        newIdempotencyKey(),
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setConversionOutcome(response.result.outcome);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   return {
     busy, product, outcome, error, fiscalOutcome, fiscalFindings,
-    presentationOutcome, addedPresentationId,
-    registerProduct, setFiscalAttribute, addPresentation,
+    presentationOutcome, addedPresentationId, conversionOutcome,
+    registerProduct, setFiscalAttribute, addPresentation, declareConversion,
   };
 }

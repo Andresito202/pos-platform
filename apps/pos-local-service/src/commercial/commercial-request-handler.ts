@@ -22,7 +22,8 @@ type CommercialRequest = Extract<
       | "customer.register" | "customer.get" | "customer.find"
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.fiscal.attribute.set"
-      | "catalog.presentation.add"
+      | "catalog.presentation.add" | "catalog.conversion.declare"
+      | "inventory.conversion.apply"
       | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "sales.receipt.get";
@@ -75,6 +76,10 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   // verificadas: es la petición la que está mal, no el estado del catálogo.
   FISCAL_CODES_NOT_VERIFIED: "VALIDATION",
   PRODUCT_NOT_FOUND: "NOT_FOUND",
+  PRESENTATIONS_NOT_SAME_PRODUCT: "VALIDATION",
+  CONVERSION_ALREADY_DECLARED: "CONFLICT",
+  CONVERSION_NOT_DECLARED: "CONFLICT",
+  TARGET_PRECISION_EXCEEDED: "VALIDATION",
   FISCAL_NOT_CONFIGURED: "CONFLICT",
   CUSTOMER_NOT_FOUND: "NOT_FOUND",
   NOT_ELIGIBLE: "CONFLICT",
@@ -214,6 +219,8 @@ export class CommercialRequestHandler {
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.fiscal.attribute.set": return this.setFiscalAttribute(request, connectionId);
       case "catalog.presentation.add": return this.addPresentation(request, connectionId);
+      case "catalog.conversion.declare": return this.declareConversion(request, connectionId);
+      case "inventory.conversion.apply": return this.applyConversion(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "inventory.stock.receive":
@@ -1058,6 +1065,105 @@ export class CommercialRequestHandler {
     if (result.kind === "BARCODE_ALREADY_REGISTERED") {
       return rejected(request, result.kind, {
         outcome: result.kind, product_id: null, presentation_id: result.presentationId,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  // ── catalog.conversion.declare · inventory.conversion.apply ───────────────
+
+  private declareConversion(
+    request: Extract<CommercialRequest, { message_type: "catalog.conversion.declare" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", conversion_id: null });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.declareConversion.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        productId: payload.product_id,
+        sourcePresentationId: payload.source_presentation_id,
+        targetPresentationId: payload.target_presentation_id,
+        factor: payload.factor,
+        reversible: payload.reversible,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "DECLARED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind, conversion_id: result.conversionId,
+      });
+    }
+    // También el duplicado devuelve cuál es la vigente: quien la declara
+    // necesita ir a ella, no reintentar.
+    if (result.kind === "CONVERSION_ALREADY_DECLARED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, conversion_id: result.conversionId,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, conversion_id: null });
+  }
+
+  /**
+   * `detail_quantity` transporta el dato que explica el rechazo: la existencia
+   * disponible cuando falta, o la cantidad que habría salido cuando no cabe en
+   * la precisión del destino. Sin él, «no se pudo» obliga a ir a mirar.
+   */
+  private applyConversion(
+    request: Extract<CommercialRequest, { message_type: "inventory.conversion.apply" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      source_quantity_after: null, target_quantity_after: null, detail_quantity: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.applyConversion.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        sourcePresentationId: payload.source_presentation_id,
+        targetPresentationId: payload.target_presentation_id,
+        sourceQuantity: payload.source_quantity,
+        reasonCode: payload.reason_code,
+        businessDate: payload.business_date,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "CONVERTED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        source_quantity_after: result.sourceQuantityAfter,
+        target_quantity_after: result.targetQuantityAfter,
+        detail_quantity: null,
+      });
+    }
+    if (result.kind === "INSUFFICIENT_STOCK") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, ...empty, detail_quantity: result.available,
+      });
+    }
+    if (result.kind === "TARGET_PRECISION_EXCEEDED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, ...empty, detail_quantity: result.targetQuantity,
       });
     }
     return rejected(request, result.kind, { outcome: result.kind, ...empty });

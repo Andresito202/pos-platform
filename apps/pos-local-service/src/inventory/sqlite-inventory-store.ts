@@ -44,14 +44,17 @@ export type InventoryMovementType =
   | "SALE"
   | "ADJUSTMENT_NEGATIVE"
   | "SHRINKAGE"
-  | "TRANSFER_OUT";
+  | "TRANSFER_OUT"
+  | "CONVERSION_IN"
+  | "CONVERSION_OUT";
 
 /**
  * Qué tipos suman.
  *
- * El mismo emparejamiento está en un `CHECK` de `MIGRATION_015`: si este
- * conjunto y el `CHECK` discreparan, la escritura falla en vez de guardar una
- * dirección equivocada. La comprobación de la base es la que manda.
+ * El mismo emparejamiento está en un `CHECK` —de `MIGRATION_015`, reconstruido
+ * por `MIGRATION_025` al entrar los tipos de conversión—: si este conjunto y el
+ * `CHECK` discreparan, la escritura falla en vez de guardar una dirección
+ * equivocada. La comprobación de la base es la que manda.
  */
 const INBOUND_TYPES: ReadonlySet<InventoryMovementType> = new Set<InventoryMovementType>([
   "OPENING_COUNT",
@@ -59,6 +62,7 @@ const INBOUND_TYPES: ReadonlySet<InventoryMovementType> = new Set<InventoryMovem
   "SALE_REVERSAL",
   "ADJUSTMENT_POSITIVE",
   "TRANSFER_IN",
+  "CONVERSION_IN",
 ]);
 
 function movementDirection(movementType: InventoryMovementType): "IN" | "OUT" {
@@ -112,6 +116,33 @@ export interface SaleDeductionInput {
 export type SaleDeductionOutcome =
   | { readonly kind: "POSTED" }
   | { readonly kind: "IDEMPOTENT" }
+  | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
+
+export interface ApplyConversionInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly sourcePresentationId: string;
+  readonly targetPresentationId: string;
+  /** Escala 6, ya comprobada por el caso de uso. */
+  readonly sourceQuantity: string;
+  readonly targetQuantity: string;
+  readonly reasonCode: string;
+  readonly businessDate: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ApplyConversionOutcome =
+  | {
+      readonly kind: "CONVERTED" | "IDEMPOTENT";
+      readonly sourceQuantityAfter: string;
+      readonly targetQuantityAfter: string;
+    }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PRESENTATION_NOT_FOUND" }
   | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
 
 export type AppendMovementOutcome =
@@ -409,6 +440,75 @@ export class SqliteInventoryStore {
       default:
         throw new Error(`inventory sale deduction failed: ${outcome.kind}`);
     }
+  }
+
+  /**
+   * Conversión atómica (`DEC-004` §1736): salida en origen y entrada en destino
+   * **confirmadas juntas**.
+   *
+   * La invariante que el ADR exige —«no puede quedar salida confirmada sin
+   * entrada ni entrada sin salida»— la da la transacción, no una comprobación
+   * posterior: si la entrada falla, la salida se deshace con ella.
+   *
+   * Las dos mitades llevan claves de idempotencia derivadas de la del
+   * llamador. Son movimientos distintos y el índice único de
+   * `inventory_movement` exige una clave por fila; derivarlas mantiene la
+   * repetición segura sin pedirle al llamador dos claves para una sola
+   * decisión suya.
+   *
+   * El factor **no se recalcula aquí**: llega ya resuelto y comprobado por el
+   * caso de uso, que es quien posee la conversión. Este almacén escribe
+   * movimientos; no interpreta el catálogo.
+   */
+  applyConversion(input: ApplyConversionInput): ApplyConversionOutcome {
+    return this.database.native.transaction((): ApplyConversionOutcome => {
+      const out = this.appendMovement({
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        movementId: uuidV7(),
+        operationId: uuidV7(),
+        presentationId: input.sourcePresentationId,
+        movementType: "CONVERSION_OUT",
+        quantity: input.sourceQuantity,
+        reasonCode: input.reasonCode,
+        saleId: null,
+        businessDate: input.businessDate,
+        idempotencyKey: `${input.idempotencyKey}:out`,
+        requestChecksum: input.requestChecksum,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      });
+      if (out.kind !== "POSTED" && out.kind !== "IDEMPOTENT") return out;
+
+      const entry = this.appendMovement({
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        movementId: uuidV7(),
+        operationId: uuidV7(),
+        presentationId: input.targetPresentationId,
+        movementType: "CONVERSION_IN",
+        quantity: input.targetQuantity,
+        reasonCode: input.reasonCode,
+        saleId: null,
+        businessDate: input.businessDate,
+        idempotencyKey: `${input.idempotencyKey}:in`,
+        requestChecksum: input.requestChecksum,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      });
+      if (entry.kind !== "POSTED" && entry.kind !== "IDEMPOTENT") return entry;
+
+      // Repetir la conversión entera devuelve `IDEMPOTENT`; que una mitad ya
+      // estuviera y la otra no es un estado que la transacción impide.
+      const repeated = out.kind === "IDEMPOTENT" && entry.kind === "IDEMPOTENT";
+      return {
+        kind: repeated ? "IDEMPOTENT" : "CONVERTED",
+        sourceQuantityAfter: out.quantityAfter,
+        targetQuantityAfter: entry.quantityAfter,
+      };
+    })();
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */

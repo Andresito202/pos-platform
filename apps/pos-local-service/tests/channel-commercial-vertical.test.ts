@@ -91,6 +91,7 @@ const PERMISSIONS = [
   "CATALOG_PRODUCT_REGISTER",
   "CATALOG_PRODUCT_READ",
   "INVENTORY_STOCK_RECEIVE",
+  "INVENTORY_STOCK_ADJUST",
   "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
@@ -2001,6 +2002,205 @@ describe("catalog.presentation.add — la unidad y el paquete del mismo artícul
         database, "SELECT COUNT(*) n FROM catalog_presentation WHERE tenant_id=? AND product_id=?",
         TENANT, productId,
       )).toBe(1);
+    });
+  }, 30_000);
+});
+
+/**
+ * Conversión entre presentaciones — `DEC-004` §1736.
+ *
+ * El caso real: el tendero compra pacas de 12 y vende unidades. Hasta aquí
+ * podía declarar las dos presentaciones (`catalog.presentation.add`), pero
+ * abrir una paca exigía dos ajustes de existencia a mano, que es un rastro que
+ * no dice qué pasó y que `D-21` señala como abusable.
+ */
+describe("la conversión abre una paca y la convierte en unidades", () => {
+  async function twoPresentations(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    database: LocalDatabase,
+    suffix: string,
+  ): Promise<{ productId: string; unitId: string; packId: string }> {
+    const { presentationId: unitId, productId } = await prepareCounter(send, database, suffix);
+    const added = await send(mutating("catalog.presentation.add", {
+      product_id: productId, name: "Paca x12", unit_code: "PACA", unit_precision: 0,
+      barcode: null, price_amount: "180000.000000", currency_code: "COP",
+    }, `${suffix}:pack`));
+    return { productId, unitId, packId: added.result["presentation_id"] as string };
+  }
+
+  function declare(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    ids: { productId: string; unitId: string; packId: string },
+    key: string,
+    factor = "12.000000",
+  ): Promise<ChannelResponse> {
+    return send(mutating("catalog.conversion.declare", {
+      product_id: ids.productId,
+      source_presentation_id: ids.packId,
+      target_presentation_id: ids.unitId,
+      factor,
+      reversible: true,
+    }, key));
+  }
+
+  function apply(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    ids: { unitId: string; packId: string },
+    quantity: string,
+    key: string,
+  ): Promise<ChannelResponse> {
+    return send(mutating("inventory.conversion.apply", {
+      source_presentation_id: ids.packId,
+      target_presentation_id: ids.unitId,
+      source_quantity: quantity,
+      reason_code: "BREAK_PACK",
+      business_date: "2026-09-03",
+    }, key));
+  }
+
+  it("1 paca sale y 12 unidades entran, en la misma transacción", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnv1");
+      expect((await declare(send, ids, "cnv1:decl")).result["outcome"]).toBe("DECLARED");
+
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: ids.packId, movement_type: "PURCHASE_RECEIPT", quantity: "3.000000",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "cnv1:stock"));
+
+      const converted = await apply(send, ids, "1.000000", "cnv1:apply");
+      expect(converted.status).toBe("SUCCEEDED");
+      expect(converted.result["outcome"]).toBe("CONVERTED");
+      expect(converted.result["source_quantity_after"]).toBe("2.000000");
+      expect(converted.result["target_quantity_after"]).toBe("24.000000");
+
+      // El efecto, donde queda escrito: 3−1 pacas y 12+12 unidades.
+      expect(stockOf(database, ids.packId)).toBe("2.000000");
+      expect(stockOf(database, ids.unitId)).toBe("24.000000");
+
+      // Y con su propio nombre, no disfrazado de traslado ni de ajuste.
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type=? AND presentation_id=?",
+        "CONVERSION_OUT", ids.packId,
+      )).toBe(1);
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type=? AND presentation_id=?",
+        "CONVERSION_IN", ids.unitId,
+      )).toBe(1);
+    });
+  }, 30_000);
+
+  /**
+   * La invariante de `DEC-004` §1736: no puede quedar salida sin entrada. Se
+   * comprueba provocando el fallo en la **segunda** mitad y verificando que la
+   * primera tampoco quedó escrita.
+   */
+  it("si la entrada no cabe, la salida se deshace con ella", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnv2");
+      // La unidad se vende entera (`unit_precision` 0) y el factor daría media.
+      expect((await declare(send, ids, "cnv2:decl", "0.500000")).result["outcome"]).toBe("DECLARED");
+
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: ids.packId, movement_type: "PURCHASE_RECEIPT", quantity: "3.000000",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "cnv2:stock"));
+
+      const rejectedApply = await apply(send, ids, "1.000000", "cnv2:apply");
+      expect(rejectedApply.status).toBe("REJECTED");
+      expect(rejectedApply.result["outcome"]).toBe("TARGET_PRECISION_EXCEEDED");
+      expect(rejectedApply.result["detail_quantity"]).toBe("0.500000");
+
+      // Ni salida ni entrada: los dos saldos intactos.
+      expect(stockOf(database, ids.packId)).toBe("3.000000");
+      expect(stockOf(database, ids.unitId)).toBe("12.000000");
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type IN (?,?)",
+        "CONVERSION_OUT", "CONVERSION_IN",
+      )).toBe(0);
+    });
+  }, 30_000);
+
+  it("sin existencia en origen no convierte nada y dice cuánta hay", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnv3");
+      await declare(send, ids, "cnv3:decl");
+
+      const response = await apply(send, ids, "1.000000", "cnv3:apply");
+      expect(response.result["outcome"]).toBe("INSUFFICIENT_STOCK");
+      expect(response.result["detail_quantity"]).toBe("0.000000");
+      expect(stockOf(database, ids.unitId)).toBe("12.000000");
+    });
+  }, 30_000);
+
+  it("sin factor declarado se rechaza en vez de inventarlo", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnv4");
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: ids.packId, movement_type: "PURCHASE_RECEIPT", quantity: "3.000000",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "cnv4:stock"));
+
+      const response = await apply(send, ids, "1.000000", "cnv4:apply");
+      expect(response.status).toBe("REJECTED");
+      expect(response.result["outcome"]).toBe("CONVERSION_NOT_DECLARED");
+      expect(stockOf(database, ids.packId)).toBe("3.000000");
+    });
+  }, 30_000);
+
+  it("repetir la conversión es IDEMPOTENT y no mueve los saldos dos veces", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnv5");
+      await declare(send, ids, "cnv5:decl");
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: ids.packId, movement_type: "PURCHASE_RECEIPT", quantity: "3.000000",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "cnv5:stock"));
+
+      expect((await apply(send, ids, "1.000000", "cnv5:apply")).result["outcome"]).toBe("CONVERTED");
+      const repeat = await apply(send, ids, "1.000000", "cnv5:apply");
+      expect(repeat.result["outcome"]).toBe("IDEMPOTENT");
+
+      expect(stockOf(database, ids.packId)).toBe("2.000000");
+      expect(stockOf(database, ids.unitId)).toBe("24.000000");
+    });
+  }, 30_000);
+
+  it("no admite dos factores vigentes para el mismo par y dice cuál manda", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnv6");
+      const first = await declare(send, ids, "cnv6:decl");
+      const second = await declare(send, ids, "cnv6:decl2", "24.000000");
+
+      expect(second.status).toBe("REJECTED");
+      expect(second.result["outcome"]).toBe("CONVERSION_ALREADY_DECLARED");
+      expect(second.result["conversion_id"]).toBe(first.result["conversion_id"]);
+    });
+  }, 30_000);
+
+  it("rechaza declarar entre presentaciones de productos distintos", async () => {
+    await withRealChannel(async (send, database) => {
+      const first = await twoPresentations(send, database, "cnv7");
+      // Un segundo producto de verdad. `prepareCounter` no sirve dos veces en
+      // la misma base: usa un código de barras constante y la segunda llamada
+      // chocaría devolviendo la presentación del primero.
+      const otherProduct = await send(mutating("catalog.product.register", {
+        code: "OTRO-CNV7", name: "Otro producto", stock_controlled: true,
+        presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+        barcode: "7709000000077", price_amount: "1000.000000", currency_code: "COP",
+      }, "cnv7:other"));
+      expect(otherProduct.result["outcome"]).toBe("REGISTERED");
+
+      const response = await send(mutating("catalog.conversion.declare", {
+        product_id: first.productId,
+        source_presentation_id: first.packId,
+        target_presentation_id: otherProduct.result["presentation_id"],
+        factor: "12.000000",
+        reversible: false,
+      }, "cnv7:decl"));
+
+      expect(response.status).toBe("REJECTED");
+      expect(response.result["outcome"]).toBe("PRESENTATIONS_NOT_SAME_PRODUCT");
     });
   }, 30_000);
 });

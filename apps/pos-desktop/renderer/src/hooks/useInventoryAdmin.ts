@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type {
+  InventoryConversionApplyResult,
   InventoryMovementResult,
   InventoryStockGetResult,
 } from "@pos-platform/contracts";
@@ -33,17 +34,23 @@ export interface InventoryAdminState {
   readonly movement: InventoryMovementResult | null;
   readonly stock: InventoryStockGetResult | null;
   readonly error: string | null;
+  readonly conversion: InventoryConversionApplyResult | null;
 }
 
 export function useInventoryAdmin(): InventoryAdminState & {
   receive(presentationId: string, movementType: ReceiveMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
   adjust(presentationId: string, movementType: AdjustMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
   getStock(presentationId: string): Promise<void>;
+  applyConversion(
+    sourcePresentationId: string, targetPresentationId: string,
+    sourceQuantity: string, reasonCode: string, businessDate: string,
+  ): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [movement, setMovement] = useState<InventoryMovementResult | null>(null);
   const [stock, setStock] = useState<InventoryStockGetResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [conversion, setConversion] = useState<InventoryConversionApplyResult | null>(null);
 
   const post = useCallback(async (
     messageType: "inventory.stock.receive" | "inventory.stock.adjust",
@@ -123,5 +130,47 @@ export function useInventoryAdmin(): InventoryAdminState & {
     }
   }, []);
 
-  return { busy, movement, stock, error, receive, adjust, getStock };
+  /**
+   * Abre una paca y la convierte en unidades. El factor **no se teclea**: lo
+   * pone el catálogo, y por eso este formulario no lo pide.
+   */
+  const applyConversion = useCallback(async (
+    sourcePresentationId: string, targetPresentationId: string,
+    sourceQuantity: string, reasonCode: string, businessDate: string,
+  ): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setConversion(null);
+    try {
+      const quantity = toScale6(sourceQuantity);
+      if (quantity === null) {
+        setError("QUANTITY_NOT_SCALE6");
+        return;
+      }
+      const response = await callCommercial<InventoryConversionApplyResult>(
+        "inventory.conversion.apply",
+        {
+          source_presentation_id: sourcePresentationId.trim(),
+          target_presentation_id: targetPresentationId.trim(),
+          source_quantity: quantity,
+          reason_code: reasonCode.trim(),
+          business_date: businessDate.trim(),
+        },
+        newIdempotencyKey(),
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      // También en el rechazo: `detail_quantity` dice cuánta existencia hay o
+      // qué cantidad no cabía, que es lo que explica el «no se pudo».
+      setConversion(response.result);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return { busy, movement, stock, error, conversion, receive, adjust, getStock, applyConversion };
 }

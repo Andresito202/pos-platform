@@ -30,10 +30,12 @@ export const RENDERER_API_METHODS = [
   // La segunda presentación de un producto: la unidad y el paquete del mismo
   // artículo, que una tienda de barrio necesita el primer día.
   "catalog.presentation.add",
+  "catalog.conversion.declare",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",
   "inventory.stock.adjust",
+  "inventory.conversion.apply",
   "inventory.stock.get",
   "sales.receipt.get",
 ] as const;

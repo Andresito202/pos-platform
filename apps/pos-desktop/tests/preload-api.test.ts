@@ -33,10 +33,12 @@ describe("preload-api", () => {
       "catalog.product.register",
       "catalog.fiscal.attribute.set",
       "catalog.presentation.add",
+      "catalog.conversion.declare",
       "catalog.item.find",
       "catalog.item.get",
       "inventory.stock.receive",
       "inventory.stock.adjust",
+      "inventory.conversion.apply",
       "inventory.stock.get",
       "sales.receipt.get",
     ]);

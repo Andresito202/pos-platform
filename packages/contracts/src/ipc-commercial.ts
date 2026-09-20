@@ -1217,6 +1217,121 @@ export type CatalogPresentationAddResult = z.infer<typeof CatalogPresentationAdd
 export const CatalogPresentationAddResponseSchema =
   createResponseEnvelopeSchema(CatalogPresentationAddResultSchema);
 
+// ── catalog.conversion.declare · inventory.conversion.apply ──────────────────
+
+/**
+ * Declara `1 origen = factor destino` entre dos presentaciones del mismo
+ * producto (`DEC-004` §1579).
+ *
+ * Declarar no convierte nada: deja escrito el factor con el que se podrá
+ * convertir. Son dos operaciones porque son dos decisiones distintas —la de
+ * quien configura el catálogo y la de quien abre una paca en el mostrador—,
+ * con permisos y momentos distintos.
+ *
+ * `reversible` se declara y se guarda, pero **hoy no habilita la vuelta**:
+ * `DEC-004` §1658 advierte que ser matemáticamente reversible no implica
+ * serlo operativamente —empaque abierto, lote, vencimiento, merma—, y ninguna
+ * de esas piezas existe. Se registra para no perder la intención del
+ * comerciante, no para actuar sobre ella.
+ */
+export const CatalogConversionDeclareRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    source_presentation_id: UuidSchema,
+    target_presentation_id: UuidSchema,
+    /** Cuántas unidades de destino produce una de origen. Escala 6, > 0. */
+    factor: PositiveScale6Schema,
+    reversible: z.boolean(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.conversion.declare") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogConversionDeclareOutcomeSchema = z.enum([
+  "DECLARED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PRESENTATION_NOT_FOUND",
+  /** `DEC-004` §1602: origen y destino tienen que ser del producto declarado. */
+  "PRESENTATIONS_NOT_SAME_PRODUCT",
+  /** Ya hay una vigente para el par: dos factores serían ambiguos (§1631). */
+  "CONVERSION_ALREADY_DECLARED",
+]);
+
+export const CatalogConversionDeclareResultSchema = z.strictObject({
+  outcome: CatalogConversionDeclareOutcomeSchema,
+  conversion_id: UuidSchema.nullable(),
+});
+
+export type CatalogConversionDeclareResult =
+  z.infer<typeof CatalogConversionDeclareResultSchema>;
+
+export const CatalogConversionDeclareResponseSchema =
+  createResponseEnvelopeSchema(CatalogConversionDeclareResultSchema);
+
+/**
+ * Aplica la conversión: abre la paca y la convierte en unidades.
+ *
+ * **Conversión atómica** (`DEC-004` §1736): salida en origen y entrada en
+ * destino se confirman juntas, y la invariante «no puede quedar salida sin
+ * entrada» la da la transacción, no una comprobación posterior.
+ *
+ * **El factor no viaja en la petición.** Lo pone el catálogo. Dejar que el
+ * mostrador lo aportara convertiría esto en un ajuste de existencia con otro
+ * nombre — y un ajuste ya existe, con su propio permiso y su propia auditoría.
+ *
+ * **No se redondea.** `cantidad × factor` sólo se acepta si da una cantidad
+ * exacta que además cabe en la precisión de la unidad destino. Media unidad de
+ * un artículo que se vende entero no es una conversión: es un error de captura.
+ */
+export const InventoryConversionApplyRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    source_presentation_id: UuidSchema,
+    target_presentation_id: UuidSchema,
+    source_quantity: PositiveScale6Schema,
+    reason_code: z.string().min(1).max(64),
+    business_date: BusinessDateSchema,
+  }),
+).safeExtend({ message_type: z.literal("inventory.conversion.apply") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const InventoryConversionApplyOutcomeSchema = z.enum([
+  "CONVERTED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PRESENTATION_NOT_FOUND",
+  /** No hay factor vigente para el par: hay que declararlo antes. */
+  "CONVERSION_NOT_DECLARED",
+  "INSUFFICIENT_STOCK",
+  /** El producto sería fraccionario para la unidad destino. No se redondea. */
+  "TARGET_PRECISION_EXCEEDED",
+]);
+
+/**
+ * Los dos saldos posteriores viajan juntos porque la conversión los mueve a la
+ * vez: devolver sólo uno dejaría al operador comprobando el otro a mano.
+ */
+export const InventoryConversionApplyResultSchema = z.strictObject({
+  outcome: InventoryConversionApplyOutcomeSchema,
+  source_quantity_after: NonNegativeScale6Schema.nullable(),
+  target_quantity_after: NonNegativeScale6Schema.nullable(),
+  /** Presente en `INSUFFICIENT_STOCK` y en `TARGET_PRECISION_EXCEEDED`. */
+  detail_quantity: NonNegativeScale6Schema.nullable(),
+});
+
+export type InventoryConversionApplyResult =
+  z.infer<typeof InventoryConversionApplyResultSchema>;
+
+export const InventoryConversionApplyResponseSchema =
+  createResponseEnvelopeSchema(InventoryConversionApplyResultSchema);
+
 // ── catalog.item.find · catalog.item.get ─────────────────────────────────────
 
 /**
@@ -1451,6 +1566,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "catalog.product.register",
   "catalog.fiscal.attribute.set",
   "catalog.presentation.add",
+  "catalog.conversion.declare",
+  "inventory.conversion.apply",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",
@@ -1482,6 +1599,8 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:catalog.product.register",
   "pos:catalog.fiscal.attribute.set",
   "pos:catalog.presentation.add",
+  "pos:catalog.conversion.declare",
+  "pos:inventory.conversion.apply",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:inventory.stock.receive",

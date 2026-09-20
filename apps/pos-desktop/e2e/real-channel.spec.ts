@@ -586,6 +586,31 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
   await page.getByTestId("find-item-button").click();
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("catalog-error").count()).toBe(0);
+
+  // --- La equivalencia entre las dos, y abrir una paca de verdad -----------
+
+  await page.getByTestId("conversion-factor-input").fill("12");
+  await page.getByTestId("declare-conversion-button").click();
+  await expect(page.getByTestId("conversion-declare-outcome"))
+    .toHaveText("DECLARED", { timeout: 15_000 });
+
+  // Tres pacas en existencia, ninguna unidad todavía.
+  await page.getByTestId("inventory-presentation-input").fill(packPresentationId!);
+  await page.getByTestId("receive-quantity-input").fill("3");
+  await page.getByTestId("receive-reason-input").fill("PURCHASE");
+  await page.getByTestId("receive-stock-button").click();
+  await expect(page.getByTestId("movement-quantity-after"))
+    .toHaveText("3.000000", { timeout: 15_000 });
+
+  // El tendero abre una: sale 1 paca, entran 12 unidades, en un solo acto.
+  await page.getByTestId("conversion-target-input").fill(unitPresentationId!);
+  await page.getByTestId("conversion-quantity-input").fill("1");
+  await page.getByTestId("apply-conversion-button").click();
+  await expect(page.getByTestId("conversion-outcome"))
+    .toHaveText("CONVERTED", { timeout: 15_000 });
+  expect(await page.getByTestId("conversion-source-after").textContent()).toBe("2.000000");
+  expect(await page.getByTestId("conversion-target-after").textContent()).toBe("12.000000");
+  expect(await page.getByTestId("inventory-error").count()).toBe(0);
 });
 
 /**

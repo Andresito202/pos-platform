@@ -62,6 +62,38 @@ export interface CatalogFiscalAttribute {
   readonly taxRate: string;
 }
 
+export interface DeclareConversionInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly conversionId: string;
+  readonly operationId: string;
+  readonly productId: string;
+  readonly sourcePresentationId: string;
+  readonly targetPresentationId: string;
+  readonly factor: string;
+  readonly reversible: boolean;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type DeclareConversionOutcome =
+  | { readonly kind: "DECLARED"; readonly conversionId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly conversionId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PRESENTATION_NOT_FOUND" }
+  | { readonly kind: "PRESENTATIONS_NOT_SAME_PRODUCT" }
+  | { readonly kind: "CONVERSION_ALREADY_DECLARED"; readonly conversionId: string };
+
+/** Lo que el caso de uso necesita para convertir: el factor vigente y su origen. */
+export interface ActiveConversion {
+  readonly conversionId: string;
+  readonly productId: string;
+  readonly factor: string;
+}
+
 export interface AddPresentationInput {
   readonly scope: SyncScope;
   readonly sessionId: string;
@@ -388,6 +420,157 @@ export class SqliteCatalogStore {
         productId: input.productId,
         presentationId: input.presentationId,
       };
+    })();
+  }
+
+  /**
+   * La conversión vigente para un par, o `null`.
+   *
+   * Sólo devuelve la `ACTIVE`: el índice parcial garantiza que hay como mucho
+   * una, de modo que «vigente» no es una elección sino un hecho del esquema.
+   */
+  findActiveConversion(
+    scope: CatalogScope,
+    sourcePresentationId: string,
+    targetPresentationId: string,
+  ): ActiveConversion | null {
+    const row = this.database.native.prepare(
+      `SELECT id, product_id, factor FROM catalog_unit_conversion
+       WHERE tenant_id=? AND source_presentation_id=? AND target_presentation_id=? AND status='ACTIVE'`,
+    ).get(scope.tenantId, sourcePresentationId, targetPresentationId) as
+      | { id: string; product_id: string; factor: string }
+      | undefined;
+    if (row === undefined) return null;
+    return { conversionId: row.id, productId: row.product_id, factor: row.factor };
+  }
+
+  /**
+   * Declara `1 origen = factor destino` (`DEC-004` §1579).
+   *
+   * El trigger de `MIGRATION_024` impone la invariante §1602 —origen y destino
+   * del mismo producto—, pero se comprueba **también aquí** por una razón que
+   * no es redundancia: una violación del trigger llega como excepción de
+   * SQLite, y el operador necesita un desenlace que diga qué pasó. La base es
+   * la que manda; esto es lo que hace el mensaje legible.
+   */
+  declareConversion(input: DeclareConversionInput): DeclareConversionOutcome {
+    return this.database.native.transaction((): DeclareConversionOutcome => {
+      const nowIso = this.now().toISOString();
+
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) {
+          return { kind: "IDEMPOTENCY_CONFLICT" };
+        }
+        const existing = this.database.native.prepare(
+          "SELECT id FROM catalog_unit_conversion WHERE tenant_id=? AND idempotency_key=?",
+        ).get(input.scope.tenantId, input.idempotencyKey) as { id: string } | undefined;
+        if (existing === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
+        return { kind: "IDEMPOTENT", conversionId: existing.id };
+      }
+
+      const presentations = this.database.native.prepare(
+        `SELECT id, product_id FROM catalog_presentation
+         WHERE tenant_id=? AND id IN (?, ?) AND status='ACTIVE'`,
+      ).all(
+        input.scope.tenantId, input.sourcePresentationId, input.targetPresentationId,
+      ) as { id: string; product_id: string }[];
+      if (presentations.length !== 2) return { kind: "PRESENTATION_NOT_FOUND" };
+      if (presentations.some((row) => row.product_id !== input.productId)) {
+        return { kind: "PRESENTATIONS_NOT_SAME_PRODUCT" };
+      }
+
+      // Dos factores vigentes para el mismo par serían un factor ambiguo, que
+      // `DEC-004` §1631 prohíbe. Se devuelve cuál es la que ya existe.
+      const active = this.findActiveConversion(
+        input.scope, input.sourcePresentationId, input.targetPresentationId,
+      );
+      if (active !== null) {
+        return { kind: "CONVERSION_ALREADY_DECLARED", conversionId: active.conversionId };
+      }
+
+      this.database.native.prepare(
+        `INSERT INTO catalog_unit_conversion(
+          id, tenant_id, company_id, product_id, source_presentation_id, target_presentation_id,
+          factor, reversible, status, version, declared_by_actor_id, idempotency_key,
+          correlation_id, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,'ACTIVE',1,?,?,?,?,?)`,
+      ).run(
+        input.conversionId, input.scope.tenantId, input.scope.companyId, input.productId,
+        input.sourcePresentationId, input.targetPresentationId,
+        input.factor, input.reversible ? 1 : 0,
+        input.operatorUserId, input.idempotencyKey, input.correlationId, nowIso, nowIso,
+      );
+
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','DECLARED',?,?)`,
+      ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_CONVERSION_DECLARE','CATALOG_UNIT_CONVERSION',?,?,?,NULL,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId,
+        input.conversionId, input.correlationId, input.causationId,
+        canonicalJson({
+          product_id: input.productId,
+          source_presentation_id: input.sourcePresentationId,
+          target_presentation_id: input.targetPresentationId,
+          factor: input.factor,
+        }),
+        nowIso,
+      );
+
+      const nextSequence = (this.database.native.prepare(
+        `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId,
+        input.scope.deviceId, input.scope.installationId,
+      ) as NextSequenceRow).next_sequence;
+
+      this.durableSync.enqueue({
+        operation_id: input.operationId,
+        tenant_id: input.scope.tenantId,
+        company_id: input.scope.companyId,
+        branch_id: input.scope.branchId,
+        device_id: input.scope.deviceId,
+        installation_id: input.scope.installationId,
+        session_id: input.sessionId,
+        actor_id: input.operatorUserId,
+        aggregate_type: "CATALOG_UNIT_CONVERSION",
+        aggregate_id: input.conversionId,
+        operation_type: "CATALOG_CONVERSION_DECLARE",
+        authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
+        local_sequence: nextSequence,
+        idempotency_key: input.idempotencyKey,
+        expected_version: null,
+        payload_schema_version: CATALOG_PAYLOAD_SCHEMA_VERSION,
+        payload: {
+          conversion_id: input.conversionId,
+          product_id: input.productId,
+          source_presentation_id: input.sourcePresentationId,
+          target_presentation_id: input.targetPresentationId,
+          factor: input.factor,
+          reversible: input.reversible,
+        },
+        payload_checksum: input.requestChecksum,
+        causation_id: input.causationId,
+        correlation_id: input.correlationId,
+        occurred_at_local: nowIso,
+        recorded_at_local: nowIso,
+      });
+
+      return { kind: "DECLARED", conversionId: input.conversionId };
     })();
   }
 

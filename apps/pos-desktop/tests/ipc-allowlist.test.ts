@@ -29,10 +29,12 @@ describe("ipc-allowlist", () => {
       "pos:catalog.product.register",
       "pos:catalog.fiscal.attribute.set",
       "pos:catalog.presentation.add",
+      "pos:catalog.conversion.declare",
       "pos:catalog.item.find",
       "pos:catalog.item.get",
       "pos:inventory.stock.receive",
       "pos:inventory.stock.adjust",
+      "pos:inventory.conversion.apply",
       "pos:inventory.stock.get",
       "pos:sales.receipt.get",
     ]);
