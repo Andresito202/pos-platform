@@ -207,10 +207,55 @@ try {
     },
     logger,
   );
+  // Provision de la confianza verificada en el ancla.
+  //
+  // **Es un componente, y su posicion en la lista es la correccion.** Estuvo
+  // escrito despues de `lifecycle.start()`, y medido el 2026-09-20 arrancando
+  // el servicio de verdad: `commercial` resuelve su mapa de claves una sola vez
+  // en su propio `start()` —ceremonia deliberada de `DEC-011`, rotar exige
+  // reiniciar— asi que provisionar despues dejaba al verificador con el mapa
+  // VACIO de antes. Un equipo recien aprovisionado rechazaba su primera sesion
+  // con `SIGNATURE_INVALID` —una `key_id` desconocida se reporta asi— y solo
+  // funcionaba al SEGUNDO arranque, cuando la fila ya estaba en la tabla.
+  //
+  // Es decir: justo el arranque para el que se escribio `DEC-025` era el unico
+  // que no podia funcionar. Va entre `security` —que abre el ancla— y
+  // `commercial` —que la lee—, que es el orden que `LocalSecurityComponent`
+  // ya describia en prosa y nada obligaba.
+  //
+  // Solo se provisiona lo que el verificador dio por `VALID`. Un artefacto
+  // ausente (`MISSING`) deja el ancla como estuviera —un equipo ya
+  // provisionado sigue funcionando aunque le retiren el fichero—, y uno
+  // `INVALID` **no borra nada y no provisiona nada**: se registra y se sigue
+  // fallando cerrado. Degradar el ancla existente por un artefacto corrupto
+  // convertiria un fichero manipulable en una forma de dejar el equipo sin
+  // confianza.
+  const sessionTrustProvisioning: RuntimeComponent = {
+    name: "session-trust-provisioning",
+    start: async () => {
+      if (sessionTrust.decision === "VALID") {
+        for (const [keyId, trusted] of sessionTrust.keys) {
+          security.trustAnchors.provision({
+            purpose: "SESSION_ASSERTION",
+            keyId,
+            publicKeySpki: trusted.key.export({ type: "spki", format: "der" }).toString("base64url"),
+            status: trusted.status,
+          });
+        }
+      }
+      logger.log("info", "security.session_trust", {
+        decision: sessionTrust.decision,
+        provisioned: sessionTrust.decision === "VALID" ? sessionTrust.keys.size : 0,
+      });
+    },
+    stop: async () => {},
+  };
+
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [
     localDatabase,
     security,
+    sessionTrustProvisioning,
     durableSync,
     operationConfirmation,
     commercial,
@@ -261,30 +306,6 @@ try {
   lifecycle = new ServiceLifecycle(components);
   await lifecycle.start();
 
-  // Provision de la confianza verificada en el ancla, una vez `security` esta
-  // arrancado y su almacen abierto.
-  //
-  // Sólo se provisiona lo que el verificador dio por `VALID`. Un artefacto
-  // ausente (`MISSING`) deja el ancla como estuviera —un equipo ya
-  // provisionado sigue funcionando aunque le retiren el fichero—, y uno
-  // `INVALID` **no borra nada y no provisiona nada**: se registra y se sigue
-  // fallando cerrado. Degradar el ancla existente por un artefacto corrupto
-  // convertiria un fichero manipulable en una forma de dejar el equipo sin
-  // confianza.
-  if (sessionTrust.decision === "VALID") {
-    for (const [keyId, trusted] of sessionTrust.keys) {
-      security.trustAnchors.provision({
-        purpose: "SESSION_ASSERTION",
-        keyId,
-        publicKeySpki: trusted.key.export({ type: "spki", format: "der" }).toString("base64url"),
-        status: trusted.status,
-      });
-    }
-  }
-  logger.log("info", "security.session_trust", {
-    decision: sessionTrust.decision,
-    provisioned: sessionTrust.decision === "VALID" ? sessionTrust.keys.size : 0,
-  });
   // Que hay proveedor, nunca cual es: ni la clave publica entra aqui. El
   // redactor del logger es una red, no una excusa para acercarle un secreto.
   logger.log("info", "payments.provider", paymentProvider === undefined
@@ -294,12 +315,18 @@ try {
   // recuento es operativo —dice si este equipo puede llegar a autenticar a
   // alguien— y no revela qué `key_id` existen. Un cero aquí explica por qué
   // `session.activate` responde `SIGNATURE_INVALID` a todo.
-  logger.log("info", "security.trust_anchors", Object.fromEntries(
-    TRUST_ANCHOR_PURPOSES.map((purpose) => [
-      purpose.toLowerCase(),
-      security.trustAnchors.usableCount(purpose),
-    ]),
-  ));
+  //
+  // Los recuentos viajan en **un solo campo de texto**, no una clave por
+  // propósito. Medido el 2026-09-20 arrancando el servicio: con una clave por
+  // propósito, `authorization_snapshot` casaba con el `SENSITIVE_KEY` del
+  // logger —que incluye `authorization`— y el recuento salía `[REDACTED]`.
+  // La red se comía justo el número que explica por qué no se puede operar.
+  // No se estrecha la red: se deja de darle un nombre que la dispare.
+  logger.log("info", "security.trust_anchors", {
+    usable: TRUST_ANCHOR_PURPOSES
+      .map((purpose) => `${purpose.toLowerCase()}=${String(security.trustAnchors.usableCount(purpose))}`)
+      .join(" "),
+  });
   // Aprovisionamiento inicial de sesión de operador (`DEC-025`).
   //
   // Ocurre **después** de provisionar el ancla, porque la verificación de los
@@ -331,7 +358,15 @@ try {
       read.artifact.session_assertion, binding,
     );
     if (activation.kind !== "ACTIVATED") {
-      return { decision: "SESSION_REJECTED" as const, detail: activation.kind };
+      // `REJECTED` a secas no dice nada: es el nombre del desenlace, no su
+      // causa. Se emite la decisión del verificador, que es el dato que
+      // distingue «firma que no cuadra» de «SSA vencida» o «binding de otro
+      // equipo». No es exposición nueva: `session.activate` ya devuelve ese
+      // mismo `decision` al llamador por IPC.
+      return {
+        decision: "SESSION_REJECTED" as const,
+        detail: activation.kind === "REJECTED" ? activation.decision : activation.kind,
+      };
     }
 
     const acquisition = await new SnapshotAcquisitionService(

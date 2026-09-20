@@ -134,6 +134,43 @@ el artefacto de D1.
 No se publica como servicio ni se expone por red: eso sería el emisor central,
 que es `SEC-G02` y sigue fuera de alcance.
 
+## Ejecución medida — 2026-09-20
+
+**Este ADR se escribió sin haber arrancado nunca el servicio.** Se arrancó, y
+la ruta de consumo que describe `D2` **no llega hasta el final**. Se deja
+escrito aquí porque el riesgo de este documento es leerse como una capacidad
+disponible:
+
+| Paso de `D2` | Observado |
+|---|---|
+| Lectura del artefacto | ✅ |
+| Provisión del ancla desde `G1.2` | ✅ `decision: VALID, provisioned: 1` — con material generado para la prueba |
+| SSA → `SessionActivation.activate` | ✅ **tras corregir el orden de arranque** (`D-32`) |
+| SAS → `SnapshotAcquisitionService` | ❌ `SNAPSHOT_REJECTED / VERIFICATION_FAILED` (`D-31`) |
+
+Tres hallazgos, los tres por ejecutar y no por leer:
+
+1. **`D-32`, corregido.** La provisión del ancla estaba detrás de
+   `lifecycle.start()` y sus consumidores resuelven las claves durante su
+   propio `start()`. El primer arranque de un equipo recién aprovisionado
+   rechazaba su propia sesión con `SIGNATURE_INVALID` y sólo funcionaba al
+   segundo. Justo el arranque para el que existe este ADR era el único que no
+   podía funcionar.
+2. **`D-31`, abierto y bloqueante.** `SessionAssertionKeyPurposeSchema` es
+   `z.literal("SESSION_ASSERTION")`: el bundle **no puede publicar** la clave
+   de propósito `AUTHORIZATION_SNAPSHOT` contra la que `D2` verifica el
+   segundo sobre. No hay ruta para provisionar ese propósito, así que
+   `PROVISIONED` es inalcanzable con el cableado de hoy. Decidirlo es de ADR:
+   una clave por propósito o una compartida.
+3. **`D-30`, abierto.** El artefacto real de `G1.2` no parsea contra su propio
+   contrato —`key_id` y `environment` en minúsculas frente a
+   `StableCodeSchema`—, así que un equipo apuntado al material publicado no
+   provisiona nada.
+
+Mientras `D-31` siga abierta, **este ADR está `IMPLEMENTED` y no
+`RUNTIME_VERIFIED`**: su invariante `D1` —«los dos sobres, o ninguno»— no se
+puede satisfacer.
+
 ## Consecuencias
 
 ### Lo que habilita
