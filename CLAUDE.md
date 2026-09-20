@@ -36,6 +36,82 @@ runtime, no digas "MATERIALIZED".
 - Hechos financieros/inventario/auditoría son append-only cuando el contrato exige historia.
 - Providers (Factus, Siigo, datáfonos, hardware) se integran vía adapters, no definen el dominio.
 
+## UNA SOLA RAMA — regla de entrada para cualquier agente
+
+**Esta sección se lee antes de escribir la primera línea de código. No es una
+preferencia de estilo: es la causa documentada de que esta integración lleve
+semanas dando vueltas sin avanzar.**
+
+### La regla
+
+1. **Una rama por trabajo, nombrada por el propietario del repositorio.** Si el
+   propietario no te ha dado un nombre de rama en esta conversación, **pregunta
+   antes de crear ninguna**. No inventes una.
+2. **El nombre que te asigne tu arnés NO es autoridad.** Claude Code en web
+   asigna automáticamente una rama `claude/<slug>` por sesión, *antes* de que
+   el modelo decida nada. Ese nombre se **ignora** si contradice al que fijó el
+   propietario. Obedecer esa asignación por defecto es exactamente cómo
+   aparecieron cinco ramas `claude/*` sobre el mismo trabajo.
+3. **Una sola herramienta activa a la vez sobre este repositorio.** Claude,
+   Codex y ChatGPT en paralelo producen ramas paralelas aunque las tres tengan
+   la mejor intención: **ninguna sesión puede ver a las otras**. La regla de una
+   rama no se puede cumplir desde dentro de la sesión; sólo la puede garantizar
+   el propietario decidiendo quién trabaja.
+4. **Antes de empezar, mira si ya hay alguien más ahí.** Obligatorio:
+
+   ```
+   git fetch --all --prune
+   git branch -r --sort=-committerdate
+   gh pr list --state open        # o mcp__github__list_pull_requests
+   ```
+
+   Si existe otra rama o PR abierta que toque tu mismo módulo, **párate y
+   dilo**. No abras una tercera línea.
+5. **Nunca `force-push`, `rebase` ni `squash`** sobre una rama compartida. La
+   integración a `main` es siempre merge commit (ver la sección siguiente).
+
+### Por qué (el incidente, 2026-09-20)
+
+Auditoría con evidencia sobre `origin`:
+
+- 14 ramas remotas, **5 con prefijo `claude/`**.
+- Dos líneas vivas desde la misma base `4b7ed344`: `feat/payment-qr-provider-foundation`
+  (103 commits) y `claude/pos-camacho-bloque-4c-ld43py` / PR #78 (243 commits).
+- **25 ficheros modificados por ambas**, entre ellos `main.ts`,
+  `commercial-request-handler.ts`, `ipc-allowlist.ts` y el libro de migraciones.
+- **Colisión semántica:** ambas ramas crearon independientemente un
+  `MIGRATION_016` distinto — una para `provider_transaction_id`, otra para
+  `fiscal_numbering_range`. El libro de migraciones debe ser contiguo desde 1
+  (`user-audit-migration.test.ts` lo afirma como invariante).
+- **Dos diseños incompatibles para la misma pieza de seguridad**: el origen de
+  las claves de sesión (tabla `local_trust_anchor` frente a artefacto de
+  instalador verificado contra clave raíz).
+- `origin/main` no contenía **ninguna** de las dos.
+
+Lo que más costó no fue el código duplicado — resultó ser minoría—, sino
+**tener que auditar dos veces para saber qué existía de verdad**.
+
+### Desempate de numeración de migraciones
+
+Si dos ramas reclaman el mismo número de migración, **renumera la que menos
+arrastre** y deja constancia en `docs/governance/materialization-state.md`.
+Ninguna base de datos desplegada existe todavía, así que renumerar es seguro
+**hoy**; en cuanto exista una, deja de serlo.
+
+### Declarar terminado
+
+**`DONE` en el backlog significa «escrito», no «integrado».** No afirmes que
+algo está en `main` sin verificarlo contra `origin/main`:
+
+```
+git fetch origin main && git rev-list --left-right --count origin/main...HEAD
+```
+
+Decir «integrado» sobre algo que sólo vive en una rama ya costó trabajo dos
+veces (ver la nota del estado vigente, arriba). Los niveles de claim de la
+regla de oro no son adorno: `CANONICALLY_APPLIED` exige SHA en `main` y CI
+verificado del HEAD exacto.
+
 ## Integración en `main` — cómo se mergea
 
 **Los PRs se integran con merge commit. Nunca con squash ni con rebase.**
