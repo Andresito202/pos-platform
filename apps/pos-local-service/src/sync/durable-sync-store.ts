@@ -79,7 +79,23 @@ export class DurableSyncStore {
   }
 
   enqueue(input: unknown): EnqueueResult {
-    const operation = SyncOperationSchema.parse(input);
+    const parsed = SyncOperationSchema.parse(input);
+    // `payload_checksum` describe el **payload serializado**, no la petición que
+    // lo originó. Se recalcula aquí, en la frontera del único escritor, por dos
+    // razones que no son de estilo:
+    //
+    // 1. `central-sync-server.ts:92` recalcula `payloadChecksum(operation.payload)`
+    //    y rechaza con `SYNC.PAYLOAD_CHECKSUM_MISMATCH` si no coincide. Los
+    //    almacenes pasan `input.requestChecksum` —un digest de la petición, con
+    //    `idempotency_key` y `operator_user_id` dentro—, que nunca coincidirá.
+    //    Sin esta línea **toda** operación del outbox es rechazada por el central.
+    // 2. Un productor equivocado no puede persistir un digest engañoso: el valor
+    //    que llega es una afirmación del llamador, y aquí no es autoridad.
+    //
+    // Se perdió en la unificación de ramas del 2026-09-20 junto con la prueba
+    // que lo fijaba, y se restauró el mismo día. Ver
+    // `docs/governance/branch-duplication-audit-2026-09-20.md`.
+    const operation: SyncOperation = { ...parsed, payload_checksum: checksum(parsed.payload) };
     const operationJson = canonicalJson(operation);
     const createdAt = this.now().toISOString();
 

@@ -145,6 +145,15 @@ Columna «suelto» = commits que esa rama tiene y la línea activa no
 
 **Un número distinto de cero no significa «trabajo pendiente».** Significa que
 esa rama conserva historia que la línea activa no reprodujo commit a commit.
+
+> **`feat/selective-pr79-payment-cash-sale` y `fix/runtime-status-envelope` ya
+> están auditadas — 2026-09-20.** Sus 25 commits sueltos tocan 14 ficheros; 11
+> ya están en la línea activa y casi todos en una versión posterior y mejor, 2
+> son documentos históricos y 1 es una prueba cuyo comportamiento ya está
+> cubierto. Apareció **una** regresión real (`D-29`, el `payload_checksum` del
+> outbox) y se restauró el mismo día. **No queda nada que rescatar y no hay que
+> repetir la auditoría:**
+> [`docs/governance/branch-duplication-audit-2026-09-20.md`](docs/governance/branch-duplication-audit-2026-09-20.md).
 Extraer algo de ahí exige una auditoría que demuestre que sigue siendo
 necesario y compatible, según la regla dominante de arriba. Recuérdalo antes de
 «aprovechar» nada: integrar ramas históricas completas está prohibido.

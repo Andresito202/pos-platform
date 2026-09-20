@@ -45,6 +45,7 @@ nada, mira si ya existe:**
 | ¿Qué sigue y qué está bloqueado? | `docs/product/backlog.md` |
 | ¿Quién es dueño de este dato? | `docs/architecture/data-ownership.md` |
 | ¿Por qué se decidió así? | `docs/adr/` |
+| ¿Tienen trabajo que rescatar `selective-pr79` o `runtime-status-envelope`? | `docs/governance/branch-duplication-audit-2026-09-20.md` — **medido, no la repitas** |
 
 **`DONE` en el backlog significa «escrito», no «integrado».** Ese malentendido
 ya costó trabajo dos veces. Verifica contra el código, no contra el documento.
@@ -54,6 +55,15 @@ ya costó trabajo dos veces. Verifica contra el código, no contra el documento.
 Hay ramas históricas con cientos de commits. **Un número grande no es trabajo
 pendiente**: es linaje conservado (`DEC-018`). Integrarlas en bloque está
 prohibido. El inventario completo está en `CLAUDE.md`.
+
+Y `git cherry` marcando `+` **tampoco** significa que falte el trabajo: compara
+*patch-ids*, así que un cambio que la línea activa rehízo con otra
+implementación sale `+` aunque la capacidad esté completa y mejor. Medido el
+2026-09-20 sobre 25 commits: **24 salían `+` y sólo faltaba uno de verdad**.
+Para saber si falta algo se compara **capacidad** —¿existe el fichero?, ¿hay
+prueba del comportamiento?— no parches. La auditoría completa, con los tres
+ficheros realmente ausentes y la regresión que sí apareció, está en
+`docs/governance/branch-duplication-audit-2026-09-20.md`.
 
 ## 3. Antes de empezar, mira si hay alguien más
 

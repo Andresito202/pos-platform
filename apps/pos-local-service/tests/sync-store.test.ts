@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { SyncBatchRequest, SyncOperation } from "@pos-platform/contracts";
 import { DurableSyncStore, type SyncScope } from "../src/sync/durable-sync-store.js";
+import { canonicalJson } from "../src/channel/canonical-json.js";
 import { DurableSyncComponent } from "../src/sync/durable-sync-component.js";
 import { LocalDatabaseComponent } from "../src/local-database-component.js";
 
@@ -94,6 +95,40 @@ describe("DurableSyncStore", () => {
     };
     expect(() => store.enqueue(collision)).toThrow("idempotency conflict");
     expect(database.native.prepare("SELECT count(*) AS count FROM local_sync_outbox").get()).toEqual({ count: 1 });
+    database.close();
+  });
+
+  /**
+   * El checksum que llega **no es autoridad**.
+   *
+   * `central-sync-server.ts:92` recalcula `payloadChecksum(operation.payload)` y
+   * rechaza con `SYNC.PAYLOAD_CHECKSUM_MISMATCH` si no coincide. Los almacenes
+   * pasan `input.requestChecksum`, que digiere la petición —`idempotency_key`,
+   * `operator_user_id`— y no el payload, así que sin la recomputación de
+   * `enqueue` **toda** operación del outbox sería rechazada por el central.
+   *
+   * Esta prueba existía, se perdió en la unificación de ramas del 2026-09-20 y
+   * volvió el mismo día con el defecto medido. Ver
+   * `docs/governance/branch-duplication-audit-2026-09-20.md`.
+   */
+  it("persists payload_checksum from canonical payload bytes, ignoring a supplied wrong checksum", async () => {
+    const dir = await directory();
+    const database = LocalDatabase.open({ dataDirectory: dir });
+    const store = new DurableSyncStore(database);
+    const item = { ...operation(1, "03"), payload_checksum: "0".repeat(64) };
+    const expected = createHash("sha256").update(canonicalJson(item.payload)).digest("hex");
+
+    expect(item.payload_checksum).not.toBe(expected);
+    expect(store.enqueue(item)).toBe("ENQUEUED");
+
+    const persisted = database.native.prepare(
+      "SELECT payload_checksum, operation_json FROM local_sync_outbox WHERE operation_id=?",
+    ).get(item.operation_id) as { payload_checksum: string; operation_json: string };
+    const operationJson = JSON.parse(persisted.operation_json) as SyncOperation;
+
+    // Las dos copias: la columna que indexa y el JSON que viaja al central.
+    expect(persisted.payload_checksum).toBe(expected);
+    expect(operationJson.payload_checksum).toBe(expected);
     database.close();
   });
 
