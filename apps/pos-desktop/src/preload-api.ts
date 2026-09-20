@@ -22,6 +22,7 @@ export const RENDERER_API_METHODS = [
   "customer.register",
   "customer.get",
   "customer.find",
+  "fiscal.document.issue",
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",

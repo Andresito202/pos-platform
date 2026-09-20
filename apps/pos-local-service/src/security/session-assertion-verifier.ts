@@ -113,6 +113,16 @@ export class SessionAssertionVerifier {
       return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: at };
     }
 
+    // La ventana de vigencia de la clave operacional pertenece al material
+    // confiado, por lo que se comprueba en cada SSA y no solo durante bootstrap.
+    const time = evaluatedAt.getTime();
+    if (trustedKey.validFrom !== undefined && time < Date.parse(trustedKey.validFrom)) {
+      return { decision: "NOT_YET_VALID", claims: null, evaluatedAt: at };
+    }
+    if (trustedKey.validUntil !== undefined && trustedKey.validUntil !== null && time >= Date.parse(trustedKey.validUntil)) {
+      return { decision: "EXPIRED", claims: null, evaluatedAt: at };
+    }
+
     // `verify` puede lanzar ante material de clave inutilizable. Un fallo de
     // verificación es una firma no probada, no una excepción que deba propagarse
     // al llamador: fail-closed sin caída.
@@ -140,7 +150,6 @@ export class SessionAssertionVerifier {
       return { decision: "BINDING_MISMATCH", claims, evaluatedAt: at };
     }
 
-    const time = evaluatedAt.getTime();
     if (time < Date.parse(claims.issued_at)) {
       return { decision: "NOT_YET_VALID", claims, evaluatedAt: at };
     }

@@ -1624,6 +1624,150 @@ ALTER TABLE catalog_fiscal_attribute_rebuilt RENAME TO catalog_fiscal_attribute;
 `.trim();
 
 /**
+ * `MIGRATION_023` — Documento electrónico y rango de numeración (`DEC-021` F1).
+ *
+ * **Renumerada de `016` a `023` al unificar las ramas (2026-09-20).** Dos
+ * líneas de trabajo paralelas crearon un `MIGRATION_016` distinto cada una:
+ * ésta y la de `provider_transaction_id` (`D-2-bis`). El desempate lo dejó
+ * escrito la propia `016` superviviente: «`DEC-021` §F1 había anotado este
+ * número para el documento fiscal electrónico; esa reserva se resuelve al
+ * revés — el fiscal tomará el siguiente disponible cuando se materialice».
+ * Se renumera ésta porque arrastra una sola migración y la otra arrastra
+ * siete. Ninguna base desplegada existe todavía, así que renumerar es seguro
+ * hoy; en cuanto exista una, deja de serlo. `DEC-021` §F1 queda pendiente de
+ * actualizar este número.
+ *
+ * Existe por una razon concreta y no por simetria con el esquema central: **el
+ * desenlace incierto**. Si la peticion sale y la respuesta se pierde, el
+ * documento puede estar emitido en la DIAN; reintentar sin identidad persistida
+ * emite una segunda factura con otro consecutivo, y una factura duplicada ante
+ * la DIAN no se deshace. `DEC-021` §4 lo llama la unica pieza cuya ausencia
+ * produce dano irreversible, y por eso va antes que todo lo demas.
+ *
+ * Las invariantes que `outcome.ts` expresa como forma del tipo se repiten aqui
+ * como `CHECK`. No es redundancia: el tipo protege al programa, el `CHECK`
+ * protege al fichero. Un documento escrito por una version futura con un error
+ * de estado no puede quedar en disco afirmando un resultado fiscal que nadie
+ * evidencio.
+ *
+ * **Lo que esta migracion no hace:** no emite, no ensambla payload, no resuelve
+ * credencial y no asigna consecutivos. `NumberingRangePort` prohibe la
+ * asignacion local cuando la autoridad es del proveedor, de modo que
+ * `current_number` aqui es informativo y nunca fuente de un consecutivo.
+ */
+const MIGRATION_023 = `
+CREATE TABLE fiscal_numbering_range (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  provider TEXT NOT NULL CHECK(provider IN ('SIIGO','FACTUS','ALEGRA','THE_FACTORY_HKA','ODOO')),
+  environment TEXT NOT NULL CHECK(environment IN ('SANDBOX','PRODUCTION')),
+  range_id TEXT NOT NULL CHECK(length(range_id) BETWEEN 1 AND 128),
+  document_type TEXT NOT NULL CHECK(document_type IN (
+    'SALES_INVOICE','CREDIT_NOTE','DEBIT_NOTE','SUPPORT_DOCUMENT','SUPPORT_DOCUMENT_ADJUSTMENT_NOTE')),
+  prefix TEXT NOT NULL CHECK(length(prefix) BETWEEN 1 AND 20),
+  authority TEXT NOT NULL CHECK(authority IN ('PROVIDER','LOCAL','UNKNOWN')),
+  resolution_number TEXT CHECK(resolution_number IS NULL OR length(resolution_number) BETWEEN 1 AND 64),
+  range_from INTEGER NOT NULL CHECK(range_from > 0),
+  range_to INTEGER NOT NULL CHECK(range_to >= range_from),
+  current_number INTEGER CHECK(current_number IS NULL OR current_number >= 0),
+  valid_from TEXT CHECK(valid_from IS NULL OR length(valid_from) >= 10),
+  valid_until TEXT CHECK(valid_until IS NULL OR length(valid_until) >= 10),
+  provider_active INTEGER CHECK(provider_active IS NULL OR provider_active IN (0,1)),
+  provider_expired INTEGER CHECK(provider_expired IS NULL OR provider_expired IN (0,1)),
+  provider_document_code TEXT CHECK(provider_document_code IS NULL OR length(provider_document_code) BETWEEN 1 AND 64),
+  synchronized_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, provider, environment, range_id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX fiscal_numbering_range_document_type_idx
+  ON fiscal_numbering_range(tenant_id, provider, environment, document_type);
+
+CREATE TABLE fiscal_electronic_document (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  sale_id TEXT NOT NULL CHECK(length(sale_id) = 36),
+  provider TEXT NOT NULL CHECK(provider IN ('SIIGO','FACTUS','ALEGRA','THE_FACTORY_HKA','ODOO')),
+  environment TEXT NOT NULL CHECK(environment IN ('SANDBOX','PRODUCTION')),
+  document_type TEXT NOT NULL CHECK(document_type IN (
+    'SALES_INVOICE','CREDIT_NOTE','DEBIT_NOTE','SUPPORT_DOCUMENT','SUPPORT_DOCUMENT_ADJUSTMENT_NOTE')),
+  numbering_range_id TEXT NOT NULL CHECK(length(numbering_range_id) BETWEEN 1 AND 128),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 200),
+  payload_json TEXT NOT NULL CHECK(length(payload_json) > 0),
+  payload_checksum TEXT NOT NULL
+    CHECK(length(payload_checksum) = 64)
+    CHECK(payload_checksum NOT GLOB '*[^0-9a-f]*'),
+  transport_status TEXT NOT NULL CHECK(transport_status IN (
+    'CREATED','IN_PROGRESS','COMPLETED','FAILED','UNKNOWN_OUTCOME','CANCELLED')),
+  normalized_result TEXT CHECK(normalized_result IS NULL OR normalized_result IN ('ACCEPTED','REJECTED')),
+  attempt_count INTEGER NOT NULL CHECK(attempt_count >= 0),
+  provider_operation_id TEXT CHECK(provider_operation_id IS NULL OR length(provider_operation_id) BETWEEN 1 AND 200),
+  provider_document_id TEXT CHECK(provider_document_id IS NULL OR length(provider_document_id) BETWEEN 1 AND 200),
+  issued_prefix TEXT CHECK(issued_prefix IS NULL OR length(issued_prefix) BETWEEN 1 AND 20),
+  issued_number TEXT CHECK(issued_number IS NULL OR length(issued_number) BETWEEN 1 AND 40),
+  cufe TEXT CHECK(cufe IS NULL OR length(cufe) BETWEEN 1 AND 200),
+  provider_status_code TEXT CHECK(provider_status_code IS NULL OR length(provider_status_code) BETWEEN 1 AND 96),
+  provider_status TEXT CHECK(provider_status IS NULL OR length(provider_status) BETWEEN 1 AND 200),
+  provider_http_status INTEGER CHECK(provider_http_status IS NULL OR provider_http_status BETWEEN 100 AND 599),
+  last_diagnostic_code TEXT CHECK(last_diagnostic_code IS NULL OR length(last_diagnostic_code) BETWEEN 1 AND 96),
+  last_diagnostic_reference TEXT CHECK(last_diagnostic_reference IS NULL OR length(last_diagnostic_reference) BETWEEN 1 AND 200),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  first_submitted_at TEXT,
+  resolved_at TEXT,
+  CHECK ((normalized_result IS NOT NULL) = (transport_status = 'COMPLETED')),
+  CHECK ((attempt_count = 0) = (transport_status = 'CREATED')),
+  CHECK ((first_submitted_at IS NULL) = (attempt_count = 0)),
+  CHECK ((resolved_at IS NOT NULL) = (transport_status IN ('COMPLETED','CANCELLED'))),
+  CHECK (provider_operation_id IS NULL OR transport_status IS 'COMPLETED'),
+  -- \`IS\` y no \`=\`: \`normalized_result\` es anulable, y en logica de tres
+  -- valores \`NULL = 'ACCEPTED'\` es NULL, no falso. Un CHECK que evalua a NULL
+  -- **pasa**, de modo que con \`=\` estas tres reglas no impedirian nada: un
+  -- documento FAILED podria guardar un consecutivo emitido. \`IS\` compara sin
+  -- propagar NULL.
+  CHECK (cufe IS NULL OR normalized_result IS 'ACCEPTED'),
+  CHECK (issued_number IS NULL OR normalized_result IS 'ACCEPTED'),
+  CHECK (issued_prefix IS NULL OR normalized_result IS 'ACCEPTED'),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_id) REFERENCES sales_sales(tenant_id, id),
+  FOREIGN KEY (tenant_id, provider, environment, numbering_range_id)
+    REFERENCES fiscal_numbering_range(tenant_id, provider, environment, range_id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX fiscal_electronic_document_idempotency_idx
+  ON fiscal_electronic_document(tenant_id, provider, environment, idempotency_key);
+CREATE UNIQUE INDEX fiscal_electronic_document_open_per_sale_idx
+  ON fiscal_electronic_document(tenant_id, sale_id, document_type)
+  WHERE transport_status <> 'CANCELLED'
+    AND (normalized_result IS NULL OR normalized_result <> 'REJECTED');
+CREATE INDEX fiscal_electronic_document_unresolved_idx
+  ON fiscal_electronic_document(tenant_id, transport_status)
+  WHERE resolved_at IS NULL;
+
+CREATE TRIGGER fiscal_electronic_document_frozen_identity
+  BEFORE UPDATE ON fiscal_electronic_document
+  FOR EACH ROW WHEN
+    OLD.sale_id <> NEW.sale_id
+    OR OLD.document_type <> NEW.document_type
+    OR OLD.provider <> NEW.provider
+    OR OLD.environment <> NEW.environment
+    OR OLD.numbering_range_id <> NEW.numbering_range_id
+    OR OLD.idempotency_key <> NEW.idempotency_key
+    OR OLD.payload_json <> NEW.payload_json
+    OR OLD.payload_checksum <> NEW.payload_checksum
+    OR OLD.created_at <> NEW.created_at
+  BEGIN SELECT RAISE(ABORT, 'frozen electronic document identity is immutable'); END;
+CREATE TRIGGER fiscal_electronic_document_monotonic_attempts
+  BEFORE UPDATE ON fiscal_electronic_document
+  FOR EACH ROW WHEN NEW.attempt_count < OLD.attempt_count OR NEW.version <= OLD.version
+  BEGIN SELECT RAISE(ABORT, 'electronic document attempts and version only move forward'); END;
+CREATE TRIGGER fiscal_electronic_document_resolved_is_final
+  BEFORE UPDATE ON fiscal_electronic_document
+  FOR EACH ROW WHEN OLD.resolved_at IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, 'a resolved electronic document cannot change'); END;
+`.trim();
+
+/**
  * `MIGRATION_022` — el ancla de confianza tiene dónde vivir (`DEC-011`).
  *
  * `DEC-011` §«Modelo de confianza criptográfica» fija que el trust anchor son
@@ -1719,6 +1863,7 @@ const MIGRATIONS = [
   { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
   { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
   { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
+  { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
 ] as const;
 
 /**

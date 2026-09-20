@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SqliteCashShiftStore } from "./sqlite-cash-shift-store.js";
@@ -81,7 +82,7 @@ export class CloseCashShiftUseCase {
 
     // 4. Persistencia atómica delegada al store
     const result = this.cashShiftStore.close({
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       scope,
       sessionId,
       operatorUserId,

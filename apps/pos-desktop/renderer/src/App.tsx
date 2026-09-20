@@ -8,6 +8,7 @@ import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { CreditPanel } from "./components/CreditPanel.js";
+import { FiscalPanel } from "./components/FiscalPanel.js";
 
 /**
  * El orden sigue el de la jornada real, no el de la arquitectura: primero se
@@ -26,6 +27,9 @@ import { CreditPanel } from "./components/CreditPanel.js";
  * El fiado va **después** del adquiriente porque lo presupone: `DEC-002` §159
  * exige que la venta nombre un adquiriente para poder fiarla, así que sin
  * cliente registrado no hay cuenta de crédito que abrir.
+ *
+ * La emisión fiscal va la última de la jornada porque necesita las dos cosas
+ * que la preceden: la venta cobrada y el adquiriente (`DEC-021` F5).
  */
 export function App(): React.JSX.Element {
   return (
@@ -40,6 +44,7 @@ export function App(): React.JSX.Element {
       <ReceiptPanel />
       <CustomerPanel />
       <CreditPanel />
+      <FiscalPanel />
       <OperationPanel />
     </main>
   );

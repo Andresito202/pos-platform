@@ -9,6 +9,7 @@ import {
   PaymentRegisterCashRequestSchema,
   PaymentTransferConfirmRequestSchema,
   type AuthorizationSnapshotClaims,
+  uuidV7,
 } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
@@ -924,7 +925,7 @@ describe("incertidumbre del proveedor", () => {
       paymentId,
       reason,
       observedAt: NOW.toISOString(),
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       idempotencyKey: key,
       requestChecksum: "b".repeat(64),
       correlationId: randomUUID(),
@@ -1094,7 +1095,7 @@ describe("resolución de un intento UNKNOWN", () => {
     const recorded = env.paymentStore.recordProviderUncertainty({
       scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
       paymentId: registered.paymentId, reason, observedAt: NOW.toISOString(),
-      operationId: randomUUID(), idempotencyKey: "unknown:1",
+      operationId: uuidV7(), idempotencyKey: "unknown:1",
       requestChecksum: "b".repeat(64), correlationId: randomUUID(), causationId: null,
     });
     if (recorded.kind !== "RECORDED") throw new Error("expected RECORDED");
@@ -1375,7 +1376,7 @@ describe("consulta a Wompi para resolver un UNKNOWN", () => {
     env.paymentStore.recordProviderUncertainty({
       scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
       paymentId: registered.paymentId, reason: "TIMEOUT", observedAt: NOW.toISOString(),
-      operationId: randomUUID(), idempotencyKey: "unknown:1",
+      operationId: uuidV7(), idempotencyKey: "unknown:1",
       requestChecksum: "b".repeat(64), correlationId: randomUUID(), causationId: null,
     });
 
@@ -1768,7 +1769,7 @@ describe("seguridad", () => {
       protocol_version: "1.0.0", payload_schema_version: "1.0.0",
       message_type: "payment.register.cash",
       request_id: randomUUID(), correlation_id: randomUUID(),
-      operation_id: randomUUID(), idempotency_key: "k",
+      operation_id: uuidV7(), idempotency_key: "k",
       payload: { sale_id: randomUUID(), amount: "1000.000000", tendered_amount: null },
     };
 
@@ -2119,7 +2120,7 @@ describe("salida de existencia al completar la venta", () => {
       sessionId: SESSION,
       operatorUserId: USER,
       movementId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       presentationId,
       movementType: "OPENING_COUNT",
       quantity,
@@ -2328,7 +2329,7 @@ describe("barrido de intentos UNKNOWN", () => {
     env.paymentStore.recordProviderUncertainty({
       scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
       paymentId: registered.paymentId, reason: "TIMEOUT", observedAt: OBSERVED_AT,
-      operationId: randomUUID(), idempotencyKey: "unknown:1",
+      operationId: uuidV7(), idempotencyKey: "unknown:1",
       requestChecksum: "b".repeat(64), correlationId: randomUUID(), causationId: null,
     });
 

@@ -1,3 +1,5 @@
+import { createPublicKey } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
@@ -10,10 +12,19 @@ import { OperationConfirmationComponent } from "./operations/operation-confirmat
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { UncertainProviderSweepComponent } from "./payments/uncertain-provider-sweep-component.js";
 import { resolveWompiPaymentProvider } from "./payments/wompi/wompi-credential.js";
+import { CentralSyncComponent } from "./sync/central-sync-component.js";
+import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
+import { SyncDispatcher } from "./sync/sync-dispatcher.js";
+import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
+import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
+  EncryptedFileSecretStore,
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
   TRUST_ANCHOR_PURPOSES,
+  SessionTrustKeyResolver,
+  SessionTrustKeyStore,
+  SessionTrustKeyVerifier,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
@@ -32,6 +43,9 @@ const logger = new StructuredLogger({
   }),
 });
 
+/** Cadencia fija de despacho del outbox (`D-2`). */
+const CENTRAL_SYNC_INTERVAL_MS = 30_000;
+
 let lifecycle: ServiceLifecycle | undefined;
 let termination: Promise<void> | undefined;
 
@@ -49,7 +63,7 @@ function terminate(reason: string, exitCode: number, error?: unknown): Promise<v
       try {
         logger.log("error", "runtime.stop_failed", { reason, error: stopError });
       } catch {
-        // The logger can already be failed or saturated. Exit still proceeds fail-closed.
+        // Exit remains fail-closed if the logger is unavailable.
       }
       exitCode = 1;
     }
@@ -90,11 +104,6 @@ try {
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
-
-  // DEC-020. La rama es por plataforma y no consulta el entorno: en Windows no
-  // existe ruta alguna hacia el proveedor de pruebas. La produccion exige
-  // Windows —lo impone el guard de arriba— de modo que la segunda rama solo es
-  // alcanzable donde la produccion ya esta prohibida.
   const securityDirectory = join(config.data_directory, "security");
   const keyProvider: SecretStoreKeyProvider = process.platform === "win32"
     ? new WindowsDpapiKeyProvider(securityDirectory)
@@ -110,31 +119,68 @@ try {
   const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
   // El proveedor de pagos, si este equipo tiene una credencial aprovisionada.
   //
-  // Se resuelve aqui y no dentro de un componente porque `CommercialComponent`
-  // lo necesita ya construido, y el almacen cifrado no depende del ciclo de
-  // vida: `resolveWompiPaymentProvider` abre el suyo con su propio contexto,
-  // igual que el secreto del canal local. Comparte `keyProvider` sin compartir
-  // clave — el proveedor de clave raiz indexa por contexto.
-  //
-  // `undefined` es un estado legitimo y silencioso en el dominio: un equipo sin
-  // credencial no cobra por QR y el barrido de inciertos queda `disabled`. Una
-  // credencial presente pero rota, en cambio, detiene el arranque.
+  // `undefined` es un estado legitimo y silencioso: un equipo sin credencial no
+  // cobra por QR y el barrido de inciertos queda `disabled`. Una credencial
+  // presente pero rota, en cambio, detiene el arranque.
   const paymentProvider = resolveWompiPaymentProvider({
     securityDirectory,
     keyProvider,
     binding: { installationId: config.installation_id, deviceId: config.device_id },
   });
 
-  // Las claves de sesión salen del ancla de confianza del equipo, no de un
-  // mapa vacío incrustado aquí. Se pasa como función porque `security` todavía
-  // no ha arrancado en este punto —los componentes se construyen todos antes
-  // que arranque ninguno— y `commercial` la resuelve en su propio `start()`,
-  // que corre después.
+  mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
+  const fiscalSecretStore = new EncryptedFileSecretStore(
+    securityDirectory,
+    keyProvider,
+    fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
+  );
+
+  // ── Confianza de sesion: emision y custodia son cosas distintas ────────────
   //
-  // El ancla puede estar vacía, y en producción hoy lo está: `DEC-011` mantiene
-  // `BLOCKED` la emisión real y prohíbe autofirmados como sustituto. Un ancla
-  // vacía significa `session.activate` fallando cerrado, que es el
-  // comportamiento correcto mientras nadie haya provisto confianza.
+  // Dos ramas resolvieron esto por separado y la unificacion conserva **las
+  // dos**, cada una en su papel:
+  //
+  //   artefacto de instalador  →  SessionTrustKeyResolver  →  local_trust_anchor
+  //        (emision)                  (verificacion)            (custodia)
+  //
+  // El resolver verifica el artefacto publicado por la autoridad central contra
+  // la clave raiz de configuracion; lo que sale de ahi se **provisiona** en el
+  // ancla, y el ancla es la unica fuente que el runtime consulta. Asi la
+  // rotacion y la revocacion siguen viviendo donde tienen estado
+  // (`ACTIVE`/`VERIFY_ONLY`/`REVOKED`, por proposito) en vez de depender de que
+  // el fichero del instalador siga presente y legible en cada arranque.
+  //
+  // Sin configuracion de confianza el resolver devuelve `MISSING` y no se
+  // provisiona nada: el ancla queda como estuviera y `session.activate` falla
+  // cerrado, que es el comportamiento correcto mientras nadie haya provisto
+  // confianza.
+  const sessionTrust = (() => {
+    if (
+      config.session_trust_environment === undefined
+      || config.session_trust_root_public_key_pem === undefined
+    ) {
+      return { keys: new Map(), decision: "MISSING" as const };
+    }
+
+    const sessionTrustStore = new SessionTrustKeyStore(new EncryptedFileSecretStore(
+      securityDirectory,
+      keyProvider,
+      `session-trust:${config.installation_id}:${config.device_id}`,
+    ));
+    const sessionTrustVerifier = new SessionTrustKeyVerifier(
+      createPublicKey(config.session_trust_root_public_key_pem),
+      config.session_trust_environment,
+    );
+    return new SessionTrustKeyResolver(
+      sessionTrustStore,
+      sessionTrustVerifier,
+      config.session_trust_artifact_path,
+    ).resolve();
+  })();
+
+  // Las claves de sesion se leen del ancla, siempre, y de forma perezosa: los
+  // componentes se construyen todos antes de que arranque ninguno, y la
+  // provision de arriba ocurre despues de `security.start()`.
   const commercial = new CommercialComponent(
     config,
     localDatabase,
@@ -142,11 +188,11 @@ try {
     () => security.trustAnchors.keysFor("SESSION_ASSERTION"),
     () => new Date(),
     paymentProvider,
+    fiscalSecretStore,
   );
   // El barrido de intentos `UNKNOWN` (`D-5`/`D-6`). Resuelve su caso de uso al
   // arrancar —va detras de `commercial`, que es quien lo construye— y sin
-  // `PaymentProviderPort` inyectado no arma temporizador alguno: hoy ese es el
-  // caso, y el log lo dice en vez de callarlo.
+  // `PaymentProviderPort` inyectado no arma temporizador alguno.
   const uncertainProviderSweep = new UncertainProviderSweepComponent(
     () => commercial.sweepUncertainProviderPayments,
     {
@@ -159,9 +205,6 @@ try {
     logger,
   );
   let localChannel: LocalChannelComponent | undefined;
-  // `security` va inmediatamente despues de la base de datos y antes que todo
-  // lo demas: ninguna operacion comercial se sirve si el equipo no pudo
-  // materializar su identidad.
   const components: RuntimeComponent[] = [
     localDatabase,
     security,
@@ -170,6 +213,36 @@ try {
     commercial,
     uncertainProviderSweep,
   ];
+
+  if (config.central_base_url !== undefined) {
+    const centralBaseUrl = config.central_base_url;
+    components.push(new CentralSyncComponent(
+      () => new SyncDispatcher(
+        durableSync.store,
+        new FetchCentralTransport(),
+        new UnprovisionedDeviceCredentialProvider(),
+        centralBaseUrl,
+        config.protocol_max,
+      ),
+      {
+        tenantId: config.tenant_id,
+        companyId: config.company_id,
+        branchId: config.branch_id,
+        deviceId: config.device_id,
+        installationId: config.installation_id,
+      },
+      CENTRAL_SYNC_INTERVAL_MS,
+      {
+        onOutcome: (outcome) => {
+          if (outcome.kind === "IDLE") return;
+          logger.log(outcome.kind === "DELIVERED" ? "info" : "warn", "sync.dispatch", { ...outcome });
+        },
+        onLifecycle: (reason, detail) => {
+          logger.log(reason === "STARTED" ? "info" : "warn", "sync.dispatch.lifecycle", { reason, ...detail });
+        },
+      },
+    ));
+  }
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
@@ -183,8 +256,32 @@ try {
   }
 
   lifecycle = new ServiceLifecycle(components);
-
   await lifecycle.start();
+
+  // Provision de la confianza verificada en el ancla, una vez `security` esta
+  // arrancado y su almacen abierto.
+  //
+  // Sólo se provisiona lo que el verificador dio por `VALID`. Un artefacto
+  // ausente (`MISSING`) deja el ancla como estuviera —un equipo ya
+  // provisionado sigue funcionando aunque le retiren el fichero—, y uno
+  // `INVALID` **no borra nada y no provisiona nada**: se registra y se sigue
+  // fallando cerrado. Degradar el ancla existente por un artefacto corrupto
+  // convertiria un fichero manipulable en una forma de dejar el equipo sin
+  // confianza.
+  if (sessionTrust.decision === "VALID") {
+    for (const [keyId, trusted] of sessionTrust.keys) {
+      security.trustAnchors.provision({
+        purpose: "SESSION_ASSERTION",
+        keyId,
+        publicKeySpki: trusted.key.export({ type: "spki", format: "der" }).toString("base64url"),
+        status: trusted.status,
+      });
+    }
+  }
+  logger.log("info", "security.session_trust", {
+    decision: sessionTrust.decision,
+    provisioned: sessionTrust.decision === "VALID" ? sessionTrust.keys.size : 0,
+  });
   // Que hay proveedor, nunca cual es: ni la clave publica entra aqui. El
   // redactor del logger es una red, no una excusa para acercarle un secreto.
   logger.log("info", "payments.provider", paymentProvider === undefined
@@ -237,10 +334,10 @@ try {
     service_version: config.service_version,
     installation_id: config.installation_id,
     device_key_id: security.deviceKeyId,
-    // `key_protection`, no `secret_protection`: el redactor del logger
-    // convierte en `[REDACTED]` todo campo cuyo nombre contenga «secret».
-    // El nombre se adapta al redactor; el redactor no se toca.
     key_protection: security.protection,
+    central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
+    session_trust: sessionTrust.decision,
+    fiscal_issuance: config.fiscal_environment === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),
   });
   await logger.flush();

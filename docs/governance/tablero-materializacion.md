@@ -338,7 +338,7 @@ producto y hoy afirma `null` por honestidad.
 **B8 y B12 se mantienen en `DOCUMENTED`.** `sandbox_price_rule` es una tabla sin
 regla que la calcule; periféricos no tiene una sola línea.
 
-### Bloque C — Plano fiscal · 15 capacidades
+### Bloque C — Plano fiscal · 19 capacidades
 
 | # | Capacidad | Peldaño | Proveedor | Evidencia |
 |---|---|---|---|---|
@@ -357,20 +357,45 @@ regla que la calcule; periféricos no tiene una sola línea.
 | C13 | Adapter ALEGRA | `DOCUMENTED` | `NOT_EVALUATED` | — |
 | C14 | Esquema fiscal central (10 tablas `fiscal.*`) | `IMPLEMENTED` | — | sin prueba y sin consumidor |
 | C15 | Contingencia y reconciliación fiscal | `DOCUMENTED` | `NOT_EVALUATED` | — |
+| C16 | Documento electrónico local y rango persistido (`DEC-021` F1) | `TESTED` | — | `MIGRATION_016`; 21 pruebas que **ejecutan** cada invariante, incluidas las negativas |
+| C17 | Depósito y resolución de credencial fiscal (`DEC-021` F2) | `TESTED` | — | `FiscalCredentialStore` sobre `SEC-004` + `SecretStoreFactusCredentialResolver` + entrada de operador por `stdin`; 17 pruebas, una de ellas lee el fichero crudo y comprueba que **el valor no está en claro** |
+| C18 | Ensamblado del payload canónico FACTUS (`DEC-021` F3) | `TESTED` | — | `assembleFactusBill` contra `provider-payload-shapes.md` §FACTUS; 15 pruebas, la primera compara el cuerpo **campo a campo** contra un payload de referencia |
+| C19 | Caso de uso de emisión electrónica (`DEC-021` F4/F5) | `CALLER_REACHABLE` | `MOCK_TESTED` | `fiscal.document.issue` cruza el socket real hasta `CommercialRequestHandler` de producción y `IssueElectronicDocumentUseCase`, con el efecto verificado en `fiscal_electronic_document` (no sólo en la respuesta): 2 pruebas en `channel-commercial-vertical.test.ts`. La pantalla existe (`FiscalPanel`) y la invoca de verdad: E2E de Electron contra el servicio real. **No sube a `END_TO_END` y el motivo no es la pantalla: es `D-19`** — ningún producto puede recibir atributos fiscales, así que la cadena nunca llega a escribir el documento. 32 pruebas de unidad + 5 de renderer + 1 E2E |
 
-**C1..C8 bajan de 85 a `TESTED`, y la razón es una sola: FACTUS es una isla.**
-Verificado sobre `apps/pos-local-service/src`: **cero** llamadas a
-`DocumentIssuancePort`, a `issueDocument` y a `NumberingRangePort`. El único
-módulo del servicio que importa el paquete fiscal es `customers/`, y lo hace por
-el tipo `FiscalCustomer`.
+**C1..C8 siguen en `TESTED`, y la razón ya no es la misma.** Hasta ahora bajaban
+porque nada del servicio llamaba a `DocumentIssuancePort`. Con `C19` en
+`CALLER_REACHABLE` eso ya no es cierto: `fiscal.document.issue` atraviesa el
+canal, invoca el puerto de emisión y **se dispara desde una pantalla real** —con
+un `DocumentIssuancePort` falso, porque hablar con FACTUS de verdad es `F6`,
+exclusivo del equipo del propietario.
+
+**Lo que impide `END_TO_END` ya no es la pantalla: es `D-19`, y ahora está
+demostrado, no supuesto.** `catalog_fiscal_attribute` tiene **un lector en
+producción y cero escritores**: ninguna pantalla, ningún caso de uso y ninguna
+operación del canal puede darle a una presentación su `unit_measure_code`,
+`standard_code`, `tax_code` y `tax_rate`. Sin ellos ninguna línea se puede
+declarar ante la DIAN, de modo que **ningún producto dado de alta por el
+producto real se puede facturar hoy**. El E2E lo ejercita y lo afirma: la
+emisión se dispara desde la pantalla y bloquea con `LINE_FISCAL_ATTRIBUTE_MISSING`,
+tanto con adquiriente identificado como sin él. Sembrar ese atributo en el arnés
+habría puesto la prueba en verde afirmando una capacidad que el producto no
+tiene, que es exactamente el error que este tablero lleva corrigiendo desde que
+se retiró `CANONICALLY_APPLIED`.
 
 Un adapter con 170 pruebas verdes y sandbox real detrás sigue sin estar
-instanciado por ningún runtime. `SANDBOX_VERIFIED` acredita que **el proveedor
-respondió**; no acredita que el POS le hable.
+instanciado por ningún runtime **con credencial real**. `SANDBOX_VERIFIED`
+acredita que el proveedor respondió a la prueba de F6; no acredita que la
+pantalla del POS lo llame.
 
 **C9, C10 y C11 no están más abajo por falta de ganas.** Emitir exige `Customer`,
-tablas DIAN, `Catalog` y `Tax` (`D-9`). Las cuatro existen. **El bloqueo es
-nuestro, no de FACTUS**, y hoy es la ausencia de llamada.
+tablas DIAN, `Catalog` y `Tax` (`D-9`). Las cuatro existen. `C19` demuestra que el
+motor las junta, produce un payload transmisible, es alcanzable desde fuera del
+proceso y se dispara desde la pantalla. **El bloqueo restante es nuestro, no de
+FACTUS**, y hoy son dos piezas concretas y nombradas: `D-19` —nadie puede dar
+atributos fiscales a un producto— y `D-13` —el adquiriente genérico de la DIAN
+sin verificar—. Ninguna de las dos es trabajo de motor: la primera es una
+pantalla y un caso de uso que nadie ha escrito; la segunda, una fuente
+documental que nadie ha aportado.
 
 ### Bloque D — Plataforma central y transporte · 6 capacidades
 
@@ -379,15 +404,27 @@ nuestro, no de FACTUS**, y hoy es la ausencia de llamada.
 | D1 | PostgreSQL migrations 001 / 002 / 003 | `TESTED` | job de CI con PostgreSQL 16.14; `NOT_EVALUATED` en contenedor sin instancia |
 | D2 | Aplicación central que use el esquema | — | `packages/database-postgres` **no tiene `src`**: sólo `package.json` y `project.json` (`D-4`) |
 | D3 | API central | `DOCUMENTED` | — |
-| D4 | Transporte saliente local → central | `DOCUMENTED` | **cero cliente HTTP** en `src/sync/` |
-| D5 | Ingesta central y reconciliación | `DOCUMENTED` | — |
+| D4 | Transporte saliente local → central | `TESTED` | `SyncDispatcher` cierra `claimBatch → POST → recordResponse`; 14 pruebas en `sync-dispatcher.test.ts` y 4 en `central-sync-component.test.ts`. **No sube de `TESTED`**: el arranque de producción sólo lo instancia si existe `POS_CENTRAL_BASE_URL`, y no hay autoridad a la que apuntarlo (`D3` sigue `DOCUMENTED`) |
+| D5 | Ingesta central y reconciliación | `DOCUMENTED` | **bloqueada por el corte criptográfico**: `sync.sync_operations` fija `source_kind='CENTRAL_SERVICE'` y `device_id IS NULL`, y `first-target-migration-manifest.md:471` prohíbe «escribir `device_id` no nulo ni aceptar `LOCAL_DEVICE` antes de ese corte» (riesgo 7 de §18) |
 | D6 | Identidad y licencia central | `DOCUMENTED` | — |
 
-**D4 es la deuda `D-2` y sigue siendo la más cara del proyecto.** Verificado:
-`apps/pos-local-service/src/sync/` no contiene cliente HTTP alguno;
-`SnapshotProvider` es un puerto cuyo propio comentario dice que el transporte
-productivo no existe. A5 está instanciado y aun así **ningún dato sale del
-dispositivo**.
+**D4 deja de ser un hueco y pasa a ser una pieza sin contraparte.** El cliente
+existe, está probado y falla cerrado; lo que no existe es el servidor. La regla 1
+de esta escalera —«una capacidad probada que el runtime no instancia se queda en
+`TESTED`»— es exactamente el caso: `main.ts` sólo construye
+`CentralSyncComponent` cuando hay `POS_CENTRAL_BASE_URL`, y ninguna instalación
+real puede tenerlo mientras `D3` siga `DOCUMENTED`.
+
+**Ningún dato sale todavía del dispositivo**, y por dos motivos, no uno: no hay
+destino (`D3`) y no hay credencial de dispositivo (`DEC-008` sin materializar),
+de modo que el componente se niega a temporizar y lo registra una vez. El outbox
+acumula durablemente, que es lo que `DEC-007` pide de un equipo sin conexión.
+
+Lo que sí queda acreditado es la **simetría de contrato**: el doble de transporte
+de las pruebas valida cada petición con `createCentralDeviceHttpRequestSchema` y
+`validateCentralDevicePrincipal` —los mismos que usará la autoridad— de modo que
+una desviación del cliente se detecta en CI sin red. Se comprobó por mutación:
+añadir una sola cabecera fuera del contrato hace caer 8 de 14 pruebas.
 
 ### Bloque E — Entrega y operación · 9 capacidades
 
@@ -439,22 +476,22 @@ nada sobre ese job; dice que algo aguas arriba falló.
 |---|---|---|
 | `PRODUCTION` | **0** | — |
 | `END_TO_END` | **6** | B1 B2 B3 B4 B5 B13 |
-| `CALLER_REACHABLE` | **4** | A9 · B6 B7 B10 |
+| `CALLER_REACHABLE` | **5** | A9 · B6 B7 B10 · C19 |
 | `RUNTIME_VERIFIED` | **17** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B9 · E1 E2 E3 E4 E5 E7 |
-| `TESTED` | **15** | A3 A13 A14 · C1..C11 · D1 |
+| `TESTED` | **19** | A3 A13 A14 · C1..C11 C16 C17 C18 · D1 D4 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
-| `DOCUMENTED` | **12** | B8 B11 B12 · C12 C13 C15 · D3 D4 D5 D6 · E8 E9 |
+| `DOCUMENTED` | **11** | B8 B11 B12 · C12 C13 C15 · D3 D5 D6 · E8 E9 |
 | — (nada) | **1** | D2 |
-| **Total** | **57** | las 57 filas aparecen una sola vez; recuento verificado parseando el fichero |
+| **Total** | **61** | las 61 filas aparecen una sola vez; recuento verificado parseando el fichero |
 
 `D1` se cuenta en `TESTED` porque el job de CI las ejecuta contra PostgreSQL
 16.14. En un contenedor sin instancia es `NOT_EVALUATED`, y así se anota arriba.
 
-**Diez capacidades son alcanzables por un llamador externo, y seis de ellas lo
-son desde la pantalla.** Es el primer movimiento real del tablero hacia arriba
-desde que se retiró `CANONICALLY_APPLIED`, y llega por donde el tablero decía que
-llegaría: no apareció código nuevo de producción, apareció la prueba que enchufa
-las dos mitades que ya existían.
+**Once capacidades son alcanzables por un llamador externo, y seis de ellas lo
+son desde la pantalla.** Diez llegaron por donde el tablero decía que llegarían:
+no apareció código nuevo de producción, apareció la prueba que enchufa las dos
+mitades que ya existían. La undécima, `C19`, sí es código nuevo: `DEC-021` F5
+conecta por primera vez un caso de uso fiscal al canal comercial.
 
 **Lo que separa `CALLER_REACHABLE` de `END_TO_END` es hoy pantalla, no motor.**
 B6, B7 y B10 funcionan por el canal contra el handler real; lo que les falta es
@@ -556,6 +593,13 @@ recibo, y cliente HTTP hacia el backend central.
 | 2026-09-08 | 63 % | inventario · `MIGRATION_015` · descuento en la transacción que completa la venta · 1021 pruebas |
 | 2026-09-12 | **sin porcentaje** | **cambio de gobernanza**, medido contra `02b89bb`. Se retira `CANONICALLY_APPLIED` y se retira el global. Las 35 filas que lo declaraban se recalculan contra siete peldaños con evidencia separada; **ninguna alcanzaba `CALLER_REACHABLE`**. Se corrige la etiqueta de A1 (`001..011` → `001..015`) y el error aritmético del bloque B (decía 740 / 62 %; la suma real de sus propias filas era 810 / 68 %) |
 | 2026-09-13 | **sin porcentaje** | **merge de la PR #75** (`2aa8acc`, segundo padre `83542bc`). Primer movimiento al alza con evidencia desde el cambio de gobernanza: `CALLER_REACHABLE` **0 → 4** (A9, B6, B7, B10) y `END_TO_END` **0 → 3** (B1, B4, B5). Lo acredita `channel-commercial-vertical.test.ts` —socket real, handler de producción y SQLite— y, para las tres de `END_TO_END`, `real-channel.spec.ts`, que las invoca desde la pantalla de Electron. **Se anota que la previsión era 7 y 6: era incorrecta**, porque contaba filas cuyo alta de catálogo o de existencia sólo se ejecuta por `page.evaluate`, que no es superficie de producto. Se conserva el recuento medido, no el previsto |
+| 2026-09-15 | **sin porcentaje** | **`DEC-021` F5, mitad pantalla — C19 **no** sube, y el hallazgo es el resultado**. `FiscalPanel` y `useFiscalIssuance` existen, están montados en `App` y el E2E de Electron los conduce contra el servicio real: la emisión fiscal ya se dispara desde el producto, no sólo desde una prueba de canal. Y aun así `C19` se queda en `CALLER_REACHABLE`, porque **la cadena no llega a escribir el documento**. El motivo, ahora demostrado en vez de supuesto, es `D-19`: `catalog_fiscal_attribute` tiene **un lector en producción y cero escritores** —ninguna pantalla, ningún caso de uso, ninguna operación del canal puede dar a una presentación su `unit_measure_code`, `standard_code`, `tax_code` y `tax_rate`—, de modo que **ningún producto dado de alta por el producto real se puede facturar**. El E2E lo afirma con las dos formas de adquiriente: identificado y anónimo bloquean **igual**, con `LINE_FISCAL_ATTRIBUTE_MISSING`, lo que prueba además que `D-13` no es el único obstáculo. Sembrar el atributo en el arnés habría puesto la prueba en verde afirmando una capacidad inexistente: no se hizo, y esa decisión queda escrita en la propia prueba. Corregido de paso un defecto del arnés que el guardia de `InsecureDerivedKeyProvider` destapó: el proceso E2E no declaraba `NODE_ENV=test` y el almacén de secretos fiscal se negaba a construirse —el guardia hizo exactamente su trabajo—. 5 pruebas de renderer nuevas y 1 E2E; recuento **sin cambios** |
+| 2026-09-15 | **sin porcentaje** | **`DEC-021` F5, mitad canal — fila C19 sube a `CALLER_REACHABLE`**. `fiscal.document.issue` entra al contrato (`ipc-commercial.ts`), al `switch` de `CommercialRequestHandler` y a `CommercialComponent`, que ahora construye `IssueElectronicDocumentUseCase` con `FactusAdapter`+`FetchHttpTransport` reales cuando `POS_FISCAL_ENVIRONMENT` está configurado y hay credencial depositada (mismo patrón de `POS_CENTRAL_BASE_URL`/`D4`: ausente, la pieza no se construye y falla cerrado). El adquiriente viaja **por referencia** —`customer_id` de `customer.register`, o el motivo de ausencia— nunca por un segundo juego de campos en la petición. `IssueElectronicDocumentUseCase.execute` gana comprobación de permiso (`FISCAL_DOCUMENT_ISSUE`, `evaluatePermission`), el mismo patrón que ya usan `RegisterCustomerUseCase`/`GetPaymentUseCase` — hueco real frente al resto del canal, no cambio cosmético. Dos pruebas nuevas en `channel-commercial-vertical.test.ts` cruzan el socket real contra el `CommercialRequestHandler` de producción: adquiriente anónimo → `BLOCKED`/`GENERIC_ACQUIRER_NOT_VERIFIED` (D-13 confirmado en producción, no sólo en unitarias) y adquiriente identificado → `ISSUED`, con el `cufe` verificado **en `fiscal_electronic_document`**, no sólo en la respuesta — la propia regla de `CALLER_REACHABLE`. `END_TO_END` no se alcanza: **no existe pantalla** que invoque `fiscal.document.issue` — ni panel de Electron, ni hook, ni `real-channel.spec.ts` — y por eso C1..C11 tampoco suben todavía. Recuento: `CALLER_REACHABLE` **4 → 5**, `TESTED` **20 → 19**, total **61** (sin cambio: C19 se mueve, no se crea) |
+| 2026-09-14 | **sin porcentaje** | **`DEC-021` F4 materializado** — *cambio de estructura*: fila **C19**. `IssueElectronicDocumentUseCase` es el punto donde F1+F2+F3 empiezan a valer para algo: identidad antes de transmitir (F1), credencial resuelta (F2), payload ensamblado (F3), y ahora el intento real contra `DocumentIssuancePort`, regla por regla contra `docs/architecture/electronic-invoicing.md` §«Idempotencia y resultado incierto». La clave de idempotencia es `(venta, tipo documental)`, estable entre reintentos; un documento `COMPLETED` resuelve `ALREADY_ISSUED` sin volver a llamar al puerto; un desenlace `UNCERTAIN` se persiste como `UNKNOWN_OUTCOME` y el siguiente intento exige `REQUIRES_RECONCILIATION` — nunca reintenta solo; un `TECHNICAL_FAILURE` es retriable y el reintento **reusa el mismo payload congelado**, con el mismo checksum. **El adquiriente es un parámetro explícito de entrada, no una columna derivada por `JOIN`**: `sales_sales` no vincula cliente porque `CUST-001` sigue `PLANNED`, y no hace falta — `UC-EINV-001` Flujo B y la propia `DEC-021` F3 ya lo modelan así. Se añade `canonicalDocumentTypeCode` a `dian/codes.ts` (inversa de `fiscalDocumentTypeForCode`, misma tabla verificada, `null` para lo no verificado) y `mapPaymentMethodToDian`, que traduce `CASH`→`10` y `TRANSFER`→`42` y bloquea `CARD`/`QR`/`CUSTOMER_CREDIT` por no tener código DIAN verificado, en vez de inventarlo. 31 pruebas nuevas sobre la máquina de estados, la selección de rango, la fuente de venta fiscal, `SynchronizeNumberingRangesUseCase` y el caso de uso completo —camino feliz, idempotencia, desenlace incierto, fallo técnico retriable, los cuatro bloqueos (rango no sincronizado o no vigente, atributo fiscal ausente, adquiriente anónimo vía `GENERIC_ACQUIRER_NOT_VERIFIED`, método de pago sin código DIAN) y dos ventas sin colisión de identidad—, más 3 pruebas añadidas a `dian-codes.test.ts` para la función inversa. Peldaño `TESTED`, no más: **ningún handler del canal comercial invoca este caso de uso todavía** (F5 pendiente); ver la nota corregida bajo C1..C8. Recuento: `TESTED` **19 → 20**, total **60 → 61** |
+| 2026-09-14 | **sin porcentaje** | **`DEC-021` F3 materializado** — *cambio de estructura*: fila **C18**. El adapter trataba `document.payload` como opaco, de modo que **nadie definía la forma del cuerpo de emisión**; ahora la define `assembleFactusBill`, contra `provider-payload-shapes.md` §FACTUS (nivel `VERIFICADO_DOC`). Ningún campo inventado. El principio es bloquear y nunca rellenar, y **se devuelven todos los motivos a la vez**: el operador tiene una venta cobrada delante y descubrir los problemas de uno en uno es justo lo que no debe pasarle. Los dos bloqueos que este bloque **no puede levantar** quedan propagados con su nombre: `D-13`, el adquiriente genérico de la DIAN sin verificar —una venta de mostrador anónima, el caso mayoritario de un POS colombiano, **hoy no tiene salida fiscal**— y `D-14`, la precisión: una báscula produce `0,333333` kg y `toProviderDecimal` **nunca redondea**, porque redondear emitiría una factura que no coincide con lo cobrado. 15 pruebas; la primera compara el cuerpo campo a campo. Peldaño `TESTED`: ningún caso de uso lo invoca todavía (F4 pendiente). Recuento: `TESTED` **18 → 19**, total **59 → 60** |
+| 2026-09-14 | **sin porcentaje** | **`DEC-021` F2 materializado** — *cambio de estructura*: fila **C17**. `FiscalCredentialStore` custodia la credencial en el almacén de `SEC-004` con **contexto criptográfico propio**, de modo que un secreto de identidad de dispositivo no se puede descifrar como credencial fiscal aunque compartan directorio y clave maestra. El nombre del secreto deriva de `(proveedor, ambiente)`: no hace falta tabla ni índice, y los ambientes no se mezclan. Una rotación invalida la referencia anterior en lugar de servir la nueva en silencio. `SecretStoreFactusCredentialResolver` es el primer resolutor de producción —antes sólo existía el fake de las pruebas— y **no lee del entorno**: `FACTUS_SANDBOX_ENV` queda reservado a F6 en el equipo del propietario. El depósito es una entrada de operador **en la máquina, por `stdin`**, no una operación del canal: añadir una operación comercial que no pasara por `authenticate()` sería un agujero, y depositar la credencial fiscal de un comercio es más sensible que cobrar una venta. 16 pruebas; una lee el fichero crudo y comprueba que el valor no está en claro. Peldaño `TESTED`: el arranque de producción no instancia el resolutor todavía (F3..F5 pendientes). Recuento: `TESTED` **17 → 18**, total **58 → 59** |
+| 2026-09-14 | **sin porcentaje** | **`DEC-021` F1 materializado** — *cambio de estructura*: se añade la fila **C16**, documento electrónico local y rango persistido. `MIGRATION_016` crea `fiscal_numbering_range` y `fiscal_electronic_document`, con las invariantes de `outcome.ts` repetidas como `CHECK` y tres triggers (identidad congelada, intentos monótonos, resuelto es final). El índice parcial `fiscal_electronic_document_open_per_sale_idx` hace **estructuralmente imposible** abrir una segunda emisión para una venta cuyo desenlace no está resuelto: es la duplicación ante la DIAN que `DEC-021` §4 llama el único daño irreversible. 21 pruebas ejecutan cada invariante. Peldaño `TESTED`: la tabla existe y se prueba, pero **ningún caso de uso la escribe todavía** (F2..F5 pendientes). **Corrección en `D5`**: no es simplemente `DOCUMENTED`, está bloqueada por el corte criptográfico — el esquema central no admite operaciones de origen dispositivo. Recuento: `TESTED` **16 → 17**, total **57 → 58** |
+| 2026-09-14 | **sin porcentaje** | **`D-2` materializado** (`DEC-023`). `D4` sube `DOCUMENTED → TESTED`: `SyncDispatcher` cierra `claimBatch → POST → recordResponse`, con 14 pruebas propias y 4 de componente. **No sube más** por la regla 1: `main.ts` sólo instancia `CentralSyncComponent` si hay `POS_CENTRAL_BASE_URL`, y no hay autoridad a la que apuntarlo. Recuento: `TESTED` **15 → 16**, `DOCUMENTED` **12 → 11** |
 | 2026-09-13 | **sin porcentaje** | **barrido de afirmaciones**. E4 sube a `RUNTIME_VERIFIED`: el job «Main push governance» se ejecutó en el push de `da23b29` y pasó; la nota que lo daba por `NOT_EVALUATED` confundía «`skipped` en PR» con «nunca observado». Se corrige la evidencia de D2. Recuento: `RUNTIME_VERIFIED` **26**, `IMPLEMENTED` **2** |
 | 2026-09-12 | **sin porcentaje** | **segunda corrección de gobernanza**, sobre el árbol `da23b29`. `CALLER_REACHABLE` pasa de **7 a 0**: las siete filas se apoyaban en `channel-commercial-transport.test.ts`, cuyo servidor atiende con un cierre de la propia prueba. Verificado que **ningún** fichero de prueba de `main` que construya `LocalChannelServer` menciona `CommercialRequestHandler` ni `CommercialComponent`. Bajan a `RUNTIME_VERIFIED`, que con E7 suma **25 filas**. Se añade a la escalera y a la regla 5 el filo que faltaba: **un socket no es evidencia si detrás hay un doble** |
 | 2026-09-12 | **sin porcentaje** | **merge de la PR #73** (`2e74410`, segundo padre `b6f0036`). X-1 y X-2 dejan de estar vivos en `main`. Reevaluado contra el árbol nuevo, **siete filas alcanzan `CALLER_REACHABLE`** —A9, B1, B4, B5, B6, B7, B10—, A11 sube a `RUNTIME_VERIFIED` y E7 a `TESTED`. Tres más de las cuatro proyectadas: la proyección sólo miró las filas que X-2 rompía, y #73 además aportó la prueba que recorre la vertical por el socket |

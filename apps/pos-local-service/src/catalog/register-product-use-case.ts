@@ -5,6 +5,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -31,13 +32,6 @@ export type RegisterProductResult =
   | RegisterProductOutcome
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
 
-/**
- * El checksum resume la **identidad del producto y lo que se cobra**.
- *
- * Repetir el registro cambiando el nombre de la presentación no es una
- * operación distinta; cambiar la referencia, el código de barras, la unidad o
- * el precio **sí**, porque cambia qué se vende o cuánto cuesta.
- */
 function requestChecksum(request: RegisterProductRequest, operatorUserId: string): string {
   return createHash("sha256")
     .update(canonicalJson({
@@ -53,12 +47,6 @@ function requestChecksum(request: RegisterProductRequest, operatorUserId: string
     .digest("hex");
 }
 
-/**
- * Registrar un producto vendible.
- *
- * Producto, presentación y precio entran juntos porque una caja no puede vender
- * ninguno de los tres por separado. El almacén lo hace en una sola transacción.
- */
 export class RegisterProductUseCase {
   constructor(private readonly catalogStore: SqliteCatalogStore) {}
 
@@ -86,7 +74,7 @@ export class RegisterProductUseCase {
       productId: randomUUID(),
       presentationId: randomUUID(),
       priceId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       code: request.code,
       name: request.name,
       stockControlled: request.stockControlled,

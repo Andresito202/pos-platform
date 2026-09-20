@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { PaymentProviderEvidence } from "./payment-provider-port.js";
@@ -104,7 +105,7 @@ export class ResolveUncertainProviderPaymentUseCase {
         providerCode: evidence.providerCode,
         providerTransactionId: evidence.providerTransactionId,
         receivedAt: evidence.receivedAt,
-        operationId: randomUUID(),
+        operationId: uuidV7(),
         idempotencyKey: request.idempotencyKey,
         requestChecksum: requestChecksum(request),
         correlationId: request.correlationId,

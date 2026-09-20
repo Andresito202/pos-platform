@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { PaymentProviderPort } from "./payment-provider-port.js";
@@ -178,7 +179,7 @@ export class SweepUncertainProviderPaymentsUseCase {
         result,
         uncertaintyReason,
         nextAttemptAt,
-        operationId: randomUUID(),
+        operationId: uuidV7(),
         idempotencyKey: `payment-provider-query:${candidate.attemptId}:${attemptNumber}`,
         requestChecksum: queryChecksum(candidate, attemptNumber, result, uncertaintyReason),
         correlationId: request.correlationId,
@@ -236,7 +237,7 @@ export class SweepUncertainProviderPaymentsUseCase {
       paymentId: candidate.paymentId,
       attemptId: candidate.attemptId,
       reason,
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       idempotencyKey: `payment-provider-abandoned:${candidate.attemptId}`,
       requestChecksum: createHash("sha256")
         .update(canonicalJson({

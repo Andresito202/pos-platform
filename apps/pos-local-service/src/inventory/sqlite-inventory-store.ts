@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
@@ -380,7 +381,7 @@ export class SqliteInventoryStore {
       sessionId: input.sessionId,
       operatorUserId: input.operatorUserId,
       movementId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       presentationId: input.presentationId,
       movementType: "SALE",
       quantity: input.quantity,

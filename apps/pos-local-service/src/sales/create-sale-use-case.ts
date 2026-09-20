@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -305,7 +306,7 @@ export class CreateSaleUseCase {
 
     // 7. IDs de operación y sale
     const saleId = randomUUID();
-    const operationId = randomUUID();
+    const operationId = uuidV7();
     const reqChecksum = requestChecksum(request, operatorUserId);
 
     // 8. Caja y turno en los que nace la venta.
