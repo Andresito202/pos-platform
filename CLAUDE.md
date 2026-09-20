@@ -257,10 +257,41 @@ regla vive en cuatro capas, de la más débil a la más fuerte:
 | `check-active-line.sh` | **falla** si no estás en la línea | quien lo ejecute |
 | `.claude/hooks/session-start.sh` | lo ejecuta **al arrancar la sesión** | toda sesión de Claude Code |
 | `pnpm ci:governance` | **falla** si los cuatro discrepan | CI y quien lo ejecute |
+| `tools/ci/document-claims.test.mjs` | **falla** si un documento cuenta mal el árbol | CI y quien lo ejecute |
 
 Las tres primeras son documentales y ya fallaron una vez: el 2026-09-20 las tres
 nombraban una rama absorbida, porque llegaron con una fusión y nadie las
 reconcilió. Las cuatro últimas existen precisamente por eso.
+
+### La otra deriva: la evidencia escrita que envejece en silencio
+
+Un documento no sólo se queda atrás en el nombre de una rama. Se queda atrás en
+lo que **afirma sobre el código**, y eso no lo nota nadie porque no falla nada.
+Tres casos en dos días, todos iguales:
+
+- `business-readiness.md` afirmó **doce días** que «el renderer expone tres
+  llamadas técnicas y ninguna comercial» mientras once paneles invocaban
+  veintiocho operaciones. Es el documento que responde «¿ya le sirve esto a un
+  comerciante real?»: estuvo doce días respondiendo mal.
+- La fila `A9` del tablero decía «23 tipos» con 31 en el contrato.
+- `B6`, `B7` y `B10` se quedaron un bloque por debajo de su peldaño real porque
+  su evidencia decía «no tiene pantalla» y las tres la tenían.
+
+`document-claims.test.mjs` recalcula esas cifras desde el árbol y falla cuando
+el documento se desvía. Fija cuatro cosas: que el tablero cuente bien sus
+propias filas —afirma «recuento verificado parseando el fichero» y hasta ahora
+nadie lo parseaba—, que el número de tipos del contrato que cita `A9` sea el
+real, y que las operaciones con pantalla y las que no la tienen sean
+exactamente las que dice `business-readiness.md`.
+
+**Si reescribes una de esas frases, la puerta falla en vez de dejar de mirar.**
+Es deliberado: una puerta que deja de mirar y sigue en verde es peor que no
+tenerla —es lo que hacía `architecture:check` cuando Nx le servía caché—.
+
+**Sólo se fijan cifras calculables desde el árbol.** El «26 de 31 los sirve el
+handler de producción» de `A9` se midió instrumentando el runtime y no se puede
+recalcular leyendo ficheros: fijarlo ahí sería inventar una puerta que no mide
+lo que dice medir.
 
 **Si cambias la línea activa**, cambia `active-line.txt` **y** los tres
 documentos en el mismo commit. `pnpm ci:governance` no te deja hacer una cosa

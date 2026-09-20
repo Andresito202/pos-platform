@@ -208,6 +208,12 @@ jobs:
       - name: Validate executable architecture boundaries
         run: pnpm architecture:check
 
+      # Gobernanza de linea activa + afirmaciones contables de los documentos.
+      # No estaba en ningun workflow: la puerta que existe porque tres
+      # documentos derivaron solo corria si alguien la tecleaba.
+      - name: Validate governance and document claims
+        run: pnpm ci:governance
+
       - name: Validate executable contracts
         run: pnpm test:contracts
 

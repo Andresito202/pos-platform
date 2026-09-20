@@ -5,7 +5,7 @@
   "scripts": {
     "architecture:check": "nx run pos-platform-target:architecture-check",
     "ci:dependency-inventory": "node tools/ci/generate-dependency-inventory.mjs",
-    "ci:governance": "node --test tools/ci/active-line-consistency.test.mjs",
+    "ci:governance": "node --test tools/ci/active-line-consistency.test.mjs tools/ci/document-claims.test.mjs",
     "ci:license-gate": "node tools/ci/run-license-compatibility-gate.mjs",
     "ci:license-tests": "node --test tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs",
     "ci:provenance-tests": "node --test tools/ci/provenance-manifest.test.mjs",
