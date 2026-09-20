@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   createActor,
   createOperationScope,
@@ -71,9 +71,9 @@ export class RegisterProductUseCase {
       scope,
       sessionId,
       operatorUserId,
-      productId: randomUUID(),
-      presentationId: randomUUID(),
-      priceId: randomUUID(),
+      productId: uuidV7(),
+      presentationId: uuidV7(),
+      priceId: uuidV7(),
       operationId: uuidV7(),
       code: request.code,
       name: request.name,

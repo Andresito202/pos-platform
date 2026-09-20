@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
@@ -107,11 +107,11 @@ export class RegisterCashPaymentUseCase {
       changeAmount,
       providerCode: null,
       providerReference: null,
-      groupId: randomUUID(),
-      paymentId: randomUUID(),
-      attemptId: randomUUID(),
-      allocationId: randomUUID(),
-      movementId: randomUUID(),
+      groupId: uuidV7(),
+      paymentId: uuidV7(),
+      attemptId: uuidV7(),
+      allocationId: uuidV7(),
+      movementId: uuidV7(),
       operationId: uuidV7(),
       saleCompletionOperationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,

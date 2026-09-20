@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -92,7 +92,7 @@ export class RegisterQrPaymentUseCase {
 
     if (context.currencyCode !== "COP") return { kind: "CURRENCY_MISMATCH" };
 
-    const paymentId = randomUUID();
+    const paymentId = uuidV7();
     const providerIntent = await this.provider.createPaymentIntent({
       paymentId,
       saleId: request.saleId,
@@ -124,11 +124,11 @@ export class RegisterQrPaymentUseCase {
       changeAmount: null,
       providerCode: providerIntent.providerCode,
       providerReference: providerIntent.merchantReference,
-      groupId: randomUUID(),
+      groupId: uuidV7(),
       paymentId,
-      attemptId: randomUUID(),
-      allocationId: randomUUID(),
-      movementId: randomUUID(),
+      attemptId: uuidV7(),
+      allocationId: uuidV7(),
+      movementId: uuidV7(),
       operationId: uuidV7(),
       saleCompletionOperationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,

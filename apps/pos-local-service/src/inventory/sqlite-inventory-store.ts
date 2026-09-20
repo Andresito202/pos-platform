@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
@@ -380,7 +380,7 @@ export class SqliteInventoryStore {
       scope: input.scope,
       sessionId: input.sessionId,
       operatorUserId: input.operatorUserId,
-      movementId: randomUUID(),
+      movementId: uuidV7(),
       operationId: uuidV7(),
       presentationId: input.presentationId,
       movementType: "SALE",

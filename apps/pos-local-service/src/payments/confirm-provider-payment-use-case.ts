@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -58,7 +58,7 @@ export class ConfirmProviderPaymentUseCase {
       scope,
       // Provider callbacks have no interactive user session. Use a UUID for this
       // trusted callback execution so the durable-sync contract remains valid.
-      sessionId: randomUUID(),
+      sessionId: uuidV7(),
       operatorUserId: scope.deviceId,
       auditActorType: "SYSTEM",
       auditActorId: null,
@@ -71,7 +71,7 @@ export class ConfirmProviderPaymentUseCase {
       currencyCode: request.evidence.currencyCode,
       receivedAt: request.evidence.receivedAt,
       payerReference: request.evidence.payerReference ?? null,
-      allocationId: randomUUID(),
+      allocationId: uuidV7(),
       saleCompletionOperationId: uuidV7(),
       operationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,

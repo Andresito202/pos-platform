@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -169,7 +169,7 @@ export class SweepUncertainProviderPaymentsUseCase {
 
       this.paymentStore.recordUncertainProviderQuery({
         scope,
-        sessionId: randomUUID(),
+        sessionId: uuidV7(),
         operatorUserId: scope.deviceId,
         auditActorType: "SYSTEM",
         auditActorId: null,
@@ -230,7 +230,7 @@ export class SweepUncertainProviderPaymentsUseCase {
   ): void {
     this.paymentStore.abandonUncertainProviderResolution({
       scope,
-      sessionId: randomUUID(),
+      sessionId: uuidV7(),
       operatorUserId: scope.deviceId,
       auditActorType: "SYSTEM",
       auditActorId: null,

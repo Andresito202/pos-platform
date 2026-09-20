@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
@@ -305,7 +305,7 @@ export class CreateSaleUseCase {
     };
 
     // 7. IDs de operación y sale
-    const saleId = randomUUID();
+    const saleId = uuidV7();
     const operationId = uuidV7();
     const reqChecksum = requestChecksum(request, operatorUserId);
 
@@ -364,7 +364,7 @@ export class CreateSaleUseCase {
       // la escritura.
       customerId: request.customerId ?? null,
       lines: resolvedLines.map((resolved, index) => ({
-        itemId: randomUUID(),
+        itemId: uuidV7(),
         productId: resolved.productId,
         presentationId: resolved.presentationId,
         productName: resolved.productName,

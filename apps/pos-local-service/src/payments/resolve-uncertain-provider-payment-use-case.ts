@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
@@ -97,7 +96,7 @@ export class ResolveUncertainProviderPaymentUseCase {
         scope,
         // Igual que la confirmación: una resolución no tiene sesión
         // interactiva, y el contrato de sync exige un identificador válido.
-        sessionId: randomUUID(),
+        sessionId: uuidV7(),
         operatorUserId: scope.deviceId,
         auditActorType: "SYSTEM",
         auditActorId: null,

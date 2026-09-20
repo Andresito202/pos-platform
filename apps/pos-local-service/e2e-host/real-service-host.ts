@@ -286,6 +286,9 @@ async function main(): Promise<void> {
     { store: new DurableSyncStore(database) } as never,
     keys,
     () => NOW,
+    // `paymentProvider` ocupa la posicion 6 en la firma unificada: este arnes
+    // no ejercita cobro por proveedor.
+    undefined,
     fiscalSecretStore,
     new FakeIssuancePort(),
   );

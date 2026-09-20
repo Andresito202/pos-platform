@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   createActor,
   createOperationScope,
@@ -72,7 +72,7 @@ export class RegisterCustomerUseCase {
       scope,
       sessionId,
       operatorUserId,
-      customerId: randomUUID(),
+      customerId: uuidV7(),
       operationId: uuidV7(),
       customer: request.customer,
       idempotencyKey: request.idempotencyKey,

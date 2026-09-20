@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { canonicalJson } from "../channel/canonical-json.js";
@@ -78,14 +78,14 @@ export class RegisterCreditPaymentUseCase {
       changeAmount: null,
       providerCode: null,
       providerReference: null,
-      groupId: randomUUID(),
-      paymentId: randomUUID(),
-      attemptId: randomUUID(),
-      allocationId: randomUUID(),
-      creditTransactionId: randomUUID(),
+      groupId: uuidV7(),
+      paymentId: uuidV7(),
+      attemptId: uuidV7(),
+      allocationId: uuidV7(),
+      creditTransactionId: uuidV7(),
       // El crédito no asienta en caja, pero `register` exige la identidad del
       // movimiento por contrato: se genera y no se usa.
-      movementId: randomUUID(),
+      movementId: uuidV7(),
       operationId: uuidV7(),
       saleCompletionOperationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,
