@@ -34,6 +34,8 @@ export const IPC_ALLOWED_CHANNELS = [
   // Emisión fiscal — `DEC-021` F5.
   "pos:fiscal.document.issue",
   "pos:catalog.product.register",
+  // D-19 — escritura de atributos fiscales de la presentación.
+  "pos:catalog.fiscal.attribute.set",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   // Inventario — `MIGRATION_015`.

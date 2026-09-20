@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
 
 /**
@@ -8,6 +8,13 @@ import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
  * Muestra el `presentation_id` resultante porque es lo que la entrada de
  * existencia necesita a continuación. Esconderlo obligaría a buscarlo en la base
  * de datos, que es justo lo que una pantalla existe para evitar.
+ *
+ * El segundo bloque declara los **códigos fiscales** de esa presentación
+ * (`D-19`). Sin ellos el producto se vende pero no se factura: la emisión se
+ * detiene en `LINE_FISCAL_ATTRIBUTE_MISSING` con el cliente delante. Se
+ * prerrellena con la presentación recién dada de alta porque es la secuencia
+ * real —alta y códigos son el mismo momento de trabajo—, y sigue siendo
+ * editable para poder **corregir** una presentación anterior.
  */
 export function CatalogPanel(): React.JSX.Element {
   const catalog = useCatalogAdmin();
@@ -20,6 +27,28 @@ export function CatalogPanel(): React.JSX.Element {
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("COP");
   const [stockControlled, setStockControlled] = useState(true);
+  const [presentationId, setPresentationId] = useState("");
+  const [codeReference, setCodeReference] = useState("");
+  const [unitMeasureCode, setUnitMeasureCode] = useState("94");
+  const [standardCode, setStandardCode] = useState("999");
+  const [taxCode, setTaxCode] = useState("01");
+  const [taxRate, setTaxRate] = useState("19");
+
+  // Prerrellenar copiando al estado, no calculando el valor mostrado: si el
+  // campo fuese un valor derivado, borrarlo volvería a mostrar la presentación
+  // recién dada de alta y el operador no podría escribir otra.
+  const registeredPresentation = catalog.product?.presentationId ?? null;
+  useEffect(() => {
+    if (registeredPresentation !== null) setPresentationId(registeredPresentation);
+  }, [registeredPresentation]);
+
+  const targetPresentation = presentationId.trim();
+  const fiscalIncomplete = targetPresentation === ""
+    || codeReference.trim() === ""
+    || unitMeasureCode.trim() === ""
+    || standardCode.trim() === ""
+    || taxCode.trim() === ""
+    || taxRate.trim() === "";
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -129,6 +158,83 @@ export function CatalogPanel(): React.JSX.Element {
       {catalog.product === null && catalog.outcome !== null && (
         <div data-testid="product-rejected">{catalog.outcome}</div>
       )}
+      <h3>Códigos fiscales de la presentación</h3>
+
+      <input
+        data-testid="fiscal-presentation-id-input"
+        value={targetPresentation}
+        onChange={(e) => { setPresentationId(e.target.value); }}
+        placeholder="Presentación"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-code-reference-input"
+        value={codeReference}
+        onChange={(e) => { setCodeReference(e.target.value); }}
+        placeholder="Referencia del artículo"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-unit-measure-code-input"
+        value={unitMeasureCode}
+        onChange={(e) => { setUnitMeasureCode(e.target.value); }}
+        placeholder="Unidad de medida DIAN"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-standard-code-input"
+        value={standardCode}
+        onChange={(e) => { setStandardCode(e.target.value); }}
+        placeholder="Estándar de producto DIAN"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-tax-code-input"
+        value={taxCode}
+        onChange={(e) => { setTaxCode(e.target.value); }}
+        placeholder="Impuesto DIAN"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-tax-rate-input"
+        value={taxRate}
+        onChange={(e) => { setTaxRate(e.target.value); }}
+        placeholder="Tasa (%)"
+        disabled={catalog.busy}
+      />
+
+      <button
+        data-testid="set-fiscal-attribute-button"
+        onClick={() => {
+          void catalog.setFiscalAttribute({
+            presentationId: targetPresentation,
+            codeReference: codeReference.trim(),
+            unitMeasureCode: unitMeasureCode.trim(),
+            standardCode: standardCode.trim(),
+            taxCode: taxCode.trim(),
+            taxRate,
+          });
+        }}
+        disabled={catalog.busy || fiscalIncomplete}
+      >
+        Declarar códigos fiscales
+      </button>
+
+      {catalog.fiscalOutcome !== null && (
+        <div data-testid="fiscal-attribute-outcome">{catalog.fiscalOutcome}</div>
+      )}
+      {/* Los hallazgos dicen cuál de los cuatro códigos corregir. Resumirlos a
+          «no verificados» dejaría al operador probando uno por uno. */}
+      {catalog.fiscalFindings.length > 0 && (
+        <ul data-testid="fiscal-attribute-findings">
+          {catalog.fiscalFindings.map((finding) => (
+            <li key={finding.path} data-testid={`fiscal-finding-${finding.path}`}>
+              {finding.path}: {finding.code}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}
     </section>
   );

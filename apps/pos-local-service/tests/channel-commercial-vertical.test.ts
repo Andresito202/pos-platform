@@ -476,15 +476,29 @@ function seedFiscalRange(database: LocalDatabase): void {
   );
 }
 
-/** El atributo fiscal de la presentación: sin él, la línea bloquea (`LINE_FISCAL_ATTRIBUTE_MISSING`). */
-function seedFiscalAttribute(database: LocalDatabase, presentationId: string): void {
-  const at = NOW.toISOString();
-  database.native.prepare(`
-    INSERT INTO catalog_fiscal_attribute(
-      tenant_id, presentation_id, code_reference, unit_measure_code, standard_code,
-      tax_code, tax_rate, status, created_at, updated_at
-    ) VALUES (?,?,?,'94','999','01','19.000000','ACTIVE',?,?)`,
-  ).run(TENANT, presentationId, `REF-${presentationId.slice(0, 8)}`, at, at);
+/**
+ * Declara el atributo fiscal **por el canal real**, con la operación de D-19.
+ *
+ * Antes esto era un `INSERT` directo desde la prueba, y esa siembra era
+ * exactamente el problema: la tabla no tenía escritor, así que la prueba
+ * fabricaba a mano una fila que en producción no podía existir. Ninguna venta
+ * real llegaba a `ISSUED` por ese camino. Ahora la escribe quien la escribirá
+ * en caja.
+ */
+async function declareFiscalAttribute(
+  send: (request: unknown) => Promise<ChannelResponse>,
+  presentationId: string,
+  idempotencyKey: string,
+): Promise<ChannelResponse> {
+  return send(mutating("catalog.fiscal.attribute.set", {
+    presentation_id: presentationId,
+    code_reference: `REF-${presentationId.slice(0, 8)}`,
+    unit_measure_code: "94",
+    standard_code: "999",
+    tax_code: "01",
+    tax_rate: "19.000000",
+    status: "ACTIVE",
+  }, idempotencyKey));
 }
 
 describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)", () => {
@@ -511,7 +525,8 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
         barcode: "7700000000001", price_amount: "10000.000000", currency_code: "COP",
       }, "fiscalv:catalog:1"));
       const presentationId = product.result["presentation_id"] as string;
-      seedFiscalAttribute(database, presentationId);
+      const attribute = await declareFiscalAttribute(send, presentationId, "fiscalv:attr:1");
+      expect(attribute.result["outcome"]).toBe("SET");
       seedFiscalRange(database);
       const found = await send(reading("catalog.item.find", { barcode: "7700000000001" }));
 
@@ -581,7 +596,8 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
         barcode: "7700000000002", price_amount: "10000.000000", currency_code: "COP",
       }, "fiscalv2:catalog:1"));
       const presentationId = product.result["presentation_id"] as string;
-      seedFiscalAttribute(database, presentationId);
+      const attribute = await declareFiscalAttribute(send, presentationId, "fiscalv2:attr:1");
+      expect(attribute.result["outcome"]).toBe("SET");
       seedFiscalRange(database);
       const found = await send(reading("catalog.item.find", { barcode: "7700000000002" }));
 
@@ -1512,6 +1528,246 @@ describe("payment.register.qr — transporte real", () => {
         "SELECT COUNT(*) AS count FROM payments_payments",
       ).get() as { count: number };
       expect(count.count).toBe(0);
+    });
+  }, 30_000);
+});
+
+/**
+ * D-19 — `catalog.fiscal.attribute.set` por el canal real hasta SQLite.
+ *
+ * La tabla `catalog_fiscal_attribute` tenía dos lectores y **ningún escritor**.
+ * Lo que sigue comprueba las dos mitades de la operación que lo cierra: que
+ * escribe de verdad, y que **rechaza antes de escribir** los códigos que tienen
+ * forma de código DIAN pero no pertenecen a las tablas verificadas —el caso que
+ * la base de datos, que sólo comprueba forma con `GLOB`, deja pasar.
+ */
+describe("catalog.fiscal.attribute.set — el escritor que faltaba (D-19)", () => {
+  it("escribe el atributo y lo deja legible en SQLite, con auditoría y outbox", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19a");
+
+      const response = await declareFiscalAttribute(send, presentationId, "d19a:attr");
+      expect(response.status).toBe("SUCCEEDED");
+      expect(response.result["outcome"]).toBe("SET");
+      expect(response.result["presentation_id"]).toBe(presentationId);
+      expect(response.result["findings"]).toEqual([]);
+
+      const row = database.native.prepare(
+        `SELECT code_reference, unit_measure_code, standard_code, tax_code, tax_rate, status
+         FROM catalog_fiscal_attribute WHERE tenant_id=? AND presentation_id=?`,
+      ).get(TENANT, presentationId);
+      expect(row).toEqual({
+        code_reference: `REF-${presentationId.slice(0, 8)}`,
+        unit_measure_code: "94",
+        standard_code: "999",
+        tax_code: "01",
+        tax_rate: "19.000000",
+        status: "ACTIVE",
+      });
+
+      // Escribir el catálogo es un hecho auditable y sincronizable: si no
+      // dejara rastro, el central nunca sabría que esta presentación ya se
+      // puede facturar.
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM local_operation_audit WHERE action_code=? AND resource_id=?",
+        "CATALOG_FISCAL_ATTRIBUTE_SET", presentationId,
+      )).toBe(1);
+      const queued = database.native.prepare(
+        "SELECT operation_json FROM local_sync_outbox WHERE operation_type=? AND idempotency_key=?",
+      ).all("CATALOG_FISCAL_ATTRIBUTE_SET", "d19a:attr") as { operation_json: string }[];
+      expect(queued).toHaveLength(1);
+      expect((JSON.parse(queued[0]!.operation_json) as { aggregate_id: string }).aggregate_id)
+        .toBe(presentationId);
+    });
+  }, 30_000);
+
+  it("repetir la misma petición es IDEMPOTENT y no duplica el rastro", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19b");
+
+      expect((await declareFiscalAttribute(send, presentationId, "d19b:attr")).result["outcome"]).toBe("SET");
+      const repeat = await declareFiscalAttribute(send, presentationId, "d19b:attr");
+      expect(repeat.status).toBe("SUCCEEDED");
+      expect(repeat.result["outcome"]).toBe("IDEMPOTENT");
+      expect(repeat.result["presentation_id"]).toBe(presentationId);
+
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM local_sync_outbox WHERE operation_type=? AND idempotency_key=?",
+        "CATALOG_FISCAL_ATTRIBUTE_SET", "d19b:attr",
+      )).toBe(1);
+    });
+  }, 30_000);
+
+  it("la misma clave con otro contenido es IDEMPOTENCY_CONFLICT y no pisa lo escrito", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19c");
+      await declareFiscalAttribute(send, presentationId, "d19c:attr");
+
+      const conflicting = await send(mutating("catalog.fiscal.attribute.set", {
+        presentation_id: presentationId,
+        code_reference: `REF-${presentationId.slice(0, 8)}`,
+        unit_measure_code: "94",
+        standard_code: "999",
+        tax_code: "04",
+        tax_rate: "8.000000",
+        status: "ACTIVE",
+      }, "d19c:attr"));
+
+      expect(conflicting.status).toBe("REJECTED");
+      expect(conflicting.result["outcome"]).toBe("IDEMPOTENCY_CONFLICT");
+
+      const row = database.native.prepare(
+        "SELECT tax_code, tax_rate FROM catalog_fiscal_attribute WHERE tenant_id=? AND presentation_id=?",
+      ).get(TENANT, presentationId);
+      expect(row).toEqual({ tax_code: "01", tax_rate: "19.000000" });
+    });
+  }, 30_000);
+
+  it("corrige un código equivocado: la segunda declaración sustituye a la primera", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19d");
+      await declareFiscalAttribute(send, presentationId, "d19d:attr");
+
+      // La razón de que esto sea una operación propia y no un campo del alta:
+      // un código fiscal equivocado se corrige; el alta ocurre una sola vez.
+      const corrected = await send(mutating("catalog.fiscal.attribute.set", {
+        presentation_id: presentationId,
+        code_reference: `REF-${presentationId.slice(0, 8)}`,
+        unit_measure_code: "94",
+        standard_code: "999",
+        tax_code: "04",
+        tax_rate: "8.000000",
+        status: "ACTIVE",
+      }, "d19d:attr:2"));
+
+      expect(corrected.result["outcome"]).toBe("SET");
+      const row = database.native.prepare(
+        "SELECT tax_code, tax_rate FROM catalog_fiscal_attribute WHERE tenant_id=? AND presentation_id=?",
+      ).get(TENANT, presentationId);
+      expect(row).toEqual({ tax_code: "04", tax_rate: "8.000000" });
+    });
+  }, 30_000);
+
+  /**
+   * El hallazgo que justifica todo el caso de uso: `"95"` y `"998"` tienen
+   * forma de código DIAN —el `GLOB` de la tabla los aceptaría— pero no están en
+   * `UNIT_MEASURE_CODES` ni en `PRODUCT_STANDARD_CODES`. Guardarlos dejaría el
+   * fallo para el momento de emitir, con la venta ya cobrada.
+   */
+  it("rechaza códigos con forma válida que no pertenecen a las tablas verificadas, y no escribe nada", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19e");
+
+      const rejected = await send(mutating("catalog.fiscal.attribute.set", {
+        presentation_id: presentationId,
+        code_reference: "REF-INVENTADO",
+        unit_measure_code: "95",
+        standard_code: "998",
+        tax_code: "99",
+        tax_rate: "19.000000",
+        status: "ACTIVE",
+      }, "d19e:attr"));
+
+      expect(rejected.status).toBe("REJECTED");
+      expect(rejected.result["outcome"]).toBe("FISCAL_CODES_NOT_VERIFIED");
+      expect(rejected.result["presentation_id"]).toBeNull();
+
+      // Código y ruta, nunca el valor: el hallazgo dice cuál de los cuatro
+      // corregir sin devolver lo que el operador escribió.
+      expect(rejected.result["findings"]).toEqual([
+        { code: "UNIT_MEASURE_CODE_NOT_VERIFIED", path: "unitMeasureCode" },
+        { code: "PRODUCT_STANDARD_CODE_NOT_VERIFIED", path: "standardCode" },
+        { code: "TAX_CODE_NOT_VERIFIED", path: "taxes[0].code" },
+      ]);
+
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM catalog_fiscal_attribute WHERE tenant_id=? AND presentation_id=?",
+        TENANT, presentationId,
+      )).toBe(0);
+    });
+  }, 30_000);
+
+  it("una tasa fuera de 0–100 es hallazgo, no una fila guardada", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19f");
+
+      const rejected = await send(mutating("catalog.fiscal.attribute.set", {
+        presentation_id: presentationId,
+        code_reference: "REF-TASA",
+        unit_measure_code: "94",
+        standard_code: "999",
+        tax_code: "01",
+        tax_rate: "190.000000",
+        status: "ACTIVE",
+      }, "d19f:attr"));
+
+      expect(rejected.result["outcome"]).toBe("FISCAL_CODES_NOT_VERIFIED");
+      expect(rejected.result["findings"]).toEqual([
+        { code: "TAX_RATE_OUT_OF_RANGE", path: "taxes[0].rate" },
+      ]);
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM catalog_fiscal_attribute WHERE tenant_id=? AND presentation_id=?",
+        TENANT, presentationId,
+      )).toBe(0);
+    });
+  }, 30_000);
+
+  /**
+   * Nombrar una presentación no es aportar ámbito. La presentación se resuelve
+   * bajo el `tenant` del contexto verificado, así que un identificador que no
+   * pertenece a este tenant no se encuentra, aunque exista en la base.
+   */
+  it("una presentación de otro tenant no se encuentra: PRESENTATION_NOT_FOUND", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId } = await prepareCounter(send, database, "d19g");
+      const foreignTenant = "018f0000-0000-7000-8000-0000000d19ff";
+      const foreignProduct = "018f0000-0000-7000-8000-0000000d19fe";
+      const foreign = "018f0000-0000-7000-8000-0000000d1900";
+      const at = NOW.toISOString();
+      database.native.prepare(`
+        INSERT INTO catalog_product(
+          id, tenant_id, company_id, code, name, status, stock_controlled,
+          registered_by_actor_id, idempotency_key, correlation_id, version,
+          created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        foreignProduct, foreignTenant, COMPANY, "AJENO-1", "Producto ajeno",
+        "ACTIVE", 0, USER, "d19g:foreign", randomUUID(), 1, at, at,
+      );
+      database.native.prepare(`
+        INSERT INTO catalog_presentation(
+          id, tenant_id, product_id, name, unit_code, unit_precision,
+          barcode, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      ).run(foreign, foreignTenant, foreignProduct, "Ajena", "UND", 0, null, "ACTIVE", at, at);
+
+      const response = await send(mutating("catalog.fiscal.attribute.set", {
+        presentation_id: foreign,
+        code_reference: "REF-AJENA",
+        unit_measure_code: "94",
+        standard_code: "999",
+        tax_code: "01",
+        tax_rate: "19.000000",
+        status: "ACTIVE",
+      }, "d19g:attr"));
+
+      expect(response.status).toBe("REJECTED");
+      expect(response.result["outcome"]).toBe("PRESENTATION_NOT_FOUND");
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM catalog_fiscal_attribute WHERE presentation_id=?",
+        foreign,
+      )).toBe(0);
+      // La del tenant propio sigue intacta y sin atributo: no hubo escritura.
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM catalog_fiscal_attribute WHERE presentation_id=?",
+        presentationId,
+      )).toBe(0);
     });
   }, 30_000);
 });

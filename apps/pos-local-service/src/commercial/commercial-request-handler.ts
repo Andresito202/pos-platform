@@ -21,7 +21,8 @@ type CommercialRequest = Extract<
       | "credit.account.open" | "credit.account.get" | "credit.payment.register"
       | "customer.register" | "customer.get" | "customer.find"
       | "fiscal.document.issue"
-      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
+      | "catalog.product.register" | "catalog.fiscal.attribute.set"
+      | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "sales.receipt.get";
   }
@@ -69,6 +70,9 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   IDENTITY_ALREADY_REGISTERED: "CONFLICT",
   CODE_ALREADY_REGISTERED: "CONFLICT",
   BARCODE_ALREADY_REGISTERED: "CONFLICT",
+  // Los códigos tienen forma válida pero no pertenecen a las tablas DIAN
+  // verificadas: es la petición la que está mal, no el estado del catálogo.
+  FISCAL_CODES_NOT_VERIFIED: "VALIDATION",
   FISCAL_NOT_CONFIGURED: "CONFLICT",
   CUSTOMER_NOT_FOUND: "NOT_FOUND",
   NOT_ELIGIBLE: "CONFLICT",
@@ -206,6 +210,7 @@ export class CommercialRequestHandler {
       case "customer.find": return this.readCustomer(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
+      case "catalog.fiscal.attribute.set": return this.setFiscalAttribute(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "inventory.stock.receive":
@@ -945,6 +950,59 @@ export class CommercialRequestHandler {
     if (result.kind === "BARCODE_ALREADY_REGISTERED") {
       return rejected(request, result.kind, {
         outcome: result.kind, product_id: null, presentation_id: result.presentationId,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  // ── catalog.fiscal.attribute.set ───────────────────────────────────────────
+
+  /**
+   * D-19. Los `findings` viajan también en el rechazo: sin ellos el operador
+   * vería «códigos no verificados» sin saber cuál de los cuatro corregir.
+   */
+  private setFiscalAttribute(
+    request: Extract<CommercialRequest, { message_type: "catalog.fiscal.attribute.set" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { presentation_id: null, findings: [] };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.setFiscalAttribute.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        presentationId: payload.presentation_id,
+        codeReference: payload.code_reference,
+        unitMeasureCode: payload.unit_measure_code,
+        standardCode: payload.standard_code,
+        taxCode: payload.tax_code,
+        taxRate: payload.tax_rate,
+        status: payload.status,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "SET" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        presentation_id: result.presentationId,
+        findings: [],
+      });
+    }
+    if (result.kind === "FISCAL_CODES_NOT_VERIFIED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind,
+        presentation_id: null,
+        findings: result.findings.map((finding) => ({ code: finding.code, path: finding.path })),
       });
     }
     return rejected(request, result.kind, { outcome: result.kind, ...empty });

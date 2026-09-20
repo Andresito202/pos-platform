@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
+  CatalogFiscalAttributeSetRequestSchema,
   CatalogProductRegisterRequestSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
@@ -150,6 +151,116 @@ describe("CatalogPanel", () => {
       expect(screen.getByTestId("product-rejected").textContent).toBe("UNAUTHORIZED");
     });
     expect(screen.queryByTestId("product-registered")).toBeNull();
+  });
+});
+
+/**
+ * D-19. Sin esta pantalla la operación existe pero no la alcanza nadie: los
+ * códigos fiscales sólo se podrían declarar desde una prueba, que es
+ * exactamente el estado del que viene la deuda.
+ */
+describe("CatalogPanel — códigos fiscales (D-19)", () => {
+  const SET_OK = {
+    status: "SUCCEEDED",
+    result_code: "SET",
+    result: { outcome: "SET", presentation_id: PRESENTATION, findings: [] },
+  };
+
+  function fillFiscal(): void {
+    fireEvent.change(screen.getByTestId("fiscal-presentation-id-input"), {
+      target: { value: PRESENTATION },
+    });
+    fireEvent.change(screen.getByTestId("fiscal-code-reference-input"), {
+      target: { value: "ARZ-500" },
+    });
+  }
+
+  it("construye un sobre que el esquema real del contrato acepta", async () => {
+    install(SET_OK);
+    render(<CatalogPanel />);
+    fillFiscal();
+    fireEvent.click(screen.getByTestId("set-fiscal-attribute-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fiscal-attribute-outcome").textContent).toBe("SET");
+    });
+
+    const envelope = sent("catalog.fiscal.attribute.set");
+    expect(() => CatalogFiscalAttributeSetRequestSchema.parse(envelope)).not.toThrow();
+    const payload = envelope["payload"] as Record<string, unknown>;
+    expect(payload["presentation_id"]).toBe(PRESENTATION);
+    // La tasa tecleada como `19` se normaliza a escala 6.
+    expect(payload["tax_rate"]).toBe("19.000000");
+    expect(payload["unit_measure_code"]).toBe("94");
+    expect(envelope["tenant_id"]).toBeUndefined();
+  });
+
+  it("rechaza una tasa que no cabe en escala 6 en vez de truncarla", async () => {
+    install(SET_OK);
+    render(<CatalogPanel />);
+    fillFiscal();
+    fireEvent.change(screen.getByTestId("fiscal-tax-rate-input"), { target: { value: "19.1234567" } });
+    fireEvent.click(screen.getByTestId("set-fiscal-attribute-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("catalog-error").textContent).toBe("TAX_RATE_NOT_SCALE6");
+    });
+    expect(calls.get("catalog.fiscal.attribute.set")).toBeUndefined();
+  });
+
+  it("muestra cada hallazgo con su ruta, no un rechazo genérico", async () => {
+    install({
+      status: "REJECTED",
+      result_code: "FISCAL_CODES_NOT_VERIFIED",
+      result: {
+        outcome: "FISCAL_CODES_NOT_VERIFIED",
+        presentation_id: null,
+        findings: [
+          { code: "UNIT_MEASURE_CODE_NOT_VERIFIED", path: "unitMeasureCode" },
+          { code: "TAX_CODE_NOT_VERIFIED", path: "taxes[0].code" },
+        ],
+      },
+    });
+    render(<CatalogPanel />);
+    fillFiscal();
+    fireEvent.click(screen.getByTestId("set-fiscal-attribute-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fiscal-attribute-outcome").textContent)
+        .toBe("FISCAL_CODES_NOT_VERIFIED");
+    });
+    // Sin la ruta el operador tendría que probar los cuatro códigos uno a uno.
+    expect(screen.getByTestId("fiscal-finding-unitMeasureCode").textContent)
+      .toBe("unitMeasureCode: UNIT_MEASURE_CODE_NOT_VERIFIED");
+    expect(screen.getByTestId("fiscal-finding-taxes[0].code").textContent)
+      .toBe("taxes[0].code: TAX_CODE_NOT_VERIFIED");
+  });
+
+  it("el alta prerrellena la presentación, y el operador puede sustituirla", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "REGISTERED",
+      result: {
+        outcome: "REGISTERED",
+        product_id: "11111111-1111-4111-8111-111111111111",
+        presentation_id: PRESENTATION,
+      },
+    });
+    render(<CatalogPanel />);
+    fireEvent.change(screen.getByTestId("product-code-input"), { target: { value: "ARZ-500" } });
+    fireEvent.change(screen.getByTestId("product-name-input"), { target: { value: "Arroz" } });
+    fireEvent.change(screen.getByTestId("presentation-name-input"), { target: { value: "Bolsa 500g" } });
+    fireEvent.change(screen.getByTestId("product-price-input"), { target: { value: "1500" } });
+    fireEvent.click(screen.getByTestId("register-product-button"));
+
+    const field = screen.getByTestId("fiscal-presentation-id-input") as HTMLInputElement;
+    await waitFor(() => { expect(field.value).toBe(PRESENTATION); });
+
+    // Prerrellenar no es fijar: corregir una presentación anterior es el motivo
+    // de que esto sea una operación aparte y no un campo del alta.
+    const other = "33333333-3333-4333-8333-333333333333";
+    fireEvent.change(field, { target: { value: other } });
+    expect(field.value).toBe(other);
   });
 });
 

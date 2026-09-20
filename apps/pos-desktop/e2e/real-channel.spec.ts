@@ -838,26 +838,30 @@ test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real"
 /**
  * La emisión fiscal **desde la pantalla**, contra el servicio real — `DEC-021` F5.
  *
- * Esta prueba afirma lo que hoy ocurre de verdad, no lo que nos gustaría que
- * ocurriera, y por eso su aserción principal es un **bloqueo**:
+ * Esta prueba cambió de desenlace al cerrarse `D-19`, y el cambio es su
+ * contenido. Antes su aserción principal era un bloqueo: `catalog_fiscal_attribute`
+ * tenía lectores y **cero escritores**, así que ningún producto dado de alta
+ * por la pantalla se podía facturar, y la prueba lo afirmaba en vez de sembrar
+ * la fila a mano para fingir la capacidad.
  *
- * `D-19` está registrado desde hace bloques: «hoy no hay ruta de usuario que
- * inserte» un atributo fiscal de presentación —ni de usuario ni de servicio:
- * `catalog_fiscal_attribute` tiene un lector en producción y **cero
- * escritores**—. Sin `unit_measure_code`, `standard_code`, `tax_code` y
- * `tax_rate`, ninguna línea de venta se puede declarar ante la DIAN, así que
- * **ningún producto dado de alta por la pantalla se puede facturar todavía**.
+ * Ahora la pantalla declara esos códigos (`catalog.fiscal.attribute.set`) y la
+ * cadena llega hasta el final. Lo que se comprueba, en orden:
  *
- * Sembrar ese atributo en el arnés haría pasar la prueba afirmando una
- * capacidad que el producto no tiene. Es exactamente el error que este
- * repositorio lleva corrigiendo desde que se retiró `CANONICALLY_APPLIED`, y no
- * se repite aquí.
+ * 1. `LINE_FISCAL_ATTRIBUTE_MISSING` **ya no aparece**: es la prueba de que el
+ *    escritor existe y de que lo que escribe es lo que la emisión lee.
+ * 2. El mostrador anónimo sigue bloqueado, y ahora por su motivo real y único:
+ *    `GENERIC_ACQUIRER_NOT_VERIFIED` (`D-13`). Que el bloqueo se reduzca a una
+ *    sola causa es lo que demuestra que la otra se cerró.
+ * 3. Con adquiriente identificado la factura se **emite**, con su CUFE y su
+ *    número, tecleado todo desde la ventana.
  *
- * Lo que sí acredita esta prueba, y no es poco: la pantalla de emisión alcanza
- * el caso de uso real por el canal real, y el motivo del bloqueo llega intacto
- * hasta el ojo del cajero, con su código y su ruta.
+ * **Alcance de ese `ISSUED`.** El único trozo que el arnés sustituye es el
+ * puerto de emisión (`FakeIssuancePort` en `real-service-host.ts`): hablar de
+ * verdad con FACTUS es `F6` y exige credenciales que no están aquí. Contrato,
+ * canal, handler, caso de uso, máquina de estados y SQLite son de producción.
+ * Esto acredita `END_TO_END` contra un proveedor sustituido, no `PRODUCTION`.
  */
-test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por qué no puede emitir", async () => {
+test("la emisión fiscal se dispara desde la pantalla: sin atributo no había factura, con él la hay", async () => {
   const page = await app.firstWindow();
 
   const code = `FISC-${randomUUID().slice(0, 8)}`;
@@ -881,6 +885,14 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await page.getByTestId("register-product-button").click();
   await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
   const presentationId = await page.getByTestId("presentation-id").textContent();
+
+  // D-19: los códigos fiscales de la presentación, tecleados en la pantalla.
+  // Este paso es el que no existía. La presentación viene prerrellenada del
+  // alta, así que el operador sólo aporta la referencia del artículo.
+  await page.getByTestId("fiscal-code-reference-input").fill(code);
+  await page.getByTestId("set-fiscal-attribute-button").click();
+  await expect(page.getByTestId("fiscal-attribute-outcome")).toHaveText("SET", { timeout: 15_000 });
+  expect(await page.getByTestId("fiscal-attribute-findings").count()).toBe(0);
 
   await page.getByTestId("inventory-presentation-input").fill(presentationId!);
   await page.getByTestId("receive-quantity-input").fill("5");
@@ -917,12 +929,17 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   // El motivo es `D-19`, no el adquiriente: el producto que la pantalla acaba
   // de dar de alta **no tiene atributo fiscal**, porque nada en el sistema
   // puede darselo. Esta asercion es la que documenta el bloqueo real.
-  const reasons = await page.getByTestId("fiscal-blocked-reason").allTextContents();
-  expect(reasons.join(" ")).toContain("LINE_FISCAL_ATTRIBUTE_MISSING");
+  // El motivo ya **no** es `D-19`: el producto que la pantalla acaba de dar de
+  // alta sí tiene atributo fiscal, porque la propia pantalla se lo dio. Queda
+  // una sola causa, y es la del adquiriente anónimo.
+  const reasons = (await page.getByTestId("fiscal-blocked-reason").allTextContents()).join(" ");
+  expect(reasons).not.toContain("LINE_FISCAL_ATTRIBUTE_MISSING");
+  expect(reasons).toContain("GENERIC_ACQUIRER_NOT_VERIFIED");
 
-  // 2 · Con un adquiriente identificado el bloqueo es el mismo, que es
-  //     justamente lo que prueba que el adquiriente no es la unica pieza que
-  //     falta para facturar.
+  // 2 · Con un adquiriente identificado ya **no** queda nada que bloquee: la
+  //     factura se emite. Antes de `D-19` este mismo paso bloqueaba igual que
+  //     el anterior, y ésa era la prueba de que al adquiriente le faltaba
+  //     compañía.
   const identification = `10${String(Date.now()).slice(-8)}`;
   await page.getByTestId("customer-document-code-input").fill("13");
   await page.getByTestId("customer-identification-input").fill(identification);
@@ -936,10 +953,16 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
 
   await page.getByTestId("fiscal-customer-id-input").fill(customerId!);
   await page.getByTestId("issue-identified-button").click();
-  await expect(page.getByTestId("fiscal-blocked")).toBeVisible({ timeout: 15_000 });
-  expect(await page.getByTestId("fiscal-blocked-code").textContent()).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
-  expect((await page.getByTestId("fiscal-blocked-reason").allTextContents()).join(" "))
-    .toContain("LINE_FISCAL_ATTRIBUTE_MISSING");
+  await expect(page.getByTestId("fiscal-issued")).toBeVisible({ timeout: 15_000 });
+
+  // El CUFE y el número los pone el puerto sustituido; lo que acredita la
+  // prueba es que llegan **intactos** hasta el ojo del cajero, no que la DIAN
+  // los haya emitido.
+  const issued = (await page.getByTestId("fiscal-issued").textContent()) ?? "";
+  expect(issued).toContain("ISSUED");
+  expect(issued).toContain("990000001");
+  expect(await page.getByTestId("fiscal-blocked").count()).toBe(0);
+  expect(await page.getByTestId("fiscal-error").count()).toBe(0);
 
   // 3 · Una venta que no existe no es un bloqueo de payload: es inelegible, y
   //     la pantalla los distingue.

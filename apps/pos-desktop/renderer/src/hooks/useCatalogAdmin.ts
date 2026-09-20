@@ -1,5 +1,8 @@
 import { useCallback, useState } from "react";
-import type { CatalogProductRegisterResult } from "@pos-platform/contracts";
+import type {
+  CatalogFiscalAttributeSetResult,
+  CatalogProductRegisterResult,
+} from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { toScale6 } from "../scale6.js";
 
@@ -10,6 +13,11 @@ import { toScale6 } from "../scale6.js";
  * `catalog.product.register` no tenía ninguna, de modo que **nadie podía cargar
  * un producto**. Un POS sin alta de catálogo no es un POS a medio hacer: es un
  * POS que no se puede usar el primer día.
+ *
+ * `setFiscalAttribute` cierra la otra mitad (`D-19`): el alta deja el producto
+ * vendible, no facturable. Sin los códigos DIAN de la presentación, la emisión
+ * se detiene en `LINE_FISCAL_ATTRIBUTE_MISSING` con la venta ya cobrada. Va
+ * aquí, junto al alta, porque es quien da de alta quien los conoce.
  */
 
 export interface RegisteredProduct {
@@ -31,21 +39,40 @@ export interface CatalogAdminInput {
   readonly currencyCode: string;
 }
 
+export interface FiscalAttributeInput {
+  readonly presentationId: string;
+  readonly codeReference: string;
+  readonly unitMeasureCode: string;
+  readonly standardCode: string;
+  readonly taxCode: string;
+  /** Tal como lo teclea el operador: `19`, `19,5`. */
+  readonly taxRate: string;
+}
+
+/** Qué código no se verificó y dónde. Nunca el valor. */
+export type FiscalAttributeFinding = CatalogFiscalAttributeSetResult["findings"][number];
+
 export interface CatalogAdminState {
   readonly busy: boolean;
   readonly product: RegisteredProduct | null;
   /** Desenlace del contrato cuando no hubo alta: `UNAUTHORIZED`, conflicto… */
   readonly outcome: CatalogProductRegisterResult["outcome"] | null;
   readonly error: string | null;
+  readonly fiscalOutcome: CatalogFiscalAttributeSetResult["outcome"] | null;
+  readonly fiscalFindings: readonly FiscalAttributeFinding[];
 }
 
 export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
+  setFiscalAttribute(input: FiscalAttributeInput): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<RegisteredProduct | null>(null);
   const [outcome, setOutcome] = useState<CatalogProductRegisterResult["outcome"] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fiscalOutcome, setFiscalOutcome] =
+    useState<CatalogFiscalAttributeSetResult["outcome"] | null>(null);
+  const [fiscalFindings, setFiscalFindings] = useState<readonly FiscalAttributeFinding[]>([]);
 
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
     setBusy(true);
@@ -96,5 +123,50 @@ export function useCatalogAdmin(): CatalogAdminState & {
     }
   }, []);
 
-  return { busy, product, outcome, error, registerProduct };
+  const setFiscalAttribute = useCallback(async (input: FiscalAttributeInput): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setFiscalOutcome(null);
+    setFiscalFindings([]);
+    try {
+      // La tasa se normaliza aquí por la misma razón que el precio: `19` no es
+      // escala 6 y la frontera lo rechazaría con un error de expresión regular
+      // que al operador no le dice nada.
+      const rate = toScale6(input.taxRate);
+      if (rate === null) {
+        setError("TAX_RATE_NOT_SCALE6");
+        return;
+      }
+
+      const response = await callCommercial<CatalogFiscalAttributeSetResult>(
+        "catalog.fiscal.attribute.set",
+        {
+          presentation_id: input.presentationId.trim(),
+          code_reference: input.codeReference.trim(),
+          unit_measure_code: input.unitMeasureCode.trim(),
+          standard_code: input.standardCode.trim(),
+          tax_code: input.taxCode.trim(),
+          tax_rate: rate,
+          status: "ACTIVE",
+        },
+        newIdempotencyKey(),
+      );
+
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setFiscalOutcome(response.result.outcome);
+      setFiscalFindings(response.result.findings);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return {
+    busy, product, outcome, error, fiscalOutcome, fiscalFindings,
+    registerProduct, setFiscalAttribute,
+  };
 }

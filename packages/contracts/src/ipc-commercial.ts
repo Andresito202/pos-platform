@@ -1079,6 +1079,75 @@ export const CatalogProductRegisterResultSchema = z.strictObject({
 export const CatalogProductRegisterResponseSchema =
   createResponseEnvelopeSchema(CatalogProductRegisterResultSchema);
 
+// ── catalog.fiscal.attribute.set ─────────────────────────────────────────────
+
+/**
+ * Atributo fiscal de una presentación (`catalog_fiscal_attribute`, `MIGRATION_013`).
+ *
+ * **Por qué existe esta operación.** La tabla tenía un lector en producción y
+ * **cero escritores** —la deuda `D-19`—: ninguna pantalla, ningún caso de uso y
+ * ninguna operación del canal podían darle a una presentación su
+ * `unit_measure_code`, `standard_code`, `tax_code` y `tax_rate`. Sin ellos
+ * ninguna línea de venta se declara ante la DIAN, así que **ningún producto
+ * dado de alta por el POS se podía facturar electrónicamente**.
+ *
+ * **Por qué es una operación aparte y no un campo más del alta.** Un código
+ * fiscal equivocado se corrige; el alta ocurre una sola vez. Atarlo a
+ * `catalog.product.register` dejaría el error sin vía de arreglo salvo
+ * reescribir el producto. Además añadir una operación es menos invasivo sobre
+ * una superficie cerrada que modificar una ya ratificada.
+ *
+ * **La forma no es la pertenencia.** La tabla comprueba con `GLOB` que los
+ * códigos *tengan forma* de código DIAN; no comprueba que *existan* en las
+ * tablas verificadas. Por eso la capa confiable valida con
+ * `validateFiscalDocumentItem` **antes** de guardar: un `unit_measure_code`
+ * inventado con forma válida se guardaría y sólo fallaría al emitir, con la
+ * venta ya cobrada y el cliente delante.
+ */
+export const CatalogFiscalAttributeSetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    /** Código del artículo en el catálogo del comerciante. */
+    code_reference: z.string().min(1).max(80),
+    unit_measure_code: z.string().min(1).max(8),
+    standard_code: z.string().min(1).max(8),
+    tax_code: z.string().min(1).max(8),
+    tax_rate: NonNegativeScale6Schema,
+    status: z.enum(["ACTIVE", "INACTIVE"]),
+  }),
+).safeExtend({ message_type: z.literal("catalog.fiscal.attribute.set") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogFiscalAttributeSetOutcomeSchema = z.enum([
+  "SET",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PRESENTATION_NOT_FOUND",
+  /** Uno o más códigos no pertenecen a las tablas DIAN verificadas. */
+  "FISCAL_CODES_NOT_VERIFIED",
+]);
+
+/**
+ * `findings` nombra **qué** código no se verificó y **dónde**, nunca su valor:
+ * misma regla que `FiscalItemFinding`. Sin ellos el operador tendría que
+ * adivinar cuál de los cuatro códigos está mal.
+ */
+export const CatalogFiscalAttributeSetResultSchema = z.strictObject({
+  outcome: CatalogFiscalAttributeSetOutcomeSchema,
+  presentation_id: UuidSchema.nullable(),
+  findings: z.array(z.strictObject({
+    code: StableCodeSchema,
+    path: z.string().min(1).max(64),
+  })).max(16),
+});
+
+export const CatalogFiscalAttributeSetResponseSchema =
+  createResponseEnvelopeSchema(CatalogFiscalAttributeSetResultSchema);
+
 // ── catalog.item.find · catalog.item.get ─────────────────────────────────────
 
 /**
@@ -1311,6 +1380,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.get",
   "customer.find",
   "catalog.product.register",
+  "catalog.fiscal.attribute.set",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",
@@ -1340,6 +1410,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.get",
   "pos:customer.find",
   "pos:catalog.product.register",
+  "pos:catalog.fiscal.attribute.set",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:inventory.stock.receive",
@@ -1366,6 +1437,7 @@ export type CreditAccountOpenResult = z.infer<typeof CreditAccountOpenResultSche
 export type CreditAccountGetResult = z.infer<typeof CreditAccountGetResultSchema>;
 export type PaymentRegisterCreditResult = z.infer<typeof PaymentRegisterCreditResultSchema>;
 export type CreditPaymentRegisterResult = z.infer<typeof CreditPaymentRegisterResultSchema>;
+export type CatalogFiscalAttributeSetResult = z.infer<typeof CatalogFiscalAttributeSetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;

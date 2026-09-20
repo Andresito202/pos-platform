@@ -24,6 +24,9 @@ export const RENDERER_API_METHODS = [
   "customer.find",
   "fiscal.document.issue",
   "catalog.product.register",
+  // D-19: sin esta operación ningún producto dado de alta aquí se puede
+  // facturar, porque la línea fiscal no encuentra sus códigos DIAN.
+  "catalog.fiscal.attribute.set",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",

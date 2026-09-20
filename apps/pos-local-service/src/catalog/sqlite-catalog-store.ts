@@ -62,6 +62,30 @@ export interface CatalogFiscalAttribute {
   readonly taxRate: string;
 }
 
+export interface SetFiscalAttributeInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly presentationId: string;
+  readonly codeReference: string;
+  readonly unitMeasureCode: string;
+  readonly standardCode: string;
+  readonly taxCode: string;
+  readonly taxRate: string;
+  readonly status: "ACTIVE" | "INACTIVE";
+  readonly operationId: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type SetFiscalAttributeOutcome =
+  | { readonly kind: "SET"; readonly presentationId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly presentationId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PRESENTATION_NOT_FOUND" };
+
 export interface RegisterProductInput {
   readonly scope: SyncScope;
   readonly sessionId: string;
@@ -337,6 +361,133 @@ export class SqliteCatalogStore {
         productId: input.productId,
         presentationId: input.presentationId,
       };
+    })();
+  }
+
+  /**
+   * Declara el atributo fiscal de una presentación (`D-19`).
+   *
+   * **Upsert por `(tenant_id, presentation_id)`**, que es la clave primaria: un
+   * código equivocado se corrige repitiendo la operación con otra clave de
+   * idempotencia. El alta ocurre una vez; la corrección, las que hagan falta.
+   *
+   * La pertenencia de los códigos a las tablas DIAN verificadas **ya se
+   * comprobó** en el caso de uso, antes de llegar aquí. Este método asume esa
+   * validación hecha y sólo protege lo que le toca: que la presentación exista
+   * bajo el tenant del contexto verificado.
+   */
+  setFiscalAttribute(input: SetFiscalAttributeInput): SetFiscalAttributeOutcome {
+    return this.database.native.transaction((): SetFiscalAttributeOutcome => {
+      const nowIso = this.now().toISOString();
+
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) {
+          return { kind: "IDEMPOTENCY_CONFLICT" };
+        }
+        return { kind: "IDEMPOTENT", presentationId: input.presentationId };
+      }
+
+      // La presentación se resuelve bajo el `tenant` del contexto verificado,
+      // nunca bajo el que diga el llamador: nombrar una presentación no es
+      // aportar ámbito.
+      const presentation = this.database.native.prepare(
+        "SELECT id FROM catalog_presentation WHERE tenant_id=? AND id=?",
+      ).get(input.scope.tenantId, input.presentationId) as { id: string } | undefined;
+      if (presentation === undefined) return { kind: "PRESENTATION_NOT_FOUND" };
+
+      this.database.native.prepare(
+        `INSERT INTO catalog_fiscal_attribute(
+           tenant_id, presentation_id, code_reference, unit_measure_code,
+           standard_code, tax_code, tax_rate, status, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(tenant_id, presentation_id) DO UPDATE SET
+           code_reference=excluded.code_reference,
+           unit_measure_code=excluded.unit_measure_code,
+           standard_code=excluded.standard_code,
+           tax_code=excluded.tax_code,
+           tax_rate=excluded.tax_rate,
+           status=excluded.status,
+           updated_at=excluded.updated_at`,
+      ).run(
+        input.scope.tenantId, input.presentationId, input.codeReference,
+        input.unitMeasureCode, input.standardCode, input.taxCode,
+        input.taxRate, input.status, nowIso, nowIso,
+      );
+
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','SET',?,?)`,
+      ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+
+      // Auditoría: qué presentación y con qué códigos. El `tax_rate` entra
+      // porque es la regla aplicada, no un dato sensible.
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_FISCAL_ATTRIBUTE_SET','CATALOG_PRESENTATION',?,?,?,NULL,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId,
+        input.presentationId, input.correlationId, input.causationId,
+        canonicalJson({
+          unit_measure_code: input.unitMeasureCode,
+          standard_code: input.standardCode,
+          tax_code: input.taxCode,
+          tax_rate: input.taxRate,
+          status: input.status,
+        }),
+        nowIso,
+      );
+
+      const nextSequence = (this.database.native.prepare(
+        `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId,
+        input.scope.deviceId, input.scope.installationId,
+      ) as NextSequenceRow).next_sequence;
+
+      this.durableSync.enqueue({
+        operation_id: input.operationId,
+        tenant_id: input.scope.tenantId,
+        company_id: input.scope.companyId,
+        branch_id: input.scope.branchId,
+        device_id: input.scope.deviceId,
+        installation_id: input.scope.installationId,
+        session_id: input.sessionId,
+        actor_id: input.operatorUserId,
+        aggregate_type: "CATALOG_PRESENTATION",
+        aggregate_id: input.presentationId,
+        operation_type: "CATALOG_FISCAL_ATTRIBUTE_SET",
+        authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
+        local_sequence: nextSequence,
+        idempotency_key: input.idempotencyKey,
+        expected_version: null,
+        payload_schema_version: CATALOG_PAYLOAD_SCHEMA_VERSION,
+        payload: {
+          presentation_id: input.presentationId,
+          code_reference: input.codeReference,
+          unit_measure_code: input.unitMeasureCode,
+          standard_code: input.standardCode,
+          tax_code: input.taxCode,
+          tax_rate: input.taxRate,
+          status: input.status,
+        },
+        payload_checksum: input.requestChecksum,
+        causation_id: input.causationId,
+        correlation_id: input.correlationId,
+        occurred_at_local: nowIso,
+        recorded_at_local: nowIso,
+      });
+
+      return { kind: "SET", presentationId: input.presentationId };
     })();
   }
 

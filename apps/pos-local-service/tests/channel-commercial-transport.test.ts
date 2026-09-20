@@ -219,6 +219,11 @@ const PAYLOAD_BY_MESSAGE_TYPE: Record<string, unknown> = {
     presentation_name: "Bolsa 500g", unit_code: "GRM", unit_precision: 0,
     barcode: "7701234567890", price_amount: "3500.000000", currency_code: "COP",
   },
+  "catalog.fiscal.attribute.set": {
+    presentation_id: "018f0000-0000-7000-8000-0000000000c2",
+    code_reference: "ARZ-500", unit_measure_code: "94", standard_code: "999",
+    tax_code: "01", tax_rate: "19.000000", status: "ACTIVE",
+  },
   "catalog.item.get": { presentation_id: "018f0000-0000-7000-8000-0000000000c2" },
   "inventory.stock.receive": {
     presentation_id: "018f0000-0000-7000-8000-0000000000c2",
@@ -252,6 +257,19 @@ const EXTRA_RESPONSES: Record<string, readonly [string, unknown]> = {
   "inventory.stock.get": ["FOUND", INVENTORY_STOCK],
 };
 
+/**
+ * Operaciones añadidas **después** del defecto de las nueve. No comparten su
+ * historia, así que no comparten su tabla: mezclarlas convertiría el bloque de
+ * abajo en una lista sin significado.
+ */
+const ADDED_RESPONSES: Record<string, readonly [string, unknown]> = {
+  "catalog.fiscal.attribute.set": ["SET", {
+    outcome: "SET",
+    presentation_id: "018f0000-0000-7000-8000-0000000000c2",
+    findings: [],
+  }],
+};
+
 async function withChannel(
   run: (client: LocalChannelClient) => Promise<void>,
 ): Promise<void> {
@@ -273,7 +291,8 @@ async function withChannel(
       if (commercial !== undefined) {
         return Promise.resolve(responseFor(request, commercial.resultCode, commercial.result));
       }
-      const extra = EXTRA_RESPONSES[envelope.message_type];
+      const extra = EXTRA_RESPONSES[envelope.message_type]
+        ?? ADDED_RESPONSES[envelope.message_type];
       if (extra === undefined) throw new Error(`unexpected message type ${envelope.message_type}`);
       return Promise.resolve(responseFor(request, extra[0], extra[1]));
     },
@@ -343,6 +362,28 @@ describe("transporte de las operaciones comerciales", () => {
       expect(seen).toEqual(Object.keys(EXTRA_RESPONSES).map((m) => `${m}:SUCCEEDED`));
     });
   }, 20_000);
+
+  /**
+   * `catalog.fiscal.attribute.set` (`D-19`). Lo que se comprueba aquí es que su
+   * respuesta **se parsea con su propio esquema** al cruzar el socket: sin
+   * entrada en `response-schemas.ts` el cliente la rechazaría y el servidor
+   * cerraría la conexión, que es exactamente como se manifestó el defecto de
+   * las nueve.
+   */
+  it("el escritor de atributos fiscales viaja y su respuesta se parsea", async () => {
+    await withChannel(async (client) => {
+      const response = await client.request(
+        commercialRequest(
+          "catalog.fiscal.attribute.set",
+          PAYLOAD_BY_MESSAGE_TYPE["catalog.fiscal.attribute.set"],
+        ),
+      ) as { status: string; result_code: string; result: { outcome: string; findings: unknown[] } };
+      expect(response.status).toBe("SUCCEEDED");
+      expect(response.result_code).toBe("SET");
+      expect(response.result.outcome).toBe("SET");
+      expect(response.result.findings).toEqual([]);
+    });
+  }, 15_000);
 
   it("el cobro que completa la venta llega con sale_completed intacto", async () => {
     await withChannel(async (client) => {

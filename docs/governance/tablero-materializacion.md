@@ -360,7 +360,7 @@ regla que la calcule; periféricos no tiene una sola línea.
 | C16 | Documento electrónico local y rango persistido (`DEC-021` F1) | `TESTED` | — | `MIGRATION_016`; 21 pruebas que **ejecutan** cada invariante, incluidas las negativas |
 | C17 | Depósito y resolución de credencial fiscal (`DEC-021` F2) | `TESTED` | — | `FiscalCredentialStore` sobre `SEC-004` + `SecretStoreFactusCredentialResolver` + entrada de operador por `stdin`; 17 pruebas, una de ellas lee el fichero crudo y comprueba que **el valor no está en claro** |
 | C18 | Ensamblado del payload canónico FACTUS (`DEC-021` F3) | `TESTED` | — | `assembleFactusBill` contra `provider-payload-shapes.md` §FACTUS; 15 pruebas, la primera compara el cuerpo **campo a campo** contra un payload de referencia |
-| C19 | Caso de uso de emisión electrónica (`DEC-021` F4/F5) | `CALLER_REACHABLE` | `MOCK_TESTED` | `fiscal.document.issue` cruza el socket real hasta `CommercialRequestHandler` de producción y `IssueElectronicDocumentUseCase`, con el efecto verificado en `fiscal_electronic_document` (no sólo en la respuesta): 2 pruebas en `channel-commercial-vertical.test.ts`. La pantalla existe (`FiscalPanel`) y la invoca de verdad: E2E de Electron contra el servicio real. **No sube a `END_TO_END` y el motivo no es la pantalla: es `D-19`** — ningún producto puede recibir atributos fiscales, así que la cadena nunca llega a escribir el documento. 32 pruebas de unidad + 5 de renderer + 1 E2E |
+| C19 | Caso de uso de emisión electrónica (`DEC-021` F4/F5) | `END_TO_END` | `MOCK_TESTED` | **Sube el 2026-09-20 al cerrarse `D-19`.** El efecto se lee donde queda escrito —`fiscal_electronic_document`, con `transport_status`, `normalized_result` y `cufe`— en `channel-commercial-vertical.test.ts`, que ya no siembra el atributo fiscal a mano: lo declara con `catalog.fiscal.attribute.set` por el socket real. Y la superficie de producto lo conduce hasta el final: en `real-channel.spec.ts:864`, con Electron real contra el servicio real, la pantalla da de alta el producto, **declara sus códigos DIAN**, vende, cobra y emite, con `LINE_FISCAL_ATTRIBUTE_MISSING` ya ausente y la factura `ISSUED` con su CUFE y su número. Es el mismo patrón de evidencia de B1/B4/B5: efecto en base por la vertical, superficie de producto por el E2E. El puerto de emisión sigue sustituido en el arnés (`FakeIssuancePort`); hablar con FACTUS de verdad es `F6` y por eso la columna de proveedor sigue en `MOCK_TESTED`. 32 pruebas de unidad + 9 de renderer + 1 E2E |
 
 **C1..C8 siguen en `TESTED`, y la razón ya no es la misma.** Hasta ahora bajaban
 porque nada del servicio llamaba a `DocumentIssuancePort`. Con `C19` en
@@ -369,18 +369,22 @@ canal, invoca el puerto de emisión y **se dispara desde una pantalla real** —
 un `DocumentIssuancePort` falso, porque hablar con FACTUS de verdad es `F6`,
 exclusivo del equipo del propietario.
 
-**Lo que impide `END_TO_END` ya no es la pantalla: es `D-19`, y ahora está
-demostrado, no supuesto.** `catalog_fiscal_attribute` tiene **un lector en
-producción y cero escritores**: ninguna pantalla, ningún caso de uso y ninguna
-operación del canal puede darle a una presentación su `unit_measure_code`,
-`standard_code`, `tax_code` y `tax_rate`. Sin ellos ninguna línea se puede
-declarar ante la DIAN, de modo que **ningún producto dado de alta por el
-producto real se puede facturar hoy**. El E2E lo ejercita y lo afirma: la
-emisión se dispara desde la pantalla y bloquea con `LINE_FISCAL_ATTRIBUTE_MISSING`,
-tanto con adquiriente identificado como sin él. Sembrar ese atributo en el arnés
-habría puesto la prueba en verde afirmando una capacidad que el producto no
-tiene, que es exactamente el error que este tablero lleva corrigiendo desde que
-se retiró `CANONICALLY_APPLIED`.
+**Lo que impedía `END_TO_END` era `D-19`, y está cerrada — 2026-09-20.**
+`catalog_fiscal_attribute` tenía **un lector en producción y cero escritores**:
+ninguna pantalla, ningún caso de uso y ninguna operación del canal podía darle a
+una presentación su `unit_measure_code`, `standard_code`, `tax_code` y
+`tax_rate`, de modo que ningún producto dado de alta por el producto real se
+podía facturar. La cierra `catalog.fiscal.attribute.set`, con pantalla en
+`CatalogPanel` y validación de **pertenencia** contra las tablas DIAN antes de
+escribir —la tabla sólo comprueba la forma—.
+
+La prueba que afirmaba el bloqueo ahora afirma lo contrario, y el cambio de esa
+prueba **es** la evidencia: declarado el atributo desde la ventana,
+`LINE_FISCAL_ATTRIBUTE_MISSING` desaparece, el mostrador anónimo queda bloqueado
+por su única causa restante —`D-13`, el adquiriente genérico— y con adquiriente
+identificado la factura se emite. Nunca se sembró ese atributo en el arnés para
+poner la prueba en verde: se escribió el caso de uso que faltaba, que es lo que
+este tablero lleva exigiendo desde que se retiró `CANONICALLY_APPLIED`.
 
 Un adapter con 170 pruebas verdes y sandbox real detrás sigue sin estar
 instanciado por ningún runtime **con credencial real**. `SANDBOX_VERIFIED`
@@ -391,11 +395,12 @@ pantalla del POS lo llame.
 tablas DIAN, `Catalog` y `Tax` (`D-9`). Las cuatro existen. `C19` demuestra que el
 motor las junta, produce un payload transmisible, es alcanzable desde fuera del
 proceso y se dispara desde la pantalla. **El bloqueo restante es nuestro, no de
-FACTUS**, y hoy son dos piezas concretas y nombradas: `D-19` —nadie puede dar
-atributos fiscales a un producto— y `D-13` —el adquiriente genérico de la DIAN
-sin verificar—. Ninguna de las dos es trabajo de motor: la primera es una
-pantalla y un caso de uso que nadie ha escrito; la segunda, una fuente
-documental que nadie ha aportado.
+FACTUS.** Eran dos piezas nombradas; el 2026-09-20 queda **una**: `D-19` está
+cerrada —la pantalla y el caso de uso que nadie había escrito ya existen— y
+sigue abierta `D-13`, el adquiriente genérico de la DIAN sin verificar, que no
+es trabajo de motor sino una fuente documental que nadie ha aportado. Es hoy lo
+único que impide facturar una venta de mostrador anónima, el caso mayoritario de
+un POS colombiano.
 
 ### Bloque D — Plataforma central y transporte · 6 capacidades
 
@@ -475,8 +480,8 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | Peldaño | Filas | Cuáles |
 |---|---|---|
 | `PRODUCTION` | **0** | — |
-| `END_TO_END` | **6** | B1 B2 B3 B4 B5 B13 |
-| `CALLER_REACHABLE` | **5** | A9 · B6 B7 B10 · C19 |
+| `END_TO_END` | **7** | B1 B2 B3 B4 B5 B13 · C19 |
+| `CALLER_REACHABLE` | **4** | A9 · B6 B7 B10 |
 | `RUNTIME_VERIFIED` | **17** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B9 · E1 E2 E3 E4 E5 E7 |
 | `TESTED` | **19** | A3 A13 A14 · C1..C11 C16 C17 C18 · D1 D4 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
@@ -487,15 +492,20 @@ nada sobre ese job; dice que algo aguas arriba falló.
 `D1` se cuenta en `TESTED` porque el job de CI las ejecuta contra PostgreSQL
 16.14. En un contenedor sin instancia es `NOT_EVALUATED`, y así se anota arriba.
 
-**Once capacidades son alcanzables por un llamador externo, y seis de ellas lo
+**Once capacidades son alcanzables por un llamador externo, y siete de ellas lo
 son desde la pantalla.** Diez llegaron por donde el tablero decía que llegarían:
 no apareció código nuevo de producción, apareció la prueba que enchufa las dos
-mitades que ya existían. La undécima, `C19`, sí es código nuevo: `DEC-021` F5
-conecta por primera vez un caso de uso fiscal al canal comercial.
+mitades que ya existían. La undécima, `C19`, sí fue código nuevo: `DEC-021` F5
+conectó por primera vez un caso de uso fiscal al canal comercial, y el
+2026-09-20 sube a `END_TO_END` al cerrarse `D-19`.
 
 **Lo que separa `CALLER_REACHABLE` de `END_TO_END` es hoy pantalla, no motor.**
 B6, B7 y B10 funcionan por el canal contra el handler real; lo que les falta es
-una pantalla de cajero que las invoque. Es trabajo de interfaz, no de arquitectura.
+una pantalla de cajero que las invoque. Es trabajo de interfaz, no de
+arquitectura. **Pendiente de reconciliar:** la evidencia de B6 dice que
+«`register` no tiene pantalla», y `CatalogPanel` existe y el E2E la conduce. Esa
+fila no se mueve aquí porque mover un peldaño exige su propia evidencia medida,
+y ésta es la de `C19`, no la de `B6`.
 
 `PRODUCTION` sigue en cero, y seguirá: exige el entorno de destino.
 
@@ -591,6 +601,7 @@ recibo, y cliente HTTP hacia el backend central.
 | 2026-09-07 | 61 % | auditoría del trabajo propio · `D-19` registrada. **Tampoco se mueve.** 969 pruebas |
 | 2026-09-07 | 62 % | catálogo real · `MIGRATION_014` · `SandboxCatalogStore` eliminado · 989 pruebas |
 | 2026-09-08 | 63 % | inventario · `MIGRATION_015` · descuento en la transacción que completa la venta · 1021 pruebas |
+| 2026-09-20 | **sin porcentaje** | **`D-19` cerrada — C19 sube a `END_TO_END`**. `catalog_fiscal_attribute` tenía dos lectores y **cero escritores**: ninguna ruta de usuario podía dar a una presentación sus códigos DIAN, así que ningún producto dado de alta por el POS se podía facturar. Se cierra con una **operación nueva**, `catalog.fiscal.attribute.set`, no con un campo más en `catalog.product.register`: un código fiscal equivocado se corrige y el alta ocurre una sola vez, y añadir es menos invasivo sobre una superficie ratificada que modificarla. El caso de uso valida con `validateFiscalDocumentItem` **antes** de escribir —lo que la propia deuda exigía—, sobre un ítem sonda neutro y filtrando los hallazgos a las rutas del atributo, porque la tabla comprueba la **forma** de los códigos con `GLOB` y no su **pertenencia**: `"95"`, `"998"` y `"99"` se guardarían sin protesta para reventar al emitir. Reutiliza el permiso `CATALOG_PRODUCT_REGISTER` en vez de inventar uno que habría que sembrar en los roles. **La prueba que afirmaba el bloqueo ahora afirma lo contrario, y ese cambio es la evidencia:** `real-channel.spec.ts` declara los códigos desde la ventana de Electron, `LINE_FISCAL_ATTRIBUTE_MISSING` desaparece, el mostrador anónimo queda bloqueado por su única causa restante (`GENERIC_ACQUIRER_NOT_VERIFIED`, `D-13`) y con adquiriente identificado la factura sale **`ISSUED`** con CUFE y número — 16/16 E2E con `xvfb-run`. `channel-commercial-vertical.test.ts` deja de sembrar el atributo a mano y lo declara por el socket real; se añaden 7 pruebas propias de la operación (escritura, idempotencia, conflicto de clave, corrección, códigos no verificados, tasa fuera de rango y aislamiento por tenant) y 4 de renderer. Ese `ISSUED` es contra `FakeIssuancePort`: el proveedor real sigue siendo `F6`, por eso la columna de proveedor de C19 no se mueve. Recuento: `END_TO_END` **6 → 7**, `CALLER_REACHABLE` **5 → 4**, total **61** (sin cambio: C19 se mueve, no se crea) |
 | 2026-09-12 | **sin porcentaje** | **cambio de gobernanza**, medido contra `02b89bb`. Se retira `CANONICALLY_APPLIED` y se retira el global. Las 35 filas que lo declaraban se recalculan contra siete peldaños con evidencia separada; **ninguna alcanzaba `CALLER_REACHABLE`**. Se corrige la etiqueta de A1 (`001..011` → `001..015`) y el error aritmético del bloque B (decía 740 / 62 %; la suma real de sus propias filas era 810 / 68 %) |
 | 2026-09-13 | **sin porcentaje** | **merge de la PR #75** (`2aa8acc`, segundo padre `83542bc`). Primer movimiento al alza con evidencia desde el cambio de gobernanza: `CALLER_REACHABLE` **0 → 4** (A9, B6, B7, B10) y `END_TO_END` **0 → 3** (B1, B4, B5). Lo acredita `channel-commercial-vertical.test.ts` —socket real, handler de producción y SQLite— y, para las tres de `END_TO_END`, `real-channel.spec.ts`, que las invoca desde la pantalla de Electron. **Se anota que la previsión era 7 y 6: era incorrecta**, porque contaba filas cuyo alta de catálogo o de existencia sólo se ejecuta por `page.evaluate`, que no es superficie de producto. Se conserva el recuento medido, no el previsto |
 | 2026-09-15 | **sin porcentaje** | **`DEC-021` F5, mitad pantalla — C19 **no** sube, y el hallazgo es el resultado**. `FiscalPanel` y `useFiscalIssuance` existen, están montados en `App` y el E2E de Electron los conduce contra el servicio real: la emisión fiscal ya se dispara desde el producto, no sólo desde una prueba de canal. Y aun así `C19` se queda en `CALLER_REACHABLE`, porque **la cadena no llega a escribir el documento**. El motivo, ahora demostrado en vez de supuesto, es `D-19`: `catalog_fiscal_attribute` tiene **un lector en producción y cero escritores** —ninguna pantalla, ningún caso de uso, ninguna operación del canal puede dar a una presentación su `unit_measure_code`, `standard_code`, `tax_code` y `tax_rate`—, de modo que **ningún producto dado de alta por el producto real se puede facturar**. El E2E lo afirma con las dos formas de adquiriente: identificado y anónimo bloquean **igual**, con `LINE_FISCAL_ATTRIBUTE_MISSING`, lo que prueba además que `D-13` no es el único obstáculo. Sembrar el atributo en el arnés habría puesto la prueba en verde afirmando una capacidad inexistente: no se hizo, y esa decisión queda escrita en la propia prueba. Corregido de paso un defecto del arnés que el guardia de `InsecureDerivedKeyProvider` destapó: el proceso E2E no declaraba `NODE_ENV=test` y el almacén de secretos fiscal se negaba a construirse —el guardia hizo exactamente su trabajo—. 5 pruebas de renderer nuevas y 1 E2E; recuento **sin cambios** |
