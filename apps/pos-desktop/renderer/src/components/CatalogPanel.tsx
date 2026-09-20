@@ -33,6 +33,12 @@ export function CatalogPanel(): React.JSX.Element {
   const [standardCode, setStandardCode] = useState("999");
   const [taxCode, setTaxCode] = useState("01");
   const [taxRate, setTaxRate] = useState("19");
+  const [addProductId, setAddProductId] = useState("");
+  const [addName, setAddName] = useState("");
+  const [addUnitCode, setAddUnitCode] = useState("UND");
+  const [addUnitPrecision, setAddUnitPrecision] = useState("0");
+  const [addBarcode, setAddBarcode] = useState("");
+  const [addPrice, setAddPrice] = useState("");
 
   // Prerrellenar copiando al estado, no calculando el valor mostrado: si el
   // campo fuese un valor derivado, borrarlo volvería a mostrar la presentación
@@ -54,6 +60,19 @@ export function CatalogPanel(): React.JSX.Element {
     || name.trim() === ""
     || presentationName.trim() === ""
     || price.trim() === "";
+
+  // El producto recién dado de alta se copia también aquí: añadir la segunda
+  // presentación es el paso siguiente natural, y obligar a copiar el id a mano
+  // es justo lo que una pantalla existe para evitar.
+  const registeredProductId = catalog.product?.productId ?? null;
+  useEffect(() => {
+    if (registeredProductId !== null) setAddProductId(registeredProductId);
+  }, [registeredProductId]);
+
+  const addIncomplete = addProductId.trim() === ""
+    || addName.trim() === ""
+    || addUnitCode.trim() === ""
+    || addPrice.trim() === "";
 
   return (
     <section data-testid="catalog-panel">
@@ -233,6 +252,80 @@ export function CatalogPanel(): React.JSX.Element {
             </li>
           ))}
         </ul>
+      )}
+
+      <h3>Otra presentación del mismo producto</h3>
+      {/* La unidad y el paquete del mismo artículo. Cada presentación lleva su
+          propia existencia: vender una paca NO descuenta unidades. */}
+
+      <input
+        data-testid="add-presentation-product-id-input"
+        value={addProductId}
+        onChange={(e) => { setAddProductId(e.target.value); }}
+        placeholder="Producto"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="add-presentation-name-input"
+        value={addName}
+        onChange={(e) => { setAddName(e.target.value); }}
+        placeholder="Presentación (p. ej. Paca x12)"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="add-presentation-unit-code-input"
+        value={addUnitCode}
+        onChange={(e) => { setAddUnitCode(e.target.value); }}
+        placeholder="Unidad"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="add-presentation-unit-precision-input"
+        value={addUnitPrecision}
+        onChange={(e) => { setAddUnitPrecision(e.target.value); }}
+        placeholder="Decimales de la unidad"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="add-presentation-barcode-input"
+        value={addBarcode}
+        onChange={(e) => { setAddBarcode(e.target.value); }}
+        placeholder="Código de barras (opcional)"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="add-presentation-price-input"
+        value={addPrice}
+        onChange={(e) => { setAddPrice(e.target.value); }}
+        placeholder="Precio"
+        disabled={catalog.busy}
+      />
+
+      <button
+        data-testid="add-presentation-button"
+        onClick={() => {
+          void catalog.addPresentation({
+            productId: addProductId.trim(),
+            name: addName.trim(),
+            unitCode: addUnitCode.trim(),
+            unitPrecision: Number.parseInt(addUnitPrecision.trim(), 10),
+            barcode: addBarcode,
+            price: addPrice,
+            currencyCode: currency.trim(),
+          });
+        }}
+        disabled={catalog.busy || addIncomplete}
+      >
+        Añadir presentación
+      </button>
+
+      {catalog.presentationOutcome !== null && (
+        <div data-testid="add-presentation-outcome">{catalog.presentationOutcome}</div>
+      )}
+      {/* También en el rechazo por duplicado: dice cuál presentación usa ya ese
+          código, para poder ir a ella en vez de reintentar a ciegas. */}
+      {catalog.addedPresentationId !== null && (
+        <span data-testid="added-presentation-id">{catalog.addedPresentationId}</span>
       )}
 
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}

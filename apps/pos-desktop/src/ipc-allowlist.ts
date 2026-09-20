@@ -36,6 +36,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:catalog.product.register",
   // D-19 — escritura de atributos fiscales de la presentación.
   "pos:catalog.fiscal.attribute.set",
+  "pos:catalog.presentation.add",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   // Inventario — `MIGRATION_015`.

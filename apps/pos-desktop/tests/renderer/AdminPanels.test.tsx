@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CatalogFiscalAttributeSetRequestSchema,
+  CatalogPresentationAddRequestSchema,
   CatalogProductRegisterRequestSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
@@ -259,6 +260,107 @@ describe("CatalogPanel — códigos fiscales (D-19)", () => {
     // Prerrellenar no es fijar: corregir una presentación anterior es el motivo
     // de que esto sea una operación aparte y no un campo del alta.
     const other = "33333333-3333-4333-8333-333333333333";
+    fireEvent.change(field, { target: { value: other } });
+    expect(field.value).toBe(other);
+  });
+});
+
+/**
+ * La segunda presentación de un producto. Sin esta pantalla la operación existe
+ * y no la alcanza nadie: una tienda de barrio no podría declarar el paquete.
+ */
+describe("CatalogPanel — otra presentación del mismo producto", () => {
+  const PACK = "44444444-4444-4444-8444-444444444444";
+  const ADDED = {
+    status: "SUCCEEDED",
+    result_code: "ADDED",
+    result: { outcome: "ADDED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PACK },
+  };
+
+  function fillPresentation(): void {
+    fireEvent.change(screen.getByTestId("add-presentation-product-id-input"), {
+      target: { value: "11111111-1111-4111-8111-111111111111" },
+    });
+    fireEvent.change(screen.getByTestId("add-presentation-name-input"), {
+      target: { value: "Paca x12" },
+    });
+    fireEvent.change(screen.getByTestId("add-presentation-price-input"), {
+      target: { value: "180000" },
+    });
+  }
+
+  it("construye un sobre que el esquema real del contrato acepta", async () => {
+    install(ADDED);
+    render(<CatalogPanel />);
+    fillPresentation();
+    fireEvent.change(screen.getByTestId("add-presentation-barcode-input"), {
+      target: { value: "7709000000033" },
+    });
+    fireEvent.click(screen.getByTestId("add-presentation-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("add-presentation-outcome").textContent).toBe("ADDED");
+    });
+
+    const envelope = sent("catalog.presentation.add");
+    expect(() => CatalogPresentationAddRequestSchema.parse(envelope)).not.toThrow();
+    const payload = envelope["payload"] as Record<string, unknown>;
+    expect(payload["name"]).toBe("Paca x12");
+    expect(payload["price_amount"]).toBe("180000.000000");
+    expect(payload["barcode"]).toBe("7709000000033");
+    expect(envelope["tenant_id"]).toBeUndefined();
+  });
+
+  it("un código de barras vacío viaja como null, no como cadena vacía", async () => {
+    install(ADDED);
+    render(<CatalogPanel />);
+    fillPresentation();
+    fireEvent.click(screen.getByTestId("add-presentation-button"));
+
+    await waitFor(() => { expect(calls.get("catalog.presentation.add")).toBeDefined(); });
+    const payload = sent("catalog.presentation.add")["payload"] as Record<string, unknown>;
+    expect(payload["barcode"]).toBeNull();
+  });
+
+  it("el duplicado muestra cuál presentación usa ya ese código", async () => {
+    install({
+      status: "REJECTED",
+      result_code: "BARCODE_ALREADY_REGISTERED",
+      result: { outcome: "BARCODE_ALREADY_REGISTERED", product_id: null, presentation_id: PRESENTATION },
+    });
+    render(<CatalogPanel />);
+    fillPresentation();
+    fireEvent.click(screen.getByTestId("add-presentation-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("add-presentation-outcome").textContent)
+        .toBe("BARCODE_ALREADY_REGISTERED");
+    });
+    // Reintentar a ciegas no sirve: hay que ir a la presentación que lo tiene.
+    expect(screen.getByTestId("added-presentation-id").textContent).toBe(PRESENTATION);
+  });
+
+  it("el alta prerrellena el producto, y el operador puede sustituirlo", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "REGISTERED",
+      result: {
+        outcome: "REGISTERED",
+        product_id: "11111111-1111-4111-8111-111111111111",
+        presentation_id: PRESENTATION,
+      },
+    });
+    render(<CatalogPanel />);
+    fireEvent.change(screen.getByTestId("product-code-input"), { target: { value: "ARZ-500" } });
+    fireEvent.change(screen.getByTestId("product-name-input"), { target: { value: "Arroz" } });
+    fireEvent.change(screen.getByTestId("presentation-name-input"), { target: { value: "Bolsa 500g" } });
+    fireEvent.change(screen.getByTestId("product-price-input"), { target: { value: "1500" } });
+    fireEvent.click(screen.getByTestId("register-product-button"));
+
+    const field = screen.getByTestId("add-presentation-product-id-input") as HTMLInputElement;
+    await waitFor(() => { expect(field.value).toBe("11111111-1111-4111-8111-111111111111"); });
+
+    const other = "55555555-5555-4555-8555-555555555555";
     fireEvent.change(field, { target: { value: other } });
     expect(field.value).toBe(other);
   });

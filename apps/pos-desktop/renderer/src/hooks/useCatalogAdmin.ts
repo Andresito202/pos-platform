@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type {
   CatalogFiscalAttributeSetResult,
+  CatalogPresentationAddResult,
   CatalogProductRegisterResult,
 } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
@@ -52,6 +53,17 @@ export interface FiscalAttributeInput {
 /** Qué código no se verificó y dónde. Nunca el valor. */
 export type FiscalAttributeFinding = CatalogFiscalAttributeSetResult["findings"][number];
 
+export interface PresentationInput {
+  readonly productId: string;
+  readonly name: string;
+  readonly unitCode: string;
+  readonly unitPrecision: number;
+  readonly barcode: string;
+  /** Tal como lo teclea el operador: `1500`, `1500,50`. */
+  readonly price: string;
+  readonly currencyCode: string;
+}
+
 export interface CatalogAdminState {
   readonly busy: boolean;
   readonly product: RegisteredProduct | null;
@@ -60,11 +72,15 @@ export interface CatalogAdminState {
   readonly error: string | null;
   readonly fiscalOutcome: CatalogFiscalAttributeSetResult["outcome"] | null;
   readonly fiscalFindings: readonly FiscalAttributeFinding[];
+  readonly presentationOutcome: CatalogPresentationAddResult["outcome"] | null;
+  /** La presentación recién añadida, o la que ya usaba el código de barras. */
+  readonly addedPresentationId: string | null;
 }
 
 export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
   setFiscalAttribute(input: FiscalAttributeInput): Promise<void>;
+  addPresentation(input: PresentationInput): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<RegisteredProduct | null>(null);
@@ -73,6 +89,9 @@ export function useCatalogAdmin(): CatalogAdminState & {
   const [fiscalOutcome, setFiscalOutcome] =
     useState<CatalogFiscalAttributeSetResult["outcome"] | null>(null);
   const [fiscalFindings, setFiscalFindings] = useState<readonly FiscalAttributeFinding[]>([]);
+  const [presentationOutcome, setPresentationOutcome] =
+    useState<CatalogPresentationAddResult["outcome"] | null>(null);
+  const [addedPresentationId, setAddedPresentationId] = useState<string | null>(null);
 
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
     setBusy(true);
@@ -165,8 +184,52 @@ export function useCatalogAdmin(): CatalogAdminState & {
     }
   }, []);
 
+  const addPresentation = useCallback(async (input: PresentationInput): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setPresentationOutcome(null);
+    setAddedPresentationId(null);
+    try {
+      const price = toScale6(input.price);
+      if (price === null) {
+        setError("PRICE_NOT_SCALE6");
+        return;
+      }
+
+      const response = await callCommercial<CatalogPresentationAddResult>(
+        "catalog.presentation.add",
+        {
+          product_id: input.productId.trim(),
+          name: input.name.trim(),
+          unit_code: input.unitCode.trim(),
+          unit_precision: input.unitPrecision,
+          // Una presentación a granel sin código de barras es corriente, no un
+          // error de captura. Misma regla que el alta.
+          barcode: input.barcode.trim() === "" ? null : input.barcode.trim(),
+          price_amount: price,
+          currency_code: input.currencyCode.trim(),
+        },
+        newIdempotencyKey(),
+      );
+
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setPresentationOutcome(response.result.outcome);
+      // También en el rechazo por código duplicado: dice **cuál** presentación
+      // lo usa ya, que es lo que el operador necesita para ir a ella.
+      setAddedPresentationId(response.result.presentation_id);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   return {
     busy, product, outcome, error, fiscalOutcome, fiscalFindings,
-    registerProduct, setFiscalAttribute,
+    presentationOutcome, addedPresentationId,
+    registerProduct, setFiscalAttribute, addPresentation,
   };
 }

@@ -19,6 +19,7 @@ import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { SetFiscalAttributeUseCase } from "../catalog/set-fiscal-attribute-use-case.js";
+import { AddPresentationUseCase } from "../catalog/add-presentation-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
@@ -119,6 +120,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
         readonly setFiscalAttribute: SetFiscalAttributeUseCase;
+        readonly addPresentation: AddPresentationUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
@@ -198,6 +200,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
   get setFiscalAttribute(): SetFiscalAttributeUseCase { return this.ready.setFiscalAttribute; }
+  get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
@@ -288,6 +291,7 @@ export class CommercialComponent implements RuntimeComponent {
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
       setFiscalAttribute: new SetFiscalAttributeUseCase(catalogStore),
+      addPresentation: new AddPresentationUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),

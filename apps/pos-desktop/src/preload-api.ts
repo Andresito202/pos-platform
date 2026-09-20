@@ -27,6 +27,9 @@ export const RENDERER_API_METHODS = [
   // D-19: sin esta operación ningún producto dado de alta aquí se puede
   // facturar, porque la línea fiscal no encuentra sus códigos DIAN.
   "catalog.fiscal.attribute.set",
+  // La segunda presentación de un producto: la unidad y el paquete del mismo
+  // artículo, que una tienda de barrio necesita el primer día.
+  "catalog.presentation.add",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",

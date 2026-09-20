@@ -62,6 +62,33 @@ export interface CatalogFiscalAttribute {
   readonly taxRate: string;
 }
 
+export interface AddPresentationInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly productId: string;
+  readonly presentationId: string;
+  readonly priceId: string;
+  readonly operationId: string;
+  readonly name: string;
+  readonly unitCode: string;
+  readonly unitPrecision: number;
+  readonly barcode: string | null;
+  readonly priceAmount: string;
+  readonly currencyCode: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type AddPresentationOutcome =
+  | { readonly kind: "ADDED"; readonly productId: string; readonly presentationId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly productId: string; readonly presentationId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PRODUCT_NOT_FOUND" }
+  | { readonly kind: "BARCODE_ALREADY_REGISTERED"; readonly presentationId: string };
+
 export interface SetFiscalAttributeInput {
   readonly scope: SyncScope;
   readonly sessionId: string;
@@ -361,6 +388,143 @@ export class SqliteCatalogStore {
         productId: input.productId,
         presentationId: input.presentationId,
       };
+    })();
+  }
+
+  /**
+   * Añade una presentación a un producto **que ya existe**.
+   *
+   * Presentación y precio van en la misma transacción por la misma razón que
+   * en el alta: una presentación sin precio no es vendible, y media fila no
+   * sirve en una caja.
+   *
+   * **No declara conversión.** Esta presentación nace con su propia existencia,
+   * independiente de las demás del mismo producto, que es lo que `DEC-004`
+   * §1129 manda. Vender una paca no descuenta unidades: son dos saldos. La
+   * conversión exige `contained_quantity`/`conversion_factor` (`DEC-004` §747),
+   * que `MIGRATION_014` no materializó.
+   */
+  addPresentation(input: AddPresentationInput): AddPresentationOutcome {
+    return this.database.native.transaction((): AddPresentationOutcome => {
+      const nowIso = this.now().toISOString();
+
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) {
+          return { kind: "IDEMPOTENCY_CONFLICT" };
+        }
+        return { kind: "IDEMPOTENT", productId: input.productId, presentationId: input.presentationId };
+      }
+
+      // El producto se resuelve bajo el `tenant` del contexto verificado. Que
+      // el llamador nombre un producto no es aportar ámbito, y uno de otro
+      // tenant simplemente no existe aquí.
+      const product = this.database.native.prepare(
+        "SELECT id FROM catalog_product WHERE tenant_id=? AND company_id=? AND id=? AND status='ACTIVE'",
+      ).get(input.scope.tenantId, input.scope.companyId, input.productId) as { id: string } | undefined;
+      if (product === undefined) return { kind: "PRODUCT_NOT_FOUND" };
+
+      // Un código de barras identifica **una sola** presentación en todo el
+      // tenant, no una por producto: sin esa garantía el cajero cobraría un
+      // artículo distinto del escaneado sin forma de notarlo.
+      if (input.barcode !== null) {
+        const duplicateBarcode = this.database.native.prepare(
+          "SELECT id FROM catalog_presentation WHERE tenant_id=? AND barcode=?",
+        ).get(input.scope.tenantId, input.barcode) as { id: string } | undefined;
+        if (duplicateBarcode !== undefined) {
+          return { kind: "BARCODE_ALREADY_REGISTERED", presentationId: duplicateBarcode.id };
+        }
+      }
+
+      this.database.native.prepare(
+        `INSERT INTO catalog_presentation(
+          id, tenant_id, product_id, name, unit_code, unit_precision,
+          barcode, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+      ).run(
+        input.presentationId, input.scope.tenantId, input.productId,
+        input.name, input.unitCode, input.unitPrecision,
+        input.barcode, nowIso, nowIso,
+      );
+
+      this.database.native.prepare(
+        `INSERT INTO catalog_price(
+          id, tenant_id, presentation_id, amount, currency_code,
+          status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,'ACTIVE',?,?)`,
+      ).run(
+        input.priceId, input.scope.tenantId, input.presentationId,
+        input.priceAmount, input.currencyCode, nowIso, nowIso,
+      );
+
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','ADDED',?,?)`,
+      ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+
+      // El importe no entra en la auditoría, igual que en el alta: es el dato
+      // que un rastro no necesita y cuya filtración sí facilita.
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_PRESENTATION_ADD','CATALOG_PRESENTATION',?,?,?,NULL,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId,
+        input.presentationId, input.correlationId, input.causationId,
+        canonicalJson({ product_id: input.productId, unit_code: input.unitCode }),
+        nowIso,
+      );
+
+      const nextSequence = (this.database.native.prepare(
+        `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId,
+        input.scope.deviceId, input.scope.installationId,
+      ) as NextSequenceRow).next_sequence;
+
+      this.durableSync.enqueue({
+        operation_id: input.operationId,
+        tenant_id: input.scope.tenantId,
+        company_id: input.scope.companyId,
+        branch_id: input.scope.branchId,
+        device_id: input.scope.deviceId,
+        installation_id: input.scope.installationId,
+        session_id: input.sessionId,
+        actor_id: input.operatorUserId,
+        aggregate_type: "CATALOG_PRESENTATION",
+        aggregate_id: input.presentationId,
+        operation_type: "CATALOG_PRESENTATION_ADD",
+        authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
+        local_sequence: nextSequence,
+        idempotency_key: input.idempotencyKey,
+        expected_version: null,
+        payload_schema_version: CATALOG_PAYLOAD_SCHEMA_VERSION,
+        payload: {
+          product_id: input.productId,
+          presentation_id: input.presentationId,
+          name: input.name,
+          unit_code: input.unitCode,
+          unit_precision: input.unitPrecision,
+          barcode: input.barcode,
+          price_amount: input.priceAmount,
+          currency_code: input.currencyCode,
+        },
+        payload_checksum: input.requestChecksum,
+        causation_id: input.causationId,
+        correlation_id: input.correlationId,
+        occurred_at_local: nowIso,
+        recorded_at_local: nowIso,
+      });
+
+      return { kind: "ADDED", productId: input.productId, presentationId: input.presentationId };
     })();
   }
 

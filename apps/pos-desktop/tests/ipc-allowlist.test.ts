@@ -28,6 +28,7 @@ describe("ipc-allowlist", () => {
       "pos:fiscal.document.issue",
       "pos:catalog.product.register",
       "pos:catalog.fiscal.attribute.set",
+      "pos:catalog.presentation.add",
       "pos:catalog.item.find",
       "pos:catalog.item.get",
       "pos:inventory.stock.receive",

@@ -1817,3 +1817,190 @@ describe("catalog.fiscal.attribute.set — el escritor que faltaba (D-19)", () =
     });
   }, 30_000);
 });
+
+/**
+ * `catalog.presentation.add` — la segunda presentación de un producto.
+ *
+ * `DEC-004` fija `Product 1 ─── 1..N ProductPresentation` y el esquema lo
+ * admitía desde `MIGRATION_014`, pero no había forma de llegar a la segunda:
+ * `catalog.product.register` creaba producto, presentación y precio en una
+ * transacción y era la única escritura de catálogo.
+ *
+ * Lo que estas pruebas **no** afirman: conversión. Cada presentación lleva su
+ * propia existencia, y hay una prueba abajo que lo fija para que nadie lo
+ * confunda con un defecto.
+ */
+describe("catalog.presentation.add — la unidad y el paquete del mismo artículo", () => {
+  async function addPack(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    productId: string,
+    key: string,
+    overrides: Record<string, unknown> = {},
+  ): Promise<ChannelResponse> {
+    return send(mutating("catalog.presentation.add", {
+      product_id: productId,
+      name: "Paca x12",
+      unit_code: "PACA",
+      unit_precision: 0,
+      barcode: null,
+      price_amount: "180000.000000",
+      currency_code: "COP",
+      ...overrides,
+    }, key));
+  }
+
+  it("añade la presentación con su precio y la deja vendible, con auditoría y outbox", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId, productId } = await prepareCounter(send, database, "pres1");
+
+      const added = await addPack(send, productId, "pres1:add", { barcode: "7709000000011" });
+      expect(added.status).toBe("SUCCEEDED");
+      expect(added.result["outcome"]).toBe("ADDED");
+      expect(added.result["product_id"]).toBe(productId);
+      const packId = added.result["presentation_id"] as string;
+      expect(packId).not.toBe(presentationId);
+
+      // El efecto, donde queda escrito.
+      expect(database.native.prepare(
+        "SELECT name, unit_code, barcode, status FROM catalog_presentation WHERE tenant_id=? AND id=?",
+      ).get(TENANT, packId)).toEqual({
+        name: "Paca x12", unit_code: "PACA", barcode: "7709000000011", status: "ACTIVE",
+      });
+      expect(database.native.prepare(
+        "SELECT amount, currency_code, status FROM catalog_price WHERE tenant_id=? AND presentation_id=?",
+      ).get(TENANT, packId)).toEqual({
+        amount: "180000.000000", currency_code: "COP", status: "ACTIVE",
+      });
+
+      // Dos presentaciones colgando del mismo producto: es la capacidad.
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM catalog_presentation WHERE tenant_id=? AND product_id=?",
+        TENANT, productId,
+      )).toBe(2);
+
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM local_operation_audit WHERE action_code=? AND resource_id=?",
+        "CATALOG_PRESENTATION_ADD", packId,
+      )).toBe(1);
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM local_sync_outbox WHERE operation_type=? AND idempotency_key=?",
+        "CATALOG_PRESENTATION_ADD", "pres1:add",
+      )).toBe(1);
+    });
+  }, 30_000);
+
+  it("el lector encuentra cada presentación por su propio código", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId, productId } = await prepareCounter(send, database, "pres2");
+      const added = await addPack(send, productId, "pres2:add", { barcode: "7709000000022" });
+      const packId = added.result["presentation_id"] as string;
+
+      // Escanear la paca da la paca; escanear la unidad da la unidad. Sin esto
+      // el cajero cobraría el artículo equivocado sin forma de notarlo.
+      const pack = await send(reading("catalog.item.find", { barcode: "7709000000022" }));
+      expect(pack.result["presentation_id"]).toBe(packId);
+      expect(pack.result["product_id"]).toBe(productId);
+      expect(pack.result["price_amount"]).toBe("180000.000000");
+
+      const unit = await send(reading("catalog.item.find", { barcode: BARCODE }));
+      expect(unit.result["presentation_id"]).toBe(presentationId);
+      expect(unit.result["price_amount"]).toBe("18000.000000");
+    });
+  }, 30_000);
+
+  /**
+   * El límite del alcance, fijado como prueba para que no se lea como defecto.
+   *
+   * `DEC-004` §747 especifica `contained_quantity` y `conversion_factor`;
+   * `MIGRATION_014` no los materializó. Mientras no existan, vender la paca no
+   * puede descontar unidades: no hay dato que diga cuántas lleva.
+   */
+  it("cada presentación lleva su propia existencia: vender la paca NO descuenta unidades", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId, productId } = await prepareCounter(send, database, "pres3");
+      const added = await addPack(send, productId, "pres3:add");
+      const packId = added.result["presentation_id"] as string;
+
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: packId, movement_type: "PURCHASE_RECEIPT", quantity: "3.000000",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "pres3:stock"));
+
+      expect(stockOf(database, packId)).toBe("3.000000");
+      // La unidad conserva las 12 que dejó `prepareCounter`. Son dos saldos.
+      expect(stockOf(database, presentationId)).toBe("12.000000");
+
+      const sale = await createSale(
+        send, { presentationId: packId, productId }, "1.000000", "pres3:sale",
+      );
+      await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: sale.payable, tendered_amount: null,
+      }, "pres3:pay"));
+
+      expect(stockOf(database, packId)).toBe("2.000000");
+      // Ni una unidad menos: la conversión no existe todavía y no se finge.
+      expect(stockOf(database, presentationId)).toBe("12.000000");
+    });
+  }, 30_000);
+
+  it("un código de barras ya usado se rechaza diciendo cuál presentación lo tiene", async () => {
+    await withRealChannel(async (send, database) => {
+      const { presentationId, productId } = await prepareCounter(send, database, "pres4");
+
+      const collision = await addPack(send, productId, "pres4:add", { barcode: BARCODE });
+      expect(collision.status).toBe("REJECTED");
+      expect(collision.result["outcome"]).toBe("BARCODE_ALREADY_REGISTERED");
+      expect(collision.result["presentation_id"]).toBe(presentationId);
+
+      // Y no escribió nada: el producto sigue con una sola presentación.
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM catalog_presentation WHERE tenant_id=? AND product_id=?",
+        TENANT, productId,
+      )).toBe(1);
+    });
+  }, 30_000);
+
+  it("repetir la misma petición es IDEMPOTENT y no crea una segunda fila", async () => {
+    await withRealChannel(async (send, database) => {
+      const { productId } = await prepareCounter(send, database, "pres5");
+      expect((await addPack(send, productId, "pres5:add")).result["outcome"]).toBe("ADDED");
+      expect((await addPack(send, productId, "pres5:add")).result["outcome"]).toBe("IDEMPOTENT");
+
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM catalog_presentation WHERE tenant_id=? AND product_id=?",
+        TENANT, productId,
+      )).toBe(2);
+    });
+  }, 30_000);
+
+  it("un producto de otro tenant no se encuentra: PRODUCT_NOT_FOUND", async () => {
+    await withRealChannel(async (send, database) => {
+      const { productId } = await prepareCounter(send, database, "pres6");
+      const foreignTenant = "018f0000-0000-7000-8000-0000000d2900";
+      const foreignProduct = "018f0000-0000-7000-8000-0000000d2901";
+      const at = NOW.toISOString();
+      database.native.prepare(`
+        INSERT INTO catalog_product(
+          id, tenant_id, company_id, code, name, status, stock_controlled,
+          registered_by_actor_id, idempotency_key, correlation_id, version,
+          created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        foreignProduct, foreignTenant, COMPANY, "AJENO-2", "Producto ajeno",
+        "ACTIVE", 0, USER, "pres6:foreign", randomUUID(), 1, at, at,
+      );
+
+      const response = await addPack(send, foreignProduct, "pres6:add");
+      expect(response.status).toBe("REJECTED");
+      expect(response.result["outcome"]).toBe("PRODUCT_NOT_FOUND");
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM catalog_presentation WHERE product_id=?", foreignProduct,
+      )).toBe(0);
+      // El del tenant propio sigue con la suya y nada más.
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM catalog_presentation WHERE tenant_id=? AND product_id=?",
+        TENANT, productId,
+      )).toBe(1);
+    });
+  }, 30_000);
+});

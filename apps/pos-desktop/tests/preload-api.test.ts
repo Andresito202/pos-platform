@@ -32,6 +32,7 @@ describe("preload-api", () => {
       "fiscal.document.issue",
       "catalog.product.register",
       "catalog.fiscal.attribute.set",
+      "catalog.presentation.add",
       "catalog.item.find",
       "catalog.item.get",
       "inventory.stock.receive",

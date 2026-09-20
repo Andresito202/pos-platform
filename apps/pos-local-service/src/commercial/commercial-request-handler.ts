@@ -22,6 +22,7 @@ type CommercialRequest = Extract<
       | "customer.register" | "customer.get" | "customer.find"
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.fiscal.attribute.set"
+      | "catalog.presentation.add"
       | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "sales.receipt.get";
@@ -73,6 +74,7 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   // Los códigos tienen forma válida pero no pertenecen a las tablas DIAN
   // verificadas: es la petición la que está mal, no el estado del catálogo.
   FISCAL_CODES_NOT_VERIFIED: "VALIDATION",
+  PRODUCT_NOT_FOUND: "NOT_FOUND",
   FISCAL_NOT_CONFIGURED: "CONFLICT",
   CUSTOMER_NOT_FOUND: "NOT_FOUND",
   NOT_ELIGIBLE: "CONFLICT",
@@ -211,6 +213,7 @@ export class CommercialRequestHandler {
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.fiscal.attribute.set": return this.setFiscalAttribute(request, connectionId);
+      case "catalog.presentation.add": return this.addPresentation(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "inventory.stock.receive":
@@ -1003,6 +1006,58 @@ export class CommercialRequestHandler {
         outcome: result.kind,
         presentation_id: null,
         findings: result.findings.map((finding) => ({ code: finding.code, path: finding.path })),
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  // ── catalog.presentation.add ───────────────────────────────────────────────
+
+  /**
+   * La segunda presentación de un producto. `product_id` lo aporta el llamador
+   * —es un dato de negocio, no ámbito—, pero el producto se resuelve bajo el
+   * tenant del contexto verificado, así que uno ajeno no existe.
+   */
+  private addPresentation(
+    request: Extract<CommercialRequest, { message_type: "catalog.presentation.add" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { product_id: null, presentation_id: null };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.addPresentation.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        productId: payload.product_id,
+        name: payload.name,
+        unitCode: payload.unit_code,
+        unitPrecision: payload.unit_precision,
+        barcode: payload.barcode,
+        priceAmount: payload.price_amount,
+        currencyCode: payload.currency_code,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "ADDED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        product_id: result.productId,
+        presentation_id: result.presentationId,
+      });
+    }
+    if (result.kind === "BARCODE_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, product_id: null, presentation_id: result.presentationId,
       });
     }
     return rejected(request, result.kind, { outcome: result.kind, ...empty });

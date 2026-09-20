@@ -1148,6 +1148,75 @@ export const CatalogFiscalAttributeSetResultSchema = z.strictObject({
 export const CatalogFiscalAttributeSetResponseSchema =
   createResponseEnvelopeSchema(CatalogFiscalAttributeSetResultSchema);
 
+// ── catalog.presentation.add ─────────────────────────────────────────────────
+
+/**
+ * Añade una presentación **a un producto que ya existe**.
+ *
+ * `DEC-004` fija `Product 1 ─── 1..N ProductPresentation` y el esquema lo
+ * admite —`catalog_presentation` cuelga de `catalog_product` con índice por
+ * producto—, pero **no había forma de llegar a la segunda**:
+ * `catalog.product.register` crea producto, presentación y precio en una sola
+ * transacción y era la única escritura de catálogo. Una tienda de barrio que
+ * vende la unidad y el paquete del mismo artículo, o una licorera con la
+ * botella y la caja, no podía representarlos.
+ *
+ * **Qué NO hace, y hay que leerlo antes de usarla.** No declara conversión
+ * entre presentaciones. `DEC-004` §747 especifica `contained_quantity` y
+ * `conversion_factor` como atributos de la presentación, y `MIGRATION_014`
+ * **no los materializó**. En consecuencia cada presentación lleva su propia
+ * existencia —que es exactamente lo que `DEC-004` §1129 manda: «el inventario
+ * operativo pertenece a `ProductPresentation`»— y **vender una paca de 12 no
+ * descuenta 12 unidades de la presentación «unidad»**. Son dos saldos
+ * independientes. Abrir una paca y convertirla en unidades exige esa columna y
+ * una migración, y es una capacidad aparte.
+ *
+ * El precio entra aquí por la misma razón que en el alta: una presentación sin
+ * precio no es vendible, y dejarla a medias sería un estado que ninguna
+ * pantalla puede resolver.
+ */
+export const CatalogPresentationAddRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    name: z.string().min(1).max(200),
+    unit_code: z.string().min(1).max(16),
+    unit_precision: z.number().int().min(0).max(6),
+    barcode: BarcodeSchema.nullable(),
+    price_amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+  }),
+).safeExtend({ message_type: z.literal("catalog.presentation.add") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogPresentationAddOutcomeSchema = z.enum([
+  "ADDED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  /** El producto no existe bajo el tenant del contexto verificado. */
+  "PRODUCT_NOT_FOUND",
+  "BARCODE_ALREADY_REGISTERED",
+]);
+
+/**
+ * `presentation_id` viaja también en `BARCODE_ALREADY_REGISTERED`: devuelve
+ * **cuál** es la presentación que ya usa ese código, porque quien lo captura
+ * necesita ir a ella, no reintentar a ciegas. Misma regla que el alta.
+ */
+export const CatalogPresentationAddResultSchema = z.strictObject({
+  outcome: CatalogPresentationAddOutcomeSchema,
+  product_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+});
+
+export type CatalogPresentationAddResult = z.infer<typeof CatalogPresentationAddResultSchema>;
+
+export const CatalogPresentationAddResponseSchema =
+  createResponseEnvelopeSchema(CatalogPresentationAddResultSchema);
+
 // ── catalog.item.find · catalog.item.get ─────────────────────────────────────
 
 /**
@@ -1381,6 +1450,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.find",
   "catalog.product.register",
   "catalog.fiscal.attribute.set",
+  "catalog.presentation.add",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",
@@ -1411,6 +1481,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.find",
   "pos:catalog.product.register",
   "pos:catalog.fiscal.attribute.set",
+  "pos:catalog.presentation.add",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:inventory.stock.receive",

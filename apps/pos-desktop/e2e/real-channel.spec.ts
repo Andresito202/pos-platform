@@ -536,6 +536,59 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
 });
 
 /**
+ * La segunda presentación del mismo artículo, desde la pantalla real.
+ *
+ * Es el caso de la tienda de barrio y la licorera: vender la unidad y el
+ * paquete del mismo producto. `DEC-004` lo admite desde siempre —`Product
+ * 1 ─── 1..N ProductPresentation`— y el esquema también, pero hasta hoy no
+ * había operación que llegara a la segunda.
+ *
+ * Lo que esta prueba **no** afirma: conversión. Cada presentación lleva su
+ * propia existencia, y eso está fijado en la vertical con saldos medidos.
+ */
+test("una tienda declara la unidad y el paquete del mismo artículo, desde la pantalla", async () => {
+  const page = await app.firstWindow();
+
+  const code = `PRES-${randomUUID().slice(0, 8)}`;
+  const unitBarcode = `77090001${String(Date.now()).slice(-5)}`;
+  const packBarcode = `77090002${String(Date.now()).slice(-5)}`;
+
+  await page.getByTestId("product-code-input").fill(code);
+  await page.getByTestId("product-name-input").fill("Gaseosa 350 ml");
+  await page.getByTestId("presentation-name-input").fill("Unidad");
+  await page.getByTestId("unit-code-input").fill("UND");
+  await page.getByTestId("unit-precision-input").fill("0");
+  await page.getByTestId("product-barcode-input").fill(unitBarcode);
+  await page.getByTestId("product-price-input").fill("3000");
+  await page.getByTestId("product-currency-input").fill("COP");
+  await page.getByTestId("register-product-button").click();
+  await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
+
+  const unitPresentationId = await page.getByTestId("presentation-id").textContent();
+
+  // El producto viene prerrellenado del alta: es el paso siguiente natural.
+  const productField = page.getByTestId("add-presentation-product-id-input");
+  await expect(productField).not.toHaveValue("", { timeout: 15_000 });
+
+  await page.getByTestId("add-presentation-name-input").fill("Paca x12");
+  await page.getByTestId("add-presentation-unit-code-input").fill("PACA");
+  await page.getByTestId("add-presentation-barcode-input").fill(packBarcode);
+  await page.getByTestId("add-presentation-price-input").fill("33000");
+  await page.getByTestId("add-presentation-button").click();
+
+  await expect(page.getByTestId("add-presentation-outcome")).toHaveText("ADDED", { timeout: 15_000 });
+  const packPresentationId = await page.getByTestId("added-presentation-id").textContent();
+  expect(packPresentationId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(packPresentationId).not.toBe(unitPresentationId);
+
+  // Y el lector distingue las dos: escanear la paca da la paca, con su precio.
+  await page.getByTestId("barcode-input").fill(packBarcode);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("catalog-error").count()).toBe(0);
+});
+
+/**
  * Fiar una venta, entero y por la cadena real.
  *
  * `f342f05` dejo las cinco operaciones de credito ruteadas hasta el servicio, y
