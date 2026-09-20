@@ -74,6 +74,30 @@ Se autoriza incorporar una prueba de presencia local **únicamente si satisface 
 
 Condición previa: debe ratificarse expresamente que la prohibición de `sync-base-schema.md:27` alcanza a *credenciales centrales replicadas* y no a *material generado localmente, acotado a la sesión e inútil contra la autoridad central*. Si esa lectura se rechaza, la única vía compatible es una SSA de vigencia muy corta con reemisión online, lo que degrada la operación offline y tensiona `ADR-003`.
 
+> **RATIFICADA el 2026-09-20 por el propietario del repositorio.** Se adopta la
+> primera lectura: la prohibición alcanza a **credenciales centrales
+> replicadas** y **no** a material generado en el equipo, acotado a la sesión e
+> inútil contra la autoridad central. Se descarta expresamente la vía de SSA de
+> vigencia muy corta con reemisión online, por degradar la operación offline que
+> `ADR-003` fija como no negociable.
+>
+> **Alcance exacto de esta ratificación, para que no se sobreinterprete:**
+> levanta la condición previa de `D2` —la prueba de presencia local— y **nada
+> más**. En concreto **no** autoriza:
+>
+> - emitir la SSA localmente: `D1` mantiene que es «artefacto emitido por la
+>   autoridad central», y esta ratificación no lo toca;
+> - implementar la presencia: §18 es explícita en que fija política y «**no la
+>   autoriza**»;
+> - `SEC-G02`, el login, el emisor central de SSA/SAS ni la UI de login, que §16
+>   deja fuera de alcance y sujetos a autorización específica.
+>
+> **Por qué importa decirlo:** la presencia es un factor *adicional* sobre una
+> sesión ya establecida. Sin SSA no hay sesión sobre la que exigirla, de modo
+> que esta ratificación **no acerca a ningún comercio a operar**. El bloqueo
+> común sigue siendo `SEC-G02`, medido y registrado en
+> `docs/product/business-readiness.md`.
+
 ### D3 — `offline_valid_until`
 
 Se fijan invariantes, no valores:

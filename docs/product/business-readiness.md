@@ -75,6 +75,50 @@ la pantalla se monta — y `session.activate` rechaza toda credencial, de modo q
 ninguna de las 28 operaciones con pantalla es alcanzable. Es el comportamiento
 *fail-closed* correcto, no un defecto; por eso es deuda (`D-28`) y no bug.
 
+### La raíz está más abajo de «falta escribir un emisor» — medido el 2026-09-20
+
+`DEC-012` D1 fija que la SSA es un **artefacto emitido por la autoridad
+central**. Central Authority existe y sirve exactamente dos endpoints —
+`GET /v1/session-trust`, que publica la clave operacional, y
+`POST /v1/device-enrollment`, que es `D-3`—. **Ninguno emite SSA.**
+
+Pero escribir ese endpoint no desbloquearía nada, porque la cadena sigue:
+
+```
+un comerciante opera
+  ← session.activate con una SSA válida
+     ← la SSA la emite la autoridad central              (DEC-012 D1, decidido)
+        ← que debe AUTENTICAR al usuario para emitirsela
+           ← SEC-G02 «Authentication & Session»          PLANNED / NOT_EVALUATED
+```
+
+**No se puede emitir una credencial de sesión para un usuario que no se sabe
+autenticar.** `DEC-012` §16 deja fuera de alcance, y sujetos a autorización
+específica: «`SEC-G01`, `SEC-G02` y `SEC-G03`; login, MFA, rotación de refresh,
+bloqueo y recuperación centrales; **el emisor central de SSA y SAS**; … **UI de
+login**».
+
+El siguiente paso real, por tanto, no es código: es **decidir `SEC-G02`**, que
+el backlog marca `P0 / PLANNED / NOT_EVALUATED`.
+
+### Lo que la prueba de presencia (PIN) sí desbloquea, y lo que no
+
+`DEC-012` D2 autoriza una prueba de presencia local, y §18 fija su política:
+**PIN numérico de 6 dígitos**, por CSPRNG y no elegido por el usuario,
+individual —el factor compartido está prohibido—, nunca en claro ni en logs,
+almacenado sólo como verifier derivado con `scrypt`, máximo 5 intentos con
+contadores independientes por usuario.
+
+Su condición previa —que la prohibición de `sync-base-schema.md:27` alcanza a
+credenciales centrales replicadas y **no** a material generado localmente,
+acotado a la sesión e inútil contra la autoridad central— quedó **ratificada
+por el propietario el 2026-09-20**.
+
+**Eso no desbloquea a ningún comercio.** La presencia es un factor *adicional*
+sobre una sesión ya establecida: sin SSA no hay sesión sobre la que exigirla.
+Y §18 es explícita: «Fija la política que la implementación futura deberá
+respetar; **no la autoriza**».
+
 > `D-28` en el libro de deudas describe el ancla como vacía «porque nada la
 > puebla». Eso quedó **superado por G1.2 el 2026-09-17**: el artefacto de
 > instalador sí la puebla. Lo que sigue abierto, y es lo que hay que leer, es la
