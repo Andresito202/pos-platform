@@ -515,6 +515,51 @@ pendiente: es trabajo hecho y desconectado.
 > `checkpoint lag`, y ninguna de las tres existe. Hoy nada le diría a un
 > operador que su cola lleva días parada.
 
+> **`ONB-002` — el bootstrap transaccional de tenant, materializado (2026-09-20).**
+>
+> Primera pieza de aplicación del plano **central**. `UC-ONB-001` §374 definía
+> la frontera transaccional desde hacía tiempo y el esquema de
+> `001_central_foundation` ya tenía todas las tablas; lo que faltaba era el
+> código que las coordinara. Vive en `packages/database-postgres/src/`, que
+> hasta hoy estaba vacío (`D-4`).
+>
+> Una sola transacción persiste: operación de onboarding con su
+> `idempotency_key` → usuario propietario (resuelto o creado) → `Tenant` →
+> `Company` → `Branch` → `TenantMembership` OWNER → `UserRoleAssignment` →
+> siete asientos de auditoría → `sync_operations` + `outbox_entries` →
+> resultado idempotente.
+>
+> **La idempotencia es física, no una comprobación previa.** La primera
+> sentencia es un `INSERT … ON CONFLICT ON CONSTRAINT
+> onboarding_operations_identity_uq DO NOTHING`: el perdedor de una carrera no
+> crea nada y lee el resultado del ganador. Probado con dos ejecuciones
+> concurrentes reales sobre el mismo servidor.
+>
+> **Estado terminal `READY_FOR_LICENSE`, nunca `COMPLETED`.** `UC-ONB-001`
+> §374 regla 6 prohíbe simular una transacción distribuida: la licencia la
+> emite otra autoridad, después. No se crea licencia ni dispositivo.
+>
+> **Tres defectos propios los encontró el esquema, no yo.** `audit_events.operation_id`
+> referencia `sync.sync_operations`, así que un onboarding no puede ocuparlo;
+> `outbox_entries` exige que la entrada cuelgue de una `sync_operations`,
+> escrita primero; y `tenant_memberships_primary_active_uq` admite **una sola**
+> pertenencia primaria activa por usuario, de modo que `is_primary` se deriva
+> en vez de fijarse —un mismo dueño con dos comercios es el caso normal—.
+>
+> **La auditoría central es append-only con guarda de fila *y* de TRUNCATE**
+> (`audit.reject_append_only_mutation`), más estricta de lo que suponía la
+> primera versión de la prueba. Por eso la suite no limpia entre casos: cada
+> prueba trae su propia identidad y toda aserción está acotada a su tenant o
+> a su correlación. El sello `payload_checksum` se calcula en el servidor
+> sobre el `jsonb` ya normalizado, así que puede re-derivarse desde la fila
+> con `sha256(new_value::text)`; calcularlo en el cliente sobre el texto
+> enviado habría producido un número imposible de verificar.
+>
+> Evidencia: `packages/database-postgres/tests/initialize-tenant.test.ts`,
+> **16/16 contra PostgreSQL 16.13 real**, aplicando `bootstrap.sql` +
+> `001_central_foundation.up.sql` sobre un servidor vivo. Sin dobles de base
+> de datos.
+
 ### Documentado, no materializado
 
 Ninguna de estas capacidades tiene código en `main`, **independientemente de lo
@@ -620,7 +665,7 @@ preservado que documenta la sección siguiente, no en `main`.
 | D-1 | **`PARTIAL`.** **La duración de la retención continúa `NO DEFINIDA`: es una decisión/configuración pendiente, no código de purga que falte.** Revisado y precisado el 2026-09-19. `DEC-007` §1360-1398 fija la **forma** y delega el **valor**: la política debe distinguir `active_retention`, `archive_retention`, `audit_retention` y `legal_retention`; para el outbox, las pendientes se conservan «hasta resolver» y las aceptadas y rechazadas durante un «**periodo mínimo configurable**». `non-functional-requirements.md` §«Objetivos pendientes de benchmark» lista la retención entre los valores que deberán confirmarse con pruebas reales. Cotas aplicables cuando se decida: §288.8 (la clave de idempotencia no se elimina antes del plazo), §298.12 (el inbox conserva su checksum toda la ventana aplicable) y §731 (la retención no puede ser menor que la mayor ventana de retry, recuperación y operación offline); `UC-SYNC-003` añade que una dead letter «no se purga prematuramente». `config.ts` declara nueve claves `POS_*` y ninguna de retención: falta el punto de configuración que `DEC-007` presupone. Sigue sin haber un solo `DELETE`. **Sobre `ARCHIVED` — corregida una imprecisión propia de la revisión previa de ese mismo día, que lo presentaba como contradicción normativa: no lo es.** `DEC-007` §118 y §504 lo definen como estado **terminal conceptual** del ciclo de la operación; `local_sync_outbox.status` representa la **máquina local de despacho** y hoy no lo contiene; y **no existe contradicción entre `SyncServerStatusSchema` y `DEC-007`**, porque ese enum son los veredictos que emite el servidor y `ARCHIVED` no es un veredicto del servidor. Lo que hay es una **laguna de materialización** en la proyección local. Su implementación **depende de la política de retención**, porque `DEC-007` §504 define `ARCHIVED` en función de la conservación posterior al ciclo activo («terminó su ciclo activo y se conserva según retención»): **por tanto no debe añadirse todavía** — sería un estado en el que nada entra y del que nada sale. Se cierra cuando exista la duración decidida; implementar la purga antes sería inventarla | `DEC-007` §1360-1398 · §288.8 · §298.12 · §731 · §118 · §504 · `non-functional-requirements.md` §objetivos pendientes · `MIGRATION_004` (`local-database.ts:105`) · `config.ts` · `durable-sync-store.ts` | crecimiento monótono del archivo SQLite en uso real |
 | D-2 | **`BLOCKED`** — por decisión arquitectónica vigente, no por deuda de implementación. Revisado y precisado el 2026-09-19. `DEC-017` §123 **no autoriza construir transporte ni API central**: la ausencia del transporte es consecuencia de la decisión canónica en vigor, y construirlo exige una decisión que la extienda. El outbox en sí está materializado y probado —encolado idempotente, contigüidad, checkpoint monótono, reintento exponencial acotado, dead letter, recuperación de `IN_FLIGHT` al arrancar— pero `claimBatch`, `recordResponse` y `recordTransportFailure` **tienen cero llamadores en `src/`**: sólo los invocan las pruebas. **Corregida una imprecisión propia de la revisión previa de ese mismo día, que afirmaba que «la cadencia y el tamaño de lote no están decididos en ninguna ADR».** Sí hay regla normativa: `DEC-007` §1300 establece que el **límite, el backoff, el jitter, la ventana, las exclusiones y el tratamiento de agotamiento deben provenir de una política técnica versionada** y que **no se hardcodean como números universales**, y §1328 regla 8 establece que el tamaño de lote es configurable. Lo que no existe en el repositorio son los **valores concretos** ni la **política técnica versionada** que `DEC-007` exige. `durable-sync-store.ts:38` tiene defaults de retry —`maxAttempts` 5, `baseDelayMs` 1 000, `maxDelayMs` 60 000— que producción usa porque `main.ts:108` construye el componente sin política; esos valores **todavía no están respaldados por la política técnica versionada** que `DEC-007` exige. El **jitter todavía no está materializado**: `retryDelayMs` no lo aplica. Se cierra cuando exista una decisión que extienda `DEC-017` con transporte y API central, y la política técnica versionada con sus valores | `DEC-017` §123 · `DEC-007` §1300 · §1328.8 · `durable-sync-store.ts:38` · `main.ts:108` · `grep claimBatch apps/pos-local-service/src` → sólo la definición | ningún hecho comercial sale del dispositivo |
 | D-3 | La regla que traduce permiso de matriz de producto a forma canónica sólo está escrita caso por caso | `DEC-012` §33.2 la enuncia para `CASH_SHIFT_CLOSE`; no existe enunciado general | cada módulo nuevo la redescubre o la contradice |
-| D-4 | `packages/database-core`, `database-postgres` y `testing` declarados con `src/` vacío | `module-boundaries.json` vs `find` | boundaries que no gobiernan nada |
+| D-4 | **Reducida el 2026-09-20.** `packages/database-core` y `testing` siguen declarados con `src/` vacío. `database-postgres` **ya no**: `ONB-002` lo materializó con el bootstrap transaccional de tenant, probado contra PostgreSQL real | `module-boundaries.json` vs `find` · `packages/database-postgres/src/` | boundaries que no gobiernan nada, en los dos paquetes que siguen vacíos |
 | D-5 | `fiscal_total_amount` en `sales_sales` es pricing, no facturación electrónica | `sale-calculation.ts` | lectura errónea de soporte fiscal inexistente |
 | D-6 | Numeración comercial (`sales_document_series_counter`) no es numeración fiscal | esquema | reutilizarla violaría la autorización DIAN |
 | D-7 | ~~El `switch` de enrutamiento no tiene `default`~~ · **CERRADA 2026-09-06** | rama `default` con asignación a `never` en `local-channel-component.ts` | — |
