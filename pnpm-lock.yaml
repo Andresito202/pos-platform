@@ -157,6 +157,10 @@ importers:
   packages/database-core: {}
 
   packages/database-postgres:
+    dependencies:
+      '@pos-platform/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       '@types/node':
         specifier: 22.20.1

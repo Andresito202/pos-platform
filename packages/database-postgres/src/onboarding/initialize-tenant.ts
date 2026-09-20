@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { classifyIdempotency } from "@pos-platform/contracts";
 import { uuidV7, type SqlQueryExecutor, type TransactionalSql } from "../sql.js";
 
 /**
@@ -243,9 +244,31 @@ export class InitializeTenantUseCase {
           [request.actorType, request.actorId, request.idempotencyKey],
         );
         if (existing === undefined) throw new Error("onboarding identity vanished inside its own transaction");
+
+        // La clasificación la hace el contrato compartido, no una comparación
+        // propia: `classifyIdempotency` es la única definición de REPLAY y
+        // CONFLICT del repositorio, y duplicarla aquí habría creado una
+        // segunda semántica de idempotencia para el plano central.
+        //
+        // Ambas identidades llevan el `operation_id` de la fila existente
+        // porque eso es lo que se está comparando: la misma operación ya
+        // reclamada frente a la intención que llega. Lo que decide es el
+        // checksum.
+        const decision = classifyIdempotency(
+          {
+            operation_id: existing.id,
+            idempotency_key: request.idempotencyKey,
+            payload_checksum: existing.request_checksum,
+          },
+          {
+            operation_id: existing.id,
+            idempotency_key: request.idempotencyKey,
+            payload_checksum: checksum,
+          },
+        );
         // Misma clave con otro checksum: conflicto estable. No se toca el
         // onboarding original (`UC-ONB-001` §374 regla 3).
-        if (existing.request_checksum !== checksum) {
+        if (decision === "CONFLICT") {
           return { kind: "IDEMPOTENCY_CONFLICT", onboardingId: existing.id };
         }
         const identifiers = identifiersOf(existing);
