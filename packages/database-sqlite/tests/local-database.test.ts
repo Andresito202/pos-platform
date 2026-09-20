@@ -590,3 +590,215 @@ describe("MIGRATION_022 — el ancla de confianza local (D-28)", () => {
     }
   });
 });
+
+describe("MIGRATION_024 — UnitConversion (DEC-004 §1579)", () => {
+  const TENANT = "018f0000-0000-7000-8000-0000000c0001";
+  const COMPANY = "018f0000-0000-7000-8000-0000000c0002";
+  const PRODUCT = "018f0000-0000-7000-8000-0000000c0003";
+  const OTHER_PRODUCT = "018f0000-0000-7000-8000-0000000c0004";
+  const UNIT = "018f0000-0000-7000-8000-0000000c0005";
+  const PACK = "018f0000-0000-7000-8000-0000000c0006";
+  const FOREIGN = "018f0000-0000-7000-8000-0000000c0007";
+  const ACTOR = "018f0000-0000-7000-8000-0000000c0008";
+  const CORRELATION = "018f0000-0000-7000-8000-0000000c0009";
+  const AT = "2026-09-20T10:00:00.000Z";
+
+  function product(db: LocalDatabase, id: string, code: string): void {
+    db.native.prepare(
+      `INSERT INTO catalog_product(
+        id, tenant_id, company_id, code, name, status, stock_controlled,
+        registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+      ) VALUES (?,?,?,?,'Gaseosa','ACTIVE',1,?,?,?,1,?,?)`,
+    ).run(id, TENANT, COMPANY, code, ACTOR, `catalog:${id}`, CORRELATION, AT, AT);
+  }
+
+  function presentation(db: LocalDatabase, id: string, productId: string, name: string): void {
+    db.native.prepare(
+      `INSERT INTO catalog_presentation(
+        id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+        status, created_at, updated_at
+      ) VALUES (?,?,?,?,'UND',0,NULL,'ACTIVE',?,?)`,
+    ).run(id, TENANT, productId, name, AT, AT);
+  }
+
+  function seed(db: LocalDatabase): void {
+    product(db, PRODUCT, "GAS-350");
+    product(db, OTHER_PRODUCT, "AGU-600");
+    presentation(db, UNIT, PRODUCT, "Unidad");
+    presentation(db, PACK, PRODUCT, "Paca x12");
+    presentation(db, FOREIGN, OTHER_PRODUCT, "Unidad ajena");
+  }
+
+  function declare(
+    db: LocalDatabase,
+    id: string,
+    source: string,
+    target: string,
+    overrides: { productId?: string; factor?: string; status?: string } = {},
+  ): void {
+    db.native.prepare(
+      `INSERT INTO catalog_unit_conversion(
+        id, tenant_id, company_id, product_id, source_presentation_id, target_presentation_id,
+        factor, reversible, status, version, declared_by_actor_id, idempotency_key,
+        correlation_id, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,1,?,1,?,?,?,?,?)`,
+    ).run(
+      id, TENANT, COMPANY, overrides.productId ?? PRODUCT, source, target,
+      overrides.factor ?? "12.000000", overrides.status ?? "ACTIVE",
+      ACTOR, `conv:${id}`, CORRELATION, AT, AT,
+    );
+  }
+
+  /** Abre una base recién migrada con el catálogo sembrado. */
+  async function open(): Promise<LocalDatabase> {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    seed(database);
+    return database;
+  }
+
+  it("declara 1 paca = 12 unidades y la deja legible", async () => {
+    const db = await open();
+    try {    declare(db, "018f0000-0000-7000-8000-0000000c0010", PACK, UNIT);
+      expect(db.native.prepare(
+        "SELECT factor, reversible, status FROM catalog_unit_conversion WHERE tenant_id=? AND id=?",
+      ).get(TENANT, "018f0000-0000-7000-8000-0000000c0010")).toEqual({
+        factor: "12.000000", reversible: 1, status: "ACTIVE",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  /**
+   * `DEC-004` §1602. Comprobarlo sólo en el caso de uso dejaría la regla a
+   * merced de un escritor futuro que no pase por ahí.
+   */
+  it("el trigger rechaza una presentación de otro producto", async () => {
+    const db = await open();
+    try {    expect(() => { declare(db, "018f0000-0000-7000-8000-0000000c0011", PACK, FOREIGN); })
+        .toThrow(/must belong to the declared product/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("el trigger rechaza declarar el par bajo un producto que no es el suyo", async () => {
+    const db = await open();
+    try {    expect(() => {
+        declare(db, "018f0000-0000-7000-8000-0000000c0012", PACK, UNIT, { productId: OTHER_PRODUCT });
+      }).toThrow(/must belong to the declared product/);
+    } finally {
+      db.close();
+    }
+  });
+
+  /** Dos factores vigentes para el mismo par serían ambiguos (`DEC-004` §1631). */
+  it("no admite dos conversiones activas para el mismo par", async () => {
+    const db = await open();
+    try {    declare(db, "018f0000-0000-7000-8000-0000000c0013", PACK, UNIT);
+      expect(() => { declare(db, "018f0000-0000-7000-8000-0000000c0014", PACK, UNIT); })
+        .toThrow(/UNIQUE/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("sí admite la sustituta si la anterior queda INACTIVE", async () => {
+    const db = await open();
+    try {    declare(db, "018f0000-0000-7000-8000-0000000c0015", PACK, UNIT, { status: "INACTIVE" });
+      expect(() => { declare(db, "018f0000-0000-7000-8000-0000000c0016", PACK, UNIT); }).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rechaza factor cero por CHECK y origen igual a destino por el trigger", async () => {
+    const db = await open();
+    try {
+      expect(() => {
+        declare(db, "018f0000-0000-7000-8000-0000000c0017", PACK, UNIT, { factor: "0.000000" });
+      }).toThrow(/CHECK/);
+
+      // El `CHECK(source <> target)` existe y es correcto, pero aquí **no es
+      // quien rechaza**: el trigger dispara antes, porque `id IN (X, X)` cuenta
+      // una sola fila y no dos. Se afirma lo que ocurre de verdad, no lo que
+      // uno esperaría leyendo sólo el esquema.
+      expect(() => { declare(db, "018f0000-0000-7000-8000-0000000c0018", PACK, PACK); })
+        .toThrow(/must belong to the declared product/);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("MIGRATION_025 — la conversión deja rastro con su propio nombre", () => {
+  it("admite CONVERSION_IN y CONVERSION_OUT, y sigue rechazando un tipo inventado", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+    const TENANT = "018f0000-0000-7000-8000-0000000d0001";
+    const PRESENTATION = "018f0000-0000-7000-8000-0000000d0004";
+    const AT = "2026-09-20T10:00:00.000Z";
+    // La clave ajena a `catalog_presentation` es una de las tres que el rebuild
+    // estuvo a punto de perder, así que aquí hace falta un catálogo real.
+    database.native.prepare(
+      `INSERT INTO catalog_product(
+        id, tenant_id, company_id, code, name, status, stock_controlled,
+        registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+      ) VALUES (?,?,?,'CNV-001','Gaseosa','ACTIVE',1,?,?,?,1,?,?)`,
+    ).run(
+      "018f0000-0000-7000-8000-0000000d0010", TENANT, "018f0000-0000-7000-8000-0000000d0002",
+      "018f0000-0000-7000-8000-0000000d0005", "catalog:cnv", "018f0000-0000-7000-8000-0000000d0007",
+      AT, AT,
+    );
+    database.native.prepare(
+      `INSERT INTO catalog_presentation(
+        id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+        status, created_at, updated_at
+      ) VALUES (?,?,?,'Unidad','UND',0,NULL,'ACTIVE',?,?)`,
+    ).run(PRESENTATION, TENANT, "018f0000-0000-7000-8000-0000000d0010", AT, AT);
+
+    const insert = (type: string, direction: string): void => {
+      database.native.prepare(
+        `INSERT INTO inventory_movement(
+          id, tenant_id, company_id, branch_id, presentation_id, stock_sequence,
+          movement_type, direction, quantity, quantity_after, reason_code, sale_id,
+          actor_type, actor_id, operation_id, idempotency_key, correlation_id,
+          business_date, occurred_at, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,'1.000000','1.000000','CONVERSION',NULL,
+                  'USER',?,?,?,?,'2026-09-20',?,?)`,
+      ).run(
+        `018f0000-0000-7000-8000-0000000e${direction === "IN" ? "0001" : "0002"}`,
+        "018f0000-0000-7000-8000-0000000d0001", "018f0000-0000-7000-8000-0000000d0002",
+        "018f0000-0000-7000-8000-0000000d0003", "018f0000-0000-7000-8000-0000000d0004",
+        type === "CONVERSION_IN" ? 1 : 2, type, direction,
+        "018f0000-0000-7000-8000-0000000d0005", "018f0000-0000-7000-8000-0000000d0006",
+        `mv:${type}`, "018f0000-0000-7000-8000-0000000d0007",
+        "2026-09-20T10:00:00.000Z", "2026-09-20T10:00:00.000Z",
+      );
+    };
+
+    expect(() => { insert("CONVERSION_IN", "IN"); }).not.toThrow();
+    expect(() => { insert("CONVERSION_OUT", "OUT"); }).not.toThrow();
+    // El dominio se amplió, no se abrió.
+    expect(() => { insert("CONVERSION_MAGIC", "IN"); }).toThrow(/CHECK/);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("conserva los tres índices tras la reconstrucción", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+    const indexes = database.native.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='inventory_movement' AND name NOT LIKE 'sqlite_%'",
+    ).all().map((row) => (row as { name: string }).name).sort();
+    expect(indexes).toEqual([
+      "inventory_movement_idempotency_idx",
+      "inventory_movement_sale_idx",
+      "inventory_movement_sequence_idx",
+    ]);
+    } finally {
+      database.close();
+    }
+  });
+});

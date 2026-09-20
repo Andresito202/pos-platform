@@ -102,6 +102,8 @@ async function databaseAtVersionSeven(): Promise<string> {
       ${LEGACY_AUDIT_TABLE}
       DROP TRIGGER local_schema_migrations_no_delete;
       DROP TABLE local_trust_anchor;
+      DROP TRIGGER catalog_unit_conversion_same_product_insert;
+      DROP TABLE catalog_unit_conversion;
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
       DROP TABLE inventory_movement;

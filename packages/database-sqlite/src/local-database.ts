@@ -1840,6 +1840,186 @@ CREATE INDEX local_trust_anchor_usable_idx
   WHERE status <> 'REVOKED';
 `.trim();
 
+/**
+ * `MIGRATION_024` — `UnitConversion` (`DEC-004` §1579).
+ *
+ * `DEC-004` modela la conversión entre presentaciones como **entidad propia**,
+ * no como una columna de la presentación: una conversión tiene origen, destino
+ * y factor, y `1 paca = 12 bolsas` no cabe en un atributo suelto.
+ *
+ * **Qué se materializa y qué no, y por qué.** De los dieciséis atributos
+ * conceptuales de `DEC-004` §1579 entran los que tienen soporte real hoy.
+ * Quedan fuera, y no se fingen con una columna vacía:
+ *
+ * - `variant_id`: `ProductVariant` no existe en el esquema local. La invariante
+ *   §1602 sobre variantes se cumple por vacuidad mientras no existan.
+ * - `cost_policy`: no hay modelo de costo. `DEC-004` §1811 exige conservación
+ *   de costo en conversiones, y sin costo operativo por presentación esa regla
+ *   no se puede ni comprobar ni violar.
+ * - `lot_policy`: no hay lotes.
+ * - `waste_policy`: la merma existe como movimiento `SHRINKAGE`, pero declarar
+ *   una política de merma por conversión exige el modelo de costo de arriba.
+ *
+ * **La invariante §1602 la impone un trigger, no la aplicación.** Origen y
+ * destino deben pertenecer al producto declarado; comprobarlo sólo en el caso
+ * de uso dejaría la regla a merced de un escritor futuro que no pase por ahí.
+ * El índice parcial garantiza además **una sola conversión activa por par**:
+ * dos factores vigentes para el mismo par serían un factor ambiguo, que
+ * `DEC-004` §1631 prohíbe expresamente.
+ */
+const MIGRATION_024 = `
+CREATE TABLE catalog_unit_conversion (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  product_id TEXT NOT NULL CHECK(length(product_id) = 36),
+  source_presentation_id TEXT NOT NULL CHECK(length(source_presentation_id) = 36),
+  target_presentation_id TEXT NOT NULL CHECK(length(target_presentation_id) = 36),
+  factor TEXT NOT NULL
+    CHECK(factor GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(factor NOT GLOB '*[^0-9.]*')
+    CHECK(length(factor) - length(replace(factor, '.', '')) = 1)
+    CHECK(factor NOT GLOB '0[0-9]*')
+    CHECK(factor <> '0.000000'),
+  reversible INTEGER NOT NULL CHECK(reversible IN (0, 1)),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','INACTIVE')),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  declared_by_actor_id TEXT NOT NULL CHECK(length(declared_by_actor_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(source_presentation_id <> target_presentation_id),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, product_id) REFERENCES catalog_product(tenant_id, id),
+  FOREIGN KEY (tenant_id, source_presentation_id) REFERENCES catalog_presentation(tenant_id, id),
+  FOREIGN KEY (tenant_id, target_presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+CREATE UNIQUE INDEX catalog_unit_conversion_active_pair_idx
+  ON catalog_unit_conversion(tenant_id, source_presentation_id, target_presentation_id)
+  WHERE status = 'ACTIVE';
+
+CREATE UNIQUE INDEX catalog_unit_conversion_idempotency_idx
+  ON catalog_unit_conversion(tenant_id, idempotency_key);
+
+CREATE INDEX catalog_unit_conversion_product_idx
+  ON catalog_unit_conversion(tenant_id, product_id);
+
+CREATE TRIGGER catalog_unit_conversion_same_product_insert
+BEFORE INSERT ON catalog_unit_conversion
+FOR EACH ROW
+BEGIN
+  SELECT RAISE(ABORT, 'conversion presentations must belong to the declared product')
+  WHERE (
+    SELECT COUNT(*) FROM catalog_presentation
+    WHERE tenant_id = NEW.tenant_id
+      AND product_id = NEW.product_id
+      AND id IN (NEW.source_presentation_id, NEW.target_presentation_id)
+  ) <> 2;
+END;
+`.trim();
+
+/**
+ * `MIGRATION_025` — la conversión deja rastro con su propio nombre.
+ *
+ * `movement_type` es un `CHECK`, y SQLite no lo altera: hay que reconstruir.
+ * Cabe hacerlo aquí por la misma razón que en `MIGRATION_021`: **nadie
+ * referencia `inventory_movement`**. Sin tablas hijas, lo único que hay que
+ * rehacer son sus tres índices.
+ *
+ * **Por qué no se reutiliza `TRANSFER_IN`/`TRANSFER_OUT`.** Un traslado mueve
+ * la misma mercancía entre ubicaciones; una conversión la transforma en otra
+ * presentación. Etiquetar una de otra dejaría un rastro que miente sobre lo que
+ * pasó, y el rastro es justo lo que un inventario existe para conservar.
+ *
+ * La copia comprueba fila a fila: una `movement_type` preexistente fuera del
+ * dominio detendría el arranque en vez de perderse en silencio. Riesgo nulo
+ * hoy —el dominio sólo se amplía— y la garantía sirve para la próxima.
+ *
+ * **La trampa de reconstruir una tabla, aprendida aquí.** La primera versión de
+ * esta migración copió las columnas y **perdió en silencio las tres
+ * restricciones del final**: el `CHECK` que ata `movement_type` a `direction`,
+ * el que ata `sale_id` a los movimientos de venta, y la clave ajena a
+ * `catalog_presentation`. Las restricciones de tabla van después de la última
+ * columna y son justo las que no se ven al copiar. Las cazaron dos pruebas de
+ * `inventory.test.ts` que ya existían —«rechaza una venta que sume existencia»
+ * y «rechaza una recepción que declare una venta»—, que es exactamente para lo
+ * que estaban. **Un rebuild se copia entero o no se copia.**
+ *
+ * `CONVERSION_IN` entra además en la lista de tipos de entrada, para que el
+ * invariante tipo↔dirección siga cubriendo el dominio completo y no sólo el
+ * que existía antes.
+ */
+const MIGRATION_025 = `
+CREATE TABLE inventory_movement_rebuilt (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  stock_sequence INTEGER NOT NULL CHECK(stock_sequence > 0),
+  movement_type TEXT NOT NULL CHECK(movement_type IN (
+    'OPENING_COUNT','PURCHASE_RECEIPT','SALE_REVERSAL','ADJUSTMENT_POSITIVE','TRANSFER_IN',
+    'CONVERSION_IN',
+    'SALE','ADJUSTMENT_NEGATIVE','SHRINKAGE','TRANSFER_OUT',
+    'CONVERSION_OUT')),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+  quantity TEXT NOT NULL
+    CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity) - length(replace(quantity, '.', '')) = 1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity <> '0.000000'),
+  quantity_after TEXT NOT NULL
+    CHECK(quantity_after GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity_after NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity_after) - length(replace(quantity_after, '.', '')) = 1)
+    CHECK(quantity_after NOT GLOB '0[0-9]*'),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  sale_id TEXT CHECK(sale_id IS NULL OR length(sale_id) = 36),
+  actor_type TEXT NOT NULL CHECK(actor_type = 'USER'),
+  actor_id TEXT NOT NULL CHECK(length(actor_id) = 36),
+  operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  business_date TEXT NOT NULL CHECK(length(business_date) = 10),
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK ((movement_type IN (
+    'OPENING_COUNT','PURCHASE_RECEIPT','SALE_REVERSAL','ADJUSTMENT_POSITIVE','TRANSFER_IN',
+    'CONVERSION_IN'
+  )) = (direction = 'IN')),
+  CHECK ((movement_type IN ('SALE','SALE_REVERSAL')) = (sale_id IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+INSERT INTO inventory_movement_rebuilt(
+  id, tenant_id, company_id, branch_id, presentation_id, stock_sequence,
+  movement_type, direction, quantity, quantity_after, reason_code, sale_id,
+  actor_type, actor_id, operation_id, idempotency_key, correlation_id,
+  business_date, occurred_at, created_at
+)
+SELECT
+  id, tenant_id, company_id, branch_id, presentation_id, stock_sequence,
+  movement_type, direction, quantity, quantity_after, reason_code, sale_id,
+  actor_type, actor_id, operation_id, idempotency_key, correlation_id,
+  business_date, occurred_at, created_at
+FROM inventory_movement;
+
+DROP TABLE inventory_movement;
+
+ALTER TABLE inventory_movement_rebuilt RENAME TO inventory_movement;
+
+CREATE UNIQUE INDEX inventory_movement_sequence_idx
+  ON inventory_movement(tenant_id, branch_id, presentation_id, stock_sequence);
+CREATE UNIQUE INDEX inventory_movement_idempotency_idx
+  ON inventory_movement(tenant_id, idempotency_key);
+CREATE INDEX inventory_movement_sale_idx
+  ON inventory_movement(tenant_id, sale_id) WHERE sale_id IS NOT NULL;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1864,6 +2044,8 @@ const MIGRATIONS = [
   { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
   { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
   { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
+  { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
+  { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
 ] as const;
 
 /**
