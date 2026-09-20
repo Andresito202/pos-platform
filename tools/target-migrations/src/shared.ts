@@ -7,6 +7,7 @@ export const RUNNER_VERSION = "target-migration-runner/1";
 export const POSTGRES_MIGRATION_ID = "001_central_foundation";
 export const POSTGRES_002_MIGRATION_ID = "002_external_integrations_foundation";
 export const POSTGRES_003_MIGRATION_ID = "003_fiscal_electronic_invoicing_foundation";
+export const POSTGRES_004_MIGRATION_ID = "004_device_trust";
 export const POSTGRES_MIGRATION_LOCK_RESOURCE = "pos-platform:target-migrations:global:v1";
 export const SQLITE_MIGRATION_ID = "001_local_migration_control";
 

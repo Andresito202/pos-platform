@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SqliteMasterSnapshotStore } from "../master-data/sqlite-master-snapshot-store.js";
@@ -107,7 +108,7 @@ export class OpenCashShiftUseCase {
     const result = this.cashShiftStore.open({
       shiftId: randomUUID(),
       movementId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       scope,
       sessionId,
       operatorUserId,

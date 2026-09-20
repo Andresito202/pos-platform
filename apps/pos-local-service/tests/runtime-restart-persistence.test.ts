@@ -5,6 +5,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { uuidV7 } from "@pos-platform/contracts";
 import { LocalChannelAuthenticator, LocalChannelClient } from "@pos-platform/local-channel";
 
 /**
@@ -213,7 +214,7 @@ async function mutating(
     message_type: messageType,
     request_id: randomUUID(),
     correlation_id: randomUUID(),
-    operation_id: randomUUID(),
+    operation_id: uuidV7(),
     idempotency_key: idempotencyKey,
     payload,
   }) as ChannelResponse;

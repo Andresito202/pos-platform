@@ -212,3 +212,65 @@ alcance sandbox de `DEC-014` §5. La venta sigue terminando en
 `READY_FOR_PAYMENT`.
 
 Ningún `SEC-Gxx` cambia de estado por este documento.
+
+## 10. Evidencia real de Windows — por qué el diseño no depende de la identidad
+del proceso del sistema operativo
+
+Este documento se apoya en `connectionId` **servidor-asignado** y nunca en que
+el sistema operativo diga «quién está al otro lado del pipe» (§1, §3). Esa
+elección se hizo sin evidencia empírica de Windows en el momento de escribirse.
+Ahora existe.
+
+### La sonda y su resultado
+
+Ejecutada el 2026-09-14 en un equipo Windows real (`win32 x64`, Node
+`v22.19.0`), fuera de CI: un servidor `node:net` acepta una conexión de named
+pipe local y vuelca la forma exacta de `socket._handle`.
+
+```
+constructor         : Pipe
+fd                  : number -1
+propiedades propias : reading
+prototipo           : bind, listen, connect, open, setPendingInstances, fchmod, constructor
+socket.fd           : undefined
+socket.remoteAddress: undefined
+```
+
+**`node:net` no expone un descriptor de sistema operativo utilizable para una
+conexión de named pipe en Windows.** `fd` es `-1`; la única propiedad propia del
+handle es `reading`. No hay HANDLE de Win32, no hay PID, no hay nada sobre lo
+que llamar `GetNamedPipeClientProcessId`.
+
+### Por qué esto no bloquea nada de lo ya implementado
+
+**No bloquea nada** porque este documento nunca planteó depender de ello. La
+identidad de la conexión la establece la SSA verificada (§3), no una consulta al
+sistema operativo sobre el peer. El control de acceso al pipe en sí —quién
+puede siquiera abrir un handle— ya está resuelto por otra vía, y por debajo del
+nivel de `node:net`: `channel/windows-pipe-security.ts` restringe la DACL del
+pipe al SID de la sesión de inicio de sesión actual, verificado en
+`windows-dpapi.test.ts` («keeps the real named-pipe DACL restricted across
+replenished instances») contra un pipe real en `windows-2022`.
+
+Dicho de otro modo: la pregunta que esta sonda respondía —*¿puede el servidor
+preguntarle a Windows quién es el proceso conectado, después de aceptar la
+conexión?*— y la pregunta que ya estaba resuelta —*¿qué procesos pueden siquiera
+llegar a conectarse?*— son distintas. La segunda ya tenía respuesta y evidencia
+propias; la primera ahora también, y la respuesta es negativa.
+
+### Lo que esta evidencia sí cierra
+
+Si en el futuro se planteara una verificación de identidad de proceso **además**
+de la restricción de DACL —por ejemplo, para distinguir el proceso legítimo de
+Electron de cualquier otro proceso que corra bajo la misma sesión de usuario—,
+la vía de `node:net` queda descartada con evidencia, no con suposición.
+`GetNamedPipeClientProcessId` exigiría un HANDLE de Win32 real, y obtenerlo
+requiere crear el pipe desde código nativo (`CreateNamedPipeW` +
+`ConnectNamedPipe`), lo que sustituiría a `node:net` en el servidor del canal.
+Es un cambio de superficie grande — reemplaza el transporte, no lo complementa—
+y por tanto una decisión aparte, no una consecuencia de este documento.
+
+No se propone aquí. No hay amenaza identificada en §8 que lo exija: la DACL ya
+excluye a cualquier proceso fuera de la sesión de inicio de sesión del usuario,
+y el modelo de confianza de §3 no coloca al sistema operativo como fuente de
+identidad en ningún punto de la cadena.

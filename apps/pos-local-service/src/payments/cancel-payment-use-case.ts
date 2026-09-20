@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -74,7 +75,7 @@ export class CancelPaymentUseCase {
       operatorUserId,
       paymentId: request.paymentId,
       expectedVersion: request.expectedVersion,
-      operationId: randomUUID(),
+      operationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request, operatorUserId),
       correlationId: request.correlationId,

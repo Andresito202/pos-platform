@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
@@ -128,8 +129,8 @@ export class RegisterQrPaymentUseCase {
       attemptId: randomUUID(),
       allocationId: randomUUID(),
       movementId: randomUUID(),
-      operationId: randomUUID(),
-      saleCompletionOperationId: randomUUID(),
+      operationId: uuidV7(),
+      saleCompletionOperationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,
       requestChecksum: checksum,
       correlationId: request.correlationId,

@@ -1,7 +1,9 @@
+import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
 import type { DurableSyncComponent } from "../sync/durable-sync-component.js";
 import type { ServiceConfig } from "../config.js";
+import type { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 import type { TrustedSigningKey } from "../security/license-verifier.js";
 import { TrustedClockGuard } from "../security/trusted-clock.js";
 import { SessionAssertionVerifier } from "../security/session-assertion-verifier.js";
@@ -44,6 +46,11 @@ import { RegisterCreditPaymentUseCase } from "../credit/register-credit-payment-
 import { RegisterCreditRepaymentUseCase } from "../credit/register-credit-repayment-use-case.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
+import { FiscalCredentialStore } from "../fiscal/fiscal-credential-store.js";
+import { SecretStoreFactusCredentialResolver } from "../fiscal/factus-credential-resolver.js";
+import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-store.js";
+import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
+import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
 
 /**
  * Origen de las claves de firma de sesión.
@@ -115,6 +122,14 @@ export class CommercialComponent implements RuntimeComponent {
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
         readonly getReceipt: GetReceiptUseCase;
+        /**
+         * `null` cuando la emisión fiscal no está configurada en este equipo:
+         * falta `fiscal_environment` (`POS_FISCAL_ENVIRONMENT`) o no hay
+         * credencial depositada para `(FACTUS, environment)`. El mismo criterio
+         * de `D4`/`CentralSyncComponent` con `central_base_url` — ausencia
+         * significa «esta pieza no está lista», no un error de arranque.
+         */
+        readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
       }
     | undefined;
 
@@ -126,7 +141,20 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly durableSync: DurableSyncComponent,
     private readonly sessionSigningKeys: SessionSigningKeySource = new Map(),
     private readonly now: () => Date = () => new Date(),
+    // Los tres son opcionales e independientes entre si: un equipo puede tener
+    // adquiriente sin emision fiscal, emision fiscal sin adquiriente, o ninguno.
     private readonly paymentProvider?: PaymentProviderPort,
+    /**
+     * Almacén de secretos ya abierto con `fiscalCredentialContext` (`DEC-021`
+     * F2) — construirlo aquí exigiría el mismo `keyProvider`/directorio que
+     * `LocalSecurityComponent` ya abrió con OTRO contexto criptográfico, y
+     * mezclar los dos rompería el aislamiento de `SEC-004`. `undefined`
+     * significa «este equipo no tiene almacén de secretos fiscal», igual de
+     * válido en pruebas que no ejercitan F4/F5.
+     */
+    private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
+    /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
+    private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -172,6 +200,7 @@ export class CommercialComponent implements RuntimeComponent {
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
+  get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -212,7 +241,37 @@ export class CommercialComponent implements RuntimeComponent {
       paymentStore, confirmProviderPayment,
     );
 
+    // `DEC-021` F5. Sin almacén de secretos fiscal o sin ambiente configurado,
+    // la pieza no se construye — `fiscal.document.issue` falla cerrado con un
+    // motivo (`FISCAL_NOT_CONFIGURED`), nunca inventando un adapter sin
+    // credencial. Con ambos presentes pero **sin credencial depositada aún**
+    // (F2 es una operación de operador, separada de este arranque), tampoco:
+    // el criterio es el mismo, «no está lista», no un fallo de arranque.
+    let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
+    if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
+      const environment = this.config.fiscal_environment;
+      const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore);
+      if (fiscalCredentialStore.has("FACTUS", environment)) {
+        const credential = fiscalCredentialStore.reference("FACTUS", environment);
+        const issuancePort = this.issuancePortOverride ?? new FactusAdapter(
+          new FetchHttpTransport(),
+          new SecretStoreFactusCredentialResolver(fiscalCredentialStore),
+          environment,
+          { now: () => this.now().getTime() },
+        );
+        issueElectronicDocument = new IssueElectronicDocumentUseCase(
+          new SqliteFiscalSaleSource(database),
+          catalogStore,
+          new SqliteFiscalDocumentStore(database, this.now),
+          issuancePort,
+          credential,
+          this.now,
+        );
+      }
+    }
+
     this.state = {
+      issueElectronicDocument,
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),

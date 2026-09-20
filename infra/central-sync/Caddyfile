@@ -1,0 +1,3 @@
+{$CENTRAL_SYNC_DOMAIN} {
+    reverse_proxy central-sync:8787
+}

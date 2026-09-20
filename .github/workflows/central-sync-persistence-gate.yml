@@ -1,0 +1,128 @@
+name: Central Sync Persistence Gate
+
+on:
+  push:
+    branches:
+      - main
+      - claude/pos-camacho-bloque-4c-ld43py
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: central-sync-persistence-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:55433/postgres
+  POSTGRES_ADMIN_URL: postgres://postgres@127.0.0.1:55433/postgres
+  DATABASE_URL: postgres://pos_app@127.0.0.1:55433/postgres
+  CENTRAL_SYNC_BASE_URL: http://127.0.0.1:8787
+  CENTRAL_SYNC_TOKEN: local-validation-token
+
+jobs:
+  central-sync-persistence-gate:
+    name: Central Sync persistence and idempotency gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck target migration package
+        run: pnpm --filter @pos-platform/target-migrations typecheck
+
+      - name: Apply PostgreSQL 001 foundation through the real migration runner
+        env:
+          POSTGRES_ADMIN_URL: ${{ env.POSTGRES_ADMIN_URL }}
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec tsx -e '
+            import { applyPostgres001 } from "./src/postgres.js";
+            const result = await applyPostgres001({ adminUrl: process.env.POSTGRES_ADMIN_URL! });
+            console.log(JSON.stringify({ migration: "001_central_foundation", executionId: result.executionId, noOp: result.noOp, reconciled: result.reconciled, checksum: result.checksumHex }));
+          '
+
+      - name: Start Central Sync service
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ci
+          nohup pnpm --filter @pos-platform/target-migrations central-sync:start > artifacts/ci/central-sync-server.log 2>&1 &
+          echo $! > artifacts/ci/central-sync-server.pid
+
+      - name: Wait for real Central Sync readiness
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "$CENTRAL_SYNC_BASE_URL/health" > /dev/null; then
+              echo "CENTRAL_SYNC_HEALTH=READY"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "CENTRAL_SYNC_HEALTH=FAILED"
+          cat artifacts/ci/central-sync-server.log || true
+          exit 1
+
+      - name: Execute Central Sync persistence and replay gate
+        run: |
+          set -euo pipefail
+          {
+            echo "reviewed_sha=$REVIEWED_SHA"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "postgres=16.14"
+            echo "base_url=$CENTRAL_SYNC_BASE_URL"
+            pnpm --filter @pos-platform/target-migrations central-sync:gate
+          } 2>&1 | tee artifacts/ci/central-sync-gate.log
+
+      - name: Upload Central Sync gate evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: central-sync-persistence-gate-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/ci/central-sync-gate.log
+            artifacts/ci/central-sync-server.log
+          if-no-files-found: error
+          retention-days: 90

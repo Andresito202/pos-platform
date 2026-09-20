@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { PaymentProviderEvidence } from "./payment-provider-port.js";
@@ -71,8 +72,8 @@ export class ConfirmProviderPaymentUseCase {
       receivedAt: request.evidence.receivedAt,
       payerReference: request.evidence.payerReference ?? null,
       allocationId: randomUUID(),
-      saleCompletionOperationId: randomUUID(),
-      operationId: randomUUID(),
+      saleCompletionOperationId: uuidV7(),
+      operationId: uuidV7(),
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request),
       correlationId: request.correlationId,

@@ -11,8 +11,17 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
+import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
+import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
+import {
+  FACTUS_ADAPTER_DECLARATION,
+  type DocumentIssuanceOutcome,
+  type DocumentIssuancePort,
+  type FrozenDocumentPayload,
+  type PayloadValidationResult,
+} from "@pos-platform/fiscal-adapters";
 
 /**
  * POS Local Service **real** como proceso independiente, para verificar el
@@ -106,6 +115,8 @@ const PERMISSIONS = [
   // Anadido con el panel de proveedor: cancelar un pago abandonado es una
   // facultad propia, distinta de reportarlo y de atestiguarlo.
   "PAYMENTS_PAYMENT_CANCEL",
+  // `DEC-021` F5: la pantalla de emision fiscal.
+  "FISCAL_DOCUMENT_ISSUE",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");
@@ -119,7 +130,65 @@ function config(): ServiceConfig {
     installation_id: INSTALLATION,
     protocol_min: "1.0.0",
     protocol_max: "1.0.0",
+    // `DEC-021` F5. En produccion lo pone `POS_FISCAL_ENVIRONMENT`; aqui va
+    // fijo a SANDBOX porque la credencial que deposita el arnes es de prueba.
+    fiscal_environment: "SANDBOX",
   } as ServiceConfig;
+}
+
+/**
+ * Puerto de emision falso y determinista.
+ *
+ * Es la **unica** pieza del tramo fiscal que el arnes sustituye, y sustituirla
+ * no es opcional: hablar de verdad con FACTUS es `F6`, y `F6` corre solo en el
+ * equipo del propietario con credenciales que no estan —ni deben estar— aqui.
+ * Todo lo demas del tramo es de produccion: contrato, canal, handler, caso de
+ * uso, maquina de estados y SQLite.
+ */
+class FakeIssuancePort implements DocumentIssuancePort {
+  validatePayload(_document: FrozenDocumentPayload): Promise<PayloadValidationResult> {
+    return Promise.resolve({ kind: "VALID" });
+  }
+  issue(): Promise<DocumentIssuanceOutcome> {
+    return Promise.resolve({
+      kind: "EVIDENCED",
+      transportStatus: "COMPLETED",
+      normalizedResult: "ACCEPTED",
+      externalIdentity: {
+        providerOperationId: "e2e-op", providerDocumentId: "e2e-doc",
+        prefix: "SETP", number: "990000001", cufe: "a".repeat(96),
+      },
+      providerStatus: { providerCode: "0", providerStatus: "processed", httpStatus: 200 },
+    });
+  }
+}
+
+/**
+ * Rango de numeracion, tal como lo dejaria `SynchronizeNumberingRangesUseCase`
+ * tras hablar con el proveedor.
+ *
+ * Se siembra porque **si** existe la via real que lo produce —el puerto esta
+ * `SANDBOX_VERIFIED` y el caso de uso que lo persiste tambien existe—, sólo que
+ * todavia no cuelga de ninguna pantalla. Sembrarlo aqui representa un estado
+ * que el sistema sabe alcanzar por si mismo.
+ *
+ * El atributo fiscal de la presentacion **no se siembra**, y esa asimetria es
+ * deliberada: `D-19` dice que hoy no existe ruta alguna que lo inserte, ni de
+ * usuario ni de servicio. Fabricarlo aqui haria pasar el E2E afirmando una
+ * capacidad que el producto no tiene.
+ */
+function seedFiscalRange(database: LocalDatabase): void {
+  const at = NOW.toISOString();
+  database.native.prepare(`
+    INSERT OR IGNORE INTO fiscal_numbering_range(
+      tenant_id,company_id,provider,environment,range_id,document_type,prefix,authority,
+      resolution_number,range_from,range_to,current_number,valid_from,valid_until,
+      provider_active,provider_expired,provider_document_code,synchronized_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    TENANT, COMPANY, "FACTUS", "SANDBOX", "FACTUS-RANGE-E2E", "SALES_INVOICE", "SETP", "PROVIDER",
+    "18760000001", 1, 5000, 0, "2026-01-01", "2027-01-01", 1, 0, "01", at,
+  );
 }
 
 function authorizationClaims(): AuthorizationSnapshotClaims {
@@ -190,10 +259,26 @@ async function main(): Promise<void> {
     { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
   );
   seedRegister(database);
+  seedFiscalRange(database);
 
   const keys = new Map<string, TrustedSigningKey>([
     [SESSION_KEY_ID, { key: createPublicKey(keyPair.privateKey), status: "ACTIVE" }],
   ]);
+
+  // Credencial fiscal depositada por la misma via que usa el operador en `F2`.
+  // El valor es de prueba y no sale de este directorio temporal.
+  const fiscalSecretStore = new EncryptedFileSecretStore(
+    DATA_DIRECTORY,
+    new InsecureDerivedKeyProvider(DATA_DIRECTORY),
+    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
+  );
+  new FiscalCredentialStore(fiscalSecretStore).deposit(
+    {
+      provider: "FACTUS", environment: "SANDBOX",
+      fields: { client_id: "e2e", client_secret: "e2e", username: "e2e", password: "e2e" },
+    },
+    FACTUS_ADAPTER_DECLARATION.credential,
+  );
 
   const commercial = new CommercialComponent(
     config(),
@@ -201,6 +286,8 @@ async function main(): Promise<void> {
     { store: new DurableSyncStore(database) } as never,
     keys,
     () => NOW,
+    fiscalSecretStore,
+    new FakeIssuancePort(),
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
