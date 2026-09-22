@@ -2204,3 +2204,119 @@ describe("la conversión abre una paca y la convierte en unidades", () => {
     });
   }, 30_000);
 });
+
+/**
+ * Venta por peso — avícola, carnicería, embutidos, fruver.
+ *
+ * ## Por qué esta prueba, y por qué en gramos
+ *
+ * Es el negocio prioritario, y su operación entera es peso. Medido el
+ * 2026-09-22 por este mismo socket, hay **dos formas de modelarlo y sólo una
+ * llega hasta la factura**:
+ *
+ * - **Kilogramo con decimales.** `unit_precision: 3` deja vender 2.355 kg, la
+ *   venta se completa y el inventario baja bien — y la factura se detiene en
+ *   `PAYLOAD_ASSEMBLY_BLOCKED` con
+ *   `AMOUNT_NOT_REPRESENTABLE / QUANTITY_EXCEEDS_PROVIDER_PRECISION`. Es
+ *   `D-18`, y es fail-closed correcto: más vale no facturar que declarar una
+ *   cantidad falsa. Con `unit_precision: 2` factura, pero 10 g de granularidad
+ *   no es lo que marca una balanza.
+ * - **Gramo entero.** `unit_code: "GRM"`, `unit_precision: 0`, precio por
+ *   gramo. La cantidad es un entero, así que no hay precisión que exceder, y
+ *   la cadena llega entera hasta el CUFE.
+ *
+ * Esta prueba fija la segunda, que es la que un mostrador puede usar hoy.
+ *
+ * ## Lo que NO demuestra, y hay que decirlo
+ *
+ * El `unit_measure_code` que viaja en la factura es `94` = **«Unidad»**, que
+ * es falso para un producto por peso. `UNIT_MEASURE_CODES` sólo tiene ese
+ * código verificado (`D-9`, tablas parciales a propósito), y declarar el real
+ * se rechaza con `UNIT_MEASURE_CODE_NOT_VERIFIED` — comprobado. Falta la
+ * fuente documental de la DIAN, que no es código.
+ *
+ * El proveedor está sustituido por el desenlace del arnés: esto demuestra que
+ * el payload se **ensambla** y la cadena local llega al final, no que FACTUS
+ * lo acepte. Eso es `F6`.
+ */
+describe("venta por peso: el mostrador de una avicola, de la balanza a la factura", () => {
+  it("vende 2355 g, cobra, descuenta al gramo y emite", async () => {
+    await withRealFiscalChannel({
+      kind: "EVIDENCED", transportStatus: "COMPLETED", normalizedResult: "ACCEPTED",
+      externalIdentity: { providerOperationId: "op", providerDocumentId: null, prefix: "SETP", number: "990000001", cufe: "b".repeat(96) },
+      providerStatus: { providerCode: "0", providerStatus: "processed", httpStatus: 200 },
+    }, async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "0.000000", business_date: "2026-09-03",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "peso:shift"));
+
+      const cliente = await send(mutating("customer.register", {
+        identification_document_code: "13", identification: "1020304050",
+        verification_digit: null, legal_organization_code: "2", company: null,
+        names: "Cliente Avicola", tribute_code: "ZZ", fiscal_responsibility_codes: ["R-99-PN"],
+        email: null, phone: null, address: null, country_code: null, municipality_code: null,
+      }, "peso:cliente"));
+
+      // 12.000 COP/kg expresado por gramo. Cualquier precio entero por kilo
+      // cabe en la escala 6 al dividirlo entre mil, asi que la conversion es
+      // exacta y no hay redondeo escondido en el precio.
+      const pollo = await send(mutating("catalog.product.register", {
+        code: "POLLO-ENTERO", name: "Pollo entero fresco", stock_controlled: true,
+        presentation_name: "Gramo", unit_code: "GRM", unit_precision: 0,
+        barcode: "7701234567003", price_amount: "12.000000", currency_code: "COP",
+      }, "peso:catalogo"));
+      expect(pollo.result["outcome"]).toBe("REGISTERED");
+      const presentationId = pollo.result["presentation_id"] as string;
+
+      expect((await declareFiscalAttribute(send, presentationId, "peso:attr")).result["outcome"]).toBe("SET");
+      seedFiscalRange(database);
+      const productId = (await send(reading("catalog.item.find", { barcode: "7701234567003" })))
+        .result["product_id"] as string;
+
+      // 20 kg de pollo en la nevera.
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: presentationId, movement_type: "PURCHASE_RECEIPT",
+        quantity: "20000.000000", reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "peso:inventario"));
+
+      // La balanza marca 2.355 kg.
+      const venta = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "A", currency_code: "COP",
+        lines: [{ product_id: productId, presentation_id: presentationId, quantity: "2355.000000" }],
+      }, "peso:venta"));
+      expect(venta.status).toBe("SUCCEEDED");
+
+      // 2355 x 12 = 28.260 de base. Con IVA 19% son 33.629,40, y lo que se
+      // cobra es 33.650: `nearestFiftyHalfAwayFromZero` redondea a 50 pesos y
+      // guarda la diferencia como ajuste comercial, sin tocar el total fiscal.
+      expect(venta.result["payable_amount"]).toBe("33650.000000");
+
+      const saleId = venta.result["sale_id"] as string;
+      const pago = await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount: "33650.000000", tendered_amount: null,
+      }, "peso:pago"));
+      expect(pago.result["sale_completed"]).toBe(true);
+
+      // **Al gramo.** 20000 - 2355 = 17645. Si el inventario de un producto
+      // por peso se redondeara, el descuadre se acumularia venta a venta.
+      expect(stockOf(database, presentationId)).toBe("17645.000000");
+
+      const factura = await send(mutating("fiscal.document.issue", {
+        sale_id: saleId, document_type: "SALES_INVOICE",
+        customer: { kind: "IDENTIFIED", customer_id: cliente.result["customer_id"] }, observation: null,
+      }, "peso:factura"));
+      expect(factura.status).toBe("SUCCEEDED");
+      expect(factura.result["outcome"]).toBe("ISSUED");
+      expect(factura.result["cufe"]).toBe("b".repeat(96));
+    });
+  }, 60_000);
+});
