@@ -56,7 +56,7 @@ describe("parseServiceConfig", () => {
   it("requires session trust environment and root public key as a pair", () => {
     expect(() => parseServiceConfig({
       ...valid,
-      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ENVIRONMENT: "PRODUCTION",
     })).toThrow("session trust environment and root public key must be configured together");
     expect(() => parseServiceConfig({
       ...valid,
@@ -67,19 +67,37 @@ describe("parseServiceConfig", () => {
   it("accepts the complete session trust bootstrap configuration", () => {
     const parsed = parseServiceConfig({
       ...valid,
-      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ENVIRONMENT: "PRODUCTION",
       POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
       POS_SESSION_TRUST_ARTIFACT_PATH: "/var/lib/camacho-pos/security/session-trust.json",
     });
-    expect(parsed.session_trust_environment).toBe("production");
+    expect(parsed.session_trust_environment).toBe("PRODUCTION");
     expect(parsed.session_trust_root_public_key_pem).toBe(rootPublicKeyPem);
     expect(parsed.session_trust_artifact_path).toBe("/var/lib/camacho-pos/security/session-trust.json");
+  });
+
+  /**
+   * `D-30`. El `environment` del claim firmado es `StableCodeSchema`, y esto
+   * es el otro extremo de esa misma igualdad. Admitir aqui un alfabeto mas
+   * ancho no hacia funcionar nada: dejaba arrancar el servicio para que
+   * despues **cada sesion** fallara con `ENVIRONMENT_MISMATCH`, sin que nada
+   * dijera donde estaba el error.
+   *
+   * Es exactamente lo que le pasa al artefacto publicado por `G1.2`, que trae
+   * `environment: "production"` en minusculas.
+   */
+  it("rejects a session trust environment the signed claim could never match", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+    })).toThrow();
   });
 
   it("rejects a relative session trust artifact path", () => {
     expect(() => parseServiceConfig({
       ...valid,
-      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ENVIRONMENT: "PRODUCTION",
       POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
       POS_SESSION_TRUST_ARTIFACT_PATH: "./session-trust.json",
     })).toThrow("session trust artifact path must be absolute");

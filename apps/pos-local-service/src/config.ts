@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { ContractVersionSchema, compareContractVersions } from "@pos-platform/contracts";
+import { ContractVersionSchema, StableCodeSchema, compareContractVersions } from "@pos-platform/contracts";
 import { FiscalEnvironmentSchema } from "@pos-platform/fiscal-adapters";
 import * as z from "zod";
 
@@ -35,7 +35,22 @@ const ServiceConfigSchema = z.strictObject({
   branch_id: z.uuid(),
   central_base_url: z.url().startsWith("https://").max(2048).optional(),
   fiscal_environment: FiscalEnvironmentSchema.optional(),
-  session_trust_environment: z.string().min(1).max(128).optional(),
+  /**
+   * El entorno contra el que se compara el `environment` del claim firmado.
+   *
+   * **Es `StableCodeSchema` porque el otro lado de la comparacion lo es.**
+   * Admitia `z.string()` —minusculas incluidas— mientras el claim exige el
+   * alfabeto estable, de modo que los dos extremos de la MISMA igualdad
+   * aceptaban alfabetos distintos. Un valor fuera de ese alfabeto no podia
+   * casar con ningun claim valido: lo unico que conseguia era arrancar el
+   * servicio para que despues cada sesion fallara con `ENVIRONMENT_MISMATCH`,
+   * sin decir donde estaba el error.
+   *
+   * Ahora falla al arrancar, nombrando el campo. Ninguna configuracion
+   * legitima se pierde: la que se rechaza aqui nunca habria verificado nada.
+   * Registrado en `D-30`.
+   */
+  session_trust_environment: StableCodeSchema.max(128).optional(),
   session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
   /** Public signed bundle supplied by the installer; never contains private keys. */
   session_trust_artifact_path: z.string().min(1).max(4096).optional(),
