@@ -210,7 +210,7 @@ y por eso varias filas suben. Al final hay una sección con lo que movió.
 | A11 | Shell Electron (main, preload, allowlist) | `RUNTIME_VERIFIED` | 6 E2E con Electron real; desde #75 uno de ellos habla con el **servicio real** por `src/start.ts`, no con un doble |
 | A12 | Logger estructurado | `RUNTIME_VERIFIED` | `observability`, 4 pruebas |
 | A13 | Ciclo de seguridad local (DPAPI, identidad, licencia) | `TESTED` | `main.ts` no lo instancia |
-| A14 | Adquisición de snapshot de autorización (SAS-003) | `TESTED` | `main.ts` no lo instancia |
+| A14 | Adquisición de snapshot de autorización (SAS-003) | `RUNTIME_VERIFIED` | **promovida el 2026-09-22.** `main.ts` la instancia y la **ejecuta** en el bloque `DEC-025`: `new SnapshotAcquisitionService(new ArtifactSnapshotProvider(…), new AuthorizationSnapshotVerifier(…), commercial.authorizationStore).acquire(binding)`. Arranque real de un equipo sin provisionar: `security.operator_session → PROVISIONED`, que sólo se emite si `acquire` devolvió `ACQUIRED`. La evidencia anterior —«`main.ts` no lo instancia»— era cierta hasta `DEC-025`; el `new` sólo aparecía en pruebas |
 
 **A9 corrige X-2 y ahí se queda.** Hasta `02b89bb`, `catalog.*`, `customer.*` e
 `inventory.*` no obtenían respuesta válida: `validateResponse` tenía 14 `case` de
@@ -500,8 +500,8 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | `PRODUCTION` | **0** | — |
 | `END_TO_END` | **10** | B1 B2 B3 B4 B5 B6 B7 B10 B13 · C19 |
 | `CALLER_REACHABLE` | **1** | A9 |
-| `RUNTIME_VERIFIED` | **17** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 · B9 · E1 E2 E3 E4 E5 E7 |
-| `TESTED` | **19** | A3 A13 A14 · C1..C11 C16 C17 C18 · D1 D4 |
+| `RUNTIME_VERIFIED` | **18** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 A14 · B9 · E1 E2 E3 E4 E5 E7 |
+| `TESTED` | **18** | A3 A13 · C1..C11 C16 C17 C18 · D1 D4 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
 | `DOCUMENTED` | **11** | B8 B11 B12 · C12 C13 C15 · D3 D5 D6 · E8 E9 |
 | — (nada) | **1** | D2 |

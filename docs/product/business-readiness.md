@@ -17,13 +17,19 @@ cuáles de esas operaciones el POS puede ejecutar de verdad.
 
 ## La respuesta corta — medida el 2026-09-20
 
-> **Ningún comercio real puede operar todavía, y el motivo ya no es la
-> interfaz.** La interfaz de caja existe y funciona de extremo a extremo. Lo que
-> falta es que **alguien emita la credencial de sesión del cajero**: el POS sabe
-> verificarla, nadie la produce.
+> **Ningún comercio real puede operar todavía, y el motivo ya no es ni la
+> interfaz ni la autoridad: es un fichero mal formado.** La interfaz de caja
+> existe y funciona de extremo a extremo. La credencial del cajero ya tiene
+> productor —`DEC-025`, aprovisionamiento firmado por el propietario— y el
+> arranque completo se ejecutó el 2026-09-20. Lo que falta es que **el material
+> de confianza publicado por `G1.2` sea legible para su propio contrato**
+> (`D-30`), y eso exige la clave raíz que custodia el propietario.
 
-Es un cambio de naturaleza del bloqueo, no un avance de porcentaje. Antes
-faltaba *pantalla*; ahora falta *autoridad*.
+El bloqueo ha cambiado de naturaleza dos veces en tres días, y conviene no
+confundirlas. Primero faltaba *pantalla*. Después faltaba *autoridad*. Ahora
+falta **un artefacto bien escrito**, que es un problema mucho más pequeño —y
+por eso mismo merece decirse sin adornos en vez de dejarlo dicho como si
+siguiera faltando una autoridad central.
 
 ## Lo común a todos los comercios
 
@@ -36,7 +42,7 @@ faltaba *pantalla*; ahora falta *autoridad*.
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
 | Merma | ✅ | movimiento `SHRINKAGE` · el E2E ajusta 3 unidades por merma desde `InventoryPanel` |
-| **Emisor de credencial de sesión** | ❌ | **el bloqueo vigente** — ver abajo |
+| **Productor de credencial de sesión** | ⚠️ | **Existe desde el 2026-09-20** (`DEC-025`): artefacto con SSA + SAS firmado por el propietario, consumido al arrancar por las rutas canónicas. Ejecutado de extremo a extremo con material de prueba. **No sirve todavía con el material publicado** — ver abajo |
 | Lector de código de barras | ⚠️ | el catálogo resuelve código → artículo y garantiza que un código identifica una sola presentación. Un lector USB se comporta como teclado y escribe en `barcode-input`, así que **la ruta existe**; lo que no se ha verificado es un periférico real → `REQUIRES_LOCAL_VERIFICATION` |
 | Balanza | ❌ | ninguna integración; `unit_precision` gobierna la cantidad pero nadie la lee de un periférico |
 
@@ -48,58 +54,79 @@ faltaba *pantalla*; ahora falta *autoridad*.
 | `session.activate` | **Deliberado.** `SessionPanel` no ofrece botón de activar y hay prueba E2E que lo fija: activar exige una SSA firmada por la autoridad, y no se teclea |
 | `catalog.item.get` | **No tiene ningún llamador.** Está en el contrato y el handler la sirve; `catalog.item.find` cubre hoy el mostrador. Es superficie sin consumidor: decidir si se le da uso o se retira es de producto |
 
-## El bloqueo vigente: nadie emite la credencial de sesión
+## El bloqueo vigente: el artefacto de confianza no es legible
 
-La cadena de confianza **está materializada** y llega hasta un paso del final:
+**Esta sección decía «nadie emite la credencial de sesión» y estuvo dos días
+diciéndolo de más.** Se corrige el 2026-09-22 contra lo que se midió
+arrancando el servicio, no leyendo código.
+
+La cadena está completa y **se ejecutó entera**:
 
 ```
 clave raíz del producto  (infra/trust/…-root-public.pem)
         ↓  verifica
-artefacto de instalador  (session-assertion-operational-key.json)
-        ↓  main.ts:273 provisiona si el veredicto es VALID
+bundle de confianza      (una clave por propósito desde D-31)
+        ↓  componente `session-trust-provisioning`, antes de que nadie lea claves
 local_trust_anchor       (MIGRATION_022)
-        ↓  alimenta
-SessionAssertionVerifier → session.activate puede VERIFICAR una SSA
+        ├─ SESSION_ASSERTION      → SessionActivation.activate   (SSA-002)
+        └─ AUTHORIZATION_SNAPSHOT → SnapshotAcquisitionService   (SAS-003)
         ↑
-    ¿quién FIRMA la SSA del cajero?  ← nadie
+    ¿quién FIRMA la SSA del cajero?  ← el propietario, con `DEC-025`
 ```
 
-Medido: `unsignedSessionAssertionBytes` sólo aparece **exportada por el
-verificador**; ninguna ruta de producción la produce. El issuer de Central
-Authority (`SessionTrustKeyIssuer`) firma la **publicación de la clave
-operacional**, que es el artefacto de arriba, **no** la aserción de sesión de un
-operador. Sólo las pruebas firman SSAs, con material generado en memoria.
-
-**Consecuencia para un comercio real:** el equipo arranca, el servicio levanta,
-la pantalla se monta — y `session.activate` rechaza toda credencial, de modo que
-ninguna de las 28 operaciones con pantalla es alcanzable. Es el comportamiento
-*fail-closed* correcto, no un defecto; por eso es deuda (`D-28`) y no bug.
-
-### La raíz está más abajo de «falta escribir un emisor» — medido el 2026-09-20
-
-`DEC-012` D1 fija que la SSA es un **artefacto emitido por la autoridad
-central**. Central Authority existe y sirve exactamente dos endpoints —
-`GET /v1/session-trust`, que publica la clave operacional, y
-`POST /v1/device-enrollment`, que es `D-3`—. **Ninguno emite SSA.**
-
-Pero escribir ese endpoint no desbloquearía nada, porque la cadena sigue:
+Arranque real de un equipo sin provisionar, medido el 2026-09-20 con material
+generado para la prueba:
 
 ```
-un comerciante opera
-  ← session.activate con una SSA válida
-     ← la SSA la emite la autoridad central              (DEC-012 D1, decidido)
-        ← que debe AUTENTICAR al usuario para emitirsela
-           ← SEC-G02 «Authentication & Session»          PLANNED / NOT_EVALUATED
+security.session_trust    → {"decision":"VALID","provisioned":2}
+security.trust_anchors    → {"usable":"session_assertion=1 authorization_snapshot=1 license=0"}
+security.operator_session → {"decision":"PROVISIONED"}
 ```
 
-**No se puede emitir una credencial de sesión para un usuario que no se sabe
-autenticar.** `DEC-012` §16 deja fuera de alcance, y sujetos a autorización
-específica: «`SEC-G01`, `SEC-G02` y `SEC-G03`; login, MFA, rotación de refresh,
-bloqueo y recuperación centrales; **el emisor central de SSA y SAS**; … **UI de
-login**».
+### Lo que impide llevarlo a un mostrador: `D-30`
 
-El siguiente paso real, por tanto, no es código: es **decidir `SEC-G02`**, que
-el backlog marca `P0 / PLANNED / NOT_EVALUATED`.
+El artefacto que `G1.2` **publicó de verdad**
+—`infra/trust/session-assertion-operational-key.json`— no parsea contra su
+propio contrato: `key_id` vale `ssa-2026-01` y `environment` vale `production`,
+en minúsculas, y ambos son `StableCodeSchema`. Un equipo apuntado a ese fichero
+registra `session_trust: INVALID`, `provisioned: 0` y **rechaza toda sesión**.
+
+Re-firmarlo con códigos en mayúsculas exige la **clave privada raíz**, que no
+entra al repositorio y custodia el propietario. Es lo único que separa este
+proyecto de un mostrador real, y **no es trabajo de motor**.
+
+### Tres defectos que sólo aparecieron al ejecutar
+
+Ninguno se veía leyendo. Los tres estaban en la ruta que este documento daba
+por buena:
+
+| # | Qué | Estado |
+|---|---|---|
+| `D-32` | La provisión del ancla corría **después** de que sus consumidores resolvieran las claves. El primer arranque de un equipo recién aprovisionado rechazaba su propia sesión con `SIGNATURE_INVALID` y sólo funcionaba al segundo — justo el arranque para el que se escribió `DEC-025` | ✅ corregido |
+| `D-31` | El bundle **no podía publicar** la clave de propósito `AUTHORIZATION_SNAPSHOT`, así que el segundo sobre de `DEC-025` no podía verificarse en ningún arranque | ✅ corregido: una clave por propósito |
+| `D-30` | El artefacto publicado no parsea | ❌ **abierto** — depende de la clave raíz |
+
+La razón de que nadie los viera está registrada y vale más que los defectos: la
+única prueba que arrancaba el runtime de producción es `skipIf` de Windows, y
+CI corre en Linux. **Una puerta que no se ejecuta no es una puerta.**
+
+### Lo que sigue abierto a largo plazo, y no es esto
+
+`DEC-025` es un **bootstrap**, no un emisor central. `DEC-012` D1 mantiene que
+la SSA es un artefacto emitido por la autoridad central, y esa autoridad sigue
+sin existir:
+
+```
+una sesión emitida centralmente
+  ← que debe AUTENTICAR al usuario para emitírsela
+     ← SEC-G02 «Authentication & Session»   PLANNED / NOT_EVALUATED
+```
+
+Eso sigue siendo `D-28` y sigue exigiendo **decidir `SEC-G02`**. Lo que cambia
+es que ya **no bloquea a un comercio**: el propietario puede aprovisionar un
+equipo hoy. Rotación, revocación en línea y recuperación no existen; revocar
+una sesión aprovisionada exige entregar un artefacto con `sequence` mayor, o
+esperar a que expire.
 
 ### Lo que la prueba de presencia (PIN) sí desbloquea, y lo que no
 
@@ -114,15 +141,11 @@ credenciales centrales replicadas y **no** a material generado localmente,
 acotado a la sesión e inútil contra la autoridad central— quedó **ratificada
 por el propietario el 2026-09-20**.
 
-**Eso no desbloquea a ningún comercio.** La presencia es un factor *adicional*
-sobre una sesión ya establecida: sin SSA no hay sesión sobre la que exigirla.
-Y §18 es explícita: «Fija la política que la implementación futura deberá
-respetar; **no la autoriza**».
-
-> `D-28` en el libro de deudas describe el ancla como vacía «porque nada la
-> puebla». Eso quedó **superado por G1.2 el 2026-09-17**: el artefacto de
-> instalador sí la puebla. Lo que sigue abierto, y es lo que hay que leer, es la
-> **emisión de la SSA del operador**.
+**Sigue sin autorizarse su implementación**, y ahora importa más que antes: una
+sesión aprovisionada sin PIN significa que **quien tenga acceso físico al
+terminal opera como ese usuario** hasta que la SSA expire. `DEC-025` acepta ese
+riesgo residual de forma explícita y su control es organizativo —quién tiene
+llave del local—, no técnico.
 
 ## Capacidades por sector — cruce contra el esquema real
 
@@ -230,12 +253,16 @@ No es una lista de deseos: es el orden en que los bloqueos se desbloquean.
 
 1. ~~**Catálogo real**~~ — hecho el 2026-09-07 (`MIGRATION_014`).
 2. ~~**Inventario**~~ — hecho el 2026-09-08 (`MIGRATION_015`).
-3. ~~**Interfaz de caja**~~ — hecha; 28 de 31 operaciones con pantalla,
-   conducidas por E2E contra el servicio real.
+3. ~~**Interfaz de caja**~~ — hecha; las operaciones con pantalla están
+   contadas arriba, en una sola frase que `document-claims.test.mjs` vigila.
+   Aquí no se repite la cifra: repetirla fue exactamente cómo este punto acabó
+   diciendo «28 de 31» mientras la frase vigilada decía «31 de 34».
 4. ~~**Escritor de atributos fiscales**~~ — hecho el 2026-09-20 (`D-19`).
-5. **Emisión de la credencial de sesión del operador.** Es el único bloqueo que
-   afecta a los diez comercios a la vez. Sin él nada de lo anterior es
-   alcanzable en un equipo real.
+5. ~~**Emisión de la credencial de sesión del operador**~~ — resuelta el
+   2026-09-20 (`DEC-025`), y ejecutada de extremo a extremo tras corregir
+   `D-32` y `D-31`. **Queda `D-30`**: re-firmar el artefacto publicado por
+   `G1.2` con códigos en mayúsculas, que exige la clave raíz del propietario.
+   Sigue siendo el único bloqueo que afecta a los diez comercios a la vez.
 6. **Decisión de negocio sobre `D-14`** antes de vender a una carnicería o un
    fruver; y **fuente documental de `D-13`** para la venta de mostrador anónima.
 7. ~~**Segunda presentación por producto** y ~~**conversión entre ellas**~~ —
@@ -251,7 +278,9 @@ No es una lista de deseos: es el orden en que los bloqueos se desbloquean.
 - **`PRODUCTION` sigue en cero** para toda fila del tablero, y este documento no
   lo cambia.
 - **Nada de esto está en `main`:** la línea activa va muy por delante, y CI no
-  asigna runner desde el 2026-09-14.
+  asigna runner desde el 2026-09-14. Medido de nuevo el 2026-09-22: el run #209
+  sobre `4502c6f` dura **2 segundos, sin pasos y sin logs**, con etiqueta
+  `ubuntu-24.04` válida. Es asignación de runner, no un fallo del repositorio.
 
 ## Historial
 
@@ -260,4 +289,5 @@ No es una lista de deseos: es el orden en que los bloqueos se desbloquean.
 | 2026-09-07 | primer cruce; `unit_precision` pasa a gobernar la cantidad; se documenta el bloqueo fiscal de la venta por peso |
 | 2026-09-07 | catálogo real materializado: la primera de las tres piezas comunes deja de faltar |
 | 2026-09-08 | inventario materializado; queda la interfaz de caja como única pieza común ausente |
+| 2026-09-22 | **corrección del bloqueo, por haberlo ejecutado.** Este documento afirmó dos días que faltaba «alguien que emita la credencial», cuando `DEC-025` ya autorizaba al propietario a producirla. Al arrancar el servicio de verdad aparecieron tres defectos que nadie podía ver leyendo: `D-32` (la provisión del ancla corría detrás de sus consumidores), `D-31` (el bundle no podía publicar la clave del snapshot) y `D-30` (el artefacto publicado no parsea). Los dos primeros quedan corregidos y la cadena completa se ejecuta: `PROVISIONED`. **El bloqueo real es ahora `D-30`**, y depende de la clave raíz del propietario. Se retira además la cifra de operaciones con pantalla del §Orden: decía «28 de 31» mientras la frase vigilada decía «31 de 34» —dos superficies para el mismo dato es cómo envejeció— |
 | 2026-09-20 | **re-medición completa contra el árbol.** La interfaz de caja llevaba doce días construida y el documento seguía diciendo que no existía. Se corrige, se cruzan las capacidades por sector contra las tablas reales del esquema, y se reidentifica el bloqueo común: ya no es pantalla, es la **emisión de la credencial de sesión**. Se anota que `D-28` describe un ancla vacía que G1.2 dejó de serlo |
