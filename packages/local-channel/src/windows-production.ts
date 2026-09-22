@@ -8,32 +8,80 @@ const INSTALLATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-
 
 interface EncryptedSecret { readonly version: 1; readonly iv: string; readonly tag: string; readonly ciphertext: string; }
 
-const DPAPI_SCRIPT = String.raw`
+/**
+ * Deriva la clave raiz del equipo con DPAPI, ligada al usuario de Windows.
+ *
+ * **Vive aqui y se exporta porque habia dos copias.** El servicio tenia la
+ * suya y este fichero otra, identicas en significado y distintas en formato:
+ * dos superficies para el mismo script, sin nada que las compare. Arreglar una
+ * no habria alcanzado a la otra y nada habria fallado al no alcanzarla — que es
+ * como envejecio `business-readiness.md`.
+ *
+ * El paquete no puede importar del servicio, asi que el script vive en el
+ * paquete y el servicio lo importa: exactamente el movimiento que ya hizo
+ * `canonicalJson` por la misma razon.
+ *
+ * Usa `powershell.exe` y no `pwsh` a proposito: `ProtectedData` esta en el
+ * ensamblado `System.Security` de Windows PowerShell 5.1, y en PowerShell 7
+ * exige un paquete NuGet que un equipo de mostrador no tiene.
+ */
+export const DPAPI_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
+
 $path = $env:POS_DPAPI_KEY_PATH
 $context = $env:POS_DPAPI_CONTEXT
-if ([string]::IsNullOrWhiteSpace($path) -or [string]::IsNullOrWhiteSpace($context)) { throw "DPAPI path and context are required" }
+if ([string]::IsNullOrWhiteSpace($path) -or [string]::IsNullOrWhiteSpace($context)) {
+  throw "DPAPI path and context are required"
+}
+
 $sha = [System.Security.Cryptography.SHA256]::Create()
-try { $entropy = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($context)) } finally { $sha.Dispose() }
+try {
+  $entropy = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($context))
+} finally {
+  $sha.Dispose()
+}
+
 if ([System.IO.File]::Exists($path)) {
   $protected = [System.IO.File]::ReadAllBytes($path)
-  $key = [System.Security.Cryptography.ProtectedData]::Unprotect($protected, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+  $key = [System.Security.Cryptography.ProtectedData]::Unprotect(
+    $protected,
+    $entropy,
+    [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+  )
 } else {
   $key = New-Object byte[] 32
   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-  try { $rng.GetBytes($key) } finally { $rng.Dispose() }
-  $protected = [System.Security.Cryptography.ProtectedData]::Protect($key, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+  try {
+    $rng.GetBytes($key)
+  } finally {
+    $rng.Dispose()
+  }
+
+  $protected = [System.Security.Cryptography.ProtectedData]::Protect(
+    $key,
+    $entropy,
+    [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+  )
   [System.IO.File]::WriteAllBytes($path, $protected)
 }
-if ($key.Length -ne 32) { throw "DPAPI root key length is invalid" }
+
+if ($key.Length -ne 32) {
+  throw "DPAPI root key length is invalid"
+}
+
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $acl = New-Object System.Security.AccessControl.FileSecurity
 $acl.SetOwner($identity.User)
 $acl.SetAccessRuleProtection($true, $false)
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity.User, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+  $identity.User,
+  [System.Security.AccessControl.FileSystemRights]::FullControl,
+  [System.Security.AccessControl.AccessControlType]::Allow
+)
 [void]$acl.AddAccessRule($rule)
 [System.IO.File]::SetAccessControl($path, $acl)
+
 $output = [Convert]::ToBase64String($key)
 [Array]::Clear($key, 0, $key.Length)
 Write-Output $output
@@ -59,7 +107,27 @@ function loadRootKey(dataDirectory: string, installationId: string, platform: No
   const context = `local-channel:${installationId}`;
   const contextHash = createHash("sha256").update(context).digest("hex");
   const path = join(dpapiDirectory, `root-key-${contextHash}.dpapi`);
-  const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", DPAPI_SCRIPT], { encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024, env: { ...process.env, POS_DPAPI_KEY_PATH: path, POS_DPAPI_CONTEXT: context } });
+  return runDpapiRootKey(path, context);
+}
+
+/**
+ * Ejecuta el script y valida lo que devuelve.
+ *
+ * Tambien estaba duplicada, palabra por palabra, en el servicio. El
+ * diagnostico de `stderr` se acota a 1 KiB y se propaga: es lo unico que un
+ * operador va a ver si DPAPI falla en su equipo, asi que no se traga.
+ */
+export function runDpapiRootKey(path: string, context: string): Buffer {
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", DPAPI_SCRIPT],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      maxBuffer: 16 * 1024,
+      env: { ...process.env, POS_DPAPI_KEY_PATH: path, POS_DPAPI_CONTEXT: context },
+    },
+  );
   if (result.error) throw new Error("Windows DPAPI invocation failed", { cause: result.error });
   if (result.status !== 0) {
     const diagnostic = result.stderr.trim().slice(0, 1_024);
@@ -67,7 +135,10 @@ function loadRootKey(dataDirectory: string, installationId: string, platform: No
   }
   const encoded = result.stdout.trim();
   const key = Buffer.from(encoded, "base64");
-  if (key.byteLength !== 32 || key.toString("base64") !== encoded) { key.fill(0); throw new Error("Windows DPAPI returned an invalid root key"); }
+  if (key.byteLength !== 32 || key.toString("base64") !== encoded) {
+    key.fill(0);
+    throw new Error("Windows DPAPI returned an invalid root key");
+  }
   return key;
 }
 

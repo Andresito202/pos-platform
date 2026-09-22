@@ -14,6 +14,44 @@ todo, qué no.
 de un fichero en tu máquina. `ci:repository-policy` rechaza material privado
 rastreado y esta herramienta no le pide excepción.
 
+## Paso previo: publicar el bundle de confianza
+
+**Esto va primero.** Sin un bundle, el equipo arranca con
+`session_trust: INVALID` y rechaza toda sesión.
+
+```bash
+node tools/provisioning/publish-session-trust.mjs \
+  --root-key         /ruta/segura/root-private.pem \
+  --session-key-id   SSA-2026-01 \
+  --snapshot-key-id  SAS-2026-01 \
+  --environment      PRODUCTION \
+  --out-dir          /ruta/segura/confianza
+```
+
+Escribe tres ficheros:
+
+| Fichero | Qué es | Dónde va |
+|---|---|---|
+| `session-trust.json` | el bundle firmado con la raíz | **al equipo** → `POS_SESSION_TRUST_ARTIFACT_PATH` |
+| `session-assertion-private.pem` | firma la SSA | **se queda contigo** |
+| `authorization-snapshot-private.pem` | firma el SAS | **se queda contigo** |
+
+**Genera las claves además de publicarlas, a propósito.** Separarlo crea la
+única forma de equivocarse que no avisa: publicar la pública de un par y
+firmar con la privada de otro. El equipo respondería `SIGNATURE_INVALID` a
+toda sesión sin decir por qué, y el fallo aparecería en un mostrador.
+
+Los códigos van en **MAYÚSCULAS** (`StableCodeSchema`). La herramienta rechaza
+minúsculas antes de firmar: es exactamente el defecto del artefacto publicado
+en su día (`D-30`), que trae `ssa-2026-01` y `production` y **no parsea**.
+
+`--environment` tiene que ser idéntico a `POS_SESSION_TRUST_ENVIRONMENT` en el
+equipo. Son los dos lados de la misma comparación.
+
+`--bundle-version` (por defecto `1`) sólo sube: el equipo rechaza un bundle con
+versión menor que la que ya tiene instalada, para que un artefacto viejo no
+pueda revertir una rotación.
+
 ## Uso
 
 ```bash
@@ -178,7 +216,7 @@ pasos 1 y 2 exigen material que sólo custodia el propietario.
 
 | # | Paso | Sin esto |
 |---|---|---|
-| 1 | Publicar el **bundle de confianza** con una clave por propósito, firmado con la clave raíz, y **con `key_id` y `environment` en MAYÚSCULAS** (`StableCodeSchema`) | el equipo registra `session_trust: INVALID`, `provisioned: 0` y rechaza toda sesión. Es `D-30`, y es el bloqueo vigente |
+| 1 | `publish-session-trust.mjs` — publica el **bundle** y genera las dos claves operacionales | el equipo registra `session_trust: INVALID`, `provisioned: 0` y rechaza toda sesión |
 | 2 | Firmar el **artefacto de sesión** del operador con las dos claves operacionales | el equipo arranca sin sesión: `ABSENT` |
 | 3 | Arrancar el servicio **en Windows** apuntando a ambos ficheros | el canal local (named pipe) sólo se monta en `win32`; fuera de ahí el servicio de producción se niega a arrancar |
 | 4 | Depositar la credencial de **Wompi** | no hay cobro por QR. El equipo sigue vendiendo en efectivo y por transferencia: es un estado legítimo, no un fallo |

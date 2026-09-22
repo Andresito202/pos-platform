@@ -4,6 +4,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { globSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { WindowsDpapiKeyProvider } from "../src/index.js";
 
 const directories: string[] = [];
@@ -17,6 +19,39 @@ afterEach(() => {
 });
 
 const windowsIt = process.platform === "win32" ? it : it.skip;
+
+/**
+ * Lo que se puede comprobar sin Windows, y por tanto en CI.
+ *
+ * El script de DPAPI estuvo **duplicado**: una copia en el servicio y otra en
+ * `@pos-platform/local-channel`, identicas en significado y distintas en
+ * formato. Nada las comparaba, asi que arreglar una no habria alcanzado a la
+ * otra y nada habria fallado al no alcanzarla.
+ *
+ * Es la misma forma de envejecer que ya costo doce dias en
+ * `business-readiness.md`: dos superficies para el mismo dato. Se resolvio
+ * dejando una sola y esto impide que vuelvan a ser dos.
+ */
+describe("el script de DPAPI existe una sola vez", () => {
+  it("no hay una segunda copia esperando a divergir", () => {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    // Sólo fuentes: `dist/` lleva copias empaquetadas del mismo script —son
+    // el mismo origen compilado, no una segunda definición— y esta propia
+    // prueba contiene la cadena que busca.
+    const sources = [
+      ...globSync("{apps,packages}/*/src/**/*.ts", { cwd: root }),
+      ...globSync("tools/**/*.mjs", { cwd: root }),
+    ].filter((file) => !file.includes("node_modules"));
+
+    const definitions = sources.filter((file) =>
+      readFileSync(`${root}/${file}`, "utf8").includes("DPAPI_SCRIPT = String.raw"));
+
+    expect(
+      definitions,
+      "el script de DPAPI tiene que definirse en un solo sitio; el servicio lo importa de local-channel",
+    ).toEqual(["packages/local-channel/src/windows-production.ts"]);
+  });
+});
 
 describe("Windows DPAPI root key provider", () => {
   windowsIt("persists one OS-bound key per context without plaintext storage", async () => {
