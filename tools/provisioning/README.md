@@ -104,6 +104,97 @@ el operador ni el artefacto—:
 | `SNAPSHOT_REJECTED` | la SSA entró y el SAS no: hay sesión sin permisos |
 | `PROVISIONED` | sesión y permisos activos |
 
+## Credenciales de cobro y de facturación
+
+El artefacto de sesión abre la puerta; estas dos deciden si el equipo puede
+**cobrar por QR** y **facturar electrónicamente**. Ninguna viaja en
+configuración plana: las dos van al mismo almacén cifrado del equipo
+(AES-256-GCM sobre fichero `0600`, clave raíz de DPAPI en Windows), con el
+binding del equipo como dato autenticado, de modo que **un fichero copiado a
+otra instalación no descifra**.
+
+Las dos se depositan **por entrada estándar**, nunca por argumento ni por
+variable de entorno: un argumento aparece en la lista de procesos y en el
+historial del intérprete, y una variable de entorno aparece en cualquier
+volcado de diagnóstico y la heredan los procesos hijos.
+
+### Wompi — cobro por QR
+
+```bash
+cat credencial-wompi.json | pnpm --filter @pos-platform/pos-local-service deposit-wompi
+```
+
+```json
+{
+  "publicKey": "pub_test_…",
+  "integritySecret": "…",
+  "eventsSecret": "…",
+  "redirectUrl": "https://tu-tienda.example/gracias"
+}
+```
+
+`redirectUrl` es opcional. Wompi documenta ese retorno como «informativo, nunca
+un método de validación»: no entra en la firma de integridad y **no es
+evidencia de pago**. La respuesta real sigue viniendo de
+`GET /v1/transactions/{id}` o del webhook.
+
+**`publicKey` tiene que ser la pública** —`pub_test_` en sandbox, `pub_prod_`
+en producción—. El depósito lo comprueba y rechaza cualquier otra cosa: sin esa
+comprobación, pegar ahí la clave privada por error se aceptaría en silencio,
+quedaría cifrada en el equipo y viajaría después en cada URL de checkout.
+
+Respuesta `{"status":"DEPOSITED"}` o `{"status":"REJECTED","code":…}`. **Nunca
+imprime un valor.** Un depósito posterior sustituye al anterior, que es como se
+rota una credencial; uno rechazado no deja nada a medias.
+
+> **Sandbox y producción comparten host.** `wompi-http-client.ts` fija
+> `https://production.wompi.co/v1` y lo deja así a propósito: según la
+> documentación de Wompi —verificada, no supuesta— es la clave la que
+> selecciona el entorno, no la URL. Si alguna vez se demuestra lo contrario,
+> eso sería un cambio con evidencia y no una opción de configuración que
+> añadir «por si acaso».
+
+### FACTUS — facturación electrónica
+
+```bash
+cat credencial-factus.json | pnpm --filter @pos-platform/pos-local-service deposit-credential
+```
+
+```json
+{
+  "provider": "FACTUS",
+  "environment": "SANDBOX",
+  "fields": { "clientId": "…", "clientSecret": "…", "username": "…", "password": "…" }
+}
+```
+
+Devuelve una referencia opaca (`secretRef` y `version`), que **no es un
+secreto**: es lo que el núcleo necesita para resolver la credencial.
+
+## Orden de puesta en marcha de un equipo
+
+Lo único que no puede hacerse desde el repositorio, reunido en un sitio. Los
+pasos 1 y 2 exigen material que sólo custodia el propietario.
+
+| # | Paso | Sin esto |
+|---|---|---|
+| 1 | Publicar el **bundle de confianza** con una clave por propósito, firmado con la clave raíz, y **con `key_id` y `environment` en MAYÚSCULAS** (`StableCodeSchema`) | el equipo registra `session_trust: INVALID`, `provisioned: 0` y rechaza toda sesión. Es `D-30`, y es el bloqueo vigente |
+| 2 | Firmar el **artefacto de sesión** del operador con las dos claves operacionales | el equipo arranca sin sesión: `ABSENT` |
+| 3 | Arrancar el servicio **en Windows** apuntando a ambos ficheros | el canal local (named pipe) sólo se monta en `win32`; fuera de ahí el servicio de producción se niega a arrancar |
+| 4 | Depositar la credencial de **Wompi** | no hay cobro por QR. El equipo sigue vendiendo en efectivo y por transferencia: es un estado legítimo, no un fallo |
+| 5 | Depositar la credencial de **FACTUS** | no hay facturación electrónica real (`F6`) |
+
+Comprobación del paso 3, en el log de arranque:
+
+```
+security.session_trust    → {"decision":"VALID","provisioned":2}
+security.trust_anchors    → {"usable":"session_assertion=1 authorization_snapshot=1 license=0"}
+security.operator_session → {"decision":"PROVISIONED"}
+```
+
+Si el segundo recuento sale `authorization_snapshot=0`, el bundle del paso 1 no
+publicó la clave de ese propósito y el paso 2 no podrá completarse.
+
 ## Riesgo residual aceptado
 
 Sin prueba de presencia —el PIN de `DEC-012` §18 sigue **sin autorizar**—,

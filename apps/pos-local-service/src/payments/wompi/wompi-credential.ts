@@ -59,8 +59,27 @@ export interface WompiCredential {
   readonly redirectUrl?: string;
 }
 
-const WompiCredentialSchema = z.strictObject({
-  publicKey: z.string().min(1),
+/**
+ * Forma del sobre. **Se exporta** porque el depósito valida con este mismo
+ * esquema antes de escribir: rechazar en el mostrador lo que se pudo rechazar
+ * al aprovisionar es convertir un error de dedo en una venta perdida.
+ */
+export const WompiCredentialSchema = z.strictObject({
+  /**
+   * La clave **pública**. Se exige el prefijo que la propia documentación de
+   * Wompi fija para ella —`pub_test_` en sandbox, `pub_prod_` en producción,
+   * y es la que autentica `GET /v1/transactions/{id}` como
+   * `Authorization: Bearer pub_(test|prod)_…`—.
+   *
+   * No es cosmética: sin esta comprobación, pegar aquí la clave **privada**
+   * por error se aceptaría en silencio y quedaría cifrada en el equipo,
+   * viajando después en cada URL de checkout. El prefijo es lo único que
+   * distingue una de otra mirando el valor, y aquí es donde se puede mirar.
+   */
+  publicKey: z.string().min(1).regex(
+    /^pub_(test|prod)_/,
+    "the Wompi public key must start with pub_test_ or pub_prod_",
+  ),
   integritySecret: z.string().min(1),
   eventsSecret: z.string().min(1),
   redirectUrl: z.string().url().optional(),
