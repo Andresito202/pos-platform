@@ -104,6 +104,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE local_trust_anchor;
       DROP TRIGGER catalog_unit_conversion_same_product_insert;
       DROP TABLE catalog_unit_conversion;
+      DROP TABLE inventory_lot;
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
       DROP TABLE inventory_movement;

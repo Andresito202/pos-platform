@@ -190,7 +190,7 @@ const ACCEPTED = {
 describe("MIGRATION_023 — esquema", () => {
   it("llega a la última versión y crea las dos tablas de DEC-021 F1", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(25);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(26);
     expect((database.native
       .prepare("SELECT max(version) AS version FROM local_schema_migrations")
       .get() as { version: number }).version).toBe(LATEST_LOCAL_SCHEMA_VERSION);

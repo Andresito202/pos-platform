@@ -2020,6 +2020,89 @@ CREATE INDEX inventory_movement_sale_idx
   ON inventory_movement(tenant_id, sale_id) WHERE sale_id IS NOT NULL;
 `.trim();
 
+/**
+ * `inventory_lot` — trazabilidad por lote y vencimiento (`UC-INVENTORY-002`
+ * §Lotes, `RN-018`, `RN-019`, `RN-127`).
+ *
+ * ## Por qué existe
+ *
+ * Carnes, embutidos, lácteos y perecederos no se pueden vender sin saber qué
+ * lote salió: es requisito sanitario, no comodidad. Hasta aquí el inventario
+ * sabía **cuánto** hay y no **de qué tanda**, así que un retiro de producto no
+ * se podía acotar y una merma por vencimiento no podía decir qué venció.
+ *
+ * ## De los atributos conceptuales, los que tienen soporte real
+ *
+ * `UC-INVENTORY-002` §Lotes enumera once. Entran los que el árbol puede
+ * sostener hoy; los demás **no se fingen con una columna vacía**, que es el
+ * criterio que ya se aplicó en `MIGRATION_024`:
+ *
+ * - `costo o referencia de costo`: no hay modelo de costo. La misma razón por
+ *   la que `cost_policy` se quedó fuera de `catalog_unit_conversion`.
+ * - `proveedor u origen`: no existe `Supplier`. Compras y proveedores son
+ *   capacidad ausente, y una columna de texto libre sería un proveedor
+ *   inventado sin identidad ni unicidad.
+ *
+ * ## Invariantes que impone el esquema, no la aplicación
+ *
+ * - **`lot_id` no se reutiliza** (regla 1): clave primaria `(tenant_id, id)`.
+ * - **Un código de lote identifica una tanda dentro de su presentación**: el
+ *   índice único `(tenant_id, presentation_id, lot_code)` impide dos lotes
+ *   homónimos del mismo artículo, que harían ambigua la trazabilidad.
+ * - **El vencimiento no puede preceder a la recepción ni a la fabricación**.
+ *   Una fecha así es un error de captura, y aceptarla envenenaría FEFO: ese
+ *   lote se elegiría siempre primero.
+ * - **Las cantidades son de la misma escala 6 que el resto del inventario**, y
+ *   `quantity_reserved` nunca excede a `quantity_on_hand`.
+ *
+ * `status` distingue `ACTIVE` de `BLOCKED` y `CONSUMED`. **`EXPIRED` no es un
+ * estado almacenado**: `UC-INVENTORY-002` §Vencimientos lo lista como estado
+ * *derivado*, y su regla 4 dice que el vencimiento no elimina el lote. Guardar
+ * «vencido» como columna obligaría a un proceso que la actualice y produciría
+ * dos verdades —la fecha y el estado— que pueden discrepar. Se deriva de
+ * `expiry_date` contra el reloj, que es una sola verdad.
+ */
+const MIGRATION_026 = `
+CREATE TABLE inventory_lot (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  lot_code TEXT NOT NULL CHECK(length(lot_code) BETWEEN 1 AND 64),
+  received_date TEXT NOT NULL CHECK(length(received_date) = 10),
+  manufactured_date TEXT CHECK(manufactured_date IS NULL OR length(manufactured_date) = 10),
+  expiry_date TEXT CHECK(expiry_date IS NULL OR length(expiry_date) = 10),
+  quantity_on_hand TEXT NOT NULL
+    CHECK(quantity_on_hand GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity_on_hand NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity_on_hand) - length(replace(quantity_on_hand, '.', '')) = 1)
+    CHECK(quantity_on_hand NOT GLOB '0[0-9]*'),
+  quantity_reserved TEXT NOT NULL
+    CHECK(quantity_reserved GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity_reserved NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity_reserved) - length(replace(quantity_reserved, '.', '')) = 1)
+    CHECK(quantity_reserved NOT GLOB '0[0-9]*'),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','BLOCKED','CONSUMED')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(expiry_date IS NULL OR expiry_date >= received_date),
+  CHECK(manufactured_date IS NULL OR manufactured_date <= received_date),
+  CHECK(expiry_date IS NULL OR manufactured_date IS NULL OR expiry_date >= manufactured_date),
+  CHECK(CAST(replace(quantity_reserved, '.', '') AS INTEGER)
+        <= CAST(replace(quantity_on_hand, '.', '') AS INTEGER)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, presentation_id) REFERENCES catalog_presentation(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+CREATE UNIQUE INDEX inventory_lot_code_idx
+  ON inventory_lot(tenant_id, presentation_id, lot_code);
+
+CREATE INDEX inventory_lot_fefo_idx
+  ON inventory_lot(tenant_id, branch_id, presentation_id, expiry_date)
+  WHERE status = 'ACTIVE' AND quantity_on_hand <> '0.000000';
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2046,6 +2129,7 @@ const MIGRATIONS = [
   { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
   { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
   { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
+  { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
 ] as const;
 
 /**

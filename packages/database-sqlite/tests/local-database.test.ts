@@ -802,3 +802,148 @@ describe("MIGRATION_025 — la conversión deja rastro con su propio nombre", ()
     }
   });
 });
+
+describe("MIGRATION_026 — lote y vencimiento (UC-INVENTORY-002 §Lotes)", () => {
+  const TENANT = "018f0000-0000-7000-8000-0000000d0001";
+  const COMPANY = "018f0000-0000-7000-8000-0000000d0002";
+  const BRANCH = "018f0000-0000-7000-8000-0000000d0003";
+  const PRODUCT = "018f0000-0000-7000-8000-0000000d0004";
+  const PRESENTATION = "018f0000-0000-7000-8000-0000000d0005";
+  const ACTOR = "018f0000-0000-7000-8000-0000000d0006";
+  const CORRELATION = "018f0000-0000-7000-8000-0000000d0007";
+  const AT = "2026-09-22T10:00:00.000Z";
+
+  function seed(db: LocalDatabase): void {
+    db.native.prepare(
+      `INSERT INTO catalog_product(
+        id, tenant_id, company_id, code, name, status, stock_controlled,
+        registered_by_actor_id, idempotency_key, correlation_id, version, created_at, updated_at
+      ) VALUES (?,?,?,'POLLO','Pollo entero','ACTIVE',1,?,?,?,1,?,?)`,
+    ).run(PRODUCT, TENANT, COMPANY, ACTOR, `catalog:${PRODUCT}`, CORRELATION, AT, AT);
+    db.native.prepare(
+      `INSERT INTO catalog_presentation(
+        id, tenant_id, product_id, name, unit_code, unit_precision, barcode,
+        status, created_at, updated_at
+      ) VALUES (?,?,?,'Gramo','GRM',0,NULL,'ACTIVE',?,?)`,
+    ).run(PRESENTATION, TENANT, PRODUCT, AT, AT);
+  }
+
+  function lot(
+    db: LocalDatabase,
+    id: string,
+    overrides: Partial<{
+      lotCode: string; received: string; manufactured: string | null;
+      expiry: string | null; onHand: string; reserved: string; status: string;
+      presentationId: string;
+    }> = {},
+  ): void {
+    const v = {
+      lotCode: `L-${id.slice(-4)}`, received: "2026-09-20", manufactured: null,
+      expiry: "2026-09-30", onHand: "10000.000000", reserved: "0.000000",
+      status: "ACTIVE", presentationId: PRESENTATION, ...overrides,
+    };
+    db.native.prepare(
+      `INSERT INTO inventory_lot(
+        id, tenant_id, company_id, branch_id, presentation_id, lot_code,
+        received_date, manufactured_date, expiry_date,
+        quantity_on_hand, quantity_reserved, status, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      id, TENANT, COMPANY, BRANCH, v.presentationId, v.lotCode,
+      v.received, v.manufactured, v.expiry, v.onHand, v.reserved, v.status, AT, AT,
+    );
+  }
+
+  async function open(): Promise<LocalDatabase> {
+    const db = LocalDatabase.open({ dataDirectory: await directory() });
+    seed(db);
+    return db;
+  }
+
+  it("guarda un lote legible con su vencimiento", async () => {
+    const db = await open();
+    lot(db, "018f0000-0000-7000-8000-0000000d0010", { lotCode: "POLLO-2026-09-20" });
+
+    expect(db.native.prepare(
+      "SELECT lot_code, expiry_date, quantity_on_hand, status FROM inventory_lot WHERE tenant_id=?",
+    ).get(TENANT)).toEqual({
+      lot_code: "POLLO-2026-09-20",
+      expiry_date: "2026-09-30",
+      quantity_on_hand: "10000.000000",
+      status: "ACTIVE",
+    });
+  });
+
+  /**
+   * Dos lotes homonimos del mismo articulo harian ambigua la trazabilidad:
+   * un retiro sanitario no sabria cual retirar.
+   */
+  it("rechaza dos lotes con el mismo codigo en la misma presentacion", async () => {
+    const db = await open();
+    lot(db, "018f0000-0000-7000-8000-0000000d0011", { lotCode: "REPETIDO" });
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0012", { lotCode: "REPETIDO" }))
+      .toThrow(/UNIQUE/i);
+  });
+
+  /**
+   * Una fecha asi no es un lote raro: es un error de captura, y envenenaria
+   * FEFO —ese lote se elegiria SIEMPRE primero, para siempre—.
+   */
+  it("rechaza un vencimiento anterior a la recepcion", async () => {
+    const db = await open();
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0013", {
+      received: "2026-09-20", expiry: "2026-09-19",
+    })).toThrow(/CHECK/i);
+  });
+
+  it("rechaza fabricacion posterior a la recepcion", async () => {
+    const db = await open();
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0014", {
+      manufactured: "2026-09-21", received: "2026-09-20",
+    })).toThrow(/CHECK/i);
+  });
+
+  it("rechaza reservar mas de lo que hay", async () => {
+    const db = await open();
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0015", {
+      onHand: "5.000000", reserved: "6.000000",
+    })).toThrow(/CHECK/i);
+    // Y reservar TODO si se admite: no es un error, es un lote comprometido.
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0016", {
+      onHand: "5.000000", reserved: "5.000000",
+    })).not.toThrow();
+  });
+
+  /**
+   * `EXPIRED` **no** es un estado almacenado: `UC-INVENTORY-002` §Vencimientos
+   * lo lista como derivado y su regla 4 dice que el vencimiento no elimina el
+   * lote. Guardarlo como columna daria dos verdades que pueden discrepar.
+   */
+  it("no admite EXPIRED como estado almacenado: se deriva de la fecha", async () => {
+    const db = await open();
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0017", { status: "EXPIRED" }))
+      .toThrow(/CHECK/i);
+    for (const status of ["ACTIVE", "BLOCKED", "CONSUMED"]) {
+      expect(() => lot(db, `018f0000-0000-7000-8000-0000000d00${status.length}${status[0]}`, { status }))
+        .not.toThrow();
+    }
+  });
+
+  it("un lote no puede colgar de una presentacion inexistente", async () => {
+    const db = await open();
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d0018", {
+      presentationId: "018f0000-0000-7000-8000-0000000dffff",
+    })).toThrow(/FOREIGN KEY/i);
+  });
+
+  /** El indice que sostiene FEFO: por vencimiento, sólo lo vendible. */
+  it("conserva el indice FEFO y el de unicidad", async () => {
+    const db = await open();
+    const indexes = db.native.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='inventory_lot' ORDER BY name",
+    ).all() as { name: string }[];
+    expect(indexes.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["inventory_lot_code_idx", "inventory_lot_fefo_idx"]),
+    );
+  });
+});
