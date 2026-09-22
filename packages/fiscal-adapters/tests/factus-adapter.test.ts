@@ -672,3 +672,89 @@ describe("validación de configuración", () => {
     expect(authorizesIssuance(outcome)).toBe(false);
   });
 });
+
+/**
+ * Por qué falló la autenticación, y no sólo que falló.
+ *
+ * ## El defecto, medido
+ *
+ * El 2026-09-22 se ejecutó la suite de sandbox con **credenciales válidas** y
+ * la red denegada por un proxy. `synchronizeRanges` respondió
+ * `UNAVAILABLE: AUTHENTICATION_FAILURE`.
+ *
+ * Es la respuesta más cara que puede dar: manda a un comercio a re-teclear una
+ * credencial correcta, o a pedirle otra a FACTUS, cuando lo que falla es la
+ * red. `auth.ts` ya distinguía `CREDENTIAL_REJECTED` de `TRANSPORT_FAILURE`
+ * —y `issue()` ya conservaba esa distinción—; se perdía un piso más arriba, en
+ * tres puertos que hacían `catch {}` y devolvían un código fijo.
+ *
+ * ## Qué se fija aquí
+ *
+ * Que los cuatro puertos digan **cuál de las dos cosas** pasó. Cada caso se
+ * prueba con los dos transportes, porque afirmar sólo uno dejaría pasar la
+ * regresión de volver a fijar el código: con un único caso, un `reasonCode`
+ * constante sigue pareciendo correcto.
+ */
+describe("la causa del fallo de autenticación llega al llamador", () => {
+  const RANGES = { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE } as const;
+  const STATUS = {
+    environment: "SANDBOX",
+    credential: FAKE_REFERENCE,
+    reference: { by: "EXTERNAL", providerOperationId: "op-1" },
+  } as const;
+  const ARTIFACT = {
+    environment: "SANDBOX",
+    credential: FAKE_REFERENCE,
+    artifactType: "XML",
+    reference: { by: "EXTERNAL", providerOperationId: "op-1" },
+  } as const;
+
+  /** La red no llegó a salir: nada que ver con la credencial. */
+  function unreachable(): ReturnType<typeof adapter> {
+    const transport = new FakeTransport([() => {
+      throw new HttpTransportError("connection refused", "CONNECTION_REFUSED", false);
+    }]);
+    return { transport, adapter: new FactusAdapter(transport, new FakeCredentialResolver(), "SANDBOX", clock) };
+  }
+
+  /** El proveedor contestó, y rechazó la credencial. */
+  function rejected(): ReturnType<typeof adapter> {
+    const transport = new FakeTransport([() => json(401, { error: "invalid_client" })]);
+    return { transport, adapter: new FactusAdapter(transport, new FakeCredentialResolver(), "SANDBOX", clock) };
+  }
+
+  it("distingue red caída de credencial rechazada al sincronizar rangos", async () => {
+    const caida = await unreachable().adapter.synchronizeRanges(RANGES as never, signal);
+    const mala = await rejected().adapter.synchronizeRanges(RANGES as never, signal);
+
+    expect(caida).toMatchObject({ kind: "UNAVAILABLE", reasonCode: "CONNECTION_REFUSED" });
+    expect(mala).toMatchObject({ kind: "UNAVAILABLE", reasonCode: "CREDENTIAL_REJECTED" });
+  });
+
+  it("distingue red caída de credencial rechazada al consultar estado", async () => {
+    const caida = await unreachable().adapter.queryStatus(STATUS as never, signal);
+    const mala = await rejected().adapter.queryStatus(STATUS as never, signal);
+
+    expect(caida).toMatchObject({ kind: "INDETERMINATE", reasonCode: "CONNECTION_REFUSED" });
+    expect(mala).toMatchObject({ kind: "INDETERMINATE", reasonCode: "CREDENTIAL_REJECTED" });
+  });
+
+  it("distingue red caída de credencial rechazada al pedir el artefacto", async () => {
+    const caida = await unreachable().adapter.fetchArtifact(ARTIFACT as never, signal);
+    const mala = await rejected().adapter.fetchArtifact(ARTIFACT as never, signal);
+
+    expect(caida).toMatchObject({ kind: "UNAVAILABLE", reasonCode: "CONNECTION_REFUSED" });
+    expect(mala).toMatchObject({ kind: "UNAVAILABLE", reasonCode: "CREDENTIAL_REJECTED" });
+  });
+
+  it("y la emisión, que ya lo hacía, lo sigue haciendo", async () => {
+    const caida = await unreachable().adapter.issue(ISSUE, signal);
+    const mala = await rejected().adapter.issue(ISSUE, signal);
+
+    // La emision no lleva `reasonCode` sino `diagnostic.code`: su desenlace
+    // distingue ademas si el documento llego a salir, y el diagnostico cuelga
+    // de ahi. La distincion es la misma; el sitio donde viaja, no.
+    expect(caida).toMatchObject({ kind: "TECHNICAL_FAILURE", diagnostic: { code: "CONNECTION_REFUSED" } });
+    expect(mala).toMatchObject({ kind: "TECHNICAL_FAILURE", diagnostic: { code: "CREDENTIAL_REJECTED" } });
+  });
+});

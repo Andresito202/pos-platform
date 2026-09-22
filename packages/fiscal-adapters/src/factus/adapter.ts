@@ -324,8 +324,23 @@ implements
     let token: string;
     try {
       token = await this.authenticator.accessToken(query.credential, signal);
-    } catch {
-      return { kind: "INDETERMINATE", reasonCode: "AUTHENTICATION_FAILURE", providerStatus: null };
+    } catch (error) {
+      // Se conserva el código del error, como ya hacía `issue()`. Tirarlo
+      // —`catch {}` y `AUTHENTICATION_FAILURE` fijo— convertía «no pude
+      // hablar con el proveedor» en «tu credencial está mal», que es la
+      // respuesta más cara de todas: manda a un comercio a re-teclear una
+      // credencial correcta, o a pedirle otra a FACTUS.
+      //
+      // Medido el 2026-09-22 con credenciales de sandbox válidas y la red
+      // denegada por un proxy: `synchronizeRanges` respondía
+      // `UNAVAILABLE: AUTHENTICATION_FAILURE`. `auth.ts` ya distinguía
+      // `CREDENTIAL_REJECTED` de `TRANSPORT_FAILURE`; la distinción se perdía
+      // aquí, un piso más arriba.
+      return {
+        kind: "INDETERMINATE",
+        reasonCode: error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE",
+        providerStatus: null,
+      };
     }
 
     const reference = query.reference.by === "EXTERNAL"
@@ -392,8 +407,12 @@ implements
     let token: string;
     try {
       token = await this.authenticator.accessToken(request.credential, signal);
-    } catch {
-      return { kind: "UNAVAILABLE", reasonCode: "AUTHENTICATION_FAILURE" };
+    } catch (error) {
+      // Misma razón que en `queryStatus`: el código del error es el dato.
+      return {
+        kind: "UNAVAILABLE",
+        reasonCode: error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE",
+      };
     }
 
     const suffix = request.artifactType === "XML" ? "xml" : "pdf";
@@ -442,8 +461,12 @@ implements
     let token: string;
     try {
       token = await this.authenticator.accessToken(query.credential, signal);
-    } catch {
-      return { kind: "UNAVAILABLE", reasonCode: "AUTHENTICATION_FAILURE" };
+    } catch (error) {
+      // Misma razón que en `queryStatus`: el código del error es el dato.
+      return {
+        kind: "UNAVAILABLE",
+        reasonCode: error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE",
+      };
     }
 
     let response: HttpResponse;
