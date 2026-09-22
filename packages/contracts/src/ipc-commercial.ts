@@ -1443,6 +1443,148 @@ export const InventoryMovementResultSchema = z.strictObject({
 export const InventoryMovementResponseSchema =
   createResponseEnvelopeSchema(InventoryMovementResultSchema);
 
+// ── catalog.item.import ──────────────────────────────────────────────────────
+
+/**
+ * Carga inicial del catálogo — la única forma real de alimentar un POS.
+ *
+ * ## Por qué existe
+ *
+ * Medido el 2026-09-22: poner **un** artículo vendible y facturable cuesta hoy
+ * tres operaciones —`catalog.product.register`, `catalog.fiscal.attribute.set`
+ * e `inventory.stock.receive`—, todas de una en una. Un minimercado tiene
+ * entre dos y cinco mil referencias. Eso son diez o quince mil capturas a mano
+ * antes de vender la primera gaseosa, y es el motivo real por el que un POS no
+ * se estrena: no le falta motor, le falta **por dónde meter la mercancía**.
+ *
+ * Ninguna doctrina del repositorio lo cubría. `UC-ONB-001` inicializa el
+ * tenant —licencia y dispositivos—, no el catálogo.
+ *
+ * ## Por qué no es «todo o nada»
+ *
+ * Tres mil filas y la 1.742 trae un código de barras repetido. Descartar las
+ * 2.999 buenas por una mala obligaría a corregir a ciegas y reintentar entero.
+ * Cada fila es **atómica en sí misma** y devuelve su propio desenlace con su
+ * índice: el operador corrige exactamente lo que falló y reimporta.
+ *
+ * Es deliberadamente lo contrario de la conversión atómica, y por la razón
+ * opuesta: allí las dos mitades carecen de sentido por separado; aquí cada
+ * fila es un artículo independiente.
+ *
+ * ## Por qué reutiliza los casos de uso existentes
+ *
+ * Cada fila pasa por `RegisterProductUseCase`, `SetFiscalAttributeUseCase` y
+ * `ReceiveStockUseCase`. **No hay un segundo escritor de catálogo**: una ruta
+ * de importación con sus propias validaciones acabaría admitiendo lo que la
+ * ruta normal rechaza, y esa divergencia no la vería nadie hasta que un
+ * artículo importado se comportara distinto a uno capturado.
+ */
+export const CatalogImportItemSchema = z.strictObject({
+  code: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  stock_controlled: z.boolean(),
+  presentation_name: z.string().min(1).max(120),
+  unit_code: z.string().min(1).max(16),
+  unit_precision: z.number().int().min(0).max(6),
+  barcode: z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/).nullable(),
+  price_amount: PositiveScale6Schema,
+  currency_code: z.literal("COP"),
+  /**
+   * Existencia inicial. **Opcional**: una ficha de catálogo sin existencia es
+   * un estado legítimo —el artículo existe y todavía no llegó—, y obligar a
+   * declarar cero haría indistinguible «no llegó» de «se agotó».
+   */
+  initial_quantity: PositiveScale6Schema.nullable(),
+  /**
+   * Atributos fiscales. **Opcional**, porque un comercio que aún no factura
+   * electrónicamente no tiene por qué inventarse códigos DIAN para poder
+   * cargar su catálogo. Sin ellos el artículo se vende y **no se factura**:
+   * la emisión lo rechaza, que es fail-closed correcto.
+   */
+  fiscal: z.strictObject({
+    code_reference: z.string().min(1).max(64),
+    unit_measure_code: z.string().min(1).max(8),
+    standard_code: z.string().min(1).max(8),
+    tax_code: z.string().min(1).max(8),
+    tax_rate: NonNegativeScale6Schema,
+  }).nullable(),
+});
+
+/**
+ * Tope por llamada.
+ *
+ * La trama del canal admite 1 MiB (`DEFAULT_MAX_FRAME_BYTES`) y una fila ronda
+ * los 300 bytes, así que 500 caben con holgura. El tope no es una limitación
+ * del importador sino **la forma de que el fallo sea legible**: un lote que no
+ * cabe en una trama se rechaza entero por tamaño y el operador no sabría por
+ * qué. Cargar cinco mil referencias son diez llamadas.
+ */
+export const CATALOG_IMPORT_MAX_ITEMS = 500;
+
+export const CatalogItemImportRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    items: z.array(CatalogImportItemSchema).min(1).max(CATALOG_IMPORT_MAX_ITEMS),
+    business_date: BusinessDateSchema,
+    /** Motivo del movimiento de entrada de la existencia inicial. */
+    reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+  }),
+).safeExtend({ message_type: z.literal("catalog.item.import") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+    // Dos filas con el mismo código en el mismo lote son un error de origen,
+    // no una segunda remesa: la segunda chocaría contra la primera y el
+    // operador vería un conflicto sin entender que se lo hizo él.
+    const codes = request.payload.items.map((item) => item.code);
+    if (new Set(codes).size !== codes.length) {
+      context.addIssue({
+        code: "custom", path: ["payload", "items"],
+        message: "the batch repeats a product code",
+      });
+    }
+    const barcodes = request.payload.items
+      .map((item) => item.barcode).filter((value): value is string => value !== null);
+    if (new Set(barcodes).size !== barcodes.length) {
+      context.addIssue({
+        code: "custom", path: ["payload", "items"],
+        message: "the batch repeats a barcode",
+      });
+    }
+  });
+
+/**
+ * Desenlace **por fila**. `IMPORTED` cubre la fila completa; los demás dicen
+ * exactamente dónde se detuvo, porque una fila puede crear el artículo y
+ * fallar al declarar sus códigos fiscales.
+ */
+export const CatalogImportRowOutcomeSchema = z.enum([
+  "IMPORTED",
+  /** Ya existía con ese código: la fila no se toca. No es un error de carga. */
+  "CODE_ALREADY_REGISTERED",
+  "BARCODE_ALREADY_REGISTERED",
+  /** El artículo quedó creado y sus códigos fiscales no: no se puede facturar. */
+  "FISCAL_CODES_NOT_VERIFIED",
+  /** El artículo quedó creado y su existencia inicial no. */
+  "STOCK_NOT_APPLIED",
+]);
+
+export const CatalogItemImportResultSchema = z.strictObject({
+  outcome: z.enum(["COMPLETED", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT"]),
+  imported: z.number().int().nonnegative(),
+  /**
+   * Sólo las filas que **no** quedaron `IMPORTED`. Devolver las quinientas
+   * haría ilegible el resultado justo cuando hay un problema que leer.
+   */
+  rejected: z.array(z.strictObject({
+    index: z.number().int().nonnegative(),
+    code: z.string().min(1).max(64),
+    outcome: CatalogImportRowOutcomeSchema,
+  })).max(CATALOG_IMPORT_MAX_ITEMS),
+});
+
+export const CatalogItemImportResponseSchema =
+  createResponseEnvelopeSchema(CatalogItemImportResultSchema);
+
 // ── inventory.lot.receive · inventory.lot.list ───────────────────────────────
 
 /**
@@ -1676,6 +1818,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.conversion.apply",
   "catalog.item.find",
   "catalog.item.get",
+  "catalog.item.import",
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
@@ -1711,6 +1854,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.conversion.apply",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
+  "pos:catalog.item.import",
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
   "pos:inventory.stock.get",
@@ -1749,6 +1893,8 @@ export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
+export type CatalogImportItem = z.infer<typeof CatalogImportItemSchema>;
+export type CatalogItemImportResult = z.infer<typeof CatalogItemImportResultSchema>;
 export type InventoryLotReceiveResult = z.infer<typeof InventoryLotReceiveResultSchema>;
 export type InventoryLotListResult = z.infer<typeof InventoryLotListResultSchema>;
 export type LotExpiryState = z.infer<typeof LotExpiryStateSchema>;

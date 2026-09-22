@@ -130,6 +130,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.conversion.apply":
       case "catalog.item.find":
       case "catalog.item.get":
+      case "catalog.item.import":
       case "inventory.stock.receive":
       case "inventory.stock.adjust":
       case "inventory.stock.get":

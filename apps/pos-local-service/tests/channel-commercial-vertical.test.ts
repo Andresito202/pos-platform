@@ -2452,3 +2452,182 @@ describe("lotes y vencimiento: declarar la tanda y ver que vence primero", () =>
     });
   }, 60_000);
 });
+
+/**
+ * Carga inicial del catálogo — `catalog.item.import`.
+ *
+ * ## Qué mide, y por qué importa más que parecer
+ *
+ * Poner **un** artículo vendible y facturable costaba tres operaciones de una
+ * en una. Un minimercado tiene miles de referencias: son diez o quince mil
+ * capturas antes de vender la primera gaseosa. Eso, y no el motor, es lo que
+ * impide estrenar un POS.
+ *
+ * La prueba **no se conforma con que la carga responda `COMPLETED`**: coge un
+ * artículo cargado y lo vende y lo factura por la cadena real. Un importador
+ * que deja artículos que no se pueden vender habría pasado cualquier prueba
+ * que sólo mirase su propia respuesta.
+ */
+describe("carga inicial: del fichero del comerciante a una venta facturada", () => {
+  it("importa un lote mixto, y lo importado se vende y se factura", async () => {
+    await withRealFiscalChannel({
+      kind: "EVIDENCED", transportStatus: "COMPLETED", normalizedResult: "ACCEPTED",
+      externalIdentity: { providerOperationId: "op", providerDocumentId: null, prefix: "SETP", number: "990000001", cufe: "b".repeat(96) },
+      providerStatus: { providerCode: "0", providerStatus: "processed", httpStatus: 200 },
+    }, async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "0.000000", business_date: "2026-09-22",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "imp:shift"));
+
+      const fiscal = {
+        code_reference: "REF-IMPORT", unit_measure_code: "94",
+        standard_code: "999", tax_code: "01", tax_rate: "19.000000",
+      };
+      const carga = await send(mutating("catalog.item.import", {
+        business_date: "2026-09-22",
+        reason_code: "INITIAL_COUNT",
+        items: [
+          // Completo: con existencia y con códigos fiscales. Se vende y factura.
+          {
+            code: "ARROZ-500", name: "Arroz 500 g", stock_controlled: true,
+            presentation_name: "Bolsa 500 g", unit_code: "UND", unit_precision: 0,
+            barcode: "7709000000101", price_amount: "3200.000000", currency_code: "COP",
+            initial_quantity: "40.000000", fiscal,
+          },
+          // Sin existencia: ficha creada, todavía no llegó. Estado legítimo.
+          {
+            code: "PANELA-1K", name: "Panela 1 kg", stock_controlled: true,
+            presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+            barcode: "7709000000102", price_amount: "5500.000000", currency_code: "COP",
+            initial_quantity: null, fiscal,
+          },
+          // Sin códigos fiscales: se vende y **no se factura**, fail-closed.
+          {
+            code: "BOLSA-EMP", name: "Bolsa de empaque", stock_controlled: false,
+            presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+            barcode: "7709000000103", price_amount: "200.000000", currency_code: "COP",
+            initial_quantity: null, fiscal: null,
+          },
+        ],
+      }, "imp:carga"));
+
+      expect(carga.status).toBe("SUCCEEDED");
+      expect(carga.result["outcome"]).toBe("COMPLETED");
+      expect(carga.result["imported"]).toBe(3);
+      expect(carga.result["rejected"]).toEqual([]);
+
+      // La existencia inicial entró como `OPENING_COUNT`, que es lo que es: un
+      // conteo de apertura, no una compra que nadie hizo.
+      const arroz = await send(reading("catalog.item.find", { barcode: "7709000000101" }));
+      const presentationId = arroz.result["presentation_id"] as string;
+      expect(stockOf(database, presentationId)).toBe("40.000000");
+      expect(countOf(
+        database,
+        "SELECT COUNT(*) n FROM inventory_movement WHERE presentation_id=? AND movement_type='OPENING_COUNT'",
+        presentationId,
+      )).toBe(1);
+
+      // La panela existe sin existencia: distinguible de «se agotó».
+      expect((await send(reading("catalog.item.find", { barcode: "7709000000102" }))).status)
+        .toBe("SUCCEEDED");
+
+      // **Lo cargado se vende y se factura.** Es la única afirmación que vale.
+      seedFiscalRange(database);
+      const cliente = await send(mutating("customer.register", {
+        identification_document_code: "13", identification: "1020304050",
+        verification_digit: null, legal_organization_code: "2", company: null,
+        names: "Cliente Minimercado", tribute_code: "ZZ",
+        fiscal_responsibility_codes: ["R-99-PN"],
+        email: null, phone: null, address: null, country_code: null, municipality_code: null,
+      }, "imp:cliente"));
+
+      const venta = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-22",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "A", currency_code: "COP",
+        lines: [{
+          product_id: arroz.result["product_id"], presentation_id: presentationId,
+          quantity: "2.000000",
+        }],
+      }, "imp:venta"));
+      expect(venta.status).toBe("SUCCEEDED");
+
+      const saleId = venta.result["sale_id"] as string;
+      const pago = await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount: venta.result["payable_amount"] as string, tendered_amount: null,
+      }, "imp:pago"));
+      expect(pago.result["sale_completed"]).toBe(true);
+      expect(stockOf(database, presentationId)).toBe("38.000000");
+
+      const factura = await send(mutating("fiscal.document.issue", {
+        sale_id: saleId, document_type: "SALES_INVOICE",
+        customer: { kind: "IDENTIFIED", customer_id: cliente.result["customer_id"] },
+        observation: null,
+      }, "imp:factura"));
+      expect(factura.result["outcome"]).toBe("ISSUED");
+    });
+  }, 60_000);
+
+  /**
+   * Una fila mala no puede llevarse por delante a las buenas: es la diferencia
+   * entre corregir una línea y reimportar cinco mil a ciegas.
+   */
+  it("una fila con codigo de barras repetido no descarta las demas", async () => {
+    await withRealChannel(async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+
+      // Ya existe un articulo con ese codigo de barras.
+      await send(mutating("catalog.product.register", {
+        code: "PREEXISTENTE", name: "Ya estaba", stock_controlled: true,
+        presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+        barcode: "7709000000201", price_amount: "1000.000000", currency_code: "COP",
+      }, "choque:previo"));
+
+      const carga = await send(mutating("catalog.item.import", {
+        business_date: "2026-09-22", reason_code: "INITIAL_COUNT",
+        items: [
+          {
+            code: "BUENA-1", name: "Buena 1", stock_controlled: true,
+            presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+            barcode: "7709000000301", price_amount: "1000.000000", currency_code: "COP",
+            initial_quantity: "5.000000", fiscal: null,
+          },
+          {
+            code: "CHOCA", name: "Choca con el previo", stock_controlled: true,
+            presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+            barcode: "7709000000201", price_amount: "1000.000000", currency_code: "COP",
+            initial_quantity: "5.000000", fiscal: null,
+          },
+          {
+            code: "BUENA-2", name: "Buena 2", stock_controlled: true,
+            presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+            barcode: "7709000000302", price_amount: "1000.000000", currency_code: "COP",
+            initial_quantity: "5.000000", fiscal: null,
+          },
+        ],
+      }, "choque:carga"));
+
+      expect(carga.status).toBe("SUCCEEDED");
+      expect(carga.result["imported"]).toBe(2);
+      expect(carga.result["rejected"]).toEqual([
+        { index: 1, code: "CHOCA", outcome: "BARCODE_ALREADY_REGISTERED" },
+      ]);
+
+      // **La fila posterior a la mala tambien entro**: el lote no se corta.
+      expect((await send(reading("catalog.item.find", { barcode: "7709000000302" }))).status)
+        .toBe("SUCCEEDED");
+    });
+  }, 60_000);
+});

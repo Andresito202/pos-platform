@@ -40,6 +40,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:catalog.conversion.declare",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
+  "pos:catalog.item.import",
   // Inventario — `MIGRATION_015`.
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",

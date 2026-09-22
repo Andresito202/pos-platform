@@ -27,6 +27,7 @@ import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
 import { ReceiveLotUseCase } from "../inventory/receive-lot-use-case.js";
+import { ImportCatalogUseCase } from "../catalog/import-catalog-use-case.js";
 import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../inventory/get-stock-use-case.js";
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
@@ -130,6 +131,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly receiveStock: ReceiveStockUseCase;
         readonly receiveLot: ReceiveLotUseCase;
+        readonly importCatalog: ImportCatalogUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
         readonly getReceipt: GetReceiptUseCase;
@@ -214,6 +216,7 @@ export class CommercialComponent implements RuntimeComponent {
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get receiveLot(): ReceiveLotUseCase { return this.ready.receiveLot; }
+  get importCatalog(): ImportCatalogUseCase { return this.ready.importCatalog; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
@@ -291,6 +294,13 @@ export class CommercialComponent implements RuntimeComponent {
       }
     }
 
+    // Se izan los tres que la importación compone, para que **reutilice las
+    // mismas instancias** en vez de crear copias suyas: un segundo escritor de
+    // catálogo acabaría admitiendo lo que el primero rechaza.
+    const registerProduct = new RegisterProductUseCase(catalogStore);
+    const setFiscalAttribute = new SetFiscalAttributeUseCase(catalogStore);
+    const receiveStock = new ReceiveStockUseCase(inventoryStore);
+
     this.state = {
       issueElectronicDocument,
       sessionStore,
@@ -300,14 +310,15 @@ export class CommercialComponent implements RuntimeComponent {
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
-      receiveStock: new ReceiveStockUseCase(inventoryStore),
+      receiveStock,
       receiveLot: new ReceiveLotUseCase(inventoryStore),
+      importCatalog: new ImportCatalogUseCase(registerProduct, setFiscalAttribute, receiveStock),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
-      registerProduct: new RegisterProductUseCase(catalogStore),
-      setFiscalAttribute: new SetFiscalAttributeUseCase(catalogStore),
+      registerProduct,
+      setFiscalAttribute,
       addPresentation: new AddPresentationUseCase(catalogStore),
       declareConversion: new DeclareConversionUseCase(catalogStore),
       applyConversion: new ApplyConversionUseCase(catalogStore, inventoryStore),

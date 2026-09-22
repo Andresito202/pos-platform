@@ -25,7 +25,7 @@ type CommercialRequest = Extract<
       | "catalog.product.register" | "catalog.fiscal.attribute.set"
       | "catalog.presentation.add" | "catalog.conversion.declare"
       | "inventory.conversion.apply"
-      | "catalog.item.find" | "catalog.item.get"
+      | "catalog.item.find" | "catalog.item.get" | "catalog.item.import"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.lot.receive" | "inventory.lot.list"
       | "sales.receipt.get";
@@ -225,6 +225,7 @@ export class CommercialRequestHandler {
       case "inventory.conversion.apply": return this.applyConversion(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
+      case "catalog.item.import": return this.importCatalog(request, connectionId);
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
@@ -1290,6 +1291,70 @@ export class CommercialRequestHandler {
    * que le permite corregir la captura; un error genérico le haría reintentar
    * lo mismo.
    */
+  /**
+   * `catalog.item.import` — carga inicial del catálogo.
+   *
+   * El caso de uso devuelve **el desenlace de cada fila**, y aquí sólo se
+   * traducen las rechazadas. Devolver las quinientas haría ilegible el
+   * resultado justo cuando hay algo que leer.
+   */
+  private importCatalog(
+    request: Extract<CommercialRequest, { message_type: "catalog.item.import" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", imported: 0, rejected: [],
+      });
+    }
+
+    const result = this.commercial.importCatalog.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
+      {
+        items: request.payload.items.map((item) => ({
+          code: item.code,
+          name: item.name,
+          stockControlled: item.stock_controlled,
+          presentationName: item.presentation_name,
+          unitCode: item.unit_code,
+          unitPrecision: item.unit_precision,
+          barcode: item.barcode,
+          priceAmount: item.price_amount,
+          currencyCode: item.currency_code,
+          initialQuantity: item.initial_quantity,
+          fiscal: item.fiscal === null ? null : {
+            codeReference: item.fiscal.code_reference,
+            unitMeasureCode: item.fiscal.unit_measure_code,
+            standardCode: item.fiscal.standard_code,
+            taxCode: item.fiscal.tax_code,
+            taxRate: item.fiscal.tax_rate,
+          },
+        })),
+        businessDate: request.payload.business_date,
+        reasonCode: request.payload.reason_code,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind !== "COMPLETED") {
+      return rejected(request, result.kind, { outcome: result.kind, imported: 0, rejected: [] });
+    }
+
+    // **`COMPLETED` no significa «todas entraron».** Significa que el lote se
+    // procesó entero; `rejected` dice cuáles no, y con su índice, para que el
+    // operador corrija la fila y no el fichero.
+    return succeeded(request, "COMPLETED", {
+      outcome: "COMPLETED",
+      imported: result.imported,
+      rejected: result.rejected.map((row) => ({
+        index: row.index, code: row.code, outcome: row.outcome,
+      })),
+    });
+  }
+
   private receiveLot(
     request: Extract<CommercialRequest, { message_type: "inventory.lot.receive" }>,
     connectionId: string,

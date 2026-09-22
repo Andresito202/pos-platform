@@ -33,6 +33,7 @@ export const RENDERER_API_METHODS = [
   "catalog.conversion.declare",
   "catalog.item.find",
   "catalog.item.get",
+  "catalog.item.import",
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.conversion.apply",

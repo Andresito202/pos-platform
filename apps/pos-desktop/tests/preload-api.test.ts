@@ -36,6 +36,7 @@ describe("preload-api", () => {
       "catalog.conversion.declare",
       "catalog.item.find",
       "catalog.item.get",
+      "catalog.item.import",
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.conversion.apply",
