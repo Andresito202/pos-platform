@@ -26,6 +26,7 @@ import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
+import { ReceiveLotUseCase } from "../inventory/receive-lot-use-case.js";
 import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../inventory/get-stock-use-case.js";
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
@@ -128,6 +129,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly applyConversion: ApplyConversionUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly receiveStock: ReceiveStockUseCase;
+        readonly receiveLot: ReceiveLotUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
         readonly getReceipt: GetReceiptUseCase;
@@ -211,6 +213,7 @@ export class CommercialComponent implements RuntimeComponent {
   get applyConversion(): ApplyConversionUseCase { return this.ready.applyConversion; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
+  get receiveLot(): ReceiveLotUseCase { return this.ready.receiveLot; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
@@ -298,6 +301,7 @@ export class CommercialComponent implements RuntimeComponent {
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
       receiveStock: new ReceiveStockUseCase(inventoryStore),
+      receiveLot: new ReceiveLotUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).

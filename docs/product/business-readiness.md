@@ -37,7 +37,7 @@ siguiera faltando una autoridad central.
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` |
 | **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · la venta descuenta al completarse |
-| **Interfaz de caja** | ✅ | **31 de las 34 operaciones del contrato tienen pantalla**, repartidas en 11 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
+| **Interfaz de caja** | ✅ | **31 de las 36 operaciones del contrato tienen pantalla**, repartidas en 11 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers`, alcanzables por el canal y desde la pantalla |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
@@ -46,13 +46,15 @@ siguiera faltando una autoridad central.
 | Lector de código de barras | ⚠️ | el catálogo resuelve código → artículo y garantiza que un código identifica una sola presentación. Un lector USB se comporta como teclado y escribe en `barcode-input`, así que **la ruta existe**; lo que no se ha verificado es un periférico real → `REQUIRES_LOCAL_VERIFICATION` |
 | Balanza | ❌ | ninguna integración; `unit_precision` gobierna la cantidad pero nadie la lee de un periférico |
 
-### Las 3 operaciones sin pantalla, y por qué
+### Las 5 operaciones sin pantalla, y por qué
 
 | Operación | Motivo |
 |---|---|
 | `runtime.handshake` | Es de transporte. No es una operación de cajero |
 | `session.activate` | **Deliberado.** `SessionPanel` no ofrece botón de activar y hay prueba E2E que lo fija: activar exige una SSA firmada por la autoridad, y no se teclea |
 | `catalog.item.get` | **No tiene ningún llamador.** Está en el contrato y el handler la sirve; `catalog.item.find` cubre hoy el mostrador. Es superficie sin consumidor: decidir si se le da uso o se retira es de producto |
+| `inventory.lot.receive` | Nueva el 2026-09-22 (`MIGRATION_026`). El contrato y el motor existen; **la pantalla es el tramo siguiente** y hasta que llegue, un comercio no puede declarar un lote desde la caja |
+| `inventory.lot.list` | Lo mismo. Es la que mostraría qué está por vencer, que es la mitad del valor sanitario de llevar lotes |
 
 ## El bloqueo vigente: el artefacto de confianza no es legible
 

@@ -36,6 +36,8 @@ describe("ipc-allowlist", () => {
       "pos:inventory.stock.adjust",
       "pos:inventory.conversion.apply",
       "pos:inventory.stock.get",
+      "pos:inventory.lot.receive",
+      "pos:inventory.lot.list",
       "pos:sales.receipt.get",
     ]);
   });
@@ -67,6 +69,8 @@ describe("ipc-allowlist", () => {
       "pos:inventory.stock.receive",
       "pos:inventory.stock.adjust",
       "pos:inventory.stock.get",
+      "pos:inventory.lot.receive",
+      "pos:inventory.lot.list",
       "pos:sales.receipt.get",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);

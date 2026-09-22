@@ -13,6 +13,8 @@ import {
   FiscalDocumentIssueResponseSchema,
   InventoryMovementResponseSchema,
   InventoryStockGetResponseSchema,
+  InventoryLotReceiveResponseSchema,
+  InventoryLotListResponseSchema,
   SalesReceiptGetResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
@@ -90,6 +92,8 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "inventory.stock.receive": InventoryMovementResponseSchema,
   "inventory.stock.adjust": InventoryMovementResponseSchema,
   "inventory.stock.get": InventoryStockGetResponseSchema,
+  "inventory.lot.receive": InventoryLotReceiveResponseSchema,
+  "inventory.lot.list": InventoryLotListResponseSchema,
   "sales.receipt.get": SalesReceiptGetResponseSchema,
 };
 

@@ -5,6 +5,7 @@ import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { boundIdentityFromClaims, type BoundSessionIdentity } from "../session/session-binding-registry.js";
+import { lotExpiryState } from "../inventory/receive-lot-use-case.js";
 import type { CommercialComponent } from "./commercial-component.js";
 
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -26,6 +27,7 @@ type CommercialRequest = Extract<
       | "inventory.conversion.apply"
       | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
+      | "inventory.lot.receive" | "inventory.lot.list"
       | "sales.receipt.get";
   }
 >;
@@ -226,6 +228,8 @@ export class CommercialRequestHandler {
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
+      case "inventory.lot.receive": return this.receiveLot(request, connectionId);
+      case "inventory.lot.list": return this.listLots(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
     }
   }
@@ -1275,6 +1279,91 @@ export class CommercialRequestHandler {
     }
 
     return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  /**
+   * `inventory.lot.receive` — `UC-INVENTORY-002` §Lotes.
+   *
+   * El lote y su movimiento los escribe el almacén en una sola transacción.
+   * Aquí sólo se traduce el desenlace, y **`LOT_CODE_CONFLICT` se devuelve tal
+   * cual**: decirle al cajero «ese código ya existe con otras fechas» es lo
+   * que le permite corregir la captura; un error genérico le haría reintentar
+   * lo mismo.
+   */
+  private receiveLot(
+    request: Extract<CommercialRequest, { message_type: "inventory.lot.receive" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { lot_id: null, quantity_after: null, lot_quantity_on_hand: null };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.receiveLot.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
+      {
+        presentationId: request.payload.presentation_id,
+        lotCode: request.payload.lot_code,
+        quantity: request.payload.quantity,
+        manufacturedDate: request.payload.manufactured_date,
+        expiryDate: request.payload.expiry_date,
+        reasonCode: request.payload.reason_code,
+        businessDate: request.payload.business_date,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "RECEIVED") {
+      return succeeded(request, "RECEIVED", {
+        outcome: "RECEIVED",
+        lot_id: result.lotId,
+        quantity_after: result.quantityAfter,
+        lot_quantity_on_hand: result.lotQuantityOnHand,
+      });
+    }
+
+    // `IDEMPOTENT` del movimiento significa que esta recepción ya se aplicó;
+    // no es un rechazo, pero tampoco vuelve a sumar al lote. Se reporta como
+    // conflicto de idempotencia, que es lo que el contrato admite aquí.
+    const outcome = result.kind === "IDEMPOTENT" || result.kind === "IDEMPOTENCY_CONFLICT"
+      ? "IDEMPOTENCY_CONFLICT"
+      : result.kind;
+    return rejected(request, outcome, { outcome, ...empty });
+  }
+
+  /** `inventory.lot.list` — lo que vence primero, primero. */
+  private listLots(
+    request: Extract<CommercialRequest, { message_type: "inventory.lot.list" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", lots: [] });
+    }
+
+    const result = this.commercial.receiveLot.list(
+      this.scope(), authenticated.snapshot, request.payload.presentation_id,
+    );
+    if (result.kind !== "LISTED") {
+      return rejected(request, result.kind, { outcome: result.kind, lots: [] });
+    }
+
+    return succeeded(request, "LISTED", {
+      outcome: "LISTED",
+      lots: result.lots.map((lot) => ({
+        lot_id: lot.lotId,
+        lot_code: lot.lotCode,
+        received_date: lot.receivedDate,
+        expiry_date: lot.expiryDate,
+        quantity_on_hand: lot.quantityOnHand,
+        status: lot.status,
+        expiry_state: lotExpiryState(lot.expiryDate, request.payload.business_date),
+      })),
+    });
   }
 
   private getStock(

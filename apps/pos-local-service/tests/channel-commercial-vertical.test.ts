@@ -2320,3 +2320,135 @@ describe("venta por peso: el mostrador de una avicola, de la balanza a la factur
     });
   }, 60_000);
 });
+
+/**
+ * Lotes y vencimiento por el canal real — `UC-INVENTORY-002` §Lotes.
+ *
+ * Es lo que una carnicería necesita para acotar un retiro sanitario: saber de
+ * qué tanda salió cada cosa y qué está vencido antes de venderlo.
+ *
+ * **Lo que este tramo NO hace, y se dice aquí para que no se lea de más:** la
+ * venta todavía **no consume lotes por FEFO**. Declarar la tanda y verla ya
+ * sirve —la mitad del valor sanitario es ver qué vence—, pero el rastro de
+ * venta a lote es el tramo siguiente.
+ */
+describe("lotes y vencimiento: declarar la tanda y ver que vence primero", () => {
+  it("recibe dos tandas, las ordena por vencimiento y marca la vencida", async () => {
+    await withRealChannel(async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+
+      const carne = await send(mutating("catalog.product.register", {
+        code: "RES-MOLIDA", name: "Carne molida de res", stock_controlled: true,
+        presentation_name: "Gramo", unit_code: "GRM", unit_precision: 0,
+        barcode: "7705555000001", price_amount: "22.000000", currency_code: "COP",
+      }, "lote:catalogo"));
+      const presentationId = carne.result["presentation_id"] as string;
+
+      // **El orden de llegada y el de vencimiento tienen que discrepar**, o la
+      // prueba pasaria por coincidencia. Se comprobo: con los tres recibidos
+      // en fechas que coincidian con su vencimiento, ordenar por llegada daba
+      // el mismo resultado que FEFO y la prueba seguia verde con el ORDER BY
+      // equivocado.
+      //
+      // Aqui la tanda que vence MAS TARDE es la que llego PRIMERO, y ademas su
+      // codigo ordena antes alfabeticamente: ni por llegada ni por nombre sale
+      // el orden correcto.
+      const tardia = await send(mutating("inventory.lot.receive", {
+        presentation_id: presentationId, lot_code: "A-VENCE-TARDE",
+        quantity: "5000.000000", manufactured_date: "2026-09-09",
+        expiry_date: "2026-12-31", reason_code: "SUPPLIER_DELIVERY",
+        business_date: "2026-09-10",
+      }, "lote:tardia"));
+      expect(tardia.status).toBe("SUCCEEDED");
+      expect(tardia.result["outcome"]).toBe("RECEIVED");
+      expect(tardia.result["lot_quantity_on_hand"]).toBe("5000.000000");
+
+      const proxima = await send(mutating("inventory.lot.receive", {
+        presentation_id: presentationId, lot_code: "Z-VENCE-PRONTO",
+        quantity: "3000.000000", manufactured_date: null,
+        expiry_date: "2026-09-24", reason_code: "SUPPLIER_DELIVERY",
+        business_date: "2026-09-22",
+      }, "lote:proxima"));
+      expect(proxima.result["outcome"]).toBe("RECEIVED");
+
+      // Una tanda que ya vencio. **Se recibe con fecha del 15**, no de hoy: el
+      // esquema rechaza recibir algo que vencio antes de recibirse, y tiene
+      // razon — eso no es una tanda vieja, es una fecha mal capturada. Vencio
+      // el 18 y hoy es 22, que es como se vence de verdad: con el tiempo.
+      const vencida = await send(mutating("inventory.lot.receive", {
+        presentation_id: presentationId, lot_code: "M-YA-VENCIDA",
+        quantity: "1000.000000", manufactured_date: null,
+        expiry_date: "2026-09-18", reason_code: "SUPPLIER_DELIVERY",
+        business_date: "2026-09-15",
+      }, "lote:vencida"));
+      expect(vencida.result["outcome"]).toBe("RECEIVED");
+
+      // La existencia total es la suma: el lote no sustituye al saldo, lo detalla.
+      expect(stockOf(database, presentationId)).toBe("9000.000000");
+
+      const lista = await send(reading("inventory.lot.list", {
+        presentation_id: presentationId, business_date: "2026-09-22",
+      }));
+      expect(lista.status).toBe("SUCCEEDED");
+      const lotes = lista.result["lots"] as { lot_code: string; expiry_state: string }[];
+
+      // **FEFO**: por vencimiento, no por llegada ni por nombre.
+      //   llegada    : A-VENCE-TARDE (10), M-YA-VENCIDA (15), Z-VENCE-PRONTO (22)
+      //   alfabetico : A-VENCE-TARDE, M-YA-VENCIDA, Z-VENCE-PRONTO
+      //   vencimiento: M (18 sep), Z (24 sep), A (31 dic)   <- este
+      expect(lotes.map((l) => l.lot_code)).toEqual([
+        "M-YA-VENCIDA", "Z-VENCE-PRONTO", "A-VENCE-TARDE",
+      ]);
+      expect(lotes.map((l) => l.expiry_state)).toEqual(["EXPIRED", "VALID", "VALID"]);
+    });
+  }, 60_000);
+
+  it("recibir el mismo codigo con otras fechas se rechaza en vez de fusionar", async () => {
+    await withRealChannel(async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+
+      const p = await send(mutating("catalog.product.register", {
+        code: "POLLO-L", name: "Pollo", stock_controlled: true,
+        presentation_name: "Gramo", unit_code: "GRM", unit_precision: 0,
+        barcode: "7705555000002", price_amount: "12.000000", currency_code: "COP",
+      }, "conf:catalogo"));
+      const presentationId = p.result["presentation_id"] as string;
+
+      const base = {
+        presentation_id: presentationId, lot_code: "MISMA-TANDA",
+        quantity: "1000.000000", manufactured_date: null,
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-22",
+      };
+      expect((await send(mutating("inventory.lot.receive", {
+        ...base, expiry_date: "2026-09-30",
+      }, "conf:1"))).result["outcome"]).toBe("RECEIVED");
+
+      // Segunda remesa de la MISMA tanda: suma.
+      const suma = await send(mutating("inventory.lot.receive", {
+        ...base, expiry_date: "2026-09-30",
+      }, "conf:2"));
+      expect(suma.result["outcome"]).toBe("RECEIVED");
+      expect(suma.result["lot_quantity_on_hand"]).toBe("2000.000000");
+
+      // Mismo codigo, OTRO vencimiento: son dos tandas distintas bajo un mismo
+      // nombre. Fusionarlas haria ambiguo un retiro sanitario.
+      const choque = await send(mutating("inventory.lot.receive", {
+        ...base, expiry_date: "2026-10-15",
+      }, "conf:3"));
+      expect(choque.status).toBe("REJECTED");
+      expect(choque.result["outcome"]).toBe("LOT_CODE_CONFLICT");
+      // Y no toco nada: ni el lote ni la existencia.
+      expect(stockOf(database, presentationId)).toBe("2000.000000");
+    });
+  }, 60_000);
+});

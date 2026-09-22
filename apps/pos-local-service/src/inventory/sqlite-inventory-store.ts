@@ -164,6 +164,38 @@ interface MovementRow {
 interface OperationRow { payload_checksum: string }
 interface NextSequenceRow { next_sequence: number }
 
+export interface ReceiveLotInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly presentationId: string;
+  readonly lotCode: string;
+  readonly quantity: string;
+  readonly manufacturedDate: string | null;
+  readonly expiryDate: string | null;
+  readonly reasonCode: string;
+  readonly businessDate: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ReceiveLotOutcome =
+  | { readonly kind: "RECEIVED"; readonly lotId: string; readonly quantityAfter: string; readonly lotQuantityOnHand: string }
+  | { readonly kind: "LOT_CODE_CONFLICT" }
+  | { readonly kind: "LOT_DATES_INVALID" }
+  | AppendMovementOutcome;
+
+export interface LotRow {
+  readonly lotId: string;
+  readonly lotCode: string;
+  readonly receivedDate: string;
+  readonly expiryDate: string | null;
+  readonly quantityOnHand: string;
+  readonly status: "ACTIVE" | "BLOCKED" | "CONSUMED";
+}
+
 export class SqliteInventoryStore {
   constructor(
     private readonly database: LocalDatabase,
@@ -509,6 +541,128 @@ export class SqliteInventoryStore {
         targetQuantityAfter: entry.quantityAfter,
       };
     })();
+  }
+
+  /**
+   * Recepción con lote — `UC-INVENTORY-002` §Lotes.
+   *
+   * **El lote y el movimiento se escriben juntos o no se escribe ninguno.** Un
+   * lote sin su entrada de inventario sería existencia que el saldo no conoce;
+   * una entrada sin lote sería existencia sin rastro. Las dos mitades por
+   * separado son peores que ninguna, así que comparten transacción — el mismo
+   * criterio que la conversión atómica.
+   *
+   * Recibir dos veces el **mismo** código de lote suma a ese lote: es la
+   * segunda remesa de la misma tanda. Recibirlo con **otras fechas** es
+   * `LOT_CODE_CONFLICT` y no se fusiona: dos tandas distintas bajo un mismo
+   * código harían ambiguo un retiro sanitario, y elegir en silencio cuál de
+   * las dos fechas vale sería inventar el dato que más importa.
+   */
+  receiveLot(input: ReceiveLotInput): ReceiveLotOutcome {
+    return this.database.native.transaction((): ReceiveLotOutcome => {
+      const existing = this.database.native.prepare(
+        `SELECT id, manufactured_date, expiry_date, quantity_on_hand, status
+           FROM inventory_lot
+          WHERE tenant_id=? AND presentation_id=? AND lot_code=?`,
+      ).get(input.scope.tenantId, input.presentationId, input.lotCode) as {
+        id: string; manufactured_date: string | null; expiry_date: string | null;
+        quantity_on_hand: string; status: string;
+      } | undefined;
+
+      if (existing !== undefined
+        && (existing.expiry_date !== input.expiryDate
+          || existing.manufactured_date !== input.manufacturedDate)) {
+        return { kind: "LOT_CODE_CONFLICT" };
+      }
+
+      const movement = this.appendMovement({
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        movementId: uuidV7(),
+        operationId: uuidV7(),
+        presentationId: input.presentationId,
+        movementType: "PURCHASE_RECEIPT",
+        quantity: input.quantity,
+        reasonCode: input.reasonCode,
+        saleId: null,
+        businessDate: input.businessDate,
+        idempotencyKey: input.idempotencyKey,
+        requestChecksum: input.requestChecksum,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      });
+      if (movement.kind !== "POSTED") return movement;
+
+      const at = this.now().toISOString();
+      const lotId = existing?.id ?? uuidV7();
+      const lotQuantity = existing === undefined
+        ? input.quantity
+        : bigIntToScale6(
+          scale6ToBigInt(existing.quantity_on_hand) + scale6ToBigInt(input.quantity),
+        );
+
+      if (existing === undefined) {
+        try {
+          this.database.native.prepare(
+            `INSERT INTO inventory_lot(
+              id, tenant_id, company_id, branch_id, presentation_id, lot_code,
+              received_date, manufactured_date, expiry_date,
+              quantity_on_hand, quantity_reserved, status, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,'0.000000','ACTIVE',?,?)`,
+          ).run(
+            lotId, input.scope.tenantId, input.scope.companyId, input.scope.branchId,
+            input.presentationId, input.lotCode, input.businessDate,
+            input.manufacturedDate, input.expiryDate, lotQuantity, at, at,
+          );
+        } catch (error) {
+          // Las fechas incoherentes las rechaza el `CHECK` del esquema, no una
+          // comprobación de la aplicación: así la regla vale también para un
+          // escritor futuro que no pase por aquí.
+          if (String(error).includes("CHECK")) return { kind: "LOT_DATES_INVALID" };
+          throw error;
+        }
+      } else {
+        this.database.native.prepare(
+          "UPDATE inventory_lot SET quantity_on_hand=?, updated_at=? WHERE tenant_id=? AND id=?",
+        ).run(lotQuantity, at, input.scope.tenantId, lotId);
+      }
+
+      return {
+        kind: "RECEIVED",
+        lotId,
+        quantityAfter: movement.quantityAfter,
+        lotQuantityOnHand: lotQuantity,
+      };
+    })();
+  }
+
+  /**
+   * Lotes de una presentación, **en orden FEFO**: primero lo que vence antes.
+   *
+   * Los lotes sin vencimiento van al final porque no compiten por salir
+   * primero. El orden lo decide el almacén y no la pantalla: si cada llamador
+   * ordenara a su gusto, dos pantallas mostrarían dos «siguiente lote»
+   * distintos y el cajero no sabría cuál creer.
+   */
+  listLots(tenantId: string, branchId: string, presentationId: string): readonly LotRow[] {
+    const rows = this.database.native.prepare(
+      `SELECT id, lot_code, received_date, expiry_date, quantity_on_hand, status
+         FROM inventory_lot
+        WHERE tenant_id=? AND branch_id=? AND presentation_id=?
+        ORDER BY expiry_date IS NULL, expiry_date, received_date, lot_code`,
+    ).all(tenantId, branchId, presentationId) as {
+      id: string; lot_code: string; received_date: string;
+      expiry_date: string | null; quantity_on_hand: string; status: string;
+    }[];
+    return rows.map((row) => ({
+      lotId: row.id,
+      lotCode: row.lot_code,
+      receivedDate: row.received_date,
+      expiryDate: row.expiry_date,
+      quantityOnHand: row.quantity_on_hand,
+      status: row.status as LotRow["status"],
+    }));
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */

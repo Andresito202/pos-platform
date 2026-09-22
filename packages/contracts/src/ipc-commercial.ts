@@ -1443,6 +1443,112 @@ export const InventoryMovementResultSchema = z.strictObject({
 export const InventoryMovementResponseSchema =
   createResponseEnvelopeSchema(InventoryMovementResultSchema);
 
+// ── inventory.lot.receive · inventory.lot.list ───────────────────────────────
+
+/**
+ * Lotes y vencimiento — `MIGRATION_026`, `UC-INVENTORY-002` §Lotes.
+ *
+ * **Recibir por lote es una operación aparte de `inventory.stock.receive`, no
+ * un campo opcional.** Un `lot_code` opcional en la recepción ordinaria dejaría
+ * que la misma operación produjera a veces trazabilidad y a veces no, según se
+ * acordara el cajero de escribirlo. Para carnes y embutidos la trazabilidad no
+ * es un extra: es el requisito sanitario, y un rastro que existe «cuando
+ * alguien se acuerda» no sirve para acotar un retiro.
+ *
+ * El tipo de movimiento no viaja: recibir un lote **es** una recepción. Dejarlo
+ * elegir permitiría declarar una salida con forma de entrada.
+ */
+export const InventoryLotReceiveRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    /** Identifica la tanda dentro de su presentación. Lo pone el proveedor o el comercio. */
+    lot_code: z.string().min(1).max(64),
+    quantity: PositiveScale6Schema,
+    /**
+     * Ambas opcionales y ambas comprobadas contra `received_date` por el
+     * esquema: un vencimiento anterior a la recepción envenenaría FEFO.
+     */
+    manufactured_date: BusinessDateSchema.nullable(),
+    expiry_date: BusinessDateSchema.nullable(),
+    reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+    business_date: BusinessDateSchema,
+  }),
+).safeExtend({ message_type: z.literal("inventory.lot.receive") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const InventoryLotReceiveOutcomeSchema = z.enum([
+  "RECEIVED",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PRESENTATION_NOT_FOUND",
+  /** Fechas incoherentes entre sí: vencimiento antes de recibir, o fabricación después. */
+  "LOT_DATES_INVALID",
+  /**
+   * El mismo `lot_code` ya existe con otras fechas. **No se fusiona.** Dos
+   * tandas distintas bajo un mismo código harían ambiguo un retiro sanitario,
+   * y elegir en silencio cuál de las dos fechas vale sería inventar un dato.
+   */
+  "LOT_CODE_CONFLICT",
+]);
+
+export const InventoryLotReceiveResultSchema = z.strictObject({
+  outcome: InventoryLotReceiveOutcomeSchema,
+  lot_id: UuidSchema.nullable(),
+  /** Existencia total de la presentación tras el movimiento. */
+  quantity_after: NonNegativeScale6Schema.nullable(),
+  /** Existencia **de este lote**, que es lo que se consume por FEFO. */
+  lot_quantity_on_hand: NonNegativeScale6Schema.nullable(),
+});
+
+export const InventoryLotReceiveResponseSchema =
+  createResponseEnvelopeSchema(InventoryLotReceiveResultSchema);
+
+/**
+ * Estado de vencimiento **derivado**, nunca almacenado (`UC-INVENTORY-002`
+ * §Vencimientos, regla 4: el vencimiento no elimina el lote).
+ *
+ * **`NEAR_EXPIRY` no está aquí, y su ausencia es deliberada.** El caso de uso
+ * lo lista como estado conceptual, pero «próximo a vencer» exige un umbral
+ * —¿tres días, siete, treinta?— que es **política versionada y nadie la ha
+ * decidido**. Elegir un número aquí sería inventar la política en el contrato,
+ * que es donde más cuesta corregirla. `VALID` y `EXPIRED` se derivan de la
+ * fecha del negocio sin decidir nada.
+ */
+export const LotExpiryStateSchema = z.enum(["NO_EXPIRY", "VALID", "EXPIRED"]);
+
+export const InventoryLotListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    business_date: BusinessDateSchema,
+  }),
+).safeExtend({ message_type: z.literal("inventory.lot.list") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const InventoryLotListResultSchema = z.strictObject({
+  outcome: z.enum(["LISTED", "UNAUTHORIZED", "PRESENTATION_NOT_FOUND"]),
+  /**
+   * En **orden FEFO**: primero lo que vence antes. Los lotes sin vencimiento
+   * van al final, porque no compiten por salir primero. El orden lo decide el
+   * servicio y no la pantalla: si cada llamador ordenara a su gusto, dos
+   * pantallas mostrarían dos «siguiente lote» distintos.
+   */
+  lots: z.array(z.strictObject({
+    lot_id: UuidSchema,
+    lot_code: z.string().min(1).max(64),
+    received_date: BusinessDateSchema,
+    expiry_date: BusinessDateSchema.nullable(),
+    quantity_on_hand: NonNegativeScale6Schema,
+    status: z.enum(["ACTIVE", "BLOCKED", "CONSUMED"]),
+    expiry_state: LotExpiryStateSchema,
+  })).max(500),
+});
+
+export const InventoryLotListResponseSchema =
+  createResponseEnvelopeSchema(InventoryLotListResultSchema);
+
 export const InventoryStockGetRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({ presentation_id: UuidSchema }),
 ).safeExtend({ message_type: z.literal("inventory.stock.get") })
@@ -1573,6 +1679,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
+  "inventory.lot.receive",
+  "inventory.lot.list",
 ]);
 
 /**
@@ -1606,6 +1714,8 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
   "pos:inventory.stock.get",
+  "pos:inventory.lot.receive",
+  "pos:inventory.lot.list",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -1639,4 +1749,7 @@ export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
+export type InventoryLotReceiveResult = z.infer<typeof InventoryLotReceiveResultSchema>;
+export type InventoryLotListResult = z.infer<typeof InventoryLotListResultSchema>;
+export type LotExpiryState = z.infer<typeof LotExpiryStateSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;

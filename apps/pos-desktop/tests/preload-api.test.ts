@@ -40,6 +40,8 @@ describe("preload-api", () => {
       "inventory.stock.adjust",
       "inventory.conversion.apply",
       "inventory.stock.get",
+      "inventory.lot.receive",
+      "inventory.lot.list",
       "sales.receipt.get",
     ]);
   });

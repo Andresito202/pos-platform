@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CashShiftOpenRequestSchema,
+  COMMERCIAL_IPC_ELECTRON_CHANNELS,
+  CommercialIpcMessageTypeSchema,
+  IpcMessageTypeSchema,
   CustomerReadResultSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
@@ -511,5 +514,42 @@ describe("customer.find / customer.get — una respuesta no puede ser mas estric
     expect(CustomerReadResultSchema.safeParse(found({
       identification_document_code: "codigo en minuscula",
     })).success).toBe(false);
+  });
+});
+
+/**
+ * Las dos listas de tipos de mensaje, comparadas.
+ *
+ * `IpcMessageTypeSchema` (transporte) y `CommercialIpcMessageTypeSchema`
+ * (superficie comercial) enumeran los mismos nombres en dos ficheros, y hasta
+ * hoy **nada las comparaba**. Peor: `CommercialIpcMessageTypeSchema` no la
+ * consume nadie —medido el 2026-09-22, su unico uso estaba en su propia
+ * declaracion—, de modo que una operacion anadida solo ahi queda **fuera del
+ * transporte y es inalcanzable**, sin que falle nada.
+ *
+ * Es la misma forma de envejecer que ya costo dos correcciones esta semana:
+ * dos superficies para el mismo dato. Aqui no se pueden fusionar —`ipc.ts`
+ * define el transporte y no debe depender de la superficie comercial— asi que
+ * se comparan.
+ */
+describe("el transporte conoce todas las operaciones comerciales", () => {
+  it("ninguna operacion comercial se queda fuera de IpcMessageTypeSchema", () => {
+    const transporte = new Set<string>(IpcMessageTypeSchema.options);
+    const ausentes = CommercialIpcMessageTypeSchema.options
+      .filter((type) => !transporte.has(type));
+
+    expect(
+      ausentes,
+      "estas operaciones estan en el contrato comercial y el transporte no las conoce: "
+      + "el canal las rechazaria y ninguna pantalla podria alcanzarlas",
+    ).toEqual([]);
+  });
+
+  it("los canales de Electron cubren exactamente la superficie comercial", () => {
+    const canales = new Set(COMMERCIAL_IPC_ELECTRON_CHANNELS.map((c) => c.replace(/^pos:/, "")));
+    const operaciones = new Set<string>(CommercialIpcMessageTypeSchema.options);
+
+    expect([...operaciones].filter((o) => !canales.has(o)), "operaciones sin canal").toEqual([]);
+    expect([...canales].filter((c) => !operaciones.has(c)), "canales sin operacion").toEqual([]);
   });
 });

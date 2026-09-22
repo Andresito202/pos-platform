@@ -46,6 +46,8 @@ export const IPC_ALLOWED_CHANNELS = [
   // Abrir una paca y convertirla en unidades (`DEC-004` §1736).
   "pos:inventory.conversion.apply",
   "pos:inventory.stock.get",
+  "pos:inventory.lot.receive",
+  "pos:inventory.lot.list",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
 ] as const;

@@ -45,6 +45,8 @@ import {
   InventoryStockAdjustRequestSchema,
   InventoryMovementResponseSchema,
   InventoryStockGetRequestSchema,
+  InventoryLotReceiveRequestSchema,
+  InventoryLotListRequestSchema,
   InventoryStockGetResponseSchema,
   SalesReceiptGetRequestSchema,
   SalesReceiptGetResponseSchema,
@@ -104,6 +106,8 @@ export const IpcMessageTypeSchema = z.enum([
   "inventory.stock.adjust",
   "inventory.conversion.apply",
   "inventory.stock.get",
+  "inventory.lot.receive",
+  "inventory.lot.list",
   "sales.receipt.get",
 ]);
 
@@ -210,6 +214,8 @@ export const IpcRequestSchema = z.union([
   InventoryStockReceiveRequestSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockGetRequestSchema,
+  InventoryLotReceiveRequestSchema,
+  InventoryLotListRequestSchema,
   SalesReceiptGetRequestSchema,
 ]);
 
