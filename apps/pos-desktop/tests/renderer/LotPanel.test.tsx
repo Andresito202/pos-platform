@@ -38,6 +38,7 @@ const TRACE = {
     quantity_received: "10.000000",
     origin_lot: null,
     derived_lots: [],
+    inflows: [],
     outflows: [
       outflow(SALE_ANA), outflow(SALE_BETO), outflow(SALE_MOSTRADOR), outflow(SALE_PERDIDA),
     ],
@@ -162,7 +163,7 @@ describe("LotPanel — el retiro de una paca baja a sus unidades", () => {
     status: "SUCCEEDED", result_code: "FOUND",
     result: {
       outcome: "FOUND", lot, quantity_received: "2.000000", origin_lot: origin,
-      derived_lots: derived, outflows, truncated: false,
+      derived_lots: derived, inflows: [], outflows, truncated: false,
     },
   });
   const derivedLot = (presentationId: string) => ({

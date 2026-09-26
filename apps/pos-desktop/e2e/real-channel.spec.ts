@@ -588,6 +588,23 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   // Una merma no es venta: no hay venta que abrir.
   expect(await page.getByTestId("lot-trace-open-sale").count()).toBe(0);
 
+  // Aparecen 3 más en el conteo: se suman a la tanda nombrada, y el rastro lo
+  // cuenta como ajuste, no como compra.
+  await page.getByTestId("adjust-movement-select").selectOption("ADJUSTMENT_POSITIVE");
+  await page.getByTestId("adjust-quantity-input").fill("3");
+  await page.getByTestId("adjust-reason-input").fill("COUNT_CORRECTION");
+  await page.getByTestId("adjust-lot-input").fill("PANELA-TARDE");
+  await page.getByTestId("adjust-stock-button").click();
+  await expect(page.getByTestId("movement-quantity-after")).toHaveText("53.000000", { timeout: 15_000 });
+  await page.getByTestId("adjust-lot-input").fill("");
+
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace-on-hand")).toHaveText("11.000000", { timeout: 15_000 });
+  expect(await page.getByTestId("lot-trace-inflow-type").allTextContents()).toEqual(["Recepción", "Ajuste +"]);
+  expect(await page.getByTestId("lot-trace-inflow-reason").allTextContents())
+    .toEqual(["SUPPLIER_DELIVERY", "COUNT_CORRECTION"]);
+  expect(await page.getByTestId("lot-trace-received").textContent()).toBe("13.000000");
+
   await page.getByTestId("lot-code-input").fill("NO-EXISTE");
   await page.getByTestId("lot-trace-button").click();
   await expect(page.getByTestId("lot-trace-outcome")).toHaveText("NOT_FOUND", { timeout: 15_000 });

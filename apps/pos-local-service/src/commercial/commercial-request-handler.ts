@@ -1457,7 +1457,8 @@ export class CommercialRequestHandler {
     connectionId: string,
   ): unknown {
     const empty = {
-      lot: null, quantity_received: null, origin_lot: null, derived_lots: [], outflows: [], truncated: false,
+      lot: null, quantity_received: null, origin_lot: null, derived_lots: [],
+      inflows: [], outflows: [], truncated: false,
     };
 
     const authenticated = this.authenticate(connectionId);
@@ -1493,6 +1494,13 @@ export class CommercialRequestHandler {
         lot_code: derived.lotCode,
         quantity_on_hand: derived.quantityOnHand,
         status: derived.status,
+      })),
+      inflows: result.inflows.map((inflow) => ({
+        movement_type: inflow.movementType,
+        quantity: inflow.quantity,
+        reason_code: inflow.reasonCode,
+        business_date: inflow.businessDate,
+        occurred_at: inflow.occurredAt,
       })),
       outflows: result.outflows.map((outflow) => ({
         movement_type: outflow.movementType,

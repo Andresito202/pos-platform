@@ -922,6 +922,24 @@ function stockOf(database: LocalDatabase, presentationId: string): string {
   return row?.quantity_on_hand ?? "(sin fila)";
 }
 
+/**
+ * Lotes cuyo saldo no cuadra con su libro (`MIGRATION_030`): la cantidad de un
+ * lote tiene que ser siempre entradas menos salidas. Vacío es que cuadra.
+ */
+function lotLedgerMismatches(database: LocalDatabase): string[] {
+  const rows = database.native.prepare(
+    `SELECT l.lot_code, l.quantity_on_hand,
+            COALESCE(SUM(CASE a.direction WHEN 'IN' THEN CAST(a.quantity AS REAL) ELSE 0 END), 0) AS entered,
+            COALESCE(SUM(CASE a.direction WHEN 'OUT' THEN CAST(a.quantity AS REAL) ELSE 0 END), 0) AS left_
+       FROM inventory_lot l
+       LEFT JOIN inventory_lot_allocation a ON a.tenant_id=l.tenant_id AND a.lot_id=l.id
+      GROUP BY l.tenant_id, l.id`,
+  ).all() as { lot_code: string; quantity_on_hand: string; entered: number; left_: number }[];
+  return rows
+    .filter((row) => Math.abs(Number(row.quantity_on_hand) - (row.entered - row.left_)) > 1e-9)
+    .map((row) => `${row.lot_code}: saldo ${row.quantity_on_hand}, libro ${String(row.entered - row.left_)}`);
+}
+
 function countOf(database: LocalDatabase, sql: string, ...params: unknown[]): number {
   return (database.native.prepare(sql).get(...params) as { n: number }).n;
 }
@@ -2152,6 +2170,8 @@ describe("la conversión abre una paca y la convierte en unidades", () => {
         (o) => [o["movement_type"], o["quantity"], o["sale_id"]],
       )).toEqual([["SALE", "24.000000", saleId]]);
       expect(units.result["quantity_received"]).toBe("24.000000");
+      // Recepción, apertura, herencia y venta: todos los lotes cuadran con su libro.
+      expect(lotLedgerMismatches(database)).toEqual([]);
     });
   }, 60_000);
 
@@ -2898,6 +2918,7 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
       expect(lotState(database, "C-VENCIDA")).toBe("800.000000/ACTIVE");
       // El saldo total baja lo vendido: el lote detalla, no sustituye.
       expect(stockOf(database, ids.presentationId)).toBe("5300.000000");
+      expect(lotLedgerMismatches(database)).toEqual([]);
     });
   }, 60_000);
 
@@ -2987,6 +3008,101 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
       ).run()).toThrow(/append-only/);
     });
   }, 60_000);
+
+  /**
+   * Entradas a una tanda que ya existe (`MIGRATION_030`). Una tanda que crece
+   * sin decir por qué es indistinguible de una recibida, y el ajuste es la vía
+   * por la que se roba: cada entrada queda en el libro del lote con su
+   * movimiento, y el rastro la muestra con su motivo.
+   */
+  describe("entradas a una tanda existente", () => {
+    it("un ajuste positivo nombrando la tanda suma a ella, la reactiva y queda en su libro", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "apos");
+        await lot(send, ids.presentationId, "AP-1", "500.000000", "2026-12-31", "2026-09-22");
+        await sellAndPay(send, ids, "500.000000", "apos:1");
+        expect(lotState(database, "AP-1")).toBe("0.000000/CONSUMED");
+
+        const ajuste = await send(mutating("inventory.stock.adjust", {
+          presentation_id: ids.presentationId, movement_type: "ADJUSTMENT_POSITIVE",
+          quantity: "30.000000", reason_code: "COUNT_CORRECTION", business_date: "2026-09-22",
+          lot_code: "AP-1",
+        }, "apos:ajuste"));
+        expect(ajuste.result["outcome"]).toBe("POSTED");
+        expect(lotState(database, "AP-1")).toBe("30.000000/ACTIVE");
+
+        // Reactivada, la siguiente venta la toma por FEFO.
+        const { saleId } = await sellAndPay(send, ids, "20.000000", "apos:2");
+        expect(allocationsOf(database, saleId)).toEqual({ "AP-1": "20.000000" });
+
+        const trace = await send(reading("inventory.lot.trace", {
+          presentation_id: ids.presentationId, lot_code: "AP-1",
+        }));
+        expect((trace.result["inflows"] as Record<string, unknown>[]).map(
+          (i) => [i["movement_type"], i["quantity"], i["reason_code"]],
+        )).toEqual([
+          ["PURCHASE_RECEIPT", "500.000000", "SUPPLIER_DELIVERY"],
+          ["ADJUSTMENT_POSITIVE", "30.000000", "COUNT_CORRECTION"],
+        ]);
+        expect(trace.result["quantity_received"]).toBe("530.000000");
+        expect(lotLedgerMismatches(database)).toEqual([]);
+
+        // Repetir el mismo ajuste es IDEMPOTENT y no vuelve a sumar.
+        const repeat = await send(mutating("inventory.stock.adjust", {
+          presentation_id: ids.presentationId, movement_type: "ADJUSTMENT_POSITIVE",
+          quantity: "30.000000", reason_code: "COUNT_CORRECTION", business_date: "2026-09-22",
+          lot_code: "AP-1",
+        }, "apos:ajuste"));
+        expect(repeat.result["outcome"]).toBe("IDEMPOTENT");
+        expect(lotState(database, "AP-1")).toBe("10.000000/ACTIVE");
+        expect(lotLedgerMismatches(database)).toEqual([]);
+      });
+    }, 60_000);
+
+    it("un ajuste positivo a una tanda que no existe es LOT_NOT_FOUND y no mueve el saldo", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "aposnf");
+        await lot(send, ids.presentationId, "AN-1", "100.000000", "2026-12-31", "2026-09-22");
+        const ajuste = await send(mutating("inventory.stock.adjust", {
+          presentation_id: ids.presentationId, movement_type: "ADJUSTMENT_POSITIVE",
+          quantity: "30.000000", reason_code: "COUNT_CORRECTION", business_date: "2026-09-22",
+          lot_code: "NO-EXISTE",
+        }, "aposnf:ajuste"));
+        expect(ajuste.status).toBe("REJECTED");
+        expect(ajuste.result["outcome"]).toBe("LOT_NOT_FOUND");
+        expect(stockOf(database, ids.presentationId)).toBe("100.000000");
+        expect(countOf(
+          database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type='ADJUSTMENT_POSITIVE'",
+        )).toBe(0);
+      });
+    }, 60_000);
+
+    /**
+     * Medido el 2026-09-26: una remesa sobre una tanda agotada sumaba la
+     * cantidad y la dejaba en `CONSUMED`. FEFO sólo toma `ACTIVE`, así que
+     * esa existencia no se vendía nunca desde el lote.
+     */
+    it("una remesa sobre una tanda agotada la reactiva y la venta vuelve a tomarla", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "remesa");
+        await lot(send, ids.presentationId, "RM-1", "100.000000", "2026-12-31", "2026-09-22");
+        await sellAndPay(send, ids, "100.000000", "remesa:1");
+        expect(lotState(database, "RM-1")).toBe("0.000000/CONSUMED");
+
+        const again = await send(mutating("inventory.lot.receive", {
+          presentation_id: ids.presentationId, lot_code: "RM-1", quantity: "40.000000",
+          manufactured_date: null, expiry_date: "2026-12-31",
+          reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-22",
+        }, "remesa:2"));
+        expect(again.result["outcome"]).toBe("RECEIVED");
+        expect(lotState(database, "RM-1")).toBe("40.000000/ACTIVE");
+
+        const { saleId } = await sellAndPay(send, ids, "15.000000", "remesa:3");
+        expect(allocationsOf(database, saleId)).toEqual({ "RM-1": "15.000000" });
+        expect(lotLedgerMismatches(database)).toEqual([]);
+      });
+    }, 60_000);
+  });
 
   /**
    * El rastro — `inventory.lot.trace`. Es la pregunta de un retiro sanitario:

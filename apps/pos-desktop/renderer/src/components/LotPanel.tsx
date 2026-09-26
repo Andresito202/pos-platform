@@ -8,6 +8,13 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Las entradas de un lote, dichas como las diría el mostrador. */
+const INFLOW_LABEL: Readonly<Record<string, string>> = {
+  PURCHASE_RECEIPT: "Recepción",
+  CONVERSION_IN: "Apertura de paca",
+  ADJUSTMENT_POSITIVE: "Ajuste +",
+};
+
 /** Las salidas que no son venta, dichas como las diría el mostrador. */
 const OUTFLOW_LABEL: Readonly<Record<string, string>> = {
   SALE: "Venta",
@@ -184,7 +191,7 @@ export function LotPanel(): React.JSX.Element {
       {lots.trace !== null && lots.trace.lot !== null && (
         <div data-testid="lot-trace">
           <div>
-            Recibido <span data-testid="lot-trace-received">{lots.trace.quantity_received}</span>
+            Entró <span data-testid="lot-trace-received">{lots.trace.quantity_received}</span>
             {" · queda "}
             <span data-testid="lot-trace-on-hand">{lots.trace.lot.quantity_on_hand}</span>
           </div>
@@ -226,6 +233,22 @@ export function LotPanel(): React.JSX.Element {
               ))}
             </ul>
           )}
+          {/* Lo que entró, con su motivo: un ajuste que infla una tanda se ve
+              aquí como ajuste, no se confunde con una compra. */}
+          <table data-testid="lot-trace-inflows">
+            <tbody>
+              {lots.trace.inflows.map((inflow, index) => (
+                <tr key={`${inflow.occurred_at}-in-${String(index)}`} data-testid="lot-trace-inflow">
+                  <td data-testid="lot-trace-inflow-type">
+                    {INFLOW_LABEL[inflow.movement_type] ?? inflow.movement_type}
+                  </td>
+                  <td data-testid="lot-trace-inflow-quantity">{inflow.quantity}</td>
+                  <td>{inflow.business_date}</td>
+                  <td data-testid="lot-trace-inflow-reason">{inflow.reason_code}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {/* Un rastro cortado se dice: si no, un retiro dejaría ventas fuera sin saberlo. */}
           {lots.trace.truncated && (
             <div data-testid="lot-trace-truncated">Hay más salidas de las que se muestran</div>

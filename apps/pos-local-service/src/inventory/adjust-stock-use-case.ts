@@ -36,8 +36,9 @@ export interface AdjustStockRequest {
   readonly quantity: string;
   readonly reasonCode: string;
   /**
-   * Lote del que sale, cuando el operador lo sabe. `null` resuelve por FEFO
-   * sobre vigentes. El contrato ya rechaza un lote en `ADJUSTMENT_POSITIVE`.
+   * En una salida, el lote del que sale; `null` resuelve por FEFO sobre
+   * vigentes. En `ADJUSTMENT_POSITIVE`, la tanda existente a la que se suma;
+   * `null` deja la entrada sin lote.
    */
   readonly lotCode: string | null;
   readonly businessDate: string;

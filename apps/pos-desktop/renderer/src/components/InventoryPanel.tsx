@@ -127,21 +127,22 @@ export function InventoryPanel(): React.JSX.Element {
         placeholder="Motivo"
         disabled={inventory.busy}
       />
-      {/* Vacío resuelve por FEFO sobre lotes vigentes. Un lote vencido sólo
-          sale nombrándolo aquí, y la merma con motivo EXPIRED lo exige. */}
+      {/* En una salida, vacío resuelve por FEFO sobre lotes vigentes; un lote
+          vencido sólo sale nombrándolo aquí, y la merma EXPIRED lo exige. En un
+          ajuste positivo, nombra la tanda existente a la que se suma. */}
       <input
         data-testid="adjust-lot-input"
         value={adjustLot}
         onChange={(e) => { setAdjustLot(e.target.value); }}
         placeholder="Lote (opcional)"
-        disabled={inventory.busy || adjustType === "ADJUSTMENT_POSITIVE"}
+        disabled={inventory.busy}
       />
       <button
         data-testid="adjust-stock-button"
         onClick={() => {
           void inventory.adjust(
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
-            adjustType === "ADJUSTMENT_POSITIVE" ? "" : adjustLot,
+            adjustLot,
           );
         }}
         disabled={inventory.busy || target === "" || adjustQuantity.trim() === ""}

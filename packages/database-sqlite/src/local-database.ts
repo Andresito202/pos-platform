@@ -2233,6 +2233,37 @@ CREATE INDEX inventory_lot_origin_idx
   ON inventory_lot(tenant_id, origin_lot_id) WHERE origin_lot_id IS NOT NULL;
 `.trim();
 
+/**
+ * El libro del lote registra también las **entradas**.
+ *
+ * ## Por qué
+ *
+ * `MIGRATION_027` dejó en `inventory_lot_allocation` cada salida de un lote,
+ * y nada de lo que entraba: la recepción, la segunda remesa y la herencia al
+ * abrir una paca cambiaban la cantidad del lote sin fila propia. Mientras la
+ * única entrada posible era recibir, «lo que entró» se podía deducir —lo que
+ * queda más lo que salió—. Con el ajuste positivo nombrando lote deja de
+ * poderse: **una tanda inflada a mano sería indistinguible de una recibida**,
+ * y el ajuste es justo la vía por la que se roba en un POS.
+ *
+ * Con `direction`, cada cambio de un lote es una fila con su movimiento: el
+ * movimiento dice el tipo, el motivo, el actor y la fecha; la fila dice qué
+ * lote y cuánto. `quantity_on_hand` es la suma de entradas menos salidas.
+ *
+ * ## Por qué es seguro
+ *
+ * Las filas existentes eran todas salidas y toman `OUT` por omisión. Una
+ * entrada no puede llevar venta —ninguna entrada de lote es una venta—, y lo
+ * impone el esquema, no la aplicación. La tabla sigue siendo append-only: sus
+ * triggers no cambian.
+ */
+const MIGRATION_030 = `
+ALTER TABLE inventory_lot_allocation
+  ADD COLUMN direction TEXT NOT NULL DEFAULT 'OUT'
+  CHECK(direction IN ('OUT','IN'))
+  CHECK(direction = 'OUT' OR sale_id IS NULL);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2263,6 +2294,7 @@ const MIGRATIONS = [
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
+  { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
 ] as const;
 
 /**

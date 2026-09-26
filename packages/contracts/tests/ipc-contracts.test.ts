@@ -371,18 +371,19 @@ describe("inventory.stock.* — la frontera del inventario", () => {
 
   /**
    * El lote es la «selección autorizada» de una **salida** (`UC-INVENTORY-002`
-   * §Salidas paso 4). Ausente, resuelve FEFO; en una entrada no significa nada
-   * —sumar a una tanda es recibirla, con sus fechas— y se rechaza en vez de
-   * ignorarse en silencio.
+   * §Salidas paso 4); ausente, resuelve FEFO. Desde el 2026-09-26 también
+   * vale en `ADJUSTMENT_POSITIVE`: nombra la tanda existente a la que se suma
+   * lo que apareció de más (`MIGRATION_030`). Hasta ese día el contrato lo
+   * rechazaba, y esta prueba lo fijaba; cambió por requisito del propietario.
    */
-  it("el ajuste admite lote en una salida, lo admite ausente, y lo rechaza en una entrada", () => {
+  it("el ajuste admite lote en una salida y en un ajuste positivo, y lo admite ausente", () => {
     expect(InventoryStockAdjustRequestSchema.safeParse(
       adjust({ movement_type: "SHRINKAGE", reason_code: "EXPIRED", lot_code: "L-0924" }),
     ).success).toBe(true);
     expect(InventoryStockAdjustRequestSchema.safeParse(adjust()).success).toBe(true);
     expect(InventoryStockAdjustRequestSchema.safeParse(
       adjust({ movement_type: "ADJUSTMENT_POSITIVE", lot_code: "L-0924" }),
-    ).success).toBe(false);
+    ).success).toBe(true);
     expect(InventoryStockAdjustRequestSchema.safeParse(
       adjust({ movement_type: "ADJUSTMENT_POSITIVE", lot_code: null }),
     ).success).toBe(true);
@@ -615,7 +616,7 @@ describe("inventory.lot.trace", () => {
   it("el resultado exige declarar si está truncado", () => {
     const found = {
       outcome: "NOT_FOUND", lot: null, quantity_received: null,
-      origin_lot: null, derived_lots: [], outflows: [],
+      origin_lot: null, derived_lots: [], inflows: [], outflows: [],
     };
     expect(InventoryLotTraceResultSchema.safeParse(found).success).toBe(false);
     expect(InventoryLotTraceResultSchema.safeParse({ ...found, truncated: false }).success).toBe(true);

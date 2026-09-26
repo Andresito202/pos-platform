@@ -94,7 +94,7 @@ como una compra que nadie hizo.
 | El proveedor avisa de una tanda defectuosa | `inventory.lot.trace` — misma pantalla: qué ventas y mermas se la llevaron, y cada venta se abre con su recibo |
 | Se rompió o se dañó | `inventory.stock.adjust` (`SHRINKAGE`); sale del lote que se nombre, o por FEFO si no se nombra |
 | Se venció | `inventory.stock.adjust` (`SHRINKAGE`, motivo `EXPIRED`) **con el lote vencido nombrado**: sin lote se rechaza (`LOT_REQUIRED`), porque la venta nunca elige un lote vencido y es la única vía por la que sale |
-| El conteo no cuadra | `inventory.stock.adjust` (`ADJUSTMENT_POSITIVE` / `NEGATIVE`) |
+| El conteo no cuadra | `inventory.stock.adjust` (`ADJUSTMENT_POSITIVE` / `NEGATIVE`); con lote nombrado, corrige esa tanda. Un ajuste positivo sólo suma a una tanda **que ya existe**: una nueva se recibe con sus fechas |
 | Se abre una paca y se vende por unidad | `catalog.conversion.declare` + `inventory.conversion.apply` |
 | Un artículo se vende en dos formatos | `catalog.presentation.add` |
 
@@ -139,9 +139,6 @@ es peor que no facturar.
   propósito: si en las unidades ya existe ese código recibido por otra vía
   —fusionarlos mezclaría dos tandas— y si el reparto entre dos tandas no da
   exacto. Los dos son medibles: existencia menos suma de lotes.
-- **Un ajuste positivo no suma a un lote.** Sumar a una tanda es recibirla,
-  con sus fechas (`inventory.lot.receive`). Una corrección de conteo hacia
-  arriba entra sin lote.
 - **Existencia sin lote.** Si entró mercancía por `inventory.stock.receive` y
   luego se vende más de lo que cubren los lotes, lo que falta queda sin asignar
   a lote. No se inventa de qué tanda salió.
@@ -151,6 +148,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | El ajuste positivo suma a una tanda existente nombrándola, y el libro del lote registra también sus entradas (`MIGRATION_030`): el rastro muestra cada recepción, remesa, herencia y ajuste con su motivo. Una remesa sobre una tanda agotada la reactiva. |
 | 2026-09-26 | Las unidades de una paca abierta heredan su tanda; el rastro y «Compradores del lote» bajan de la paca a sus unidades. |
 | 2026-09-26 | Del lote a la persona: el recibo dice qué cliente nombró la venta, y «Compradores del lote» da la lista de un retiro con contacto, anónimos contados y lo ilegible declarado. |
 | 2026-09-26 | Rastro de lote (`inventory.lot.trace`) y pantalla «Lotes y vencimientos»: recibir, ver en orden FEFO y rastrear hasta el recibo. |

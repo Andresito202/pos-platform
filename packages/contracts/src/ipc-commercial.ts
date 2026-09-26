@@ -1413,10 +1413,14 @@ export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
     reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
     business_date: BusinessDateSchema,
     /**
-     * Lote del que sale — `UC-INVENTORY-002` §Salidas paso 4, «selección
-     * autorizada». Ausente, la salida resuelve por FEFO sobre lotes vigentes.
-     * Es la única vía por la que sale un lote **vencido**, y la merma con
-     * motivo `EXPIRED` lo exige (§Mermas regla 3).
+     * En una salida, el lote del que sale — `UC-INVENTORY-002` §Salidas paso
+     * 4, «selección autorizada». Ausente, la salida resuelve por FEFO sobre
+     * lotes vigentes. Es la única vía por la que sale un lote **vencido**, y
+     * la merma con motivo `EXPIRED` lo exige (§Mermas regla 3).
+     *
+     * En `ADJUSTMENT_POSITIVE`, la tanda **existente** a la que se suma lo
+     * que apareció de más. No crea lotes: una tanda nueva trae fechas y se
+     * recibe con `inventory.lot.receive`. Ausente, la entrada va sin lote.
      */
     lot_code: z.string().min(1).max(64).nullable().optional(),
   }),
@@ -1424,16 +1428,6 @@ export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
   .superRefine((request, context) => {
     forbidCallerAssertedIdentity(request, context);
     requireIdempotentOperation(request, context);
-    // Un lote en una entrada no dice nada que el ajuste sepa hacer: sumar a
-    // una tanda es recibirla (`inventory.lot.receive`), con sus fechas.
-    if (request.payload.movement_type === "ADJUSTMENT_POSITIVE"
-      && request.payload.lot_code !== undefined && request.payload.lot_code !== null) {
-      context.addIssue({
-        code: "custom",
-        path: ["payload", "lot_code"],
-        message: "lot_code sólo aplica a salidas",
-      });
-    }
   });
 
 export const InventoryMovementOutcomeSchema = z.enum([
@@ -1783,6 +1777,18 @@ export const InventoryLotTraceResultSchema = z.strictObject({
     quantity_on_hand: NonNegativeScale6Schema,
     status: z.enum(["ACTIVE", "BLOCKED", "CONSUMED"]),
   })).max(100),
+  /**
+   * Lo que entró al lote, en orden (`MIGRATION_030`): la recepción, cada
+   * remesa, la herencia al abrir una paca y el ajuste positivo. Un ajuste que
+   * infla una tanda se ve aquí con su motivo: no se confunde con una compra.
+   */
+  inflows: z.array(z.strictObject({
+    movement_type: z.enum(["PURCHASE_RECEIPT", "CONVERSION_IN", "ADJUSTMENT_POSITIVE"]),
+    quantity: NonNegativeScale6Schema,
+    reason_code: z.string().min(1).max(64),
+    business_date: BusinessDateSchema,
+    occurred_at: z.string().min(1),
+  })).max(LOT_TRACE_MAX_OUTFLOWS),
   /** En orden de ocurrencia. `sale_id` es `null` en merma, ajuste, traslado y apertura. */
   outflows: z.array(z.strictObject({
     movement_type: z.enum([

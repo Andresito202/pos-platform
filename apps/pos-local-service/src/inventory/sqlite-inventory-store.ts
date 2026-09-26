@@ -236,6 +236,14 @@ export interface LotTrace {
     readonly quantityOnHand: string;
     readonly status: "ACTIVE" | "BLOCKED" | "CONSUMED";
   }[];
+  /** Lo que entró al lote, en orden: recepción, remesa, herencia de paca, ajuste positivo. */
+  readonly inflows: readonly {
+    readonly movementType: "PURCHASE_RECEIPT" | "CONVERSION_IN" | "ADJUSTMENT_POSITIVE";
+    readonly quantity: string;
+    readonly reasonCode: string;
+    readonly businessDate: string;
+    readonly occurredAt: string;
+  }[];
   readonly outflows: readonly {
     readonly movementType: "SALE" | "SHRINKAGE" | "ADJUSTMENT_NEGATIVE" | "TRANSFER_OUT" | "CONVERSION_OUT";
     readonly quantity: string;
@@ -581,11 +589,12 @@ export class SqliteInventoryStore {
         )
         : [];
 
+      const inMovementId = uuidV7();
       const entry = this.appendMovement({
         scope: input.scope,
         sessionId: input.sessionId,
         operatorUserId: input.operatorUserId,
-        movementId: uuidV7(),
+        movementId: inMovementId,
         operationId: uuidV7(),
         presentationId: input.targetPresentationId,
         movementType: "CONVERSION_IN",
@@ -602,6 +611,7 @@ export class SqliteInventoryStore {
       if (entry.kind === "POSTED") {
         this.inheritLots(
           input.scope, pieces, input.targetPresentationId, input.sourceQuantity, input.targetQuantity,
+          inMovementId,
         );
       }
 
@@ -699,6 +709,7 @@ export class SqliteInventoryStore {
     targetPresentationId: string,
     sourceQuantity: string,
     targetQuantity: string,
+    inMovementId: string,
   ): void {
     const source6 = scale6ToBigInt(sourceQuantity);
     const target6 = scale6ToBigInt(targetQuantity);
@@ -726,6 +737,7 @@ export class SqliteInventoryStore {
       } | undefined;
 
       if (existing === undefined) {
+        const inheritedId = uuidV7();
         this.database.native.prepare(
           `INSERT INTO inventory_lot(
             id, tenant_id, company_id, branch_id, presentation_id, lot_code,
@@ -733,10 +745,11 @@ export class SqliteInventoryStore {
             quantity_on_hand, quantity_reserved, status, origin_lot_id, created_at, updated_at
           ) VALUES (?,?,?,?,?,?,?,?,?,?,'0.000000','ACTIVE',?,?,?)`,
         ).run(
-          uuidV7(), scope.tenantId, scope.companyId, scope.branchId, targetPresentationId,
+          inheritedId, scope.tenantId, scope.companyId, scope.branchId, targetPresentationId,
           origin.lot_code, origin.received_date, origin.manufactured_date, origin.expiry_date,
           bigIntToScale6(share), piece.lotId, at, at,
         );
+        this.recordLotEntry(scope.tenantId, inheritedId, inMovementId, share);
         continue;
       }
       if (existing.origin_lot_id !== piece.lotId) continue;
@@ -750,7 +763,23 @@ export class SqliteInventoryStore {
         bigIntToScale6(scale6ToBigInt(existing.quantity_on_hand) + share), at,
         scope.tenantId, existing.id,
       );
+      this.recordLotEntry(scope.tenantId, existing.id, inMovementId, share);
     }
+  }
+
+  /**
+   * Deja en el libro del lote una **entrada** (`MIGRATION_030`): la recepción,
+   * la remesa, la herencia de una paca o el ajuste positivo. Quien actualiza
+   * `quantity_on_hand` hacia arriba llama a esto en la misma transacción; así
+   * la cantidad del lote es siempre entradas menos salidas, y un lote no puede
+   * crecer sin decir por qué.
+   */
+  private recordLotEntry(tenantId: string, lotId: string, movementId: string, quantity: bigint): void {
+    this.database.native.prepare(
+      `INSERT INTO inventory_lot_allocation(
+        id, tenant_id, lot_id, movement_id, sale_id, quantity, direction, created_at
+      ) VALUES (?,?,?,?,NULL,?,'IN',?)`,
+    ).run(uuidV7(), tenantId, lotId, movementId, bigIntToScale6(quantity), this.now().toISOString());
   }
 
   /**
@@ -766,8 +795,8 @@ export class SqliteInventoryStore {
     const left = available - taken;
     this.database.native.prepare(
       `INSERT INTO inventory_lot_allocation(
-        id, tenant_id, lot_id, movement_id, sale_id, quantity, created_at
-      ) VALUES (?,?,?,?,?,?,?)`,
+        id, tenant_id, lot_id, movement_id, sale_id, quantity, direction, created_at
+      ) VALUES (?,?,?,?,?,?,'OUT',?)`,
     ).run(uuidV7(), tenantId, lotId, movementId, saleId, bigIntToScale6(taken), at);
     this.database.native.prepare(
       `UPDATE inventory_lot SET quantity_on_hand=?, status=?, updated_at=?
@@ -816,11 +845,12 @@ export class SqliteInventoryStore {
         return { kind: "LOT_CODE_CONFLICT" };
       }
 
+      const receiptMovementId = uuidV7();
       const movement = this.appendMovement({
         scope: input.scope,
         sessionId: input.sessionId,
         operatorUserId: input.operatorUserId,
-        movementId: uuidV7(),
+        movementId: receiptMovementId,
         operationId: uuidV7(),
         presentationId: input.presentationId,
         movementType: "PURCHASE_RECEIPT",
@@ -870,10 +900,13 @@ export class SqliteInventoryStore {
           throw error;
         }
       } else {
+        // Una remesa sobre una tanda agotada la reactiva: con existencia y en
+        // `CONSUMED`, FEFO —que sólo toma `ACTIVE`— nunca la vendería.
         this.database.native.prepare(
-          "UPDATE inventory_lot SET quantity_on_hand=?, updated_at=? WHERE tenant_id=? AND id=?",
+          "UPDATE inventory_lot SET quantity_on_hand=?, status='ACTIVE', updated_at=? WHERE tenant_id=? AND id=?",
         ).run(lotQuantity, at, input.scope.tenantId, lotId);
       }
+      this.recordLotEntry(input.scope.tenantId, lotId, receiptMovementId, scale6ToBigInt(input.quantity));
 
       return {
         kind: "RECEIVED",
@@ -936,7 +969,11 @@ export class SqliteInventoryStore {
     try {
       return this.database.native.transaction((): AdjustWithLotsOutcome => {
         const outcome = this.appendMovement(input);
-        if (outcome.kind !== "POSTED" || !outflow) return outcome;
+        if (outcome.kind !== "POSTED") return outcome;
+        if (!outflow) {
+          if (lotCode !== null) this.addToNamedLot(input, lotCode);
+          return outcome;
+        }
 
         if (lotCode === null) {
           this.allocateFefo(
@@ -1006,7 +1043,7 @@ export class SqliteInventoryStore {
     }[];
 
     const all = this.database.native.prepare(
-      "SELECT quantity FROM inventory_lot_allocation WHERE tenant_id=? AND lot_id=?",
+      "SELECT quantity FROM inventory_lot_allocation WHERE tenant_id=? AND lot_id=? AND direction='OUT'",
     ).all(tenantId, lot.id) as { quantity: string }[];
     const taken = all.reduce((sum, row) => sum + scale6ToBigInt(row.quantity), 0n);
 
@@ -1015,12 +1052,24 @@ export class SqliteInventoryStore {
       `SELECT m.movement_type, a.quantity, a.sale_id, m.reason_code, m.business_date, m.occurred_at
          FROM inventory_lot_allocation a
          JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
-        WHERE a.tenant_id=? AND a.lot_id=?
+        WHERE a.tenant_id=? AND a.lot_id=? AND a.direction='OUT'
         ORDER BY m.occurred_at, m.stock_sequence, a.id
         LIMIT ?`,
     ).all(tenantId, lot.id, limit + 1) as {
       movement_type: LotTrace["outflows"][number]["movementType"]; quantity: string;
       sale_id: string | null; reason_code: string; business_date: string; occurred_at: string;
+    }[];
+
+    const entries = this.database.native.prepare(
+      `SELECT m.movement_type, a.quantity, m.reason_code, m.business_date, m.occurred_at
+         FROM inventory_lot_allocation a
+         JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
+        WHERE a.tenant_id=? AND a.lot_id=? AND a.direction='IN'
+        ORDER BY m.occurred_at, m.stock_sequence, a.id
+        LIMIT ?`,
+    ).all(tenantId, lot.id, limit + 1) as {
+      movement_type: LotTrace["inflows"][number]["movementType"]; quantity: string;
+      reason_code: string; business_date: string; occurred_at: string;
     }[];
 
     return {
@@ -1051,8 +1100,45 @@ export class SqliteInventoryStore {
         businessDate: row.business_date,
         occurredAt: row.occurred_at,
       })),
-      truncated: rows.length > limit,
+      inflows: entries.slice(0, limit).map((row) => ({
+        movementType: row.movement_type,
+        quantity: row.quantity,
+        reasonCode: row.reason_code,
+        businessDate: row.business_date,
+        occurredAt: row.occurred_at,
+      })),
+      truncated: rows.length > limit || entries.length > limit,
     };
+  }
+
+  /**
+   * Ajuste positivo **a una tanda que ya existe**: se encontró más de lo que
+   * el lote decía. Suma, reactiva si estaba agotada y deja la entrada en el
+   * libro con el movimiento del ajuste —tipo, motivo y actor—.
+   *
+   * No crea lotes: una tanda nueva trae fechas, y se declara recibiéndola.
+   * Un código que no existe en esta sucursal es `LOT_NOT_FOUND` y el
+   * movimiento se deshace. Un lote vencido sí admite la corrección: aparecer
+   * más producto vencido es un hallazgo que después sale por merma.
+   */
+  private addToNamedLot(input: AppendMovementInput, lotCode: string): void {
+    const lot = this.database.native.prepare(
+      `SELECT id, quantity_on_hand FROM inventory_lot
+        WHERE tenant_id=? AND branch_id=? AND presentation_id=? AND lot_code=?`,
+    ).get(
+      input.scope.tenantId, input.scope.branchId, input.presentationId, lotCode,
+    ) as { id: string; quantity_on_hand: string } | undefined;
+    if (lot === undefined) throw new Rollback<LotRejectionOutcome>({ kind: "LOT_NOT_FOUND" });
+
+    const added = scale6ToBigInt(input.quantity);
+    this.database.native.prepare(
+      `UPDATE inventory_lot SET quantity_on_hand=?, status='ACTIVE', updated_at=?
+        WHERE tenant_id=? AND id=?`,
+    ).run(
+      bigIntToScale6(scale6ToBigInt(lot.quantity_on_hand) + added), this.now().toISOString(),
+      input.scope.tenantId, lot.id,
+    );
+    this.recordLotEntry(input.scope.tenantId, lot.id, input.movementId, added);
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */
