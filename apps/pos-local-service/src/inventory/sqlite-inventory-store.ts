@@ -439,11 +439,12 @@ export class SqliteInventoryStore {
       }))
       .digest("hex");
 
+    const movementId = uuidV7();
     const outcome = this.appendMovement({
       scope: input.scope,
       sessionId: input.sessionId,
       operatorUserId: input.operatorUserId,
-      movementId: uuidV7(),
+      movementId,
       operationId: uuidV7(),
       presentationId: input.presentationId,
       movementType: "SALE",
@@ -459,6 +460,10 @@ export class SqliteInventoryStore {
 
     switch (outcome.kind) {
       case "POSTED":
+        // Sólo aquí. Un `IDEMPOTENT` es la misma finalización reintentada:
+        // asignar otra vez descontaría dos veces del lote lo que el saldo
+        // descontó una.
+        this.allocateSaleToLots(input, movementId);
         return { kind: "POSTED" };
       case "IDEMPOTENT":
         return { kind: "IDEMPOTENT" };
@@ -541,6 +546,74 @@ export class SqliteInventoryStore {
         targetQuantityAfter: entry.quantityAfter,
       };
     })();
+  }
+
+  /**
+   * Qué lotes se llevó una venta — FEFO sobre lotes **vigentes**.
+   *
+   * ## La regla no se decide aquí: se aplica
+   *
+   * `UC-INVENTORY-002` §Vencimientos, regla 1: «FEFO prioriza el lote con
+   * vencimiento **válido** más próximo». La selección automática nunca toma
+   * un lote vencido; lo vencido sale por merma o ajuste explícito (regla 5).
+   * Vence **al final** del día declarado, como en `lotExpiryState`: un lote
+   * que vence hoy todavía se vende hoy. Los lotes sin vencimiento van
+   * después de todos los que vencen, porque no compiten por salir primero.
+   *
+   * ## Lo que no cubre ningún lote no se inventa
+   *
+   * Si la presentación no tiene lotes, no hay nada que asignar y la venta
+   * sigue exactamente como antes: esta capacidad no cambia a quien no la usa.
+   *
+   * Si tiene lotes pero los vigentes no alcanzan —existencia que entró sin
+   * lote, o que sólo queda en tandas vencidas—, se asigna lo que alcanzan y
+   * **el resto queda sin asignar**. No se reparte en un lote cualquiera: eso
+   * fabricaría un rastro falso, que es peor que ninguno en un retiro
+   * sanitario. La diferencia no se esconde: es medible como la cantidad del
+   * movimiento menos la suma de sus asignaciones.
+   *
+   * **La venta no se bloquea por esto.** Se ejecuta al cobrar, con el dinero
+   * ya recibido; decidir que una tienda no puede vender sin lote es política
+   * y no está decidida.
+   */
+  private allocateSaleToLots(input: SaleDeductionInput, movementId: string): void {
+    const lots = this.database.native.prepare(
+      `SELECT id, quantity_on_hand FROM inventory_lot
+        WHERE tenant_id=? AND branch_id=? AND presentation_id=?
+          AND status='ACTIVE' AND quantity_on_hand <> '0.000000'
+          AND (expiry_date IS NULL OR expiry_date >= ?)
+        ORDER BY expiry_date IS NULL, expiry_date, received_date, lot_code`,
+    ).all(
+      input.scope.tenantId, input.scope.branchId, input.presentationId, input.businessDate,
+    ) as { id: string; quantity_on_hand: string }[];
+    if (lots.length === 0) return;
+
+    const at = this.now().toISOString();
+    const insert = this.database.native.prepare(
+      `INSERT INTO inventory_lot_allocation(
+        id, tenant_id, lot_id, movement_id, sale_id, quantity, created_at
+      ) VALUES (?,?,?,?,?,?,?)`,
+    );
+    const update = this.database.native.prepare(
+      `UPDATE inventory_lot SET quantity_on_hand=?, status=?, updated_at=?
+        WHERE tenant_id=? AND id=?`,
+    );
+
+    let remaining = scale6ToBigInt(input.quantity);
+    for (const lot of lots) {
+      if (remaining === 0n) break;
+      const available = scale6ToBigInt(lot.quantity_on_hand);
+      const taken = available < remaining ? available : remaining;
+      const left = available - taken;
+      insert.run(
+        uuidV7(), input.scope.tenantId, lot.id, movementId, input.saleId,
+        bigIntToScale6(taken), at,
+      );
+      // Un lote agotado pasa a `CONSUMED`: no desaparece, porque su rastro
+      // es justo lo que un retiro necesita consultar después.
+      update.run(bigIntToScale6(left), left === 0n ? "CONSUMED" : "ACTIVE", at, input.scope.tenantId, lot.id);
+      remaining -= taken;
+    }
   }
 
   /**

@@ -2631,3 +2631,201 @@ describe("carga inicial: del fichero del comerciante a una venta facturada", () 
     });
   }, 60_000);
 });
+
+/**
+ * De qué lote salió cada venta — `MIGRATION_027`, `UC-INVENTORY-002`.
+ *
+ * El escenario está construido para que **sólo FEFO sobre lotes vigentes**
+ * dé el resultado correcto. Hay una tanda vencida (vence antes que todas: un
+ * FEFO que no filtrara vencidos la tomaría primero), una que vence pronto y
+ * llegó tarde, y otra que vence tarde y llegó primero (un FIFO por llegada la
+ * tomaría primero).
+ */
+describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
+  async function counter(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    database: LocalDatabase,
+    suffix: string,
+  ): Promise<{ productId: string; presentationId: string }> {
+    new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+      signAuthorization(authorizationClaims()),
+      { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+    );
+    seedRegister(database);
+    await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+    await send(mutating("cash.shift.open", {
+      cash_register_id: REGISTER, opening_amount: "0.000000", business_date: "2026-09-22",
+      timezone_id: "America/Bogota", utc_offset_minutes: -300,
+    }, `${suffix}:shift`));
+    const carne = await send(mutating("catalog.product.register", {
+      code: `MOLIDA-${suffix}`, name: "Carne molida", stock_controlled: true,
+      presentation_name: "Gramo", unit_code: "GRM", unit_precision: 0,
+      barcode: `77066${suffix.padStart(8, "0").slice(-8)}`, price_amount: "22.000000", currency_code: "COP",
+    }, `${suffix}:catalogo`));
+    const presentationId = carne.result["presentation_id"] as string;
+    const found = await send(reading("catalog.item.find", { barcode: `77066${suffix.padStart(8, "0").slice(-8)}` }));
+    return { productId: found.result["product_id"] as string, presentationId };
+  }
+
+  async function lot(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    presentationId: string, code: string, quantity: string, expiry: string, received: string,
+  ): Promise<void> {
+    const r = await send(mutating("inventory.lot.receive", {
+      presentation_id: presentationId, lot_code: code, quantity,
+      manufactured_date: null, expiry_date: expiry,
+      reason_code: "SUPPLIER_DELIVERY", business_date: received,
+    }, `lot:${code}`));
+    expect(r.result["outcome"]).toBe("RECEIVED");
+  }
+
+  async function sellAndPay(
+    send: (request: unknown) => Promise<ChannelResponse>,
+    ids: { productId: string; presentationId: string }, grams: string, key: string,
+  ): Promise<{ saleId: string; paymentKey: string; amount: string }> {
+    const venta = await send(mutating("sale.create", {
+      cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-22",
+      timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      document_series: "A", currency_code: "COP",
+      lines: [{ product_id: ids.productId, presentation_id: ids.presentationId, quantity: grams }],
+    }, `${key}:venta`));
+    expect(venta.status).toBe("SUCCEEDED");
+    const saleId = venta.result["sale_id"] as string;
+    const amount = venta.result["payable_amount"] as string;
+    const pago = await send(mutating("payment.register.cash", {
+      sale_id: saleId, amount, tendered_amount: null,
+    }, `${key}:pago`));
+    expect(pago.result["sale_completed"]).toBe(true);
+    return { saleId, paymentKey: `${key}:pago`, amount };
+  }
+
+  function allocationsOf(database: LocalDatabase, saleId: string): Record<string, string> {
+    const rows = database.native.prepare(
+      `SELECT l.lot_code, a.quantity FROM inventory_lot_allocation a
+         JOIN inventory_lot l ON l.tenant_id=a.tenant_id AND l.id=a.lot_id
+        WHERE a.sale_id=? ORDER BY l.lot_code`,
+    ).all(saleId) as { lot_code: string; quantity: string }[];
+    return Object.fromEntries(rows.map((r) => [r.lot_code, r.quantity]));
+  }
+
+  function lotState(database: LocalDatabase, code: string): string {
+    const row = database.native.prepare(
+      "SELECT quantity_on_hand, status FROM inventory_lot WHERE lot_code=?",
+    ).get(code) as { quantity_on_hand: string; status: string };
+    return `${row.quantity_on_hand}/${row.status}`;
+  }
+
+  it("una venta de 1500 g sale de la tanda vigente que vence antes, y nunca de la vencida", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await counter(send, database, "fefo");
+      // Vence ANTES que todas, pero ya venció: FEFO sobre vigentes la salta.
+      await lot(send, ids.presentationId, "C-VENCIDA", "800.000000", "2026-09-18", "2026-09-15");
+      // Llegó PRIMERO y vence tarde: un FIFO por llegada la tomaría primero.
+      await lot(send, ids.presentationId, "B-TARDIA", "5000.000000", "2026-12-31", "2026-09-10");
+      // Vence pronto y llegó tarde: es la que FEFO debe vaciar primero.
+      await lot(send, ids.presentationId, "A-PRONTO", "1000.000000", "2026-09-24", "2026-09-22");
+
+      const { saleId } = await sellAndPay(send, ids, "1500.000000", "fefo:1");
+
+      // 1000 de la que vence el 24 —la agota— y 500 de la del 31 de diciembre.
+      expect(allocationsOf(database, saleId)).toEqual({
+        "A-PRONTO": "1000.000000",
+        "B-TARDIA": "500.000000",
+      });
+      // La agotada no desaparece: su rastro es lo que un retiro consulta.
+      expect(lotState(database, "A-PRONTO")).toBe("0.000000/CONSUMED");
+      expect(lotState(database, "B-TARDIA")).toBe("4500.000000/ACTIVE");
+      // La vencida, intacta: lo vencido sale por merma, no por venta.
+      expect(lotState(database, "C-VENCIDA")).toBe("800.000000/ACTIVE");
+      // El saldo total baja lo vendido: el lote detalla, no sustituye.
+      expect(stockOf(database, ids.presentationId)).toBe("5300.000000");
+    });
+  }, 60_000);
+
+  /**
+   * Lo que ningún lote vigente cubre **no se reparte en un lote cualquiera**:
+   * fabricaría un rastro falso, peor que ninguno en un retiro. Queda sin
+   * asignar y es medible.
+   */
+  it("lo que no cubren los lotes vigentes queda sin asignar, y se puede medir", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await counter(send, database, "corto");
+      // 1000 g que entraron SIN lote —conteo inicial—, y una tanda de 300 g.
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: ids.presentationId, movement_type: "OPENING_COUNT",
+        quantity: "1000.000000", reason_code: "INITIAL_COUNT", business_date: "2026-09-22",
+      }, "corto:inicial"));
+      await lot(send, ids.presentationId, "UNICA", "300.000000", "2026-09-30", "2026-09-22");
+
+      const { saleId } = await sellAndPay(send, ids, "800.000000", "corto:1");
+
+      expect(allocationsOf(database, saleId)).toEqual({ UNICA: "300.000000" });
+      // La venta de 800 existe entera; 500 no tienen lote, y eso se lee así:
+      const traced = database.native.prepare(
+        `SELECT m.quantity AS vendido, COALESCE(SUM(CAST(REPLACE(a.quantity,'.','') AS INTEGER)),0) AS asignado
+           FROM inventory_movement m
+           LEFT JOIN inventory_lot_allocation a ON a.tenant_id=m.tenant_id AND a.movement_id=m.id
+          WHERE m.sale_id=? GROUP BY m.id`,
+      ).get(saleId) as { vendido: string; asignado: number };
+      expect(traced.vendido).toBe("800.000000");
+      expect(traced.asignado).toBe(300_000000);
+      expect(stockOf(database, ids.presentationId)).toBe("500.000000");
+    });
+  }, 60_000);
+
+  it("un producto sin lotes vende exactamente igual que antes", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await counter(send, database, "sinlote");
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: ids.presentationId, movement_type: "OPENING_COUNT",
+        quantity: "1000.000000", reason_code: "INITIAL_COUNT", business_date: "2026-09-22",
+      }, "sinlote:inicial"));
+
+      const { saleId } = await sellAndPay(send, ids, "200.000000", "sinlote:1");
+
+      expect(allocationsOf(database, saleId)).toEqual({});
+      expect(stockOf(database, ids.presentationId)).toBe("800.000000");
+    });
+  }, 60_000);
+
+  /**
+   * Reintentar el cobro por el canal no descuenta dos veces del lote.
+   *
+   * Ojo con lo que esto mide: el pago idempotente responde antes de llegar al
+   * descuento de inventario, así que esta prueba cubre la capa de pagos. La
+   * guarda `IDEMPOTENT` de `appendSaleDeduction` —que es la que impide asignar
+   * dos veces si la finalización sí se repite— la mide `inventory.test.ts`,
+   * llamando al almacén directamente. Una mutación en esa guarda no la detecta
+   * esta prueba; la otra sí.
+   */
+  it("reintentar el mismo cobro no vuelve a asignar", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await counter(send, database, "reintento");
+      await lot(send, ids.presentationId, "R1", "1000.000000", "2026-09-30", "2026-09-22");
+
+      const { saleId, paymentKey, amount } = await sellAndPay(send, ids, "400.000000", "reintento:1");
+      const retry = await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount, tendered_amount: null,
+      }, paymentKey));
+      expect(retry.status).toBe("SUCCEEDED");
+
+      expect(allocationsOf(database, saleId)).toEqual({ R1: "400.000000" });
+      expect(lotState(database, "R1")).toBe("600.000000/ACTIVE");
+    });
+  }, 60_000);
+
+  it("una asignacion no se puede editar ni borrar: es un rastro sanitario", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await counter(send, database, "append");
+      await lot(send, ids.presentationId, "AP1", "1000.000000", "2026-09-30", "2026-09-22");
+      await sellAndPay(send, ids, "100.000000", "append:1");
+
+      expect(() => database.native.prepare(
+        "UPDATE inventory_lot_allocation SET quantity='1.000000'",
+      ).run()).toThrow(/append-only/);
+      expect(() => database.native.prepare(
+        "DELETE FROM inventory_lot_allocation",
+      ).run()).toThrow(/append-only/);
+    });
+  }, 60_000);
+});

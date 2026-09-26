@@ -123,14 +123,22 @@ es peor que no facturar.
 - **Compras y proveedores.** No existe `Supplier` ni documento de compra: se
   puede dar entrada a mercancía, pero **no reconciliarla contra la factura del
   proveedor**, porque no hay modelo de costo.
-- **Consumo de lotes por venta.** Se declara la tanda y se ve qué vence, pero
-  la venta **no consume por FEFO** ni deja rastro de qué lote salió. Para un
-  retiro sanitario eso es la mitad que falta.
+- **Lotes fuera de la venta.** Desde el 2026-09-26 la venta consume lotes por
+  FEFO —primero el vencimiento válido más cercano; un lote vencido nunca se
+  elige solo— y deja rastro de qué lote salió (`inventory_lot_allocation`).
+  Pero **la merma, el ajuste negativo, el traslado y la apertura de
+  presentación bajan el saldo sin bajar el lote**: tras una merma, el lote dice
+  tener más de lo que hay. Tampoco existe todavía **consulta del rastro**
+  («a quién se vendió el lote X») ni pantalla para recibir o listar lotes.
+- **Existencia sin lote.** Si entró mercancía por `inventory.stock.receive` y
+  luego se vende más de lo que cubren los lotes, lo que falta queda sin asignar
+  a lote. No se inventa de qué tanda salió.
 - **Balanza.** El peso se teclea.
 
 ## Historial
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | La venta consume lotes por FEFO y deja rastro (`MIGRATION_027`). Se sustituye «consumo de lotes por venta» por lo que de verdad sigue faltando en lotes. |
 | 2026-09-26 | La carga tiene pantalla. Se retira de «lo que todavía no existe». |
 | 2026-09-22 | Primera redacción, tras medir que alimentar el catálogo costaba tres operaciones por artículo y no existía ninguna ruta masiva. Se añade `catalog.item.import` |

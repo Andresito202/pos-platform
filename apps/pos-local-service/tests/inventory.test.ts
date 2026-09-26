@@ -368,3 +368,40 @@ describe("el esquema no admite un movimiento incoherente", () => {
     )).toThrow(/CHECK constraint/i);
   });
 });
+
+describe("asignación de venta a lote: la finalización reintentada no descuenta dos veces", () => {
+  // La prueba del vertical («reintentar el cobro») se corta en la capa de
+  // pagos y nunca llega aquí. Esta llama al almacén directamente: es la única
+  // que mide la guarda `IDEMPOTENT` de `appendSaleDeduction`.
+  it("la segunda llamada con la misma venta es IDEMPOTENT y deja una sola asignación", async () => {
+    const { store, database, presentationId } = await buildEnv();
+    const received = store.receiveLot({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER, presentationId,
+      lotCode: "L-UNICO", quantity: "10.000000",
+      manufacturedDate: null, expiryDate: "2026-09-30",
+      reasonCode: "SUPPLIER_DELIVERY", businessDate: "2026-09-07",
+      idempotencyKey: key(), requestChecksum: "a".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+    expect(received.kind).toBe("RECEIVED");
+
+    const sale = {
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      saleId: "018f0000-0000-7000-8000-000000005a1e", presentationId,
+      quantity: "3.000000", businessDate: "2026-09-07",
+      correlationId: CORRELATION, causationId: null,
+    };
+    expect(store.appendSaleDeduction(sale).kind).toBe("POSTED");
+    expect(store.appendSaleDeduction(sale).kind).toBe("IDEMPOTENT");
+
+    const allocations = database.native.prepare(
+      "SELECT quantity FROM inventory_lot_allocation WHERE tenant_id=? AND sale_id=?",
+    ).all(TENANT, sale.saleId) as Array<{ quantity: string }>;
+    expect(allocations).toEqual([{ quantity: "3.000000" }]);
+
+    const lot = database.native.prepare(
+      "SELECT quantity_on_hand FROM inventory_lot WHERE tenant_id=? AND lot_code='L-UNICO'",
+    ).get(TENANT) as { quantity_on_hand: string };
+    expect(lot.quantity_on_hand).toBe("7.000000");
+  });
+});

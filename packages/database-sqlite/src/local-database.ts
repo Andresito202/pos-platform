@@ -2103,6 +2103,76 @@ CREATE INDEX inventory_lot_fefo_idx
   WHERE status = 'ACTIVE' AND quantity_on_hand <> '0.000000';
 `.trim();
 
+/**
+ * `inventory_lot_allocation` — de qué lote salió cada venta
+ * (`UC-INVENTORY-002` §Lotes regla 2, §Vencimientos regla 1).
+ *
+ * ## Para qué
+ *
+ * Es la mitad que un retiro sanitario necesita. `MIGRATION_026` dejó saber
+ * qué tandas hay y cuál vence antes; esto deja saber **qué ventas se llevaron
+ * cada tanda**. Sin ello, ante un lote contaminado de carne molida, la tienda
+ * sabe que lo tuvo y no a quién se lo vendió.
+ *
+ * ## Por qué una tabla aparte y no `lot_id` en el movimiento
+ *
+ * Una venta de 3 kg puede salir de dos tandas: 2 kg de la que vence el 24 y
+ * 1 kg de la del 29. Un solo `lot_id` en el movimiento obligaría a partir la
+ * venta en dos movimientos, y eso cambia la clave de idempotencia del
+ * descuento de venta —`(venta, presentación)`—, que está en el camino de
+ * cobro con evidencia `END_TO_END`. Las asignaciones cuelgan del movimiento
+ * que ya existe y no lo tocan.
+ *
+ * ## Por qué NO hay clave ajena a `inventory_movement`, a propósito
+ *
+ * `MIGRATION_025` pudo reconstruir `inventory_movement` porque **nadie la
+ * referenciaba**, y `D-27` documenta lo que cuesta cuando una tabla sí está
+ * referenciada: no se puede rehacer dentro de la transacción de migración.
+ * Referenciarla aquí cerraría esa puerta para ganar una integridad que ya da
+ * la construcción: la asignación la escribe el mismo almacén, en la misma
+ * transacción y con el mismo id que el movimiento. Se prefiere conservar la
+ * posibilidad de reconstruir a duplicar una garantía.
+ *
+ * La clave ajena al **lote** sí está: una asignación a un lote inexistente
+ * no traza nada.
+ *
+ * ## Append-only
+ *
+ * Una asignación es un hecho histórico sanitario. Los disparadores impiden
+ * modificarla o borrarla: un rastro que se puede editar después del retiro no
+ * sirve como rastro.
+ */
+const MIGRATION_027 = `
+CREATE TABLE inventory_lot_allocation (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id) = 36),
+  movement_id TEXT NOT NULL CHECK(length(movement_id) = 36),
+  sale_id TEXT CHECK(sale_id IS NULL OR length(sale_id) = 36),
+  quantity TEXT NOT NULL
+    CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity) - length(replace(quantity, '.', '')) = 1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity <> '0.000000'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, lot_id) REFERENCES inventory_lot(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+CREATE UNIQUE INDEX inventory_lot_allocation_once_idx
+  ON inventory_lot_allocation(tenant_id, movement_id, lot_id);
+CREATE INDEX inventory_lot_allocation_lot_idx
+  ON inventory_lot_allocation(tenant_id, lot_id);
+
+CREATE TRIGGER inventory_lot_allocation_no_update
+  BEFORE UPDATE ON inventory_lot_allocation
+  BEGIN SELECT RAISE(ABORT, 'inventory_lot_allocation is append-only'); END;
+CREATE TRIGGER inventory_lot_allocation_no_delete
+  BEFORE DELETE ON inventory_lot_allocation
+  BEGIN SELECT RAISE(ABORT, 'inventory_lot_allocation is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2130,6 +2200,7 @@ const MIGRATIONS = [
   { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
   { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
   { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
+  { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
 ] as const;
 
 /**
