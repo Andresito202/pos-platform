@@ -82,7 +82,11 @@ const CUSTOMERS: Record<string, unknown> = {
 
 type Envelope = { payload: Record<string, string> };
 
+/** Facturas por venta; por omisión ninguna, que es lo que asumen las pruebas que no tratan de facturas. */
+let INVOICES: Record<string, unknown[]> = {};
+
 function install(): void {
+  INVOICES = {};
   const service: Record<string, (request: unknown) => Promise<unknown>> = {};
   for (const method of RENDERER_API_METHODS) {
     service[method] = () => Promise.reject(new Error(`inesperado: ${method}`));
@@ -92,6 +96,10 @@ function install(): void {
     Promise.resolve(RECEIPTS[(request as Envelope).payload["sale_id"] ?? ""]);
   service["customer.get"] = (request) =>
     Promise.resolve(CUSTOMERS[(request as Envelope).payload["customer_id"] ?? ""]);
+  service["fiscal.document.list"] = (request) => Promise.resolve({
+    status: "SUCCEEDED", result_code: "LISTED",
+    result: { outcome: "LISTED", documents: INVOICES[(request as Envelope).payload["sale_id"] ?? ""] ?? [] },
+  });
   Object.defineProperty(window, "posService", { value: service, writable: true, configurable: true });
 }
 
@@ -331,5 +339,73 @@ describe("LotPanel — código de lote ya usado con otras fechas", () => {
     expect(screen.getByTestId("lot-received-conflict-where").textContent).toBe("en otra sucursal");
     expect(screen.getByTestId("lot-received-conflict-manufactured").textContent).toBe("sin fecha");
     expect(screen.getByTestId("lot-received-conflict-expiry").textContent).toBe("2026-09-30");
+  });
+});
+
+/**
+ * `D-40`: una factura puede ir, confirmada, a nombre de alguien distinto del
+ * cliente de la venta. El retiro llega también a esa persona, y una factura
+ * sin adquiriente registrado se declara como hueco, no se ignora.
+ */
+describe("LotPanel — el retiro llega también al adquiriente de la factura", () => {
+  const CARLA = "33333333-3333-4333-8333-33333333000c";
+  const invoice = (kind: string, customerId: string | null) => ({
+    document_id: "99999999-9999-4999-8999-99999999000" + String(Object.keys(INVOICES).length),
+    document_type: "SALES_INVOICE", transport_status: "COMPLETED", normalized_result: "ACCEPTED",
+    issued_prefix: "SETP", issued_number: "990000007", acquirer_kind: kind, acquirer_customer_id: customerId,
+  });
+
+  beforeEach(() => {
+    install();
+    CUSTOMERS[CARLA] = {
+      status: "SUCCEEDED", result_code: "FOUND",
+      result: {
+        outcome: "FOUND", customer_id: CARLA, identification_document_code: "13",
+        identification: "43111222", verification_digit: null, legal_organization_code: "2",
+        company: null, names: "Carla Factura", tribute_code: "ZZ",
+        fiscal_responsibility_codes: ["R-99-PN"], email: null, phone: "3109998877",
+        address: null, country_code: null, municipality_code: null, version: 1,
+      },
+    };
+    // La venta de mostrador se facturó a Carla; la de Ana, a la propia Ana;
+    // la de Beto tiene una factura de antes del registro del adquiriente.
+    INVOICES[SALE_MOSTRADOR] = [invoice("IDENTIFIED", CARLA)];
+    INVOICES[SALE_ANA] = [invoice("IDENTIFIED", ANA)];
+    INVOICES[SALE_BETO] = [invoice("NOT_RECORDED", null)];
+  });
+
+  it("suma a quien se facturó, marca de dónde sale cada uno y declara la factura sin adquiriente", async () => {
+    render(<LotPanel />);
+    await traceLot();
+    fireEvent.click(screen.getByTestId("lot-buyers-button"));
+    await waitFor(() => { expect(screen.getByTestId("lot-buyers")).toBeTruthy(); });
+
+    const names = screen.getAllByTestId("lot-buyer-name").map((cell) => cell.textContent);
+    const via = screen.getAllByTestId("lot-buyer-via").map((cell) => cell.textContent);
+    expect(Object.fromEntries(names.map((n, i) => [n, via[i]]))).toEqual({
+      "Ana Compradora": "venta y factura",
+      "Carla Factura": "factura",
+    });
+    // La de mostrador ya no es anónima: alguien la facturó a su nombre.
+    expect(screen.getByTestId("lot-buyers-anonymous").textContent).toBe("0");
+    expect(screen.getAllByTestId("lot-buyers-failure").map((item) => item.textContent)).toEqual([
+      `factura de ${SALE_BETO}: ACQUIRER_NOT_RECORDED`,
+      `${SALE_PERDIDA}: NOT_FOUND`,
+      `${SALE_BETO}: UNAUTHORIZED`,
+    ]);
+  });
+
+  it("al abrir la venta de mostrador muestra su factura y el adquiriente de la factura", async () => {
+    render(<LotPanel />);
+    await traceLot();
+    fireEvent.click(screen.getAllByTestId("lot-trace-open-sale")[2]!);
+    await waitFor(() => { expect(screen.getByTestId("lot-trace-invoice")).toBeTruthy(); });
+    expect(screen.getByTestId("lot-trace-sale-anonymous")).toBeTruthy();
+    expect(screen.getByTestId("lot-trace-invoice-number").textContent).toBe("SETP990000007");
+
+    fireEvent.click(screen.getByTestId("lot-trace-invoice-acquirer-button"));
+    await waitFor(() => {
+      expect(screen.getByTestId("lot-trace-buyer-name").textContent).toBe("Carla Factura");
+    });
   });
 });

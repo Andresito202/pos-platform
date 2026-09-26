@@ -24,9 +24,11 @@ import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import {
   SqliteFiscalDocumentStore,
+  type DocumentAcquirer,
   type DocumentScope,
 } from "../src/fiscal/sqlite-fiscal-document-store.js";
 import { SqliteFiscalSaleSource } from "../src/fiscal/fiscal-sale-source.js";
+import { ListFiscalDocumentsUseCase } from "../src/fiscal/list-fiscal-documents-use-case.js";
 import { mapPaymentMethodToDian } from "../src/fiscal/payment-method-mapping.js";
 import { SynchronizeNumberingRangesUseCase } from "../src/fiscal/synchronize-numbering-ranges-use-case.js";
 import {
@@ -471,6 +473,7 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
       scope: SCOPE, saleId, provider: PROVIDER, environment: ENVIRONMENT, documentType: DOCUMENT_TYPE,
       numberingRangeId: RANGE_ID, idempotencyKey: `${saleId}:${DOCUMENT_TYPE}`,
       payloadJson: "{}", payloadChecksum: "a".repeat(64),
+      acquirer: { kind: "IDENTIFIED", customerId: SALE_CUSTOMER_ID },
     });
     expect(document.transportStatus).toBe("CREATED");
     expect(document.attemptCount).toBe(0);
@@ -485,6 +488,7 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
       scope: SCOPE, saleId, provider: PROVIDER, environment: ENVIRONMENT, documentType: DOCUMENT_TYPE,
       numberingRangeId: RANGE_ID, idempotencyKey: `${saleId}:${DOCUMENT_TYPE}`,
       payloadJson: "{}", payloadChecksum: "a".repeat(64),
+      acquirer: { kind: "IDENTIFIED", customerId: SALE_CUSTOMER_ID },
     });
     store.markInProgress(SCOPE, document.id, NOW_ISO);
     const reloaded = store.findByIdempotencyKey(SCOPE, PROVIDER, ENVIRONMENT, document.idempotencyKey);
@@ -504,6 +508,7 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
       scope: SCOPE, saleId, provider: PROVIDER, environment: ENVIRONMENT, documentType: DOCUMENT_TYPE,
       numberingRangeId: RANGE_ID, idempotencyKey: `${saleId}:${DOCUMENT_TYPE}`,
       payloadJson: "{}", payloadChecksum: "a".repeat(64),
+      acquirer: { kind: "IDENTIFIED", customerId: SALE_CUSTOMER_ID },
     });
     // Todavía en CREATED: recordCompleted debe rechazar.
     expect(() => store.recordCompleted({
@@ -522,6 +527,7 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
       scope: SCOPE, saleId, provider: PROVIDER, environment: ENVIRONMENT, documentType: DOCUMENT_TYPE,
       numberingRangeId: RANGE_ID, idempotencyKey: `${saleId}:${DOCUMENT_TYPE}`,
       payloadJson: "{}", payloadChecksum: "a".repeat(64),
+      acquirer: { kind: "IDENTIFIED", customerId: SALE_CUSTOMER_ID },
     });
     store.markInProgress(SCOPE, document.id, NOW_ISO);
     store.recordCompleted({
@@ -944,6 +950,10 @@ describe("IssueElectronicDocumentUseCase — adquiriente distinto del de la vent
     }), SIGNAL);
     expect(result.kind).toBe("ISSUED");
     expect(port.callCount).toBe(1);
+    // El documento recuerda a quién se facturó: al pedido, no al de la venta.
+    if (result.kind === "ISSUED") {
+      expect(result.document.acquirer).toEqual({ kind: "IDENTIFIED", customerId: OTHER_CUSTOMER_ID });
+    }
   });
 
   /**
@@ -968,5 +978,72 @@ describe("IssueElectronicDocumentUseCase — adquiriente distinto del de la vent
     }), SIGNAL);
     expect(retry.kind).toBe("ISSUED");
     expect(port.callCount).toBe(2);
+  });
+});
+
+/**
+ * `fiscal.document.list` y `MIGRATION_031`: a quién se facturó cada documento,
+ * para que el rastro de un retiro llegue también al adquiriente de la factura.
+ */
+describe("documentos fiscales de una venta: a quién se facturó", () => {
+  function createDocument(store: SqliteFiscalDocumentStore, saleId: string, acquirer: DocumentAcquirer) {
+    return store.create({
+      scope: SCOPE, saleId, provider: PROVIDER, environment: ENVIRONMENT, documentType: DOCUMENT_TYPE,
+      numberingRangeId: RANGE_ID, idempotencyKey: `${saleId}:${DOCUMENT_TYPE}`,
+      payloadJson: "{}", payloadChecksum: "a".repeat(64), acquirer,
+    });
+  }
+
+  it("sin permiso de leer recibos es UNAUTHORIZED; con él, lista con el adquiriente", async () => {
+    const database = await openDatabase();
+    seedRange(database);
+    const saleId = seedSale(database);
+    const store = new SqliteFiscalDocumentStore(database, () => NOW);
+    createDocument(store, saleId, { kind: "NOT_IDENTIFIED" });
+    const list = new ListFiscalDocumentsUseCase(store);
+
+    expect(list.execute(SCOPE, auth([PERMISSION_FISCAL_DOCUMENT_ISSUE]), saleId, NOW).kind).toBe("UNAUTHORIZED");
+    const listed = list.execute(SCOPE, auth(["SALES_RECEIPT_READ"]), saleId, NOW);
+    expect(listed.kind).toBe("LISTED");
+    if (listed.kind !== "LISTED") return;
+    expect(listed.documents.map((d) => d.acquirer)).toEqual([{ kind: "NOT_IDENTIFIED" }]);
+  });
+
+  /**
+   * Un documento anterior a `MIGRATION_031` no se da por anónimo: se dice que
+   * no se registró. Se simula con un INSERT que omite las columnas nuevas,
+   * que es exactamente como quedaron las filas de antes.
+   */
+  it("un documento sin adquiriente registrado sale como no registrado, no como anónimo", async () => {
+    const database = await openDatabase();
+    seedRange(database);
+    const saleId = seedSale(database);
+    database.native.prepare(`
+      INSERT INTO fiscal_electronic_document(
+        id,tenant_id,company_id,branch_id,sale_id,provider,environment,document_type,
+        numbering_range_id,idempotency_key,payload_json,payload_checksum,
+        transport_status,normalized_result,attempt_count,version,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,'{}',?, 'CREATED',NULL,0,1,?,?)`,
+    ).run(
+      randomUUID(), TENANT, COMPANY, BRANCH, saleId, PROVIDER, ENVIRONMENT, DOCUMENT_TYPE,
+      RANGE_ID, `${saleId}:${DOCUMENT_TYPE}`, "a".repeat(64), NOW_ISO, NOW_ISO,
+    );
+    const store = new SqliteFiscalDocumentStore(database, () => NOW);
+    expect(store.listForSale(SCOPE, saleId).map((d) => d.acquirer)).toEqual([null]);
+  });
+
+  /** A quién se facturó está congelado en el payload: las columnas también. */
+  it("el adquiriente de un documento no se puede cambiar", async () => {
+    const database = await openDatabase();
+    seedRange(database);
+    const saleId = seedSale(database);
+    const store = new SqliteFiscalDocumentStore(database, () => NOW);
+    const document = createDocument(store, saleId, { kind: "IDENTIFIED", customerId: SALE_CUSTOMER_ID });
+    expect(() => database.native.prepare(
+      "UPDATE fiscal_electronic_document SET acquirer_customer_id=?, version=version+1 WHERE id=?",
+    ).run("018f0000-0000-7000-8000-0000000c0009", document.id)).toThrow(/acquirer is immutable/);
+    expect(() => database.native.prepare(
+      "UPDATE fiscal_electronic_document SET acquirer_kind='NOT_IDENTIFIED', acquirer_customer_id=NULL, version=version+1 WHERE id=?",
+    ).run(document.id)).toThrow(/acquirer is immutable/);
   });
 });

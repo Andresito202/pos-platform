@@ -9,6 +9,8 @@ import {
   FiscalDocumentIssueRequestSchema,
   SaleCreateRequestSchema,
   InventoryLotTraceRequestSchema,
+  FiscalDocumentListRequestSchema,
+  FiscalDocumentListResultSchema,
   FiscalDocumentIssueResultSchema,
   InventoryLotListResultSchema,
   InventoryLotExpiringRequestSchema,
@@ -720,5 +722,41 @@ describe("fiscal.document.issue — confirmación de adquiriente distinto (D-40)
       ...blocked,
       customer_mismatch: { sale_customer_id: null, requested_customer_id: "550e8400-e29b-41d4-a716-446655440032" },
     }).success).toBe(true);
+  });
+});
+
+/**
+ * `fiscal.document.list` — a quién se facturó cada documento de una venta. Un
+ * documento anterior a `MIGRATION_031` es `NOT_RECORDED`, no anónimo; y un
+ * `IDENTIFIED` sin su cliente no es un resultado válido.
+ */
+describe("fiscal.document.list", () => {
+  it("es lectura por venta y no acepta una sucursal del llamador", () => {
+    const request = (payload: Record<string, unknown>) => ({
+      ...metadata, message_type: "fiscal.document.list", payload,
+    });
+    expect(FiscalDocumentListRequestSchema.safeParse(
+      request({ sale_id: "550e8400-e29b-41d4-a716-446655440031" }),
+    ).success).toBe(true);
+    expect(FiscalDocumentListRequestSchema.safeParse(request({
+      sale_id: "550e8400-e29b-41d4-a716-446655440031", branch_id: "550e8400-e29b-41d4-a716-446655440013",
+    })).success).toBe(false);
+  });
+
+  it("distingue no registrado de sin identificar", () => {
+    const doc = (acquirer_kind: string, acquirer_customer_id: string | null) => ({
+      outcome: "LISTED",
+      documents: [{
+        document_id: "550e8400-e29b-41d4-a716-446655440040", document_type: "SALES_INVOICE",
+        transport_status: "COMPLETED", normalized_result: "ACCEPTED",
+        issued_prefix: "SETP", issued_number: "990000001", acquirer_kind, acquirer_customer_id,
+      }],
+    });
+    expect(FiscalDocumentListResultSchema.safeParse(doc("NOT_RECORDED", null)).success).toBe(true);
+    expect(FiscalDocumentListResultSchema.safeParse(doc("NOT_IDENTIFIED", null)).success).toBe(true);
+    expect(FiscalDocumentListResultSchema.safeParse(
+      doc("IDENTIFIED", "550e8400-e29b-41d4-a716-446655440032"),
+    ).success).toBe(true);
+    expect(FiscalDocumentListResultSchema.safeParse(doc("ANONIMO", null)).success).toBe(false);
   });
 });

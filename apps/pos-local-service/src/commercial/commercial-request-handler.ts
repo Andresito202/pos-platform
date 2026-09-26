@@ -29,7 +29,7 @@ type CommercialRequest = Extract<
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.import"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
-      | "inventory.lot.expiring"
+      | "inventory.lot.expiring" | "fiscal.document.list"
       | "sales.receipt.get";
   }
 >;
@@ -242,6 +242,7 @@ export class CommercialRequestHandler {
       case "inventory.lot.list": return this.listLots(request, connectionId);
       case "inventory.lot.trace": return this.traceLot(request, connectionId);
       case "inventory.lot.expiring": return this.listExpiringLots(request, connectionId);
+      case "fiscal.document.list": return this.listFiscalDocuments(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
     }
   }
@@ -1541,6 +1542,36 @@ export class CommercialRequestHandler {
         occurred_at: outflow.occurredAt,
       })),
       truncated: result.truncated,
+    });
+  }
+
+  /** `fiscal.document.list` — los documentos de una venta y a quién se facturaron. */
+  private listFiscalDocuments(
+    request: Extract<CommercialRequest, { message_type: "fiscal.document.list" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", documents: [] });
+    }
+    const result = this.commercial.listFiscalDocuments.execute(
+      this.scope(), authenticated.snapshot, request.payload.sale_id,
+    );
+    if (result.kind !== "LISTED") {
+      return rejected(request, result.kind, { outcome: result.kind, documents: [] });
+    }
+    return succeeded(request, "LISTED", {
+      outcome: "LISTED",
+      documents: result.documents.map((document) => ({
+        document_id: document.id,
+        document_type: document.documentType,
+        transport_status: document.transportStatus,
+        normalized_result: document.normalizedResult,
+        issued_prefix: document.issuedPrefix,
+        issued_number: document.issuedNumber,
+        acquirer_kind: document.acquirer?.kind ?? "NOT_RECORDED",
+        acquirer_customer_id: document.acquirer?.kind === "IDENTIFIED" ? document.acquirer.customerId : null,
+      })),
     });
   }
 

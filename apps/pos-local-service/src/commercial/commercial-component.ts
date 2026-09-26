@@ -57,6 +57,7 @@ import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
 import { FiscalCredentialStore } from "../fiscal/fiscal-credential-store.js";
 import { SecretStoreFactusCredentialResolver } from "../fiscal/factus-credential-resolver.js";
 import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-store.js";
+import { ListFiscalDocumentsUseCase } from "../fiscal/list-fiscal-documents-use-case.js";
 import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
 
@@ -147,6 +148,7 @@ export class CommercialComponent implements RuntimeComponent {
          * significa «esta pieza no está lista», no un error de arranque.
          */
         readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
+        readonly listFiscalDocuments: ListFiscalDocumentsUseCase;
       }
     | undefined;
 
@@ -227,6 +229,7 @@ export class CommercialComponent implements RuntimeComponent {
   get listExpiringLots(): ListExpiringLotsUseCase { return this.ready.listExpiringLots; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
+  get listFiscalDocuments(): ListFiscalDocumentsUseCase { return this.ready.listFiscalDocuments; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -309,6 +312,8 @@ export class CommercialComponent implements RuntimeComponent {
 
     this.state = {
       issueElectronicDocument,
+      // Siempre presente: leer lo ya emitido no depende de tener credencial.
+      listFiscalDocuments: new ListFiscalDocumentsUseCase(new SqliteFiscalDocumentStore(database, this.now)),
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),

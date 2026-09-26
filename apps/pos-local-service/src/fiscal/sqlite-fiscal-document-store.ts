@@ -171,6 +171,20 @@ export class SqliteFiscalDocumentStore {
    * intentar insertar, y así convertir la violación de índice en una decisión
    * legible en vez de una excepción de SQLite.
    */
+  /**
+   * Todos los documentos de una venta en este alcance, en orden de creación,
+   * **incluidos** los rechazados y fallidos: para un retiro sanitario también
+   * cuenta a quién se intentó facturar.
+   */
+  listForSale(scope: DocumentScope, saleId: string): readonly StoredElectronicDocument[] {
+    const rows = this.database.native.prepare(
+      `${SELECT_DOCUMENT}
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND sale_id=?
+        ORDER BY created_at, id`,
+    ).all(scope.tenantId, scope.companyId, scope.branchId, saleId) as DocumentRow[];
+    return rows.map(toDocument);
+  }
+
   findOpenForSale(
     scope: DocumentScope,
     saleId: string,
@@ -217,7 +231,8 @@ export class SqliteFiscalDocumentStore {
         provider_operation_id,provider_document_id,issued_prefix,issued_number,cufe,
         provider_status_code,provider_status,provider_http_status,
         last_diagnostic_code,last_diagnostic_reference,
-        version,created_at,updated_at,first_submitted_at,resolved_at
+        version,created_at,updated_at,first_submitted_at,resolved_at,
+        acquirer_kind,acquirer_customer_id
       ) VALUES (
         ?,?,?,?,?,?,?,?,
         ?,?,?,?,
@@ -225,13 +240,15 @@ export class SqliteFiscalDocumentStore {
         NULL,NULL,NULL,NULL,NULL,
         NULL,NULL,NULL,
         NULL,NULL,
-        1,?,?,NULL,NULL
+        1,?,?,NULL,NULL,
+        ?,?
       )
     `).run(
       id, input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.saleId,
       input.provider, input.environment, input.documentType,
       input.numberingRangeId, input.idempotencyKey, input.payloadJson, input.payloadChecksum,
       createdAt, createdAt,
+      input.acquirer.kind, input.acquirer.kind === "IDENTIFIED" ? input.acquirer.customerId : null,
     );
     const created = this.findByIdempotencyKey(input.scope, input.provider, input.environment, input.idempotencyKey);
     if (created === null) throw new Error("fiscal document vanished immediately after insert");
@@ -322,7 +339,8 @@ const SELECT_DOCUMENT = `
          provider_operation_id, provider_document_id, issued_prefix, issued_number, cufe,
          provider_status_code, provider_status, provider_http_status,
          last_diagnostic_code, last_diagnostic_reference,
-         version, created_at, updated_at, first_submitted_at, resolved_at
+         version, created_at, updated_at, first_submitted_at, resolved_at,
+         acquirer_kind, acquirer_customer_id
     FROM fiscal_electronic_document
 `.trim();
 
@@ -337,7 +355,17 @@ interface DocumentRow {
   last_diagnostic_code: string | null; last_diagnostic_reference: string | null;
   version: number; created_at: string; updated_at: string;
   first_submitted_at: string | null; resolved_at: string | null;
+  acquirer_kind: string | null; acquirer_customer_id: string | null;
 }
+
+/**
+ * A quién se facturó (`MIGRATION_031`). `NOT_IDENTIFIED` es consumidor sin
+ * identificar; en un documento leído, `null` es que **no se registró**
+ * —creado antes de la migración—, y no se da por anónimo.
+ */
+export type DocumentAcquirer =
+  | { readonly kind: "IDENTIFIED"; readonly customerId: string }
+  | { readonly kind: "NOT_IDENTIFIED" };
 
 export interface StoredElectronicDocument {
   readonly id: string;
@@ -357,6 +385,8 @@ export interface StoredElectronicDocument {
   readonly issuedNumber: string | null;
   readonly version: number;
   readonly resolvedAt: string | null;
+  readonly acquirer: DocumentAcquirer | null;
+  readonly createdAt: string;
 }
 
 function toDocument(row: DocumentRow): StoredElectronicDocument {
@@ -378,6 +408,10 @@ function toDocument(row: DocumentRow): StoredElectronicDocument {
     issuedNumber: row.issued_number,
     version: row.version,
     resolvedAt: row.resolved_at,
+    acquirer: row.acquirer_kind === "IDENTIFIED" && row.acquirer_customer_id !== null
+      ? { kind: "IDENTIFIED", customerId: row.acquirer_customer_id }
+      : row.acquirer_kind === "NOT_IDENTIFIED" ? { kind: "NOT_IDENTIFIED" } : null,
+    createdAt: row.created_at,
   };
 }
 
@@ -391,6 +425,8 @@ export interface CreateDocumentInput {
   readonly idempotencyKey: string;
   readonly payloadJson: string;
   readonly payloadChecksum: string;
+  /** Obligatorio: un documento nuevo siempre dice a quién se factura. */
+  readonly acquirer: DocumentAcquirer;
 }
 
 export interface RecordCompletedInput {

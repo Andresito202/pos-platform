@@ -1194,6 +1194,16 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   await page.getByTestId("receive-stock-button").click();
   await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
 
+  // Una tanda de este producto: la venta de abajo sale de ella, y al final se
+  // rastrea hasta el adquiriente de la factura.
+  await page.getByTestId("lot-presentation-input").fill(presentationId!);
+  await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await page.getByTestId("lot-code-input").fill("FISC-L1");
+  await page.getByTestId("lot-quantity-input").fill("1");
+  await page.getByTestId("lot-expiry-input").fill("2099-12-31");
+  await page.getByTestId("lot-receive-button").click();
+  await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
+
   // «Nueva venta» limpió también el comprador: la venta fiada del recorrido
   // anterior no puede prestarle su cliente a esta.
   expect(await page.getByTestId("sale-customer-id-input").inputValue()).toBe("");
@@ -1261,6 +1271,23 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   expect(await page.getByTestId("fiscal-issued").count()).toBe(0);
   await page.getByTestId("fiscal-confirm-mismatch-button").click();
   await expect(page.getByTestId("fiscal-issued")).toBeVisible({ timeout: 15_000 });
+
+  // La venta fue de mostrador y la factura, a nombre de «Cliente Fiscal». El
+  // rastro de la tanda llega también a esa persona: por la factura.
+  await page.getByTestId("lot-code-input").fill("FISC-L1");
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("lot-trace-open-sale").click();
+  await expect(page.getByTestId("lot-trace-invoice")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("lot-trace-sale-anonymous")).toBeVisible();
+  await page.getByTestId("lot-trace-invoice-acquirer-button").click();
+  await expect(page.getByTestId("lot-trace-buyer-name")).toHaveText("Cliente Fiscal", { timeout: 15_000 });
+
+  await page.getByTestId("lot-buyers-button").click();
+  await expect(page.getByTestId("lot-buyers")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("lot-buyer-name").allTextContents()).toEqual(["Cliente Fiscal"]);
+  expect(await page.getByTestId("lot-buyer-via").allTextContents()).toEqual(["factura"]);
+  expect(await page.getByTestId("lot-buyers-anonymous").textContent()).toBe("0");
 
   // El CUFE y el número los pone el puerto sustituido; lo que acredita la
   // prueba es que llegan **intactos** hasta el ojo del cajero, no que la DIAN

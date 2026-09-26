@@ -1039,6 +1039,43 @@ export const FiscalDocumentIssueResultSchema = z.strictObject({
 
 export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(FiscalDocumentIssueResultSchema);
 
+// ── fiscal.document.list ─────────────────────────────────────────────────────
+
+/**
+ * Los documentos fiscales de una venta, con a quién se facturó cada uno
+ * (`MIGRATION_031`). Lo necesita el rastro de un retiro sanitario: con `D-40`
+ * una factura puede ir, confirmada, a nombre de alguien distinto del cliente
+ * de la venta.
+ *
+ * Devuelve el `customer_id`, no el nombre: el nombre es de `Customers` y se
+ * pide con `customer.get`, bajo su permiso.
+ */
+export const FiscalDocumentListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ sale_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("fiscal.document.list") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const FiscalDocumentListResultSchema = z.strictObject({
+  outcome: z.enum(["LISTED", "UNAUTHORIZED"]),
+  /** En orden de creación, incluidos rechazados y fallidos. Vacío si la venta no tiene. */
+  documents: z.array(z.strictObject({
+    document_id: UuidSchema,
+    document_type: StableCodeSchema,
+    transport_status: StableCodeSchema,
+    normalized_result: StableCodeSchema.nullable(),
+    issued_prefix: z.string().min(1).max(40).nullable(),
+    issued_number: z.string().min(1).max(40).nullable(),
+    /**
+     * `NOT_RECORDED` es un documento creado antes de `MIGRATION_031`: no se
+     * sabe a quién se facturó, y no se da por anónimo.
+     */
+    acquirer_kind: z.enum(["IDENTIFIED", "NOT_IDENTIFIED", "NOT_RECORDED"]),
+    acquirer_customer_id: UuidSchema.nullable(),
+  })).max(20),
+});
+
+export const FiscalDocumentListResponseSchema = createResponseEnvelopeSchema(FiscalDocumentListResultSchema);
+
 // ── catalog.product.register ─────────────────────────────────────────────────
 
 /**
@@ -2030,6 +2067,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.lot.list",
   "inventory.lot.trace",
   "inventory.lot.expiring",
+  "fiscal.document.list",
 ]);
 
 /**
@@ -2068,6 +2106,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.lot.list",
   "pos:inventory.lot.trace",
   "pos:inventory.lot.expiring",
+  "pos:fiscal.document.list",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -2094,6 +2133,7 @@ export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
 export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
+export type FiscalDocumentListResult = z.infer<typeof FiscalDocumentListResultSchema>;
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;

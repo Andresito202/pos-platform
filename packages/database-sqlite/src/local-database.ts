@@ -2264,6 +2264,44 @@ ALTER TABLE inventory_lot_allocation
   CHECK(direction = 'OUT' OR sale_id IS NULL);
 `.trim();
 
+/**
+ * A quién se facturó — `D-40`, segundo tramo.
+ *
+ * El documento fiscal guardaba el payload congelado para el proveedor, pero no
+ * **qué cliente del POS** se facturó. Con `D-40` una factura puede ir, con
+ * confirmación, a nombre de alguien distinto del cliente de la venta, y el
+ * rastro de un retiro sanitario tiene que poder encontrarlo.
+ *
+ * `acquirer_kind` distingue tres cosas que un `NULL` solo confundiría:
+ * `IDENTIFIED` con su `acquirer_customer_id`, `NOT_IDENTIFIED` sin él, y
+ * `NULL` = **no se registró** —documentos creados antes de esta migración—.
+ * Un documento de antes no se da por anónimo: se dice que no se sabe.
+ *
+ * Sin `REFERENCES` por la misma razón que `MIGRATION_019`: `ADD COLUMN` no
+ * admite la FK compuesta. El valor lo pone el único escritor, que acaba de
+ * resolver ese cliente en la misma petición.
+ *
+ * **Inmutable, como el resto de la identidad del documento.** A quién se
+ * facturó está congelado en el payload; si estas columnas pudieran cambiar,
+ * el rastro diría otra persona que la factura. El trigger de identidad de
+ * `fiscal_electronic_document` no las conocía, así que llevan el suyo.
+ */
+const MIGRATION_031 = `
+ALTER TABLE fiscal_electronic_document
+  ADD COLUMN acquirer_kind TEXT
+  CHECK(acquirer_kind IS NULL OR acquirer_kind IN ('IDENTIFIED','NOT_IDENTIFIED'));
+ALTER TABLE fiscal_electronic_document
+  ADD COLUMN acquirer_customer_id TEXT
+  CHECK(acquirer_customer_id IS NULL OR length(acquirer_customer_id) = 36)
+  CHECK((acquirer_kind IS 'IDENTIFIED') = (acquirer_customer_id IS NOT NULL));
+CREATE TRIGGER fiscal_electronic_document_frozen_acquirer
+  BEFORE UPDATE ON fiscal_electronic_document
+  FOR EACH ROW WHEN
+    OLD.acquirer_kind IS NOT NEW.acquirer_kind
+    OR OLD.acquirer_customer_id IS NOT NEW.acquirer_customer_id
+  BEGIN SELECT RAISE(ABORT, 'electronic document acquirer is immutable'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2295,6 +2333,7 @@ const MIGRATIONS = [
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
   { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
+  { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
 ] as const;
 
 /**

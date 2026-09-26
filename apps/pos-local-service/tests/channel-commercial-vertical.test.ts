@@ -710,6 +710,20 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       }, "fiscalv2:issue:2b"));
       expect(confirmada.status).toBe("SUCCEEDED");
       expect(confirmada.result["outcome"]).toBe("ISSUED");
+
+      // `fiscal.document.list`: a quién se facturó cada venta. La de mostrador
+      // dice el cliente de la factura —que el recibo no puede decir—; el
+      // intento sin confirmar no dejó documento.
+      const docs = async (id: string) => (await send(reading("fiscal.document.list", { sale_id: id })))
+        .result["documents"] as Record<string, unknown>[];
+      expect((await docs(counterSale)).map((d) => [d["acquirer_kind"], d["acquirer_customer_id"], d["issued_number"]]))
+        .toEqual([["IDENTIFIED", customerId, "990000001"]]);
+      expect((await docs(saleId)).map((d) => [d["acquirer_kind"], d["acquirer_customer_id"]]))
+        .toEqual([["IDENTIFIED", customerId]]);
+      const receipt = await send(reading("sales.receipt.get", { sale_id: counterSale }));
+      expect(receipt.result["customer_id"]).toBeNull();
+      // Una venta sin factura: lista vacía, no un error.
+      expect(await docs("018f0000-0000-7000-8000-0000000000fe")).toEqual([]);
     });
   }, 30_000);
 });

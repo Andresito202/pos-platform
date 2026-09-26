@@ -41,6 +41,7 @@ describe("ipc-allowlist", () => {
       "pos:inventory.lot.list",
       "pos:inventory.lot.trace",
       "pos:inventory.lot.expiring",
+      "pos:fiscal.document.list",
       "pos:sales.receipt.get",
     ]);
   });
@@ -77,6 +78,7 @@ describe("ipc-allowlist", () => {
       "pos:inventory.lot.list",
       "pos:inventory.lot.trace",
       "pos:inventory.lot.expiring",
+      "pos:fiscal.document.list",
       "pos:sales.receipt.get",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);

@@ -217,6 +217,11 @@ export class IssueElectronicDocumentUseCase {
       idempotencyKey,
       payloadJson,
       payloadChecksum: createHash("sha256").update(payloadJson).digest("hex"),
+      // A quién se factura (`MIGRATION_031`): lo que el rastro de un retiro
+      // necesita cuando la factura no nombra al cliente de la venta.
+      acquirer: input.customer.kind === "IDENTIFIED" && input.requestedCustomerId !== null
+        ? { kind: "IDENTIFIED", customerId: input.requestedCustomerId }
+        : { kind: "NOT_IDENTIFIED" },
     });
 
     return this.attempt(document, input.scope, signal);

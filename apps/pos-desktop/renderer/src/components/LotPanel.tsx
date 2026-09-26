@@ -4,6 +4,7 @@ import { useReceipt } from "../hooks/useReceipt.js";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import { useLotBuyers } from "../hooks/useLotBuyers.js";
 import { useExpiringLots } from "../hooks/useExpiringLots.js";
+import { useSaleInvoices } from "../hooks/useSaleInvoices.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -43,6 +44,7 @@ export function LotPanel(): React.JSX.Element {
   const buyer = useCustomerDirectory();
   const buyers = useLotBuyers();
   const expiring = useExpiringLots();
+  const invoices = useSaleInvoices();
   const [presentationId, setPresentationId] = useState("");
   const [businessDate, setBusinessDate] = useState(today());
   const [lotCode, setLotCode] = useState("");
@@ -53,7 +55,7 @@ export function LotPanel(): React.JSX.Element {
 
   const target = presentationId.trim();
   const code = lotCode.trim();
-  const busy = lots.busy || receipt.busy || buyer.busy || buyers.busy || expiring.busy;
+  const busy = lots.busy || receipt.busy || buyer.busy || buyers.busy || expiring.busy || invoices.busy;
   const saleIds = (lots.trace?.outflows ?? [])
     .map((outflow) => outflow.sale_id)
     .filter((id): id is string => id !== null);
@@ -67,11 +69,19 @@ export function LotPanel(): React.JSX.Element {
     setLotCode(nextCode);
     void lots.traceLot(nextPresentation, nextCode);
   };
-  // El comprador se muestra sólo si es el de la venta abierta: abrir otra
-  // venta no puede dejar a la vista el comprador de la anterior.
-  const shownBuyer = buyer.found !== null
-    && receipt.receipt !== null
-    && buyer.found.customer_id === receipt.receipt.customer_id
+  // Las facturas sólo se muestran junto a la venta de la que son.
+  const openInvoices = receipt.receipt !== null && invoices.saleId === receipt.receipt.sale_id
+    ? invoices.documents ?? []
+    : [];
+  // El comprador se muestra sólo si es de la venta abierta —su cliente o el
+  // adquiriente de una de sus facturas—: abrir otra venta no puede dejar a la
+  // vista el comprador de la anterior.
+  const openBuyers = new Set<string>([
+    ...(receipt.receipt?.customer_id != null ? [receipt.receipt.customer_id] : []),
+    ...openInvoices.flatMap((d) => (d.acquirer_customer_id === null ? [] : [d.acquirer_customer_id])),
+  ]);
+  const shownBuyer = buyer.found !== null && buyer.found.customer_id !== null
+    && openBuyers.has(buyer.found.customer_id)
     ? buyer.found
     : null;
 
@@ -371,7 +381,10 @@ export function LotPanel(): React.JSX.Element {
                     {outflow.sale_id !== null && (
                       <button
                         data-testid="lot-trace-open-sale"
-                        onClick={() => { void receipt.load(outflow.sale_id ?? ""); }}
+                        onClick={() => {
+                          void receipt.load(outflow.sale_id ?? "");
+                          void invoices.load(outflow.sale_id ?? "");
+                        }}
                         disabled={busy}
                       >
                         Ver venta
@@ -402,6 +415,40 @@ export function LotPanel(): React.JSX.Element {
             >
               Ver comprador
             </button>
+          )}
+          {/* A quién se facturó. Con `D-40` puede no ser el cliente de la
+              venta, y esa persona también compró la tanda. */}
+          {openInvoices.map((invoice) => (
+            <div key={invoice.document_id} data-testid="lot-trace-invoice">
+              Factura{" "}
+              <span data-testid="lot-trace-invoice-number">
+                {invoice.issued_prefix ?? ""}{invoice.issued_number ?? "sin número"}
+              </span>
+              {" · "}
+              {invoice.acquirer_kind === "NOT_RECORDED" && (
+                <span data-testid="lot-trace-invoice-acquirer">adquiriente no registrado</span>
+              )}
+              {invoice.acquirer_kind === "NOT_IDENTIFIED" && (
+                <span data-testid="lot-trace-invoice-acquirer">sin identificar</span>
+              )}
+              {invoice.acquirer_kind === "IDENTIFIED"
+                && invoice.acquirer_customer_id === receipt.receipt?.customer_id && (
+                <span data-testid="lot-trace-invoice-acquirer">a nombre del mismo comprador</span>
+              )}
+              {invoice.acquirer_kind === "IDENTIFIED" && invoice.acquirer_customer_id !== null
+                && invoice.acquirer_customer_id !== receipt.receipt?.customer_id && (
+                <button
+                  data-testid="lot-trace-invoice-acquirer-button"
+                  onClick={() => { void buyer.get(invoice.acquirer_customer_id ?? ""); }}
+                  disabled={busy}
+                >
+                  Ver adquiriente de la factura
+                </button>
+              )}
+            </div>
+          ))}
+          {invoices.error !== null && (
+            <div data-testid="lot-trace-invoice-error">{invoices.error}</div>
           )}
         </div>
       )}
@@ -444,6 +491,9 @@ export function LotPanel(): React.JSX.Element {
                   <td data-testid="lot-buyer-phone">{entry.customer.phone ?? "sin teléfono"}</td>
                   <td>{entry.customer.email ?? "sin correo"}</td>
                   <td data-testid="lot-buyer-sales">{String(entry.saleIds.length)}</td>
+                  <td data-testid="lot-buyer-via">
+                    {entry.via.map((v) => (v === "SALE" ? "venta" : "factura")).join(" y ")}
+                  </td>
                 </tr>
               ))}
             </tbody>

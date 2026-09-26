@@ -18,6 +18,7 @@ import {
   InventoryLotListResponseSchema,
   InventoryLotTraceResponseSchema,
   InventoryLotExpiringResponseSchema,
+  FiscalDocumentListResponseSchema,
   SalesReceiptGetResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
@@ -100,6 +101,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "inventory.lot.list": InventoryLotListResponseSchema,
   "inventory.lot.trace": InventoryLotTraceResponseSchema,
   "inventory.lot.expiring": InventoryLotExpiringResponseSchema,
+  "fiscal.document.list": FiscalDocumentListResponseSchema,
   "sales.receipt.get": SalesReceiptGetResponseSchema,
 };
 

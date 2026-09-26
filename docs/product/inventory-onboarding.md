@@ -134,8 +134,10 @@ es peor que no facturar.
   pantalla de venta—. Eso es decisión del comercio, no del software.
 - **La factura a nombre de otro, sólo con confirmación** (`D-40`, cerrada).
   Si la factura no nombra al cliente de la venta, la pantalla lo advierte y
-  pide confirmar. El rastro sigue al cliente de la venta: si la factura se
-  confirmó a nombre de otro, el retiro no lo ve.
+  pide confirmar. El rastro llega a los dos: «Compradores del lote» junta al
+  cliente de la venta y al adquiriente de la factura, y dice de dónde salió
+  cada uno. Una factura hecha antes de que se registrara el adquiriente se
+  declara como hueco del retiro.
 - **Abrir una paca: las unidades heredan su tanda** (desde el 2026-09-26,
   `MIGRATION_029`), con el mismo código y las mismas fechas, y el rastro va de
   la paca a sus unidades y de vuelta. Dos casos entran **sin lote**, a
@@ -151,6 +153,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | El rastro de un lote llega también al adquiriente de la factura (`fiscal.document.list`, `MIGRATION_031`). |
 | 2026-09-26 | `D-40`: facturar a nombre de alguien distinto del cliente de la venta se advierte y exige confirmar. «Nueva venta» limpia ya el cliente. |
 | 2026-09-26 | La misma tanda en dos sucursales tiene que traer las mismas fechas; si no, `LOT_CODE_CONFLICT` (decisión del propietario). |
 | 2026-09-26 | «Vence esta semana»: la vista de todo el negocio, nombrada por Catálogo. |
