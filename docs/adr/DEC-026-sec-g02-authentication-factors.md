@@ -295,12 +295,26 @@ expresa.
 | `G-8` | Emitir SSA en línea exige la clave operacional privada **en el servidor**; hoy se firma fuera del repositorio (`DEC-025`) y el material publicado no parsea (`D-30`) | `A-3` |
 | `G-9` | Fuente de la lista de contraseñas filtradas: lista local o servicio externo (que sería un tercero a declarar en `docs/legal/`) | `A-5` |
 
+### 13.4 Resolución de brechas — ratificada el 2026-09-26
+
+El propietario eligió, en sesión, la opción recomendada en cada una:
+
+| Brecha | Decisión |
+|---|---|
+| `G-1`, `G-2` | **Nombre de usuario único por comercio** (`tenant`). El correo pasa a ser opcional. El cajero entra desde un POS enrolado, que ya conoce su comercio; los roles con MFA siguen entrando con correo (`A-7`). |
+| `G-3`–`G-6` | **Autorizada la migración PostgreSQL 005**, sólo aditiva respecto de 001: marca de cambio obligatorio, hora del último fallo, códigos de recuperación, usuario por comercio, correo opcional y levantar la prohibición de `device_id` en sesión y eventos de seguridad. **No modifica 001**: la sustituye con restricciones nuevas en una migración nueva. |
+| `G-7` | **Se crea la API central con NestJS + Fastify** (`ADR-005`). El login es su primer módulo y la capa de §13.2 se traslada allí. Los dos endpoints actuales de `central-authority` no se mueven en este tramo. |
+| `G-8` | **La clave operacional de sesión vive como secreto en fichero del servidor**, fuera del repositorio. La raíz sigue fuera de línea con el propietario; si la operacional se compromete, se revoca y se reemite desde la raíz. |
+
+`G-9` (fuente de la lista de contraseñas filtradas) **sigue abierta**.
+
 ## 14. Qué sigue abierto
 
 - Las diez decisiones de política están ratificadas. **El tramo de §13.2 está
   `TESTED`; nada más.** No hay endpoint de login, ni persistencia, ni emisión
   de SSA. `SEC-G02` sigue `PLANNED / NOT_EVALUATED`.
-- Las brechas `G-1`–`G-9` bloquean el tramo siguiente.
+- `G-1`–`G-8` tienen decisión (§13.4) pero no implementación. `G-9` sigue
+  abierta.
 - `central-authority` no compila en modo estricto por errores anteriores a
   este cambio, y ninguna puerta lo detecta: `D-41`.
 
