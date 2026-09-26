@@ -10,10 +10,10 @@ inferencia (`DEC-012` §13).
 |---|---|---|
 | `A-1` | Factor primario de inicio de sesión | **RATIFICADO** 2026-09-26 (§2) |
 | `A-2` | Reautenticación dentro del turno | **YA RATIFICADO** en `DEC-012` §18 — se reconcilia en §3, no se redecide |
-| `A-3` | ¿El login con contraseña exige conexión con la autoridad central? | pendiente |
-| `A-4` | Alcance de MFA por rol | pendiente |
-| `A-5` | Longitud mínima y política de contraseña | pendiente (depende de `A-4`) |
-| `A-6` | Alta de cuenta y contraseña inicial | pendiente |
+| `A-3` | ¿El login con contraseña exige conexión con la autoridad central? | **RATIFICADO** 2026-09-26 (§4) |
+| `A-4` | Alcance de MFA por rol | **RATIFICADO** 2026-09-26 (§5), con `A-4.1` pendiente |
+| `A-5` | Longitud mínima y política de contraseña | **RATIFICADO** 2026-09-26 (§6) |
+| `A-6` | Alta de cuenta y contraseña inicial | **RATIFICADO** 2026-09-26 (§7) |
 | `A-7` | Identificador de inicio de sesión (correo, usuario, código de empleado) | pendiente |
 | `A-8` | Bloqueo y limitación de intentos de contraseña | pendiente |
 | `A-9` | Recuperación de cuenta | pendiente |
@@ -74,7 +74,76 @@ nada: la **contraseña** establece la sesión (SSA); el **PIN** restablece la
 **presencia** dentro de esa sesión, sin volver a pedir la contraseña, mientras
 la SSA siga vigente (techo efectivo 24 h, `DEC-012` §19).
 
-## 4. Referencias
+## 4. `A-3` — el login exige conexión con la autoridad central
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo la opción
+«Sí, online».
+
+- La contraseña se verifica **en la autoridad central**, que es quien emite la
+  SSA y el SAS. Es coherente con `DEC-012` D1 (la SSA la emite la autoridad
+  central) y no la modifica.
+- Dentro de la vigencia de la SSA (techo efectivo 24 h, `DEC-012` §19) el
+  equipo opera sin Internet y restablece presencia con el PIN de `DEC-012` §18.
+- **Consecuencia aceptada:** sin conexión y sin SSA vigente no se puede abrir
+  sesión nueva. El equipo **no** firma sesiones propias.
+
+## 5. `A-4` — MFA obligatorio sólo para roles de administración
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «Solo
+administradores». El segundo factor es un **código de app autenticadora**
+(así se formuló la pregunta).
+
+| Rol (`docs/product/roles.md`) | MFA |
+|---|---|
+| `PLATFORM_OWNER` (superadministrador) | obligatorio |
+| `OWNER` (dueño) | obligatorio |
+| `GENERAL_ADMIN` (administrador) | obligatorio |
+| `SUPERVISOR` | no — contraseña + equipo enrolado; PIN en turno |
+| `CASHIER` | no — contraseña + equipo enrolado; PIN en turno |
+
+`A-4.1` **pendiente:** la respuesta nombró superadministrador, dueño y
+administrador. `BILLING_ADMIN`, `SECURITY_ADMIN` y cualquier otro rol de
+`roles.md` no citado aquí **no se asignan por inferencia**; requieren
+ratificación. El vínculo definitivo rol → permisos sigue siendo de `SEC-G03`.
+
+## 6. `A-5` — longitud y política de contraseña
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «15 sin MFA
+/ 8 con MFA», que se formuló como «sigue NIST al pie de la letra».
+
+- **15 caracteres mínimo** cuando la contraseña es el único factor
+  (`SUPERVISOR`, `CASHIER`).
+- **8 caracteres mínimo** cuando va con MFA (roles de §5).
+- Sin reglas de composición (mayúsculas, símbolos), sin caducidad forzada.
+- Se verifica contra listas de contraseñas filtradas o comprometidas.
+
+Fuente: NIST SP 800-63B rev. 4, §Password Verifiers, consultada el 2026-09-26
+en `pages.nist.gov/800-63-4/sp800-63b.html` («Verifiers and CSPs SHALL require
+passwords that are used as a single-factor authentication mechanism to be a
+minimum of 15 characters in length… SHALL require them to be a minimum of
+eight characters»).
+
+**Derivado, no ratificado aparte:** al elegir seguir NIST «al pie de la
+letra», también aplican sus demás requisitos obligatorios de ese apartado
+(por ejemplo, admitir contraseñas de al menos 64 caracteres y permitir
+pegar). La implementación deberá leer el texto vigente de la norma, no esta
+paráfrasis.
+
+## 7. `A-6` — alta con contraseña temporal
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «Contraseña
+temporal».
+
+- Un administrador crea el usuario; **el sistema** genera una contraseña
+  temporal **de un solo uso**.
+- El usuario **debe cambiarla en su primer ingreso**; hasta entonces la cuenta
+  no opera.
+- No depende de que cada cajero tenga correo.
+
+Queda para `A-9` (recuperación) si una contraseña olvidada se resuelve por
+este mismo camino.
+
+## 8. Referencias
 
 - `DEC-012` §13, §16, §18, §19.
 - `DEC-011` (TTL del SAS).

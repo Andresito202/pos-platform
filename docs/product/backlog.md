@@ -464,7 +464,7 @@ Continúa no autorizado:
 | SEC-003 | P0 | PLANNED | Implementar tenant isolation, sesiones, MFA y reautenticación. |
 | SEC-004 | P0 | DONE | Secretos, claves, firma y soporte JIT definidos. |
 | SEC-G01 | P0 | PLANNED | Tenant Isolation — NOT_EVALUATED. |
-| SEC-G02 | P0 | PLANNED | Authentication & Session — NOT_EVALUATED. Decisiones en ratificación en `DEC-026` (factor primario: contraseña, ratificado 2026-09-26). |
+| SEC-G02 | P0 | PLANNED | Authentication & Session — NOT_EVALUATED. Decisiones en ratificación en `DEC-026`: `A-1`–`A-6` ratificadas 2026-09-26 (contraseña verificada online; MFA para administración; 15/8 caracteres; alta con contraseña temporal). Sin implementación. |
 | SEC-G03 | P0 | PLANNED | Authorization RBAC/ABAC — NOT_EVALUATED. |
 | SEC-G04 | P0 | PLANNED | Device Trust & License — NOT_EVALUATED. |
 | SEC-G05 | P0 | PLANNED | Local-first Integrity/Replay — NOT_EVALUATED. |
