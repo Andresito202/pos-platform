@@ -38,6 +38,24 @@ Un estado superior no se infiere. Requiere evidencia y aprobación explícita.
 
 Esta tabla identifica familias candidatas, no recomienda comprar un modelo todavía.
 
+### Adaptadores existentes — 2026-09-26
+
+Ninguna fila cambia de estado por esto: un adaptador escrito y probado contra
+un simulador no es un equipo validado, y el paso de `UNTESTED` a `SIMULATED`
+exige además la suite mínima completa y aprobación explícita.
+
+| Adaptador | Versión | Familia | Qué está probado | Qué no |
+|---|---|---|---|---|
+| `escpos-tcp-raw` | 1.0.0 | HW-PRN-001 | Protocolo `DLE EOT 1/2/4` y clasificación de desenlaces (sin papel, tapa abierta, fuera de línea, respuesta ajena, sin respuesta, inalcanzable, envío incompleto → `UNKNOWN`) contra un par TCP real que emula las respuestas documentadas. Sólo acepta IPv4 literal privada, de enlace local o de bucle | Ningún modelo físico. Si el papel se acaba **a mitad** de un trabajo, TCP crudo no lo ve. Spooler de Windows y USB directo no existen |
+| `escpos-simulator` | 1.0.0 | HW-PRN-001 | Mismo contrato con fallos inyectables y conteo de entregas por trabajo | No sustituye driver, firmware ni señal |
+
+La composición del ticket (`renderReceiptTicket`) no depende del transporte:
+perfil explícito por equipo (ancho, `CP850`/`CP1252`, tabla `ESC t n` del
+modelo, corte), texto limpio de caracteres de control —un nombre de producto
+no puede inyectar un comando— y los importes congelados de la venta sin
+redondear. Pendiente de la suite mínima: cola persistente, trabajo duplicado y
+reinicio con trabajo pendiente.
+
 ## Registro obligatorio por equipo
 
 Cada fila validada debe conservar:
