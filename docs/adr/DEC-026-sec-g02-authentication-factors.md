@@ -4,8 +4,8 @@
 
 `ACEPTADA` como política el 2026-09-26: las diez decisiones de la tabla
 fueron ratificadas por el propietario, una a una y en sesión. Ninguna se
-completó por inferencia (`DEC-012` §13). **Aceptar la política no autoriza
-implementarla** (§13).
+completó por inferencia (`DEC-012` §13). La implementación se autorizó
+aparte, después, el mismo día (§13).
 
 | Id | Decisión | Estado |
 |---|---|---|
@@ -25,9 +25,9 @@ implementarla** (§13).
 - **No cierra `SEC-G02`** ni le sube un peldaño: sigue `PLANNED / NOT_EVALUATED`
   en `docs/product/backlog.md` hasta que exista implementación y la evidencia
   que exige `docs/security/security-gates.md` §SEC-G02.
-- **No autoriza implementar.** Fija política; la implementación del login
-  necesita, además, las decisiones pendientes de la tabla y autorización
-  expresa.
+- **La política no autorizaba implementar por sí sola.** La implementación
+  se autorizó por separado (§13) y sigue condicionada a las brechas de
+  esquema de §13.3, que exigen decisión propia.
 - **No sustituye a `DEC-025`** ni a la sesión de revisión por rol de
   `apps/pos-local-service/src/dev-only/`. Aquélla es aprovisionamiento; ésta,
   revisión de pantallas. Ninguna autentica a una persona.
@@ -209,7 +209,7 @@ rediseña.
 | Reutilización de un refresh ya consumido | revoca **la sesión entera** + `SecurityEvent` | igual |
 | Retención del hash de tokens consumidos (`retained_until`) | hasta el fin de la sesión | igual |
 
-Invariante nuevo, ratificado con esta propuesta:
+Invariante ratificado con esta propuesta:
 
 ```
 SSA.offline_valid_until  <=  Session.expires_at
@@ -217,6 +217,12 @@ SSA.offline_valid_until  <=  Session.expires_at
 
 Se suma a la cadena de `DEC-012` §19 (`SSA.offline_valid_until <=
 SAS.expires_at <= TTL de despliegue`), no la sustituye.
+
+**Corrección, 2026-09-26.** Al proponerlo se presentó como invariante
+**nuevo**. No lo es: la migración PostgreSQL 001 ya lo impone sobre
+`identity.sessions` (`sessions_offline_expiry_ck`,
+`tools/target-migrations/sql/postgres/001_central_foundation.up.sql`). La
+ratificación lo confirma; no añade nada al esquema.
 
 Razones registradas:
 
@@ -241,15 +247,64 @@ Confirmado por el propietario el 2026-09-26, en sesión, eligiendo «Lo genera
 el sistema»: `DEC-012` §18.2 se mantiene íntegro. El PIN lo genera el sistema
 por CSPRNG; el cajero no lo elige.
 
-## 13. Qué sigue abierto
+## 13. Implementación — autorizada el 2026-09-26
 
-- Las diez decisiones de la tabla de estado están ratificadas. **Ninguna está
-  implementada, probada ni verificada en runtime.** `SEC-G02` sigue
-  `PLANNED / NOT_EVALUATED`.
-- Implementar el login exige **autorización expresa** aparte de esta
-  ratificación de política.
+El propietario autorizó avanzar con la implementación el 2026-09-26, en
+sesión («Autorizado avanza»).
 
-## 14. Referencias
+### 13.1 Ubicación
+
+`apps/central-authority/src/authentication/`. No en `packages/domain` ni
+`packages/application`: `DEC-017` congeló sus áreas (`module-boundaries.json`,
+`frozenSourceAreas`) y abrir `identity` ahí es lo que `architecture:check`
+rechaza. `A-3` sitúa la verificación en la autoridad central, y
+`central-authority` es la única aplicación central que existe.
+
+### 13.2 Primer tramo — política pura (hecho)
+
+Sin HTTP, sin base de datos y sin dependencia nueva. Cada cifra sale de un
+único objeto versionado (`AUTHENTICATION_POLICY_VERSION = 1`).
+
+| Fichero | Decisión |
+|---|---|
+| `authentication-policy.ts` | cifras de `A-4`, `A-5`, `A-8`, `A-10`; rol no ratificado → `UNDECIDED` |
+| `password-policy.ts` | `A-5`; la lista de filtradas es un puerto |
+| `login-throttle.ts` | `A-8` |
+| `session-lifetimes.ts` | `A-10` |
+| `password-hasher.ts` | scrypt `N=2^17, r=8, p=1` (OWASP, consultado 2026-09-26); trabajo equivalente para cuentas inexistentes |
+| `temporary-password.ts` | `A-6` / `A-9` |
+
+Pruebas: `apps/central-authority/tests/authentication-policy.test.ts`.
+
+### 13.3 Brechas medidas contra el esquema cerrado — requieren decisión
+
+Contrastado con `tools/target-migrations/sql/postgres/001_central_foundation.up.sql`
+el 2026-09-26. **Ninguna se resuelve por inferencia.** Las que cambian una
+restricción de una migración cerrada exigen una migración nueva y autorización
+expresa.
+
+| Id | Brecha | Afecta a |
+|---|---|---|
+| `G-1` | `identity.users.email` es `NOT NULL` y único: un cajero sin correo **no puede existir** | `A-7` |
+| `G-2` | No hay columna de nombre de usuario ni se ha decidido si es único en toda la plataforma o por comercio | `A-7` |
+| `G-3` | `identity.user_credentials` no puede marcar «debe cambiarla en su primer ingreso» | `A-6`, `A-9` |
+| `G-4` | Hay `failed_attempt_count` y `locked_until`, pero no la hora del último fallo que el backoff necesita | `A-8` |
+| `G-5` | `sessions_device_deferred_ck` y `security_events_device_deferred_ck` obligan a `device_id IS NULL`, pero la SSA se ata al equipo | `A-3`, `DEC-012` |
+| `G-6` | No existen códigos de recuperación, y `mfa_factors.secret_reference` presupone un almacén de secretos central que no existe | `A-4`, `A-9` |
+| `G-7` | `central-authority` es un servidor HTTPS de Node sin framework; `ADR-005` fija NestJS + Fastify y el backend central está al 0 % (`stack-conformance-audit.md`) | dónde se sirve el login |
+| `G-8` | Emitir SSA en línea exige la clave operacional privada **en el servidor**; hoy se firma fuera del repositorio (`DEC-025`) y el material publicado no parsea (`D-30`) | `A-3` |
+| `G-9` | Fuente de la lista de contraseñas filtradas: lista local o servicio externo (que sería un tercero a declarar en `docs/legal/`) | `A-5` |
+
+## 14. Qué sigue abierto
+
+- Las diez decisiones de política están ratificadas. **El tramo de §13.2 está
+  `TESTED`; nada más.** No hay endpoint de login, ni persistencia, ni emisión
+  de SSA. `SEC-G02` sigue `PLANNED / NOT_EVALUATED`.
+- Las brechas `G-1`–`G-9` bloquean el tramo siguiente.
+- `central-authority` no compila en modo estricto por errores anteriores a
+  este cambio, y ninguna puerta lo detecta: `D-41`.
+
+## 15. Referencias
 
 - `DEC-012` §13, §16, §18, §19.
 - `DEC-011` (TTL del SAS).
