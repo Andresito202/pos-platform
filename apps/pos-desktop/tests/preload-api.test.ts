@@ -48,6 +48,7 @@ describe("preload-api", () => {
       "fiscal.document.list",
       "sales.receipt.get",
       "sales.receipt.print",
+      "cash.drawer.open",
     ]);
   });
 

@@ -56,6 +56,8 @@ import {
   SalesReceiptGetResponseSchema,
   SalesReceiptPrintRequestSchema,
   SalesReceiptPrintResponseSchema,
+  CashDrawerOpenRequestSchema,
+  CashDrawerOpenResponseSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterCashResponseSchema,
   PaymentRegisterTransferRequestSchema,
@@ -120,6 +122,7 @@ export const IpcMessageTypeSchema = z.enum([
   "fiscal.document.list",
   "sales.receipt.get",
   "sales.receipt.print",
+  "cash.drawer.open",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -233,6 +236,7 @@ export const IpcRequestSchema = z.union([
   FiscalDocumentListRequestSchema,
   SalesReceiptGetRequestSchema,
   SalesReceiptPrintRequestSchema,
+  CashDrawerOpenRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -268,6 +272,7 @@ export const IpcResponseSchema = z.union([
   InventoryStockGetResponseSchema,
   SalesReceiptGetResponseSchema,
   SalesReceiptPrintResponseSchema,
+  CashDrawerOpenResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

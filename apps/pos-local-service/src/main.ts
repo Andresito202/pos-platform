@@ -37,6 +37,7 @@ import {
 import { SnapshotAcquisitionService } from "./authorization/snapshot-acquisition.js";
 import { AuthorizationSnapshotVerifier } from "./security/authorization-snapshot-verifier.js";
 import { TcpRawReceiptPrinter } from "./hardware/receipt-printer/tcp-raw-printer.js";
+import { PrinterConnectedCashDrawer } from "./hardware/cash-drawer/cash-drawer.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -206,6 +207,11 @@ try {
       }),
       profile: printerConfig.profile,
     };
+  // El cajón cuelga del puerto RJ11/RJ12 de esa impresora (`HW-DRW-001`).
+  const cashDrawer = receiptPrinter === null || printerConfig?.cash_drawer === undefined
+    ? null
+    : new PrinterConnectedCashDrawer(receiptPrinter.adapter, printerConfig.cash_drawer);
+  logger.log("info", "hardware.cash_drawer", { configured: cashDrawer !== null });
   logger.log("info", "hardware.receipt_printer", receiptPrinter === null
     ? { configured: false }
     : { configured: true, adapter_id: receiptPrinter.adapter.adapterId, device_id: receiptPrinter.adapter.deviceId });
@@ -220,6 +226,7 @@ try {
     fiscalSecretStore,
     undefined,
     receiptPrinter,
+    cashDrawer,
   );
   // El barrido de intentos `UNKNOWN` (`D-5`/`D-6`). Resuelve su caso de uso al
   // arrancar —va detras de `commercial`, que es quien lo construye— y sin

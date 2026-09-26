@@ -6,6 +6,7 @@ import { useProviderPayment } from "../../renderer/src/hooks/useProviderPayment.
 import { useFiscalIssuance } from "../../renderer/src/hooks/useFiscalIssuance.js";
 import { useCommercialSale } from "../../renderer/src/hooks/useCommercialSale.js";
 import { useReceipt } from "../../renderer/src/hooks/useReceipt.js";
+import { useCashDrawer } from "../../renderer/src/hooks/useCashDrawer.js";
 
 /**
  * Guarda de doble clic — hallazgo de la auditoría de seguridad del
@@ -185,5 +186,31 @@ describe("doble clic — sales.receipt.print (D-46)", () => {
     }));
     await waitFor(() => { expect(result.current.busy).toBe(false); });
     expect(result.current.print?.outcome).toBe("PRINTED");
+  });
+});
+
+describe("doble clic — cash.drawer.open manual (D-46)", () => {
+  it("la segunda apertura manual, pedida antes de que responda la primera, no sale", async () => {
+    const first = pendingResponse<unknown>();
+    let calls = 0;
+    mockService({ "cash.drawer.open": () => { calls += 1; return first.promise; } });
+    const { result } = renderHook(() => useCashDrawer());
+
+    let secondCall: Promise<void> | undefined;
+    act(() => {
+      void result.current.openManually("DAR_CAMBIO", null);
+      secondCall = result.current.openManually("DAR_CAMBIO", null);
+    });
+    await secondCall;
+    // Cada apertura manual lleva clave nueva: sin la guarda serían dos pulsos
+    // y dos filas de auditoría reales.
+    expect(calls).toBe(1);
+
+    act(() => first.resolve({
+      status: "SUCCEEDED", result_code: "OPENED",
+      result: { outcome: "OPENED", opening_id: "o1", diagnostic_code: null, replayed: false },
+    }));
+    await waitFor(() => { expect(result.current.busy).toBe(false); });
+    expect(result.current.outcome).toBe("OPENED");
   });
 });

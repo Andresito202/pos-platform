@@ -21,6 +21,7 @@ import {
   FiscalDocumentListResponseSchema,
   SalesReceiptGetResponseSchema,
   SalesReceiptPrintResponseSchema,
+  CashDrawerOpenResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   PaymentCancelResponseSchema,
@@ -105,6 +106,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "fiscal.document.list": FiscalDocumentListResponseSchema,
   "sales.receipt.get": SalesReceiptGetResponseSchema,
   "sales.receipt.print": SalesReceiptPrintResponseSchema,
+  "cash.drawer.open": CashDrawerOpenResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {

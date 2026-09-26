@@ -224,6 +224,7 @@ Ejemplos:
 - `payments.transfer.report`;
 - `payments.transfer.confirm`;
 - `cash.expense.register`;
+- `cash.drawer.open_manual` — canónico `CASH_DRAWER_OPEN_MANUAL`. **Ratificado por el propietario el 2026-09-26** (`D-46`): sólo OWNER y GENERAL_ADMIN. Los `Condicional`/`Autorizar` de la fila «Abrir cajón manualmente» quedan **denegados** mientras el servicio local no tenga flujo de aprobación de una segunda persona. Exige motivo de un catálogo cerrado —`DAR_CAMBIO`, `ARQUEO`, `CORRECCION_ENTREGA`, `OTRO` (sólo éste con texto)— y deja rastro `CASH_DRAWER_OPENED_MANUALLY` **antes** del pulso. La apertura automática tras un cobro en efectivo que completa la venta usa el permiso de quien cobra y el servicio comprueba el cobro;
 - `cash.shift.open`;
 - `cash.shift.close`;
 - `cash.count.start`;

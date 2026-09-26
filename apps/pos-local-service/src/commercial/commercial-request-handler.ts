@@ -30,7 +30,7 @@ type CommercialRequest = Extract<
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
       | "inventory.lot.expiring" | "fiscal.document.list"
-      | "sales.receipt.get" | "sales.receipt.print";
+      | "sales.receipt.get" | "sales.receipt.print" | "cash.drawer.open";
   }
 >;
 
@@ -110,6 +110,11 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PRINT_UNCERTAIN: "UNKNOWN_OUTCOME",
   IN_PROGRESS: "CONFLICT",
   NOT_CONFIGURED: "DEPENDENCY_UNAVAILABLE",
+  // Cajón (`D-46`).
+  OPEN_FAILED: "DEPENDENCY_UNAVAILABLE",
+  OPEN_REJECTED: "DEPENDENCY_UNAVAILABLE",
+  OPEN_UNCERTAIN: "UNKNOWN_OUTCOME",
+  ALREADY_OPENED: "CONFLICT",
   [SESSION_NOT_BOUND]: "AUTHENTICATION",
   [AUTHORIZATION_SNAPSHOT_UNAVAILABLE]: "AUTHORIZATION",
 };
@@ -253,6 +258,7 @@ export class CommercialRequestHandler {
       case "fiscal.document.list": return this.listFiscalDocuments(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "sales.receipt.print": return this.printReceipt(request, connectionId);
+      case "cash.drawer.open": return this.openCashDrawer(request, connectionId);
     }
   }
 
@@ -1764,6 +1770,52 @@ export class CommercialRequestHandler {
         });
       case "IN_PROGRESS":
         return rejected(request, "IN_PROGRESS", { outcome: "IN_PROGRESS", ...none, print_job_id: result.jobId, copy: result.copy });
+      default:
+        return rejected(request, result.kind, { outcome: result.kind, ...none });
+    }
+  }
+
+  // ── cash.drawer.open — `D-46`, política del 2026-09-26 ────────────────────
+
+  /** Sólo `OPENED` es éxito; el resto viaja como rechazo con su desenlace. */
+  private async openCashDrawer(
+    request: Extract<CommercialRequest, { message_type: "cash.drawer.open" }>,
+    connectionId: string,
+  ): Promise<unknown> {
+    const none = { opening_id: null, diagnostic_code: null, replayed: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const payload = request.payload;
+    const result = await this.commercial.openCashDrawer.execute(
+      this.scope(), authenticated.snapshot, authenticated.identity.ssaSessionId,
+      {
+        trigger: payload.trigger === "AUTO_CASH_PAYMENT"
+          ? { kind: "AUTO_CASH_PAYMENT", paymentId: payload.payment_id }
+          : { kind: "MANUAL", reasonCode: payload.reason_code, reasonText: payload.reason_text },
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    switch (result.kind) {
+      case "OPENED":
+        return succeeded(request, "OPENED", {
+          outcome: "OPENED", opening_id: result.openingId, diagnostic_code: result.diagnosticCode, replayed: result.replayed,
+        });
+      case "OPEN_FAILED":
+      case "OPEN_REJECTED":
+      case "OPEN_UNCERTAIN":
+        return rejected(request, result.kind, {
+          outcome: result.kind, opening_id: result.openingId, diagnostic_code: result.diagnosticCode, replayed: result.replayed,
+        });
+      case "ALREADY_OPENED":
+      case "IN_PROGRESS":
+        return rejected(request, result.kind, { outcome: result.kind, ...none, opening_id: result.openingId });
       default:
         return rejected(request, result.kind, { outcome: result.kind, ...none });
     }

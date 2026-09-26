@@ -101,6 +101,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE local_operation_audit;
       ${LEGACY_AUDIT_TABLE}
       DROP TRIGGER local_schema_migrations_no_delete;
+      DROP TABLE hardware_drawer_opening;
       DROP TABLE hardware_print_attempt;
       DROP TABLE hardware_print_job;
       DROP TABLE local_trust_anchor;

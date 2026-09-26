@@ -21,7 +21,7 @@ import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-au
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
-import { encodeText, SimulatedReceiptPrinter, type ReceiptPrinterProfile } from "../src/hardware/index.js";
+import { encodeText, PrinterConnectedCashDrawer, SimulatedReceiptPrinter, type ReceiptPrinterProfile } from "../src/hardware/index.js";
 import type { ConfiguredReceiptPrinter } from "../src/hardware/print-queue/print-receipt-use-case.js";
 import { SqlitePrintQueueStore } from "../src/hardware/print-queue/sqlite-print-queue-store.js";
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
@@ -112,6 +112,7 @@ const directories: string[] = [];
 const databases: LocalDatabase[] = [];
 
 afterEach(() => {
+  extraPermissions = [];
   for (const database of databases.splice(0)) {
     try { database.close(); } catch { /* no debe ocultar el fallo real */ }
   }
@@ -148,6 +149,9 @@ function signSession(claims: SessionAssertionClaims) {
   };
 }
 
+/** Permisos que una prueba concreta añade al snapshot; se vacía tras cada prueba. */
+let extraPermissions: string[] = [];
+
 function authorizationClaims(): AuthorizationSnapshotClaims {
   return {
     snapshot_id: "018f0000-0000-7000-8000-0000000000c0",
@@ -166,7 +170,7 @@ function authorizationClaims(): AuthorizationSnapshotClaims {
         valid_from: "2026-09-01T00:00:00.000Z",
         valid_until: null,
         role_status: "ACTIVE",
-        permissions: PERMISSIONS.map((code) => ({ code, status: "ACTIVE" as const })),
+        permissions: [...PERMISSIONS, ...extraPermissions].map((code) => ({ code, status: "ACTIVE" as const })),
       },
     ],
     key_id: "AUTHZ_KEY_1",
@@ -280,6 +284,7 @@ interface ChannelResponse {
 async function withRealChannel(
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
   receiptPrinter: ConfiguredReceiptPrinter | null = null,
+  cashDrawer: PrinterConnectedCashDrawer | null = null,
 ): Promise<void> {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
@@ -299,6 +304,7 @@ async function withRealChannel(
     undefined,
     undefined,
     receiptPrinter,
+    cashDrawer,
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
@@ -3719,5 +3725,149 @@ describe("sales.receipt.print cruza el socket real hasta la impresora (D-46)", (
       expect(conflict.result).toMatchObject({ outcome: "IDEMPOTENCY_CONFLICT" });
       expect(jobsOf(database, second.saleId)).toHaveLength(0);
     }, printerFor(printer));
+  }, 30_000);
+});
+
+// ── cash.drawer.open — `D-46`, política ratificada el 2026-09-26 ────────────
+
+const DRAWER_PULSE = [0x1b, 0x70, 0, 25, 125];
+const drawerOn = (printer: SimulatedReceiptPrinter): PrinterConnectedCashDrawer =>
+  new PrinterConnectedCashDrawer(printer, { connector_pin: 2, pulse_on_ms: 50, pulse_off_ms: 250 });
+const pulsesOf = (printer: SimulatedReceiptPrinter, openingId: string): number => printer.deliveredCount(openingId);
+const openingsOf = (database: LocalDatabase): { trigger_kind: string; outcome: string | null; reason_code: string | null }[] =>
+  database.native.prepare("SELECT trigger_kind, outcome, reason_code FROM hardware_drawer_opening ORDER BY requested_at, id").all() as never;
+const manualAudits = (database: LocalDatabase): { reason_code: string; details_json: string }[] =>
+  database.native.prepare(
+    "SELECT reason_code, details_json FROM local_operation_audit WHERE action_code='CASH_DRAWER_OPENED_MANUALLY'",
+  ).all() as never;
+
+/** Venta cobrada en efectivo por el canal; devuelve el cobro que la completó. */
+async function cashPaidSale(send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase, suffix: string): Promise<{ saleId: string; paymentId: string }> {
+  const ids = await prepareCounter(send, database, suffix);
+  const sale = await createSale(send, ids, "2.000000", `${suffix}:sale`);
+  const paid = await send(mutating("payment.register.cash", {
+    sale_id: sale.saleId, amount: sale.payable, tendered_amount: "40000.000000",
+  }, `${suffix}:pay`));
+  expect(paid.result["sale_completed"]).toBe(true);
+  return { saleId: sale.saleId, paymentId: paid.result["payment_id"] as string };
+}
+
+describe("cash.drawer.open cruza el socket real hasta el pulso (D-46)", () => {
+  it("automática: el cobro en efectivo que completó la venta abre una vez, y sólo una", async () => {
+    const printer = new SimulatedReceiptPrinter("sim", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const { paymentId } = await cashPaidSale(send, database, "drw1");
+      const opened = await send(mutating("cash.drawer.open", { trigger: "AUTO_CASH_PAYMENT", payment_id: paymentId }, "drw1:open"));
+      expect(opened.status).toBe("SUCCEEDED");
+      expect(opened.result).toMatchObject({ outcome: "OPENED", replayed: false });
+      expect([...printer.lastDelivery()!]).toEqual(DRAWER_PULSE);
+
+      // La misma petición repetida no da otro pulso.
+      const replay = await send(mutating("cash.drawer.open", { trigger: "AUTO_CASH_PAYMENT", payment_id: paymentId }, "drw1:open"));
+      expect(replay.result).toMatchObject({ outcome: "OPENED", replayed: true });
+      // Otra petición para el mismo cobro, tampoco.
+      const again = await send(mutating("cash.drawer.open", { trigger: "AUTO_CASH_PAYMENT", payment_id: paymentId }, "drw1:open:2"));
+      expect(again.result).toMatchObject({ outcome: "ALREADY_OPENED" });
+      expect(pulsesOf(printer, opened.result["opening_id"] as string)).toBe(1);
+      expect(openingsOf(database)).toHaveLength(1);
+      // La automática no es manual: no deja rastro de apertura manual.
+      expect(manualAudits(database)).toHaveLength(0);
+    }, printerFor(printer), drawerOn(printer));
+  }, 30_000);
+
+  it("automática: un cobro que no es efectivo que complete una venta no abre", async () => {
+    const printer = new SimulatedReceiptPrinter("sim", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "drw2");
+      const sale = await createSale(send, ids, "2.000000", "drw2:sale");
+      // Abono en efectivo que NO completa la venta.
+      const partial = await send(mutating("payment.register.cash", {
+        sale_id: sale.saleId, amount: "1000.000000", tendered_amount: "1000.000000",
+      }, "drw2:pay"));
+      expect(partial.result["sale_completed"]).toBe(false);
+      const refused = await send(mutating("cash.drawer.open", {
+        trigger: "AUTO_CASH_PAYMENT", payment_id: partial.result["payment_id"],
+      }, "drw2:open"));
+      expect(refused.result).toMatchObject({ outcome: "NOT_ELIGIBLE" });
+
+      // Un cobro inventado tampoco.
+      const invented = await send(mutating("cash.drawer.open", {
+        trigger: "AUTO_CASH_PAYMENT", payment_id: "018f0000-0000-7000-8000-0000000000ee",
+      }, "drw2:open:2"));
+      expect(invented.result).toMatchObject({ outcome: "NOT_ELIGIBLE" });
+      expect(printer.lastDelivery()).toBeNull();
+      expect(openingsOf(database)).toHaveLength(0);
+    }, printerFor(printer), drawerOn(printer));
+  }, 30_000);
+
+  it("automática: si el pulso no salió, se puede reintentar; si salió, no", async () => {
+    const printer = new SimulatedReceiptPrinter("sim", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const { paymentId } = await cashPaidSale(send, database, "drw3");
+      printer.inject("COVER_OPEN");
+      const failed = await send(mutating("cash.drawer.open", { trigger: "AUTO_CASH_PAYMENT", payment_id: paymentId }, "drw3:open:1"));
+      expect(failed.result).toMatchObject({ outcome: "OPEN_FAILED", diagnostic_code: "COVER_OPEN" });
+      const retried = await send(mutating("cash.drawer.open", { trigger: "AUTO_CASH_PAYMENT", payment_id: paymentId }, "drw3:open:2"));
+      expect(retried.result).toMatchObject({ outcome: "OPENED" });
+      expect(openingsOf(database).map((row) => row.outcome)).toEqual(["FAILED", "SUCCEEDED"]);
+    }, printerFor(printer), drawerOn(printer));
+  }, 30_000);
+
+  it("manual sin CASH_DRAWER_OPEN_MANUAL: UNAUTHORIZED, sin pulso ni rastro", async () => {
+    const printer = new SimulatedReceiptPrinter("sim", () => NOW);
+    await withRealChannel(async (send, database) => {
+      await prepareCounter(send, database, "drw4");
+      const refused = await send(mutating("cash.drawer.open", { trigger: "MANUAL", reason_code: "DAR_CAMBIO", reason_text: null }, "drw4:open"));
+      expect(refused.result).toMatchObject({ outcome: "UNAUTHORIZED" });
+      expect(printer.lastDelivery()).toBeNull();
+      expect(openingsOf(database)).toHaveLength(0);
+      expect(manualAudits(database)).toHaveLength(0);
+    }, printerFor(printer), drawerOn(printer));
+  }, 30_000);
+
+  it("manual con permiso: audita motivo y texto antes del pulso", async () => {
+    extraPermissions = ["CASH_DRAWER_OPEN_MANUAL"];
+    const printer = new SimulatedReceiptPrinter("sim", () => NOW);
+    await withRealChannel(async (send, database) => {
+      await prepareCounter(send, database, "drw5");
+      printer.inject("OFFLINE");
+      const failed = await send(mutating("cash.drawer.open", {
+        trigger: "MANUAL", reason_code: "OTRO", reason_text: "revisar billete reclamado",
+      }, "drw5:open"));
+      // El pulso no salió, pero quién lo pidió y por qué ya quedó escrito.
+      expect(failed.result).toMatchObject({ outcome: "OPEN_FAILED", diagnostic_code: "DEVICE_OFFLINE" });
+      expect(manualAudits(database)).toEqual([
+        { reason_code: "OTRO", details_json: expect.stringContaining("revisar billete reclamado") as unknown as string },
+      ]);
+      const opened = await send(mutating("cash.drawer.open", { trigger: "MANUAL", reason_code: "ARQUEO", reason_text: null }, "drw5:open:2"));
+      expect(opened.result).toMatchObject({ outcome: "OPENED" });
+      expect(manualAudits(database).map((row) => row.reason_code)).toEqual(["OTRO", "ARQUEO"]);
+    }, printerFor(printer), drawerOn(printer));
+  }, 30_000);
+
+  it("la frontera rechaza un motivo sin texto que lo exige, o con texto que sobra", async () => {
+    extraPermissions = ["CASH_DRAWER_OPEN_MANUAL"];
+    const printer = new SimulatedReceiptPrinter("sim", () => NOW);
+    await withRealChannel(async (send, database) => {
+      await prepareCounter(send, database, "drw6");
+      for (const payload of [
+        { trigger: "MANUAL", reason_code: "OTRO", reason_text: null },
+        { trigger: "MANUAL", reason_code: "ARQUEO", reason_text: "sobra" },
+        { trigger: "MANUAL", reason_code: "PORQUE_SI", reason_text: null },
+      ]) {
+        await expect(send(mutating("cash.drawer.open", payload, `drw6:${String(payload.reason_code)}`))).rejects.toThrow();
+      }
+      expect(openingsOf(database)).toHaveLength(0);
+      expect(printer.lastDelivery()).toBeNull();
+    }, printerFor(printer), drawerOn(printer));
+  }, 30_000);
+
+  it("sin cajón configurado: NOT_CONFIGURED", async () => {
+    await withRealChannel(async (send, database) => {
+      const { paymentId } = await cashPaidSale(send, database, "drw7");
+      const response = await send(mutating("cash.drawer.open", { trigger: "AUTO_CASH_PAYMENT", payment_id: paymentId }, "drw7:open"));
+      expect(response.result).toMatchObject({ outcome: "NOT_CONFIGURED" });
+      expect(openingsOf(database)).toHaveLength(0);
+    });
   }, 30_000);
 });

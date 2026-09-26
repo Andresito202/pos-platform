@@ -20,6 +20,7 @@ import { PERMISSION_PAYMENTS_TRANSFER_REPORT } from "../payments/register-transf
 import { PERMISSION_PAYMENTS_TRANSFER_CONFIRM } from "../payments/confirm-transfer-payment-use-case.js";
 import { PERMISSION_PAYMENTS_PAYMENT_CANCEL } from "../payments/cancel-payment-use-case.js";
 import { PERMISSION_PAYMENTS_PAYMENT_READ } from "../payments/get-payment-use-case.js";
+import { PERMISSION_CASH_DRAWER_OPEN_MANUAL } from "../hardware/cash-drawer/open-cash-drawer-use-case.js";
 
 /**
  * Repartos de permisos **de ejemplo**, para revisar pantallas por rol antes
@@ -73,6 +74,9 @@ const SUPERVISOR_PERMISSIONS = [
 const ADMIN_PERMISSIONS = [
   ...SUPERVISOR_PERMISSIONS,
   PERMISSION_FISCAL_DOCUMENT_ISSUE,
+  // Ratificado el 2026-09-26 sólo para OWNER y GENERAL_ADMIN (`D-46`): de los
+  // tres repartos de ejemplo, únicamente éste lo representa.
+  PERMISSION_CASH_DRAWER_OPEN_MANUAL,
 ] as const;
 
 /** Únicos por rol: repetir un código no amplía nada y sólo alargaría la lista. */

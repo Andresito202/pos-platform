@@ -45,6 +45,7 @@ export const RENDERER_API_METHODS = [
   "fiscal.document.list",
   "sales.receipt.get",
   "sales.receipt.print",
+  "cash.drawer.open",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];

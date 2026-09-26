@@ -1,6 +1,30 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { CashDrawerReason } from "@pos-platform/contracts";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
+import { useCashDrawer, type DrawerOutcome } from "../hooks/useCashDrawer.js";
 import { readScannedCode } from "../barcode-scan.js";
+import { shouldPlayChime } from "../confirmation-sound.js";
+
+const DRAWER_REASONS: readonly { value: CashDrawerReason; label: string }[] = [
+  { value: "DAR_CAMBIO", label: "Dar cambio" },
+  { value: "ARQUEO", label: "Arqueo" },
+  { value: "CORRECCION_ENTREGA", label: "Corregir una entrega" },
+  { value: "OTRO", label: "Otro (escriba el motivo)" },
+];
+
+/** Lo que el cajero lee de cada desenlace. «Abierto» es «el pulso llegó»: sin sensor no se sabe más. */
+const DRAWER_MESSAGES: Record<DrawerOutcome, string> = {
+  OPENED: "Pulso enviado al cajón.",
+  OPEN_FAILED: "El cajón no recibió el pulso. Revise la impresora y vuelva a intentarlo.",
+  OPEN_REJECTED: "La impresora respondió algo que no se entiende. Avise a soporte.",
+  OPEN_UNCERTAIN: "No se sabe si el cajón recibió el pulso. Mírelo antes de pedir otro.",
+  ALREADY_OPENED: "Este cobro ya abrió el cajón.",
+  IN_PROGRESS: "El cajón se está abriendo.",
+  NOT_ELIGIBLE: "Ese cobro no abre el cajón.",
+  NOT_CONFIGURED: "Este equipo no tiene cajón configurado.",
+  IDEMPOTENCY_CONFLICT: "Petición repetida con datos distintos.",
+  UNAUTHORIZED: "No tiene permiso para abrir el cajón a mano.",
+};
 
 /**
  * La primera superficie comercial alcanzable: abrir caja, buscar por código de
@@ -16,6 +40,20 @@ export function SalePanel(): React.JSX.Element {
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
   const [invalidScan, setInvalidScan] = useState<string | null>(null);
+  const drawer = useCashDrawer();
+  const [drawerReason, setDrawerReason] = useState<CashDrawerReason>("DAR_CAMBIO");
+  const [drawerText, setDrawerText] = useState("");
+
+  // Apertura automática (`D-46`): el mismo predicado que decide el sonido de
+  // confirmación —cobro `CONFIRMED` que completó la venta—. El servicio lo
+  // vuelve a comprobar contra el cobro; la clave derivada del cobro hace que
+  // una segunda ejecución de este efecto sea una repetición, no otro pulso.
+  const payment = sale.payment;
+  useEffect(() => {
+    if (payment !== null && shouldPlayChime(payment) && payment.payment_id !== null) {
+      void drawer.openAfterCashPayment(payment.payment_id);
+    }
+  }, [payment]);
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
   const [saleCustomerId, setSaleCustomerId] = useState("");
@@ -68,6 +106,43 @@ export function SalePanel(): React.JSX.Element {
           >
             Cerrar turno
           </button>
+          {/* Apertura manual: permiso `CASH_DRAWER_OPEN_MANUAL` (OWNER y
+              GENERAL_ADMIN) y motivo del catálogo. El servicio audita antes
+              del pulso; esta vista no decide quién puede. */}
+          <div data-testid="drawer-manual">
+            <select
+              data-testid="drawer-reason-select"
+              value={drawerReason}
+              onChange={(e) => { setDrawerReason(e.target.value as CashDrawerReason); }}
+              disabled={drawer.busy}
+            >
+              {DRAWER_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+            </select>
+            {drawerReason === "OTRO" && (
+              <input
+                data-testid="drawer-reason-text"
+                value={drawerText}
+                onChange={(e) => { setDrawerText(e.target.value); }}
+                placeholder="Motivo"
+                maxLength={200}
+                disabled={drawer.busy}
+              />
+            )}
+            <button
+              data-testid="drawer-open-button"
+              onClick={() => { void drawer.openManually(drawerReason, drawerText.trim() === "" ? null : drawerText.trim()); }}
+              disabled={drawer.busy || (drawerReason === "OTRO" && drawerText.trim() === "")}
+            >
+              Abrir cajón
+            </button>
+          </div>
+        </div>
+      )}
+
+      {drawer.outcome !== null && (
+        <div data-testid="drawer-outcome" data-outcome={drawer.outcome}>
+          {DRAWER_MESSAGES[drawer.outcome]}
+          {drawer.diagnosticCode !== null && <> · {drawer.diagnosticCode}</>}
         </div>
       )}
 

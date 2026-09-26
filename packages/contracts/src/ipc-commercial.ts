@@ -2083,6 +2083,67 @@ export const SalesReceiptPrintResultSchema = z.strictObject({
 export const SalesReceiptPrintResponseSchema =
   createResponseEnvelopeSchema(SalesReceiptPrintResultSchema);
 
+// ── cash.drawer.open ─────────────────────────────────────────────────────────
+
+/** Motivos de apertura manual — ratificados por el propietario el 2026-09-26. */
+export const CashDrawerReasonSchema = z.enum(["DAR_CAMBIO", "ARQUEO", "CORRECCION_ENTREGA", "OTRO"]);
+
+/**
+ * Abrir el cajón — `D-46`.
+ *
+ * - `AUTO_CASH_PAYMENT`: tras un cobro en efectivo que completó la venta. El
+ *   servicio **comprueba** que el cobro lo sea; nombrarlo no basta. Un pulso
+ *   por cobro.
+ * - `MANUAL`: permiso `CASH_DRAWER_OPEN_MANUAL` —OWNER y GENERAL_ADMIN—,
+ *   motivo del catálogo y auditoría antes del pulso. `OTRO` exige texto y
+ *   ningún otro motivo lo admite.
+ *
+ * `OPENED` significa que el pulso llegó a la impresora, no que el cajón se
+ * abriera: sin sensor no se sabe.
+ */
+export const CashDrawerOpenRequestSchema = createRequestEnvelopeSchema(
+  z.discriminatedUnion("trigger", [
+    z.strictObject({ trigger: z.literal("AUTO_CASH_PAYMENT"), payment_id: UuidSchema }),
+    z.strictObject({
+      trigger: z.literal("MANUAL"),
+      reason_code: CashDrawerReasonSchema,
+      reason_text: z.string().trim().min(1).max(200).nullable(),
+    }),
+  ]),
+).safeExtend({ message_type: z.literal("cash.drawer.open") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+    const payload = request.payload;
+    if (payload.trigger === "MANUAL" && (payload.reason_code === "OTRO") !== (payload.reason_text !== null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "reason_text"],
+        message: "reason_text is required for OTRO and forbidden for every other reason",
+      });
+    }
+  });
+
+export const CashDrawerOpenResultSchema = z.strictObject({
+  outcome: z.enum([
+    "OPENED",
+    "OPEN_FAILED",
+    "OPEN_REJECTED",
+    "OPEN_UNCERTAIN",
+    "ALREADY_OPENED",
+    "IN_PROGRESS",
+    "NOT_ELIGIBLE",
+    "NOT_CONFIGURED",
+    "IDEMPOTENCY_CONFLICT",
+    "UNAUTHORIZED",
+  ]),
+  opening_id: UuidSchema.nullable(),
+  diagnostic_code: z.string().min(1).max(64).nullable(),
+  replayed: z.boolean(),
+});
+
+export const CashDrawerOpenResponseSchema = createResponseEnvelopeSchema(CashDrawerOpenResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -2195,6 +2256,8 @@ export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegister
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type SalesReceiptPrintResult = z.infer<typeof SalesReceiptPrintResultSchema>;
+export type CashDrawerOpenResult = z.infer<typeof CashDrawerOpenResultSchema>;
+export type CashDrawerReason = z.infer<typeof CashDrawerReasonSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;

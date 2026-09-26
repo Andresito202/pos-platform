@@ -2392,6 +2392,73 @@ CREATE TRIGGER hardware_print_attempt_no_delete
   BEGIN SELECT RAISE(ABORT, 'print attempts are append-only'); END;
 `.trim();
 
+/**
+ * Aperturas del cajón — `D-46`, política ratificada por el propietario el
+ * 2026-09-26.
+ *
+ * Cada fila es una petición de pulso, con su clave de idempotencia: la misma
+ * petición repetida no abre el cajón dos veces. Dos formas, y el esquema
+ * impone la forma de cada una:
+ *
+ * - `AUTO_CASH_PAYMENT`: tras un cobro en efectivo que completó la venta; lleva
+ *   el cobro. **Un solo pulso por cobro**: el índice parcial cuenta los
+ *   intentos abiertos, entregados o inciertos, y deja reintentar sólo los que
+ *   fallaron sin enviar nada.
+ * - `MANUAL`: lleva motivo del catálogo; `OTRO` exige texto y ningún otro lo
+ *   admite. El rastro de auditoría se escribe antes del pulso.
+ *
+ * `SUCCEEDED` es «el pulso llegó a la impresora», nunca «el cajón se abrió»:
+ * sin sensor no se sabe (`support-matrix.md` §Cajón).
+ */
+const MIGRATION_033 = `
+CREATE TABLE hardware_drawer_opening (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  trigger_kind TEXT NOT NULL CHECK(trigger_kind IN ('AUTO_CASH_PAYMENT','MANUAL')),
+  payment_id TEXT CHECK(payment_id IS NULL OR length(payment_id) = 36),
+  reason_code TEXT CHECK(reason_code IS NULL OR reason_code IN ('DAR_CAMBIO','ARQUEO','CORRECCION_ENTREGA','OTRO')),
+  reason_text TEXT CHECK(reason_text IS NULL OR length(trim(reason_text)) BETWEEN 1 AND 200),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 200),
+  requested_by_user_id TEXT NOT NULL CHECK(length(requested_by_user_id) = 36),
+  requested_at TEXT NOT NULL,
+  outcome TEXT CHECK(outcome IS NULL OR outcome IN (
+    'SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','UNKNOWN','INTERRUPTED')),
+  retryable INTEGER CHECK(retryable IS NULL OR retryable IN (0,1)),
+  diagnostic_code TEXT CHECK(diagnostic_code IS NULL OR length(diagnostic_code) BETWEEN 1 AND 64),
+  finished_at TEXT,
+  CHECK((trigger_kind = 'AUTO_CASH_PAYMENT') = (payment_id IS NOT NULL)),
+  CHECK((trigger_kind = 'MANUAL') = (reason_code IS NOT NULL)),
+  CHECK((reason_code IS 'OTRO') = (reason_text IS NOT NULL)),
+  CHECK((outcome IS NULL) = (finished_at IS NULL)),
+  CHECK((outcome IS NULL) = (retryable IS NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX hardware_drawer_opening_idempotency_idx
+  ON hardware_drawer_opening(tenant_id, idempotency_key);
+CREATE UNIQUE INDEX hardware_drawer_opening_one_per_payment_idx
+  ON hardware_drawer_opening(tenant_id, payment_id)
+  WHERE payment_id IS NOT NULL AND (outcome IS NULL OR outcome IN ('SUCCEEDED','UNKNOWN','INTERRUPTED'));
+CREATE TRIGGER hardware_drawer_opening_identity_frozen
+  BEFORE UPDATE ON hardware_drawer_opening
+  FOR EACH ROW WHEN
+    OLD.company_id IS NOT NEW.company_id OR OLD.branch_id IS NOT NEW.branch_id
+    OR OLD.trigger_kind IS NOT NEW.trigger_kind OR OLD.payment_id IS NOT NEW.payment_id
+    OR OLD.reason_code IS NOT NEW.reason_code OR OLD.reason_text IS NOT NEW.reason_text
+    OR OLD.idempotency_key IS NOT NEW.idempotency_key
+    OR OLD.requested_by_user_id IS NOT NEW.requested_by_user_id OR OLD.requested_at IS NOT NEW.requested_at
+  BEGIN SELECT RAISE(ABORT, 'drawer opening identity is immutable'); END;
+CREATE TRIGGER hardware_drawer_opening_final
+  BEFORE UPDATE ON hardware_drawer_opening
+  FOR EACH ROW WHEN OLD.outcome IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, 'drawer opening outcome is final'); END;
+CREATE TRIGGER hardware_drawer_opening_no_delete
+  BEFORE DELETE ON hardware_drawer_opening
+  BEGIN SELECT RAISE(ABORT, 'drawer openings are append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2425,6 +2492,7 @@ const MIGRATIONS = [
   { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
   { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
   { version: 32, sql: MIGRATION_032, checksum: createHash("sha256").update(MIGRATION_032).digest("hex") },
+  { version: 33, sql: MIGRATION_033, checksum: createHash("sha256").update(MIGRATION_033).digest("hex") },
 ] as const;
 
 /**

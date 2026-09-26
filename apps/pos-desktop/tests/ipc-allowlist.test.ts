@@ -44,6 +44,7 @@ describe("ipc-allowlist", () => {
       "pos:fiscal.document.list",
       "pos:sales.receipt.get",
       "pos:sales.receipt.print",
+      "pos:cash.drawer.open",
     ]);
   });
 
@@ -82,6 +83,7 @@ describe("ipc-allowlist", () => {
       "pos:fiscal.document.list",
       "pos:sales.receipt.get",
       "pos:sales.receipt.print",
+      "pos:cash.drawer.open",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);
       // El nombre sin prefijo pertenece a la frontera main ↔ servicio y no

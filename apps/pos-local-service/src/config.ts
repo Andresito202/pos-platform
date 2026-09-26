@@ -4,6 +4,7 @@ import { FiscalEnvironmentSchema } from "@pos-platform/fiscal-adapters";
 import * as z from "zod";
 import { DevRolePresetIdSchema } from "./dev-only/dev-role-presets.js";
 import { ReceiptPrinterProfileSchema } from "./hardware/receipt-printer/print-profile.js";
+import { CashDrawerProfileSchema } from "./hardware/cash-drawer/cash-drawer.js";
 
 const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_DATA_DIRECTORY",
@@ -45,6 +46,8 @@ export const ReceiptPrinterConfigSchema = z.strictObject({
     io_timeout_ms: z.number().int().min(100).max(60_000),
   }),
   profile: ReceiptPrinterProfileSchema,
+  /** El cajón conectado a esta impresora, si hay. Sin impresora no hay cajón. */
+  cash_drawer: CashDrawerProfileSchema.optional(),
 });
 
 function parseReceiptPrinter(value: string | undefined): unknown {

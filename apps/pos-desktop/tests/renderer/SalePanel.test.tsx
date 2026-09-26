@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
+  CashDrawerOpenRequestSchema,
   CashShiftCloseRequestSchema,
   PaymentRegisterTransferRequestSchema,
   PaymentTransferConfirmRequestSchema,
@@ -707,5 +708,61 @@ describe("lector de código de barras (HW-SCN-001)", () => {
     await waitFor(() => { expect(calls.get("catalog.item.find")).toHaveLength(2); });
     await screen.findByTestId("found-item");
     expect(screen.queryAllByTestId("cart-line")).toHaveLength(0);
+  });
+});
+
+/**
+ * Cajón (`D-46`). Aquí el canal es un doble: se prueba qué pide la caja y
+ * cuándo. Que el servicio compruebe el cobro, el permiso y la auditoría lo
+ * prueba la vertical por el socket real.
+ */
+describe("cajón desde la caja (D-46)", () => {
+  beforeEach(() => { calls.clear(); chime.mockClear(); });
+
+  const confirmedCash = (completed: boolean) => succeeded({
+    outcome: "CONFIRMED", payment_id: PAYMENT, sale_completed: completed,
+    confirmed_coverage: "7000.000000", payable_amount: "7000.000000", change_amount: "0.000000",
+  });
+
+  it("el cobro en efectivo que completa la venta pide abrir el cajón, con clave derivada del cobro", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": confirmedCash(true), "cash.drawer.open": succeeded({ outcome: "OPENED", opening_id: SALE, diagnostic_code: null, replayed: false }) });
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => { expect(calls.get("cash.drawer.open")).toHaveLength(1); });
+
+    const request = CashDrawerOpenRequestSchema.parse(calls.get("cash.drawer.open")![0]);
+    expect(request.payload).toEqual({ trigger: "AUTO_CASH_PAYMENT", payment_id: PAYMENT });
+    expect(request.idempotency_key).toBe(`drawer:auto:${PAYMENT}`);
+    await waitFor(() => { expect(screen.getByTestId("drawer-outcome").dataset["outcome"]).toBe("OPENED"); });
+  });
+
+  it("un abono que no completa la venta no pide abrir", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": confirmedCash(false) });
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => { expect(calls.get("payment.register.cash")).toHaveLength(1); });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.get("cash.drawer.open")).toBeUndefined();
+  });
+
+  it("la apertura manual envía el motivo; OTRO exige texto antes de dejar pulsar", async () => {
+    install({ ...BASE_OVERRIDES, "cash.drawer.open": { status: "REJECTED", result_code: "UNAUTHORIZED", result: { outcome: "UNAUTHORIZED", opening_id: null, diagnostic_code: null, replayed: false } } });
+    render(<SalePanel />);
+    await openShift();
+
+    fireEvent.change(screen.getByTestId("drawer-reason-select"), { target: { value: "OTRO" } });
+    expect((screen.getByTestId("drawer-open-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("drawer-reason-text"), { target: { value: "revisar billete" } });
+    fireEvent.click(screen.getByTestId("drawer-open-button"));
+    await waitFor(() => { expect(screen.getByTestId("drawer-outcome").dataset["outcome"]).toBe("UNAUTHORIZED"); });
+
+    const request = CashDrawerOpenRequestSchema.parse(calls.get("cash.drawer.open")![0]);
+    expect(request.payload).toEqual({ trigger: "MANUAL", reason_code: "OTRO", reason_text: "revisar billete" });
   });
 });

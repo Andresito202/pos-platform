@@ -62,6 +62,10 @@ import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
 import { PrintReceiptUseCase, type ConfiguredReceiptPrinter } from "../hardware/print-queue/print-receipt-use-case.js";
 import { SqlitePrintQueueStore } from "../hardware/print-queue/sqlite-print-queue-store.js";
+import { OpenCashDrawerUseCase } from "../hardware/cash-drawer/open-cash-drawer-use-case.js";
+import { SqliteDrawerStore } from "../hardware/cash-drawer/sqlite-drawer-store.js";
+import type { DrawerCommand } from "../hardware/cash-drawer/cash-drawer.js";
+import type { DeviceAdapter } from "../hardware/device-port.js";
 
 /**
  * Origen de las claves de firma de sesión.
@@ -143,6 +147,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly listExpiringLots: ListExpiringLotsUseCase;
         readonly getReceipt: GetReceiptUseCase;
         readonly printReceipt: PrintReceiptUseCase;
+        readonly openCashDrawer: OpenCashDrawerUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
          * falta `fiscal_environment` (`POS_FISCAL_ENVIRONMENT`) o no hay
@@ -183,6 +188,8 @@ export class CommercialComponent implements RuntimeComponent {
      * adquiriente.
      */
     private readonly receiptPrinter: ConfiguredReceiptPrinter | null = null,
+    /** `null` = sin cajón declarado: `cash.drawer.open` responde `NOT_CONFIGURED`. */
+    private readonly cashDrawer: DeviceAdapter<DrawerCommand> | null = null,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -238,6 +245,7 @@ export class CommercialComponent implements RuntimeComponent {
   get listExpiringLots(): ListExpiringLotsUseCase { return this.ready.listExpiringLots; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get printReceipt(): PrintReceiptUseCase { return this.ready.printReceipt; }
+  get openCashDrawer(): OpenCashDrawerUseCase { return this.ready.openCashDrawer; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
   get listFiscalDocuments(): ListFiscalDocumentsUseCase { return this.ready.listFiscalDocuments; }
 
@@ -326,6 +334,8 @@ export class CommercialComponent implements RuntimeComponent {
     // como incierto y nunca se reimprime solo.
     const printQueue = new SqlitePrintQueueStore(database, this.now);
     printQueue.interruptOpenAttempts();
+    const drawerStore = new SqliteDrawerStore(database, this.now);
+    drawerStore.interruptOpenAttempts();
 
     this.state = {
       issueElectronicDocument,
@@ -348,6 +358,7 @@ export class CommercialComponent implements RuntimeComponent {
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt,
       printReceipt: new PrintReceiptUseCase(getReceipt, printQueue, this.receiptPrinter, this.now),
+      openCashDrawer: new OpenCashDrawerUseCase(drawerStore, this.cashDrawer, this.now),
       registerProduct,
       setFiscalAttribute,
       addPresentation: new AddPresentationUseCase(catalogStore),

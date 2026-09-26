@@ -60,6 +60,9 @@ export const IPC_ALLOWED_CHANNELS = [
   // Impresión del recibo — `D-46`. Mutante: deja rastro en la cola y exige
   // clave de idempotencia; repetir la misma petición no imprime otro papel.
   "pos:sales.receipt.print",
+  // Cajón — `D-46`. Mutante: la automática la comprueba el servicio contra el
+  // cobro; la manual exige `CASH_DRAWER_OPEN_MANUAL` y queda auditada.
+  "pos:cash.drawer.open",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

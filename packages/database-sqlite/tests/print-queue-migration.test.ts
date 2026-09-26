@@ -89,10 +89,9 @@ function insertAttempt(database: LocalDatabase, jobId: string, key: string = ran
 }
 
 describe("MIGRATION_032 — cola de impresión", () => {
-  it("es la última versión del libro", async () => {
+  it("el libro llega a la última versión", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(32);
-    expect((database.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get() as { v: number }).v).toBe(32);
+    expect((database.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get() as { v: number }).v).toBe(LATEST_LOCAL_SCHEMA_VERSION);
     database.close();
   });
 
