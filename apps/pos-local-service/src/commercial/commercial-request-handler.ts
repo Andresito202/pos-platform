@@ -1260,7 +1260,11 @@ export class CommercialRequestHandler {
         )
       : this.commercial.adjustStock.execute(
           this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
-          { ...common, movementType: request.payload.movement_type },
+          {
+            ...common,
+            movementType: request.payload.movement_type,
+            lotCode: request.payload.lot_code ?? null,
+          },
         );
 
     if (result.kind === "POSTED" || result.kind === "IDEMPOTENT") {
@@ -1272,7 +1276,9 @@ export class CommercialRequestHandler {
       });
     }
 
-    if (result.kind === "INSUFFICIENT_STOCK") {
+    // `LOT_INSUFFICIENT` devuelve lo que tiene el lote, no el saldo: es el
+    // número que permite corregir la captura.
+    if (result.kind === "INSUFFICIENT_STOCK" || result.kind === "LOT_INSUFFICIENT") {
       return rejected(request, result.kind, {
         outcome: result.kind, stock_sequence: null, quantity_after: null,
         available: result.available,

@@ -39,6 +39,7 @@ export function InventoryPanel(): React.JSX.Element {
   const [adjustType, setAdjustType] = useState<AdjustMovement>("ADJUSTMENT_NEGATIVE");
   const [adjustQuantity, setAdjustQuantity] = useState("");
   const [adjustReason, setAdjustReason] = useState("COUNT_CORRECTION");
+  const [adjustLot, setAdjustLot] = useState("");
   const [businessDate, setBusinessDate] = useState(today());
   const [conversionTarget, setConversionTarget] = useState("");
   const [conversionQuantity, setConversionQuantity] = useState("");
@@ -126,11 +127,21 @@ export function InventoryPanel(): React.JSX.Element {
         placeholder="Motivo"
         disabled={inventory.busy}
       />
+      {/* Vacío resuelve por FEFO sobre lotes vigentes. Un lote vencido sólo
+          sale nombrándolo aquí, y la merma con motivo EXPIRED lo exige. */}
+      <input
+        data-testid="adjust-lot-input"
+        value={adjustLot}
+        onChange={(e) => { setAdjustLot(e.target.value); }}
+        placeholder="Lote (opcional)"
+        disabled={inventory.busy || adjustType === "ADJUSTMENT_POSITIVE"}
+      />
       <button
         data-testid="adjust-stock-button"
         onClick={() => {
           void inventory.adjust(
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
+            adjustType === "ADJUSTMENT_POSITIVE" ? "" : adjustLot,
           );
         }}
         disabled={inventory.busy || target === "" || adjustQuantity.trim() === ""}

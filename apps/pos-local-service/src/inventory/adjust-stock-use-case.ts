@@ -10,7 +10,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type {
-  AppendMovementOutcome,
+  AdjustWithLotsOutcome,
   InventoryMovementType,
   SqliteInventoryStore,
 } from "./sqlite-inventory-store.js";
@@ -35,14 +35,28 @@ export interface AdjustStockRequest {
   /** TEXT a escala 6, mayor que cero. El signo lo da el tipo, no la cantidad. */
   readonly quantity: string;
   readonly reasonCode: string;
+  /**
+   * Lote del que sale, cuando el operador lo sabe. `null` resuelve por FEFO
+   * sobre vigentes. El contrato ya rechaza un lote en `ADJUSTMENT_POSITIVE`.
+   */
+  readonly lotCode: string | null;
   readonly businessDate: string;
   readonly idempotencyKey: string;
   readonly correlationId: string;
   readonly causationId: string | null;
 }
 
+/**
+ * Motivo de merma que exige lote. `UC-INVENTORY-002` §Mermas lo lista como
+ * motivo conceptual y su regla 3 dice que «una merma por vencimiento debe
+ * conservar referencia al lote»: sin lote, lo que se bota no dice qué tanda
+ * venció, y FEFO descontaría en su lugar una tanda vigente.
+ */
+export const EXPIRED_SHRINKAGE_REASON = "EXPIRED";
+
 export type AdjustStockResult =
-  | AppendMovementOutcome
+  | AdjustWithLotsOutcome
+  | { readonly kind: "LOT_REQUIRED" }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
 
 function requestChecksum(
@@ -60,6 +74,9 @@ function requestChecksum(
       presentation_id: request.presentationId,
       quantity: request.quantity,
       reason_code: request.reasonCode,
+      // Sólo cuando viaja: así la huella de un ajuste sin lote es la misma que
+      // antes de existir el campo, y repetirlo sigue siendo `IDEMPOTENT`.
+      ...(request.lotCode === null ? {} : { lot_code: request.lotCode }),
     }))
     .digest("hex");
 }
@@ -85,7 +102,13 @@ export class AdjustStockUseCase {
     });
     if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
 
-    return this.inventoryStore.appendMovementInTransaction({
+    if (request.movementType === "SHRINKAGE"
+      && request.reasonCode === EXPIRED_SHRINKAGE_REASON
+      && request.lotCode === null) {
+      return { kind: "LOT_REQUIRED" };
+    }
+
+    return this.inventoryStore.adjustWithLots({
       scope,
       sessionId,
       operatorUserId,
@@ -101,6 +124,6 @@ export class AdjustStockUseCase {
       requestChecksum: requestChecksum(request, operatorUserId, scope.branchId),
       correlationId: request.correlationId,
       causationId: request.causationId,
-    });
+    }, request.lotCode);
   }
 }

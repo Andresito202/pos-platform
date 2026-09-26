@@ -215,6 +215,7 @@ describe("ajuste de existencia", () => {
       movementType: "SHRINKAGE",
       quantity: "1.500000",
       reasonCode: "DAMAGED_GOODS",
+      lotCode: null,
       businessDate: "2026-09-07",
       idempotencyKey: key(),
       correlationId: CORRELATION,
@@ -247,6 +248,7 @@ describe("ajuste de existencia", () => {
       movementType: "ADJUSTMENT_NEGATIVE",
       quantity: "4.000000",
       reasonCode: "COUNT_CORRECTION",
+      lotCode: null,
       businessDate: "2026-09-07",
       idempotencyKey: key(),
       correlationId: CORRELATION,
@@ -276,6 +278,7 @@ describe("ajuste de existencia", () => {
         movementType: "ADJUSTMENT_NEGATIVE",
         quantity: "1.000000",
         reasonCode: "COUNT_CORRECTION",
+        lotCode: null,
         businessDate: "2026-09-07",
         idempotencyKey: key(),
         correlationId: CORRELATION,
@@ -299,6 +302,7 @@ describe("consulta de existencia", () => {
       movementType: "ADJUSTMENT_NEGATIVE",
       quantity: "1.000000",
       reasonCode: "COUNT_CORRECTION",
+      lotCode: null,
       businessDate: "2026-09-07",
       idempotencyKey: key(),
       correlationId: CORRELATION,
@@ -403,5 +407,83 @@ describe("asignación de venta a lote: la finalización reintentada no descuenta
       "SELECT quantity_on_hand FROM inventory_lot WHERE tenant_id=? AND lot_code='L-UNICO'",
     ).get(TENANT) as { quantity_on_hand: string };
     expect(lot.quantity_on_hand).toBe("7.000000");
+  });
+});
+
+describe("ajuste con lote nombrado: el lote se busca en la sucursal del contexto", () => {
+  /**
+   * Regresión de `MIGRATION_028`, medida el 2026-09-26: con la unicidad sin
+   * sucursal, la segunda recepción se sumaba al lote de la otra sucursal
+   * —un lote de 20 con 10 de existencia, y una sucursal con 10 y sin lote—.
+   */
+  it("el mismo código recibido en dos sucursales da dos lotes, cada uno con lo suyo", async () => {
+    const { store, database, presentationId } = await buildEnv();
+    const base = {
+      sessionId: SESSION, operatorUserId: USER, presentationId, lotCode: "L-COMPARTIDO",
+      quantity: "10.000000", manufacturedDate: null, expiryDate: null,
+      reasonCode: "SUPPLIER_DELIVERY", businessDate: "2026-09-07",
+      requestChecksum: "e".repeat(64), correlationId: CORRELATION, causationId: null,
+    };
+    const other = store.receiveLot({ ...base, scope: { ...SCOPE, branchId: OTHER_BRANCH }, idempotencyKey: key() });
+    const own = store.receiveLot({ ...base, scope: SCOPE, idempotencyKey: key() });
+    expect(other.kind).toBe("RECEIVED");
+    expect(own.kind).toBe("RECEIVED");
+    if (other.kind !== "RECEIVED" || own.kind !== "RECEIVED") return;
+    expect(own.lotId).not.toBe(other.lotId);
+    expect(own.lotQuantityOnHand).toBe("10.000000");
+
+    const lots = database.native.prepare(
+      "SELECT branch_id, quantity_on_hand FROM inventory_lot WHERE tenant_id=? ORDER BY branch_id",
+    ).all(TENANT);
+    expect(lots).toEqual([
+      { branch_id: BRANCH, quantity_on_hand: "10.000000" },
+      { branch_id: OTHER_BRANCH, quantity_on_hand: "10.000000" },
+    ]);
+  });
+
+  // El código de lote lo teclea el operador. Buscarlo sólo por tenant dejaría
+  // que una merma en esta sucursal descontara la tanda de otra.
+  it("un lote de otra sucursal es LOT_NOT_FOUND y no se descuenta nada", async () => {
+    const { store, database, presentationId } = await buildEnv();
+    const otherScope: SyncScope = { ...SCOPE, branchId: OTHER_BRANCH };
+    const received = store.receiveLot({
+      scope: otherScope, sessionId: SESSION, operatorUserId: USER, presentationId,
+      lotCode: "L-AJENO", quantity: "10.000000",
+      manufacturedDate: null, expiryDate: null,
+      reasonCode: "SUPPLIER_DELIVERY", businessDate: "2026-09-07",
+      idempotencyKey: key(), requestChecksum: "b".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+    expect(received.kind).toBe("RECEIVED");
+    const own = store.appendMovementInTransaction({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      movementId: "018f0000-0000-7000-8000-00000000a001",
+      operationId: "018f0000-0000-7000-8000-00000000a002",
+      presentationId, movementType: "OPENING_COUNT", quantity: "10.000000",
+      reasonCode: "INITIAL_COUNT", saleId: null, businessDate: "2026-09-07",
+      idempotencyKey: key(), requestChecksum: "c".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+    expect(own.kind).toBe("POSTED");
+
+    const outcome = store.adjustWithLots({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      movementId: "018f0000-0000-7000-8000-00000000a003",
+      operationId: "018f0000-0000-7000-8000-00000000a004",
+      presentationId, movementType: "SHRINKAGE", quantity: "4.000000",
+      reasonCode: "DAMAGED", saleId: null, businessDate: "2026-09-07",
+      idempotencyKey: key(), requestChecksum: "d".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    }, "L-AJENO");
+    expect(outcome.kind).toBe("LOT_NOT_FOUND");
+
+    const lot = database.native.prepare(
+      "SELECT quantity_on_hand FROM inventory_lot WHERE tenant_id=? AND lot_code='L-AJENO'",
+    ).get(TENANT) as { quantity_on_hand: string };
+    expect(lot.quantity_on_hand).toBe("10.000000");
+    const stock = database.native.prepare(
+      "SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id=? AND branch_id=? AND presentation_id=?",
+    ).get(TENANT, BRANCH, presentationId) as { quantity_on_hand: string };
+    expect(stock.quantity_on_hand).toBe("10.000000");
   });
 });

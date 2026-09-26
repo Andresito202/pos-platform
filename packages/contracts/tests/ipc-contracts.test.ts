@@ -366,6 +366,32 @@ describe("inventory.stock.* — la frontera del inventario", () => {
       receive({ branch_id: "550e8400-e29b-41d4-a716-446655440013" }),
     ).success).toBe(false);
   });
+
+  /**
+   * El lote es la «selección autorizada» de una **salida** (`UC-INVENTORY-002`
+   * §Salidas paso 4). Ausente, resuelve FEFO; en una entrada no significa nada
+   * —sumar a una tanda es recibirla, con sus fechas— y se rechaza en vez de
+   * ignorarse en silencio.
+   */
+  it("el ajuste admite lote en una salida, lo admite ausente, y lo rechaza en una entrada", () => {
+    expect(InventoryStockAdjustRequestSchema.safeParse(
+      adjust({ movement_type: "SHRINKAGE", reason_code: "EXPIRED", lot_code: "L-0924" }),
+    ).success).toBe(true);
+    expect(InventoryStockAdjustRequestSchema.safeParse(adjust()).success).toBe(true);
+    expect(InventoryStockAdjustRequestSchema.safeParse(
+      adjust({ movement_type: "ADJUSTMENT_POSITIVE", lot_code: "L-0924" }),
+    ).success).toBe(false);
+    expect(InventoryStockAdjustRequestSchema.safeParse(
+      adjust({ movement_type: "ADJUSTMENT_POSITIVE", lot_code: null }),
+    ).success).toBe(true);
+    expect(InventoryStockAdjustRequestSchema.safeParse(
+      adjust({ lot_code: "" }),
+    ).success).toBe(false);
+    // La recepción sin lote sigue sin aceptar el campo: su vía es `inventory.lot.receive`.
+    expect(InventoryStockReceiveRequestSchema.safeParse(
+      receive({ lot_code: "L-0924" }),
+    ).success).toBe(false);
+  });
 });
 
 describe("sale.create — la caja es el único selector del turno", () => {

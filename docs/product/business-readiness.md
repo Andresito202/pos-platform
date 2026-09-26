@@ -166,8 +166,8 @@ contrato, no por lectura de documentos.
 | conversión entre presentaciones | ✅ | **Cerrado el 2026-09-20.** `catalog_unit_conversion` (`MIGRATION_024`, `DEC-004` §1579) declara `1 origen = factor destino`; `inventory.conversion.apply` la ejecuta de forma **atómica** (§1736): salida en origen y entrada en destino en una transacción, con tipos de movimiento propios `CONVERSION_OUT`/`CONVERSION_IN` (`MIGRATION_025`). No redondea: si `cantidad × factor` no da exacto o no cabe en la precisión del destino, rechaza. El factor lo pone el catálogo, nunca el mostrador |
 | compras · proveedores | ❌ | **sin tabla.** `PURCHASE_RECEIPT` es un tipo de movimiento de inventario, no un documento de compra: no hay proveedor, ni orden, ni costo |
 | promociones | ❌ | sin tabla |
-| lotes | ⚠️ | `inventory_lot` (`MIGRATION_026`); `inventory.lot.receive/list` por el canal real, **sin pantalla**. Merma, ajuste, traslado y apertura de presentación **no descuentan del lote** |
-| vencimientos | ⚠️ | `expiry_date` por lote; `VALID`/`EXPIRED` derivados; la venta **no elige un lote vencido** (FEFO sobre vigentes). `NEAR_EXPIRY` sin umbral decidido; no hay merma por vencimiento de un lote concreto |
+| lotes | ⚠️ | `inventory_lot` (`MIGRATION_026`); `inventory.lot.receive/list` por el canal real, **sin pantalla**. Toda salida baja del lote: venta y apertura de paca por FEFO; merma, ajuste negativo y traslado del lote que se nombre en la pantalla de ajuste, o por FEFO. Código único por sucursal (`MIGRATION_028`) |
+| vencimientos | ⚠️ | `expiry_date` por lote; `VALID`/`EXPIRED` derivados; la venta **no elige un lote vencido** (FEFO sobre vigentes). La merma por vencimiento sale **del lote vencido que se nombra** y sin lote se rechaza. `NEAR_EXPIRY` sin umbral decidido |
 | despiece · transformación | ❌ | sin tabla ni movimiento |
 | trazabilidad de producto | ⚠️ | Venta → lote registrada desde el 2026-09-26 (`inventory_lot_allocation`, `MIGRATION_027`, append-only). **No hay operación ni pantalla que la consulte**: el retiro sanitario exige hoy leer la base |
 | precios mayorista/minorista | ❌ | `catalog_price` admite **un** precio `ACTIVE` por presentación |

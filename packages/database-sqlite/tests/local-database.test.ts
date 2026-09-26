@@ -886,6 +886,32 @@ describe("MIGRATION_026 — lote y vencimiento (UC-INVENTORY-002 §Lotes)", () =
   });
 
   /**
+   * `MIGRATION_028`: la misma tanda del proveedor puede estar en dos
+   * sucursales, y cada una es existencia propia. Con la unicidad sin sucursal,
+   * la segunda recepción se sumaba al lote de la otra.
+   */
+  it("admite el mismo codigo de lote en otra sucursal, no en la misma", async () => {
+    const db = await open();
+    const OTHER = "018f0000-0000-7000-8000-0000000d0b02";
+    lot(db, "018f0000-0000-7000-8000-0000000d0019", { lotCode: "COMPARTIDO" });
+    db.native.prepare(
+      `INSERT INTO inventory_lot(
+        id, tenant_id, company_id, branch_id, presentation_id, lot_code,
+        received_date, manufactured_date, expiry_date,
+        quantity_on_hand, quantity_reserved, status, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "018f0000-0000-7000-8000-0000000d001a", TENANT, COMPANY, OTHER, PRESENTATION, "COMPARTIDO",
+      "2026-09-20", null, "2026-09-30", "5.000000", "0.000000", "ACTIVE", AT, AT,
+    );
+    expect(db.native.prepare(
+      "SELECT COUNT(*) n FROM inventory_lot WHERE lot_code='COMPARTIDO'",
+    ).get()).toEqual({ n: 2 });
+    expect(() => lot(db, "018f0000-0000-7000-8000-0000000d001b", { lotCode: "COMPARTIDO" }))
+      .toThrow(/UNIQUE/i);
+  });
+
+  /**
    * Una fecha asi no es un lote raro: es un error de captura, y envenenaria
    * FEFO —ese lote se elegiria SIEMPRE primero, para siempre—.
    */

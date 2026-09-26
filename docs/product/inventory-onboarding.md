@@ -90,7 +90,8 @@ como una compra que nadie hizo.
 |---|---|
 | Llega mercancía del proveedor | `inventory.stock.receive` (`PURCHASE_RECEIPT`) |
 | Llega mercancía con lote y vencimiento | `inventory.lot.receive` |
-| Se rompió, se dañó o se venció | `inventory.stock.adjust` (`SHRINKAGE`) |
+| Se rompió o se dañó | `inventory.stock.adjust` (`SHRINKAGE`); sale del lote que se nombre, o por FEFO si no se nombra |
+| Se venció | `inventory.stock.adjust` (`SHRINKAGE`, motivo `EXPIRED`) **con el lote vencido nombrado**: sin lote se rechaza (`LOT_REQUIRED`), porque la venta nunca elige un lote vencido y es la única vía por la que sale |
 | El conteo no cuadra | `inventory.stock.adjust` (`ADJUSTMENT_POSITIVE` / `NEGATIVE`) |
 | Se abre una paca y se vende por unidad | `catalog.conversion.declare` + `inventory.conversion.apply` |
 | Un artículo se vende en dos formatos | `catalog.presentation.add` |
@@ -123,13 +124,17 @@ es peor que no facturar.
 - **Compras y proveedores.** No existe `Supplier` ni documento de compra: se
   puede dar entrada a mercancía, pero **no reconciliarla contra la factura del
   proveedor**, porque no hay modelo de costo.
-- **Lotes fuera de la venta.** Desde el 2026-09-26 la venta consume lotes por
-  FEFO —primero el vencimiento válido más cercano; un lote vencido nunca se
-  elige solo— y deja rastro de qué lote salió (`inventory_lot_allocation`).
-  Pero **la merma, el ajuste negativo, el traslado y la apertura de
-  presentación bajan el saldo sin bajar el lote**: tras una merma, el lote dice
-  tener más de lo que hay. Tampoco existe todavía **consulta del rastro**
-  («a quién se vendió el lote X») ni pantalla para recibir o listar lotes.
+- **Consulta del rastro y pantalla de lotes.** Desde el 2026-09-26 toda
+  salida —venta, merma, ajuste negativo, traslado y apertura de paca— baja del
+  lote y deja rastro (`inventory_lot_allocation`). Pero **no existe consulta
+  del rastro** («a quién se vendió el lote X») ni pantalla para recibir o
+  listar lotes: el dato está, y hoy sólo lo lee quien abra la base.
+- **Las unidades de una paca abierta no heredan su lote.** Abrir la paca baja
+  del lote de la paca, pero las unidades que salen entran sin lote. El rastro
+  llega hasta la paca, no hasta la unidad vendida.
+- **Un ajuste positivo no suma a un lote.** Sumar a una tanda es recibirla,
+  con sus fechas (`inventory.lot.receive`). Una corrección de conteo hacia
+  arriba entra sin lote.
 - **Existencia sin lote.** Si entró mercancía por `inventory.stock.receive` y
   luego se vende más de lo que cubren los lotes, lo que falta queda sin asignar
   a lote. No se inventa de qué tanda salió.
@@ -139,6 +144,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | Merma, ajuste negativo, traslado y apertura de paca también bajan del lote. La merma por vencimiento exige el lote. El código de lote pasa a ser único **por sucursal** (`MIGRATION_028`): antes, recibir la misma tanda en dos sucursales sumaba a la de la otra. |
 | 2026-09-26 | La venta consume lotes por FEFO y deja rastro (`MIGRATION_027`). Se sustituye «consumo de lotes por venta» por lo que de verdad sigue faltando en lotes. |
 | 2026-09-26 | La carga tiene pantalla. Se retira de «lo que todavía no existe». |
 | 2026-09-22 | Primera redacción, tras medir que alimentar el catálogo costaba tres operaciones por artículo y no existía ninguna ruta masiva. Se añade `catalog.item.import` |

@@ -2058,6 +2058,45 @@ describe("la conversión abre una paca y la convierte en unidades", () => {
     }, key));
   }
 
+  /**
+   * Abrir una paca es una salida de la paca: si no bajara de su lote, la
+   * tanda seguiría contando pacas que ya se volvieron unidades.
+   */
+  it("abrir pacas descuenta de los lotes de la paca por FEFO", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnvlot");
+      expect((await declare(send, ids, "cnvlot:decl")).result["outcome"]).toBe("DECLARED");
+      for (const [code, quantity, expiry, received] of [
+        ["PK-TARDIA", "3.000000", "2026-10-30", "2026-08-30"],
+        ["PK-PRONTO", "2.000000", "2026-09-20", "2026-09-01"],
+      ] as const) {
+        const r = await send(mutating("inventory.lot.receive", {
+          presentation_id: ids.packId, lot_code: code, quantity,
+          manufactured_date: null, expiry_date: expiry,
+          reason_code: "SUPPLIER_DELIVERY", business_date: received,
+        }, `cnvlot:${code}`));
+        expect(r.result["outcome"]).toBe("RECEIVED");
+      }
+
+      expect((await apply(send, ids, "3.000000", "cnvlot:apply")).result["outcome"]).toBe("CONVERTED");
+      const again = await apply(send, ids, "3.000000", "cnvlot:apply");
+      expect(again.result["outcome"]).toBe("IDEMPOTENT");
+
+      const lots = Object.fromEntries((database.native.prepare(
+        "SELECT lot_code, quantity_on_hand, status FROM inventory_lot WHERE presentation_id=?",
+      ).all(ids.packId) as { lot_code: string; quantity_on_hand: string; status: string }[])
+        .map((r) => [r.lot_code, `${r.quantity_on_hand}/${r.status}`]));
+      // La que vence antes se agota primero; repetir no descuenta otra vez.
+      expect(lots).toEqual({ "PK-PRONTO": "0.000000/CONSUMED", "PK-TARDIA": "2.000000/ACTIVE" });
+      expect(countOf(
+        database,
+        `SELECT COUNT(*) n FROM inventory_lot_allocation a
+           JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
+          WHERE m.movement_type='CONVERSION_OUT' AND a.sale_id IS NULL`,
+      )).toBe(2);
+    });
+  }, 60_000);
+
   it("1 paca sale y 12 unidades entran, en la misma transacción", async () => {
     await withRealChannel(async (send, database) => {
       const ids = await twoPresentations(send, database, "cnv1");
@@ -2828,4 +2867,176 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
       ).run()).toThrow(/append-only/);
     });
   }, 60_000);
+
+  /**
+   * Las demás salidas — `UC-INVENTORY-002` §Salidas, §Mermas, §Lote vencido.
+   *
+   * Si la merma baja el saldo y no el lote, el lote dice tener lo que ya se
+   * botó, y la siguiente venta lo toma por FEFO: el rastro de a quién se
+   * vendió qué tanda queda falso justo después de la primera merma.
+   */
+  describe("las demás salidas también bajan del lote", () => {
+    function adjust(
+      send: (request: unknown) => Promise<ChannelResponse>,
+      presentationId: string,
+      payload: Record<string, unknown>,
+      key: string,
+    ): Promise<ChannelResponse> {
+      return send(mutating("inventory.stock.adjust", {
+        presentation_id: presentationId, business_date: "2026-09-22", ...payload,
+      }, key));
+    }
+
+    function movementAllocations(database: LocalDatabase, movementType: string): Record<string, string> {
+      const rows = database.native.prepare(
+        `SELECT l.lot_code, a.quantity, a.sale_id FROM inventory_lot_allocation a
+           JOIN inventory_lot l ON l.tenant_id=a.tenant_id AND l.id=a.lot_id
+           JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
+          WHERE m.movement_type=? ORDER BY l.lot_code`,
+      ).all(movementType) as { lot_code: string; quantity: string; sale_id: string | null }[];
+      // Ninguna de estas salidas es una venta: no pueden llevar venta.
+      for (const row of rows) expect(row.sale_id).toBeNull();
+      return Object.fromEntries(rows.map((r) => [r.lot_code, r.quantity]));
+    }
+
+    it("la merma por vencimiento sale del lote vencido que se nombra, y saldo y lote bajan juntos", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "mvenc");
+        await lot(send, ids.presentationId, "MV-VENCIDA", "800.000000", "2026-09-18", "2026-09-15");
+        await lot(send, ids.presentationId, "MV-VIGENTE", "1000.000000", "2026-12-31", "2026-09-20");
+
+        const merma = await adjust(send, ids.presentationId, {
+          movement_type: "SHRINKAGE", quantity: "800.000000", reason_code: "EXPIRED",
+          lot_code: "MV-VENCIDA",
+        }, "mvenc:merma");
+        expect(merma.status).toBe("SUCCEEDED");
+        expect(merma.result["outcome"]).toBe("POSTED");
+        expect(merma.result["quantity_after"]).toBe("1000.000000");
+
+        // Sale la vencida —que FEFO nunca elegiría— y la vigente queda intacta.
+        expect(lotState(database, "MV-VENCIDA")).toBe("0.000000/CONSUMED");
+        expect(lotState(database, "MV-VIGENTE")).toBe("1000.000000/ACTIVE");
+        expect(movementAllocations(database, "SHRINKAGE")).toEqual({ "MV-VENCIDA": "800.000000" });
+      });
+    }, 60_000);
+
+    it("una merma por vencimiento sin lote se rechaza y no mueve nada", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "msinl");
+        await lot(send, ids.presentationId, "MS-VENCIDA", "800.000000", "2026-09-18", "2026-09-15");
+
+        const merma = await adjust(send, ids.presentationId, {
+          movement_type: "SHRINKAGE", quantity: "800.000000", reason_code: "EXPIRED",
+        }, "msinl:merma");
+        expect(merma.status).toBe("REJECTED");
+        expect(merma.result["outcome"]).toBe("LOT_REQUIRED");
+        expect(stockOf(database, ids.presentationId)).toBe("800.000000");
+        expect(lotState(database, "MS-VENCIDA")).toBe("800.000000/ACTIVE");
+        expect(countOf(
+          database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type='SHRINKAGE'",
+        )).toBe(0);
+      });
+    }, 60_000);
+
+    it("un ajuste negativo y un traslado sin lote bajan por FEFO sobre vigentes, saltando el vencido", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "afefo");
+        await lot(send, ids.presentationId, "AF-C-VENCIDA", "800.000000", "2026-09-18", "2026-09-15");
+        await lot(send, ids.presentationId, "AF-B-TARDIA", "1000.000000", "2026-12-31", "2026-09-10");
+        await lot(send, ids.presentationId, "AF-A-PRONTO", "300.000000", "2026-09-24", "2026-09-22");
+
+        expect((await adjust(send, ids.presentationId, {
+          movement_type: "ADJUSTMENT_NEGATIVE", quantity: "200.000000", reason_code: "COUNT_CORRECTION",
+        }, "afefo:ajuste")).result["outcome"]).toBe("POSTED");
+        expect((await adjust(send, ids.presentationId, {
+          movement_type: "TRANSFER_OUT", quantity: "300.000000", reason_code: "BRANCH_TRANSFER",
+        }, "afefo:traslado")).result["outcome"]).toBe("POSTED");
+
+        expect(movementAllocations(database, "ADJUSTMENT_NEGATIVE")).toEqual({ "AF-A-PRONTO": "200.000000" });
+        expect(movementAllocations(database, "TRANSFER_OUT")).toEqual({
+          "AF-A-PRONTO": "100.000000",
+          "AF-B-TARDIA": "200.000000",
+        });
+        expect(lotState(database, "AF-A-PRONTO")).toBe("0.000000/CONSUMED");
+        expect(lotState(database, "AF-B-TARDIA")).toBe("800.000000/ACTIVE");
+        expect(lotState(database, "AF-C-VENCIDA")).toBe("800.000000/ACTIVE");
+        expect(stockOf(database, ids.presentationId)).toBe("1600.000000");
+
+        // Una entrada no toca lotes: sumar a una tanda es recibirla con sus fechas.
+        expect((await adjust(send, ids.presentationId, {
+          movement_type: "ADJUSTMENT_POSITIVE", quantity: "50.000000", reason_code: "COUNT_CORRECTION",
+        }, "afefo:positivo")).result["outcome"]).toBe("POSTED");
+        expect(lotState(database, "AF-B-TARDIA")).toBe("800.000000/ACTIVE");
+        expect(lotState(database, "AF-C-VENCIDA")).toBe("800.000000/ACTIVE");
+        expect(stockOf(database, ids.presentationId)).toBe("1650.000000");
+      });
+    }, 60_000);
+
+    /**
+     * El saldo alcanza —hay existencia sin lote— pero el lote nombrado no. El
+     * movimiento llega a escribirse y el rechazo lo deshace: si no, el saldo
+     * quedaría descontado sin lote, que es justo lo que esto viene a evitar.
+     */
+    it("un lote nombrado que no alcanza rechaza y deshace el movimiento", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "lcorto");
+        await send(mutating("inventory.stock.receive", {
+          presentation_id: ids.presentationId, movement_type: "OPENING_COUNT",
+          quantity: "1000.000000", reason_code: "INITIAL_COUNT", business_date: "2026-09-22",
+        }, "lcorto:conteo"));
+        await lot(send, ids.presentationId, "LC-CORTO", "100.000000", "2026-12-31", "2026-09-22");
+
+        const merma = await adjust(send, ids.presentationId, {
+          movement_type: "SHRINKAGE", quantity: "150.000000", reason_code: "DAMAGED",
+          lot_code: "LC-CORTO",
+        }, "lcorto:merma");
+        expect(merma.status).toBe("REJECTED");
+        expect(merma.result["outcome"]).toBe("LOT_INSUFFICIENT");
+        // Lo que tiene el lote, no el saldo: es lo que corrige la captura.
+        expect(merma.result["available"]).toBe("100.000000");
+
+        expect(stockOf(database, ids.presentationId)).toBe("1100.000000");
+        expect(lotState(database, "LC-CORTO")).toBe("100.000000/ACTIVE");
+        expect(countOf(
+          database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type='SHRINKAGE'",
+        )).toBe(0);
+
+        const inexistente = await adjust(send, ids.presentationId, {
+          movement_type: "SHRINKAGE", quantity: "10.000000", reason_code: "DAMAGED",
+          lot_code: "NO-EXISTE",
+        }, "lcorto:inexistente");
+        expect(inexistente.result["outcome"]).toBe("LOT_NOT_FOUND");
+        expect(stockOf(database, ids.presentationId)).toBe("1100.000000");
+      });
+    }, 60_000);
+
+    /**
+     * A diferencia del cobro reintentado, aquí nada corta antes: la repetición
+     * llega al almacén. Es la prueba de la guarda de idempotencia del ajuste.
+     */
+    it("repetir la misma merma es IDEMPOTENT y descuenta del lote una sola vez", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "midem");
+        await lot(send, ids.presentationId, "MI-LOTE", "500.000000", "2026-12-31", "2026-09-22");
+        const payload = {
+          movement_type: "SHRINKAGE", quantity: "100.000000", reason_code: "DAMAGED",
+          lot_code: "MI-LOTE",
+        };
+        expect((await adjust(send, ids.presentationId, payload, "midem:merma")).result["outcome"]).toBe("POSTED");
+        const repeat = await adjust(send, ids.presentationId, payload, "midem:merma");
+        expect(repeat.status).toBe("SUCCEEDED");
+        expect(repeat.result["outcome"]).toBe("IDEMPOTENT");
+
+        expect(lotState(database, "MI-LOTE")).toBe("400.000000/ACTIVE");
+        expect(movementAllocations(database, "SHRINKAGE")).toEqual({ "MI-LOTE": "100.000000" });
+        expect(stockOf(database, ids.presentationId)).toBe("400.000000");
+
+        // La misma clave con otro lote no es un reintento: es otra decisión.
+        await lot(send, ids.presentationId, "MI-OTRO", "500.000000", "2026-12-31", "2026-09-22");
+        const other = await adjust(send, ids.presentationId, { ...payload, lot_code: "MI-OTRO" }, "midem:merma");
+        expect(other.result["outcome"]).toBe("IDEMPOTENCY_CONFLICT");
+        expect(lotState(database, "MI-OTRO")).toBe("500.000000/ACTIVE");
+      });
+    }, 60_000);
+  });
 });

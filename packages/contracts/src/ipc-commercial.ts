@@ -1412,11 +1412,28 @@ export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
     quantity: PositiveScale6Schema,
     reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
     business_date: BusinessDateSchema,
+    /**
+     * Lote del que sale — `UC-INVENTORY-002` §Salidas paso 4, «selección
+     * autorizada». Ausente, la salida resuelve por FEFO sobre lotes vigentes.
+     * Es la única vía por la que sale un lote **vencido**, y la merma con
+     * motivo `EXPIRED` lo exige (§Mermas regla 3).
+     */
+    lot_code: z.string().min(1).max(64).nullable().optional(),
   }),
 ).safeExtend({ message_type: z.literal("inventory.stock.adjust") })
   .superRefine((request, context) => {
     forbidCallerAssertedIdentity(request, context);
     requireIdempotentOperation(request, context);
+    // Un lote en una entrada no dice nada que el ajuste sepa hacer: sumar a
+    // una tanda es recibirla (`inventory.lot.receive`), con sus fechas.
+    if (request.payload.movement_type === "ADJUSTMENT_POSITIVE"
+      && request.payload.lot_code !== undefined && request.payload.lot_code !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "lot_code"],
+        message: "lot_code sólo aplica a salidas",
+      });
+    }
   });
 
 export const InventoryMovementOutcomeSchema = z.enum([
@@ -1426,6 +1443,11 @@ export const InventoryMovementOutcomeSchema = z.enum([
   "IDEMPOTENCY_CONFLICT",
   "PRESENTATION_NOT_FOUND",
   "INSUFFICIENT_STOCK",
+  // Sólo el ajuste: el lote nombrado no existe en esta sucursal, no alcanza,
+  // o la merma por vencimiento llegó sin lote.
+  "LOT_NOT_FOUND",
+  "LOT_INSUFFICIENT",
+  "LOT_REQUIRED",
 ]);
 
 /**

@@ -492,6 +492,20 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   await page.getByTestId("adjust-stock-button").click();
   await expect(page.getByTestId("movement-quantity-after")).toHaveText("37.000000", { timeout: 15_000 });
 
+  // --- Merma por vencimiento: exige lote (UC-INVENTORY-002 §Mermas regla 3) --
+  // Sin lote, se rechaza y el saldo no se mueve. Con un lote que no existe en
+  // esta sucursal, tambien. Las dos respuestas llegan a la pantalla tal cual.
+  await page.getByTestId("adjust-quantity-input").fill("2");
+  await page.getByTestId("adjust-reason-input").fill("EXPIRED");
+  await page.getByTestId("adjust-lot-input").fill("");
+  await page.getByTestId("adjust-stock-button").click();
+  await expect(page.getByTestId("movement-outcome")).toHaveText("LOT_REQUIRED", { timeout: 15_000 });
+
+  await page.getByTestId("adjust-lot-input").fill("NO-EXISTE");
+  await page.getByTestId("adjust-stock-button").click();
+  await expect(page.getByTestId("movement-outcome")).toHaveText("LOT_NOT_FOUND", { timeout: 15_000 });
+  await page.getByTestId("adjust-lot-input").fill("");
+
   // --- La consulta confirma el saldo que dejaron los dos movimientos -------
   await page.getByTestId("get-stock-button").click();
   await expect(page.getByTestId("stock-found")).toBeVisible({ timeout: 15_000 });

@@ -39,7 +39,10 @@ export interface InventoryAdminState {
 
 export function useInventoryAdmin(): InventoryAdminState & {
   receive(presentationId: string, movementType: ReceiveMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
-  adjust(presentationId: string, movementType: AdjustMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
+  adjust(
+    presentationId: string, movementType: AdjustMovement, quantity: string,
+    reasonCode: string, businessDate: string, lotCode: string,
+  ): Promise<void>;
   getStock(presentationId: string): Promise<void>;
   applyConversion(
     sourcePresentationId: string, targetPresentationId: string,
@@ -59,6 +62,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     quantity: string,
     reasonCode: string,
     businessDate: string,
+    extra: Record<string, unknown> = {},
   ): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -77,6 +81,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
           quantity: normalized,
           reason_code: reasonCode,
           business_date: businessDate,
+          ...extra,
         },
         newIdempotencyKey(),
       );
@@ -106,7 +111,12 @@ export function useInventoryAdmin(): InventoryAdminState & {
     quantity: string,
     reasonCode: string,
     businessDate: string,
-  ) => post("inventory.stock.adjust", presentationId, movementType, quantity, reasonCode, businessDate), [post]);
+    lotCode: string,
+  ) => post(
+    "inventory.stock.adjust", presentationId, movementType, quantity, reasonCode, businessDate,
+    // Vacío no es un lote: es «resuelve por FEFO». No se envía el campo.
+    lotCode.trim() === "" ? {} : { lot_code: lotCode.trim() },
+  ), [post]);
 
   const getStock = useCallback(async (presentationId: string): Promise<void> => {
     setBusy(true);

@@ -2173,6 +2173,35 @@ CREATE TRIGGER inventory_lot_allocation_no_delete
   BEGIN SELECT RAISE(ABORT, 'inventory_lot_allocation is append-only'); END;
 `.trim();
 
+/**
+ * El código de lote es único **por sucursal**, no por tenant.
+ *
+ * ## El defecto que corrige — medido el 2026-09-26
+ *
+ * `MIGRATION_026` dejó la unicidad en `(tenant_id, presentation_id,
+ * lot_code)`, y `receiveLot` buscaba el lote existente con esa misma clave.
+ * Recibir la tanda `L-X` en la sucursal A cuando la sucursal B ya la tenía
+ * **sumaba las unidades de A al lote de B**: el lote de B decía tener 20 con
+ * 10 de existencia, y A quedaba con 10 de existencia y ningún lote. Un lote
+ * es existencia física en un sitio; dos sucursales con la misma tanda del
+ * proveedor tienen dos existencias, y cada una sale por su lado.
+ *
+ * ## Por qué es seguro
+ *
+ * La clave nueva **contiene** a la anterior, así que ningún dato que la vieja
+ * admitía la viola: el índice se recrea sin tocar filas. Lo que la vieja ya
+ * hubiera fusionado entre sucursales no se puede separar desde el esquema,
+ * y no existe hoy ninguna base desplegada que lo contenga.
+ *
+ * Se conserva el nombre del índice: quien lo busque por nombre sigue
+ * encontrando la regla de unicidad, ahora con la sucursal dentro.
+ */
+const MIGRATION_028 = `
+DROP INDEX inventory_lot_code_idx;
+CREATE UNIQUE INDEX inventory_lot_code_idx
+  ON inventory_lot(tenant_id, branch_id, presentation_id, lot_code);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2201,6 +2230,7 @@ const MIGRATIONS = [
   { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
   { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
+  { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
 ] as const;
 
 /**
