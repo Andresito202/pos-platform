@@ -744,6 +744,13 @@ export class SqliteInventoryStore {
         id: string; quantity_on_hand: string; origin_lot_id: string | null;
       } | undefined;
 
+      // La misma regla que al recibir: si otra sucursal tiene ese código con
+      // otras fechas, las unidades no heredan —entran sin lote— en vez de
+      // fabricar una segunda versión de la tanda.
+      if (this.datesConflictInOtherBranch(
+        scope, targetPresentationId, origin.lot_code, origin.manufactured_date, origin.expiry_date,
+      )) continue;
+
       if (existing === undefined) {
         const inheritedId = uuidV7();
         this.database.native.prepare(
@@ -773,6 +780,32 @@ export class SqliteInventoryStore {
       );
       this.recordLotEntry(scope.tenantId, existing.id, inMovementId, share);
     }
+  }
+
+  /**
+   * ¿Hay en **otra** sucursal un lote de esta presentación con este código y
+   * otras fechas? — decisión del propietario del 2026-09-26: la misma tanda
+   * del proveedor en dos sucursales es la misma tanda, y trae las mismas
+   * fechas. Si no coinciden es un error de captura en una de las dos, y un
+   * retiro sanitario por código no sabría qué vencimiento creer.
+   *
+   * Sólo se comparan fabricación y vencimiento, igual que dentro de una
+   * sucursal: la fecha de recepción es de cada sucursal y puede diferir.
+   * `IS NOT` compara `NULL` como valor: una sucursal sin vencimiento y otra
+   * con él también discrepan.
+   */
+  private datesConflictInOtherBranch(
+    scope: SyncScope, presentationId: string, lotCode: string,
+    manufacturedDate: string | null, expiryDate: string | null,
+  ): boolean {
+    return this.database.native.prepare(
+      `SELECT 1 FROM inventory_lot
+        WHERE tenant_id=? AND presentation_id=? AND lot_code=? AND branch_id <> ?
+          AND (manufactured_date IS NOT ? OR expiry_date IS NOT ?)
+        LIMIT 1`,
+    ).get(
+      scope.tenantId, presentationId, lotCode, scope.branchId, manufacturedDate, expiryDate,
+    ) !== undefined;
   }
 
   /**
@@ -850,6 +883,11 @@ export class SqliteInventoryStore {
       if (existing !== undefined
         && (existing.expiry_date !== input.expiryDate
           || existing.manufactured_date !== input.manufacturedDate)) {
+        return { kind: "LOT_CODE_CONFLICT" };
+      }
+      if (this.datesConflictInOtherBranch(
+        input.scope, input.presentationId, input.lotCode, input.manufacturedDate, input.expiryDate,
+      )) {
         return { kind: "LOT_CODE_CONFLICT" };
       }
 

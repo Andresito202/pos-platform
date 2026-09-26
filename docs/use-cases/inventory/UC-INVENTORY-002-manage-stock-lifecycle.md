@@ -285,6 +285,11 @@ Reglas:
 4. Un lote vencido no puede seleccionarse para venta cuando la política lo prohíba.
 5. La edición de fecha de vencimiento debe quedar auditada.
 6. La corrección de identidad del lote no elimina historial.
+7. Un mismo código de lote identifica una misma tanda en todas las
+   sucursales: puede recibirse en varias, pero **con la misma fabricación y el
+   mismo vencimiento**; si no coinciden, es conflicto y no se registra.
+   Decisión del propietario del 2026-09-26. La fecha de recepción es de cada
+   sucursal y puede diferir.
 
 ## Vencimientos
 

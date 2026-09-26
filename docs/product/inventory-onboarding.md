@@ -89,7 +89,7 @@ como una compra que nadie hizo.
 | Situación | Operación |
 |---|---|
 | Llega mercancía del proveedor | `inventory.stock.receive` (`PURCHASE_RECEIPT`) |
-| Llega mercancía con lote y vencimiento | `inventory.lot.receive` — pantalla «Lotes y vencimientos» |
+| Llega mercancía con lote y vencimiento | `inventory.lot.receive` — pantalla «Lotes y vencimientos». Un código ya usado —en esta sucursal o en otra— con otras fechas es `LOT_CODE_CONFLICT` |
 | Qué vence esta semana en todo el negocio | `inventory.lot.expiring` — pantalla «Lotes y vencimientos», «Ver lo que vence»: tandas con existencia vencidas o a 7 días o menos, con el nombre del producto |
 | Ver qué tanda vence primero | `inventory.lot.list` — misma pantalla, en orden FEFO; avisa las tandas que vencen en **7 días o menos** y las vencidas que quedan por sacar |
 | El proveedor avisa de una tanda defectuosa | `inventory.lot.trace` — misma pantalla: qué ventas y mermas se la llevaron, y cada venta se abre con su recibo |
@@ -149,6 +149,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | La misma tanda en dos sucursales tiene que traer las mismas fechas; si no, `LOT_CODE_CONFLICT` (decisión del propietario). |
 | 2026-09-26 | «Vence esta semana»: la vista de todo el negocio, nombrada por Catálogo. |
 | 2026-09-26 | «Próximo a vencer» = 7 días (decisión del propietario). La lista de lotes marca `NEAR_EXPIRY` y avisa. |
 | 2026-09-26 | El ajuste positivo suma a una tanda existente nombrándola, y el libro del lote registra también sus entradas (`MIGRATION_030`): el rastro muestra cada recepción, remesa, herencia y ajuste con su motivo. Una remesa sobre una tanda agotada la reactiva. |

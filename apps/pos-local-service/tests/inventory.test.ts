@@ -676,3 +676,88 @@ describe("lo que vence esta semana: permiso, sucursal y tope", () => {
     expect(store.listExpiringLots(TENANT, BRANCH, "2026-09-14", 3).truncated).toBe(false);
   });
 });
+
+/**
+ * La misma tanda en dos sucursales — decisión del propietario del 2026-09-26:
+ * se acepta sólo si trae las mismas fechas. Si no coinciden es un error de
+ * captura en una de las dos, y un retiro por código no sabría qué vencimiento
+ * creer. La fecha de recepción sí puede diferir: es de cada sucursal.
+ */
+describe("la misma tanda en dos sucursales: con otras fechas es conflicto", () => {
+  const OTHER: SyncScope = { ...SCOPE, branchId: OTHER_BRANCH };
+  function receive(
+    store: SqliteInventoryStore, scope: SyncScope, presentationId: string, lotCode: string,
+    manufacturedDate: string | null, expiryDate: string | null, businessDate = "2026-09-07",
+  ) {
+    return store.receiveLot({
+      scope, sessionId: SESSION, operatorUserId: USER, presentationId, lotCode,
+      quantity: "10.000000", manufacturedDate, expiryDate, reasonCode: "SUPPLIER_DELIVERY",
+      businessDate, idempotencyKey: key(), requestChecksum: "6".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+  }
+  const lotsOf = (database: LocalDatabase, code: string) => database.native.prepare(
+    "SELECT branch_id, quantity_on_hand FROM inventory_lot WHERE tenant_id=? AND lot_code=? ORDER BY branch_id",
+  ).all(TENANT, code);
+  const stockIn = (database: LocalDatabase, branch: string, presentationId: string) => (database.native.prepare(
+    "SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id=? AND branch_id=? AND presentation_id=?",
+  ).get(TENANT, branch, presentationId) as { quantity_on_hand: string } | undefined)?.quantity_on_hand ?? null;
+
+  it.each([
+    ["otro vencimiento", "2026-09-01", "2026-10-15"],
+    ["otra fabricación", "2026-09-02", "2026-09-30"],
+    ["sin vencimiento frente a uno declarado", "2026-09-01", null],
+  ] as const)("%s en la otra sucursal es LOT_CODE_CONFLICT y no mueve nada", async (_label, manufactured, expiry) => {
+    const { store, database, presentationId } = await buildEnv();
+    expect(receive(store, OTHER, presentationId, "L-TANDA", "2026-09-01", "2026-09-30").kind).toBe("RECEIVED");
+
+    expect(receive(store, SCOPE, presentationId, "L-TANDA", manufactured, expiry).kind).toBe("LOT_CODE_CONFLICT");
+    // Ni lote ni existencia en esta sucursal; la otra, intacta.
+    expect(lotsOf(database, "L-TANDA")).toEqual([{ branch_id: OTHER_BRANCH, quantity_on_hand: "10.000000" }]);
+    expect(stockIn(database, BRANCH, presentationId)).toBeNull();
+    expect(stockIn(database, OTHER_BRANCH, presentationId)).toBe("10.000000");
+  });
+
+  it("con las mismas fechas se acepta, aunque cada sucursal la reciba otro día", async () => {
+    const { store, database, presentationId } = await buildEnv();
+    expect(receive(store, OTHER, presentationId, "L-IGUAL", "2026-09-01", "2026-09-30", "2026-09-05").kind)
+      .toBe("RECEIVED");
+    expect(receive(store, SCOPE, presentationId, "L-IGUAL", "2026-09-01", "2026-09-30", "2026-09-07").kind)
+      .toBe("RECEIVED");
+    expect(lotsOf(database, "L-IGUAL")).toEqual([
+      { branch_id: BRANCH, quantity_on_hand: "10.000000" },
+      { branch_id: OTHER_BRANCH, quantity_on_hand: "10.000000" },
+    ]);
+  });
+
+  it("al abrir una paca, si la otra sucursal tiene ese código en unidades con otras fechas, no se hereda", async () => {
+    const { store, database, presentationId } = await buildEnv();
+    const catalogStore = new SqliteCatalogStore(database, new DurableSyncStore(database), () => NOW);
+    const units = new RegisterProductUseCase(catalogStore).execute(SCOPE, SESSION, auth(), {
+      code: "ARROZ-UNIDAD", name: "Arroz unidad", stockControlled: true,
+      presentationName: "Unidad", unitCode: "UND", unitPrecision: 0,
+      barcode: "7709876543234", priceAmount: "400.000000", currencyCode: "COP",
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    if (units.kind !== "REGISTERED") throw new Error(`fixture failed: ${units.kind}`);
+
+    // La paca aquí dice vencer el 30; las unidades de la otra sucursal, el 15.
+    expect(receive(store, SCOPE, presentationId, "L-CRUCE", null, "2026-09-30").kind).toBe("RECEIVED");
+    expect(receive(store, OTHER, units.presentationId, "L-CRUCE", null, "2026-10-15").kind).toBe("RECEIVED");
+
+    const converted = store.applyConversion({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      sourcePresentationId: presentationId, targetPresentationId: units.presentationId,
+      sourceQuantity: "1.000000", targetQuantity: "4.000000",
+      reasonCode: "BREAK_PACK", businessDate: "2026-09-07",
+      idempotencyKey: key(), requestChecksum: "5".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+    expect(converted.kind).toBe("CONVERTED");
+    // Las 4 unidades entran al saldo de esta sucursal, sin lote inventado.
+    expect(stockIn(database, BRANCH, units.presentationId)).toBe("4.000000");
+    expect(database.native.prepare(
+      "SELECT COUNT(*) n FROM inventory_lot WHERE tenant_id=? AND branch_id=? AND presentation_id=?",
+    ).get(TENANT, BRANCH, units.presentationId)).toEqual({ n: 0 });
+  });
+});
