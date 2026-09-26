@@ -12,6 +12,7 @@ import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js
 import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js";
 import { AdjustStockUseCase } from "../src/inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
+import { TraceLotUseCase } from "../src/inventory/trace-lot-use-case.js";
 import { scale6ToBigInt } from "../src/money.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
@@ -485,5 +486,67 @@ describe("ajuste con lote nombrado: el lote se busca en la sucursal del contexto
       "SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id=? AND branch_id=? AND presentation_id=?",
     ).get(TENANT, BRANCH, presentationId) as { quantity_on_hand: string };
     expect(stock.quantity_on_hand).toBe("10.000000");
+  });
+});
+
+describe("rastro de lote: permiso, sucursal y tope", () => {
+  function receiveLotIn(
+    store: SqliteInventoryStore, scope: SyncScope, presentationId: string, lotCode: string, quantity: string,
+  ): void {
+    const r = store.receiveLot({
+      scope, sessionId: SESSION, operatorUserId: USER, presentationId, lotCode, quantity,
+      manufacturedDate: null, expiryDate: null, reasonCode: "SUPPLIER_DELIVERY",
+      businessDate: "2026-09-07", idempotencyKey: key(), requestChecksum: "f".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+    if (r.kind !== "RECEIVED") throw new Error(`fixture failed: ${r.kind}`);
+  }
+
+  function sell(store: SqliteInventoryStore, presentationId: string, saleId: string, quantity: string): void {
+    const r = store.appendSaleDeduction({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER, saleId, presentationId, quantity,
+      businessDate: "2026-09-07", correlationId: CORRELATION, causationId: null,
+    });
+    if (r.kind !== "POSTED") throw new Error(`fixture failed: ${r.kind}`);
+  }
+
+  it("sin permiso de leer existencia es UNAUTHORIZED", async () => {
+    const { store, presentationId } = await buildEnv();
+    receiveLotIn(store, SCOPE, presentationId, "L-PERM", "5.000000");
+    const trace = new TraceLotUseCase(store);
+    expect(trace.execute(SCOPE, auth(["INVENTORY_STOCK_RECEIVE"]), presentationId, "L-PERM", NOW).kind)
+      .toBe("UNAUTHORIZED");
+    expect(trace.execute(SCOPE, auth(), presentationId, "L-PERM", NOW).kind).toBe("FOUND");
+  });
+
+  // El código lo teclea el operador: buscarlo sólo por tenant devolvería la
+  // tanda de otra sucursal, con ventas que esta sucursal no hizo.
+  it("un lote de otra sucursal no se rastrea desde esta", async () => {
+    const { store, presentationId } = await buildEnv();
+    receiveLotIn(store, { ...SCOPE, branchId: OTHER_BRANCH }, presentationId, "L-OTRA", "5.000000");
+    const trace = new TraceLotUseCase(store);
+    expect(trace.execute(SCOPE, auth(), presentationId, "L-OTRA", NOW).kind).toBe("NOT_FOUND");
+  });
+
+  /**
+   * Un rastro cortado en silencio es un retiro que deja ventas fuera sin
+   * saberlo. Si hay más salidas que el tope, `truncated` lo dice, y lo
+   * recibido se calcula sobre todas, no sobre las devueltas.
+   */
+  it("con más salidas que el tope, devuelve el tope, marca truncated y cuadra con todas", async () => {
+    const { store, presentationId } = await buildEnv();
+    receiveLotIn(store, SCOPE, presentationId, "L-TOPE", "10.000000");
+    sell(store, presentationId, "018f0000-0000-7000-8000-000000005b01", "1.000000");
+    sell(store, presentationId, "018f0000-0000-7000-8000-000000005b02", "2.000000");
+    sell(store, presentationId, "018f0000-0000-7000-8000-000000005b03", "3.000000");
+
+    const cut = store.traceLot(TENANT, BRANCH, presentationId, "L-TOPE", 2);
+    expect(cut?.truncated).toBe(true);
+    expect(cut?.outflows.map((o) => o.quantity)).toEqual(["1.000000", "2.000000"]);
+    expect(cut?.quantityReceived).toBe("10.000000");
+
+    const whole = store.traceLot(TENANT, BRANCH, presentationId, "L-TOPE", 3);
+    expect(whole?.truncated).toBe(false);
+    expect(whole?.outflows).toHaveLength(3);
   });
 });

@@ -196,6 +196,17 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(prepared.quantityAfter).toBe("12.000000");
 
   // 3 · A partir de aquí, **sólo la interfaz**: es lo que hace el cajero.
+
+  // 3a · Llega una tanda con lote y se declara desde la pantalla de lotes. Es
+  //      la que la venta de abajo consumirá por FEFO, y la que el paso 6b
+  //      rastreará hasta el recibo.
+  await page.getByTestId("lot-presentation-input").fill(prepared.presentationId);
+  await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await page.getByTestId("lot-code-input").fill("CAFE-L1");
+  await page.getByTestId("lot-quantity-input").fill("3");
+  await page.getByTestId("lot-expiry-input").fill("2099-12-31");
+  await page.getByTestId("lot-receive-button").click();
+  await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
   await page.getByTestId("cash-register-input").fill(REGISTER);
   await page.getByTestId("opening-amount-input").fill("0");
   await page.getByTestId("open-shift-button").click();
@@ -241,7 +252,8 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     () => (globalThis as unknown as { __chime: { count: number } }).__chime.count,
   )).toBe(1);
 
-  // 5 · La existencia bajó por la venta, consultada por el canal real: 12 − 2.
+  // 5 · La existencia bajó por la venta, consultada por el canal real:
+  //     12 sin lote + 3 de la tanda − 2 vendidas.
   const remaining = await page.evaluate(async (presentationId) => {
     const posService = (globalThis as unknown as {
       posService: Record<string, (request: unknown) => Promise<unknown>>;
@@ -256,7 +268,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     });
     return (stock as { result: { quantity_on_hand: string } }).result.quantity_on_hand;
   }, prepared.presentationId);
-  expect(remaining).toBe("10.000000");
+  expect(remaining).toBe("13.000000");
 
   // ── 6 · El recibo, en la misma sesión y en la misma pantalla ───────────────
   //
@@ -334,6 +346,20 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     .toBe(receiptPayments[0]!["payment_method"]);
   expect(await page.getByTestId("receipt-payment-amount").first().textContent())
     .toBe(receiptPayments[0]!["confirmed_amount"]);
+
+  // ── 6b · Del lote a la venta, desde la pantalla ────────────────────────────
+  //
+  // El retiro sanitario al revés de como se vendió: se parte de la tanda y se
+  // llega al recibo. El rastro da la venta; el botón la abre con su recibo.
+  await page.getByTestId("lot-code-input").fill("CAFE-L1");
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Venta"]);
+  expect(await page.getByTestId("lot-trace-outflow-quantity").allTextContents()).toEqual(["2.000000"]);
+  expect(await page.getByTestId("lot-trace-on-hand").textContent()).toBe("1.000000");
+  await page.getByTestId("lot-trace-open-sale").click();
+  await expect(page.getByTestId("lot-trace-sale-document"))
+    .toHaveText(`${String(truth["document_series"])}-${String(truth["sale_number"])}`, { timeout: 15_000 });
 
   // ── 7 · Los dos desenlaces que no son un recibo ────────────────────────────
 
@@ -510,6 +536,54 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   await page.getByTestId("get-stock-button").click();
   await expect(page.getByTestId("stock-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("stock-quantity").textContent()).toBe("37.000000");
+
+  // --- Lotes desde la pantalla: recibir, ver que vence primero, rastrear ---
+  // Dos tandas: la que llega segunda vence antes, asi que la lista FEFO la
+  // pone primera. La fecha de negocio se teclea: no depende del reloj.
+  await page.getByTestId("lot-presentation-input").fill(presentationId!);
+  await page.getByTestId("lot-business-date-input").fill("2026-09-22");
+  for (const [lotCode, lotQuantity, expiry] of [
+    ["PANELA-TARDE", "10", "2026-12-31"],
+    ["PANELA-PRONTO", "5", "2026-10-01"],
+  ] as const) {
+    await page.getByTestId("lot-code-input").fill(lotCode);
+    await page.getByTestId("lot-quantity-input").fill(lotQuantity);
+    await page.getByTestId("lot-expiry-input").fill(expiry);
+    await page.getByTestId("lot-receive-button").click();
+    await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
+  }
+
+  await page.getByTestId("lot-list-button").click();
+  await expect(page.getByTestId("lot-list")).toBeVisible({ timeout: 15_000 });
+  const listed = await page.locator('[data-testid^="lot-row-PANELA"]').evaluateAll(
+    (rows) => rows.map((row) => row.getAttribute("data-testid")),
+  );
+  expect(listed).toEqual(["lot-row-PANELA-PRONTO", "lot-row-PANELA-TARDE"]);
+  expect(await page.getByTestId("lot-row-expiry-state-PANELA-PRONTO").textContent()).toBe("VALID");
+
+  // Merma de la tanda que se nombra, desde el panel de ajuste.
+  await page.getByTestId("adjust-movement-select").selectOption("SHRINKAGE");
+  await page.getByTestId("adjust-quantity-input").fill("2");
+  await page.getByTestId("adjust-reason-input").fill("DAMAGED");
+  await page.getByTestId("adjust-lot-input").fill("PANELA-TARDE");
+  await page.getByTestId("adjust-stock-button").click();
+  await expect(page.getByTestId("movement-quantity-after")).toHaveText("50.000000", { timeout: 15_000 });
+  await page.getByTestId("adjust-lot-input").fill("");
+
+  // Y el rastro la cuenta: entraron 10, quedan 8, salieron 2 por merma.
+  await page.getByTestId("lot-code-input").fill("PANELA-TARDE");
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("lot-trace-received").textContent()).toBe("10.000000");
+  expect(await page.getByTestId("lot-trace-on-hand").textContent()).toBe("8.000000");
+  expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Merma"]);
+  expect(await page.getByTestId("lot-trace-outflow-quantity").allTextContents()).toEqual(["2.000000"]);
+  // Una merma no es venta: no hay venta que abrir.
+  expect(await page.getByTestId("lot-trace-open-sale").count()).toBe(0);
+
+  await page.getByTestId("lot-code-input").fill("NO-EXISTE");
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace-outcome")).toHaveText("NOT_FOUND", { timeout: 15_000 });
 
   // --- Adquiriente: no esta, se registra, y entonces si esta ---------------
   const identification = `10${String(Date.now()).slice(-8)}`;

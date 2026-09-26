@@ -37,7 +37,7 @@ siguiera faltando una autoridad central.
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` |
 | **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · la venta descuenta al completarse |
-| **Interfaz de caja** | ✅ | **32 de las 37 operaciones del contrato tienen pantalla**, repartidas en 12 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
+| **Interfaz de caja** | ✅ | **35 de las 38 operaciones del contrato tienen pantalla**, repartidas en 13 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers`, alcanzables por el canal y desde la pantalla |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
@@ -46,15 +46,13 @@ siguiera faltando una autoridad central.
 | Lector de código de barras | ⚠️ | el catálogo resuelve código → artículo y garantiza que un código identifica una sola presentación. Un lector USB se comporta como teclado y escribe en `barcode-input`, así que **la ruta existe**; lo que no se ha verificado es un periférico real → `REQUIRES_LOCAL_VERIFICATION` |
 | Balanza | ❌ | ninguna integración; `unit_precision` gobierna la cantidad pero nadie la lee de un periférico |
 
-### Las 5 operaciones sin pantalla, y por qué
+### Las 3 operaciones sin pantalla, y por qué
 
 | Operación | Motivo |
 |---|---|
 | `runtime.handshake` | Es de transporte. No es una operación de cajero |
 | `session.activate` | **Deliberado.** `SessionPanel` no ofrece botón de activar y hay prueba E2E que lo fija: activar exige una SSA firmada por la autoridad, y no se teclea |
 | `catalog.item.get` | **No tiene ningún llamador.** Está en el contrato y el handler la sirve; `catalog.item.find` cubre hoy el mostrador. Es superficie sin consumidor: decidir si se le da uso o se retira es de producto |
-| `inventory.lot.receive` | Nueva el 2026-09-22 (`MIGRATION_026`). El contrato y el motor existen; **la pantalla es el tramo siguiente** y hasta que llegue, un comercio no puede declarar un lote desde la caja |
-| `inventory.lot.list` | Lo mismo. Es la que mostraría qué está por vencer, que es la mitad del valor sanitario de llevar lotes |
 
 ## El bloqueo vigente: el artefacto de confianza no es legible
 
@@ -166,10 +164,10 @@ contrato, no por lectura de documentos.
 | conversión entre presentaciones | ✅ | **Cerrado el 2026-09-20.** `catalog_unit_conversion` (`MIGRATION_024`, `DEC-004` §1579) declara `1 origen = factor destino`; `inventory.conversion.apply` la ejecuta de forma **atómica** (§1736): salida en origen y entrada en destino en una transacción, con tipos de movimiento propios `CONVERSION_OUT`/`CONVERSION_IN` (`MIGRATION_025`). No redondea: si `cantidad × factor` no da exacto o no cabe en la precisión del destino, rechaza. El factor lo pone el catálogo, nunca el mostrador |
 | compras · proveedores | ❌ | **sin tabla.** `PURCHASE_RECEIPT` es un tipo de movimiento de inventario, no un documento de compra: no hay proveedor, ni orden, ni costo |
 | promociones | ❌ | sin tabla |
-| lotes | ⚠️ | `inventory_lot` (`MIGRATION_026`); `inventory.lot.receive/list` por el canal real, **sin pantalla**. Toda salida baja del lote: venta y apertura de paca por FEFO; merma, ajuste negativo y traslado del lote que se nombre en la pantalla de ajuste, o por FEFO. Código único por sucursal (`MIGRATION_028`) |
+| lotes | ✅ | `inventory_lot` (`MIGRATION_026`); recibir, listar en orden FEFO y rastrear **con pantalla** («Lotes y vencimientos»). Toda salida baja del lote: venta y apertura de paca por FEFO; merma, ajuste negativo y traslado del lote que se nombre en la pantalla de ajuste, o por FEFO. Código único por sucursal (`MIGRATION_028`). Quedan fuera: las unidades de una paca abierta no heredan su lote, y un ajuste positivo no suma a una tanda |
 | vencimientos | ⚠️ | `expiry_date` por lote; `VALID`/`EXPIRED` derivados; la venta **no elige un lote vencido** (FEFO sobre vigentes). La merma por vencimiento sale **del lote vencido que se nombra** y sin lote se rechaza. `NEAR_EXPIRY` sin umbral decidido |
 | despiece · transformación | ❌ | sin tabla ni movimiento |
-| trazabilidad de producto | ⚠️ | Venta → lote registrada desde el 2026-09-26 (`inventory_lot_allocation`, `MIGRATION_027`, append-only). **No hay operación ni pantalla que la consulte**: el retiro sanitario exige hoy leer la base |
+| trazabilidad de producto | ⚠️ | Lote → ventas y mermas, con pantalla: `inventory.lot.trace` devuelve cada salida de la tanda y la pantalla abre cada venta con su recibo (`inventory_lot_allocation`, `MIGRATION_027`, append-only). **Llega a la venta, no al comprador**: ni el rastro ni el recibo nombran al cliente, y una venta de mostrador anónima no lo tiene. El rastro se corta en la paca abierta |
 | precios mayorista/minorista | ❌ | `catalog_price` admite **un** precio `ACTIVE` por presentación |
 | envase retornable | ❌ | sin modelo |
 | referencias · colores · tallas · variantes | ❌ | sin modelo |

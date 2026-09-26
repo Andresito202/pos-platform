@@ -30,6 +30,7 @@ import { ReceiveLotUseCase } from "../inventory/receive-lot-use-case.js";
 import { ImportCatalogUseCase } from "../catalog/import-catalog-use-case.js";
 import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../inventory/get-stock-use-case.js";
+import { TraceLotUseCase } from "../inventory/trace-lot-use-case.js";
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
 import { SqliteReceiptStore } from "../receipts/sqlite-receipt-store.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
@@ -134,6 +135,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly importCatalog: ImportCatalogUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
+        readonly traceLot: TraceLotUseCase;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -219,6 +221,7 @@ export class CommercialComponent implements RuntimeComponent {
   get importCatalog(): ImportCatalogUseCase { return this.ready.importCatalog; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
+  get traceLot(): TraceLotUseCase { return this.ready.traceLot; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
 
@@ -315,6 +318,7 @@ export class CommercialComponent implements RuntimeComponent {
       importCatalog: new ImportCatalogUseCase(registerProduct, setFiscalAttribute, receiveStock),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
+      traceLot: new TraceLotUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct,

@@ -264,6 +264,7 @@ interface ChannelResponse {
   readonly status: string;
   readonly result_code: string;
   readonly result: Record<string, unknown>;
+  readonly error?: { readonly code: string; readonly category: string } | null;
 }
 
 /**
@@ -2486,8 +2487,27 @@ describe("lotes y vencimiento: declarar la tanda y ver que vence primero", () =>
       }, "conf:3"));
       expect(choque.status).toBe("REJECTED");
       expect(choque.result["outcome"]).toBe("LOT_CODE_CONFLICT");
+      // Conflicto con el estado, no un fallo del servicio.
+      expect(choque.error?.category).toBe("CONFLICT");
       // Y no toco nada: ni el lote ni la existencia.
       expect(stockOf(database, presentationId)).toBe("2000.000000");
+
+      /**
+       * Fechas incoherentes: vence antes de recibirse. El `CHECK` del lote lo
+       * rechaza **después** de escrito el movimiento de entrada; si el
+       * rechazo no deshace la transacción, la existencia sube sin lote.
+       * Medido el 2026-09-26: subía.
+       */
+      const fechas = await send(mutating("inventory.lot.receive", {
+        ...base, lot_code: "FECHAS-MAL", business_date: "2026-09-22", expiry_date: "2026-09-20",
+      }, "conf:4"));
+      expect(fechas.status).toBe("REJECTED");
+      expect(fechas.result["outcome"]).toBe("LOT_DATES_INVALID");
+      expect(fechas.error?.category).toBe("VALIDATION");
+      expect(stockOf(database, presentationId)).toBe("2000.000000");
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM inventory_movement WHERE idempotency_key LIKE '%conf:4%'",
+      )).toBe(0);
     });
   }, 60_000);
 });
@@ -2869,6 +2889,88 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
   }, 60_000);
 
   /**
+   * El rastro — `inventory.lot.trace`. Es la pregunta de un retiro sanitario:
+   * «la tanda T-A salió contaminada; ¿qué ventas se la llevaron?».
+   */
+  describe("el rastro de un lote", () => {
+    it("dice qué ventas y qué mermas se llevaron cada tanda, y cada venta se abre con su recibo", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "traza");
+        await lot(send, ids.presentationId, "T-A", "1000.000000", "2026-09-24", "2026-09-22");
+        await lot(send, ids.presentationId, "T-B", "5000.000000", "2026-12-31", "2026-09-10");
+
+        const first = await sellAndPay(send, ids, "700.000000", "traza:1");
+        // 300 de T-A la agotan y 200 salen de T-B: una venta en dos tandas.
+        const second = await sellAndPay(send, ids, "500.000000", "traza:2");
+        expect((await send(mutating("inventory.stock.adjust", {
+          presentation_id: ids.presentationId, movement_type: "SHRINKAGE",
+          quantity: "50.000000", reason_code: "DAMAGED", business_date: "2026-09-22",
+          lot_code: "T-B",
+        }, "traza:merma"))).result["outcome"]).toBe("POSTED");
+
+        const a = await send(reading("inventory.lot.trace", {
+          presentation_id: ids.presentationId, lot_code: "T-A",
+        }));
+        expect(a.status).toBe("SUCCEEDED");
+        expect(a.result["outcome"]).toBe("FOUND");
+        expect(a.result["quantity_received"]).toBe("1000.000000");
+        expect(a.result["lot"]).toMatchObject({
+          lot_code: "T-A", quantity_on_hand: "0.000000", status: "CONSUMED", expiry_date: "2026-09-24",
+        });
+        expect((a.result["outflows"] as Record<string, unknown>[]).map(
+          (o) => [o["movement_type"], o["quantity"], o["sale_id"]],
+        )).toEqual([
+          ["SALE", "700.000000", first.saleId],
+          ["SALE", "300.000000", second.saleId],
+        ]);
+        expect(a.result["truncated"]).toBe(false);
+
+        const b = await send(reading("inventory.lot.trace", {
+          presentation_id: ids.presentationId, lot_code: "T-B",
+        }));
+        // Lo que entró = lo que queda + lo que salió: 4750 + 200 + 50.
+        expect(b.result["quantity_received"]).toBe("5000.000000");
+        expect((b.result["lot"] as Record<string, unknown>)["quantity_on_hand"]).toBe("4750.000000");
+        expect((b.result["outflows"] as Record<string, unknown>[]).map(
+          (o) => [o["movement_type"], o["quantity"], o["sale_id"], o["reason_code"]],
+        )).toEqual([
+          ["SALE", "200.000000", second.saleId, "SALE_COMPLETED"],
+          ["SHRINKAGE", "50.000000", null, "DAMAGED"],
+        ]);
+
+        // El rastro devuelve la venta; su dueño —Sales— la abre. Así es como
+        // la pantalla llega del lote al recibo sin leer tablas ajenas.
+        for (const saleId of [first.saleId, second.saleId]) {
+          const receipt = await send(reading("sales.receipt.get", { sale_id: saleId }));
+          expect(receipt.result["outcome"]).toBe("FOUND");
+          expect(receipt.result["sale_number"]).toEqual(expect.any(Number));
+        }
+      });
+    }, 60_000);
+
+    it("un código que no existe es NOT_FOUND; un lote sin salidas es FOUND con la lista vacía", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "trnf");
+        const missing = await send(reading("inventory.lot.trace", {
+          presentation_id: ids.presentationId, lot_code: "NO-EXISTE",
+        }));
+        expect(missing.status).toBe("REJECTED");
+        expect(missing.result["outcome"]).toBe("NOT_FOUND");
+        expect(missing.error?.category).toBe("NOT_FOUND");
+        expect(missing.result["outflows"]).toEqual([]);
+
+        await lot(send, ids.presentationId, "INTACTO", "300.000000", "2026-12-31", "2026-09-22");
+        const intact = await send(reading("inventory.lot.trace", {
+          presentation_id: ids.presentationId, lot_code: "INTACTO",
+        }));
+        expect(intact.result["outcome"]).toBe("FOUND");
+        expect(intact.result["outflows"]).toEqual([]);
+        expect(intact.result["quantity_received"]).toBe("300.000000");
+      });
+    }, 60_000);
+  });
+
+  /**
    * Las demás salidas — `UC-INVENTORY-002` §Salidas, §Mermas, §Lote vencido.
    *
    * Si la merma baja el saldo y no el lote, el lote dice tener lo que ya se
@@ -2930,6 +3032,8 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
         }, "msinl:merma");
         expect(merma.status).toBe("REJECTED");
         expect(merma.result["outcome"]).toBe("LOT_REQUIRED");
+        // Falta un dato en la petición: validación, no fallo interno.
+        expect(merma.error?.category).toBe("VALIDATION");
         expect(stockOf(database, ids.presentationId)).toBe("800.000000");
         expect(lotState(database, "MS-VENCIDA")).toBe("800.000000/ACTIVE");
         expect(countOf(
@@ -2992,6 +3096,7 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
         }, "lcorto:merma");
         expect(merma.status).toBe("REJECTED");
         expect(merma.result["outcome"]).toBe("LOT_INSUFFICIENT");
+        expect(merma.error?.category).toBe("CONFLICT");
         // Lo que tiene el lote, no el saldo: es lo que corrige la captura.
         expect(merma.result["available"]).toBe("100.000000");
 
@@ -3006,6 +3111,7 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
           lot_code: "NO-EXISTE",
         }, "lcorto:inexistente");
         expect(inexistente.result["outcome"]).toBe("LOT_NOT_FOUND");
+        expect(inexistente.error?.category).toBe("NOT_FOUND");
         expect(stockOf(database, ids.presentationId)).toBe("1100.000000");
       });
     }, 60_000);

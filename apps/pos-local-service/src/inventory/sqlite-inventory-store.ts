@@ -193,9 +193,16 @@ export type LotRejectionOutcome =
 
 export type AdjustWithLotsOutcome = AppendMovementOutcome | LotRejectionOutcome;
 
-/** Sale de la transacción para deshacerla; nunca escapa de `adjustWithLots`. */
-class LotRejection extends Error {
-  constructor(readonly outcome: LotRejectionOutcome) {
+/**
+ * Sale de una transacción para deshacerla y lleva el desenlace que se
+ * devuelve. Nunca escapa del método que la lanza.
+ *
+ * Existe porque **devolver** un rechazo desde dentro de la transacción la
+ * confirma: lo ya escrito —el movimiento— se queda. Rechazar tiene que ser
+ * lanzar.
+ */
+class Rollback<T extends { readonly kind: string }> extends Error {
+  constructor(readonly outcome: T) {
     super(outcome.kind);
   }
 }
@@ -207,6 +214,28 @@ export interface LotRow {
   readonly expiryDate: string | null;
   readonly quantityOnHand: string;
   readonly status: "ACTIVE" | "BLOCKED" | "CONSUMED";
+}
+
+export interface LotTrace {
+  readonly lot: {
+    readonly lotId: string;
+    readonly lotCode: string;
+    readonly receivedDate: string;
+    readonly manufacturedDate: string | null;
+    readonly expiryDate: string | null;
+    readonly quantityOnHand: string;
+    readonly status: "ACTIVE" | "BLOCKED" | "CONSUMED";
+  };
+  readonly quantityReceived: string;
+  readonly outflows: readonly {
+    readonly movementType: "SALE" | "SHRINKAGE" | "ADJUSTMENT_NEGATIVE" | "TRANSFER_OUT" | "CONVERSION_OUT";
+    readonly quantity: string;
+    readonly saleId: string | null;
+    readonly reasonCode: string;
+    readonly businessDate: string;
+    readonly occurredAt: string;
+  }[];
+  readonly truncated: boolean;
 }
 
 export class SqliteInventoryStore {
@@ -665,6 +694,15 @@ export class SqliteInventoryStore {
    * las dos fechas vale sería inventar el dato que más importa.
    */
   receiveLot(input: ReceiveLotInput): ReceiveLotOutcome {
+    try {
+      return this.receiveLotInTransaction(input);
+    } catch (thrown) {
+      if (thrown instanceof Rollback) return thrown.outcome as ReceiveLotOutcome;
+      throw thrown;
+    }
+  }
+
+  private receiveLotInTransaction(input: ReceiveLotInput): ReceiveLotOutcome {
     return this.database.native.transaction((): ReceiveLotOutcome => {
       const existing = this.database.native.prepare(
         `SELECT id, manufactured_date, expiry_date, quantity_on_hand, status
@@ -725,7 +763,13 @@ export class SqliteInventoryStore {
           // Las fechas incoherentes las rechaza el `CHECK` del esquema, no una
           // comprobación de la aplicación: así la regla vale también para un
           // escritor futuro que no pase por aquí.
-          if (String(error).includes("CHECK")) return { kind: "LOT_DATES_INVALID" };
+          //
+          // Se LANZA, no se devuelve: el movimiento de entrada ya está escrito
+          // y devolver confirmaría la transacción con él dentro —existencia
+          // que sube sin lote—. Medido el 2026-09-26: subía.
+          if (String(error).includes("CHECK")) {
+            throw new Rollback<ReceiveLotOutcome>({ kind: "LOT_DATES_INVALID" });
+          }
           throw error;
         }
       } else {
@@ -811,12 +855,12 @@ export class SqliteInventoryStore {
         ).get(
           input.scope.tenantId, input.scope.branchId, input.presentationId, lotCode,
         ) as { id: string; quantity_on_hand: string } | undefined;
-        if (lot === undefined) throw new LotRejection({ kind: "LOT_NOT_FOUND" });
+        if (lot === undefined) throw new Rollback<LotRejectionOutcome>({ kind: "LOT_NOT_FOUND" });
 
         const available = scale6ToBigInt(lot.quantity_on_hand);
         const wanted = scale6ToBigInt(input.quantity);
         if (available < wanted) {
-          throw new LotRejection({ kind: "LOT_INSUFFICIENT", available: lot.quantity_on_hand });
+          throw new Rollback<LotRejectionOutcome>({ kind: "LOT_INSUFFICIENT", available: lot.quantity_on_hand });
         }
         this.takeFromLot(input.scope.tenantId, lot.id, available, wanted, input.movementId, null);
         return outcome;
@@ -824,9 +868,73 @@ export class SqliteInventoryStore {
     } catch (thrown) {
       // Lanzar deshace el movimiento ya escrito: rechazar por el lote no
       // puede dejar el saldo descontado.
-      if (thrown instanceof LotRejection) return thrown.outcome;
+      if (thrown instanceof Rollback) return thrown.outcome as LotRejectionOutcome;
       throw thrown;
     }
+  }
+
+  /**
+   * Rastro de un lote en la sucursal del contexto: el lote y cada salida que
+   * se lo llevó, en orden de ocurrencia.
+   *
+   * Sólo lee tablas de este módulo —`inventory_lot`, `inventory_lot_allocation`
+   * e `inventory_movement`—: el comprador de una venta no es dato de
+   * inventario. `quantityReceived` se calcula sobre **todas** las
+   * asignaciones, no sólo las devueltas, para que un rastro truncado no
+   * cuadre mal además de venir cortado.
+   */
+  traceLot(
+    tenantId: string, branchId: string, presentationId: string, lotCode: string, limit: number,
+  ): LotTrace | null {
+    const lot = this.database.native.prepare(
+      `SELECT id, lot_code, received_date, manufactured_date, expiry_date, quantity_on_hand, status
+         FROM inventory_lot
+        WHERE tenant_id=? AND branch_id=? AND presentation_id=? AND lot_code=?`,
+    ).get(tenantId, branchId, presentationId, lotCode) as {
+      id: string; lot_code: string; received_date: string; manufactured_date: string | null;
+      expiry_date: string | null; quantity_on_hand: string; status: string;
+    } | undefined;
+    if (lot === undefined) return null;
+
+    const all = this.database.native.prepare(
+      "SELECT quantity FROM inventory_lot_allocation WHERE tenant_id=? AND lot_id=?",
+    ).all(tenantId, lot.id) as { quantity: string }[];
+    const taken = all.reduce((sum, row) => sum + scale6ToBigInt(row.quantity), 0n);
+
+    // Uno más del tope: si llega, hay más de las que caben y se dice.
+    const rows = this.database.native.prepare(
+      `SELECT m.movement_type, a.quantity, a.sale_id, m.reason_code, m.business_date, m.occurred_at
+         FROM inventory_lot_allocation a
+         JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
+        WHERE a.tenant_id=? AND a.lot_id=?
+        ORDER BY m.occurred_at, m.stock_sequence, a.id
+        LIMIT ?`,
+    ).all(tenantId, lot.id, limit + 1) as {
+      movement_type: LotTrace["outflows"][number]["movementType"]; quantity: string;
+      sale_id: string | null; reason_code: string; business_date: string; occurred_at: string;
+    }[];
+
+    return {
+      lot: {
+        lotId: lot.id,
+        lotCode: lot.lot_code,
+        receivedDate: lot.received_date,
+        manufacturedDate: lot.manufactured_date,
+        expiryDate: lot.expiry_date,
+        quantityOnHand: lot.quantity_on_hand,
+        status: lot.status as LotTrace["lot"]["status"],
+      },
+      quantityReceived: bigIntToScale6(scale6ToBigInt(lot.quantity_on_hand) + taken),
+      outflows: rows.slice(0, limit).map((row) => ({
+        movementType: row.movement_type,
+        quantity: row.quantity,
+        saleId: row.sale_id,
+        reasonCode: row.reason_code,
+        businessDate: row.business_date,
+        occurredAt: row.occurred_at,
+      })),
+      truncated: rows.length > limit,
+    };
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */

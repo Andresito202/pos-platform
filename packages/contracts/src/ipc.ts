@@ -48,6 +48,7 @@ import {
   CatalogItemImportRequestSchema,
   InventoryLotReceiveRequestSchema,
   InventoryLotListRequestSchema,
+  InventoryLotTraceRequestSchema,
   InventoryStockGetResponseSchema,
   SalesReceiptGetRequestSchema,
   SalesReceiptGetResponseSchema,
@@ -110,6 +111,7 @@ export const IpcMessageTypeSchema = z.enum([
   "inventory.stock.get",
   "inventory.lot.receive",
   "inventory.lot.list",
+  "inventory.lot.trace",
   "sales.receipt.get",
 ]);
 
@@ -219,6 +221,7 @@ export const IpcRequestSchema = z.union([
   CatalogItemImportRequestSchema,
   InventoryLotReceiveRequestSchema,
   InventoryLotListRequestSchema,
+  InventoryLotTraceRequestSchema,
   SalesReceiptGetRequestSchema,
 ]);
 

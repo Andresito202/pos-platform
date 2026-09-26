@@ -8,6 +8,8 @@ import {
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
   SaleCreateRequestSchema,
+  InventoryLotTraceRequestSchema,
+  InventoryLotTraceResultSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
   PaymentRegisterCashRequestSchema,
@@ -577,5 +579,44 @@ describe("el transporte conoce todas las operaciones comerciales", () => {
 
     expect([...operaciones].filter((o) => !canales.has(o)), "operaciones sin canal").toEqual([]);
     expect([...canales].filter((c) => !operaciones.has(c)), "canales sin operacion").toEqual([]);
+  });
+});
+
+/**
+ * `inventory.lot.trace` — rastro de un lote para un retiro sanitario.
+ *
+ * La sucursal la pone el contexto autorizado: el mismo código puede existir en
+ * otra sucursal y es otra existencia (`MIGRATION_028`). Un campo extra que
+ * intentara nombrarla se rechaza, no se ignora.
+ */
+describe("inventory.lot.trace", () => {
+  const trace = (payload: Record<string, unknown> = {}) => ({
+    ...metadata,
+    message_type: "inventory.lot.trace",
+    payload: {
+      presentation_id: "550e8400-e29b-41d4-a716-446655440011",
+      lot_code: "L-0924",
+      ...payload,
+    },
+  });
+
+  it("acepta una consulta por presentación y código, sin operación: es lectura", () => {
+    expect(InventoryLotTraceRequestSchema.safeParse(trace()).success).toBe(true);
+  });
+
+  it("rechaza un código vacío y una sucursal aportada por el llamador", () => {
+    expect(InventoryLotTraceRequestSchema.safeParse(trace({ lot_code: "" })).success).toBe(false);
+    expect(InventoryLotTraceRequestSchema.safeParse(
+      trace({ branch_id: "550e8400-e29b-41d4-a716-446655440013" }),
+    ).success).toBe(false);
+  });
+
+  // Un rastro que no dice si está cortado deja a un retiro sin saber que le faltan ventas.
+  it("el resultado exige declarar si está truncado", () => {
+    const found = {
+      outcome: "NOT_FOUND", lot: null, quantity_received: null, outflows: [],
+    };
+    expect(InventoryLotTraceResultSchema.safeParse(found).success).toBe(false);
+    expect(InventoryLotTraceResultSchema.safeParse({ ...found, truncated: false }).success).toBe(true);
   });
 });

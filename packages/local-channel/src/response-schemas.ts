@@ -16,6 +16,7 @@ import {
   CatalogItemImportResponseSchema,
   InventoryLotReceiveResponseSchema,
   InventoryLotListResponseSchema,
+  InventoryLotTraceResponseSchema,
   SalesReceiptGetResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
@@ -96,6 +97,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "catalog.item.import": CatalogItemImportResponseSchema,
   "inventory.lot.receive": InventoryLotReceiveResponseSchema,
   "inventory.lot.list": InventoryLotListResponseSchema,
+  "inventory.lot.trace": InventoryLotTraceResponseSchema,
   "sales.receipt.get": SalesReceiptGetResponseSchema,
 };
 

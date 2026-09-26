@@ -27,7 +27,7 @@ type CommercialRequest = Extract<
       | "inventory.conversion.apply"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.import"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
-      | "inventory.lot.receive" | "inventory.lot.list"
+      | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
       | "sales.receipt.get";
   }
 >;
@@ -61,6 +61,13 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   // petición mal formada.
   INSUFFICIENT_STOCK: "CONFLICT",
   PRESENTATION_NOT_FOUND: "NOT_FOUND",
+  // Lotes. Faltaban desde que existen y caían en `INTERNAL`: un código mal
+  // tecleado o una fecha incoherente se reportaba como fallo del servicio.
+  LOT_CODE_CONFLICT: "CONFLICT",
+  LOT_DATES_INVALID: "VALIDATION",
+  LOT_NOT_FOUND: "NOT_FOUND",
+  LOT_INSUFFICIENT: "CONFLICT",
+  LOT_REQUIRED: "VALIDATION",
   SALE_NOT_PAYABLE: "CONFLICT",
   SALE_ALREADY_COMPLETED: "CONFLICT",
   OVERPAYMENT_NOT_ALLOWED: "CONFLICT",
@@ -231,6 +238,7 @@ export class CommercialRequestHandler {
       case "inventory.stock.get": return this.getStock(request, connectionId);
       case "inventory.lot.receive": return this.receiveLot(request, connectionId);
       case "inventory.lot.list": return this.listLots(request, connectionId);
+      case "inventory.lot.trace": return this.traceLot(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
     }
   }
@@ -1434,6 +1442,56 @@ export class CommercialRequestHandler {
         status: lot.status,
         expiry_state: lotExpiryState(lot.expiryDate, request.payload.business_date),
       })),
+    });
+  }
+
+  /**
+   * `inventory.lot.trace` — por dónde salió una tanda.
+   *
+   * `NOT_FOUND` se devuelve tal cual: «ese lote no existe en esta sucursal»
+   * es la respuesta que corrige un código mal tecleado, y no se confunde con
+   * «existe y no ha salido nada», que es `FOUND` con la lista vacía.
+   */
+  private traceLot(
+    request: Extract<CommercialRequest, { message_type: "inventory.lot.trace" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { lot: null, quantity_received: null, outflows: [], truncated: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.traceLot.execute(
+      this.scope(), authenticated.snapshot,
+      request.payload.presentation_id, request.payload.lot_code,
+    );
+    if (result.kind !== "FOUND") {
+      return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    }
+
+    return succeeded(request, "FOUND", {
+      outcome: "FOUND",
+      lot: {
+        lot_id: result.lot.lotId,
+        lot_code: result.lot.lotCode,
+        received_date: result.lot.receivedDate,
+        manufactured_date: result.lot.manufacturedDate,
+        expiry_date: result.lot.expiryDate,
+        quantity_on_hand: result.lot.quantityOnHand,
+        status: result.lot.status,
+      },
+      quantity_received: result.quantityReceived,
+      outflows: result.outflows.map((outflow) => ({
+        movement_type: outflow.movementType,
+        quantity: outflow.quantity,
+        sale_id: outflow.saleId,
+        reason_code: outflow.reasonCode,
+        business_date: outflow.businessDate,
+        occurred_at: outflow.occurredAt,
+      })),
+      truncated: result.truncated,
     });
   }
 

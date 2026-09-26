@@ -89,7 +89,9 @@ como una compra que nadie hizo.
 | Situación | Operación |
 |---|---|
 | Llega mercancía del proveedor | `inventory.stock.receive` (`PURCHASE_RECEIPT`) |
-| Llega mercancía con lote y vencimiento | `inventory.lot.receive` |
+| Llega mercancía con lote y vencimiento | `inventory.lot.receive` — pantalla «Lotes y vencimientos» |
+| Ver qué tanda vence primero | `inventory.lot.list` — misma pantalla, en orden FEFO |
+| El proveedor avisa de una tanda defectuosa | `inventory.lot.trace` — misma pantalla: qué ventas y mermas se la llevaron, y cada venta se abre con su recibo |
 | Se rompió o se dañó | `inventory.stock.adjust` (`SHRINKAGE`); sale del lote que se nombre, o por FEFO si no se nombra |
 | Se venció | `inventory.stock.adjust` (`SHRINKAGE`, motivo `EXPIRED`) **con el lote vencido nombrado**: sin lote se rechaza (`LOT_REQUIRED`), porque la venta nunca elige un lote vencido y es la única vía por la que sale |
 | El conteo no cuadra | `inventory.stock.adjust` (`ADJUSTMENT_POSITIVE` / `NEGATIVE`) |
@@ -124,11 +126,12 @@ es peor que no facturar.
 - **Compras y proveedores.** No existe `Supplier` ni documento de compra: se
   puede dar entrada a mercancía, pero **no reconciliarla contra la factura del
   proveedor**, porque no hay modelo de costo.
-- **Consulta del rastro y pantalla de lotes.** Desde el 2026-09-26 toda
-  salida —venta, merma, ajuste negativo, traslado y apertura de paca— baja del
-  lote y deja rastro (`inventory_lot_allocation`). Pero **no existe consulta
-  del rastro** («a quién se vendió el lote X») ni pantalla para recibir o
-  listar lotes: el dato está, y hoy sólo lo lee quien abra la base.
+- **El rastro llega a la venta, no al comprador.** «Qué ventas se llevaron
+  el lote X» existe y tiene pantalla; «a qué personas» no: el comprador es
+  dato de ventas y clientes, y una venta de mostrador anónima no tiene
+  comprador que devolver. Para avisar a los compradores hay que abrir cada
+  venta —la pantalla lo hace con su recibo— y el recibo tampoco nombra al
+  cliente.
 - **Las unidades de una paca abierta no heredan su lote.** Abrir la paca baja
   del lote de la paca, pero las unidades que salen entran sin lote. El rastro
   llega hasta la paca, no hasta la unidad vendida.
@@ -144,6 +147,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | Rastro de lote (`inventory.lot.trace`) y pantalla «Lotes y vencimientos»: recibir, ver en orden FEFO y rastrear hasta el recibo. |
 | 2026-09-26 | Merma, ajuste negativo, traslado y apertura de paca también bajan del lote. La merma por vencimiento exige el lote. El código de lote pasa a ser único **por sucursal** (`MIGRATION_028`): antes, recibir la misma tanda en dos sucursales sumaba a la de la otra. |
 | 2026-09-26 | La venta consume lotes por FEFO y deja rastro (`MIGRATION_027`). Se sustituye «consumo de lotes por venta» por lo que de verdad sigue faltando en lotes. |
 | 2026-09-26 | La carga tiene pantalla. Se retira de «lo que todavía no existe». |

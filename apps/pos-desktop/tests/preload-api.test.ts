@@ -43,6 +43,7 @@ describe("preload-api", () => {
       "inventory.stock.get",
       "inventory.lot.receive",
       "inventory.lot.list",
+      "inventory.lot.trace",
       "sales.receipt.get",
     ]);
   });

@@ -39,6 +39,7 @@ describe("ipc-allowlist", () => {
       "pos:inventory.stock.get",
       "pos:inventory.lot.receive",
       "pos:inventory.lot.list",
+      "pos:inventory.lot.trace",
       "pos:sales.receipt.get",
     ]);
   });
@@ -73,6 +74,7 @@ describe("ipc-allowlist", () => {
       "pos:inventory.stock.get",
       "pos:inventory.lot.receive",
       "pos:inventory.lot.list",
+      "pos:inventory.lot.trace",
       "pos:sales.receipt.get",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);

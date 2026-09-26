@@ -1713,6 +1713,74 @@ export const InventoryLotListResultSchema = z.strictObject({
 export const InventoryLotListResponseSchema =
   createResponseEnvelopeSchema(InventoryLotListResultSchema);
 
+// ── inventory.lot.trace ──────────────────────────────────────────────────────
+
+/**
+ * Rastro de un lote: por dónde salió — `UC-INVENTORY-002` §Lotes regla 2.
+ *
+ * Es la pregunta de un retiro sanitario: «el proveedor avisa que la tanda
+ * `L-0924` de carne molida está contaminada; ¿qué ventas se la llevaron?».
+ *
+ * **Se pide por código, no por `lot_id`.** El código es lo que trae la
+ * etiqueta del proveedor y lo que el operador tiene en la mano; el `lot_id`
+ * sólo lo conoce el sistema. La sucursal sale del contexto autorizado, nunca
+ * del llamador: el mismo código puede existir en otra sucursal y es otra
+ * existencia (`MIGRATION_028`).
+ *
+ * **Devuelve la venta, no al comprador.** Quién compró es dato de `Sales` y
+ * de `Customers`, y este módulo no lee sus tablas (`data-ownership.md`
+ * reglas 1 y 2). La pantalla abre cada venta con `sales.receipt.get`, que es
+ * el contrato de su dueño. Una venta de mostrador anónima no tiene comprador
+ * que devolver, y eso no se disimula.
+ */
+export const InventoryLotTraceRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    lot_code: z.string().min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("inventory.lot.trace") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/**
+ * Tope de salidas por respuesta. Si hay más, `truncated` lo dice: un rastro
+ * cortado en silencio es un retiro que deja ventas fuera sin saberlo.
+ */
+export const LOT_TRACE_MAX_OUTFLOWS = 2000;
+
+export const InventoryLotTraceResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  lot: z.strictObject({
+    lot_id: UuidSchema,
+    lot_code: z.string().min(1).max(64),
+    received_date: BusinessDateSchema,
+    manufactured_date: BusinessDateSchema.nullable(),
+    expiry_date: BusinessDateSchema.nullable(),
+    quantity_on_hand: NonNegativeScale6Schema,
+    status: z.enum(["ACTIVE", "BLOCKED", "CONSUMED"]),
+  }).nullable(),
+  /**
+   * Lo que entró: lo que queda más lo que salió. Un lote sólo cambia por
+   * recepción y por salida, así que la suma cuadra por construcción; que la
+   * pantalla lo muestre deja ver de un vistazo si falta algo por explicar.
+   */
+  quantity_received: NonNegativeScale6Schema.nullable(),
+  /** En orden de ocurrencia. `sale_id` es `null` en merma, ajuste, traslado y apertura. */
+  outflows: z.array(z.strictObject({
+    movement_type: z.enum([
+      "SALE", "SHRINKAGE", "ADJUSTMENT_NEGATIVE", "TRANSFER_OUT", "CONVERSION_OUT",
+    ]),
+    quantity: NonNegativeScale6Schema,
+    sale_id: UuidSchema.nullable(),
+    reason_code: z.string().min(1).max(64),
+    business_date: BusinessDateSchema,
+    occurred_at: z.string().min(1),
+  })).max(LOT_TRACE_MAX_OUTFLOWS),
+  truncated: z.boolean(),
+});
+
+export const InventoryLotTraceResponseSchema =
+  createResponseEnvelopeSchema(InventoryLotTraceResultSchema);
+
 export const InventoryStockGetRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({ presentation_id: UuidSchema }),
 ).safeExtend({ message_type: z.literal("inventory.stock.get") })
@@ -1846,6 +1914,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.get",
   "inventory.lot.receive",
   "inventory.lot.list",
+  "inventory.lot.trace",
 ]);
 
 /**
@@ -1882,6 +1951,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.stock.get",
   "pos:inventory.lot.receive",
   "pos:inventory.lot.list",
+  "pos:inventory.lot.trace",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -1919,5 +1989,6 @@ export type CatalogImportItem = z.infer<typeof CatalogImportItemSchema>;
 export type CatalogItemImportResult = z.infer<typeof CatalogItemImportResultSchema>;
 export type InventoryLotReceiveResult = z.infer<typeof InventoryLotReceiveResultSchema>;
 export type InventoryLotListResult = z.infer<typeof InventoryLotListResultSchema>;
+export type InventoryLotTraceResult = z.infer<typeof InventoryLotTraceResultSchema>;
 export type LotExpiryState = z.infer<typeof LotExpiryStateSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;
