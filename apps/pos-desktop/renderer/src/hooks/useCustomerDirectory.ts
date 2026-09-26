@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   CustomerReadResult,
   CustomerRegisterResult,
@@ -54,7 +54,14 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
   const [found, setFound] = useState<CustomerReadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** Ver `useCommercialSale.ts`: cierra la ventana de doble clic que un
+   * `busy` de estado, por sí solo, no cierra. Sólo protege `register` —la
+   * mutación—, no `read`/`find`/`get`. */
+  const inFlight = useRef(false);
+
   const register = useCallback(async (input: CustomerRegistration): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setRegistered(null);
@@ -88,6 +95,7 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

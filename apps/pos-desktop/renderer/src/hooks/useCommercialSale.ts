@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   CashShiftCloseResult,
   CashShiftOpenResult,
@@ -122,6 +122,16 @@ export function useCommercialSale(): CommercialSaleState & {
     useState<PaymentTransferConfirmResult | null>(null);
 
   /**
+   * Guarda de doble clic. `busy` (estado) llega al botón para deshabilitarlo,
+   * pero un segundo clic puede disparar antes de que React repinte el DOM: la
+   * única barrera que no depende de un repintado es una marca mutable leída
+   * de forma síncrona al entrar a `run`. Un `ref` sirve exactamente para eso
+   * — a diferencia de `busy`, escribirlo no reprograma un render y leerlo
+   * nunca ve un valor obsoleto de un cierre anterior.
+   */
+  const inFlight = useRef(false);
+
+  /**
    * Un rechazo del servicio no es una excepción: el sobre lo trae como
    * `REJECTED` con su `result_code` estable. Se muestra tal cual — ocultar el
    * código le quita al cajero la única pista accionable que tiene.
@@ -130,6 +140,10 @@ export function useCommercialSale(): CommercialSaleState & {
     work: () => Promise<{ status: string; result_code: string; result: T | null }>,
     onSuccess: (result: T) => void,
   ): Promise<void> => {
+    // Un segundo disparo mientras el primero sigue en vuelo se ignora en
+    // silencio: no es un error del cajero, es la protección funcionando.
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -142,6 +156,7 @@ export function useCommercialSale(): CommercialSaleState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { CatalogItemImportResult } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { batches, type ParsedRow } from "../catalog-import.js";
@@ -48,7 +48,13 @@ export function useCatalogImport(): CatalogImportState & {
   const [rejected, setRejected] = useState<readonly ImportLineOutcome[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  /** Ver `useCommercialSale.ts`: cierra la ventana de doble clic que un
+   * `busy` de estado, por sí solo, no cierra. */
+  const inFlight = useRef(false);
+
   const importRows = useCallback(async (rows: readonly ParsedRow[], businessDate: string) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setImported(0);
@@ -106,6 +112,7 @@ export function useCatalogImport(): CatalogImportState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

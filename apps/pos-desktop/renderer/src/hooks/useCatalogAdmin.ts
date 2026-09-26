@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   CatalogConversionDeclareResult,
   CatalogFiscalAttributeSetResult,
@@ -107,7 +107,14 @@ export function useCatalogAdmin(): CatalogAdminState & {
   const [conversionOutcome, setConversionOutcome] =
     useState<CatalogConversionDeclareResult["outcome"] | null>(null);
 
+  /** Ver `useCommercialSale.ts`: cierra la ventana de doble clic que un
+   * `busy` de estado, por sí solo, no cierra. Un solo `ref`: las cuatro
+   * acciones comparten el mismo `busy`, así que comparten la misma marca. */
+  const inFlight = useRef(false);
+
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setOutcome(null);
@@ -152,11 +159,14 @@ export function useCatalogAdmin(): CatalogAdminState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
 
   const setFiscalAttribute = useCallback(async (input: FiscalAttributeInput): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setFiscalOutcome(null);
@@ -194,11 +204,14 @@ export function useCatalogAdmin(): CatalogAdminState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
 
   const addPresentation = useCallback(async (input: PresentationInput): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setPresentationOutcome(null);
@@ -237,12 +250,15 @@ export function useCatalogAdmin(): CatalogAdminState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
 
   /** Declarar no convierte nada: deja escrito el factor. */
   const declareConversion = useCallback(async (input: ConversionInput): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setConversionOutcome(null);
@@ -271,6 +287,7 @@ export function useCatalogAdmin(): CatalogAdminState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   PaymentCancelResult,
   PaymentGetResult,
@@ -58,6 +58,11 @@ export function useProviderPayment(): ProviderPaymentState & {
   const [cancelled, setCancelled] = useState<PaymentCancelResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** Ver el comentario homónimo en `useCommercialSale.ts`: un `busy` de estado
+   * no cierra la ventana entre dos clics; un `ref` sí, porque se lee y se
+   * escribe de forma síncrona, sin esperar a un repintado. */
+  const inFlight = useRef(false);
+
   /**
    * Conserva el resultado aunque el sobre venga rechazado: `PROVIDER_REJECTED`,
    * `PAYMENT_NOT_CANCELLABLE` y `VERSION_CONFLICT` son desenlaces que el cajero
@@ -68,6 +73,8 @@ export function useProviderPayment(): ProviderPaymentState & {
     call: () => Promise<{ result: T | null; result_code: string }>,
     apply: (result: T) => void,
   ): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -80,6 +87,7 @@ export function useProviderPayment(): ProviderPaymentState & {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

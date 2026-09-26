@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   InventoryConversionApplyResult,
   InventoryMovementResult,
@@ -55,6 +55,11 @@ export function useInventoryAdmin(): InventoryAdminState & {
   const [error, setError] = useState<string | null>(null);
   const [conversion, setConversion] = useState<InventoryConversionApplyResult | null>(null);
 
+  /** Ver `useCommercialSale.ts`: cierra la ventana de doble clic que un
+   * `busy` de estado, por sí solo, no cierra. Sólo protege `post` — un
+   * movimiento real de inventario—, no la lectura de `getStock`. */
+  const inFlight = useRef(false);
+
   const post = useCallback(async (
     messageType: "inventory.stock.receive" | "inventory.stock.adjust",
     presentationId: string,
@@ -64,6 +69,8 @@ export function useInventoryAdmin(): InventoryAdminState & {
     businessDate: string,
     extra: Record<string, unknown> = {},
   ): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setMovement(null);
@@ -93,6 +100,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

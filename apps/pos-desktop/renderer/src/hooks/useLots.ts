@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   InventoryLotListResult,
   InventoryLotReceiveResult,
@@ -51,7 +51,13 @@ export function useLots(): LotsState & {
   const [trace, setTrace] = useState<InventoryLotTraceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** Ver `useCommercialSale.ts`: cierra la ventana de doble clic que un
+   * `busy` de estado, por sí solo, no cierra. */
+  const inFlight = useRef(false);
+
   const run = useCallback(async (work: () => Promise<void>): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -59,6 +65,7 @@ export function useLots(): LotsState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

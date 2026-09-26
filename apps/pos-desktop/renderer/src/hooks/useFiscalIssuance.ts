@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { FiscalDocumentIssueResult } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 
@@ -41,6 +41,12 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
   const [issued, setIssued] = useState<FiscalDocumentIssueResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** Ver `useCommercialSale.ts`. Aquí el riesgo es mayor que en el resto: un
+   * doble clic sin esta guarda emitiría dos documentos fiscales reales para
+   * la misma venta, cada uno con su propia `idempotency_key`, así que el
+   * servidor no tendría forma de saber que son el mismo intento. */
+  const inFlight = useRef(false);
+
   const issue = useCallback(async (
     saleId: string,
     documentType: string,
@@ -48,6 +54,8 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     // `D-40`: sólo viaja cuando el operador ya vio la diferencia y confirmó.
     acknowledgeCustomerMismatch = false,
   ): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setIssued(null);
@@ -73,6 +81,7 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

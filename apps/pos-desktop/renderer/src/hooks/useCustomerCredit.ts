@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   CreditAccountGetResult,
   CreditAccountOpenResult,
@@ -67,6 +67,10 @@ export function useCustomerCredit(): CreditState & {
   const [repaid, setRepaid] = useState<CreditPaymentRegisterResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** Ver `useCommercialSale.ts`: cierra la ventana de doble clic que un
+   * `busy` de estado, por sí solo, no cierra. */
+  const inFlight = useRef(false);
+
   /**
    * Envuelve una llamada y guarda su resultado.
    *
@@ -80,6 +84,8 @@ export function useCustomerCredit(): CreditState & {
     call: () => Promise<{ result: T | null; result_code: string }>,
     store: (value: T) => void,
   ): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -92,6 +98,7 @@ export function useCustomerCredit(): CreditState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
