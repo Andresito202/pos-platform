@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
+import { readScannedCode } from "../barcode-scan.js";
 
 /**
  * La primera superficie comercial alcanzable: abrir caja, buscar por código de
@@ -14,6 +15,7 @@ export function SalePanel(): React.JSX.Element {
   const [registerId, setRegisterId] = useState("");
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
+  const [invalidScan, setInvalidScan] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
   const [saleCustomerId, setSaleCustomerId] = useState("");
@@ -70,20 +72,47 @@ export function SalePanel(): React.JSX.Element {
       )}
 
       <h2>Producto</h2>
-      <input
-        data-testid="barcode-input"
-        value={barcode}
-        onChange={(e) => { setBarcode(e.target.value); }}
-        placeholder="Código de barras"
-        disabled={sale.busy}
-      />
-      <button
-        data-testid="find-item-button"
-        onClick={() => { void sale.findItem(barcode.trim()); }}
-        disabled={sale.busy || barcode.trim() === ""}
+      {/* Un lector USB escribe el código y envía Enter (`HW-SCN-001`): el
+          formulario convierte ese Enter en la búsqueda. El campo **no** se
+          deshabilita mientras se busca, porque perdería el foco y la lectura
+          siguiente se escribiría en ningún sitio; se vacía tras cada lectura
+          para que dos códigos no se concatenen. */}
+      <form
+        data-testid="barcode-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (sale.busy) return;
+          const scan = readScannedCode(barcode);
+          if (scan.kind === "EMPTY") return;
+          if (scan.kind === "INVALID") {
+            setInvalidScan(scan.code);
+            return;
+          }
+          setInvalidScan(null);
+          setBarcode("");
+          void sale.findItem(scan.code);
+        }}
       >
-        Buscar
-      </button>
+        <input
+          data-testid="barcode-input"
+          value={barcode}
+          onChange={(e) => { setBarcode(e.target.value); }}
+          placeholder="Código de barras"
+          autoComplete="off"
+        />
+        <button
+          type="submit"
+          data-testid="find-item-button"
+          disabled={sale.busy || barcode.trim() === ""}
+        >
+          Buscar
+        </button>
+      </form>
+      {invalidScan !== null && (
+        <div data-testid="barcode-invalid">
+          Código no válido: «{invalidScan}». Debe tener de 4 a 64 letras, números o guiones.
+        </div>
+      )}
       {sale.foundItem !== null && (
         <div data-testid="found-item">
           <span data-testid="found-item-name">{sale.foundItem.name}</span>

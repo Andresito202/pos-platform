@@ -628,3 +628,84 @@ describe("SalePanel — nueva venta limpia el comprador", () => {
     expect((screen.getByTestId("sale-customer-id-input") as HTMLInputElement).value).toBe("");
   });
 });
+
+/**
+ * Lector USB en modo teclado (`HW-SCN-001`). jsdom no hace el envío implícito
+ * de un formulario al pulsar Enter, así que se dispara `submit`, que es lo que
+ * el navegador hace con ese Enter. Ningún lector físico se ha probado.
+ */
+describe("lector de código de barras (HW-SCN-001)", () => {
+  const scan = (code: string): void => {
+    fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: code } });
+    fireEvent.submit(screen.getByTestId("barcode-form"));
+  };
+
+  beforeEach(() => { calls.clear(); });
+
+  it("el Enter del lector busca el código y deja el campo listo para el siguiente", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    scan("7701234567890");
+    await screen.findByTestId("found-item");
+
+    expect(calls.get("catalog.item.find")).toHaveLength(1);
+    expect(CatalogItemFindRequestSchema.parse(calls.get("catalog.item.find")![0]).payload.barcode).toBe("7701234567890");
+    expect((screen.getByTestId("barcode-input") as HTMLInputElement).value).toBe("");
+  });
+
+  it("dos lecturas seguidas no se concatenan", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    scan("7701234567890");
+    await screen.findByTestId("found-item");
+    // El lector teclea sobre lo que haya en el campo; no lo reemplaza.
+    const input = screen.getByTestId("barcode-input") as HTMLInputElement;
+    scan(`${input.value}7709876543210`);
+    await waitFor(() => { expect(calls.get("catalog.item.find")).toHaveLength(2); });
+    const second = CatalogItemFindRequestSchema.parse(calls.get("catalog.item.find")![1]);
+    expect(second.payload.barcode).toBe("7709876543210");
+  });
+
+  it("el campo no se deshabilita mientras busca: la siguiente lectura tiene dónde escribirse", async () => {
+    let release: (value: unknown) => void = () => {};
+    install({ ...BASE_OVERRIDES });
+    render(<SalePanel />);
+    await openShift();
+    const service = (window as unknown as { posService: Record<string, (payload: unknown) => Promise<unknown>> }).posService;
+    service["catalog.item.find"] = (payload: unknown) => {
+      calls.set("catalog.item.find", [...(calls.get("catalog.item.find") ?? []), payload]);
+      return new Promise((resolve) => { release = resolve; });
+    };
+    scan("7701234567890");
+    expect((screen.getByTestId("barcode-input") as HTMLInputElement).disabled).toBe(false);
+    release(FOUND_ITEM);
+    await screen.findByTestId("found-item");
+  });
+
+  it("una lectura que no es un código del contrato no llega al servicio", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    // `]E0` es el prefijo AIM de EAN-13: un lector que lo envía está mal
+    // configurado, y eso debe verse, no limpiarse en silencio.
+    for (const bad of ["77", "]E07701234567890", "770#123", "x".repeat(65)]) {
+      scan(bad);
+      expect(screen.getByTestId("barcode-invalid").textContent).toContain(bad.trim());
+    }
+    expect(calls.get("catalog.item.find")).toBeUndefined();
+  });
+
+  it("una doble lectura accidental no agrega dos veces: agregar exige el botón", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    scan("7701234567890");
+    await screen.findByTestId("found-item");
+    scan("7701234567890");
+    await waitFor(() => { expect(calls.get("catalog.item.find")).toHaveLength(2); });
+    await screen.findByTestId("found-item");
+    expect(screen.queryAllByTestId("cart-line")).toHaveLength(0);
+  });
+});

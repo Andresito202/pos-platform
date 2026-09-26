@@ -1090,7 +1090,12 @@ export const FiscalDocumentListResponseSchema = createResponseEnvelopeSchema(Fis
  * obligatorio. Declarar una unidad de peso con precisión 2 es además la
  * mitigación de `D-18`: por encima de dos decimales la venta no se factura.
  */
-const BarcodeSchema = z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/);
+/**
+ * Qué es un código de barras para este producto. Exportado para que el
+ * renderer valide una lectura del lector con **la misma** regla que el
+ * servicio, en vez de una copia que pueda divergir.
+ */
+export const BarcodeSchema = z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/);
 
 export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
