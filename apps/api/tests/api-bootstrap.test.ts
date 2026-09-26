@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { createApi } from "../src/app.js";
@@ -5,11 +6,22 @@ import { createApi } from "../src/app.js";
 /**
  * La API central arranca con NestJS sobre Fastify (`ADR-005`, `DEC-026` G-7)
  * y atiende peticiones reales por el adaptador, sin abrir puerto.
+ *
+ * Necesita configuración válida para construir `AuthModule` —incluida una
+ * URL de PostgreSQL—, pero **no la usa**: `pg.Pool` no conecta hasta la
+ * primera consulta, y ninguna prueba de este archivo llama a `/v1/auth/*`.
+ * Esa ruta real, contra PostgreSQL real, está en `device-login.postgres.test.ts`.
  */
 describe("API central — arranque NestJS + Fastify", () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
+    process.env.CENTRAL_DATABASE_URL ??= "postgres://postgres@127.0.0.1:1/nonexistent";
+    process.env.DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM ??=
+      generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
+    process.env.DEVICE_TRUST_OPERATIONAL_KEY_ID ??= "DEVICE-TRUST-BOOTSTRAP-TEST";
+    process.env.DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM ??=
+      generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
     app = await createApi();
     await app.init();
     await app.getHttpAdapter().getInstance().ready();

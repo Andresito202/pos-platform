@@ -32,6 +32,9 @@ importers:
       '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pos-platform/device-trust':
+        specifier: workspace:*
+        version: link:../../packages/device-trust
       pg:
         specifier: 8.23.0
         version: 8.23.0
@@ -41,6 +44,9 @@ importers:
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: 22.20.1

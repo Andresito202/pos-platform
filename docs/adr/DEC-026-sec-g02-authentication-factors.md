@@ -404,13 +404,71 @@ prueba cada una. Queda en `pnpm test:migrations:postgres`, que CI ejecuta con
 001 no concede `UPDATE (verifier)`— y queda para el tramo de cambio de
 contraseña. Tampoco hay emisión de SSA ni SAS, ni access token.
 
+### 13.8 Ruta HTTP del login — hecha, end-to-end real
+
+Cierra la brecha de §13.7: `POST /v1/auth/device/challenge` y
+`POST /v1/auth/login` en `apps/api/src/authentication/{auth.controller,
+auth.module,auth.dto,device-login-verification,device-registry-reader,
+device-challenge-store,in-memory-clock-guard}.ts`.
+
+**El `tenant_id` sale del equipo, no del cliente**, exactamente como exigía
+§13.7: el flujo es (1) el equipo pide un desafío dando sólo su `device_id`;
+(2) el servidor busca ese `device_id` en `identity.device_registry` (el
+registro real de la migración 004, sin invocar nada de
+`apps/central-authority` — importar de otra app violaría límites de módulo,
+así que `DeviceRegistryReader` repite el mismo `SELECT` de sólo lectura); (3)
+el desafío que se emite lleva el `tenant_id`/`installation_id` **que dice el
+registro**, nunca uno que el cliente pudiera declarar; (4) el equipo firma
+ese desafío con su clave privada; (5) `DeviceTrustVerifier.verifyProof`
+(`packages/device-trust`, ya existía, sin tocar) verifica la firma contra el
+binding que vino del registro — un sobre fabricado con otro `tenant_id` no
+encuentra clave que lo firme para ESE binding, y uno reciclado de otro equipo
+falla por `CREDENTIAL_BINDING_MISMATCH`; (6) sólo entonces se llama a
+`TenantLoginService.login({tenantId, ...})` con el usuario y la contraseña.
+
+**Dos decisiones tomadas aquí mismo, no pedidas antes, documentadas como
+tales:**
+
+- **Desafíos de prueba de equipo, en memoria** (`DeviceChallengeStore`): un
+  desafío usado no debería sobrevivir a un reinicio ni compartirse entre
+  réplicas, y una tabla en PostgreSQL lo daría; se eligió memoria porque hoy
+  hay un solo proceso de `apps/api` y ninguna alta disponibilidad que lo
+  contradiga. Si eso cambia, se sustituye por una tabla sin cambiar el
+  contrato (`issue`/`consume`).
+- **Reloj monótono también en memoria** (`InMemoryClockGuard`), con la misma
+  tolerancia de 5 minutos que `TrustedClockGuard` local (`DEC-012` §19.4),
+  por la misma razón y la misma limitación.
+
+Ambas quedan explícitas en el código y aquí, no escondidas, y son
+reversibles sin romper el contrato de la clase que las usa.
+
+**Evidencia, 2026-09-26, PostgreSQL 16.13 local:**
+`apps/api/tests/device-login.postgres.test.ts` **6/6**, por HTTP real
+(`Fastify.inject`, sin abrir puerto): equipo desconocido sin desafío; login
+completo con firma de equipo real y contraseña real, sesión verificada en
+`identity.sessions`; un desafío no se puede reutilizar; una prueba firmada
+con una clave de equipo distinta se rechaza; una contraseña equivocada se
+rechaza **después** de que el equipo ya verificó, no antes; un cuerpo mal
+formado responde `400` sin tocar la base de datos. Mutación verificada:
+quitar el borrado de un solo uso del desafío hace fallar exactamente esa
+prueba y ninguna otra. `apps/api` completo (32 sin Postgres + 13 con
+Postgres) y los gates de todo el monorepo (`typecheck`, `architecture:check`,
+`ci:governance`, `ci:repository-policy`) en verde.
+
+**No resuelto:** emisión de SSA/SAS para operación offline, access token de
+10 min (`A-10` sólo entrega hoy sesión + refresh), y el login de roles de
+administración —se rechaza con `MFA_REQUIRED` porque el TOTP no existe.
+
 ## 14. Qué sigue abierto
 
-- Las diez decisiones de política están ratificadas. **El tramo de §13.2 está
-  `TESTED`; nada más.** No hay endpoint de login, ni persistencia, ni emisión
-  de SSA. `SEC-G02` sigue `PLANNED / NOT_EVALUATED`.
-- `G-1`–`G-8` tienen decisión (§13.4) pero no implementación. `G-9` sigue
-  abierta.
+- Las diez decisiones de política están ratificadas. El cajero y el
+  supervisor tienen login real, `END_TO_END` hasta la sesión persistida
+  (§13.8): `TESTED` en este entorno, contra PostgreSQL local, no
+  `PRODUCTION_READY` — ninguna instancia central está desplegada. `SEC-G02`
+  sigue `PLANNED / NOT_EVALUATED` en conjunto: falta el login de
+  administración (TOTP) y falta emitir SSA/SAS para operar offline.
+- `G-1`–`G-8` tienen decisión (§13.4) e implementación (§13.5, §13.6, §13.8).
+  `G-9` sigue abierta.
 - `central-authority` no compila en modo estricto por errores anteriores a
   este cambio, y ninguna puerta lo detecta: `D-41`.
 
