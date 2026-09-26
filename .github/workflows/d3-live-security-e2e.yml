@@ -114,6 +114,11 @@ jobs:
           POSTGRES_EXPECTED_DATABASE: postgres
           REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
         run: pnpm --filter @pos-platform/target-migrations postgres:004:apply
+      - name: Apply PostgreSQL 005 (DEC-026 identity login)
+        env:
+          POSTGRES_EXPECTED_DATABASE: postgres
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
+        run: pnpm --filter @pos-platform/target-migrations postgres:005:apply
       - name: Generate ephemeral TLS and issuer keys
         run: |
           set -euo pipefail

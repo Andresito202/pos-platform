@@ -308,6 +308,41 @@ El propietario eligió, en sesión, la opción recomendada en cada una:
 
 `G-9` (fuente de la lista de contraseñas filtradas) **sigue abierta**.
 
+### 13.5 Migración PostgreSQL 005 — escrita y probada
+
+`tools/target-migrations/sql/postgres/005_identity_login.{up,down}.sql`, con
+descriptor, runner y CLI propios siguiendo el protocolo de la 004. Sólo
+PostgreSQL: la identidad es `CENTRAL_ONLY` y SQLite no recibe credenciales
+(`foundation-schema.md`).
+
+| Brecha | Cómo la cierra el esquema |
+|---|---|
+| `G-1` | `users.email` admite `NULL`; `users_email_pair_ck` impide medio correo |
+| `G-2` | `identity.user_login_names`, único por comercio entre los activos, atado a la **membresía** con dos claves compuestas: no se puede dar un nombre de usuario en un comercio donde la persona no es miembro |
+| `G-3` | `user_credentials.must_change_at_next_login` |
+| `G-4` | `user_credentials.last_failed_at`; `user_credentials_failure_time_ck` exige la hora si hay fallos |
+| `G-5` | se sustituyen `sessions_device_deferred_ck` y `security_events_device_deferred_ck` por claves foráneas a `identity.device_registry` (004) |
+| `G-6` | `identity.mfa_recovery_codes`, sólo hash, estados de un solo uso |
+
+Permisos: sólo `pos_platform_app`, por columna; `pos_app`, `pos_worker` y
+`pos_platform_admin` sin acceso a las tablas nuevas.
+
+**Evidencia, 2026-09-26, PostgreSQL 16.13 local:**
+`tests/postgres-005-identity-login.test.ts` **11/11**. Aplica 001 y 002 con sus
+runners y 004/005 como `pos_schema_owner`. Tres mutaciones (quitar
+`users_email_pair_ck`, quitar la clave usuario–membresía, quitar la clave de
+equipo en sesiones) hacen fallar la prueba cada una. La reversión se niega
+mientras haya datos que 001 no admite (usuario sin correo, sesión con equipo)
+y, sin ellos, devuelve las restricciones de 001. `pnpm test:postgres` completo:
+165 pasan; los 2 ficheros de la 003 que fallan también fallan **antes** de este
+cambio, porque su preparación de roles exige exactamente 16.14
+(`postgres-003-role-readiness.ts:226`).
+
+**Lo que no está probado aquí:** el **runner** de la 005, que exige el ledger
+completo con 003 y PostgreSQL 16.14 exacto (igual que la 004). Queda como paso
+del workflow `d3-live-security-e2e` tras la 004; su ejecución en CI no se ha
+observado. Ninguna base de datos desplegada tiene la 005.
+
 ## 14. Qué sigue abierto
 
 - Las diez decisiones de política están ratificadas. **El tramo de §13.2 está
