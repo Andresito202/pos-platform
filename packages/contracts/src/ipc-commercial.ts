@@ -1764,6 +1764,25 @@ export const InventoryLotTraceResultSchema = z.strictObject({
    * pantalla lo muestre deja ver de un vistazo si falta algo por explicar.
    */
   quantity_received: NonNegativeScale6Schema.nullable(),
+  /**
+   * La paca de la que salió este lote, si salió de abrir una (`MIGRATION_029`).
+   * Un retiro que empieza por las unidades tiene que poder subir a la tanda.
+   */
+  origin_lot: z.strictObject({
+    presentation_id: UuidSchema,
+    lot_code: z.string().min(1).max(64),
+  }).nullable(),
+  /**
+   * Los lotes de unidades que salieron de abrir este. Un retiro que empieza
+   * por la paca tiene que bajar a ellos: sus ventas no están en `outflows`
+   * de la paca, sino en el rastro de cada uno.
+   */
+  derived_lots: z.array(z.strictObject({
+    presentation_id: UuidSchema,
+    lot_code: z.string().min(1).max(64),
+    quantity_on_hand: NonNegativeScale6Schema,
+    status: z.enum(["ACTIVE", "BLOCKED", "CONSUMED"]),
+  })).max(100),
   /** En orden de ocurrencia. `sale_id` es `null` en merma, ajuste, traslado y apertura. */
   outflows: z.array(z.strictObject({
     movement_type: z.enum([

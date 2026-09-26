@@ -133,9 +133,12 @@ es peor que no facturar.
   pantalla de venta—. Eso es decisión del comercio, no del software.
 - **La factura puede nombrar a otro adquiriente** (`D-40`). El rastro sigue al
   cliente de la venta, no al de la factura.
-- **Las unidades de una paca abierta no heredan su lote.** Abrir la paca baja
-  del lote de la paca, pero las unidades que salen entran sin lote. El rastro
-  llega hasta la paca, no hasta la unidad vendida.
+- **Abrir una paca: las unidades heredan su tanda** (desde el 2026-09-26,
+  `MIGRATION_029`), con el mismo código y las mismas fechas, y el rastro va de
+  la paca a sus unidades y de vuelta. Dos casos entran **sin lote**, a
+  propósito: si en las unidades ya existe ese código recibido por otra vía
+  —fusionarlos mezclaría dos tandas— y si el reparto entre dos tandas no da
+  exacto. Los dos son medibles: existencia menos suma de lotes.
 - **Un ajuste positivo no suma a un lote.** Sumar a una tanda es recibirla,
   con sus fechas (`inventory.lot.receive`). Una corrección de conteo hacia
   arriba entra sin lote.
@@ -148,6 +151,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | Las unidades de una paca abierta heredan su tanda; el rastro y «Compradores del lote» bajan de la paca a sus unidades. |
 | 2026-09-26 | Del lote a la persona: el recibo dice qué cliente nombró la venta, y «Compradores del lote» da la lista de un retiro con contacto, anónimos contados y lo ilegible declarado. |
 | 2026-09-26 | Rastro de lote (`inventory.lot.trace`) y pantalla «Lotes y vencimientos»: recibir, ver en orden FEFO y rastrear hasta el recibo. |
 | 2026-09-26 | Merma, ajuste negativo, traslado y apertura de paca también bajan del lote. La merma por vencimiento exige el lote. El código de lote pasa a ser único **por sucursal** (`MIGRATION_028`): antes, recibir la misma tanda en dos sucursales sumaba a la de la otra. |

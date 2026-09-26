@@ -2202,6 +2202,37 @@ CREATE UNIQUE INDEX inventory_lot_code_idx
   ON inventory_lot(tenant_id, branch_id, presentation_id, lot_code);
 `.trim();
 
+/**
+ * De qué lote viene un lote: la paca abierta y sus unidades.
+ *
+ * ## Para qué
+ *
+ * Abrir una paca de la tanda `L-0924` baja del lote de la paca, y las doce
+ * unidades que salen **son** de esa tanda. Sin este enlace entraban sin lote y
+ * el rastro de un retiro sanitario se cortaba en la paca: se sabía que se
+ * abrió, no a quién se vendieron sus unidades.
+ *
+ * El lote de las unidades lleva el mismo código y las mismas fechas, y además
+ * `origin_lot_id` apunta al lote de la paca. Con eso el rastro va en los dos
+ * sentidos: de la paca a sus unidades y de las unidades a su paca.
+ *
+ * ## Por qué sin `REFERENCES`
+ *
+ * La misma razón que `MIGRATION_019`: `ADD COLUMN` sólo admite una FK de una
+ * columna, y la PK de `inventory_lot` es `(tenant_id, id)` —una FK simple a
+ * `id` se acepta al crearla y falla con `foreign key mismatch` la primera vez
+ * que se usa—. Reconstruir la tabla no es opción: `inventory_lot_allocation`
+ * la referencia. La integridad la sostiene el único escritor, que sólo pone
+ * aquí el `id` de un lote que acaba de leer en la misma transacción.
+ */
+const MIGRATION_029 = `
+ALTER TABLE inventory_lot
+  ADD COLUMN origin_lot_id TEXT
+  CHECK(origin_lot_id IS NULL OR length(origin_lot_id) = 36);
+CREATE INDEX inventory_lot_origin_idx
+  ON inventory_lot(tenant_id, origin_lot_id) WHERE origin_lot_id IS NOT NULL;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2231,6 +2262,7 @@ const MIGRATIONS = [
   { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
+  { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
 ] as const;
 
 /**

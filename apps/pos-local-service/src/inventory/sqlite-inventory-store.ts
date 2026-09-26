@@ -227,6 +227,15 @@ export interface LotTrace {
     readonly status: "ACTIVE" | "BLOCKED" | "CONSUMED";
   };
   readonly quantityReceived: string;
+  /** El lote de la paca de la que salió este, si salió de una. */
+  readonly originLot: { readonly presentationId: string; readonly lotCode: string } | null;
+  /** Los lotes de unidades que salieron de abrir este. */
+  readonly derivedLots: readonly {
+    readonly presentationId: string;
+    readonly lotCode: string;
+    readonly quantityOnHand: string;
+    readonly status: "ACTIVE" | "BLOCKED" | "CONSUMED";
+  }[];
   readonly outflows: readonly {
     readonly movementType: "SALE" | "SHRINKAGE" | "ADJUSTMENT_NEGATIVE" | "TRANSFER_OUT" | "CONVERSION_OUT";
     readonly quantity: string;
@@ -565,12 +574,12 @@ export class SqliteInventoryStore {
       if (out.kind !== "POSTED" && out.kind !== "IDEMPOTENT") return out;
       // Abrir una paca es una salida de la paca: sale de sus lotes por FEFO,
       // igual que una venta. Sólo al publicarse, nunca al repetirse.
-      if (out.kind === "POSTED") {
-        this.allocateFefo(
+      const pieces = out.kind === "POSTED"
+        ? this.allocateFefo(
           input.scope, input.sourcePresentationId, input.businessDate, input.sourceQuantity,
           outMovementId, null,
-        );
-      }
+        )
+        : [];
 
       const entry = this.appendMovement({
         scope: input.scope,
@@ -590,6 +599,11 @@ export class SqliteInventoryStore {
         causationId: input.causationId,
       });
       if (entry.kind !== "POSTED" && entry.kind !== "IDEMPOTENT") return entry;
+      if (entry.kind === "POSTED") {
+        this.inheritLots(
+          input.scope, pieces, input.targetPresentationId, input.sourceQuantity, input.targetQuantity,
+        );
+      }
 
       // Repetir la conversión entera devuelve `IDEMPOTENT`; que una mitad ya
       // estuviera y la otra no es un estado que la transacción impide.
@@ -634,7 +648,7 @@ export class SqliteInventoryStore {
   private allocateFefo(
     scope: SyncScope, presentationId: string, businessDate: string, quantity: string,
     movementId: string, saleId: string | null,
-  ): void {
+  ): readonly { readonly lotId: string; readonly taken: bigint }[] {
     const lots = this.database.native.prepare(
       `SELECT id, quantity_on_hand FROM inventory_lot
         WHERE tenant_id=? AND branch_id=? AND presentation_id=?
@@ -644,15 +658,98 @@ export class SqliteInventoryStore {
     ).all(
       scope.tenantId, scope.branchId, presentationId, businessDate,
     ) as { id: string; quantity_on_hand: string }[];
-    if (lots.length === 0) return;
 
+    const pieces: { lotId: string; taken: bigint }[] = [];
     let remaining = scale6ToBigInt(quantity);
     for (const lot of lots) {
       if (remaining === 0n) break;
       const available = scale6ToBigInt(lot.quantity_on_hand);
       const taken = available < remaining ? available : remaining;
       this.takeFromLot(scope.tenantId, lot.id, available, taken, movementId, saleId);
+      pieces.push({ lotId: lot.id, taken });
       remaining -= taken;
+    }
+    return pieces;
+  }
+
+  /**
+   * Las unidades de una paca abierta heredan el lote de la paca.
+   *
+   * Por cada lote del que salió la paca, las unidades entran en un lote de la
+   * presentación destino con **el mismo código y las mismas fechas**, y
+   * `origin_lot_id` apuntando al de la paca (`MIGRATION_029`). La cuota de
+   * cada lote es `tomado × destino / origen`: la misma proporción que la
+   * conversión entera, sin volver a leer el factor del catálogo.
+   *
+   * **Lo que no se puede heredar con verdad entra sin lote**, igual que la
+   * existencia que nunca lo tuvo:
+   *
+   * - si la cuota de un lote no da exacta en escala 6 —el total sí lo da, lo
+   *   comprueba el caso de uso, pero un reparto entre dos tandas puede no—;
+   * - si en la presentación destino ya existe ese código **con otro origen**:
+   *   fusionar dos tandas bajo un mismo código es justo lo que haría ambiguo
+   *   un retiro, y el índice único impide crear una segunda.
+   *
+   * Lo que entra sin lote es medible: existencia de la presentación menos la
+   * suma de sus lotes.
+   */
+  private inheritLots(
+    scope: SyncScope,
+    pieces: readonly { readonly lotId: string; readonly taken: bigint }[],
+    targetPresentationId: string,
+    sourceQuantity: string,
+    targetQuantity: string,
+  ): void {
+    const source6 = scale6ToBigInt(sourceQuantity);
+    const target6 = scale6ToBigInt(targetQuantity);
+    const at = this.now().toISOString();
+
+    for (const piece of pieces) {
+      const numerator = piece.taken * target6;
+      if (numerator % source6 !== 0n) continue;
+      const share = numerator / source6;
+      if (share === 0n) continue;
+
+      const origin = this.database.native.prepare(
+        `SELECT lot_code, received_date, manufactured_date, expiry_date
+           FROM inventory_lot WHERE tenant_id=? AND id=?`,
+      ).get(scope.tenantId, piece.lotId) as {
+        lot_code: string; received_date: string;
+        manufactured_date: string | null; expiry_date: string | null;
+      };
+
+      const existing = this.database.native.prepare(
+        `SELECT id, quantity_on_hand, origin_lot_id FROM inventory_lot
+          WHERE tenant_id=? AND branch_id=? AND presentation_id=? AND lot_code=?`,
+      ).get(scope.tenantId, scope.branchId, targetPresentationId, origin.lot_code) as {
+        id: string; quantity_on_hand: string; origin_lot_id: string | null;
+      } | undefined;
+
+      if (existing === undefined) {
+        this.database.native.prepare(
+          `INSERT INTO inventory_lot(
+            id, tenant_id, company_id, branch_id, presentation_id, lot_code,
+            received_date, manufactured_date, expiry_date,
+            quantity_on_hand, quantity_reserved, status, origin_lot_id, created_at, updated_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,'0.000000','ACTIVE',?,?,?)`,
+        ).run(
+          uuidV7(), scope.tenantId, scope.companyId, scope.branchId, targetPresentationId,
+          origin.lot_code, origin.received_date, origin.manufactured_date, origin.expiry_date,
+          bigIntToScale6(share), piece.lotId, at, at,
+        );
+        continue;
+      }
+      if (existing.origin_lot_id !== piece.lotId) continue;
+
+      // Otra paca de la misma tanda: suma al lote de unidades que ya salió de
+      // ella, y lo reactiva si se había agotado.
+      this.database.native.prepare(
+        `UPDATE inventory_lot SET quantity_on_hand=?, status='ACTIVE', updated_at=?
+          WHERE tenant_id=? AND id=?`,
+      ).run(
+        bigIntToScale6(scale6ToBigInt(existing.quantity_on_hand) + share), at,
+        scope.tenantId, existing.id,
+      );
     }
   }
 
@@ -887,14 +984,26 @@ export class SqliteInventoryStore {
     tenantId: string, branchId: string, presentationId: string, lotCode: string, limit: number,
   ): LotTrace | null {
     const lot = this.database.native.prepare(
-      `SELECT id, lot_code, received_date, manufactured_date, expiry_date, quantity_on_hand, status
+      `SELECT id, lot_code, received_date, manufactured_date, expiry_date, quantity_on_hand, status,
+              origin_lot_id
          FROM inventory_lot
         WHERE tenant_id=? AND branch_id=? AND presentation_id=? AND lot_code=?`,
     ).get(tenantId, branchId, presentationId, lotCode) as {
       id: string; lot_code: string; received_date: string; manufactured_date: string | null;
       expiry_date: string | null; quantity_on_hand: string; status: string;
+      origin_lot_id: string | null;
     } | undefined;
     if (lot === undefined) return null;
+
+    const origin = lot.origin_lot_id === null ? undefined : this.database.native.prepare(
+      "SELECT presentation_id, lot_code FROM inventory_lot WHERE tenant_id=? AND id=?",
+    ).get(tenantId, lot.origin_lot_id) as { presentation_id: string; lot_code: string } | undefined;
+    const derived = this.database.native.prepare(
+      `SELECT presentation_id, lot_code, quantity_on_hand, status FROM inventory_lot
+        WHERE tenant_id=? AND origin_lot_id=? ORDER BY presentation_id, lot_code`,
+    ).all(tenantId, lot.id) as {
+      presentation_id: string; lot_code: string; quantity_on_hand: string; status: string;
+    }[];
 
     const all = this.database.native.prepare(
       "SELECT quantity FROM inventory_lot_allocation WHERE tenant_id=? AND lot_id=?",
@@ -925,6 +1034,15 @@ export class SqliteInventoryStore {
         status: lot.status as LotTrace["lot"]["status"],
       },
       quantityReceived: bigIntToScale6(scale6ToBigInt(lot.quantity_on_hand) + taken),
+      originLot: origin === undefined
+        ? null
+        : { presentationId: origin.presentation_id, lotCode: origin.lot_code },
+      derivedLots: derived.map((row) => ({
+        presentationId: row.presentation_id,
+        lotCode: row.lot_code,
+        quantityOnHand: row.quantity_on_hand,
+        status: row.status as LotTrace["lot"]["status"],
+      })),
       outflows: rows.slice(0, limit).map((row) => ({
         movementType: row.movement_type,
         quantity: row.quantity,

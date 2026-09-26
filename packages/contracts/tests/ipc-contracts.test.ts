@@ -614,7 +614,8 @@ describe("inventory.lot.trace", () => {
   // Un rastro que no dice si está cortado deja a un retiro sin saber que le faltan ventas.
   it("el resultado exige declarar si está truncado", () => {
     const found = {
-      outcome: "NOT_FOUND", lot: null, quantity_received: null, outflows: [],
+      outcome: "NOT_FOUND", lot: null, quantity_received: null,
+      origin_lot: null, derived_lots: [], outflows: [],
     };
     expect(InventoryLotTraceResultSchema.safeParse(found).success).toBe(false);
     expect(InventoryLotTraceResultSchema.safeParse({ ...found, truncated: false }).success).toBe(true);

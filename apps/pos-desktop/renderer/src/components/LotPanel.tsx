@@ -48,6 +48,16 @@ export function LotPanel(): React.JSX.Element {
   const saleIds = (lots.trace?.outflows ?? [])
     .map((outflow) => outflow.sale_id)
     .filter((id): id is string => id !== null);
+  const derived = lots.trace?.derived_lots ?? [];
+
+  // Saltar a otro lote del rastro —la paca de origen o un lote de unidades—
+  // deja los campos con lo que se está mirando, para no rastrear una cosa
+  // mostrando otra.
+  const follow = (nextPresentation: string, nextCode: string): void => {
+    setPresentationId(nextPresentation);
+    setLotCode(nextCode);
+    void lots.traceLot(nextPresentation, nextCode);
+  };
   // El comprador se muestra sólo si es el de la venta abierta: abrir otra
   // venta no puede dejar a la vista el comprador de la anterior.
   const shownBuyer = buyer.found !== null
@@ -178,6 +188,44 @@ export function LotPanel(): React.JSX.Element {
             {" · queda "}
             <span data-testid="lot-trace-on-hand">{lots.trace.lot.quantity_on_hand}</span>
           </div>
+          {/* De dónde viene: las unidades de una paca abierta llevan su tanda. */}
+          {lots.trace.origin_lot !== null && (
+            <div data-testid="lot-trace-origin">
+              Viene de abrir{" "}
+              <span data-testid="lot-trace-origin-code">{lots.trace.origin_lot.lot_code}</span>
+              {" "}
+              <button
+                data-testid="lot-trace-follow-origin"
+                onClick={() => {
+                  if (lots.trace?.origin_lot) {
+                    follow(lots.trace.origin_lot.presentation_id, lots.trace.origin_lot.lot_code);
+                  }
+                }}
+                disabled={busy}
+              >
+                Rastrear origen
+              </button>
+            </div>
+          )}
+          {/* Adónde fue al abrirse: las ventas sueltas están en esos lotes. */}
+          {derived.length > 0 && (
+            <ul data-testid="lot-trace-derived">
+              {derived.map((lot) => (
+                <li key={`${lot.presentation_id}/${lot.lot_code}`} data-testid="lot-trace-derived-lot">
+                  Abierto en unidades · queda{" "}
+                  <span data-testid="lot-trace-derived-quantity">{lot.quantity_on_hand}</span>
+                  {" "}
+                  <button
+                    data-testid="lot-trace-follow-derived"
+                    onClick={() => { follow(lot.presentation_id, lot.lot_code); }}
+                    disabled={busy}
+                  >
+                    Rastrear unidades
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {/* Un rastro cortado se dice: si no, un retiro dejaría ventas fuera sin saberlo. */}
           {lots.trace.truncated && (
             <div data-testid="lot-trace-truncated">Hay más salidas de las que se muestran</div>
@@ -248,10 +296,11 @@ export function LotPanel(): React.JSX.Element {
       {/* La lista de un retiro: todos los compradores identificados de la
           tanda, las ventas anónimas contadas aparte y lo que no se pudo leer
           con su código. Nada se descarta en silencio. */}
-      {lots.trace !== null && saleIds.length > 0 && (
+      {lots.trace !== null && lots.trace.outcome === "FOUND"
+        && (saleIds.length > 0 || derived.length > 0) && (
         <button
           data-testid="lot-buyers-button"
-          onClick={() => { void buyers.collect(saleIds); }}
+          onClick={() => { if (lots.trace) void buyers.collect(lots.trace); }}
           disabled={busy}
         >
           Compradores del lote
@@ -276,11 +325,23 @@ export function LotPanel(): React.JSX.Element {
             Ventas de mostrador sin comprador:{" "}
             <span data-testid="lot-buyers-anonymous">{String(buyers.anonymousSales)}</span>
           </div>
+          {buyers.derivedLots > 0 && (
+            <div>
+              Incluye las ventas de{" "}
+              <span data-testid="lot-buyers-derived">{String(buyers.derivedLots)}</span>
+              {" "}lote(s) de unidades abiertas de esta tanda
+            </div>
+          )}
+          {buyers.truncated && (
+            <div data-testid="lot-buyers-truncated">
+              Algún rastro venía cortado: esta lista puede no estar completa
+            </div>
+          )}
           {buyers.failures.length > 0 && (
             <ul data-testid="lot-buyers-failures">
               {buyers.failures.map((failure) => (
-                <li key={failure.saleId} data-testid="lot-buyers-failure">
-                  {failure.saleId}: {failure.code}
+                <li key={failure.subject} data-testid="lot-buyers-failure">
+                  {failure.subject}: {failure.code}
                 </li>
               ))}
             </ul>

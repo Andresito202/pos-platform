@@ -36,6 +36,8 @@ const TRACE = {
       quantity_on_hand: "6.000000", status: "ACTIVE",
     },
     quantity_received: "10.000000",
+    origin_lot: null,
+    derived_lots: [],
     outflows: [
       outflow(SALE_ANA), outflow(SALE_BETO), outflow(SALE_MOSTRADOR), outflow(SALE_PERDIDA),
     ],
@@ -140,5 +142,73 @@ describe("LotPanel — del lote a los compradores", () => {
     fireEvent.click(open[2]!);
     await waitFor(() => { expect(screen.getByTestId("lot-trace-sale-anonymous")).toBeTruthy(); });
     expect(screen.queryByTestId("lot-trace-buyer")).toBeNull();
+  });
+});
+
+/**
+ * La paca abierta: sus ventas sueltas están en los lotes de unidades que
+ * salieron de ella, no en su propio rastro. «Compradores del lote» baja a
+ * ellos; y un lote derivado cuyo rastro no llega se lista, no se salta.
+ */
+describe("LotPanel — el retiro de una paca baja a sus unidades", () => {
+  const UNITS = "11111111-1111-4111-8111-11111111aaaa";
+  const SIXPACK = "11111111-1111-4111-8111-11111111bbbb";
+  const lot = {
+    lot_id: "44444444-4444-4444-8444-444444444445", lot_code: "L-1",
+    received_date: "2026-09-20", manufactured_date: null, expiry_date: "2026-12-31",
+    quantity_on_hand: "0.000000", status: "CONSUMED",
+  };
+  const found = (outflows: unknown[], derived: unknown[], origin: unknown = null) => ({
+    status: "SUCCEEDED", result_code: "FOUND",
+    result: {
+      outcome: "FOUND", lot, quantity_received: "2.000000", origin_lot: origin,
+      derived_lots: derived, outflows, truncated: false,
+    },
+  });
+  const derivedLot = (presentationId: string) => ({
+    presentation_id: presentationId, lot_code: "L-1", quantity_on_hand: "0.000000", status: "CONSUMED",
+  });
+  const TRACES: Record<string, unknown> = {
+    // La paca no se vendió entera: sólo se abrió.
+    [PRESENTATION]: found([{
+      movement_type: "CONVERSION_OUT", quantity: "2.000000", sale_id: null,
+      reason_code: "BREAK_PACK", business_date: "2026-09-22", occurred_at: "2026-09-22T09:00:00.000Z",
+    }], [derivedLot(UNITS), derivedLot(SIXPACK)]),
+    [UNITS]: found([outflow(SALE_ANA)], [], { presentation_id: PRESENTATION, lot_code: "L-1" }),
+    [SIXPACK]: { status: "REJECTED", result_code: "UNAUTHORIZED", result: { outcome: "UNAUTHORIZED" } },
+  };
+
+  beforeEach(() => {
+    install();
+    const service = (window as unknown as { posService: Record<string, (r: unknown) => Promise<unknown>> }).posService;
+    service["inventory.lot.trace"] = (request) =>
+      Promise.resolve(TRACES[(request as Envelope).payload["presentation_id"] ?? ""]);
+  });
+
+  it("reúne a los compradores de los lotes de unidades y lista el lote que no pudo leer", async () => {
+    render(<LotPanel />);
+    await traceLot();
+    expect(screen.getAllByTestId("lot-trace-derived-lot")).toHaveLength(2);
+    expect(screen.queryAllByTestId("lot-trace-open-sale")).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("lot-buyers-button"));
+    await waitFor(() => { expect(screen.getByTestId("lot-buyers")).toBeTruthy(); });
+    expect(screen.getAllByTestId("lot-buyer-name").map((cell) => cell.textContent)).toEqual(["Ana Compradora"]);
+    expect(screen.getByTestId("lot-buyers-derived").textContent).toBe("2");
+    expect(screen.getAllByTestId("lot-buyers-failure").map((item) => item.textContent)).toEqual([
+      "lote L-1: UNAUTHORIZED",
+    ]);
+  });
+
+  it("desde un lote de unidades se sube a la paca de origen", async () => {
+    render(<LotPanel />);
+    await traceLot();
+    fireEvent.click(screen.getAllByTestId("lot-trace-follow-derived")[0]!);
+    await waitFor(() => { expect(screen.getByTestId("lot-trace-origin-code").textContent).toBe("L-1"); });
+    expect((screen.getByTestId("lot-presentation-input") as HTMLInputElement).value).toBe(UNITS);
+
+    fireEvent.click(screen.getByTestId("lot-trace-follow-origin"));
+    await waitFor(() => { expect(screen.getAllByTestId("lot-trace-derived-lot")).toHaveLength(2); });
+    expect((screen.getByTestId("lot-presentation-input") as HTMLInputElement).value).toBe(PRESENTATION);
   });
 });

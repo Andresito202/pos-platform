@@ -1456,7 +1456,9 @@ export class CommercialRequestHandler {
     request: Extract<CommercialRequest, { message_type: "inventory.lot.trace" }>,
     connectionId: string,
   ): unknown {
-    const empty = { lot: null, quantity_received: null, outflows: [], truncated: false };
+    const empty = {
+      lot: null, quantity_received: null, origin_lot: null, derived_lots: [], outflows: [], truncated: false,
+    };
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
@@ -1483,6 +1485,15 @@ export class CommercialRequestHandler {
         status: result.lot.status,
       },
       quantity_received: result.quantityReceived,
+      origin_lot: result.originLot === null
+        ? null
+        : { presentation_id: result.originLot.presentationId, lot_code: result.originLot.lotCode },
+      derived_lots: result.derivedLots.map((derived) => ({
+        presentation_id: derived.presentationId,
+        lot_code: derived.lotCode,
+        quantity_on_hand: derived.quantityOnHand,
+        status: derived.status,
+      })),
       outflows: result.outflows.map((outflow) => ({
         movement_type: outflow.movementType,
         quantity: outflow.quantity,

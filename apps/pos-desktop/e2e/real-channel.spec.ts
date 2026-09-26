@@ -689,9 +689,18 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
   await expect(page.getByTestId("conversion-declare-outcome"))
     .toHaveText("DECLARED", { timeout: 15_000 });
 
-  // Tres pacas en existencia, ninguna unidad todavía.
+  // Tres pacas en existencia, ninguna unidad todavía: una llega con lote
+  // —la tanda GAS-L1, declarada desde la pantalla de lotes— y dos sin él.
+  await page.getByTestId("lot-presentation-input").fill(packPresentationId!);
+  await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await page.getByTestId("lot-code-input").fill("GAS-L1");
+  await page.getByTestId("lot-quantity-input").fill("1");
+  await page.getByTestId("lot-expiry-input").fill("2099-12-31");
+  await page.getByTestId("lot-receive-button").click();
+  await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
+
   await page.getByTestId("inventory-presentation-input").fill(packPresentationId!);
-  await page.getByTestId("receive-quantity-input").fill("3");
+  await page.getByTestId("receive-quantity-input").fill("2");
   await page.getByTestId("receive-reason-input").fill("PURCHASE");
   await page.getByTestId("receive-stock-button").click();
   await expect(page.getByTestId("movement-quantity-after"))
@@ -706,6 +715,26 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
   expect(await page.getByTestId("conversion-source-after").textContent()).toBe("2.000000");
   expect(await page.getByTestId("conversion-target-after").textContent()).toBe("12.000000");
   expect(await page.getByTestId("inventory-error").count()).toBe(0);
+
+  // --- La paca abierta era de la tanda GAS-L1: sus 12 unidades también -----
+  //
+  // FEFO abrió la paca con lote. El rastro de la tanda baja a las unidades, y
+  // desde las unidades se sube otra vez a la paca: el retiro de GAS-L1 no se
+  // corta al abrir el paquete.
+  await page.getByTestId("lot-code-input").fill("GAS-L1");
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Apertura"]);
+  expect(await page.getByTestId("lot-trace-derived-quantity").allTextContents()).toEqual(["12.000000"]);
+
+  await page.getByTestId("lot-trace-follow-derived").click();
+  await expect(page.getByTestId("lot-trace-origin-code")).toHaveText("GAS-L1", { timeout: 15_000 });
+  expect(await page.getByTestId("lot-presentation-input").inputValue()).toBe(unitPresentationId);
+  expect(await page.getByTestId("lot-trace-received").textContent()).toBe("12.000000");
+
+  await page.getByTestId("lot-trace-follow-origin").click();
+  await expect(page.getByTestId("lot-trace-derived-lot")).toHaveCount(1, { timeout: 15_000 });
+  expect(await page.getByTestId("lot-presentation-input").inputValue()).toBe(packPresentationId);
 });
 
 /**

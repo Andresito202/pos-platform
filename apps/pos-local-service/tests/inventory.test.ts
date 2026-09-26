@@ -550,3 +550,54 @@ describe("rastro de lote: permiso, sucursal y tope", () => {
     expect(whole?.outflows).toHaveLength(3);
   });
 });
+
+describe("herencia de lote al abrir una paca: lo que no da exacto no se inventa", () => {
+  /**
+   * El caso de uso comprueba que el TOTAL convertido sea exacto; un reparto
+   * entre dos tandas puede no serlo. 0,000003 + 0,999997 de origen con factor
+   * 0,5 dan cuotas de 0,0000015 y 0,4999985: ninguna cabe en escala 6. No se
+   * redondea para fabricar un lote: esas unidades entran sin lote.
+   */
+  it("si la cuota de un lote no da exacta en escala 6, esas unidades entran sin lote", async () => {
+    const { store, database, presentationId } = await buildEnv();
+    const catalogStore = new SqliteCatalogStore(database, new DurableSyncStore(database), () => NOW);
+    const target = new RegisterProductUseCase(catalogStore).execute(SCOPE, SESSION, auth(), {
+      code: "ARROZ-MEDIA", name: "Arroz media libra", stockControlled: true,
+      presentationName: "Media libra", unitCode: "LBR", unitPrecision: 6,
+      barcode: "7709876543227", priceAmount: "1600.000000", currencyCode: "COP",
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    if (target.kind !== "REGISTERED") throw new Error(`fixture failed: ${target.kind}`);
+
+    for (const [lotCode, quantity, expiry] of [
+      ["L-A", "0.000003", "2026-09-30"],
+      ["L-B", "0.999997", "2026-12-31"],
+    ] as const) {
+      const r = store.receiveLot({
+        scope: SCOPE, sessionId: SESSION, operatorUserId: USER, presentationId, lotCode, quantity,
+        manufacturedDate: null, expiryDate: expiry, reasonCode: "SUPPLIER_DELIVERY",
+        businessDate: "2026-09-07", idempotencyKey: key(), requestChecksum: "9".repeat(64),
+        correlationId: CORRELATION, causationId: null,
+      });
+      expect(r.kind).toBe("RECEIVED");
+    }
+
+    const converted = store.applyConversion({
+      scope: SCOPE, sessionId: SESSION, operatorUserId: USER,
+      sourcePresentationId: presentationId, targetPresentationId: target.presentationId,
+      sourceQuantity: "1.000000", targetQuantity: "0.500000",
+      reasonCode: "BREAK_PACK", businessDate: "2026-09-07",
+      idempotencyKey: key(), requestChecksum: "8".repeat(64),
+      correlationId: CORRELATION, causationId: null,
+    });
+    expect(converted.kind).toBe("CONVERTED");
+
+    // Las dos tandas de origen se consumieron; en destino no hay lote inventado.
+    expect(database.native.prepare(
+      "SELECT COUNT(*) n FROM inventory_lot WHERE tenant_id=? AND presentation_id=?",
+    ).get(TENANT, target.presentationId)).toEqual({ n: 0 });
+    expect(database.native.prepare(
+      "SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id=? AND presentation_id=?",
+    ).get(TENANT, target.presentationId)).toEqual({ quantity_on_hand: "0.500000" });
+  });
+});

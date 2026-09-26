@@ -2095,6 +2095,104 @@ describe("la conversión abre una paca y la convierte en unidades", () => {
            JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
           WHERE m.movement_type='CONVERSION_OUT' AND a.sale_id IS NULL`,
       )).toBe(2);
+
+      // Las 36 unidades heredan su tanda: 2 pacas de PK-PRONTO son 24
+      // unidades de PK-PRONTO, y 1 de PK-TARDIA son 12. Con las mismas fechas,
+      // y la repetición IDEMPOTENT no hereda otra vez.
+      const unitLots = database.native.prepare(
+        `SELECT lot_code, quantity_on_hand, expiry_date, received_date, origin_lot_id
+           FROM inventory_lot WHERE presentation_id=? ORDER BY lot_code`,
+      ).all(ids.unitId) as {
+        lot_code: string; quantity_on_hand: string; expiry_date: string;
+        received_date: string; origin_lot_id: string;
+      }[];
+      const packLotId = (code: string): string => (database.native.prepare(
+        "SELECT id FROM inventory_lot WHERE presentation_id=? AND lot_code=?",
+      ).get(ids.packId, code) as { id: string }).id;
+      expect(unitLots).toEqual([
+        {
+          lot_code: "PK-PRONTO", quantity_on_hand: "24.000000", expiry_date: "2026-09-20",
+          received_date: "2026-09-01", origin_lot_id: packLotId("PK-PRONTO"),
+        },
+        {
+          lot_code: "PK-TARDIA", quantity_on_hand: "12.000000", expiry_date: "2026-10-30",
+          received_date: "2026-08-30", origin_lot_id: packLotId("PK-TARDIA"),
+        },
+      ]);
+
+      // Se venden 30 unidades: por FEFO, las 24 de PK-PRONTO y 6 de PK-TARDIA.
+      const venta = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "A", currency_code: "COP",
+        lines: [{ product_id: ids.productId, presentation_id: ids.unitId, quantity: "30.000000" }],
+      }, "cnvlot:venta"));
+      expect(venta.status).toBe("SUCCEEDED");
+      const saleId = venta.result["sale_id"] as string;
+      const pago = await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount: venta.result["payable_amount"], tendered_amount: null,
+      }, "cnvlot:pago"));
+      expect(pago.result["sale_completed"]).toBe(true);
+
+      // El retiro que empieza por la paca baja a sus unidades...
+      const pack = await send(reading("inventory.lot.trace", {
+        presentation_id: ids.packId, lot_code: "PK-PRONTO",
+      }));
+      expect(pack.result["origin_lot"]).toBeNull();
+      expect(pack.result["derived_lots"]).toEqual([{
+        presentation_id: ids.unitId, lot_code: "PK-PRONTO",
+        quantity_on_hand: "0.000000", status: "CONSUMED",
+      }]);
+      // ...y ahí están las ventas que la paca, por sí sola, no mostraba.
+      const units = await send(reading("inventory.lot.trace", {
+        presentation_id: ids.unitId, lot_code: "PK-PRONTO",
+      }));
+      expect(units.result["origin_lot"]).toEqual({ presentation_id: ids.packId, lot_code: "PK-PRONTO" });
+      expect((units.result["outflows"] as Record<string, unknown>[]).map(
+        (o) => [o["movement_type"], o["quantity"], o["sale_id"]],
+      )).toEqual([["SALE", "24.000000", saleId]]);
+      expect(units.result["quantity_received"]).toBe("24.000000");
+    });
+  }, 60_000);
+
+  /**
+   * Abrir otra paca de la misma tanda suma al lote de unidades que ya salió
+   * de ella. Pero si en las unidades ya existe ese código **con otro origen**,
+   * no se fusiona: dos tandas bajo un código harían ambiguo un retiro, y lo
+   * que no se puede heredar con verdad entra sin lote.
+   */
+  it("otra paca de la misma tanda suma a sus unidades; un código ajeno no se fusiona", async () => {
+    await withRealChannel(async (send, database) => {
+      const ids = await twoPresentations(send, database, "cnvsum");
+      expect((await declare(send, ids, "cnvsum:decl")).result["outcome"]).toBe("DECLARED");
+      const receiveLot = async (presentationId: string, code: string, quantity: string) => {
+        const r = await send(mutating("inventory.lot.receive", {
+          presentation_id: presentationId, lot_code: code, quantity,
+          manufactured_date: null, expiry_date: "2026-12-31",
+          reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-01",
+        }, `cnvsum:${presentationId}:${code}`));
+        expect(r.result["outcome"]).toBe("RECEIVED");
+      };
+      await receiveLot(ids.packId, "MISMA", "3.000000");
+      expect((await apply(send, ids, "1.000000", "cnvsum:1")).result["outcome"]).toBe("CONVERTED");
+      expect((await apply(send, ids, "1.000000", "cnvsum:2")).result["outcome"]).toBe("CONVERTED");
+      const unitLot = (code: string) => database.native.prepare(
+        "SELECT quantity_on_hand, origin_lot_id IS NOT NULL AS inherited FROM inventory_lot WHERE presentation_id=? AND lot_code=?",
+      ).get(ids.unitId, code);
+      expect(unitLot("MISMA")).toEqual({ quantity_on_hand: "24.000000", inherited: 1 });
+
+      // «AJENA» ya existe en las unidades, recibida directamente: otro origen.
+      await receiveLot(ids.unitId, "AJENA", "5.000000");
+      await receiveLot(ids.packId, "AJENA", "1.000000");
+      const before = stockOf(database, ids.unitId);
+      // FEFO de la paca: ambas vencen igual; sale «AJENA», que llegó el mismo día
+      // y ordena antes que «MISMA» por código.
+      expect((await apply(send, ids, "1.000000", "cnvsum:3")).result["outcome"]).toBe("CONVERTED");
+      expect(unitLot("AJENA")).toEqual({ quantity_on_hand: "5.000000", inherited: 0 });
+      // Las 12 unidades entraron al saldo, sin lote: medible, no escondido.
+      expect(stockOf(database, ids.unitId)).toBe(
+        `${String(Number(before.split(".")[0]) + 12)}.000000`,
+      );
     });
   }, 60_000);
 
