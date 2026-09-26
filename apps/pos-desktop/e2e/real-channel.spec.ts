@@ -360,6 +360,13 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   await page.getByTestId("lot-trace-open-sale").click();
   await expect(page.getByTestId("lot-trace-sale-document"))
     .toHaveText(`${String(truth["document_series"])}-${String(truth["sale_number"])}`, { timeout: 15_000 });
+  // Venta de mostrador: no nombró comprador, y la pantalla lo dice.
+  await expect(page.getByTestId("lot-trace-sale-anonymous")).toBeVisible();
+  expect(await page.getByTestId("lot-trace-sale-customer").count()).toBe(0);
+  await page.getByTestId("lot-buyers-button").click();
+  await expect(page.getByTestId("lot-buyers-anonymous")).toHaveText("1", { timeout: 15_000 });
+  expect(await page.getByTestId("lot-buyer").count()).toBe(0);
+  expect(await page.getByTestId("lot-buyers-failure").count()).toBe(0);
 
   // ── 7 · Los dos desenlaces que no son un recibo ────────────────────────────
 
@@ -748,6 +755,34 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   expect(await page.getByTestId("credit-account-balance").textContent()).toBe("0.000000");
   expect(await page.getByTestId("credit-account-available").textContent()).toBe("50000.000000");
 
+  // --- 2b · Una tanda propia del cafe, que es la que esta venta se llevara --
+  //
+  // Vence antes que `CAFE-L1` del primer recorrido, asi que FEFO la elige sin
+  // depender de lo que hayan vendido las pruebas de en medio. El ID de la
+  // presentacion se prepara por el canal, como la preparacion del primer
+  // recorrido: la pantalla de venta no lo muestra.
+  const cafePresentation = await page.evaluate(async (barcode) => {
+    const posService = (globalThis as unknown as {
+      posService: Record<string, (request: unknown) => Promise<unknown>>;
+    }).posService;
+    const found = await posService["catalog.item.find"]!({
+      protocol_version: "1.0.0",
+      message_type: "catalog.item.find",
+      request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(),
+      payload_schema_version: "1.0.0",
+      payload: { barcode },
+    });
+    return (found as { result: { presentation_id: string } }).result.presentation_id;
+  }, BARCODE);
+  await page.getByTestId("lot-presentation-input").fill(cafePresentation);
+  await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await page.getByTestId("lot-code-input").fill("CAFE-FIADO");
+  await page.getByTestId("lot-quantity-input").fill("1");
+  await page.getByTestId("lot-expiry-input").fill("2098-12-31");
+  await page.getByTestId("lot-receive-button").click();
+  await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
+
   // --- 3 · La venta, a nombre del cliente ----------------------------------
   //
   // El adquiriente va en la creacion o no va: `SqlitePaymentStore.register`
@@ -775,6 +810,26 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   expect(await page.getByTestId("credit-charged-completed").textContent()).toBe("COMPLETED");
   expect(await page.getByTestId("credit-limit-exceeded").count()).toBe(0);
   expect(await page.getByTestId("credit-charge-rejected").count()).toBe(0);
+
+  // --- 4b · Del lote a la persona, desde la pantalla ------------------------
+  //
+  // Rastro → venta → comprador: lo que un retiro sanitario necesita para
+  // llamar a alguien. Cada salto lo da el contrato de su dueño.
+  await page.getByTestId("lot-code-input").fill("CAFE-FIADO");
+  await page.getByTestId("lot-trace-button").click();
+  await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Venta"]);
+  await page.getByTestId("lot-trace-open-sale").click();
+  await expect(page.getByTestId("lot-trace-sale-customer")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("lot-trace-sale-customer").click();
+  await expect(page.getByTestId("lot-trace-buyer-name")).toHaveText("Rosa Quintero", { timeout: 15_000 });
+  expect(await page.getByTestId("lot-trace-buyer-identification").textContent()).toBe(identification);
+
+  await page.getByTestId("lot-buyers-button").click();
+  await expect(page.getByTestId("lot-buyers")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("lot-buyer-name").allTextContents()).toEqual(["Rosa Quintero"]);
+  expect(await page.getByTestId("lot-buyers-anonymous").textContent()).toBe("0");
+  expect(await page.getByTestId("lot-buyers-failure").count()).toBe(0);
 
   // Y deja deuda: el saldo es el importe fiado y el cupo baja en la misma cifra.
   await page.getByTestId("read-credit-account-button").click();

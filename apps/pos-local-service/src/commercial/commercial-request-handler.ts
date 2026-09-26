@@ -1539,7 +1539,7 @@ export class CommercialRequestHandler {
     connectionId: string,
   ): unknown {
     const empty = {
-      sale_id: null, document_series: null, sale_number: null, currency_code: null,
+      sale_id: null, document_series: null, sale_number: null, customer_id: null, currency_code: null,
       business_date: null, completed_at: null, lines: null, subtotal_amount: null,
       discount_amount: null, tax_amount: null, fiscal_total_amount: null,
       commercial_rounding_adjustment: null, payable_amount: null, payments: null,
@@ -1565,6 +1565,7 @@ export class CommercialRequestHandler {
       sale_id: receipt.saleId,
       document_series: receipt.documentSeries,
       sale_number: receipt.saleNumber,
+      customer_id: receipt.customerId,
       currency_code: receipt.currencyCode,
       business_date: receipt.businessDate,
       completed_at: receipt.completedAt,

@@ -38,6 +38,7 @@ const RECEIPT = {
     sale_id: SALE,
     document_series: "POS1",
     sale_number: 7,
+    customer_id: null,
     currency_code: "COP",
     business_date: "2026-09-03",
     completed_at: "2026-09-03T12:00:00.000Z",
@@ -119,7 +120,7 @@ describe("ReceiptPanel", () => {
   });
 
   it("distingue una venta que no existe de una que no está cobrada", async () => {
-    install({ status: "REJECTED", result_code: "NOT_FOUND", result: { outcome: "NOT_FOUND", sale_id: null, document_series: null, sale_number: null, currency_code: null, business_date: null, completed_at: null, lines: null, subtotal_amount: null, discount_amount: null, tax_amount: null, fiscal_total_amount: null, commercial_rounding_adjustment: null, payable_amount: null, payments: null, calculation_checksum: null } });
+    install({ status: "REJECTED", result_code: "NOT_FOUND", result: { outcome: "NOT_FOUND", sale_id: null, document_series: null, sale_number: null, customer_id: null, currency_code: null, business_date: null, completed_at: null, lines: null, subtotal_amount: null, discount_amount: null, tax_amount: null, fiscal_total_amount: null, commercial_rounding_adjustment: null, payable_amount: null, payments: null, calculation_checksum: null } });
     const view = render(<ReceiptPanel />);
     ask(SALE);
     await waitFor(() => { expect(screen.getByTestId("receipt-not-found")).toBeTruthy(); });
@@ -127,7 +128,7 @@ describe("ReceiptPanel", () => {
     expect(screen.queryByTestId("receipt-not-completed")).toBeNull();
     view.unmount();
 
-    install({ status: "REJECTED", result_code: "NOT_COMPLETED", result: { outcome: "NOT_COMPLETED", sale_id: null, document_series: null, sale_number: null, currency_code: null, business_date: null, completed_at: null, lines: null, subtotal_amount: null, discount_amount: null, tax_amount: null, fiscal_total_amount: null, commercial_rounding_adjustment: null, payable_amount: null, payments: null, calculation_checksum: null } });
+    install({ status: "REJECTED", result_code: "NOT_COMPLETED", result: { outcome: "NOT_COMPLETED", sale_id: null, document_series: null, sale_number: null, customer_id: null, currency_code: null, business_date: null, completed_at: null, lines: null, subtotal_amount: null, discount_amount: null, tax_amount: null, fiscal_total_amount: null, commercial_rounding_adjustment: null, payable_amount: null, payments: null, calculation_checksum: null } });
     render(<ReceiptPanel />);
     ask(SALE);
     await waitFor(() => { expect(screen.getByTestId("receipt-not-completed")).toBeTruthy(); });

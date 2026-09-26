@@ -15,7 +15,8 @@ import type { Receipt, ReceiptLine, ReceiptPayment } from "./receipt.js";
  */
 
 interface SaleRow {
-  id: string; document_series: string; sale_number: number; currency_code: string;
+  id: string; document_series: string; sale_number: number; customer_id: string | null;
+  currency_code: string;
   business_date: string; completed_at: string | null; status: string;
   subtotal_amount: string; discount_amount: string; tax_amount: string;
   fiscal_total_amount: string; commercial_rounding_adjustment: string;
@@ -46,7 +47,7 @@ export class SqliteReceiptStore {
    */
   getReceipt(scope: SyncScope, saleId: string): Receipt | null {
     const sale = this.database.native.prepare(
-      `SELECT id, document_series, sale_number, currency_code, business_date, completed_at,
+      `SELECT id, document_series, sale_number, customer_id, currency_code, business_date, completed_at,
               status, subtotal_amount, discount_amount, tax_amount, fiscal_total_amount,
               commercial_rounding_adjustment, payable_amount, calculation_checksum
          FROM sales_sales
@@ -82,6 +83,7 @@ export class SqliteReceiptStore {
       saleId: sale.id,
       documentSeries: sale.document_series,
       saleNumber: sale.sale_number,
+      customerId: sale.customer_id,
       currencyCode: sale.currency_code,
       businessDate: sale.business_date,
       completedAt: sale.completed_at,

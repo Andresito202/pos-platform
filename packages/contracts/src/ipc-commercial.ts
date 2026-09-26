@@ -1859,6 +1859,13 @@ export const SalesReceiptGetResultSchema = z.strictObject({
   sale_id: UuidSchema.nullable(),
   document_series: z.string().min(1).nullable(),
   sale_number: z.number().int().positive().nullable(),
+  /**
+   * El comprador que la venta nombró, o `null` si fue de mostrador. Sólo el
+   * identificador: nombre y contacto son datos de `Customers` y se piden con
+   * `customer.get`, bajo su propio permiso. Es lo que permite a un retiro
+   * sanitario ir del lote a la venta y de la venta a la persona.
+   */
+  customer_id: UuidSchema.nullable(),
   currency_code: z.string().length(3).nullable(),
   business_date: z.string().nullable(),
   completed_at: z.string().nullable(),

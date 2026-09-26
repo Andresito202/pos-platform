@@ -126,12 +126,13 @@ es peor que no facturar.
 - **Compras y proveedores.** No existe `Supplier` ni documento de compra: se
   puede dar entrada a mercancía, pero **no reconciliarla contra la factura del
   proveedor**, porque no hay modelo de costo.
-- **El rastro llega a la venta, no al comprador.** «Qué ventas se llevaron
-  el lote X» existe y tiene pantalla; «a qué personas» no: el comprador es
-  dato de ventas y clientes, y una venta de mostrador anónima no tiene
-  comprador que devolver. Para avisar a los compradores hay que abrir cada
-  venta —la pantalla lo hace con su recibo— y el recibo tampoco nombra al
-  cliente.
+- **La venta de mostrador no tiene comprador.** «Compradores del lote» da
+  nombre, teléfono y correo de quien la venta nombró; las ventas anónimas se
+  cuentan, pero no hay a quién llamar. Si el comercio quiere poder avisar en un
+  retiro, tiene que nombrar al cliente al vender —el campo existe en la
+  pantalla de venta—. Eso es decisión del comercio, no del software.
+- **La factura puede nombrar a otro adquiriente** (`D-40`). El rastro sigue al
+  cliente de la venta, no al de la factura.
 - **Las unidades de una paca abierta no heredan su lote.** Abrir la paca baja
   del lote de la paca, pero las unidades que salen entran sin lote. El rastro
   llega hasta la paca, no hasta la unidad vendida.
@@ -147,6 +148,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | Del lote a la persona: el recibo dice qué cliente nombró la venta, y «Compradores del lote» da la lista de un retiro con contacto, anónimos contados y lo ilegible declarado. |
 | 2026-09-26 | Rastro de lote (`inventory.lot.trace`) y pantalla «Lotes y vencimientos»: recibir, ver en orden FEFO y rastrear hasta el recibo. |
 | 2026-09-26 | Merma, ajuste negativo, traslado y apertura de paca también bajan del lote. La merma por vencimiento exige el lote. El código de lote pasa a ser único **por sucursal** (`MIGRATION_028`): antes, recibir la misma tanda en dos sucursales sumaba a la de la otra. |
 | 2026-09-26 | La venta consume lotes por FEFO y deja rastro (`MIGRATION_027`). Se sustituye «consumo de lotes por venta» por lo que de verdad sigue faltando en lotes. |

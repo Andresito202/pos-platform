@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useLots } from "../hooks/useLots.js";
 import { useReceipt } from "../hooks/useReceipt.js";
+import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
+import { useLotBuyers } from "../hooks/useLotBuyers.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -22,14 +24,16 @@ const OUTFLOW_LABEL: Readonly<Record<string, string>> = {
  * qué vence antes; y, si el proveedor avisa de un problema, se rastrea a qué
  * ventas fue.
  *
- * El rastro devuelve la venta, no al comprador: quién compró es dato de
- * ventas. Cada venta se abre con su recibo, que es el contrato de su dueño.
- * Una venta de mostrador anónima no tiene comprador que mostrar, y la
- * pantalla no finge que lo tiene.
+ * El rastro devuelve la venta; el recibo, el cliente que la venta nombró; y
+ * `customer.get`, su nombre y contacto. Cada salto lo da el contrato de su
+ * dueño. Una venta de mostrador no tiene comprador que mostrar, y la pantalla
+ * lo dice en vez de dejar el hueco.
  */
 export function LotPanel(): React.JSX.Element {
   const lots = useLots();
   const receipt = useReceipt();
+  const buyer = useCustomerDirectory();
+  const buyers = useLotBuyers();
   const [presentationId, setPresentationId] = useState("");
   const [businessDate, setBusinessDate] = useState(today());
   const [lotCode, setLotCode] = useState("");
@@ -40,7 +44,17 @@ export function LotPanel(): React.JSX.Element {
 
   const target = presentationId.trim();
   const code = lotCode.trim();
-  const busy = lots.busy || receipt.busy;
+  const busy = lots.busy || receipt.busy || buyer.busy || buyers.busy;
+  const saleIds = (lots.trace?.outflows ?? [])
+    .map((outflow) => outflow.sale_id)
+    .filter((id): id is string => id !== null);
+  // El comprador se muestra sólo si es el de la venta abierta: abrir otra
+  // venta no puede dejar a la vista el comprador de la anterior.
+  const shownBuyer = buyer.found !== null
+    && receipt.receipt !== null
+    && buyer.found.customer_id === receipt.receipt.customer_id
+    ? buyer.found
+    : null;
 
   return (
     <section data-testid="lot-panel">
@@ -203,14 +217,82 @@ export function LotPanel(): React.JSX.Element {
           </span>
           {" · "}
           <span>{receipt.receipt.business_date}</span>
+          {receipt.receipt.customer_id === null ? (
+            <div data-testid="lot-trace-sale-anonymous">Venta de mostrador, sin comprador identificado</div>
+          ) : (
+            <button
+              data-testid="lot-trace-sale-customer"
+              onClick={() => { void buyer.get(receipt.receipt?.customer_id ?? ""); }}
+              disabled={busy}
+            >
+              Ver comprador
+            </button>
+          )}
+        </div>
+      )}
+      {shownBuyer !== null && (
+        <div data-testid="lot-trace-buyer">
+          <span data-testid="lot-trace-buyer-name">{shownBuyer.names ?? shownBuyer.company}</span>
+          {" · "}
+          <span data-testid="lot-trace-buyer-identification">{shownBuyer.identification}</span>
+          {" · "}
+          <span data-testid="lot-trace-buyer-phone">{shownBuyer.phone ?? "sin teléfono"}</span>
+          {" · "}
+          <span data-testid="lot-trace-buyer-email">{shownBuyer.email ?? "sin correo"}</span>
+        </div>
+      )}
+      {buyer.found !== null && buyer.found.outcome !== "FOUND" && (
+        <div data-testid="lot-trace-buyer-outcome">{buyer.found.outcome}</div>
+      )}
+
+      {/* La lista de un retiro: todos los compradores identificados de la
+          tanda, las ventas anónimas contadas aparte y lo que no se pudo leer
+          con su código. Nada se descarta en silencio. */}
+      {lots.trace !== null && saleIds.length > 0 && (
+        <button
+          data-testid="lot-buyers-button"
+          onClick={() => { void buyers.collect(saleIds); }}
+          disabled={busy}
+        >
+          Compradores del lote
+        </button>
+      )}
+      {buyers.buyers !== null && (
+        <div data-testid="lot-buyers">
+          <table>
+            <tbody>
+              {buyers.buyers.map((entry) => (
+                <tr key={entry.customer.customer_id ?? ""} data-testid="lot-buyer">
+                  <td data-testid="lot-buyer-name">{entry.customer.names ?? entry.customer.company}</td>
+                  <td>{entry.customer.identification}</td>
+                  <td data-testid="lot-buyer-phone">{entry.customer.phone ?? "sin teléfono"}</td>
+                  <td>{entry.customer.email ?? "sin correo"}</td>
+                  <td data-testid="lot-buyer-sales">{String(entry.saleIds.length)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div>
+            Ventas de mostrador sin comprador:{" "}
+            <span data-testid="lot-buyers-anonymous">{String(buyers.anonymousSales)}</span>
+          </div>
+          {buyers.failures.length > 0 && (
+            <ul data-testid="lot-buyers-failures">
+              {buyers.failures.map((failure) => (
+                <li key={failure.saleId} data-testid="lot-buyers-failure">
+                  {failure.saleId}: {failure.code}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {receipt.outcome !== null && receipt.outcome !== "FOUND" && (
         <div data-testid="lot-trace-sale-outcome">{receipt.outcome}</div>
       )}
 
-      {(lots.error ?? receipt.error) !== null && (
-        <div data-testid="lot-error">{lots.error ?? receipt.error}</div>
+      {(lots.error ?? receipt.error ?? buyer.error) !== null && (
+        <div data-testid="lot-error">{lots.error ?? receipt.error ?? buyer.error}</div>
       )}
     </section>
   );

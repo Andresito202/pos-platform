@@ -56,6 +56,13 @@ export interface Receipt {
   /** Consecutivo del documento: único por sucursal y serie. */
   readonly documentSeries: string;
   readonly saleNumber: number;
+  /**
+   * Quién compró, si la venta lo nombró (`MIGRATION_019`). Es la columna de la
+   * venta, no una lectura de `Customers`: el nombre y el contacto los da
+   * `customer.get`, con el permiso de su dueño. `null` es venta de mostrador
+   * anónima, y así se dice.
+   */
+  readonly customerId: string | null;
   readonly currencyCode: string;
   readonly businessDate: string;
   readonly completedAt: string;

@@ -2741,8 +2741,10 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
   async function sellAndPay(
     send: (request: unknown) => Promise<ChannelResponse>,
     ids: { productId: string; presentationId: string }, grams: string, key: string,
+    customerId?: string,
   ): Promise<{ saleId: string; paymentKey: string; amount: string }> {
     const venta = await send(mutating("sale.create", {
+      ...(customerId === undefined ? {} : { customer_id: customerId }),
       cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-22",
       timezone_id: "America/Bogota", utc_offset_minutes: -300,
       document_series: "A", currency_code: "COP",
@@ -2945,6 +2947,56 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
           expect(receipt.result["outcome"]).toBe("FOUND");
           expect(receipt.result["sale_number"]).toEqual(expect.any(Number));
         }
+      });
+    }, 60_000);
+
+    /**
+     * Del lote a la persona, en tres saltos y tres dueños: el rastro (Inventario)
+     * da la venta, el recibo (Ventas) da el cliente que la venta nombró, y
+     * `customer.get` (Clientes) da nombre y contacto. Ninguno lee tablas de otro.
+     * La venta de mostrador llega hasta la venta y ahí se detiene: no tiene
+     * comprador, y el recibo lo dice con `null`, no con un hueco.
+     */
+    it("lleva del lote al comprador que la venta nombró, y la venta anónima lo dice", async () => {
+      await withRealChannel(async (send, database) => {
+        const ids = await counter(send, database, "comprador");
+        await lot(send, ids.presentationId, "CP-L1", "1000.000000", "2026-12-31", "2026-09-22");
+        const cliente = await send(mutating("customer.register", {
+          identification_document_code: "13", identification: "52123456",
+          verification_digit: null, legal_organization_code: "2",
+          company: null, names: "Ana Compradora", tribute_code: "ZZ",
+          fiscal_responsibility_codes: ["R-99-PN"],
+          email: "ana@example.com", phone: "3001234567",
+          address: null, country_code: null, municipality_code: null,
+        }, "comprador:cliente"));
+        expect(cliente.result["outcome"]).toBe("REGISTERED");
+        const customerId = cliente.result["customer_id"] as string;
+
+        const nominada = await sellAndPay(send, ids, "300.000000", "comprador:1", customerId);
+        const anonima = await sellAndPay(send, ids, "200.000000", "comprador:2");
+
+        const trace = await send(reading("inventory.lot.trace", {
+          presentation_id: ids.presentationId, lot_code: "CP-L1",
+        }));
+        const sales = (trace.result["outflows"] as Record<string, unknown>[]).map((o) => o["sale_id"]);
+        expect(sales).toEqual([nominada.saleId, anonima.saleId]);
+
+        const r1 = await send(reading("sales.receipt.get", { sale_id: nominada.saleId }));
+        expect(r1.result["customer_id"]).toBe(customerId);
+        // Lo que dice el recibo es lo que quedó escrito en la venta.
+        expect(database.native.prepare(
+          "SELECT customer_id FROM sales_sales WHERE id=?",
+        ).get(nominada.saleId)).toEqual({ customer_id: customerId });
+
+        const persona = await send(reading("customer.get", { customer_id: customerId }));
+        expect(persona.result["outcome"]).toBe("FOUND");
+        expect(persona.result["names"]).toBe("Ana Compradora");
+        expect(persona.result["phone"]).toBe("3001234567");
+        expect(persona.result["email"]).toBe("ana@example.com");
+
+        const r2 = await send(reading("sales.receipt.get", { sale_id: anonima.saleId }));
+        expect(r2.result["outcome"]).toBe("FOUND");
+        expect(r2.result["customer_id"]).toBeNull();
       });
     }, 60_000);
 

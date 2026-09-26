@@ -37,7 +37,7 @@ siguiera faltando una autoridad central.
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` |
 | **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · la venta descuenta al completarse |
-| **Interfaz de caja** | ✅ | **35 de las 38 operaciones del contrato tienen pantalla**, repartidas en 13 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
+| **Interfaz de caja** | ✅ | **35 de las 38 operaciones del contrato tienen pantalla**, repartidas en 14 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers`, alcanzables por el canal y desde la pantalla |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
@@ -167,7 +167,7 @@ contrato, no por lectura de documentos.
 | lotes | ✅ | `inventory_lot` (`MIGRATION_026`); recibir, listar en orden FEFO y rastrear **con pantalla** («Lotes y vencimientos»). Toda salida baja del lote: venta y apertura de paca por FEFO; merma, ajuste negativo y traslado del lote que se nombre en la pantalla de ajuste, o por FEFO. Código único por sucursal (`MIGRATION_028`). Quedan fuera: las unidades de una paca abierta no heredan su lote, y un ajuste positivo no suma a una tanda |
 | vencimientos | ⚠️ | `expiry_date` por lote; `VALID`/`EXPIRED` derivados; la venta **no elige un lote vencido** (FEFO sobre vigentes). La merma por vencimiento sale **del lote vencido que se nombra** y sin lote se rechaza. `NEAR_EXPIRY` sin umbral decidido |
 | despiece · transformación | ❌ | sin tabla ni movimiento |
-| trazabilidad de producto | ⚠️ | Lote → ventas y mermas, con pantalla: `inventory.lot.trace` devuelve cada salida de la tanda y la pantalla abre cada venta con su recibo (`inventory_lot_allocation`, `MIGRATION_027`, append-only). **Llega a la venta, no al comprador**: ni el rastro ni el recibo nombran al cliente, y una venta de mostrador anónima no lo tiene. El rastro se corta en la paca abierta |
+| trazabilidad de producto | ⚠️ | Lote → ventas y mermas, con pantalla: `inventory.lot.trace` devuelve cada salida de la tanda y la pantalla abre cada venta con su recibo (`inventory_lot_allocation`, `MIGRATION_027`, append-only). Y de la venta **al comprador**: el recibo dice qué cliente nombró la venta y «Compradores del lote» da la lista de un retiro con teléfono y correo, las ventas anónimas contadas y lo ilegible declarado. La venta de mostrador no tiene comprador; la factura puede nombrar a otro (`D-40`). El rastro se corta en la paca abierta |
 | precios mayorista/minorista | ❌ | `catalog_price` admite **un** precio `ACTIVE` por presentación |
 | envase retornable | ❌ | sin modelo |
 | referencias · colores · tallas · variantes | ❌ | sin modelo |
