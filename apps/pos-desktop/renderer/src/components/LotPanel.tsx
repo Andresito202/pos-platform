@@ -159,6 +159,33 @@ export function LotPanel(): React.JSX.Element {
         Ver lotes
       </button>
 
+      {/* Las alertas de §Vencimientos regla 3. El estado lo deriva el servicio
+          y el umbral viaja en la respuesta; aquí sólo se cuentan las tandas
+          que todavía tienen existencia —una agotada no hay que venderla ni
+          botarla—. */}
+      {lots.listed !== null && (() => {
+        const withStock = lots.listed.lots.filter((lot) => lot.quantity_on_hand !== "0.000000");
+        const near = withStock.filter((lot) => lot.expiry_state === "NEAR_EXPIRY").length;
+        const expired = withStock.filter((lot) => lot.expiry_state === "EXPIRED").length;
+        return (
+          <>
+            {near > 0 && (
+              <div data-testid="lot-near-expiry-alert">
+                <span data-testid="lot-near-expiry-count">{String(near)}</span>
+                {" "}tanda(s) vencen en{" "}
+                <span data-testid="lot-near-expiry-days">{String(lots.listed.near_expiry_days)}</span>
+                {" "}días o menos: véndelas primero
+              </div>
+            )}
+            {expired > 0 && (
+              <div data-testid="lot-expired-alert">
+                <span data-testid="lot-expired-count">{String(expired)}</span>
+                {" "}tanda(s) vencidas con existencia: no se venden, sácalas por merma nombrando el lote
+              </div>
+            )}
+          </>
+        );
+      })()}
       {lots.listed !== null && (
         <table data-testid="lot-list">
           <tbody>

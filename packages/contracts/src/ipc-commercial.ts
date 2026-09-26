@@ -1665,17 +1665,30 @@ export const InventoryLotReceiveResponseSchema =
   createResponseEnvelopeSchema(InventoryLotReceiveResultSchema);
 
 /**
- * Estado de vencimiento **derivado**, nunca almacenado (`UC-INVENTORY-002`
- * §Vencimientos, regla 4: el vencimiento no elimina el lote).
+ * Umbral de «próximo a vencer», en días — **decisión del propietario del
+ * 2026-09-26**. Hasta ese día `NEAR_EXPIRY` no existía a propósito: exigía un
+ * número que nadie había decidido, y elegirlo aquí habría sido inventar la
+ * política en el contrato.
  *
- * **`NEAR_EXPIRY` no está aquí, y su ausencia es deliberada.** El caso de uso
- * lo lista como estado conceptual, pero «próximo a vencer» exige un umbral
- * —¿tres días, siete, treinta?— que es **política versionada y nadie la ha
- * decidido**. Elegir un número aquí sería inventar la política en el contrato,
- * que es donde más cuesta corregirla. `VALID` y `EXPIRED` se derivan de la
- * fecha del negocio sin decidir nada.
+ * Vive en un solo sitio y **viaja en la respuesta** (`near_expiry_days`): la
+ * pantalla lo muestra desde ahí y no lo escribe por su cuenta. Cambiarlo es
+ * cambiar esta constante, no buscar el 7 por el árbol.
  */
-export const LotExpiryStateSchema = z.enum(["NO_EXPIRY", "VALID", "EXPIRED"]);
+export const NEAR_EXPIRY_DAYS = 7;
+
+/**
+ * Estado de vencimiento **derivado**, nunca almacenado (`UC-INVENTORY-002`
+ * §Vencimientos, regla 4: el vencimiento no elimina el lote), contra la fecha
+ * del negocio:
+ *
+ * - `EXPIRED` — venció antes de hoy. Vence al final del día declarado.
+ * - `NEAR_EXPIRY` — vence hoy o en los próximos `NEAR_EXPIRY_DAYS` días,
+ *   ambos extremos incluidos (§Vencimientos regla 3: «puede generar alertas
+ *   operativas»). Se sigue vendiendo: FEFO ya lo pone primero.
+ * - `VALID` — vence después.
+ * - `NO_EXPIRY` — la tanda no declara vencimiento.
+ */
+export const LotExpiryStateSchema = z.enum(["NO_EXPIRY", "VALID", "NEAR_EXPIRY", "EXPIRED"]);
 
 export const InventoryLotListRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
@@ -1687,6 +1700,8 @@ export const InventoryLotListRequestSchema = createRequestEnvelopeSchema(
 
 export const InventoryLotListResultSchema = z.strictObject({
   outcome: z.enum(["LISTED", "UNAUTHORIZED", "PRESENTATION_NOT_FOUND"]),
+  /** El umbral con el que se derivó `NEAR_EXPIRY`: la pantalla lo muestra, no lo inventa. */
+  near_expiry_days: z.number().int().positive(),
   /**
    * En **orden FEFO**: primero lo que vence antes. Los lotes sin vencimiento
    * van al final, porque no compiten por salir primero. El orden lo decide el

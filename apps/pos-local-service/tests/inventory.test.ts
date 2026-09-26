@@ -13,6 +13,8 @@ import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js"
 import { AdjustStockUseCase } from "../src/inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
 import { TraceLotUseCase } from "../src/inventory/trace-lot-use-case.js";
+import { lotExpiryState } from "../src/inventory/receive-lot-use-case.js";
+import { NEAR_EXPIRY_DAYS } from "@pos-platform/contracts";
 import { scale6ToBigInt } from "../src/money.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
@@ -599,5 +601,39 @@ describe("herencia de lote al abrir una paca: lo que no da exacto no se inventa"
     expect(database.native.prepare(
       "SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id=? AND presentation_id=?",
     ).get(TENANT, target.presentationId)).toEqual({ quantity_on_hand: "0.500000" });
+  });
+});
+
+/**
+ * «Próximo a vencer»: 7 días, decisión del propietario del 2026-09-26. La
+ * frontera se fija exacta —el séptimo día cuenta, el octavo no— y también
+ * donde el calendario se complica: fin de mes, fin de año y febrero bisiesto.
+ */
+describe("estado de vencimiento: la frontera de NEAR_EXPIRY", () => {
+  it("el umbral por omisión es el del contrato, y el contrato dice 7", () => {
+    expect(NEAR_EXPIRY_DAYS).toBe(7);
+    expect(lotExpiryState("2026-09-29", "2026-09-22")).toBe("NEAR_EXPIRY");
+    expect(lotExpiryState("2026-09-30", "2026-09-22")).toBe("VALID");
+  });
+
+  it.each([
+    ["2026-09-21", "EXPIRED"],     // ayer
+    ["2026-09-22", "NEAR_EXPIRY"], // hoy: se vende hoy, y avisa
+    ["2026-09-29", "NEAR_EXPIRY"], // día 7: cuenta
+    ["2026-09-30", "VALID"],       // día 8: no
+  ])("con negocio el 2026-09-22, vencer el %s es %s", (expiry, state) => {
+    expect(lotExpiryState(expiry, "2026-09-22", 7)).toBe(state);
+  });
+
+  it("cruza fin de año y febrero bisiesto sin correrse un día", () => {
+    expect(lotExpiryState("2027-01-04", "2026-12-28", 7)).toBe("NEAR_EXPIRY");
+    expect(lotExpiryState("2027-01-05", "2026-12-28", 7)).toBe("VALID");
+    // 2028 es bisiesto: del 25 de febrero, 7 días son el 3 de marzo.
+    expect(lotExpiryState("2028-03-03", "2028-02-25", 7)).toBe("NEAR_EXPIRY");
+    expect(lotExpiryState("2028-03-04", "2028-02-25", 7)).toBe("VALID");
+  });
+
+  it("sin vencimiento declarado no es ninguno de los tres", () => {
+    expect(lotExpiryState(null, "2026-09-22", 7)).toBe("NO_EXPIRY");
   });
 });

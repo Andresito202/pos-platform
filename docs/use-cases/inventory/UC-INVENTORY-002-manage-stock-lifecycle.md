@@ -302,6 +302,9 @@ Reglas:
 1. FEFO prioriza el lote con vencimiento válido más próximo.
 2. Un lote vencido no se vende cuando la política lo prohíbe.
 3. `NEAR_EXPIRY` puede generar alertas operativas.
+   **Umbral vigente: 7 días** —vence hoy o en los siete días siguientes, ambos
+   extremos incluidos—. Decisión del propietario del 2026-09-26, materializada
+   en `NEAR_EXPIRY_DAYS` (`packages/contracts/src/ipc-commercial.ts`).
 4. El vencimiento no elimina automáticamente el lote.
 5. La baja de producto vencido se registra mediante merma o ajuste explícito.
 6. El estado derivado de vencimiento no sustituye los movimientos de inventario.

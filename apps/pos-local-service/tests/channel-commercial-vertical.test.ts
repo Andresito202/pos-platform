@@ -2562,7 +2562,10 @@ describe("lotes y vencimiento: declarar la tanda y ver que vence primero", () =>
       expect(lotes.map((l) => l.lot_code)).toEqual([
         "M-YA-VENCIDA", "Z-VENCE-PRONTO", "A-VENCE-TARDE",
       ]);
-      expect(lotes.map((l) => l.expiry_state)).toEqual(["EXPIRED", "VALID", "VALID"]);
+      // Z vence el 24 y hoy es 22: dentro de los 7 días de «próximo a vencer»
+      // (decisión del propietario del 2026-09-26; hasta ese día salía VALID).
+      expect(lotes.map((l) => l.expiry_state)).toEqual(["EXPIRED", "NEAR_EXPIRY", "VALID"]);
+      expect(lista.result["near_expiry_days"]).toBe(7);
     });
   }, 60_000);
 

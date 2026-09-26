@@ -213,3 +213,47 @@ describe("LotPanel — el retiro de una paca baja a sus unidades", () => {
     expect((screen.getByTestId("lot-presentation-input") as HTMLInputElement).value).toBe(PRESENTATION);
   });
 });
+
+/**
+ * Alertas de vencimiento (§Vencimientos regla 3). Sólo cuentan las tandas con
+ * existencia, y el umbral que se muestra es el que trae la respuesta: el doble
+ * responde 5 a propósito, para que una pantalla que escribiera «7» por su
+ * cuenta no pasara.
+ */
+describe("LotPanel — alertas de vencimiento", () => {
+  const row = (code: string, state: string, quantity: string) => ({
+    lot_id: `44444444-4444-4444-8444-4444444440${code.length}${code.charCodeAt(0) % 10}`,
+    lot_code: code, received_date: "2026-09-10", expiry_date: "2026-09-24",
+    quantity_on_hand: quantity, status: quantity === "0.000000" ? "CONSUMED" : "ACTIVE",
+    expiry_state: state,
+  });
+
+  beforeEach(() => {
+    install();
+    const service = (window as unknown as { posService: Record<string, (r: unknown) => Promise<unknown>> }).posService;
+    service["inventory.lot.list"] = () => Promise.resolve({
+      status: "SUCCEEDED", result_code: "LISTED",
+      result: {
+        outcome: "LISTED",
+        near_expiry_days: 5,
+        lots: [
+          row("VENCIDA", "EXPIRED", "3.000000"),
+          row("AGOTADA", "NEAR_EXPIRY", "0.000000"),
+          row("PRONTO", "NEAR_EXPIRY", "8.000000"),
+          row("TARDE", "VALID", "20.000000"),
+        ],
+      },
+    });
+  });
+
+  it("cuenta las tandas con existencia que vencen pronto y las vencidas, con el umbral del servicio", async () => {
+    render(<LotPanel />);
+    fireEvent.change(screen.getByTestId("lot-presentation-input"), { target: { value: PRESENTATION } });
+    fireEvent.click(screen.getByTestId("lot-list-button"));
+    await waitFor(() => { expect(screen.getByTestId("lot-list")).toBeTruthy(); });
+
+    expect(screen.getByTestId("lot-near-expiry-count").textContent).toBe("1");
+    expect(screen.getByTestId("lot-near-expiry-days").textContent).toBe("5");
+    expect(screen.getByTestId("lot-expired-count").textContent).toBe("1");
+  });
+});

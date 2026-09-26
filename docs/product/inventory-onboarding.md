@@ -90,7 +90,7 @@ como una compra que nadie hizo.
 |---|---|
 | Llega mercancía del proveedor | `inventory.stock.receive` (`PURCHASE_RECEIPT`) |
 | Llega mercancía con lote y vencimiento | `inventory.lot.receive` — pantalla «Lotes y vencimientos» |
-| Ver qué tanda vence primero | `inventory.lot.list` — misma pantalla, en orden FEFO |
+| Ver qué tanda vence primero | `inventory.lot.list` — misma pantalla, en orden FEFO; avisa las tandas que vencen en **7 días o menos** y las vencidas que quedan por sacar |
 | El proveedor avisa de una tanda defectuosa | `inventory.lot.trace` — misma pantalla: qué ventas y mermas se la llevaron, y cada venta se abre con su recibo |
 | Se rompió o se dañó | `inventory.stock.adjust` (`SHRINKAGE`); sale del lote que se nombre, o por FEFO si no se nombra |
 | Se venció | `inventory.stock.adjust` (`SHRINKAGE`, motivo `EXPIRED`) **con el lote vencido nombrado**: sin lote se rechaza (`LOT_REQUIRED`), porque la venta nunca elige un lote vencido y es la única vía por la que sale |
@@ -148,6 +148,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | «Próximo a vencer» = 7 días (decisión del propietario). La lista de lotes marca `NEAR_EXPIRY` y avisa. |
 | 2026-09-26 | El ajuste positivo suma a una tanda existente nombrándola, y el libro del lote registra también sus entradas (`MIGRATION_030`): el rastro muestra cada recepción, remesa, herencia y ajuste con su motivo. Una remesa sobre una tanda agotada la reactiva. |
 | 2026-09-26 | Las unidades de una paca abierta heredan su tanda; el rastro y «Compradores del lote» bajan de la paca a sus unidades. |
 | 2026-09-26 | Del lote a la persona: el recibo dice qué cliente nombró la venta, y «Compradores del lote» da la lista de un retiro con contacto, anónimos contados y lo ilegible declarado. |

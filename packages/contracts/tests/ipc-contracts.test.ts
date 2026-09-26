@@ -9,6 +9,9 @@ import {
   FiscalDocumentIssueRequestSchema,
   SaleCreateRequestSchema,
   InventoryLotTraceRequestSchema,
+  InventoryLotListResultSchema,
+  LotExpiryStateSchema,
+  NEAR_EXPIRY_DAYS,
   InventoryLotTraceResultSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
@@ -620,5 +623,23 @@ describe("inventory.lot.trace", () => {
     };
     expect(InventoryLotTraceResultSchema.safeParse(found).success).toBe(false);
     expect(InventoryLotTraceResultSchema.safeParse({ ...found, truncated: false }).success).toBe(true);
+  });
+});
+
+/**
+ * «Próximo a vencer» — decisión del propietario del 2026-09-26: 7 días. El
+ * estado existe en el contrato y el umbral viaja en la respuesta de la lista:
+ * una respuesta sin él no es válida.
+ */
+describe("NEAR_EXPIRY", () => {
+  it("el contrato conoce el estado y fija el umbral en 7 días", () => {
+    expect(LotExpiryStateSchema.options).toEqual(["NO_EXPIRY", "VALID", "NEAR_EXPIRY", "EXPIRED"]);
+    expect(NEAR_EXPIRY_DAYS).toBe(7);
+  });
+
+  it("la lista de lotes exige declarar el umbral con que derivó el estado", () => {
+    const listed = { outcome: "LISTED", lots: [] };
+    expect(InventoryLotListResultSchema.safeParse(listed).success).toBe(false);
+    expect(InventoryLotListResultSchema.safeParse({ ...listed, near_expiry_days: 7 }).success).toBe(true);
   });
 });

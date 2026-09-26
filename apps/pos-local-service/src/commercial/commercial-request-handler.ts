@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
+import { NEAR_EXPIRY_DAYS } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -1421,18 +1422,23 @@ export class CommercialRequestHandler {
   ): unknown {
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", lots: [] });
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", near_expiry_days: NEAR_EXPIRY_DAYS, lots: [],
+      });
     }
 
     const result = this.commercial.receiveLot.list(
       this.scope(), authenticated.snapshot, request.payload.presentation_id,
     );
     if (result.kind !== "LISTED") {
-      return rejected(request, result.kind, { outcome: result.kind, lots: [] });
+      return rejected(request, result.kind, {
+        outcome: result.kind, near_expiry_days: NEAR_EXPIRY_DAYS, lots: [],
+      });
     }
 
     return succeeded(request, "LISTED", {
       outcome: "LISTED",
+      near_expiry_days: NEAR_EXPIRY_DAYS,
       lots: result.lots.map((lot) => ({
         lot_id: lot.lotId,
         lot_code: lot.lotCode,

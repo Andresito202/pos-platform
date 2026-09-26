@@ -551,7 +551,8 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   await page.getByTestId("lot-business-date-input").fill("2026-09-22");
   for (const [lotCode, lotQuantity, expiry] of [
     ["PANELA-TARDE", "10", "2026-12-31"],
-    ["PANELA-PRONTO", "5", "2026-10-01"],
+    // Vence a 5 días de la fecha de negocio: dentro de los 7 de «próximo a vencer».
+    ["PANELA-PRONTO", "5", "2026-09-27"],
   ] as const) {
     await page.getByTestId("lot-code-input").fill(lotCode);
     await page.getByTestId("lot-quantity-input").fill(lotQuantity);
@@ -566,7 +567,12 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
     (rows) => rows.map((row) => row.getAttribute("data-testid")),
   );
   expect(listed).toEqual(["lot-row-PANELA-PRONTO", "lot-row-PANELA-TARDE"]);
-  expect(await page.getByTestId("lot-row-expiry-state-PANELA-PRONTO").textContent()).toBe("VALID");
+  expect(await page.getByTestId("lot-row-expiry-state-PANELA-PRONTO").textContent()).toBe("NEAR_EXPIRY");
+  expect(await page.getByTestId("lot-row-expiry-state-PANELA-TARDE").textContent()).toBe("VALID");
+  // El aviso lo da la pantalla con el umbral que devuelve el servicio.
+  expect(await page.getByTestId("lot-near-expiry-count").textContent()).toBe("1");
+  expect(await page.getByTestId("lot-near-expiry-days").textContent()).toBe("7");
+  expect(await page.getByTestId("lot-expired-alert").count()).toBe(0);
 
   // Merma de la tanda que se nombra, desde el panel de ajuste.
   await page.getByTestId("adjust-movement-select").selectOption("SHRINKAGE");

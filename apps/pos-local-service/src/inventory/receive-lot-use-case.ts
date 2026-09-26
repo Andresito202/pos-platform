@@ -5,6 +5,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
+import { NEAR_EXPIRY_DAYS, type LotExpiryState } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import { PERMISSION_INVENTORY_STOCK_RECEIVE } from "./receive-stock-use-case.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -46,20 +47,31 @@ export type ReceiveLotResult =
 /**
  * Estado de vencimiento **derivado** de la fecha del negocio.
  *
- * `NEAR_EXPIRY` no se calcula: exige un umbral —tres días, siete, treinta—
- * que es política versionada y **nadie la ha decidido**. Elegir un número aquí
- * sería inventar la política en el sitio donde menos se ve. Lo que sí se puede
- * afirmar sin decidir nada es si ya venció.
+ * El umbral de `NEAR_EXPIRY` es `NEAR_EXPIRY_DAYS` del contrato —decisión del
+ * propietario del 2026-09-26— y se recibe como argumento para que las pruebas
+ * fijen la frontera sin depender de la constante.
  */
 export function lotExpiryState(
   expiryDate: string | null,
   businessDate: string,
-): "NO_EXPIRY" | "VALID" | "EXPIRED" {
+  nearExpiryDays: number = NEAR_EXPIRY_DAYS,
+): LotExpiryState {
   if (expiryDate === null) return "NO_EXPIRY";
   // Comparación lexicográfica de dos `YYYY-MM-DD`: equivale a la cronológica
   // y no depende de husos. Vence AL FINAL del día declarado, de modo que un
   // lote con vencimiento hoy todavía se puede vender hoy.
-  return expiryDate < businessDate ? "EXPIRED" : "VALID";
+  if (expiryDate < businessDate) return "EXPIRED";
+  return expiryDate <= addCalendarDays(businessDate, nearExpiryDays) ? "NEAR_EXPIRY" : "VALID";
+}
+
+/**
+ * Suma días de calendario a una fecha `YYYY-MM-DD`. Se opera en UTC sobre la
+ * medianoche de la fecha: son días de calendario, no instantes, y así ningún
+ * cambio de hora ni huso mueve la frontera.
+ */
+function addCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 export class ReceiveLotUseCase {
