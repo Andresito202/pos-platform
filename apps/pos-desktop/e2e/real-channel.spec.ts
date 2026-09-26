@@ -1050,3 +1050,93 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   expect(await page.getByTestId("fiscal-retriable-outcome").textContent()).toBe("NOT_ELIGIBLE");
   expect(await page.getByTestId("fiscal-blocked").count()).toBe(0);
 });
+
+/**
+ * La carga inicial del catálogo, desde la ventana y contra el servicio real.
+ *
+ * Es la pantalla que convierte «se lo monto yo» en «el comerciante lo hace
+ * solo». Se conduce con lo que un comerciante entrega de verdad: **CSV de
+ * Excel en español, con `;`**, con una línea mala en medio.
+ *
+ * La prueba no se conforma con que la pantalla diga «cargado»: escanea lo
+ * cargado en la caja y comprueba que aparece con su nombre y su precio. Una
+ * pantalla que dijera «2 cargados» sin haber cargado nada pasaría cualquier
+ * prueba que sólo mirase su propio texto.
+ */
+test("el comerciante carga su catálogo pegando su hoja de Excel, y lo cargado se escanea en caja", async () => {
+  const page = await app.firstWindow();
+
+  // **Autosuficiente.** La sesión la vincula la primera prueba del fichero, y
+  // esta fallaba con `SESSION_NOT_BOUND` al ejecutarla sola: una prueba que
+  // sólo pasa si otra corrió antes no prueba lo que dice.
+  //
+  // Aislada, activar responde `ACTIVATED`. En la suite la SSA ya se aceptó, y
+  // reenviarla es un replay: lo rechaza el **verificador** —`SEQUENCE_REPLAY`—
+  // antes de llegar al almacén, y la conexión sigue vinculada desde la primera
+  // prueba. Se comprueba la decisión exacta y no «cualquier rechazo»: aceptar
+  // cualquiera dejaría pasar una firma inválida como si fuera un reenvío.
+  const activation = await page.evaluate(async (assertion) => {
+    const posService = (globalThis as unknown as {
+      posService: Record<string, (request: unknown) => Promise<unknown>>;
+    }).posService;
+    const response = await posService["session.activate"]!({
+      protocol_version: "1.0.0",
+      message_type: "session.activate",
+      request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(),
+      payload_schema_version: "1.0.0",
+      payload: { session_assertion: assertion },
+    });
+    const typed = response as { result_code: string; result: { decision: string | null } | null };
+    return `${typed.result_code}/${typed.result?.decision ?? "-"}`;
+  }, sessionAssertion);
+  expect(["ACTIVATED/-", "REJECTED/SEQUENCE_REPLAY"]).toContain(activation);
+  const suffix = randomUUID().slice(0, 6).toUpperCase();
+  const arrozBarcode = `77091${String(Date.now()).slice(-8)}`;
+  const aceiteBarcode = `77092${String(Date.now()).slice(-8)}`;
+
+  // Tal como lo exporta Excel en español: `;` y coma decimal. La línea 3 no
+  // tiene nombre, que es un error de captura real.
+  const hoja = [
+    "codigo;nombre;presentacion;unidad;decimales;codigo_barras;precio;existencia_inicial",
+    `ARROZ-${suffix};Arroz Diana 500 g;Bolsa;UND;0;${arrozBarcode};3200;40`,
+    `ROTA-${suffix};;Unidad;UND;0;;1000;`,
+    `ACEITE-${suffix};Aceite 1000 ml;Botella;UND;0;${aceiteBarcode};12500,5;`,
+  ].join("\n");
+
+  await page.getByTestId("catalog-import-text").fill(hoja);
+  await page.getByTestId("catalog-import-review").click();
+
+  // Revisar no envía nada: dice qué está listo y qué no, con la línea.
+  await expect(page.getByTestId("catalog-import-ready")).toHaveText("2 línea(s) lista(s)");
+  await expect(page.getByTestId("catalog-import-error-count"))
+    .toHaveText("1 línea(s) con error — se omiten al cargar");
+  await expect(page.getByTestId("catalog-import-errors")).toContainText("Línea 3: nombre vacío");
+
+  await page.getByTestId("catalog-import-submit").click();
+  await expect(page.getByTestId("catalog-import-imported"))
+    .toHaveText("2 cargado(s)", { timeout: 15_000 });
+  expect(await page.getByTestId("catalog-import-rejected").count()).toBe(0);
+  expect(await page.getByTestId("catalog-import-error").count()).toBe(0);
+
+  // **Lo cargado existe de verdad**: se escanea en la caja y aparece con su
+  // nombre y su precio, leídos del servicio.
+  await page.getByTestId("barcode-input").fill(arrozBarcode);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("found-item-name")).toHaveText("Arroz Diana 500 g", { timeout: 15_000 });
+  await expect(page.getByTestId("found-item-price")).toHaveText("3200.000000");
+
+  // La coma decimal de la hoja llegó como precio exacto, no truncado.
+  await page.getByTestId("barcode-input").fill(aceiteBarcode);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("found-item-name")).toHaveText("Aceite 1000 ml", { timeout: 15_000 });
+  await expect(page.getByTestId("found-item-price")).toHaveText("12500.500000");
+
+  // Recargar la misma hoja no duplica nada: responde que ya existía.
+  await page.getByTestId("catalog-import-review").click();
+  await page.getByTestId("catalog-import-submit").click();
+  await expect(page.getByTestId("catalog-import-imported"))
+    .toHaveText("0 cargado(s)", { timeout: 15_000 });
+  await expect(page.getByTestId("catalog-import-rejected")).toContainText("CODE_ALREADY_REGISTERED");
+  await expect(page.getByTestId("catalog-import-rejected")).toContainText("Línea 2");
+});

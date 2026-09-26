@@ -38,7 +38,18 @@ cuadrar al cerrar.
 
 ### 3 · Carga inicial del catálogo
 
-`catalog.item.import`, en lotes de hasta **500 artículos**. Cada fila lleva:
+**Desde la pantalla «Carga inicial del catálogo»**, que es el primer panel del
+POS después de la sesión. El comerciante:
+
+1. exporta su hoja de Excel como CSV y la elige, **o** copia las celdas y las
+   pega —las dos cosas funcionan: Excel en español exporta con `;` y copiar
+   celdas produce tabuladores, y se aceptan ambos—;
+2. pulsa **Revisar**, que **no envía nada**: dice cuántas líneas están listas y
+   cuáles tienen un problema, con el número de línea de su hoja;
+3. pulsa **Cargar**. Las líneas con error se omiten y se dice cuántas.
+
+Por debajo, la pantalla envía `catalog.item.import` en lotes de hasta **500
+artículos** y traduce cada rechazo a la línea del fichero. Cada fila lleva:
 
 | Campo | Obligatorio | Qué pasa si falta |
 |---|---|---|
@@ -55,6 +66,20 @@ desenlace con su índice. Tres mil filas y la 1.742 con un código repetido: las
 
 `COMPLETED` **no significa «todas entraron»**: significa que el lote se
 procesó entero. `rejected` dice cuáles no y por qué.
+
+**Lo que la pantalla no adivina, a propósito:**
+
+- `3.200` se rechaza. En Colombia puede ser tres mil doscientos o tres coma
+  dos, y un precio mil veces menor no lo avisa nadie hasta que la caja no
+  cuadra. El mensaje dice qué escribir: `3200` o `3,2`.
+- Existencia inicial en cero se rechaza: se deja vacía. Cero haría
+  indistinguible «todavía no llegó» de «se agotó».
+- Los cinco códigos DIAN van todos o ninguno.
+- Un código repetido dentro del fichero se señala con las dos líneas.
+
+**Recargar la misma hoja no duplica nada**: cada artículo ya cargado responde
+`CODE_ALREADY_REGISTERED` y su existencia no se vuelve a sumar, porque la fila
+se detiene antes de llegar a ella.
 
 La existencia inicial entra como `OPENING_COUNT` —un conteo de apertura—, no
 como una compra que nadie hizo.
@@ -95,9 +120,6 @@ es peor que no facturar.
 
 ## Lo que todavía no existe, dicho sin adornos
 
-- **Pantalla de carga.** `catalog.item.import` se invoca por el canal; no hay
-  una pantalla que lea el fichero del comerciante. Hoy la carga la hace quien
-  instala, no el comerciante.
 - **Compras y proveedores.** No existe `Supplier` ni documento de compra: se
   puede dar entrada a mercancía, pero **no reconciliarla contra la factura del
   proveedor**, porque no hay modelo de costo.
@@ -110,4 +132,5 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | La carga tiene pantalla. Se retira de «lo que todavía no existe». |
 | 2026-09-22 | Primera redacción, tras medir que alimentar el catálogo costaba tres operaciones por artículo y no existía ninguna ruta masiva. Se añade `catalog.item.import` |

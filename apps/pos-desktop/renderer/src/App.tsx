@@ -5,6 +5,7 @@ import { SalePanel } from "./components/SalePanel.js";
 import { ProviderPaymentPanel } from "./components/ProviderPaymentPanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
+import { CatalogImportPanel } from "./components/CatalogImportPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { CreditPanel } from "./components/CreditPanel.js";
@@ -12,7 +13,8 @@ import { FiscalPanel } from "./components/FiscalPanel.js";
 
 /**
  * El orden sigue el de la jornada real, no el de la arquitectura: primero se
- * carga el catálogo y entra la mercancía, después se vende y se cobra, luego se
+ * carga el catálogo —la carga masiva va antes que el alta de uno en uno,
+ * porque es como se estrena un comercio— y entra la mercancía, después se vende y se cobra, luego se
  * entrega el recibo. El adquiriente vive al lado porque se registra cuando el
  * cliente lo pide, no en un momento fijo.
  *
@@ -37,6 +39,7 @@ export function App(): React.JSX.Element {
       <h1>POS Local</h1>
       <SessionPanel />
       <StatusPanel />
+      <CatalogImportPanel />
       <CatalogPanel />
       <InventoryPanel />
       <SalePanel />
