@@ -1,0 +1,196 @@
+name: Windows Service Host Verification (WinSW)
+
+# Verifica, en un runner Windows real, que `pos-local-service` arranca, corre
+# y se detiene como servicio de Windows a través de WinSW — sin depender del
+# PC físico del propietario del repositorio (`CLAUDE.md`, regla de
+# materialización real). No sustituye la verificación funcional del propio
+# servicio (`pnpm --filter @pos-platform/pos-local-service test`, que ya
+# corre en `runtime-windows` de `target-foundation-validation.yml`): esta
+# puerta prueba únicamente el mecanismo de host — instalar, arrancar,
+# detener, desinstalar — con identidad CI-only, nunca de producción.
+
+on:
+  push:
+    branches:
+      - main
+      - feat/payment-qr-provider-foundation
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-service-install-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  # Última versión estable (no-prerelease) de WinSW confirmada por lectura
+  # directa de https://github.com/winsw/winsw/releases el 2026-09-26. El
+  # binario concreto y su SHA-256 no se fijan aquí a mano: este mismo
+  # workflow los resuelve y los registra como evidencia en cada corrida
+  # (`winsw-download-evidence.json`), porque nada en este entorno permitía
+  # verificar de antemano, desde fuera de CI, un hash publicado por un
+  # tercero. Fijar el hash exacto en este fichero, a partir de una corrida ya
+  # observada, es el siguiente paso — ver `docs/governance/materialization-state.md`.
+  WINSW_RELEASE_TAG: v2.12.0
+
+jobs:
+  windows-service-install:
+    name: Instalar, arrancar, detener y desinstalar PosLocalService vía WinSW
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build pos-local-service artifact (win32-x64 staging)
+        run: pnpm --filter @pos-platform/pos-local-service run build:artifact
+
+      - name: Resolve and download WinSW (pinned release tag)
+        id: winsw
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $release = Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/winsw/winsw/releases/tags/${env:WINSW_RELEASE_TAG}"
+          Write-Host "Release assets found for ${env:WINSW_RELEASE_TAG}:"
+          $release.assets | ForEach-Object { Write-Host " - $($_.name) ($($_.size) bytes)" }
+
+          $asset = $release.assets | Where-Object { $_.name -match '^WinSW.*x64.*\.exe$' } | Select-Object -First 1
+          if (-not $asset) {
+            $asset = $release.assets | Where-Object { $_.name -match '\.exe$' } | Select-Object -First 1
+          }
+          if (-not $asset) { throw "No .exe asset found in release ${env:WINSW_RELEASE_TAG}" }
+          Write-Host "Selected asset: $($asset.name)"
+
+          $destination = Join-Path (Get-Location) "apps/pos-local-service/dist/staging/pos-local-service.exe"
+          Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $destination
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $destination).Hash
+          Write-Host "Downloaded asset: $($asset.name)"
+          Write-Host "SHA256: $hash"
+          Write-Host "Source URL: $($asset.browser_download_url)"
+
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          @{
+            tag        = $env:WINSW_RELEASE_TAG
+            asset_name = $asset.name
+            sha256     = $hash
+            url        = $asset.browser_download_url
+          } | ConvertTo-Json | Set-Content artifacts/winsw-download-evidence.json
+
+      - name: Place a CI-only verification copy of the service configuration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $staging = "apps/pos-local-service/dist/staging"
+          $xmlPath = Join-Path $staging "pos-local-service.xml"
+          Copy-Item "apps/pos-local-service/service/pos-local-service.xml" $xmlPath -Force
+
+          [xml]$xml = Get-Content $xmlPath
+
+          # El SCM lanza el servicio en la sesión 0, sin el PATH del propio
+          # job de Actions: "node.exe" a secas no resuelve ahí aunque
+          # `actions/setup-node` lo deje resoluble en cada paso de este job.
+          # Se fija la ruta absoluta sólo en esta copia de verificación —el
+          # XML committeado sigue con "node.exe", que es lo correcto quando
+          # el instalador real coloca Node en el PATH de la máquina.
+          $node = Get-Command node.exe -ErrorAction Stop | Select-Object -First 1
+          $xml.service.executable = $node.Source
+
+          # Identidad mínima válida para `parseServiceConfig` (`src/config.ts`),
+          # sólo para esta verificación del mecanismo de host — nunca
+          # producción, que la aprovisiona el instalador real. Mismos valores
+          # de ejemplo que ya usan las pruebas unitarias del servicio
+          # (`tests/config.test.ts`).
+          $vars = [ordered]@{
+            POS_INSTALLATION_ID = "018f0000-0000-7000-8000-000000000001"
+            POS_DEVICE_ID       = "018f0000-0000-7000-8000-000000000002"
+            POS_SERVICE_VERSION = "1.0.0"
+            POS_PROTOCOL_MIN    = "1.0.0"
+            POS_PROTOCOL_MAX    = "1.0.0"
+            POS_TENANT_ID       = "018f0000-0000-7000-8000-000000000003"
+            POS_COMPANY_ID      = "018f0000-0000-7000-8000-000000000004"
+            POS_BRANCH_ID       = "018f0000-0000-7000-8000-000000000005"
+          }
+          foreach ($key in $vars.Keys) {
+            $node2 = $xml.CreateElement("env")
+            $node2.SetAttribute("name", $key)
+            $node2.SetAttribute("value", $vars[$key])
+            $xml.service.AppendChild($node2) | Out-Null
+          }
+          $xml.Save($xmlPath)
+
+      - name: Install PosLocalService
+        shell: pwsh
+        run: apps/pos-local-service/service/install-service.ps1 -StagingPath "apps/pos-local-service/dist/staging"
+
+      - name: Start PosLocalService and verify structured startup log
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $staging = "apps/pos-local-service/dist/staging"
+          Start-Service -Name PosLocalService
+
+          $deadline = (Get-Date).AddSeconds(60)
+          $found = $false
+          while ((Get-Date) -lt $deadline -and -not $found) {
+            Start-Sleep -Milliseconds 500
+            $logs = Get-ChildItem $staging -Filter "*.log" -ErrorAction SilentlyContinue
+            foreach ($log in $logs) {
+              if (Select-String -Path $log.FullName -Pattern "runtime.started" -Quiet -ErrorAction SilentlyContinue) {
+                $found = $true
+                break
+              }
+            }
+          }
+
+          Get-ChildItem $staging -Filter "*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "---- $($_.Name) ----"
+            Get-Content $_.FullName
+          }
+
+          if (-not $found) { throw "runtime.started was not observed in the WinSW-captured log within the timeout" }
+          if ((Get-Service -Name PosLocalService).Status -ne "Running") { throw "PosLocalService is not Running after startup" }
+          Write-Host "PosLocalService started and logged runtime.started."
+
+      - name: Stop and uninstall PosLocalService
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Stop-Service -Name PosLocalService
+          apps/pos-local-service/service/uninstall-service.ps1 -StagingPath "apps/pos-local-service/dist/staging"
+          $remaining = Get-Service -Name PosLocalService -ErrorAction SilentlyContinue
+          if ($remaining) { throw "PosLocalService is still registered after uninstall" }
+          Write-Host "PosLocalService uninstalled cleanly."
+
+      - name: Upload verification evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-service-install-${{ env.REVIEWED_SHA }}
+          path: |
+            artifacts/winsw-download-evidence.json
+            apps/pos-local-service/dist/staging/*.log
+          if-no-files-found: warn
+          retention-days: 90

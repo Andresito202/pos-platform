@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Configuración de WinSW (https://github.com/winsw/winsw, licencia MIT) para
+  `pos-local-service` como servicio de Windows.
+
+  WinSW es el ejecutable que este fichero configura, **no** algo que este
+  repositorio distribuya: se descarga en el paso de empaquetado
+  (`install-service.ps1` lo documenta) y se coloca junto a este XML con el
+  nombre `pos-local-service.exe`, exactamente como WinSW exige — el binario
+  toma su nombre y busca `<mismo-nombre>.xml` junto a sí mismo. RT-009-B ya
+  decidió el empaquetador del instalador de escritorio (`electron-builder` +
+  NSIS, `DEC-010`); esto es la pieza aparte que le faltaba: el propio
+  `pos-local-service` no es Electron y no arranca con el instalador, arranca
+  como servicio de Windows independiente.
+
+  Por qué WinSW y no `sc.exe create` a secas: el Service Control Manager de
+  Windows exige que el binario apuntado hable su protocolo de control
+  (`StartServiceCtrlDispatcher`), y un proceso Node normal no lo hace. WinSW
+  es el intermediario que sí lo habla, lanza `node.exe` como hijo y traduce
+  parar/reiniciar el servicio en una terminación limpia de ese hijo.
+-->
+<service>
+  <id>PosLocalService</id>
+  <name>Camacho POS - Servicio Local</name>
+  <description>
+    Único escritor de la base de datos local del punto de venta. Si se
+    detiene, el POS de este equipo no puede vender ni cobrar.
+  </description>
+
+  <!-- `%BASE%` es el directorio donde vive este XML — lo fija WinSW mismo. -->
+  <executable>node.exe</executable>
+  <arguments>"%BASE%\pos-local-service.mjs"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+
+  <!--
+    Arranque automático con el sistema: es la razón de ser de este fichero.
+    `delayedAutoStart` porque el servicio necesita disco y red disponibles,
+    y arrancar en el primer instante del sistema es donde más probable es
+    que no lo estén todavía.
+  -->
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+
+  <!--
+    Reinicio automático ante caída, con espera creciente y un tope: un
+    bucle de reinicio instantáneo indefinido convertiría un fallo real
+    (base de datos corrupta, puerto ocupado) en un consumo de CPU sin fin
+    en vez de una alerta visible.
+  -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <!--
+    El servicio ya escribe sus propios registros estructurados a `stdout`
+    (`StructuredLogger`, una línea JSON por evento). WinSW los captura y
+    los rota — no hace falta que el propio servicio sepa que corre bajo un
+    gestor de servicios ni que abra un fichero de log por su cuenta.
+  -->
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+
+  <!--
+    Parada ordenada: `ServiceLifecycle` (`lifecycle.ts`) ya escucha
+    `SIGTERM`/`SIGINT` y cierra sus componentes en orden inverso al de
+    arranque. WinSW manda `SIGINT` al detener y espera antes de forzar.
+  -->
+  <stoptimeout>15 sec</stoptimeout>
+  <stopparentprocessfirst>true</stopparentprocessfirst>
+
+  <!--
+    Variables de entorno del servicio. Los valores reales de identidad y
+    contexto (`installation_id`, `tenant_id`…) los fija el instalador al
+    aprovisionar el equipo — este XML sólo declara el contrato de
+    configuración de `config.ts`, no valores de producción.
+  -->
+  <env name="POS_DATA_DIRECTORY" value="%BASE%\data"/>
+</service>
