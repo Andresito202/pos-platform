@@ -243,7 +243,7 @@ de nivel de servicio.**
   (`docs/governance/tablero-materializacion.md`, fila C17).
 - Contraseñas: el modelo exige guardar sólo un hash resistente con sal (`conceptual-data-model.md:769`).
   La función de hash existe (scrypt con parámetros OWASP,
-  `apps/central-authority/src/authentication/password-hasher.ts`), pero el inicio de sesión con
+  `apps/api/src/authentication/password-hasher.ts`), pero el inicio de sesión con
   contraseña **no está implementado** todavía: no hay endpoint ni persistencia (`DEC-026` §13–§14).
 - Registros de auditoría y seguridad append-only (ver §8).
 - Registro de errores con redacción de secretos (tokens, contraseñas, credenciales)

@@ -34,7 +34,7 @@ garantice.]
 Medido en el código el 2026-09-26: ningún fichero de `apps/` ni de `packages/` importa un SDK de IA
 (OpenAI, Anthropic, Gemini u otro) ni llama a un servicio de IA. Una búsqueda de la cadena `llm` sí
 da resultados, pero todos son la palabra «enro**llm**ent» (inscripción de dispositivos), no modelos
-de lenguaje. Las 23 dependencias externas del monorepo, medidas ese mismo día, están listadas en
+de lenguaje. Las 28 dependencias externas del monorepo, medidas ese mismo día, están listadas en
 `terceros-y-encargados.md` §4 y ninguna es de IA.
 
 Por tanto, hoy:

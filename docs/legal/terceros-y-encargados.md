@@ -34,10 +34,13 @@ Si alguno pasa a tener código, esta tabla y la política se actualizan **antes*
 
 A la fecha de este borrador **el software no envía datos a ningún servicio de analítica,
 telemetría, publicidad ni seguimiento**. Ninguna dependencia de ejecución del producto es un SDK de
-ese tipo. Medido el 2026-09-26 leyendo todos los `package.json` del monorepo: hay **23**
-dependencias externas —`@playwright/test`, `@testing-library/react`, `@types/*` (5), `@vitejs/plugin-react`,
+ese tipo. Medido el 2026-09-26 leyendo todos los `package.json` del monorepo: hay **28**
+dependencias externas —`@nestjs/common`, `@nestjs/core`, `@nestjs/platform-fastify`,
+`@playwright/test`, `@testing-library/react`, `@types/*` (5), `@vitejs/plugin-react`,
 `better-sqlite3`, `electron`, `esbuild`, `jsdom`, `kysely`, `nx`, `pg`, `playwright`, `react`,
-`react-dom`, `tsx`, `typescript`, `vite`, `vitest` y `zod`— y ninguna lo es. Los únicos
+`react-dom`, `reflect-metadata`, `rxjs`, `tsx`, `typescript`, `vite`, `vitest` y `zod`— y ninguna
+lo es. Fastify registra con `pino`, una biblioteca de logs que escribe en la salida del propio
+proceso: no envía nada a terceros. Los únicos
 hosts externos que el código de producción contacta son los de Factus y Wompi (§2).
 
 `docs/security/secret-key-and-support-management.md:332` prohíbe además la telemetría no autorizada

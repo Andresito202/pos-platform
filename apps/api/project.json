@@ -1,0 +1,11 @@
+{
+  "name": "@pos-platform/api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "root": "apps/api",
+  "projectType": "application",
+  "tags": [
+    "layer:central-runtime",
+    "type:application",
+    "scope:central"
+  ]
+}

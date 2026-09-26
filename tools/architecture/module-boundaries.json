@@ -86,6 +86,12 @@
       "layer": "central-runtime",
       "type": "application",
       "scope": "central"
+    },
+    "@pos-platform/api": {
+      "root": "apps/api",
+      "layer": "central-runtime",
+      "type": "application",
+      "scope": "central"
     }
   },
   "allowedLayerDependencies": {

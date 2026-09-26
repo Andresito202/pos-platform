@@ -61,3 +61,16 @@ test("fails closed when a discovered workspace manifest is invalid JSON", () => 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("only installed package root manifests count as packages (D-42)", async () => {
+  const { isInstalledPackageRootManifest } = await import("./generate-dependency-inventory.mjs");
+  assert.equal(isInstalledPackageRootManifest("fastify@5.12.5/node_modules/fastify/package.json"), true);
+  assert.equal(isInstalledPackageRootManifest("@fastify+cors@11.3.0/node_modules/@fastify/cors/package.json"), true);
+  // Ficheros internos de un paquete: no son paquetes instalados.
+  assert.equal(isInstalledPackageRootManifest("fast-uri@3.1.8/node_modules/fast-uri/benchmark/package.json"), false);
+  assert.equal(isInstalledPackageRootManifest("@fastify+cors@11.3.0/node_modules/@fastify/cors/benchmark/package.json"), false);
+  assert.equal(isInstalledPackageRootManifest("fastify@5.12.5/node_modules/secure-json-parse/benchmarks/package.json"), false);
+  // Un scope sin nombre de paquete, o un nombre con forma de scope, no es raíz.
+  assert.equal(isInstalledPackageRootManifest("x@1.0.0/node_modules/@scope/package.json"), false);
+  assert.equal(isInstalledPackageRootManifest("x@1.0.0/package.json"), false);
+});

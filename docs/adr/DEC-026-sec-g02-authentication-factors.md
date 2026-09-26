@@ -254,11 +254,12 @@ sesión («Autorizado avanza»).
 
 ### 13.1 Ubicación
 
-`apps/central-authority/src/authentication/`. No en `packages/domain` ni
+`apps/api/src/authentication/`, trasladada con `git mv` desde
+`apps/central-authority/src/authentication/`, donde se escribió primero,
+tras la decisión `G-7` (§13.4). No en `packages/domain` ni
 `packages/application`: `DEC-017` congeló sus áreas (`module-boundaries.json`,
 `frozenSourceAreas`) y abrir `identity` ahí es lo que `architecture:check`
-rechaza. `A-3` sitúa la verificación en la autoridad central, y
-`central-authority` es la única aplicación central que existe.
+rechaza. `A-3` sitúa la verificación en la autoridad central.
 
 ### 13.2 Primer tramo — política pura (hecho)
 
@@ -274,7 +275,7 @@ Sin HTTP, sin base de datos y sin dependencia nueva. Cada cifra sale de un
 | `password-hasher.ts` | scrypt `N=2^17, r=8, p=1` (OWASP, consultado 2026-09-26); trabajo equivalente para cuentas inexistentes |
 | `temporary-password.ts` | `A-6` / `A-9` |
 
-Pruebas: `apps/central-authority/tests/authentication-policy.test.ts`.
+Pruebas: `apps/api/tests/authentication-policy.test.ts`.
 
 ### 13.3 Brechas medidas contra el esquema cerrado — requieren decisión
 
@@ -342,6 +343,29 @@ cambio, porque su preparación de roles exige exactamente 16.14
 completo con 003 y PostgreSQL 16.14 exacto (igual que la 004). Queda como paso
 del workflow `d3-live-security-e2e` tras la 004; su ejecución en CI no se ha
 observado. Ninguna base de datos desplegada tiene la 005.
+
+### 13.6 API central NestJS + Fastify — esqueleto (hecho)
+
+`apps/api` (`@pos-platform/api`), capa `central-runtime`, registrada en
+`module-boundaries.json`, en `pnpm typecheck` y en `pnpm test:runtime`.
+NestJS 12.1.0 y Fastify 5.12.5 (vía `@nestjs/platform-fastify`), ambos ESM,
+con Node ≥ 20.
+
+- Escucha **sólo en `127.0.0.1`**, sin opción de configurarlo: TLS lo
+  termina un proxy inverso (`DEC-024`, **todavía `PROPOSED`**). Si `DEC-024`
+  cambia, esta frontera se revisa con ella.
+- Tope de cuerpo de 16 KiB.
+- Inyección con `@Inject(TOKEN)` explícito: `tsx` y `vitest` compilan con
+  esbuild, que no emite `emitDecoratorMetadata`.
+- Un único endpoint: `GET /v1/health` → `{ status: "UP" }`. **No hay endpoint
+  de login todavía.**
+
+Evidencia, 2026-09-26: `apps/api` **32/32** (4 de arranque —Fastify, salud,
+404, 413— y las 28 de la política trasladada). Arrancado el proceso real con
+`tsx src/main.ts`: por loopback `200`; por la IP del contenedor, conexión
+rechazada. Las dependencias nuevas pasan inventario, SBOM, licencias (0 a
+revisar, 0 denegadas) y auditoría de vulnerabilidades (0 avisos), tras
+corregir el defecto de inventario que destaparon (`D-42`).
 
 ## 14. Qué sigue abierto
 

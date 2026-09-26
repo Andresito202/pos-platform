@@ -28,6 +28,21 @@ export function collectDirectDependencies(root, manifestPaths = discoverWorkspac
   return direct;
 }
 
+/**
+ * Sólo el manifiesto raíz de un paquete instalado cuenta como paquete:
+ * `.pnpm/<id>/node_modules/<nombre>/package.json` o
+ * `.pnpm/<id>/node_modules/@<scope>/<nombre>/package.json`. Un `package.json`
+ * más profundo es un fichero interno del paquete (benchmarks, fixtures) y no
+ * aparece en el grafo de `pnpm list` que usa el SBOM; contarlo hacía que
+ * inventario y SBOM discreparan (`D-42`).
+ */
+export function isInstalledPackageRootManifest(relativeToStore) {
+  const parts = relativeToStore.split(/[\\/]/);
+  if (parts[1] !== "node_modules" || parts.at(-1) !== "package.json") return false;
+  if (parts.length === 4) return !parts[2].startsWith("@");
+  return parts.length === 5 && parts[2].startsWith("@");
+}
+
 function walkForPackageJson(directory, results) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const fullPath = path.join(directory, entry.name);
@@ -62,12 +77,14 @@ export function generateDependencyInventory(root, env = process.env) {
   const directDependencies = collectDirectDependencies(root, manifestPaths);
   const packageJsonPaths = [];
   walkForPackageJson(pnpmStore, packageJsonPaths);
+  const rootManifestPaths = packageJsonPaths.filter((manifestPath) =>
+    isInstalledPackageRootManifest(path.relative(pnpmStore, manifestPath)));
 
   const packages = new Map();
   const reviewFindings = [];
   const restrictedLicensePattern = /\b(?:AGPL(?:-\d+(?:\.\d+)?)?|GPL(?:-\d+(?:\.\d+)?)?|LGPL(?:-\d+(?:\.\d+)?)?|SSPL(?:-\d+(?:\.\d+)?)?|BUSL(?:-\d+(?:\.\d+)?)?|UNLICENSED)\b|Commons Clause/i;
 
-  for (const packageJsonPath of packageJsonPaths) {
+  for (const packageJsonPath of rootManifestPaths) {
     let manifest;
     try {
       manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
