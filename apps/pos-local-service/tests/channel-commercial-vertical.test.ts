@@ -3108,6 +3108,60 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
   });
 
   /**
+   * Lo que vence esta semana, en todo el negocio — `inventory.lot.expiring`.
+   * La pregunta de cada mañana: qué vender primero y qué sacar por merma.
+   */
+  describe("lo que vence esta semana", () => {
+    it("lista las tandas con existencia vencidas o a 7 días o menos, de todos los productos", async () => {
+      await withRealChannel(async (send, database) => {
+        const carne = await counter(send, database, "vence");
+        const pollo = await send(mutating("catalog.product.register", {
+          code: "POLLO-VENCE", name: "Pechuga de pollo", stock_controlled: true,
+          presentation_name: "Gramo", unit_code: "GRM", unit_precision: 0,
+          barcode: "7706600000017", price_amount: "18.000000", currency_code: "COP",
+        }, "vence:pollo"));
+        const polloId = pollo.result["presentation_id"] as string;
+
+        await lot(send, carne.presentationId, "V-VENCIDA", "800.000000", "2026-09-18", "2026-09-15");
+        await lot(send, carne.presentationId, "V-HOY", "300.000000", "2026-09-22", "2026-09-20");
+        await lot(send, carne.presentationId, "V-DIA7", "400.000000", "2026-09-29", "2026-09-20");
+        await lot(send, carne.presentationId, "V-DIA8", "500.000000", "2026-09-30", "2026-09-20");
+        await lot(send, carne.presentationId, "V-AGOTADA", "100.000000", "2026-09-23", "2026-09-20");
+        await lot(send, polloId, "P-JUEVES", "900.000000", "2026-09-25", "2026-09-20");
+        // Sin vencimiento declarado: no compite por salir.
+        expect((await send(mutating("inventory.lot.receive", {
+          presentation_id: carne.presentationId, lot_code: "V-SIN-FECHA", quantity: "50.000000",
+          manufactured_date: null, expiry_date: null,
+          reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-20",
+        }, "vence:sinfecha"))).result["outcome"]).toBe("RECEIVED");
+        // Agotada por merma: no hay nada que vender ni que botar.
+        expect((await send(mutating("inventory.stock.adjust", {
+          presentation_id: carne.presentationId, movement_type: "SHRINKAGE",
+          quantity: "100.000000", reason_code: "DAMAGED", business_date: "2026-09-22",
+          lot_code: "V-AGOTADA",
+        }, "vence:merma"))).result["outcome"]).toBe("POSTED");
+
+        const semana = await send(reading("inventory.lot.expiring", { business_date: "2026-09-22" }));
+        expect(semana.status).toBe("SUCCEEDED");
+        expect(semana.result["near_expiry_days"]).toBe(7);
+        expect(semana.result["truncated"]).toBe(false);
+        const lots = semana.result["lots"] as Record<string, unknown>[];
+        expect(lots.map((l) => [l["lot_code"], l["expiry_state"], l["quantity_on_hand"]])).toEqual([
+          ["V-VENCIDA", "EXPIRED", "800.000000"],
+          ["V-HOY", "NEAR_EXPIRY", "300.000000"],
+          ["P-JUEVES", "NEAR_EXPIRY", "900.000000"],
+          ["V-DIA7", "NEAR_EXPIRY", "400.000000"],
+        ]);
+        expect(lots[2]!["presentation_id"]).toBe(polloId);
+
+        // El nombre lo da su dueño, Catálogo: así lo compone la pantalla.
+        const nombre = await send(reading("catalog.item.get", { presentation_id: polloId }));
+        expect(nombre.result["name"]).toBe("Pechuga de pollo");
+      });
+    }, 60_000);
+  });
+
+  /**
    * El rastro — `inventory.lot.trace`. Es la pregunta de un retiro sanitario:
    * «la tanda T-A salió contaminada; ¿qué ventas se la llevaron?».
    */

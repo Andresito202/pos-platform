@@ -51,6 +51,8 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:inventory.lot.list",
   // Rastro de lote: sólo lectura, para un retiro sanitario.
   "pos:inventory.lot.trace",
+  // Lo que vence esta semana en toda la sucursal: sólo lectura.
+  "pos:inventory.lot.expiring",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
 ] as const;

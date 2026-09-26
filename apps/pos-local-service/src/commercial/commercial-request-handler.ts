@@ -29,6 +29,7 @@ type CommercialRequest = Extract<
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.import"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
+      | "inventory.lot.expiring"
       | "sales.receipt.get";
   }
 >;
@@ -240,6 +241,7 @@ export class CommercialRequestHandler {
       case "inventory.lot.receive": return this.receiveLot(request, connectionId);
       case "inventory.lot.list": return this.listLots(request, connectionId);
       case "inventory.lot.trace": return this.traceLot(request, connectionId);
+      case "inventory.lot.expiring": return this.listExpiringLots(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
     }
   }
@@ -1515,6 +1517,40 @@ export class CommercialRequestHandler {
         reason_code: outflow.reasonCode,
         business_date: outflow.businessDate,
         occurred_at: outflow.occurredAt,
+      })),
+      truncated: result.truncated,
+    });
+  }
+
+  /** `inventory.lot.expiring` — lo que vence esta semana en toda la sucursal. */
+  private listExpiringLots(
+    request: Extract<CommercialRequest, { message_type: "inventory.lot.expiring" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { near_expiry_days: NEAR_EXPIRY_DAYS, lots: [], truncated: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.listExpiringLots.execute(
+      this.scope(), authenticated.snapshot, request.payload.business_date,
+    );
+    if (result.kind !== "LISTED") {
+      return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    }
+
+    return succeeded(request, "LISTED", {
+      outcome: "LISTED",
+      near_expiry_days: result.nearExpiryDays,
+      lots: result.lots.map((lot) => ({
+        presentation_id: lot.presentationId,
+        lot_code: lot.lotCode,
+        expiry_date: lot.expiryDate,
+        quantity_on_hand: lot.quantityOnHand,
+        status: lot.status,
+        expiry_state: lot.expiryState,
       })),
       truncated: result.truncated,
     });

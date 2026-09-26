@@ -37,7 +37,7 @@ siguiera faltando una autoridad central.
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` |
 | **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · la venta descuenta al completarse |
-| **Interfaz de caja** | ✅ | **35 de las 38 operaciones del contrato tienen pantalla**, repartidas en 14 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
+| **Interfaz de caja** | ✅ | **37 de las 39 operaciones del contrato tienen pantalla**, repartidas en 15 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers`, alcanzables por el canal y desde la pantalla |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
@@ -46,13 +46,12 @@ siguiera faltando una autoridad central.
 | Lector de código de barras | ⚠️ | el catálogo resuelve código → artículo y garantiza que un código identifica una sola presentación. Un lector USB se comporta como teclado y escribe en `barcode-input`, así que **la ruta existe**; lo que no se ha verificado es un periférico real → `REQUIRES_LOCAL_VERIFICATION` |
 | Balanza | ❌ | ninguna integración; `unit_precision` gobierna la cantidad pero nadie la lee de un periférico |
 
-### Las 3 operaciones sin pantalla, y por qué
+### Las 2 operaciones sin pantalla, y por qué
 
 | Operación | Motivo |
 |---|---|
 | `runtime.handshake` | Es de transporte. No es una operación de cajero |
 | `session.activate` | **Deliberado.** `SessionPanel` no ofrece botón de activar y hay prueba E2E que lo fija: activar exige una SSA firmada por la autoridad, y no se teclea |
-| `catalog.item.get` | **No tiene ningún llamador.** Está en el contrato y el handler la sirve; `catalog.item.find` cubre hoy el mostrador. Es superficie sin consumidor: decidir si se le da uso o se retira es de producto |
 
 ## El bloqueo vigente: el artefacto de confianza no es legible
 
@@ -165,7 +164,7 @@ contrato, no por lectura de documentos.
 | compras · proveedores | ❌ | **sin tabla.** `PURCHASE_RECEIPT` es un tipo de movimiento de inventario, no un documento de compra: no hay proveedor, ni orden, ni costo |
 | promociones | ❌ | sin tabla |
 | lotes | ✅ | `inventory_lot` (`MIGRATION_026`); recibir, listar en orden FEFO y rastrear **con pantalla** («Lotes y vencimientos»). Toda salida baja del lote: venta y apertura de paca por FEFO; merma, ajuste negativo y traslado del lote que se nombre en la pantalla de ajuste, o por FEFO. Código único por sucursal (`MIGRATION_028`). Las unidades de una paca abierta heredan su tanda (`MIGRATION_029`). El ajuste positivo suma a una tanda existente nombrándola, y el libro del lote registra entradas y salidas (`MIGRATION_030`) |
-| vencimientos | ⚠️ | `expiry_date` por lote; `VALID`/`NEAR_EXPIRY`/`EXPIRED` derivados —«próximo a vencer» = vence hoy o en los próximos **7 días**, decisión del propietario del 2026-09-26—; la venta **no elige un lote vencido** (FEFO sobre vigentes). La lista de lotes avisa cuántas tandas con existencia vencen pronto y cuántas vencidas quedan por sacar. La merma por vencimiento sale **del lote vencido que se nombra** y sin lote se rechaza. **Falta la vista de todo el negocio**: el aviso es por presentación; no hay una pantalla de «qué vence esta semana» en todos los productos |
+| vencimientos | ⚠️ | `expiry_date` por lote; `VALID`/`NEAR_EXPIRY`/`EXPIRED` derivados —«próximo a vencer» = vence hoy o en los próximos **7 días**, decisión del propietario del 2026-09-26—; la venta **no elige un lote vencido** (FEFO sobre vigentes). La lista de lotes avisa cuántas tandas con existencia vencen pronto y cuántas vencidas quedan por sacar. La merma por vencimiento sale **del lote vencido que se nombra** y sin lote se rechaza. «Vence esta semana» (`inventory.lot.expiring`) lista, para **todos los productos** de la sucursal, las tandas con existencia vencidas o a 7 días o menos, nombradas por Catálogo (`catalog.item.get`), cada una con su rastro a un clic |
 | despiece · transformación | ❌ | sin tabla ni movimiento |
 | trazabilidad de producto | ⚠️ | Lote → ventas y mermas, con pantalla: `inventory.lot.trace` devuelve cada salida de la tanda y la pantalla abre cada venta con su recibo (`inventory_lot_allocation`, `MIGRATION_027`, append-only). Y de la venta **al comprador**: el recibo dice qué cliente nombró la venta y «Compradores del lote» da la lista de un retiro con teléfono y correo, las ventas anónimas contadas y lo ilegible declarado. La venta de mostrador no tiene comprador; la factura puede nombrar a otro (`D-40`). El rastro y la lista de compradores bajan de la paca a sus unidades |
 | precios mayorista/minorista | ❌ | `catalog_price` admite **un** precio `ACTIVE` por presentación |

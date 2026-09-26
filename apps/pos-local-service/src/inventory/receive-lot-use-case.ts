@@ -69,7 +69,7 @@ export function lotExpiryState(
  * medianoche de la fecha: son días de calendario, no instantes, y así ningún
  * cambio de hora ni huso mueve la frontera.
  */
-function addCalendarDays(date: string, days: number): string {
+export function addCalendarDays(date: string, days: number): string {
   const [year, month, day] = date.split("-").map(Number) as [number, number, number];
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }

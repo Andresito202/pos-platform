@@ -41,6 +41,7 @@ export const RENDERER_API_METHODS = [
   "inventory.lot.receive",
   "inventory.lot.list",
   "inventory.lot.trace",
+  "inventory.lot.expiring",
   "sales.receipt.get",
 ] as const;
 

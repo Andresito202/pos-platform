@@ -574,6 +574,18 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   expect(await page.getByTestId("lot-near-expiry-days").textContent()).toBe("7");
   expect(await page.getByTestId("lot-expired-alert").count()).toBe(0);
 
+  // Lo que vence esta semana en todo el negocio, nombrado por Catálogo: de la
+  // panela sólo PANELA-PRONTO (5 días); PANELA-TARDE vence en diciembre.
+  await page.getByTestId("expiring-load-button").click();
+  await expect(page.getByTestId("expiring")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("expiring-days").textContent()).toBe("7");
+  expect(await page.getByTestId("expiring-lot-code").allTextContents()).toEqual(["PANELA-PRONTO"]);
+  expect(await page.getByTestId("expiring-lot-name").allTextContents()).toEqual(["Panela · Bloque 500g"]);
+  expect(await page.getByTestId("expiring-lot-state").allTextContents()).toEqual(["Vender primero"]);
+  await page.getByTestId("expiring-follow").click();
+  await expect(page.getByTestId("lot-trace-received")).toHaveText("5.000000", { timeout: 15_000 });
+  expect(await page.getByTestId("lot-code-input").inputValue()).toBe("PANELA-PRONTO");
+
   // Merma de la tanda que se nombra, desde el panel de ajuste.
   await page.getByTestId("adjust-movement-select").selectOption("SHRINKAGE");
   await page.getByTestId("adjust-quantity-input").fill("2");

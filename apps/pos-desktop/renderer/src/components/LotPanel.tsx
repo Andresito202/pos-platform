@@ -3,6 +3,7 @@ import { useLots } from "../hooks/useLots.js";
 import { useReceipt } from "../hooks/useReceipt.js";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import { useLotBuyers } from "../hooks/useLotBuyers.js";
+import { useExpiringLots } from "../hooks/useExpiringLots.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -41,6 +42,7 @@ export function LotPanel(): React.JSX.Element {
   const receipt = useReceipt();
   const buyer = useCustomerDirectory();
   const buyers = useLotBuyers();
+  const expiring = useExpiringLots();
   const [presentationId, setPresentationId] = useState("");
   const [businessDate, setBusinessDate] = useState(today());
   const [lotCode, setLotCode] = useState("");
@@ -51,7 +53,7 @@ export function LotPanel(): React.JSX.Element {
 
   const target = presentationId.trim();
   const code = lotCode.trim();
-  const busy = lots.busy || receipt.busy || buyer.busy || buyers.busy;
+  const busy = lots.busy || receipt.busy || buyer.busy || buyers.busy || expiring.busy;
   const saleIds = (lots.trace?.outflows ?? [])
     .map((outflow) => outflow.sale_id)
     .filter((id): id is string => id !== null);
@@ -98,6 +100,62 @@ export function LotPanel(): React.JSX.Element {
         placeholder="Código de lote"
         disabled={busy}
       />
+
+      {/* La pregunta de cada mañana, para todos los productos: qué vender
+          primero y qué sacar por merma. Usa la fecha de negocio de arriba. */}
+      <h3>Vence esta semana</h3>
+      <button
+        data-testid="expiring-load-button"
+        onClick={() => { void expiring.load(businessDate); }}
+        disabled={busy || businessDate.trim() === ""}
+      >
+        Ver lo que vence
+      </button>
+      {expiring.result !== null && (
+        <div data-testid="expiring">
+          <div>
+            Vencidas o a{" "}
+            <span data-testid="expiring-days">{String(expiring.result.near_expiry_days)}</span>
+            {" "}días o menos:{" "}
+            <span data-testid="expiring-count">{String(expiring.result.lots.length)}</span>
+          </div>
+          {expiring.result.truncated && (
+            <div data-testid="expiring-truncated">Hay más tandas de las que se muestran</div>
+          )}
+          <table>
+            <tbody>
+              {expiring.result.lots.map((lot) => {
+                const named = expiring.names[lot.presentation_id];
+                return (
+                  <tr key={`${lot.presentation_id}/${lot.lot_code}`} data-testid="expiring-lot">
+                    <td data-testid="expiring-lot-name">
+                      {named !== undefined && "name" in named
+                        ? named.name
+                        : `${lot.presentation_id} (${named?.failure ?? "sin nombre"})`}
+                    </td>
+                    <td data-testid="expiring-lot-code">{lot.lot_code}</td>
+                    <td>{lot.expiry_date}</td>
+                    <td>{lot.quantity_on_hand}</td>
+                    <td data-testid="expiring-lot-state">
+                      {lot.expiry_state === "EXPIRED" ? "Vencida: sacar por merma" : "Vender primero"}
+                    </td>
+                    <td>
+                      <button
+                        data-testid="expiring-follow"
+                        onClick={() => { follow(lot.presentation_id, lot.lot_code); }}
+                        disabled={busy}
+                      >
+                        Rastrear
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {expiring.error !== null && <div data-testid="expiring-error">{expiring.error}</div>}
 
       <h3>Recibir tanda</h3>
       <input

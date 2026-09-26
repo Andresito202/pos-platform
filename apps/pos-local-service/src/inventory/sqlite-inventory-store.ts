@@ -255,6 +255,14 @@ export interface LotTrace {
   readonly truncated: boolean;
 }
 
+export interface ExpiringLotRow {
+  readonly presentationId: string;
+  readonly lotCode: string;
+  readonly expiryDate: string;
+  readonly quantityOnHand: string;
+  readonly status: "ACTIVE" | "BLOCKED";
+}
+
 export class SqliteInventoryStore {
   constructor(
     private readonly database: LocalDatabase,
@@ -1139,6 +1147,38 @@ export class SqliteInventoryStore {
       input.scope.tenantId, lot.id,
     );
     this.recordLotEntry(input.scope.tenantId, lot.id, input.movementId, added);
+  }
+
+  /**
+   * Tandas **con existencia** de la sucursal que vencen hasta `horizon`
+   * inclusive —lo vencido incluido—, por vencimiento. Una agotada no aparece:
+   * no hay nada que vender ni que botar.
+   */
+  listExpiringLots(
+    tenantId: string, branchId: string, horizon: string, limit: number,
+  ): { readonly lots: readonly ExpiringLotRow[]; readonly truncated: boolean } {
+    const rows = this.database.native.prepare(
+      `SELECT presentation_id, lot_code, expiry_date, quantity_on_hand, status
+         FROM inventory_lot
+        WHERE tenant_id=? AND branch_id=?
+          AND status <> 'CONSUMED' AND quantity_on_hand <> '0.000000'
+          AND expiry_date IS NOT NULL AND expiry_date <= ?
+        ORDER BY expiry_date, presentation_id, lot_code
+        LIMIT ?`,
+    ).all(tenantId, branchId, horizon, limit + 1) as {
+      presentation_id: string; lot_code: string; expiry_date: string;
+      quantity_on_hand: string; status: "ACTIVE" | "BLOCKED";
+    }[];
+    return {
+      lots: rows.slice(0, limit).map((row) => ({
+        presentationId: row.presentation_id,
+        lotCode: row.lot_code,
+        expiryDate: row.expiry_date,
+        quantityOnHand: row.quantity_on_hand,
+        status: row.status,
+      })),
+      truncated: rows.length > limit,
+    };
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */

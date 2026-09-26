@@ -1821,6 +1821,47 @@ export const InventoryLotTraceResultSchema = z.strictObject({
 export const InventoryLotTraceResponseSchema =
   createResponseEnvelopeSchema(InventoryLotTraceResultSchema);
 
+// ── inventory.lot.expiring ────────────────────────────────────────────────────
+
+/**
+ * Lo que vence esta semana, en **todo el negocio** — `UC-INVENTORY-002`
+ * §Vencimientos regla 3, «`NEAR_EXPIRY` puede generar alertas operativas».
+ *
+ * `inventory.lot.list` responde por un producto; esto responde la pregunta de
+ * cada mañana en una carnicería o una avícola: «¿qué tengo que vender o botar
+ * esta semana?». Devuelve las tandas **con existencia** de la sucursal del
+ * contexto que ya vencieron o vencen en `NEAR_EXPIRY_DAYS` días o menos. Una
+ * tanda agotada no hay que venderla ni botarla, y no aparece.
+ *
+ * **Devuelve la presentación, no el nombre.** El nombre es de `Catalog`; la
+ * pantalla lo pide con `catalog.item.get`, el contrato de su dueño.
+ */
+export const InventoryLotExpiringRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ business_date: BusinessDateSchema }),
+).safeExtend({ message_type: z.literal("inventory.lot.expiring") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/** Tope de tandas por respuesta; si hay más, `truncated` lo dice. */
+export const LOT_EXPIRING_MAX = 500;
+
+export const InventoryLotExpiringResultSchema = z.strictObject({
+  outcome: z.enum(["LISTED", "UNAUTHORIZED"]),
+  near_expiry_days: z.number().int().positive(),
+  /** Por vencimiento: lo vencido primero, después lo que vence antes. */
+  lots: z.array(z.strictObject({
+    presentation_id: UuidSchema,
+    lot_code: z.string().min(1).max(64),
+    expiry_date: BusinessDateSchema,
+    quantity_on_hand: NonNegativeScale6Schema,
+    status: z.enum(["ACTIVE", "BLOCKED"]),
+    expiry_state: z.enum(["NEAR_EXPIRY", "EXPIRED"]),
+  })).max(LOT_EXPIRING_MAX),
+  truncated: z.boolean(),
+});
+
+export const InventoryLotExpiringResponseSchema =
+  createResponseEnvelopeSchema(InventoryLotExpiringResultSchema);
+
 export const InventoryStockGetRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({ presentation_id: UuidSchema }),
 ).safeExtend({ message_type: z.literal("inventory.stock.get") })
@@ -1962,6 +2003,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.lot.receive",
   "inventory.lot.list",
   "inventory.lot.trace",
+  "inventory.lot.expiring",
 ]);
 
 /**
@@ -1999,6 +2041,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.lot.receive",
   "pos:inventory.lot.list",
   "pos:inventory.lot.trace",
+  "pos:inventory.lot.expiring",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -2037,5 +2080,6 @@ export type CatalogItemImportResult = z.infer<typeof CatalogItemImportResultSche
 export type InventoryLotReceiveResult = z.infer<typeof InventoryLotReceiveResultSchema>;
 export type InventoryLotListResult = z.infer<typeof InventoryLotListResultSchema>;
 export type InventoryLotTraceResult = z.infer<typeof InventoryLotTraceResultSchema>;
+export type InventoryLotExpiringResult = z.infer<typeof InventoryLotExpiringResultSchema>;
 export type LotExpiryState = z.infer<typeof LotExpiryStateSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;

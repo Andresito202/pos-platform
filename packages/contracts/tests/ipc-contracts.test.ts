@@ -10,6 +10,8 @@ import {
   SaleCreateRequestSchema,
   InventoryLotTraceRequestSchema,
   InventoryLotListResultSchema,
+  InventoryLotExpiringRequestSchema,
+  InventoryLotExpiringResultSchema,
   LotExpiryStateSchema,
   NEAR_EXPIRY_DAYS,
   InventoryLotTraceResultSchema,
@@ -641,5 +643,38 @@ describe("NEAR_EXPIRY", () => {
     const listed = { outcome: "LISTED", lots: [] };
     expect(InventoryLotListResultSchema.safeParse(listed).success).toBe(false);
     expect(InventoryLotListResultSchema.safeParse({ ...listed, near_expiry_days: 7 }).success).toBe(true);
+  });
+});
+
+/**
+ * `inventory.lot.expiring` — lo que vence esta semana en toda la sucursal.
+ * Es lectura; la sucursal sale del contexto y no se acepta del llamador. En la
+ * respuesta sólo caben las dos situaciones que exigen actuar.
+ */
+describe("inventory.lot.expiring", () => {
+  const request = (payload: Record<string, unknown> = {}) => ({
+    ...metadata,
+    message_type: "inventory.lot.expiring",
+    payload: { business_date: "2026-09-22", ...payload },
+  });
+
+  it("acepta una fecha de negocio y rechaza una sucursal aportada por el llamador", () => {
+    expect(InventoryLotExpiringRequestSchema.safeParse(request()).success).toBe(true);
+    expect(InventoryLotExpiringRequestSchema.safeParse(
+      request({ branch_id: "550e8400-e29b-41d4-a716-446655440013" }),
+    ).success).toBe(false);
+  });
+
+  it("una tanda vigente no cabe en la respuesta: sólo vencida o por vencer", () => {
+    const lot = (expiry_state: string) => ({
+      presentation_id: "550e8400-e29b-41d4-a716-446655440011", lot_code: "L-1",
+      expiry_date: "2026-09-24", quantity_on_hand: "1.000000", status: "ACTIVE", expiry_state,
+    });
+    const result = (state: string) => ({
+      outcome: "LISTED", near_expiry_days: 7, lots: [lot(state)], truncated: false,
+    });
+    expect(InventoryLotExpiringResultSchema.safeParse(result("NEAR_EXPIRY")).success).toBe(true);
+    expect(InventoryLotExpiringResultSchema.safeParse(result("EXPIRED")).success).toBe(true);
+    expect(InventoryLotExpiringResultSchema.safeParse(result("VALID")).success).toBe(false);
   });
 });

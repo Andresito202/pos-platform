@@ -137,6 +137,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.lot.receive":
       case "inventory.lot.list":
       case "inventory.lot.trace":
+      case "inventory.lot.expiring":
       case "sales.receipt.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.

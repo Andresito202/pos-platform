@@ -13,6 +13,7 @@ import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js"
 import { AdjustStockUseCase } from "../src/inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
 import { TraceLotUseCase } from "../src/inventory/trace-lot-use-case.js";
+import { ListExpiringLotsUseCase } from "../src/inventory/list-expiring-lots-use-case.js";
 import { lotExpiryState } from "../src/inventory/receive-lot-use-case.js";
 import { NEAR_EXPIRY_DAYS } from "@pos-platform/contracts";
 import { scale6ToBigInt } from "../src/money.js";
@@ -635,5 +636,43 @@ describe("estado de vencimiento: la frontera de NEAR_EXPIRY", () => {
 
   it("sin vencimiento declarado no es ninguno de los tres", () => {
     expect(lotExpiryState(null, "2026-09-22", 7)).toBe("NO_EXPIRY");
+  });
+});
+
+describe("lo que vence esta semana: permiso, sucursal y tope", () => {
+  function receiveIn(store: SqliteInventoryStore, scope: SyncScope, presentationId: string, code: string, expiry: string): void {
+    const r = store.receiveLot({
+      scope, sessionId: SESSION, operatorUserId: USER, presentationId, lotCode: code,
+      quantity: "1.000000", manufacturedDate: null, expiryDate: expiry,
+      reasonCode: "SUPPLIER_DELIVERY", businessDate: "2026-09-07", idempotencyKey: key(),
+      requestChecksum: "7".repeat(64), correlationId: CORRELATION, causationId: null,
+    });
+    if (r.kind !== "RECEIVED") throw new Error(`fixture failed: ${r.kind}`);
+  }
+
+  it("sin permiso de leer existencia es UNAUTHORIZED", async () => {
+    const { store } = await buildEnv();
+    expect(new ListExpiringLotsUseCase(store)
+      .execute(SCOPE, auth(["INVENTORY_STOCK_RECEIVE"]), "2026-09-07", NOW).kind).toBe("UNAUTHORIZED");
+  });
+
+  // Lo que vence en otra sucursal es existencia de otra sucursal.
+  it("no lista tandas de otra sucursal", async () => {
+    const { store, presentationId } = await buildEnv();
+    receiveIn(store, { ...SCOPE, branchId: OTHER_BRANCH }, presentationId, "L-OTRA", "2026-09-08");
+    receiveIn(store, SCOPE, presentationId, "L-PROPIA", "2026-09-08");
+    const result = new ListExpiringLotsUseCase(store).execute(SCOPE, auth(), "2026-09-07", NOW);
+    expect(result.kind).toBe("LISTED");
+    if (result.kind !== "LISTED") return;
+    expect(result.lots.map((lot) => lot.lotCode)).toEqual(["L-PROPIA"]);
+  });
+
+  it("con más tandas que el tope devuelve el tope y marca truncated", async () => {
+    const { store, presentationId } = await buildEnv();
+    for (const code of ["L-1", "L-2", "L-3"]) receiveIn(store, SCOPE, presentationId, code, "2026-09-08");
+    const cut = store.listExpiringLots(TENANT, BRANCH, "2026-09-14", 2);
+    expect(cut.lots).toHaveLength(2);
+    expect(cut.truncated).toBe(true);
+    expect(store.listExpiringLots(TENANT, BRANCH, "2026-09-14", 3).truncated).toBe(false);
   });
 });

@@ -257,3 +257,48 @@ describe("LotPanel — alertas de vencimiento", () => {
     expect(screen.getByTestId("lot-expired-count").textContent).toBe("1");
   });
 });
+
+/**
+ * Lo que vence esta semana. Un nombre que Catálogo no devuelve no borra la
+ * tanda: se muestra con su identificador y el motivo. Un aviso que perdiera
+ * filas dejaría producto vencido en la vitrina sin avisar.
+ */
+describe("LotPanel — lo que vence esta semana", () => {
+  const OTHER = "11111111-1111-4111-8111-11111111cccc";
+  const row = (presentationId: string, code: string, state: string) => ({
+    presentation_id: presentationId, lot_code: code, expiry_date: "2026-09-24",
+    quantity_on_hand: "5.000000", status: "ACTIVE", expiry_state: state,
+  });
+
+  beforeEach(() => {
+    install();
+    const service = (window as unknown as { posService: Record<string, (r: unknown) => Promise<unknown>> }).posService;
+    service["inventory.lot.expiring"] = () => Promise.resolve({
+      status: "SUCCEEDED", result_code: "LISTED",
+      result: {
+        outcome: "LISTED", near_expiry_days: 7, truncated: false,
+        lots: [row(PRESENTATION, "L-VENCIDA", "EXPIRED"), row(OTHER, "L-PRONTO", "NEAR_EXPIRY")],
+      },
+    });
+    service["catalog.item.get"] = (request) => Promise.resolve(
+      (request as Envelope).payload["presentation_id"] === PRESENTATION
+        ? { status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", name: "Carne molida", presentation_name: "Gramo" } }
+        : { status: "REJECTED", result_code: "NOT_FOUND", result: { outcome: "NOT_FOUND" } },
+    );
+  });
+
+  it("nombra cada tanda con Catálogo y conserva la que no tiene nombre", async () => {
+    render(<LotPanel />);
+    fireEvent.click(screen.getByTestId("expiring-load-button"));
+    await waitFor(() => { expect(screen.getByTestId("expiring")).toBeTruthy(); });
+
+    expect(screen.getByTestId("expiring-count").textContent).toBe("2");
+    expect(screen.getAllByTestId("expiring-lot-name").map((cell) => cell.textContent)).toEqual([
+      "Carne molida · Gramo",
+      `${OTHER} (NOT_FOUND)`,
+    ]);
+    expect(screen.getAllByTestId("expiring-lot-state").map((cell) => cell.textContent)).toEqual([
+      "Vencida: sacar por merma", "Vender primero",
+    ]);
+  });
+});
