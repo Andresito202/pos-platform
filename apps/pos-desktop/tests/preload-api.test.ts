@@ -47,6 +47,7 @@ describe("preload-api", () => {
       "inventory.lot.expiring",
       "fiscal.document.list",
       "sales.receipt.get",
+      "sales.receipt.print",
     ]);
   });
 

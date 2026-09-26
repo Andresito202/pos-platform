@@ -44,6 +44,7 @@ export const RENDERER_API_METHODS = [
   "inventory.lot.expiring",
   "fiscal.document.list",
   "sales.receipt.get",
+  "sales.receipt.print",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];

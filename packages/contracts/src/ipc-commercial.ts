@@ -2027,6 +2027,57 @@ export const SalesReceiptGetResultSchema = z.strictObject({
 export const SalesReceiptGetResponseSchema =
   createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
 
+// ── sales.receipt.print ──────────────────────────────────────────────────────
+
+/**
+ * Imprimir el recibo de una venta cobrada — `DEC-010` §Impresión, `D-46`.
+ *
+ * Mutante porque deja rastro en la cola, y por eso exige clave de
+ * idempotencia: **la misma petición repetida no imprime otro papel**, devuelve
+ * el desenlace que ya tuvo con `replayed: true`.
+ *
+ * El servicio decide la copia, no el cliente: la primera vez es `ORIGINAL`;
+ * un reintento tras un fallo reintentable es **el mismo trabajo**; cualquier
+ * papel posterior es `REPRINT` y lo dice impreso.
+ *
+ * - `PRINT_FAILED`: el equipo no imprimió nada (sin papel, tapa abierta,
+ *   inalcanzable); pedirlo otra vez reintenta ese mismo trabajo.
+ * - `PRINT_REJECTED`: el equipo respondió algo que no se puede interpretar;
+ *   reintentar no lo arregla — es configuración.
+ * - `PRINT_UNCERTAIN`: el trabajo pudo salir a medias. No se reintenta solo;
+ *   pedirlo otra vez produce una `REPRINT`.
+ * - `NOT_CONFIGURED`: este equipo no tiene impresora declarada.
+ */
+export const SalesReceiptPrintRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ sale_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("sales.receipt.print") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const SalesReceiptPrintResultSchema = z.strictObject({
+  outcome: z.enum([
+    "PRINTED",
+    "PRINT_FAILED",
+    "PRINT_REJECTED",
+    "PRINT_UNCERTAIN",
+    "IN_PROGRESS",
+    "NOT_CONFIGURED",
+    "NOT_FOUND",
+    "NOT_COMPLETED",
+    "IDEMPOTENCY_CONFLICT",
+    "UNAUTHORIZED",
+  ]),
+  print_job_id: UuidSchema.nullable(),
+  copy: z.enum(["ORIGINAL", "REPRINT"]).nullable(),
+  diagnostic_code: z.string().min(1).max(64).nullable(),
+  replayed: z.boolean(),
+});
+
+export const SalesReceiptPrintResponseSchema =
+  createResponseEnvelopeSchema(SalesReceiptPrintResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -2138,6 +2189,7 @@ export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReason
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
+export type SalesReceiptPrintResult = z.infer<typeof SalesReceiptPrintResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;

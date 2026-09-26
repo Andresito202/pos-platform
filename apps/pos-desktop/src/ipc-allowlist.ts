@@ -57,6 +57,9 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:fiscal.document.list",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
+  // Impresión del recibo — `D-46`. Mutante: deja rastro en la cola y exige
+  // clave de idempotencia; repetir la misma petición no imprime otro papel.
+  "pos:sales.receipt.print",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

@@ -1,5 +1,23 @@
 import { useState } from "react";
-import { useReceipt } from "../hooks/useReceipt.js";
+import { useReceipt, type PrintOutcome } from "../hooks/useReceipt.js";
+
+/**
+ * Qué hacer con cada desenlace de la impresora (`D-46`). Lo importante es la
+ * diferencia entre «no salió nada, vuelva a intentarlo» y «pudo salir a
+ * medias, mire la impresora antes de pedir otro».
+ */
+const PRINT_MESSAGES: Record<PrintOutcome, string> = {
+  PRINTED: "Recibo enviado a la impresora.",
+  PRINT_FAILED: "La impresora no imprimió. Revise papel y tapa, y vuelva a intentarlo.",
+  PRINT_REJECTED: "La impresora respondió algo que no se entiende. Avise a soporte; reintentar no lo arregla.",
+  PRINT_UNCERTAIN: "No se sabe si el recibo salió. Mire la impresora antes de pedir otro: el siguiente saldrá como reimpresión.",
+  IN_PROGRESS: "Ese recibo se está imprimiendo ahora mismo.",
+  NOT_CONFIGURED: "Este equipo no tiene impresora configurada.",
+  NOT_FOUND: "Esa venta no existe en esta caja.",
+  NOT_COMPLETED: "La venta todavía no está cobrada.",
+  IDEMPOTENCY_CONFLICT: "Petición repetida con datos distintos. Vuelva a intentarlo.",
+  UNAUTHORIZED: "No tiene permiso para imprimir recibos.",
+};
 
 /**
  * El recibo en pantalla — `DEC-019`.
@@ -59,6 +77,22 @@ export function ReceiptPanel(): React.JSX.Element {
 
       {receipt.receipt !== null && (
         <div data-testid="receipt">
+          <button
+            data-testid="receipt-print-button"
+            onClick={() => { void receipt.printReceipt(receipt.receipt!.sale_id!); }}
+            disabled={receipt.busy}
+          >
+            Imprimir recibo
+          </button>
+          {receipt.print !== null && (
+            <div data-testid="receipt-print-outcome" data-outcome={receipt.print.outcome}>
+              {PRINT_MESSAGES[receipt.print.outcome]}
+              {receipt.print.copy === "REPRINT" && receipt.print.outcome === "PRINTED" && " (copia marcada como reimpresión)"}
+              {receipt.print.diagnostic_code !== null && (
+                <> · <span data-testid="receipt-print-diagnostic">{receipt.print.diagnostic_code}</span></>
+              )}
+            </div>
+          )}
           <div>
             Venta <span data-testid="receipt-sale-id">{receipt.receipt.sale_id}</span>
             {" · "}

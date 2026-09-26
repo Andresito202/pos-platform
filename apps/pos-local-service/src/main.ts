@@ -36,6 +36,7 @@ import {
 } from "./dev-only/dev-session-bootstrap.js";
 import { SnapshotAcquisitionService } from "./authorization/snapshot-acquisition.js";
 import { AuthorizationSnapshotVerifier } from "./security/authorization-snapshot-verifier.js";
+import { TcpRawReceiptPrinter } from "./hardware/receipt-printer/tcp-raw-printer.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -189,6 +190,26 @@ try {
   // Las claves de sesion se leen del ancla, siempre, y de forma perezosa: los
   // componentes se construyen todos antes de que arranque ninguno, y la
   // provision de arriba ocurre despues de `security.start()`.
+  // Impresora de recibos (`D-46`). Se construye aquí para que una dirección
+  // fuera de la red local restringida detenga el arranque, no la primera venta.
+  const printerConfig = config.receipt_printer;
+  const receiptPrinter = printerConfig === undefined
+    ? null
+    : {
+      adapter: new TcpRawReceiptPrinter({
+        deviceId: `tcp://${printerConfig.transport.host}:${String(printerConfig.transport.port)}`,
+        host: printerConfig.transport.host,
+        port: printerConfig.transport.port,
+        connectTimeoutMs: printerConfig.transport.connect_timeout_ms,
+        ioTimeoutMs: printerConfig.transport.io_timeout_ms,
+        realtimeStatus: printerConfig.transport.realtime_status,
+      }),
+      profile: printerConfig.profile,
+    };
+  logger.log("info", "hardware.receipt_printer", receiptPrinter === null
+    ? { configured: false }
+    : { configured: true, adapter_id: receiptPrinter.adapter.adapterId, device_id: receiptPrinter.adapter.deviceId });
+
   const commercial = new CommercialComponent(
     config,
     localDatabase,
@@ -197,6 +218,8 @@ try {
     () => new Date(),
     paymentProvider,
     fiscalSecretStore,
+    undefined,
+    receiptPrinter,
   );
   // El barrido de intentos `UNKNOWN` (`D-5`/`D-6`). Resuelve su caso de uso al
   // arrancar —va detras de `commercial`, que es quien lo construye— y sin

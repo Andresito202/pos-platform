@@ -5,6 +5,7 @@ import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 import { useProviderPayment } from "../../renderer/src/hooks/useProviderPayment.js";
 import { useFiscalIssuance } from "../../renderer/src/hooks/useFiscalIssuance.js";
 import { useCommercialSale } from "../../renderer/src/hooks/useCommercialSale.js";
+import { useReceipt } from "../../renderer/src/hooks/useReceipt.js";
 
 /**
  * Guarda de doble clic — hallazgo de la auditoría de seguridad del
@@ -156,5 +157,33 @@ describe("doble clic — payment.register.cash (pago en efectivo real)", () => {
     }));
     await waitFor(() => { expect(result.current.busy).toBe(false); });
     expect(result.current.payment?.payment_id).toBe("pay-1");
+  });
+});
+
+describe("doble clic — sales.receipt.print (D-46)", () => {
+  it("la segunda impresión, pedida antes de que la primera responda, no llega al servicio", async () => {
+    const first = pendingResponse<unknown>();
+    let calls = 0;
+    mockService({ "sales.receipt.print": () => { calls += 1; return first.promise; } });
+
+    const { result } = renderHook(() => useReceipt());
+
+    let secondCall: Promise<void> | undefined;
+    act(() => {
+      void result.current.printReceipt("sale-1");
+      secondCall = result.current.printReceipt("sale-1");
+    });
+    await secondCall;
+
+    // Cada pulsación lleva su propia clave: sin esta guarda el servicio vería
+    // dos peticiones distintas y la segunda saldría como reimpresión real.
+    expect(calls).toBe(1);
+
+    act(() => first.resolve({
+      status: "SUCCEEDED", result_code: "PRINTED",
+      result: { outcome: "PRINTED", print_job_id: "j1", copy: "ORIGINAL", diagnostic_code: null, replayed: false },
+    }));
+    await waitFor(() => { expect(result.current.busy).toBe(false); });
+    expect(result.current.print?.outcome).toBe("PRINTED");
   });
 });

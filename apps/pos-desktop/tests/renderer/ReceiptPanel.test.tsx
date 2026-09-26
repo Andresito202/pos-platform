@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { SalesReceiptGetRequestSchema } from "@pos-platform/contracts";
+import { SalesReceiptGetRequestSchema, SalesReceiptPrintRequestSchema } from "@pos-platform/contracts";
 import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 import { ReceiptPanel } from "../../renderer/src/components/ReceiptPanel.js";
 
@@ -143,5 +143,55 @@ describe("ReceiptPanel", () => {
     render(<ReceiptPanel />);
     expect((screen.getByTestId("receipt-load-button") as HTMLButtonElement).disabled).toBe(true);
     expect(calls.get("sales.receipt.get")).toBeUndefined();
+  });
+});
+
+/** Respuesta por método; la impresión puede quedar pendiente para simular el doble clic. */
+function installByMethod(responses: Record<string, () => Promise<unknown>>): void {
+  const service: Record<string, (payload: unknown) => Promise<unknown>> = {};
+  for (const method of RENDERER_API_METHODS) {
+    service[method] = (payload: unknown) => {
+      const seen = calls.get(method) ?? [];
+      seen.push(payload);
+      calls.set(method, seen);
+      return (responses[method] ?? (() => Promise.resolve(RECEIPT)))();
+    };
+  }
+  Object.defineProperty(window, "posService", { value: service, writable: true, configurable: true });
+}
+
+const printed = (outcome: string, copy: string | null, diagnostic: string | null) => ({
+  status: outcome === "PRINTED" ? "SUCCEEDED" : "REJECTED",
+  result_code: outcome,
+  result: { outcome, print_job_id: SALE, copy, diagnostic_code: diagnostic, replayed: false },
+});
+
+describe("ReceiptPanel — impresión (D-46)", () => {
+  beforeEach(() => { calls.clear(); });
+
+  it("imprime con un sobre mutante que el contrato acepta", async () => {
+    installByMethod({ "sales.receipt.print": () => Promise.resolve(printed("PRINTED", "ORIGINAL", null)) });
+    render(<ReceiptPanel />);
+    ask(SALE);
+    await waitFor(() => { expect(screen.getByTestId("receipt")).toBeTruthy(); });
+
+    fireEvent.click(screen.getByTestId("receipt-print-button"));
+    await waitFor(() => { expect(screen.getByTestId("receipt-print-outcome").dataset["outcome"]).toBe("PRINTED"); });
+
+    const [envelope] = calls.get("sales.receipt.print") ?? [];
+    // Sin `operation_id` e `idempotency_key` el esquema lo rechaza: es lo que
+    // permite al servicio reconocer la misma petición repetida.
+    expect(SalesReceiptPrintRequestSchema.safeParse(envelope).success).toBe(true);
+  });
+
+  it("«incierto» pide mirar la impresora, distinto de «no imprimió»", async () => {
+    installByMethod({ "sales.receipt.print": () => Promise.resolve(printed("PRINT_UNCERTAIN", "ORIGINAL", "DELIVERY_UNCERTAIN")) });
+    render(<ReceiptPanel />);
+    ask(SALE);
+    await waitFor(() => { expect(screen.getByTestId("receipt")).toBeTruthy(); });
+    fireEvent.click(screen.getByTestId("receipt-print-button"));
+    await waitFor(() => { expect(screen.getByTestId("receipt-print-outcome")).toBeTruthy(); });
+    expect(screen.getByTestId("receipt-print-outcome").textContent).toMatch(/Mire la impresora/);
+    expect(screen.getByTestId("receipt-print-diagnostic").textContent).toBe("DELIVERY_UNCERTAIN");
   });
 });

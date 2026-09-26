@@ -2302,6 +2302,96 @@ CREATE TRIGGER fiscal_electronic_document_frozen_acquirer
   BEGIN SELECT RAISE(ABORT, 'electronic document acquirer is immutable'); END;
 `.trim();
 
+/**
+ * Cola de impresión — `DEC-010` §Impresión y hardware 2-4, `D-46`.
+ *
+ * Dos tablas porque son dos identidades distintas. El **trabajo** es «el
+ * papel de esta venta» y tiene identidad propia: un reintento tras «sin
+ * papel» es el mismo trabajo, no un segundo comprobante. El **intento** es
+ * cada petición del cajero, con su clave de idempotencia: repetir la misma
+ * petición encuentra su intento y no vuelve a imprimir.
+ *
+ * El recibo no se guarda aquí (`DEC-019`): el ticket se recompone desde la
+ * venta, que es inmutable, en cada intento.
+ *
+ * Lo que impone el esquema y no la aplicación:
+ * - un solo `ORIGINAL` por venta; todo lo demás es `REPRINT` y lo dice en papel;
+ * - un solo intento abierto por trabajo; un intento abierto al arrancar es un
+ *   corte a mitad de impresión y se cierra como `INTERRUPTED`, nunca se repite;
+ * - desenlaces finales: ni el trabajo terminado ni el intento cerrado cambian;
+ * - nada se borra: es el rastro de quién pidió cada papel.
+ */
+const MIGRATION_032 = `
+CREATE TABLE hardware_print_job (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  sale_id TEXT NOT NULL CHECK(length(sale_id) = 36),
+  copy_kind TEXT NOT NULL CHECK(copy_kind IN ('ORIGINAL','REPRINT')),
+  status TEXT NOT NULL CHECK(status IN ('PENDING','PRINTED','FAILED','UNKNOWN')),
+  last_diagnostic_code TEXT
+    CHECK(last_diagnostic_code IS NULL OR length(last_diagnostic_code) BETWEEN 1 AND 64),
+  created_by_user_id TEXT NOT NULL CHECK(length(created_by_user_id) = 36),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_id) REFERENCES sales_sales(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX hardware_print_job_one_original_idx
+  ON hardware_print_job(tenant_id, sale_id) WHERE copy_kind = 'ORIGINAL';
+CREATE INDEX hardware_print_job_sale_idx ON hardware_print_job(tenant_id, sale_id);
+CREATE TRIGGER hardware_print_job_identity_frozen
+  BEFORE UPDATE ON hardware_print_job
+  FOR EACH ROW WHEN
+    OLD.company_id IS NOT NEW.company_id OR OLD.branch_id IS NOT NEW.branch_id
+    OR OLD.sale_id IS NOT NEW.sale_id OR OLD.copy_kind IS NOT NEW.copy_kind
+    OR OLD.created_by_user_id IS NOT NEW.created_by_user_id OR OLD.created_at IS NOT NEW.created_at
+  BEGIN SELECT RAISE(ABORT, 'print job identity is immutable'); END;
+CREATE TRIGGER hardware_print_job_final
+  BEFORE UPDATE ON hardware_print_job
+  FOR EACH ROW WHEN OLD.status <> 'PENDING'
+  BEGIN SELECT RAISE(ABORT, 'print job outcome is final'); END;
+CREATE TRIGGER hardware_print_job_no_delete
+  BEFORE DELETE ON hardware_print_job
+  BEGIN SELECT RAISE(ABORT, 'print jobs are append-only'); END;
+
+CREATE TABLE hardware_print_attempt (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  print_job_id TEXT NOT NULL CHECK(length(print_job_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 200),
+  requested_by_user_id TEXT NOT NULL CHECK(length(requested_by_user_id) = 36),
+  requested_at TEXT NOT NULL,
+  outcome TEXT CHECK(outcome IS NULL OR outcome IN (
+    'SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','UNKNOWN','INTERRUPTED')),
+  retryable INTEGER CHECK(retryable IS NULL OR retryable IN (0,1)),
+  diagnostic_code TEXT CHECK(diagnostic_code IS NULL OR length(diagnostic_code) BETWEEN 1 AND 64),
+  finished_at TEXT,
+  CHECK((outcome IS NULL) = (finished_at IS NULL)),
+  CHECK((outcome IS NULL) = (retryable IS NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, print_job_id) REFERENCES hardware_print_job(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX hardware_print_attempt_idempotency_idx
+  ON hardware_print_attempt(tenant_id, idempotency_key);
+CREATE UNIQUE INDEX hardware_print_attempt_one_open_idx
+  ON hardware_print_attempt(tenant_id, print_job_id) WHERE outcome IS NULL;
+CREATE TRIGGER hardware_print_attempt_identity_frozen
+  BEFORE UPDATE ON hardware_print_attempt
+  FOR EACH ROW WHEN
+    OLD.print_job_id IS NOT NEW.print_job_id OR OLD.idempotency_key IS NOT NEW.idempotency_key
+    OR OLD.requested_by_user_id IS NOT NEW.requested_by_user_id OR OLD.requested_at IS NOT NEW.requested_at
+  BEGIN SELECT RAISE(ABORT, 'print attempt identity is immutable'); END;
+CREATE TRIGGER hardware_print_attempt_final
+  BEFORE UPDATE ON hardware_print_attempt
+  FOR EACH ROW WHEN OLD.outcome IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, 'print attempt outcome is final'); END;
+CREATE TRIGGER hardware_print_attempt_no_delete
+  BEFORE DELETE ON hardware_print_attempt
+  BEGIN SELECT RAISE(ABORT, 'print attempts are append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2334,6 +2424,7 @@ const MIGRATIONS = [
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
   { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
   { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
+  { version: 32, sql: MIGRATION_032, checksum: createHash("sha256").update(MIGRATION_032).digest("hex") },
 ] as const;
 
 /**

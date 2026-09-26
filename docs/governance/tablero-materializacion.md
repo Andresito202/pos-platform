@@ -205,7 +205,7 @@ y por eso varias filas suben. Al final hay una sección con lo que movió.
 | A6 | SSA y binding de sesión | `RUNTIME_VERIFIED` | `CommercialComponent`; probado por handler, no por transporte |
 | A7 | Proyección de autorización | `RUNTIME_VERIFIED` | idem |
 | A8 | Master snapshot | `RUNTIME_VERIFIED` | `SqliteMasterSnapshotStore` en `commercial-component.ts:125`, consumido por `OpenCashShiftUseCase`; 37 pruebas |
-| A9 | Canal IPC comercial (**40** tipos) | `CALLER_REACHABLE` | **Medido el 2026-09-20 instrumentando `CommercialRequestHandler.handle`**, no contando a ojo: **26 de 34** cruzan el socket real y los sirve el handler de producción (medido cuando eran 31; las tres de presentación y conversión se añadieron el mismo día y no entraron en esa medición), sumando la vertical, `runtime-restart-persistence.test.ts` y los 16 E2E de Electron. El título decía 23 y la evidencia «10 de 23»: las dos cifras estaban vencidas. **No sube**, y los 5 que faltan no fallan por la misma razón — ver el desglose bajo la tabla |
+| A9 | Canal IPC comercial (**41** tipos) | `CALLER_REACHABLE` | **Medido el 2026-09-20 instrumentando `CommercialRequestHandler.handle`**, no contando a ojo: **26 de 34** cruzan el socket real y los sirve el handler de producción (medido cuando eran 31; las tres de presentación y conversión se añadieron el mismo día y no entraron en esa medición), sumando la vertical, `runtime-restart-persistence.test.ts` y los 16 E2E de Electron. El título decía 23 y la evidencia «10 de 23»: las dos cifras estaban vencidas. **No sube**, y los 5 que faltan no fallan por la misma razón — ver el desglose bajo la tabla |
 | A10 | Enrutamiento del canal → superficie comercial | `RUNTIME_VERIFIED` | `CommercialComponent` en `main.ts:88`; `LocalChannelComponent` sólo en `win32` |
 | A11 | Shell Electron (main, preload, allowlist) | `RUNTIME_VERIFIED` | 6 E2E con Electron real; desde #75 uno de ellos habla con el **servicio real** por `src/start.ts`, no con un doble |
 | A12 | Logger estructurado | `RUNTIME_VERIFIED` | `observability`, 4 pruebas |
@@ -267,7 +267,7 @@ bloque A es infraestructura local, a la que estos dos peldaños no le aplican
 | B9 | Tax (motor de impuestos) | `RUNTIME_VERIFIED` | se calcula dentro de `sale.create`; **su salida no se asevera al otro lado** |
 | B10 | Customer / adquiriente | `END_TO_END` | **Sube el 2026-09-20.** «Ninguna de las tres tiene pantalla» había dejado de ser cierto: `real-channel.spec.ts:500` recorre las tres desde `CustomerPanel` —busca y no está, registra, vuelve a buscar y está, y la recupera por ID—. Faltaba leer el efecto donde queda escrito, y se añade: la vertical comprueba la fila de `customers_customers` incluidos `tenant_id` y `company_id`, que **el llamador nunca envía** —la operación rechaza un sobre que los lleve— y por tanto sólo pueden venir del contexto verificado |
 | B11 | SaleReturn, notas crédito y débito | `DOCUMENTED` | — |
-| B12 | Periféricos POS | `DOCUMENTED` | cero código |
+| B12 | Periféricos POS | `TESTED` | **Sólo la impresora de recibos** (`D-46`, 2026-09-26): puerto común de `integration-contracts.md`, ticket ESC/POS desde la proyección de `DEC-019`, adaptador TCP crudo, cola persistente (`MIGRATION_032`) y `sales.receipt.print` servido por el handler de producción a través del socket real — contra un **simulador** y un par TCP que emula `DLE EOT`, nunca contra un equipo. Cajón, balanza, lector dedicado, pantalla de cliente y datáfono: cero código. `HW-PRN-001` sigue `UNTESTED` en la matriz de hardware |
 | B13 | Recibo de venta (proyección, `DEC-019`) | `END_TO_END` | `sales.receipt.get` se deriva de la venta cobrada; la pantalla lo pide y distingue `NOT_FOUND` de `NOT_COMPLETED`. Sin tabla, sin migración y sin campo fiscal |
 
 **B5 fue la corrección más cara del tablero, y conviene no olvidar por qué.**
@@ -335,8 +335,10 @@ QR fiscal y no hay cabecera DIAN. Y destapó `D-23`: `identifier_snapshot` se
 escribe siempre `NULL`, de modo que el recibo no puede mostrar el código del
 producto y hoy afirma `null` por honestidad.
 
-**B8 y B12 se mantienen en `DOCUMENTED`.** `sandbox_price_rule` es una tabla sin
-regla que la calcule; periféricos no tiene una sola línea.
+**B8 se mantiene en `DOCUMENTED`**: `sandbox_price_rule` es una tabla sin
+regla que la calcule. **B12 sube a `TESTED` el 2026-09-26 y sólo por la
+impresora** (`D-46`); no sube más porque ningún equipo físico ha impreso un
+papel, y el resto de periféricos sigue sin una línea.
 
 ### Bloque C — Plano fiscal · 19 capacidades
 
@@ -501,9 +503,9 @@ nada sobre ese job; dice que algo aguas arriba falló.
 | `END_TO_END` | **10** | B1 B2 B3 B4 B5 B6 B7 B10 B13 · C19 |
 | `CALLER_REACHABLE` | **1** | A9 |
 | `RUNTIME_VERIFIED` | **18** | A1 A2 A4 A5 A6 A7 A8 A10 A11 A12 A14 · B9 · E1 E2 E3 E4 E5 E7 |
-| `TESTED` | **18** | A3 A13 · C1..C11 C16 C17 C18 · D1 D4 |
+| `TESTED` | **19** | A3 A13 · B12 · C1..C11 C16 C17 C18 · D1 D4 |
 | `IMPLEMENTED` | **2** | C14 · E6 |
-| `DOCUMENTED` | **11** | B8 B11 B12 · C12 C13 C15 · D3 D5 D6 · E8 E9 |
+| `DOCUMENTED` | **10** | B8 B11 · C12 C13 C15 · D3 D5 D6 · E8 E9 |
 | — (nada) | **1** | D2 |
 | **Total** | **61** | las 61 filas aparecen una sola vez; recuento verificado parseando el fichero |
 

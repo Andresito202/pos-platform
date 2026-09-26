@@ -3,6 +3,7 @@ import { ContractVersionSchema, StableCodeSchema, compareContractVersions } from
 import { FiscalEnvironmentSchema } from "@pos-platform/fiscal-adapters";
 import * as z from "zod";
 import { DevRolePresetIdSchema } from "./dev-only/dev-role-presets.js";
+import { ReceiptPrinterProfileSchema } from "./hardware/receipt-printer/print-profile.js";
 
 const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_DATA_DIRECTORY",
@@ -24,7 +25,36 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_OPERATOR_SESSION_ARTIFACT_PATH",
   // Revisión de pantallas por rol — NUNCA producción. Ver `dev-only/`.
   "POS_DEV_ROLE_PRESET",
+  // `D-46`: impresora de recibos, JSON. Ausente = equipo sin impresora.
+  "POS_RECEIPT_PRINTER",
 ]);
+
+/**
+ * Impresora de recibos declarada por el instalador. Sólo el transporte que
+ * existe (`TCP_RAW`); la dirección se valida además al construir el
+ * adaptador —IPv4 literal de red local restringida— y un valor inválido
+ * detiene el arranque en vez de dejar un equipo que parece tener impresora.
+ */
+export const ReceiptPrinterConfigSchema = z.strictObject({
+  transport: z.strictObject({
+    kind: z.literal("TCP_RAW"),
+    host: z.string().min(1).max(64),
+    port: z.number().int().min(1).max(65535),
+    realtime_status: z.boolean(),
+    connect_timeout_ms: z.number().int().min(100).max(30_000),
+    io_timeout_ms: z.number().int().min(100).max(60_000),
+  }),
+  profile: ReceiptPrinterProfileSchema,
+});
+
+function parseReceiptPrinter(value: string | undefined): unknown {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    throw new Error("POS_RECEIPT_PRINTER must be valid JSON");
+  }
+}
 
 const ServiceConfigSchema = z.strictObject({
   data_directory: z.string().min(1),
@@ -68,6 +98,7 @@ const ServiceConfigSchema = z.strictObject({
    * arrancar y lo dice.
    */
   dev_role_preset: DevRolePresetIdSchema.optional(),
+  receipt_printer: ReceiptPrinterConfigSchema.optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
@@ -113,6 +144,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
     operator_session_artifact_path: environment.POS_OPERATOR_SESSION_ARTIFACT_PATH,
     dev_role_preset: environment.POS_DEV_ROLE_PRESET,
+    receipt_printer: parseReceiptPrinter(environment.POS_RECEIPT_PRINTER),
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };

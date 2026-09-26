@@ -21,6 +21,9 @@ import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-au
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
+import { encodeText, SimulatedReceiptPrinter, type ReceiptPrinterProfile } from "../src/hardware/index.js";
+import type { ConfiguredReceiptPrinter } from "../src/hardware/print-queue/print-receipt-use-case.js";
+import { SqlitePrintQueueStore } from "../src/hardware/print-queue/sqlite-print-queue-store.js";
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
@@ -276,6 +279,7 @@ interface ChannelResponse {
  */
 async function withRealChannel(
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
+  receiptPrinter: ConfiguredReceiptPrinter | null = null,
 ): Promise<void> {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
@@ -291,6 +295,10 @@ async function withRealChannel(
     { store: new DurableSyncStore(database) } as never,
     keys,
     () => NOW,
+    undefined,
+    undefined,
+    undefined,
+    receiptPrinter,
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
@@ -3549,4 +3557,167 @@ describe("trazabilidad de venta a lote: FEFO sobre lotes vigentes", () => {
       });
     }, 60_000);
   });
+});
+
+// ── sales.receipt.print — `D-46` ─────────────────────────────────────────────
+
+const PRINT_PROFILE: ReceiptPrinterProfile = {
+  width_characters: 42, code_page: "CP850", escpos_code_table: 2, cut: "PARTIAL", feed_lines_before_cut: 3,
+};
+const printerFor = (simulated: SimulatedReceiptPrinter): ConfiguredReceiptPrinter => ({ adapter: simulated, profile: PRINT_PROFILE });
+const containsText = (bytes: Uint8Array | null, text: string): boolean =>
+  bytes !== null && Buffer.from(bytes).includes(Buffer.from(encodeText(text, "CP850").bytes));
+const jobsOf = (database: LocalDatabase, saleId: string): { copy_kind: string; status: string; last_diagnostic_code: string | null }[] =>
+  database.native.prepare(
+    "SELECT copy_kind, status, last_diagnostic_code FROM hardware_print_job WHERE sale_id=? ORDER BY created_at, id",
+  ).all(saleId) as { copy_kind: string; status: string; last_diagnostic_code: string | null }[];
+
+/** Venta cobrada por el canal, lista para imprimir. */
+async function paidSale(send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase, suffix: string): Promise<string> {
+  const ids = await prepareCounter(send, database, suffix);
+  const sale = await createSale(send, ids, "2.000000", `${suffix}:sale`);
+  await send(mutating("payment.register.cash", {
+    sale_id: sale.saleId, amount: sale.payable, tendered_amount: "40000.000000",
+  }, `${suffix}:pay`));
+  return sale.saleId;
+}
+
+describe("sales.receipt.print cruza el socket real hasta la impresora (D-46)", () => {
+  it("imprime el ORIGINAL con los importes congelados de la venta", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt1");
+      const response = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt1:print"));
+      expect(response.status).toBe("SUCCEEDED");
+      expect(response.result).toMatchObject({ outcome: "PRINTED", copy: "ORIGINAL", replayed: false });
+      const jobId = response.result["print_job_id"] as string;
+      expect(printer.deliveredCount(jobId)).toBe(1);
+      expect(containsText(printer.lastDelivery(), "RECIBO DE VENTA")).toBe(true);
+      expect(containsText(printer.lastDelivery(), "Café Americano 500 g")).toBe(true);
+      expect(containsText(printer.lastDelivery(), "REIMPRESIÓN")).toBe(false);
+      expect(jobsOf(database, saleId)).toEqual([{ copy_kind: "ORIGINAL", status: "PRINTED", last_diagnostic_code: null }]);
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("la misma petición repetida no imprime otro papel", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt2");
+      const first = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt2:print"));
+      const again = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt2:print"));
+      expect(again.result).toMatchObject({ outcome: "PRINTED", replayed: true, print_job_id: first.result["print_job_id"] });
+      expect(printer.deliveredCount(first.result["print_job_id"] as string)).toBe(1);
+      expect(jobsOf(database, saleId)).toHaveLength(1);
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("sin papel: reintentar reutiliza el mismo trabajo y sale como ORIGINAL, no como copia", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt3");
+      printer.inject("PAPER_OUT");
+      const failed = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt3:print:1"));
+      expect(failed.status).toBe("REJECTED");
+      expect(failed.result).toMatchObject({ outcome: "PRINT_FAILED", copy: "ORIGINAL", diagnostic_code: "PAPER_OUT" });
+      expect(failed.error?.category).toBe("DEPENDENCY_UNAVAILABLE");
+
+      const retried = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt3:print:2"));
+      expect(retried.result).toMatchObject({ outcome: "PRINTED", copy: "ORIGINAL", print_job_id: failed.result["print_job_id"] });
+      expect(printer.deliveredCount(failed.result["print_job_id"] as string)).toBe(1);
+      expect(containsText(printer.lastDelivery(), "REIMPRESIÓN")).toBe(false);
+      expect(jobsOf(database, saleId)).toEqual([{ copy_kind: "ORIGINAL", status: "PRINTED", last_diagnostic_code: null }]);
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("un segundo papel de una venta ya impresa es REPRINT y lo dice impreso", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt4");
+      const original = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt4:print:1"));
+      const copy = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt4:print:2"));
+      expect(copy.result).toMatchObject({ outcome: "PRINTED", copy: "REPRINT", replayed: false });
+      expect(copy.result["print_job_id"]).not.toBe(original.result["print_job_id"]);
+      expect(containsText(printer.lastDelivery(), "*** REIMPRESIÓN ***")).toBe(true);
+      expect(jobsOf(database, saleId).map((job) => job.copy_kind)).toEqual(["ORIGINAL", "REPRINT"]);
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("envío incierto: no se reintenta solo y el siguiente papel es copia", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt5");
+      printer.inject("LOST_DURING_SEND");
+      const uncertain = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt5:print:1"));
+      expect(uncertain.result).toMatchObject({ outcome: "PRINT_UNCERTAIN", diagnostic_code: "DELIVERY_UNCERTAIN" });
+      expect(uncertain.error?.category).toBe("UNKNOWN_OUTCOME");
+      const next = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt5:print:2"));
+      expect(next.result).toMatchObject({ outcome: "PRINTED", copy: "REPRINT" });
+      expect(jobsOf(database, saleId).map((job) => `${job.copy_kind}/${job.status}`)).toEqual(["ORIGINAL/UNKNOWN", "REPRINT/PRINTED"]);
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("un corte a mitad de impresión se cierra como incierto al arrancar; nunca se reimprime solo", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt6");
+      // Intento abierto y nunca cerrado: lo que deja un corte de luz.
+      const opened = new SqlitePrintQueueStore(database, () => NOW).openAttempt(SCOPE, { saleId, userId: USER, idempotencyKey: "prt6:crash" });
+      expect(opened.kind).toBe("OPENED");
+
+      // Arranque de verdad del componente sobre la misma base.
+      const restarted = new CommercialComponent(
+        config(), { database } as never, { store: new DurableSyncStore(database) } as never, new Map(), () => NOW,
+      );
+      await restarted.start();
+      await restarted.stop();
+      expect(jobsOf(database, saleId)).toEqual([{ copy_kind: "ORIGINAL", status: "UNKNOWN", last_diagnostic_code: "INTERRUPTED" }]);
+
+      // Repetir la petición que se cortó informa lo incierto; no imprime.
+      const replay = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt6:crash"));
+      expect(replay.result).toMatchObject({ outcome: "PRINT_UNCERTAIN", replayed: true, diagnostic_code: "INTERRUPTED" });
+      expect(printer.lastDelivery()).toBeNull();
+
+      const next = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt6:print"));
+      expect(next.result).toMatchObject({ outcome: "PRINTED", copy: "REPRINT" });
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("sin impresora configurada: NOT_CONFIGURED y la cola queda intacta", async () => {
+    await withRealChannel(async (send, database) => {
+      const saleId = await paidSale(send, database, "prt7");
+      const response = await send(mutating("sales.receipt.print", { sale_id: saleId }, "prt7:print"));
+      expect(response.result).toMatchObject({ outcome: "NOT_CONFIGURED", print_job_id: null });
+      expect(jobsOf(database, saleId)).toHaveLength(0);
+    });
+  }, 30_000);
+
+  it("una venta sin cobrar no se imprime ni deja rastro", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "prt8");
+      const sale = await createSale(send, ids, "1.000000", "prt8:sale");
+      const response = await send(mutating("sales.receipt.print", { sale_id: sale.saleId }, "prt8:print"));
+      expect(response.result).toMatchObject({ outcome: "NOT_COMPLETED" });
+      expect(jobsOf(database, sale.saleId)).toHaveLength(0);
+      expect(printer.lastDelivery()).toBeNull();
+    }, printerFor(printer));
+  }, 30_000);
+
+  it("la misma clave para otra venta es un conflicto, no el resultado de la primera", async () => {
+    const printer = new SimulatedReceiptPrinter("sim-print", () => NOW);
+    await withRealChannel(async (send, database) => {
+      const first = await paidSale(send, database, "prt9");
+      await send(mutating("sales.receipt.print", { sale_id: first }, "prt9:shared"));
+      const found = await send(reading("catalog.item.find", { barcode: BARCODE }));
+      const second = await createSale(send, {
+        presentationId: found.result["presentation_id"] as string, productId: found.result["product_id"] as string,
+      }, "1.000000", "prt9:sale2");
+      await send(mutating("payment.register.cash", {
+        sale_id: second.saleId, amount: second.payable, tendered_amount: "40000.000000",
+      }, "prt9:pay2"));
+      const conflict = await send(mutating("sales.receipt.print", { sale_id: second.saleId }, "prt9:shared"));
+      expect(conflict.result).toMatchObject({ outcome: "IDEMPOTENCY_CONFLICT" });
+      expect(jobsOf(database, second.saleId)).toHaveLength(0);
+    }, printerFor(printer));
+  }, 30_000);
 });

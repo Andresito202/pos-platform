@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
-import type { SalesReceiptGetResult } from "@pos-platform/contracts";
-import { callCommercial } from "../pos-service.js";
+import { useCallback, useRef, useState } from "react";
+import type { SalesReceiptGetResult, SalesReceiptPrintResult } from "@pos-platform/contracts";
+import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 
 /**
  * Estado de la consulta del recibo — `DEC-019`.
@@ -17,8 +17,12 @@ import { callCommercial } from "../pos-service.js";
  */
 export type ReceiptOutcome = SalesReceiptGetResult["outcome"];
 
+export type PrintOutcome = SalesReceiptPrintResult["outcome"];
+
 export interface ReceiptState {
   readonly busy: boolean;
+  /** Desenlace de la última impresión pedida, con la copia que salió. */
+  readonly print: Pick<SalesReceiptPrintResult, "outcome" | "copy" | "diagnostic_code"> | null;
   /** Código estable del contrato cuando la consulta no devuelve recibo. */
   readonly outcome: ReceiptOutcome | null;
   readonly receipt: SalesReceiptGetResult | null;
@@ -34,9 +38,14 @@ export interface ReceiptState {
  */
 export function useReceipt(): ReceiptState & {
   load(saleId: string): Promise<void>;
+  printReceipt(saleId: string): Promise<void>;
   clear(): void;
 } {
   const [busy, setBusy] = useState(false);
+  const [print, setPrint] = useState<ReceiptState["print"]>(null);
+  // `D-43`: la segunda pulsación mientras la primera imprime se ignora aquí,
+  // antes de que React repinte el botón deshabilitado.
+  const inFlight = useRef(false);
   const [outcome, setOutcome] = useState<ReceiptOutcome | null>(null);
   const [receipt, setReceipt] = useState<SalesReceiptGetResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,11 +74,40 @@ export function useReceipt(): ReceiptState & {
     }
   }, []);
 
+  /**
+   * Una clave nueva por pulsación: pedir otra vez **después** de un desenlace
+   * es una petición nueva. El servicio decide si es el mismo trabajo (tras
+   * «sin papel») o una copia marcada.
+   */
+  const printReceipt = useCallback(async (saleId: string): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    setPrint(null);
+    try {
+      const response = await callCommercial<SalesReceiptPrintResult>(
+        "sales.receipt.print", { sale_id: saleId }, newIdempotencyKey(),
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setPrint({ outcome: response.result.outcome, copy: response.result.copy, diagnostic_code: response.result.diagnostic_code });
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }, []);
+
   const clear = useCallback((): void => {
+    setPrint(null);
     setOutcome(null);
     setReceipt(null);
     setError(null);
   }, []);
 
-  return { busy, outcome, receipt, error, load, clear };
+  return { busy, print, outcome, receipt, error, load, printReceipt, clear };
 }

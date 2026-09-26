@@ -30,7 +30,7 @@ type CommercialRequest = Extract<
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
       | "inventory.lot.expiring" | "fiscal.document.list"
-      | "sales.receipt.get";
+      | "sales.receipt.get" | "sales.receipt.print";
   }
 >;
 
@@ -102,6 +102,14 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   STALE_SEQUENCE: "CONFLICT",
   BINDING_MISMATCH: "AUTHENTICATION",
   UNVERIFIABLE: "AUTHENTICATION",
+  // Impresión (`D-46`). El equipo es una dependencia: sin papel o
+  // inalcanzable no es un error del servicio. `PRINT_UNCERTAIN` es el único
+  // desenlace cuyo efecto físico no se conoce.
+  PRINT_FAILED: "DEPENDENCY_UNAVAILABLE",
+  PRINT_REJECTED: "DEPENDENCY_UNAVAILABLE",
+  PRINT_UNCERTAIN: "UNKNOWN_OUTCOME",
+  IN_PROGRESS: "CONFLICT",
+  NOT_CONFIGURED: "DEPENDENCY_UNAVAILABLE",
   [SESSION_NOT_BOUND]: "AUTHENTICATION",
   [AUTHORIZATION_SNAPSHOT_UNAVAILABLE]: "AUTHORIZATION",
 };
@@ -244,6 +252,7 @@ export class CommercialRequestHandler {
       case "inventory.lot.expiring": return this.listExpiringLots(request, connectionId);
       case "fiscal.document.list": return this.listFiscalDocuments(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
+      case "sales.receipt.print": return this.printReceipt(request, connectionId);
     }
   }
 
@@ -1714,6 +1723,50 @@ export class CommercialRequestHandler {
       })),
       calculation_checksum: receipt.calculationChecksum,
     });
+  }
+
+  // ── sales.receipt.print — `DEC-010` §Impresión, `D-46` ─────────────────────
+
+  /**
+   * Imprimir el recibo. Sólo `PRINTED` es éxito; el resto viaja como rechazo
+   * con su desenlace, para que el cajero sepa si reintentar (`PRINT_FAILED`),
+   * mirar la impresora (`PRINT_UNCERTAIN`) o llamar a soporte
+   * (`PRINT_REJECTED`, `NOT_CONFIGURED`).
+   */
+  private async printReceipt(
+    request: Extract<CommercialRequest, { message_type: "sales.receipt.print" }>,
+    connectionId: string,
+  ): Promise<unknown> {
+    const none = { print_job_id: null, copy: null, diagnostic_code: null, replayed: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const result = await this.commercial.printReceipt.execute(this.scope(), authenticated.snapshot, {
+      saleId: request.payload.sale_id,
+      idempotencyKey: request.idempotency_key as string,
+    });
+
+    switch (result.kind) {
+      case "PRINTED":
+        return succeeded(request, "PRINTED", {
+          outcome: "PRINTED", print_job_id: result.jobId, copy: result.copy,
+          diagnostic_code: result.diagnosticCode, replayed: result.replayed,
+        });
+      case "PRINT_FAILED":
+      case "PRINT_REJECTED":
+      case "PRINT_UNCERTAIN":
+        return rejected(request, result.kind, {
+          outcome: result.kind, print_job_id: result.jobId, copy: result.copy,
+          diagnostic_code: result.diagnosticCode, replayed: result.replayed,
+        });
+      case "IN_PROGRESS":
+        return rejected(request, "IN_PROGRESS", { outcome: "IN_PROGRESS", ...none, print_job_id: result.jobId, copy: result.copy });
+      default:
+        return rejected(request, result.kind, { outcome: result.kind, ...none });
+    }
   }
 
   // ── session.activate ───────────────────────────────────────────────────────

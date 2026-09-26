@@ -60,6 +60,8 @@ import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-stor
 import { ListFiscalDocumentsUseCase } from "../fiscal/list-fiscal-documents-use-case.js";
 import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
+import { PrintReceiptUseCase, type ConfiguredReceiptPrinter } from "../hardware/print-queue/print-receipt-use-case.js";
+import { SqlitePrintQueueStore } from "../hardware/print-queue/sqlite-print-queue-store.js";
 
 /**
  * Origen de las claves de firma de sesión.
@@ -140,6 +142,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly traceLot: TraceLotUseCase;
         readonly listExpiringLots: ListExpiringLotsUseCase;
         readonly getReceipt: GetReceiptUseCase;
+        readonly printReceipt: PrintReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
          * falta `fiscal_environment` (`POS_FISCAL_ENVIRONMENT`) o no hay
@@ -174,6 +177,12 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
+    /**
+     * `null` = este equipo no declara impresora. No es un error de arranque:
+     * `sales.receipt.print` responde `NOT_CONFIGURED`, igual que el QR sin
+     * adquiriente.
+     */
+    private readonly receiptPrinter: ConfiguredReceiptPrinter | null = null,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -228,6 +237,7 @@ export class CommercialComponent implements RuntimeComponent {
   get traceLot(): TraceLotUseCase { return this.ready.traceLot; }
   get listExpiringLots(): ListExpiringLotsUseCase { return this.ready.listExpiringLots; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
+  get printReceipt(): PrintReceiptUseCase { return this.ready.printReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
   get listFiscalDocuments(): ListFiscalDocumentsUseCase { return this.ready.listFiscalDocuments; }
 
@@ -310,6 +320,13 @@ export class CommercialComponent implements RuntimeComponent {
     const setFiscalAttribute = new SetFiscalAttributeUseCase(catalogStore);
     const receiveStock = new ReceiveStockUseCase(inventoryStore);
 
+    const getReceipt = new GetReceiptUseCase(new SqliteReceiptStore(database));
+    // `DEC-010` §Impresión 4: al arrancar se recuperan los trabajos. Un
+    // intento que quedó abierto es un corte a mitad de impresión; se cierra
+    // como incierto y nunca se reimprime solo.
+    const printQueue = new SqlitePrintQueueStore(database, this.now);
+    printQueue.interruptOpenAttempts();
+
     this.state = {
       issueElectronicDocument,
       // Siempre presente: leer lo ya emitido no depende de tener credencial.
@@ -329,7 +346,8 @@ export class CommercialComponent implements RuntimeComponent {
       traceLot: new TraceLotUseCase(inventoryStore),
       listExpiringLots: new ListExpiringLotsUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
-      getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
+      getReceipt,
+      printReceipt: new PrintReceiptUseCase(getReceipt, printQueue, this.receiptPrinter, this.now),
       registerProduct,
       setFiscalAttribute,
       addPresentation: new AddPresentationUseCase(catalogStore),

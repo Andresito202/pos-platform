@@ -37,7 +37,7 @@ siguiera faltando una autoridad central.
 |---|---|---|
 | **Catálogo real** | ✅ | `MIGRATION_014` · `catalog_product` / `catalog_presentation` / `catalog_price` |
 | **Inventario** | ✅ | `MIGRATION_015` · `inventory_stock` / `inventory_movement` · la venta descuenta al completarse |
-| **Interfaz de caja** | ✅ | **38 de las 40 operaciones del contrato tienen pantalla**, repartidas en 16 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
+| **Interfaz de caja** | ✅ | **39 de las 41 operaciones del contrato tienen pantalla**, repartidas en 16 paneles y hooks. `real-channel.spec.ts` conduce una venta entera desde la ventana de Electron contra el servicio real: alta de producto, existencia, escaneo, venta, cobro y recibo |
 | Venta, cobro, caja y adquiriente | ✅ | `Sales`, `Cash`, `Payments`, `Customers`, alcanzables por el canal y desde la pantalla |
 | Impuesto por línea | ✅ | `catalog_fiscal_attribute` (`MIGRATION_013`) **con escritor desde el 2026-09-20** (`D-19`): `catalog.fiscal.attribute.set`, con pantalla en `CatalogPanel` |
 | Crédito (fiar) | ✅ | `customers_credit_accounts` / `customers_credit_transactions` · `CreditPanel` · E2E: fiar una venta y recibir el abono |
@@ -45,6 +45,7 @@ siguiera faltando una autoridad central.
 | **Productor de credencial de sesión** | ⚠️ | **Existe desde el 2026-09-20** (`DEC-025`): artefacto con SSA + SAS firmado por el propietario, consumido al arrancar por las rutas canónicas. Ejecutado de extremo a extremo con material de prueba. **No sirve todavía con el material publicado** — ver abajo |
 | Lector de código de barras | ⚠️ | el catálogo resuelve código → artículo y garantiza que un código identifica una sola presentación. Un lector USB se comporta como teclado y escribe en `barcode-input`, así que **la ruta existe**; lo que no se ha verificado es un periférico real → `REQUIRES_LOCAL_VERIFICATION` |
 | Balanza | ❌ | ninguna integración; `unit_precision` gobierna la cantidad pero nadie la lee de un periférico |
+| Impresora de recibos | ⚠️ | **Existe desde el 2026-09-26** (`D-46`): botón «Imprimir recibo» en `ReceiptPanel` → `sales.receipt.print` → cola persistente → ticket ESC/POS por TCP crudo a una impresora de red local. Repetir la misma petición no imprime otro papel; un «sin papel» corregido reintenta el mismo trabajo; un segundo papel sale marcado «REIMPRESIÓN». Probado contra simulador y emulación de protocolo, **ningún modelo físico** → `REQUIRES_LOCAL_VERIFICATION`. USB directo y spooler de Windows no existen |
 
 ### Las 2 operaciones sin pantalla, y por qué
 
