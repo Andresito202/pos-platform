@@ -367,6 +367,43 @@ rechazada. Las dependencias nuevas pasan inventario, SBOM, licencias (0 a
 revisar, 0 denegadas) y auditoría de vulnerabilidades (0 avisos), tras
 corregir el defecto de inventario que destaparon (`D-42`).
 
+### 13.7 Motor de login por comercio — hecho, sin ruta HTTP
+
+`TenantLoginService` + `PostgresTenantLoginStore` (`apps/api/src/authentication/`):
+el login de `CASHIER` y `SUPERVISOR` por nombre de usuario (`A-7`).
+
+- Un intento es **una transacción** con la credencial bloqueada
+  (`SELECT … FOR UPDATE`): intentos simultáneos contra la misma cuenta se
+  serializan y el contador de `A-8` no se esquiva en paralelo.
+- Cuenta inexistente, persona inactiva y contraseña errónea responden igual
+  (`REJECTED`), y en todas se hace el trabajo de scrypt.
+- Contraseña temporal → `PASSWORD_CHANGE_REQUIRED`, **sin sesión** (`A-6`).
+- Rol de administración → `MFA_REQUIRED`, **sin sesión**, hasta que exista el
+  TOTP. Rol no ratificado → `ROLE_UNDECIDED`. Sin rol → `NO_ACTIVE_ROLE`.
+- Éxito: sesión de 24 h y refresh de la misma vigencia (`A-10`), del que sólo
+  se guarda el SHA-256; evento `LOGIN_SUCCEEDED` con comercio, sesión e IP.
+- Se conecta como `pos_platform_app`, sin `BYPASSRLS`, y fija el comercio
+  por conexión (`app.tenant_id`).
+
+**Por qué no hay ruta HTTP todavía:** el comercio del cajero debe salir del
+**equipo autenticado**, no de lo que escriba el cliente (`CLAUDE.md`,
+principios no negociables). `DeviceTrustVerifier.verifyProof`
+(`packages/device-trust`) verifica credencial + desafío + firma del equipo,
+pero **ningún servidor emite ni consume esos desafíos**. Exponer la ruta antes
+obligaría a aceptar el `tenant_id` del cliente.
+
+**Evidencia, 2026-09-26, PostgreSQL 16.13 local:**
+`apps/api/tests/tenant-login.postgres.test.ts` **7/7**, conectado como
+`pos_platform_app` sobre 001 + 002 + 004 + 005. Tres mutaciones —quitar el
+`FOR UPDATE`, no guardar el fallo, guardar el refresh en claro— hacen fallar la
+prueba cada una. Queda en `pnpm test:migrations:postgres`, que CI ejecuta con
+16.14.
+
+**No resuelto en este tramo:** re-derivar un verifier con parámetros viejos
+(`needsRehash`) exige insertar una credencial nueva y retirar la anterior —la
+001 no concede `UPDATE (verifier)`— y queda para el tramo de cambio de
+contraseña. Tampoco hay emisión de SSA ni SAS, ni access token.
+
 ## 14. Qué sigue abierto
 
 - Las diez decisiones de política están ratificadas. **El tramo de §13.2 está
