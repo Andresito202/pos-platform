@@ -5,6 +5,12 @@ export interface PrintJobCommand {
   /** Identidad del trabajo, estable entre reintentos (`DEC-010` §Impresión). */
   readonly commandId: string;
   readonly bytes: Uint8Array;
+  /**
+   * `false` para un pulso de cajón: la falta de papel no impide abrirlo. Tapa
+   * abierta o equipo fuera de línea sí bloquean, porque en esos estados el
+   * equipo no procesa comandos. Por defecto, `true`.
+   */
+  readonly requirePaper?: boolean;
 }
 
 export interface TcpRawPrinterOptions {
@@ -169,7 +175,7 @@ export class TcpRawReceiptPrinter implements DeviceAdapter<PrintJobCommand> {
   async execute(command: PrintJobCommand): Promise<CommandResult> {
     const startedAt = this.now();
     const outcome = await this.withConnection(async (connection) => {
-      const blocked = await this.readStatus(connection);
+      const blocked = await this.readStatus(connection, command.requirePaper !== false);
       if (blocked !== null) return blocked;
       await connection.send(command.bytes);
       return { status: "SUCCEEDED", deviceStatus: "DELIVERED", retryable: false, diagnosticCode: null } satisfies Outcome;
@@ -198,7 +204,7 @@ export class TcpRawReceiptPrinter implements DeviceAdapter<PrintJobCommand> {
   }
 
   /** `null` = el equipo puede imprimir (o no sabe informar su estado). */
-  private async readStatus(connection: PrinterConnection): Promise<Outcome | null> {
+  private async readStatus(connection: PrinterConnection, requirePaper = true): Promise<Outcome | null> {
     if (!this.options.realtimeStatus) return null;
     const printer = await connection.queryStatus(1);
     const offlineCause = await connection.queryStatus(2);
@@ -206,7 +212,7 @@ export class TcpRawReceiptPrinter implements DeviceAdapter<PrintJobCommand> {
     if (![printer, offlineCause, paper].every(isStatusByte)) {
       return { status: "FAILED", deviceStatus: "UNKNOWN", retryable: false, diagnosticCode: "STATUS_PROTOCOL_MISMATCH" };
     }
-    if ((paper & 0x60) !== 0) return { status: "FAILED", deviceStatus: "PAPER_OUT", retryable: true, diagnosticCode: "PAPER_OUT" };
+    if (requirePaper && (paper & 0x60) !== 0) return { status: "FAILED", deviceStatus: "PAPER_OUT", retryable: true, diagnosticCode: "PAPER_OUT" };
     if ((offlineCause & 0x04) !== 0) return { status: "FAILED", deviceStatus: "COVER_OPEN", retryable: true, diagnosticCode: "COVER_OPEN" };
     if ((printer & 0x08) !== 0) return { status: "FAILED", deviceStatus: "OFFLINE", retryable: true, diagnosticCode: "DEVICE_OFFLINE" };
     return null;

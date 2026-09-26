@@ -54,6 +54,11 @@ export class SimulatedReceiptPrinter implements DeviceAdapter<PrintJobCommand> {
           this.deliveries.push({ commandId: command.commandId, bytes: command.bytes });
           return { status: "SUCCEEDED", deviceStatus: "DELIVERED", retryable: false, diagnosticCode: null };
         case "PAPER_OUT":
+          // Igual que el adaptador real: sin papel no impide un pulso de cajón.
+          if (command.requirePaper === false) {
+            this.deliveries.push({ commandId: command.commandId, bytes: command.bytes });
+            return { status: "SUCCEEDED", deviceStatus: "DELIVERED", retryable: false, diagnosticCode: null };
+          }
           return { status: "FAILED", deviceStatus: "PAPER_OUT", retryable: true, diagnosticCode: "PAPER_OUT" };
         case "COVER_OPEN":
           return { status: "FAILED", deviceStatus: "COVER_OPEN", retryable: true, diagnosticCode: "COVER_OPEN" };
