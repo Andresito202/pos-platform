@@ -1,11 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Client, Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { MfaSecretCipher } from "../src/authentication/mfa-secret-cipher.js";
 import { hashPassword } from "../src/authentication/password-hasher.js";
 import { PostgresTenantLoginStore } from "../src/authentication/postgres-tenant-login-store.js";
 import { TenantLoginService, type TenantLoginOutcome } from "../src/authentication/tenant-login-service.js";
+import { generateTotpSecret, totpCode, totpStep } from "../src/authentication/totp.js";
 
 /**
  * Login por comercio (`DEC-026` `A-7`, `A-8`, `A-10`) contra PostgreSQL real,
@@ -80,8 +82,8 @@ describe("login por comercio — PostgreSQL real como pos_platform_app", () => {
   let pool: Pool;
   let cashier: Person;
   const service = (now: Date) => new TenantLoginService(new PostgresTenantLoginStore(pool), () => now);
-  const login = (now: Date, loginName: string, password = PASSWORD, tenantId = T1): Promise<TenantLoginOutcome> =>
-    service(now).login({ tenantId, loginName, password, ipAddress: "203.0.113.7" });
+  const login = (now: Date, loginName: string, password = PASSWORD, tenantId = T1, totpCode: string | null = null): Promise<TenantLoginOutcome> =>
+    service(now).login({ tenantId, loginName, password, totpCode, ipAddress: "203.0.113.7" });
 
   beforeAll(async () => {
     const server = new Client({ connectionString: SERVER_URL });
@@ -160,11 +162,16 @@ describe("login por comercio — PostgreSQL real como pos_platform_app", () => {
     expect(sessions.rowCount).toBe(0);
   }, 30_000);
 
-  it("A-4: un rol de administración pide MFA, un rol no ratificado se rechaza, sin rol no entra", async () => {
+  it("A-4: un rol de administración sin MFA enrolado no entra, un rol no ratificado se rechaza, sin rol no entra", async () => {
+    // Este `login()` usa el `TenantLoginService` sin cifrador MFA (arriba,
+    // sin quinto argumento): así se comporta un servidor sin
+    // `MFA_SECRET_ENCRYPTION_KEY_BASE64URL` configurada. El flujo completo
+    // con cifrador real y un factor TOTP activo está en la descripción
+    // siguiente.
     const manager = await seedPerson(admin, T1, "gerente", "GENERAL_ADMIN");
     await seedPerson(admin, T1, "soporte", "SUPPORT_AGENT");
     await seedPerson(admin, T1, "sinrol", null);
-    expect(await login(T0, "gerente")).toEqual({ kind: "MFA_REQUIRED" });
+    expect(await login(T0, "gerente")).toEqual({ kind: "MFA_NOT_ENROLLED" });
     expect(await login(T0, "soporte")).toEqual({ kind: "ROLE_UNDECIDED" });
     expect(await login(T0, "sinrol")).toEqual({ kind: "NO_ACTIVE_ROLE" });
     const sessions = await admin.query(`SELECT 1 FROM identity.sessions WHERE user_id=$1`, [manager.userId]);
@@ -175,4 +182,60 @@ describe("login por comercio — PostgreSQL real como pos_platform_app", () => {
     await seedPerson(admin, T1, "inactivo", "CASHIER", { userStatus: "INACTIVE" });
     expect(await login(T0, "inactivo")).toEqual({ kind: "REJECTED" });
   }, 30_000);
+
+  describe("A-4 con MFA real: administración con un factor TOTP activo", () => {
+    const cipher = new MfaSecretCipher(randomBytes(32));
+    const loginAdmin = (now: Date, loginName: string, totpCode: string | null, password = PASSWORD): Promise<TenantLoginOutcome> =>
+      new TenantLoginService(new PostgresTenantLoginStore(pool), () => now, undefined, undefined, cipher)
+        .login({ tenantId: T1, loginName, password, totpCode, ipAddress: "203.0.113.7" });
+
+    async function seedActiveTotpFactor(userId: string, secret: Buffer, lastUsedAt: Date | null): Promise<void> {
+      await admin.query(
+        `INSERT INTO identity.mfa_factors (id,user_id,factor_type,secret_reference,status,enrolled_at,verified_at,last_used_at)
+         VALUES ($1,$2,'TOTP',$3,'ACTIVE',$4,$4,$5)`,
+        [id(), userId, cipher.encrypt(secret), T0, lastUsedAt],
+      );
+    }
+
+    it("sin código, pide MFA; con el código correcto, entra con sesión de 12 h", async () => {
+      const secret = generateTotpSecret();
+      const manager = await seedPerson(admin, T1, "gerente-mfa", "GENERAL_ADMIN");
+      await seedActiveTotpFactor(manager.userId, secret, null);
+
+      expect(await loginAdmin(T0, "gerente-mfa", null)).toEqual({ kind: "MFA_REQUIRED" });
+
+      const code = totpCode(secret, totpStep(T0.getTime() / 1000));
+      const outcome = await loginAdmin(T0, "gerente-mfa", code);
+      if (outcome.kind !== "AUTHENTICATED") throw new Error(`esperaba AUTHENTICATED y llegó ${outcome.kind}`);
+      // `A-10`: administración es 12 h, no las 24 h de un operador.
+      expect(outcome.sessionExpiresAt).toEqual(at(12 * 3_600_000));
+      const session = (await admin.query(`SELECT mfa_status FROM identity.sessions WHERE id=$1`, [outcome.sessionId])).rows[0];
+      expect(session).toEqual({ mfa_status: "SATISFIED" });
+    }, 30_000);
+
+    it("un código de 6 dígitos con formato válido pero incorrecto se rechaza y cuenta como intento fallido", async () => {
+      const secret = generateTotpSecret();
+      const gerente = await seedPerson(admin, T1, "gerente-mfa-2", "GENERAL_ADMIN");
+      await seedActiveTotpFactor(gerente.userId, secret, null);
+
+      expect(await loginAdmin(T0, "gerente-mfa-2", "000000")).toEqual({ kind: "MFA_INVALID" });
+      const row = (await admin.query(`SELECT failed_attempt_count FROM identity.user_credentials WHERE id=$1`, [gerente.credentialId])).rows[0];
+      expect(row).toEqual({ failed_attempt_count: 1 });
+    }, 30_000);
+
+    it("el mismo código no se puede usar dos veces (anti-repetición por paso)", async () => {
+      const secret = generateTotpSecret();
+      const gerente = await seedPerson(admin, T1, "gerente-mfa-3", "GENERAL_ADMIN");
+      await seedActiveTotpFactor(gerente.userId, secret, null);
+      const code = totpCode(secret, totpStep(T0.getTime() / 1000));
+
+      expect((await loginAdmin(T0, "gerente-mfa-3", code)).kind).toBe("AUTHENTICATED");
+      expect(await loginAdmin(T0, "gerente-mfa-3", code)).toEqual({ kind: "MFA_INVALID" });
+    }, 30_000);
+
+    it("sin ningún factor activo, se rechaza como no enrolado, nunca como MFA_REQUIRED", async () => {
+      await seedPerson(admin, T1, "gerente-sin-mfa", "GENERAL_ADMIN");
+      expect(await loginAdmin(T0, "gerente-sin-mfa", null)).toEqual({ kind: "MFA_NOT_ENROLLED" });
+    }, 30_000);
+  });
 });

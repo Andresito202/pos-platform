@@ -457,18 +457,81 @@ Postgres) y los gates de todo el monorepo (`typecheck`, `architecture:check`,
 
 **No resuelto:** emisión de SSA/SAS para operación offline, access token de
 10 min (`A-10` sólo entrega hoy sesión + refresh), y el login de roles de
-administración —se rechaza con `MFA_REQUIRED` porque el TOTP no existe.
+administración —se rechaza con `MFA_NOT_ENROLLED`/`MFA_REQUIRED`, resuelto
+en §13.9.
+
+### 13.9 TOTP para roles de administración — hecho, con dos decisiones propias
+
+Cierra la última pieza que `A-4` exigía: `GENERAL_ADMIN`, `BILLING_ADMIN`,
+`SECURITY_ADMIN`, `OWNER` y `PLATFORM_OWNER` ya pueden iniciar sesión.
+
+- `totp.ts`: RFC 6238 sobre RFC 4226 (HMAC-SHA1, 30 s, 6 dígitos), verificado
+  contra los **6 vectores oficiales** del Apéndice B de RFC 6238 —si esta
+  aritmética se desviara del estándar, ninguna app autenticadora real
+  generaría códigos que este verificador acepte—. Ventana ±1 paso (±30 s de
+  desfase de reloj del teléfono) y anti-repetición: un código, una vez
+  aceptado, no vuelve a ser válido ni siquiera repetido en el mismo paso.
+- `mfa-enrollment-service.ts`: enrolamiento por reautenticación con
+  contraseña, no por sesión previa — el primer administrador de un comercio
+  no puede tener una sesión que todavía no puede abrir. `POST
+  /v1/auth/mfa/enroll` genera el secreto y lo muestra **una sola vez**;
+  `POST /v1/auth/mfa/confirm` lo activa sólo tras un primer código válido.
+- `tenant-login-service.ts`: dentro del login, un rol de administración pide
+  el factor activo del usuario. Cuatro desenlaces, no dos: `MFA_NOT_ENROLLED`
+  (nadie ha enrolado nada — antes se confundía con `MFA_REQUIRED`, que
+  DEC-026 §13.7 usaba para «no existe TOTP», una razón distinta),
+  `MFA_REQUIRED` (falta el código), `MFA_INVALID` (código incorrecto, cuenta
+  como el mismo fallo que una contraseña equivocada contra el mismo
+  contador de `A-8` — no hay columna de intentos propia en
+  `identity.mfa_factors` y abrir una exigiría otra migración para una
+  segunda barrera que la primera ya cubre) y `AUTHENTICATED` con sesión de
+  **12 h**, no 24 (`A-10`; roles mixtos operador+administración se tratan
+  como administración, la clase más estricta).
+
+**Dos decisiones tomadas aquí, no pedidas antes, documentadas como tales:**
+
+- **El secreto TOTP se cifra con AES-256-GCM y una clave simétrica del
+  propio proceso** (`mfa-secret-cipher.ts`), en vez de guardarse en claro en
+  `identity.mfa_factors.secret_reference` — la brecha `G-6` de §13.3 sigue
+  abierta (no existe un almacén de secretos central), y cifrar aquí es la
+  única alternativa a guardarlo en claro. Si `G-6` se resuelve, esta clase
+  se sustituye sin tocar el resto del flujo.
+- **El paso TOTP «ya usado» se deriva de `last_used_at`** en vez de añadir
+  una columna propia: el paso de 30 s es determinista a partir de esa
+  marca de tiempo, así que no hace falta ampliar la 001 ni escribir una
+  migración nueva para esto.
+
+**Evidencia, 2026-09-26, PostgreSQL 16.13 local:** `totp.test.ts` **15/15**,
+incluidos los 6 vectores RFC. `tenant-login.postgres.test.ts` con el bloque
+MFA añadido, **17/17** en conjunto: entra sin código pide `MFA_REQUIRED`;
+con el código correcto entra con sesión de 12 h y `mfa_status=SATISFIED`;
+un código con formato válido pero incorrecto cuenta como intento fallido
+del mismo contador que la contraseña; el mismo código no sirve dos veces;
+sin ningún factor activo se rechaza como `MFA_NOT_ENROLLED`, nunca como
+`MFA_REQUIRED`. Mutación verificada dos veces: quitar la comprobación
+anti-repetición hace fallar exactamente esas dos pruebas de repetición;
+forzar la clase `OPERATOR` siempre hace fallar exactamente las cinco
+pruebas de administración/MFA. `apps/api` completo, 32 con PostgreSQL + 47
+sin, y los gates de todo el monorepo en verde.
+
+**No resuelto:** el propio endpoint `/v1/auth/mfa/enroll`/`/confirm` no
+tiene todavía una prueba end-to-end por HTTP real (las pruebas de MFA
+ejercen `TenantLoginService`/`MfaEnrollmentService` directamente, no la
+ruta HTTP); revocar un factor MFA (perder el teléfono) no tiene endpoint;
+códigos de recuperación de un solo uso (`A-9`, `PLATFORM_OWNER`) siguen sin
+implementar — la migración 005 ya tiene la tabla (`identity.
+mfa_recovery_codes`), falta el código.
 
 ## 14. Qué sigue abierto
 
-- Las diez decisiones de política están ratificadas. El cajero y el
-  supervisor tienen login real, `END_TO_END` hasta la sesión persistida
-  (§13.8): `TESTED` en este entorno, contra PostgreSQL local, no
+- Las diez decisiones de política están ratificadas. Cajero, supervisor **y**
+  administración tienen login real, `END_TO_END` hasta la sesión persistida
+  (§13.8, §13.9): `TESTED` en este entorno, contra PostgreSQL local, no
   `PRODUCTION_READY` — ninguna instancia central está desplegada. `SEC-G02`
-  sigue `PLANNED / NOT_EVALUATED` en conjunto: falta el login de
-  administración (TOTP) y falta emitir SSA/SAS para operar offline.
-- `G-1`–`G-8` tienen decisión (§13.4) e implementación (§13.5, §13.6, §13.8).
-  `G-9` sigue abierta.
+  sigue `PLANNED / NOT_EVALUATED` en conjunto: falta emitir SSA/SAS para
+  operar offline, recuperación de cuenta (`A-9`) y revocar un factor MFA.
+- `G-1`–`G-8` tienen decisión (§13.4) e implementación (§13.5, §13.6, §13.8,
+  §13.9). `G-9` sigue abierta.
 - `central-authority` no compila en modo estricto por errores anteriores a
   este cambio, y ninguna puerta lo detecta: `D-41`.
 

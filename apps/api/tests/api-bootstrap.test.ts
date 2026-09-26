@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { createApi } from "../src/app.js";
@@ -22,6 +22,7 @@ describe("API central — arranque NestJS + Fastify", () => {
     process.env.DEVICE_TRUST_OPERATIONAL_KEY_ID ??= "DEVICE-TRUST-BOOTSTRAP-TEST";
     process.env.DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM ??=
       generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
+    process.env.MFA_SECRET_ENCRYPTION_KEY_BASE64URL ??= randomBytes(32).toString("base64url");
     app = await createApi();
     await app.init();
     await app.getHttpAdapter().getInstance().ready();

@@ -1,20 +1,24 @@
 import { createHash, randomBytes } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
-import { authenticationClassFor } from "./authentication-policy.js";
-import { evaluateLoginAttempt, recordLoginFailure, recordLoginSuccess } from "./login-throttle.js";
+import { authenticationClassFor, type AuthenticationClass } from "./authentication-policy.js";
+import { evaluateLoginAttempt, recordLoginFailure, recordLoginSuccess, type ThrottleState } from "./login-throttle.js";
+import type { MfaSecretCipher } from "./mfa-secret-cipher.js";
 import { burnEquivalentWork, verifyPassword, type PasswordVerification } from "./password-hasher.js";
 import { refreshTokenExpiresAt, sessionExpiresAt } from "./session-lifetimes.js";
+import { verifyTotp } from "./totp.js";
 import type { SecurityEvent, TenantLoginStore, TenantLoginTransaction } from "./tenant-login-store.js";
 
 export interface TenantLoginRequest {
   /**
-   * Comercio **ya autenticado** por quien llama —hoy, nadie: lo derivará la
-   * prueba de equipo—. Nunca un valor que el cliente escriba (`CLAUDE.md`,
-   * principios no negociables).
+   * Comercio **ya autenticado** por quien llama —la prueba de equipo, en
+   * `DeviceLoginVerification`—. Nunca un valor que el cliente escriba
+   * (`CLAUDE.md`, principios no negociables).
    */
   readonly tenantId: string;
   readonly loginName: string;
   readonly password: string;
+  /** Exigido sólo para roles de administración (`A-4`); ignorado para el resto. */
+  readonly totpCode: string | null;
   readonly ipAddress: string | null;
 }
 
@@ -35,7 +39,9 @@ export type TenantLoginOutcome =
   | { readonly kind: "REJECTED" }
   | { readonly kind: "THROTTLED"; readonly retryAt: Date }
   | { readonly kind: "PASSWORD_CHANGE_REQUIRED" }
+  | { readonly kind: "MFA_NOT_ENROLLED" }
   | { readonly kind: "MFA_REQUIRED" }
+  | { readonly kind: "MFA_INVALID" }
   | { readonly kind: "ROLE_UNDECIDED" }
   | { readonly kind: "NO_ACTIVE_ROLE" };
 
@@ -50,11 +56,12 @@ function sha256Hex(value: string): string {
 
 /**
  * Login dentro de un comercio, por nombre de usuario (`DEC-026` `A-7`): el de
- * cajero y supervisor.
+ * cajero, supervisor y —con TOTP— administración.
  *
- * Todo el intento ocurre en una transacción con la credencial bloqueada, así
- * que dos intentos simultáneos contra la misma cuenta se serializan y el
- * contador de `A-8` no se puede esquivar en paralelo.
+ * Todo el intento ocurre en una transacción con la credencial (y, si aplica,
+ * el factor MFA) bloqueados, así que dos intentos simultáneos contra la
+ * misma cuenta se serializan y el contador de `A-8` no se puede esquivar en
+ * paralelo.
  */
 export class TenantLoginService {
   constructor(
@@ -62,6 +69,14 @@ export class TenantLoginService {
     private readonly now: () => Date = () => new Date(),
     private readonly verify: (password: string, verifier: string) => Promise<PasswordVerification> = verifyPassword,
     private readonly burn: (password: string) => Promise<void> = burnEquivalentWork,
+    /**
+     * Opcional a propósito: un cajero/supervisor nunca llega a necesitarlo.
+     * Si un rol de administración lo necesita y no está configurado, se
+     * rechaza con `MFA_NOT_ENROLLED` en vez de lanzar — un servidor sin
+     * cifrador configurado no debe abrir sesiones de administración, pero
+     * tampoco debe caerse por ello.
+     */
+    private readonly mfaCipher: MfaSecretCipher | null = null,
   ) {}
 
   login(request: TenantLoginRequest): Promise<TenantLoginOutcome> {
@@ -97,11 +112,11 @@ export class TenantLoginService {
       return { kind: "REJECTED" };
     }
 
-    // La contraseña es correcta: el contador se reinicia aunque la cuenta no
-    // pueda operar, porque los fallos contados eran intentos de adivinarla.
-    await transaction.saveThrottle(credential.id, recordLoginSuccess());
-
     if (!candidate.userActive || !candidate.membershipActive) {
+      // El contador se reinicia aunque la cuenta no pueda operar: los fallos
+      // contados eran intentos de adivinar ESTA contraseña, y ya se probó
+      // que era la correcta.
+      await transaction.saveThrottle(credential.id, recordLoginSuccess());
       await event({ eventCode: "LOGIN_FAILED", result: "REJECTED", reasonCode: "ACCOUNT_INACTIVE", userId: candidate.userId, session: null });
       return { kind: "REJECTED" };
     }
@@ -109,26 +124,38 @@ export class TenantLoginService {
     // `A-6`: la cuenta no opera hasta cambiar la contraseña temporal. No se
     // abre sesión; el cambio volverá a pedir la temporal.
     if (credential.mustChangeAtNextLogin) {
+      await transaction.saveThrottle(credential.id, recordLoginSuccess());
       await event({ eventCode: "LOGIN_REFUSED", result: "REJECTED", reasonCode: "PASSWORD_CHANGE_REQUIRED", userId: candidate.userId, session: null });
       return { kind: "PASSWORD_CHANGE_REQUIRED" };
     }
 
     const classes = (await transaction.activeRoleCodes(candidate.membershipId, now)).map(authenticationClassFor);
-    const refusal = classes.length === 0 ? "NO_ACTIVE_ROLE"
-      : classes.includes("UNDECIDED") ? "ROLE_UNDECIDED"
-        // `A-4`: los roles de administración exigen MFA; mientras el TOTP no
-        // exista, no hay forma de satisfacerlo y no se abre sesión.
-        : classes.includes("ADMINISTRATION") ? "MFA_REQUIRED"
-          : null;
-    if (refusal !== null) {
-      await event({ eventCode: "LOGIN_REFUSED", result: "REJECTED", reasonCode: refusal, userId: candidate.userId, session: null });
-      return { kind: refusal };
+    if (classes.length === 0 || classes.includes("UNDECIDED")) {
+      await transaction.saveThrottle(credential.id, recordLoginSuccess());
+      const reason = classes.length === 0 ? "NO_ACTIVE_ROLE" : "ROLE_UNDECIDED";
+      await event({ eventCode: "LOGIN_REFUSED", result: "REJECTED", reasonCode: reason, userId: candidate.userId, session: null });
+      return { kind: reason };
     }
+    // Roles mixtos (operador y administración a la vez) se tratan como
+    // administración: es la clase más estricta, y aplicar la más laxa sería
+    // rebajar la seguridad de alguien que también tiene ese privilegio.
+    const authenticationClass: AuthenticationClass = classes.includes("ADMINISTRATION") ? "ADMINISTRATION" : "OPERATOR";
+
+    if (authenticationClass === "ADMINISTRATION") {
+      const mfaOutcome = await this.verifyAdministrationMfa(transaction, candidate.userId, credential.id, credential.throttle, request.totpCode, now);
+      if (mfaOutcome !== null) {
+        await event({ eventCode: mfaOutcome.eventCode, result: "REJECTED", reasonCode: mfaOutcome.reasonCode, userId: candidate.userId, session: null });
+        return mfaOutcome.outcome;
+      }
+    }
+    // Contraseña (y, si aplicaba, TOTP) correctos: el contador de intentos
+    // se reinicia sólo ahora, con el intento ya demostrado legítimo entero.
+    await transaction.saveThrottle(credential.id, recordLoginSuccess());
 
     const sessionId = uuidV7(now.getTime());
-    const expiresAt = sessionExpiresAt(now, "OPERATOR");
+    const expiresAt = sessionExpiresAt(now, authenticationClass);
     const refreshToken = randomBytes(32).toString("base64url");
-    const refreshExpiresAt = refreshTokenExpiresAt(now, expiresAt, "OPERATOR");
+    const refreshExpiresAt = refreshTokenExpiresAt(now, expiresAt, authenticationClass);
     await transaction.openSession({
       sessionId,
       userId: candidate.userId,
@@ -139,8 +166,49 @@ export class TenantLoginService {
       refreshTokenFamilyId: uuidV7(now.getTime()),
       refreshTokenHash: sha256Hex(refreshToken),
       refreshTokenExpiresAt: refreshExpiresAt,
+      mfaStatus: authenticationClass === "ADMINISTRATION" ? "SATISFIED" : "NOT_REQUIRED",
     });
     await event({ eventCode: "LOGIN_SUCCEEDED", result: "ACCEPTED", reasonCode: null, userId: candidate.userId, session: { tenantId: request.tenantId, sessionId } });
     return { kind: "AUTHENTICATED", sessionId, refreshToken, sessionExpiresAt: expiresAt, refreshTokenExpiresAt: refreshExpiresAt };
+  }
+
+  /**
+   * `null` significa «MFA satisfecho, continúa». Cualquier otro valor es la
+   * razón exacta por la que el intento se detiene aquí, con el contador de
+   * intentos de la contraseña actualizado como corresponda —un código TOTP
+   * equivocado cuenta como el mismo tipo de fallo que una contraseña
+   * equivocada, `A-8`, contra el mismo contador: no hay columna de
+   * intentos propia en `identity.mfa_factors`, y crear una exigiría otra
+   * migración para una segunda barrera que ya cubre la primera.
+   */
+  private async verifyAdministrationMfa(
+    transaction: TenantLoginTransaction,
+    userId: string,
+    credentialId: string,
+    credentialThrottle: ThrottleState,
+    totpCode: string | null,
+    now: Date,
+  ): Promise<{ readonly outcome: TenantLoginOutcome; readonly eventCode: "LOGIN_REFUSED" | "MFA_FAILED"; readonly reasonCode: string } | null> {
+    if (this.mfaCipher === null) {
+      return { outcome: { kind: "MFA_NOT_ENROLLED" }, eventCode: "LOGIN_REFUSED", reasonCode: "MFA_NOT_ENROLLED" };
+    }
+    const factor = await transaction.findActiveTotpFactorForUpdate(userId);
+    if (factor === null) {
+      return { outcome: { kind: "MFA_NOT_ENROLLED" }, eventCode: "LOGIN_REFUSED", reasonCode: "MFA_NOT_ENROLLED" };
+    }
+    if (totpCode === null) {
+      return { outcome: { kind: "MFA_REQUIRED" }, eventCode: "LOGIN_REFUSED", reasonCode: "MFA_REQUIRED" };
+    }
+    const secret = this.mfaCipher.decrypt(factor.encryptedSecret);
+    const verification = verifyTotp(secret, totpCode, now.getTime() / 1000, { lastAcceptedStep: factor.lastAcceptedStep });
+    if (!verification.valid) {
+      // El mismo contador que la contraseña (`A-8`): incrementa desde su
+      // valor real, no desde cero — un código TOTP equivocado es tan
+      // fallo de autenticación como una contraseña equivocada.
+      await transaction.saveThrottle(credentialId, recordLoginFailure(credentialThrottle, now));
+      return { outcome: { kind: "MFA_INVALID" }, eventCode: "MFA_FAILED", reasonCode: "MFA_INVALID" };
+    }
+    await transaction.recordTotpAcceptedStep(factor.id, verification.step);
+    return null;
   }
 }

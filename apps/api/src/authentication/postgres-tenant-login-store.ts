@@ -1,7 +1,8 @@
 import type { Pool, PoolClient } from "pg";
 import { uuidV7 } from "@pos-platform/contracts";
 import type { ThrottleState } from "./login-throttle.js";
-import type { LoginCandidate, NewSession, SecurityEvent, TenantLoginStore, TenantLoginTransaction } from "./tenant-login-store.js";
+import type { MfaEnrollmentPort } from "./mfa-enrollment-service.js";
+import type { ActiveTotpFactor, LoginCandidate, NewSession, SecurityEvent, TenantLoginStore, TenantLoginTransaction } from "./tenant-login-store.js";
 
 /**
  * Almacén PostgreSQL del login por comercio, sobre las tablas de la 001 y la
@@ -37,7 +38,7 @@ interface CredentialRow {
   locked_until: Date | null; must_change_at_next_login: boolean;
 }
 
-class PostgresTenantLoginTransaction implements TenantLoginTransaction {
+class PostgresTenantLoginTransaction implements TenantLoginTransaction, MfaEnrollmentPort {
   constructor(private readonly client: PoolClient, private readonly tenantId: string) {}
 
   async findForUpdate(normalizedLoginName: string): Promise<LoginCandidate | null> {
@@ -101,11 +102,37 @@ class PostgresTenantLoginTransaction implements TenantLoginTransaction {
     );
   }
 
+  async findActiveTotpFactorForUpdate(userId: string): Promise<ActiveTotpFactor | null> {
+    const result = await this.client.query<{ id: string; secret_reference: string; last_used_at: Date | null }>(
+      `SELECT id, secret_reference, last_used_at
+         FROM identity.mfa_factors
+        WHERE user_id = $1 AND factor_type = 'TOTP' AND status = 'ACTIVE' AND secret_reference IS NOT NULL
+        FOR UPDATE`,
+      [userId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return null;
+    return {
+      id: row.id,
+      encryptedSecret: row.secret_reference,
+      // Sin columna propia de «paso»: se deriva de `last_used_at`, que es
+      // determinista un-a-uno con el paso de 30 s que lo produjo.
+      lastAcceptedStep: row.last_used_at === null ? null : Math.floor(row.last_used_at.getTime() / 30_000),
+    };
+  }
+
+  async recordTotpAcceptedStep(factorId: string, step: number): Promise<void> {
+    await this.client.query(
+      `UPDATE identity.mfa_factors SET last_used_at = to_timestamp($2), version = version + 1 WHERE id = $1`,
+      [factorId, step * 30],
+    );
+  }
+
   async openSession(session: NewSession): Promise<void> {
     await this.client.query(
       `INSERT INTO identity.sessions (id, user_id, tenant_id, tenant_membership_id, authenticated_at, expires_at, mfa_status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'NOT_REQUIRED', $5)`,
-      [session.sessionId, session.userId, this.tenantId, session.membershipId, session.authenticatedAt, session.expiresAt],
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $5)`,
+      [session.sessionId, session.userId, this.tenantId, session.membershipId, session.authenticatedAt, session.expiresAt, session.mfaStatus],
     );
     await this.client.query(
       `INSERT INTO identity.session_refresh_tokens (id, session_id, token_family_id, token_hash, issued_at, expires_at)
@@ -123,6 +150,38 @@ class PostgresTenantLoginTransaction implements TenantLoginTransaction {
         uuidV7(event.occurredAt.getTime()), event.userId, event.session?.sessionId ?? null, event.session?.tenantId ?? null,
         event.eventCode, event.result, event.reasonCode, event.ipAddress, event.correlationId, event.occurredAt,
       ],
+    );
+  }
+
+  // `MfaEnrollmentPort` — enrolamiento del segundo factor (`A-4`). Vive en la
+  // misma clase que el resto del login porque comparte la misma conexión y
+  // el mismo `app.tenant_id` de sesión, no porque el login lo necesite.
+
+  async insertPendingTotpFactor(input: { factorId: string; userId: string; encryptedSecret: string; enrolledAt: Date }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO identity.mfa_factors (id, user_id, factor_type, secret_reference, status, enrolled_at)
+       VALUES ($1, $2, 'TOTP', $3, 'PENDING', $4)`,
+      [input.factorId, input.userId, input.encryptedSecret, input.enrolledAt],
+    );
+  }
+
+  async findPendingTotpFactorForUpdate(userId: string, factorId: string): Promise<{ id: string; encryptedSecret: string } | null> {
+    const result = await this.client.query<{ id: string; secret_reference: string }>(
+      `SELECT id, secret_reference FROM identity.mfa_factors
+        WHERE id = $1 AND user_id = $2 AND factor_type = 'TOTP' AND status = 'PENDING' AND secret_reference IS NOT NULL
+        FOR UPDATE`,
+      [factorId, userId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : { id: row.id, encryptedSecret: row.secret_reference };
+  }
+
+  async activateTotpFactor(factorId: string, acceptedStep: number, verifiedAt: Date): Promise<void> {
+    await this.client.query(
+      `UPDATE identity.mfa_factors
+          SET status = 'ACTIVE', verified_at = $2, last_used_at = to_timestamp($3), version = version + 1
+        WHERE id = $1 AND status = 'PENDING'`,
+      [factorId, verifiedAt, acceptedStep * 30],
     );
   }
 }

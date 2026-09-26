@@ -1,21 +1,25 @@
 import { BadRequestException, Body, Controller, Header, HttpCode, Inject, Ip, Post } from "@nestjs/common";
-import { DeviceChallengeRequestSchema, LoginRequestSchema } from "./auth.dto.js";
+import { DeviceChallengeRequestSchema, LoginRequestSchema, MfaConfirmRequestSchema, MfaEnrollmentRequestSchema } from "./auth.dto.js";
 import { DeviceLoginVerification } from "./device-login-verification.js";
+import { MfaEnrollmentService } from "./mfa-enrollment-service.js";
 import { TenantLoginService } from "./tenant-login-service.js";
-import { DEVICE_LOGIN_VERIFICATION, TENANT_LOGIN_SERVICE } from "./tokens.js";
+import { DEVICE_LOGIN_VERIFICATION, MFA_ENROLLMENT_SERVICE, TENANT_LOGIN_SERVICE } from "./tokens.js";
 
 /**
- * `POST /v1/auth/*` — primer tramo alcanzable de `SEC-G02` (`DEC-026` §13.7).
+ * `POST /v1/auth/*` — primer tramo alcanzable de `SEC-G02` (`DEC-026` §13.7,
+ * §13.8, §13.9).
  *
- * El `tenant_id` de cada login sale de `DeviceLoginVerification`, que lo
+ * El `tenant_id` de un login sale de `DeviceLoginVerification`, que lo
  * deriva del registro central de equipos — nunca de un campo que el cliente
- * pudiera escribir en el cuerpo de la petición.
+ * pudiera escribir en el cuerpo de la petición. El enrolamiento de MFA es la
+ * única excepción declarada y explicada en `auth.dto.ts`.
  */
 @Controller("v1/auth")
 export class AuthController {
   constructor(
     @Inject(DEVICE_LOGIN_VERIFICATION) private readonly deviceLogin: DeviceLoginVerification,
     @Inject(TENANT_LOGIN_SERVICE) private readonly tenantLogin: TenantLoginService,
+    @Inject(MFA_ENROLLMENT_SERVICE) private readonly mfaEnrollment: MfaEnrollmentService,
   ) {}
 
   @Post("device/challenge")
@@ -52,6 +56,7 @@ export class AuthController {
       tenantId: device.binding.tenantId,
       loginName: request.login_name,
       password: request.password,
+      totpCode: request.totp_code ?? null,
       ipAddress,
     });
     if (outcome.kind !== "AUTHENTICATED") return { result_code: outcome.kind, result: null };
@@ -64,5 +69,34 @@ export class AuthController {
         refresh_token_expires_at: outcome.refreshTokenExpiresAt.toISOString(),
       },
     };
+  }
+
+  @Post("mfa/enroll")
+  @HttpCode(200)
+  @Header("cache-control", "no-store")
+  async beginMfaEnrollment(@Body() body: unknown) {
+    const parsed = MfaEnrollmentRequestSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ result_code: "MALFORMED_REQUEST" });
+    const outcome = await this.mfaEnrollment.beginEnrollment({
+      tenantId: parsed.data.tenant_id, loginName: parsed.data.login_name, password: parsed.data.password,
+    });
+    if (outcome.kind !== "ENROLLMENT_STARTED") return { result_code: outcome.kind, result: null };
+    return {
+      result_code: "ENROLLMENT_STARTED",
+      result: { factor_id: outcome.factorId, secret_base32: outcome.secretBase32, otpauth_uri: outcome.otpauthUri },
+    };
+  }
+
+  @Post("mfa/confirm")
+  @HttpCode(200)
+  @Header("cache-control", "no-store")
+  async confirmMfaEnrollment(@Body() body: unknown) {
+    const parsed = MfaConfirmRequestSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ result_code: "MALFORMED_REQUEST" });
+    const outcome = await this.mfaEnrollment.confirmEnrollment({
+      tenantId: parsed.data.tenant_id, loginName: parsed.data.login_name, password: parsed.data.password,
+      factorId: parsed.data.factor_id, code: parsed.data.code,
+    });
+    return { result_code: outcome.kind, result: null };
   }
 }

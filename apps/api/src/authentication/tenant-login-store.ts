@@ -29,10 +29,19 @@ export interface NewSession {
   /** Sólo el hash: el token utilizable nunca llega al almacén. */
   readonly refreshTokenHash: string;
   readonly refreshTokenExpiresAt: Date;
+  readonly mfaStatus: "NOT_REQUIRED" | "SATISFIED";
+}
+
+export interface ActiveTotpFactor {
+  readonly id: string;
+  /** Cifrado — `MfaSecretCipher` lo descifra en memoria del proceso, nunca la base de datos. */
+  readonly encryptedSecret: string;
+  /** `null` si el factor nunca aceptó un código: cualquier paso vale la primera vez. */
+  readonly lastAcceptedStep: number | null;
 }
 
 export interface SecurityEvent {
-  readonly eventCode: "LOGIN_SUCCEEDED" | "LOGIN_FAILED" | "LOGIN_THROTTLED" | "LOGIN_REFUSED";
+  readonly eventCode: "LOGIN_SUCCEEDED" | "LOGIN_FAILED" | "LOGIN_THROTTLED" | "LOGIN_REFUSED" | "MFA_FAILED";
   readonly result: "ACCEPTED" | "REJECTED";
   readonly reasonCode: string | null;
   readonly userId: string | null;
@@ -49,6 +58,9 @@ export interface TenantLoginTransaction {
   findForUpdate(normalizedLoginName: string): Promise<LoginCandidate | null>;
   activeRoleCodes(membershipId: string, at: Date): Promise<readonly string[]>;
   saveThrottle(credentialId: string, state: ThrottleState): Promise<void>;
+  /** Bloquea el factor hasta el final de la transacción: mismo motivo que `findForUpdate`. */
+  findActiveTotpFactorForUpdate(userId: string): Promise<ActiveTotpFactor | null>;
+  recordTotpAcceptedStep(factorId: string, step: number): Promise<void>;
   openSession(session: NewSession): Promise<void>;
   appendSecurityEvent(event: SecurityEvent): Promise<void>;
 }

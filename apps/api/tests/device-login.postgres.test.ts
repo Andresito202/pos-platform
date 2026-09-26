@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -149,6 +149,7 @@ describe("login end-to-end — reto de equipo real + contraseña, sobre PostgreS
     process.env.DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM = ROOT.publicKey.export({ type: "spki", format: "pem" }).toString();
     process.env.DEVICE_TRUST_OPERATIONAL_KEY_ID = OPERATIONAL_KEY_ID;
     process.env.DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM = OPERATIONAL.publicKey.export({ type: "spki", format: "pem" }).toString();
+    process.env.MFA_SECRET_ENCRYPTION_KEY_BASE64URL = randomBytes(32).toString("base64url");
     app = await createApi();
     await app.init();
     await app.getHttpAdapter().getInstance().ready();

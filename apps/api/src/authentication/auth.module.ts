@@ -8,9 +8,11 @@ import { DeviceChallengeStore } from "./device-challenge-store.js";
 import { DeviceRegistryReader } from "./device-registry-reader.js";
 import { DeviceLoginVerification } from "./device-login-verification.js";
 import { InMemoryClockGuard } from "./in-memory-clock-guard.js";
+import { MfaEnrollmentService } from "./mfa-enrollment-service.js";
+import { MfaSecretCipher } from "./mfa-secret-cipher.js";
 import { PostgresTenantLoginStore } from "./postgres-tenant-login-store.js";
 import { TenantLoginService } from "./tenant-login-service.js";
-import { DEVICE_LOGIN_VERIFICATION, PG_POOL, TENANT_LOGIN_SERVICE } from "./tokens.js";
+import { DEVICE_LOGIN_VERIFICATION, MFA_ENROLLMENT_SERVICE, PG_POOL, TENANT_LOGIN_SERVICE } from "./tokens.js";
 
 class PoolCloser implements OnModuleDestroy {
   constructor(private readonly pool: Pool) {}
@@ -57,7 +59,25 @@ class PoolCloser implements OnModuleDestroy {
     {
       provide: TENANT_LOGIN_SERVICE,
       inject: [PG_POOL],
-      useFactory: (pool: Pool): TenantLoginService => new TenantLoginService(new PostgresTenantLoginStore(pool)),
+      useFactory: (pool: Pool): TenantLoginService => {
+        const config = parseApiConfig(process.env);
+        return new TenantLoginService(
+          new PostgresTenantLoginStore(pool), undefined, undefined, undefined,
+          new MfaSecretCipher(config.mfa_secret_encryption_key),
+        );
+      },
+    },
+    {
+      provide: MFA_ENROLLMENT_SERVICE,
+      inject: [PG_POOL],
+      useFactory: (pool: Pool): MfaEnrollmentService => {
+        const config = parseApiConfig(process.env);
+        return new MfaEnrollmentService(
+          new PostgresTenantLoginStore(pool),
+          new MfaSecretCipher(config.mfa_secret_encryption_key),
+          config.mfa_totp_issuer,
+        );
+      },
     },
   ],
 })
