@@ -11,12 +11,12 @@ inferencia (`DEC-012` §13).
 | `A-1` | Factor primario de inicio de sesión | **RATIFICADO** 2026-09-26 (§2) |
 | `A-2` | Reautenticación dentro del turno | **YA RATIFICADO** en `DEC-012` §18 — se reconcilia en §3, no se redecide |
 | `A-3` | ¿El login con contraseña exige conexión con la autoridad central? | **RATIFICADO** 2026-09-26 (§4) |
-| `A-4` | Alcance de MFA por rol | **RATIFICADO** 2026-09-26 (§5), con `A-4.1` pendiente |
+| `A-4` | Alcance de MFA por rol | **RATIFICADO** 2026-09-26 (§5), incluido `A-4.1` |
 | `A-5` | Longitud mínima y política de contraseña | **RATIFICADO** 2026-09-26 (§6) |
 | `A-6` | Alta de cuenta y contraseña inicial | **RATIFICADO** 2026-09-26 (§7) |
-| `A-7` | Identificador de inicio de sesión (correo, usuario, código de empleado) | pendiente |
-| `A-8` | Bloqueo y limitación de intentos de contraseña | pendiente |
-| `A-9` | Recuperación de cuenta | pendiente |
+| `A-7` | Identificador de inicio de sesión (correo, usuario, código de empleado) | **RATIFICADO** 2026-09-26 (§8) |
+| `A-8` | Bloqueo y limitación de intentos de contraseña | **RATIFICADO** 2026-09-26 (§9) |
+| `A-9` | Recuperación de cuenta | **RATIFICADO** 2026-09-26 (§10) |
 | `A-10` | Duración y rotación de access/refresh token | pendiente |
 
 ## Qué NO es
@@ -101,10 +101,16 @@ administradores». El segundo factor es un **código de app autenticadora**
 | `SUPERVISOR` | no — contraseña + equipo enrolado; PIN en turno |
 | `CASHIER` | no — contraseña + equipo enrolado; PIN en turno |
 
-`A-4.1` **pendiente:** la respuesta nombró superadministrador, dueño y
-administrador. `BILLING_ADMIN`, `SECURITY_ADMIN` y cualquier otro rol de
-`roles.md` no citado aquí **no se asignan por inferencia**; requieren
-ratificación. El vínculo definitivo rol → permisos sigue siendo de `SEC-G03`.
+`A-4.1` **RATIFICADO** 2026-09-26, en sesión, eligiendo «Sí, los dos»:
+
+| Rol | MFA |
+|---|---|
+| `BILLING_ADMIN` | obligatorio |
+| `SECURITY_ADMIN` | obligatorio |
+
+Cualquier otro rol de `roles.md` que no aparezca en estas dos tablas **no se
+asigna por inferencia**. El vínculo definitivo rol → permisos sigue siendo de
+`SEC-G03`.
 
 ## 6. `A-5` — longitud y política de contraseña
 
@@ -140,10 +146,56 @@ temporal».
   no opera.
 - No depende de que cada cajero tenga correo.
 
-Queda para `A-9` (recuperación) si una contraseña olvidada se resuelve por
-este mismo camino.
+Una contraseña olvidada se resuelve por este mismo camino: ver `A-9` (§10).
 
-## 8. Referencias
+## 8. `A-7` — identificador de inicio de sesión
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «Usuario/
+código + correo admin».
+
+- `CASHIER` y `SUPERVISOR`: **nombre de usuario o código de empleado**. No
+  necesitan correo.
+- Roles con MFA (§5): **correo**.
+
+## 9. `A-8` — intentos fallidos de contraseña
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «Como el
+PIN». Reutiliza los números de `DEC-012` §18.4–§18.6; aquí se aplican a la
+contraseña, que se verifica en la autoridad central (§4):
+
+- Máximo **5** intentos; backoff `0 s · 0 s · 5 s · 15 s`; al 5.º, `LOCKOUT`.
+- Lockout de **15 minutos**, que se levanta solo al expirar; un administrador
+  autorizado puede levantarlo antes.
+- **El mismo mensaje de error** exista o no la cuenta: no se enumeran
+  usuarios.
+- Además del contador por cuenta, **limitación por equipo/IP** en el servidor.
+- Contadores y lockout persistidos; nunca sólo en memoria.
+
+Los contadores de la contraseña (central) y del PIN (local) son
+**independientes**: fallar uno no consume intentos del otro.
+
+## 10. `A-9` — recuperación de cuenta
+
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «Admin
+reinicia + códigos».
+
+- **Camino ordinario:** un administrador genera una nueva **contraseña
+  temporal de un solo uso** (el mismo mecanismo de `A-6`) y **se revocan todas
+  las sesiones anteriores** del usuario. El usuario la cambia en su primer
+  ingreso.
+- **`PLATFORM_OWNER`**, que no tiene a nadie por encima, se recupera con
+  **códigos de recuperación de un solo uso** que se entregan al activar su
+  MFA.
+- No hay recuperación por correo ni autoservicio.
+
+## 11. Qué sigue abierto
+
+- `A-10`: duración y rotación de access y refresh token. `security-gates.md`
+  §SEC-G02 exige que sean **configurables y versionadas** y no fija valores.
+- Todas las cifras de este documento son política; ninguna está implementada,
+  probada ni verificada en runtime.
+
+## 12. Referencias
 
 - `DEC-012` §13, §16, §18, §19.
 - `DEC-011` (TTL del SAS).
