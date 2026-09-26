@@ -47,7 +47,7 @@ export function InventoryPanel(): React.JSX.Element {
   const target = presentationId.trim();
 
   return (
-    <section data-testid="inventory-panel">
+    <section className="card" data-testid="inventory-panel">
       <h2>Existencia</h2>
 
       <input

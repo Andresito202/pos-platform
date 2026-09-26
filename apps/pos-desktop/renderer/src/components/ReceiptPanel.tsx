@@ -39,7 +39,7 @@ export function ReceiptPanel(): React.JSX.Element {
   const [saleId, setSaleId] = useState("");
 
   return (
-    <section data-testid="receipt-panel">
+    <section className="card" data-testid="receipt-panel">
       <h2>Recibo</h2>
       <input
         data-testid="receipt-sale-id-input"

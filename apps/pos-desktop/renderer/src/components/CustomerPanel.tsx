@@ -28,7 +28,7 @@ export function CustomerPanel(): React.JSX.Element {
     || tributeCode.trim() === "";
 
   return (
-    <section data-testid="customer-panel">
+    <section className="card" data-testid="customer-panel">
       <h2>Adquiriente</h2>
 
       <input

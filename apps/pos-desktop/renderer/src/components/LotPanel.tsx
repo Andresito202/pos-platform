@@ -86,7 +86,7 @@ export function LotPanel(): React.JSX.Element {
     : null;
 
   return (
-    <section data-testid="lot-panel">
+    <section className="card" data-testid="lot-panel">
       <h2>Lotes y vencimientos</h2>
 
       <input

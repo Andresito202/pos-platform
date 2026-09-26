@@ -76,7 +76,7 @@ export function CatalogPanel(): React.JSX.Element {
     || addPrice.trim() === "";
 
   return (
-    <section data-testid="catalog-panel">
+    <section className="card" data-testid="catalog-panel">
       <h2>Catálogo</h2>
 
       <input

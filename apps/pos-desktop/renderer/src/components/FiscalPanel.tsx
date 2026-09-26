@@ -41,7 +41,7 @@ export function FiscalPanel(): React.JSX.Element {
     : null;
 
   return (
-    <section data-testid="fiscal-panel">
+    <section className="card" data-testid="fiscal-panel">
       <h2>Emisión fiscal</h2>
 
       <input

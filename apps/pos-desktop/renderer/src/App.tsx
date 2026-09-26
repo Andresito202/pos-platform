@@ -37,10 +37,14 @@ import { FiscalPanel } from "./components/FiscalPanel.js";
  */
 export function App(): React.JSX.Element {
   return (
-    <main>
-      <h1>POS Local</h1>
-      <SessionPanel />
+    <main className="app-shell">
+      <header className="app-bar">
+        <span className="app-mark" aria-hidden="true">CP</span>
+        <h1>POS Local</h1>
+      </header>
       <StatusPanel />
+      <div className="app-content">
+      <SessionPanel />
       <CatalogImportPanel />
       <CatalogPanel />
       <InventoryPanel />
@@ -52,6 +56,7 @@ export function App(): React.JSX.Element {
       <CreditPanel />
       <FiscalPanel />
       <OperationPanel />
+      </div>
     </main>
   );
 }

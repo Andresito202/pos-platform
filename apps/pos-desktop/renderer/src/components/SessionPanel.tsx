@@ -17,7 +17,7 @@ export function SessionPanel(): React.JSX.Element {
   const session = useSession();
 
   return (
-    <section data-testid="session-panel">
+    <section className="card" data-testid="session-panel">
       <h2>Sesión</h2>
 
       {session.busy && <div data-testid="session-checking">Comprobando la sesión del equipo…</div>}

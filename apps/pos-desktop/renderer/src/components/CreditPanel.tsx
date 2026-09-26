@@ -35,7 +35,7 @@ export function CreditPanel(): React.JSX.Element {
     || (method === "CASH" && cashRegisterId.trim() === "");
 
   return (
-    <section data-testid="credit-panel">
+    <section className="card" data-testid="credit-panel">
       <h2>Fiado</h2>
 
       <input

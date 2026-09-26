@@ -40,7 +40,7 @@ export function OperationPanel(): React.JSX.Element {
   }
 
   return (
-    <div data-testid="operation-panel">
+    <div className="card" data-testid="operation-panel">
       <input
         data-testid="operation-id-input"
         type="text"

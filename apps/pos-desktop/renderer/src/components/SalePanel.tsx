@@ -60,7 +60,7 @@ export function SalePanel(): React.JSX.Element {
   const [tendered, setTendered] = useState("");
 
   return (
-    <section data-testid="sale-panel">
+    <section className="card" data-testid="sale-panel">
       <h2>Caja</h2>
       {sale.shift === null ? (
         <div data-testid="shift-closed">

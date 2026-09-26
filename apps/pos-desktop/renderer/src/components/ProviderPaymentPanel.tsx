@@ -24,7 +24,7 @@ export function ProviderPaymentPanel(): React.JSX.Element {
   const version = provider.payment?.version ?? null;
 
   return (
-    <section data-testid="provider-payment-panel">
+    <section className="card" data-testid="provider-payment-panel">
       <h2>Cobro por QR</h2>
       <input
         data-testid="qr-sale-id-input"

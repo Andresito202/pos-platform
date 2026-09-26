@@ -51,7 +51,7 @@ export function CatalogImportPanel(): React.JSX.Element {
   const withErrors = new Set(review?.errors.map((error) => error.line) ?? []).size;
 
   return (
-    <section data-testid="catalog-import-panel">
+    <section className="card" data-testid="catalog-import-panel">
       <h2>Carga inicial del catálogo</h2>
 
       <p>
