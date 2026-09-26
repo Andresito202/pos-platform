@@ -711,7 +711,14 @@ describe("la misma tanda en dos sucursales: con otras fechas es conflicto", () =
     const { store, database, presentationId } = await buildEnv();
     expect(receive(store, OTHER, presentationId, "L-TANDA", "2026-09-01", "2026-09-30").kind).toBe("RECEIVED");
 
-    expect(receive(store, SCOPE, presentationId, "L-TANDA", manufactured, expiry).kind).toBe("LOT_CODE_CONFLICT");
+    const conflict = receive(store, SCOPE, presentationId, "L-TANDA", manufactured, expiry);
+    expect(conflict.kind).toBe("LOT_CODE_CONFLICT");
+    // Las fechas de la otra sucursal, sin decir cuál es.
+    if (conflict.kind === "LOT_CODE_CONFLICT") {
+      expect(conflict.conflict).toEqual({
+        where: "OTHER_BRANCH", manufacturedDate: "2026-09-01", expiryDate: "2026-09-30",
+      });
+    }
     // Ni lote ni existencia en esta sucursal; la otra, intacta.
     expect(lotsOf(database, "L-TANDA")).toEqual([{ branch_id: OTHER_BRANCH, quantity_on_hand: "10.000000" }]);
     expect(stockIn(database, BRANCH, presentationId)).toBeNull();

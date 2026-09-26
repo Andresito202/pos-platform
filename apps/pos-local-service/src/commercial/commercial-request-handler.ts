@@ -1376,7 +1376,9 @@ export class CommercialRequestHandler {
     request: Extract<CommercialRequest, { message_type: "inventory.lot.receive" }>,
     connectionId: string,
   ): unknown {
-    const empty = { lot_id: null, quantity_after: null, lot_quantity_on_hand: null };
+    const empty = {
+      lot_id: null, quantity_after: null, lot_quantity_on_hand: null, conflicting_lot: null,
+    };
 
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
@@ -1405,6 +1407,19 @@ export class CommercialRequestHandler {
         lot_id: result.lotId,
         quantity_after: result.quantityAfter,
         lot_quantity_on_hand: result.lotQuantityOnHand,
+        conflicting_lot: null,
+      });
+    }
+
+    if (result.kind === "LOT_CODE_CONFLICT") {
+      return rejected(request, result.kind, {
+        outcome: result.kind,
+        ...empty,
+        conflicting_lot: {
+          where: result.conflict.where,
+          manufactured_date: result.conflict.manufacturedDate,
+          expiry_date: result.conflict.expiryDate,
+        },
       });
     }
 

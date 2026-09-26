@@ -2608,6 +2608,11 @@ describe("lotes y vencimiento: declarar la tanda y ver que vence primero", () =>
       }, "conf:3"));
       expect(choque.status).toBe("REJECTED");
       expect(choque.result["outcome"]).toBe("LOT_CODE_CONFLICT");
+      // Dice con qué fechas existe ya, para corregir la captura sin buscarlas.
+      expect(choque.result["conflicting_lot"]).toEqual({
+        where: "SAME_BRANCH", manufactured_date: null, expiry_date: "2026-09-30",
+      });
+      expect(suma.result["conflicting_lot"]).toBeNull();
       // Conflicto con el estado, no un fallo del servicio.
       expect(choque.error?.category).toBe("CONFLICT");
       // Y no toco nada: ni el lote ni la existencia.

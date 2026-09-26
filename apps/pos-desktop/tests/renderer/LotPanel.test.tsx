@@ -302,3 +302,34 @@ describe("LotPanel — lo que vence esta semana", () => {
     ]);
   });
 });
+
+/**
+ * El rechazo por código repetido dice con qué fechas existe ya la tanda y si
+ * es aquí o en otra sucursal —sin nombrarla—, para corregir la captura.
+ */
+describe("LotPanel — código de lote ya usado con otras fechas", () => {
+  beforeEach(() => {
+    install();
+    const service = (window as unknown as { posService: Record<string, (r: unknown) => Promise<unknown>> }).posService;
+    service["inventory.lot.receive"] = () => Promise.resolve({
+      status: "REJECTED", result_code: "LOT_CODE_CONFLICT",
+      result: {
+        outcome: "LOT_CODE_CONFLICT", lot_id: null, quantity_after: null, lot_quantity_on_hand: null,
+        conflicting_lot: { where: "OTHER_BRANCH", manufactured_date: null, expiry_date: "2026-09-30" },
+      },
+    });
+  });
+
+  it("muestra las fechas existentes y que es en otra sucursal", async () => {
+    render(<LotPanel />);
+    fireEvent.change(screen.getByTestId("lot-presentation-input"), { target: { value: PRESENTATION } });
+    fireEvent.change(screen.getByTestId("lot-code-input"), { target: { value: "L-1" } });
+    fireEvent.change(screen.getByTestId("lot-quantity-input"), { target: { value: "5" } });
+    fireEvent.click(screen.getByTestId("lot-receive-button"));
+    await waitFor(() => { expect(screen.getByTestId("lot-received-conflict")).toBeTruthy(); });
+    expect(screen.getByTestId("lot-received-outcome").textContent).toBe("LOT_CODE_CONFLICT");
+    expect(screen.getByTestId("lot-received-conflict-where").textContent).toBe("en otra sucursal");
+    expect(screen.getByTestId("lot-received-conflict-manufactured").textContent).toBe("sin fecha");
+    expect(screen.getByTestId("lot-received-conflict-expiry").textContent).toBe("2026-09-30");
+  });
+});

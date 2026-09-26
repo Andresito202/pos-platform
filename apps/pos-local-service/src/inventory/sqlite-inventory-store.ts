@@ -183,7 +183,19 @@ export interface ReceiveLotInput {
 
 export type ReceiveLotOutcome =
   | { readonly kind: "RECEIVED"; readonly lotId: string; readonly quantityAfter: string; readonly lotQuantityOnHand: string }
-  | { readonly kind: "LOT_CODE_CONFLICT" }
+  | {
+      readonly kind: "LOT_CODE_CONFLICT";
+      /**
+       * Las fechas con que ya existe la tanda, y si es en esta sucursal o en
+       * otra —sin decir cuál: el operador sólo está autorizado en la suya, y
+       * para corregir la captura le bastan las fechas—.
+       */
+      readonly conflict: {
+        readonly where: "SAME_BRANCH" | "OTHER_BRANCH";
+        readonly manufacturedDate: string | null;
+        readonly expiryDate: string | null;
+      };
+    }
   | { readonly kind: "LOT_DATES_INVALID" }
   | AppendMovementOutcome;
 
@@ -749,7 +761,7 @@ export class SqliteInventoryStore {
       // fabricar una segunda versión de la tanda.
       if (this.datesConflictInOtherBranch(
         scope, targetPresentationId, origin.lot_code, origin.manufactured_date, origin.expiry_date,
-      )) continue;
+      ) !== null) continue;
 
       if (existing === undefined) {
         const inheritedId = uuidV7();
@@ -797,15 +809,21 @@ export class SqliteInventoryStore {
   private datesConflictInOtherBranch(
     scope: SyncScope, presentationId: string, lotCode: string,
     manufacturedDate: string | null, expiryDate: string | null,
-  ): boolean {
-    return this.database.native.prepare(
-      `SELECT 1 FROM inventory_lot
+  ): { readonly manufacturedDate: string | null; readonly expiryDate: string | null } | null {
+    // Si varias sucursales discrepan, se devuelve la primera en recibirla: es
+    // la que fijó las fechas de la tanda.
+    const row = this.database.native.prepare(
+      `SELECT manufactured_date, expiry_date FROM inventory_lot
         WHERE tenant_id=? AND presentation_id=? AND lot_code=? AND branch_id <> ?
           AND (manufactured_date IS NOT ? OR expiry_date IS NOT ?)
+        ORDER BY created_at, id
         LIMIT 1`,
     ).get(
       scope.tenantId, presentationId, lotCode, scope.branchId, manufacturedDate, expiryDate,
-    ) !== undefined;
+    ) as { manufactured_date: string | null; expiry_date: string | null } | undefined;
+    return row === undefined
+      ? null
+      : { manufacturedDate: row.manufactured_date, expiryDate: row.expiry_date };
   }
 
   /**
@@ -883,12 +901,27 @@ export class SqliteInventoryStore {
       if (existing !== undefined
         && (existing.expiry_date !== input.expiryDate
           || existing.manufactured_date !== input.manufacturedDate)) {
-        return { kind: "LOT_CODE_CONFLICT" };
+        return {
+          kind: "LOT_CODE_CONFLICT",
+          conflict: {
+            where: "SAME_BRANCH",
+            manufacturedDate: existing.manufactured_date,
+            expiryDate: existing.expiry_date,
+          },
+        };
       }
-      if (this.datesConflictInOtherBranch(
+      const elsewhere = this.datesConflictInOtherBranch(
         input.scope, input.presentationId, input.lotCode, input.manufacturedDate, input.expiryDate,
-      )) {
-        return { kind: "LOT_CODE_CONFLICT" };
+      );
+      if (elsewhere !== null) {
+        return {
+          kind: "LOT_CODE_CONFLICT",
+          conflict: {
+            where: "OTHER_BRANCH",
+            manufacturedDate: elsewhere.manufacturedDate,
+            expiryDate: elsewhere.expiryDate,
+          },
+        };
       }
 
       const receiptMovementId = uuidV7();

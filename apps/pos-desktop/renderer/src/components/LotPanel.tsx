@@ -205,6 +205,25 @@ export function LotPanel(): React.JSX.Element {
           {lots.received.lot_quantity_on_hand !== null && (
             <span data-testid="lot-received-quantity">{lots.received.lot_quantity_on_hand}</span>
           )}
+          {/* El código ya existe con otras fechas: se dicen, para que el
+              operador corrija la captura sin ir a buscarlas. Dónde, sólo
+              «aquí» u «otra sucursal»: no la nombra. */}
+          {lots.received.conflicting_lot !== null && (
+            <div data-testid="lot-received-conflict">
+              Ese código ya existe{" "}
+              <span data-testid="lot-received-conflict-where">
+                {lots.received.conflicting_lot.where === "SAME_BRANCH" ? "en esta sucursal" : "en otra sucursal"}
+              </span>
+              {" "}con fabricación{" "}
+              <span data-testid="lot-received-conflict-manufactured">
+                {lots.received.conflicting_lot.manufactured_date ?? "sin fecha"}
+              </span>
+              {" "}y vencimiento{" "}
+              <span data-testid="lot-received-conflict-expiry">
+                {lots.received.conflicting_lot.expiry_date ?? "sin fecha"}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

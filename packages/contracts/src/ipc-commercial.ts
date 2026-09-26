@@ -1659,6 +1659,16 @@ export const InventoryLotReceiveResultSchema = z.strictObject({
   quantity_after: NonNegativeScale6Schema.nullable(),
   /** Existencia **de este lote**, que es lo que se consume por FEFO. */
   lot_quantity_on_hand: NonNegativeScale6Schema.nullable(),
+  /**
+   * Sólo en `LOT_CODE_CONFLICT`: con qué fechas existe ya esa tanda, y si es
+   * en esta sucursal o en otra. **No dice cuál**: el operador sólo está
+   * autorizado en la suya, y para corregir la captura le bastan las fechas.
+   */
+  conflicting_lot: z.strictObject({
+    where: z.enum(["SAME_BRANCH", "OTHER_BRANCH"]),
+    manufactured_date: BusinessDateSchema.nullable(),
+    expiry_date: BusinessDateSchema.nullable(),
+  }).nullable(),
 });
 
 export const InventoryLotReceiveResponseSchema =

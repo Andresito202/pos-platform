@@ -561,6 +561,15 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
     await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
   }
 
+  // La misma tanda con otro vencimiento: se rechaza y dice con qué fechas existe.
+  await page.getByTestId("lot-code-input").fill("PANELA-TARDE");
+  await page.getByTestId("lot-quantity-input").fill("1");
+  await page.getByTestId("lot-expiry-input").fill("2026-11-30");
+  await page.getByTestId("lot-receive-button").click();
+  await expect(page.getByTestId("lot-received-outcome")).toHaveText("LOT_CODE_CONFLICT", { timeout: 15_000 });
+  expect(await page.getByTestId("lot-received-conflict-where").textContent()).toBe("en esta sucursal");
+  expect(await page.getByTestId("lot-received-conflict-expiry").textContent()).toBe("2026-12-31");
+
   await page.getByTestId("lot-list-button").click();
   await expect(page.getByTestId("lot-list")).toBeVisible({ timeout: 15_000 });
   const listed = await page.locator('[data-testid^="lot-row-PANELA"]').evaluateAll(
