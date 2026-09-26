@@ -29,6 +29,11 @@ import {
   type SecretStoreKeyProvider,
 } from "./security/index.js";
 import { readOperatorSessionArtifact, ArtifactSnapshotProvider } from "./session/operator-session-artifact.js";
+import {
+  activateDevRoleSession,
+  provisionDevRoleTrustAnchors,
+  type DevRoleTrustMaterial,
+} from "./dev-only/dev-session-bootstrap.js";
 import { SnapshotAcquisitionService } from "./authorization/snapshot-acquisition.js";
 import { AuthorizationSnapshotVerifier } from "./security/authorization-snapshot-verifier.js";
 
@@ -256,11 +261,34 @@ try {
     stop: async () => {},
   };
 
+  // Ancla efímera de la sesión de revisión de pantallas por rol (`dev-only/`).
+  //
+  // Va en la lista de componentes, no en una llamada suelta después de
+  // `lifecycle.start()`, por la misma razón que `sessionTrustProvisioning`:
+  // `commercial` resuelve su mapa de claves de sesión una sola vez, dentro de
+  // su propio `start()`. Provisionar el ancla después dejaría ese mapa vacío
+  // de antes y `session.activate` rechazaría la SSA sintética con
+  // `SIGNATURE_INVALID` — exactamente el defecto de orden que ya midió y
+  // corrigió `sessionTrustProvisioning` para el artefacto real de `DEC-025`.
+  // Por eso arranca entre `security` (que abre el ancla) y `commercial` (que
+  // la lee), igual que aquél.
+  let devRoleTrustMaterial: DevRoleTrustMaterial | undefined;
+  const devRoleTrustProvisioning: RuntimeComponent = {
+    name: "dev-role-trust-provisioning",
+    start: async () => {
+      if (config.dev_role_preset !== undefined) {
+        devRoleTrustMaterial = provisionDevRoleTrustAnchors(security.trustAnchors);
+      }
+    },
+    stop: async () => { devRoleTrustMaterial = undefined; },
+  };
+
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [
     localDatabase,
     security,
     sessionTrustProvisioning,
+    devRoleTrustProvisioning,
     durableSync,
     operationConfirmation,
     commercial,
@@ -392,6 +420,36 @@ try {
   // y, cuando no, en qué paso se detuvo. Un `SNAPSHOT_REJECTED` explica por qué
   // la sesión existe y las operaciones responden `UNAUTHORIZED`.
   logger.log("info", "security.operator_session", operatorSession);
+
+  // Sesión de revisión de pantallas por rol (`dev-only/`) — nunca `DEC-025` ni
+  // `SEC-G02`. `config.ts` ya rechaza esta variable si el equipo declara
+  // `PRODUCTION` o si hay un artefacto real configurado, así que llegar aquí
+  // con `dev_role_preset` definido significa que ninguna de esas dos guardas
+  // saltó. Se registra en voz alta, precisamente porque no debe pasar
+  // desapercibido.
+  if (config.dev_role_preset !== undefined) {
+    // Garantizado por `devRoleTrustProvisioning`, que corrió dentro de
+    // `lifecycle.start()` cuando `config.dev_role_preset` está definido. Si
+    // esto faltara sería un defecto de orden de arranque, no un estado
+    // esperado — por eso se afirma en vez de degradarse en silencio.
+    if (devRoleTrustMaterial === undefined) {
+      throw new Error("dev role preset trust material missing: dev-role-trust-provisioning did not run");
+    }
+    const outcome = activateDevRoleSession(
+      config.dev_role_preset,
+      { installationId: config.installation_id, deviceId: config.device_id },
+      devRoleTrustMaterial,
+      security.trustAnchors,
+      commercial.sessionActivation,
+      commercial.authorizationStore,
+      commercial.trustedClock,
+    );
+    logger.log(
+      "warn",
+      "security.DEV_ONLY_role_preset_active",
+      { ...outcome, warning: "Sesión de desarrollo local para revisar pantallas por rol. No es SEC-G02. No usar en producción." },
+    );
+  }
 
   // Salud de la cola de salida (`UC-SYNC-003` §Observabilidad). Se emite en
   // el arranque y no en un temporizador: la cadencia de muestreo es parte de

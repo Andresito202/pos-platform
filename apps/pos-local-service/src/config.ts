@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from "node:path";
 import { ContractVersionSchema, StableCodeSchema, compareContractVersions } from "@pos-platform/contracts";
 import { FiscalEnvironmentSchema } from "@pos-platform/fiscal-adapters";
 import * as z from "zod";
+import { DevRolePresetIdSchema } from "./dev-only/dev-role-presets.js";
 
 const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_DATA_DIRECTORY",
@@ -21,6 +22,8 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   // `DEC-025`: artefacto de aprovisionamiento de sesión de operador. Ausente
   // significa equipo sin aprovisionar, que es un estado normal y no un error.
   "POS_OPERATOR_SESSION_ARTIFACT_PATH",
+  // Revisión de pantallas por rol — NUNCA producción. Ver `dev-only/`.
+  "POS_DEV_ROLE_PRESET",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -55,6 +58,16 @@ const ServiceConfigSchema = z.strictObject({
   /** Public signed bundle supplied by the installer; never contains private keys. */
   session_trust_artifact_path: z.string().min(1).max(4096).optional(),
   operator_session_artifact_path: z.string().min(1).max(4096).optional(),
+  /**
+   * Sesión de revisión de pantallas por rol, firmada con una clave generada
+   * en este mismo arranque — ver `dev-only/dev-session-bootstrap.ts`. **No es
+   * `SEC-G02` ni `DEC-025`.** Se rechaza junto con cualquier señal de que este
+   * arranque no es una revisión local: un entorno de confianza declarado
+   * `PRODUCTION`, o un artefacto real de sesión/confianza ya configurado. Un
+   * equipo con las dos cosas a la vez no debe adivinar cuál gana: se niega a
+   * arrancar y lo dice.
+   */
+  dev_role_preset: DevRolePresetIdSchema.optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
@@ -67,6 +80,14 @@ const ServiceConfigSchema = z.strictObject({
   }
   if (value.operator_session_artifact_path !== undefined && !isAbsolute(value.operator_session_artifact_path)) {
     context.addIssue({ code: "custom", path: ["operator_session_artifact_path"], message: "operator session artifact path must be absolute" });
+  }
+  if (value.dev_role_preset !== undefined) {
+    if (value.session_trust_environment === "PRODUCTION") {
+      context.addIssue({ code: "custom", path: ["dev_role_preset"], message: "dev role preset is refused when session_trust_environment is PRODUCTION" });
+    }
+    if (value.session_trust_artifact_path !== undefined || value.operator_session_artifact_path !== undefined) {
+      context.addIssue({ code: "custom", path: ["dev_role_preset"], message: "dev role preset cannot coexist with a real session trust or operator session artifact" });
+    }
   }
 });
 export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
@@ -91,6 +112,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_root_public_key_pem: environment.POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM,
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
     operator_session_artifact_path: environment.POS_OPERATOR_SESSION_ARTIFACT_PATH,
+    dev_role_preset: environment.POS_DEV_ROLE_PRESET,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };
