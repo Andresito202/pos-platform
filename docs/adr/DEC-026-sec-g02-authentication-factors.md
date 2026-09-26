@@ -2,9 +2,10 @@
 
 ## Estado
 
-`PROPUESTA`, en ratificación por partes. Cada decisión se registra aquí
-**cuando el propietario la ratifica**, con su fecha; ninguna se completa por
-inferencia (`DEC-012` §13).
+`ACEPTADA` como política el 2026-09-26: las diez decisiones de la tabla
+fueron ratificadas por el propietario, una a una y en sesión. Ninguna se
+completó por inferencia (`DEC-012` §13). **Aceptar la política no autoriza
+implementarla** (§13).
 
 | Id | Decisión | Estado |
 |---|---|---|
@@ -17,7 +18,7 @@ inferencia (`DEC-012` §13).
 | `A-7` | Identificador de inicio de sesión (correo, usuario, código de empleado) | **RATIFICADO** 2026-09-26 (§8) |
 | `A-8` | Bloqueo y limitación de intentos de contraseña | **RATIFICADO** 2026-09-26 (§9) |
 | `A-9` | Recuperación de cuenta | **RATIFICADO** 2026-09-26 (§10) |
-| `A-10` | Duración y rotación de access/refresh token | pendiente |
+| `A-10` | Duración y rotación de access/refresh token | **RATIFICADO** 2026-09-26 (§11) |
 
 ## Qué NO es
 
@@ -188,14 +189,67 @@ reinicia + códigos».
   MFA.
 - No hay recuperación por correo ni autoservicio.
 
-## 11. Qué sigue abierto
+## 11. `A-10` — duración y rotación de tokens y sesión
 
-- `A-10`: duración y rotación de access y refresh token. `security-gates.md`
-  §SEC-G02 exige que sean **configurables y versionadas** y no fija valores.
-- Todas las cifras de este documento son política; ninguna está implementada,
-  probada ni verificada en runtime.
+Ratificado por el propietario el 2026-09-26, en sesión, eligiendo «Ratificar
+tal cual» sobre la propuesta presentada ese mismo día.
 
-## 12. Referencias
+Pone números al modelo de refresh ya cerrado en esquema (`PHY-G02`,
+`docs/architecture/physical-model/foundation-schema.md` §`identity.session_refresh_tokens`;
+`docs/architecture/conceptual-data-model.md` §SessionRefreshToken). No lo
+rediseña.
+
+| Parámetro | `CASHIER` / `SUPERVISOR` | Roles con MFA (§5) |
+|---|---|---|
+| Access token | 10 min | 10 min |
+| Refresh token | un solo uso, rotado en cada renovación | igual |
+| Caducidad por inactividad del refresh | ninguna propia | 30 min |
+| Duración absoluta de la sesión (`Session.expires_at`) | 24 h | 12 h |
+| Reautenticación reciente para operaciones críticas de administración | — | contraseña + MFA en los últimos 15 min |
+| Reutilización de un refresh ya consumido | revoca **la sesión entera** + `SecurityEvent` | igual |
+| Retención del hash de tokens consumidos (`retained_until`) | hasta el fin de la sesión | igual |
+
+Invariante nuevo, ratificado con esta propuesta:
+
+```
+SSA.offline_valid_until  <=  Session.expires_at
+```
+
+Se suma a la cadena de `DEC-012` §19 (`SSA.offline_valid_until <=
+SAS.expires_at <= TTL de despliegue`), no la sustituye.
+
+Razones registradas:
+
+- **Sin caducidad por inactividad en servidor para operadores:** su
+  inactividad la gobierna la presencia local (`DEC-012` §18.7, 10 min).
+  Duplicarla en el servidor obligaría a reintroducir la contraseña tras un
+  corte de Internet con la sesión local aún vigente.
+- **24 h para operadores:** es el techo del SAS ya ratificado (`DEC-011`,
+  `DEC-012` §19); no añade exposición a revocación y cubre una jornada entera
+  sin conexión, que es el riesgo aceptado en `A-3`.
+- **Sin ventana de gracia en la rotación:** el esquema cerrado establece que un
+  token consumido no emite sucesor. **Consecuencia aceptada:** si se pierde la
+  respuesta de una renovación, la sesión se revoca y hay que volver a entrar
+  con contraseña. Introducir gracia exige reabrir `PHY-G02`.
+
+Todos los valores son **configurables y versionados** (`security-gates.md`
+§SEC-G02); los de esta tabla son los iniciales.
+
+## 12. PIN de presencia: sin cambios
+
+Confirmado por el propietario el 2026-09-26, en sesión, eligiendo «Lo genera
+el sistema»: `DEC-012` §18.2 se mantiene íntegro. El PIN lo genera el sistema
+por CSPRNG; el cajero no lo elige.
+
+## 13. Qué sigue abierto
+
+- Las diez decisiones de la tabla de estado están ratificadas. **Ninguna está
+  implementada, probada ni verificada en runtime.** `SEC-G02` sigue
+  `PLANNED / NOT_EVALUATED`.
+- Implementar el login exige **autorización expresa** aparte de esta
+  ratificación de política.
+
+## 14. Referencias
 
 - `DEC-012` §13, §16, §18, §19.
 - `DEC-011` (TTL del SAS).
