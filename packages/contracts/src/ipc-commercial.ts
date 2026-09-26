@@ -977,6 +977,13 @@ export const FiscalDocumentIssueRequestSchema = createRequestEnvelopeSchema(
     document_type: StableCodeSchema,
     customer: FiscalCustomerReferenceSchema,
     observation: z.string().min(1).max(2000).nullable(),
+    /**
+     * `D-40`, decisión del propietario del 2026-09-26 —«advertir»—: si el
+     * adquiriente no es el cliente que nombró la venta, la emisión se detiene
+     * con `CUSTOMER_MISMATCH` y el operador confirma reenviando con `true`.
+     * Ausente es `false`: nadie confirma lo que no ha visto.
+     */
+    acknowledge_customer_mismatch: z.boolean().optional(),
   }),
 ).safeExtend({ message_type: z.literal("fiscal.document.issue") })
   .superRefine((request, context) => {
@@ -1019,6 +1026,15 @@ export const FiscalDocumentIssueResultSchema = z.strictObject({
   attempt_count: z.number().int().nonnegative().nullable(),
   block_code: StableCodeSchema.nullable(),
   reasons: z.array(FiscalDocumentIssueReasonSchema).max(64),
+  /**
+   * Sólo con `block_code = CUSTOMER_MISMATCH`: el cliente que nombró la venta
+   * y el adquiriente pedido. `null` en cualquiera de los dos es «ninguno»:
+   * venta de mostrador, o factura sin identificar.
+   */
+  customer_mismatch: z.strictObject({
+    sale_customer_id: UuidSchema.nullable(),
+    requested_customer_id: UuidSchema.nullable(),
+  }).nullable(),
 });
 
 export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(FiscalDocumentIssueResultSchema);

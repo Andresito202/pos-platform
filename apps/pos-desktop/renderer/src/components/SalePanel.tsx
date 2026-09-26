@@ -238,7 +238,15 @@ export function SalePanel(): React.JSX.Element {
       )}
 
       {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
-      <button data-testid="reset-button" onClick={() => { sale.reset(); }} disabled={sale.busy}>
+      {/* Nueva venta es venta nueva **también de comprador**. Hallado el
+          2026-09-26: el cliente quedaba en el campo, y tras una venta fiada
+          todas las siguientes del día salían a su nombre —comprador falso en
+          el recibo y en el rastro de un retiro—. */}
+      <button
+        data-testid="reset-button"
+        onClick={() => { sale.reset(); setSaleCustomerId(""); }}
+        disabled={sale.busy}
+      >
         Nueva venta
       </button>
     </section>

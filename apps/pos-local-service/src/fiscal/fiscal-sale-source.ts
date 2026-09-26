@@ -32,6 +32,8 @@ export interface FiscalSaleSource {
   readonly saleId: string;
   readonly documentSeries: string;
   readonly saleNumber: number;
+  /** El cliente que nombró la venta (`MIGRATION_019`), o `null` si fue de mostrador. */
+  readonly customerId: string | null;
   readonly currencyCode: string;
   readonly commercialRoundingAdjustment: string;
   readonly lines: readonly FiscalSaleLine[];
@@ -40,7 +42,7 @@ export interface FiscalSaleSource {
 
 interface SaleRow {
   id: string; document_series: string; sale_number: number; currency_code: string;
-  commercial_rounding_adjustment: string;
+  commercial_rounding_adjustment: string; customer_id: string | null;
 }
 
 interface LineRow {
@@ -58,7 +60,8 @@ export class SqliteFiscalSaleSource {
   /** `null` si la venta no existe en el alcance, o existe pero no está `COMPLETED`. */
   read(scope: DocumentScope, saleId: string): FiscalSaleSource | null {
     const sale = this.database.native.prepare(
-      `SELECT id, document_series, sale_number, currency_code, commercial_rounding_adjustment
+      `SELECT id, document_series, sale_number, currency_code, commercial_rounding_adjustment,
+              customer_id
          FROM sales_sales
         WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND status='COMPLETED'`,
     ).get(scope.tenantId, scope.companyId, scope.branchId, saleId) as SaleRow | undefined;
@@ -85,6 +88,7 @@ export class SqliteFiscalSaleSource {
       saleId: sale.id,
       documentSeries: sale.document_series,
       saleNumber: sale.sale_number,
+      customerId: sale.customer_id,
       currencyCode: sale.currency_code,
       commercialRoundingAdjustment: sale.commercial_rounding_adjustment,
       lines: lines.map((row) => ({

@@ -1194,6 +1194,10 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   await page.getByTestId("receive-stock-button").click();
   await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
 
+  // «Nueva venta» limpió también el comprador: la venta fiada del recorrido
+  // anterior no puede prestarle su cliente a esta.
+  expect(await page.getByTestId("sale-customer-id-input").inputValue()).toBe("");
+
   // Venta y cobro, tambien desde la pantalla.
   await page.getByTestId("barcode-input").fill(barcode);
   await page.getByTestId("find-item-button").click();
@@ -1247,6 +1251,15 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
 
   await page.getByTestId("fiscal-customer-id-input").fill(customerId!);
   await page.getByTestId("issue-identified-button").click();
+
+  // `D-40`, «advertir»: la venta fue de mostrador y la factura nombra a un
+  // cliente. La pantalla dice los dos y no emite hasta que se confirma.
+  await expect(page.getByTestId("fiscal-customer-mismatch")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("fiscal-mismatch-sale-customer").textContent())
+    .toBe("ningún cliente (venta de mostrador)");
+  expect(await page.getByTestId("fiscal-mismatch-requested-customer").textContent()).toBe(customerId);
+  expect(await page.getByTestId("fiscal-issued").count()).toBe(0);
+  await page.getByTestId("fiscal-confirm-mismatch-button").click();
   await expect(page.getByTestId("fiscal-issued")).toBeVisible({ timeout: 15_000 });
 
   // El CUFE y el número los pone el puerto sustituido; lo que acredita la

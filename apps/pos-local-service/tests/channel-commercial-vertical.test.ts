@@ -625,6 +625,9 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       const found = await send(reading("catalog.item.find", { barcode: "7700000000002" }));
 
       const sale = await send(mutating("sale.create", {
+        // La venta nombra al cliente que se va a facturar (`D-40`): sin eso,
+        // la emisión se detendría pidiendo confirmar la diferencia.
+        customer_id: customerId,
         cash_register_id: REGISTER, channel: "POS",
         business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
         document_series: "A", currency_code: "COP",
@@ -638,12 +641,40 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       }, "fiscalv2:payment:1"));
       expect(payment.result["sale_completed"]).toBe(true);
 
+      // `D-40`, «advertir»: facturar a otro cliente que el que nombró la venta
+      // se detiene, dice los dos y no crea documento. No se emite nada hasta
+      // que el operador confirme.
+      const otra = await send(mutating("customer.register", {
+        identification_document_code: "13", identification: "1098765432",
+        verification_digit: null, legal_organization_code: "2",
+        company: null, names: "Otra Persona", tribute_code: "ZZ",
+        fiscal_responsibility_codes: ["R-99-PN"],
+        email: null, phone: null, address: null, country_code: null, municipality_code: null,
+      }, "fiscalv2:customer:2"));
+      const otherId = otra.result["customer_id"] as string;
+      const mismatch = await send(mutating("fiscal.document.issue", {
+        sale_id: saleId,
+        document_type: "SALES_INVOICE",
+        customer: { kind: "IDENTIFIED", customer_id: otherId },
+        observation: null,
+      }, "fiscalv2:issue:mismatch"));
+      expect(mismatch.status).toBe("REJECTED");
+      expect(mismatch.result["outcome"]).toBe("BLOCKED");
+      expect(mismatch.result["block_code"]).toBe("CUSTOMER_MISMATCH");
+      expect(mismatch.result["customer_mismatch"]).toEqual({
+        sale_customer_id: customerId, requested_customer_id: otherId,
+      });
+      expect(countOf(
+        database, "SELECT COUNT(*) n FROM fiscal_electronic_document WHERE sale_id=?", saleId,
+      )).toBe(0);
+
       const issued = await send(mutating("fiscal.document.issue", {
         sale_id: saleId,
         document_type: "SALES_INVOICE",
         customer: { kind: "IDENTIFIED", customer_id: customerId },
         observation: null,
       }, "fiscalv2:issue:1"));
+      expect(issued.result["customer_mismatch"]).toBeNull();
 
       expect(issued.status).toBe("SUCCEEDED");
       expect(issued.result["outcome"]).toBe("ISSUED");
@@ -654,6 +685,31 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
         "SELECT transport_status, normalized_result, cufe FROM fiscal_electronic_document WHERE sale_id=?",
       ).get(saleId) as { transport_status: string; normalized_result: string; cufe: string };
       expect(persisted).toEqual({ transport_status: "COMPLETED", normalized_result: "ACCEPTED", cufe: "b".repeat(96) });
+
+      // Venta de mostrador que el cliente pide facturar a su nombre: la
+      // diferencia se advierte y, **confirmada**, se emite. Es el caso más
+      // común del mostrador, y la confirmación cruza el canal hasta el caso de uso.
+      const mostrador = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS",
+        business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "A", currency_code: "COP",
+        lines: [{ product_id: found.result["product_id"], presentation_id: presentationId, quantity: "1.000000" }],
+      }, "fiscalv2:sale:2"));
+      const counterSale = mostrador.result["sale_id"] as string;
+      await send(mutating("payment.register.cash", {
+        sale_id: counterSale, amount: mostrador.result["payable_amount"], tendered_amount: null,
+      }, "fiscalv2:payment:2"));
+      const pedir = { sale_id: counterSale, document_type: "SALES_INVOICE",
+        customer: { kind: "IDENTIFIED", customer_id: customerId }, observation: null };
+      const aviso = await send(mutating("fiscal.document.issue", pedir, "fiscalv2:issue:2a"));
+      expect(aviso.result["customer_mismatch"]).toEqual({
+        sale_customer_id: null, requested_customer_id: customerId,
+      });
+      const confirmada = await send(mutating("fiscal.document.issue", {
+        ...pedir, acknowledge_customer_mismatch: true,
+      }, "fiscalv2:issue:2b"));
+      expect(confirmada.status).toBe("SUCCEEDED");
+      expect(confirmada.result["outcome"]).toBe("ISSUED");
     });
   }, 30_000);
 });
@@ -2446,6 +2502,9 @@ describe("venta por peso: el mostrador de una avicola, de la balanza a la factur
 
       // La balanza marca 2.355 kg.
       const venta = await send(mutating("sale.create", {
+        // La venta nombra al cliente que se va a facturar (`D-40`): sin eso,
+        // la emisión se detendría pidiendo confirmar la diferencia.
+        customer_id: cliente.result["customer_id"],
         cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03",
         timezone_id: "America/Bogota", utc_offset_minutes: -300,
         document_series: "A", currency_code: "COP",
@@ -2734,6 +2793,9 @@ describe("carga inicial: del fichero del comerciante a una venta facturada", () 
       }, "imp:cliente"));
 
       const venta = await send(mutating("sale.create", {
+        // La venta nombra al cliente que se va a facturar (`D-40`): sin eso,
+        // la emisión se detendría pidiendo confirmar la diferencia.
+        customer_id: cliente.result["customer_id"],
         cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-22",
         timezone_id: "America/Bogota", utc_offset_minutes: -300,
         document_series: "A", currency_code: "COP",

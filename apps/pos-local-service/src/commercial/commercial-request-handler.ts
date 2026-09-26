@@ -844,7 +844,7 @@ export class CommercialRequestHandler {
     const empty = {
       document_id: null, transport_status: null, normalized_result: null,
       cufe: null, issued_prefix: null, issued_number: null, attempt_count: null,
-      block_code: null, reasons: [] as never[],
+      block_code: null, reasons: [] as never[], customer_mismatch: null,
     };
 
     const authenticated = this.authenticate(connectionId);
@@ -884,6 +884,8 @@ export class CommercialRequestHandler {
         environment: this.config.fiscal_environment as FiscalEnvironment,
         documentType: payload.document_type as FiscalDocumentType,
         customer,
+        requestedCustomerId: payload.customer.kind === "IDENTIFIED" ? payload.customer.customer_id : null,
+        acknowledgeCustomerMismatch: payload.acknowledge_customer_mismatch ?? false,
         observation: payload.observation,
       },
       signal,
@@ -901,6 +903,10 @@ export class CommercialRequestHandler {
         reasons: (result.reasons ?? []).map((reason) => ({
           code: reason.code, path: reason.path, ...(reason.detail === undefined ? {} : { detail: [...reason.detail] }),
         })),
+        customer_mismatch: result.customerMismatch === undefined ? null : {
+          sale_customer_id: result.customerMismatch.saleCustomerId,
+          requested_customer_id: result.customerMismatch.requestedCustomerId,
+        },
       });
     }
 
@@ -915,6 +921,7 @@ export class CommercialRequestHandler {
       attempt_count: document.attemptCount,
       block_code: null,
       reasons: [] as never[],
+      customer_mismatch: null,
     };
 
     if (result.kind === "ISSUED" || result.kind === "ALREADY_ISSUED") {

@@ -9,6 +9,7 @@ import {
   FiscalDocumentIssueRequestSchema,
   SaleCreateRequestSchema,
   InventoryLotTraceRequestSchema,
+  FiscalDocumentIssueResultSchema,
   InventoryLotListResultSchema,
   InventoryLotExpiringRequestSchema,
   InventoryLotExpiringResultSchema,
@@ -676,5 +677,48 @@ describe("inventory.lot.expiring", () => {
     expect(InventoryLotExpiringResultSchema.safeParse(result("NEAR_EXPIRY")).success).toBe(true);
     expect(InventoryLotExpiringResultSchema.safeParse(result("EXPIRED")).success).toBe(true);
     expect(InventoryLotExpiringResultSchema.safeParse(result("VALID")).success).toBe(false);
+  });
+});
+
+/**
+ * `D-40` — «advertir»: la confirmación es opcional y ausente vale `false`; el
+ * resultado declara siempre si hubo diferencia de adquiriente.
+ */
+describe("fiscal.document.issue — confirmación de adquiriente distinto (D-40)", () => {
+  const request = (payload: Record<string, unknown> = {}) => ({
+    ...metadata,
+    message_type: "fiscal.document.issue",
+    operation_id: "550e8400-e29b-41d4-a716-446655440030",
+    idempotency_key: "fiscal:issue:1",
+    payload: {
+      sale_id: "550e8400-e29b-41d4-a716-446655440031",
+      document_type: "SALES_INVOICE",
+      customer: { kind: "IDENTIFIED", customer_id: "550e8400-e29b-41d4-a716-446655440032" },
+      observation: null,
+      ...payload,
+    },
+  });
+
+  it("acepta la petición con y sin confirmación, y sólo un booleano como confirmación", () => {
+    expect(FiscalDocumentIssueRequestSchema.safeParse(request()).success).toBe(true);
+    expect(FiscalDocumentIssueRequestSchema.safeParse(
+      request({ acknowledge_customer_mismatch: true }),
+    ).success).toBe(true);
+    expect(FiscalDocumentIssueRequestSchema.safeParse(
+      request({ acknowledge_customer_mismatch: "si" }),
+    ).success).toBe(false);
+  });
+
+  it("el resultado exige declarar la diferencia de adquiriente, aunque sea null", () => {
+    const blocked = {
+      outcome: "BLOCKED", document_id: null, transport_status: null, normalized_result: null,
+      cufe: null, issued_prefix: null, issued_number: null, attempt_count: null,
+      block_code: "CUSTOMER_MISMATCH", reasons: [],
+    };
+    expect(FiscalDocumentIssueResultSchema.safeParse(blocked).success).toBe(false);
+    expect(FiscalDocumentIssueResultSchema.safeParse({
+      ...blocked,
+      customer_mismatch: { sale_customer_id: null, requested_customer_id: "550e8400-e29b-41d4-a716-446655440032" },
+    }).success).toBe(true);
   });
 });

@@ -32,7 +32,10 @@ export interface FiscalIssuanceState {
 }
 
 export function useFiscalIssuance(): FiscalIssuanceState & {
-  issue(saleId: string, documentType: string, customer: FiscalCustomerChoice): Promise<void>;
+  issue(
+    saleId: string, documentType: string, customer: FiscalCustomerChoice,
+    acknowledgeCustomerMismatch?: boolean,
+  ): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState<FiscalDocumentIssueResult | null>(null);
@@ -42,6 +45,8 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     saleId: string,
     documentType: string,
     customer: FiscalCustomerChoice,
+    // `D-40`: sólo viaja cuando el operador ya vio la diferencia y confirmó.
+    acknowledgeCustomerMismatch = false,
   ): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -56,6 +61,7 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
             ? { kind: "IDENTIFIED", customer_id: customer.customerId }
             : { kind: "NOT_IDENTIFIED", reason: customer.reason },
           observation: null,
+          ...(acknowledgeCustomerMismatch ? { acknowledge_customer_mismatch: true } : {}),
         },
         newIdempotencyKey(),
       );

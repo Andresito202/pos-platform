@@ -611,3 +611,20 @@ describe("SalePanel · transferencia", () => {
     expect(calls.get("payment.transfer.confirm")).toBeUndefined();
   });
 });
+
+/**
+ * «Nueva venta» es venta nueva también de comprador. Hallado el 2026-09-26 al
+ * introducir el aviso de `D-40`: el cliente quedaba en el campo, y tras una
+ * venta fiada todas las siguientes salían a su nombre.
+ */
+describe("SalePanel — nueva venta limpia el comprador", () => {
+  it("el botón de nueva venta vacía el campo de cliente", () => {
+    install({});
+    render(<SalePanel />);
+    const field = screen.getByTestId("sale-customer-id-input") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "66666666-6666-4666-8666-666666666666" } });
+    expect(field.value).toBe("66666666-6666-4666-8666-666666666666");
+    fireEvent.click(screen.getByTestId("reset-button"));
+    expect((screen.getByTestId("sale-customer-id-input") as HTMLInputElement).value).toBe("");
+  });
+});

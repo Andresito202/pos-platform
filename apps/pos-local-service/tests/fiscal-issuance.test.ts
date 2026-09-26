@@ -122,9 +122,12 @@ function seedRange(database: LocalDatabase, overrides: Record<string, unknown> =
 }
 
 let saleCounter = 0;
+const SALE_CUSTOMER_ID = "018f0000-0000-7000-8000-0000000c0001";
 
 /** Venta cobrada mínima, con su operación de runtime, para satisfacer la FK. */
-function seedSale(database: LocalDatabase, saleId: string = randomUUID()): string {
+function seedSale(
+  database: LocalDatabase, saleId: string = randomUUID(), customerId: string | null = SALE_CUSTOMER_ID,
+): string {
   const operationId = randomUUID();
   saleCounter += 1;
   database.native.prepare(`
@@ -140,7 +143,8 @@ function seedSale(database: LocalDatabase, saleId: string = randomUUID()): strin
       fiscal_total_amount,commercial_rounding_adjustment,payable_amount,pricing_pipeline_version,
       pricing_policy_version,promotion_policy_version,tax_policy_version,rounding_policy_version,
       pricing_snapshot,tax_snapshot,calculation_checksum,operation_id,idempotency_key,request_checksum,
-      correlation_id,causation_id,version,created_at,completed_at,cancelled_at,expired_at,server_recorded_at
+      correlation_id,causation_id,version,created_at,completed_at,cancelled_at,expired_at,server_recorded_at,
+      customer_id
     ) VALUES (
       ?,?,?,?,NULL,NULL,?,?,
       'USER',?,'POS','COMPLETED','2026-09-14','America/Bogota',-300,
@@ -148,13 +152,17 @@ function seedSale(database: LocalDatabase, saleId: string = randomUUID()): strin
       '47390.000000','10.000000','47400.000000','1.0.0',
       '1.0.0',NULL,'1.0.0','1.0.0',
       '{}','{}',?,?,?,?,
-      ?,NULL,1,?,?,NULL,NULL,NULL
+      ?,NULL,1,?,?,NULL,NULL,NULL,
+      ?
     )`,
   ).run(
     saleId, TENANT, COMPANY, BRANCH, "018f0000-0000-7000-8000-000000000004", "018f0000-0000-7000-8000-000000000005",
     "018f0000-0000-7000-8000-000000000006", saleCounter,
     `c${saleCounter}`.padEnd(64, "0"), operationId, `sale:${saleId}`, `d${saleCounter}`.padEnd(64, "0"),
     randomUUID(), NOW_ISO, NOW_ISO,
+    // La venta nombra al mismo cliente que facturan estas pruebas: el aviso
+    // de `D-40` tiene su propia prueba, y aquí no debe interponerse.
+    customerId,
   );
   return saleId;
 }
@@ -330,6 +338,8 @@ function baseInput(saleId: string, overrides: Partial<IssueElectronicDocumentInp
     environment: ENVIRONMENT,
     documentType: DOCUMENT_TYPE,
     customer: IDENTIFIED_CUSTOMER,
+    requestedCustomerId: SALE_CUSTOMER_ID,
+    acknowledgeCustomerMismatch: false,
     observation: null,
     ...overrides,
   };
@@ -814,7 +824,11 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    const result = await useCase.execute(auth(), baseInput(saleId, { customer: ANONYMOUS_CUSTOMER }), SIGNAL);
+    // La venta nombra a un cliente y la factura va sin identificar: el
+    // operador confirmó la diferencia (`D-40`), y aun así `D-13` la bloquea.
+    const result = await useCase.execute(auth(), baseInput(saleId, {
+      customer: ANONYMOUS_CUSTOMER, requestedCustomerId: null, acknowledgeCustomerMismatch: true,
+    }), SIGNAL);
     expect(result.kind).toBe("BLOCKED");
     if (result.kind !== "BLOCKED") return;
     expect(result.code).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
@@ -879,5 +893,80 @@ describe("IssueElectronicDocumentUseCase — dos ventas no colisionan", () => {
     expect(resultA.document.idempotencyKey).not.toBe(resultB.document.idempotencyKey);
     expect(resultA.document.cufe).not.toBe(resultB.document.cufe);
     expect((database.native.prepare("SELECT count(*) AS n FROM fiscal_electronic_document").get() as { n: number }).n).toBe(2);
+  });
+});
+
+/**
+ * `D-40` — decisión del propietario del 2026-09-26: si la factura nombra a un
+ * adquiriente distinto del que nombró la venta, **se advierte y se pide
+ * confirmación**; confirmado, se emite. El aviso va antes de crear el
+ * documento: no se transmite nada ni queda documento a medias.
+ */
+describe("IssueElectronicDocumentUseCase — adquiriente distinto del de la venta (D-40)", () => {
+  const OTHER_CUSTOMER_ID = "018f0000-0000-7000-8000-0000000c0002";
+  const documents = (database: LocalDatabase) =>
+    (database.native.prepare("SELECT count(*) AS n FROM fiscal_electronic_document").get() as { n: number }).n;
+
+  it.each([
+    ["la venta nombró a otro cliente", SALE_CUSTOMER_ID, OTHER_CUSTOMER_ID],
+    ["la venta fue de mostrador y la factura nombra a alguien", null, OTHER_CUSTOMER_ID],
+    ["la venta nombró a alguien y la factura va sin identificar", SALE_CUSTOMER_ID, null],
+  ] as const)("%s: se detiene con CUSTOMER_MISMATCH sin transmitir", async (_label, saleCustomer, requested) => {
+    const port = new FakeIssuancePort(evidenced());
+    const { database, useCase } = await buildEnv(port);
+    seedRange(database);
+    const saleId = seedSale(database, randomUUID(), saleCustomer);
+    seedCatalogLine(database, saleId, 1);
+    seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+
+    const result = await useCase.execute(auth(), baseInput(saleId, {
+      ...(requested === null ? { customer: ANONYMOUS_CUSTOMER } : {}),
+      requestedCustomerId: requested,
+    }), SIGNAL);
+    expect(result).toEqual({
+      kind: "BLOCKED", code: "CUSTOMER_MISMATCH",
+      customerMismatch: { saleCustomerId: saleCustomer, requestedCustomerId: requested },
+    });
+    expect(port.callCount).toBe(0);
+    expect(documents(database)).toBe(0);
+  });
+
+  it("confirmada la diferencia, se emite a nombre del adquiriente pedido", async () => {
+    const port = new FakeIssuancePort(evidenced());
+    const { database, useCase } = await buildEnv(port);
+    seedRange(database);
+    const saleId = seedSale(database);
+    seedCatalogLine(database, saleId, 1);
+    seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+
+    const result = await useCase.execute(auth(), baseInput(saleId, {
+      requestedCustomerId: OTHER_CUSTOMER_ID, acknowledgeCustomerMismatch: true,
+    }), SIGNAL);
+    expect(result.kind).toBe("ISSUED");
+    expect(port.callCount).toBe(1);
+  });
+
+  /**
+   * El reintento de un documento ya congelado no vuelve a preguntar: su
+   * adquiriente quedó fijado en el payload cuando se confirmó, y bloquear el
+   * reintento dejaría una factura a medias ante la DIAN.
+   */
+  it("el reintento de un documento ya creado no se detiene por el aviso", async () => {
+    const port = new FakeIssuancePort(technicalFailure(), evidenced());
+    const { database, useCase } = await buildEnv(port);
+    seedRange(database);
+    const saleId = seedSale(database);
+    seedCatalogLine(database, saleId, 1);
+    seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+
+    const first = await useCase.execute(auth(), baseInput(saleId, {
+      requestedCustomerId: OTHER_CUSTOMER_ID, acknowledgeCustomerMismatch: true,
+    }), SIGNAL);
+    expect(first.kind).toBe("TRANSPORT_FAILED");
+    const retry = await useCase.execute(auth(), baseInput(saleId, {
+      requestedCustomerId: OTHER_CUSTOMER_ID, acknowledgeCustomerMismatch: false,
+    }), SIGNAL);
+    expect(retry.kind).toBe("ISSUED");
+    expect(port.callCount).toBe(2);
   });
 });

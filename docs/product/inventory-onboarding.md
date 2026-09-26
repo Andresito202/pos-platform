@@ -132,8 +132,10 @@ es peor que no facturar.
   cuentan, pero no hay a quién llamar. Si el comercio quiere poder avisar en un
   retiro, tiene que nombrar al cliente al vender —el campo existe en la
   pantalla de venta—. Eso es decisión del comercio, no del software.
-- **La factura puede nombrar a otro adquiriente** (`D-40`). El rastro sigue al
-  cliente de la venta, no al de la factura.
+- **La factura a nombre de otro, sólo con confirmación** (`D-40`, cerrada).
+  Si la factura no nombra al cliente de la venta, la pantalla lo advierte y
+  pide confirmar. El rastro sigue al cliente de la venta: si la factura se
+  confirmó a nombre de otro, el retiro no lo ve.
 - **Abrir una paca: las unidades heredan su tanda** (desde el 2026-09-26,
   `MIGRATION_029`), con el mismo código y las mismas fechas, y el rastro va de
   la paca a sus unidades y de vuelta. Dos casos entran **sin lote**, a
@@ -149,6 +151,7 @@ es peor que no facturar.
 
 | Fecha | Qué cambió |
 |---|---|
+| 2026-09-26 | `D-40`: facturar a nombre de alguien distinto del cliente de la venta se advierte y exige confirmar. «Nueva venta» limpia ya el cliente. |
 | 2026-09-26 | La misma tanda en dos sucursales tiene que traer las mismas fechas; si no, `LOT_CODE_CONFLICT` (decisión del propietario). |
 | 2026-09-26 | «Vence esta semana»: la vista de todo el negocio, nombrada por Catálogo. |
 | 2026-09-26 | «Próximo a vencer» = 7 días (decisión del propietario). La lista de lotes marca `NEAR_EXPIRY` y avisa. |

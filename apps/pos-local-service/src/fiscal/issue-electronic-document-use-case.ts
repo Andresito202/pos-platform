@@ -55,6 +55,17 @@ export interface IssueElectronicDocumentInput {
   readonly environment: FiscalEnvironment;
   readonly documentType: FiscalDocumentType;
   readonly customer: FiscalCustomerResolution;
+  /**
+   * El `customer_id` del adquiriente pedido, o `null` si la factura va sin
+   * identificar. Obligatorio a propósito: sin él no se puede comparar con el
+   * cliente de la venta, y un llamador que lo olvidara se saltaría el aviso.
+   */
+  readonly requestedCustomerId: string | null;
+  /**
+   * El operador vio que el adquiriente no es el que nombró la venta y
+   * confirmó (`D-40`, opción «advertir»).
+   */
+  readonly acknowledgeCustomerMismatch: boolean;
   readonly observation: string | null;
   /** `"10"` Estándar es el único escenario que este POS modela hoy. */
   readonly operationCode?: string;
@@ -77,7 +88,16 @@ export type IssueElectronicDocumentResult =
   /** La venta no existe en este alcance, o existe pero no está cobrada. */
   | { readonly kind: "NOT_ELIGIBLE" }
   /** No se pudo ensamblar un payload transmisible. Nada se creó ni se tocó. */
-  | { readonly kind: "BLOCKED"; readonly code: string; readonly reasons?: readonly BillBlockReason[] }
+  | {
+      readonly kind: "BLOCKED";
+      readonly code: string;
+      readonly reasons?: readonly BillBlockReason[];
+      /** Sólo en `CUSTOMER_MISMATCH`: los dos adquirientes que no coinciden. */
+      readonly customerMismatch?: {
+        readonly saleCustomerId: string | null;
+        readonly requestedCustomerId: string | null;
+      };
+    }
   /** Se transmitió y falló técnicamente. Retriable: no es terminal. */
   | { readonly kind: "TRANSPORT_FAILED"; readonly document: StoredElectronicDocument }
   /** Regla 5: timeout después de transmitir. Exige reconciliación, no reintento. */
@@ -128,6 +148,25 @@ export class IssueElectronicDocumentUseCase {
 
     const sale = this.saleSource.read(input.scope, input.saleId);
     if (sale === null) return { kind: "NOT_ELIGIBLE" };
+
+    // `D-40`, decisión del propietario del 2026-09-26: si la factura nombra a
+    // un adquiriente distinto del que nombró la venta —otro cliente, uno
+    // cuando la venta fue de mostrador, o ninguno cuando la venta nombró a
+    // alguien—, **se advierte y se pide confirmación**; confirmado, se emite.
+    // Puede ser legítimo (la factura a nombre de la empresa del cliente) o un
+    // error de captura; el operador es quien lo sabe. Va aquí, antes de crear
+    // el documento: un reintento de un documento ya congelado no pasa por
+    // este punto y no se bloquea.
+    if (sale.customerId !== input.requestedCustomerId && !input.acknowledgeCustomerMismatch) {
+      return {
+        kind: "BLOCKED",
+        code: "CUSTOMER_MISMATCH",
+        customerMismatch: {
+          saleCustomerId: sale.customerId,
+          requestedCustomerId: input.requestedCustomerId,
+        },
+      };
+    }
 
     const documentCode = canonicalDocumentTypeCode(input.documentType);
     if (documentCode === null) {

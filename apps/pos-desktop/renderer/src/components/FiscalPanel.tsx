@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
+import { useFiscalIssuance, type FiscalCustomerChoice } from "../hooks/useFiscalIssuance.js";
 
 /**
  * Emisión fiscal de una venta ya cobrada — `DEC-021` F5.
@@ -25,8 +25,20 @@ export function FiscalPanel(): React.JSX.Element {
   const fiscal = useFiscalIssuance();
   const [saleId, setSaleId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  // La última petición, tal cual se envió: confirmar la diferencia de
+  // adquiriente reenvía **esa**, no lo que haya en los campos ahora.
+  const [lastRequest, setLastRequest] = useState<{
+    readonly saleId: string; readonly customer: FiscalCustomerChoice;
+  } | null>(null);
 
   const issued = fiscal.issued;
+  const send = (sale: string, customer: FiscalCustomerChoice): void => {
+    setLastRequest({ saleId: sale, customer });
+    void fiscal.issue(sale, "SALES_INVOICE", customer);
+  };
+  const mismatch = issued !== null && issued.block_code === "CUSTOMER_MISMATCH"
+    ? issued.customer_mismatch
+    : null;
 
   return (
     <section data-testid="fiscal-panel">
@@ -50,9 +62,7 @@ export function FiscalPanel(): React.JSX.Element {
       <button
         data-testid="issue-identified-button"
         onClick={() => {
-          void fiscal.issue(saleId.trim(), "SALES_INVOICE", {
-            kind: "IDENTIFIED", customerId: customerId.trim(),
-          });
+          send(saleId.trim(), { kind: "IDENTIFIED", customerId: customerId.trim() });
         }}
         disabled={fiscal.busy || saleId.trim() === "" || customerId.trim() === ""}
       >
@@ -65,9 +75,7 @@ export function FiscalPanel(): React.JSX.Element {
       <button
         data-testid="issue-anonymous-button"
         onClick={() => {
-          void fiscal.issue(saleId.trim(), "SALES_INVOICE", {
-            kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE",
-          });
+          send(saleId.trim(), { kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE" });
         }}
         disabled={fiscal.busy || saleId.trim() === ""}
       >
@@ -82,7 +90,34 @@ export function FiscalPanel(): React.JSX.Element {
         </div>
       )}
 
-      {issued !== null && issued.outcome === "BLOCKED" && (
+      {/* `D-40`, «advertir»: la factura no nombra al cliente que nombró la
+          venta. Se dicen los dos y se pide confirmar; nada se emitió todavía.
+          Puede ser legítimo —la factura a nombre de la empresa del cliente—, y
+          quien lo sabe es el operador. */}
+      {mismatch !== null && lastRequest !== null && (
+        <div data-testid="fiscal-customer-mismatch">
+          La venta nombró a{" "}
+          <span data-testid="fiscal-mismatch-sale-customer">
+            {mismatch.sale_customer_id ?? "ningún cliente (venta de mostrador)"}
+          </span>
+          {" "}y la factura va a{" "}
+          <span data-testid="fiscal-mismatch-requested-customer">
+            {mismatch.requested_customer_id ?? "consumidor sin identificar"}
+          </span>
+          .{" "}
+          <button
+            data-testid="fiscal-confirm-mismatch-button"
+            onClick={() => {
+              void fiscal.issue(lastRequest.saleId, "SALES_INVOICE", lastRequest.customer, true);
+            }}
+            disabled={fiscal.busy}
+          >
+            Emitir de todos modos
+          </button>
+        </div>
+      )}
+
+      {issued !== null && issued.outcome === "BLOCKED" && mismatch === null && (
         <div data-testid="fiscal-blocked">
           <span data-testid="fiscal-blocked-code">{issued.block_code}</span>
           {issued.reasons.map((reason, index) => (
