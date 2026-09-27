@@ -4,7 +4,8 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type {
-  ConfirmRefundOutcome, CreateSaleReturnOutcome, PhysicalCondition, SqliteSaleReturnStore,
+  ApproveSaleReturnOutcome, ConfirmRefundOutcome, CreateSaleReturnOutcome, ExecuteSaleReturnOutcome,
+  PhysicalCondition, RequestSaleReturnOutcome, SqliteSaleReturnStore,
 } from "./sqlite-sale-return-store.js";
 
 export const PERMISSION_SALES_RETURN_REQUEST = "SALES_RETURN_REQUEST";
@@ -173,6 +174,219 @@ export class ConfirmRefundUseCase {
       destinationReference: request.destinationReference,
       idempotencyKey: request.idempotencyKey,
       requestChecksum: confirmRequestChecksum(request, operatorUserId),
+      correlationId: request.correlationId,
+      causationId: request.causationId,
+    });
+  }
+}
+
+// ── sales.return.request / .approve / .execute — `D-50` ─────────────────────
+
+export interface RequestSaleReturnRequest {
+  readonly saleId: string;
+  readonly reasonCode: string;
+  readonly reasonDetail: string | null;
+  readonly lines: readonly { readonly lineNumber: number; readonly physicalCondition: PhysicalCondition }[];
+  readonly idempotencyKey: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type RequestSaleReturnResult =
+  | RequestSaleReturnOutcome
+  | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
+
+function requestOnlyChecksum(request: RequestSaleReturnRequest, operatorUserId: string): string {
+  return createHash("sha256")
+    .update(canonicalJson({
+      idempotency_key: request.idempotencyKey,
+      lines: request.lines.map((line) => ({
+        line_number: line.lineNumber,
+        physical_condition: line.physicalCondition,
+      })),
+      operator_user_id: operatorUserId,
+      reason_code: request.reasonCode,
+      reason_detail: request.reasonDetail,
+      sale_id: request.saleId,
+    }))
+    .digest("hex");
+}
+
+/**
+ * Solicitar una devolución — `D-50`, flujo segregado: un cajero con sólo
+ * `SALES_RETURN_REQUEST` puede pedirla, pero no aprobarla ni ejecutarla. La
+ * solicitud congela líneas e importes; no toca caja, inventario ni Payments
+ * —eso es `sales.return.execute`, después de `sales.return.approve`—.
+ */
+export class RequestSaleReturnUseCase {
+  constructor(
+    private readonly store: SqliteSaleReturnStore,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  execute(
+    scope: SyncScope,
+    sessionId: string,
+    authSnapshot: StoredAuthorizationSnapshot,
+    request: RequestSaleReturnRequest,
+  ): RequestSaleReturnResult {
+    const operatorUserId = authSnapshot.claims.user_id;
+    const decision = evaluatePermission({
+      actor: createActor("USER", operatorUserId),
+      permission: PERMISSION_SALES_RETURN_REQUEST,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: this.now(),
+      assignments: toRoleAssignments(authSnapshot.claims),
+    });
+    if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
+
+    return this.store.requestReturn({
+      scope,
+      sessionId,
+      operatorUserId,
+      saleId: request.saleId,
+      reasonCode: request.reasonCode,
+      reasonDetail: request.reasonDetail,
+      lines: request.lines,
+      idempotencyKey: request.idempotencyKey,
+      requestChecksum: requestOnlyChecksum(request, operatorUserId),
+      correlationId: request.correlationId,
+      causationId: request.causationId,
+    });
+  }
+}
+
+export interface ApproveSaleReturnRequest {
+  readonly saleReturnId: string;
+  readonly idempotencyKey: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ApproveSaleReturnResult =
+  | ApproveSaleReturnOutcome
+  | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
+
+function approveChecksum(request: ApproveSaleReturnRequest, operatorUserId: string): string {
+  return createHash("sha256")
+    .update(canonicalJson({
+      idempotency_key: request.idempotencyKey,
+      operator_user_id: operatorUserId,
+      sale_return_id: request.saleReturnId,
+    }))
+    .digest("hex");
+}
+
+/**
+ * Aprobar una devolución solicitada — `D-50`. El permiso-matrix no exige
+ * aquí un actor distinto del solicitante (a diferencia de la confirmación de
+ * transferencia, `UC-PAY-004` regla 5): sólo exige el permiso `APPROVE`, que
+ * `SALES_RETURN_REQUEST` no concede.
+ */
+export class ApproveSaleReturnUseCase {
+  constructor(
+    private readonly store: SqliteSaleReturnStore,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  execute(
+    scope: SyncScope,
+    sessionId: string,
+    authSnapshot: StoredAuthorizationSnapshot,
+    request: ApproveSaleReturnRequest,
+  ): ApproveSaleReturnResult {
+    const operatorUserId = authSnapshot.claims.user_id;
+    const decision = evaluatePermission({
+      actor: createActor("USER", operatorUserId),
+      permission: PERMISSION_SALES_RETURN_APPROVE,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: this.now(),
+      assignments: toRoleAssignments(authSnapshot.claims),
+    });
+    if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
+
+    return this.store.approveReturn({
+      scope,
+      sessionId,
+      operatorUserId,
+      saleReturnId: request.saleReturnId,
+      idempotencyKey: request.idempotencyKey,
+      requestChecksum: approveChecksum(request, operatorUserId),
+      correlationId: request.correlationId,
+      causationId: request.causationId,
+    });
+  }
+}
+
+export interface ExecuteSaleReturnRequest {
+  readonly saleReturnId: string;
+  readonly cashRegisterId: string | null;
+  readonly idempotencyKey: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ExecuteSaleReturnResult =
+  | ExecuteSaleReturnOutcome
+  | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
+
+/** Los cuatro que exige mover el dinero de una devolución ya aprobada. */
+const EXECUTE_PERMISSIONS = [
+  PERMISSION_SALES_RETURN_EXECUTE,
+  PERMISSION_PAYMENTS_REFUND_REQUEST,
+  PERMISSION_PAYMENTS_REFUND_APPROVE,
+  PERMISSION_PAYMENTS_REFUND_EXECUTE_CASH,
+] as const;
+
+function executeChecksum(request: ExecuteSaleReturnRequest, operatorUserId: string): string {
+  return createHash("sha256")
+    .update(canonicalJson({
+      cash_register_id: request.cashRegisterId,
+      idempotency_key: request.idempotencyKey,
+      operator_user_id: operatorUserId,
+      sale_return_id: request.saleReturnId,
+    }))
+    .digest("hex");
+}
+
+/**
+ * Ejecutar una devolución aprobada — `D-50`: el efectivo o la marca
+ * `PROCESSING` de un reembolso de transferencia, y el reingreso de
+ * inventario. Exige, además de `SALES_RETURN_EXECUTE`, los tres permisos de
+ * `Payments` que autorizan mover el dinero — la misma barra que `create()`
+ * exige de una sola vez, aquí repartida entre solicitar/aprobar/ejecutar.
+ */
+export class ExecuteSaleReturnUseCase {
+  constructor(
+    private readonly store: SqliteSaleReturnStore,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  execute(
+    scope: SyncScope,
+    sessionId: string,
+    authSnapshot: StoredAuthorizationSnapshot,
+    request: ExecuteSaleReturnRequest,
+  ): ExecuteSaleReturnResult {
+    const at = this.now();
+    const operatorUserId = authSnapshot.claims.user_id;
+    const actor = createActor("USER", operatorUserId);
+    const assignments = toRoleAssignments(authSnapshot.claims);
+    const operationScope = createOperationScope(scope.tenantId, scope.companyId, scope.branchId);
+
+    for (const permission of EXECUTE_PERMISSIONS) {
+      const decision = evaluatePermission({ actor, permission, scope: operationScope, at, assignments });
+      if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
+    }
+
+    return this.store.executeReturn({
+      scope,
+      sessionId,
+      operatorUserId,
+      saleReturnId: request.saleReturnId,
+      cashRegisterId: request.cashRegisterId,
+      idempotencyKey: request.idempotencyKey,
+      requestChecksum: executeChecksum(request, operatorUserId),
       correlationId: request.correlationId,
       causationId: request.causationId,
     });

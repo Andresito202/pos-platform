@@ -24,6 +24,9 @@ import {
   CashDrawerOpenResponseSchema,
   SalesReturnCreateResponseSchema,
   PaymentsRefundConfirmResponseSchema,
+  SalesReturnRequestResponseSchema,
+  SalesReturnApproveResponseSchema,
+  SalesReturnExecuteResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   PaymentCancelResponseSchema,
@@ -111,6 +114,9 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "cash.drawer.open": CashDrawerOpenResponseSchema,
   "sales.return.create": SalesReturnCreateResponseSchema,
   "payments.refund.confirm": PaymentsRefundConfirmResponseSchema,
+  "sales.return.request": SalesReturnRequestResponseSchema,
+  "sales.return.approve": SalesReturnApproveResponseSchema,
+  "sales.return.execute": SalesReturnExecuteResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {

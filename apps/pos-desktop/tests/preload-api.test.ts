@@ -51,6 +51,9 @@ describe("preload-api", () => {
       "cash.drawer.open",
       "sales.return.create",
       "payments.refund.confirm",
+      "sales.return.request",
+      "sales.return.approve",
+      "sales.return.execute",
     ]);
   });
 

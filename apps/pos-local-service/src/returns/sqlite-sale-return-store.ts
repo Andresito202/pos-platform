@@ -65,6 +65,94 @@ export type CreateSaleReturnOutcome =
 
 type Rejection = Exclude<CreateSaleReturnOutcome, { readonly kind: "COMPLETED" | "IDEMPOTENT" }>;
 
+/**
+ * Estados que siguen reclamando su línea — `D-50`. Un `RETURN_REQUESTED` o
+ * `RETURN_APPROVED` todavía no completó nada, pero ya le impide a otra
+ * solicitud tomar la misma línea: sin esto, dos solicitudes concurrentes
+ * sobre la misma línea pasarían las dos su validación y sólo se descubriría
+ * el choque al ejecutar la segunda.
+ */
+const RETURN_LINE_CLAIM_STATUSES = "('RETURN_REJECTED','RETURN_FAILED')";
+
+export interface RequestSaleReturnInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly saleId: string;
+  readonly reasonCode: string;
+  readonly reasonDetail: string | null;
+  readonly lines: readonly { readonly lineNumber: number; readonly physicalCondition: PhysicalCondition }[];
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export interface SaleReturnRequestSummary {
+  readonly saleReturnId: string;
+  readonly requestedAmount: string;
+}
+
+export type RequestSaleReturnOutcome =
+  | ({ readonly kind: "REQUESTED" | "IDEMPOTENT" } & SaleReturnRequestSummary)
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "SALE_NOT_FOUND" }
+  | { readonly kind: "SALE_NOT_COMPLETED" }
+  | { readonly kind: "LINE_NOT_FOUND" }
+  | { readonly kind: "LINE_ALREADY_RETURNED" }
+  | { readonly kind: "CONDITION_NOT_SUPPORTED" }
+  | { readonly kind: "REFUND_METHOD_NOT_SUPPORTED" }
+  | { readonly kind: "ROUNDING_SHARE_NOT_SUPPORTED" };
+
+export interface ApproveSaleReturnInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly saleReturnId: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ApproveSaleReturnOutcome =
+  | { readonly kind: "APPROVED" | "IDEMPOTENT"; readonly saleReturnId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "RETURN_NOT_FOUND" }
+  | { readonly kind: "RETURN_NOT_PENDING" };
+
+export interface ExecuteSaleReturnInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly saleReturnId: string;
+  readonly cashRegisterId: string | null;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ExecuteSaleReturnOutcome =
+  | ({ readonly kind: "COMPLETED" | "IDEMPOTENT" } & SaleReturnSummary)
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "RETURN_NOT_FOUND" }
+  | { readonly kind: "RETURN_NOT_APPROVED" }
+  | { readonly kind: "REFUND_METHOD_NOT_SUPPORTED" }
+  | { readonly kind: "CASH_REGISTER_REQUIRED" }
+  | { readonly kind: "CASH_SHIFT_MISSING" }
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "CURRENCY_MISMATCH" }
+  | { readonly kind: "INSUFFICIENT_CASH" };
+
+type ExecuteRejection = Exclude<ExecuteSaleReturnOutcome, { readonly kind: "COMPLETED" | "IDEMPOTENT" }>;
+
+class ExecuteRollback extends Error {
+  constructor(readonly outcome: ExecuteRejection) {
+    super(outcome.kind);
+  }
+}
+
 export interface ConfirmRefundInput {
   readonly scope: SyncScope;
   readonly sessionId: string;
@@ -218,7 +306,7 @@ export class SqliteSaleReturnStore {
     const returnedBefore = new Set((this.database.native.prepare(
       `SELECT l.sale_item_id FROM sales_sale_return_lines l
          JOIN sales_sale_returns r ON r.tenant_id = l.tenant_id AND r.id = l.sale_return_id
-        WHERE l.tenant_id=? AND r.sale_id=? AND r.status IN ('RETURN_COMPLETED','RETURN_PARTIALLY_COMPLETED')`,
+        WHERE l.tenant_id=? AND r.sale_id=? AND r.status NOT IN ${RETURN_LINE_CLAIM_STATUSES}`,
     ).all(scope.tenantId, input.saleId) as { sale_item_id: string }[]).map((row) => row.sale_item_id));
 
     const chosen: { item: ItemRow; condition: PhysicalCondition }[] = [];
@@ -524,66 +612,14 @@ export class SqliteSaleReturnStore {
         provider_reference: input.providerReference,
         refund_id: refund.id,
       };
-      this.writeConfirmAudit(input, "REFUND_CONFIRMED", refund.id, details, nowIso);
-      this.enqueueConfirm(input, refund.id, "REFUND_CONFIRMED", details, nowIso);
+      this.writeAuditEntry(input, "REFUND_CONFIRMED", "REFUND", refund.id, null, details, nowIso);
+      this.enqueueOperation(
+        input, uuidV7(), input.idempotencyKey, input.requestChecksum,
+        "REFUND", refund.id, "REFUND_CONFIRMED", details, nowIso,
+      );
 
       return { kind: "CONFIRMED", refundId: refund.id, completedAmount: refund.requested_amount };
     })();
-  }
-
-  private writeConfirmAudit(
-    input: ConfirmRefundInput, actionCode: string, refundId: string,
-    details: Record<string, unknown>, nowIso: string,
-  ): void {
-    this.database.native.prepare(
-      `INSERT INTO local_operation_audit(
-        tenant_id, company_id, branch_id, device_id,
-        actor_type, actor_id, session_id,
-        action_code, resource_type, resource_id,
-        correlation_id, causation_id, reason_code, details_json, created_at
-      ) VALUES (?,?,?,?,'USER',?,?,?,'REFUND',?,?,?,NULL,?,?)`,
-    ).run(
-      input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
-      input.operatorUserId, input.sessionId, actionCode, refundId,
-      input.correlationId, input.causationId, canonicalJson(details), nowIso,
-    );
-  }
-
-  private enqueueConfirm(
-    input: ConfirmRefundInput, refundId: string, operationType: string,
-    payload: Record<string, unknown>, nowIso: string,
-  ): void {
-    const { scope } = input;
-    const nextSequence = (this.database.native.prepare(
-      `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
-       WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
-    ).get(scope.tenantId, scope.companyId, scope.branchId, scope.deviceId, scope.installationId) as
-      { next_sequence: number }).next_sequence;
-
-    this.durableSync.enqueue({
-      operation_id: uuidV7(),
-      tenant_id: scope.tenantId,
-      company_id: scope.companyId,
-      branch_id: scope.branchId,
-      device_id: scope.deviceId,
-      installation_id: scope.installationId,
-      session_id: input.sessionId,
-      actor_id: input.operatorUserId,
-      aggregate_type: "REFUND",
-      aggregate_id: refundId,
-      operation_type: operationType,
-      authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
-      local_sequence: nextSequence,
-      idempotency_key: input.idempotencyKey,
-      expected_version: null,
-      payload_schema_version: RETURN_PAYLOAD_SCHEMA_VERSION,
-      payload,
-      payload_checksum: input.requestChecksum,
-      causation_id: input.causationId,
-      correlation_id: input.correlationId,
-      occurred_at_local: nowIso,
-      recorded_at_local: nowIso,
-    });
   }
 
   /**
@@ -611,6 +647,29 @@ export class SqliteSaleReturnStore {
     input: CreateSaleReturnInput, actionCode: string, resourceType: string, resourceId: string,
     details: Record<string, unknown>, nowIso: string,
   ): void {
+    this.writeAuditEntry(input, actionCode, resourceType, resourceId, input.reasonCode, details, nowIso);
+  }
+
+  private enqueue(
+    input: CreateSaleReturnInput, operationId: string, idempotencyKey: string,
+    aggregateType: string, aggregateId: string, operationType: string,
+    payload: Record<string, unknown>, nowIso: string,
+  ): void {
+    this.enqueueOperation(
+      input, operationId, idempotencyKey, input.requestChecksum,
+      aggregateType, aggregateId, operationType, payload, nowIso,
+    );
+  }
+
+  /** Contexto mínimo común a toda operación de este store, para auditoría y outbox. */
+  private writeAuditEntry(
+    ctx: {
+      readonly scope: SyncScope; readonly sessionId: string; readonly operatorUserId: string;
+      readonly correlationId: string; readonly causationId: string | null;
+    },
+    actionCode: string, resourceType: string, resourceId: string, reasonCode: string | null,
+    details: Record<string, unknown>, nowIso: string,
+  ): void {
     this.database.native.prepare(
       `INSERT INTO local_operation_audit(
         tenant_id, company_id, branch_id, device_id,
@@ -619,18 +678,22 @@ export class SqliteSaleReturnStore {
         correlation_id, causation_id, reason_code, details_json, created_at
       ) VALUES (?,?,?,?,'USER',?,?,?,?,?,?,?,?,?,?)`,
     ).run(
-      input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
-      input.operatorUserId, input.sessionId, actionCode, resourceType, resourceId,
-      input.correlationId, input.causationId, input.reasonCode, canonicalJson(details), nowIso,
+      ctx.scope.tenantId, ctx.scope.companyId, ctx.scope.branchId, ctx.scope.deviceId,
+      ctx.operatorUserId, ctx.sessionId, actionCode, resourceType, resourceId,
+      ctx.correlationId, ctx.causationId, reasonCode, canonicalJson(details), nowIso,
     );
   }
 
-  private enqueue(
-    input: CreateSaleReturnInput, operationId: string, idempotencyKey: string,
+  private enqueueOperation(
+    ctx: {
+      readonly scope: SyncScope; readonly sessionId: string; readonly operatorUserId: string;
+      readonly correlationId: string; readonly causationId: string | null;
+    },
+    operationId: string, idempotencyKey: string, requestChecksum: string,
     aggregateType: string, aggregateId: string, operationType: string,
     payload: Record<string, unknown>, nowIso: string,
   ): void {
-    const { scope } = input;
+    const { scope } = ctx;
     const nextSequence = (this.database.native.prepare(
       `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
        WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
@@ -644,8 +707,8 @@ export class SqliteSaleReturnStore {
       branch_id: scope.branchId,
       device_id: scope.deviceId,
       installation_id: scope.installationId,
-      session_id: input.sessionId,
-      actor_id: input.operatorUserId,
+      session_id: ctx.sessionId,
+      actor_id: ctx.operatorUserId,
       aggregate_type: aggregateType,
       aggregate_id: aggregateId,
       operation_type: operationType,
@@ -655,11 +718,441 @@ export class SqliteSaleReturnStore {
       expected_version: null,
       payload_schema_version: RETURN_PAYLOAD_SCHEMA_VERSION,
       payload,
-      payload_checksum: input.requestChecksum,
-      causation_id: input.causationId,
-      correlation_id: input.correlationId,
+      payload_checksum: requestChecksum,
+      causation_id: ctx.causationId,
+      correlation_id: ctx.correlationId,
       occurred_at_local: nowIso,
       recorded_at_local: nowIso,
     });
+  }
+
+  // ── sales.return.request / .approve / .execute — `D-50` ─────────────────────
+
+  requestReturn(input: RequestSaleReturnInput): RequestSaleReturnOutcome {
+    return this.database.native.transaction((): RequestSaleReturnOutcome => this.requestInTransaction(input))();
+  }
+
+  private requestInTransaction(input: RequestSaleReturnInput): RequestSaleReturnOutcome {
+    const { scope } = input;
+    const nowIso = this.now().toISOString();
+
+    const operation = this.database.native.prepare(
+      "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+    ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+    if (operation !== undefined) {
+      if (operation.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" };
+      const row = this.database.native.prepare(
+        "SELECT id, requested_return_amount FROM sales_sale_returns WHERE tenant_id=? AND idempotency_key=?",
+      ).get(scope.tenantId, input.idempotencyKey) as { id: string; requested_return_amount: string } | undefined;
+      if (row === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
+      return { kind: "IDEMPOTENT", saleReturnId: row.id, requestedAmount: row.requested_return_amount };
+    }
+
+    const sale = this.database.native.prepare(
+      `SELECT company_id, branch_id, status, currency_code, payable_amount, commercial_rounding_adjustment,
+              pricing_pipeline_version, tax_policy_version, rounding_policy_version, version
+         FROM sales_sales WHERE tenant_id=? AND id=?`,
+    ).get(scope.tenantId, input.saleId) as SaleRow | undefined;
+    if (sale === undefined || sale.company_id !== scope.companyId || sale.branch_id !== scope.branchId) {
+      return { kind: "SALE_NOT_FOUND" };
+    }
+    if (sale.status !== "COMPLETED") return { kind: "SALE_NOT_COMPLETED" };
+
+    // Elegibilidad de reembolso: se comprueba ahora para no aceptar una
+    // solicitud que `execute` no podría cumplir nunca. El pago de una venta
+    // ya `COMPLETED` no cambia después, así que no hace falta repetir esto en
+    // `execute` — sólo redescubrir *cuál* es, porque el store no lo recuerda
+    // entre operaciones.
+    const payments = this.database.native.prepare(
+      `SELECT p.id, p.payment_method, p.status FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+        WHERE p.tenant_id=? AND g.collection_subject_type='SALE' AND g.collection_subject_id=?
+          AND p.status NOT IN ('CANCELLED','FAILED')`,
+    ).all(scope.tenantId, input.saleId) as { id: string; payment_method: string; status: string }[];
+    const payment = payments[0];
+    if (payments.length !== 1 || payment === undefined
+      || (payment.payment_method !== "CASH" && payment.payment_method !== "TRANSFER")
+      || payment.status !== "CONFIRMED") {
+      return { kind: "REFUND_METHOD_NOT_SUPPORTED" };
+    }
+    const allocations = this.database.native.prepare(
+      "SELECT id FROM payments_payment_allocations WHERE tenant_id=? AND payment_id=?",
+    ).all(scope.tenantId, payment.id) as { id: string }[];
+    if (allocations.length !== 1) return { kind: "REFUND_METHOD_NOT_SUPPORTED" };
+
+    const items = this.database.native.prepare(
+      `SELECT i.id, i.line_number, i.presentation_id, i.lot_id, i.unit_id, i.quantity, i.unit_price_amount,
+              i.discount_amount, i.taxable_amount, i.tax_amount, i.line_total_amount, p.stock_controlled
+         FROM sales_sale_items i
+         JOIN catalog_product p ON p.tenant_id = i.tenant_id AND p.id = i.product_id
+        WHERE i.tenant_id=? AND i.sale_id=?`,
+    ).all(scope.tenantId, input.saleId) as ItemRow[];
+    const byNumber = new Map(items.map((item) => [item.line_number, item]));
+    const claimed = new Set((this.database.native.prepare(
+      `SELECT l.sale_item_id FROM sales_sale_return_lines l
+         JOIN sales_sale_returns r ON r.tenant_id = l.tenant_id AND r.id = l.sale_return_id
+        WHERE l.tenant_id=? AND r.sale_id=? AND r.status NOT IN ${RETURN_LINE_CLAIM_STATUSES}`,
+    ).all(scope.tenantId, input.saleId) as { sale_item_id: string }[]).map((row) => row.sale_item_id));
+
+    const chosen: { item: ItemRow; condition: PhysicalCondition }[] = [];
+    for (const line of input.lines) {
+      const item = byNumber.get(line.lineNumber);
+      if (item === undefined) return { kind: "LINE_NOT_FOUND" };
+      if (CONDITIONS_WITHOUT_DESTINATION.has(line.physicalCondition)) return { kind: "CONDITION_NOT_SUPPORTED" };
+      if (claimed.has(item.id)) return { kind: "LINE_ALREADY_RETURNED" };
+      chosen.push({ item, condition: line.physicalCondition });
+    }
+
+    const commercial = chosen.reduce((total, c) => total + scale6ToBigInt(c.item.line_total_amount), 0n);
+    const tax = chosen.reduce((total, c) => total + scale6ToBigInt(c.item.tax_amount), 0n);
+    const closesSale = claimed.size + chosen.length === items.length;
+    const saleAdjustment = scale6ToBigInt(sale.commercial_rounding_adjustment);
+    if (!closesSale && saleAdjustment !== 0n) return { kind: "ROUNDING_SHARE_NOT_SUPPORTED" };
+    const rounding = closesSale ? saleAdjustment : 0n;
+    const commercialText = bigIntToScale6(commercial);
+    const roundingText = bigIntToScale6(rounding);
+
+    const saleReturnId = uuidV7();
+    const returnOperationId = uuidV7();
+    this.insertOperation(returnOperationId, input.idempotencyKey, input.requestChecksum, "SALE_RETURN_REQUESTED", nowIso);
+
+    this.database.native.prepare(
+      `INSERT INTO sales_sale_returns(
+        id, tenant_id, company_id, branch_id, sale_id, origin_device_id,
+        requested_by_actor_id, approved_by_actor_id, reason_code, reason_detail, status, effective_at,
+        currency_code, original_sale_payable_amount, requested_return_amount, approved_return_amount,
+        completed_return_amount, returned_tax_amount, returned_rounding_adjustment,
+        pricing_pipeline_version, tax_policy_version, rounding_policy_version,
+        operation_id, idempotency_key, request_checksum, expected_sale_version,
+        correlation_id, causation_id, requested_at, approved_at, completed_at, created_at, updated_at, version
+      ) VALUES (?,?,?,?,?,?,?,NULL,?,?,'RETURN_REQUESTED',?,?,?,?,NULL,'0.000000',?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,1)`,
+    ).run(
+      saleReturnId, scope.tenantId, scope.companyId, scope.branchId, input.saleId, scope.deviceId,
+      input.operatorUserId, input.reasonCode, input.reasonDetail, nowIso,
+      sale.currency_code, sale.payable_amount, commercialText,
+      bigIntToScale6(tax), roundingText,
+      sale.pricing_pipeline_version, sale.tax_policy_version, sale.rounding_policy_version,
+      returnOperationId, input.idempotencyKey, input.requestChecksum, sale.version,
+      input.correlationId, input.causationId, nowIso, nowIso, nowIso,
+    );
+
+    for (const { item, condition } of chosen) {
+      const resolution = item.stock_controlled !== 1
+        ? "NOT_STOCK_CONTROLLED"
+        : condition === "RESTOCKABLE" ? "RETURN_TO_AVAILABLE" : "NO_RESTOCK";
+      this.database.native.prepare(
+        `INSERT INTO sales_sale_return_lines(
+          id, tenant_id, sale_return_id, sale_item_id, presentation_id, lot_id, unit_id,
+          sold_quantity_snapshot, previously_returned_quantity_snapshot, requested_quantity, approved_quantity,
+          completed_quantity, physical_condition, inventory_resolution,
+          original_unit_price, original_discount_amount, original_taxable_amount, original_tax_amount,
+          original_line_total, requested_return_amount, approved_return_amount, completed_return_amount,
+          returned_tax_amount, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,'0.000000',?,NULL,'0.000000',?,?,?,?,?,?,?,?,NULL,'0.000000',?,?)`,
+      ).run(
+        uuidV7(), scope.tenantId, saleReturnId, item.id, item.presentation_id, item.lot_id, item.unit_id,
+        item.quantity, item.quantity, condition, resolution,
+        item.unit_price_amount, item.discount_amount, item.taxable_amount, item.tax_amount,
+        item.line_total_amount, item.line_total_amount,
+        item.tax_amount, nowIso,
+      );
+    }
+
+    const details = {
+      commercial_amount: commercialText, reason_code: input.reasonCode, rounding_adjustment: roundingText,
+      sale_id: input.saleId, sale_return_id: saleReturnId,
+    };
+    this.writeAuditEntry(input, "SALE_RETURN_REQUESTED", "SALE_RETURN", saleReturnId, input.reasonCode, details, nowIso);
+    this.enqueueOperation(
+      input, returnOperationId, input.idempotencyKey, input.requestChecksum,
+      "SALE_RETURN", saleReturnId, "SALE_RETURN_REQUESTED", details, nowIso,
+    );
+
+    return { kind: "REQUESTED", saleReturnId, requestedAmount: commercialText };
+  }
+
+  approveReturn(input: ApproveSaleReturnInput): ApproveSaleReturnOutcome {
+    const nowIso = this.now().toISOString();
+    return this.database.native.transaction((): ApproveSaleReturnOutcome => {
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" };
+        const row = this.database.native.prepare(
+          "SELECT id FROM sales_sale_returns WHERE tenant_id=? AND id=? AND approved_by_actor_id=?",
+        ).get(input.scope.tenantId, input.saleReturnId, input.operatorUserId) as { id: string } | undefined;
+        if (row === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
+        return { kind: "IDEMPOTENT", saleReturnId: row.id };
+      }
+
+      const ret = this.database.native.prepare(
+        "SELECT id, status, requested_return_amount FROM sales_sale_returns WHERE tenant_id=? AND id=?",
+      ).get(input.scope.tenantId, input.saleReturnId) as
+        { id: string; status: string; requested_return_amount: string } | undefined;
+      if (ret === undefined) return { kind: "RETURN_NOT_FOUND" };
+      if (ret.status !== "RETURN_REQUESTED") return { kind: "RETURN_NOT_PENDING" };
+
+      this.insertOperation(uuidV7(), input.idempotencyKey, input.requestChecksum, "SALE_RETURN_APPROVED", nowIso);
+      this.database.native.prepare(
+        `UPDATE sales_sale_returns
+            SET status='RETURN_APPROVED', approved_by_actor_id=?, approved_at=?,
+                approved_return_amount=requested_return_amount, updated_at=?
+          WHERE tenant_id=? AND id=?`,
+      ).run(input.operatorUserId, nowIso, nowIso, input.scope.tenantId, ret.id);
+      // `sales_sale_return_lines` es append-only (no admite `UPDATE`): la
+      // aprobación es binaria y no ajusta cantidades, así que lo que se pidió
+      // en `requested_quantity`/`requested_return_amount` —ya congelado— seguirá
+      // siendo lo aprobado. `approved_quantity`/`approved_return_amount` por
+      // línea quedan `NULL` para siempre; la autoridad de la aprobación vive en
+      // la cabecera (`sales_sale_returns.approved_return_amount`).
+
+      const details = { requested_return_amount: ret.requested_return_amount, sale_return_id: ret.id };
+      this.writeAuditEntry(input, "SALE_RETURN_APPROVED", "SALE_RETURN", ret.id, null, details, nowIso);
+      this.enqueueOperation(
+        input, uuidV7(), input.idempotencyKey, input.requestChecksum,
+        "SALE_RETURN", ret.id, "SALE_RETURN_APPROVED", details, nowIso,
+      );
+
+      return { kind: "APPROVED", saleReturnId: ret.id };
+    })();
+  }
+
+  executeReturn(input: ExecuteSaleReturnInput): ExecuteSaleReturnOutcome {
+    try {
+      return this.database.native.transaction((): ExecuteSaleReturnOutcome => this.executeInTransaction(input))();
+    } catch (thrown) {
+      if (thrown instanceof ExecuteRollback) return thrown.outcome;
+      throw thrown;
+    }
+  }
+
+  private executeInTransaction(input: ExecuteSaleReturnInput): ExecuteSaleReturnOutcome {
+    const { scope } = input;
+    const nowIso = this.now().toISOString();
+
+    const operation = this.database.native.prepare(
+      "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+    ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+    if (operation !== undefined) {
+      if (operation.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" };
+      const replay = this.readExecutedSummary(scope, input.idempotencyKey);
+      if (replay === null) return { kind: "IDEMPOTENCY_CONFLICT" };
+      return { kind: "IDEMPOTENT", ...replay };
+    }
+
+    const ret = this.database.native.prepare(
+      `SELECT id, sale_id, reason_code FROM sales_sale_returns WHERE tenant_id=? AND id=? AND status='RETURN_APPROVED'`,
+    ).get(scope.tenantId, input.saleReturnId) as { id: string; sale_id: string; reason_code: string } | undefined;
+    if (ret === undefined) {
+      const exists = this.database.native.prepare(
+        "SELECT 1 AS found FROM sales_sale_returns WHERE tenant_id=? AND id=?",
+      ).get(scope.tenantId, input.saleReturnId) as { found: number } | undefined;
+      return exists === undefined ? { kind: "RETURN_NOT_FOUND" } : { kind: "RETURN_NOT_APPROVED" };
+    }
+
+    const sale = this.database.native.prepare(
+      `SELECT currency_code FROM sales_sales WHERE tenant_id=? AND id=?`,
+    ).get(scope.tenantId, ret.sale_id) as { currency_code: string };
+
+    const payments = this.database.native.prepare(
+      `SELECT p.id, p.payment_method FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+        WHERE p.tenant_id=? AND g.collection_subject_type='SALE' AND g.collection_subject_id=?
+          AND p.status NOT IN ('CANCELLED','FAILED')`,
+    ).all(scope.tenantId, ret.sale_id) as { id: string; payment_method: string }[];
+    const payment = payments[0];
+    if (payments.length !== 1 || payment === undefined
+      || (payment.payment_method !== "CASH" && payment.payment_method !== "TRANSFER")) {
+      return { kind: "REFUND_METHOD_NOT_SUPPORTED" };
+    }
+    const refundMethod = payment.payment_method as "CASH" | "TRANSFER";
+    if (refundMethod === "CASH" && input.cashRegisterId === null) return { kind: "CASH_REGISTER_REQUIRED" };
+    const allocation = this.database.native.prepare(
+      "SELECT id FROM payments_payment_allocations WHERE tenant_id=? AND payment_id=?",
+    ).get(scope.tenantId, payment.id) as { id: string } | undefined;
+    if (allocation === undefined) return { kind: "REFUND_METHOD_NOT_SUPPORTED" };
+
+    // `requested_quantity`, no `approved_quantity`: la línea se congeló entera
+    // en `sales.return.request` y la tabla es append-only (no admite
+    // `UPDATE`), así que `approved_quantity` se queda `NULL` para siempre —
+    // ver la nota en `approveReturn`. La aprobación es binaria y no ajusta
+    // cantidades, de modo que lo pedido es exactamente lo aprobado.
+    const lines = this.database.native.prepare(
+      `SELECT id, sale_item_id, presentation_id, physical_condition, inventory_resolution,
+              requested_quantity, original_line_total, returned_tax_amount
+         FROM sales_sale_return_lines WHERE tenant_id=? AND sale_return_id=?`,
+    ).all(scope.tenantId, ret.id) as {
+      id: string; sale_item_id: string; presentation_id: string; physical_condition: string;
+      inventory_resolution: string; requested_quantity: string; original_line_total: string;
+      returned_tax_amount: string;
+    }[];
+
+    const commercial = lines.reduce((total, l) => total + scale6ToBigInt(l.original_line_total), 0n);
+    const returnRow = this.database.native.prepare(
+      "SELECT returned_rounding_adjustment FROM sales_sale_returns WHERE tenant_id=? AND id=?",
+    ).get(scope.tenantId, ret.id) as { returned_rounding_adjustment: string };
+    const rounding = scale6ToBigInt(returnRow.returned_rounding_adjustment);
+    const refund = commercial + rounding;
+    const commercialText = bigIntToScale6(commercial);
+    const roundingText = bigIntToScale6(rounding);
+    const refundText = bigIntToScale6(refund);
+
+    const shift = refundMethod === "CASH"
+      ? this.cash.findActiveShiftForRegister(scope, input.cashRegisterId as string)
+      : null;
+    if (refundMethod === "CASH") {
+      if (shift === null) return { kind: "CASH_SHIFT_MISSING" };
+      if (shift.status !== "OPEN") return { kind: "CASH_SHIFT_NOT_OPEN" };
+    }
+    const businessDate = refundMethod === "CASH"
+      ? this.cash.shiftBusinessDate(scope, (shift as { shiftId: string }).shiftId)
+      : nowIso.slice(0, 10);
+    if (businessDate === null) return { kind: "CASH_SHIFT_MISSING" };
+
+    const refundId = uuidV7();
+    const returnOperationId = uuidV7();
+    const refundOperationId = uuidV7();
+    const cashMovementId = uuidV7();
+    const refundKey = `refund:${input.idempotencyKey}`;
+
+    this.insertOperation(returnOperationId, input.idempotencyKey, input.requestChecksum, "SALE_RETURN_COMPLETED", nowIso);
+    this.insertOperation(refundOperationId, refundKey, input.requestChecksum, "REFUND_COMPLETED", nowIso);
+
+    this.database.native.prepare(
+      `UPDATE sales_sale_returns
+          SET status='RETURN_COMPLETED', completed_return_amount=?, completed_at=?, updated_at=?
+        WHERE tenant_id=? AND id=?`,
+    ).run(commercialText, nowIso, nowIso, scope.tenantId, ret.id);
+    // Sin `UPDATE` a `sales_sale_return_lines`: es append-only. `completed_quantity`/
+    // `completed_return_amount` por línea se quedan en su valor de solicitud
+    // ('0.000000'/`NULL` según la columna) para siempre; la finalización real
+    // vive en la cabecera (`sales_sale_returns.status='RETURN_COMPLETED'`).
+
+    let restockedLines = 0;
+    const restockByPresentation = new Map<string, bigint>();
+    for (const line of lines) {
+      if (line.inventory_resolution === "RETURN_TO_AVAILABLE") {
+        restockedLines += 1;
+        restockByPresentation.set(
+          line.presentation_id,
+          (restockByPresentation.get(line.presentation_id) ?? 0n) + scale6ToBigInt(line.requested_quantity),
+        );
+      }
+    }
+
+    if (refundMethod === "CASH") {
+      const cash = this.cash.appendCashRefund({
+        scope, movementId: cashMovementId, cashShiftId: (shift as { shiftId: string }).shiftId,
+        amount: refundText, currencyCode: sale.currency_code, operatorUserId: input.operatorUserId,
+        businessDate, idempotencyKey: `cash_refund:${input.idempotencyKey}`,
+        requestChecksum: input.requestChecksum, correlationId: input.correlationId, reasonCode: "SALE_RETURN",
+      });
+      if (cash.kind === "SHIFT_NOT_FOUND") throw new ExecuteRollback({ kind: "CASH_SHIFT_MISSING" });
+      if (cash.kind === "SHIFT_NOT_OPEN") throw new ExecuteRollback({ kind: "CASH_SHIFT_NOT_OPEN" });
+      if (cash.kind === "CURRENCY_MISMATCH") throw new ExecuteRollback({ kind: "CURRENCY_MISMATCH" });
+      if (cash.kind === "INSUFFICIENT_CASH") throw new ExecuteRollback({ kind: "INSUFFICIENT_CASH" });
+    }
+
+    const refundStatus: "COMPLETED" | "PROCESSING" = refundMethod === "CASH" ? "COMPLETED" : "PROCESSING";
+    this.database.native.prepare(
+      `INSERT INTO payments_refunds(
+        id, tenant_id, company_id, branch_id, payment_id, sale_return_id,
+        commercial_refund_amount, refund_rounding_adjustment, requested_amount, completed_amount,
+        currency_code, refund_method, status, cash_movement_id, reason_code,
+        requested_by_actor_id, approved_by_actor_id, idempotency_key, request_checksum,
+        correlation_id, causation_id, version, requested_at, approved_at, completed_at, server_recorded_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,NULL)`,
+    ).run(
+      refundId, scope.tenantId, scope.companyId, scope.branchId, payment.id, ret.id,
+      commercialText, roundingText, refundText, refundStatus === "COMPLETED" ? refundText : "0.000000",
+      sale.currency_code, refundMethod, refundStatus, refundMethod === "CASH" ? cashMovementId : null,
+      ret.reason_code,
+      input.operatorUserId, input.operatorUserId, refundKey, input.requestChecksum,
+      input.correlationId, input.causationId, nowIso, nowIso, refundStatus === "COMPLETED" ? nowIso : null,
+    );
+    lines.forEach((line, index) => {
+      this.database.native.prepare(
+        `INSERT INTO payments_refund_items(
+          id, tenant_id, refund_id, payment_allocation_id, sale_return_line_id,
+          amount, currency_code, item_sequence, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        uuidV7(), scope.tenantId, refundId, (allocation as { id: string }).id, line.id,
+        line.original_line_total, sale.currency_code, index + 1, nowIso,
+      );
+    });
+
+    for (const [presentationId, units] of restockByPresentation) {
+      this.inventory.appendReturnRestock({
+        scope, sessionId: input.sessionId, operatorUserId: input.operatorUserId, saleId: ret.sale_id,
+        saleReturnId: ret.id, presentationId, quantity: bigIntToScale6(units), businessDate,
+        correlationId: input.correlationId, causationId: input.causationId,
+      });
+    }
+
+    const fiscalCorrection = this.fiscalCorrection(scope, ret.sale_id);
+    const returnDetails = {
+      commercial_amount: commercialText, fiscal_correction: fiscalCorrection,
+      rounding_adjustment: roundingText, sale_id: ret.sale_id, sale_return_id: ret.id,
+    };
+    const refundDetails: Record<string, unknown> = {
+      amount: refundText, payment_id: payment.id, refund_id: refundId, refund_method: refundMethod,
+      sale_return_id: ret.id,
+    };
+    if (refundMethod === "CASH") {
+      refundDetails["cash_movement_id"] = cashMovementId;
+      refundDetails["cash_shift_id"] = (shift as { shiftId: string }).shiftId;
+    }
+    const refundActionCode = refundStatus === "COMPLETED" ? "REFUND_COMPLETED" : "REFUND_PROCESSING_STARTED";
+    this.writeAuditEntry(input, "SALE_RETURN_COMPLETED", "SALE_RETURN", ret.id, null, returnDetails, nowIso);
+    this.writeAuditEntry(input, refundActionCode, "REFUND", refundId, null, refundDetails, nowIso);
+    this.enqueueOperation(
+      input, returnOperationId, input.idempotencyKey, input.requestChecksum,
+      "SALE_RETURN", ret.id, "SALE_RETURN_COMPLETED", returnDetails, nowIso,
+    );
+    this.enqueueOperation(
+      input, refundOperationId, refundKey, input.requestChecksum,
+      "REFUND", refundId, refundActionCode, refundDetails, nowIso,
+    );
+
+    return {
+      kind: "COMPLETED", saleReturnId: ret.id, refundId, commercialAmount: commercialText,
+      roundingAdjustment: roundingText, refundedAmount: refundText, restockedLines, fiscalCorrection, refundStatus,
+    };
+  }
+
+  /**
+   * Lo que una ejecución ya hecha respondió, reconstruido de lo que dejó
+   * escrito. **No busca por `sales_sale_returns.idempotency_key`**: esa
+   * columna guarda la clave de la *solicitud* (`sales.return.request`), no la
+   * de esta ejecución. La clave de `execute` sólo queda en el reembolso, con
+   * el mismo prefijo `refund:` que usa `create()`.
+   */
+  private readExecutedSummary(scope: SyncScope, idempotencyKey: string): SaleReturnSummary | null {
+    const row = this.database.native.prepare(
+      `SELECT r.id AS sale_return_id, r.sale_id, f.id AS refund_id, f.commercial_refund_amount,
+              f.refund_rounding_adjustment, f.requested_amount, f.status,
+              (SELECT count(*) FROM sales_sale_return_lines l
+                WHERE l.tenant_id = r.tenant_id AND l.sale_return_id = r.id
+                  AND l.inventory_resolution = 'RETURN_TO_AVAILABLE') AS restocked
+         FROM payments_refunds f
+         JOIN sales_sale_returns r ON r.tenant_id = f.tenant_id AND r.id = f.sale_return_id
+        WHERE f.tenant_id=? AND f.idempotency_key=?`,
+    ).get(scope.tenantId, `refund:${idempotencyKey}`) as {
+      sale_return_id: string; sale_id: string; refund_id: string; commercial_refund_amount: string;
+      refund_rounding_adjustment: string; requested_amount: string; status: string; restocked: number;
+    } | undefined;
+    if (row === undefined) return null;
+    return {
+      saleReturnId: row.sale_return_id,
+      refundId: row.refund_id,
+      commercialAmount: row.commercial_refund_amount,
+      roundingAdjustment: row.refund_rounding_adjustment,
+      refundedAmount: row.requested_amount,
+      restockedLines: row.restocked,
+      fiscalCorrection: this.fiscalCorrection(scope, row.sale_id),
+      refundStatus: row.status === "COMPLETED" ? "COMPLETED" : "PROCESSING",
+    };
   }
 }

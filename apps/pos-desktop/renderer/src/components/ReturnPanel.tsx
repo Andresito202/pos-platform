@@ -1,5 +1,12 @@
 import { useState } from "react";
-import type { PaymentsRefundConfirmResult, ReturnPhysicalCondition, SalesReturnCreateResult } from "@pos-platform/contracts";
+import type {
+  PaymentsRefundConfirmResult,
+  ReturnPhysicalCondition,
+  SalesReturnApproveResult,
+  SalesReturnCreateResult,
+  SalesReturnExecuteResult,
+  SalesReturnRequestResult,
+} from "@pos-platform/contracts";
 import { useSaleReturn } from "../hooks/useSaleReturn.js";
 
 /**
@@ -58,6 +65,50 @@ const CONFIRM_REJECTION_MESSAGES: Record<ConfirmRejection, string> = {
 };
 
 /**
+ * Flujo segregado de devolución — `D-50`: solicitar, aprobar y ejecutar son
+ * tres operaciones distintas, cada una con su propio permiso. A diferencia de
+ * "Devolver y reembolsar" (arriba), un cajero con sólo el permiso de
+ * solicitud puede empezarla sin poder terminarla.
+ */
+type RequestRejection = Exclude<SalesReturnRequestResult["outcome"], "REQUESTED" | "IDEMPOTENT">;
+
+const REQUEST_REJECTION_MESSAGES: Record<RequestRejection, string> = {
+  UNAUTHORIZED: "No tiene permiso para solicitar una devolución.",
+  IDEMPOTENCY_CONFLICT: "Petición repetida con datos distintos. Vuelva a intentarlo.",
+  SALE_NOT_FOUND: "Esa venta no existe en esta sucursal.",
+  SALE_NOT_COMPLETED: "La venta no está cobrada: no hay nada que devolver.",
+  LINE_NOT_FOUND: "Una de las líneas no pertenece a esa venta.",
+  LINE_ALREADY_RETURNED: "Una de las líneas ya se devolvió o tiene otra solicitud en curso.",
+  CONDITION_NOT_SUPPORTED: "Ese estado del producto exige un destino de inventario que todavía no existe.",
+  REFUND_METHOD_NOT_SUPPORTED: "La venta no se cobró con un único pago en efectivo o transferencia.",
+  ROUNDING_SHARE_NOT_SUPPORTED: "Esta venta tuvo ajuste de redondeo: por ahora sólo se puede devolver entera.",
+};
+
+type ApproveRejection = Exclude<SalesReturnApproveResult["outcome"], "APPROVED" | "IDEMPOTENT">;
+
+const APPROVE_REJECTION_MESSAGES: Record<ApproveRejection, string> = {
+  UNAUTHORIZED: "No tiene permiso para aprobar devoluciones.",
+  IDEMPOTENCY_CONFLICT: "Petición repetida con datos distintos. Vuelva a intentarlo.",
+  RETURN_NOT_FOUND: "Esa solicitud de devolución no existe.",
+  RETURN_NOT_PENDING: "Esa solicitud ya no está pendiente de aprobación.",
+};
+
+type ExecuteRejection = Exclude<SalesReturnExecuteResult["outcome"], "COMPLETED" | "IDEMPOTENT">;
+
+const EXECUTE_REJECTION_MESSAGES: Record<ExecuteRejection, string> = {
+  UNAUTHORIZED: "No tiene permiso para ejecutar la devolución y mover el reembolso.",
+  IDEMPOTENCY_CONFLICT: "Petición repetida con datos distintos. Vuelva a intentarlo.",
+  RETURN_NOT_FOUND: "Esa devolución no existe.",
+  RETURN_NOT_APPROVED: "Esa devolución todavía no está aprobada.",
+  REFUND_METHOD_NOT_SUPPORTED: "La venta no se cobró con un único pago en efectivo o transferencia.",
+  CASH_REGISTER_REQUIRED: "Esta venta se cobró en efectivo: indique de qué caja sale el dinero.",
+  CASH_SHIFT_MISSING: "Esa caja no tiene turno abierto. Abra turno para entregar el efectivo.",
+  CASH_SHIFT_NOT_OPEN: "El turno de esa caja se está cerrando.",
+  CURRENCY_MISMATCH: "La moneda de la venta no es la del turno.",
+  INSUFFICIENT_CASH: "La caja no tiene ese efectivo según el turno. No se entregó nada.",
+};
+
+/**
  * Devolución de una venta cobrada en efectivo — `B11`.
  *
  * El cajero carga la venta por su identificador, marca qué líneas vuelven y en
@@ -100,6 +151,19 @@ export function ReturnPanel(): React.JSX.Element {
   const result = sale.result;
   const done = result !== null && (result.outcome === "COMPLETED" || result.outcome === "IDEMPOTENT");
 
+  const requestResult = sale.requestResult;
+  const requestDone = requestResult !== null
+    && (requestResult.outcome === "REQUESTED" || requestResult.outcome === "IDEMPOTENT");
+  const approveResult = sale.approveResult;
+  const approveDone = approveResult !== null
+    && (approveResult.outcome === "APPROVED" || approveResult.outcome === "IDEMPOTENT");
+  const executeResult = sale.executeResult;
+  const executeDone = executeResult !== null
+    && (executeResult.outcome === "COMPLETED" || executeResult.outcome === "IDEMPOTENT");
+  const formLocked = done || requestDone;
+  const canRequest = !sale.busy && sale.receipt !== null && chosen.size > 0
+    && (reasonCode !== "OTRO" || detail !== "");
+
   return (
     <section className="card" data-testid="return-panel">
       <h2>Devoluciones</h2>
@@ -139,7 +203,7 @@ export function ReturnPanel(): React.JSX.Element {
                       data-testid={`return-line-check-${String(line.line_number)}`}
                       checked={condition !== undefined}
                       onChange={(e) => { toggle(line.line_number, e.target.checked); }}
-                      disabled={sale.busy || done}
+                      disabled={sale.busy || formLocked}
                     />
                     {" "}{line.product_name} · {line.presentation_name} · {line.quantity} {line.unit_code}
                     {" = "}{line.line_total_amount}
@@ -149,7 +213,7 @@ export function ReturnPanel(): React.JSX.Element {
                       data-testid={`return-line-condition-${String(line.line_number)}`}
                       value={condition}
                       onChange={(e) => { setCondition(line.line_number, e.target.value as ReturnPhysicalCondition); }}
-                      disabled={sale.busy || done}
+                      disabled={sale.busy || formLocked}
                     >
                       {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
@@ -164,14 +228,14 @@ export function ReturnPanel(): React.JSX.Element {
               value={registerId}
               onChange={(e) => { setRegisterId(e.target.value); }}
               placeholder="Caja de la que sale el efectivo"
-              disabled={sale.busy || done}
+              disabled={sale.busy || formLocked}
             />
           )}
           <select
             data-testid="return-reason-select"
             value={reasonCode}
             onChange={(e) => { setReasonCode(e.target.value); }}
-            disabled={sale.busy || done}
+            disabled={sale.busy || formLocked}
           >
             {REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
@@ -181,7 +245,7 @@ export function ReturnPanel(): React.JSX.Element {
             onChange={(e) => { setReasonDetail(e.target.value); }}
             placeholder={reasonCode === "OTRO" ? "Explique el motivo" : "Detalle (opcional)"}
             maxLength={200}
-            disabled={sale.busy || done}
+            disabled={sale.busy || formLocked}
           />
           <button
             data-testid="return-submit-button"
@@ -194,9 +258,24 @@ export function ReturnPanel(): React.JSX.Element {
                 lines: [...chosen].map(([lineNumber, physicalCondition]) => ({ lineNumber, physicalCondition })),
               });
             }}
-            disabled={!canSubmit || done}
+            disabled={!canSubmit || formLocked}
           >
             Devolver y reembolsar
+          </button>
+          <button
+            data-testid="return-request-button"
+            onClick={() => {
+              void sale.requestReturn({
+                saleId: sale.receipt!.sale_id!,
+                cashRegisterId: null,
+                reasonCode,
+                reasonDetail: detail === "" ? null : detail,
+                lines: [...chosen].map(([lineNumber, physicalCondition]) => ({ lineNumber, physicalCondition })),
+              });
+            }}
+            disabled={!canRequest || formLocked}
+          >
+            Solicitar devolución (aprobación de otra persona)
           </button>
         </div>
       )}
@@ -275,9 +354,127 @@ export function ReturnPanel(): React.JSX.Element {
           {REJECTION_MESSAGES[result.outcome as Rejection]}
         </div>
       )}
+
+      {/* Flujo segregado — `D-50`: solicitar, aprobar y ejecutar, cada uno con
+          su propio permiso. Independiente de "Devolver y reembolsar" arriba. */}
+      {requestDone && (
+        <div data-testid="return-request-completed">
+          Solicitud registrada · id{" "}
+          <strong data-testid="return-sale-return-id">{requestResult!.sale_return_id}</strong>
+          {" "}· monto solicitado{" "}
+          <strong data-testid="return-requested-amount">{requestResult!.requested_amount}</strong>
+          {!approveDone && (
+            <button
+              data-testid="return-approve-button"
+              onClick={() => { void sale.approveReturn({ saleReturnId: requestResult!.sale_return_id! }); }}
+              disabled={sale.busy}
+            >
+              Aprobar
+            </button>
+          )}
+        </div>
+      )}
+      {requestResult !== null && !requestDone && (
+        <div data-testid="return-request-rejected">
+          {REQUEST_REJECTION_MESSAGES[requestResult.outcome as RequestRejection]}
+        </div>
+      )}
+
+      {approveDone && !executeDone && (
+        <div data-testid="return-approved">
+          Devolución aprobada
+          {registerNeeded && (
+            <input
+              data-testid="return-execute-register-input"
+              value={registerId}
+              onChange={(e) => { setRegisterId(e.target.value); }}
+              placeholder="Caja de la que sale el efectivo"
+              disabled={sale.busy}
+            />
+          )}
+          <button
+            data-testid="return-execute-button"
+            onClick={() => {
+              void sale.executeReturn({
+                saleReturnId: requestResult!.sale_return_id!,
+                cashRegisterId: registerNeeded ? registerId.trim() : null,
+              });
+            }}
+            disabled={sale.busy || (registerNeeded && registerId.trim() === "")}
+          >
+            Ejecutar
+          </button>
+        </div>
+      )}
+      {approveResult !== null && !approveDone && (
+        <div data-testid="return-approve-rejected">
+          {APPROVE_REJECTION_MESSAGES[approveResult.outcome as ApproveRejection]}
+        </div>
+      )}
+
+      {executeDone && (
+        <div data-testid="return-execute-completed">
+          Devolución ejecutada · entregue{" "}
+          <strong data-testid="return-execute-refunded-amount">{executeResult!.refunded_amount}</strong>
+          {" "}en efectivo · {executeResult!.restocked_lines} línea(s) vuelven a la estantería
+          {executeResult!.rounding_adjustment !== null && executeResult!.rounding_adjustment !== "0.000000" && (
+            <> · incluye redondeo <span data-testid="return-execute-rounding">{executeResult!.rounding_adjustment}</span></>
+          )}
+        </div>
+      )}
+      {executeDone && executeResult!.fiscal_correction === "REQUIRED_NOT_AVAILABLE" && (
+        <div data-testid="return-execute-fiscal-pending">
+          Esta venta tiene factura electrónica: falta la nota crédito, y el sistema todavía no la emite.
+        </div>
+      )}
+      {executeDone && executeResult!.refund_status === "PROCESSING" && sale.confirmResult?.outcome !== "CONFIRMED"
+        && sale.confirmResult?.outcome !== "IDEMPOTENT" && (
+        <div data-testid="return-execute-refund-pending">
+          <p>
+            Reembolso pendiente de confirmar: transfiera{" "}
+            <strong data-testid="return-execute-refund-pending-amount">{executeResult!.refunded_amount}</strong>
+            {" "}al cliente y regístrelo aquí. Debe hacerlo otra persona, no quien ejecutó la devolución.
+          </p>
+          <input
+            data-testid="return-execute-confirm-reference-input"
+            value={providerReference}
+            onChange={(e) => { setProviderReference(e.target.value); }}
+            placeholder="Referencia de la transferencia"
+            maxLength={100}
+            disabled={sale.busy}
+          />
+          <input
+            data-testid="return-execute-confirm-destination-input"
+            value={destinationReference}
+            onChange={(e) => { setDestinationReference(e.target.value); }}
+            placeholder="Cuenta destino"
+            maxLength={200}
+            disabled={sale.busy}
+          />
+          <button
+            data-testid="return-execute-confirm-button"
+            onClick={() => {
+              void sale.confirmRefund({
+                refundId: executeResult!.refund_id!,
+                providerReference: providerReference.trim(),
+                destinationReference: destinationReference.trim(),
+              });
+            }}
+            disabled={sale.busy || providerReference.trim() === "" || destinationReference.trim() === ""}
+          >
+            Confirmar reembolso
+          </button>
+        </div>
+      )}
+      {executeResult !== null && !executeDone && (
+        <div data-testid="return-execute-rejected">
+          {EXECUTE_REJECTION_MESSAGES[executeResult.outcome as ExecuteRejection]}
+        </div>
+      )}
+
       {sale.error !== null && <div data-testid="return-error">{sale.error}</div>}
 
-      {done && (
+      {(done || executeDone) && (
         <button
           data-testid="return-reset-button"
           onClick={() => {

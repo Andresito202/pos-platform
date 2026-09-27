@@ -144,6 +144,9 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "cash.drawer.open":
       case "sales.return.create":
       case "payments.refund.confirm":
+      case "sales.return.request":
+      case "sales.return.approve":
+      case "sales.return.execute":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);

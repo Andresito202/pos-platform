@@ -70,6 +70,12 @@ export const IPC_ALLOWED_CHANNELS = [
   // Mutante: exige idempotencia; el permiso y el cruce de actor los valida el
   // servicio, no el canal.
   "pos:payments.refund.confirm",
+  // Flujo segregado de devolución — `D-50`: solicitar, aprobar y ejecutar son
+  // tres operaciones distintas, cada una con su propio permiso e
+  // idempotencia; el servicio exige el permiso de cada etapa, no el canal.
+  "pos:sales.return.request",
+  "pos:sales.return.approve",
+  "pos:sales.return.execute",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

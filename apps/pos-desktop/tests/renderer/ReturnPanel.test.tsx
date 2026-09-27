@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { PaymentsRefundConfirmRequestSchema, SalesReturnCreateRequestSchema } from "@pos-platform/contracts";
+import {
+  PaymentsRefundConfirmRequestSchema,
+  SalesReturnApproveRequestSchema,
+  SalesReturnCreateRequestSchema,
+  SalesReturnExecuteRequestSchema,
+  SalesReturnRequestRequestSchema,
+} from "@pos-platform/contracts";
 import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 import { ReturnPanel } from "../../renderer/src/components/ReturnPanel.js";
 
@@ -81,6 +87,28 @@ const TRANSFER_RECEIPT = {
 function confirmed(outcome: string, extra: Record<string, unknown> = {}, status = "SUCCEEDED") {
   return { status, result_code: outcome, result: { outcome, refund_id: null, completed_amount: null, ...extra } };
 }
+
+function requested(outcome: string, extra: Record<string, unknown> = {}, status = "SUCCEEDED") {
+  return {
+    status, result_code: outcome,
+    result: { outcome, sale_return_id: null, requested_amount: null, ...extra },
+  };
+}
+
+function approved(outcome: string, extra: Record<string, unknown> = {}, status = "SUCCEEDED") {
+  return { status, result_code: outcome, result: { outcome, sale_return_id: null, ...extra } };
+}
+
+const SALE_RETURN_ID = "99999999-9999-4999-8999-999999999999";
+
+const REQUESTED = requested("REQUESTED", { sale_return_id: SALE_RETURN_ID, requested_amount: "4200.000000" });
+const APPROVED = approved("APPROVED", { sale_return_id: SALE_RETURN_ID });
+const EXECUTED = returned("COMPLETED", {
+  sale_return_id: SALE_RETURN_ID, refund_id: "88888888-8888-4888-8888-888888888888",
+  commercial_amount: "4200.000000", rounding_adjustment: "0.000000",
+  refunded_amount: "4200.000000", restocked_lines: 1, fiscal_correction: "NO_FISCAL_DOCUMENT",
+  refund_status: "COMPLETED",
+});
 
 async function loadSale(): Promise<void> {
   fireEvent.change(screen.getByTestId("return-sale-id-input"), { target: { value: SALE } });
@@ -287,5 +315,134 @@ describe("ReturnPanel — devolución de una venta cobrada (B11)", () => {
 
     await waitFor(() => { expect(screen.getByTestId("return-confirm-rejected").textContent).toContain("otra persona"); });
     expect(screen.getByTestId("return-refund-pending")).toBeTruthy();
+  });
+});
+
+describe("ReturnPanel — flujo segregado: solicitar, aprobar, ejecutar (D-50)", () => {
+  it("solicitar, aprobar y ejecutar viaja por las tres operaciones del contrato, en orden", async () => {
+    install({
+      "sales.receipt.get": RECEIPT,
+      "sales.return.request": REQUESTED,
+      "sales.return.approve": APPROVED,
+      "sales.return.execute": EXECUTED,
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+
+    fireEvent.click(screen.getByTestId("return-line-check-2"));
+    const request = screen.getByTestId("return-request-button") as HTMLButtonElement;
+    expect(request.disabled).toBe(false);
+    fireEvent.click(request);
+
+    await waitFor(() => { expect(calls.get("sales.return.request")).toHaveLength(1); });
+    const requestCall = calls.get("sales.return.request")![0] as { payload: Record<string, unknown> };
+    expect(() => SalesReturnRequestRequestSchema.parse(requestCall)).not.toThrow();
+    expect(requestCall.payload).toEqual({
+      sale_id: SALE, reason_code: "CAMBIO_DE_OPINION", reason_detail: null,
+      lines: [{ line_number: 2, physical_condition: "RESTOCKABLE" }],
+    });
+
+    await waitFor(() => { expect(screen.getByTestId("return-request-completed")).toBeTruthy(); });
+    expect(screen.getByTestId("return-sale-return-id").textContent).toBe(SALE_RETURN_ID);
+    expect(screen.getByTestId("return-requested-amount").textContent).toBe("4200.000000");
+    // Solicitada, la línea ya no se puede tocar ni volver a enviar de un solo paso.
+    expect((screen.getByTestId("return-submit-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("return-request-button") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("return-approve-button"));
+    await waitFor(() => { expect(calls.get("sales.return.approve")).toHaveLength(1); });
+    const approveCall = calls.get("sales.return.approve")![0] as { payload: Record<string, unknown> };
+    expect(() => SalesReturnApproveRequestSchema.parse(approveCall)).not.toThrow();
+    expect(approveCall.payload).toEqual({ sale_return_id: SALE_RETURN_ID });
+
+    await waitFor(() => { expect(screen.getByTestId("return-approved")).toBeTruthy(); });
+    expect(screen.queryByTestId("return-approve-button")).toBeNull();
+    const executeButton = screen.getByTestId("return-execute-button") as HTMLButtonElement;
+    expect(executeButton.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("return-execute-register-input"), { target: { value: REGISTER } });
+    expect(executeButton.disabled).toBe(false);
+    fireEvent.click(executeButton);
+
+    await waitFor(() => { expect(calls.get("sales.return.execute")).toHaveLength(1); });
+    const executeCall = calls.get("sales.return.execute")![0] as { payload: Record<string, unknown> };
+    expect(() => SalesReturnExecuteRequestSchema.parse(executeCall)).not.toThrow();
+    expect(executeCall.payload).toEqual({ sale_return_id: SALE_RETURN_ID, cash_register_id: REGISTER });
+
+    await waitFor(() => { expect(screen.getByTestId("return-execute-completed")).toBeTruthy(); });
+    expect(screen.getByTestId("return-execute-refunded-amount").textContent).toBe("4200.000000");
+    expect(screen.getByTestId("return-reset-button")).toBeTruthy();
+  });
+
+  it("un rechazo al solicitar se explica y deja el formulario abierto", async () => {
+    install({
+      "sales.receipt.get": RECEIPT,
+      "sales.return.request": requested("LINE_ALREADY_RETURNED", {}, "REJECTED"),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    fireEvent.click(screen.getByTestId("return-line-check-1"));
+    fireEvent.click(screen.getByTestId("return-request-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("return-request-rejected").textContent).toContain("ya se devolvió");
+    });
+    expect(screen.queryByTestId("return-request-completed")).toBeNull();
+    expect((screen.getByTestId("return-request-button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("un rechazo al aprobar se explica, y la solicitud no desaparece de la pantalla", async () => {
+    install({
+      "sales.receipt.get": RECEIPT,
+      "sales.return.request": REQUESTED,
+      "sales.return.approve": approved("RETURN_NOT_PENDING", {}, "REJECTED"),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    fireEvent.click(screen.getByTestId("return-line-check-2"));
+    fireEvent.click(screen.getByTestId("return-request-button"));
+    await waitFor(() => { expect(screen.getByTestId("return-request-completed")).toBeTruthy(); });
+    fireEvent.click(screen.getByTestId("return-approve-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("return-approve-rejected").textContent).toContain("ya no está pendiente");
+    });
+    expect(screen.getByTestId("return-request-completed")).toBeTruthy();
+    expect(screen.queryByTestId("return-approved")).toBeNull();
+  });
+
+  it("por transferencia, ejecutar no pide caja y deja el reembolso pendiente de confirmar", async () => {
+    install({
+      "sales.receipt.get": TRANSFER_RECEIPT,
+      "sales.return.request": REQUESTED,
+      "sales.return.approve": APPROVED,
+      "sales.return.execute": returned("COMPLETED", {
+        sale_return_id: SALE_RETURN_ID, refund_id: "88888888-8888-4888-8888-888888888888",
+        commercial_amount: "4200.000000", rounding_adjustment: "0.000000",
+        refunded_amount: "4200.000000", restocked_lines: 1, fiscal_correction: "NO_FISCAL_DOCUMENT",
+        refund_status: "PROCESSING",
+      }),
+      "payments.refund.confirm": confirmed("CONFIRMED", { refund_id: "88888888-8888-4888-8888-888888888888", completed_amount: "4200.000000" }),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    fireEvent.click(screen.getByTestId("return-line-check-2"));
+    fireEvent.click(screen.getByTestId("return-request-button"));
+    await waitFor(() => { expect(screen.getByTestId("return-request-completed")).toBeTruthy(); });
+    fireEvent.click(screen.getByTestId("return-approve-button"));
+    await waitFor(() => { expect(screen.getByTestId("return-approved")).toBeTruthy(); });
+    expect(screen.queryByTestId("return-execute-register-input")).toBeNull();
+    fireEvent.click(screen.getByTestId("return-execute-button"));
+
+    await waitFor(() => { expect(calls.get("sales.return.execute")).toHaveLength(1); });
+    const executeCall = calls.get("sales.return.execute")![0] as { payload: Record<string, unknown> };
+    expect(executeCall.payload["cash_register_id"]).toBeNull();
+
+    await waitFor(() => { expect(screen.getByTestId("return-execute-refund-pending")).toBeTruthy(); });
+    fireEvent.change(screen.getByTestId("return-execute-confirm-reference-input"), { target: { value: "TRX-001" } });
+    fireEvent.change(screen.getByTestId("return-execute-confirm-destination-input"), { target: { value: "Cuenta 123" } });
+    fireEvent.click(screen.getByTestId("return-execute-confirm-button"));
+
+    await waitFor(() => { expect(screen.getByTestId("return-refund-confirmed").textContent).toContain("4200.000000"); });
+    expect(screen.queryByTestId("return-execute-refund-pending")).toBeNull();
   });
 });

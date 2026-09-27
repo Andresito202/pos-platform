@@ -1582,3 +1582,106 @@ test("un cliente devuelve una venta por transferencia: el reembolso queda pendie
   await expect(page.getByTestId("return-confirm-rejected")).toContainText("otra persona", { timeout: 15_000 });
   await expect(page.getByTestId("return-refund-pending")).toBeVisible();
 });
+
+test("un cliente devuelve lo que compró por el flujo segregado: solicitar, aprobar, ejecutar (D-50)", async () => {
+  const page = await app.firstWindow();
+  type Service = Record<string, (request: unknown) => Promise<unknown>>;
+
+  const activation = await page.evaluate(async (assertion) => {
+    const posService = (globalThis as unknown as { posService: Service }).posService;
+    const response = await posService["session.activate"]!({
+      protocol_version: "1.0.0", message_type: "session.activate", request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(), payload_schema_version: "1.0.0",
+      payload: { session_assertion: assertion },
+    });
+    const typed = response as { result_code: string; result: { decision: string | null } | null };
+    return `${typed.result_code}/${typed.result?.decision ?? "-"}`;
+  }, sessionAssertion);
+  expect(["ACTIVATED/-", "REJECTED/SEQUENCE_REPLAY"]).toContain(activation);
+
+  const barcode = `77095${String(Date.now()).slice(-8)}`;
+  const presentationId = await page.evaluate(async (code) => {
+    const posService = (globalThis as unknown as { posService: Service }).posService;
+    const mutating = (messageType: string, payload: unknown) => ({
+      protocol_version: "1.0.0", message_type: messageType, request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+      idempotency_key: crypto.randomUUID(), payload_schema_version: "1.0.0", payload,
+    });
+    const registered = await posService["catalog.product.register"]!(mutating("catalog.product.register", {
+      code: `DEVS-${code.slice(-6)}`, name: "Chocolate de mesa", stock_controlled: true,
+      presentation_name: "Barra 250 g", unit_code: "UND", unit_precision: 0, barcode: code,
+      price_amount: "6000.000000", currency_code: "COP",
+    }));
+    const id = (registered as { result: { presentation_id: string } }).result.presentation_id;
+    await posService["inventory.stock.receive"]!(mutating("inventory.stock.receive", {
+      presentation_id: id, movement_type: "PURCHASE_RECEIPT", quantity: "5.000000",
+      reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+    }));
+    return id;
+  }, barcode);
+  const stockOf = async (): Promise<string> => page.evaluate(async (id) => {
+    const posService = (globalThis as unknown as { posService: Service }).posService;
+    const response = await posService["inventory.stock.get"]!({
+      protocol_version: "1.0.0", message_type: "inventory.stock.get", request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(), payload_schema_version: "1.0.0", payload: { presentation_id: id },
+    });
+    return (response as { result: { quantity_on_hand: string } }).result.quantity_on_hand;
+  }, presentationId);
+
+  // Venta en efectivo, desde la pantalla real.
+  if (await page.getByTestId("shift-open").count() === 0) {
+    await page.getByTestId("cash-register-input").fill(REGISTER);
+    await page.getByTestId("opening-amount-input").fill("0");
+    await page.getByTestId("open-shift-button").click();
+    await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
+  }
+  await page.getByTestId("reset-button").click();
+  await page.getByTestId("barcode-input").fill(barcode);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("found-item-name")).toHaveText("Chocolate de mesa", { timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("2");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("charge-cash-button").click();
+  await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(await stockOf()).toBe("3.000000");
+
+  // La devolución, por el flujo segregado: solicitar, aprobar y ejecutar son
+  // tres pulsaciones distintas, cada una su propia operación del contrato.
+  await page.getByTestId("return-sale-id-input").fill(saleId);
+  await page.getByTestId("return-load-button").click();
+  await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await page.getByTestId("return-line-check-1").check();
+  await page.getByTestId("return-request-button").click();
+
+  await expect(page.getByTestId("return-request-completed")).toBeVisible({ timeout: 15_000 });
+  const saleReturnId = (await page.getByTestId("return-sale-return-id").textContent())?.trim() ?? "";
+  expect(saleReturnId).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(page.getByTestId("return-requested-amount")).toHaveText("12000.000000");
+  // Solicitada, todavía no movió nada: ni caja ni inventario.
+  expect(await stockOf()).toBe("3.000000");
+
+  await page.getByTestId("return-approve-button").click();
+  await expect(page.getByTestId("return-approved")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("return-execute-register-input").fill(REGISTER);
+  await page.getByTestId("return-execute-button").click();
+
+  // El importe lo decide el servicio desde la venta congelada: 2 × 6000.
+  await expect(page.getByTestId("return-execute-completed")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("return-execute-refunded-amount")).toHaveText("12000.000000");
+  expect(await page.getByTestId("return-execute-fiscal-pending").count()).toBe(0);
+  expect(await stockOf()).toBe("5.000000");
+
+  // Solicitar de nuevo la misma línea, ya devuelta, no pasa.
+  await page.getByTestId("return-reset-button").click();
+  await page.getByTestId("return-sale-id-input").fill(saleId);
+  await page.getByTestId("return-load-button").click();
+  await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await page.getByTestId("return-line-check-1").check();
+  await page.getByTestId("return-request-button").click();
+  await expect(page.getByTestId("return-request-rejected")).toContainText("ya se devolvió", { timeout: 15_000 });
+  expect(await stockOf()).toBe("5.000000");
+});

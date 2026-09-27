@@ -2302,6 +2302,143 @@ export const PaymentsRefundConfirmResultSchema = z.strictObject({
 
 export const PaymentsRefundConfirmResponseSchema = createResponseEnvelopeSchema(PaymentsRefundConfirmResultSchema);
 
+// ── sales.return.request / sales.return.approve / sales.return.execute ──────
+
+/**
+ * Solicitar una devolución — `D-50`, flujo segregado de `sales.return.create`.
+ * Un cajero con sólo `SALES_RETURN_REQUEST` puede pedirla, pero no aprobarla
+ * ni ejecutarla (`permission-matrix.md` §Segregación). La solicitud congela
+ * líneas, condición física e importes; no toca caja, inventario ni Payments —
+ * eso ocurre en `sales.return.execute`, después de `sales.return.approve`.
+ *
+ * No lleva `cash_register_id`: la caja se decide al ejecutar, con el turno
+ * abierto en ese momento, igual que en `sales.return.create`.
+ */
+export const SalesReturnRequestRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    reason_code: StableCodeSchema,
+    reason_detail: z.string().trim().min(1).max(200).nullable(),
+    lines: z.array(z.strictObject({
+      line_number: z.number().int().positive(),
+      physical_condition: ReturnPhysicalConditionSchema,
+    })).min(1).max(500),
+  }),
+).safeExtend({ message_type: z.literal("sales.return.request") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+    const seen = new Set<number>();
+    for (const [index, line] of request.payload.lines.entries()) {
+      if (seen.has(line.line_number)) {
+        context.addIssue({
+          code: "custom",
+          path: ["payload", "lines", index, "line_number"],
+          message: "a line can be returned only once per request",
+        });
+      }
+      seen.add(line.line_number);
+    }
+  });
+
+export const SalesReturnRequestResultSchema = z.strictObject({
+  outcome: z.enum([
+    "REQUESTED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "IDEMPOTENCY_CONFLICT",
+    "SALE_NOT_FOUND",
+    "SALE_NOT_COMPLETED",
+    "LINE_NOT_FOUND",
+    "LINE_ALREADY_RETURNED",
+    "CONDITION_NOT_SUPPORTED",
+    "REFUND_METHOD_NOT_SUPPORTED",
+    "ROUNDING_SHARE_NOT_SUPPORTED",
+  ]),
+  sale_return_id: UuidSchema.nullable(),
+  requested_amount: NonNegativeScale6Schema.nullable(),
+});
+
+export const SalesReturnRequestResponseSchema = createResponseEnvelopeSchema(SalesReturnRequestResultSchema);
+
+/**
+ * Aprobar una devolución solicitada — `D-50`. El permission-matrix no exige
+ * aquí un actor distinto del solicitante (a diferencia de la confirmación de
+ * transferencia, `UC-PAY-004` regla 5): sólo exige el permiso `APPROVE`, que
+ * `SALES_RETURN_REQUEST` no concede.
+ */
+export const SalesReturnApproveRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_return_id: UuidSchema,
+  }),
+).safeExtend({ message_type: z.literal("sales.return.approve") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const SalesReturnApproveResultSchema = z.strictObject({
+  outcome: z.enum([
+    "APPROVED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "IDEMPOTENCY_CONFLICT",
+    "RETURN_NOT_FOUND",
+    "RETURN_NOT_PENDING",
+  ]),
+  sale_return_id: UuidSchema.nullable(),
+});
+
+export const SalesReturnApproveResponseSchema = createResponseEnvelopeSchema(SalesReturnApproveResultSchema);
+
+/**
+ * Ejecutar una devolución aprobada — `D-50`: mueve el efectivo (o marca
+ * `PROCESSING` un reembolso de transferencia) y reingresa el inventario.
+ * Exige, además de `SALES_RETURN_EXECUTE`, los tres permisos de `Payments`
+ * que autorizan mover el dinero — la misma barra que `sales.return.create`
+ * exige de una sola vez, aquí repartida entre solicitar/aprobar/ejecutar.
+ *
+ * `cash_register_id` es obligatoria para una venta en efectivo; se ignora
+ * para transferencia — no hay caja de la que sacar nada.
+ */
+export const SalesReturnExecuteRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_return_id: UuidSchema,
+    cash_register_id: UuidSchema.nullable(),
+  }),
+).safeExtend({ message_type: z.literal("sales.return.execute") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const SalesReturnExecuteResultSchema = z.strictObject({
+  outcome: z.enum([
+    "COMPLETED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "IDEMPOTENCY_CONFLICT",
+    "RETURN_NOT_FOUND",
+    "RETURN_NOT_APPROVED",
+    "REFUND_METHOD_NOT_SUPPORTED",
+    "CASH_REGISTER_REQUIRED",
+    "CASH_SHIFT_MISSING",
+    "CASH_SHIFT_NOT_OPEN",
+    "CURRENCY_MISMATCH",
+    "INSUFFICIENT_CASH",
+  ]),
+  sale_return_id: UuidSchema.nullable(),
+  refund_id: UuidSchema.nullable(),
+  commercial_amount: NonNegativeScale6Schema.nullable(),
+  rounding_adjustment: SignedScale6Schema.nullable(),
+  refunded_amount: NonNegativeScale6Schema.nullable(),
+  restocked_lines: z.number().int().nonnegative().nullable(),
+  fiscal_correction: z.enum(["NO_FISCAL_DOCUMENT", "REQUIRED_NOT_AVAILABLE"]).nullable(),
+  refund_status: z.enum(["COMPLETED", "PROCESSING"]).nullable(),
+});
+
+export const SalesReturnExecuteResponseSchema = createResponseEnvelopeSchema(SalesReturnExecuteResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -2343,6 +2480,9 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.lot.trace",
   "inventory.lot.expiring",
   "fiscal.document.list",
+  "sales.return.request",
+  "sales.return.approve",
+  "sales.return.execute",
 ]);
 
 /**
@@ -2382,6 +2522,9 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.lot.trace",
   "pos:inventory.lot.expiring",
   "pos:fiscal.document.list",
+  "pos:sales.return.request",
+  "pos:sales.return.approve",
+  "pos:sales.return.execute",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -2418,6 +2561,9 @@ export type CashDrawerOpenResult = z.infer<typeof CashDrawerOpenResultSchema>;
 export type CashDrawerReason = z.infer<typeof CashDrawerReasonSchema>;
 export type SalesReturnCreateResult = z.infer<typeof SalesReturnCreateResultSchema>;
 export type PaymentsRefundConfirmResult = z.infer<typeof PaymentsRefundConfirmResultSchema>;
+export type SalesReturnRequestResult = z.infer<typeof SalesReturnRequestResultSchema>;
+export type SalesReturnApproveResult = z.infer<typeof SalesReturnApproveResultSchema>;
+export type SalesReturnExecuteResult = z.infer<typeof SalesReturnExecuteResultSchema>;
 export type ReturnPhysicalCondition = z.infer<typeof ReturnPhysicalConditionSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;

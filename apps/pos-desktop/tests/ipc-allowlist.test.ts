@@ -47,6 +47,9 @@ describe("ipc-allowlist", () => {
       "pos:cash.drawer.open",
       "pos:sales.return.create",
       "pos:payments.refund.confirm",
+      "pos:sales.return.request",
+      "pos:sales.return.approve",
+      "pos:sales.return.execute",
     ]);
   });
 
@@ -88,6 +91,9 @@ describe("ipc-allowlist", () => {
       "pos:cash.drawer.open",
       "pos:sales.return.create",
       "pos:payments.refund.confirm",
+      "pos:sales.return.request",
+      "pos:sales.return.approve",
+      "pos:sales.return.execute",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);
       // El nombre sin prefijo pertenece a la frontera main ↔ servicio y no

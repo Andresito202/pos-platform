@@ -4427,3 +4427,257 @@ describe("sales.return.create y payments.refund.confirm — reembolso por transf
     });
   }, 30_000);
 });
+
+// ── sales.return.request / sales.return.approve / sales.return.execute — `D-50` ──
+
+function segregatedRequest(
+  saleId: string,
+  key: string,
+  lines: { line_number: number; physical_condition: string }[] = [{ line_number: 1, physical_condition: "RESTOCKABLE" }],
+) {
+  return mutating("sales.return.request", {
+    sale_id: saleId, reason_code: "CUSTOMER_CHANGED_MIND", reason_detail: null, lines,
+  }, key);
+}
+
+function segregatedApprove(saleReturnId: string, key: string) {
+  return mutating("sales.return.approve", { sale_return_id: saleReturnId }, key);
+}
+
+function segregatedExecute(saleReturnId: string, cashRegisterId: string | null, key: string) {
+  return mutating("sales.return.execute", { sale_return_id: saleReturnId, cash_register_id: cashRegisterId }, key);
+}
+
+/** Lo que sólo `sales.return.request` escribe: nada de caja ni inventario todavía. */
+function requestFootprint(database: LocalDatabase): Record<string, number> {
+  return {
+    returns: countOf(database, "SELECT COUNT(*) n FROM sales_sale_returns"),
+    lines: countOf(database, "SELECT COUNT(*) n FROM sales_sale_return_lines"),
+    refunds: countOf(database, "SELECT COUNT(*) n FROM payments_refunds"),
+    cashRefunds: countOf(database, "SELECT COUNT(*) n FROM cash_movement WHERE movement_type='CASH_REFUND'"),
+    restocks: countOf(database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type='SALE_REVERSAL'"),
+  };
+}
+
+describe("sales.return.request / .approve / .execute — flujo segregado (D-50)", () => {
+  it("solicitar, aprobar y ejecutar mueve el efectivo y repone la mercancía, cada paso con su propio rastro", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg1");
+      const presentationId = (database.native.prepare(
+        "SELECT presentation_id FROM sales_sale_items WHERE sale_id=?",
+      ).get(saleId) as { presentation_id: string }).presentation_id;
+      expect(stockOf(database, presentationId)).toBe("10.000000");
+
+      const requested = await send(segregatedRequest(saleId, "seg1:request"));
+      expect(requested.status).toBe("SUCCEEDED");
+      expect(requested.result).toMatchObject({ outcome: "REQUESTED", requested_amount: "36000.000000" });
+      const saleReturnId = requested.result["sale_return_id"] as string;
+      // Solicitar no toca caja ni inventario: sólo congela la solicitud.
+      expect(requestFootprint(database)).toEqual({ returns: 1, lines: 1, refunds: 0, cashRefunds: 0, restocks: 0 });
+      expect(countOf(database, "SELECT COUNT(*) n FROM local_operation_audit WHERE action_code='SALE_RETURN_REQUESTED'")).toBe(1);
+
+      const approved = await send(segregatedApprove(saleReturnId, "seg1:approve"));
+      expect(approved.status).toBe("SUCCEEDED");
+      expect(approved.result).toMatchObject({ outcome: "APPROVED", sale_return_id: saleReturnId });
+      expect(countOf(database, "SELECT COUNT(*) n FROM local_operation_audit WHERE action_code='SALE_RETURN_APPROVED'")).toBe(1);
+      // Aprobar tampoco mueve nada — sigue sin caja ni inventario.
+      expect(requestFootprint(database)).toEqual({ returns: 1, lines: 1, refunds: 0, cashRefunds: 0, restocks: 0 });
+
+      const executed = await send(segregatedExecute(saleReturnId, REGISTER, "seg1:execute"));
+      expect(executed.status).toBe("SUCCEEDED");
+      expect(executed.result).toMatchObject({
+        outcome: "COMPLETED", sale_return_id: saleReturnId,
+        commercial_amount: "36000.000000", refunded_amount: "36000.000000", restocked_lines: 1,
+        fiscal_correction: "NO_FISCAL_DOCUMENT", refund_status: "COMPLETED",
+      });
+      expect(refundMovementsOf(database)).toEqual([
+        expect.objectContaining({ amount: "36000.000000", direction: "OUT" }),
+      ]);
+      expect(stockOf(database, presentationId)).toBe("12.000000");
+      expect(returnFootprint(database)).toEqual({
+        returns: 1, lines: 1, refunds: 1, refundItems: 1, cashRefunds: 1, restocks: 1, outbox: 2, audit: 2,
+      });
+    });
+  }, 30_000);
+
+  it("repetir la misma clave en cada etapa es IDEMPOTENT; otra clave sobre lo ya resuelto no se reinterpreta", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg2");
+      const first = await send(segregatedRequest(saleId, "seg2:request"));
+      const saleReturnId = first.result["sale_return_id"] as string;
+
+      const requestReplay = await send(segregatedRequest(saleId, "seg2:request"));
+      expect(requestReplay.result).toMatchObject({ outcome: "IDEMPOTENT", sale_return_id: saleReturnId });
+      const requestConflict = await send(segregatedRequest(saleId, "seg2:request", [
+        { line_number: 1, physical_condition: "DAMAGED" },
+      ]));
+      expect(requestConflict.result["outcome"]).toBe("IDEMPOTENCY_CONFLICT");
+
+      const firstApprove = await send(segregatedApprove(saleReturnId, "seg2:approve"));
+      expect(firstApprove.result["outcome"]).toBe("APPROVED");
+      const approveReplay = await send(segregatedApprove(saleReturnId, "seg2:approve"));
+      expect(approveReplay.result).toMatchObject({ outcome: "IDEMPOTENT", sale_return_id: saleReturnId });
+      // Otra clave sobre una devolución ya aprobada: ya no está pendiente.
+      const approveAgain = await send(segregatedApprove(saleReturnId, "seg2:approve:2"));
+      expect(approveAgain.result["outcome"]).toBe("RETURN_NOT_PENDING");
+
+      const firstExecute = await send(segregatedExecute(saleReturnId, REGISTER, "seg2:execute"));
+      expect(firstExecute.result["outcome"]).toBe("COMPLETED");
+      const executeReplay = await send(segregatedExecute(saleReturnId, REGISTER, "seg2:execute"));
+      expect(executeReplay.result).toMatchObject({
+        outcome: "IDEMPOTENT", sale_return_id: saleReturnId, refund_id: firstExecute.result["refund_id"],
+      });
+      expect(returnFootprint(database)).toMatchObject({ returns: 1, cashRefunds: 1, restocks: 1 });
+    });
+  }, 30_000);
+
+  it("un cajero con sólo el permiso de solicitud puede pedirla, pero no aprobarla ni ejecutarla", async () => {
+    extraPermissions = ["SALES_RETURN_REQUEST"];
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg3");
+      const requested = await send(segregatedRequest(saleId, "seg3:request"));
+      expect(requested.result["outcome"]).toBe("REQUESTED");
+      const saleReturnId = requested.result["sale_return_id"] as string;
+
+      const approveAttempt = await send(segregatedApprove(saleReturnId, "seg3:approve"));
+      expect(approveAttempt.status).toBe("REJECTED");
+      expect(approveAttempt.result["outcome"]).toBe("UNAUTHORIZED");
+      const executeAttempt = await send(segregatedExecute(saleReturnId, REGISTER, "seg3:execute"));
+      expect(executeAttempt.status).toBe("REJECTED");
+      expect(executeAttempt.result["outcome"]).toBe("UNAUTHORIZED");
+      expect(requestFootprint(database)).toEqual({ returns: 1, lines: 1, refunds: 0, cashRefunds: 0, restocks: 0 });
+    });
+  }, 30_000);
+
+  it("con permiso de solicitar y aprobar, pero sin los de reembolso, la aprobación no basta para ejecutar", async () => {
+    extraPermissions = ["SALES_RETURN_REQUEST", "SALES_RETURN_APPROVE"];
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg4");
+      const requested = await send(segregatedRequest(saleId, "seg4:request"));
+      const saleReturnId = requested.result["sale_return_id"] as string;
+      const approved = await send(segregatedApprove(saleReturnId, "seg4:approve"));
+      expect(approved.result["outcome"]).toBe("APPROVED");
+
+      const executeAttempt = await send(segregatedExecute(saleReturnId, REGISTER, "seg4:execute"));
+      expect(executeAttempt.status).toBe("REJECTED");
+      expect(executeAttempt.result["outcome"]).toBe("UNAUTHORIZED");
+      expect(returnFootprint(database)).toEqual({
+        returns: 1, lines: 1, refunds: 0, refundItems: 0, cashRefunds: 0, restocks: 0, outbox: 0, audit: 0,
+      });
+    });
+  }, 30_000);
+
+  it("aprobar o ejecutar una devolución que no existe, o ejecutar una que no está aprobada, se rechaza sin escribir", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg5");
+
+      const approveMissing = await send(segregatedApprove(randomUUID(), "seg5:approve-missing"));
+      expect(approveMissing.result["outcome"]).toBe("RETURN_NOT_FOUND");
+      const executeMissing = await send(segregatedExecute(randomUUID(), REGISTER, "seg5:execute-missing"));
+      expect(executeMissing.result["outcome"]).toBe("RETURN_NOT_FOUND");
+
+      const requested = await send(segregatedRequest(saleId, "seg5:request"));
+      const saleReturnId = requested.result["sale_return_id"] as string;
+      // Todavía no está aprobada: ejecutar se rechaza sin mover nada.
+      const executeTooSoon = await send(segregatedExecute(saleReturnId, REGISTER, "seg5:execute-early"));
+      expect(executeTooSoon.result["outcome"]).toBe("RETURN_NOT_APPROVED");
+      expect(requestFootprint(database)).toEqual({ returns: 1, lines: 1, refunds: 0, cashRefunds: 0, restocks: 0 });
+    });
+  }, 30_000);
+
+  it("dos solicitudes sobre la misma línea, antes de aprobar ninguna, no pasan las dos: la segunda encuentra la línea ya tomada", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg6");
+      const first = await send(segregatedRequest(saleId, "seg6:a"));
+      expect(first.result["outcome"]).toBe("REQUESTED");
+
+      // Otra solicitud, con otra clave, sobre la misma línea: la primera
+      // sigue `RETURN_REQUESTED` (no aprobada ni ejecutada) y ya la reclama.
+      const second = await send(segregatedRequest(saleId, "seg6:b"));
+      expect(second.result["outcome"]).toBe("LINE_ALREADY_RETURNED");
+      expect(requestFootprint(database)).toEqual({ returns: 1, lines: 1, refunds: 0, cashRefunds: 0, restocks: 0 });
+
+      // Y tampoco pasa por la vía de un solo paso, ni al revés.
+      const single = await send(returnRequest(saleId, "seg6:single"));
+      expect(single.result["outcome"]).toBe("LINE_ALREADY_RETURNED");
+    });
+  }, 30_000);
+
+  it("una línea ya devuelta por sales.return.create tampoco se puede volver a solicitar", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg7");
+      const single = await send(returnRequest(saleId, "seg7:single"));
+      expect(single.result["outcome"]).toBe("COMPLETED");
+
+      const requestAfter = await send(segregatedRequest(saleId, "seg7:request"));
+      expect(requestAfter.result["outcome"]).toBe("LINE_ALREADY_RETURNED");
+    });
+  }, 30_000);
+
+  it("por transferencia, ejecutar deja el reembolso PROCESSING y payments.refund.confirm lo cierra", async () => {
+    extraPermissions = TRANSFER_RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database, commercial) => {
+      const { saleId } = await transferPaidSale(send, database, "seg8");
+      const requested = await send(segregatedRequest(saleId, "seg8:request"));
+      const saleReturnId = requested.result["sale_return_id"] as string;
+      const approved = await send(segregatedApprove(saleReturnId, "seg8:approve"));
+      expect(approved.result["outcome"]).toBe("APPROVED");
+
+      const executed = await send(segregatedExecute(saleReturnId, null, "seg8:execute"));
+      expect(executed.result).toMatchObject({ outcome: "COMPLETED", refund_status: "PROCESSING", restocked_lines: 1 });
+      const refundId = executed.result["refund_id"] as string;
+
+      // El mismo actor pidió, aprobó y ejecutó la devolución; confirmar el
+      // reembolso exige a alguien distinto (`UC-PAY-004` regla 5), así que se
+      // invoca el caso de uso directamente con otro actor — igual que hace la
+      // prueba `trf5` para el flujo de un solo paso.
+      const otherActor: StoredAuthorizationSnapshot = {
+        claims: {
+          snapshot_id: randomUUID(),
+          user_id: "018f0000-0000-7000-8000-0000000000cf",
+          installation_id: INSTALLATION,
+          device_id: "018f0000-0000-7000-8000-0000000000d0",
+          sequence: 1,
+          issued_at: "2026-09-01T00:00:00.000Z",
+          expires_at: "2030-01-01T00:00:00.000Z",
+          assignments: [{
+            tenant_id: TENANT, company_id: COMPANY, branch_id: BRANCH, status: "ACTIVE",
+            valid_from: "2026-09-01T00:00:00.000Z", valid_until: null, role_status: "ACTIVE",
+            permissions: [{ code: "PAYMENTS_REFUND_EXECUTE_EXTERNAL", status: "ACTIVE" }],
+          }],
+          key_id: "AUTHZ_KEY_1",
+        },
+        signature: "x".repeat(80),
+        activatedAt: "2026-09-01T00:00:00.000Z",
+      };
+      const scope = { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH, deviceId: DEVICE, installationId: INSTALLATION };
+      const confirmed = commercial.confirmRefund.execute(scope, randomUUID(), otherActor, {
+        refundId, providerReference: "TRX-SEG8", destinationReference: "Cuenta cliente seg8",
+        idempotencyKey: "seg8:refundconfirm", correlationId: randomUUID(), causationId: null,
+      });
+      expect(confirmed).toMatchObject({ kind: "CONFIRMED", refundId, completedAmount: executed.result["refunded_amount"] });
+    });
+  }, 30_000);
+
+  it("una venta en efectivo sin caja nombrada al ejecutar se rechaza sin mover nada, y la solicitud sigue aprobada", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "seg9");
+      const requested = await send(segregatedRequest(saleId, "seg9:request"));
+      const saleReturnId = requested.result["sale_return_id"] as string;
+      await send(segregatedApprove(saleReturnId, "seg9:approve"));
+
+      const executeAttempt = await send(segregatedExecute(saleReturnId, null, "seg9:execute"));
+      expect(executeAttempt.result["outcome"]).toBe("CASH_REGISTER_REQUIRED");
+      expect(requestFootprint(database)).toEqual({ returns: 1, lines: 1, refunds: 0, cashRefunds: 0, restocks: 0 });
+
+      const status = database.native.prepare("SELECT status FROM sales_sale_returns WHERE id=?").get(saleReturnId) as { status: string };
+      expect(status.status).toBe("RETURN_APPROVED");
+    });
+  }, 30_000);
+});

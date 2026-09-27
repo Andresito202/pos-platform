@@ -31,7 +31,8 @@ type CommercialRequest = Extract<
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
       | "inventory.lot.expiring" | "fiscal.document.list"
       | "sales.receipt.get" | "sales.receipt.print" | "cash.drawer.open"
-      | "sales.return.create" | "payments.refund.confirm";
+      | "sales.return.create" | "payments.refund.confirm"
+      | "sales.return.request" | "sales.return.approve" | "sales.return.execute";
   }
 >;
 
@@ -262,6 +263,9 @@ export class CommercialRequestHandler {
       case "cash.drawer.open": return this.openCashDrawer(request, connectionId);
       case "sales.return.create": return this.createSaleReturn(request, connectionId);
       case "payments.refund.confirm": return this.confirmRefund(request, connectionId);
+      case "sales.return.request": return this.requestSaleReturn(request, connectionId);
+      case "sales.return.approve": return this.approveSaleReturn(request, connectionId);
+      case "sales.return.execute": return this.executeSaleReturn(request, connectionId);
     }
   }
 
@@ -1907,6 +1911,126 @@ export class CommercialRequestHandler {
     if (result.kind === "CONFIRMED" || result.kind === "IDEMPOTENT") {
       return succeeded(request, result.kind, {
         outcome: result.kind, refund_id: result.refundId, completed_amount: result.completedAmount,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...none });
+  }
+
+  // ── sales.return.request — `D-50` ───────────────────────────────────────────
+
+  /** `REQUESTED` e `IDEMPOTENT` son éxito; el resto viaja como rechazo con su código. */
+  private requestSaleReturn(
+    request: Extract<CommercialRequest, { message_type: "sales.return.request" }>,
+    connectionId: string,
+  ): unknown {
+    const none = { sale_return_id: null, requested_amount: null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.requestSaleReturn.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: payload.sale_id,
+        reasonCode: payload.reason_code,
+        reasonDetail: payload.reason_detail,
+        lines: payload.lines.map((line) => ({
+          lineNumber: line.line_number,
+          physicalCondition: line.physical_condition,
+        })),
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "REQUESTED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        sale_return_id: result.saleReturnId,
+        requested_amount: result.requestedAmount,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...none });
+  }
+
+  // ── sales.return.approve — `D-50` ───────────────────────────────────────────
+
+  /** `APPROVED` e `IDEMPOTENT` son éxito; el resto viaja como rechazo con su código. */
+  private approveSaleReturn(
+    request: Extract<CommercialRequest, { message_type: "sales.return.approve" }>,
+    connectionId: string,
+  ): unknown {
+    const none = { sale_return_id: null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.approveSaleReturn.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleReturnId: payload.sale_return_id,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "APPROVED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, { outcome: result.kind, sale_return_id: result.saleReturnId });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...none });
+  }
+
+  // ── sales.return.execute — `D-50` ───────────────────────────────────────────
+
+  /** `COMPLETED` e `IDEMPOTENT` son éxito; el resto viaja como rechazo con su código. */
+  private executeSaleReturn(
+    request: Extract<CommercialRequest, { message_type: "sales.return.execute" }>,
+    connectionId: string,
+  ): unknown {
+    const none = {
+      sale_return_id: null, refund_id: null, commercial_amount: null, rounding_adjustment: null,
+      refunded_amount: null, restocked_lines: null, fiscal_correction: null, refund_status: null,
+    };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.executeSaleReturn.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleReturnId: payload.sale_return_id,
+        cashRegisterId: payload.cash_register_id,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "COMPLETED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        sale_return_id: result.saleReturnId,
+        refund_id: result.refundId,
+        commercial_amount: result.commercialAmount,
+        rounding_adjustment: result.roundingAdjustment,
+        refunded_amount: result.refundedAmount,
+        restocked_lines: result.restockedLines,
+        fiscal_correction: result.fiscalCorrection,
+        refund_status: result.refundStatus,
       });
     }
     return rejected(request, result.kind, { outcome: result.kind, ...none });
