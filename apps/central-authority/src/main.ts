@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:https";
+import { createServer } from "node:https";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { Pool } from "pg";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
@@ -100,6 +101,7 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
     const value = context.authorization;
     return typeof value === "string" && value.startsWith("Bearer ") && constantTimeEqual(value.slice(7), transportToken);
   },
+  now: () => new Date(),
 });
 const limiter = new FixedWindowRateLimiter();
 
