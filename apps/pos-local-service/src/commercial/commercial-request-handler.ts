@@ -31,7 +31,7 @@ type CommercialRequest = Extract<
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
       | "inventory.lot.expiring" | "fiscal.document.list"
       | "sales.receipt.get" | "sales.receipt.print" | "cash.drawer.open"
-      | "sales.return.create";
+      | "sales.return.create" | "payments.refund.confirm";
   }
 >;
 
@@ -261,6 +261,7 @@ export class CommercialRequestHandler {
       case "sales.receipt.print": return this.printReceipt(request, connectionId);
       case "cash.drawer.open": return this.openCashDrawer(request, connectionId);
       case "sales.return.create": return this.createSaleReturn(request, connectionId);
+      case "payments.refund.confirm": return this.confirmRefund(request, connectionId);
     }
   }
 
@@ -1832,7 +1833,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const none = {
       sale_return_id: null, refund_id: null, commercial_amount: null, rounding_adjustment: null,
-      refunded_amount: null, restocked_lines: null, fiscal_correction: null,
+      refunded_amount: null, restocked_lines: null, fiscal_correction: null, refund_status: null,
     };
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
@@ -1869,6 +1870,43 @@ export class CommercialRequestHandler {
         refunded_amount: result.refundedAmount,
         restocked_lines: result.restockedLines,
         fiscal_correction: result.fiscalCorrection,
+        refund_status: result.refundStatus,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...none });
+  }
+
+  // ── payments.refund.confirm — `D-49` ────────────────────────────────────────
+
+  /** `CONFIRMED` e `IDEMPOTENT` son éxito; el resto viaja como rechazo con su código. */
+  private confirmRefund(
+    request: Extract<CommercialRequest, { message_type: "payments.refund.confirm" }>,
+    connectionId: string,
+  ): unknown {
+    const none = { refund_id: null, completed_amount: null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.confirmRefund.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        refundId: payload.refund_id,
+        providerReference: payload.provider_reference,
+        destinationReference: payload.destination_reference,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "CONFIRMED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind, refund_id: result.refundId, completed_amount: result.completedAmount,
       });
     }
     return rejected(request, result.kind, { outcome: result.kind, ...none });

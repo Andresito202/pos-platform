@@ -24,6 +24,7 @@ import { PERMISSION_CASH_DRAWER_OPEN_MANUAL } from "../hardware/cash-drawer/open
 import {
   PERMISSION_PAYMENTS_REFUND_APPROVE,
   PERMISSION_PAYMENTS_REFUND_EXECUTE_CASH,
+  PERMISSION_PAYMENTS_REFUND_EXECUTE_EXTERNAL,
   PERMISSION_PAYMENTS_REFUND_REQUEST,
   PERMISSION_SALES_RETURN_APPROVE,
   PERMISSION_SALES_RETURN_EXECUTE,
@@ -94,6 +95,10 @@ const ADMIN_PERMISSIONS = [
   PERMISSION_PAYMENTS_REFUND_REQUEST,
   PERMISSION_PAYMENTS_REFUND_APPROVE,
   PERMISSION_PAYMENTS_REFUND_EXECUTE_CASH,
+  // La confirmación de transferencia exige un actor distinto del solicitante
+  // (`UC-PAY-004` regla 5): ADMIN la lleva para poder ejercerla en las
+  // pruebas con dos operadores, nunca con el mismo.
+  PERMISSION_PAYMENTS_REFUND_EXECUTE_EXTERNAL,
 ] as const;
 
 /** Únicos por rol: repetir un código no amplía nada y sólo alargaría la lista. */

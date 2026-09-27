@@ -50,6 +50,7 @@ describe("preload-api", () => {
       "sales.receipt.print",
       "cash.drawer.open",
       "sales.return.create",
+      "payments.refund.confirm",
     ]);
   });
 

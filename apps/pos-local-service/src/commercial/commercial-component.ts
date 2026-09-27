@@ -64,7 +64,7 @@ import { PrintReceiptUseCase, type ConfiguredReceiptPrinter } from "../hardware/
 import { SqlitePrintQueueStore } from "../hardware/print-queue/sqlite-print-queue-store.js";
 import { OpenCashDrawerUseCase } from "../hardware/cash-drawer/open-cash-drawer-use-case.js";
 import { SqliteSaleReturnStore } from "../returns/sqlite-sale-return-store.js";
-import { CreateSaleReturnUseCase } from "../returns/create-sale-return-use-case.js";
+import { CreateSaleReturnUseCase, ConfirmRefundUseCase } from "../returns/create-sale-return-use-case.js";
 import { SqliteDrawerStore } from "../hardware/cash-drawer/sqlite-drawer-store.js";
 import type { DrawerCommand } from "../hardware/cash-drawer/cash-drawer.js";
 import type { DeviceAdapter } from "../hardware/device-port.js";
@@ -151,6 +151,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly printReceipt: PrintReceiptUseCase;
         readonly openCashDrawer: OpenCashDrawerUseCase;
         readonly createSaleReturn: CreateSaleReturnUseCase;
+        readonly confirmRefund: ConfirmRefundUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
          * falta `fiscal_environment` (`POS_FISCAL_ENVIRONMENT`) o no hay
@@ -250,6 +251,7 @@ export class CommercialComponent implements RuntimeComponent {
   get printReceipt(): PrintReceiptUseCase { return this.ready.printReceipt; }
   get openCashDrawer(): OpenCashDrawerUseCase { return this.ready.openCashDrawer; }
   get createSaleReturn(): CreateSaleReturnUseCase { return this.ready.createSaleReturn; }
+  get confirmRefund(): ConfirmRefundUseCase { return this.ready.confirmRefund; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
   get listFiscalDocuments(): ListFiscalDocumentsUseCase { return this.ready.listFiscalDocuments; }
 
@@ -280,6 +282,8 @@ export class CommercialComponent implements RuntimeComponent {
     // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
+    // Caja e inventario satisfacen los puertos de la devolución estructuralmente.
+    const saleReturnStore = new SqliteSaleReturnStore(database, sync, cashShiftStore, inventoryStore, this.now);
     // `SqliteCashShiftStore` satisface también `CreditCashPort`: el abono en
     // efectivo entra al cajón por el mismo puerto, con otro motivo.
     const creditStore = new SqliteCreditStore(database, sync, cashShiftStore, this.now);
@@ -364,10 +368,8 @@ export class CommercialComponent implements RuntimeComponent {
       printReceipt: new PrintReceiptUseCase(getReceipt, printQueue, this.receiptPrinter, this.now),
       openCashDrawer: new OpenCashDrawerUseCase(drawerStore, this.cashDrawer, this.now),
       // Caja e inventario satisfacen los puertos de la devolución estructuralmente.
-      createSaleReturn: new CreateSaleReturnUseCase(
-        new SqliteSaleReturnStore(database, sync, cashShiftStore, inventoryStore, this.now),
-        this.now,
-      ),
+      createSaleReturn: new CreateSaleReturnUseCase(saleReturnStore, this.now),
+      confirmRefund: new ConfirmRefundUseCase(saleReturnStore, this.now),
       registerProduct,
       setFiscalAttribute,
       addPresentation: new AddPresentationUseCase(catalogStore),

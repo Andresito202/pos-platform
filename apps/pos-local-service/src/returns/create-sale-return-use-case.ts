@@ -3,7 +3,9 @@ import { createActor, createOperationScope, evaluatePermission, toRoleAssignment
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { CreateSaleReturnOutcome, PhysicalCondition, SqliteSaleReturnStore } from "./sqlite-sale-return-store.js";
+import type {
+  ConfirmRefundOutcome, CreateSaleReturnOutcome, PhysicalCondition, SqliteSaleReturnStore,
+} from "./sqlite-sale-return-store.js";
 
 export const PERMISSION_SALES_RETURN_REQUEST = "SALES_RETURN_REQUEST";
 export const PERMISSION_SALES_RETURN_APPROVE = "SALES_RETURN_APPROVE";
@@ -11,6 +13,7 @@ export const PERMISSION_SALES_RETURN_EXECUTE = "SALES_RETURN_EXECUTE";
 export const PERMISSION_PAYMENTS_REFUND_REQUEST = "PAYMENTS_REFUND_REQUEST";
 export const PERMISSION_PAYMENTS_REFUND_APPROVE = "PAYMENTS_REFUND_APPROVE";
 export const PERMISSION_PAYMENTS_REFUND_EXECUTE_CASH = "PAYMENTS_REFUND_EXECUTE_CASH";
+export const PERMISSION_PAYMENTS_REFUND_EXECUTE_EXTERNAL = "PAYMENTS_REFUND_EXECUTE_EXTERNAL";
 
 /**
  * Los seis que exige hacer la devolución entera en una sola operación. Cada
@@ -28,7 +31,7 @@ const REQUIRED_PERMISSIONS = [
 
 export interface CreateSaleReturnRequest {
   readonly saleId: string;
-  readonly cashRegisterId: string;
+  readonly cashRegisterId: string | null;
   readonly reasonCode: string;
   readonly reasonDetail: string | null;
   readonly lines: readonly { readonly lineNumber: number; readonly physicalCondition: PhysicalCondition }[];
@@ -101,6 +104,75 @@ export class CreateSaleReturnUseCase {
       lines: request.lines,
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request, operatorUserId),
+      correlationId: request.correlationId,
+      causationId: request.causationId,
+    });
+  }
+}
+
+export interface ConfirmRefundRequest {
+  readonly refundId: string;
+  readonly providerReference: string;
+  readonly destinationReference: string;
+  readonly idempotencyKey: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ConfirmRefundResult =
+  | ConfirmRefundOutcome
+  | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
+
+function confirmRequestChecksum(request: ConfirmRefundRequest, operatorUserId: string): string {
+  return createHash("sha256")
+    .update(canonicalJson({
+      destination_reference: request.destinationReference,
+      idempotency_key: request.idempotencyKey,
+      operator_user_id: operatorUserId,
+      provider_reference: request.providerReference,
+      refund_id: request.refundId,
+    }))
+    .digest("hex");
+}
+
+/**
+ * Confirmación segregada de un reembolso por transferencia — `D-49`,
+ * `UC-PAY-004` §Reembolso de transferencia o QR manual, regla 5: «un actor
+ * segregado verifica la fuente financiera autorizada». El permiso por sí solo
+ * no basta: el store rechaza además si el confirmador es quien solicitó la
+ * devolución (`SAME_ACTOR_NOT_ALLOWED`).
+ */
+export class ConfirmRefundUseCase {
+  constructor(
+    private readonly store: SqliteSaleReturnStore,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  execute(
+    scope: SyncScope,
+    sessionId: string,
+    authSnapshot: StoredAuthorizationSnapshot,
+    request: ConfirmRefundRequest,
+  ): ConfirmRefundResult {
+    const operatorUserId = authSnapshot.claims.user_id;
+    const decision = evaluatePermission({
+      actor: createActor("USER", operatorUserId),
+      permission: PERMISSION_PAYMENTS_REFUND_EXECUTE_EXTERNAL,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: this.now(),
+      assignments: toRoleAssignments(authSnapshot.claims),
+    });
+    if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
+
+    return this.store.confirmRefund({
+      scope,
+      sessionId,
+      operatorUserId,
+      refundId: request.refundId,
+      providerReference: request.providerReference,
+      destinationReference: request.destinationReference,
+      idempotencyKey: request.idempotencyKey,
+      requestChecksum: confirmRequestChecksum(request, operatorUserId),
       correlationId: request.correlationId,
       causationId: request.causationId,
     });

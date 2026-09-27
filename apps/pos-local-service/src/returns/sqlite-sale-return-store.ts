@@ -19,7 +19,8 @@ export interface CreateSaleReturnInput {
   readonly sessionId: string;
   readonly operatorUserId: string;
   readonly saleId: string;
-  readonly cashRegisterId: string;
+  /** Obligatoria para una venta en efectivo; ignorada para transferencia — no hay caja de la que sacar nada. */
+  readonly cashRegisterId: string | null;
   readonly reasonCode: string;
   readonly reasonDetail: string | null;
   readonly lines: readonly { readonly lineNumber: number; readonly physicalCondition: PhysicalCondition }[];
@@ -37,6 +38,13 @@ export interface SaleReturnSummary {
   readonly refundedAmount: string;
   readonly restockedLines: number;
   readonly fiscalCorrection: "NO_FISCAL_DOCUMENT" | "REQUIRED_NOT_AVAILABLE";
+  /**
+   * `COMPLETED`: el efectivo ya salió del cajón. `PROCESSING`: es una
+   * transferencia — la devolución y el reingreso ya están hechos, pero el
+   * dinero no se ha confirmado devuelto (`UC-PAY-004` §Reembolso de
+   * transferencia o QR manual); falta `payments.refund.confirm`.
+   */
+  readonly refundStatus: "COMPLETED" | "PROCESSING";
 }
 
 export type CreateSaleReturnOutcome =
@@ -49,12 +57,33 @@ export type CreateSaleReturnOutcome =
   | { readonly kind: "CONDITION_NOT_SUPPORTED" }
   | { readonly kind: "REFUND_METHOD_NOT_SUPPORTED" }
   | { readonly kind: "ROUNDING_SHARE_NOT_SUPPORTED" }
+  | { readonly kind: "CASH_REGISTER_REQUIRED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
   | { readonly kind: "CURRENCY_MISMATCH" }
   | { readonly kind: "INSUFFICIENT_CASH" };
 
 type Rejection = Exclude<CreateSaleReturnOutcome, { readonly kind: "COMPLETED" | "IDEMPOTENT" }>;
+
+export interface ConfirmRefundInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly refundId: string;
+  readonly providerReference: string;
+  readonly destinationReference: string;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ConfirmRefundOutcome =
+  | { readonly kind: "CONFIRMED" | "IDEMPOTENT"; readonly refundId: string; readonly completedAmount: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "REFUND_NOT_FOUND" }
+  | { readonly kind: "REFUND_NOT_PENDING" }
+  | { readonly kind: "SAME_ACTOR_NOT_ALLOWED" };
 
 /** Se lanza para deshacer lo ya escrito: devolver dentro de la transacción la confirmaría. */
 class ReturnRollback extends Error {
@@ -151,7 +180,12 @@ export class SqliteSaleReturnStore {
     }
     if (sale.status !== "COMPLETED") return { kind: "SALE_NOT_COMPLETED" };
 
-    // 3. Un único pago en efectivo confirmado, con una sola imputación.
+    // 3. Un único pago confirmado, con una sola imputación, en un medio que
+    //    sabe reembolsarse: efectivo (atómico) o transferencia (manual,
+    //    `UC-PAY-004` §Reembolso de transferencia o QR manual). El QR de este
+    //    sistema es `EXTERNAL_PROVIDER_AUTHORITATIVE` (Wompi) y su reversal
+    //    exigiría una llamada real al proveedor que `PaymentProviderPort` no
+    //    tiene: no se inventa esa integración para adelantarlo.
     const payments = this.database.native.prepare(
       `SELECT p.id, p.payment_method, p.status FROM payments_payments p
          JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
@@ -160,9 +194,12 @@ export class SqliteSaleReturnStore {
     ).all(scope.tenantId, input.saleId) as { id: string; payment_method: string; status: string }[];
     const payment = payments[0];
     if (payments.length !== 1 || payment === undefined
-      || payment.payment_method !== "CASH" || payment.status !== "CONFIRMED") {
+      || (payment.payment_method !== "CASH" && payment.payment_method !== "TRANSFER")
+      || payment.status !== "CONFIRMED") {
       return { kind: "REFUND_METHOD_NOT_SUPPORTED" };
     }
+    const refundMethod = payment.payment_method as "CASH" | "TRANSFER";
+    if (refundMethod === "CASH" && input.cashRegisterId === null) return { kind: "CASH_REGISTER_REQUIRED" };
     const allocations = this.database.native.prepare(
       "SELECT id, amount FROM payments_payment_allocations WHERE tenant_id=? AND payment_id=?",
     ).all(scope.tenantId, payment.id) as { id: string; amount: string }[];
@@ -217,11 +254,20 @@ export class SqliteSaleReturnStore {
       throw new Error(`refund would exceed confirmed payment ${payment.id}`);
     }
 
-    // 6. Caja: el turno abierto ahora en la caja nombrada.
-    const shift = this.cash.findActiveShiftForRegister(scope, input.cashRegisterId);
-    if (shift === null) return { kind: "CASH_SHIFT_MISSING" };
-    if (shift.status !== "OPEN") return { kind: "CASH_SHIFT_NOT_OPEN" };
-    const businessDate = this.cash.shiftBusinessDate(scope, shift.shiftId);
+    // 6. Caja: sólo para efectivo. El turno abierto ahora en la caja nombrada.
+    //    Una transferencia no toca caja (`UC-PAY-004`: «no genera salida de
+    //    caja»); su fecha de negocio es la del día en que se ejecuta la
+    //    devolución, porque no hay turno del que tomarla.
+    const shift = refundMethod === "CASH"
+      ? this.cash.findActiveShiftForRegister(scope, input.cashRegisterId as string)
+      : null;
+    if (refundMethod === "CASH") {
+      if (shift === null) return { kind: "CASH_SHIFT_MISSING" };
+      if (shift.status !== "OPEN") return { kind: "CASH_SHIFT_NOT_OPEN" };
+    }
+    const businessDate = refundMethod === "CASH"
+      ? this.cash.shiftBusinessDate(scope, (shift as { shiftId: string }).shiftId)
+      : nowIso.slice(0, 10);
     if (businessDate === null) return { kind: "CASH_SHIFT_MISSING" };
 
     // ── Escritura ────────────────────────────────────────────────────────────
@@ -292,25 +338,30 @@ export class SqliteSaleReturnStore {
       );
     }
 
-    // El efectivo sale del turno abierto; si no alcanza, todo se deshace.
-    const cash = this.cash.appendCashRefund({
-      scope,
-      movementId: cashMovementId,
-      cashShiftId: shift.shiftId,
-      amount: refundText,
-      currencyCode: sale.currency_code,
-      operatorUserId: input.operatorUserId,
-      businessDate,
-      idempotencyKey: `cash_refund:${input.idempotencyKey}`,
-      requestChecksum: input.requestChecksum,
-      correlationId: input.correlationId,
-      reasonCode: "SALE_RETURN",
-    });
-    if (cash.kind === "SHIFT_NOT_FOUND") throw new ReturnRollback({ kind: "CASH_SHIFT_MISSING" });
-    if (cash.kind === "SHIFT_NOT_OPEN") throw new ReturnRollback({ kind: "CASH_SHIFT_NOT_OPEN" });
-    if (cash.kind === "CURRENCY_MISMATCH") throw new ReturnRollback({ kind: "CURRENCY_MISMATCH" });
-    if (cash.kind === "INSUFFICIENT_CASH") throw new ReturnRollback({ kind: "INSUFFICIENT_CASH" });
+    // El efectivo sale del turno abierto; si no alcanza, todo se deshace. La
+    // transferencia no toca caja: queda `PROCESSING` hasta que un actor
+    // segregado la confirme con evidencia (`payments.refund.confirm`).
+    if (refundMethod === "CASH") {
+      const cash = this.cash.appendCashRefund({
+        scope,
+        movementId: cashMovementId,
+        cashShiftId: (shift as { shiftId: string }).shiftId,
+        amount: refundText,
+        currencyCode: sale.currency_code,
+        operatorUserId: input.operatorUserId,
+        businessDate,
+        idempotencyKey: `cash_refund:${input.idempotencyKey}`,
+        requestChecksum: input.requestChecksum,
+        correlationId: input.correlationId,
+        reasonCode: "SALE_RETURN",
+      });
+      if (cash.kind === "SHIFT_NOT_FOUND") throw new ReturnRollback({ kind: "CASH_SHIFT_MISSING" });
+      if (cash.kind === "SHIFT_NOT_OPEN") throw new ReturnRollback({ kind: "CASH_SHIFT_NOT_OPEN" });
+      if (cash.kind === "CURRENCY_MISMATCH") throw new ReturnRollback({ kind: "CURRENCY_MISMATCH" });
+      if (cash.kind === "INSUFFICIENT_CASH") throw new ReturnRollback({ kind: "INSUFFICIENT_CASH" });
+    }
 
+    const refundStatus: "COMPLETED" | "PROCESSING" = refundMethod === "CASH" ? "COMPLETED" : "PROCESSING";
     this.database.native.prepare(
       `INSERT INTO payments_refunds(
         id, tenant_id, company_id, branch_id, payment_id, sale_return_id,
@@ -318,13 +369,14 @@ export class SqliteSaleReturnStore {
         currency_code, refund_method, status, cash_movement_id, reason_code,
         requested_by_actor_id, approved_by_actor_id, idempotency_key, request_checksum,
         correlation_id, causation_id, version, requested_at, approved_at, completed_at, server_recorded_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'CASH','COMPLETED',?,?,?,?,?,?,?,?,1,?,?,?,NULL)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,NULL)`,
     ).run(
       refundId, scope.tenantId, scope.companyId, scope.branchId, payment.id, saleReturnId,
-      commercialText, roundingText, refundText, refundText,
-      sale.currency_code, cashMovementId, input.reasonCode,
+      commercialText, roundingText, refundText, refundStatus === "COMPLETED" ? refundText : "0.000000",
+      sale.currency_code, refundMethod, refundStatus, refundMethod === "CASH" ? cashMovementId : null,
+      input.reasonCode,
       input.operatorUserId, input.operatorUserId, refundKey, input.requestChecksum,
-      input.correlationId, input.causationId, nowIso, nowIso, nowIso,
+      input.correlationId, input.causationId, nowIso, nowIso, refundStatus === "COMPLETED" ? nowIso : null,
     );
     chosen.forEach(({ item }, index) => {
       this.database.native.prepare(
@@ -363,19 +415,23 @@ export class SqliteSaleReturnStore {
       sale_id: input.saleId,
       sale_return_id: saleReturnId,
     };
-    const refundDetails = {
+    const refundDetails: Record<string, unknown> = {
       amount: refundText,
-      cash_movement_id: cashMovementId,
-      cash_shift_id: shift.shiftId,
       payment_id: payment.id,
       refund_id: refundId,
+      refund_method: refundMethod,
       sale_return_id: saleReturnId,
     };
+    if (refundMethod === "CASH") {
+      refundDetails["cash_movement_id"] = cashMovementId;
+      refundDetails["cash_shift_id"] = (shift as { shiftId: string }).shiftId;
+    }
+    const refundActionCode = refundStatus === "COMPLETED" ? "REFUND_COMPLETED" : "REFUND_PROCESSING_STARTED";
     this.writeAudit(input, "SALE_RETURN_COMPLETED", "SALE_RETURN", saleReturnId, returnDetails, nowIso);
-    this.writeAudit(input, "REFUND_COMPLETED", "REFUND", refundId, refundDetails, nowIso);
+    this.writeAudit(input, refundActionCode, "REFUND", refundId, refundDetails, nowIso);
     this.enqueue(input, returnOperationId, input.idempotencyKey, "SALE_RETURN", saleReturnId,
       "SALE_RETURN_COMPLETED", returnDetails, nowIso);
-    this.enqueue(input, refundOperationId, refundKey, "REFUND", refundId, "REFUND_COMPLETED", refundDetails, nowIso);
+    this.enqueue(input, refundOperationId, refundKey, "REFUND", refundId, refundActionCode, refundDetails, nowIso);
 
     return {
       kind: "COMPLETED",
@@ -386,6 +442,7 @@ export class SqliteSaleReturnStore {
       refundedAmount: refundText,
       restockedLines,
       fiscalCorrection,
+      refundStatus,
     };
   }
 
@@ -393,7 +450,7 @@ export class SqliteSaleReturnStore {
   private readSummary(scope: SyncScope, idempotencyKey: string): SaleReturnSummary | null {
     const row = this.database.native.prepare(
       `SELECT r.id AS sale_return_id, r.sale_id, f.id AS refund_id, f.commercial_refund_amount,
-              f.refund_rounding_adjustment, f.completed_amount,
+              f.refund_rounding_adjustment, f.requested_amount, f.status,
               (SELECT count(*) FROM sales_sale_return_lines l
                 WHERE l.tenant_id = r.tenant_id AND l.sale_return_id = r.id
                   AND l.inventory_resolution = 'RETURN_TO_AVAILABLE') AS restocked
@@ -402,7 +459,7 @@ export class SqliteSaleReturnStore {
         WHERE r.tenant_id=? AND r.idempotency_key=?`,
     ).get(scope.tenantId, idempotencyKey) as {
       sale_return_id: string; sale_id: string; refund_id: string; commercial_refund_amount: string;
-      refund_rounding_adjustment: string; completed_amount: string; restocked: number;
+      refund_rounding_adjustment: string; requested_amount: string; status: string; restocked: number;
     } | undefined;
     if (row === undefined) return null;
     return {
@@ -410,10 +467,123 @@ export class SqliteSaleReturnStore {
       refundId: row.refund_id,
       commercialAmount: row.commercial_refund_amount,
       roundingAdjustment: row.refund_rounding_adjustment,
-      refundedAmount: row.completed_amount,
+      refundedAmount: row.requested_amount,
       restockedLines: row.restocked,
       fiscalCorrection: this.fiscalCorrection(scope, row.sale_id),
+      refundStatus: row.status === "COMPLETED" ? "COMPLETED" : "PROCESSING",
     };
+  }
+
+  /**
+   * Confirma un reembolso de transferencia pendiente — `UC-PAY-004`
+   * §Reembolso de transferencia o QR manual, reglas 5–7: un actor **distinto**
+   * del que solicitó la devolución declara la evidencia financiera que vio, y
+   * sólo entonces el componente pasa a `COMPLETED`. No verifica esa evidencia
+   * contra ningún banco — «no se inventa una API de Nequi, Daviplata, banco o
+   * QR»—; registra quién la declaró, y por eso exige que no sea la misma
+   * persona que inició la devolución.
+   */
+  confirmRefund(input: ConfirmRefundInput): ConfirmRefundOutcome {
+    const nowIso = this.now().toISOString();
+    return this.database.native.transaction((): ConfirmRefundOutcome => {
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" };
+        const row = this.database.native.prepare(
+          "SELECT id, completed_amount FROM payments_refunds WHERE tenant_id=? AND id=? AND confirmed_by_actor_id=?",
+        ).get(input.scope.tenantId, input.refundId, input.operatorUserId) as
+          { id: string; completed_amount: string } | undefined;
+        // La clave la consumió otra operación, o confirmó otro actor con el
+        // mismo checksum por casualidad: ninguno es un reintento legítimo.
+        if (row === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
+        return { kind: "IDEMPOTENT", refundId: row.id, completedAmount: row.completed_amount };
+      }
+
+      const refund = this.database.native.prepare(
+        `SELECT id, status, refund_method, requested_amount, requested_by_actor_id
+           FROM payments_refunds WHERE tenant_id=? AND id=?`,
+      ).get(input.scope.tenantId, input.refundId) as
+        | { id: string; status: string; refund_method: string; requested_amount: string; requested_by_actor_id: string }
+        | undefined;
+      if (refund === undefined || refund.refund_method !== "TRANSFER") return { kind: "REFUND_NOT_FOUND" };
+      if (refund.status !== "PROCESSING") return { kind: "REFUND_NOT_PENDING" };
+      if (refund.requested_by_actor_id === input.operatorUserId) return { kind: "SAME_ACTOR_NOT_ALLOWED" };
+
+      this.insertOperation(uuidV7(), input.idempotencyKey, input.requestChecksum, "REFUND_CONFIRMED", nowIso);
+      this.database.native.prepare(
+        `UPDATE payments_refunds
+            SET status='COMPLETED', completed_amount=requested_amount, completed_at=?,
+                provider_reference=?, destination_reference=?, confirmed_by_actor_id=?
+          WHERE tenant_id=? AND id=?`,
+      ).run(nowIso, input.providerReference, input.destinationReference, input.operatorUserId, input.scope.tenantId, refund.id);
+
+      const details = {
+        destination_reference: input.destinationReference,
+        provider_reference: input.providerReference,
+        refund_id: refund.id,
+      };
+      this.writeConfirmAudit(input, "REFUND_CONFIRMED", refund.id, details, nowIso);
+      this.enqueueConfirm(input, refund.id, "REFUND_CONFIRMED", details, nowIso);
+
+      return { kind: "CONFIRMED", refundId: refund.id, completedAmount: refund.requested_amount };
+    })();
+  }
+
+  private writeConfirmAudit(
+    input: ConfirmRefundInput, actionCode: string, refundId: string,
+    details: Record<string, unknown>, nowIso: string,
+  ): void {
+    this.database.native.prepare(
+      `INSERT INTO local_operation_audit(
+        tenant_id, company_id, branch_id, device_id,
+        actor_type, actor_id, session_id,
+        action_code, resource_type, resource_id,
+        correlation_id, causation_id, reason_code, details_json, created_at
+      ) VALUES (?,?,?,?,'USER',?,?,?,'REFUND',?,?,?,NULL,?,?)`,
+    ).run(
+      input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+      input.operatorUserId, input.sessionId, actionCode, refundId,
+      input.correlationId, input.causationId, canonicalJson(details), nowIso,
+    );
+  }
+
+  private enqueueConfirm(
+    input: ConfirmRefundInput, refundId: string, operationType: string,
+    payload: Record<string, unknown>, nowIso: string,
+  ): void {
+    const { scope } = input;
+    const nextSequence = (this.database.native.prepare(
+      `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, scope.deviceId, scope.installationId) as
+      { next_sequence: number }).next_sequence;
+
+    this.durableSync.enqueue({
+      operation_id: uuidV7(),
+      tenant_id: scope.tenantId,
+      company_id: scope.companyId,
+      branch_id: scope.branchId,
+      device_id: scope.deviceId,
+      installation_id: scope.installationId,
+      session_id: input.sessionId,
+      actor_id: input.operatorUserId,
+      aggregate_type: "REFUND",
+      aggregate_id: refundId,
+      operation_type: operationType,
+      authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
+      local_sequence: nextSequence,
+      idempotency_key: input.idempotencyKey,
+      expected_version: null,
+      payload_schema_version: RETURN_PAYLOAD_SCHEMA_VERSION,
+      payload,
+      payload_checksum: input.requestChecksum,
+      causation_id: input.causationId,
+      correlation_id: input.correlationId,
+      occurred_at_local: nowIso,
+      recorded_at_local: nowIso,
+    });
   }
 
   /**

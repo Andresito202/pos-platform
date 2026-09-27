@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type {
+  PaymentsRefundConfirmResult,
   ReturnPhysicalCondition,
   SalesReceiptGetResult,
   SalesReturnCreateResult,
@@ -13,10 +14,17 @@ export interface ReturnLineChoice {
 
 export interface SaleReturnRequest {
   readonly saleId: string;
-  readonly cashRegisterId: string;
+  /** Obligatoria para una venta en efectivo; se omite para transferencia. */
+  readonly cashRegisterId: string | null;
   readonly reasonCode: string;
   readonly reasonDetail: string | null;
   readonly lines: readonly ReturnLineChoice[];
+}
+
+export interface ConfirmRefundRequest {
+  readonly refundId: string;
+  readonly providerReference: string;
+  readonly destinationReference: string;
 }
 
 export interface SaleReturnState {
@@ -26,6 +34,8 @@ export interface SaleReturnState {
   /** Desenlace de la carga cuando no hay recibo (`NOT_FOUND`, `NOT_COMPLETED`). */
   readonly loadOutcome: SalesReceiptGetResult["outcome"] | null;
   readonly result: SalesReturnCreateResult | null;
+  /** Desenlace de `payments.refund.confirm`, cuando el reembolso quedó `PROCESSING`. */
+  readonly confirmResult: PaymentsRefundConfirmResult | null;
   /** Fallo de transporte o rechazo sin resultado: no es un desenlace del contrato. */
   readonly error: string | null;
 }
@@ -45,14 +55,17 @@ export interface SaleReturnState {
 export function useSaleReturn(): SaleReturnState & {
   load(saleId: string): Promise<void>;
   submit(request: SaleReturnRequest): Promise<void>;
+  confirmRefund(request: ConfirmRefundRequest): Promise<void>;
   reset(): void;
 } {
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<SalesReceiptGetResult | null>(null);
   const [loadOutcome, setLoadOutcome] = useState<SaleReturnState["loadOutcome"]>(null);
   const [result, setResult] = useState<SalesReturnCreateResult | null>(null);
+  const [confirmResult, setConfirmResult] = useState<PaymentsRefundConfirmResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const confirmInFlight = useRef(false);
 
   const load = useCallback(async (saleId: string): Promise<void> => {
     setBusy(true);
@@ -105,12 +118,38 @@ export function useSaleReturn(): SaleReturnState & {
     }
   }, []);
 
+  const confirmRefund = useCallback(async (request: ConfirmRefundRequest): Promise<void> => {
+    if (confirmInFlight.current) return;
+    confirmInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    setConfirmResult(null);
+    try {
+      const response = await callCommercial<PaymentsRefundConfirmResult>("payments.refund.confirm", {
+        refund_id: request.refundId,
+        provider_reference: request.providerReference,
+        destination_reference: request.destinationReference,
+      }, newIdempotencyKey());
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setConfirmResult(response.result);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      confirmInFlight.current = false;
+      setBusy(false);
+    }
+  }, []);
+
   const reset = useCallback((): void => {
     setReceipt(null);
     setLoadOutcome(null);
     setResult(null);
+    setConfirmResult(null);
     setError(null);
   }, []);
 
-  return { busy, receipt, loadOutcome, result, error, load, submit, reset };
+  return { busy, receipt, loadOutcome, result, confirmResult, error, load, submit, confirmRefund, reset };
 }

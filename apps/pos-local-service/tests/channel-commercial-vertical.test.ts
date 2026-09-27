@@ -19,6 +19,7 @@ import {
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
+import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
 import { encodeText, PrinterConnectedCashDrawer, SimulatedReceiptPrinter, type ReceiptPrinterProfile } from "../src/hardware/index.js";
@@ -282,7 +283,11 @@ interface ChannelResponse {
  * el `connectionId` que él mismo asignó.
  */
 async function withRealChannel(
-  run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
+  run: (
+    send: (request: unknown) => Promise<ChannelResponse>,
+    database: LocalDatabase,
+    commercial: CommercialComponent,
+  ) => Promise<void>,
   receiptPrinter: ConfiguredReceiptPrinter | null = null,
   cashDrawer: PrinterConnectedCashDrawer | null = null,
 ): Promise<void> {
@@ -354,6 +359,7 @@ async function withRealChannel(
     await run(
       async (request) => await client.request(request) as ChannelResponse,
       database,
+      commercial,
     );
   } finally {
     await client.close();
@@ -4240,6 +4246,184 @@ describe("sales.return.create cruza el socket real hasta caja e inventario (B11)
       expect(lotTotal()).toBe(0n);
       expect(BigInt(stockOf(database, ids.presentationId).replace(".", "")) - BigInt(before.replace(".", ""))).toBe(5_000000n);
       expect(lotLedgerMismatches(database)).toEqual([]);
+    });
+  }, 30_000);
+});
+
+// ── payments.refund.confirm — `D-49` ────────────────────────────────────────
+
+const TRANSFER_RETURN_PERMISSIONS = [...RETURN_PERMISSIONS, "PAYMENTS_REFUND_EXECUTE_EXTERNAL"];
+
+/** Vende `units` en transferencia, la confirma y devuelve la venta ya cobrada. */
+async function transferPaidSale(
+  send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase, suffix: string, units = "2.000000",
+): Promise<{ saleId: string; paymentId: string; payable: string }> {
+  const ids = await prepareCounter(send, database, suffix);
+  const sale = await createSale(send, ids, units, `${suffix}:sale`);
+  const registered = await send(mutating("payment.register.transfer", {
+    sale_id: sale.saleId, amount: sale.payable, provider_code: null, provider_reference: null,
+  }, `${suffix}:report`));
+  const paymentId = registered.result["payment_id"] as string;
+  const fetched = await send(reading("payment.get", { payment_id: paymentId }));
+  const version = fetched.result["version"] as number;
+  const confirmed = await send(mutating("payment.transfer.confirm", {
+    payment_id: paymentId, expected_version: version,
+  }, `${suffix}:confirm`));
+  expect(confirmed.result["sale_completed"]).toBe(true);
+  return { saleId: sale.saleId, paymentId, payable: sale.payable };
+}
+
+function transferReturnRequest(saleId: string, key: string) {
+  return mutating("sales.return.create", {
+    sale_id: saleId, cash_register_id: null, reason_code: "CUSTOMER_CHANGED_MIND", reason_detail: null,
+    lines: [{ line_number: 1, physical_condition: "RESTOCKABLE" }],
+  }, key);
+}
+
+describe("sales.return.create y payments.refund.confirm — reembolso por transferencia (D-49)", () => {
+  it("devolver una venta por transferencia repone la mercancía y deja el reembolso PROCESSING", async () => {
+    extraPermissions = TRANSFER_RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await transferPaidSale(send, database, "trf1");
+      const presentationId = (database.native.prepare(
+        "SELECT presentation_id FROM sales_sale_items WHERE sale_id=?",
+      ).get(saleId) as { presentation_id: string }).presentation_id;
+
+      const response = await send(transferReturnRequest(saleId, "trf1:return"));
+      expect(response.status).toBe("SUCCEEDED");
+      expect(response.result).toMatchObject({
+        outcome: "COMPLETED", refunded_amount: "36000.000000", refund_status: "PROCESSING", restocked_lines: 1,
+      });
+      expect(stockOf(database, presentationId)).toBe("12.000000");
+
+      const refund = database.native.prepare(
+        "SELECT status, refund_method, cash_movement_id, completed_amount FROM payments_refunds WHERE id=?",
+      ).get(response.result["refund_id"]) as {
+        status: string; refund_method: string; cash_movement_id: string | null; completed_amount: string;
+      };
+      expect(refund).toEqual({ status: "PROCESSING", refund_method: "TRANSFER", cash_movement_id: null, completed_amount: "0.000000" });
+      // Sin turno, sin caja: la transferencia no toca cash_movement.
+      expect(countOf(database, "SELECT COUNT(*) n FROM cash_movement WHERE movement_type='CASH_REFUND'")).toBe(0);
+    });
+  }, 30_000);
+
+  it("un pago en efectivo sin caja nombrada se rechaza con CASH_REGISTER_REQUIRED, sin escribir nada", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "trf2");
+      const response = await send(mutating("sales.return.create", {
+        sale_id: saleId, cash_register_id: null, reason_code: "CUSTOMER_CHANGED_MIND", reason_detail: null,
+        lines: [{ line_number: 1, physical_condition: "RESTOCKABLE" }],
+      }, "trf2:return"));
+      expect(response.result["outcome"]).toBe("CASH_REGISTER_REQUIRED");
+      expect(returnFootprint(database)).toEqual(NOTHING_WRITTEN);
+    });
+  }, 30_000);
+
+  it("el mismo actor que pidió la devolución no puede confirmar su propio reembolso", async () => {
+    extraPermissions = TRANSFER_RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await transferPaidSale(send, database, "trf3");
+      const created = await send(transferReturnRequest(saleId, "trf3:return"));
+      const refundId = created.result["refund_id"] as string;
+
+      const attempt = await send(mutating("payments.refund.confirm", {
+        refund_id: refundId, provider_reference: "TRX-001", destination_reference: "Cuenta cliente 123",
+      }, "trf3:refundconfirm"));
+      expect(attempt.status).toBe("REJECTED");
+      expect(attempt.result["outcome"]).toBe("SAME_ACTOR_NOT_ALLOWED");
+
+      const refund = database.native.prepare(
+        "SELECT status, provider_reference, confirmed_by_actor_id FROM payments_refunds WHERE id=?",
+      ).get(refundId) as { status: string; provider_reference: string | null; confirmed_by_actor_id: string | null };
+      expect(refund).toEqual({ status: "PROCESSING", provider_reference: null, confirmed_by_actor_id: null });
+    });
+  }, 30_000);
+
+  it("confirmar un reembolso que no existe, o uno que ya no está pendiente, se rechaza", async () => {
+    extraPermissions = TRANSFER_RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      // Un reembolso en efectivo ya nace COMPLETED: no es TRANSFER ni está pendiente.
+      const { saleId } = await cashPaidSale(send, database, "trf4b");
+
+      const missing = await send(mutating("payments.refund.confirm", {
+        refund_id: randomUUID(), provider_reference: "TRX-1", destination_reference: "Cuenta 1",
+      }, "trf4:a"));
+      expect(missing.result["outcome"]).toBe("REFUND_NOT_FOUND");
+      const shift = database.native.prepare(
+        "SELECT id, version FROM cash_shift WHERE status='OPEN'",
+      ).get() as { id: string; version: number };
+      await send(mutating("cash.shift.close", { shift_id: shift.id, counted_amount: "225000.000000", expected_version: shift.version }, "trf4:close"));
+      await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "225000.000000", business_date: "2026-09-04",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "trf4:reopen"));
+      const cashReturn = await send(mutating("sales.return.create", {
+        sale_id: saleId, cash_register_id: REGISTER, reason_code: "CUSTOMER_CHANGED_MIND", reason_detail: null,
+        lines: [{ line_number: 1, physical_condition: "RESTOCKABLE" }],
+      }, "trf4:cashreturn"));
+      expect(cashReturn.result["refund_status"]).toBe("COMPLETED");
+      const notPending = await send(mutating("payments.refund.confirm", {
+        refund_id: cashReturn.result["refund_id"], provider_reference: "TRX-1", destination_reference: "Cuenta 1",
+      }, "trf4:b"));
+      expect(notPending.result["outcome"]).toBe("REFUND_NOT_FOUND");
+    });
+  }, 30_000);
+
+  it("un actor distinto sí puede confirmar, y una segunda confirmación es idempotente", async () => {
+    extraPermissions = TRANSFER_RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database, commercial) => {
+      const { saleId } = await transferPaidSale(send, database, "trf5");
+      const created = await send(transferReturnRequest(saleId, "trf5:return"));
+      const refundId = created.result["refund_id"] as string;
+
+      // Un segundo operador, en su propio dispositivo: exactamente la razón de
+      // ser de la regla — confirmar desde OTRO terminal, no autoaprobarse en
+      // el mismo. Se invoca el caso de uso real directamente porque el arnés
+      // de este fichero vincula un solo dispositivo por conexión; el canal
+      // real ya probó, arriba, que el mismo actor se rechaza.
+      const otherActor: StoredAuthorizationSnapshot = {
+        claims: {
+          snapshot_id: randomUUID(),
+          user_id: "018f0000-0000-7000-8000-0000000000cc",
+          installation_id: INSTALLATION,
+          device_id: "018f0000-0000-7000-8000-0000000000cd",
+          sequence: 1,
+          issued_at: "2026-09-01T00:00:00.000Z",
+          expires_at: "2030-01-01T00:00:00.000Z",
+          assignments: [{
+            tenant_id: TENANT, company_id: COMPANY, branch_id: BRANCH, status: "ACTIVE",
+            valid_from: "2026-09-01T00:00:00.000Z", valid_until: null, role_status: "ACTIVE",
+            permissions: [{ code: "PAYMENTS_REFUND_EXECUTE_EXTERNAL", status: "ACTIVE" }],
+          }],
+          key_id: "AUTHZ_KEY_1",
+        },
+        signature: "x".repeat(80),
+        activatedAt: "2026-09-01T00:00:00.000Z",
+      };
+      const scope = { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH, deviceId: DEVICE, installationId: INSTALLATION };
+      const confirm = () => commercial.confirmRefund.execute(scope, randomUUID(), otherActor, {
+        refundId, providerReference: "TRX-002", destinationReference: "Cuenta cliente 456",
+        idempotencyKey: "trf5:refundconfirm", correlationId: randomUUID(), causationId: null,
+      });
+
+      const first = confirm();
+      expect(first).toMatchObject({ kind: "CONFIRMED", refundId, completedAmount: "36000.000000" });
+      const replay = confirm();
+      expect(replay).toMatchObject({ kind: "IDEMPOTENT", refundId, completedAmount: "36000.000000" });
+
+      const refund = database.native.prepare(
+        "SELECT status, provider_reference, destination_reference, confirmed_by_actor_id, completed_amount FROM payments_refunds WHERE id=?",
+      ).get(refundId) as {
+        status: string; provider_reference: string; destination_reference: string;
+        confirmed_by_actor_id: string; completed_amount: string;
+      };
+      expect(refund).toEqual({
+        status: "COMPLETED", provider_reference: "TRX-002", destination_reference: "Cuenta cliente 456",
+        confirmed_by_actor_id: "018f0000-0000-7000-8000-0000000000cc", completed_amount: "36000.000000",
+      });
+      expect(countOf(database, "SELECT COUNT(*) n FROM local_operation_audit WHERE action_code='REFUND_CONFIRMED'")).toBe(1);
+      expect(countOf(database, "SELECT COUNT(*) n FROM local_sync_outbox WHERE operation_type='REFUND_CONFIRMED'")).toBe(1);
     });
   }, 30_000);
 });

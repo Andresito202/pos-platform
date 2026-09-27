@@ -60,6 +60,8 @@ import {
   CashDrawerOpenResponseSchema,
   SalesReturnCreateRequestSchema,
   SalesReturnCreateResponseSchema,
+  PaymentsRefundConfirmRequestSchema,
+  PaymentsRefundConfirmResponseSchema,
   PaymentRegisterCashRequestSchema,
   PaymentRegisterCashResponseSchema,
   PaymentRegisterTransferRequestSchema,
@@ -126,6 +128,7 @@ export const IpcMessageTypeSchema = z.enum([
   "sales.receipt.print",
   "cash.drawer.open",
   "sales.return.create",
+  "payments.refund.confirm",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -241,6 +244,7 @@ export const IpcRequestSchema = z.union([
   SalesReceiptPrintRequestSchema,
   CashDrawerOpenRequestSchema,
   SalesReturnCreateRequestSchema,
+  PaymentsRefundConfirmRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -278,6 +282,7 @@ export const IpcResponseSchema = z.union([
   SalesReceiptPrintResponseSchema,
   CashDrawerOpenResponseSchema,
   SalesReturnCreateResponseSchema,
+  PaymentsRefundConfirmResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;

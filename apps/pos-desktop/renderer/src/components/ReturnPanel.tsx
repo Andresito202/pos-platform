@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ReturnPhysicalCondition, SalesReturnCreateResult } from "@pos-platform/contracts";
+import type { PaymentsRefundConfirmResult, ReturnPhysicalCondition, SalesReturnCreateResult } from "@pos-platform/contracts";
 import { useSaleReturn } from "../hooks/useSaleReturn.js";
 
 /**
@@ -38,12 +38,23 @@ const REJECTION_MESSAGES: Record<Rejection, string> = {
   LINE_NOT_FOUND: "Una de las líneas no pertenece a esa venta.",
   LINE_ALREADY_RETURNED: "Una de las líneas ya se devolvió antes.",
   CONDITION_NOT_SUPPORTED: "Ese estado del producto exige un destino de inventario que todavía no existe.",
-  REFUND_METHOD_NOT_SUPPORTED: "La venta no se cobró con un único pago en efectivo. El reembolso por transferencia, QR, fiado o pago mixto todavía no existe.",
+  REFUND_METHOD_NOT_SUPPORTED: "La venta no se cobró con un único pago en efectivo o transferencia. El reembolso de QR, fiado o pago mixto todavía no existe.",
   ROUNDING_SHARE_NOT_SUPPORTED: "Esta venta tuvo ajuste de redondeo: por ahora sólo se puede devolver entera.",
+  CASH_REGISTER_REQUIRED: "Esta venta se cobró en efectivo: indique de qué caja sale el dinero.",
   CASH_SHIFT_MISSING: "Esa caja no tiene turno abierto. Abra turno para entregar el efectivo.",
   CASH_SHIFT_NOT_OPEN: "El turno de esa caja se está cerrando.",
   CURRENCY_MISMATCH: "La moneda de la venta no es la del turno.",
   INSUFFICIENT_CASH: "La caja no tiene ese efectivo según el turno. No se entregó nada.",
+};
+
+type ConfirmRejection = Exclude<PaymentsRefundConfirmResult["outcome"], "CONFIRMED" | "IDEMPOTENT">;
+
+const CONFIRM_REJECTION_MESSAGES: Record<ConfirmRejection, string> = {
+  UNAUTHORIZED: "No tiene permiso para confirmar reembolsos de transferencia.",
+  IDEMPOTENCY_CONFLICT: "Petición repetida con datos distintos. Vuelva a intentarlo.",
+  REFUND_NOT_FOUND: "Ese reembolso no existe, ya se confirmó por otra vía, o no es de transferencia.",
+  REFUND_NOT_PENDING: "Ese reembolso ya no está pendiente de confirmación.",
+  SAME_ACTOR_NOT_ALLOWED: "Quien solicitó la devolución no puede confirmar su propio reembolso: debe hacerlo otra persona, desde su propio usuario.",
 };
 
 /**
@@ -62,10 +73,18 @@ export function ReturnPanel(): React.JSX.Element {
   const [reasonDetail, setReasonDetail] = useState("");
   const [chosen, setChosen] = useState<ReadonlyMap<number, ReturnPhysicalCondition>>(new Map());
 
+  const [providerReference, setProviderReference] = useState("");
+  const [destinationReference, setDestinationReference] = useState("");
+
   const lines = sale.receipt?.lines ?? [];
   const detail = reasonDetail.trim();
+  // La caja sólo hace falta si la venta se cobró en efectivo: una
+  // transferencia no tiene de dónde sacar nada. Sin recibo todavía no se sabe
+  // el medio, así que se pide por defecto — el servicio decide de verdad.
+  const paymentMethod = sale.receipt?.payments?.[0]?.payment_method ?? null;
+  const registerNeeded = paymentMethod !== "TRANSFER";
   const canSubmit = !sale.busy && sale.receipt !== null && chosen.size > 0
-    && registerId.trim() !== "" && (reasonCode !== "OTRO" || detail !== "");
+    && (!registerNeeded || registerId.trim() !== "") && (reasonCode !== "OTRO" || detail !== "");
 
   const toggle = (lineNumber: number, on: boolean): void => {
     const next = new Map(chosen);
@@ -139,13 +158,15 @@ export function ReturnPanel(): React.JSX.Element {
               );
             })}
           </ul>
-          <input
-            data-testid="return-register-input"
-            value={registerId}
-            onChange={(e) => { setRegisterId(e.target.value); }}
-            placeholder="Caja de la que sale el efectivo"
-            disabled={sale.busy || done}
-          />
+          {registerNeeded && (
+            <input
+              data-testid="return-register-input"
+              value={registerId}
+              onChange={(e) => { setRegisterId(e.target.value); }}
+              placeholder="Caja de la que sale el efectivo"
+              disabled={sale.busy || done}
+            />
+          )}
           <select
             data-testid="return-reason-select"
             value={reasonCode}
@@ -167,7 +188,7 @@ export function ReturnPanel(): React.JSX.Element {
             onClick={() => {
               void sale.submit({
                 saleId: sale.receipt!.sale_id!,
-                cashRegisterId: registerId.trim(),
+                cashRegisterId: registerNeeded ? registerId.trim() : null,
                 reasonCode,
                 reasonDetail: detail === "" ? null : detail,
                 lines: [...chosen].map(([lineNumber, physicalCondition]) => ({ lineNumber, physicalCondition })),
@@ -196,6 +217,59 @@ export function ReturnPanel(): React.JSX.Element {
           Esta venta tiene factura electrónica: falta la nota crédito, y el sistema todavía no la emite.
         </div>
       )}
+
+      {/* El reembolso de transferencia no se completa aquí: es manual y exige
+          un actor distinto del que solicitó la devolución (`UC-PAY-004`). */}
+      {result !== null && done && result.refund_status === "PROCESSING" && sale.confirmResult?.outcome !== "CONFIRMED"
+        && sale.confirmResult?.outcome !== "IDEMPOTENT" && (
+        <div data-testid="return-refund-pending">
+          <p>
+            Reembolso pendiente de confirmar: transfiera{" "}
+            <strong data-testid="return-refund-pending-amount">{result.refunded_amount}</strong>
+            {" "}al cliente y regístrelo aquí. Debe hacerlo otra persona, no quien pidió la devolución.
+          </p>
+          <input
+            data-testid="return-confirm-reference-input"
+            value={providerReference}
+            onChange={(e) => { setProviderReference(e.target.value); }}
+            placeholder="Referencia de la transferencia"
+            maxLength={100}
+            disabled={sale.busy}
+          />
+          <input
+            data-testid="return-confirm-destination-input"
+            value={destinationReference}
+            onChange={(e) => { setDestinationReference(e.target.value); }}
+            placeholder="Cuenta destino"
+            maxLength={200}
+            disabled={sale.busy}
+          />
+          <button
+            data-testid="return-confirm-button"
+            onClick={() => {
+              void sale.confirmRefund({
+                refundId: result.refund_id!,
+                providerReference: providerReference.trim(),
+                destinationReference: destinationReference.trim(),
+              });
+            }}
+            disabled={sale.busy || providerReference.trim() === "" || destinationReference.trim() === ""}
+          >
+            Confirmar reembolso
+          </button>
+        </div>
+      )}
+      {sale.confirmResult !== null && (sale.confirmResult.outcome === "CONFIRMED" || sale.confirmResult.outcome === "IDEMPOTENT") && (
+        <div data-testid="return-refund-confirmed">
+          Reembolso confirmado · {sale.confirmResult.completed_amount}
+        </div>
+      )}
+      {sale.confirmResult !== null && sale.confirmResult.outcome !== "CONFIRMED" && sale.confirmResult.outcome !== "IDEMPOTENT" && (
+        <div data-testid="return-confirm-rejected">
+          {CONFIRM_REJECTION_MESSAGES[sale.confirmResult.outcome as ConfirmRejection]}
+        </div>
+      )}
+
       {result !== null && !done && (
         <div data-testid="return-rejected">
           {REJECTION_MESSAGES[result.outcome as Rejection]}
@@ -206,7 +280,10 @@ export function ReturnPanel(): React.JSX.Element {
       {done && (
         <button
           data-testid="return-reset-button"
-          onClick={() => { sale.reset(); setChosen(new Map()); setSaleId(""); setReasonDetail(""); }}
+          onClick={() => {
+            sale.reset(); setChosen(new Map()); setSaleId(""); setReasonDetail("");
+            setProviderReference(""); setDestinationReference(""); setRegisterId("");
+          }}
         >
           Otra devolución
         </button>

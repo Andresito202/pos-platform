@@ -2196,7 +2196,8 @@ export const ReturnPhysicalConditionSchema = z.enum([
 export const SalesReturnCreateRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     sale_id: UuidSchema,
-    cash_register_id: UuidSchema,
+    /** Obligatoria para una venta en efectivo; se ignora para transferencia — no hay caja de la que sacar nada. */
+    cash_register_id: UuidSchema.nullable(),
     reason_code: StableCodeSchema,
     reason_detail: z.string().trim().min(1).max(200).nullable(),
     lines: z.array(z.strictObject({
@@ -2234,6 +2235,7 @@ export const SalesReturnCreateResultSchema = z.strictObject({
     "CONDITION_NOT_SUPPORTED",
     "REFUND_METHOD_NOT_SUPPORTED",
     "ROUNDING_SHARE_NOT_SUPPORTED",
+    "CASH_REGISTER_REQUIRED",
     "CASH_SHIFT_MISSING",
     "CASH_SHIFT_NOT_OPEN",
     "CURRENCY_MISMATCH",
@@ -2246,9 +2248,59 @@ export const SalesReturnCreateResultSchema = z.strictObject({
   refunded_amount: NonNegativeScale6Schema.nullable(),
   restocked_lines: z.number().int().nonnegative().nullable(),
   fiscal_correction: z.enum(["NO_FISCAL_DOCUMENT", "REQUIRED_NOT_AVAILABLE"]).nullable(),
+  /**
+   * `COMPLETED`: el efectivo ya salió del cajón. `PROCESSING`: es una
+   * transferencia — falta `payments.refund.confirm` de un actor distinto.
+   * `null` cuando `outcome` no es `COMPLETED`/`IDEMPOTENT`.
+   */
+  refund_status: z.enum(["COMPLETED", "PROCESSING"]).nullable(),
 });
 
 export const SalesReturnCreateResponseSchema = createResponseEnvelopeSchema(SalesReturnCreateResultSchema);
+
+// ── payments.refund.confirm ──────────────────────────────────────────────────
+
+/**
+ * Confirmación segregada de un reembolso de transferencia pendiente —
+ * `UC-PAY-004` §Reembolso de transferencia o QR manual, reglas 5–7. Quien la
+ * invoca no puede ser quien solicitó la devolución que originó el reembolso:
+ * el store lo rechaza con `SAME_ACTOR_NOT_ALLOWED`, no este contrato — el
+ * cruce exige leer `payments_refunds.requested_by_actor_id`, autoridad que
+ * este esquema no tiene.
+ *
+ * No verifica nada contra un banco. Registra la evidencia que el confirmador
+ * declara haber visto: «una captura, mensaje, número digitado o declaración
+ * del ejecutor puede ser soporte, pero no confirma por sí solo» — la
+ * responsabilidad de que sea cierta es de quien firma la confirmación, no del
+ * sistema.
+ */
+export const PaymentsRefundConfirmRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    refund_id: UuidSchema,
+    provider_reference: z.string().trim().min(1).max(100),
+    destination_reference: z.string().trim().min(1).max(200),
+  }),
+).safeExtend({ message_type: z.literal("payments.refund.confirm") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentsRefundConfirmResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CONFIRMED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "IDEMPOTENCY_CONFLICT",
+    "REFUND_NOT_FOUND",
+    "REFUND_NOT_PENDING",
+    "SAME_ACTOR_NOT_ALLOWED",
+  ]),
+  refund_id: UuidSchema.nullable(),
+  completed_amount: NonNegativeScale6Schema.nullable(),
+});
+
+export const PaymentsRefundConfirmResponseSchema = createResponseEnvelopeSchema(PaymentsRefundConfirmResultSchema);
 
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
@@ -2365,6 +2417,7 @@ export type SalesReceiptPrintResult = z.infer<typeof SalesReceiptPrintResultSche
 export type CashDrawerOpenResult = z.infer<typeof CashDrawerOpenResultSchema>;
 export type CashDrawerReason = z.infer<typeof CashDrawerReasonSchema>;
 export type SalesReturnCreateResult = z.infer<typeof SalesReturnCreateResultSchema>;
+export type PaymentsRefundConfirmResult = z.infer<typeof PaymentsRefundConfirmResultSchema>;
 export type ReturnPhysicalCondition = z.infer<typeof ReturnPhysicalConditionSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;

@@ -66,6 +66,10 @@ export const IPC_ALLOWED_CHANNELS = [
   // Devolución — `B11`. Mutante: entrega efectivo y repone mercancía; exige
   // clave de idempotencia y los seis permisos de devolución y reembolso.
   "pos:sales.return.create",
+  // Confirmación segregada de un reembolso de transferencia — `D-49`.
+  // Mutante: exige idempotencia; el permiso y el cruce de actor los valida el
+  // servicio, no el canal.
+  "pos:payments.refund.confirm",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

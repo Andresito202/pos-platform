@@ -2783,6 +2783,141 @@ CREATE TRIGGER payments_refund_items_no_delete
   BEGIN SELECT RAISE(ABORT, 'refund items are append-only'); END;
 `.trim();
 
+/**
+ * `payments_refunds` admite `TRANSFER` — `D-49`, `UC-PAY-004` §Reembolso de
+ * transferencia o QR manual.
+ *
+ * **Por qué reconstruir la tabla.** SQLite no permite ampliar un `CHECK` con
+ * `ALTER TABLE`; es el mismo motivo que `MIGRATION_024` y `MIGRATION_030` ya
+ * documentaron. Se reconstruye completa, con las filas existentes intactas.
+ *
+ * ## Por qué QR no entra aquí
+ *
+ * El pago QR de este sistema es `EXTERNAL_PROVIDER_AUTHORITATIVE` (Wompi), no
+ * atestación manual: reembolsarlo exige una llamada real de reversal/refund al
+ * proveedor, que `PaymentProviderPort` no tiene. `UC-PAY-004`
+ * §Reembolso de tarjeta o proveedor externo — no §transferencia — es la que
+ * gobernaría ese caso, y no se inventa la integración para adelantarla. QR
+ * sigue `REFUND_METHOD_NOT_SUPPORTED`.
+ *
+ * ## Las columnas nuevas son la evidencia de la regla 6 de UC-PAY-004
+ *
+ * «Se registran referencia, valor, cuenta origen autorizada, destino
+ * protegido y confirmador.» `provider_reference` es la referencia bancaria;
+ * `destination_reference` es la cuenta destino, en texto — no es un secreto
+ * de proveedor, es un dato comercial que el confirmador declara haber visto;
+ * `confirmed_by_actor_id` es el confirmador. Los tres son `NULL` mientras el
+ * reembolso está `PROCESSING`, y el `CHECK` exige los tres —y que el
+ * confirmador no sea quien solicitó— antes de aceptar `COMPLETED` para
+ * `TRANSFER`: «un actor segregado verifica la fuente financiera autorizada»
+ * no es una recomendación de pantalla, es una condición que el esquema impone.
+ */
+const MIGRATION_035 = `
+CREATE TABLE payments_refunds_rebuilt (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  payment_id TEXT NOT NULL CHECK(length(payment_id) = 36),
+  sale_return_id TEXT CHECK(sale_return_id IS NULL OR length(sale_return_id) = 36),
+  commercial_refund_amount TEXT NOT NULL
+    CHECK(commercial_refund_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(commercial_refund_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(commercial_refund_amount) - length(replace(commercial_refund_amount, '.', '')) = 1)
+    CHECK(commercial_refund_amount NOT GLOB '0[0-9]*'),
+  refund_rounding_adjustment TEXT NOT NULL CHECK(
+    (refund_rounding_adjustment GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND refund_rounding_adjustment NOT GLOB '*[^0-9.]*'
+     AND length(refund_rounding_adjustment) - length(replace(refund_rounding_adjustment, '.', '')) = 1
+     AND refund_rounding_adjustment NOT GLOB '0[0-9]*')
+    OR
+    (refund_rounding_adjustment GLOB '-[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND refund_rounding_adjustment NOT GLOB '*[^0-9.-]*'
+     AND length(refund_rounding_adjustment) - length(replace(refund_rounding_adjustment, '.', '')) = 1)
+  ),
+  requested_amount TEXT NOT NULL
+    CHECK(requested_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(requested_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(requested_amount) - length(replace(requested_amount, '.', '')) = 1)
+    CHECK(requested_amount NOT GLOB '0[0-9]*')
+    CHECK(requested_amount <> '0.000000'),
+  completed_amount TEXT NOT NULL
+    CHECK(completed_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(completed_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(completed_amount) - length(replace(completed_amount, '.', '')) = 1)
+    CHECK(completed_amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  refund_method TEXT NOT NULL CHECK(refund_method IN ('CASH','TRANSFER')),
+  status TEXT NOT NULL CHECK(status IN (
+    'REQUESTED','PENDING_APPROVAL','APPROVED','PROCESSING','COMPLETED',
+    'PARTIALLY_COMPLETED','REJECTED','CANCELLED','FAILED','REVIEW_REQUIRED')),
+  cash_movement_id TEXT CHECK(cash_movement_id IS NULL OR length(cash_movement_id) = 36),
+  provider_reference TEXT CHECK(provider_reference IS NULL OR length(trim(provider_reference)) BETWEEN 1 AND 100),
+  destination_reference TEXT CHECK(destination_reference IS NULL OR length(trim(destination_reference)) BETWEEN 1 AND 200),
+  confirmed_by_actor_id TEXT CHECK(confirmed_by_actor_id IS NULL OR length(confirmed_by_actor_id) = 36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  requested_by_actor_id TEXT NOT NULL CHECK(length(requested_by_actor_id) = 36),
+  approved_by_actor_id TEXT CHECK(approved_by_actor_id IS NULL OR length(approved_by_actor_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  requested_at TEXT NOT NULL,
+  approved_at TEXT,
+  completed_at TEXT,
+  server_recorded_at TEXT,
+  CHECK((approved_by_actor_id IS NULL) = (approved_at IS NULL)),
+  CHECK(status <> 'COMPLETED' OR (completed_at IS NOT NULL AND completed_amount = requested_amount)),
+  CHECK(refund_method <> 'CASH' OR status <> 'COMPLETED' OR cash_movement_id IS NOT NULL),
+  CHECK(refund_method <> 'TRANSFER' OR status <> 'COMPLETED' OR (
+    provider_reference IS NOT NULL AND destination_reference IS NOT NULL
+    AND confirmed_by_actor_id IS NOT NULL AND confirmed_by_actor_id <> requested_by_actor_id
+  )),
+  CHECK(refund_method = 'TRANSFER' OR (
+    provider_reference IS NULL AND destination_reference IS NULL AND confirmed_by_actor_id IS NULL
+  )),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_return_id) REFERENCES sales_sale_returns(tenant_id, id),
+  FOREIGN KEY (tenant_id, cash_movement_id) REFERENCES cash_movement(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+
+INSERT INTO payments_refunds_rebuilt(
+  id, tenant_id, company_id, branch_id, payment_id, sale_return_id,
+  commercial_refund_amount, refund_rounding_adjustment, requested_amount, completed_amount,
+  currency_code, refund_method, status, cash_movement_id,
+  provider_reference, destination_reference, confirmed_by_actor_id,
+  reason_code, requested_by_actor_id, approved_by_actor_id,
+  idempotency_key, request_checksum, correlation_id, causation_id, version,
+  requested_at, approved_at, completed_at, server_recorded_at
+)
+SELECT
+  id, tenant_id, company_id, branch_id, payment_id, sale_return_id,
+  commercial_refund_amount, refund_rounding_adjustment, requested_amount, completed_amount,
+  currency_code, refund_method, status, cash_movement_id,
+  NULL, NULL, NULL,
+  reason_code, requested_by_actor_id, approved_by_actor_id,
+  idempotency_key, request_checksum, correlation_id, causation_id, version,
+  requested_at, approved_at, completed_at, server_recorded_at
+FROM payments_refunds;
+
+DROP TABLE payments_refunds;
+ALTER TABLE payments_refunds_rebuilt RENAME TO payments_refunds;
+
+CREATE UNIQUE INDEX payments_refunds_idempotency_idx
+  ON payments_refunds(tenant_id, idempotency_key);
+CREATE INDEX payments_refunds_payment_idx
+  ON payments_refunds(tenant_id, payment_id);
+CREATE TRIGGER payments_refunds_terminal_final
+  BEFORE UPDATE ON payments_refunds
+  FOR EACH ROW WHEN OLD.status IN ('COMPLETED','REJECTED','CANCELLED')
+  BEGIN SELECT RAISE(ABORT, 'a terminal refund is final'); END;
+CREATE TRIGGER payments_refunds_no_delete
+  BEFORE DELETE ON payments_refunds
+  BEGIN SELECT RAISE(ABORT, 'refunds are append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2818,6 +2953,7 @@ const MIGRATIONS = [
   { version: 32, sql: MIGRATION_032, checksum: createHash("sha256").update(MIGRATION_032).digest("hex") },
   { version: 33, sql: MIGRATION_033, checksum: createHash("sha256").update(MIGRATION_033).digest("hex") },
   { version: 34, sql: MIGRATION_034, checksum: createHash("sha256").update(MIGRATION_034).digest("hex") },
+  { version: 35, sql: MIGRATION_035, checksum: createHash("sha256").update(MIGRATION_035).digest("hex") },
 ] as const;
 
 /**

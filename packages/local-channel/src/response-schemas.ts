@@ -23,6 +23,7 @@ import {
   SalesReceiptPrintResponseSchema,
   CashDrawerOpenResponseSchema,
   SalesReturnCreateResponseSchema,
+  PaymentsRefundConfirmResponseSchema,
   OperationConfirmResponseSchema,
   OperationResultResponseSchema,
   PaymentCancelResponseSchema,
@@ -109,6 +110,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "sales.receipt.print": SalesReceiptPrintResponseSchema,
   "cash.drawer.open": CashDrawerOpenResponseSchema,
   "sales.return.create": SalesReturnCreateResponseSchema,
+  "payments.refund.confirm": PaymentsRefundConfirmResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {

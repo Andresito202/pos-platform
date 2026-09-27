@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { SalesReturnCreateRequestSchema } from "@pos-platform/contracts";
+import { PaymentsRefundConfirmRequestSchema, SalesReturnCreateRequestSchema } from "@pos-platform/contracts";
 import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 import { ReturnPanel } from "../../renderer/src/components/ReturnPanel.js";
 
@@ -54,7 +54,7 @@ function returned(outcome: string, extra: Record<string, unknown> = {}, status =
     status, result_code: outcome,
     result: {
       outcome, sale_return_id: null, refund_id: null, commercial_amount: null, rounding_adjustment: null,
-      refunded_amount: null, restocked_lines: null, fiscal_correction: null, ...extra,
+      refunded_amount: null, restocked_lines: null, fiscal_correction: null, refund_status: null, ...extra,
     },
   };
 }
@@ -64,7 +64,23 @@ const COMPLETED = returned("COMPLETED", {
   refund_id: "88888888-8888-4888-8888-888888888888",
   commercial_amount: "4200.000000", rounding_adjustment: "0.000000",
   refunded_amount: "4200.000000", restocked_lines: 1, fiscal_correction: "NO_FISCAL_DOCUMENT",
+  refund_status: "COMPLETED",
 });
+
+const TRANSFER_RECEIPT = {
+  status: "SUCCEEDED", result_code: "FOUND",
+  result: {
+    ...RECEIPT.result,
+    payments: [{
+      payment_method: "TRANSFER", confirmed_amount: "11200.000000", tendered_amount: null, change_amount: null,
+      currency_code: "COP", confirmed_at: "2026-09-27T12:00:00.000Z",
+    }],
+  },
+};
+
+function confirmed(outcome: string, extra: Record<string, unknown> = {}, status = "SUCCEEDED") {
+  return { status, result_code: outcome, result: { outcome, refund_id: null, completed_amount: null, ...extra } };
+}
 
 async function loadSale(): Promise<void> {
   fireEvent.change(screen.getByTestId("return-sale-id-input"), { target: { value: SALE } });
@@ -172,5 +188,104 @@ describe("ReturnPanel — devolución de una venta cobrada (B11)", () => {
     fireEvent.click(screen.getByTestId("return-load-button"));
     await waitFor(() => { expect(screen.getByTestId("return-sale-not-completed")).toBeTruthy(); });
     expect(screen.queryByTestId("return-form")).toBeNull();
+  });
+
+  it("una venta cobrada en efectivo exige caja; el rechazo del servicio se explica igual", async () => {
+    install({
+      "sales.receipt.get": RECEIPT,
+      "sales.return.create": returned("CASH_REGISTER_REQUIRED", {}, "REJECTED"),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    fireEvent.click(screen.getByTestId("return-line-check-1"));
+    const submit = screen.getByTestId("return-submit-button") as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("return-register-input"), { target: { value: REGISTER } });
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => { expect(screen.getByTestId("return-rejected").textContent).toContain("indique de qué caja"); });
+  });
+
+  it("una venta por transferencia no pide caja, y el reembolso queda pendiente de confirmar", async () => {
+    install({
+      "sales.receipt.get": TRANSFER_RECEIPT,
+      "sales.return.create": returned("COMPLETED", {
+        sale_return_id: "77777777-7777-4777-8777-777777777777", refund_id: "88888888-8888-4888-8888-888888888888",
+        commercial_amount: "11200.000000", rounding_adjustment: "0.000000", refunded_amount: "11200.000000",
+        restocked_lines: 2, fiscal_correction: "NO_FISCAL_DOCUMENT", refund_status: "PROCESSING",
+      }),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    expect(screen.queryByTestId("return-register-input")).toBeNull();
+    fireEvent.click(screen.getByTestId("return-line-check-1"));
+    fireEvent.click(screen.getByTestId("return-line-check-2"));
+    fireEvent.click(screen.getByTestId("return-submit-button"));
+
+    await waitFor(() => { expect(calls.get("sales.return.create")).toHaveLength(1); });
+    const request = calls.get("sales.return.create")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["cash_register_id"]).toBeNull();
+    expect(() => SalesReturnCreateRequestSchema.parse(request)).not.toThrow();
+
+    await waitFor(() => { expect(screen.getByTestId("return-refund-pending")).toBeTruthy(); });
+    expect(screen.getByTestId("return-refund-pending-amount").textContent).toBe("11200.000000");
+    expect(screen.queryByTestId("return-refund-confirmed")).toBeNull();
+  });
+
+  it("confirmar el reembolso pide referencia y destino, y viaja con clave de idempotencia", async () => {
+    install({
+      "sales.receipt.get": TRANSFER_RECEIPT,
+      "sales.return.create": returned("COMPLETED", {
+        sale_return_id: "77777777-7777-4777-8777-777777777777", refund_id: "88888888-8888-4888-8888-888888888888",
+        commercial_amount: "4200.000000", rounding_adjustment: "0.000000", refunded_amount: "4200.000000",
+        restocked_lines: 1, fiscal_correction: "NO_FISCAL_DOCUMENT", refund_status: "PROCESSING",
+      }),
+      "payments.refund.confirm": confirmed("CONFIRMED", { refund_id: "88888888-8888-4888-8888-888888888888", completed_amount: "4200.000000" }),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    fireEvent.click(screen.getByTestId("return-line-check-2"));
+    fireEvent.click(screen.getByTestId("return-submit-button"));
+    await waitFor(() => { expect(screen.getByTestId("return-refund-pending")).toBeTruthy(); });
+
+    const confirmButton = screen.getByTestId("return-confirm-button") as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("return-confirm-reference-input"), { target: { value: "TRX-001" } });
+    expect(confirmButton.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("return-confirm-destination-input"), { target: { value: "Cuenta 123" } });
+    expect(confirmButton.disabled).toBe(false);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => { expect(calls.get("payments.refund.confirm")).toHaveLength(1); });
+    const request = calls.get("payments.refund.confirm")![0] as { payload: Record<string, unknown> };
+    expect(() => PaymentsRefundConfirmRequestSchema.parse(request)).not.toThrow();
+    expect(request.payload).toEqual({
+      refund_id: "88888888-8888-4888-8888-888888888888", provider_reference: "TRX-001", destination_reference: "Cuenta 123",
+    });
+    await waitFor(() => { expect(screen.getByTestId("return-refund-confirmed").textContent).toContain("4200.000000"); });
+    expect(screen.queryByTestId("return-refund-pending")).toBeNull();
+  });
+
+  it("si el mismo actor intenta confirmar, el rechazo lo explica y el reembolso sigue pendiente", async () => {
+    install({
+      "sales.receipt.get": TRANSFER_RECEIPT,
+      "sales.return.create": returned("COMPLETED", {
+        sale_return_id: "77777777-7777-4777-8777-777777777777", refund_id: "88888888-8888-4888-8888-888888888888",
+        commercial_amount: "4200.000000", rounding_adjustment: "0.000000", refunded_amount: "4200.000000",
+        restocked_lines: 1, fiscal_correction: "NO_FISCAL_DOCUMENT", refund_status: "PROCESSING",
+      }),
+      "payments.refund.confirm": confirmed("SAME_ACTOR_NOT_ALLOWED", {}, "REJECTED"),
+    });
+    render(<ReturnPanel />);
+    await loadSale();
+    fireEvent.click(screen.getByTestId("return-line-check-2"));
+    fireEvent.click(screen.getByTestId("return-submit-button"));
+    await waitFor(() => { expect(screen.getByTestId("return-refund-pending")).toBeTruthy(); });
+    fireEvent.change(screen.getByTestId("return-confirm-reference-input"), { target: { value: "TRX-001" } });
+    fireEvent.change(screen.getByTestId("return-confirm-destination-input"), { target: { value: "Cuenta 123" } });
+    fireEvent.click(screen.getByTestId("return-confirm-button"));
+
+    await waitFor(() => { expect(screen.getByTestId("return-confirm-rejected").textContent).toContain("otra persona"); });
+    expect(screen.getByTestId("return-refund-pending")).toBeTruthy();
   });
 });

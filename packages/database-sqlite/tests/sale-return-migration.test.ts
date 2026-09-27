@@ -111,10 +111,10 @@ async function openWithoutForeignKeys(): Promise<LocalDatabase> {
 }
 
 describe("MIGRATION_034 — devolución y reembolso", () => {
-  it("es la última versión del libro y crea las cuatro tablas", async () => {
+  it("está aplicada en el libro y crea las cuatro tablas", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(34);
-    expect((database.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get() as { v: number }).v).toBe(34);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(34);
+    expect(database.native.prepare("SELECT version FROM local_schema_migrations WHERE version = 34").get()).toBeDefined();
     const tables = (database.native.prepare(
       `SELECT name FROM sqlite_master WHERE type='table'
         AND name IN ('sales_sale_returns','sales_sale_return_lines','payments_refunds','payments_refund_items')

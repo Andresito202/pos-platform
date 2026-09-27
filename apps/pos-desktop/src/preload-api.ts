@@ -47,6 +47,7 @@ export const RENDERER_API_METHODS = [
   "sales.receipt.print",
   "cash.drawer.open",
   "sales.return.create",
+  "payments.refund.confirm",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];
