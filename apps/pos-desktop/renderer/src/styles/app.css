@@ -293,6 +293,20 @@ ul { margin: 0; padding: 0; list-style: none; }
   overflow-wrap: anywhere;
 }
 
+/* `overflow-wrap` no basta en un `<pre>`: por defecto `white-space: pre`
+   nunca parte línea, sin importar cuánto se pida encogerse. Es el caso de
+   `data-testid="operation-result"` (JSON crudo de `OperationPanel`) — el
+   único `<pre>` real del árbol, y desbordaba la tarjeta antes de esto. */
+.card pre {
+  white-space: pre-wrap;
+  font-size: 12px;
+  background: var(--neutral-wash);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 .card > h2 {
   font-size: 15px;
   color: var(--text);
