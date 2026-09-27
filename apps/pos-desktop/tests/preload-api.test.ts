@@ -49,6 +49,7 @@ describe("preload-api", () => {
       "sales.receipt.get",
       "sales.receipt.print",
       "cash.drawer.open",
+      "sales.return.create",
     ]);
   });
 

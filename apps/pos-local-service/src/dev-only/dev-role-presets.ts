@@ -21,6 +21,14 @@ import { PERMISSION_PAYMENTS_TRANSFER_CONFIRM } from "../payments/confirm-transf
 import { PERMISSION_PAYMENTS_PAYMENT_CANCEL } from "../payments/cancel-payment-use-case.js";
 import { PERMISSION_PAYMENTS_PAYMENT_READ } from "../payments/get-payment-use-case.js";
 import { PERMISSION_CASH_DRAWER_OPEN_MANUAL } from "../hardware/cash-drawer/open-cash-drawer-use-case.js";
+import {
+  PERMISSION_PAYMENTS_REFUND_APPROVE,
+  PERMISSION_PAYMENTS_REFUND_EXECUTE_CASH,
+  PERMISSION_PAYMENTS_REFUND_REQUEST,
+  PERMISSION_SALES_RETURN_APPROVE,
+  PERMISSION_SALES_RETURN_EXECUTE,
+  PERMISSION_SALES_RETURN_REQUEST,
+} from "../returns/create-sale-return-use-case.js";
 
 /**
  * Repartos de permisos **de ejemplo**, para revisar pantallas por rol antes
@@ -58,6 +66,8 @@ const CAJERO_PERMISSIONS = [
   PERMISSION_CUSTOMERS_CUSTOMER_REGISTER,
   PERMISSION_CUSTOMERS_CREDIT_ACCOUNT_READ,
   PERMISSION_CUSTOMERS_CREDIT_REPAYMENT_REGISTER,
+  // `permission-matrix.md`, fila «Devolver venta»: el cajero sólo solicita.
+  PERMISSION_SALES_RETURN_REQUEST,
 ] as const;
 
 const SUPERVISOR_PERMISSIONS = [
@@ -69,6 +79,10 @@ const SUPERVISOR_PERMISSIONS = [
   PERMISSION_PAYMENTS_TRANSFER_CONFIRM,
   PERMISSION_CUSTOMERS_CREDIT_ACCOUNT_MANAGE,
   PERMISSION_PAYMENTS_CREDIT_AUTHORIZE,
+  // Misma fila: el supervisor devuelve. El reembolso es de Payments y la fila
+  // no lo concede (`permission-matrix.md` §Segregación, regla 5).
+  PERMISSION_SALES_RETURN_APPROVE,
+  PERMISSION_SALES_RETURN_EXECUTE,
 ] as const;
 
 const ADMIN_PERMISSIONS = [
@@ -77,6 +91,9 @@ const ADMIN_PERMISSIONS = [
   // Ratificado el 2026-09-26 sólo para OWNER y GENERAL_ADMIN (`D-46`): de los
   // tres repartos de ejemplo, únicamente éste lo representa.
   PERMISSION_CASH_DRAWER_OPEN_MANUAL,
+  PERMISSION_PAYMENTS_REFUND_REQUEST,
+  PERMISSION_PAYMENTS_REFUND_APPROVE,
+  PERMISSION_PAYMENTS_REFUND_EXECUTE_CASH,
 ] as const;
 
 /** Únicos por rol: repetir un código no amplía nada y sólo alargaría la lista. */

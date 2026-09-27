@@ -117,6 +117,14 @@ const PERMISSIONS = [
   "PAYMENTS_PAYMENT_CANCEL",
   // `DEC-021` F5: la pantalla de emision fiscal.
   "FISCAL_DOCUMENT_ISSUE",
+  // `B11`: la devolucion en un paso exige los seis; el arnes recorre el ciclo
+  // con un solo operador, como en el credito.
+  "SALES_RETURN_REQUEST",
+  "SALES_RETURN_APPROVE",
+  "SALES_RETURN_EXECUTE",
+  "PAYMENTS_REFUND_REQUEST",
+  "PAYMENTS_REFUND_APPROVE",
+  "PAYMENTS_REFUND_EXECUTE_CASH",
 ];
 
 const keyPair = generateKeyPairSync("ed25519");

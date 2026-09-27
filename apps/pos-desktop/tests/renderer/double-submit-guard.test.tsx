@@ -7,6 +7,7 @@ import { useFiscalIssuance } from "../../renderer/src/hooks/useFiscalIssuance.js
 import { useCommercialSale } from "../../renderer/src/hooks/useCommercialSale.js";
 import { useReceipt } from "../../renderer/src/hooks/useReceipt.js";
 import { useCashDrawer } from "../../renderer/src/hooks/useCashDrawer.js";
+import { useSaleReturn } from "../../renderer/src/hooks/useSaleReturn.js";
 
 /**
  * Guarda de doble clic — hallazgo de la auditoría de seguridad del
@@ -212,5 +213,42 @@ describe("doble clic — cash.drawer.open manual (D-46)", () => {
     }));
     await waitFor(() => { expect(result.current.busy).toBe(false); });
     expect(result.current.outcome).toBe("OPENED");
+  });
+});
+
+describe("doble clic — sales.return.create (B11)", () => {
+  it("la segunda devolución, pedida antes de que responda la primera, no llega al servicio", async () => {
+    const first = pendingResponse<unknown>();
+    let calls = 0;
+    mockService({ "sales.return.create": () => { calls += 1; return first.promise; } });
+
+    const { result } = renderHook(() => useSaleReturn());
+    const request = {
+      saleId: "sale-1", cashRegisterId: "register-1", reasonCode: "CAMBIO_DE_OPINION", reasonDetail: null,
+      lines: [{ lineNumber: 1, physicalCondition: "RESTOCKABLE" as const }],
+    };
+
+    let secondCall: Promise<void> | undefined;
+    act(() => {
+      void result.current.submit(request);
+      secondCall = result.current.submit(request);
+    });
+    await secondCall;
+
+    // Es la guarda la que protege el efectivo, no el servicio: con otra clave,
+    // una devolución repetida sólo la detiene la línea ya devuelta, y eso
+    // depende de que la primera haya llegado antes.
+    expect(calls).toBe(1);
+
+    act(() => first.resolve({
+      status: "SUCCEEDED", result_code: "COMPLETED",
+      result: {
+        outcome: "COMPLETED", sale_return_id: "r1", refund_id: "f1", commercial_amount: "1000.000000",
+        rounding_adjustment: "0.000000", refunded_amount: "1000.000000", restocked_lines: 1,
+        fiscal_correction: "NO_FISCAL_DOCUMENT",
+      },
+    }));
+    await waitFor(() => { expect(result.current.busy).toBe(false); });
+    expect(result.current.result?.outcome).toBe("COMPLETED");
   });
 });

@@ -2459,6 +2459,330 @@ CREATE TRIGGER hardware_drawer_opening_no_delete
   BEGIN SELECT RAISE(ABORT, 'drawer openings are append-only'); END;
 `.trim();
 
+/**
+ * Devolución comercial y su reembolso — `B11`, contratos físicos
+ * `sale-return-schema.md` (TECH-002H) y `payments-schema.md` §refunds.
+ *
+ * Cuatro tablas y dos dueños: `sales_sale_returns`/`_lines` son de Sales,
+ * `payments_refunds`/`_items` de Payments. La devolución no escribe caja ni
+ * inventario: el `CASH_REFUND` y el `SALE_REVERSAL` son filas de sus propios
+ * dueños, que ya los admitían desde `MIGRATION_009` y `MIGRATION_025`.
+ *
+ * ## Columnas del contrato que no entran
+ *
+ * Mismo criterio que `MIGRATION_024`: lo que no tiene soporte real no se finge
+ * con una columna vacía. Quedan fuera `provider_configuration_version_id`,
+ * `provider_reference` y `evidence_snapshot` del reembolso —sólo existe el
+ * efectivo, que no tiene proveedor ni evidencia externa— y los checksums de
+ * snapshot por línea, que `sales_sale_items` no guarda.
+ *
+ * ## El redondeo va aparte
+ *
+ * `UC-PAY-004` §Redondeo: el importe comercial, el ajuste de redondeo y el
+ * efectivo entregado se conservan por separado. Las cabeceras suman sus líneas
+ * exactamente (importe comercial, sin signo) y el ajuste —que puede ser
+ * negativo, como en `sales_sales`— vive en su propia columna. El reembolso
+ * entregado es la suma de ambos y nunca es negativo.
+ *
+ * ## Una vez escrito, no cambia
+ *
+ * Las líneas y los ítems son append-only. Las cabeceras en estado terminal
+ * (`RETURN_COMPLETED`/`RETURN_REJECTED`, `COMPLETED`/`REJECTED`/`CANCELLED`)
+ * no admiten `UPDATE`: una corrección es otra operación, nunca la misma
+ * reescrita (`UC-SALES-002` §Invariantes, 11).
+ */
+const MIGRATION_034 = `
+CREATE TABLE sales_sale_returns (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  sale_id TEXT NOT NULL CHECK(length(sale_id) = 36),
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id) = 36),
+  requested_by_actor_id TEXT NOT NULL CHECK(length(requested_by_actor_id) = 36),
+  approved_by_actor_id TEXT CHECK(approved_by_actor_id IS NULL OR length(approved_by_actor_id) = 36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  reason_detail TEXT CHECK(reason_detail IS NULL OR length(trim(reason_detail)) BETWEEN 1 AND 200),
+  status TEXT NOT NULL CHECK(status IN (
+    'RETURN_REQUESTED','RETURN_UNDER_REVIEW','RETURN_APPROVED','RETURN_REJECTED',
+    'RETURN_EXECUTION_IN_PROGRESS','RETURN_PARTIALLY_COMPLETED','RETURN_COMPLETED',
+    'RETURN_FAILED','RETURN_REVIEW_REQUIRED')),
+  effective_at TEXT NOT NULL,
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  original_sale_payable_amount TEXT NOT NULL
+    CHECK(original_sale_payable_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(original_sale_payable_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(original_sale_payable_amount) - length(replace(original_sale_payable_amount, '.', '')) = 1)
+    CHECK(original_sale_payable_amount NOT GLOB '0[0-9]*'),
+  requested_return_amount TEXT NOT NULL
+    CHECK(requested_return_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(requested_return_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(requested_return_amount) - length(replace(requested_return_amount, '.', '')) = 1)
+    CHECK(requested_return_amount NOT GLOB '0[0-9]*'),
+  approved_return_amount TEXT CHECK(approved_return_amount IS NULL OR (
+    approved_return_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND approved_return_amount NOT GLOB '*[^0-9.]*'
+    AND length(approved_return_amount) - length(replace(approved_return_amount, '.', '')) = 1
+    AND approved_return_amount NOT GLOB '0[0-9]*')),
+  completed_return_amount TEXT NOT NULL
+    CHECK(completed_return_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(completed_return_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(completed_return_amount) - length(replace(completed_return_amount, '.', '')) = 1)
+    CHECK(completed_return_amount NOT GLOB '0[0-9]*'),
+  returned_tax_amount TEXT NOT NULL
+    CHECK(returned_tax_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(returned_tax_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(returned_tax_amount) - length(replace(returned_tax_amount, '.', '')) = 1)
+    CHECK(returned_tax_amount NOT GLOB '0[0-9]*'),
+  returned_rounding_adjustment TEXT NOT NULL CHECK(
+    (returned_rounding_adjustment GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND returned_rounding_adjustment NOT GLOB '*[^0-9.]*'
+     AND length(returned_rounding_adjustment) - length(replace(returned_rounding_adjustment, '.', '')) = 1
+     AND returned_rounding_adjustment NOT GLOB '0[0-9]*')
+    OR
+    (returned_rounding_adjustment GLOB '-[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND returned_rounding_adjustment NOT GLOB '*[^0-9.-]*'
+     AND length(returned_rounding_adjustment) - length(replace(returned_rounding_adjustment, '.', '')) = 1)
+  ),
+  pricing_pipeline_version TEXT NOT NULL CHECK(length(pricing_pipeline_version) > 0),
+  tax_policy_version TEXT NOT NULL CHECK(length(tax_policy_version) > 0),
+  rounding_policy_version TEXT NOT NULL CHECK(length(rounding_policy_version) > 0),
+  operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  expected_sale_version INTEGER NOT NULL CHECK(expected_sale_version > 0),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  requested_at TEXT NOT NULL,
+  approved_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version > 0),
+  CHECK((approved_by_actor_id IS NULL) = (approved_at IS NULL)),
+  CHECK((approved_by_actor_id IS NULL) = (approved_return_amount IS NULL)),
+  CHECK(status <> 'RETURN_COMPLETED' OR (completed_at IS NOT NULL AND approved_at IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_id) REFERENCES sales_sales(tenant_id, id),
+  FOREIGN KEY (operation_id) REFERENCES runtime_operations(operation_id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX sales_sale_returns_idempotency_idx
+  ON sales_sale_returns(tenant_id, idempotency_key);
+CREATE UNIQUE INDEX sales_sale_returns_operation_idx
+  ON sales_sale_returns(operation_id);
+CREATE INDEX sales_sale_returns_sale_idx
+  ON sales_sale_returns(tenant_id, sale_id);
+CREATE TRIGGER sales_sale_returns_terminal_final
+  BEFORE UPDATE ON sales_sale_returns
+  FOR EACH ROW WHEN OLD.status IN ('RETURN_COMPLETED','RETURN_REJECTED')
+  BEGIN SELECT RAISE(ABORT, 'a terminal sale return is final'); END;
+CREATE TRIGGER sales_sale_returns_no_delete
+  BEFORE DELETE ON sales_sale_returns
+  BEGIN SELECT RAISE(ABORT, 'sale returns are append-only'); END;
+
+CREATE TABLE sales_sale_return_lines (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  sale_return_id TEXT NOT NULL CHECK(length(sale_return_id) = 36),
+  sale_item_id TEXT NOT NULL CHECK(length(sale_item_id) = 36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id) = 36),
+  lot_id TEXT CHECK(lot_id IS NULL OR length(lot_id) = 36),
+  unit_id TEXT NOT NULL CHECK(length(unit_id) = 36),
+  sold_quantity_snapshot TEXT NOT NULL
+    CHECK(sold_quantity_snapshot GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(sold_quantity_snapshot NOT GLOB '*[^0-9.]*')
+    CHECK(length(sold_quantity_snapshot) - length(replace(sold_quantity_snapshot, '.', '')) = 1)
+    CHECK(sold_quantity_snapshot NOT GLOB '0[0-9]*')
+    CHECK(sold_quantity_snapshot <> '0.000000'),
+  previously_returned_quantity_snapshot TEXT NOT NULL
+    CHECK(previously_returned_quantity_snapshot GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(previously_returned_quantity_snapshot NOT GLOB '*[^0-9.]*')
+    CHECK(length(previously_returned_quantity_snapshot) - length(replace(previously_returned_quantity_snapshot, '.', '')) = 1)
+    CHECK(previously_returned_quantity_snapshot NOT GLOB '0[0-9]*'),
+  requested_quantity TEXT NOT NULL
+    CHECK(requested_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(requested_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(requested_quantity) - length(replace(requested_quantity, '.', '')) = 1)
+    CHECK(requested_quantity NOT GLOB '0[0-9]*')
+    CHECK(requested_quantity <> '0.000000'),
+  approved_quantity TEXT CHECK(approved_quantity IS NULL OR (
+    approved_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND approved_quantity NOT GLOB '*[^0-9.]*'
+    AND length(approved_quantity) - length(replace(approved_quantity, '.', '')) = 1
+    AND approved_quantity NOT GLOB '0[0-9]*')),
+  completed_quantity TEXT NOT NULL
+    CHECK(completed_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(completed_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(completed_quantity) - length(replace(completed_quantity, '.', '')) = 1)
+    CHECK(completed_quantity NOT GLOB '0[0-9]*'),
+  physical_condition TEXT NOT NULL CHECK(physical_condition IN (
+    'RESTOCKABLE','DAMAGED','EXPIRED','OPENED','QUARANTINE','DISCARDED',
+    'RETURN_TO_SUPPLIER','NOT_APPLICABLE')),
+  inventory_resolution TEXT NOT NULL CHECK(inventory_resolution IN (
+    'RETURN_TO_AVAILABLE','NO_RESTOCK','NOT_STOCK_CONTROLLED')),
+  original_unit_price TEXT NOT NULL
+    CHECK(original_unit_price GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(original_unit_price NOT GLOB '*[^0-9.]*')
+    CHECK(length(original_unit_price) - length(replace(original_unit_price, '.', '')) = 1)
+    CHECK(original_unit_price NOT GLOB '0[0-9]*'),
+  original_discount_amount TEXT NOT NULL
+    CHECK(original_discount_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(original_discount_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(original_discount_amount) - length(replace(original_discount_amount, '.', '')) = 1)
+    CHECK(original_discount_amount NOT GLOB '0[0-9]*'),
+  original_taxable_amount TEXT NOT NULL
+    CHECK(original_taxable_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(original_taxable_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(original_taxable_amount) - length(replace(original_taxable_amount, '.', '')) = 1)
+    CHECK(original_taxable_amount NOT GLOB '0[0-9]*'),
+  original_tax_amount TEXT NOT NULL
+    CHECK(original_tax_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(original_tax_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(original_tax_amount) - length(replace(original_tax_amount, '.', '')) = 1)
+    CHECK(original_tax_amount NOT GLOB '0[0-9]*'),
+  original_line_total TEXT NOT NULL
+    CHECK(original_line_total GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(original_line_total NOT GLOB '*[^0-9.]*')
+    CHECK(length(original_line_total) - length(replace(original_line_total, '.', '')) = 1)
+    CHECK(original_line_total NOT GLOB '0[0-9]*'),
+  requested_return_amount TEXT NOT NULL
+    CHECK(requested_return_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(requested_return_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(requested_return_amount) - length(replace(requested_return_amount, '.', '')) = 1)
+    CHECK(requested_return_amount NOT GLOB '0[0-9]*'),
+  approved_return_amount TEXT CHECK(approved_return_amount IS NULL OR (
+    approved_return_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND approved_return_amount NOT GLOB '*[^0-9.]*'
+    AND length(approved_return_amount) - length(replace(approved_return_amount, '.', '')) = 1
+    AND approved_return_amount NOT GLOB '0[0-9]*')),
+  completed_return_amount TEXT NOT NULL
+    CHECK(completed_return_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(completed_return_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(completed_return_amount) - length(replace(completed_return_amount, '.', '')) = 1)
+    CHECK(completed_return_amount NOT GLOB '0[0-9]*'),
+  returned_tax_amount TEXT NOT NULL
+    CHECK(returned_tax_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(returned_tax_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(returned_tax_amount) - length(replace(returned_tax_amount, '.', '')) = 1)
+    CHECK(returned_tax_amount NOT GLOB '0[0-9]*'),
+  created_at TEXT NOT NULL,
+  CHECK(inventory_resolution <> 'RETURN_TO_AVAILABLE' OR physical_condition = 'RESTOCKABLE'),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_return_id) REFERENCES sales_sale_returns(tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_item_id) REFERENCES sales_sale_items(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX sales_sale_return_lines_item_idx
+  ON sales_sale_return_lines(tenant_id, sale_return_id, sale_item_id);
+CREATE INDEX sales_sale_return_lines_sale_item_idx
+  ON sales_sale_return_lines(tenant_id, sale_item_id);
+CREATE TRIGGER sales_sale_return_lines_no_update
+  BEFORE UPDATE ON sales_sale_return_lines
+  BEGIN SELECT RAISE(ABORT, 'sale return lines are append-only'); END;
+CREATE TRIGGER sales_sale_return_lines_no_delete
+  BEFORE DELETE ON sales_sale_return_lines
+  BEGIN SELECT RAISE(ABORT, 'sale return lines are append-only'); END;
+
+CREATE TABLE payments_refunds (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id) = 36),
+  payment_id TEXT NOT NULL CHECK(length(payment_id) = 36),
+  sale_return_id TEXT CHECK(sale_return_id IS NULL OR length(sale_return_id) = 36),
+  commercial_refund_amount TEXT NOT NULL
+    CHECK(commercial_refund_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(commercial_refund_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(commercial_refund_amount) - length(replace(commercial_refund_amount, '.', '')) = 1)
+    CHECK(commercial_refund_amount NOT GLOB '0[0-9]*'),
+  refund_rounding_adjustment TEXT NOT NULL CHECK(
+    (refund_rounding_adjustment GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND refund_rounding_adjustment NOT GLOB '*[^0-9.]*'
+     AND length(refund_rounding_adjustment) - length(replace(refund_rounding_adjustment, '.', '')) = 1
+     AND refund_rounding_adjustment NOT GLOB '0[0-9]*')
+    OR
+    (refund_rounding_adjustment GLOB '-[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+     AND refund_rounding_adjustment NOT GLOB '*[^0-9.-]*'
+     AND length(refund_rounding_adjustment) - length(replace(refund_rounding_adjustment, '.', '')) = 1)
+  ),
+  requested_amount TEXT NOT NULL
+    CHECK(requested_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(requested_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(requested_amount) - length(replace(requested_amount, '.', '')) = 1)
+    CHECK(requested_amount NOT GLOB '0[0-9]*')
+    CHECK(requested_amount <> '0.000000'),
+  completed_amount TEXT NOT NULL
+    CHECK(completed_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(completed_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(completed_amount) - length(replace(completed_amount, '.', '')) = 1)
+    CHECK(completed_amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  refund_method TEXT NOT NULL CHECK(refund_method IN ('CASH')),
+  status TEXT NOT NULL CHECK(status IN (
+    'REQUESTED','PENDING_APPROVAL','APPROVED','PROCESSING','COMPLETED',
+    'PARTIALLY_COMPLETED','REJECTED','CANCELLED','FAILED','REVIEW_REQUIRED')),
+  cash_movement_id TEXT CHECK(cash_movement_id IS NULL OR length(cash_movement_id) = 36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  requested_by_actor_id TEXT NOT NULL CHECK(length(requested_by_actor_id) = 36),
+  approved_by_actor_id TEXT CHECK(approved_by_actor_id IS NULL OR length(approved_by_actor_id) = 36),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) > 0),
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum) = 64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version > 0),
+  requested_at TEXT NOT NULL,
+  approved_at TEXT,
+  completed_at TEXT,
+  server_recorded_at TEXT,
+  CHECK((approved_by_actor_id IS NULL) = (approved_at IS NULL)),
+  CHECK(status <> 'COMPLETED' OR (completed_at IS NOT NULL AND completed_amount = requested_amount)),
+  CHECK(refund_method <> 'CASH' OR status <> 'COMPLETED' OR cash_movement_id IS NOT NULL),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_id) REFERENCES payments_payments(tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_return_id) REFERENCES sales_sale_returns(tenant_id, id),
+  FOREIGN KEY (tenant_id, cash_movement_id) REFERENCES cash_movement(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX payments_refunds_idempotency_idx
+  ON payments_refunds(tenant_id, idempotency_key);
+CREATE INDEX payments_refunds_payment_idx
+  ON payments_refunds(tenant_id, payment_id);
+CREATE TRIGGER payments_refunds_terminal_final
+  BEFORE UPDATE ON payments_refunds
+  FOR EACH ROW WHEN OLD.status IN ('COMPLETED','REJECTED','CANCELLED')
+  BEGIN SELECT RAISE(ABORT, 'a terminal refund is final'); END;
+CREATE TRIGGER payments_refunds_no_delete
+  BEFORE DELETE ON payments_refunds
+  BEGIN SELECT RAISE(ABORT, 'refunds are append-only'); END;
+
+CREATE TABLE payments_refund_items (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  refund_id TEXT NOT NULL CHECK(length(refund_id) = 36),
+  payment_allocation_id TEXT NOT NULL CHECK(length(payment_allocation_id) = 36),
+  sale_return_line_id TEXT CHECK(sale_return_line_id IS NULL OR length(sale_return_line_id) = 36),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount) - length(replace(amount, '.', '')) = 1)
+    CHECK(amount NOT GLOB '0[0-9]*')
+    CHECK(amount <> '0.000000'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code) = 3),
+  item_sequence INTEGER NOT NULL CHECK(item_sequence > 0),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, refund_id) REFERENCES payments_refunds(tenant_id, id),
+  FOREIGN KEY (tenant_id, payment_allocation_id) REFERENCES payments_payment_allocations(tenant_id, id),
+  FOREIGN KEY (tenant_id, sale_return_line_id) REFERENCES sales_sale_return_lines(tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE UNIQUE INDEX payments_refund_items_sequence_idx
+  ON payments_refund_items(tenant_id, refund_id, item_sequence);
+CREATE TRIGGER payments_refund_items_no_update
+  BEFORE UPDATE ON payments_refund_items
+  BEGIN SELECT RAISE(ABORT, 'refund items are append-only'); END;
+CREATE TRIGGER payments_refund_items_no_delete
+  BEFORE DELETE ON payments_refund_items
+  BEGIN SELECT RAISE(ABORT, 'refund items are append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2493,6 +2817,7 @@ const MIGRATIONS = [
   { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
   { version: 32, sql: MIGRATION_032, checksum: createHash("sha256").update(MIGRATION_032).digest("hex") },
   { version: 33, sql: MIGRATION_033, checksum: createHash("sha256").update(MIGRATION_033).digest("hex") },
+  { version: 34, sql: MIGRATION_034, checksum: createHash("sha256").update(MIGRATION_034).digest("hex") },
 ] as const;
 
 /**

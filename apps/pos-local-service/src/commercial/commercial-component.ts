@@ -63,6 +63,8 @@ import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-docum
 import { PrintReceiptUseCase, type ConfiguredReceiptPrinter } from "../hardware/print-queue/print-receipt-use-case.js";
 import { SqlitePrintQueueStore } from "../hardware/print-queue/sqlite-print-queue-store.js";
 import { OpenCashDrawerUseCase } from "../hardware/cash-drawer/open-cash-drawer-use-case.js";
+import { SqliteSaleReturnStore } from "../returns/sqlite-sale-return-store.js";
+import { CreateSaleReturnUseCase } from "../returns/create-sale-return-use-case.js";
 import { SqliteDrawerStore } from "../hardware/cash-drawer/sqlite-drawer-store.js";
 import type { DrawerCommand } from "../hardware/cash-drawer/cash-drawer.js";
 import type { DeviceAdapter } from "../hardware/device-port.js";
@@ -148,6 +150,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getReceipt: GetReceiptUseCase;
         readonly printReceipt: PrintReceiptUseCase;
         readonly openCashDrawer: OpenCashDrawerUseCase;
+        readonly createSaleReturn: CreateSaleReturnUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
          * falta `fiscal_environment` (`POS_FISCAL_ENVIRONMENT`) o no hay
@@ -246,6 +249,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get printReceipt(): PrintReceiptUseCase { return this.ready.printReceipt; }
   get openCashDrawer(): OpenCashDrawerUseCase { return this.ready.openCashDrawer; }
+  get createSaleReturn(): CreateSaleReturnUseCase { return this.ready.createSaleReturn; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
   get listFiscalDocuments(): ListFiscalDocumentsUseCase { return this.ready.listFiscalDocuments; }
 
@@ -359,6 +363,11 @@ export class CommercialComponent implements RuntimeComponent {
       getReceipt,
       printReceipt: new PrintReceiptUseCase(getReceipt, printQueue, this.receiptPrinter, this.now),
       openCashDrawer: new OpenCashDrawerUseCase(drawerStore, this.cashDrawer, this.now),
+      // Caja e inventario satisfacen los puertos de la devolución estructuralmente.
+      createSaleReturn: new CreateSaleReturnUseCase(
+        new SqliteSaleReturnStore(database, sync, cashShiftStore, inventoryStore, this.now),
+        this.now,
+      ),
       registerProduct,
       setFiscalAttribute,
       addPresentation: new AddPresentationUseCase(catalogStore),

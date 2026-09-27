@@ -1396,3 +1396,99 @@ test("el comerciante carga su catálogo pegando su hoja de Excel, y lo cargado s
   await expect(page.getByTestId("catalog-import-rejected")).toContainText("CODE_ALREADY_REGISTERED");
   await expect(page.getByTestId("catalog-import-rejected")).toContainText("Línea 2");
 });
+
+test("un cliente devuelve lo que compró: la pantalla reembolsa y la mercancía vuelve (B11)", async () => {
+  const page = await app.firstWindow();
+  type Service = Record<string, (request: unknown) => Promise<unknown>>;
+
+  // Autosuficiente, con el mismo criterio que la carga de catálogo: aislada
+  // activa la sesión; en la suite la SSA ya se aceptó y reenviarla es replay.
+  const activation = await page.evaluate(async (assertion) => {
+    const posService = (globalThis as unknown as { posService: Service }).posService;
+    const response = await posService["session.activate"]!({
+      protocol_version: "1.0.0", message_type: "session.activate", request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(), payload_schema_version: "1.0.0",
+      payload: { session_assertion: assertion },
+    });
+    const typed = response as { result_code: string; result: { decision: string | null } | null };
+    return `${typed.result_code}/${typed.result?.decision ?? "-"}`;
+  }, sessionAssertion);
+  expect(["ACTIVATED/-", "REJECTED/SEQUENCE_REPLAY"]).toContain(activation);
+
+  // Preparación por el canal, como en el primer recorrido: un artículo propio
+  // con cinco unidades, para que la cuenta no dependa de otras pruebas.
+  const barcode = `77093${String(Date.now()).slice(-8)}`;
+  const presentationId = await page.evaluate(async (code) => {
+    const posService = (globalThis as unknown as { posService: Service }).posService;
+    const mutating = (messageType: string, payload: unknown) => ({
+      protocol_version: "1.0.0", message_type: messageType, request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+      idempotency_key: crypto.randomUUID(), payload_schema_version: "1.0.0", payload,
+    });
+    const registered = await posService["catalog.product.register"]!(mutating("catalog.product.register", {
+      code: `DEV-${code.slice(-6)}`, name: "Galletas de avena", stock_controlled: true,
+      presentation_name: "Paquete x 6", unit_code: "UND", unit_precision: 0, barcode: code,
+      price_amount: "4500.000000", currency_code: "COP",
+    }));
+    const id = (registered as { result: { presentation_id: string } }).result.presentation_id;
+    await posService["inventory.stock.receive"]!(mutating("inventory.stock.receive", {
+      presentation_id: id, movement_type: "PURCHASE_RECEIPT", quantity: "5.000000",
+      reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+    }));
+    return id;
+  }, barcode);
+  const stockOf = async (): Promise<string> => page.evaluate(async (id) => {
+    const posService = (globalThis as unknown as { posService: Service }).posService;
+    const response = await posService["inventory.stock.get"]!({
+      protocol_version: "1.0.0", message_type: "inventory.stock.get", request_id: crypto.randomUUID(),
+      correlation_id: crypto.randomUUID(), payload_schema_version: "1.0.0", payload: { presentation_id: id },
+    });
+    return (response as { result: { quantity_on_hand: string } }).result.quantity_on_hand;
+  }, presentationId);
+
+  // Desde aquí, sólo la pantalla. La venta: dos paquetes en efectivo.
+  if (await page.getByTestId("shift-open").count() === 0) {
+    await page.getByTestId("cash-register-input").fill(REGISTER);
+    await page.getByTestId("opening-amount-input").fill("0");
+    await page.getByTestId("open-shift-button").click();
+    await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
+  }
+  await page.getByTestId("reset-button").click();
+  await page.getByTestId("barcode-input").fill(barcode);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("found-item-name")).toHaveText("Galletas de avena", { timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("2");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("charge-cash-button").click();
+  await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(await stockOf()).toBe("3.000000");
+
+  // La devolución, desde su pantalla.
+  await page.getByTestId("return-sale-id-input").fill(saleId);
+  await page.getByTestId("return-load-button").click();
+  await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await page.getByTestId("return-line-check-1").check();
+  await page.getByTestId("return-register-input").fill(REGISTER);
+  await page.getByTestId("return-submit-button").click();
+
+  // El importe lo decide el servicio desde la venta congelada: 2 × 4500.
+  await expect(page.getByTestId("return-completed")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("return-refunded-amount")).toHaveText("9000.000000");
+  expect(await page.getByTestId("return-fiscal-pending").count()).toBe(0);
+  expect(await stockOf()).toBe("5.000000");
+
+  // Una segunda devolución de la misma línea no entrega efectivo otra vez.
+  await page.getByTestId("return-reset-button").click();
+  await page.getByTestId("return-sale-id-input").fill(saleId);
+  await page.getByTestId("return-load-button").click();
+  await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await page.getByTestId("return-line-check-1").check();
+  await page.getByTestId("return-register-input").fill(REGISTER);
+  await page.getByTestId("return-submit-button").click();
+  await expect(page.getByTestId("return-rejected")).toContainText("ya se devolvió", { timeout: 15_000 });
+  expect(await stockOf()).toBe("5.000000");
+});

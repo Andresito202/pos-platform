@@ -4,6 +4,7 @@ import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ProviderPaymentPanel } from "./components/ProviderPaymentPanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
+import { ReturnPanel } from "./components/ReturnPanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
 import { CatalogImportPanel } from "./components/CatalogImportPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
@@ -52,6 +53,7 @@ export function App(): React.JSX.Element {
       <SalePanel />
       <ProviderPaymentPanel />
       <ReceiptPanel />
+      <ReturnPanel />
       <CustomerPanel />
       <CreditPanel />
       <FiscalPanel />

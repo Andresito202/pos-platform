@@ -3871,3 +3871,375 @@ describe("cash.drawer.open cruza el socket real hasta el pulso (D-46)", () => {
     });
   }, 30_000);
 });
+
+// ── sales.return.create — `B11` ─────────────────────────────────────────────
+
+const RETURN_PERMISSIONS = [
+  "SALES_RETURN_REQUEST", "SALES_RETURN_APPROVE", "SALES_RETURN_EXECUTE",
+  "PAYMENTS_REFUND_REQUEST", "PAYMENTS_REFUND_APPROVE", "PAYMENTS_REFUND_EXECUTE_CASH",
+];
+
+function returnRequest(saleId: string, key: string, lines: { line_number: number; physical_condition: string }[] = [
+  { line_number: 1, physical_condition: "RESTOCKABLE" },
+]) {
+  return mutating("sales.return.create", {
+    sale_id: saleId,
+    cash_register_id: REGISTER,
+    reason_code: "CUSTOMER_CHANGED_MIND",
+    reason_detail: null,
+    lines,
+  }, key);
+}
+
+function refundMovementsOf(database: LocalDatabase): { amount: string; direction: string; cash_shift_id: string }[] {
+  return database.native.prepare(
+    "SELECT amount, direction, cash_shift_id FROM cash_movement WHERE movement_type='CASH_REFUND' ORDER BY created_at",
+  ).all() as { amount: string; direction: string; cash_shift_id: string }[];
+}
+
+/** Lo que una devolución deja escrito en cada tabla que toca, para comprobar que nada se duplica ni sobra. */
+function returnFootprint(database: LocalDatabase): Record<string, number> {
+  return {
+    returns: countOf(database, "SELECT COUNT(*) n FROM sales_sale_returns"),
+    lines: countOf(database, "SELECT COUNT(*) n FROM sales_sale_return_lines"),
+    refunds: countOf(database, "SELECT COUNT(*) n FROM payments_refunds"),
+    refundItems: countOf(database, "SELECT COUNT(*) n FROM payments_refund_items"),
+    cashRefunds: countOf(database, "SELECT COUNT(*) n FROM cash_movement WHERE movement_type='CASH_REFUND'"),
+    restocks: countOf(database, "SELECT COUNT(*) n FROM inventory_movement WHERE movement_type='SALE_REVERSAL'"),
+    outbox: countOf(database, "SELECT COUNT(*) n FROM local_sync_outbox WHERE operation_type IN ('SALE_RETURN_COMPLETED','REFUND_COMPLETED')"),
+    audit: countOf(database, "SELECT COUNT(*) n FROM local_operation_audit WHERE action_code IN ('SALE_RETURN_COMPLETED','REFUND_COMPLETED')"),
+  };
+}
+
+const NOTHING_WRITTEN = {
+  returns: 0, lines: 0, refunds: 0, refundItems: 0, cashRefunds: 0, restocks: 0, outbox: 0, audit: 0,
+};
+
+describe("sales.return.create cruza el socket real hasta caja e inventario (B11)", () => {
+  it("devolver la venta entera reembolsa lo cobrado, repone la mercancía y deja rastro", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId, paymentId } = await cashPaidSale(send, database, "ret1");
+      const presentationId = (database.native.prepare(
+        "SELECT presentation_id FROM sales_sale_items WHERE sale_id=?",
+      ).get(saleId) as { presentation_id: string }).presentation_id;
+      expect(stockOf(database, presentationId)).toBe("10.000000");
+
+      const response = await send(returnRequest(saleId, "ret1:return"));
+      expect(response.status).toBe("SUCCEEDED");
+      expect(response.result).toMatchObject({
+        outcome: "COMPLETED",
+        commercial_amount: "36000.000000",
+        rounding_adjustment: "0.000000",
+        refunded_amount: "36000.000000",
+        restocked_lines: 1,
+        fiscal_correction: "NO_FISCAL_DOCUMENT",
+      });
+
+      // El efectivo sale del turno; lo que queda esperado es la base (cero).
+      expect(refundMovementsOf(database)).toEqual([
+        expect.objectContaining({ amount: "36000.000000", direction: "OUT" }),
+      ]);
+      expect(stockOf(database, presentationId)).toBe("12.000000");
+      const refund = database.native.prepare(
+        "SELECT payment_id, status, completed_amount FROM payments_refunds WHERE id=?",
+      ).get(response.result["refund_id"]) as { payment_id: string; status: string; completed_amount: string };
+      expect(refund).toEqual({ payment_id: paymentId, status: "COMPLETED", completed_amount: "36000.000000" });
+      expect(returnFootprint(database)).toEqual({
+        returns: 1, lines: 1, refunds: 1, refundItems: 1, cashRefunds: 1, restocks: 1, outbox: 2, audit: 2,
+      });
+
+      // La venta original no se toca: una devolución no reescribe la historia.
+      const sale = database.native.prepare("SELECT status, version FROM sales_sales WHERE id=?").get(saleId) as {
+        status: string; version: number;
+      };
+      expect(sale.status).toBe("COMPLETED");
+    });
+  }, 30_000);
+
+  it("repetir la misma petición es IDEMPOTENT y no entrega efectivo dos veces", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "ret2");
+      const first = await send(returnRequest(saleId, "ret2:return"));
+      const again = await send(returnRequest(saleId, "ret2:return"));
+      expect(again.status).toBe("SUCCEEDED");
+      expect(again.result).toMatchObject({
+        outcome: "IDEMPOTENT",
+        sale_return_id: first.result["sale_return_id"],
+        refund_id: first.result["refund_id"],
+        refunded_amount: "36000.000000",
+        restocked_lines: 1,
+      });
+      expect(returnFootprint(database)).toMatchObject({ returns: 1, cashRefunds: 1, restocks: 1, outbox: 2 });
+
+      // La misma clave con otro contenido no se reinterpreta.
+      const conflict = await send(returnRequest(saleId, "ret2:return", [{ line_number: 1, physical_condition: "DAMAGED" }]));
+      expect(conflict.result["outcome"]).toBe("IDEMPOTENCY_CONFLICT");
+      // Y con otra clave, la línea ya devuelta no vuelve a devolverse.
+      const twice = await send(returnRequest(saleId, "ret2:return:2"));
+      expect(twice.result["outcome"]).toBe("LINE_ALREADY_RETURNED");
+      expect(returnFootprint(database)).toMatchObject({ returns: 1, cashRefunds: 1 });
+    });
+  }, 30_000);
+
+  it("lo dañado se reembolsa pero no vuelve al disponible", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "ret3");
+      const presentationId = (database.native.prepare(
+        "SELECT presentation_id FROM sales_sale_items WHERE sale_id=?",
+      ).get(saleId) as { presentation_id: string }).presentation_id;
+      const response = await send(returnRequest(saleId, "ret3:return", [{ line_number: 1, physical_condition: "DAMAGED" }]));
+      expect(response.result).toMatchObject({ outcome: "COMPLETED", refunded_amount: "36000.000000", restocked_lines: 0 });
+      expect(stockOf(database, presentationId)).toBe("10.000000");
+      expect(returnFootprint(database)).toMatchObject({ restocks: 0, cashRefunds: 1 });
+      const line = database.native.prepare(
+        "SELECT physical_condition, inventory_resolution FROM sales_sale_return_lines",
+      ).get() as { physical_condition: string; inventory_resolution: string };
+      expect(line).toEqual({ physical_condition: "DAMAGED", inventory_resolution: "NO_RESTOCK" });
+    });
+  }, 30_000);
+
+  it("quien sólo puede solicitar, o no tiene permiso de reembolso, no devuelve nada", async () => {
+    for (const [label, permissions] of [
+      ["cajero", ["SALES_RETURN_REQUEST"]],
+      ["sin-reembolso", ["SALES_RETURN_REQUEST", "SALES_RETURN_APPROVE", "SALES_RETURN_EXECUTE"]],
+    ] as const) {
+      extraPermissions = [...permissions];
+      await withRealChannel(async (send, database) => {
+        const { saleId } = await cashPaidSale(send, database, `ret4${label.length}`);
+        const response = await send(returnRequest(saleId, `ret4:${label}`));
+        expect(response.status).toBe("REJECTED");
+        expect(response.result["outcome"]).toBe("UNAUTHORIZED");
+        expect(returnFootprint(database)).toEqual(NOTHING_WRITTEN);
+      });
+    }
+  }, 60_000);
+
+  it("el reembolso sale del turno abierto ahora; si no tiene el efectivo, no se escribe nada", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const { saleId } = await cashPaidSale(send, database, "ret5");
+      const shift = database.native.prepare(
+        "SELECT id, version FROM cash_shift WHERE status='OPEN'",
+      ).get() as { id: string; version: number };
+      const closed = await send(mutating("cash.shift.close", {
+        shift_id: shift.id, counted_amount: "36000.000000", expected_version: shift.version,
+      }, "ret5:close"));
+      expect(closed.result["outcome"]).toBe("CLOSED");
+
+      // Sin turno abierto no hay de dónde sacar el efectivo.
+      const noShift = await send(returnRequest(saleId, "ret5:a"));
+      expect(noShift.result["outcome"]).toBe("CASH_SHIFT_MISSING");
+
+      // Turno nuevo con base menor que el reembolso: no se inventa la salida,
+      // y la devolución entera se deshace — ni devolución, ni reingreso.
+      const small = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "10000.000000", business_date: "2026-09-04",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "ret5:open-small"));
+      expect(small.result["outcome"]).toBe("OPENED");
+      const short = await send(returnRequest(saleId, "ret5:b"));
+      expect(short.status).toBe("REJECTED");
+      expect(short.result["outcome"]).toBe("INSUFFICIENT_CASH");
+      expect(returnFootprint(database)).toEqual(NOTHING_WRITTEN);
+      expect(countOf(database, "SELECT COUNT(*) n FROM runtime_operations WHERE idempotency_key IN ('ret5:b','refund:ret5:b')")).toBe(0);
+
+      // Con otro turno que sí tiene el efectivo, sale de ése — no del turno de la venta.
+      const smallShift = database.native.prepare("SELECT id, version FROM cash_shift WHERE status='OPEN'").get() as { id: string; version: number };
+      await send(mutating("cash.shift.close", {
+        shift_id: smallShift.id, counted_amount: "10000.000000", expected_version: smallShift.version,
+      }, "ret5:close-small"));
+      const big = await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "50000.000000", business_date: "2026-09-05",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "ret5:open-big"));
+      const done = await send(returnRequest(saleId, "ret5:c"));
+      expect(done.result["outcome"]).toBe("COMPLETED");
+      expect(refundMovementsOf(database)).toEqual([
+        { amount: "36000.000000", direction: "OUT", cash_shift_id: big.result["shift_id"] },
+      ]);
+      // La fecha de negocio es la del turno que entregó el efectivo.
+      const restock = database.native.prepare(
+        "SELECT business_date FROM inventory_movement WHERE movement_type='SALE_REVERSAL'",
+      ).get() as { business_date: string };
+      expect(restock.business_date).toBe("2026-09-05");
+    });
+  }, 30_000);
+
+  it("una venta sin cobrar, inexistente o de líneas que no tiene se rechaza sin escribir", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "ret6");
+      const unpaid = await createSale(send, ids, "1.000000", "ret6:sale");
+      expect((await send(returnRequest(unpaid.saleId, "ret6:a"))).result["outcome"]).toBe("SALE_NOT_COMPLETED");
+      expect((await send(returnRequest(randomUUID(), "ret6:b"))).result["outcome"]).toBe("SALE_NOT_FOUND");
+
+      await send(mutating("payment.register.cash", {
+        sale_id: unpaid.saleId, amount: unpaid.payable, tendered_amount: null,
+      }, "ret6:pay"));
+      const missing = await send(returnRequest(unpaid.saleId, "ret6:c", [{ line_number: 9, physical_condition: "RESTOCKABLE" }]));
+      expect(missing.result["outcome"]).toBe("LINE_NOT_FOUND");
+      const quarantine = await send(returnRequest(unpaid.saleId, "ret6:d", [{ line_number: 1, physical_condition: "QUARANTINE" }]));
+      expect(quarantine.result["outcome"]).toBe("CONDITION_NOT_SUPPORTED");
+      expect(returnFootprint(database)).toEqual(NOTHING_WRITTEN);
+    });
+  }, 30_000);
+
+  it("una venta cobrada en dos pagos no tiene reembolso definido todavía", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "ret7");
+      const sale = await createSale(send, ids, "2.000000", "ret7:sale");
+      await send(mutating("payment.register.cash", { sale_id: sale.saleId, amount: "10000.000000", tendered_amount: null }, "ret7:p1"));
+      await send(mutating("payment.register.cash", { sale_id: sale.saleId, amount: "26000.000000", tendered_amount: null }, "ret7:p2"));
+      const response = await send(returnRequest(sale.saleId, "ret7:return"));
+      expect(response.result["outcome"]).toBe("REFUND_METHOD_NOT_SUPPORTED");
+      expect(returnFootprint(database)).toEqual(NOTHING_WRITTEN);
+    });
+  }, 30_000);
+
+  it("con ajuste de redondeo, la devolución parcial se rechaza y la total lo reproduce", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "ret8");
+      const odd = await send(mutating("catalog.product.register", {
+        code: "PAN-ret8", name: "Pan tajado", stock_controlled: true, presentation_name: "Paquete",
+        unit_code: "UND", unit_precision: 0, barcode: "7701234500252",
+        price_amount: "10025.000000", currency_code: "COP",
+      }, "ret8:catalog-pan"));
+      const oddPresentation = odd.result["presentation_id"] as string;
+      const oddProduct = odd.result["product_id"] as string;
+      await send(mutating("inventory.stock.receive", {
+        presentation_id: oddPresentation, movement_type: "PURCHASE_RECEIPT", quantity: "5.000000",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "ret8:stock-pan"));
+      const created = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300, document_series: "A", currency_code: "COP",
+        lines: [
+          { product_id: ids.productId, presentation_id: ids.presentationId, quantity: "1.000000" },
+          { product_id: oddProduct, presentation_id: oddPresentation, quantity: "1.000000" },
+        ],
+      }, "ret8:sale"));
+      const saleId = created.result["sale_id"] as string;
+      const payable = created.result["payable_amount"] as string;
+      const adjustment = (database.native.prepare(
+        "SELECT commercial_rounding_adjustment FROM sales_sales WHERE id=?",
+      ).get(saleId) as { commercial_rounding_adjustment: string }).commercial_rounding_adjustment;
+      expect(adjustment).not.toBe("0.000000");
+      await send(mutating("payment.register.cash", { sale_id: saleId, amount: payable, tendered_amount: null }, "ret8:pay"));
+
+      const partial = await send(returnRequest(saleId, "ret8:partial"));
+      expect(partial.result["outcome"]).toBe("ROUNDING_SHARE_NOT_SUPPORTED");
+      expect(returnFootprint(database)).toEqual(NOTHING_WRITTEN);
+
+      const full = await send(returnRequest(saleId, "ret8:full", [
+        { line_number: 1, physical_condition: "RESTOCKABLE" },
+        { line_number: 2, physical_condition: "RESTOCKABLE" },
+      ]));
+      // `DEC-006` §Devolución completa: lo devuelto es exactamente lo cobrado.
+      expect(full.result).toMatchObject({
+        outcome: "COMPLETED", refunded_amount: payable, rounding_adjustment: adjustment, restocked_lines: 2,
+      });
+    });
+  }, 30_000);
+
+  it("lo que salió de un lote vuelve a ese lote, y el libro del lote cuadra", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "ret9");
+      const received = await send(mutating("inventory.lot.receive", {
+        presentation_id: ids.presentationId, lot_code: "L-RET", quantity: "5.000000",
+        manufactured_date: null, expiry_date: "2026-12-31",
+        reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+      }, "ret9:lot"));
+      expect(received.result["outcome"]).toBe("RECEIVED");
+      const sale = await createSale(send, ids, "5.000000", "ret9:sale");
+      await send(mutating("payment.register.cash", { sale_id: sale.saleId, amount: sale.payable, tendered_amount: null }, "ret9:pay"));
+      const lotOf = (): { quantity_on_hand: string; status: string } => database.native.prepare(
+        "SELECT quantity_on_hand, status FROM inventory_lot WHERE lot_code='L-RET'",
+      ).get() as { quantity_on_hand: string; status: string };
+      expect(lotOf()).toEqual({ quantity_on_hand: "0.000000", status: "CONSUMED" });
+
+      const response = await send(returnRequest(sale.saleId, "ret9:return"));
+      expect(response.result["outcome"]).toBe("COMPLETED");
+      expect(lotOf()).toEqual({ quantity_on_hand: "5.000000", status: "ACTIVE" });
+      expect(lotLedgerMismatches(database)).toEqual([]);
+      // La entrada del lote cuelga del reingreso, que es el que nombra la venta.
+      expect(countOf(
+        database,
+        `SELECT COUNT(*) n FROM inventory_lot_allocation a
+           JOIN inventory_movement m ON m.tenant_id=a.tenant_id AND m.id=a.movement_id
+          WHERE a.direction='IN' AND m.movement_type='SALE_REVERSAL' AND m.sale_id=?`,
+        sale.saleId,
+      )).toBe(1);
+    });
+  }, 30_000);
+
+  it("una venta que salió de dos lotes, devuelta entera, devuelve a cada lote lo suyo", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "ret10");
+      for (const [code, quantity, expiry] of [["L-PRONTO", "3.000000", "2026-10-31"], ["L-TARDE", "2.000000", "2027-01-31"]] as const) {
+        await send(mutating("inventory.lot.receive", {
+          presentation_id: ids.presentationId, lot_code: code, quantity, manufactured_date: null,
+          expiry_date: expiry, reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+        }, `ret10:${code}`));
+      }
+      const sale = await createSale(send, ids, "5.000000", "ret10:sale");
+      await send(mutating("payment.register.cash", { sale_id: sale.saleId, amount: sale.payable, tendered_amount: null }, "ret10:pay"));
+      const lots = (): Record<string, string> => Object.fromEntries((database.native.prepare(
+        "SELECT lot_code, quantity_on_hand FROM inventory_lot ORDER BY lot_code",
+      ).all() as { lot_code: string; quantity_on_hand: string }[]).map((r) => [r.lot_code, r.quantity_on_hand]));
+      expect(lots()).toEqual({ "L-PRONTO": "0.000000", "L-TARDE": "0.000000" });
+
+      expect((await send(returnRequest(sale.saleId, "ret10:return"))).result["outcome"]).toBe("COMPLETED");
+      expect(lots()).toEqual({ "L-PRONTO": "3.000000", "L-TARDE": "2.000000" });
+      expect(lotLedgerMismatches(database)).toEqual([]);
+    });
+  }, 30_000);
+
+  it("si no se sabe de qué lote vuelve, entra sin lote, y la devolución siguiente no infla la tanda", async () => {
+    extraPermissions = RETURN_PERMISSIONS;
+    await withRealChannel(async (send, database) => {
+      const ids = await prepareCounter(send, database, "ret11");
+      for (const [code, quantity, expiry] of [["M-PRONTO", "3.000000", "2026-10-31"], ["M-TARDE", "2.000000", "2027-01-31"]] as const) {
+        await send(mutating("inventory.lot.receive", {
+          presentation_id: ids.presentationId, lot_code: code, quantity, manufactured_date: null,
+          expiry_date: expiry, reason_code: "SUPPLIER_DELIVERY", business_date: "2026-09-03",
+        }, `ret11:${code}`));
+      }
+      const created = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03",
+        timezone_id: "America/Bogota", utc_offset_minutes: -300, document_series: "A", currency_code: "COP",
+        lines: [
+          { product_id: ids.productId, presentation_id: ids.presentationId, quantity: "2.000000" },
+          { product_id: ids.productId, presentation_id: ids.presentationId, quantity: "3.000000" },
+        ],
+      }, "ret11:sale"));
+      expect(created.result["outcome"]).toBe("CREATED");
+      const saleId = created.result["sale_id"] as string;
+      await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount: created.result["payable_amount"], tendered_amount: null,
+      }, "ret11:pay"));
+      const before = stockOf(database, ids.presentationId);
+      const lotTotal = (): bigint => (database.native.prepare(
+        "SELECT quantity_on_hand FROM inventory_lot",
+      ).all() as { quantity_on_hand: string }[]).reduce((t, r) => t + BigInt(r.quantity_on_hand.replace(".", "")), 0n);
+      expect(lotTotal()).toBe(0n);
+
+      // Dos unidades de cinco que salieron de dos lotes: no se sabe de cuál.
+      expect((await send(returnRequest(saleId, "ret11:a"))).result["outcome"]).toBe("COMPLETED");
+      expect(lotTotal()).toBe(0n);
+      // Las tres restantes son «todo lo que quedaba», pero los lotes guardan
+      // cinco: devolverles lo suyo metería en ellos dos unidades que ya
+      // volvieron sin lote. Entran sin lote también.
+      expect((await send(returnRequest(saleId, "ret11:b", [{ line_number: 2, physical_condition: "RESTOCKABLE" }]))).result["outcome"]).toBe("COMPLETED");
+      expect(lotTotal()).toBe(0n);
+      expect(BigInt(stockOf(database, ids.presentationId).replace(".", "")) - BigInt(before.replace(".", ""))).toBe(5_000000n);
+      expect(lotLedgerMismatches(database)).toEqual([]);
+    });
+  }, 30_000);
+});

@@ -30,7 +30,8 @@ type CommercialRequest = Extract<
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.lot.receive" | "inventory.lot.list" | "inventory.lot.trace"
       | "inventory.lot.expiring" | "fiscal.document.list"
-      | "sales.receipt.get" | "sales.receipt.print" | "cash.drawer.open";
+      | "sales.receipt.get" | "sales.receipt.print" | "cash.drawer.open"
+      | "sales.return.create";
   }
 >;
 
@@ -259,6 +260,7 @@ export class CommercialRequestHandler {
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "sales.receipt.print": return this.printReceipt(request, connectionId);
       case "cash.drawer.open": return this.openCashDrawer(request, connectionId);
+      case "sales.return.create": return this.createSaleReturn(request, connectionId);
     }
   }
 
@@ -1819,6 +1821,57 @@ export class CommercialRequestHandler {
       default:
         return rejected(request, result.kind, { outcome: result.kind, ...none });
     }
+  }
+
+  // ── sales.return.create — `B11` ─────────────────────────────────────────────
+
+  /** `COMPLETED` e `IDEMPOTENT` son éxito; el resto viaja como rechazo con su código. */
+  private createSaleReturn(
+    request: Extract<CommercialRequest, { message_type: "sales.return.create" }>,
+    connectionId: string,
+  ): unknown {
+    const none = {
+      sale_return_id: null, refund_id: null, commercial_amount: null, rounding_adjustment: null,
+      refunded_amount: null, restocked_lines: null, fiscal_correction: null,
+    };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...none });
+    }
+
+    const payload = request.payload;
+    const result = this.commercial.createSaleReturn.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: payload.sale_id,
+        cashRegisterId: payload.cash_register_id,
+        reasonCode: payload.reason_code,
+        reasonDetail: payload.reason_detail,
+        lines: payload.lines.map((line) => ({
+          lineNumber: line.line_number,
+          physicalCondition: line.physical_condition,
+        })),
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+
+    if (result.kind === "COMPLETED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        sale_return_id: result.saleReturnId,
+        refund_id: result.refundId,
+        commercial_amount: result.commercialAmount,
+        rounding_adjustment: result.roundingAdjustment,
+        refunded_amount: result.refundedAmount,
+        restocked_lines: result.restockedLines,
+        fiscal_correction: result.fiscalCorrection,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...none });
   }
 
   // ── session.activate ───────────────────────────────────────────────────────

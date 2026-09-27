@@ -63,6 +63,9 @@ export const IPC_ALLOWED_CHANNELS = [
   // Cajón — `D-46`. Mutante: la automática la comprueba el servicio contra el
   // cobro; la manual exige `CASH_DRAWER_OPEN_MANUAL` y queda auditada.
   "pos:cash.drawer.open",
+  // Devolución — `B11`. Mutante: entrega efectivo y repone mercancía; exige
+  // clave de idempotencia y los seis permisos de devolución y reembolso.
+  "pos:sales.return.create",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

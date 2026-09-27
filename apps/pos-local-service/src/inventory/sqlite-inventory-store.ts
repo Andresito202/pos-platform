@@ -118,6 +118,24 @@ export type SaleDeductionOutcome =
   | { readonly kind: "IDEMPOTENT" }
   | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
 
+export interface ReturnRestockInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly operatorUserId: string;
+  readonly saleId: string;
+  readonly saleReturnId: string;
+  readonly presentationId: string;
+  /** Cantidad que vuelve al disponible, TEXT a escala 6. */
+  readonly quantity: string;
+  readonly businessDate: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type ReturnRestockOutcome =
+  | { readonly kind: "POSTED"; readonly lotsRestored: number }
+  | { readonly kind: "IDEMPOTENT" };
+
 export interface ApplyConversionInput {
   readonly scope: SyncScope;
   readonly sessionId: string;
@@ -559,6 +577,142 @@ export class SqliteInventoryStore {
       default:
         throw new Error(`inventory sale deduction failed: ${outcome.kind}`);
     }
+  }
+
+  /**
+   * Reingreso de lo devuelto — `SALE_REVERSAL` / `IN`, `UC-SALES-002`
+   * §Restitución de inventario tras devolución.
+   *
+   * Se ejecuta dentro de la transacción de la devolución, igual que la salida
+   * por venta dentro de la del cobro. Idempotente por `(devolución,
+   * presentación)`.
+   *
+   * ## A qué lote vuelve
+   *
+   * «La restitución conserva lote cuando aplique» — y sólo cuando se sabe. La
+   * venta sacó sus unidades por FEFO, quizá de varios lotes y quizá con parte
+   * sin lote; una devolución parcial no dice de cuál salieron las que vuelven.
+   * Se devuelven al lote únicamente en dos casos inequívocos:
+   *
+   * - vuelve **todo lo que quedaba** de esa presentación en la venta, y los
+   *   lotes no guardan más de eso: cada lote recupera lo que la venta le sacó
+   *   y aún no había vuelto;
+   * - la venta salió **entera de un solo lote**: todo lo que vuelve es de él.
+   *
+   * En cualquier otro caso las unidades entran **sin lote**, igual que en una
+   * conversión que no se puede heredar con verdad: un rastro falso es peor que
+   * ninguno en un retiro sanitario. La diferencia queda medible como
+   * existencia menos suma de lotes.
+   */
+  appendReturnRestock(input: ReturnRestockInput): ReturnRestockOutcome {
+    const idempotencyKey = `inventory_sale_return:${input.saleReturnId}:${input.presentationId}`;
+    const requestChecksum = createHash("sha256")
+      .update(canonicalJson({
+        presentation_id: input.presentationId,
+        quantity: input.quantity,
+        sale_id: input.saleId,
+        sale_return_id: input.saleReturnId,
+      }))
+      .digest("hex");
+
+    const pieces = this.restorableLotPieces(input.scope, input.saleId, input.presentationId, input.quantity);
+
+    const movementId = uuidV7();
+    const outcome = this.appendMovement({
+      scope: input.scope,
+      sessionId: input.sessionId,
+      operatorUserId: input.operatorUserId,
+      movementId,
+      operationId: uuidV7(),
+      presentationId: input.presentationId,
+      movementType: "SALE_REVERSAL",
+      quantity: input.quantity,
+      reasonCode: "SALE_RETURN",
+      saleId: input.saleId,
+      businessDate: input.businessDate,
+      idempotencyKey,
+      requestChecksum,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+    });
+
+    switch (outcome.kind) {
+      case "POSTED": {
+        const at = this.now().toISOString();
+        for (const piece of pieces) {
+          const lot = this.database.native.prepare(
+            "SELECT quantity_on_hand, status FROM inventory_lot WHERE tenant_id=? AND id=?",
+          ).get(input.scope.tenantId, piece.lotId) as { quantity_on_hand: string; status: string };
+          // Un lote bloqueado sigue bloqueado: devolverle unidades no lo
+          // habilita. Sólo el agotado vuelve a estar activo.
+          this.database.native.prepare(
+            "UPDATE inventory_lot SET quantity_on_hand=?, status=?, updated_at=? WHERE tenant_id=? AND id=?",
+          ).run(
+            bigIntToScale6(scale6ToBigInt(lot.quantity_on_hand) + piece.units),
+            lot.status === "CONSUMED" ? "ACTIVE" : lot.status,
+            at, input.scope.tenantId, piece.lotId,
+          );
+          this.recordLotEntry(input.scope.tenantId, piece.lotId, movementId, piece.units);
+        }
+        return { kind: "POSTED", lotsRestored: pieces.length };
+      }
+      case "IDEMPOTENT":
+        return { kind: "IDEMPOTENT" };
+      // Una presentación que la venta vendió existe en el catálogo, y un
+      // reingreso no puede dejar existencia negativa: cualquier otro desenlace
+      // es un estado imposible, y silenciarlo dejaría mercancía sin reingresar.
+      default:
+        throw new Error(`inventory return restock failed: ${outcome.kind}`);
+    }
+  }
+
+  /**
+   * Qué le toca a cada lote de lo que vuelve, o nada si no se sabe. Ver
+   * `appendReturnRestock`. Se calcula **antes** de asentar el reingreso, para
+   * que el propio movimiento no cuente como ya devuelto.
+   */
+  private restorableLotPieces(
+    scope: SyncScope, saleId: string, presentationId: string, quantity: string,
+  ): readonly { readonly lotId: string; readonly units: bigint }[] {
+    const sum = (rows: readonly { quantity: string }[]): bigint =>
+      rows.reduce((total, row) => total + scale6ToBigInt(row.quantity), 0n);
+
+    const sold = sum(this.database.native.prepare(
+      `SELECT quantity FROM inventory_movement
+        WHERE tenant_id=? AND sale_id=? AND presentation_id=? AND movement_type='SALE'`,
+    ).all(scope.tenantId, saleId, presentationId) as { quantity: string }[]);
+    const alreadyBack = sum(this.database.native.prepare(
+      `SELECT quantity FROM inventory_movement
+        WHERE tenant_id=? AND sale_id=? AND presentation_id=? AND movement_type='SALE_REVERSAL'`,
+    ).all(scope.tenantId, saleId, presentationId) as { quantity: string }[]);
+
+    const taken = this.database.native.prepare(
+      `SELECT a.lot_id, a.quantity FROM inventory_lot_allocation a
+         JOIN inventory_lot l ON l.tenant_id = a.tenant_id AND l.id = a.lot_id
+        WHERE a.tenant_id=? AND a.sale_id=? AND a.direction='OUT' AND l.presentation_id=?`,
+    ).all(scope.tenantId, saleId, presentationId) as { lot_id: string; quantity: string }[];
+    const returned = this.database.native.prepare(
+      `SELECT a.lot_id, a.quantity FROM inventory_lot_allocation a
+         JOIN inventory_movement m ON m.tenant_id = a.tenant_id AND m.id = a.movement_id
+        WHERE a.tenant_id=? AND a.direction='IN' AND m.sale_id=? AND m.presentation_id=?
+          AND m.movement_type='SALE_REVERSAL'`,
+    ).all(scope.tenantId, saleId, presentationId) as { lot_id: string; quantity: string }[];
+
+    const remaining = new Map<string, bigint>();
+    for (const row of taken) remaining.set(row.lot_id, (remaining.get(row.lot_id) ?? 0n) + scale6ToBigInt(row.quantity));
+    for (const row of returned) remaining.set(row.lot_id, (remaining.get(row.lot_id) ?? 0n) - scale6ToBigInt(row.quantity));
+    const open = [...remaining].filter(([, units]) => units > 0n).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const lotted = open.reduce((total, [, units]) => total + units, 0n);
+
+    const units = scale6ToBigInt(quantity);
+    const left = sold - alreadyBack;
+    // «Todo lo que quedaba» sólo vale si los lotes no guardan más de lo que
+    // queda: una devolución anterior que entró sin lote dejó en ellos unidades
+    // que ya volvieron, y devolverlas otra vez inflaría la tanda.
+    if (units === left && lotted <= left) return open.map(([lotId, lotUnits]) => ({ lotId, units: lotUnits }));
+    const only = open[0];
+    if (open.length === 1 && only !== undefined && lotted === left) return [{ lotId: only[0], units }];
+    return [];
   }
 
   /**

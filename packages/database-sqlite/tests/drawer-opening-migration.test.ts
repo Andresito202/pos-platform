@@ -42,10 +42,10 @@ function insert(database: LocalDatabase, row: Partial<{
 }
 
 describe("MIGRATION_033 — aperturas del cajón", () => {
-  it("es la última versión del libro", async () => {
+  it("está aplicada en el libro", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(33);
-    expect((database.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get() as { v: number }).v).toBe(33);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(33);
+    expect(database.native.prepare("SELECT version FROM local_schema_migrations WHERE version = 33").get()).toBeDefined();
     database.close();
   });
 

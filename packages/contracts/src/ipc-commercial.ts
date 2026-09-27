@@ -2144,6 +2144,112 @@ export const CashDrawerOpenResultSchema = z.strictObject({
 
 export const CashDrawerOpenResponseSchema = createResponseEnvelopeSchema(CashDrawerOpenResultSchema);
 
+// ── sales.return.create ──────────────────────────────────────────────────────
+
+/**
+ * Condición física de lo devuelto — `UC-SALES-002` §Política de inventario en
+ * devoluciones. Sólo `RESTOCKABLE` vuelve al disponible; el resto no aumenta
+ * existencia (`sale-return-schema.md` §Inventario).
+ */
+export const ReturnPhysicalConditionSchema = z.enum([
+  "RESTOCKABLE",
+  "DAMAGED",
+  "EXPIRED",
+  "OPENED",
+  "QUARANTINE",
+  "DISCARDED",
+  "RETURN_TO_SUPPLIER",
+  "NOT_APPLICABLE",
+]);
+
+/**
+ * Devolver líneas de una venta cobrada y reembolsar su efectivo — `B11`,
+ * `UC-SALES-002` §Devolución comercial, `UC-PAY-004` §Reembolso en efectivo.
+ *
+ * Una sola operación solicita, aprueba y ejecuta: exige a quien la invoca los
+ * tres permisos de `SaleReturn` y los tres del reembolso en efectivo
+ * (`permission-matrix.md` §Segregación). Un cajero con sólo
+ * `SALES_RETURN_REQUEST` recibe `UNAUTHORIZED`; el flujo de dos personas
+ * —uno solicita, otro aprueba— no existe todavía.
+ *
+ * Las líneas se nombran por `line_number`, el número que el recibo imprime: el
+ * servicio resuelve la línea dentro de la venta. Cada línea se devuelve
+ * entera. La caja la nombra la operación y el turno lo resuelve la capa
+ * confiable, igual que en `sale.create`: el reembolso sale del turno abierto
+ * **ahora**, no del turno en que se vendió, que puede estar cerrado.
+ *
+ * - `REFUND_METHOD_NOT_SUPPORTED`: la venta no se cobró con un único pago en
+ *   efectivo. Transferencia, QR, crédito y pago mixto tienen su propio proceso
+ *   de reembolso en `UC-PAY-004` y no existen aún.
+ * - `ROUNDING_SHARE_NOT_SUPPORTED`: devolución parcial de una venta con ajuste
+ *   de redondeo. `DEC-006` no fija cómo normalizar la cuota de una devolución
+ *   que no es la última; no se inventa.
+ * - `CONDITION_NOT_SUPPORTED`: `QUARANTINE` y `RETURN_TO_SUPPLIER` exigen un
+ *   destino de inventario que no existe.
+ * - `INSUFFICIENT_CASH`: el cajón, según el turno, no tiene el efectivo a
+ *   entregar. No se inventa una salida (`UC-PAY-004` §Reembolso en efectivo).
+ *
+ * `fiscal_correction` dice si la venta tenía documento electrónico: si lo
+ * tenía, la corrección fiscal (nota crédito) es **obligatoria y no existe**.
+ * No bloquea la devolución —`UC-PAY-004` §Efecto tributario, 8— pero se dice.
+ */
+export const SalesReturnCreateRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    cash_register_id: UuidSchema,
+    reason_code: StableCodeSchema,
+    reason_detail: z.string().trim().min(1).max(200).nullable(),
+    lines: z.array(z.strictObject({
+      line_number: z.number().int().positive(),
+      physical_condition: ReturnPhysicalConditionSchema,
+    })).min(1).max(500),
+  }),
+).safeExtend({ message_type: z.literal("sales.return.create") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+    const seen = new Set<number>();
+    for (const [index, line] of request.payload.lines.entries()) {
+      if (seen.has(line.line_number)) {
+        context.addIssue({
+          code: "custom",
+          path: ["payload", "lines", index, "line_number"],
+          message: "a line can be returned only once per request",
+        });
+      }
+      seen.add(line.line_number);
+    }
+  });
+
+export const SalesReturnCreateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "COMPLETED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "IDEMPOTENCY_CONFLICT",
+    "SALE_NOT_FOUND",
+    "SALE_NOT_COMPLETED",
+    "LINE_NOT_FOUND",
+    "LINE_ALREADY_RETURNED",
+    "CONDITION_NOT_SUPPORTED",
+    "REFUND_METHOD_NOT_SUPPORTED",
+    "ROUNDING_SHARE_NOT_SUPPORTED",
+    "CASH_SHIFT_MISSING",
+    "CASH_SHIFT_NOT_OPEN",
+    "CURRENCY_MISMATCH",
+    "INSUFFICIENT_CASH",
+  ]),
+  sale_return_id: UuidSchema.nullable(),
+  refund_id: UuidSchema.nullable(),
+  commercial_amount: NonNegativeScale6Schema.nullable(),
+  rounding_adjustment: SignedScale6Schema.nullable(),
+  refunded_amount: NonNegativeScale6Schema.nullable(),
+  restocked_lines: z.number().int().nonnegative().nullable(),
+  fiscal_correction: z.enum(["NO_FISCAL_DOCUMENT", "REQUIRED_NOT_AVAILABLE"]).nullable(),
+});
+
+export const SalesReturnCreateResponseSchema = createResponseEnvelopeSchema(SalesReturnCreateResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -2258,6 +2364,8 @@ export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type SalesReceiptPrintResult = z.infer<typeof SalesReceiptPrintResultSchema>;
 export type CashDrawerOpenResult = z.infer<typeof CashDrawerOpenResultSchema>;
 export type CashDrawerReason = z.infer<typeof CashDrawerReasonSchema>;
+export type SalesReturnCreateResult = z.infer<typeof SalesReturnCreateResultSchema>;
+export type ReturnPhysicalCondition = z.infer<typeof ReturnPhysicalConditionSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;

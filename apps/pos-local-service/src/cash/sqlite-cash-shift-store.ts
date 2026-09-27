@@ -124,6 +124,10 @@ export type AppendCashSaleOutcome =
   | { readonly kind: "SHIFT_NOT_OPEN" }
   | { readonly kind: "CURRENCY_MISMATCH" };
 
+export type AppendCashRefundOutcome =
+  | AppendCashSaleOutcome
+  | { readonly kind: "INSUFFICIENT_CASH"; readonly expectedCash: string };
+
 /**
  * Turno activo de una **caja**. Es la única resolución de turno del sistema.
  *
@@ -181,6 +185,14 @@ export class SqliteCashShiftStore {
     }
     const only = rows[0];
     return only === undefined ? null : { shiftId: only.id, status: only.status };
+  }
+
+  /** Fecha de negocio del turno: la fija Cash al abrirlo, no quien llama. */
+  shiftBusinessDate(scope: SyncScope, shiftId: string): string | null {
+    const row = this.database.native.prepare(
+      "SELECT business_date FROM cash_shift WHERE tenant_id=? AND branch_id=? AND id=?",
+    ).get(scope.tenantId, scope.branchId, shiftId) as { business_date: string } | undefined;
+    return row === undefined ? null : row.business_date;
   }
 
   open(input: OpenShiftInput): OpenShiftOutcome {
@@ -426,6 +438,45 @@ export class SqliteCashShiftStore {
   }
 
   /**
+   * Asienta un `CASH_REFUND` / `OUT` / `POSTED`: el efectivo que se entrega al
+   * devolver una venta (`UC-PAY-004` §Reembolso en efectivo).
+   *
+   * **Un reembolso no puede sacar lo que el turno no tiene.** El efectivo
+   * esperado es el mismo pliegue que hace el cierre —`IN` suma, `OUT` resta—,
+   * y si no alcanza se rechaza en vez de dejar el arqueo en negativo:
+   * «si el efectivo es insuficiente, no se inventa una salida». La
+   * comprobación vive aquí porque el efectivo esperado es de Cash.
+   */
+  appendCashRefund(input: AppendCashSaleInput): AppendCashRefundOutcome {
+    const expected = this.expectedCashUnits(input.scope.tenantId, input.cashShiftId);
+    if (expected < scale6ToBigInt(input.amount)) {
+      const shift = this.database.native.prepare(
+        "SELECT status, currency_code FROM cash_shift WHERE tenant_id=? AND id=?",
+      ).get(input.scope.tenantId, input.cashShiftId) as { status: string; currency_code: string } | undefined;
+      // El diagnóstico de turno va primero: decir «no hay efectivo» de un
+      // turno que no existe o ya se cerró sería una razón falsa.
+      if (shift === undefined) return { kind: "SHIFT_NOT_FOUND" };
+      if (shift.status !== "OPEN") return { kind: "SHIFT_NOT_OPEN" };
+      if (shift.currency_code !== input.currencyCode) return { kind: "CURRENCY_MISMATCH" };
+      return { kind: "INSUFFICIENT_CASH", expectedCash: bigIntToScale6(expected) };
+    }
+    return this.appendPostedCash("CASH_REFUND", "OUT", input);
+  }
+
+  private expectedCashUnits(tenantId: string, shiftId: string): bigint {
+    const movements = this.database.native.prepare(
+      `SELECT direction, amount FROM cash_movement
+       WHERE tenant_id=? AND cash_shift_id=? AND status='POSTED'`,
+    ).all(tenantId, shiftId) as MovementAmountRow[];
+    let units = 0n;
+    for (const m of movements) {
+      const amount = scale6ToBigInt(m.amount);
+      units = m.direction === "IN" ? units + amount : units - amount;
+    }
+    return units;
+  }
+
+  /**
    * El asiento de entrada de efectivo, compartido por sus dos motivos.
    *
    * `movementType` es lo único que varía, y llega de este almacén —nunca del
@@ -435,6 +486,14 @@ export class SqliteCashShiftStore {
    */
   private appendIncomingCash(
     movementType: "CASH_SALE" | "CASH_PAYMENT",
+    input: AppendCashSaleInput,
+  ): AppendCashSaleOutcome {
+    return this.appendPostedCash(movementType, "IN", input);
+  }
+
+  private appendPostedCash(
+    movementType: "CASH_SALE" | "CASH_PAYMENT" | "CASH_REFUND",
+    direction: "IN" | "OUT",
     input: AppendCashSaleInput,
   ): AppendCashSaleOutcome {
     const nowIso = this.now().toISOString();
@@ -466,7 +525,7 @@ export class SqliteCashShiftStore {
         version, created_at, server_recorded_at
       ) VALUES (
         ?,?,?,?,?,?,
-        ?,?,'IN',?,?,'POSTED',
+        ?,?,?,?,?,'POSTED',
         NULL,?,NULL,
         'USER',?,
         NULL,NULL,
@@ -483,6 +542,7 @@ export class SqliteCashShiftStore {
       input.cashShiftId,
       shiftSequence,
       movementType,
+      direction,
       input.amount,
       input.currencyCode,
       input.reasonCode,
