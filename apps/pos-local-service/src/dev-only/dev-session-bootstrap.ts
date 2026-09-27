@@ -128,6 +128,12 @@ export function activateDevRoleSession(
   const snapshotKeys = { privateKey: material.snapshotPrivateKey };
 
   const issuedAt = at.toISOString();
+  // Una por arranque, nunca `1` fija: la sesión y el snapshot conservan sus ids
+  // entre arranques, y `SessionActivationService` rechaza con `SEQUENCE_REPLAY`
+  // una secuencia no mayor que la aceptada — con `1` fija, tras reiniciar el
+  // equipo la revisión quedaba sin sesión. `TrustedClockGuard` ya impide que
+  // el reloj retroceda, así que los milisegundos crecen de un arranque al otro.
+  const bootSequence = at.getTime();
   const offlineValidUntil = new Date(at.getTime() + DEV_SESSION_VALID_HOURS * 60 * 60 * 1000).toISOString();
 
   const signedSsa = signClaims({
@@ -138,7 +144,7 @@ export function activateDevRoleSession(
     device_id: binding.deviceId,
     issued_at: issuedAt,
     offline_valid_until: offlineValidUntil,
-    sequence: 1,
+    sequence: bootSequence,
     key_id: SESSION_KEY_ID,
   }, sessionKeys.privateKey);
 
@@ -158,7 +164,7 @@ export function activateDevRoleSession(
     user_id: PRESET_USER_ID[preset],
     installation_id: binding.installationId,
     device_id: binding.deviceId,
-    sequence: 1,
+    sequence: bootSequence,
     issued_at: issuedAt,
     expires_at: expiresAt,
     assignments: [{

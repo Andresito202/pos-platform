@@ -257,7 +257,7 @@ bloque A es infraestructura local, a la que estos dos peldaños no le aplican
 | # | Capacidad | Peldaño | Evidencia |
 |---|---|---|---|
 | B1 | Sales V1 (venta → `READY_FOR_PAYMENT`) | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
-| B2 | Cash V1 (apertura y cierre de turno) | `END_TO_END` | apertura y cierre se mueven desde la pantalla en `real-channel.spec.ts`; el cierre viaja con el `version` que devolvió la apertura, nunca un literal |
+| B2 | Cash V1 (apertura y cierre de turno) | `END_TO_END` | apertura y cierre se mueven desde la pantalla en `real-channel.spec.ts`; el cierre viaja con el `version` que devolvió la apertura, nunca un literal. **La caja del E2E se inserta directo en SQLite**: en un equipo real ninguna vía de producción la crea, porque el emisor central de snapshots maestros está bloqueado por `B-3` (`D-51`); en laboratorio la provee `dev-only/dev-lab-register.ts` por la ruta canónica |
 | B3 | Payments V1 (`CASH`, `TRANSFER`, cobertura) | `END_TO_END` | `CASH` y `TRANSFER` se cobran desde la pantalla; la transferencia lee su `version` de `payment.get` entre reportar y atestiguar |
 | B4 | Completado de venta como único punto | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |
 | B5 | Frontera Payments ↔ Cash | `END_TO_END` | `channel-commercial-vertical.test.ts`: socket real → handler real → SQLite · la interfaz de Electron lo invoca (`real-channel.spec.ts`) |

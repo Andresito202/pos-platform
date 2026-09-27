@@ -129,6 +129,29 @@ describe("dev-only — sesión de revisión de pantallas por rol", () => {
     expect(adminCodes).toEqual(new Set(DEV_ROLE_PRESETS.ADMIN));
     expect(adminCodes).not.toEqual(cajeroCodes);
   });
+
+  it("sobrevive a un reinicio del servicio: el segundo arranque no es SEQUENCE_REPLAY", async () => {
+    // Con `sequence: 1` fija, el segundo arranque sobre la misma base se
+    // rechazaba y el equipo quedaba sin sesión tras reiniciar — visto al
+    // arrancar `main.ts` dos veces sobre el mismo directorio de datos.
+    const first = await buildEnv();
+    expect(activateDevRoleSession(
+      "ADMIN", BINDING, first.material, first.trustAnchors, first.sessionActivation,
+      first.authorizationStore, first.trustedClock, () => NOW,
+    )).toEqual({ kind: "PROVISIONED", preset: "ADMIN" });
+
+    // Segundo arranque: mismo disco, claves efímeras nuevas, reloj posterior.
+    const later = new Date(NOW.getTime() + 90_000);
+    const material = provisionDevRoleTrustAnchors(first.trustAnchors);
+    const sessionActivation = new SessionActivationService(
+      new SessionAssertionVerifier(first.trustAnchors.keysFor("SESSION_ASSERTION"), first.trustedClock, () => later),
+      new SqliteSessionAssertionStore(first.database, () => later),
+    );
+    expect(activateDevRoleSession(
+      "ADMIN", BINDING, material, first.trustAnchors, sessionActivation,
+      new SqliteAuthorizationSnapshotStore(first.database, () => later), first.trustedClock, () => later,
+    )).toEqual({ kind: "PROVISIONED", preset: "ADMIN" });
+  });
 });
 
 describe("dev-only — catálogo de repartos", () => {

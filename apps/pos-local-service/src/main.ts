@@ -34,6 +34,7 @@ import {
   provisionDevRoleTrustAnchors,
   type DevRoleTrustMaterial,
 } from "./dev-only/dev-session-bootstrap.js";
+import { activateDevLabRegister } from "./dev-only/dev-lab-register.js";
 import { SnapshotAcquisitionService } from "./authorization/snapshot-acquisition.js";
 import { AuthorizationSnapshotVerifier } from "./security/authorization-snapshot-verifier.js";
 import { TcpRawReceiptPrinter } from "./hardware/receipt-printer/tcp-raw-printer.js";
@@ -476,8 +477,21 @@ try {
     );
     logger.log(
       "warn",
-      "security.DEV_ONLY_role_preset_active",
+      "security.dev_only_role_preset_active",
       { ...outcome, warning: "Sesión de desarrollo local para revisar pantallas por rol. No es SEC-G02. No usar en producción." },
+    );
+
+    // Sin emisor central (`B-3`) ninguna caja llega nunca a la proyección, y
+    // sin caja no hay turno que revisar. Ver `dev-only/dev-lab-register.ts`.
+    const register = activateDevLabRegister(
+      localDatabase.database,
+      commercial.trustedClock,
+      { tenantId: config.tenant_id, companyId: config.company_id, branchId: config.branch_id },
+    );
+    logger.log(
+      "warn",
+      "master_data.dev_only_lab_register",
+      { ...register, warning: "Caja de laboratorio firmada con clave efímera. No es DEC-013. No usar en producción." },
     );
   }
 

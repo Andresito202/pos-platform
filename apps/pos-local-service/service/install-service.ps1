@@ -344,5 +344,11 @@ if (-not $started -or $status -ne "Running") {
 
 Write-Host ""
 Write-Host "OK: '$ServiceName' está Running como $labAccount y registró runtime.started."
+if ($DevRolePreset) {
+  # `DEV_LAB_REGISTER_ID` de `src/dev-only/dev-lab-register.ts`.
+  Write-Host "Sesión de revisión: $DevRolePreset. Caja de laboratorio para abrir turno: 00000000-0000-7000-8000-0000000000d5"
+} else {
+  Write-Host "Sin -DevRolePreset no hay sesión ni caja de laboratorio: la ventana conectará pero no podrá operar."
+}
 Write-Host "Siguiente, en la terminal de VS Code (sin administrador, con ESTE mismo usuario de Windows):"
 Write-Host "  pnpm --filter @pos-platform/pos-desktop run start:production:lab"
