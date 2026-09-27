@@ -628,6 +628,30 @@ describe("SalePanel — nueva venta limpia el comprador", () => {
     fireEvent.click(screen.getByTestId("reset-button"));
     expect((screen.getByTestId("sale-customer-id-input") as HTMLInputElement).value).toBe("");
   });
+
+  // Hallado el 2026-09-27 en el video integral (D-47): el efectivo recibido de
+  // la venta anterior seguía en el campo y se habría cobrado con ese importe.
+  it("el botón de nueva venta vacía el efectivo recibido", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.change(screen.getByTestId("tendered-amount-input"), {
+      target: { value: "50000.000000" },
+    });
+
+    fireEvent.click(screen.getByTestId("reset-button"));
+    await addProduct();
+    await createSale();
+
+    expect((screen.getByTestId("tendered-amount-input") as HTMLInputElement).value).toBe("");
+    calls.delete("payment.register.cash");
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => { expect(calls.get("payment.register.cash")).toBeDefined(); });
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["tendered_amount"]).toBe("3500.000000");
+  });
 });
 
 /**

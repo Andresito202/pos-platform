@@ -342,13 +342,13 @@ export function SalePanel(): React.JSX.Element {
       )}
 
       {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
-      {/* Nueva venta es venta nueva **también de comprador**. Hallado el
-          2026-09-26: el cliente quedaba en el campo, y tras una venta fiada
-          todas las siguientes del día salían a su nombre —comprador falso en
-          el recibo y en el rastro de un retiro—. */}
+      {/* Nueva venta es venta nueva **también de comprador y de efectivo
+          recibido**. El cliente quedaba en el campo (2026-09-26) y el
+          efectivo entregado de la venta anterior también (2026-09-27): el
+          cambio de la venta siguiente se habría calculado sobre él. */}
       <button
         data-testid="reset-button"
-        onClick={() => { sale.reset(); setSaleCustomerId(""); }}
+        onClick={() => { sale.reset(); setSaleCustomerId(""); setTendered(""); }}
         disabled={sale.busy}
       >
         Nueva venta
