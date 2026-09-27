@@ -11,9 +11,11 @@
     "build:renderer": "vite build",
     "build:entry": "esbuild src/start.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/start.bundle.mjs",
     "build:production-entry": "esbuild src/production-entry.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/production.bundle.mjs",
-    "build": "pnpm build:main && pnpm build:entry && pnpm build:production-entry && pnpm build:preload && pnpm build:renderer",
+    "build:production-lab-entry": "esbuild src/production-lab-entry.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/production-lab.bundle.mjs",
+    "build": "pnpm build:main && pnpm build:entry && pnpm build:production-entry && pnpm build:production-lab-entry && pnpm build:preload && pnpm build:renderer",
     "start:smoke": "electron --no-sandbox e2e/smoke-entry.mjs",
     "start:production": "electron --no-sandbox dist/production.bundle.mjs",
+    "start:production:lab": "pnpm build && electron --no-sandbox dist/production-lab.bundle.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test --config e2e/playwright.config.ts"
   },
