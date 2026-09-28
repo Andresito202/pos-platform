@@ -158,8 +158,9 @@ export class SqliteSessionAssertionStore implements SessionAssertionStore {
   loadActiveByDevice(installationId: string, deviceId: string): DeviceSessionLookup {
     const rows = this.database.native.prepare(
       `SELECT claims_json, claims_checksum, signature, sequence, offline_valid_until, activated_at
-       FROM local_session_assertion
-       WHERE installation_id=? AND device_id=?`,
+       FROM local_session_assertion a
+       WHERE a.installation_id=? AND a.device_id=?
+         AND NOT EXISTS (SELECT 1 FROM local_session_end e WHERE e.session_id = a.session_id)`,
     ).all(installationId, deviceId) as SessionRow[];
 
     const nowMs = this.now().getTime();
@@ -179,6 +180,28 @@ export class SqliteSessionAssertionStore implements SessionAssertionStore {
       kind: "FOUND",
       session: { claims, signature: row.signature, activatedAt: row.activated_at },
     };
+  }
+
+  /**
+   * Cierre de sesión del operador (`DEC-026` §13.11). Idempotente: salir dos
+   * veces de la misma sesión deja un solo asiento. La fila de la SSA no se
+   * toca —es la prueba firmada de que la sesión existió—; el cierre es un
+   * hecho aparte, append-only, que `loadActiveByDevice` respeta.
+   *
+   * Devuelve `false` si la sesión no pertenece a este binding: no se cierra la
+   * sesión de otro.
+   */
+  endSession(sessionId: string, binding: SessionBinding, endedAt: Date = this.now()): boolean {
+    const row = this.read(binding);
+    if (row === null) return false;
+    const claims = SessionAssertionClaimsSchema.parse(JSON.parse(row.claims_json));
+    if (claims.session_id !== sessionId) return false;
+    this.database.native.prepare(
+      `INSERT INTO local_session_end (session_id, user_id, installation_id, device_id, reason, ended_at)
+       VALUES (?, ?, ?, ?, 'OPERATOR_LOGOUT', ?)
+       ON CONFLICT(session_id) DO NOTHING`,
+    ).run(sessionId, binding.userId, binding.installationId, binding.deviceId, endedAt.toISOString());
+    return true;
   }
 
   highestAcceptedSequence(binding: SessionBinding): number | null {

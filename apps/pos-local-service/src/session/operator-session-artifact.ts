@@ -5,6 +5,8 @@ import {
 } from "@pos-platform/contracts";
 import type { SnapshotBinding } from "../authorization/authorization-snapshot-store.js";
 import type { SnapshotProvider } from "../authorization/snapshot-provider.js";
+import { SnapshotAcquisitionService } from "../authorization/snapshot-acquisition.js";
+import { AuthorizationSnapshotVerifier } from "../security/authorization-snapshot-verifier.js";
 
 /**
  * Lectura del artefacto de aprovisionamiento de sesión (`DEC-025`).
@@ -68,4 +70,69 @@ export class ArtifactSnapshotProvider implements SnapshotProvider {
   fetch(_binding: SnapshotBinding): Promise<OperatorSessionProvisioningArtifact["authorization_snapshot"]> {
     return Promise.resolve(this.artifact.authorization_snapshot);
   }
+}
+
+/**
+ * Activa los dos sobres de un artefacto de sesión de operador por la ruta
+ * canónica: la SSA por `SessionActivationService` y el SAS por
+ * `SnapshotAcquisitionService` contra el ancla de `AUTHORIZATION_SNAPSHOT`.
+ *
+ * Es el bloque que el arranque de `DEC-025` ya ejecutaba en `main.ts`,
+ * extraído sin cambiar su orden ni sus desenlaces para que el login
+ * (`session.login`, `DEC-026` §13.11) use **exactamente** la misma ruta: un
+ * artefacto venga de fichero o de la autoridad central, se verifica igual.
+ *
+ * Orden y razón, como estaban: si la SSA no verifica no se intenta el SAS —una
+ * sesión sin permisos arrancaría el POS para rechazarlo todo—.
+ */
+export interface OperatorSessionActivationDependencies {
+  readonly sessionActivation: {
+    activate(
+      signed: OperatorSessionProvisioningArtifact["session_assertion"],
+      binding: { readonly userId: string; readonly installationId: string; readonly deviceId: string },
+    ): { readonly kind: string; readonly decision?: string };
+  };
+  readonly authorizationSnapshotKeys: ConstructorParameters<typeof AuthorizationSnapshotVerifier>[0];
+  readonly trustedClock: ConstructorParameters<typeof AuthorizationSnapshotVerifier>[1];
+  readonly authorizationStore: ConstructorParameters<typeof SnapshotAcquisitionService>[2];
+  readonly installationId: string;
+  readonly deviceId: string;
+}
+
+export type OperatorSessionActivation =
+  | { readonly decision: "PROVISIONED" }
+  | { readonly decision: "SESSION_REJECTED"; readonly detail: string }
+  | { readonly decision: "SNAPSHOT_REJECTED"; readonly detail: string };
+
+export async function activateOperatorSessionArtifact(
+  artifact: OperatorSessionProvisioningArtifact,
+  dependencies: OperatorSessionActivationDependencies,
+): Promise<OperatorSessionActivation> {
+  const binding = {
+    userId: artifact.session_assertion.claims.user_id,
+    installationId: dependencies.installationId,
+    deviceId: dependencies.deviceId,
+  };
+
+  const activation = dependencies.sessionActivation.activate(artifact.session_assertion, binding);
+  if (activation.kind !== "ACTIVATED") {
+    // `REJECTED` a secas no dice nada: es el nombre del desenlace, no su
+    // causa. Se emite la decisión del verificador, que es el dato que
+    // distingue «firma que no cuadra» de «SSA vencida» o «binding de otro
+    // equipo».
+    return {
+      decision: "SESSION_REJECTED",
+      detail: activation.kind === "REJECTED" && activation.decision !== undefined ? activation.decision : activation.kind,
+    };
+  }
+
+  const acquisition = await new SnapshotAcquisitionService(
+    new ArtifactSnapshotProvider(artifact),
+    new AuthorizationSnapshotVerifier(dependencies.authorizationSnapshotKeys, dependencies.trustedClock),
+    dependencies.authorizationStore,
+  ).acquire(binding);
+  if (acquisition.kind !== "ACQUIRED") {
+    return { decision: "SNAPSHOT_REJECTED", detail: acquisition.kind };
+  }
+  return { decision: "PROVISIONED" };
 }

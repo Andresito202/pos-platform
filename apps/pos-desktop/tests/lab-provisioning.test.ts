@@ -33,4 +33,10 @@ describe("provisioning.json de laboratorio → entorno de la ventana de producci
     expect(() => parseLabProvisioning(JSON.stringify({ ...VALID, data_directory: "staging\\data" }))).toThrow();
     expect(() => parseLabProvisioning(JSON.stringify({ ...VALID, device_id: "no-es-uuid" }))).toThrow();
   });
+
+  it("con login central declarado, la ventana exige iniciar sesión; sin él, no", () => {
+    expect(parseLabProvisioning(JSON.stringify({ ...VALID, central_login: true })).POS_DESKTOP_REQUIRE_LOGIN).toBe("1");
+    expect(parseLabProvisioning(JSON.stringify({ ...VALID, central_login: false })).POS_DESKTOP_REQUIRE_LOGIN).toBeUndefined();
+    expect(parseLabProvisioning(JSON.stringify(VALID)).POS_DESKTOP_REQUIRE_LOGIN).toBeUndefined();
+  });
 });

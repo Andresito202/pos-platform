@@ -11,6 +11,7 @@ import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import type { CommercialComponent } from "../commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
+import type { OperatorLoginService } from "../session/operator-login-service.js";
 import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
@@ -42,8 +43,9 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly runtimeState: () => RuntimeState,
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
+    operatorLogin: OperatorLoginService | null = null,
   ) {
-    this.commercialHandler = new CommercialRequestHandler(config, commercial);
+    this.commercialHandler = new CommercialRequestHandler(config, commercial, operatorLogin);
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
@@ -106,6 +108,8 @@ export class LocalChannelComponent implements RuntimeComponent {
     switch (request.message_type) {
       case "session.activate":
       case "session.recover":
+      case "session.login":
+      case "session.end":
       case "cash.shift.open":
       case "cash.shift.close":
       case "sale.create":

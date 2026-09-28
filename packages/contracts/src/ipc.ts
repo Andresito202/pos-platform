@@ -86,6 +86,10 @@ import {
   SessionActivateResponseSchema,
   SessionRecoverRequestSchema,
   SessionRecoverResponseSchema,
+  SessionLoginRequestSchema,
+  SessionLoginResponseSchema,
+  SessionEndRequestSchema,
+  SessionEndResponseSchema,
 } from "./ipc-commercial.js";
 
 export const IpcMessageTypeSchema = z.enum([
@@ -97,6 +101,8 @@ export const IpcMessageTypeSchema = z.enum([
   // `ipc-commercial.ts`; aquí se incorporan al transporte.
   "session.activate",
   "session.recover",
+  "session.login",
+  "session.end",
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
@@ -216,6 +222,8 @@ export const IpcRequestSchema = z.union([
   OperationConfirmRequestSchema,
   SessionActivateRequestSchema,
   SessionRecoverRequestSchema,
+  SessionLoginRequestSchema,
+  SessionEndRequestSchema,
   CashShiftOpenRequestSchema,
   CashShiftCloseRequestSchema,
   SaleCreateRequestSchema,
@@ -266,6 +274,8 @@ export const IpcResponseSchema = z.union([
   OperationConfirmResponseSchema,
   SessionActivateResponseSchema,
   SessionRecoverResponseSchema,
+  SessionLoginResponseSchema,
+  SessionEndResponseSchema,
   CashShiftOpenResponseSchema,
   CashShiftCloseResponseSchema,
   SaleCreateResponseSchema,

@@ -177,6 +177,91 @@ export const SessionRecoverResultSchema = z.strictObject({
 
 export const SessionRecoverResponseSchema = createResponseEnvelopeSchema(SessionRecoverResultSchema);
 
+// ── session.login ────────────────────────────────────────────────────────────
+
+/**
+ * Inicio de sesión del operador desde la ventana (`DEC-026` §13.11).
+ *
+ * El llamador entrega **sólo** lo que la persona teclea: usuario, contraseña y,
+ * para roles de administración, el código de la app autenticadora. El servicio
+ * prueba el equipo ante la autoridad central con su clave de dispositivo,
+ * recibe la SSA y el SAS firmados (`DEC-026` §13.10) y los activa por la misma
+ * ruta que el artefacto de `DEC-025`. Nada de lo que viaja en esta petición es
+ * identidad del equipo ni del comercio: eso lo pone la configuración local y
+ * el registro central, nunca la ventana.
+ *
+ * La contraseña no se registra en ningún sitio del POS: sólo se reenvía, por
+ * TLS, a la autoridad que la verifica.
+ */
+export const SessionLoginRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    login_name: z.string().min(1).max(256),
+    password: z.string().min(1).max(4096),
+    totp_code: z.string().regex(/^\d{6}$/).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("session.login") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/**
+ * `REJECTED` es uno solo para usuario inexistente, inactivo o contraseña
+ * equivocada: la autoridad no enumera cuentas (`DEC-026` §9) y el POS no lo
+ * deshace. Los desenlaces de después de una contraseña correcta sí se
+ * distinguen, porque quien pregunta ya probó que la conoce.
+ */
+export const SessionLoginOutcomeSchema = z.enum([
+  "AUTHENTICATED",
+  "REJECTED",
+  "THROTTLED",
+  "PASSWORD_CHANGE_REQUIRED",
+  "MFA_REQUIRED",
+  "MFA_INVALID",
+  "MFA_NOT_ENROLLED",
+  "ROLE_UNDECIDED",
+  "NO_ACTIVE_ROLE",
+  /** El equipo no tiene credencial de dispositivo: no está enrolado (`DEC-008`). */
+  "DEVICE_NOT_ENROLLED",
+  /** La autoridad no aceptó la prueba de equipo. */
+  "DEVICE_REJECTED",
+  /** Sin conexión con la autoridad: el login con contraseña la exige (`DEC-026` `A-3`). */
+  "CENTRAL_UNREACHABLE",
+  /** La autoridad autenticó, pero no entregó sesión local que activar. */
+  "SESSION_NOT_ISSUED",
+  /** El POS rechazó los sobres recibidos (firma, binding o vigencia). */
+  "SESSION_REJECTED",
+]);
+
+export const SessionLoginResultSchema = z.strictObject({
+  outcome: SessionLoginOutcomeSchema,
+  session_id: UuidSchema.nullable(),
+  offline_valid_until: UtcDateTimeSchema.nullable(),
+  /** Detalle del verificador o de la autoridad; nunca un fragmento de credencial. */
+  decision: StableCodeSchema.nullable(),
+  /** Sólo en `THROTTLED`: cuándo puede volver a intentarse. */
+  retry_at: UtcDateTimeSchema.nullable(),
+});
+
+export const SessionLoginResponseSchema = createResponseEnvelopeSchema(SessionLoginResultSchema);
+
+// ── session.end ──────────────────────────────────────────────────────────────
+
+/**
+ * Cerrar sesión (`DEC-026` §13.11). Cierra **la sesión vinculada a esta
+ * conexión**, no una que el llamador nombre: el payload es vacío por
+ * construcción, igual que `session.recover`. Deja un asiento append-only y
+ * libera todas las conexiones que la compartieran.
+ */
+export const SessionEndRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("session.end") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const SessionEndResultSchema = z.strictObject({
+  outcome: z.enum(["ENDED", "NOT_BOUND"]),
+  session_id: UuidSchema.nullable(),
+});
+
+export const SessionEndResponseSchema = createResponseEnvelopeSchema(SessionEndResultSchema);
+
 // ── cash.shift.open ──────────────────────────────────────────────────────────
 
 /**
@@ -2452,6 +2537,8 @@ export const SalesReturnExecuteResponseSchema = createResponseEnvelopeSchema(Sal
 export const CommercialIpcMessageTypeSchema = z.enum([
   "session.activate",
   "session.recover",
+  "session.login",
+  "session.end",
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
@@ -2494,6 +2581,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
 export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:session.activate",
   "pos:session.recover",
+  "pos:session.login",
+  "pos:session.end",
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
@@ -2530,6 +2619,9 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
 export type SessionActivateResult = z.infer<typeof SessionActivateResultSchema>;
 export type SessionRecoverResult = z.infer<typeof SessionRecoverResultSchema>;
+export type SessionLoginOutcome = z.infer<typeof SessionLoginOutcomeSchema>;
+export type SessionLoginResult = z.infer<typeof SessionLoginResultSchema>;
+export type SessionEndResult = z.infer<typeof SessionEndResultSchema>;
 export type CashShiftOpenResult = z.infer<typeof CashShiftOpenResultSchema>;
 export type CashShiftCloseResult = z.infer<typeof CashShiftCloseResultSchema>;
 export type SaleCreateResult = z.infer<typeof SaleCreateResultSchema>;

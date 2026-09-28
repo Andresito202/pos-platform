@@ -62,8 +62,8 @@ function insertRefund(database: LocalDatabase, row: Row = {}): string {
 describe("MIGRATION_035 — payments_refunds admite TRANSFER", () => {
   it("es la última versión del libro y conserva las filas existentes de CASH", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(35);
-    expect((database.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get() as { v: number }).v).toBe(35);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(36);
+    expect((database.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get() as { v: number }).v).toBe(36);
     const columns = (database.native.prepare("PRAGMA table_info(payments_refunds)").all() as { name: string }[])
       .map((c) => c.name);
     expect(columns).toEqual(expect.arrayContaining(["provider_reference", "destination_reference", "confirmed_by_actor_id"]));

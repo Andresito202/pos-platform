@@ -31,6 +31,11 @@ export interface PosDesktopStartOptions {
   readonly handshake: unknown;
   readonly logger?: DesktopLogger;
   readonly timeoutMs?: number;
+  /**
+   * Exigir inicio de sesión antes de mostrar el POS (`DEC-026` §13.11). Sólo
+   * tiene sentido en un equipo con autoridad central de login configurada.
+   */
+  readonly requireLogin?: boolean;
 }
 
 export async function startPosDesktop(options: PosDesktopStartOptions): Promise<void> {
@@ -51,5 +56,5 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
     throw error;
   }
 
-  await bootstrap(channel, options.logger);
+  await bootstrap(channel, options.logger, { requireLogin: options.requireLogin === true });
 }

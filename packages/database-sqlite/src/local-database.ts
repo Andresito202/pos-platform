@@ -2918,6 +2918,28 @@ CREATE TRIGGER payments_refunds_no_delete
   BEGIN SELECT RAISE(ABORT, 'refunds are append-only'); END;
 `.trim();
 
+// `DEC-026` §13.11: cierre de sesión del operador. La SSA vive en
+// `local_session_assertion` con clave primaria en el binding, así que «salir»
+// no puede borrarla ni marcarla ahí sin tocar una tabla cuya fila es la prueba
+// firmada de la sesión. El cierre es un hecho aparte, **append-only**: una vez
+// escrito no se edita ni se borra, y `session.recover` deja de ofrecer esa
+// sesión. Iniciar sesión otra vez trae una SSA nueva —otro `session_id`, con
+// secuencia mayor— y no la resucita.
+const MIGRATION_036 = `
+CREATE TABLE local_session_end (
+  session_id TEXT PRIMARY KEY CHECK(length(session_id) = 36),
+  user_id TEXT NOT NULL CHECK(length(user_id) = 36),
+  installation_id TEXT NOT NULL CHECK(length(installation_id) = 36),
+  device_id TEXT NOT NULL CHECK(length(device_id) = 36),
+  reason TEXT NOT NULL CHECK(reason IN ('OPERATOR_LOGOUT')),
+  ended_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER local_session_end_no_update BEFORE UPDATE ON local_session_end
+  BEGIN SELECT RAISE(ABORT, 'local session end is append-only'); END;
+CREATE TRIGGER local_session_end_no_delete BEFORE DELETE ON local_session_end
+  BEGIN SELECT RAISE(ABORT, 'local session end is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2954,6 +2976,7 @@ const MIGRATIONS = [
   { version: 33, sql: MIGRATION_033, checksum: createHash("sha256").update(MIGRATION_033).digest("hex") },
   { version: 34, sql: MIGRATION_034, checksum: createHash("sha256").update(MIGRATION_034).digest("hex") },
   { version: 35, sql: MIGRATION_035, checksum: createHash("sha256").update(MIGRATION_035).digest("hex") },
+  { version: 36, sql: MIGRATION_036, checksum: createHash("sha256").update(MIGRATION_036).digest("hex") },
 ] as const;
 
 /**

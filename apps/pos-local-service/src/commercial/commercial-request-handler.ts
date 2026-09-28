@@ -8,6 +8,7 @@ import type { SyncScope } from "../sync/durable-sync-store.js";
 import { boundIdentityFromClaims, type BoundSessionIdentity } from "../session/session-binding-registry.js";
 import { lotExpiryState } from "../inventory/receive-lot-use-case.js";
 import type { CommercialComponent } from "./commercial-component.js";
+import type { OperatorLoginService } from "../session/operator-login-service.js";
 
 const RESULT_SCHEMA_VERSION = "1.0.0";
 
@@ -15,7 +16,7 @@ type CommercialRequest = Extract<
   IpcRequest,
   {
     message_type:
-      | "session.activate" | "session.recover"
+      | "session.activate" | "session.recover" | "session.login" | "session.end"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer" | "payment.register.qr"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
@@ -178,6 +179,12 @@ export class CommercialRequestHandler {
   constructor(
     private readonly config: ServiceConfig,
     private readonly commercial: CommercialComponent,
+    /**
+     * Login contra la autoridad central (`DEC-026` §13.11). `null` en un
+     * equipo sin `central_auth_url`: `session.login` responde entonces
+     * `CENTRAL_UNREACHABLE` en vez de fingir un login.
+     */
+    private readonly operatorLogin: OperatorLoginService | null = null,
   ) {}
 
   private scope(): SyncScope {
@@ -225,6 +232,8 @@ export class CommercialRequestHandler {
     switch (request.message_type) {
       case "session.activate": return this.activate(request, connectionId);
       case "session.recover": return this.recover(request, connectionId);
+      case "session.login": return this.login(request, connectionId, signal);
+      case "session.end": return this.endSession(request, connectionId);
       case "cash.shift.open": return this.openShift(request, connectionId);
       case "cash.shift.close": return this.closeShift(request, connectionId);
       case "sale.create": return this.createSale(request, connectionId);
@@ -2158,6 +2167,75 @@ export class CommercialRequestHandler {
       offline_valid_until: null,
       decision: outcome.decision,
     });
+  }
+
+  // ── session.login ──────────────────────────────────────────────────────────
+
+  /**
+   * El segundo punto que **establece** un vínculo, además de `activate`, y por
+   * la misma regla: sólo tras `ACTIVATED`, y con la identidad de los claims de
+   * una SSA que el verificador aceptó —aquí, dentro de
+   * `activateOperatorSessionArtifact`—. La petición no aporta identidad: sólo
+   * lo que la persona teclea, que viaja a la autoridad y no se guarda.
+   */
+  private async login(
+    request: Extract<CommercialRequest, { message_type: "session.login" }>,
+    connectionId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const empty = { session_id: null, offline_valid_until: null, decision: null, retry_at: null };
+    if (this.operatorLogin === null) {
+      return rejected(request, "CENTRAL_UNREACHABLE", { ...empty, outcome: "CENTRAL_UNREACHABLE", decision: "CENTRAL_AUTH_NOT_CONFIGURED" });
+    }
+
+    const result = await this.operatorLogin.login({
+      loginName: request.payload.login_name,
+      password: request.payload.password,
+      totpCode: request.payload.totp_code,
+    }, signal);
+
+    if (result.kind === "AUTHENTICATED") {
+      this.commercial.bindings.bind(connectionId, boundIdentityFromClaims(result.claims));
+      return succeeded(request, "AUTHENTICATED", {
+        outcome: "AUTHENTICATED",
+        session_id: result.claims.session_id,
+        offline_valid_until: result.claims.offline_valid_until,
+        decision: null,
+        retry_at: null,
+      });
+    }
+    return rejected(request, result.outcome, {
+      ...empty,
+      outcome: result.outcome,
+      decision: result.decision,
+      retry_at: result.retryAt,
+    });
+  }
+
+  // ── session.end ────────────────────────────────────────────────────────────
+
+  /**
+   * Cierra la sesión **de esta conexión**. Deja el asiento append-only de
+   * `local_session_end` —después de él, `session.recover` ya no la ofrece— y
+   * libera todas las conexiones que la compartieran. Salir sin sesión no es
+   * un error: `NOT_BOUND`.
+   */
+  private endSession(
+    request: Extract<CommercialRequest, { message_type: "session.end" }>,
+    connectionId: string,
+  ): unknown {
+    const identity = this.commercial.bindings.resolve(connectionId);
+    if (identity === null) {
+      return succeeded(request, "NOT_BOUND", { outcome: "NOT_BOUND", session_id: null });
+    }
+    const { installationId, deviceId } = this.commercial.deviceBinding();
+    this.commercial.sessionStore.endSession(identity.ssaSessionId, {
+      userId: identity.userId,
+      installationId,
+      deviceId,
+    });
+    this.commercial.bindings.releaseSession(identity.ssaSessionId);
+    return succeeded(request, "ENDED", { outcome: "ENDED", session_id: identity.ssaSessionId });
   }
 
   // ── cash.shift.open ────────────────────────────────────────────────────────

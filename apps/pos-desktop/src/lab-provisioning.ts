@@ -16,12 +16,18 @@ const LabProvisioningSchema = z.object({
   installation_id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
   device_id: z.uuid(),
   data_directory: z.string().min(1).refine((value) => win32.isAbsolute(value), "data_directory must be absolute"),
+  /**
+   * `true` cuando el laboratorio se instaló con login central
+   * (`install-service.ps1 -Lab -CentralLogin`): la ventana exige iniciar sesión.
+   */
+  central_login: z.boolean().optional(),
 });
 
 export interface LabDesktopEnvironment {
   readonly POS_DATA_DIRECTORY: string;
   readonly POS_INSTALLATION_ID: string;
   readonly POS_DEVICE_ID: string;
+  readonly POS_DESKTOP_REQUIRE_LOGIN?: "1";
 }
 
 export function parseLabProvisioning(text: string): LabDesktopEnvironment {
@@ -31,5 +37,6 @@ export function parseLabProvisioning(text: string): LabDesktopEnvironment {
     POS_DATA_DIRECTORY: parsed.data_directory,
     POS_INSTALLATION_ID: parsed.installation_id,
     POS_DEVICE_ID: parsed.device_id,
+    ...(parsed.central_login === true ? { POS_DESKTOP_REQUIRE_LOGIN: "1" as const } : {}),
   };
 }

@@ -17,6 +17,12 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_COMPANY_ID",
   "POS_BRANCH_ID",
   "POS_CENTRAL_BASE_URL",
+  "POS_CENTRAL_AUTH_URL",
+  "POS_DEVICE_ENROLLMENT_ACTIVATION_PATH",
+  "POS_DEVICE_ENROLLMENT_TOKEN_PATH",
+  "POS_DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM",
+  "POS_DEVICE_TRUST_OPERATIONAL_KEY_ID",
+  "POS_DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM",
   "POS_FISCAL_ENVIRONMENT",
   "POS_SESSION_TRUST_ENVIRONMENT",
   "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM",
@@ -102,7 +108,49 @@ const ServiceConfigSchema = z.strictObject({
    */
   dev_role_preset: DevRolePresetIdSchema.optional(),
   receipt_printer: ReceiptPrinterConfigSchema.optional(),
+  /**
+   * Autoridad central de login y enrolamiento (`DEC-026` §13.11). Por aquí
+   * viajan contraseñas: sólo `https`. Distinta de `central_base_url` —la de
+   * sincronización—: un equipo puede iniciar sesión sin tener la
+   * sincronización encendida, y al revés.
+   */
+  central_auth_url: z.url().startsWith("https://").max(2048).optional(),
+  /**
+   * Enrolamiento del equipo (`DEC-008`, `D-3`): la activación que entrega la
+   * plataforma y el token de transporte de la autoridad, ambos en fichero; y
+   * las claves **públicas** con que el equipo verifica la credencial que
+   * recibe. Van juntas: un enrolamiento a medias no se intenta.
+   */
+  device_enrollment_activation_path: z.string().min(1).max(4096).optional(),
+  device_enrollment_token_path: z.string().min(1).max(4096).optional(),
+  device_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
+  device_trust_operational_key_id: StableCodeSchema.max(128).optional(),
+  device_trust_operational_public_key_pem: z.string().min(80).max(4096).optional(),
 }).superRefine((value, context) => {
+  const enrollment = [
+    value.device_enrollment_activation_path, value.device_enrollment_token_path,
+    value.device_trust_root_public_key_pem, value.device_trust_operational_key_id,
+    value.device_trust_operational_public_key_pem,
+  ];
+  if (enrollment.some((item) => item !== undefined) && enrollment.some((item) => item === undefined)) {
+    context.addIssue({ code: "custom", path: ["device_enrollment_activation_path"], message: "device enrollment settings must be configured together" });
+  }
+  if (enrollment.every((item) => item !== undefined) && value.central_auth_url === undefined) {
+    context.addIssue({ code: "custom", path: ["central_auth_url"], message: "device enrollment requires the central auth URL" });
+  }
+  for (const [field, path] of [
+    ["device_enrollment_activation_path", value.device_enrollment_activation_path],
+    ["device_enrollment_token_path", value.device_enrollment_token_path],
+  ] as const) {
+    if (path !== undefined && !isAbsolute(path)) {
+      context.addIssue({ code: "custom", path: [field], message: `${field} must be absolute` });
+    }
+  }
+  if (value.dev_role_preset !== undefined && value.central_auth_url !== undefined) {
+    // Una sesión de revisión y un login real en el mismo equipo darían dos
+    // sesiones vigentes y `session.recover` no podría elegir (`AMBIGUOUS`).
+    context.addIssue({ code: "custom", path: ["dev_role_preset"], message: "dev role preset cannot coexist with central login" });
+  }
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
   }
@@ -148,6 +196,12 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     operator_session_artifact_path: environment.POS_OPERATOR_SESSION_ARTIFACT_PATH,
     dev_role_preset: environment.POS_DEV_ROLE_PRESET,
     receipt_printer: parseReceiptPrinter(environment.POS_RECEIPT_PRINTER),
+    central_auth_url: environment.POS_CENTRAL_AUTH_URL,
+    device_enrollment_activation_path: environment.POS_DEVICE_ENROLLMENT_ACTIVATION_PATH,
+    device_enrollment_token_path: environment.POS_DEVICE_ENROLLMENT_TOKEN_PATH,
+    device_trust_root_public_key_pem: environment.POS_DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM,
+    device_trust_operational_key_id: environment.POS_DEVICE_TRUST_OPERATIONAL_KEY_ID,
+    device_trust_operational_public_key_pem: environment.POS_DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };

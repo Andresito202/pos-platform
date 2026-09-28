@@ -7,6 +7,10 @@ export const IPC_ALLOWED_CHANNELS = [
   // `runtime.handshake` sigue sin exponerse: es main ↔ servicio.
   "pos:session.activate",
   "pos:session.recover",
+  // Login y salida del operador — `DEC-026` §13.11. La ventana entrega lo que
+  // la persona teclea; el servicio prueba el equipo y activa la sesión.
+  "pos:session.login",
+  "pos:session.end",
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",

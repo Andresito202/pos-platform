@@ -44,6 +44,8 @@ import {
   SaleCreateResponseSchema,
   SessionActivateResponseSchema,
   SessionRecoverResponseSchema,
+  SessionLoginResponseSchema,
+  SessionEndResponseSchema,
   type IpcMessageType,
 } from "@pos-platform/contracts";
 
@@ -76,6 +78,8 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "operation.confirm": OperationConfirmResponseSchema,
   "session.activate": SessionActivateResponseSchema,
   "session.recover": SessionRecoverResponseSchema,
+  "session.login": SessionLoginResponseSchema,
+  "session.end": SessionEndResponseSchema,
   "cash.shift.open": CashShiftOpenResponseSchema,
   "cash.shift.close": CashShiftCloseResponseSchema,
   "sale.create": SaleCreateResponseSchema,

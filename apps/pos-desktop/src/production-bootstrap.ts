@@ -7,6 +7,8 @@ export function startProductionDesktop(environment: NodeJS.ProcessEnv): void {
   const provisioning = loadProductionDesktopProvisioning(environment);
 
   startPosDesktop({
+    // `DEC-026` §13.11: el equipo con autoridad central de login lo declara.
+    requireLogin: environment.POS_DESKTOP_REQUIRE_LOGIN === "1",
     endpoint: provisioning.endpoint,
     channelSecret: provisioning.channelSecret,
     protocolRange: { min: "1.0.0", max: "1.0.0" },

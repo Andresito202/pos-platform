@@ -82,6 +82,7 @@ async function closeChannelAndQuit(
 export async function bootstrap(
   serviceChannel: ServiceChannel,
   logger?: DesktopLogger,
+  options: { readonly requireLogin?: boolean } = {},
 ): Promise<void> {
   assertAllowlistConsistency();
   const bridge = new ChannelBridge(serviceChannel);
@@ -91,7 +92,11 @@ export async function bootstrap(
   await app.whenReady();
   registerIpcHandlers(bridge);
   const win = createWindow(preloadPath);
-  await win.loadFile(rendererPath);
+  // `?login=required` activa la puerta de login del renderer (`App.tsx`). Es
+  // una indicación de presentación, no de seguridad: sin sesión vinculada el
+  // servicio rechaza toda operación con o sin puerta.
+  const rendererLoad = options.requireLogin === true ? { query: { login: "required" } } : undefined;
+  await win.loadFile(rendererPath, rendererLoad);
 
   app.on("window-all-closed", () => {
     void closeChannelAndQuit(serviceChannel, logger);
@@ -100,7 +105,7 @@ export async function bootstrap(
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const reopened = createWindow(preloadPath);
-      void reopened.loadFile(rendererPath).catch((error: unknown) => {
+      void reopened.loadFile(rendererPath, rendererLoad).catch((error: unknown) => {
         reportFailure(logger, "desktop.renderer_load_failed", error);
       });
     }

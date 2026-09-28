@@ -13,6 +13,8 @@ import { LotPanel } from "./components/LotPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { CreditPanel } from "./components/CreditPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
+import { LoginScreen } from "./components/LoginScreen.js";
+import { useOperatorAuth, type OperatorAuth } from "./hooks/useOperatorAuth.js";
 
 /**
  * El orden sigue el de la jornada real, no el de la arquitectura: primero se
@@ -127,7 +129,30 @@ const SECTIONS: readonly NavSection[] = [
   },
 ];
 
+/**
+ * ¿Exige este equipo iniciar sesión antes de mostrar el POS? Lo decide el
+ * proceso principal al cargar la ventana (`?login=required`), según la
+ * configuración del equipo: sólo un equipo con autoridad central de login
+ * puede pedirlo, porque sólo ahí hay con qué iniciar sesión (`DEC-026` §13.11).
+ * Sin él, la ventana se comporta como antes: la sesión llega por
+ * `session.activate`/`session.recover`.
+ */
+export function loginRequired(search: string = globalThis.location?.search ?? ""): boolean {
+  return new URLSearchParams(search).get("login") === "required";
+}
+
 export function App(): React.JSX.Element {
+  return loginRequired() ? <AuthenticatedApp /> : <PosShell auth={null} />;
+}
+
+/** Puerta de login: el POS sólo se monta con una sesión que el servicio confirmó. */
+function AuthenticatedApp(): React.JSX.Element {
+  const auth = useOperatorAuth();
+  if (auth.phase !== "SIGNED_IN") return <LoginScreen auth={auth} />;
+  return <PosShell auth={auth} />;
+}
+
+function PosShell({ auth }: { readonly auth: OperatorAuth | null }): React.JSX.Element {
   const [active, setActive] = useState<string>(SECTIONS[0]!.id);
   const current = SECTIONS.find((section) => section.id === active) ?? SECTIONS[0]!;
 
@@ -154,6 +179,23 @@ export function App(): React.JSX.Element {
           ))}
         </nav>
         <div className="app-sidebar-footer">
+          {auth !== null && auth.session !== null && (
+            <div className="app-operator" data-testid="operator-session">
+              <span className="app-operator-label">Sesión activa</span>
+              <span className="app-operator-until">
+                hasta {new Date(auth.session.offlineValidUntil).toLocaleString()}
+              </span>
+              <button
+                type="button"
+                className="app-logout"
+                data-testid="logout-button"
+                disabled={auth.busy}
+                onClick={() => { void auth.logout(); }}
+              >
+                Salir
+              </button>
+            </div>
+          )}
           <StatusPanel />
         </div>
       </aside>

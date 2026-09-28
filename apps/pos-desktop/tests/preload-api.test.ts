@@ -13,6 +13,8 @@ describe("preload-api", () => {
       "operation.confirm",
       "session.activate",
       "session.recover",
+      "session.login",
+      "session.end",
       "cash.shift.open",
       "cash.shift.close",
       "sale.create",

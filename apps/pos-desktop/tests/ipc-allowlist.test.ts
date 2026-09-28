@@ -9,6 +9,8 @@ describe("ipc-allowlist", () => {
       "pos:operation.confirm",
       "pos:session.activate",
       "pos:session.recover",
+      "pos:session.login",
+      "pos:session.end",
       "pos:cash.shift.open",
       "pos:cash.shift.close",
       "pos:sale.create",
@@ -57,6 +59,8 @@ describe("ipc-allowlist", () => {
     for (const channel of [
       "pos:session.activate",
       "pos:session.recover",
+      "pos:session.login",
+      "pos:session.end",
       "pos:cash.shift.open",
       "pos:cash.shift.close",
       "pos:sale.create",

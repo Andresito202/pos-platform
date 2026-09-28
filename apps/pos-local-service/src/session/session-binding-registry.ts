@@ -87,6 +87,22 @@ export class SessionBindingRegistry {
     this.bindings.delete(connectionId);
   }
 
+  /**
+   * Invalida todas las conexiones vinculadas a una sesión: al cerrarla
+   * (`session.end`), ninguna ventana que la compartiera sigue operando con
+   * ella. Devuelve cuántas se liberaron.
+   */
+  releaseSession(ssaSessionId: string): number {
+    let released = 0;
+    for (const [connectionId, identity] of this.bindings) {
+      if (identity.ssaSessionId === ssaSessionId) {
+        this.bindings.delete(connectionId);
+        released += 1;
+      }
+    }
+    return released;
+  }
+
   /** Invalida todos los vínculos. Se usa al detener el componente. */
   clear(): void {
     this.bindings.clear();

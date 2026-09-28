@@ -28,15 +28,18 @@ import {
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
-import { readOperatorSessionArtifact, ArtifactSnapshotProvider } from "./session/operator-session-artifact.js";
+import { activateOperatorSessionArtifact, readOperatorSessionArtifact } from "./session/operator-session-artifact.js";
+import { CentralLoginClient } from "./session/central-login-client.js";
+import { OperatorLoginService } from "./session/operator-login-service.js";
+import { DeviceEnrollmentService } from "./security/device-enrollment-service.js";
+import { DeviceTrustCredentialStore } from "./security/device-trust-credential-store.js";
+import { runDeviceEnrollment, writeDevicePublicIdentity } from "./security/device-enrollment-runner.js";
 import {
   activateDevRoleSession,
   provisionDevRoleTrustAnchors,
   type DevRoleTrustMaterial,
 } from "./dev-only/dev-session-bootstrap.js";
 import { activateDevLabRegister } from "./dev-only/dev-lab-register.js";
-import { SnapshotAcquisitionService } from "./authorization/snapshot-acquisition.js";
-import { AuthorizationSnapshotVerifier } from "./security/authorization-snapshot-verifier.js";
 import { TcpRawReceiptPrinter } from "./hardware/receipt-printer/tcp-raw-printer.js";
 import { PrinterConnectedCashDrawer } from "./hardware/cash-drawer/cash-drawer.js";
 
@@ -356,6 +359,34 @@ try {
     ));
   }
 
+  // Login del operador contra la autoridad central (`DEC-026` §13.11). Todo
+  // lo que necesita del equipo —credencial, clave, anclas— se resuelve de
+  // forma perezosa, al iniciar sesión: los componentes aún no han arrancado.
+  // La credencial vive en el mismo almacén cifrado que la identidad del
+  // equipo, con su mismo contexto.
+  const deviceCredentials = (): DeviceTrustCredentialStore => new DeviceTrustCredentialStore(security.secretStore);
+  const operatorLogin = config.central_auth_url === undefined ? null : new OperatorLoginService({
+    client: new CentralLoginClient(config.central_auth_url, new FetchCentralTransport()),
+    device: () => {
+      const store = deviceCredentials();
+      if (!store.has()) return null;
+      return {
+        installationId: config.installation_id,
+        deviceId: config.device_id,
+        credential: store.load(),
+        signChallenge: (challenge) => security.identity.signChallenge(challenge),
+      };
+    },
+    activate: (artifact) => activateOperatorSessionArtifact(artifact, {
+      sessionActivation: commercial.sessionActivation,
+      authorizationSnapshotKeys: security.trustAnchors.keysFor("AUTHORIZATION_SNAPSHOT"),
+      trustedClock: commercial.trustedClock,
+      authorizationStore: commercial.authorizationStore,
+      installationId: config.installation_id,
+      deviceId: config.device_id,
+    }),
+  });
+
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
       config,
@@ -363,6 +394,7 @@ try {
       () => lifecycle?.state ?? "STARTING",
       operationConfirmation,
       commercial,
+      operatorLogin,
     );
     components.push(localChannel);
   }
@@ -412,45 +444,79 @@ try {
     const read = readOperatorSessionArtifact(config.operator_session_artifact_path);
     if (read.decision !== "PRESENT") return read;
 
-    const binding = {
-      userId: read.artifact.session_assertion.claims.user_id,
+    return activateOperatorSessionArtifact(read.artifact, {
+      sessionActivation: commercial.sessionActivation,
+      authorizationSnapshotKeys: security.trustAnchors.keysFor("AUTHORIZATION_SNAPSHOT"),
+      trustedClock: commercial.trustedClock,
+      authorizationStore: commercial.authorizationStore,
       installationId: config.installation_id,
       deviceId: config.device_id,
-    };
-
-    const activation = commercial.sessionActivation.activate(
-      read.artifact.session_assertion, binding,
-    );
-    if (activation.kind !== "ACTIVATED") {
-      // `REJECTED` a secas no dice nada: es el nombre del desenlace, no su
-      // causa. Se emite la decisión del verificador, que es el dato que
-      // distingue «firma que no cuadra» de «SSA vencida» o «binding de otro
-      // equipo». No es exposición nueva: `session.activate` ya devuelve ese
-      // mismo `decision` al llamador por IPC.
-      return {
-        decision: "SESSION_REJECTED" as const,
-        detail: activation.kind === "REJECTED" ? activation.decision : activation.kind,
-      };
-    }
-
-    const acquisition = await new SnapshotAcquisitionService(
-      new ArtifactSnapshotProvider(read.artifact),
-      new AuthorizationSnapshotVerifier(
-        security.trustAnchors.keysFor("AUTHORIZATION_SNAPSHOT"),
-        commercial.trustedClock,
-      ),
-      commercial.authorizationStore,
-    ).acquire(binding);
-    if (acquisition.kind !== "ACQUIRED") {
-      return { decision: "SNAPSHOT_REJECTED" as const, detail: acquisition.kind };
-    }
-    return { decision: "PROVISIONED" as const };
+    });
   })();
 
   // Nunca el operador ni el artefacto: sólo si este equipo quedó aprovisionado
   // y, cuando no, en qué paso se detuvo. Un `SNAPSHOT_REJECTED` explica por qué
   // la sesión existe y las operaciones responden `UNAUTHORIZED`.
   logger.log("info", "security.operator_session", operatorSession);
+
+  // Identidad pública del equipo y, si hay activación, su enrolamiento
+  // (`DEC-020` enmienda, `DEC-026` §13.11). Ninguno de los dos detiene el
+  // arranque: un equipo sin enrolar vende con la sesión que tenga; lo único
+  // que no puede es iniciar sesión nueva.
+  const publishPublicIdentity = (): void => {
+    writeDevicePublicIdentity({
+      dataDirectory: config.data_directory,
+      tenantId: config.tenant_id,
+      companyId: config.company_id,
+      installationId: config.installation_id,
+      deviceId: config.device_id,
+      identity: security.identity,
+      enrolled: deviceCredentials().has(),
+    });
+  };
+  publishPublicIdentity();
+  logger.log("info", "device.public_identity", { device_key_id: security.deviceKeyId, enrolled: deviceCredentials().has() });
+
+  if (
+    config.central_auth_url !== undefined
+    && config.device_enrollment_activation_path !== undefined
+    && config.device_enrollment_token_path !== undefined
+    && config.device_trust_root_public_key_pem !== undefined
+    && config.device_trust_operational_key_id !== undefined
+    && config.device_trust_operational_public_key_pem !== undefined
+  ) {
+    const enrollmentConfig = {
+      centralAuthUrl: config.central_auth_url,
+      activationPath: config.device_enrollment_activation_path,
+      transportTokenPath: config.device_enrollment_token_path,
+      rootPublicKeyPem: config.device_trust_root_public_key_pem,
+      operationalKeyId: config.device_trust_operational_key_id,
+      operationalPublicKeyPem: config.device_trust_operational_public_key_pem,
+    };
+    const enrollment = await runDeviceEnrollment({
+      config: enrollmentConfig,
+      service: new DeviceEnrollmentService(
+        localDatabase.database,
+        security.identity,
+        { tenantId: config.tenant_id, companyId: config.company_id, installationId: config.installation_id, deviceId: config.device_id },
+        () => new Date(),
+        deviceCredentials(),
+      ),
+      credentialStore: deviceCredentials(),
+      transport: new FetchCentralTransport(),
+      clock: { now: () => new Date(), accept: (at) => commercial.trustedClock.accept(at) },
+      signal: AbortSignal.timeout(60_000),
+    }).catch((error: unknown) => ({
+      outcome: "REJECTED" as const,
+      reason: error instanceof Error && /^[A-Za-z0-9 _.:-]{1,160}$/.test(error.message) ? error.message : "ENROLLMENT_FAILED",
+    }));
+    logger.log(
+      enrollment.outcome === "ENROLLED" || enrollment.outcome === "ALREADY_ENROLLED" ? "info" : "warn",
+      "device.enrollment",
+      { ...enrollment },
+    );
+    if (enrollment.outcome === "ENROLLED") publishPublicIdentity();
+  }
 
   // Sesión de revisión de pantallas por rol (`dev-only/`) — nunca `DEC-025` ni
   // `SEC-G02`. `config.ts` ya rechaza esta variable si el equipo declara
