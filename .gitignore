@@ -41,3 +41,8 @@ artifacts/
 # Artefactos de ejecucion de Playwright (trazas y capturas de un fallo).
 test-results/
 playwright-report/
+
+# Estado de un equipo de laboratorio (`install-service.ps1 -Lab`): identidad y
+# base local de ESE PC. Vive fuera de `dist/` para sobrevivir a una recompilación
+# y nunca se versiona.
+apps/pos-local-service/.lab-state/

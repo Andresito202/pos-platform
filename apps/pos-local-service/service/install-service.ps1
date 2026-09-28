@@ -18,7 +18,9 @@
      de Windows, el canal por named pipe y el Electron real—. Hace, en orden:
        - descarga WinSW `v2.12.0` si falta;
        - copia la plantilla `pos-local-service.xml` al staging;
-       - crea o REUTILIZA `provisioning.json` (identidad de laboratorio);
+       - crea o REUTILIZA `provisioning.json` (identidad de laboratorio) y la
+         base en `apps\pos-local-service\.lab-state\`, fuera de `dist\`,
+         para que recompilar el artefacto no las borre;
        - fija la ruta absoluta de `node.exe` y las variables de `config.ts`;
        - instala el servicio para que corra como TU usuario de Windows;
        - lo arranca y espera `runtime.started` en su log.
@@ -99,6 +101,15 @@ $serviceExe = Join-Path $StagingPath "pos-local-service.exe"
 $serviceXml = Join-Path $StagingPath "pos-local-service.xml"
 $artifact = Join-Path $StagingPath "pos-local-service.mjs"
 $dataDirectory = Join-Path $StagingPath "data"
+# El estado de laboratorio —identidad y base— vive FUERA de `dist\staging`:
+# `build-artifact.mjs` borra ese directorio entero en cada compilación, y con él
+# se habrían ido la base local y `provisioning.json` en cada actualización.
+$labStateRoot = Join-Path $PSScriptRoot "..\.lab-state"
+if ($Lab) {
+  New-Item -ItemType Directory -Path $labStateRoot -Force | Out-Null
+  $labStateRoot = (Resolve-Path $labStateRoot).Path
+  $dataDirectory = Join-Path $labStateRoot "data"
+}
 
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
   [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding $false))
@@ -184,7 +195,7 @@ function Initialize-LabStaging {
     Invoke-WebRequest -Uri $url -OutFile $serviceExe -UseBasicParsing
   }
 
-  $provisioningPath = Join-Path $StagingPath "provisioning.json"
+  $provisioningPath = Join-Path $labStateRoot "provisioning.json"
   $account = "$env:USERDOMAIN\$env:USERNAME"
 
   if (Test-Path $provisioningPath) {
@@ -218,7 +229,7 @@ function Initialize-LabStaging {
     Assert-Uuid $field $provisioning.$field
   }
   if ($provisioning.data_directory -ne $dataDirectory) {
-    throw "provisioning.json apunta a '$($provisioning.data_directory)' y este staging es '$dataDirectory'. No se mezclan dos equipos."
+    throw "provisioning.json apunta a '$($provisioning.data_directory)' y este equipo usa '$dataDirectory'. No se mezclan dos equipos."
   }
   if ($provisioning.service_account -ne $account) {
     throw "provisioning.json se creó para '$($provisioning.service_account)' y estás en '$account'. El secreto DPAPI de esa cuenta no lo puede leer otra."

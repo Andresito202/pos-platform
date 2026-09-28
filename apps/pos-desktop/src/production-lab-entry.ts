@@ -9,13 +9,14 @@ import { startProductionDesktop } from "./production-bootstrap.js";
  * `production-entry.ts`, con la identidad tomada del `provisioning.json` que
  * dejó `install-service.ps1 -Lab` en vez de variables puestas a mano.
  *
- * Ruta por defecto: el staging del servicio en este mismo repositorio
- * (`apps/pos-local-service/dist/staging`), relativa al bundle emitido en
- * `apps/pos-desktop/dist/`. `--provisioning=<ruta>` la sustituye.
+ * Ruta por defecto: el estado de laboratorio del servicio en este mismo
+ * repositorio (`apps/pos-local-service/.lab-state`, fuera de `dist/` para que
+ * recompilar no lo borre), relativa al bundle emitido en `apps/pos-desktop/dist/`.
+ * `--provisioning=<ruta>` la sustituye.
  */
 const override = process.argv.find((argument) => argument.startsWith("--provisioning="));
 const path = override === undefined
-  ? resolve(dirname(fileURLToPath(import.meta.url)), "../../pos-local-service/dist/staging/provisioning.json")
+  ? resolve(dirname(fileURLToPath(import.meta.url)), "../../pos-local-service/.lab-state/provisioning.json")
   : override.slice("--provisioning=".length);
 
 if (!existsSync(path)) {
