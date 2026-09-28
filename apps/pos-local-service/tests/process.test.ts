@@ -241,8 +241,8 @@ describe("POS Local Service process boundary", () => {
       const deviceId = processDeviceId;
       const endpoint = localChannelEndpoint(installationId);
       const report = inspectWindowsNamedPipeSecurity(endpoint);
-      expect(report.allowedTrustees).toContain(report.logonSid);
-      expect(report.allowedTrustees).not.toContain(report.currentSid);
+      expect(report.allowedTrustees).toContain(report.currentSid);
+      expect(report.allowedTrustees).not.toContain(report.logonSid);
       expect(report.allowedTrustees).not.toContain("LA");
       expect(report.allowedTrustees).not.toContain("WD");
       expect(report.allowedTrustees).not.toContain("AN");

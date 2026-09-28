@@ -225,7 +225,12 @@ public static class PosPlatformPipeSecurity
         {
             pipeHandle = OpenPipe(pipePath, WRITE_DAC);
 
-            SecurityIdentifier logonSid = GetLogonSid();
+            // La cuenta de Windows, no la sesion de inicio de sesion: un
+            // servicio de Windows corre siempre en una sesion propia, distinta
+            // de la del escritorio aunque la cuenta sea la misma, y con el SID
+            // de sesion la ventana de Electron no podia abrir nunca la pipe
+            // (EPERM, PC fisico 2026-09-28; decision del propietario, D-52).
+            SecurityIdentifier accountSid = WindowsIdentity.GetCurrent().User;
             SecurityIdentifier localSystem =
                 new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
 
@@ -247,7 +252,7 @@ public static class PosPlatformPipeSecurity
                     AceFlags.None,
                     AceQualifier.AccessAllowed,
                     GENERIC_ALL,
-                    logonSid,
+                    accountSid,
                     false,
                     null
                 )
@@ -270,7 +275,7 @@ public static class PosPlatformPipeSecurity
             if (result != 0)
                 throw new Win32Exception((int)result, "SetSecurityInfo named-pipe DACL failed");
 
-            return logonSid.Value;
+            return accountSid.Value;
         }
         finally
         {
@@ -337,8 +342,8 @@ if ([string]::IsNullOrWhiteSpace($path)) {
 }
 
 if ($action -eq "harden") {
-  $logonSid = [PosPlatformPipeSecurity]::HardenNamedPipe($path)
-  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $currentSid = [PosPlatformPipeSecurity]::HardenNamedPipe($path)
+  $logonSid = [PosPlatformPipeSecurity]::CurrentLogonSid()
   [pscustomobject]@{ currentSid = $currentSid; logonSid = $logonSid } | ConvertTo-Json -Compress
   exit 0
 }
@@ -451,7 +456,17 @@ export function hardenWindowsNamedPipeSecurity(endpoint: string): string {
   if (!endpoint.startsWith("\\\\.\\pipe\\")) {
     throw new Error("named-pipe DACL hardening requires a local Windows named-pipe endpoint");
   }
-  return invokePipeSecurity("harden", endpoint).logonSid;
+  return invokePipeSecurity("harden", endpoint).currentSid;
+}
+
+/**
+ * SDDL abrevia algunas cuentas: la del administrador integrado (RID 500)
+ * aparece como `LA` y no como su SID. Si esa es la cuenta actual, `LA` ES la
+ * cuenta del servicio y se traduce; cualquier otra abreviatura sigue siendo un
+ * trustee ajeno.
+ */
+function normalizeTrustee(trustee: string, currentSid: string): string {
+  return trustee === "LA" && currentSid.endsWith("-500") ? currentSid : trustee;
 }
 
 function allowedAceTrustees(sddl: string): string[] {
@@ -480,9 +495,13 @@ export function inspectWindowsNamedPipeSecurity(endpoint: string): WindowsNamedP
     throw new Error("Windows named-pipe security descriptor does not contain a DACL");
   }
 
-  const allowedTrustees = allowedAceTrustees(sddl);
+  const allowedTrustees = allowedAceTrustees(sddl).map((trustee) => normalizeTrustee(trustee, result.currentSid));
+  // La cuenta de Windows que corre el servicio —la misma que abre la ventana—
+  // y SYSTEM. No la sesión de inicio de sesión: ver `HardenNamedPipe`. El
+  // límite coincide con el del secreto del canal, que DPAPI ya ata a esa
+  // cuenta (`CurrentUser`).
   const permitted = new Set([
-    result.logonSid,
+    result.currentSid,
     "SY",
     "S-1-5-18",
   ]);
@@ -493,8 +512,8 @@ export function inspectWindowsNamedPipeSecurity(endpoint: string): WindowsNamedP
     );
   }
 
-  if (!allowedTrustees.includes(result.logonSid)) {
-    throw new Error("Windows named-pipe DACL does not grant the current logon session access");
+  if (!allowedTrustees.includes(result.currentSid)) {
+    throw new Error("Windows named-pipe DACL does not grant the service account access");
   }
 
   return {

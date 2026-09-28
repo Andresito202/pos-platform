@@ -248,7 +248,9 @@ identidad de la conexión la establece la SSA verificada (§3), no una consulta 
 sistema operativo sobre el peer. El control de acceso al pipe en sí —quién
 puede siquiera abrir un handle— ya está resuelto por otra vía, y por debajo del
 nivel de `node:net`: `channel/windows-pipe-security.ts` restringe la DACL del
-pipe al SID de la sesión de inicio de sesión actual, verificado en
+pipe a SYSTEM y a la cuenta de Windows que corre el servicio —hasta el
+2026-09-28, al SID de la sesión de inicio de sesión actual; ver la enmienda al
+final de esta sección—, verificado en
 `windows-dpapi.test.ts` («keeps the real named-pipe DACL restricted across
 replenished instances») contra un pipe real en `windows-2022`.
 
@@ -271,6 +273,24 @@ Es un cambio de superficie grande — reemplaza el transporte, no lo complementa
 y por tanto una decisión aparte, no una consecuencia de este documento.
 
 No se propone aquí. No hay amenaza identificada en §8 que lo exija: la DACL ya
-excluye a cualquier proceso fuera de la sesión de inicio de sesión del usuario,
+excluye a cualquier proceso de otra cuenta de Windows,
 y el modelo de confianza de §3 no coloca al sistema operativo como fuente de
 identidad en ningún punto de la cadena.
+
+### Enmienda 2026-09-28 — la DACL admite la cuenta, no la sesión
+
+**Defecto medido en el primer PC físico** (`D-52`): con el servicio instalado
+como servicio de Windows (`D-44`) y la ventana abierta por la misma cuenta, la
+conexión fallaba con `EPERM`. Un servicio corre siempre en una sesión de inicio
+de sesión propia, distinta de la del escritorio, así que el SID de sesión
+excluía por construcción al único cliente legítimo. Las pruebas de Windows no
+lo veían porque en ellas servidor y cliente comparten proceso o sesión.
+
+**Decisión del propietario**: la DACL concede acceso a SYSTEM y al SID de la
+cuenta que corre el servicio. No amplía el límite de confianza efectivo: el
+secreto del canal ya está atado a esa misma cuenta por DPAPI `CurrentUser`, así
+que cualquier proceso de esa cuenta ya podía leerlo. Sigue siendo fail-closed:
+`inspectWindowsNamedPipeSecurity` rechaza cualquier otro trustee y exige el de
+la cuenta. Lo que sí cambia: otra sesión de la **misma** cuenta (por ejemplo,
+un escritorio remoto del mismo usuario) puede abrir el pipe; la autenticación
+del canal (§3) sigue siendo la que establece identidad.
