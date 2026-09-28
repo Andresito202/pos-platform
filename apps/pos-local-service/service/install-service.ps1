@@ -288,19 +288,19 @@ function Initialize-LabStaging {
   return [pscustomobject]@{ Account = $account; Provisioning = $provisioning; Node = $node.Source; PrinterJson = $printerJson }
 }
 
-function Publish-LabService($lab) {
+function Publish-LabService($labSetup) {
   # Copia completa y limpia: nada de una versión anterior queda mezclado.
   if (Test-Path $labServiceRoot) { Remove-Item -Recurse -Force $labServiceRoot }
   New-Item -ItemType Directory -Path $labServiceRoot -Force | Out-Null
   Copy-Item -Path (Join-Path $StagingPath "*") -Destination $labServiceRoot -Recurse -Force
   Copy-Item -Path $labWinSw -Destination $serviceExe -Force
-  $provisioning = $lab.Provisioning
+  $provisioning = $labSetup.Provisioning
 
   Copy-Item (Join-Path $PSScriptRoot "pos-local-service.xml") $serviceXml -Force
   [xml]$xml = Get-Content -Raw -Path $serviceXml
   # El SCM no hereda el PATH de esta consola: `node.exe` a secas puede no
   # resolver dentro del servicio. Mismo motivo y misma solución que CI.
-  $xml.service.executable = $lab.Node
+  $xml.service.executable = $labSetup.Node
   # Logs fuera de `service\`, que se reemplaza en cada instalación.
   $logPath = $xml.CreateElement("logpath")
   $logPath.InnerText = $labLogRoot
@@ -319,7 +319,7 @@ function Publish-LabService($lab) {
     POS_BRANCH_ID       = $provisioning.branch_id
   }
   if ($DevRolePreset) { $vars["POS_DEV_ROLE_PRESET"] = $DevRolePreset }
-  if ($lab.PrinterJson) { $vars["POS_RECEIPT_PRINTER"] = $lab.PrinterJson }
+  if ($labSetup.PrinterJson) { $vars["POS_RECEIPT_PRINTER"] = $labSetup.PrinterJson }
   foreach ($key in $vars.Keys) {
     $element = $xml.CreateElement("env")
     $element.SetAttribute("name", $key)
@@ -329,11 +329,13 @@ function Publish-LabService($lab) {
   $xml.Save($serviceXml)
 }
 
-$lab = $null
+# `$labSetup` y no `$lab`: PowerShell no distingue mayúsculas en variables y
+# `$lab` ES el interruptor `-Lab`; asignarle `$null` lo apagaba (2026-09-28).
+$labSetup = $null
 $labAccount = $null
 if ($Lab) {
-  $lab = Initialize-LabStaging
-  $labAccount = $lab.Account
+  $labSetup = Initialize-LabStaging
+  $labAccount = $labSetup.Account
 } elseif ($WinSwUrl) {
   Write-Host "Descargando WinSW desde $WinSwUrl"
   Invoke-WebRequest -Uri $WinSwUrl -OutFile $serviceExe -UseBasicParsing
@@ -377,7 +379,7 @@ if ($existing) {
   }
 }
 
-if ($Lab) { Publish-LabService $lab }
+if ($Lab) { Publish-LabService $labSetup }
 
 & $serviceExe install
 if ($LASTEXITCODE -ne 0) { throw "WinSW 'install' terminó con código $LASTEXITCODE" }
