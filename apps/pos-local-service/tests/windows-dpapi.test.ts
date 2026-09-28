@@ -41,7 +41,11 @@ describe("el script de DPAPI existe una sola vez", () => {
     const sources = [
       ...globSync("{apps,packages}/*/src/**/*.ts", { cwd: root }),
       ...globSync("tools/**/*.mjs", { cwd: root }),
-    ].filter((file) => !file.includes("node_modules"));
+    ]
+      // `globSync` devuelve separadores `\` en Windows: sin normalizar, la guarda fallaba
+      // en el PC físico (2026-09-28) aunque hubiera una sola definición.
+      .map((file) => file.replaceAll("\\", "/"))
+      .filter((file) => !file.includes("node_modules"));
 
     const definitions = sources.filter((file) =>
       readFileSync(`${root}/${file}`, "utf8").includes("DPAPI_SCRIPT = String.raw"));
