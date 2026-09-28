@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { App } from "../../renderer/src/App.js";
 import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 
@@ -67,5 +67,50 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByTestId("get-result-button")).toBeTruthy();
     expect(screen.getByTestId("confirm-button")).toBeTruthy();
+  });
+
+  it("reparte los 13 paneles en secciones con un menú lateral, empezando en Inicio", () => {
+    const { container } = render(<App />);
+    const targets = [...container.querySelectorAll("[data-nav-target]")].map((item) => item.getAttribute("data-nav-target"));
+    expect(targets).toEqual(["inicio", "vender", "devoluciones", "catalogo", "inventario", "clientes", "facturacion", "operaciones"]);
+    expect(screen.getByTestId("app-section-title").textContent).toBe("Inicio");
+    expect(container.querySelector('[data-nav-target="inicio"]')?.getAttribute("aria-current")).toBe("page");
+    expect((container.querySelector('[data-nav-section="inicio"]') as HTMLElement).hidden).toBe(false);
+    expect((container.querySelector('[data-nav-section="vender"]') as HTMLElement).hidden).toBe(true);
+  });
+
+  it("cada panel vive en exactamente una sección y ninguno se queda fuera", () => {
+    const { container } = render(<App />);
+    const expected: Record<string, string[]> = {
+      inicio: ["session-panel"],
+      vender: ["sale-panel", "provider-payment-panel", "receipt-panel"],
+      devoluciones: ["return-panel"],
+      catalogo: ["catalog-import-panel", "catalog-panel"],
+      inventario: ["inventory-panel", "lot-panel"],
+      clientes: ["customer-panel", "credit-panel"],
+      facturacion: ["fiscal-panel"],
+      operaciones: ["operation-panel"],
+    };
+    for (const [section, panels] of Object.entries(expected)) {
+      const host = container.querySelector(`[data-nav-section="${section}"]`)!;
+      const found = [...host.querySelectorAll('[data-testid$="-panel"]')].map((node) => node.getAttribute("data-testid"));
+      expect(found, section).toEqual(panels);
+    }
+  });
+
+  it("cambiar de sección oculta la anterior sin desmontarla: lo escrito sigue ahí al volver", () => {
+    const { container } = render(<App />);
+    const input = screen.getByTestId("operation-id-input") as HTMLInputElement;
+    fireEvent.click(container.querySelector('[data-nav-target="operaciones"]')!);
+    expect(screen.getByTestId("app-section-title").textContent).toBe("Operaciones");
+    fireEvent.change(input, { target: { value: "escrito-antes-de-salir" } });
+
+    fireEvent.click(container.querySelector('[data-nav-target="vender"]')!);
+    expect((container.querySelector('[data-nav-section="operaciones"]') as HTMLElement).hidden).toBe(true);
+    expect(container.querySelector('[data-nav-target="vender"]')?.getAttribute("aria-current")).toBe("page");
+
+    fireEvent.click(container.querySelector('[data-nav-target="operaciones"]')!);
+    expect(screen.getByTestId("operation-id-input")).toBe(input);
+    expect(input.value).toBe("escrito-antes-de-salir");
   });
 });

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SessionPanel } from "./components/SessionPanel.js";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
@@ -35,30 +36,143 @@ import { FiscalPanel } from "./components/FiscalPanel.js";
  *
  * La emisión fiscal va la última de la jornada porque necesita las dos cosas
  * que la preceden: la venta cobrada y el adquiriente (`DEC-021` F5).
+ *
+ * ## Navegación lateral (2026-09-28) — sólo presentación
+ *
+ * El mismo orden se reparte ahora en secciones con un menú lateral, en vez de
+ * una sola página de 13 tarjetas. **No cambia lógica**: cada panel es el mismo
+ * componente, con sus mismos hooks y `data-testid`. Las secciones que no se
+ * ven siguen **montadas** —sólo llevan `hidden`—: cambiar de sección no
+ * desmonta un panel, así que una venta a medio cobrar, un formulario escrito o
+ * una consulta en curso siguen ahí al volver, y ningún panel repite al volver
+ * la consulta que hace al montar.
  */
+interface NavSection {
+  readonly id: string;
+  readonly label: string;
+  readonly hint: string;
+  readonly panels: () => React.JSX.Element;
+}
+
+/** El orden de la jornada (arriba), agrupado por lo que el operador va a hacer. */
+const SECTIONS: readonly NavSection[] = [
+  {
+    id: "inicio",
+    label: "Inicio",
+    hint: "Sesión del equipo",
+    panels: () => <SessionPanel />,
+  },
+  {
+    id: "vender",
+    label: "Vender",
+    hint: "Venta, cobro y recibo",
+    panels: () => (
+      <>
+        <SalePanel />
+        <ProviderPaymentPanel />
+        <ReceiptPanel />
+      </>
+    ),
+  },
+  {
+    id: "devoluciones",
+    label: "Devoluciones",
+    hint: "Devolver y reembolsar",
+    panels: () => <ReturnPanel />,
+  },
+  {
+    id: "catalogo",
+    label: "Catálogo",
+    hint: "Carga inicial y artículos",
+    panels: () => (
+      <>
+        <CatalogImportPanel />
+        <CatalogPanel />
+      </>
+    ),
+  },
+  {
+    id: "inventario",
+    label: "Inventario",
+    hint: "Existencias y lotes",
+    panels: () => (
+      <>
+        <InventoryPanel />
+        <LotPanel />
+      </>
+    ),
+  },
+  {
+    id: "clientes",
+    label: "Clientes y fiado",
+    hint: "Adquirientes y crédito",
+    panels: () => (
+      <>
+        <CustomerPanel />
+        <CreditPanel />
+      </>
+    ),
+  },
+  {
+    id: "facturacion",
+    label: "Facturación",
+    hint: "Documento electrónico",
+    panels: () => <FiscalPanel />,
+  },
+  {
+    id: "operaciones",
+    label: "Operaciones",
+    hint: "Resultado y confirmación",
+    panels: () => <OperationPanel />,
+  },
+];
+
 export function App(): React.JSX.Element {
+  const [active, setActive] = useState<string>(SECTIONS[0]!.id);
+  const current = SECTIONS.find((section) => section.id === active) ?? SECTIONS[0]!;
+
   return (
-    <main className="app-shell">
-      <header className="app-bar">
-        <span className="app-mark" aria-hidden="true">CP</span>
-        <h1>POS Local</h1>
-      </header>
-      <StatusPanel />
-      <div className="app-content">
-      <SessionPanel />
-      <CatalogImportPanel />
-      <CatalogPanel />
-      <InventoryPanel />
-      <LotPanel />
-      <SalePanel />
-      <ProviderPaymentPanel />
-      <ReceiptPanel />
-      <ReturnPanel />
-      <CustomerPanel />
-      <CreditPanel />
-      <FiscalPanel />
-      <OperationPanel />
-      </div>
-    </main>
+    <div className="app-shell">
+      <aside className="app-sidebar" data-testid="app-sidebar">
+        <header className="app-bar">
+          <span className="app-mark" aria-hidden="true">CP</span>
+          <h1>POS Local</h1>
+        </header>
+        <nav className="app-nav" aria-label="Secciones">
+          {SECTIONS.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className="app-nav-item"
+              data-nav-target={section.id}
+              aria-current={section.id === active ? "page" : undefined}
+              onClick={() => setActive(section.id)}
+            >
+              <span className="app-nav-label">{section.label}</span>
+              <span className="app-nav-hint">{section.hint}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="app-sidebar-footer">
+          <StatusPanel />
+        </div>
+      </aside>
+      <main className="app-main">
+        <header className="app-section-bar">
+          <h2 data-testid="app-section-title">{current.label}</h2>
+          <span className="app-section-hint">{current.hint}</span>
+        </header>
+        {SECTIONS.map((section) => (
+          <div
+            key={section.id}
+            className="app-content"
+            data-nav-section={section.id}
+            hidden={section.id !== active}
+          >
+            {section.panels()}
+          </div>
+        ))}
+      </main>
+    </div>
   );
 }

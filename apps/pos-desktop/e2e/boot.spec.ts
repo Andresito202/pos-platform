@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { RENDERER_API_METHODS } from "../src/preload-api.js";
+import { showSectionOf } from "./navigation.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = join(here, "smoke-entry.mjs");
@@ -44,7 +45,9 @@ test("el renderer compilado monta la aplicación", async () => {
 
 test("la superficie comercial está montada en la ventana real", async () => {
   const window = await app.firstWindow();
+  await showSectionOf(window, "sale-panel");
   await expect(window.getByTestId("sale-panel")).toBeVisible();
+  await showSectionOf(window, "open-shift-button");
   await expect(window.getByTestId("open-shift-button")).toBeVisible();
 });
 
@@ -60,15 +63,20 @@ test("la superficie comercial está montada en la ventana real", async () => {
  */
 test("el panel de sesion esta montado en la ventana real y no ofrece activar", async () => {
   const window = await app.firstWindow();
+  await showSectionOf(window, "session-panel");
   await expect(window.getByTestId("session-panel")).toBeVisible();
+  await showSectionOf(window, "recover-session-button");
   await expect(window.getByTestId("recover-session-button")).toBeVisible();
   expect(await window.getByTestId("activate-session-button").count()).toBe(0);
 });
 
 test("el panel de cobro por proveedor esta montado en la ventana real", async () => {
   const window = await app.firstWindow();
+  await showSectionOf(window, "provider-payment-panel");
   await expect(window.getByTestId("provider-payment-panel")).toBeVisible();
+  await showSectionOf(window, "charge-qr-button");
   await expect(window.getByTestId("charge-qr-button")).toBeVisible();
+  await showSectionOf(window, "cancel-payment-button");
   await expect(window.getByTestId("cancel-payment-button")).toBeVisible();
 });
 
@@ -80,9 +88,13 @@ test("el panel de cobro por proveedor esta montado en la ventana real", async ()
  */
 test("el panel de crédito está montado en la ventana real", async () => {
   const window = await app.firstWindow();
+  await showSectionOf(window, "credit-panel");
   await expect(window.getByTestId("credit-panel")).toBeVisible();
+  await showSectionOf(window, "open-credit-account-button");
   await expect(window.getByTestId("open-credit-account-button")).toBeVisible();
+  await showSectionOf(window, "charge-to-credit-button");
   await expect(window.getByTestId("charge-to-credit-button")).toBeVisible();
+  await showSectionOf(window, "register-repayment-button");
   await expect(window.getByTestId("register-repayment-button")).toBeVisible();
 });
 

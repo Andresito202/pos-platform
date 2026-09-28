@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { showSectionOf } from "./navigation.js";
 
 /**
  * El POS de escritorio **real** contra el POS Local Service **real**.
@@ -200,26 +201,44 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // 3a · Llega una tanda con lote y se declara desde la pantalla de lotes. Es
   //      la que la venta de abajo consumirá por FEFO, y la que el paso 6b
   //      rastreará hasta el recibo.
+  await showSectionOf(page, "lot-presentation-input");
   await page.getByTestId("lot-presentation-input").fill(prepared.presentationId);
+  await showSectionOf(page, "lot-business-date-input");
   await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("CAFE-L1");
+  await showSectionOf(page, "lot-quantity-input");
   await page.getByTestId("lot-quantity-input").fill("3");
+  await showSectionOf(page, "lot-expiry-input");
   await page.getByTestId("lot-expiry-input").fill("2099-12-31");
+  await showSectionOf(page, "lot-receive-button");
   await page.getByTestId("lot-receive-button").click();
+  await showSectionOf(page, "lot-received-outcome");
   await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
+  await showSectionOf(page, "cash-register-input");
   await page.getByTestId("cash-register-input").fill(REGISTER);
+  await showSectionOf(page, "opening-amount-input");
   await page.getByTestId("opening-amount-input").fill("0");
+  await showSectionOf(page, "open-shift-button");
   await page.getByTestId("open-shift-button").click();
+  await showSectionOf(page, "shift-open");
   await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
 
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(BARCODE);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
 
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("2");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
 
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
   // Instrumentación **sólo de la prueba**: cuenta cuántas veces aparece la
@@ -238,10 +257,12 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     }).observe(document.body, { childList: true, subtree: true });
   });
 
+  await showSectionOf(page, "charge-cash-button");
   await page.getByTestId("charge-cash-button").click();
 
   // 4 · La venta queda cobrada. Éste es el estado que gobierna el cha-ching:
   //     `sale-completed` sólo se pinta cuando `sale_completed === true`.
+  await showSectionOf(page, "sale-completed");
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
 
   // 4b · La señal se emite **exactamente una vez**. Ni cero —no habría
@@ -309,8 +330,11 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
 
   // A partir de aquí, sólo la interfaz: es lo que hace el cajero cuando el
   // cliente vuelve con una duda.
+  await showSectionOf(page, "receipt-sale-id-input");
   await page.getByTestId("receipt-sale-id-input").fill(saleId);
+  await showSectionOf(page, "receipt-load-button");
   await page.getByTestId("receipt-load-button").click();
+  await showSectionOf(page, "receipt");
   await expect(page.getByTestId("receipt")).toBeVisible({ timeout: 15_000 });
 
   expect(await page.getByTestId("receipt-sale-id").textContent()).toBe(saleId);
@@ -351,46 +375,68 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   //
   // El retiro sanitario al revés de como se vendió: se parte de la tanda y se
   // llega al recibo. El rastro da la venta; el botón la abre con su recibo.
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("CAFE-L1");
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace");
   await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Venta"]);
   expect(await page.getByTestId("lot-trace-outflow-quantity").allTextContents()).toEqual(["2.000000"]);
   expect(await page.getByTestId("lot-trace-on-hand").textContent()).toBe("1.000000");
+  await showSectionOf(page, "lot-trace-open-sale");
   await page.getByTestId("lot-trace-open-sale").click();
+  await showSectionOf(page, "lot-trace-sale-document");
   await expect(page.getByTestId("lot-trace-sale-document"))
     .toHaveText(`${String(truth["document_series"])}-${String(truth["sale_number"])}`, { timeout: 15_000 });
   // Venta de mostrador: no nombró comprador, y la pantalla lo dice.
+  await showSectionOf(page, "lot-trace-sale-anonymous");
   await expect(page.getByTestId("lot-trace-sale-anonymous")).toBeVisible();
   expect(await page.getByTestId("lot-trace-sale-customer").count()).toBe(0);
+  await showSectionOf(page, "lot-buyers-button");
   await page.getByTestId("lot-buyers-button").click();
+  await showSectionOf(page, "lot-buyers-anonymous");
   await expect(page.getByTestId("lot-buyers-anonymous")).toHaveText("1", { timeout: 15_000 });
   expect(await page.getByTestId("lot-buyer").count()).toBe(0);
   expect(await page.getByTestId("lot-buyers-failure").count()).toBe(0);
 
   // ── 7 · Los dos desenlaces que no son un recibo ────────────────────────────
 
+  await showSectionOf(page, "receipt-sale-id-input");
   await page.getByTestId("receipt-sale-id-input").fill("018f0000-0000-7000-8000-0000000000fc");
+  await showSectionOf(page, "receipt-load-button");
   await page.getByTestId("receipt-load-button").click();
+  await showSectionOf(page, "receipt-not-found");
   await expect(page.getByTestId("receipt-not-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("receipt").count()).toBe(0);
   expect(await page.getByTestId("receipt-not-completed").count()).toBe(0);
 
   // Una venta nueva y sin cobrar existe, y por eso no puede anunciarse como
   // inexistente: el cajero la tiene delante y lo que debe hacer es cobrarla.
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(BARCODE);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
   const pendingSale = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(pendingSale).not.toBe(saleId);
+  await showSectionOf(page, "receipt-sale-id-input");
   await page.getByTestId("receipt-sale-id-input").fill(pendingSale);
+  await showSectionOf(page, "receipt-load-button");
   await page.getByTestId("receipt-load-button").click();
+  await showSectionOf(page, "receipt-not-completed");
   await expect(page.getByTestId("receipt-not-completed")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("receipt-not-found").count()).toBe(0);
   expect(await page.getByTestId("receipt").count()).toBe(0);
@@ -401,8 +447,11 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // la caja queda inservible al dia siguiente: es el bloqueo que este tramo
   // levanta, y se comprueba aqui desde la pantalla real.
 
+  await showSectionOf(page, "counted-amount-input");
   await page.getByTestId("counted-amount-input").fill("0");
+  await showSectionOf(page, "close-shift-button");
   await page.getByTestId("close-shift-button").click();
+  await showSectionOf(page, "shift-close-result");
   await expect(page.getByTestId("shift-close-result")).toBeVisible({ timeout: 15_000 });
 
   // El arqueo lo calcula el servicio. La pantalla lo muestra y no lo recalcula.
@@ -415,6 +464,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
 
   // El turno deja de estar abierto y la caja vuelve a admitir apertura: eso es
   // lo que convierte el POS en usable mas alla del primer dia.
+  await showSectionOf(page, "shift-closed");
   await expect(page.getByTestId("shift-closed")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("shift-open").count()).toBe(0);
 
@@ -431,25 +481,40 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   const page = await app.firstWindow();
 
   // Turno nuevo sobre la misma caja, que el cierre anterior libero.
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "cash-register-input");
   await page.getByTestId("cash-register-input").fill(REGISTER);
+  await showSectionOf(page, "opening-amount-input");
   await page.getByTestId("opening-amount-input").fill("0");
+  await showSectionOf(page, "open-shift-button");
   await page.getByTestId("open-shift-button").click();
+  await showSectionOf(page, "shift-open");
   await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
 
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(BARCODE);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
   // 1 · Reportar la transferencia.
+  await showSectionOf(page, "register-transfer-button");
   await page.getByTestId("register-transfer-button").click();
+  await showSectionOf(page, "transfer-registered");
   await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
 
   // Reportar no es cobrar: queda pendiente y la venta no se declara cobrada.
+  await showSectionOf(page, "transfer-pending");
   await expect(page.getByTestId("transfer-pending")).toBeVisible();
   expect(await page.getByTestId("transfer-sale-completed").count()).toBe(0);
   expect(await page.getByTestId("sale-completed").count()).toBe(0);
@@ -460,7 +525,9 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   expect(await page.getByTestId("transfer-expected-amount").textContent()).toBe(payable);
 
   // 2 · Atestiguar, que es el unico acto que puede completar la venta.
+  await showSectionOf(page, "confirm-transfer-button");
   await page.getByTestId("confirm-transfer-button").click();
+  await showSectionOf(page, "transfer-sale-completed");
   await expect(page.getByTestId("transfer-sale-completed")).toBeVisible({ timeout: 15_000 });
 
   // La cobertura la emite el servicio; la pantalla la muestra.
@@ -489,88 +556,135 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   const barcode = `77012345${String(Date.now()).slice(-5)}`;
 
   // --- Alta de producto ----------------------------------------------------
+  await showSectionOf(page, "product-code-input");
   await page.getByTestId("product-code-input").fill(code);
+  await showSectionOf(page, "product-name-input");
   await page.getByTestId("product-name-input").fill("Panela");
+  await showSectionOf(page, "presentation-name-input");
   await page.getByTestId("presentation-name-input").fill("Bloque 500g");
+  await showSectionOf(page, "unit-code-input");
   await page.getByTestId("unit-code-input").fill("UND");
+  await showSectionOf(page, "unit-precision-input");
   await page.getByTestId("unit-precision-input").fill("0");
+  await showSectionOf(page, "product-barcode-input");
   await page.getByTestId("product-barcode-input").fill(barcode);
+  await showSectionOf(page, "product-price-input");
   await page.getByTestId("product-price-input").fill("2500");
+  await showSectionOf(page, "product-currency-input");
   await page.getByTestId("product-currency-input").fill("COP");
+  await showSectionOf(page, "register-product-button");
   await page.getByTestId("register-product-button").click();
 
+  await showSectionOf(page, "product-registered");
   await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("product-outcome").textContent()).toBe("REGISTERED");
   const presentationId = await page.getByTestId("presentation-id").textContent();
   expect(presentationId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- Existencia antes de recibir: no es cero, es «sin movimientos» --------
+  await showSectionOf(page, "inventory-presentation-input");
   await page.getByTestId("inventory-presentation-input").fill(presentationId!);
+  await showSectionOf(page, "get-stock-button");
   await page.getByTestId("get-stock-button").click();
+  await showSectionOf(page, "stock-not-found");
   await expect(page.getByTestId("stock-not-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("stock-found").count()).toBe(0);
 
   // --- Entrada de mercancia ------------------------------------------------
+  await showSectionOf(page, "receive-quantity-input");
   await page.getByTestId("receive-quantity-input").fill("40");
+  await showSectionOf(page, "receive-reason-input");
   await page.getByTestId("receive-reason-input").fill("PURCHASE");
+  await showSectionOf(page, "receive-stock-button");
   await page.getByTestId("receive-stock-button").click();
+  await showSectionOf(page, "inventory-movement");
   await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("movement-outcome").textContent()).toBe("POSTED");
   expect(await page.getByTestId("movement-quantity-after").textContent()).toBe("40.000000");
 
   // --- Ajuste por merma ----------------------------------------------------
+  await showSectionOf(page, "adjust-quantity-input");
   await page.getByTestId("adjust-quantity-input").fill("3");
+  await showSectionOf(page, "adjust-reason-input");
   await page.getByTestId("adjust-reason-input").fill("BREAKAGE");
+  await showSectionOf(page, "adjust-movement-select");
   await page.getByTestId("adjust-movement-select").selectOption("SHRINKAGE");
+  await showSectionOf(page, "adjust-stock-button");
   await page.getByTestId("adjust-stock-button").click();
+  await showSectionOf(page, "movement-quantity-after");
   await expect(page.getByTestId("movement-quantity-after")).toHaveText("37.000000", { timeout: 15_000 });
 
   // --- Merma por vencimiento: exige lote (UC-INVENTORY-002 §Mermas regla 3) --
   // Sin lote, se rechaza y el saldo no se mueve. Con un lote que no existe en
   // esta sucursal, tambien. Las dos respuestas llegan a la pantalla tal cual.
+  await showSectionOf(page, "adjust-quantity-input");
   await page.getByTestId("adjust-quantity-input").fill("2");
+  await showSectionOf(page, "adjust-reason-input");
   await page.getByTestId("adjust-reason-input").fill("EXPIRED");
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("");
+  await showSectionOf(page, "adjust-stock-button");
   await page.getByTestId("adjust-stock-button").click();
+  await showSectionOf(page, "movement-outcome");
   await expect(page.getByTestId("movement-outcome")).toHaveText("LOT_REQUIRED", { timeout: 15_000 });
 
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("NO-EXISTE");
+  await showSectionOf(page, "adjust-stock-button");
   await page.getByTestId("adjust-stock-button").click();
+  await showSectionOf(page, "movement-outcome");
   await expect(page.getByTestId("movement-outcome")).toHaveText("LOT_NOT_FOUND", { timeout: 15_000 });
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("");
 
   // --- La consulta confirma el saldo que dejaron los dos movimientos -------
+  await showSectionOf(page, "get-stock-button");
   await page.getByTestId("get-stock-button").click();
+  await showSectionOf(page, "stock-found");
   await expect(page.getByTestId("stock-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("stock-quantity").textContent()).toBe("37.000000");
 
   // --- Lotes desde la pantalla: recibir, ver que vence primero, rastrear ---
   // Dos tandas: la que llega segunda vence antes, asi que la lista FEFO la
   // pone primera. La fecha de negocio se teclea: no depende del reloj.
+  await showSectionOf(page, "lot-presentation-input");
   await page.getByTestId("lot-presentation-input").fill(presentationId!);
+  await showSectionOf(page, "lot-business-date-input");
   await page.getByTestId("lot-business-date-input").fill("2026-09-22");
   for (const [lotCode, lotQuantity, expiry] of [
     ["PANELA-TARDE", "10", "2026-12-31"],
     // Vence a 5 días de la fecha de negocio: dentro de los 7 de «próximo a vencer».
     ["PANELA-PRONTO", "5", "2026-09-27"],
   ] as const) {
+    await showSectionOf(page, "lot-code-input");
     await page.getByTestId("lot-code-input").fill(lotCode);
+    await showSectionOf(page, "lot-quantity-input");
     await page.getByTestId("lot-quantity-input").fill(lotQuantity);
+    await showSectionOf(page, "lot-expiry-input");
     await page.getByTestId("lot-expiry-input").fill(expiry);
+    await showSectionOf(page, "lot-receive-button");
     await page.getByTestId("lot-receive-button").click();
+    await showSectionOf(page, "lot-received-outcome");
     await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
   }
 
   // La misma tanda con otro vencimiento: se rechaza y dice con qué fechas existe.
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("PANELA-TARDE");
+  await showSectionOf(page, "lot-quantity-input");
   await page.getByTestId("lot-quantity-input").fill("1");
+  await showSectionOf(page, "lot-expiry-input");
   await page.getByTestId("lot-expiry-input").fill("2026-11-30");
+  await showSectionOf(page, "lot-receive-button");
   await page.getByTestId("lot-receive-button").click();
+  await showSectionOf(page, "lot-received-outcome");
   await expect(page.getByTestId("lot-received-outcome")).toHaveText("LOT_CODE_CONFLICT", { timeout: 15_000 });
   expect(await page.getByTestId("lot-received-conflict-where").textContent()).toBe("en esta sucursal");
   expect(await page.getByTestId("lot-received-conflict-expiry").textContent()).toBe("2026-12-31");
 
+  await showSectionOf(page, "lot-list-button");
   await page.getByTestId("lot-list-button").click();
+  await showSectionOf(page, "lot-list");
   await expect(page.getByTestId("lot-list")).toBeVisible({ timeout: 15_000 });
   const listed = await page.locator('[data-testid^="lot-row-PANELA"]').evaluateAll(
     (rows) => rows.map((row) => row.getAttribute("data-testid")),
@@ -585,28 +699,42 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
 
   // Lo que vence esta semana en todo el negocio, nombrado por Catálogo: de la
   // panela sólo PANELA-PRONTO (5 días); PANELA-TARDE vence en diciembre.
+  await showSectionOf(page, "expiring-load-button");
   await page.getByTestId("expiring-load-button").click();
+  await showSectionOf(page, "expiring");
   await expect(page.getByTestId("expiring")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("expiring-days").textContent()).toBe("7");
   expect(await page.getByTestId("expiring-lot-code").allTextContents()).toEqual(["PANELA-PRONTO"]);
   expect(await page.getByTestId("expiring-lot-name").allTextContents()).toEqual(["Panela · Bloque 500g"]);
   expect(await page.getByTestId("expiring-lot-state").allTextContents()).toEqual(["Vender primero"]);
+  await showSectionOf(page, "expiring-follow");
   await page.getByTestId("expiring-follow").click();
+  await showSectionOf(page, "lot-trace-received");
   await expect(page.getByTestId("lot-trace-received")).toHaveText("5.000000", { timeout: 15_000 });
   expect(await page.getByTestId("lot-code-input").inputValue()).toBe("PANELA-PRONTO");
 
   // Merma de la tanda que se nombra, desde el panel de ajuste.
+  await showSectionOf(page, "adjust-movement-select");
   await page.getByTestId("adjust-movement-select").selectOption("SHRINKAGE");
+  await showSectionOf(page, "adjust-quantity-input");
   await page.getByTestId("adjust-quantity-input").fill("2");
+  await showSectionOf(page, "adjust-reason-input");
   await page.getByTestId("adjust-reason-input").fill("DAMAGED");
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("PANELA-TARDE");
+  await showSectionOf(page, "adjust-stock-button");
   await page.getByTestId("adjust-stock-button").click();
+  await showSectionOf(page, "movement-quantity-after");
   await expect(page.getByTestId("movement-quantity-after")).toHaveText("50.000000", { timeout: 15_000 });
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("");
 
   // Y el rastro la cuenta: entraron 10, quedan 8, salieron 2 por merma.
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("PANELA-TARDE");
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace");
   await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("lot-trace-received").textContent()).toBe("10.000000");
   expect(await page.getByTestId("lot-trace-on-hand").textContent()).toBe("8.000000");
@@ -617,55 +745,82 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
 
   // Aparecen 3 más en el conteo: se suman a la tanda nombrada, y el rastro lo
   // cuenta como ajuste, no como compra.
+  await showSectionOf(page, "adjust-movement-select");
   await page.getByTestId("adjust-movement-select").selectOption("ADJUSTMENT_POSITIVE");
+  await showSectionOf(page, "adjust-quantity-input");
   await page.getByTestId("adjust-quantity-input").fill("3");
+  await showSectionOf(page, "adjust-reason-input");
   await page.getByTestId("adjust-reason-input").fill("COUNT_CORRECTION");
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("PANELA-TARDE");
+  await showSectionOf(page, "adjust-stock-button");
   await page.getByTestId("adjust-stock-button").click();
+  await showSectionOf(page, "movement-quantity-after");
   await expect(page.getByTestId("movement-quantity-after")).toHaveText("53.000000", { timeout: 15_000 });
+  await showSectionOf(page, "adjust-lot-input");
   await page.getByTestId("adjust-lot-input").fill("");
 
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace-on-hand");
   await expect(page.getByTestId("lot-trace-on-hand")).toHaveText("11.000000", { timeout: 15_000 });
   expect(await page.getByTestId("lot-trace-inflow-type").allTextContents()).toEqual(["Recepción", "Ajuste +"]);
   expect(await page.getByTestId("lot-trace-inflow-reason").allTextContents())
     .toEqual(["SUPPLIER_DELIVERY", "COUNT_CORRECTION"]);
   expect(await page.getByTestId("lot-trace-received").textContent()).toBe("13.000000");
 
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("NO-EXISTE");
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace-outcome");
   await expect(page.getByTestId("lot-trace-outcome")).toHaveText("NOT_FOUND", { timeout: 15_000 });
 
   // --- Adquiriente: no esta, se registra, y entonces si esta ---------------
   const identification = `10${String(Date.now()).slice(-8)}`;
+  await showSectionOf(page, "customer-document-code-input");
   await page.getByTestId("customer-document-code-input").fill("13");
+  await showSectionOf(page, "customer-identification-input");
   await page.getByTestId("customer-identification-input").fill(identification);
+  await showSectionOf(page, "customer-legal-organization-input");
   await page.getByTestId("customer-legal-organization-input").fill("2");
   // Codigos DIAN reales, los mismos que usan las pruebas del servicio: "ZZ" es
   // el tributo de no responsable y "R-99-PN" la responsabilidad de persona
   // natural. Un codigo inventado aqui lo rechazaria el servicio, que es
   // exactamente lo que debe hacer.
+  await showSectionOf(page, "customer-tribute-input");
   await page.getByTestId("customer-tribute-input").fill("ZZ");
+  await showSectionOf(page, "customer-responsibilities-input");
   await page.getByTestId("customer-responsibilities-input").fill("R-99-PN");
+  await showSectionOf(page, "customer-names-input");
   await page.getByTestId("customer-names-input").fill("Ana Perez");
 
+  await showSectionOf(page, "find-customer-button");
   await page.getByTestId("find-customer-button").click();
+  await showSectionOf(page, "customer-not-found");
   await expect(page.getByTestId("customer-not-found")).toBeVisible({ timeout: 15_000 });
 
+  await showSectionOf(page, "register-customer-button");
   await page.getByTestId("register-customer-button").click();
+  await showSectionOf(page, "customer-registered");
   await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
   const customerId = await page.getByTestId("customer-registered-id").textContent();
   expect(customerId).toMatch(/^[0-9a-f-]{36}$/);
 
+  await showSectionOf(page, "find-customer-button");
   await page.getByTestId("find-customer-button").click();
+  await showSectionOf(page, "customer-found");
   await expect(page.getByTestId("customer-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("customer-found-id").textContent()).toBe(customerId);
   expect(await page.getByTestId("customer-found-identification").textContent()).toBe(identification);
   expect(await page.getByTestId("customer-not-found").count()).toBe(0);
 
   // --- Y por ID, que es la tercera operacion del bloque --------------------
+  await showSectionOf(page, "customer-id-input");
   await page.getByTestId("customer-id-input").fill(customerId!);
+  await showSectionOf(page, "get-customer-button");
   await page.getByTestId("get-customer-button").click();
+  await showSectionOf(page, "customer-found");
   await expect(page.getByTestId("customer-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("customer-found-tribute").textContent()).toBe("ZZ");
 
@@ -692,15 +847,25 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
   const unitBarcode = `77090001${String(Date.now()).slice(-5)}`;
   const packBarcode = `77090002${String(Date.now()).slice(-5)}`;
 
+  await showSectionOf(page, "product-code-input");
   await page.getByTestId("product-code-input").fill(code);
+  await showSectionOf(page, "product-name-input");
   await page.getByTestId("product-name-input").fill("Gaseosa 350 ml");
+  await showSectionOf(page, "presentation-name-input");
   await page.getByTestId("presentation-name-input").fill("Unidad");
+  await showSectionOf(page, "unit-code-input");
   await page.getByTestId("unit-code-input").fill("UND");
+  await showSectionOf(page, "unit-precision-input");
   await page.getByTestId("unit-precision-input").fill("0");
+  await showSectionOf(page, "product-barcode-input");
   await page.getByTestId("product-barcode-input").fill(unitBarcode);
+  await showSectionOf(page, "product-price-input");
   await page.getByTestId("product-price-input").fill("3000");
+  await showSectionOf(page, "product-currency-input");
   await page.getByTestId("product-currency-input").fill("COP");
+  await showSectionOf(page, "register-product-button");
   await page.getByTestId("register-product-button").click();
+  await showSectionOf(page, "product-registered");
   await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
 
   const unitPresentationId = await page.getByTestId("presentation-id").textContent();
@@ -709,51 +874,79 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
   const productField = page.getByTestId("add-presentation-product-id-input");
   await expect(productField).not.toHaveValue("", { timeout: 15_000 });
 
+  await showSectionOf(page, "add-presentation-name-input");
   await page.getByTestId("add-presentation-name-input").fill("Paca x12");
+  await showSectionOf(page, "add-presentation-unit-code-input");
   await page.getByTestId("add-presentation-unit-code-input").fill("PACA");
+  await showSectionOf(page, "add-presentation-barcode-input");
   await page.getByTestId("add-presentation-barcode-input").fill(packBarcode);
+  await showSectionOf(page, "add-presentation-price-input");
   await page.getByTestId("add-presentation-price-input").fill("33000");
+  await showSectionOf(page, "add-presentation-button");
   await page.getByTestId("add-presentation-button").click();
 
+  await showSectionOf(page, "add-presentation-outcome");
   await expect(page.getByTestId("add-presentation-outcome")).toHaveText("ADDED", { timeout: 15_000 });
   const packPresentationId = await page.getByTestId("added-presentation-id").textContent();
   expect(packPresentationId).toMatch(/^[0-9a-f-]{36}$/);
   expect(packPresentationId).not.toBe(unitPresentationId);
 
   // Y el lector distingue las dos: escanear la paca da la paca, con su precio.
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(packBarcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("catalog-error").count()).toBe(0);
 
   // --- La equivalencia entre las dos, y abrir una paca de verdad -----------
 
+  await showSectionOf(page, "conversion-factor-input");
   await page.getByTestId("conversion-factor-input").fill("12");
+  await showSectionOf(page, "declare-conversion-button");
   await page.getByTestId("declare-conversion-button").click();
+  await showSectionOf(page, "conversion-declare-outcome");
   await expect(page.getByTestId("conversion-declare-outcome"))
     .toHaveText("DECLARED", { timeout: 15_000 });
 
   // Tres pacas en existencia, ninguna unidad todavía: una llega con lote
   // —la tanda GAS-L1, declarada desde la pantalla de lotes— y dos sin él.
+  await showSectionOf(page, "lot-presentation-input");
   await page.getByTestId("lot-presentation-input").fill(packPresentationId!);
+  await showSectionOf(page, "lot-business-date-input");
   await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("GAS-L1");
+  await showSectionOf(page, "lot-quantity-input");
   await page.getByTestId("lot-quantity-input").fill("1");
+  await showSectionOf(page, "lot-expiry-input");
   await page.getByTestId("lot-expiry-input").fill("2099-12-31");
+  await showSectionOf(page, "lot-receive-button");
   await page.getByTestId("lot-receive-button").click();
+  await showSectionOf(page, "lot-received-outcome");
   await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
 
+  await showSectionOf(page, "inventory-presentation-input");
   await page.getByTestId("inventory-presentation-input").fill(packPresentationId!);
+  await showSectionOf(page, "receive-quantity-input");
   await page.getByTestId("receive-quantity-input").fill("2");
+  await showSectionOf(page, "receive-reason-input");
   await page.getByTestId("receive-reason-input").fill("PURCHASE");
+  await showSectionOf(page, "receive-stock-button");
   await page.getByTestId("receive-stock-button").click();
+  await showSectionOf(page, "movement-quantity-after");
   await expect(page.getByTestId("movement-quantity-after"))
     .toHaveText("3.000000", { timeout: 15_000 });
 
   // El tendero abre una: sale 1 paca, entran 12 unidades, en un solo acto.
+  await showSectionOf(page, "conversion-target-input");
   await page.getByTestId("conversion-target-input").fill(unitPresentationId!);
+  await showSectionOf(page, "conversion-quantity-input");
   await page.getByTestId("conversion-quantity-input").fill("1");
+  await showSectionOf(page, "apply-conversion-button");
   await page.getByTestId("apply-conversion-button").click();
+  await showSectionOf(page, "conversion-outcome");
   await expect(page.getByTestId("conversion-outcome"))
     .toHaveText("CONVERTED", { timeout: 15_000 });
   expect(await page.getByTestId("conversion-source-after").textContent()).toBe("2.000000");
@@ -765,17 +958,23 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
   // FEFO abrió la paca con lote. El rastro de la tanda baja a las unidades, y
   // desde las unidades se sube otra vez a la paca: el retiro de GAS-L1 no se
   // corta al abrir el paquete.
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("GAS-L1");
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace");
   await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Apertura"]);
   expect(await page.getByTestId("lot-trace-derived-quantity").allTextContents()).toEqual(["12.000000"]);
 
+  await showSectionOf(page, "lot-trace-follow-derived");
   await page.getByTestId("lot-trace-follow-derived").click();
+  await showSectionOf(page, "lot-trace-origin-code");
   await expect(page.getByTestId("lot-trace-origin-code")).toHaveText("GAS-L1", { timeout: 15_000 });
   expect(await page.getByTestId("lot-presentation-input").inputValue()).toBe(unitPresentationId);
   expect(await page.getByTestId("lot-trace-received").textContent()).toBe("12.000000");
 
+  await showSectionOf(page, "lot-trace-follow-origin");
   await page.getByTestId("lot-trace-follow-origin").click();
   await expect(page.getByTestId("lot-trace-derived-lot")).toHaveCount(1, { timeout: 15_000 });
   expect(await page.getByTestId("lot-presentation-input").inputValue()).toBe(packPresentationId);
@@ -796,33 +995,49 @@ test("una tienda declara la unidad y el paquete del mismo artículo, desde la pa
  */
 test("un cajero fia una venta y recibe el abono, por la cadena real", async () => {
   const page = await app.firstWindow();
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
 
   // --- 1 · El cliente al que se le va a fiar -------------------------------
   const identification = `11${String(Date.now()).slice(-8)}`;
+  await showSectionOf(page, "customer-document-code-input");
   await page.getByTestId("customer-document-code-input").fill("13");
+  await showSectionOf(page, "customer-identification-input");
   await page.getByTestId("customer-identification-input").fill(identification);
+  await showSectionOf(page, "customer-legal-organization-input");
   await page.getByTestId("customer-legal-organization-input").fill("2");
+  await showSectionOf(page, "customer-tribute-input");
   await page.getByTestId("customer-tribute-input").fill("ZZ");
+  await showSectionOf(page, "customer-responsibilities-input");
   await page.getByTestId("customer-responsibilities-input").fill("R-99-PN");
+  await showSectionOf(page, "customer-names-input");
   await page.getByTestId("customer-names-input").fill("Rosa Quintero");
+  await showSectionOf(page, "register-customer-button");
   await page.getByTestId("register-customer-button").click();
+  await showSectionOf(page, "customer-registered");
   await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
   const customerId = (await page.getByTestId("customer-registered-id").textContent())?.trim() ?? "";
   expect(customerId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- 2 · La cuenta de credito, con su cupo -------------------------------
+  await showSectionOf(page, "credit-customer-id-input");
   await page.getByTestId("credit-customer-id-input").fill(customerId);
+  await showSectionOf(page, "credit-limit-input");
   await page.getByTestId("credit-limit-input").fill("50000.000000");
+  await showSectionOf(page, "credit-currency-input");
   await page.getByTestId("credit-currency-input").fill("COP");
+  await showSectionOf(page, "open-credit-account-button");
   await page.getByTestId("open-credit-account-button").click();
+  await showSectionOf(page, "credit-opened");
   await expect(page.getByTestId("credit-opened")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("credit-opened-outcome").textContent()).toBe("OPENED");
   expect((await page.getByTestId("credit-opened-account-id").textContent())?.trim())
     .toMatch(/^[0-9a-f-]{36}$/);
 
   // Recien abierta no debe nada y el cupo esta entero.
+  await showSectionOf(page, "read-credit-account-button");
   await page.getByTestId("read-credit-account-button").click();
+  await showSectionOf(page, "credit-account");
   await expect(page.getByTestId("credit-account")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("credit-account-limit").textContent()).toBe("50000.000000");
   expect(await page.getByTestId("credit-account-balance").textContent()).toBe("0.000000");
@@ -848,25 +1063,40 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
     });
     return (found as { result: { presentation_id: string } }).result.presentation_id;
   }, BARCODE);
+  await showSectionOf(page, "lot-presentation-input");
   await page.getByTestId("lot-presentation-input").fill(cafePresentation);
+  await showSectionOf(page, "lot-business-date-input");
   await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("CAFE-FIADO");
+  await showSectionOf(page, "lot-quantity-input");
   await page.getByTestId("lot-quantity-input").fill("1");
+  await showSectionOf(page, "lot-expiry-input");
   await page.getByTestId("lot-expiry-input").fill("2098-12-31");
+  await showSectionOf(page, "lot-receive-button");
   await page.getByTestId("lot-receive-button").click();
+  await showSectionOf(page, "lot-received-outcome");
   await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
 
   // --- 3 · La venta, a nombre del cliente ----------------------------------
   //
   // El adquiriente va en la creacion o no va: `SqlitePaymentStore.register`
   // rechaza con `CUSTOMER_REQUIRED` toda venta con `customer_id` nulo.
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(BARCODE);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "sale-customer-id-input");
   await page.getByTestId("sale-customer-id-input").fill(customerId);
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
   const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
@@ -874,9 +1104,13 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- 4 · Fiarla ----------------------------------------------------------
+  await showSectionOf(page, "credit-sale-id-input");
   await page.getByTestId("credit-sale-id-input").fill(saleId);
+  await showSectionOf(page, "credit-charge-amount-input");
   await page.getByTestId("credit-charge-amount-input").fill(payable);
+  await showSectionOf(page, "charge-to-credit-button");
   await page.getByTestId("charge-to-credit-button").click();
+  await showSectionOf(page, "credit-charged");
   await expect(page.getByTestId("credit-charged")).toBeVisible({ timeout: 15_000 });
 
   // Fiar **cobra la venta**: la cobertura la da el credito, y la mercancia sale.
@@ -888,24 +1122,35 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   //
   // Rastro → venta → comprador: lo que un retiro sanitario necesita para
   // llamar a alguien. Cada salto lo da el contrato de su dueño.
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("CAFE-FIADO");
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace");
   await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("lot-trace-outflow-type").allTextContents()).toEqual(["Venta"]);
+  await showSectionOf(page, "lot-trace-open-sale");
   await page.getByTestId("lot-trace-open-sale").click();
+  await showSectionOf(page, "lot-trace-sale-customer");
   await expect(page.getByTestId("lot-trace-sale-customer")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "lot-trace-sale-customer");
   await page.getByTestId("lot-trace-sale-customer").click();
+  await showSectionOf(page, "lot-trace-buyer-name");
   await expect(page.getByTestId("lot-trace-buyer-name")).toHaveText("Rosa Quintero", { timeout: 15_000 });
   expect(await page.getByTestId("lot-trace-buyer-identification").textContent()).toBe(identification);
 
+  await showSectionOf(page, "lot-buyers-button");
   await page.getByTestId("lot-buyers-button").click();
+  await showSectionOf(page, "lot-buyers");
   await expect(page.getByTestId("lot-buyers")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("lot-buyer-name").allTextContents()).toEqual(["Rosa Quintero"]);
   expect(await page.getByTestId("lot-buyers-anonymous").textContent()).toBe("0");
   expect(await page.getByTestId("lot-buyers-failure").count()).toBe(0);
 
   // Y deja deuda: el saldo es el importe fiado y el cupo baja en la misma cifra.
+  await showSectionOf(page, "read-credit-account-button");
   await page.getByTestId("read-credit-account-button").click();
+  await showSectionOf(page, "credit-account-balance");
   await expect(page.getByTestId("credit-account-balance")).toHaveText(payable, { timeout: 15_000 });
   const availableAfterCharge = await page.getByTestId("credit-account-available").textContent();
   expect(availableAfterCharge).not.toBe("50000.000000");
@@ -914,8 +1159,11 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   //
   // El turno sigue abierto del recorrido anterior, que es lo que el efectivo
   // exige: un abono en efectivo entra al cajon (`DEC-002` §146 regla 10).
+  await showSectionOf(page, "credit-repayment-amount-input");
   await page.getByTestId("credit-repayment-amount-input").fill("5000.000000");
+  await showSectionOf(page, "credit-repayment-method-select");
   await page.getByTestId("credit-repayment-method-select").selectOption("CASH");
+  await showSectionOf(page, "credit-repayment-register-input");
   await page.getByTestId("credit-repayment-register-input").fill(REGISTER);
   // La fecha de negocio la teclea el cajero: el abono no la deduce del reloj
   // del equipo, igual que ninguna otra operacion con efecto contable.
@@ -925,8 +1173,11 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0"),
   ].join("-");
+  await showSectionOf(page, "credit-repayment-date-input");
   await page.getByTestId("credit-repayment-date-input").fill(businessDate);
+  await showSectionOf(page, "register-repayment-button");
   await page.getByTestId("register-repayment-button").click();
+  await showSectionOf(page, "credit-repaid");
   await expect(page.getByTestId("credit-repaid")).toBeVisible({ timeout: 15_000 });
   expect((await page.getByTestId("credit-repaid-transaction-id").textContent())?.trim())
     .toMatch(/^[0-9a-f-]{36}$/);
@@ -937,7 +1188,9 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
   const availableAfterRepayment = (await page.getByTestId("credit-repaid-available").textContent())?.trim() ?? "";
   expect(balanceAfterRepayment).not.toBe(payable);
 
+  await showSectionOf(page, "read-credit-account-button");
   await page.getByTestId("read-credit-account-button").click();
+  await showSectionOf(page, "credit-account-balance");
   await expect(page.getByTestId("credit-account-balance"))
     .toHaveText(balanceAfterRepayment, { timeout: 15_000 });
   expect(await page.getByTestId("credit-account-available").textContent())
@@ -973,6 +1226,7 @@ test("un cajero fia una venta y recibe el abono, por la cadena real", async () =
  */
 test("el panel de estado dice conectado contra el servicio real", async () => {
   const page = await app.firstWindow();
+  await showSectionOf(page, "status-connected");
   await expect(page.getByTestId("status-connected")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("status-error").count()).toBe(0);
 });
@@ -988,10 +1242,13 @@ test("la pantalla recupera la sesion de este equipo contra el servicio real", as
   // **no habia sesion**, porque el primer recorrido aun no la habia activado.
   // Sin esta comprobacion la prueba pasaria igual aunque el boton no hiciera
   // nada, y no demostraria que la recuperacion es lo que cambia el estado.
+  await showSectionOf(page, "session-none");
   await expect(page.getByTestId("session-none")).toBeVisible();
   expect(await page.getByTestId("session-active").count()).toBe(0);
 
+  await showSectionOf(page, "recover-session-button");
   await page.getByTestId("recover-session-button").click();
+  await showSectionOf(page, "session-active");
   await expect(page.getByTestId("session-active")).toBeVisible({ timeout: 15_000 });
 
   expect(await page.getByTestId("session-id").textContent()).toBe(expectedSession);
@@ -1025,15 +1282,23 @@ test("la pantalla recupera la sesion de este equipo contra el servicio real", as
  */
 test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real", async () => {
   const page = await app.firstWindow();
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
 
   // --- 1 · Una venta nueva, para no tocar ninguna de las anteriores --------
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(BARCODE);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
   const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
@@ -1044,9 +1309,13 @@ test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real"
   // `PROVIDER_NOT_CONFIGURED` es una negativa tipada, no un fallo, y es el
   // estado real de toda instalacion sin proveedor. Que llegue a la pantalla es
   // lo que distingue «no hay adquiriente» de «la operacion no existe».
+  await showSectionOf(page, "qr-sale-id-input");
   await page.getByTestId("qr-sale-id-input").fill(saleId);
+  await showSectionOf(page, "qr-amount-input");
   await page.getByTestId("qr-amount-input").fill(payable);
+  await showSectionOf(page, "charge-qr-button");
   await page.getByTestId("charge-qr-button").click();
+  await showSectionOf(page, "qr-provider-not-configured");
   await expect(page.getByTestId("qr-provider-not-configured")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("qr-pending").count()).toBe(0);
   expect(await page.getByTestId("qr-rejected").count()).toBe(0);
@@ -1056,21 +1325,28 @@ test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real"
   expect(await page.getByTestId("sale-completed").count()).toBe(0);
 
   // --- 3 · Un pago pendiente de verdad: la transferencia reportada ---------
+  await showSectionOf(page, "register-transfer-button");
   await page.getByTestId("register-transfer-button").click();
+  await showSectionOf(page, "transfer-registered");
   await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
   const paymentId = (await page.getByTestId("transfer-payment-id").textContent())?.trim() ?? "";
   expect(paymentId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- 4 · Leer antes de ordenar: la version es control optimista ----------
+  await showSectionOf(page, "payment-id-input");
   await page.getByTestId("payment-id-input").fill(paymentId);
+  await showSectionOf(page, "read-payment-button");
   await page.getByTestId("read-payment-button").click();
+  await showSectionOf(page, "payment-found");
   await expect(page.getByTestId("payment-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("payment-expected-amount").textContent()).toBe(payable);
   const statusBeforeCancel = await page.getByTestId("payment-status").textContent();
   expect(statusBeforeCancel).not.toBe("CONFIRMED");
 
   // --- 5 · Cancelar ---------------------------------------------------------
+  await showSectionOf(page, "cancel-payment-button");
   await page.getByTestId("cancel-payment-button").click();
+  await showSectionOf(page, "payment-cancelled");
   await expect(page.getByTestId("payment-cancelled")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("cancelled-payment-id").textContent()).toBe(paymentId);
   expect(await page.getByTestId("cancel-rejected").count()).toBe(0);
@@ -1087,9 +1363,13 @@ test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real"
   // Se espera al **texto**, no a que el bloque siga visible: `payment-found`
   // nunca desaparece entre lecturas, asi que esperar su visibilidad no espera
   // a la respuesta nueva y la asercion leeria el valor anterior.
+  await showSectionOf(page, "read-payment-button");
   await page.getByTestId("read-payment-button").click();
+  await showSectionOf(page, "payment-status");
   await expect(page.getByTestId("payment-status")).toHaveText("CANCELLED", { timeout: 15_000 });
+  await showSectionOf(page, "cancel-payment-button");
   await page.getByTestId("cancel-payment-button").click();
+  await showSectionOf(page, "payment-already-cancelled");
   await expect(page.getByTestId("payment-already-cancelled")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("cancel-rejected").count()).toBe(0);
 
@@ -1103,28 +1383,45 @@ test("QR sin adquiriente y cancelacion de un pago pendiente, por la cadena real"
   // Venta nueva: la pantalla admite una sola transferencia por venta, y la de
   // arriba quedo cancelada. Cobrarla de nuevo exige empezar limpio, que es
   // ademas lo que haria el cajero.
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(BARCODE);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
+  await showSectionOf(page, "register-transfer-button");
   await page.getByTestId("register-transfer-button").click();
+  await showSectionOf(page, "transfer-registered");
   await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
   const confirmedPaymentId = (await page.getByTestId("transfer-payment-id").textContent())?.trim() ?? "";
   expect(confirmedPaymentId).not.toBe(paymentId);
 
+  await showSectionOf(page, "confirm-transfer-button");
   await page.getByTestId("confirm-transfer-button").click();
+  await showSectionOf(page, "transfer-sale-completed");
   await expect(page.getByTestId("transfer-sale-completed")).toBeVisible({ timeout: 15_000 });
 
+  await showSectionOf(page, "payment-id-input");
   await page.getByTestId("payment-id-input").fill(confirmedPaymentId);
+  await showSectionOf(page, "read-payment-button");
   await page.getByTestId("read-payment-button").click();
+  await showSectionOf(page, "payment-status");
   await expect(page.getByTestId("payment-status")).toHaveText("CONFIRMED", { timeout: 15_000 });
 
+  await showSectionOf(page, "cancel-payment-button");
   await page.getByTestId("cancel-payment-button").click();
+  await showSectionOf(page, "payment-not-cancellable");
   await expect(page.getByTestId("payment-not-cancellable")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("provider-payment-error").count()).toBe(0);
 });
@@ -1164,44 +1461,71 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   // El turno que dejó abierto la prueba anterior sigue sirviendo, y usarlo es
   // lo que haría un cajero: no se abre un turno por factura. `reset` limpia la
   // venta en curso, no el turno.
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "shift-open");
   await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
 
   // Producto y existencia, tecleados en la pantalla.
+  await showSectionOf(page, "product-code-input");
   await page.getByTestId("product-code-input").fill(code);
+  await showSectionOf(page, "product-name-input");
   await page.getByTestId("product-name-input").fill("Producto facturable");
+  await showSectionOf(page, "presentation-name-input");
   await page.getByTestId("presentation-name-input").fill("Unidad");
+  await showSectionOf(page, "unit-code-input");
   await page.getByTestId("unit-code-input").fill("UND");
+  await showSectionOf(page, "unit-precision-input");
   await page.getByTestId("unit-precision-input").fill("0");
+  await showSectionOf(page, "product-barcode-input");
   await page.getByTestId("product-barcode-input").fill(barcode);
+  await showSectionOf(page, "product-price-input");
   await page.getByTestId("product-price-input").fill("10000");
+  await showSectionOf(page, "product-currency-input");
   await page.getByTestId("product-currency-input").fill("COP");
+  await showSectionOf(page, "register-product-button");
   await page.getByTestId("register-product-button").click();
+  await showSectionOf(page, "product-registered");
   await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
   const presentationId = await page.getByTestId("presentation-id").textContent();
 
   // D-19: los códigos fiscales de la presentación, tecleados en la pantalla.
   // Este paso es el que no existía. La presentación viene prerrellenada del
   // alta, así que el operador sólo aporta la referencia del artículo.
+  await showSectionOf(page, "fiscal-code-reference-input");
   await page.getByTestId("fiscal-code-reference-input").fill(code);
+  await showSectionOf(page, "set-fiscal-attribute-button");
   await page.getByTestId("set-fiscal-attribute-button").click();
+  await showSectionOf(page, "fiscal-attribute-outcome");
   await expect(page.getByTestId("fiscal-attribute-outcome")).toHaveText("SET", { timeout: 15_000 });
   expect(await page.getByTestId("fiscal-attribute-findings").count()).toBe(0);
 
+  await showSectionOf(page, "inventory-presentation-input");
   await page.getByTestId("inventory-presentation-input").fill(presentationId!);
+  await showSectionOf(page, "receive-quantity-input");
   await page.getByTestId("receive-quantity-input").fill("5");
+  await showSectionOf(page, "receive-reason-input");
   await page.getByTestId("receive-reason-input").fill("PURCHASE");
+  await showSectionOf(page, "receive-stock-button");
   await page.getByTestId("receive-stock-button").click();
+  await showSectionOf(page, "inventory-movement");
   await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
 
   // Una tanda de este producto: la venta de abajo sale de ella, y al final se
   // rastrea hasta el adquiriente de la factura.
+  await showSectionOf(page, "lot-presentation-input");
   await page.getByTestId("lot-presentation-input").fill(presentationId!);
+  await showSectionOf(page, "lot-business-date-input");
   await page.getByTestId("lot-business-date-input").fill("2026-09-03");
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("FISC-L1");
+  await showSectionOf(page, "lot-quantity-input");
   await page.getByTestId("lot-quantity-input").fill("1");
+  await showSectionOf(page, "lot-expiry-input");
   await page.getByTestId("lot-expiry-input").fill("2099-12-31");
+  await showSectionOf(page, "lot-receive-button");
   await page.getByTestId("lot-receive-button").click();
+  await showSectionOf(page, "lot-received-outcome");
   await expect(page.getByTestId("lot-received-outcome")).toHaveText("RECEIVED", { timeout: 15_000 });
 
   // «Nueva venta» limpió también el comprador: la venta fiada del recorrido
@@ -1209,14 +1533,23 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   expect(await page.getByTestId("sale-customer-id-input").inputValue()).toBe("");
 
   // Venta y cobro, tambien desde la pantalla.
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(barcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "quantity-input");
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "charge-cash-button");
   await page.getByTestId("charge-cash-button").click();
+  await showSectionOf(page, "sale-completed");
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
 
   const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
@@ -1225,8 +1558,11 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   // --- Y aqui empieza lo que esta prueba existe para comprobar ---------------
 
   // 1 · Venta de mostrador sin identificar: el caso mayoritario de un POS.
+  await showSectionOf(page, "fiscal-sale-id-input");
   await page.getByTestId("fiscal-sale-id-input").fill(saleId);
+  await showSectionOf(page, "issue-anonymous-button");
   await page.getByTestId("issue-anonymous-button").click();
+  await showSectionOf(page, "fiscal-blocked");
   await expect(page.getByTestId("fiscal-blocked")).toBeVisible({ timeout: 15_000 });
 
   // El bloqueo llega con su codigo, y **no** disfrazado de error de transporte.
@@ -1249,41 +1585,64 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
   //     el anterior, y ésa era la prueba de que al adquiriente le faltaba
   //     compañía.
   const identification = `10${String(Date.now()).slice(-8)}`;
+  await showSectionOf(page, "customer-document-code-input");
   await page.getByTestId("customer-document-code-input").fill("13");
+  await showSectionOf(page, "customer-identification-input");
   await page.getByTestId("customer-identification-input").fill(identification);
+  await showSectionOf(page, "customer-legal-organization-input");
   await page.getByTestId("customer-legal-organization-input").fill("2");
+  await showSectionOf(page, "customer-tribute-input");
   await page.getByTestId("customer-tribute-input").fill("ZZ");
+  await showSectionOf(page, "customer-responsibilities-input");
   await page.getByTestId("customer-responsibilities-input").fill("R-99-PN");
+  await showSectionOf(page, "customer-names-input");
   await page.getByTestId("customer-names-input").fill("Cliente Fiscal");
+  await showSectionOf(page, "register-customer-button");
   await page.getByTestId("register-customer-button").click();
+  await showSectionOf(page, "customer-registered");
   await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
   const customerId = await page.getByTestId("customer-registered-id").textContent();
 
+  await showSectionOf(page, "fiscal-customer-id-input");
   await page.getByTestId("fiscal-customer-id-input").fill(customerId!);
+  await showSectionOf(page, "issue-identified-button");
   await page.getByTestId("issue-identified-button").click();
 
   // `D-40`, «advertir»: la venta fue de mostrador y la factura nombra a un
   // cliente. La pantalla dice los dos y no emite hasta que se confirma.
+  await showSectionOf(page, "fiscal-customer-mismatch");
   await expect(page.getByTestId("fiscal-customer-mismatch")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("fiscal-mismatch-sale-customer").textContent())
     .toBe("ningún cliente (venta de mostrador)");
   expect(await page.getByTestId("fiscal-mismatch-requested-customer").textContent()).toBe(customerId);
   expect(await page.getByTestId("fiscal-issued").count()).toBe(0);
+  await showSectionOf(page, "fiscal-confirm-mismatch-button");
   await page.getByTestId("fiscal-confirm-mismatch-button").click();
+  await showSectionOf(page, "fiscal-issued");
   await expect(page.getByTestId("fiscal-issued")).toBeVisible({ timeout: 15_000 });
 
   // La venta fue de mostrador y la factura, a nombre de «Cliente Fiscal». El
   // rastro de la tanda llega también a esa persona: por la factura.
+  await showSectionOf(page, "lot-code-input");
   await page.getByTestId("lot-code-input").fill("FISC-L1");
+  await showSectionOf(page, "lot-trace-button");
   await page.getByTestId("lot-trace-button").click();
+  await showSectionOf(page, "lot-trace");
   await expect(page.getByTestId("lot-trace")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "lot-trace-open-sale");
   await page.getByTestId("lot-trace-open-sale").click();
+  await showSectionOf(page, "lot-trace-invoice");
   await expect(page.getByTestId("lot-trace-invoice")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "lot-trace-sale-anonymous");
   await expect(page.getByTestId("lot-trace-sale-anonymous")).toBeVisible();
+  await showSectionOf(page, "lot-trace-invoice-acquirer-button");
   await page.getByTestId("lot-trace-invoice-acquirer-button").click();
+  await showSectionOf(page, "lot-trace-buyer-name");
   await expect(page.getByTestId("lot-trace-buyer-name")).toHaveText("Cliente Fiscal", { timeout: 15_000 });
 
+  await showSectionOf(page, "lot-buyers-button");
   await page.getByTestId("lot-buyers-button").click();
+  await showSectionOf(page, "lot-buyers");
   await expect(page.getByTestId("lot-buyers")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("lot-buyer-name").allTextContents()).toEqual(["Cliente Fiscal"]);
   expect(await page.getByTestId("lot-buyer-via").allTextContents()).toEqual(["factura"]);
@@ -1300,8 +1659,11 @@ test("la emisión fiscal se dispara desde la pantalla: sin atributo no había fa
 
   // 3 · Una venta que no existe no es un bloqueo de payload: es inelegible, y
   //     la pantalla los distingue.
+  await showSectionOf(page, "fiscal-sale-id-input");
   await page.getByTestId("fiscal-sale-id-input").fill("018f0000-0000-7000-8000-0000000000fd");
+  await showSectionOf(page, "issue-anonymous-button");
   await page.getByTestId("issue-anonymous-button").click();
+  await showSectionOf(page, "fiscal-retriable");
   await expect(page.getByTestId("fiscal-retriable")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("fiscal-retriable-outcome").textContent()).toBe("NOT_ELIGIBLE");
   expect(await page.getByTestId("fiscal-blocked").count()).toBe(0);
@@ -1360,16 +1722,23 @@ test("el comerciante carga su catálogo pegando su hoja de Excel, y lo cargado s
     `ACEITE-${suffix};Aceite 1000 ml;Botella;UND;0;${aceiteBarcode};12500,5;`,
   ].join("\n");
 
+  await showSectionOf(page, "catalog-import-text");
   await page.getByTestId("catalog-import-text").fill(hoja);
+  await showSectionOf(page, "catalog-import-review");
   await page.getByTestId("catalog-import-review").click();
 
   // Revisar no envía nada: dice qué está listo y qué no, con la línea.
+  await showSectionOf(page, "catalog-import-ready");
   await expect(page.getByTestId("catalog-import-ready")).toHaveText("2 línea(s) lista(s)");
+  await showSectionOf(page, "catalog-import-error-count");
   await expect(page.getByTestId("catalog-import-error-count"))
     .toHaveText("1 línea(s) con error — se omiten al cargar");
+  await showSectionOf(page, "catalog-import-errors");
   await expect(page.getByTestId("catalog-import-errors")).toContainText("Línea 3: nombre vacío");
 
+  await showSectionOf(page, "catalog-import-submit");
   await page.getByTestId("catalog-import-submit").click();
+  await showSectionOf(page, "catalog-import-imported");
   await expect(page.getByTestId("catalog-import-imported"))
     .toHaveText("2 cargado(s)", { timeout: 15_000 });
   expect(await page.getByTestId("catalog-import-rejected").count()).toBe(0);
@@ -1377,23 +1746,36 @@ test("el comerciante carga su catálogo pegando su hoja de Excel, y lo cargado s
 
   // **Lo cargado existe de verdad**: se escanea en la caja y aparece con su
   // nombre y su precio, leídos del servicio.
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(arrozBarcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "found-item-name");
   await expect(page.getByTestId("found-item-name")).toHaveText("Arroz Diana 500 g", { timeout: 15_000 });
+  await showSectionOf(page, "found-item-price");
   await expect(page.getByTestId("found-item-price")).toHaveText("3200.000000");
 
   // La coma decimal de la hoja llegó como precio exacto, no truncado.
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(aceiteBarcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "found-item-name");
   await expect(page.getByTestId("found-item-name")).toHaveText("Aceite 1000 ml", { timeout: 15_000 });
+  await showSectionOf(page, "found-item-price");
   await expect(page.getByTestId("found-item-price")).toHaveText("12500.500000");
 
   // Recargar la misma hoja no duplica nada: responde que ya existía.
+  await showSectionOf(page, "catalog-import-review");
   await page.getByTestId("catalog-import-review").click();
+  await showSectionOf(page, "catalog-import-submit");
   await page.getByTestId("catalog-import-submit").click();
+  await showSectionOf(page, "catalog-import-imported");
   await expect(page.getByTestId("catalog-import-imported"))
     .toHaveText("0 cargado(s)", { timeout: 15_000 });
+  await showSectionOf(page, "catalog-import-rejected");
   await expect(page.getByTestId("catalog-import-rejected")).toContainText("CODE_ALREADY_REGISTERED");
+  await showSectionOf(page, "catalog-import-rejected");
   await expect(page.getByTestId("catalog-import-rejected")).toContainText("Línea 2");
 });
 
@@ -1448,47 +1830,75 @@ test("un cliente devuelve lo que compró: la pantalla reembolsa y la mercancía 
 
   // Desde aquí, sólo la pantalla. La venta: dos paquetes en efectivo.
   if (await page.getByTestId("shift-open").count() === 0) {
+    await showSectionOf(page, "cash-register-input");
     await page.getByTestId("cash-register-input").fill(REGISTER);
+    await showSectionOf(page, "opening-amount-input");
     await page.getByTestId("opening-amount-input").fill("0");
+    await showSectionOf(page, "open-shift-button");
     await page.getByTestId("open-shift-button").click();
+    await showSectionOf(page, "shift-open");
     await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
   }
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(barcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "found-item-name");
   await expect(page.getByTestId("found-item-name")).toHaveText("Galletas de avena", { timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("2");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "charge-cash-button");
   await page.getByTestId("charge-cash-button").click();
+  await showSectionOf(page, "sale-completed");
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
   const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
   expect(await stockOf()).toBe("3.000000");
 
   // La devolución, desde su pantalla.
+  await showSectionOf(page, "return-sale-id-input");
   await page.getByTestId("return-sale-id-input").fill(saleId);
+  await showSectionOf(page, "return-load-button");
   await page.getByTestId("return-load-button").click();
   await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await showSectionOf(page, "return-line-check-1");
   await page.getByTestId("return-line-check-1").check();
+  await showSectionOf(page, "return-register-input");
   await page.getByTestId("return-register-input").fill(REGISTER);
+  await showSectionOf(page, "return-submit-button");
   await page.getByTestId("return-submit-button").click();
 
   // El importe lo decide el servicio desde la venta congelada: 2 × 4500.
+  await showSectionOf(page, "return-completed");
   await expect(page.getByTestId("return-completed")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "return-refunded-amount");
   await expect(page.getByTestId("return-refunded-amount")).toHaveText("9000.000000");
   expect(await page.getByTestId("return-fiscal-pending").count()).toBe(0);
   expect(await stockOf()).toBe("5.000000");
 
   // Una segunda devolución de la misma línea no entrega efectivo otra vez.
+  await showSectionOf(page, "return-reset-button");
   await page.getByTestId("return-reset-button").click();
+  await showSectionOf(page, "return-sale-id-input");
   await page.getByTestId("return-sale-id-input").fill(saleId);
+  await showSectionOf(page, "return-load-button");
   await page.getByTestId("return-load-button").click();
   await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await showSectionOf(page, "return-line-check-1");
   await page.getByTestId("return-line-check-1").check();
+  await showSectionOf(page, "return-register-input");
   await page.getByTestId("return-register-input").fill(REGISTER);
+  await showSectionOf(page, "return-submit-button");
   await page.getByTestId("return-submit-button").click();
+  await showSectionOf(page, "return-rejected");
   await expect(page.getByTestId("return-rejected")).toContainText("ya se devolvió", { timeout: 15_000 });
   expect(await stockOf()).toBe("5.000000");
 });
@@ -1540,46 +1950,73 @@ test("un cliente devuelve una venta por transferencia: el reembolso queda pendie
 
   // Venta por transferencia, desde la pantalla real.
   if (await page.getByTestId("shift-open").count() === 0) {
+    await showSectionOf(page, "cash-register-input");
     await page.getByTestId("cash-register-input").fill(REGISTER);
+    await showSectionOf(page, "opening-amount-input");
     await page.getByTestId("opening-amount-input").fill("0");
+    await showSectionOf(page, "open-shift-button");
     await page.getByTestId("open-shift-button").click();
+    await showSectionOf(page, "shift-open");
     await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
   }
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(barcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "found-item-name");
   await expect(page.getByTestId("found-item-name")).toHaveText("Aceite de oliva", { timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("1");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "register-transfer-button");
   await page.getByTestId("register-transfer-button").click();
+  await showSectionOf(page, "transfer-registered");
   await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "confirm-transfer-button");
   await page.getByTestId("confirm-transfer-button").click();
+  await showSectionOf(page, "transfer-sale-completed");
   await expect(page.getByTestId("transfer-sale-completed")).toBeVisible({ timeout: 15_000 });
   const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
   expect(await stockOf()).toBe("4.000000");
 
   // La devolución: sin caja que pedir, porque no se cobró en efectivo.
+  await showSectionOf(page, "return-sale-id-input");
   await page.getByTestId("return-sale-id-input").fill(saleId);
+  await showSectionOf(page, "return-load-button");
   await page.getByTestId("return-load-button").click();
   await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
   expect(await page.getByTestId("return-register-input").count()).toBe(0);
+  await showSectionOf(page, "return-line-check-1");
   await page.getByTestId("return-line-check-1").check();
+  await showSectionOf(page, "return-submit-button");
   await page.getByTestId("return-submit-button").click();
 
+  await showSectionOf(page, "return-refund-pending");
   await expect(page.getByTestId("return-refund-pending")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "return-refund-pending-amount");
   await expect(page.getByTestId("return-refund-pending-amount")).toHaveText("22000.000000");
   expect(await stockOf()).toBe("5.000000");
 
   // Confirmarlo desde el mismo usuario que pidió la devolución se rechaza:
   // exactamente lo que exige `UC-PAY-004` — un actor distinto debe hacerlo,
   // y este recorrido, con una sola ventana, es ese mismo actor.
+  await showSectionOf(page, "return-confirm-reference-input");
   await page.getByTestId("return-confirm-reference-input").fill("TRX-E2E-001");
+  await showSectionOf(page, "return-confirm-destination-input");
   await page.getByTestId("return-confirm-destination-input").fill("Cuenta cliente");
+  await showSectionOf(page, "return-confirm-button");
   await page.getByTestId("return-confirm-button").click();
+  await showSectionOf(page, "return-confirm-rejected");
   await expect(page.getByTestId("return-confirm-rejected")).toContainText("otra persona", { timeout: 15_000 });
+  await showSectionOf(page, "return-refund-pending");
   await expect(page.getByTestId("return-refund-pending")).toBeVisible();
 });
 
@@ -1630,20 +2067,34 @@ test("un cliente devuelve lo que compró por el flujo segregado: solicitar, apro
 
   // Venta en efectivo, desde la pantalla real.
   if (await page.getByTestId("shift-open").count() === 0) {
+    await showSectionOf(page, "cash-register-input");
     await page.getByTestId("cash-register-input").fill(REGISTER);
+    await showSectionOf(page, "opening-amount-input");
     await page.getByTestId("opening-amount-input").fill("0");
+    await showSectionOf(page, "open-shift-button");
     await page.getByTestId("open-shift-button").click();
+    await showSectionOf(page, "shift-open");
     await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
   }
+  await showSectionOf(page, "reset-button");
   await page.getByTestId("reset-button").click();
+  await showSectionOf(page, "barcode-input");
   await page.getByTestId("barcode-input").fill(barcode);
+  await showSectionOf(page, "find-item-button");
   await page.getByTestId("find-item-button").click();
+  await showSectionOf(page, "found-item-name");
   await expect(page.getByTestId("found-item-name")).toHaveText("Chocolate de mesa", { timeout: 15_000 });
+  await showSectionOf(page, "quantity-input");
   await page.getByTestId("quantity-input").fill("2");
+  await showSectionOf(page, "add-item-button");
   await page.getByTestId("add-item-button").click();
+  await showSectionOf(page, "create-sale-button");
   await page.getByTestId("create-sale-button").click();
+  await showSectionOf(page, "sale-created");
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "charge-cash-button");
   await page.getByTestId("charge-cash-button").click();
+  await showSectionOf(page, "sale-completed");
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
   const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
@@ -1651,37 +2102,55 @@ test("un cliente devuelve lo que compró por el flujo segregado: solicitar, apro
 
   // La devolución, por el flujo segregado: solicitar, aprobar y ejecutar son
   // tres pulsaciones distintas, cada una su propia operación del contrato.
+  await showSectionOf(page, "return-sale-id-input");
   await page.getByTestId("return-sale-id-input").fill(saleId);
+  await showSectionOf(page, "return-load-button");
   await page.getByTestId("return-load-button").click();
   await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await showSectionOf(page, "return-line-check-1");
   await page.getByTestId("return-line-check-1").check();
+  await showSectionOf(page, "return-request-button");
   await page.getByTestId("return-request-button").click();
 
+  await showSectionOf(page, "return-request-completed");
   await expect(page.getByTestId("return-request-completed")).toBeVisible({ timeout: 15_000 });
   const saleReturnId = (await page.getByTestId("return-sale-return-id").textContent())?.trim() ?? "";
   expect(saleReturnId).toMatch(/^[0-9a-f-]{36}$/);
+  await showSectionOf(page, "return-requested-amount");
   await expect(page.getByTestId("return-requested-amount")).toHaveText("12000.000000");
   // Solicitada, todavía no movió nada: ni caja ni inventario.
   expect(await stockOf()).toBe("3.000000");
 
+  await showSectionOf(page, "return-approve-button");
   await page.getByTestId("return-approve-button").click();
+  await showSectionOf(page, "return-approved");
   await expect(page.getByTestId("return-approved")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "return-execute-register-input");
   await page.getByTestId("return-execute-register-input").fill(REGISTER);
+  await showSectionOf(page, "return-execute-button");
   await page.getByTestId("return-execute-button").click();
 
   // El importe lo decide el servicio desde la venta congelada: 2 × 6000.
+  await showSectionOf(page, "return-execute-completed");
   await expect(page.getByTestId("return-execute-completed")).toBeVisible({ timeout: 15_000 });
+  await showSectionOf(page, "return-execute-refunded-amount");
   await expect(page.getByTestId("return-execute-refunded-amount")).toHaveText("12000.000000");
   expect(await page.getByTestId("return-execute-fiscal-pending").count()).toBe(0);
   expect(await stockOf()).toBe("5.000000");
 
   // Solicitar de nuevo la misma línea, ya devuelta, no pasa.
+  await showSectionOf(page, "return-reset-button");
   await page.getByTestId("return-reset-button").click();
+  await showSectionOf(page, "return-sale-id-input");
   await page.getByTestId("return-sale-id-input").fill(saleId);
+  await showSectionOf(page, "return-load-button");
   await page.getByTestId("return-load-button").click();
   await expect(page.getByTestId("return-line")).toHaveCount(1, { timeout: 15_000 });
+  await showSectionOf(page, "return-line-check-1");
   await page.getByTestId("return-line-check-1").check();
+  await showSectionOf(page, "return-request-button");
   await page.getByTestId("return-request-button").click();
+  await showSectionOf(page, "return-request-rejected");
   await expect(page.getByTestId("return-request-rejected")).toContainText("ya se devolvió", { timeout: 15_000 });
   expect(await stockOf()).toBe("5.000000");
 });
