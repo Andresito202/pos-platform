@@ -68,6 +68,13 @@
   (`ReceiptPrinterConfigSchema` en `src/config.ts`). Sin él, el equipo no
   declara impresora y `sales.receipt.print` responde `NOT_CONFIGURED`.
 
+.PARAMETER RemoveStrayPosVariables
+  Sólo con `-Lab`. `config.ts` rechaza cualquier variable `POS_*` que no
+  conozca, y el servicio hereda las de Windows (máquina y usuario) además de
+  las del XML: una sola `POS_*` suelta impide arrancar. Sin este parámetro el
+  instalador las lista y se niega; con él las quita de Windows y guarda una
+  copia en `.lab-state\variables-apartadas-<fecha>.json`.
+
 .PARAMETER ResetLabData
   Sólo con `-Lab`. MUEVE `data\` a `data.bak-<fecha>` —no lo borra— y el
   servicio arranca con una base vacía. Conserva `provisioning.json` si existe.
@@ -81,7 +88,8 @@ param(
   [ValidateSet("ADMIN", "SUPERVISOR", "CAJERO")]
   [string]$DevRolePreset,
   [string]$ReceiptPrinterConfigPath,
-  [switch]$ResetLabData
+  [switch]$ResetLabData,
+  [switch]$RemoveStrayPosVariables
 )
 
 $ErrorActionPreference = "Stop"
@@ -91,8 +99,8 @@ $DefaultWinSwUrl = "https://github.com/winsw/winsw/releases/download/v2.12.0/Win
 $LabTenantId = "00000000-0000-7000-8000-0000000000d1"
 $ServiceName = "PosLocalService"
 
-if (-not $Lab -and ($DevRolePreset -or $ReceiptPrinterConfigPath -or $ResetLabData)) {
-  throw "-DevRolePreset, -ReceiptPrinterConfigPath y -ResetLabData sólo existen con -Lab."
+if (-not $Lab -and ($DevRolePreset -or $ReceiptPrinterConfigPath -or $ResetLabData -or $RemoveStrayPosVariables)) {
+  throw "-DevRolePreset, -ReceiptPrinterConfigPath, -ResetLabData y -RemoveStrayPosVariables sólo existen con -Lab."
 }
 
 if (-not $StagingPath) {
@@ -221,8 +229,44 @@ function Assert-FreshArtifact {
   }
 }
 
+function Get-ScopedEnvironment([string]$Scope) {
+  [Environment]::GetEnvironmentVariables($Scope)
+}
+
+function Remove-ScopedEnvironment([string]$Name, [string]$Scope) {
+  [Environment]::SetEnvironmentVariable($Name, $null, $Scope)
+}
+
+function Resolve-StrayPosVariables {
+  # Medido en el PC físico el 2026-09-28: `POS_TARGET_CANONICAL_ADMIN_URL`,
+  # que no existe en ninguna versión de este repositorio, estaba definida en
+  # Windows y el servicio moría en cada arranque con «unknown POS service
+  # configuration». El rechazo es deliberado (`config.ts`); lo que falta es
+  # decirlo antes de instalar y no después de tres reinicios.
+  $found = @()
+  foreach ($scope in @("Machine", "User")) {
+    $variables = Get-ScopedEnvironment $scope
+    foreach ($name in @($variables.Keys)) {
+      if ($name -clike "POS_*") {
+        $found += [pscustomobject]@{ Scope = $scope; Name = $name; Value = [string]$variables[$name] }
+      }
+    }
+  }
+  if ($found.Count -eq 0) { return }
+
+  $list = ($found | ForEach-Object { "  [$($_.Scope)] $($_.Name)" }) -join "`n"
+  if (-not $RemoveStrayPosVariables) {
+    throw "Windows tiene variables POS_* definidas fuera del instalador; el servicio las heredaría y se negaría a arrancar (config.ts rechaza las que no conoce):`n$list`nRepite con -RemoveStrayPosVariables para quitarlas de Windows (se guarda una copia en .lab-state)."
+  }
+  $backup = Join-Path $labStateRoot "variables-apartadas-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+  Write-Utf8NoBom $backup (ConvertTo-Json -InputObject @($found))
+  foreach ($variable in $found) { Remove-ScopedEnvironment $variable.Name $variable.Scope }
+  Write-Host "Variables POS_* quitadas de Windows (copia en $backup):`n$list"
+}
+
 function Initialize-LabStaging {
   Assert-FreshArtifact
+  Resolve-StrayPosVariables
   if (-not (Test-Path $labWinSw)) {
     $url = $WinSwUrl
     if (-not $url) { $url = $DefaultWinSwUrl }
@@ -433,6 +477,9 @@ if (-not $started -or $status -ne "Running") {
     Get-Content $log.FullName -Tail 40
   }
   if ($logs.Count -eq 0) { Write-Host "No hay ningún log en $labLogRoot : WinSW ni siquiera llegó a arrancar." }
+  if ($logs | Select-String -Pattern "unknown POS service configuration" -Quiet) {
+    Write-Host "El servicio sigue viendo una variable POS_* que Windows no tiene ya registrada: el administrador de servicios conserva el entorno con el que arrancó Windows. Reinicia el equipo (guarda antes tu trabajo) y vuelve a ejecutar este instalador."
+  }
   throw "El servicio no llegó a 'runtime.started' en 60 s (estado: $status). Logs en $labLogRoot (arriba, las últimas líneas)."
 }
 
