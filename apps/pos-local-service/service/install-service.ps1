@@ -16,11 +16,16 @@
   2. `-Lab`: prepara e instala un equipo de LABORATORIO de punta a punta, para
      probar en un PC físico lo que ningún arnés puede probar —el servicio real
      de Windows, el canal por named pipe y el Electron real—. Hace, en orden:
-       - descarga WinSW `v2.12.0` si falta;
-       - copia la plantilla `pos-local-service.xml` al staging;
+       - se NIEGA si el artefacto de `dist\staging` es más viejo que alguna
+         fuente del servicio o de `packages\*\src` (instalar el de ayer
+         reproduce defectos ya corregidos: pasó el 2026-09-28);
        - crea o REUTILIZA `provisioning.json` (identidad de laboratorio) y la
-         base en `apps\pos-local-service\.lab-state\`, fuera de `dist\`,
-         para que recompilar el artefacto no las borre;
+         base en `apps\pos-local-service\.lab-state\`, fuera de `dist\`;
+       - COPIA el artefacto a `.lab-state\service\` y el servicio corre desde
+         ahí, con sus logs en `.lab-state\logs\`: `build-artifact.mjs` borra
+         `dist\staging` entero en cada compilación y, si el servicio corriera
+         desde ahí, recompilar le quitaría el programa y los logs por debajo;
+       - descarga WinSW `v2.12.0` una vez a `.lab-state\winsw\`;
        - fija la ruta absoluta de `node.exe` y las variables de `config.ts`;
        - instala el servicio para que corra como TU usuario de Windows;
        - lo arranca y espera `runtime.started` en su log.
@@ -64,9 +69,10 @@
   declara impresora y `sales.receipt.print` responde `NOT_CONFIGURED`.
 
 .PARAMETER ResetLabData
-  Sólo con `-Lab`. Si `data\` tiene contenido y no hay `provisioning.json`
-  que diga de quién es, en vez de negarse lo MUEVE a `data.bak-<fecha>` —no
-  lo borra— y empieza de cero.
+  Sólo con `-Lab`. MUEVE `data\` a `data.bak-<fecha>` —no lo borra— y el
+  servicio arranca con una base vacía. Conserva `provisioning.json` si existe.
+  Sin este parámetro, un `data\` con contenido y sin `provisioning.json` que
+  diga de quién es hace que el instalador se niegue.
 #>
 param(
   [string]$StagingPath,
@@ -109,6 +115,14 @@ if ($Lab) {
   New-Item -ItemType Directory -Path $labStateRoot -Force | Out-Null
   $labStateRoot = (Resolve-Path $labStateRoot).Path
   $dataDirectory = Join-Path $labStateRoot "data"
+  # Por la misma razón el servicio no corre desde `dist\staging`: se copia aquí.
+  $stagingArtifact = $artifact
+  $labServiceRoot = Join-Path $labStateRoot "service"
+  $labLogRoot = Join-Path $labStateRoot "logs"
+  $labWinSw = Join-Path $labStateRoot "winsw\WinSW-x64.exe"
+  $serviceExe = Join-Path $labServiceRoot "pos-local-service.exe"
+  $serviceXml = Join-Path $labServiceRoot "pos-local-service.xml"
+  $artifact = Join-Path $labServiceRoot "pos-local-service.mjs"
 }
 
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
@@ -184,31 +198,58 @@ public static class PosLabLsa {
   [PosLabLsa]::Grant($Account, "SeServiceLogonRight")
 }
 
-function Initialize-LabStaging {
-  if (-not (Test-Path $artifact)) {
-    throw "Falta '$artifact'. Ejecuta antes: pnpm --filter @pos-platform/pos-local-service run build:artifact"
+function Assert-FreshArtifact {
+  $build = "pnpm --filter @pos-platform/pos-local-service run build:artifact"
+  if (-not (Test-Path $stagingArtifact)) {
+    throw "Falta '$stagingArtifact'. Ejecuta antes, en la terminal de VS Code: $build"
   }
-  if (-not (Test-Path $serviceExe)) {
+  # `git pull` deja la fecha de hoy en cada fuente que cambia; el bundle de
+  # esbuild, la de su compilación. Una fuente más nueva que el bundle significa
+  # que el bundle no la contiene.
+  $built = (Get-Item $stagingArtifact).LastWriteTimeUtc
+  $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+  $sourceRoots = @(Join-Path $repoRoot "apps\pos-local-service\src") + @(
+    Get-ChildItem -Path (Join-Path $repoRoot "packages") -Directory |
+      ForEach-Object { Join-Path $_.FullName "src" } |
+      Where-Object { Test-Path $_ }
+  )
+  $newer = Get-ChildItem -Path $sourceRoots -Recurse -File -Filter "*.ts" |
+    Where-Object { $_.LastWriteTimeUtc -gt $built } |
+    Select-Object -First 1
+  if ($newer) {
+    throw "El artefacto '$stagingArtifact' ($($built.ToLocalTime())) es más viejo que '$($newer.FullName)' ($($newer.LastWriteTime)). Instalarlo repetiría defectos ya corregidos. Espera a que termine y vuelve a ejecutar, en la terminal de VS Code: $build"
+  }
+}
+
+function Initialize-LabStaging {
+  Assert-FreshArtifact
+  if (-not (Test-Path $labWinSw)) {
     $url = $WinSwUrl
     if (-not $url) { $url = $DefaultWinSwUrl }
+    New-Item -ItemType Directory -Path (Split-Path $labWinSw) -Force | Out-Null
     Write-Host "Descargando WinSW desde $url"
-    Invoke-WebRequest -Uri $url -OutFile $serviceExe -UseBasicParsing
+    Invoke-WebRequest -Uri $url -OutFile $labWinSw -UseBasicParsing
   }
 
   $provisioningPath = Join-Path $labStateRoot "provisioning.json"
   $account = "$env:USERDOMAIN\$env:USERNAME"
 
+  $hasData = (Test-Path $dataDirectory) -and (Get-ChildItem -Force $dataDirectory | Select-Object -First 1)
+  if ($hasData -and $ResetLabData) {
+    $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existingService -and $existingService.Status -ne "Stopped") { Stop-Service -Name $ServiceName -Force }
+    $backup = "$dataDirectory.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    Move-Item -Path $dataDirectory -Destination $backup
+    Write-Host "Datos anteriores apartados en $backup"
+    $hasData = $false
+  }
+
   if (Test-Path $provisioningPath) {
     $provisioning = Get-Content -Raw -Path $provisioningPath | ConvertFrom-Json
     Write-Host "Reutilizando la identidad de laboratorio de $provisioningPath (la base local ya está ligada a ella)."
   } else {
-    if ((Test-Path $dataDirectory) -and (Get-ChildItem -Force $dataDirectory | Select-Object -First 1)) {
-      if (-not $ResetLabData) {
-        throw "'$dataDirectory' tiene datos y no hay provisioning.json que diga de quién son. No se inventa una identidad para una base existente. Repite con -ResetLabData para apartarla (se mueve, no se borra)."
-      }
-      $backup = "$dataDirectory.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-      Move-Item -Path $dataDirectory -Destination $backup
-      Write-Host "Datos anteriores apartados en $backup"
+    if ($hasData) {
+      throw "'$dataDirectory' tiene datos y no hay provisioning.json que diga de quién son. No se inventa una identidad para una base existente. Repite con -ResetLabData para apartarla (se mueve, no se borra)."
     }
     $provisioning = [pscustomobject][ordered]@{
       kind            = "LAB"
@@ -241,12 +282,29 @@ function Initialize-LabStaging {
   }
 
   $node = Get-Command node.exe -ErrorAction Stop | Select-Object -First 1
+  Write-Host "node.exe del servicio: $($node.Source)"
+  Write-Host "installation_id: $($provisioning.installation_id)"
+  Write-Host "device_id:       $($provisioning.device_id)"
+  return [pscustomobject]@{ Account = $account; Provisioning = $provisioning; Node = $node.Source; PrinterJson = $printerJson }
+}
+
+function Publish-LabService($lab) {
+  # Copia completa y limpia: nada de una versión anterior queda mezclado.
+  if (Test-Path $labServiceRoot) { Remove-Item -Recurse -Force $labServiceRoot }
+  New-Item -ItemType Directory -Path $labServiceRoot -Force | Out-Null
+  Copy-Item -Path (Join-Path $StagingPath "*") -Destination $labServiceRoot -Recurse -Force
+  Copy-Item -Path $labWinSw -Destination $serviceExe -Force
+  $provisioning = $lab.Provisioning
 
   Copy-Item (Join-Path $PSScriptRoot "pos-local-service.xml") $serviceXml -Force
   [xml]$xml = Get-Content -Raw -Path $serviceXml
   # El SCM no hereda el PATH de esta consola: `node.exe` a secas puede no
   # resolver dentro del servicio. Mismo motivo y misma solución que CI.
-  $xml.service.executable = $node.Source
+  $xml.service.executable = $lab.Node
+  # Logs fuera de `service\`, que se reemplaza en cada instalación.
+  $logPath = $xml.CreateElement("logpath")
+  $logPath.InnerText = $labLogRoot
+  [void]$xml.service.AppendChild($logPath)
 
   foreach ($existing in @($xml.service.SelectNodes("env"))) { [void]$xml.service.RemoveChild($existing) }
   $vars = [ordered]@{
@@ -261,7 +319,7 @@ function Initialize-LabStaging {
     POS_BRANCH_ID       = $provisioning.branch_id
   }
   if ($DevRolePreset) { $vars["POS_DEV_ROLE_PRESET"] = $DevRolePreset }
-  if ($printerJson) { $vars["POS_RECEIPT_PRINTER"] = $printerJson }
+  if ($lab.PrinterJson) { $vars["POS_RECEIPT_PRINTER"] = $lab.PrinterJson }
   foreach ($key in $vars.Keys) {
     $element = $xml.CreateElement("env")
     $element.SetAttribute("name", $key)
@@ -269,24 +327,23 @@ function Initialize-LabStaging {
     [void]$xml.service.AppendChild($element)
   }
   $xml.Save($serviceXml)
-
-  Write-Host "node.exe del servicio: $($node.Source)"
-  Write-Host "installation_id: $($provisioning.installation_id)"
-  Write-Host "device_id:       $($provisioning.device_id)"
-  return $account
 }
 
+$lab = $null
 $labAccount = $null
 if ($Lab) {
-  $labAccount = Initialize-LabStaging
+  $lab = Initialize-LabStaging
+  $labAccount = $lab.Account
 } elseif ($WinSwUrl) {
   Write-Host "Descargando WinSW desde $WinSwUrl"
   Invoke-WebRequest -Uri $WinSwUrl -OutFile $serviceExe -UseBasicParsing
 }
 
-foreach ($required in @($serviceExe, $serviceXml, $artifact)) {
-  if (-not (Test-Path $required)) {
-    throw "Falta '$required'. Construye el artefacto (build-artifact.mjs) y coloca WinSW antes de instalar."
+if (-not $Lab) {
+  foreach ($required in @($serviceExe, $serviceXml, $artifact)) {
+    if (-not (Test-Path $required)) {
+      throw "Falta '$required'. Construye el artefacto (build-artifact.mjs) y coloca WinSW antes de instalar."
+    }
   }
 }
 
@@ -303,9 +360,24 @@ $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($existing) {
   Write-Host "El servicio ya existe: deteniendo y reinstalando en vez de duplicar."
   if ($existing.Status -ne "Stopped") { Stop-Service -Name $ServiceName -Force }
-  & $serviceExe uninstall
-  Start-Sleep -Seconds 2
+  if ($Lab) {
+    # El servicio anterior pudo instalarse desde `dist\staging`, cuyo WinSW
+    # ya no existe si se recompiló: se borra por el SCM, no por su ejecutable.
+    & sc.exe delete $ServiceName | Out-Null
+    $gone = (Get-Date).AddSeconds(15)
+    while ((Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) -and (Get-Date) -lt $gone) {
+      Start-Sleep -Milliseconds 500
+    }
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+      throw "Windows no terminó de borrar el servicio '$ServiceName'. Cierra la consola de Servicios (services.msc) si está abierta y repite."
+    }
+  } else {
+    & $serviceExe uninstall
+    Start-Sleep -Seconds 2
+  }
 }
+
+if ($Lab) { Publish-LabService $lab }
 
 & $serviceExe install
 if ($LASTEXITCODE -ne 0) { throw "WinSW 'install' terminó con código $LASTEXITCODE" }
@@ -326,8 +398,15 @@ if ($change.ReturnValue -ne 0) {
 }
 Write-Host "El servicio correrá como $labAccount."
 
-# Logs de una ejecución anterior confundirían la espera de `runtime.started`.
-Get-ChildItem $StagingPath -Filter "*.log" -ErrorAction SilentlyContinue | Remove-Item -Force
+# Logs de una ejecución anterior confundirían la espera de `runtime.started`:
+# se apartan, no se borran.
+New-Item -ItemType Directory -Path $labLogRoot -Force | Out-Null
+$previousLogs = @(Get-ChildItem $labLogRoot -Filter "*.log" -File -ErrorAction SilentlyContinue)
+if ($previousLogs.Count -gt 0) {
+  $archive = Join-Path $labLogRoot "anteriores-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+  New-Item -ItemType Directory -Path $archive -Force | Out-Null
+  $previousLogs | Move-Item -Destination $archive
+}
 
 try {
   Start-Service -Name $ServiceName
@@ -339,22 +418,25 @@ $deadline = (Get-Date).AddSeconds(60)
 $started = $false
 while ((Get-Date) -lt $deadline -and -not $started) {
   Start-Sleep -Milliseconds 500
-  foreach ($log in Get-ChildItem $StagingPath -Filter "*.log" -ErrorAction SilentlyContinue) {
+  foreach ($log in Get-ChildItem $labLogRoot -Filter "*.log" -File -ErrorAction SilentlyContinue) {
     if (Select-String -Path $log.FullName -Pattern "runtime.started" -Quiet -ErrorAction SilentlyContinue) { $started = $true; break }
   }
 }
 
 $status = (Get-Service -Name $ServiceName).Status
 if (-not $started -or $status -ne "Running") {
-  Get-ChildItem $StagingPath -Filter "*.log" -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host "---- $($_.Name) (últimas 40 líneas) ----"
-    Get-Content $_.FullName -Tail 40
+  $logs = @(Get-ChildItem $labLogRoot -Filter "*.log" -File -ErrorAction SilentlyContinue)
+  foreach ($log in $logs) {
+    Write-Host "---- $($log.Name) (últimas 40 líneas) ----"
+    Get-Content $log.FullName -Tail 40
   }
-  throw "El servicio no llegó a 'runtime.started' en 60 s (estado: $status). Arriba están sus logs."
+  if ($logs.Count -eq 0) { Write-Host "No hay ningún log en $labLogRoot : WinSW ni siquiera llegó a arrancar." }
+  throw "El servicio no llegó a 'runtime.started' en 60 s (estado: $status). Logs en $labLogRoot (arriba, las últimas líneas)."
 }
 
 Write-Host ""
 Write-Host "OK: '$ServiceName' está Running como $labAccount y registró runtime.started."
+Write-Host "Logs del servicio: $labLogRoot"
 if ($DevRolePreset) {
   # `DEV_LAB_REGISTER_ID` de `src/dev-only/dev-lab-register.ts`.
   Write-Host "Sesión de revisión: $DevRolePreset. Caja de laboratorio para abrir turno: 00000000-0000-7000-8000-0000000000d5"

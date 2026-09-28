@@ -118,4 +118,44 @@ $rules = @(
     second.fill(0);
     other.fill(0);
   }, 20_000);
+
+  /**
+   * Primer PC físico, 2026-09-28: la ventana de Electron, sin elevar, creó su
+   * clave bajo `C:\Proyectos\...` y al restringirla falló con
+   * `UnauthorizedAccessException` en `SetAccessControl`. Ahí Windows 10/11 sólo
+   * hereda «Modificar» al creador —sin `WRITE_OWNER`—, y el script reescribía
+   * el dueño en cada lectura aunque ya fuera el usuario actual.
+   *
+   * Se reproduce dejando al usuario como dueño con sólo «Modificar»: sin
+   * `WRITE_OWNER` y con `WRITE_DAC` implícito de dueño.
+   */
+  windowsIt("restricts a key it owns without WRITE_OWNER (inherited Modify only)", async () => {
+    const dir = await directory();
+    const first = new WindowsDpapiKeyProvider(dir).loadKey("installation-modify");
+    const [file] = readdirSync(dir).filter((name) => name.endsWith(".dpapi"));
+    const path = join(dir, file!);
+
+    const downgrade = String.raw`
+$ErrorActionPreference = "Stop"
+$path = $env:POS_DPAPI_TEST_PATH
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = New-Object System.Security.AccessControl.FileSecurity
+$acl.SetAccessRuleProtection($true, $false)
+[void]$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+  $user, [System.Security.AccessControl.FileSystemRights]::Modify, [System.Security.AccessControl.AccessControlType]::Allow)))
+[System.IO.File]::SetAccessControl($path, $acl)
+`;
+    const downgraded = spawnSync(
+      "powershell.exe",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", downgrade],
+      { encoding: "utf8", windowsHide: true, env: { ...process.env, POS_DPAPI_TEST_PATH: path } },
+    );
+    expect(downgraded.status, downgraded.stderr).toBe(0);
+
+    const again = new WindowsDpapiKeyProvider(dir).loadKey("installation-modify");
+    expect(again.equals(first)).toBe(true);
+
+    first.fill(0);
+    again.fill(0);
+  }, 20_000);
 });

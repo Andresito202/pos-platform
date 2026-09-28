@@ -71,8 +71,16 @@ if ($key.Length -ne 32) {
 }
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$owner = ([System.IO.File]::GetAccessControl($path)).GetOwner([System.Security.Principal.SecurityIdentifier])
 $acl = New-Object System.Security.AccessControl.FileSecurity
-$acl.SetOwner($identity.User)
+# Reescribir el dueño exige WRITE_OWNER aunque el dueño no cambie, y un usuario
+# sin elevar no lo tiene sobre el fichero que el mismo acaba de crear bajo
+# C:\<carpeta>: Windows 10/11 solo le hereda Modificar (Authenticated Users).
+# Siendo ya el dueño, la DACL basta con WRITE_DAC, que el dueño tiene siempre.
+# Mismo estado final: dueño = usuario actual y una sola regla, la suya.
+if (-not $identity.User.Equals($owner)) {
+  $acl.SetOwner($identity.User)
+}
 $acl.SetAccessRuleProtection($true, $false)
 $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
   $identity.User,
@@ -80,7 +88,11 @@ $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
   [System.Security.AccessControl.AccessControlType]::Allow
 )
 [void]$acl.AddAccessRule($rule)
-[System.IO.File]::SetAccessControl($path, $acl)
+try {
+  [System.IO.File]::SetAccessControl($path, $acl)
+} catch {
+  throw "DPAPI root key ACL cannot be restricted (owner $($owner.Value), current user $($identity.User.Value)): $($_.Exception.Message)"
+}
 
 $output = [Convert]::ToBase64String($key)
 [Array]::Clear($key, 0, $key.Length)
