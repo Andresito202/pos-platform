@@ -61,5 +61,10 @@ export const AUTHENTICATION_POLICY = {
     accessTokenMs: 10 * MINUTE_MS,
     OPERATOR: { sessionMs: 24 * HOUR_MS, refreshIdleMs: null, recentReauthMs: null },
     ADMINISTRATION: { sessionMs: 12 * HOUR_MS, refreshIdleMs: 30 * MINUTE_MS, recentReauthMs: 15 * MINUTE_MS },
+    /**
+     * `DEC-011` «Expiración, offline y revocación»: TTL inicial del SAS, 24 h.
+     * Es a la vez la ventana offline máxima y la de exposición a revocación.
+     */
+    authorizationSnapshotMs: 24 * HOUR_MS,
   },
 } as const;

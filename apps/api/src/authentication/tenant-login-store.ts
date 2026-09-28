@@ -1,4 +1,5 @@
 import type { ThrottleState } from "./login-throttle.js";
+import type { AuthorizationProjectionRow } from "./operator-session-issuer.js";
 
 /**
  * Lo que el login dentro de un comercio necesita leer de una persona. Lo define
@@ -30,6 +31,14 @@ export interface NewSession {
   readonly refreshTokenHash: string;
   readonly refreshTokenExpiresAt: Date;
   readonly mfaStatus: "NOT_REQUIRED" | "SATISFIED";
+  /**
+   * Equipo verificado por la prueba de dispositivo (`UC-AUTH-001` paso 8:
+   * «sesión vinculada al dispositivo»). `null` sólo si quien llama no probó
+   * ningún equipo.
+   */
+  readonly deviceId: string | null;
+  /** Fin de la vigencia offline emitida al POS; `null` si no se emitió sesión local. */
+  readonly offlineValidUntil: Date | null;
 }
 
 export interface ActiveTotpFactor {
@@ -62,6 +71,14 @@ export interface TenantLoginTransaction {
   findActiveTotpFactorForUpdate(userId: string): Promise<ActiveTotpFactor | null>;
   recordTotpAcceptedStep(factorId: string, step: number): Promise<void>;
   openSession(session: NewSession): Promise<void>;
+  /**
+   * Asignaciones de rol vigentes de la membresía, con los permisos que sus
+   * roles conceden en ese instante (`DEC-011`: el snapshot es la proyección
+   * completa, no un delta).
+   */
+  authorizationProjection(membershipId: string, at: Date): Promise<readonly AuthorizationProjectionRow[]>;
+  /** Siguiente valor de `identity.session_trust_sequence` (006). */
+  nextSessionTrustSequence(): Promise<number>;
   appendSecurityEvent(event: SecurityEvent): Promise<void>;
 }
 

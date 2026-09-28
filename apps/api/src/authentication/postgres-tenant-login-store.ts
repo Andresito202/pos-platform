@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import { uuidV7 } from "@pos-platform/contracts";
 import type { ThrottleState } from "./login-throttle.js";
 import type { MfaEnrollmentPort } from "./mfa-enrollment-service.js";
+import type { AuthorizationProjectionRow } from "./operator-session-issuer.js";
 import type { ActiveTotpFactor, LoginCandidate, NewSession, SecurityEvent, TenantLoginStore, TenantLoginTransaction } from "./tenant-login-store.js";
 
 /**
@@ -130,15 +131,50 @@ class PostgresTenantLoginTransaction implements TenantLoginTransaction, MfaEnrol
 
   async openSession(session: NewSession): Promise<void> {
     await this.client.query(
-      `INSERT INTO identity.sessions (id, user_id, tenant_id, tenant_membership_id, authenticated_at, expires_at, mfa_status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $5)`,
-      [session.sessionId, session.userId, this.tenantId, session.membershipId, session.authenticatedAt, session.expiresAt, session.mfaStatus],
+      `INSERT INTO identity.sessions (id, user_id, tenant_id, tenant_membership_id, device_id, authenticated_at, expires_at, mfa_status, offline_valid_until, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $6)`,
+      [session.sessionId, session.userId, this.tenantId, session.membershipId, session.deviceId, session.authenticatedAt, session.expiresAt, session.mfaStatus, session.offlineValidUntil],
     );
     await this.client.query(
       `INSERT INTO identity.session_refresh_tokens (id, session_id, token_family_id, token_hash, issued_at, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [session.refreshTokenId, session.sessionId, session.refreshTokenFamilyId, session.refreshTokenHash, session.authenticatedAt, session.refreshTokenExpiresAt],
     );
+  }
+
+  async authorizationProjection(membershipId: string, at: Date): Promise<readonly AuthorizationProjectionRow[]> {
+    // Mismo criterio de vigencia que `activeRoleCodes`: lo que autentica y lo
+    // que autoriza se leen del mismo estado, en la misma transacción.
+    const result = await this.client.query<{
+      company_id: string | null; branch_id: string | null; valid_from: Date; valid_until: Date | null;
+      permission_code: string | null; permission_status: "ACTIVE" | "RETIRED" | null;
+    }>(
+      `SELECT a.company_id, a.branch_id, a.valid_from, a.valid_until, p.code AS permission_code, p.status AS permission_status
+         FROM "authorization".user_role_assignments a
+         JOIN "authorization".roles r ON r.id = a.role_id AND r.status = 'ACTIVE'
+         LEFT JOIN "authorization".role_permission_grants g
+                ON g.role_id = r.id AND g.status = 'ACTIVE'
+               AND g.valid_from <= $3 AND (g.valid_until IS NULL OR g.valid_until > $3)
+         LEFT JOIN "authorization".permissions p ON p.id = g.permission_id
+        WHERE a.tenant_id = $1 AND a.tenant_membership_id = $2 AND a.status = 'ACTIVE'
+          AND a.valid_from <= $3 AND (a.valid_until IS NULL OR a.valid_until > $3)`,
+      [this.tenantId, membershipId, at],
+    );
+    return result.rows.map((row) => ({
+      companyId: row.company_id,
+      branchId: row.branch_id,
+      validFrom: row.valid_from,
+      validUntil: row.valid_until,
+      permissionCode: row.permission_code,
+      permissionStatus: row.permission_status,
+    }));
+  }
+
+  async nextSessionTrustSequence(): Promise<number> {
+    const result = await this.client.query<{ value: string }>("SELECT nextval('identity.session_trust_sequence') AS value");
+    const value = Number(result.rows[0]?.value);
+    if (!Number.isSafeInteger(value) || value < 1) throw new Error("session trust sequence returned an invalid value");
+    return value;
   }
 
   async appendSecurityEvent(event: SecurityEvent): Promise<void> {

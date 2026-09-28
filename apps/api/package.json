@@ -8,7 +8,7 @@
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --exclude \"tests/**/*.postgres.test.ts\"",
-    "test:postgres": "vitest run tests/tenant-login.postgres.test.ts tests/device-login.postgres.test.ts"
+    "test:postgres": "vitest run tests/tenant-login.postgres.test.ts tests/device-login.postgres.test.ts tests/operator-session.postgres.test.ts"
   },
   "dependencies": {
     "@nestjs/common": "12.1.0",

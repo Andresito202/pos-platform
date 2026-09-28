@@ -58,6 +58,7 @@ export class AuthController {
       password: request.password,
       totpCode: request.totp_code ?? null,
       ipAddress,
+      device: { installationId: device.binding.installationId, deviceId: device.binding.deviceId },
     });
     if (outcome.kind !== "AUTHENTICATED") return { result_code: outcome.kind, result: null };
     return {
@@ -67,6 +68,8 @@ export class AuthController {
         refresh_token: outcome.refreshToken,
         session_expires_at: outcome.sessionExpiresAt.toISOString(),
         refresh_token_expires_at: outcome.refreshTokenExpiresAt.toISOString(),
+        // SSA + SAS para el equipo que hizo la prueba (`DEC-026` §13.10).
+        operator_session: outcome.operatorSession,
       },
     };
   }

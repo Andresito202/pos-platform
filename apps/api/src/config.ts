@@ -9,6 +9,10 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM",
   "MFA_SECRET_ENCRYPTION_KEY_BASE64URL",
   "MFA_TOTP_ISSUER",
+  "SESSION_ASSERTION_SIGNING_KEY_ID",
+  "SESSION_ASSERTION_SIGNING_KEY_FILE",
+  "AUTHORIZATION_SNAPSHOT_SIGNING_KEY_ID",
+  "AUTHORIZATION_SNAPSHOT_SIGNING_KEY_FILE",
 ]);
 
 const PublicKeyPemSchema = z.string().min(80).max(4096);
@@ -42,8 +46,44 @@ const ApiConfigSchema = z.strictObject({
   }),
   /** Nombre del emisor que la app autenticadora muestra junto al código. */
   mfa_totp_issuer: z.string().min(1).max(64),
+  /**
+   * Claves privadas con que se firman la SSA y el SAS del login (`DEC-026`
+   * §13.10). Se leen de **fichero**, nunca de una variable: una clave privada
+   * en el entorno acaba en volcados de proceso y registros. Van las cuatro
+   * juntas o ninguna; sin ellas el login central funciona, pero no entrega
+   * sesión local que el POS pueda activar.
+   */
+  session_trust_signing: z.strictObject({
+    session_assertion_key_id: StableCodeSchema.max(128),
+    session_assertion_key_file: z.string().min(1).max(4096),
+    authorization_snapshot_key_id: StableCodeSchema.max(128),
+    authorization_snapshot_key_file: z.string().min(1).max(4096),
+  }).refine((value) => value.session_assertion_key_id !== value.authorization_snapshot_key_id, {
+    message: "session assertion and authorization snapshot need distinct key ids",
+  }).nullable(),
 });
 export type ApiConfig = z.infer<typeof ApiConfigSchema>;
+
+const SESSION_TRUST_SIGNING_KEYS = [
+  "SESSION_ASSERTION_SIGNING_KEY_ID",
+  "SESSION_ASSERTION_SIGNING_KEY_FILE",
+  "AUTHORIZATION_SNAPSHOT_SIGNING_KEY_ID",
+  "AUTHORIZATION_SNAPSHOT_SIGNING_KEY_FILE",
+] as const;
+
+function sessionTrustSigning(environment: NodeJS.ProcessEnv): Record<string, string | undefined> | null {
+  const present = SESSION_TRUST_SIGNING_KEYS.filter((key) => environment[key] !== undefined);
+  if (present.length === 0) return null;
+  if (present.length !== SESSION_TRUST_SIGNING_KEYS.length) {
+    throw new Error(`session trust signing requires all of ${SESSION_TRUST_SIGNING_KEYS.join(", ")}`);
+  }
+  return {
+    session_assertion_key_id: environment.SESSION_ASSERTION_SIGNING_KEY_ID,
+    session_assertion_key_file: environment.SESSION_ASSERTION_SIGNING_KEY_FILE,
+    authorization_snapshot_key_id: environment.AUTHORIZATION_SNAPSHOT_SIGNING_KEY_ID,
+    authorization_snapshot_key_file: environment.AUTHORIZATION_SNAPSHOT_SIGNING_KEY_FILE,
+  };
+}
 
 export function parseApiConfig(environment: NodeJS.ProcessEnv): ApiConfig {
   const unknownKeys = Object.keys(environment).filter((key) => key.startsWith("API_") && !CONFIG_ENVIRONMENT_KEYS.has(key)).sort();
@@ -57,5 +97,6 @@ export function parseApiConfig(environment: NodeJS.ProcessEnv): ApiConfig {
     device_trust_operational_public_key_pem: environment.DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM,
     mfa_secret_encryption_key: environment.MFA_SECRET_ENCRYPTION_KEY_BASE64URL,
     mfa_totp_issuer: environment.MFA_TOTP_ISSUER ?? "Camacho POS Colombia",
+    session_trust_signing: sessionTrustSigning(environment),
   });
 }

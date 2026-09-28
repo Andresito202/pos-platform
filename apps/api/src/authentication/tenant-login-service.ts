@@ -6,6 +6,8 @@ import type { MfaSecretCipher } from "./mfa-secret-cipher.js";
 import { burnEquivalentWork, verifyPassword, type PasswordVerification } from "./password-hasher.js";
 import { refreshTokenExpiresAt, sessionExpiresAt } from "./session-lifetimes.js";
 import { verifyTotp } from "./totp.js";
+import type { OperatorSessionIssuer } from "./operator-session-issuer.js";
+import type { OperatorSessionProvisioningArtifact } from "@pos-platform/contracts";
 import type { SecurityEvent, TenantLoginStore, TenantLoginTransaction } from "./tenant-login-store.js";
 
 export interface TenantLoginRequest {
@@ -20,6 +22,12 @@ export interface TenantLoginRequest {
   /** Exigido sólo para roles de administración (`A-4`); ignorado para el resto. */
   readonly totpCode: string | null;
   readonly ipAddress: string | null;
+  /**
+   * Instalación y equipo **ya verificados** por la prueba de dispositivo, igual
+   * que `tenantId`. Sólo con ellos se emite sesión local: la SSA y el SAS van
+   * ligados a un equipo concreto (`DEC-011`, `DEC-012`).
+   */
+  readonly device?: { readonly installationId: string; readonly deviceId: string } | null;
 }
 
 /**
@@ -35,6 +43,12 @@ export type TenantLoginOutcome =
     readonly refreshToken: string;
     readonly sessionExpiresAt: Date;
     readonly refreshTokenExpiresAt: Date;
+    /**
+     * SSA + SAS firmados para el equipo (`DEC-026` §13.10). `null` si no hubo
+     * equipo verificado o si este servidor no tiene claves de emisión: la
+     * sesión central existe igual, pero el POS no tiene nada que activar.
+     */
+    readonly operatorSession: OperatorSessionProvisioningArtifact | null;
   }
   | { readonly kind: "REJECTED" }
   | { readonly kind: "THROTTLED"; readonly retryAt: Date }
@@ -77,6 +91,11 @@ export class TenantLoginService {
      * tampoco debe caerse por ello.
      */
     private readonly mfaCipher: MfaSecretCipher | null = null,
+    /**
+     * Opcional por la misma razón que `mfaCipher`: sin claves de emisión el
+     * login central sigue funcionando, sólo que sin sesión local que entregar.
+     */
+    private readonly operatorSessionIssuer: OperatorSessionIssuer | null = null,
   ) {}
 
   login(request: TenantLoginRequest): Promise<TenantLoginOutcome> {
@@ -156,6 +175,24 @@ export class TenantLoginService {
     const expiresAt = sessionExpiresAt(now, authenticationClass);
     const refreshToken = randomBytes(32).toString("base64url");
     const refreshExpiresAt = refreshTokenExpiresAt(now, expiresAt, authenticationClass);
+    const device = request.device ?? null;
+    // Dentro de la transacción del login: la proyección se lee del mismo
+    // estado que autenticó, y la secuencia se consume sólo si el login
+    // termina de verdad (un rollback no la devuelve, pero tampoco la emite).
+    const operatorSession = device === null || this.operatorSessionIssuer === null
+      ? null
+      : this.operatorSessionIssuer.issue({
+        tenantId: request.tenantId,
+        userId: candidate.userId,
+        membershipId: candidate.membershipId,
+        sessionId,
+        installationId: device.installationId,
+        deviceId: device.deviceId,
+        issuedAt: now,
+        sessionExpiresAt: expiresAt,
+        sequence: await transaction.nextSessionTrustSequence(),
+        projection: await transaction.authorizationProjection(candidate.membershipId, now),
+      });
     await transaction.openSession({
       sessionId,
       userId: candidate.userId,
@@ -167,9 +204,11 @@ export class TenantLoginService {
       refreshTokenHash: sha256Hex(refreshToken),
       refreshTokenExpiresAt: refreshExpiresAt,
       mfaStatus: authenticationClass === "ADMINISTRATION" ? "SATISFIED" : "NOT_REQUIRED",
+      deviceId: device?.deviceId ?? null,
+      offlineValidUntil: operatorSession === null ? null : new Date(operatorSession.session_assertion.claims.offline_valid_until),
     });
     await event({ eventCode: "LOGIN_SUCCEEDED", result: "ACCEPTED", reasonCode: null, userId: candidate.userId, session: { tenantId: request.tenantId, sessionId } });
-    return { kind: "AUTHENTICATED", sessionId, refreshToken, sessionExpiresAt: expiresAt, refreshTokenExpiresAt: refreshExpiresAt };
+    return { kind: "AUTHENTICATED", sessionId, refreshToken, sessionExpiresAt: expiresAt, refreshTokenExpiresAt: refreshExpiresAt, operatorSession };
   }
 
   /**

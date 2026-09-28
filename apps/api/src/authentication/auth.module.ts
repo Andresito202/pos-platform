@@ -1,4 +1,5 @@
-import { createPublicKey } from "node:crypto";
+import { createPrivateKey, createPublicKey } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { Module, type OnModuleDestroy } from "@nestjs/common";
 import { Pool } from "pg";
 import { DeviceTrustVerifier, type TrustedDeviceTrustKey } from "@pos-platform/device-trust";
@@ -10,9 +11,26 @@ import { DeviceLoginVerification } from "./device-login-verification.js";
 import { InMemoryClockGuard } from "./in-memory-clock-guard.js";
 import { MfaEnrollmentService } from "./mfa-enrollment-service.js";
 import { MfaSecretCipher } from "./mfa-secret-cipher.js";
+import { OperatorSessionIssuer, type SessionTrustSigningKey } from "./operator-session-issuer.js";
 import { PostgresTenantLoginStore } from "./postgres-tenant-login-store.js";
 import { TenantLoginService } from "./tenant-login-service.js";
 import { DEVICE_LOGIN_VERIFICATION, MFA_ENROLLMENT_SERVICE, PG_POOL, TENANT_LOGIN_SERVICE } from "./tokens.js";
+
+function signingKey(keyId: string, file: string): SessionTrustSigningKey {
+  const privateKey = createPrivateKey(readFileSync(file));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error(`${keyId} must be an Ed25519 private key`);
+  return { keyId, privateKey };
+}
+
+/** `null` sin claves de emisión: login central sin sesión local (`DEC-026` §13.10). */
+function operatorSessionIssuer(config: ApiConfig): OperatorSessionIssuer | null {
+  const signing = config.session_trust_signing;
+  if (signing === null) return null;
+  return new OperatorSessionIssuer(
+    signingKey(signing.session_assertion_key_id, signing.session_assertion_key_file),
+    signingKey(signing.authorization_snapshot_key_id, signing.authorization_snapshot_key_file),
+  );
+}
 
 class PoolCloser implements OnModuleDestroy {
   constructor(private readonly pool: Pool) {}
@@ -64,6 +82,7 @@ class PoolCloser implements OnModuleDestroy {
         return new TenantLoginService(
           new PostgresTenantLoginStore(pool), undefined, undefined, undefined,
           new MfaSecretCipher(config.mfa_secret_encryption_key),
+          operatorSessionIssuer(config),
         );
       },
     },

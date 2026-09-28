@@ -522,14 +522,66 @@ códigos de recuperación de un solo uso (`A-9`, `PLATFORM_OWNER`) siguen sin
 implementar — la migración 005 ya tiene la tabla (`identity.
 mfa_recovery_codes`), falta el código.
 
+### 13.10 Emisión de sesión local en el login — hecha (Fase 1, tramo central)
+
+Pedido por el propietario el 2026-09-28 («construye todos los login de los
+roles… estás autorizado»), dentro de la autorización de §13. Cierra la primera
+brecha de §14: **emitir SSA/SAS para operar offline**.
+
+- **`POST /v1/auth/login` devuelve `operator_session`**: el mismo artefacto de
+  dos sobres de `DEC-025` (`OperatorSessionProvisioningArtifact`), firmado en
+  el momento. El POS lo activa por la ruta que ya verifica ese artefacto; no
+  hay un segundo camino de activación.
+- **Ligado al equipo probado**: `installation_id`/`device_id` salen de la
+  prueba de equipo verificada contra el registro (§13.8), nunca del cuerpo.
+- **SSA** (`DEC-012`): `session_id` = la sesión central recién abierta,
+  `user_id`, `tenant_membership_id`. **SAS** (`DEC-011`): proyección completa de
+  las asignaciones de rol **vigentes** de la membresía con las concesiones
+  vigentes de cada rol (`authorization.*` de la 001), una asignación por
+  ámbito. Si dos roles coinciden en ámbito se unen: permisos sumados
+  (`ACTIVE` gana a `RETIRED`) y vigencia **intersección**, nunca unión —no se
+  concede nada fuera de la vigencia de un rol que lo aporta—.
+- **Una clave por propósito** (`D-31`): la SSA y el SAS se firman con claves
+  distintas; el servidor se niega a arrancar con el mismo `key_id` para ambas.
+  Claves privadas desde **fichero** (`*_SIGNING_KEY_FILE`), nunca desde
+  variable; las cuatro variables juntas o ninguna. Sin ellas el login central
+  sigue funcionando y `operator_session` es `null`.
+- **Vigencia**: SAS = mínimo entre 24 h (`DEC-011`, `authorizationSnapshotMs`)
+  y la sesión (24 h operador / 12 h administración, `A-10`); la SSA vence con
+  el SAS (`DEC-012` §19). La sesión central guarda `device_id` y
+  `offline_valid_until` (`UC-AUTH-001` paso 8).
+- **Secuencia**: `identity.session_trust_sequence`, **migración PostgreSQL
+  006** (sólo una secuencia y su `USAGE` para `pos_platform_app`; sin tablas).
+  `DEC-011` deja la monotonía al emisor: una secuencia global crece para todo
+  binding; un rollback no la devuelve.
+
+**Evidencia, 2026-09-28, PostgreSQL 16.13 local:**
+`postgres-006-session-trust-sequence.test.ts` **5/5** (crece estrictamente, un
+rollback no la repite, `pos_platform_app` no puede `setval` ni `RESTART`, la
+reversión la retira). `operator-session.postgres.test.ts` **5/5** por HTTP real:
+SSA y SAS verifican cada uno con su clave y **no** con la del otro; binding al
+equipo probado; permisos por ámbito con concesión retirada excluida; secuencia
+creciente entre logins; sesión central con `device_id` y `offline_valid_until`;
+una asignación revocada desaparece del SAS del siguiente login.
+`operator-session-issuer.test.ts` **8/8** sin base de datos; **mutaciones
+verificadas**: vigencia por unión en vez de intersección, y `RETIRED` que pisa
+a `ACTIVE` según el orden, fallan cada una. `apps/api` completo: 55 sin
+PostgreSQL + 22 con PostgreSQL.
+
+**No resuelto en este tramo:** que el POS pida el login y active los sobres
+(tramo local), la pantalla de login y el laboratorio en el PC físico. La
+aceptación de estos sobres por el verificador real del POS la prueba la E2E de
+la ventana, no esta prueba.
+
 ## 14. Qué sigue abierto
 
 - Las diez decisiones de política están ratificadas. Cajero, supervisor **y**
   administración tienen login real, `END_TO_END` hasta la sesión persistida
   (§13.8, §13.9): `TESTED` en este entorno, contra PostgreSQL local, no
   `PRODUCTION_READY` — ninguna instancia central está desplegada. `SEC-G02`
-  sigue `PLANNED / NOT_EVALUATED` en conjunto: falta emitir SSA/SAS para
-  operar offline, recuperación de cuenta (`A-9`) y revocar un factor MFA.
+  sigue `PLANNED / NOT_EVALUATED` en conjunto: falta recuperación de cuenta
+  (`A-9`) y revocar un factor MFA. La emisión de SSA/SAS está hecha en el lado
+  central (§13.10); falta que el POS la consuma.
 - `G-1`–`G-8` tienen decisión (§13.4) e implementación (§13.5, §13.6, §13.8,
   §13.9). `G-9` sigue abierta.
 - `central-authority` no compila en modo estricto por errores anteriores a
