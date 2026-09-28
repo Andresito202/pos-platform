@@ -654,6 +654,17 @@ en la semilla hace fallar (3). Suite E2E completa del escritorio **27/27**.
 En CI la ejecuta el job `validate` de `target-foundation-validation.yml`, que
 tiene PostgreSQL; esa ejecución no se ha observado todavía.
 
+**En el PC físico (Windows):** `install-service.ps1 -Lab -CentralLabState <dir>`
+toma identidad, dirección de la autoridad, claves públicas y certificado del
+`service-env.json` del laboratorio, marca `central_login` en
+`provisioning.json` (la ventana exige login) y escribe el XML de WinSW con los
+saltos de línea de los PEM como `&#xA;`, comprobando al releer que cada
+variable llega intacta. `lab-central.ts` lanza sus procesos con `node` + `tsx`
+sin shell (con `cmd.exe` el `--eval` multilínea llegaba roto) y anuncia la
+autoridad como `https://127.0.0.1` (en Windows `localhost` puede resolver
+primero a `::1`). **`REQUIRES_LOCAL_VERIFICATION`**: aquí no hay PowerShell ni
+Windows; nada de esto se ha ejecutado en el PC.
+
 **No resuelto:** renovación de la credencial de equipo; desfase de reloj entre
 central y POS (el SAS se evalúa con el reloj confiable del POS); el
 laboratorio en el PC físico del propietario (`F1.4`); la política por rol de

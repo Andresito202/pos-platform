@@ -75,6 +75,16 @@
   instalador las lista y se niega; con él las quita de Windows y guarda una
   copia en `.lab-state\variables-apartadas-<fecha>.json`.
 
+.PARAMETER CentralLabState
+  Sólo con `-Lab`. Directorio de estado de `apps/api/lab/lab-central.ts`
+  (`DEC-026` §13.12), después de su `setup`. El equipo toma de ahí su
+  identidad (la del comercio de laboratorio de la base central), la dirección
+  de la autoridad, las claves PÚBLICAS de confianza y el certificado TLS del
+  laboratorio; la ventana exige iniciar sesión con los usuarios de
+  `usuarios-lab.txt`. Incompatible con `-DevRolePreset`: con login real no
+  hay sesión de revisión. Si el equipo ya tenía otra identidad con datos,
+  exige `-ResetLabData` (datos e identidad anterior se apartan, no se borran).
+
 .PARAMETER ResetLabData
   Sólo con `-Lab`. MUEVE `data\` a `data.bak-<fecha>` —no lo borra— y el
   servicio arranca con una base vacía. Conserva `provisioning.json` si existe.
@@ -88,6 +98,7 @@ param(
   [ValidateSet("ADMIN", "SUPERVISOR", "CAJERO")]
   [string]$DevRolePreset,
   [string]$ReceiptPrinterConfigPath,
+  [string]$CentralLabState,
   [switch]$ResetLabData,
   [switch]$RemoveStrayPosVariables
 )
@@ -99,8 +110,11 @@ $DefaultWinSwUrl = "https://github.com/winsw/winsw/releases/download/v2.12.0/Win
 $LabTenantId = "00000000-0000-7000-8000-0000000000d1"
 $ServiceName = "PosLocalService"
 
-if (-not $Lab -and ($DevRolePreset -or $ReceiptPrinterConfigPath -or $ResetLabData -or $RemoveStrayPosVariables)) {
-  throw "-DevRolePreset, -ReceiptPrinterConfigPath, -ResetLabData y -RemoveStrayPosVariables sólo existen con -Lab."
+if (-not $Lab -and ($DevRolePreset -or $ReceiptPrinterConfigPath -or $ResetLabData -or $RemoveStrayPosVariables -or $CentralLabState)) {
+  throw "-DevRolePreset, -ReceiptPrinterConfigPath, -ResetLabData, -RemoveStrayPosVariables y -CentralLabState sólo existen con -Lab."
+}
+if ($CentralLabState -and $DevRolePreset) {
+  throw "-CentralLabState y -DevRolePreset no se combinan: con login central la sesión la firma la central, no una sesión de revisión (config.ts también lo rechaza)."
 }
 
 if (-not $StagingPath) {
@@ -264,6 +278,36 @@ function Resolve-StrayPosVariables {
   Write-Host "Variables POS_* quitadas de Windows (copia en $backup):`n$list"
 }
 
+# Variables que `lab-central.ts setup` escribe en `service-env.json` y sin las
+# que el login central no puede funcionar.
+$CentralRequiredVariables = @(
+  "POS_TENANT_ID", "POS_COMPANY_ID", "POS_BRANCH_ID", "POS_INSTALLATION_ID", "POS_DEVICE_ID",
+  "POS_CENTRAL_AUTH_URL", "POS_DEVICE_ENROLLMENT_ACTIVATION_PATH", "POS_DEVICE_ENROLLMENT_TOKEN_PATH",
+  "POS_DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM", "POS_DEVICE_TRUST_OPERATIONAL_KEY_ID", "POS_DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM",
+  "POS_SESSION_TRUST_ENVIRONMENT", "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM", "POS_SESSION_TRUST_ARTIFACT_PATH",
+  "NODE_EXTRA_CA_CERTS"
+)
+
+function Read-CentralLabEnvironment {
+  $path = Join-Path $CentralLabState "service-env.json"
+  if (-not (Test-Path $path)) {
+    throw "No existe '$path'. Ejecuta antes, en Git Bash: pnpm --filter @pos-platform/api exec tsx lab/lab-central.ts setup --state <dir> --database-url <postgres://...>"
+  }
+  # `-Encoding UTF8`: sin él, Windows PowerShell 5.1 lee en la página de códigos del sistema.
+  $json = Get-Content -Raw -Encoding UTF8 -Path $path | ConvertFrom-Json
+  $vars = [ordered]@{}
+  foreach ($property in $json.PSObject.Properties) { $vars[$property.Name] = [string]$property.Value }
+  foreach ($name in $CentralRequiredVariables) {
+    if (-not $vars.Contains($name) -or [string]::IsNullOrWhiteSpace($vars[$name])) {
+      throw "'$path' no trae '$name'. Repite 'lab-central.ts setup' con este mismo --state."
+    }
+  }
+  foreach ($name in @("POS_DEVICE_ENROLLMENT_ACTIVATION_PATH", "POS_DEVICE_ENROLLMENT_TOKEN_PATH", "POS_SESSION_TRUST_ARTIFACT_PATH", "NODE_EXTRA_CA_CERTS")) {
+    if (-not (Test-Path $vars[$name])) { throw "'$name' apunta a '$($vars[$name])', que no existe." }
+  }
+  return $vars
+}
+
 function Initialize-LabStaging {
   Assert-FreshArtifact
   Resolve-StrayPosVariables
@@ -278,7 +322,29 @@ function Initialize-LabStaging {
   $provisioningPath = Join-Path $labStateRoot "provisioning.json"
   $account = "$env:USERDOMAIN\$env:USERNAME"
 
+  $central = $null
+  if ($CentralLabState) { $central = Read-CentralLabEnvironment }
+
   $hasData = (Test-Path $dataDirectory) -and (Get-ChildItem -Force $dataDirectory | Select-Object -First 1)
+
+  # Con login central la identidad la dicta la central. Si `provisioning.json`
+  # dice otra, la base local pertenece a otro equipo: no se mezclan.
+  if ($central -and (Test-Path $provisioningPath)) {
+    $previous = Get-Content -Raw -Path $provisioningPath | ConvertFrom-Json
+    $sameIdentity = ($previous.central_login -eq $true)
+    foreach ($pair in @(@("installation_id", "POS_INSTALLATION_ID"), @("device_id", "POS_DEVICE_ID"), @("tenant_id", "POS_TENANT_ID"), @("company_id", "POS_COMPANY_ID"), @("branch_id", "POS_BRANCH_ID"))) {
+      if ($previous.($pair[0]) -ne $central[$pair[1]]) { $sameIdentity = $false }
+    }
+    if (-not $sameIdentity) {
+      if ($hasData -and -not $ResetLabData) {
+        throw "Este equipo ya tiene datos con otra identidad ($provisioningPath). El login central usa la identidad del laboratorio central. Repite con -ResetLabData: datos e identidad anterior se apartan (se mueven, no se borran)."
+      }
+      $asideProvisioning = Join-Path $labStateRoot "provisioning.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+      Move-Item -Path $provisioningPath -Destination $asideProvisioning
+      Write-Host "Identidad anterior apartada en $asideProvisioning"
+    }
+  }
+
   if ($hasData -and $ResetLabData) {
     $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($existingService -and $existingService.Status -ne "Stopped") { Stop-Service -Name $ServiceName -Force }
@@ -295,16 +361,31 @@ function Initialize-LabStaging {
     if ($hasData) {
       throw "'$dataDirectory' tiene datos y no hay provisioning.json que diga de quién son. No se inventa una identidad para una base existente. Repite con -ResetLabData para apartarla (se mueve, no se borra)."
     }
-    $provisioning = [pscustomobject][ordered]@{
-      kind            = "LAB"
-      created_at      = (Get-Date).ToUniversalTime().ToString("o")
-      installation_id = [guid]::NewGuid().ToString()
-      device_id       = [guid]::NewGuid().ToString()
-      tenant_id       = $LabTenantId
-      company_id      = [guid]::NewGuid().ToString()
-      branch_id       = [guid]::NewGuid().ToString()
-      data_directory  = $dataDirectory
-      service_account = $account
+    if ($central) {
+      $provisioning = [pscustomobject][ordered]@{
+        kind            = "LAB"
+        created_at      = (Get-Date).ToUniversalTime().ToString("o")
+        installation_id = $central["POS_INSTALLATION_ID"]
+        device_id       = $central["POS_DEVICE_ID"]
+        tenant_id       = $central["POS_TENANT_ID"]
+        company_id      = $central["POS_COMPANY_ID"]
+        branch_id       = $central["POS_BRANCH_ID"]
+        data_directory  = $dataDirectory
+        service_account = $account
+        central_login   = $true
+      }
+    } else {
+      $provisioning = [pscustomobject][ordered]@{
+        kind            = "LAB"
+        created_at      = (Get-Date).ToUniversalTime().ToString("o")
+        installation_id = [guid]::NewGuid().ToString()
+        device_id       = [guid]::NewGuid().ToString()
+        tenant_id       = $LabTenantId
+        company_id      = [guid]::NewGuid().ToString()
+        branch_id       = [guid]::NewGuid().ToString()
+        data_directory  = $dataDirectory
+        service_account = $account
+      }
     }
     Write-Utf8NoBom $provisioningPath ($provisioning | ConvertTo-Json)
     Write-Host "Identidad de laboratorio creada en $provisioningPath"
@@ -329,7 +410,7 @@ function Initialize-LabStaging {
   Write-Host "node.exe del servicio: $($node.Source)"
   Write-Host "installation_id: $($provisioning.installation_id)"
   Write-Host "device_id:       $($provisioning.device_id)"
-  return [pscustomobject]@{ Account = $account; Provisioning = $provisioning; Node = $node.Source; PrinterJson = $printerJson }
+  return [pscustomobject]@{ Account = $account; Provisioning = $provisioning; Node = $node.Source; PrinterJson = $printerJson; Central = $central }
 }
 
 function Publish-LabService($labSetup) {
@@ -364,13 +445,34 @@ function Publish-LabService($labSetup) {
   }
   if ($DevRolePreset) { $vars["POS_DEV_ROLE_PRESET"] = $DevRolePreset }
   if ($labSetup.PrinterJson) { $vars["POS_RECEIPT_PRINTER"] = $labSetup.PrinterJson }
+  if ($labSetup.Central) {
+    foreach ($key in $labSetup.Central.Keys) { $vars[$key] = $labSetup.Central[$key] }
+  }
   foreach ($key in $vars.Keys) {
     $element = $xml.CreateElement("env")
     $element.SetAttribute("name", $key)
     $element.SetAttribute("value", [string]$vars[$key])
     [void]$xml.service.AppendChild($element)
   }
-  $xml.Save($serviceXml)
+  # Las claves PEM son multilínea. Un salto de línea literal dentro de un
+  # atributo XML lo convierte en espacio quien lo lea (normalización de
+  # atributos) y la clave llega rota al servicio. `Entitize` lo escribe como
+  # `&#xA;`, que sí sobrevive; y se comprueba releyendo, no se supone.
+  $settings = New-Object System.Xml.XmlWriterSettings
+  $settings.Indent = $true
+  $settings.NewLineHandling = [System.Xml.NewLineHandling]::Entitize
+  $settings.Encoding = New-Object System.Text.UTF8Encoding($false)
+  $writer = [System.Xml.XmlWriter]::Create($serviceXml, $settings)
+  try { $xml.Save($writer) } finally { $writer.Close() }
+
+  $check = New-Object System.Xml.XmlDocument
+  $check.Load($serviceXml)
+  foreach ($key in $vars.Keys) {
+    $node = $check.SelectSingleNode("/service/env[@name='$key']")
+    if ($null -eq $node -or $node.GetAttribute("value") -ne [string]$vars[$key]) {
+      throw "La variable '$key' no sobrevive intacta en '$serviceXml': el servicio la recibiría alterada."
+    }
+  }
 }
 
 # `$labSetup` y no `$lab`: PowerShell no distingue mayúsculas en variables y
@@ -486,7 +588,12 @@ if (-not $started -or $status -ne "Running") {
 Write-Host ""
 Write-Host "OK: '$ServiceName' está Running como $labAccount y registró runtime.started."
 Write-Host "Logs del servicio: $labLogRoot"
-if ($DevRolePreset) {
+if ($CentralLabState) {
+  Write-Host "Login central: el servicio intentará enrolar el equipo cada 15 s mientras el laboratorio central no lo haya registrado."
+  Write-Host "El laboratorio central debe estar sirviendo con --watch-device apuntando a:"
+  Write-Host "  $(Join-Path $dataDirectory 'device-public-identity.json')"
+  Write-Host "Usuarios y contraseñas: $(Join-Path $CentralLabState 'usuarios-lab.txt')"
+} elseif ($DevRolePreset) {
   # `DEV_LAB_REGISTER_ID` de `src/dev-only/dev-lab-register.ts`.
   Write-Host "Sesión de revisión: $DevRolePreset. Caja de laboratorio para abrir turno: 00000000-0000-7000-8000-0000000000d5"
 } else {

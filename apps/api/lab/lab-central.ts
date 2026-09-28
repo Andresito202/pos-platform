@@ -24,6 +24,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer as createHttpsServer, request as httpsRequest } from "node:https";
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
@@ -42,7 +43,18 @@ import { base32Encode, generateTotpSecret, totpProvisioningUri } from "../src/au
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../../..");
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+/**
+ * `tsx` de un paquete del monorepo, lanzado con este mismo `node` y **sin
+ * shell**. Con `shell: true` en Windows los argumentos pasan por `cmd.exe`,
+ * que corta un `--eval` multilínea y toma el `>` de una flecha como
+ * redirección: el script llegaba roto.
+ */
+function tsx(packageDir: string, args: readonly string[]): [string, string[]] {
+  const cli = createRequire(join(packageDir, "package.json")).resolve("tsx/cli");
+  return [process.execPath, [cli, ...args]];
+}
+const packageDir = (relative: string) => join(repoRoot, relative);
 
 // ── argumentos ───────────────────────────────────────────────────────────────
 
@@ -235,9 +247,9 @@ async function migrate(databaseUrl: string): Promise<void> {
     }
     await client.end();
   })().catch((error) => { console.error(error); process.exit(1); });`;
-  const run = spawnSync(pnpm, ["--filter", "@pos-platform/target-migrations", "exec", "tsx", "--eval", script], {
-    cwd: repoRoot, env: { ...process.env, TARGET_URL: databaseUrl }, encoding: "utf8", shell: process.platform === "win32",
-  });
+  const migrations = packageDir("tools/target-migrations");
+  const [command, args] = tsx(migrations, ["--eval", script]);
+  const run = spawnSync(command, args, { cwd: migrations, env: { ...process.env, TARGET_URL: databaseUrl }, encoding: "utf8" });
   if (run.status !== 0) throw new Error(`migraciones fallidas:\n${run.stderr}\n${run.stdout}`);
 }
 
@@ -249,10 +261,12 @@ async function migrate(databaseUrl: string): Promise<void> {
  * así el laboratorio no puede divergir de la revisión por rol.
  */
 function samplePresets(): Record<"CAJERO" | "SUPERVISOR" | "ADMIN", string[]> {
-  const run = spawnSync(pnpm, [
-    "--filter", "@pos-platform/pos-local-service", "exec", "tsx", "--eval",
+  const service = packageDir("apps/pos-local-service");
+  const [command, args] = tsx(service, [
+    "--eval",
     "import('./src/dev-only/dev-role-presets.ts').then((m) => process.stdout.write(JSON.stringify(m.DEV_ROLE_PRESETS)))",
-  ], { cwd: repoRoot, encoding: "utf8", shell: process.platform === "win32" });
+  ]);
+  const run = spawnSync(command, args, { cwd: service, encoding: "utf8" });
   if (run.status !== 0) throw new Error(`no se pudieron leer los repartos de ejemplo:\n${run.stderr}`);
   const json = run.stdout.slice(run.stdout.indexOf("{"));
   return JSON.parse(json) as Record<"CAJERO" | "SUPERVISOR" | "ADMIN", string[]>;
@@ -376,7 +390,9 @@ function writeServiceEnv(options: Options, identity: LabIdentity): void {
     POS_BRANCH_ID: identity.branch_id,
     POS_INSTALLATION_ID: identity.installation_id,
     POS_DEVICE_ID: identity.device_id,
-    POS_CENTRAL_AUTH_URL: `https://localhost:${String(options.gatewayPort)}`,
+    // IP y no `localhost`: la pasarela escucha en 127.0.0.1 y, en Windows,
+    // `localhost` puede resolver primero a `::1`. El certificado cubre ambas.
+    POS_CENTRAL_AUTH_URL: `https://127.0.0.1:${String(options.gatewayPort)}`,
     POS_DEVICE_ENROLLMENT_ACTIVATION_PATH: p.activation,
     POS_DEVICE_ENROLLMENT_TOKEN_PATH: p.token,
     POS_DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM: readFileSync(p.pub("device-trust-root"), "utf8"),
@@ -458,8 +474,9 @@ function log(event: string, fields: Record<string, unknown> = {}): void {
   process.stdout.write(`${JSON.stringify({ service: "lab-central", event, ...fields })}\n`);
 }
 
-function startProcess(name: string, args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): ChildProcess {
-  const child = spawn(pnpm, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
+function startProcess(name: string, cwd: string, env: NodeJS.ProcessEnv): ChildProcess {
+  const [command, args] = tsx(cwd, ["src/main.ts"]);
+  const child = spawn(command, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[${name}] ${chunk.toString()}`));
   child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[${name}] ${chunk.toString()}`));
   child.on("exit", (code) => log("process.exit", { process: name, code }));
@@ -488,7 +505,7 @@ async function serve(options: Options): Promise<void> {
   const secrets = readJson<LabSecrets>(p.secrets);
   const common = { CENTRAL_DATABASE_URL: options.databaseUrl };
 
-  const api = startProcess("api", ["--filter", "@pos-platform/api", "exec", "tsx", "src/main.ts"], repoRoot, {
+  const api = startProcess("api", packageDir("apps/api"), {
     ...common,
     API_PORT: String(options.apiPort),
     DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM: readFileSync(p.pub("device-trust-root"), "utf8"),
@@ -501,7 +518,7 @@ async function serve(options: Options): Promise<void> {
     AUTHORIZATION_SNAPSHOT_SIGNING_KEY_ID: KEY_IDS.authorizationSnapshot,
     AUTHORIZATION_SNAPSHOT_SIGNING_KEY_FILE: p.key("sas"),
   });
-  const authority = startProcess("authority", ["--filter", "@pos-platform/central-authority", "start"], repoRoot, {
+  const authority = startProcess("authority", packageDir("apps/central-authority"), {
     ...common,
     CENTRAL_AUTHORITY_PORT: String(options.authorityPort),
     D3_ENROLLMENT_TRANSPORT_TOKEN: secrets.transport_token,

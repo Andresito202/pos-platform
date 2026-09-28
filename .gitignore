@@ -46,3 +46,7 @@ playwright-report/
 # base local de ESE PC. Vive fuera de `dist/` para sobrevivir a una recompilación
 # y nunca se versiona.
 apps/pos-local-service/.lab-state/
+
+# Estado del laboratorio central (`apps/api/lab/lab-central.ts`): contiene
+# CLAVES PRIVADAS, secretos y contraseñas de laboratorio. Nunca se versiona.
+apps/api/.lab-central/
