@@ -137,3 +137,24 @@ cerrada en la única plataforma donde el producto se ejecuta.
   divergente detiene el servicio.
 - En Windows, DPAPI se ejecuta en cada arranque del servicio. El coste es una
   invocación de PowerShell por arranque, no por operación.
+
+## 6. Enmienda 2026-09-28 — identidad pública del equipo en disco
+
+Pedido por el propietario dentro de la Fase 1 de login (`DEC-026` §13.11).
+
+El enrolamiento central (`D-3`, `CentralDeviceCredentialIssuer`) compara la
+clave pública de la petición con la que el registro del equipo ya conoce, y
+ninguna pieza la hacía llegar al registro: la clave nace aquí, en el primer
+arranque, y no salía del proceso.
+
+Desde esta enmienda el servicio escribe en su directorio de datos
+`device-public-identity.json` (escritura atómica, en cada arranque y de nuevo
+al enrolarse) con **sólo** datos públicos: `tenant_id`, `company_id`,
+`installation_id`, `device_id`, `device_key_id`, la clave pública PEM y si el
+equipo ya está enrolado. La clave privada sigue sin salir del almacén cifrado
+por DPAPI. El fichero es un reflejo del estado, no un dato de entrada: este
+proceso no lo lee de vuelta, y alterarlo no cambia la identidad del equipo
+—una clave distinta haría fallar el enrolamiento, no lo concedería—.
+
+Quién lo lleva al registro central es decisión de despliegue. En el
+laboratorio lo lee `apps/api/lab/lab-central.ts --watch-device`.

@@ -1,4 +1,16 @@
 import { createPublicKey, generateKeyPairSync, sign } from "node:crypto";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { SessionAssertionTrustBundleSchema } from "@pos-platform/contracts";
+import { DeviceIdentity } from "../src/security/device-identity.js";
+import { DeviceTrustCredentialStore } from "../src/security/device-trust-credential-store.js";
+import { DeviceEnrollmentService } from "../src/security/device-enrollment-service.js";
+import { SessionTrustKeyVerifier } from "../src/security/session-trust-key-verifier.js";
+import { centralAuthReachable, runDeviceEnrollment, writeDevicePublicIdentity } from "../src/security/device-enrollment-runner.js";
+import { CentralLoginClient } from "../src/session/central-login-client.js";
+import { OperatorLoginService } from "../src/session/operator-login-service.js";
+import { activateOperatorSessionArtifact } from "../src/session/operator-session-artifact.js";
+import { FetchCentralTransport } from "../src/sync/fetch-central-transport.js";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
 import {
@@ -70,15 +82,27 @@ function sessionSequence(): number {
   return value;
 }
 
+/**
+ * Modo central (`DEC-026` §13.12): la sesión no la firma este arnés sino la
+ * autoridad central de laboratorio (`apps/api/lab/lab-central.ts`). Se activa
+ * con `POS_E2E_CENTRAL_ENV` apuntando al `service-env.json` que escribe esa
+ * herramienta, y entonces se ignoran las identidades fijas de abajo.
+ */
+const CENTRAL_ENV = process.env["POS_E2E_CENTRAL_ENV"];
+const central = CENTRAL_ENV === undefined || CENTRAL_ENV === ""
+  ? null
+  : JSON.parse(readFileSync(CENTRAL_ENV, "utf8")) as Record<string, string>;
+const identityValue = (name: string, centralName: string): string => central === null ? required(name) : central[centralName]!;
+
 const DATA_DIRECTORY = required("POS_E2E_DATA_DIR");
 const SECRET = Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
-const TENANT = required("POS_E2E_TENANT_ID");
-const COMPANY = required("POS_E2E_COMPANY_ID");
-const BRANCH = required("POS_E2E_BRANCH_ID");
-const INSTALLATION = required("POS_E2E_INSTALLATION_ID");
-const DEVICE = required("POS_E2E_DEVICE_ID");
-const USER = required("POS_E2E_USER_ID");
-const REGISTER = required("POS_E2E_REGISTER_ID");
+const TENANT = identityValue("POS_E2E_TENANT_ID", "POS_TENANT_ID");
+const COMPANY = identityValue("POS_E2E_COMPANY_ID", "POS_COMPANY_ID");
+const BRANCH = identityValue("POS_E2E_BRANCH_ID", "POS_BRANCH_ID");
+const INSTALLATION = identityValue("POS_E2E_INSTALLATION_ID", "POS_INSTALLATION_ID");
+const DEVICE = identityValue("POS_E2E_DEVICE_ID", "POS_DEVICE_ID");
+const USER = central === null ? required("POS_E2E_USER_ID") : "";
+const REGISTER = central === null ? required("POS_E2E_REGISTER_ID") : "";
 
 const MEMBERSHIP = "018f0000-0000-7000-8000-0000000000b1";
 const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
@@ -390,7 +414,125 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
 }
 
-main().catch((error: unknown) => {
+/**
+ * Arnés con login central: las mismas piezas que `main.ts` cablea para
+ * `session.login` —enrolamiento del equipo, identidad pública, anclas del
+ * bundle de confianza y `OperatorLoginService`—, sobre socket POSIX. Anuncia
+ * `ready` sólo cuando el equipo quedó enrolado ante la autoridad real.
+ *
+ * Lo que este arnés **no** prueba es el pegamento de `main.ts` en sí (en Linux
+ * no abre canal): eso queda para la ejecución en Windows.
+ */
+async function mainCentral(env: Record<string, string>): Promise<void> {
+  const database = LocalDatabase.open({ dataDirectory: DATA_DIRECTORY });
+  const now = (): Date => new Date();
+  const serviceConfig = { ...config(), fiscal_environment: undefined } as unknown as ServiceConfig;
+
+  // Anclas de sesión: el bundle firmado por la raíz de laboratorio, verificado
+  // clave a clave igual que `SessionTrustKeyResolver` (sin la custodia cifrada,
+  // que aquí no se mide).
+  const verifier = new SessionTrustKeyVerifier(createPublicKey(env["POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM"]!), env["POS_SESSION_TRUST_ENVIRONMENT"]!);
+  const bundle = SessionAssertionTrustBundleSchema.parse(JSON.parse(readFileSync(env["POS_SESSION_TRUST_ARTIFACT_PATH"]!, "utf8")));
+  const anchors = { SESSION_ASSERTION: new Map<string, TrustedSigningKey>(), AUTHORIZATION_SNAPSHOT: new Map<string, TrustedSigningKey>() };
+  for (const key of bundle.keys) {
+    const result = verifier.verify(key);
+    if (result.decision !== "VALID" || result.claims === null) throw new Error(`session trust key rejected: ${result.decision}`);
+    anchors[result.claims.key_purpose].set(result.claims.key_id, verifier.toTrustedSigningKey(result.claims));
+  }
+
+  const securityDirectory = join(DATA_DIRECTORY, "security");
+  mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
+  const secrets = new EncryptedFileSecretStore(securityDirectory, new InsecureDerivedKeyProvider(securityDirectory), `device-identity:${INSTALLATION}:${DEVICE}`);
+  const identity = secrets.has("device-identity") ? DeviceIdentity.load(secrets) : DeviceIdentity.create(secrets);
+  const credentials = new DeviceTrustCredentialStore(secrets);
+
+  const commercial = new CommercialComponent(
+    serviceConfig,
+    { database } as never,
+    { store: new DurableSyncStore(database) } as never,
+    anchors.SESSION_ASSERTION,
+    now,
+  );
+  await commercial.start();
+
+  const operatorLogin = new OperatorLoginService({
+    client: new CentralLoginClient(env["POS_CENTRAL_AUTH_URL"]!, new FetchCentralTransport()),
+    device: () => credentials.has()
+      ? { installationId: INSTALLATION, deviceId: DEVICE, credential: credentials.load(), signChallenge: (challenge) => identity.signChallenge(challenge) }
+      : null,
+    activate: (artifact) => activateOperatorSessionArtifact(artifact, {
+      sessionActivation: commercial.sessionActivation,
+      authorizationSnapshotKeys: anchors.AUTHORIZATION_SNAPSHOT,
+      trustedClock: commercial.trustedClock,
+      authorizationStore: commercial.authorizationStore,
+      installationId: INSTALLATION,
+      deviceId: DEVICE,
+    }),
+  });
+  const handler = new CommercialRequestHandler(serviceConfig, commercial, operatorLogin);
+
+  // Identidad pública → la autoridad de laboratorio registra el equipo y emite
+  // la activación → enrolamiento por el protocolo D-3.
+  writeDevicePublicIdentity({ dataDirectory: DATA_DIRECTORY, tenantId: TENANT, companyId: COMPANY, installationId: INSTALLATION, deviceId: DEVICE, identity, enrolled: credentials.has() });
+  const deadline = Date.now() + 90_000;
+  while (!credentials.has()) {
+    if (Date.now() > deadline) throw new Error("device enrollment did not complete");
+    if (await centralAuthReachable(env["POS_CENTRAL_AUTH_URL"]!)) {
+      const outcome = await runDeviceEnrollment({
+        config: {
+          centralAuthUrl: env["POS_CENTRAL_AUTH_URL"]!, activationPath: env["POS_DEVICE_ENROLLMENT_ACTIVATION_PATH"]!,
+          transportTokenPath: env["POS_DEVICE_ENROLLMENT_TOKEN_PATH"]!, rootPublicKeyPem: env["POS_DEVICE_TRUST_ROOT_PUBLIC_KEY_PEM"]!,
+          operationalKeyId: env["POS_DEVICE_TRUST_OPERATIONAL_KEY_ID"]!, operationalPublicKeyPem: env["POS_DEVICE_TRUST_OPERATIONAL_PUBLIC_KEY_PEM"]!,
+        },
+        service: new DeviceEnrollmentService(database, identity, { tenantId: TENANT, companyId: COMPANY, installationId: INSTALLATION, deviceId: DEVICE }, now, credentials),
+        credentialStore: credentials,
+        transport: new FetchCentralTransport(),
+        clock: { now, accept: (at) => commercial.trustedClock.accept(at) },
+        signal: AbortSignal.timeout(30_000),
+      });
+      process.stderr.write(`${JSON.stringify({ event: "device.enrollment", ...outcome })}\n`);
+      if (outcome.outcome === "NOT_READY" || outcome.outcome === "REJECTED") throw new Error(`device enrollment failed: ${JSON.stringify(outcome)}`);
+    }
+    if (!credentials.has()) await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, DATA_DIRECTORY);
+  const server = new LocalChannelServer(
+    endpoint,
+    new LocalChannelAuthenticator(SECRET),
+    async (request, signal, context) => {
+      const envelope = request as { message_type: string; request_id: string; correlation_id: string; protocol_version: string };
+      if (envelope.message_type === "runtime.handshake" || envelope.message_type === "runtime.status.get") {
+        return {
+          protocol_version: "1.0.0", request_id: envelope.request_id, correlation_id: envelope.correlation_id, operation_id: null,
+          status: "SUCCEEDED", result_code: envelope.message_type === "runtime.handshake" ? "COMPATIBLE" : "OK",
+          result_schema_version: "1.0.0", error: null, server_time: new Date().toISOString(),
+          result: envelope.message_type === "runtime.handshake"
+            ? { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" }
+            : { service_version: "1.0.0", protocol_version: "1.0.0", service_state: "RUNNING", schema_version: "5" },
+        };
+      }
+      return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId, signal);
+    },
+    { min: "1.0.0", max: "1.0.0" },
+    undefined,
+    undefined,
+    undefined,
+    (connectionId) => { commercial.bindings.release(connectionId); },
+  );
+  await server.start();
+  process.stdout.write(`${JSON.stringify({ ready: true, endpoint, enrolled: true })}\n`);
+
+  const shutdown = (): void => {
+    void (async () => {
+      try { await server.stop(); await commercial.stop(); } finally { database.close(); process.exit(0); }
+    })();
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
+
+(central === null ? main() : mainCentral(central)).catch((error: unknown) => {
   console.error("real service host failed", error);
   process.exit(1);
 });

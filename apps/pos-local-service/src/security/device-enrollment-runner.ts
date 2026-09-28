@@ -132,3 +132,17 @@ export async function runDeviceEnrollment(dependencies: {
   const result = dependencies.service.complete(DeviceEnrollmentResultSchema.parse(envelope.result), verifier);
   return { outcome: "ENROLLED", credentialId: result.credential_id ?? "" };
 }
+
+/**
+ * ¿Responde la autoridad? `GET /health` con tiempo acotado. Se consulta antes
+ * de preparar un enrolamiento: preparar deja un asiento `PENDING` que no se
+ * reenvía, así que sólo se prepara cuando hay a quién enviarlo.
+ */
+export async function centralAuthReachable(centralAuthUrl: string, timeoutMs = 5_000): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/health", centralAuthUrl), { signal: AbortSignal.timeout(timeoutMs) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

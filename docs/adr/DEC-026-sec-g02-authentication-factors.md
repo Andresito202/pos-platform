@@ -573,6 +573,92 @@ PostgreSQL + 22 con PostgreSQL.
 aceptación de estos sobres por el verificador real del POS la prueba la E2E de
 la ventana, no esta prueba.
 
+### 13.11 Login en el POS y en la ventana — hecho (Fase 1, tramo local)
+
+Mismo pedido que §13.10. El POS consume lo que §13.10 emite.
+
+- **Enrolamiento del equipo al arrancar** (`D-3`, `security/device-enrollment-runner.ts`).
+  Con `POS_CENTRAL_AUTH_URL` (sólo `https`) y las claves públicas de confianza
+  de equipo configuradas, el servicio prepara la petición firmada
+  (`DeviceEnrollmentService`), la envía a `/v1/device-enrollment` y **verifica**
+  la credencial devuelta contra la raíz y la clave operativa configuradas antes
+  de guardarla. Sin enrolar el servicio sigue arrancando; lo único que no puede
+  es iniciar sesión nueva (`DEVICE_NOT_ENROLLED`). Se reintenta cada 15 s
+  mientras la autoridad no responda a `GET /health`: preparar deja un asiento
+  `PENDING` que no se reenvía, así que sólo se prepara cuando hay a quién
+  enviarlo. `NOT_READY` y `REJECTED` no se reintentan: exigen una activación
+  nueva.
+- **Identidad pública del equipo en disco** (`device-public-identity.json`,
+  `DEC-020` §6): la única vía por la que el registro central conoce la clave
+  pública que el enrolamiento compara. Sólo datos públicos.
+- **`session.login`** (IPC, contrato `SessionLoginRequestSchema`/`SessionLoginResultSchema`):
+  `CentralLoginClient` pide desafío con el `device_id`, comprueba que el
+  desafío es para esta instalación y este equipo, lo firma con la clave del
+  equipo y envía credencial, prueba, usuario, contraseña y TOTP. La respuesta
+  se activa por `activateOperatorSessionArtifact` —SSA y SAS verificados contra
+  los anclajes por propósito—, la misma ruta del artefacto de `DEC-025`. No hay
+  segundo camino de activación. La contraseña no se registra en ningún log.
+- **Desenlaces cerrados** (14): los de la autoridad pasan tal cual
+  (`REJECTED`, `THROTTLED`, `MFA_REQUIRED`, …); los del POS son
+  `DEVICE_NOT_ENROLLED`, `DEVICE_REJECTED`, `CENTRAL_UNREACHABLE`,
+  `SESSION_NOT_ISSUED` y `SESSION_REJECTED`. Un código que el POS no conoce se
+  rechaza nombrándolo; nunca se convierte en éxito.
+- **`session.end`** cierra la sesión **de forma durable**: SQLite
+  `MIGRATION_036` crea `local_session_end`, append-only (disparadores que
+  impiden `UPDATE`/`DELETE`), y `loadActiveByDevice` excluye las sesiones
+  cerradas. Una sesión cerrada no se recupera al reiniciar.
+- **Ventana**: pantalla de login (usuario, contraseña y, cuando la autoridad lo
+  pide, código TOTP) y botón **Salir**. La compuerta sólo se activa cuando el
+  proceso principal abre el renderer con `?login=required`
+  (`POS_DESKTOP_REQUIRE_LOGIN=1` o `central_login: true` en el
+  aprovisionamiento de laboratorio). Sin ella el comportamiento anterior no
+  cambia: el contrato `RuntimeStatus` está cerrado y las E2E existentes siguen
+  intactas. Un usuario inexistente y una contraseña equivocada muestran el
+  mismo mensaje.
+
+**Evidencia, 2026-09-28 (Linux, este entorno):** `operator-login.test.ts`
+**10/10**, `device-enrollment-runner.test.ts` **4/4**, pruebas de migración
+SQLite con 36 migraciones, `LoginGate.test.tsx` y listas ratificadas del
+escritorio. `pos-local-service` completo **1076** pruebas, escritorio **255**.
+
+**`IMPLEMENTED`, no `TESTED`:** el cableado de `main.ts` (bucle de reintento
+del enrolamiento incluido). La E2E de §13.12 usa un anfitrión
+(`e2e-host/real-service-host.ts`) que replica ese cableado con las mismas
+piezas; el propio `main.ts` sólo se verifica arrancando el servicio en
+Windows, que no se ha hecho con login central.
+
+### 13.12 Laboratorio central y prueba de extremo a extremo — hecho
+
+- **`apps/api/lab/lab-central.ts`** (`setup`, `serve`, `register-device`):
+  levanta, sobre un PostgreSQL local, las migraciones 001–006, un comercio con
+  sede, los roles `CASHIER`, `SUPERVISOR` y `GENERAL_ADMIN` con las concesiones
+  de los repartos de ejemplo (`DEV_ROLE_PRESETS`, leídos de su única fuente),
+  tres usuarios (`cajero`, `supervisor`, `admin` con TOTP), claves Ed25519 por
+  propósito, certificado TLS propio, y sirve la API, la `central-authority` y
+  una pasarela HTTPS única. Con `--watch-device` registra el equipo en cuanto
+  aparece su identidad pública y emite la activación. **Es herramienta de
+  laboratorio**: usa el superusuario de la base (RLS no ejercida), la
+  credencial de equipo dura un año y los usuarios no son cuentas reales.
+- **`apps/pos-desktop/e2e/central-login.spec.ts`**: Electron real ⇄ canal real
+  ⇄ servicio local real ⇄ pasarela HTTPS ⇄ API y autoridad reales ⇄
+  PostgreSQL. Sin PostgreSQL se salta y lo dice.
+
+**Evidencia, 2026-09-28, PostgreSQL 16.13 local, `xvfb`:** **6/6**. (1) sin
+sesión la ventana pide login y no monta el POS; (2) contraseña equivocada y
+usuario inexistente dan el mismo mensaje; (3) el cajero entra y el alta de
+producto devuelve `UNAUTHORIZED`; (4) **Salir** vuelve al login y la sesión
+cerrada no reaparece; (5) el supervisor da de alta el producto
+(`REGISTERED`); (6) el administrador recibe `MFA_REQUIRED` y entra con el
+código TOTP. **Mutación verificada:** dar al cajero el reparto del supervisor
+en la semilla hace fallar (3). Suite E2E completa del escritorio **27/27**.
+En CI la ejecuta el job `validate` de `target-foundation-validation.yml`, que
+tiene PostgreSQL; esa ejecución no se ha observado todavía.
+
+**No resuelto:** renovación de la credencial de equipo; desfase de reloj entre
+central y POS (el SAS se evalúa con el reloj confiable del POS); el
+laboratorio en el PC físico del propietario (`F1.4`); la política por rol de
+`SEC-G03` —los repartos son de ejemplo, no la política—.
+
 ## 14. Qué sigue abierto
 
 - Las diez decisiones de política están ratificadas. Cajero, supervisor **y**
@@ -581,7 +667,9 @@ la ventana, no esta prueba.
   `PRODUCTION_READY` — ninguna instancia central está desplegada. `SEC-G02`
   sigue `PLANNED / NOT_EVALUATED` en conjunto: falta recuperación de cuenta
   (`A-9`) y revocar un factor MFA. La emisión de SSA/SAS está hecha en el lado
-  central (§13.10); falta que el POS la consuma.
+  central (§13.10) y el POS la consume con pantalla de login y salida
+  (§13.11), probado de extremo a extremo contra el laboratorio central
+  (§13.12).
 - `G-1`–`G-8` tienen decisión (§13.4) e implementación (§13.5, §13.6, §13.8,
   §13.9). `G-9` sigue abierta.
 - `central-authority` no compila en modo estricto por errores anteriores a

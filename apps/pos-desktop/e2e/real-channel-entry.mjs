@@ -35,6 +35,8 @@ if (channelSecret.byteLength !== 32) {
 }
 
 startPosDesktop({
+  // `DEC-026` §13.12: la E2E de login central abre la ventana con la puerta.
+  requireLogin: process.env.POS_E2E_REQUIRE_LOGIN === "1",
   endpoint,
   channelSecret,
   protocolRange: { min: "1.0.0", max: "1.0.0" },

@@ -33,7 +33,10 @@ import { CentralLoginClient } from "./session/central-login-client.js";
 import { OperatorLoginService } from "./session/operator-login-service.js";
 import { DeviceEnrollmentService } from "./security/device-enrollment-service.js";
 import { DeviceTrustCredentialStore } from "./security/device-trust-credential-store.js";
-import { runDeviceEnrollment, writeDevicePublicIdentity } from "./security/device-enrollment-runner.js";
+import { centralAuthReachable, runDeviceEnrollment, writeDevicePublicIdentity } from "./security/device-enrollment-runner.js";
+
+/** Reintento del enrolamiento mientras el equipo no tenga credencial. */
+const DEVICE_ENROLLMENT_RETRY_MS = 15_000;
 import {
   activateDevRoleSession,
   provisionDevRoleTrustAnchors,
@@ -493,29 +496,48 @@ try {
       operationalKeyId: config.device_trust_operational_key_id,
       operationalPublicKeyPem: config.device_trust_operational_public_key_pem,
     };
-    const enrollment = await runDeviceEnrollment({
-      config: enrollmentConfig,
-      service: new DeviceEnrollmentService(
-        localDatabase.database,
-        security.identity,
-        { tenantId: config.tenant_id, companyId: config.company_id, installationId: config.installation_id, deviceId: config.device_id },
-        () => new Date(),
-        deviceCredentials(),
-      ),
-      credentialStore: deviceCredentials(),
-      transport: new FetchCentralTransport(),
-      clock: { now: () => new Date(), accept: (at) => commercial.trustedClock.accept(at) },
-      signal: AbortSignal.timeout(60_000),
-    }).catch((error: unknown) => ({
-      outcome: "REJECTED" as const,
-      reason: error instanceof Error && /^[A-Za-z0-9 _.:-]{1,160}$/.test(error.message) ? error.message : "ENROLLMENT_FAILED",
-    }));
-    logger.log(
-      enrollment.outcome === "ENROLLED" || enrollment.outcome === "ALREADY_ENROLLED" ? "info" : "warn",
-      "device.enrollment",
-      { ...enrollment },
-    );
-    if (enrollment.outcome === "ENROLLED") publishPublicIdentity();
+    // Se reintenta mientras el equipo no esté enrolado: la activación puede
+    // llegar después del arranque (el laboratorio registra el equipo con la
+    // identidad pública que este mismo arranque acaba de escribir). Antes de
+    // preparar la petición se comprueba que la autoridad responde: preparar
+    // deja un asiento PENDING que no se puede reenviar, y un corte de red
+    // entre preparar y enviar dejaría el equipo atascado.
+    const attemptEnrollment = async (): Promise<boolean> => {
+      if (!(await centralAuthReachable(enrollmentConfig.centralAuthUrl))) {
+        logger.log("warn", "device.enrollment", { outcome: "CENTRAL_UNREACHABLE" });
+        return false;
+      }
+      const enrollment = await runDeviceEnrollment({
+        config: enrollmentConfig,
+        service: new DeviceEnrollmentService(
+          localDatabase.database,
+          security.identity,
+          { tenantId: config.tenant_id, companyId: config.company_id, installationId: config.installation_id, deviceId: config.device_id },
+          () => new Date(),
+          deviceCredentials(),
+        ),
+        credentialStore: deviceCredentials(),
+        transport: new FetchCentralTransport(),
+        clock: { now: () => new Date(), accept: (at) => commercial.trustedClock.accept(at) },
+        signal: AbortSignal.timeout(60_000),
+      }).catch((error: unknown) => ({
+        outcome: "REJECTED" as const,
+        reason: error instanceof Error && /^[A-Za-z0-9 _.:-]{1,160}$/.test(error.message) ? error.message : "ENROLLMENT_FAILED",
+      }));
+      const done = enrollment.outcome === "ENROLLED" || enrollment.outcome === "ALREADY_ENROLLED";
+      logger.log(done ? "info" : "warn", "device.enrollment", { ...enrollment });
+      if (enrollment.outcome === "ENROLLED") publishPublicIdentity();
+      // `NOT_READY` (activación vencida, revocada, de otro equipo o ya
+      // pendiente) y `REJECTED` no se arreglan reintentando: requieren una
+      // activación nueva, que llegará con otro arranque.
+      return done || enrollment.outcome === "NOT_READY" || enrollment.outcome === "REJECTED";
+    };
+    const scheduleEnrollment = (): void => {
+      void attemptEnrollment().then((finished) => {
+        if (!finished) setTimeout(scheduleEnrollment, DEVICE_ENROLLMENT_RETRY_MS).unref();
+      });
+    };
+    scheduleEnrollment();
   }
 
   // Sesión de revisión de pantallas por rol (`dev-only/`) — nunca `DEC-025` ni
