@@ -92,7 +92,9 @@ describe("DeviceTrustVerifier", () => {
   });
 
   it("distinguishes an invalid root signature from a credential signature failure", () => {
-    const tampered = { ...signedOperationalKey, signature: `${signedOperationalKey.signature.slice(0, -1)}A` };
+    const signatureBytes = Buffer.from(signedOperationalKey.signature, "base64url");
+    signatureBytes[0] = signatureBytes[0]! ^ 0x01;
+    const tampered = { ...signedOperationalKey, signature: signatureBytes.toString("base64url") };
     const result = verifier().verifyOperationalKey(tampered);
     expect(result.decision).toBe("OPERATIONAL_KEY_SIGNATURE_INVALID");
     expect(result.value).toBeNull();
@@ -180,7 +182,9 @@ describe("DeviceTrustVerifier", () => {
       challenge_id: challenge.challenge_id,
       signature: sign(null, unsignedDeviceTrustChallengeBytes(challenge), DEVICE.privateKey).toString("base64url"),
     };
-    const tamperedProof = { ...proof, signature: `${proof.signature.slice(0, -1)}A` };
+    const proofSignatureBytes = Buffer.from(proof.signature, "base64url");
+    proofSignatureBytes[0] = proofSignatureBytes[0]! ^ 0x01;
+    const tamperedProof = { ...proof, signature: proofSignatureBytes.toString("base64url") };
 
     const result = verifier().verifyProof(signedCredential, challenge, tamperedProof, binding);
     expect(result.decision).toBe("PROOF_SIGNATURE_INVALID");
