@@ -149,7 +149,7 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
        causation_id, correlation_id, schema_version, payload, payload_checksum,
        sync_status, received_at_server, committed_at_server, version
      ) VALUES (
-       $1, $2, $3, $4, 'CENTRAL_SERVICE', $5, $6,
+       $1, $2, $3, $4, 'CENTRAL_SERVICE', NULL, NULL,
        $7, 'USER', $8, $9, $10, $11,
        $12, $13, $14, NULL,
        $15, $16, $17, $18, decode($19, 'hex'),
