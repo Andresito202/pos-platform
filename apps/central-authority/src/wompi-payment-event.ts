@@ -79,7 +79,8 @@ export function verifyWompiTransactionEvent(input: unknown, eventSecret: string)
   if (!secureEqualHex(calculated, checksum)) throw new Error("WOMPI_INVALID_CHECKSUM");
 
   if (typeof transaction.id !== "string" || transaction.id.length === 0) throw new Error("WOMPI_TRANSACTION_ID_MISSING");
-  if (!Number.isSafeInteger(transaction.amount_in_cents) || transaction.amount_in_cents <= 0) {
+  const amountInCents = transaction.amount_in_cents;
+  if (typeof amountInCents !== "number" || !Number.isSafeInteger(amountInCents) || amountInCents <= 0) {
     throw new Error("WOMPI_INVALID_AMOUNT");
   }
   if (typeof transaction.currency !== "string" || !/^[A-Z]{3}$/.test(transaction.currency)) {
@@ -98,7 +99,7 @@ export function verifyWompiTransactionEvent(input: unknown, eventSecret: string)
     external_reference: typeof transaction.reference === "string" ? transaction.reference : null,
     provider_code: "WOMPI",
     status,
-    amount: scale6FromCents(transaction.amount_in_cents as number),
+    amount: scale6FromCents(amountInCents),
     currency_code: transaction.currency,
     payer_display_name: null,
     payer_reference: typeof transaction.customer_email === "string" ? transaction.customer_email : null,
