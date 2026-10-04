@@ -323,7 +323,11 @@ const server = createServer(async (request, response) => {
   });
 
   if (!requestValidation.success) {
-    json(response, 400, { error: "INVALID_SYNC_REQUEST", details: requestValidation.error.flatten() });
+    json(response, 400, {
+      error: "INVALID_SYNC_REQUEST",
+      details: requestValidation.error.flatten(),
+      ...(process.env.CI === "true" ? { issues: requestValidation.error.issues } : {}),
+    });
     return;
   }
 
