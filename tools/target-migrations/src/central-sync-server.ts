@@ -362,7 +362,10 @@ const server = createServer(async (request, response) => {
       body: responseBody,
     });
     if (!responseValidation.success) {
-      json(response, 500, { error: "RESPONSE_CONTRACT_VIOLATION" });
+      json(response, 500, {
+        error: "RESPONSE_CONTRACT_VIOLATION",
+        ...(process.env.CI === "true" ? { issues: responseValidation.error.issues } : {}),
+      });
       return;
     }
     json(response, 200, responseBody, {
