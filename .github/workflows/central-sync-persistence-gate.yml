@@ -60,7 +60,7 @@ jobs:
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v7.0.0
         with:
           node-version: 22.19.0
           cache: pnpm
@@ -78,9 +78,11 @@ jobs:
         run: |
           set -euo pipefail
           pnpm --filter @pos-platform/target-migrations exec tsx -e '
-            import { applyPostgres001 } from "./src/postgres.js";
-            const result = await applyPostgres001({ adminUrl: process.env.POSTGRES_ADMIN_URL! });
-            console.log(JSON.stringify({ migration: "001_central_foundation", executionId: result.executionId, noOp: result.noOp, reconciled: result.reconciled, checksum: result.checksumHex }));
+            (async () => {
+              const { applyPostgres001 } = await import("./src/postgres.js");
+              const result = await applyPostgres001({ adminUrl: process.env.POSTGRES_ADMIN_URL! });
+              console.log(JSON.stringify({ migration: "001_central_foundation", executionId: result.executionId, noOp: result.noOp, reconciled: result.reconciled, checksum: result.checksumHex }));
+            })();
           '
 
       - name: Start Central Sync service
