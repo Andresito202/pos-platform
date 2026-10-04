@@ -75,10 +75,12 @@ jobs:
       - name: Apply PostgreSQL 001-002
         run: |
           pnpm --filter @pos-platform/target-migrations exec tsx -e '
-            import { applyPostgres001, applyPostgres002 } from "./src/postgres.js";
-            const adminUrl = process.env.POSTGRES_ADMIN_URL!;
-            await applyPostgres001({ adminUrl });
-            await applyPostgres002({ adminUrl });
+            (async () => {
+              const { applyPostgres001, applyPostgres002 } = await import("./src/postgres.js");
+              const adminUrl = process.env.POSTGRES_ADMIN_URL!;
+              await applyPostgres001({ adminUrl });
+              await applyPostgres002({ adminUrl });
+            })();
           '
       - name: Apply PostgreSQL 003 role readiness
         env:
@@ -96,15 +98,17 @@ jobs:
         run: |
           mkdir -p artifacts
           pnpm --filter @pos-platform/target-migrations exec tsx -e '
-            import { applyPostgres003 } from "./src/postgres-003-runner.js";
-            const result = await applyPostgres003({
-              adminUrl: process.env.POSTGRES_ADMIN_URL!,
-              expectedDatabase: "postgres",
-              environmentId: "ci-d3",
-              repositoryCommit: process.env.REVIEWED_SHA!,
-              receiptOutputPath: "artifacts/postgres-003.json",
-            });
-            console.log(JSON.stringify(result));
+            (async () => {
+              const { applyPostgres003 } = await import("./src/postgres-003-runner.js");
+              const result = await applyPostgres003({
+                adminUrl: process.env.POSTGRES_ADMIN_URL!,
+                expectedDatabase: "postgres",
+                environmentId: "ci-d3",
+                repositoryCommit: process.env.REVIEWED_SHA!,
+                receiptOutputPath: "artifacts/postgres-003.json",
+              });
+              console.log(JSON.stringify(result));
+            })();
           '
       - name: Apply PostgreSQL 004
         env:
