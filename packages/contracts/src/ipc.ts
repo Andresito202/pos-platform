@@ -44,6 +44,8 @@ import {
   CashShiftOpenResponseSchema,
   SaleCreateRequestSchema,
   SaleCreateResponseSchema,
+  AuthorizationCapabilitiesGetRequestSchema,
+  AuthorizationCapabilitiesGetResponseSchema,
   SessionActivateRequestSchema,
   SessionActivateResponseSchema,
   SessionRecoverRequestSchema,
@@ -57,6 +59,7 @@ export const IpcMessageTypeSchema = z.enum([
   "operation.confirm",
   // Operaciones comerciales V1 — `DEC-014` §3.1. Sus esquemas viven en
   // `ipc-commercial.ts`; aquí se incorporan al transporte.
+  "authorization.capabilities.get",
   "session.activate",
   "session.recover",
   "cash.shift.open",
@@ -154,6 +157,7 @@ export const IpcRequestSchema = z.union([
   RuntimeStatusRequestSchema,
   OperationResultRequestSchema,
   OperationConfirmRequestSchema,
+  AuthorizationCapabilitiesGetRequestSchema,
   SessionActivateRequestSchema,
   SessionRecoverRequestSchema,
   CashShiftOpenRequestSchema,
@@ -182,6 +186,7 @@ export const IpcResponseSchema = z.union([
   RuntimeStatusResponseSchema,
   OperationResultResponseSchema,
   OperationConfirmResponseSchema,
+  AuthorizationCapabilitiesGetResponseSchema,
   SessionActivateResponseSchema,
   SessionRecoverResponseSchema,
   CashShiftOpenResponseSchema,
