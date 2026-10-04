@@ -90,7 +90,10 @@ function verifierFor(database: LocalDatabase, fixture: ReturnType<typeof makeFix
       status: "ACTIVE" as const,
       validFrom: "2026-09-01T00:00:00Z",
     }]]),
-    new TrustedClockGuard(database),
+    {
+      now: () => new Date(fixture.now),
+      accept: (now) => new TrustedClockGuard(database).accept(now),
+    },
   );
 }
 
@@ -123,7 +126,7 @@ describe("D-3 device trust verifier", () => {
     const unknownVerifier = new DeviceTrustVerifier(
       createPublicKey(unknown.root.publicKey),
       new Map(),
-      new TrustedClockGuard(database),
+      { now: () => new Date(unknown.now), accept: (now) => new TrustedClockGuard(database).accept(now) },
     );
     expect(unknownVerifier.verifyCredential(unknown.signedCredential, binding).decision).toBe("UNKNOWN_KEY");
 
@@ -134,7 +137,7 @@ describe("D-3 device trust verifier", () => {
         status: "REVOKED" as const,
         validFrom: "2026-09-01T00:00:00Z",
       }]]),
-      new TrustedClockGuard(database),
+      { now: () => new Date(fixture.now), accept: (now) => new TrustedClockGuard(database).accept(now) },
     );
     expect(revokedVerifier.verifyCredential(fixture.signedCredential, binding).decision).toBe("KEY_REVOKED");
     database.close();
