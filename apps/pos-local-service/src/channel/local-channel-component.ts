@@ -104,6 +104,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     if (signal.aborted) throw new Error("local channel request aborted");
 
     switch (request.message_type) {
+      case "authorization.capabilities.get":
       case "session.activate":
       case "session.recover":
       case "cash.shift.open":
