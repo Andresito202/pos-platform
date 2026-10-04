@@ -1,5 +1,6 @@
 import type * as z from "zod";
 import {
+  AuthorizationCapabilitiesGetResponseSchema,
   CashShiftCloseResponseSchema,
   CashShiftOpenResponseSchema,
   CatalogItemResponseSchema,
@@ -52,6 +53,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "runtime.status.get": RuntimeStatusResponseSchema,
   "operation.result.get": OperationResultResponseSchema,
   "operation.confirm": OperationConfirmResponseSchema,
+  "authorization.capabilities.get": AuthorizationCapabilitiesGetResponseSchema,
   "session.activate": SessionActivateResponseSchema,
   "session.recover": SessionRecoverResponseSchema,
   "cash.shift.open": CashShiftOpenResponseSchema,
