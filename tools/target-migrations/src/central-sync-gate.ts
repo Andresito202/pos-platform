@@ -93,8 +93,6 @@ async function main(): Promise<void> {
     message_type: "sync.batch.push",
     request_id: requestId,
     correlation_id: correlationId,
-    operation_id: operationId,
-    idempotency_key: idempotencyKey,
     tenant_id: tenantId,
     device_id: deviceId,
     payload_schema_version: "1.0.0",
@@ -110,7 +108,6 @@ async function main(): Promise<void> {
     "x-correlation-id": correlationId,
     "x-pos-device-id": deviceId,
     "x-pos-installation-id": installationId,
-    "idempotency-key": idempotencyKey,
   };
 
   const first = await fetch(`${BASE}/v1/sync/batches`, {
