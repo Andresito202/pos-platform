@@ -156,6 +156,7 @@ export class DeviceEnrollmentHttpHandler {
       const code = errorCode(error);
       const statusCode: DeviceEnrollmentTransportResponse["statusCode"] =
         code === "ACTIVATION_NOT_CONSUMABLE" ? 409
+          : code === "DEVICE_ENROLLMENT_FAILED" ? 500
           : code.startsWith("ENROLLMENT_") || code.startsWith("DEVICE_") || code === "CREDENTIAL_EXPIRY_INVALID" ? 422
           : 500;
       return rejection(context, statusCode, code, statusCode >= 500);
