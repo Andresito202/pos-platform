@@ -150,18 +150,16 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
        sync_status, received_at_server, committed_at_server, version
      ) VALUES (
        $1, $2, $3, $4, 'CENTRAL_SERVICE', NULL, NULL,
-       $7, 'USER', $8, $9, $10, $11,
-       $12, $13, $14, NULL,
-       $15, $16, $17, $18, decode($19, 'hex'),
-       'SERVER_ACCEPTED', $20, clock_timestamp(), 1
+       $5, 'USER', $6, $7, $8, $9,
+       $10, $11, $12, NULL,
+       $13, $14, $15, $16, decode($17, 'hex'),
+       'SERVER_ACCEPTED', $18, clock_timestamp(), 1
      )`,
     [
       operation.operation_id,
       operation.tenant_id,
       operation.company_id,
       operation.branch_id,
-      operation.device_id,
-      operation.installation_id,
       operation.session_id,
       operation.actor_id,
       operation.aggregate_type,
