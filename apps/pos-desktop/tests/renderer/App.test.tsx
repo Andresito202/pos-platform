@@ -6,6 +6,11 @@ import { App } from "../../renderer/src/App.js";
 function makeService() {
   return {
     "runtime.status.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "authorization.capabilities.get": vi.fn().mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: { outcome: "AVAILABLE", permissions: [] },
+    }),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
   };
@@ -30,7 +35,7 @@ describe("App", () => {
     expect(screen.getByTestId("status-loading")).toBeTruthy();
   });
 
-  it("renders the operation panel", () => {
+  it("renders the operation panel", async () => {
     render(<App />);
     expect(screen.getByTestId("operation-panel")).toBeTruthy();
   });
