@@ -6,12 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   SessionAssertionOperationalKeyClaimsSchema,
   SessionAssertionTrustBundleSchema,
-  unsignedSessionAssertionBytes,
   unsignedSessionAssertionOperationalKeyBytes,
   type SessionAssertionClaims,
 } from "@pos-platform/contracts";
 import { LocalChannelAuthenticator, LocalChannelClient } from "@pos-platform/local-channel";
 import { loadOrCreateWindowsLocalChannelSecret } from "../src/channel/secret.js";
+import { unsignedSessionAssertionBytes } from "../src/security/session-assertion-verifier.js";
 
 const IDS = {
   installationId: "018f0000-0000-7000-8000-0000000000a2",
