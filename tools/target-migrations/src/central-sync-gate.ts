@@ -81,6 +81,7 @@ async function main(): Promise<void> {
     batch_id: batchId,
     tenant_id: tenantId,
     company_id: companyId,
+    branch_id: branchId,
     device_id: deviceId,
     installation_id: installationId,
     checkpoint_local_sequence: null,
