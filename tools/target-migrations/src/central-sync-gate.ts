@@ -4,11 +4,13 @@ import { Pool } from "pg";
 const BASE = process.env.CENTRAL_SYNC_BASE_URL;
 const TOKEN = process.env.CENTRAL_SYNC_TOKEN;
 const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
+const POSTGRES_ADMIN_URL = process.env.POSTGRES_ADMIN_URL;
 const tenantId = "b03eea93-6bab-4417-a8c9-386691c617e7";
 
 if (!BASE) throw new Error("CENTRAL_SYNC_BASE_URL is required");
 if (!TOKEN) throw new Error("CENTRAL_SYNC_TOKEN is required");
 if (!POSTGRES_TEST_URL) throw new Error("POSTGRES_TEST_URL is required");
+if (!POSTGRES_ADMIN_URL) throw new Error("POSTGRES_ADMIN_URL is required");
 
 function uuidV7(now = Date.now()): string {
   const bytes = randomBytes(16);
@@ -31,6 +33,25 @@ function canonical(value: unknown): string {
 
 function sha256(value: unknown): string {
   return createHash("sha256").update(canonical(value)).digest("hex");
+}
+
+async function seedCentralScope(): Promise<void> {
+  const admin = new Pool({ connectionString: POSTGRES_ADMIN_URL, max: 1 });
+  try {
+    await admin.query(`
+      INSERT INTO tenancy.tenants (id,name,status,created_at,updated_at)
+      VALUES ($1,'Central Sync Gate Tenant','ACTIVE',clock_timestamp(),clock_timestamp())
+      ON CONFLICT (id) DO NOTHING;
+      INSERT INTO organization.companies (id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at)
+      VALUES ($2,$1,'Central Sync Gate Company','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp())
+      ON CONFLICT (id) DO NOTHING;
+      INSERT INTO organization.branches (id,tenant_id,company_id,name,timezone,status,created_at,updated_at)
+      VALUES ($3,$1,$2,'Central Sync Gate Branch','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())
+      ON CONFLICT (id) DO NOTHING;
+    `, [tenantId, companyId, branchId]);
+  } finally {
+    await admin.end();
+  }
 }
 
 async function main(): Promise<void> {
@@ -109,6 +130,8 @@ async function main(): Promise<void> {
     "x-pos-device-id": deviceId,
     "x-pos-installation-id": installationId,
   };
+
+  await seedCentralScope();
 
   const first = await fetch(`${BASE}/v1/sync/batches`, {
     method: "POST",
