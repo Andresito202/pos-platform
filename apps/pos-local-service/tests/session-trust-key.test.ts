@@ -8,7 +8,18 @@ import { SessionTrustKeyVerifier } from "../src/security/session-trust-key-verif
 
 const NOW = new Date("2026-09-17T00:00:00.000Z");
 
-function baseClaims() {
+type TestClaims = {
+  key_id: string;
+  key_purpose: "SESSION_ASSERTION";
+  environment: string;
+  public_key_pem: string;
+  status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED";
+  valid_from: string;
+  valid_until: string | null;
+  version: number;
+};
+
+function baseClaims(): TestClaims {
   return {
     key_id: "ssa-2026-01",
     key_purpose: "SESSION_ASSERTION" as const,
