@@ -150,8 +150,8 @@ async function main(): Promise<void> {
     const row = evidence.rows[0]!;
     const checksum = Buffer.from(row.payload_checksum).toString("hex");
     if (row.tenant_id !== tenantId) throw new Error("TENANT_MISMATCH");
-    if (row.device_id !== deviceId) throw new Error("DEVICE_MISMATCH");
-    if (row.installation_id !== installationId) throw new Error("INSTALLATION_MISMATCH");
+    if (row.device_id !== null) throw new Error("CENTRAL_DEVICE_SCOPE_NOT_NULL");
+    if (row.installation_id !== null) throw new Error("CENTRAL_INSTALLATION_SCOPE_NOT_NULL");
     if (row.operation_type !== operation.operation_type) throw new Error("OPERATION_TYPE_MISMATCH");
     if (row.idempotency_key !== operation.idempotency_key) throw new Error("IDEMPOTENCY_KEY_MISMATCH");
     if (row.sync_status !== "SERVER_ACCEPTED") throw new Error(`SYNC_STATUS=${row.sync_status}`);
