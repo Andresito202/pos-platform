@@ -20,11 +20,11 @@ const observation: QrPaymentObservation = {
 
 describe("QR payment matcher", () => {
   it("matches exactly one approved payment", () => {
-    expect(matchQrPaymentObservation(observation, pending, []).outcome).toBe("MATCHED");
+    expect(matchQrPaymentObservation(observation, pending, new Set()).outcome).toBe("MATCHED");
   });
 
   it("rejects ambiguity instead of choosing a sale", () => {
-    expect(matchQrPaymentObservation(observation, [...pending, { ...pending[0]!, paymentId: "33333333-3333-4333-8333-333333333333" }], []).outcome).toBe("AMBIGUOUS");
+    expect(matchQrPaymentObservation(observation, [...pending, { ...pending[0]!, paymentId: "33333333-3333-4333-8333-333333333333" }], new Set()).outcome).toBe("AMBIGUOUS");
   });
 
   it("deduplicates an already observed external transaction", () => {
@@ -32,6 +32,6 @@ describe("QR payment matcher", () => {
   });
 
   it("never confirms a different amount", () => {
-    expect(matchQrPaymentObservation({ ...observation, amount: "87501.000000" }, pending, []).outcome).toBe("AMOUNT_MISMATCH");
+    expect(matchQrPaymentObservation({ ...observation, amount: "87501.000000" }, pending, new Set()).outcome).toBe("AMOUNT_MISMATCH");
   });
 });
