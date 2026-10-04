@@ -191,6 +191,7 @@ export class CommercialRequestHandler {
     signal: AbortSignal = new AbortController().signal,
   ): unknown {
     switch (request.message_type) {
+      case "authorization.capabilities.get": return this.getAuthorizationCapabilities(request, connectionId);
       case "session.activate": return this.activate(request, connectionId);
       case "session.recover": return this.recover(request, connectionId);
       case "cash.shift.open": return this.openShift(request, connectionId);
