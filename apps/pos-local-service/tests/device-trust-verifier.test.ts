@@ -50,7 +50,10 @@ function makeFixture(now = "2026-09-16T12:00:00Z") {
   const credentialClaims = {
     credential_id: "018f0000-0000-7000-8000-000000000005",
     key_id: "DEVICE_TRUST_KEY_1",
-    ...binding,
+    tenant_id: binding.tenantId,
+    company_id: binding.companyId,
+    installation_id: binding.installationId,
+    device_id: binding.deviceId,
     device_public_key_pem: device.publicKey.export({ type: "spki", format: "pem" }).toString(),
     issued_at: "2026-09-01T00:00:00Z",
     not_before: "2026-09-01T00:00:00Z",
@@ -63,7 +66,9 @@ function makeFixture(now = "2026-09-16T12:00:00Z") {
   };
   const challenge = {
     challenge_id: "018f0000-0000-7000-8000-000000000006",
-    ...binding,
+    tenant_id: binding.tenantId,
+    installation_id: binding.installationId,
+    device_id: binding.deviceId,
     nonce: Buffer.from("01234567890123456789012345678901").toString("base64url"),
     issued_at: "2026-09-16T11:59:00Z",
     expires_at: "2026-09-16T12:01:00Z",
@@ -120,7 +125,6 @@ describe("D-3 device trust verifier", () => {
       createPublicKey(unknown.root.publicKey),
       new Map(),
       new TrustedClockGuard(database),
-      () => new Date(unknown.now),
     );
     expect(unknownVerifier.verifyCredential(unknown.signedCredential, binding).decision).toBe("UNKNOWN_KEY");
 
@@ -132,7 +136,6 @@ describe("D-3 device trust verifier", () => {
         validFrom: "2026-09-01T00:00:00Z",
       }]]),
       new TrustedClockGuard(database),
-      () => new Date(fixture.now),
     );
     expect(revokedVerifier.verifyCredential(fixture.signedCredential, binding).decision).toBe("KEY_REVOKED");
     database.close();
