@@ -2,6 +2,7 @@ export const RENDERER_API_KEY = "posService" as const;
 
 export const RENDERER_API_METHODS = [
   "runtime.status.get",
+  "authorization.capabilities.get",
   "operation.result.get",
   "operation.confirm",
   "session.activate",
