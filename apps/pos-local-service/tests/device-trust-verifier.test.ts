@@ -91,7 +91,6 @@ function verifierFor(database: LocalDatabase, fixture: ReturnType<typeof makeFix
       validFrom: "2026-09-01T00:00:00Z",
     }]]),
     new TrustedClockGuard(database),
-    () => new Date(fixture.now),
   );
 }
 
