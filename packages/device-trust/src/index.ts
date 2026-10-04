@@ -69,11 +69,11 @@ export class DeviceTrustVerifier {
     const evaluatedAt = this.evaluatedAt();
     const signed = SignedDeviceTrustOperationalKeySchema.parse(input);
     const claims = signed.claims;
-    if (claims.key_purpose !== "DEVICE_TRUST") return this.result("KEY_PURPOSE_MISMATCH", null, evaluatedAt);
-    if (claims.status === "REVOKED") return this.result("KEY_REVOKED", null, evaluatedAt);
-    if (evaluatedAt.getTime() < Date.parse(claims.valid_from)) return this.result("KEY_NOT_YET_VALID", null, evaluatedAt);
+    if (claims.key_purpose !== "DEVICE_TRUST") return this.result<DeviceTrustOperationalKeyClaims>("KEY_PURPOSE_MISMATCH", null, evaluatedAt);
+    if (claims.status === "REVOKED") return this.result<DeviceTrustOperationalKeyClaims>("KEY_REVOKED", null, evaluatedAt);
+    if (evaluatedAt.getTime() < Date.parse(claims.valid_from)) return this.result<DeviceTrustOperationalKeyClaims>("KEY_NOT_YET_VALID", null, evaluatedAt);
     if (!verify(null, unsignedDeviceTrustOperationalKeyBytes(claims), this.rootTrustAnchor, Buffer.from(signed.signature, "base64url"))) {
-      return this.result("OPERATIONAL_KEY_SIGNATURE_INVALID", null, evaluatedAt);
+      return this.result<DeviceTrustOperationalKeyClaims>("OPERATIONAL_KEY_SIGNATURE_INVALID", null, evaluatedAt);
     }
     return this.result("VALID", claims, evaluatedAt);
   }
@@ -106,11 +106,11 @@ export class DeviceTrustVerifier {
     const signed = SignedDeviceTrustCredentialSchema.parse(input);
     const claims = signed.claims;
     const operationalKey = this.operationalKeys.get(claims.key_id);
-    if (!operationalKey) return this.result("UNKNOWN_KEY", null, evaluatedAt);
-    if (operationalKey.status === "REVOKED") return this.result("KEY_REVOKED", null, evaluatedAt);
-    if (evaluatedAt.getTime() < Date.parse(operationalKey.validFrom)) return this.result("KEY_NOT_YET_VALID", null, evaluatedAt);
+    if (!operationalKey) return this.result<DeviceTrustCredentialClaims>("UNKNOWN_KEY", null, evaluatedAt);
+    if (operationalKey.status === "REVOKED") return this.result<DeviceTrustCredentialClaims>("KEY_REVOKED", null, evaluatedAt);
+    if (evaluatedAt.getTime() < Date.parse(operationalKey.validFrom)) return this.result<DeviceTrustCredentialClaims>("KEY_NOT_YET_VALID", null, evaluatedAt);
     if (!verify(null, unsignedDeviceTrustCredentialBytes(claims), operationalKey.key, Buffer.from(signed.signature, "base64url"))) {
-      return this.result("CREDENTIAL_SIGNATURE_INVALID", null, evaluatedAt);
+      return this.result<DeviceTrustCredentialClaims>("CREDENTIAL_SIGNATURE_INVALID", null, evaluatedAt);
     }
     if (claims.tenant_id !== binding.tenantId || claims.company_id !== binding.companyId || claims.installation_id !== binding.installationId || claims.device_id !== binding.deviceId) {
       return this.result("CREDENTIAL_BINDING_MISMATCH", claims, evaluatedAt);
