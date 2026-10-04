@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import {
+  createActor,
+  createOperationScope,
+  evaluatePermission,
+  toRoleAssignments,
+} from "@pos-platform/application";
 import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
@@ -13,6 +19,7 @@ type CommercialRequest = Extract<
   IpcRequest,
   {
     message_type:
+      | "authorization.capabilities.get"
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer"
@@ -930,6 +937,53 @@ export class CommercialRequestHandler {
         confirmed_at: payment.confirmedAt,
       })),
       calculation_checksum: receipt.calculationChecksum,
+    });
+  }
+
+  // ── authorization.capabilities.get ─────────────────────────────────────────
+
+  /**
+   * Devuelve sólo permisos efectivos para el ámbito de esta instalación.
+   * Nunca entrega el snapshot firmado ni las asignaciones al renderer.
+   */
+  private getAuthorizationCapabilities(
+    request: Extract<CommercialRequest, { message_type: "authorization.capabilities.get" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED",
+        permissions: [],
+      });
+    }
+
+    const assignments = toRoleAssignments(authenticated.snapshot.claims);
+    const scope = createOperationScope(
+      this.scope().tenantId,
+      this.scope().companyId,
+      this.scope().branchId,
+    );
+    const actor = createActor("USER", authenticated.snapshot.claims.user_id);
+    const permissions = [...new Set(
+      authenticated.snapshot.claims.assignments.flatMap(
+        (assignment) => assignment.permissions
+          .filter((permission) => permission.status === "ACTIVE")
+          .map((permission) => permission.code),
+      ),
+    )].filter((permission) =>
+      evaluatePermission({
+        actor,
+        permission,
+        scope,
+        at: new Date(),
+        assignments,
+      }).allowed,
+    );
+
+    return succeeded(request, "AVAILABLE", {
+      outcome: "AVAILABLE",
+      permissions,
     });
   }
 
