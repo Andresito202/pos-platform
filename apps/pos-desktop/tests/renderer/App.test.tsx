@@ -25,6 +25,51 @@ beforeEach(() => {
 });
 
 describe("App", () => {
+  it("shows only navigation areas covered by effective permissions", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["CATALOG_PRODUCT_READ", "CUSTOMERS_CUSTOMER_READ", "SALES_RECEIPT_READ"],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Catálogo" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Comprobantes" })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("heading", { name: "Caja y ventas" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Inventario" })).toBeNull();
+    expect(screen.queryByTestId("fiscal-panel")).toBeNull();
+  });
+
+  it("fails closed when effective authorization cannot be loaded", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "REJECTED",
+      result_code: "SESSION_NOT_BOUND",
+      result: { outcome: "UNAUTHORIZED", permissions: [] },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("authorization-error")).toBeTruthy();
+    });
+
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+    expect(screen.queryByTestId("catalog-panel")).toBeNull();
+    expect(screen.queryByTestId("inventory-panel")).toBeNull();
+    expect(screen.queryByTestId("customer-panel")).toBeNull();
+    expect(screen.queryByTestId("receipt-panel")).toBeNull();
+    expect(screen.queryByTestId("fiscal-panel")).toBeNull();
+  });
+
+
   it("renders the POS Local heading", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: /POS Local/i })).toBeTruthy();
