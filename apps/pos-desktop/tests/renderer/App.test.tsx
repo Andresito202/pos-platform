@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { App } from "../../renderer/src/App.js";
 
 function makeService() {
@@ -35,19 +35,21 @@ describe("App", () => {
     expect(screen.getByTestId("status-loading")).toBeTruthy();
   });
 
-  it("renders the operation panel", async () => {
+  it("renders the operation panel after authorization loads", async () => {
     render(<App />);
-    expect(screen.getByTestId("operation-panel")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("operation-panel")).toBeTruthy());
   });
 
-  it("renders the operation id input", () => {
+  it("renders the operation id input", async () => {
     render(<App />);
-    expect(screen.getByTestId("operation-id-input")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("operation-id-input")).toBeTruthy());
   });
 
-  it("renders get-result and confirm buttons", () => {
+  it("renders get-result and confirm buttons", async () => {
     render(<App />);
-    expect(screen.getByTestId("get-result-button")).toBeTruthy();
-    expect(screen.getByTestId("confirm-button")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId("get-result-button")).toBeTruthy();
+      expect(screen.getByTestId("confirm-button")).toBeTruthy();
+    });
   });
 });
