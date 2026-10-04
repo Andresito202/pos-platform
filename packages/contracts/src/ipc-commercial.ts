@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
 import { SignedSessionAssertionSchema } from "./session-assertion.js";
+import { PermissionCodeSchema } from "./authorization.js";
 import {
   ExpectedVersionSchema,
   StableCodeSchema,
@@ -122,6 +123,29 @@ function requireIdempotentOperation(
     context.addIssue({ code: "custom", path: ["idempotency_key"], message: "idempotency_key is required" });
   }
 }
+
+// ── authorization.capabilities.get ──────────────────────────────────────────
+
+/**
+ * Proyección mínima para navegación del renderer.
+ *
+ * No expone el snapshot firmado ni asignaciones/roles. La capa confiable evalúa
+ * los permisos del usuario vinculado contra el ámbito local y devuelve sólo
+ * códigos efectivos para adaptar la navegación. Las operaciones siguen
+ * autorizándose independientemente en sus casos de uso.
+ */
+export const AuthorizationCapabilitiesGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("authorization.capabilities.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const AuthorizationCapabilitiesGetResultSchema = z.strictObject({
+  outcome: z.enum(["AVAILABLE", "UNAUTHORIZED"]),
+  permissions: z.array(PermissionCodeSchema).max(512),
+});
+
+export const AuthorizationCapabilitiesGetResponseSchema =
+  createResponseEnvelopeSchema(AuthorizationCapabilitiesGetResultSchema);
 
 // ── session.activate ─────────────────────────────────────────────────────────
 
@@ -1060,6 +1084,7 @@ export const SalesReceiptGetResponseSchema =
  * correspondencia está tabulada en `DEC-014` §3.2.
  */
 export const CommercialIpcMessageTypeSchema = z.enum([
+  "authorization.capabilities.get",
   "session.activate",
   "session.recover",
   "cash.shift.open",
@@ -1110,6 +1135,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
+export type AuthorizationCapabilitiesGetResult = z.infer<typeof AuthorizationCapabilitiesGetResultSchema>;
 export type SessionActivateResult = z.infer<typeof SessionActivateResultSchema>;
 export type SessionRecoverResult = z.infer<typeof SessionRecoverResultSchema>;
 export type CashShiftOpenResult = z.infer<typeof CashShiftOpenResultSchema>;
