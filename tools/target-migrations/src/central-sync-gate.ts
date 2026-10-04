@@ -88,8 +88,13 @@ async function main(): Promise<void> {
   };
 
   const envelope = {
+    protocol_version: "1.0.0",
+    message_type: "sync.batch.push",
     request_id: requestId,
     correlation_id: correlationId,
+    tenant_id: tenantId,
+    device_id: deviceId,
+    payload_schema_version: "1.0.0",
     payload: batch,
   };
 
