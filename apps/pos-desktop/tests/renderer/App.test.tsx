@@ -38,14 +38,38 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Catálogo" })).toBeTruthy();
-      expect(screen.getByRole("heading", { name: "Clientes" })).toBeTruthy();
-      expect(screen.getByRole("heading", { name: "Comprobantes" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Clientes" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Comprobantes" })).toBeTruthy();
     });
 
-    expect(screen.queryByRole("heading", { name: "Caja y ventas" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Inventario" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Inventario" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Catálogo" })).toBeTruthy();
     expect(screen.queryByTestId("fiscal-panel")).toBeNull();
+  });
+
+
+  it("materializes the first authorized screen and keeps navigation capability-driven", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ"],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Caja y ventas" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy();
+      expect(screen.getByTestId("sale-panel")).toBeTruthy();
+    });
+
+    expect(screen.getByRole("button", { name: "Caja y ventas" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByTestId("catalog-panel")).toBeNull();
   });
 
   it("fails closed when effective authorization cannot be loaded", async () => {
