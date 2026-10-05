@@ -88,7 +88,7 @@ function verifierFor(database: LocalDatabase, fixture: ReturnType<typeof makeFix
   return new DeviceTrustVerifier(
     fixture.root.publicKey,
     new Map([["DEVICE_TRUST_KEY_1", {
-      key: createPublicKey(fixture.operational.publicKey),
+      key: fixture.operational.publicKey,
       status: "ACTIVE" as const,
       validFrom: "2026-09-01T00:00:00Z",
     }]]),
