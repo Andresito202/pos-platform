@@ -35,7 +35,7 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
-async function seedCentralScope(): Promise<void> {
+async function seedCentralScope(companyId: string, branchId: string): Promise<void> {
   const admin = new Pool({ connectionString: POSTGRES_ADMIN_URL, max: 1 });
   try {
     await admin.query(`
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
     "x-pos-installation-id": installationId,
   };
 
-  await seedCentralScope();
+  await seedCentralScope(companyId, branchId);
 
   const first = await fetch(`${BASE}/v1/sync/batches`, {
     method: "POST",
