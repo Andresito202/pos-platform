@@ -20,9 +20,7 @@ importers:
 
   apps/central-authority:
     dependencies:
-      '@pos-platform/application':
-        specifier: workspace:*
-        version: link:../../packages/application
+      '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@pos-platform/device-trust':
