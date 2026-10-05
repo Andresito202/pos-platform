@@ -141,8 +141,8 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     await this.client.query(
       `INSERT INTO "authorization".user_role_assignments
         (id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,valid_until,created_at,created_by_actor_type,created_by_actor_id,revoked_at,version)
-       VALUES ($1,$2,$3,$4,$5,NULL,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$6,$7,NULL,1)`,
-      [input.id,input.tenantId,input.membershipId,role[0].id,input.companyId,input.actor.type,input.actor.id],
+       VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$7,$8,NULL,1)`,
+      [input.id,input.tenantId,input.membershipId,role[0].id,input.companyId,input.branchId,input.actor.type,input.actor.id],
     );
   }
 
@@ -180,7 +180,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     await this.client.query(
       `INSERT INTO audit.audit_events
         (id,tenant_id,company_id,branch_id,actor_type,actor_id,session_id,device_id,action_code,resource_type,resource_reference_kind,resource_id,operation_id,correlation_id,schema_version,reported_at,server_recorded_at,result,reason_code,new_value,payload_checksum)
-       VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,'INSTANCE',$7,$8,$9,$10,$11,1,clock_timestamp(),clock_timestamp(),$12,$13,$14::jsonb,encode(sha256(convert_to($14::jsonb::text,'UTF8')),'hex'))`,
+       VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,'INSTANCE',$9,$10,$11,1,clock_timestamp(),clock_timestamp(),$12,$13,$14::jsonb,encode(sha256(convert_to($14::jsonb::text,'UTF8')),'hex'))`,
       [uuidV7(),input.tenantId,input.companyId ?? null,input.branchId ?? null,input.actor.type,input.actor.id,input.actionCode,input.resourceType,input.resourceId ?? input.tenantId ?? input.onboardingId,input.operationId ?? null,input.correlationId,input.result,input.reasonCode ?? null,payload],
     );
   }
