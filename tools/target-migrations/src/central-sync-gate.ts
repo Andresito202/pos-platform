@@ -37,19 +37,33 @@ function sha256(value: unknown): string {
 
 async function seedCentralScope(companyId: string, branchId: string): Promise<void> {
   const admin = new Pool({ connectionString: POSTGRES_ADMIN_URL, max: 1 });
+  const client = await admin.connect();
   try {
-    await admin.query(`
-      INSERT INTO tenancy.tenants (id,name,status,created_at,updated_at)
-      VALUES ($1,'Central Sync Gate Tenant','ACTIVE',clock_timestamp(),clock_timestamp())
-      ON CONFLICT (id) DO NOTHING;
-      INSERT INTO organization.companies (id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at)
-      VALUES ($2,$1,'Central Sync Gate Company','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp())
-      ON CONFLICT (id) DO NOTHING;
-      INSERT INTO organization.branches (id,tenant_id,company_id,name,timezone,status,created_at,updated_at)
-      VALUES ($3,$1,$2,'Central Sync Gate Branch','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())
-      ON CONFLICT (id) DO NOTHING;
-    `, [tenantId, companyId, branchId]);
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO tenancy.tenants (id,name,status,created_at,updated_at)
+       VALUES ($1,'Central Sync Gate Tenant','ACTIVE',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (id) DO NOTHING`,
+      [tenantId],
+    );
+    await client.query(
+      `INSERT INTO organization.companies (id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at)
+       VALUES ($1,$2,'Central Sync Gate Company','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (id) DO NOTHING`,
+      [companyId, tenantId],
+    );
+    await client.query(
+      `INSERT INTO organization.branches (id,tenant_id,company_id,name,timezone,status,created_at,updated_at)
+       VALUES ($1,$2,$3,'Central Sync Gate Branch','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (id) DO NOTHING`,
+      [branchId, tenantId, companyId],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
   } finally {
+    client.release();
     await admin.end();
   }
 }
@@ -225,16 +239,21 @@ async function main(): Promise<void> {
         payload_checksum: sha256(conflictOperation.payload),
       }],
     };
+    const conflictRequestId = uuidV7();
     const conflictEnvelope = {
-      request_id: uuidV7(),
+      protocol_version: "1.0.0",
+      message_type: "sync.batch.push",
+      request_id: conflictRequestId,
       correlation_id: conflictOperation.correlation_id,
+      tenant_id: tenantId,
+      device_id: deviceId,
+      payload_schema_version: "1.0.0",
       payload: conflictBatch,
     };
     const conflict = await fetch(`${BASE}/v1/sync/batches`, {
       method: "POST",
       headers: {
         ...headers,
-        "x-pos-request-id": conflictEnvelope.request_id,
         "x-request-id": conflictEnvelope.request_id,
         "x-correlation-id": conflictOperation.correlation_id,
       },
