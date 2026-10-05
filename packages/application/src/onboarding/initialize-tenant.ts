@@ -28,7 +28,7 @@ export type OnboardingTransaction = {
   assignInitialOwnerRole(input: { id: string; tenantId: string; membershipId: string; companyId: string; branchId: string; actor: OnboardingActor }): Promise<void>;
   applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void>;
   completeOnboarding(input: { onboardingId: string; tenantId: string; companyId: string; branchId: string; ownerUserId: string; membershipId: string; status: OnboardingStatus; licenseReference?: string; requestedPlan?: string; correlationId: string }): Promise<OnboardingResult>;
-  audit(input: { onboardingId: string; tenantId: string | null; companyId?: string | null; branchId?: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void>;
+  audit(input: { onboardingId: string; tenantId: string | null; companyId?: string | null; branchId?: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId?: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void>;
   recordSyncOperation(input: { operationId: string; tenantId: string; companyId: string; branchId: string; actor: OnboardingActor; aggregateId: string; operationType: string; idempotencyKey: string; correlationId: string; payload: Record<string, unknown>; payloadChecksum: string }): Promise<void>;
   recordOutbox(input: { id: string; tenantId: string; operationId: string; operationType: string; correlationId: string; payloadChecksum: string }): Promise<void>;
 };
@@ -57,7 +57,14 @@ export class InitializeTenant {
     return this.repository.transaction(async (tx) => {
       await tx.setActorContext(input.actor);
       const onboardingId = uuidV7(this.now().getTime());
-      const claim = await tx.createOnboarding({ id: onboardingId, actor: input.actor, idempotencyKey: input.idempotencyKey, requestChecksum, correlationId: input.correlationId, commercialReference: input.commercialReference });
+      const claim = await tx.createOnboarding({
+        id: onboardingId,
+        actor: input.actor,
+        idempotencyKey: input.idempotencyKey,
+        requestChecksum,
+        correlationId: input.correlationId,
+        ...(input.commercialReference === undefined ? {} : { commercialReference: input.commercialReference }),
+      });
       if (!claim.claimed) {
         const existing = await tx.findOnboarding(input.actor, input.idempotencyKey);
         if (!existing) throw new Error("ONBOARDING_IDEMPOTENCY_RESULT_MISSING");
@@ -71,13 +78,41 @@ export class InitializeTenant {
       const membershipId = uuidV7(this.now().getTime());
       const roleAssignmentId = uuidV7(this.now().getTime());
       await tx.setTenantContext(tenantId);
-      const owner = await tx.resolveOrCreateOwner({ userId: input.ownerUserId, email: input.ownerEmail, phone: input.ownerPhone, fullName: input.ownerFullName });
-      await tx.createTenant({ id: tenantId, name: input.tenantName, code: input.tenantCode });
+      const owner = await tx.resolveOrCreateOwner({
+        email: input.ownerEmail,
+        fullName: input.ownerFullName,
+        ...(input.ownerUserId === undefined ? {} : { userId: input.ownerUserId }),
+        ...(input.ownerPhone === undefined ? {} : { phone: input.ownerPhone }),
+      });
+      await tx.createTenant({
+        id: tenantId,
+        name: input.tenantName,
+        ...(input.tenantCode === undefined ? {} : { code: input.tenantCode }),
+      });
       await tx.audit({ onboardingId, tenantId, companyId: null, branchId: null, actor: input.actor, actionCode: "ONBOARDING_STARTED", resourceType: "ONBOARDING_OPERATION", resourceId: onboardingId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { status: "PENDING", idempotency_key: input.idempotencyKey } });
       await tx.audit({ onboardingId, tenantId, companyId: null, branchId: null, actor: input.actor, actionCode: "TENANT_CREATED", resourceType: "TENANT", resourceId: tenantId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { name: input.tenantName, status: "ACTIVE" } });
-      await tx.createCompany({ id: companyId, tenantId, name: input.companyName, legalName: input.companyLegalName, taxId: input.companyTaxId, email: input.companyEmail, phone: input.companyPhone, timezone: input.initialTimezone, currency: input.initialCurrency });
+      await tx.createCompany({
+        id: companyId,
+        tenantId,
+        name: input.companyName,
+        timezone: input.initialTimezone,
+        currency: input.initialCurrency,
+        ...(input.companyLegalName === undefined ? {} : { legalName: input.companyLegalName }),
+        ...(input.companyTaxId === undefined ? {} : { taxId: input.companyTaxId }),
+        ...(input.companyEmail === undefined ? {} : { email: input.companyEmail }),
+        ...(input.companyPhone === undefined ? {} : { phone: input.companyPhone }),
+      });
       await tx.audit({ onboardingId, tenantId, companyId, branchId: null, actor: input.actor, actionCode: "COMPANY_CREATED", resourceType: "COMPANY", resourceId: companyId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { trade_name: input.companyName, currency_code: input.initialCurrency } });
-      await tx.createBranch({ id: branchId, tenantId, companyId, name: input.branchName, code: input.branchCode, address: input.branchAddress, city: input.branchCity, timezone: input.initialTimezone });
+      await tx.createBranch({
+        id: branchId,
+        tenantId,
+        companyId,
+        name: input.branchName,
+        timezone: input.initialTimezone,
+        ...(input.branchCode === undefined ? {} : { code: input.branchCode }),
+        ...(input.branchAddress === undefined ? {} : { address: input.branchAddress }),
+        ...(input.branchCity === undefined ? {} : { city: input.branchCity }),
+      });
       await tx.audit({ onboardingId, tenantId, companyId, branchId, actor: input.actor, actionCode: "BRANCH_CREATED", resourceType: "BRANCH", resourceId: branchId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { name: input.branchName, timezone: input.initialTimezone } });
       await tx.createOwnerMembership({ id: membershipId, tenantId, userId: owner.userId, actor: input.actor, isPrimary: owner.created });
       await tx.audit({ onboardingId, tenantId, companyId: null, branchId: null, actor: input.actor, actionCode: "TENANT_OWNER_ASSIGNED", resourceType: "TENANT_MEMBERSHIP", resourceId: membershipId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { membership_type: "OWNER", owner_user_id: owner.userId, owner_created: owner.created } });
@@ -92,7 +127,18 @@ export class InitializeTenant {
       const payloadChecksum = Array.from(new Uint8Array(payloadDigest), (value) => value.toString(16).padStart(2, "0")).join("");
       await tx.recordSyncOperation({ operationId, tenantId, companyId, branchId, actor: input.actor, aggregateId: tenantId, operationType: "TENANT_ONBOARDED", idempotencyKey: input.idempotencyKey, correlationId: input.correlationId, payload, payloadChecksum });
       await tx.recordOutbox({ id: uuidV7(this.now().getTime()), tenantId, operationId, operationType: "TENANT_ONBOARDED", correlationId: input.correlationId, payloadChecksum });
-      const result = await tx.completeOnboarding({ onboardingId, tenantId, companyId, branchId, ownerUserId: owner.userId, membershipId, status, licenseReference: input.licenseReference, requestedPlan: input.requestedPlan, correlationId: input.correlationId });
+      const result = await tx.completeOnboarding({
+        onboardingId,
+        tenantId,
+        companyId,
+        branchId,
+        ownerUserId: owner.userId,
+        membershipId,
+        status,
+        correlationId: input.correlationId,
+        ...(input.licenseReference === undefined ? {} : { licenseReference: input.licenseReference }),
+        ...(input.requestedPlan === undefined ? {} : { requestedPlan: input.requestedPlan }),
+      });
       await tx.audit({ onboardingId, tenantId, companyId, branchId, actor: input.actor, actionCode: "ONBOARDING_STATUS_CHANGED", resourceType: "ONBOARDING_OPERATION", resourceId: onboardingId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { previous_status: "PENDING", status } });
       return result;
     });
