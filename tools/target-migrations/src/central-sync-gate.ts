@@ -1,9 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 
-const BASE = "http://127.0.0.1:8787";
-const TOKEN = process.env.CENTRAL_SYNC_TOKEN ?? "local-validation-token";
-const tenantId = "b03eea93-6bab-4417-a8c9-386691c617e7";
+const BASE = process.env.CENTRAL_SYNC_BASE_URL;
+const TOKEN = process.env.CENTRAL_SYNC_TOKEN;
+const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
+const POSTGRES_ADMIN_URL = process.env.POSTGRES_ADMIN_URL;
+// Fixed UUIDv7 test tenant; PostgreSQL 001 enforces platform.is_uuid_v7 on tenant IDs.
+const tenantId = "018f0000-0000-7000-8000-0000000000e1";
+
+if (!BASE) throw new Error("CENTRAL_SYNC_BASE_URL is required");
+if (!TOKEN) throw new Error("CENTRAL_SYNC_TOKEN is required");
+if (!POSTGRES_TEST_URL) throw new Error("POSTGRES_TEST_URL is required");
+if (!POSTGRES_ADMIN_URL) throw new Error("POSTGRES_ADMIN_URL is required");
 
 function uuidV7(now = Date.now()): string {
   const bytes = randomBytes(16);
@@ -28,6 +36,39 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
+async function seedCentralScope(companyId: string, branchId: string): Promise<void> {
+  const admin = new Pool({ connectionString: POSTGRES_ADMIN_URL, max: 1 });
+  const client = await admin.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO tenancy.tenants (id,name,status,created_at,updated_at)
+       VALUES ($1,'Central Sync Gate Tenant','ACTIVE',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (id) DO NOTHING`,
+      [tenantId],
+    );
+    await client.query(
+      `INSERT INTO organization.companies (id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at)
+       VALUES ($1,$2,'Central Sync Gate Company','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (id) DO NOTHING`,
+      [companyId, tenantId],
+    );
+    await client.query(
+      `INSERT INTO organization.branches (id,tenant_id,company_id,name,timezone,status,created_at,updated_at)
+       VALUES ($1,$2,$3,'Central Sync Gate Branch','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (id) DO NOTHING`,
+      [branchId, tenantId, companyId],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+    await admin.end();
+  }
+}
+
 async function main(): Promise<void> {
   const health = await fetch(`${BASE}/health`);
   if (health.status !== 200) throw new Error(`HEALTH_FAILED status=${health.status}`);
@@ -45,6 +86,7 @@ async function main(): Promise<void> {
   const aggregateId = uuidV7();
   const occurredAt = new Date().toISOString();
   const payload = { gate: "CENTRAL_SYNC", purpose: "durable-write-verification", nonce: uuidV7() };
+  const idempotencyKey = `central-sync-gate-${operationId}`;
 
   const operation = {
     operation_id: operationId,
@@ -60,7 +102,7 @@ async function main(): Promise<void> {
     operation_type: "SYNC.TEST",
     authority_policy: "APPEND_ONLY_SHARED",
     local_sequence: 1,
-    idempotency_key: `central-sync-gate-${operationId}`,
+    idempotency_key: idempotencyKey,
     expected_version: null,
     payload_schema_version: "1.0.0",
     payload,
@@ -83,8 +125,13 @@ async function main(): Promise<void> {
   };
 
   const envelope = {
+    protocol_version: "1.0.0",
+    message_type: "sync.batch.push",
     request_id: requestId,
     correlation_id: correlationId,
+    tenant_id: tenantId,
+    device_id: deviceId,
+    payload_schema_version: "1.0.0",
     payload: batch,
   };
 
@@ -99,6 +146,8 @@ async function main(): Promise<void> {
     "x-pos-installation-id": installationId,
   };
 
+  await seedCentralScope(companyId, branchId);
+
   const first = await fetch(`${BASE}/v1/sync/batches`, {
     method: "POST",
     headers,
@@ -109,12 +158,7 @@ async function main(): Promise<void> {
   console.log(firstText);
   if (first.status !== 200) throw new Error("FIRST_POST_FAILED");
 
-  const pool = new Pool({
-    host: process.env.PGHOST ?? "127.0.0.1",
-    port: Number(process.env.PGPORT ?? 55433),
-    user: process.env.PGUSER ?? "postgres",
-    database: process.env.PGDATABASE ?? "pos_target_test",
-  });
+  const pool = new Pool({ connectionString: POSTGRES_TEST_URL });
 
   try {
     const evidence = await pool.query<{
@@ -128,7 +172,7 @@ async function main(): Promise<void> {
       payload_checksum: Buffer;
       source_kind: string;
       actor_type: string;
-      version: number;
+      version: string;
       received_at_server: string | Date;
       committed_at_server: string | Date;
     }>(
@@ -144,15 +188,15 @@ async function main(): Promise<void> {
     const row = evidence.rows[0]!;
     const checksum = Buffer.from(row.payload_checksum).toString("hex");
     if (row.tenant_id !== tenantId) throw new Error("TENANT_MISMATCH");
-    if (row.device_id !== deviceId) throw new Error("DEVICE_MISMATCH");
-    if (row.installation_id !== installationId) throw new Error("INSTALLATION_MISMATCH");
+    if (row.device_id !== null) throw new Error("CENTRAL_DEVICE_SCOPE_NOT_NULL");
+    if (row.installation_id !== null) throw new Error("CENTRAL_INSTALLATION_SCOPE_NOT_NULL");
     if (row.operation_type !== operation.operation_type) throw new Error("OPERATION_TYPE_MISMATCH");
     if (row.idempotency_key !== operation.idempotency_key) throw new Error("IDEMPOTENCY_KEY_MISMATCH");
     if (row.sync_status !== "SERVER_ACCEPTED") throw new Error(`SYNC_STATUS=${row.sync_status}`);
     if (checksum !== operation.payload_checksum) throw new Error("CHECKSUM_MISMATCH");
     if (row.source_kind !== "CENTRAL_SERVICE") throw new Error(`SOURCE_KIND=${row.source_kind}`);
     if (row.actor_type !== "USER") throw new Error(`ACTOR_TYPE=${row.actor_type}`);
-    if (row.version !== 1) throw new Error(`VERSION=${row.version}`);
+    if (row.version !== "1") throw new Error(`VERSION=${row.version}`);
     if (!row.received_at_server || !row.committed_at_server) throw new Error("SERVER_TIMESTAMPS_MISSING");
 
     const countBefore = await pool.query<{ count: string }>(
@@ -182,8 +226,54 @@ async function main(): Promise<void> {
       throw new Error("IDEMPOTENCY_ROW_COUNT_FAILED");
     }
 
+    const conflictOperation = {
+      ...operation,
+      operation_id: uuidV7(),
+      correlation_id: uuidV7(),
+      payload: { ...payload, nonce: uuidV7(), semantic_conflict: true },
+    };
+    const conflictBatch = {
+      ...batch,
+      batch_id: uuidV7(),
+      operations: [{
+        ...conflictOperation,
+        payload_checksum: sha256(conflictOperation.payload),
+      }],
+    };
+    const conflictRequestId = uuidV7();
+    const conflictEnvelope = {
+      protocol_version: "1.0.0",
+      message_type: "sync.batch.push",
+      request_id: conflictRequestId,
+      correlation_id: conflictOperation.correlation_id,
+      tenant_id: tenantId,
+      device_id: deviceId,
+      payload_schema_version: "1.0.0",
+      payload: conflictBatch,
+    };
+    const conflict = await fetch(`${BASE}/v1/sync/batches`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-request-id": conflictEnvelope.request_id,
+        "x-correlation-id": conflictOperation.correlation_id,
+      },
+      body: JSON.stringify(conflictEnvelope),
+    });
+    const conflictText = await conflict.text();
+    console.log(`IDEMPOTENCY_CONFLICT_STATUS=${conflict.status}`);
+    console.log(conflictText);
+    if (conflict.status !== 409) throw new Error("IDEMPOTENCY_CONFLICT_NOT_REJECTED");
+
+    const conflictCount = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM sync.sync_operations WHERE tenant_id = $1 AND idempotency_key = $2`,
+      [tenantId, operation.idempotency_key],
+    );
+    if (conflictCount.rows[0]!.count !== "1") throw new Error("IDEMPOTENCY_CONFLICT_MUTATED_PERSISTENCE");
+
     console.log("POSTGRES_PERSISTENCE=VERIFIED");
     console.log("IDEMPOTENCY_REPLAY=VERIFIED");
+    console.log("IDEMPOTENCY_CONFLICT=VERIFIED");
     console.log("CENTRAL-SYNC GATE: VERIFIED");
   } finally {
     await pool.end();
