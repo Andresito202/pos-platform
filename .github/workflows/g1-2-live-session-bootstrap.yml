@@ -3,6 +3,7 @@ name: G1.2 Live Session Bootstrap
 on:
   push:
     branches:
+      - main
       - claude/pos-camacho-bloque-4c-ld43py
   pull_request:
     branches: [main]
