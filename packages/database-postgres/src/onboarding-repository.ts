@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/application";
 import type { SqlQueryExecutor, TransactionalSql } from "./sql.js";
 import { uuidV7 } from "./sql.js";
