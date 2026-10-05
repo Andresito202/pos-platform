@@ -245,7 +245,11 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       expect(rejected.status).toBe("REJECTED");
     } finally {
       await client?.close().catch(() => undefined);
-      if (service !== undefined && service.exitCode === null) service.kill("SIGTERM");
+      if (service !== undefined && service.exitCode === null) {
+        const stopped = new Promise<void>((resolve) => service!.once("exit", () => resolve()));
+        service.kill("SIGTERM");
+        await stopped;
+      }
       rmSync(dataDirectory, { recursive: true, force: true });
     }
   }, 60_000);
