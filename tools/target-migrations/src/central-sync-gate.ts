@@ -172,7 +172,7 @@ async function main(): Promise<void> {
       payload_checksum: Buffer;
       source_kind: string;
       actor_type: string;
-      version: number;
+      version: string;
       received_at_server: string | Date;
       committed_at_server: string | Date;
     }>(
@@ -196,7 +196,7 @@ async function main(): Promise<void> {
     if (checksum !== operation.payload_checksum) throw new Error("CHECKSUM_MISMATCH");
     if (row.source_kind !== "CENTRAL_SERVICE") throw new Error(`SOURCE_KIND=${row.source_kind}`);
     if (row.actor_type !== "USER") throw new Error(`ACTOR_TYPE=${row.actor_type}`);
-    if (row.version !== 1) throw new Error(`VERSION=${row.version}`);
+    if (row.version !== "1") throw new Error(`VERSION=${row.version}`);
     if (!row.received_at_server || !row.committed_at_server) throw new Error("SERVER_TIMESTAMPS_MISSING");
 
     const countBefore = await pool.query<{ count: string }>(
