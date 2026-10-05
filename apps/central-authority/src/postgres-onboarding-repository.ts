@@ -176,7 +176,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       `UPDATE tenancy.onboarding_operations
           SET pricing_policy_version=$2,tax_policy_version=$3,rounding_policy_version=$4,authorization_policy_version_id=$5,updated_at=clock_timestamp(),version=version+1
         WHERE id=$1`,
-      [this.currentOnboardingId,pricing,tax,rounding,authorization],
+      [input.onboardingId,pricing,tax,rounding,authorization],
     );
   }
 
