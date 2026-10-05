@@ -1,6 +1,17 @@
 import * as z from "zod";
 import { StableCodeSchema, UtcDateTimeSchema } from "./primitives.js";
 
+const SESSION_TRUST_CODE_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(?:[.:-][A-Za-z0-9_]+)*$/;
+
+/**
+ * Session-trust identifiers are externally signed trust material. They retain
+ * the historical lowercase artifact representation (for example
+ * "ssa-2026-01" / "production") instead of being forced through the
+ * uppercase StableCode contract used by business identifiers.
+ */
+export const SessionTrustCodeSchema = z.string().min(1).max(96).regex(SESSION_TRUST_CODE_PATTERN);
+export type SessionTrustCode = z.infer<typeof SessionTrustCodeSchema>;
+
 export const SessionAssertionKeyPurposeSchema = z.literal("SESSION_ASSERTION");
 export type SessionAssertionKeyPurpose = z.infer<typeof SessionAssertionKeyPurposeSchema>;
 
@@ -8,9 +19,9 @@ export const SessionAssertionKeyStatusSchema = z.enum(["ACTIVE", "VERIFY_ONLY", 
 export type SessionAssertionKeyStatus = z.infer<typeof SessionAssertionKeyStatusSchema>;
 
 export const SessionAssertionOperationalKeyClaimsSchema = z.strictObject({
-  key_id: StableCodeSchema,
+  key_id: SessionTrustCodeSchema,
   key_purpose: SessionAssertionKeyPurposeSchema,
-  environment: StableCodeSchema,
+  environment: SessionTrustCodeSchema,
   public_key_pem: z.string().min(80).max(4096),
   status: SessionAssertionKeyStatusSchema,
   valid_from: UtcDateTimeSchema,
