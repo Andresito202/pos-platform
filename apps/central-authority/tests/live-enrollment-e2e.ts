@@ -93,8 +93,14 @@ try {
   });
   const body = await response.text();
   if (response.status !== 200) throw new Error(`live enrollment failed: ${response.status} ${body}`);
-  const parsed = JSON.parse(body) as { status?: string; credential_id?: string; credential?: unknown };
-  if (parsed.status !== "ENROLLED" || !parsed.credential_id || !parsed.credential) throw new Error("live enrollment returned incomplete credential");
+  const parsed = JSON.parse(body) as { status?: string; result_code?: string; result?: unknown };
+  if (parsed.status !== "SUCCEEDED" || parsed.result_code !== "ENROLLED" || parsed.result === undefined) {
+    throw new Error(`live enrollment returned invalid envelope: ${body}`);
+  }
+  const enrollmentResult = DeviceEnrollmentResultSchema.parse(parsed.result);
+  if (enrollmentResult.status !== "ENROLLED" || enrollmentResult.credential_id === null || enrollmentResult.credential === null) {
+    throw new Error(`live enrollment returned incomplete credential: ${body}`);
+  }
 
   const state = await pool.query<{ activation_status: string; device_status: string; credential_count: string }>(
     `SELECT a.status activation_status, d.status device_status,
