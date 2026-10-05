@@ -97,8 +97,30 @@ async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ 
 }
 
 function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string): ChildProcessWithoutNullStreams {
-  const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  return spawn(command, ["exec", "tsx", "src/main.ts"], {
+  if (process.platform === "win32") {
+    const commandShell = process.env.ComSpec ?? "cmd.exe";
+    return spawn(commandShell, ["/d", "/s", "/c", "pnpm exec tsx src/main.ts"], {
+      cwd: serviceRoot,
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        POS_DATA_DIRECTORY: dataDirectory,
+        POS_INSTALLATION_ID: IDS.installationId,
+        POS_DEVICE_ID: IDS.deviceId,
+        POS_SERVICE_VERSION: "1.0.0",
+        POS_PROTOCOL_MIN: "1.0.0",
+        POS_PROTOCOL_MAX: "1.0.0",
+        POS_TENANT_ID: IDS.tenantId,
+        POS_COMPANY_ID: IDS.companyId,
+        POS_BRANCH_ID: IDS.branchId,
+        POS_SESSION_TRUST_ENVIRONMENT: "production",
+        POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+        POS_SESSION_TRUST_ARTIFACT_PATH: artifactPath,
+      },
+    }) as ChildProcessWithoutNullStreams;
+  }
+
+  return spawn("pnpm", ["exec", "tsx", "src/main.ts"], {
     cwd: serviceRoot,
     env: {
       ...process.env,
