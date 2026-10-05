@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { classifyIdempotency, uuidV7 } from "@pos-platform/contracts";
 
 export type OnboardingActor = { type: "USER" | "PLATFORM_ACCOUNT"; id: string };
