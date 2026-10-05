@@ -37,7 +37,8 @@ function request(suffix: string, actorId = "01890f5a-0000-7000-8000-000000000001
 
 describe("database-postgres ONB-002 integration", () => {
   let admin: Pool;
-  let runtime: Pool;\n  let inspection: Pool;
+  let runtime: Pool;
+  let inspection: Pool;
 
   beforeAll(async () => {
     admin = new Pool({ connectionString: SERVER_URL, max: 2 });
@@ -62,11 +63,13 @@ describe("database-postgres ONB-002 integration", () => {
     } finally {
       await root.end();
     }
-    runtime = new Pool({ connectionString: roleUrl("pos_platform_app"), max: 4 });\n    inspection = new Pool({ connectionString: dbUrl(), max: 2 });
+    runtime = new Pool({ connectionString: roleUrl("pos_platform_app"), max: 4 });
+    inspection = new Pool({ connectionString: dbUrl(), max: 2 });
   }, 120_000);
 
   afterAll(async () => {
-    await runtime?.end();\n    await inspection?.end();
+    await runtime?.end();
+    await inspection?.end();
     await admin?.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin?.end();
   });
