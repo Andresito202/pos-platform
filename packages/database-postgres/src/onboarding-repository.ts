@@ -180,7 +180,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     await this.client.query(
       `INSERT INTO audit.audit_events
         (id,tenant_id,company_id,branch_id,actor_type,actor_id,session_id,device_id,action_code,resource_type,resource_reference_kind,resource_id,operation_id,correlation_id,schema_version,reported_at,server_recorded_at,result,reason_code,new_value,payload_checksum)
-       VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,'INSTANCE',$7,$8,$9,1,clock_timestamp(),clock_timestamp(),$10,$11,$12::jsonb,encode(sha256(convert_to($12::jsonb::text,'UTF8')),'hex'))`,
+       VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,'INSTANCE',$7,$8,$9,$10,$11,1,clock_timestamp(),clock_timestamp(),$12,$13,$14::jsonb,encode(sha256(convert_to($14::jsonb::text,'UTF8')),'hex'))`,
       [uuidV7(),input.tenantId,input.companyId ?? null,input.branchId ?? null,input.actor.type,input.actor.id,input.actionCode,input.resourceType,input.resourceId ?? input.tenantId ?? input.onboardingId,input.operationId ?? null,input.correlationId,input.result,input.reasonCode ?? null,payload],
     );
   }
