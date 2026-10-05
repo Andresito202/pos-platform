@@ -50,6 +50,44 @@ describe("App", () => {
   });
 
 
+  it("does not expose fiscal navigation without the fiscal permission", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["SALES_SALE_CREATE"],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Caja y ventas" })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Facturación electrónica" })).toBeNull();
+    expect(screen.queryByTestId("fiscal-panel")).toBeNull();
+  });
+
+  it("exposes fiscal navigation only when the effective fiscal permission is present", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["FISCAL_DOCUMENT_ISSUE"],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Facturación electrónica" })).toBeTruthy();
+      expect(screen.getByTestId("fiscal-panel")).toBeTruthy();
+    });
+  });
+
   it("materializes the first authorized screen and keeps navigation capability-driven", async () => {
     window.posService["authorization.capabilities.get"].mockResolvedValue({
       status: "SUCCEEDED",
@@ -96,7 +134,7 @@ describe("App", () => {
 
   it("renders the POS Local heading", () => {
     render(<App />);
-    expect(screen.getByRole("heading", { name: /POS Local/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Camacho POS Colombia/i })).toBeTruthy();
   });
 
   it("renders the status panel in loading state initially", () => {
