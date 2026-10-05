@@ -49,7 +49,7 @@ describe("InitializeTenant", () => {
     const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;
     const result = await new InitializeTenant({ transaction: async (work) => work(tracked) }, { authorize: async () => undefined }).execute(input());
     expect(result.status).toBe("READY_FOR_LICENSE");
-    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "recordSyncOperation", "recordOutbox", "audit"]);
+    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "audit", "createCompany", "audit", "createBranch", "audit", "createOwnerMembership", "audit", "assignInitialOwnerRole", "audit", "applyInitialConfiguration", "audit", "recordSyncOperation", "recordOutbox", "completeOnboarding", "audit"]);
   });
 
   it("returns the existing result for an exact idempotent replay", async () => {
