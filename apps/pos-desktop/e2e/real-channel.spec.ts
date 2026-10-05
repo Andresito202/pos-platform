@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * El POS de escritorio **real** contra el POS Local Service **real**.
+ * El POS de escritorio **real** contra el Camacho POS Colombia Service **real**.
  *
  * `boot.spec.ts` comprueba que la aplicación monta, y para eso le basta un
  * `ServiceChannel` de doble. Esta prueba es otra cosa: **no hay doble en ningún
@@ -129,7 +129,7 @@ test.afterAll(async () => {
 
 test("un cajero vende de verdad: Electron real → canal real → servicio real", async () => {
   const page = await app.firstWindow();
-  await expect(page).toHaveTitle("POS Local");
+  await expect(page).toHaveTitle("Camacho POS Colombia");
 
   // El canal ya negoció el handshake contra el servicio real: si no, Electron
   // no habría llegado a abrir ventana (`startPosDesktop` falla cerrado).
