@@ -41,12 +41,15 @@ export function App(): React.JSX.Element {
       result.push({
         id: "sales",
         label: "Caja y ventas",
-        render: () => (
-          <>
-            <SalePanel />
-            <FiscalPanel />
-          </>
-        ),
+        render: () => <SalePanel />,
+      });
+    }
+
+    if (permissions.has("FISCAL_DOCUMENT_ISSUE")) {
+      result.push({
+        id: "fiscal",
+        label: "Facturación electrónica",
+        render: () => <FiscalPanel />,
       });
     }
 
@@ -95,7 +98,7 @@ export function App(): React.JSX.Element {
   if (authorization.phase === "loading") {
     return (
       <main>
-        <h1>POS Local</h1>
+        <h1>Camacho POS Colombia</h1>
         <StatusPanel />
         <div data-testid="authorization-loading">Cargando permisos…</div>
       </main>
@@ -105,7 +108,7 @@ export function App(): React.JSX.Element {
   if (authorization.phase === "error") {
     return (
       <main>
-        <h1>POS Local</h1>
+        <h1>Camacho POS Colombia</h1>
         <StatusPanel />
         <div data-testid="authorization-error">
           No se pudo cargar la autorización: {authorization.message}
@@ -119,8 +122,9 @@ export function App(): React.JSX.Element {
   return (
     <main className="pos-shell">
       <aside className="pos-sidebar" aria-label="Navegación principal">
-        <p className="pos-brand">POS Local</p>
-        <p className="pos-subtitle">Pantallas según permisos efectivos</p>
+        <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
+        <p className="pos-brand-name">Camacho POS Colombia</p>
+        <p className="pos-subtitle">Acceso según permisos efectivos</p>
         <nav className="pos-nav">
           {screens.map((screen) => (
             <button
@@ -139,7 +143,8 @@ export function App(): React.JSX.Element {
       <div className="pos-content">
         <header className="pos-header">
           <div>
-            <h1>{selectedScreen?.label ?? "POS Local"}</h1>
+            <p className="pos-product-name">Camacho POS Colombia</p>
+            <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
             <p>Acceso disponible según la autorización efectiva de la sesión.</p>
           </div>
         </header>
