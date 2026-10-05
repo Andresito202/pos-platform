@@ -125,6 +125,12 @@ describe("database-postgres ONB-002 integration", () => {
     expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.tenants WHERE name=$1", [conflicting.tenantName])).rows[0].n).toBe(0);
   });
 
+  it("rejects unsupported configuration instead of persisting a generic blob", async () => {
+    const bad = { ...request("G"), initialConfiguration: { printer: "raw" } };
+    await expect(useCase().execute(bad)).rejects.toThrow("ONBOARDING_CONFIGURATION_UNSUPPORTED_printer");
+    expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.tenants WHERE code=$1", [bad.tenantCode])).rows[0].n).toBe(0);
+  });
+
   it("reuses the owner identity across tenants without crossing memberships", async () => {
     const a = await useCase().execute(request("E"));
     const b = await useCase().execute({ ...request("F"), ownerEmail: "owner+e@example.test" });
