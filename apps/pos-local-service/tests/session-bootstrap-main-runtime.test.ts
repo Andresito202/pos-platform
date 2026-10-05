@@ -97,9 +97,8 @@ async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ 
 }
 
 function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string): ChildProcessWithoutNullStreams {
-  if (process.platform === "win32") {
-    const commandShell = process.env.ComSpec ?? "cmd.exe";
-    return spawn(commandShell, ["/d", "/s", "/c", "pnpm exec tsx src/main.ts"], {
+  const tsxCli = join(serviceRoot, "node_modules", "tsx", "dist", "cli.mjs");
+  return spawn(process.execPath, [tsxCli, "src/main.ts"], {
       cwd: serviceRoot,
       env: {
         ...process.env,
@@ -120,7 +119,7 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
     }) as ChildProcessWithoutNullStreams;
   }
 
-  return spawn("pnpm", ["exec", "tsx", "src/main.ts"], {
+  return spawn(process.execPath, [tsxCli, "src/main.ts"], {
     cwd: serviceRoot,
     env: {
       ...process.env,
@@ -139,6 +138,7 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
       POS_SESSION_TRUST_ARTIFACT_PATH: artifactPath,
     },
   }) as ChildProcessWithoutNullStreams;
+;
 }
 
 describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () => {

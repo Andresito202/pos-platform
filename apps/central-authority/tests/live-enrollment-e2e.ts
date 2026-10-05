@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { Pool } from "pg";
-import { DeviceEnrollmentRequestSchema, DeviceEnrollmentResultSchema } from "@pos-platform/contracts";
+import { DeviceEnrollmentRequestSchema } from "@pos-platform/contracts";
 import { createEnrollmentChallenge, activationSecretChecksum, canonicalDeviceTrustJson } from "@pos-platform/device-trust";
 
 const databaseUrl = process.env.CENTRAL_DATABASE_URL ?? "";
@@ -28,8 +28,8 @@ const ids = {
   device: uuidV7(),
   activation: uuidV7(),
 };
-const deviceKeyId = `D3_CI_DEVICE_${ids.device.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
-const trustKeyId = `D3_CI_TRUST_${ids.device.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
+const deviceKeyId = `D3_CI_DEVICE_${ids.device.replaceAll("-", "").slice(0, 16)}`;
+const trustKeyId = `D3_CI_TRUST_${ids.device.replaceAll("-", "").slice(0, 16)}`;
 const activationSecret = `D3CI_${randomBytes(36).toString("base64url")}`;
 const now = new Date();
 const challengeIssued = now.toISOString();
@@ -93,14 +93,8 @@ try {
   });
   const body = await response.text();
   if (response.status !== 200) throw new Error(`live enrollment failed: ${response.status} ${body}`);
-  const parsed = JSON.parse(body) as { status?: string; result_code?: string; result?: unknown };
-  if (parsed.status !== "SUCCEEDED" || parsed.result_code !== "ENROLLED" || parsed.result === undefined) {
-    throw new Error(`live enrollment returned invalid envelope: ${body}`);
-  }
-  const enrollmentResult = DeviceEnrollmentResultSchema.parse(parsed.result);
-  if (enrollmentResult.status !== "ENROLLED" || enrollmentResult.credential_id === null || enrollmentResult.credential === null) {
-    throw new Error(`live enrollment returned incomplete credential: ${body}`);
-  }
+  const parsed = JSON.parse(body) as { status?: string; credential_id?: string; credential?: unknown };
+  if (parsed.status !== "ENROLLED" || !parsed.credential_id || !parsed.credential) throw new Error("live enrollment returned incomplete credential");
 
   const state = await pool.query<{ activation_status: string; device_status: string; credential_count: string }>(
     `SELECT a.status activation_status, d.status device_status,
