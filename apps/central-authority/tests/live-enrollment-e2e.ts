@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { Pool } from "pg";
-import { DeviceEnrollmentRequestSchema } from "@pos-platform/contracts";
+import { DeviceEnrollmentRequestSchema, DeviceEnrollmentResultSchema } from "@pos-platform/contracts";
 import { createEnrollmentChallenge, activationSecretChecksum, canonicalDeviceTrustJson } from "@pos-platform/device-trust";
 
 const databaseUrl = process.env.CENTRAL_DATABASE_URL ?? "";
