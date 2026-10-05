@@ -14,7 +14,7 @@ function requestChecksum(value: OnboardingInput): string { return createHash("sh
 
 function tx(): OnboardingTransaction {
   return {
-    setTenantContext: async () => undefined,
+    setActorContext: async () => undefined, setTenantContext: async () => undefined,
     findOnboarding: async () => null, assertCommercialReferenceAvailable: async () => undefined,
     resolveOrCreateOwner: async () => ({ userId: "01890f5a-0000-7000-8000-000000000003", created: false }),
     createOnboarding: async () => undefined, createTenant: async () => undefined, createCompany: async () => undefined,
@@ -49,7 +49,7 @@ describe("InitializeTenant", () => {
     const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;
     const result = await new InitializeTenant({ transaction: async (work) => work(tracked) }, { authorize: async () => undefined }).execute(input());
     expect(result.status).toBe("READY_FOR_LICENSE");
-    expect(calls).toEqual(["findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "audit"]);
+    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "audit"]);
   });
 
   it("returns the existing result for an exact idempotent replay", async () => {
