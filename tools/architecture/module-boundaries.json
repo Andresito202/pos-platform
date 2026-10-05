@@ -69,6 +69,18 @@
       "type": "application",
       "scope": "local"
     },
+    "@pos-platform/central-authority": {
+      "root": "apps/central-authority",
+      "layer": "runtime",
+      "type": "application",
+      "scope": "central"
+    },
+    "@pos-platform/device-trust": {
+      "root": "packages/device-trust",
+      "layer": "security",
+      "type": "library",
+      "scope": "shared"
+    },
     "@pos-platform/local-channel": {
       "root": "packages/local-channel",
       "layer": "transport",
@@ -78,61 +90,20 @@
   },
   "allowedLayerDependencies": {
     "domain": [],
-    "application": [
-      "domain",
-      "contracts"
-    ],
+    "application": ["domain","contracts"],
     "contracts": [],
-    "database-core": [
-      "domain",
-      "contracts"
-    ],
-    "adapter": [
-      "domain",
-      "application",
-      "contracts",
-      "database-core",
-      "observability"
-    ],
-    "observability": [
-      "contracts"
-    ],
-    "testing": [
-      "domain",
-      "application",
-      "contracts",
-      "database-core",
-      "adapter",
-      "observability",
-      "testing",
-      "transport"
-    ],
-    "runtime": [
-      "application",
-      "contracts",
-      "adapter",
-      "observability",
-      "transport"
-    ],
-    "desktop": [
-      "contracts",
-      "observability",
-      "transport"
-    ],
-    "transport": [
-      "contracts"
-    ]
+    "database-core": ["domain","contracts"],
+    "adapter": ["domain","application","contracts","database-core","observability"],
+    "observability": ["contracts"],
+    "testing": ["domain","application","contracts","database-core","adapter","observability","testing","transport","security"],
+    "runtime": ["application","contracts","adapter","observability","transport","security"],
+    "desktop": ["contracts","observability","transport"],
+    "security": ["contracts"],
+    "transport": ["contracts"]
   },
   "frozenSourceAreas": {
-    "@pos-platform/domain": [
-      "authorization",
-      "index.ts"
-    ],
-    "@pos-platform/application": [
-      "authorization",
-      "session",
-      "index.ts"
-    ]
+    "@pos-platform/domain": ["authorization","index.ts"],
+    "@pos-platform/application": ["authorization","session","index.ts"]
   },
   "forbiddenProjectNames": [
     "@pos-platform/categories",
@@ -141,62 +112,13 @@
     "@pos-platform/lots"
   ],
   "forbiddenExternalImportsByLayer": {
-    "domain": [
-      "@nestjs/",
-      "electron",
-      "react",
-      "react-dom",
-      "kysely",
-      "pg",
-      "better-sqlite3"
-    ],
-    "application": [
-      "@nestjs/",
-      "electron",
-      "react",
-      "react-dom",
-      "kysely",
-      "pg",
-      "better-sqlite3"
-    ],
-    "contracts": [
-      "@nestjs/",
-      "electron",
-      "react",
-      "react-dom",
-      "kysely",
-      "pg",
-      "better-sqlite3"
-    ],
-    "database-core": [
-      "@nestjs/",
-      "electron",
-      "react",
-      "react-dom",
-      "pg",
-      "better-sqlite3"
-    ],
-    "runtime": [
-      "@nestjs/",
-      "electron",
-      "react",
-      "react-dom",
-      "pg"
-    ],
-    "desktop": [
-      "@nestjs/",
-      "pg",
-      "better-sqlite3",
-      "kysely"
-    ],
-    "transport": [
-      "@nestjs/",
-      "electron",
-      "react",
-      "react-dom",
-      "kysely",
-      "pg",
-      "better-sqlite3"
-    ]
+    "domain": ["@nestjs/","electron","react","react-dom","kysely","pg","better-sqlite3"],
+    "application": ["@nestjs/","electron","react","react-dom","kysely","pg","better-sqlite3"],
+    "contracts": ["@nestjs/","electron","react","react-dom","kysely","pg","better-sqlite3"],
+    "database-core": ["@nestjs/","electron","react","react-dom","pg","better-sqlite3"],
+    "runtime": ["@nestjs/","electron","react","react-dom","pg"],
+    "desktop": ["@nestjs/","pg","better-sqlite3","kysely"],
+    "transport": ["@nestjs/","electron","react","react-dom","kysely","pg","better-sqlite3"],
+    "security": ["@nestjs/","electron","react","react-dom","kysely","pg","better-sqlite3"]
   }
 }
