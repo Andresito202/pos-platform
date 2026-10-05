@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +11,8 @@ import { InsecureDerivedKeyProvider } from "../src/security/insecure-derived-key
 import { DeviceTrustCredentialStore } from "../src/security/device-trust-credential-store.js";
 
 const dirs: string[] = [];
+const testDeviceKey = generateKeyPairSync("ed25519");
+const testDevicePublicKeyPem = testDeviceKey.publicKey.export({ type: "spki", format: "pem" }) as string;
 const TEST_DEVICE_KEY_PEM = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
 const credential = SignedDeviceTrustCredentialSchema.parse({
   claims: {
