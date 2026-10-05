@@ -66,7 +66,17 @@ describe("005 onboarding bootstrap hardening physical RLS", () => {
         `INSERT INTO tenancy.onboarding_operations
           (id,actor_type,actor_id,idempotency_key,request_checksum,correlation_id,commercial_reference,status,created_at,updated_at,version)
          VALUES ($1,'PLATFORM_ACCOUNT',$2,'key-b',$3,$4,'COMM-005','IN_PROGRESS',clock_timestamp(),clock_timestamp(),1)`,
-        ["01890f5a-0000-7000-8000-000000000012","01890f5a-0000-7000-8000-000000000003","b".repeat(64),"01890f5a-0000-7000-8000-000000000013"],
+        ["01890f5a-0000-7000-8000-000000000012","01890f5a-0000-7000-8000-000000000002","b".repeat(64),"01890f5a-0000-7000-8000-000000000013"],
+      )).rejects.toThrow();
+      await client.query("ROLLBACK");
+
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.actor_id',$1,true)", ["01890f5a-0000-7000-8000-000000000002"]);
+      await expect(client.query(
+        `INSERT INTO tenancy.onboarding_operations
+          (id,actor_type,actor_id,idempotency_key,request_checksum,correlation_id,commercial_reference,status,created_at,updated_at,version)
+         VALUES ($1,'PLATFORM_ACCOUNT',$2,'key-c',$3,$4,'COMM-006','IN_PROGRESS',clock_timestamp(),clock_timestamp(),1)`,
+        ["01890f5a-0000-7000-8000-000000000014","01890f5a-0000-7000-8000-000000000003","c".repeat(64),"01890f5a-0000-7000-8000-000000000015"],
       )).rejects.toThrow();
       await client.query("ROLLBACK");
     } finally { client.release(); await pool.end(); }
