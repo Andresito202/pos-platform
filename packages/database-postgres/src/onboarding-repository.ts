@@ -177,7 +177,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     return mapOnboarding(rows[0]);
   }
 
-  async audit(input: { onboardingId: string; tenantId: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void> {
+  async audit(input: { onboardingId: string; tenantId: string | null; companyId?: string | null; branchId?: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void> {
     const payload = JSON.stringify(input.newValue ?? null);
     await this.client.query(
       `INSERT INTO audit.audit_events
