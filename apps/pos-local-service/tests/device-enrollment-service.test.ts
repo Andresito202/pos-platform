@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +22,7 @@ async function fixture() {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
   const secretDir = join(dir, "security");
+  await mkdir(secretDir, { recursive: true });
   const provider = new InsecureDerivedKeyProvider(secretDir);
   const identityStore = new EncryptedFileSecretStore(secretDir, provider, `test-device:${binding.installationId}:${binding.deviceId}`);
   const identity = DeviceIdentity.create(identityStore);
