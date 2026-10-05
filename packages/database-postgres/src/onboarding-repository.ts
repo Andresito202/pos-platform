@@ -174,7 +174,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
               status='READY_FOR_LICENSE',license_reference=$7,requested_plan=$8,updated_at=clock_timestamp(),version=version+1
         WHERE id=$1
         RETURNING id::text,tenant_id::text,company_id::text,branch_id::text,owner_user_id::text,tenant_membership_id::text,
-                  status,reason_code,license_reference,requested_plan,correlation_id::text,idempotency_key,request_checksum,created_at,updated_at`,
+                  actor_type,actor_id::text,status,reason_code,license_reference,requested_plan,correlation_id::text,idempotency_key,request_checksum,created_at,updated_at`,
       [input.onboardingId,input.tenantId,input.companyId,input.branchId,input.ownerUserId,input.membershipId,input.licenseReference ?? null,input.requestedPlan ?? null],
     );
     if (!rows[0]) throw new Error("ONBOARDING_COMPLETION_FAILED");
