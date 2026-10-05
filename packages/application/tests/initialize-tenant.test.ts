@@ -21,7 +21,7 @@ function tx(): OnboardingTransaction {
     createBranch: async () => undefined, createOwnerMembership: async () => undefined, assignInitialOwnerRole: async () => undefined,
     applyInitialConfiguration: async () => undefined,
     completeOnboarding: async (v) => ({ onboardingId: v.onboardingId, tenantId: v.tenantId, companyId: v.companyId, branchId: v.branchId, ownerUserId: v.ownerUserId, tenantMembershipId: v.membershipId, status: v.status, reasonCode: null, licenseReference: v.licenseReference ?? null, requestedPlan: v.requestedPlan ?? null, correlationId: v.correlationId, idempotencyKey: "onb-001", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
-    audit: async () => undefined,
+    audit: async () => undefined, recordSyncOperation: async () => undefined, recordOutbox: async () => undefined,
   };
 }
 
@@ -49,7 +49,7 @@ describe("InitializeTenant", () => {
     const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;
     const result = await new InitializeTenant({ transaction: async (work) => work(tracked) }, { authorize: async () => undefined }).execute(input());
     expect(result.status).toBe("READY_FOR_LICENSE");
-    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "audit"]);
+    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "recordSyncOperation", "recordOutbox", "audit"]);
   });
 
   it("returns the existing result for an exact idempotent replay", async () => {
