@@ -1,7 +1,7 @@
 import { classifyIdempotency, uuidV7 } from "@pos-platform/contracts";
 
 export type OnboardingActor = { type: "USER" | "PLATFORM_ACCOUNT"; id: string };
-export type OnboardingInput = {
+export type InitialConfiguration = { pricingPolicyVersion?: string; taxPolicyVersion?: string; roundingPolicyVersion?: string; authorizationPolicyVersionId?: string };\nexport type OnboardingInput = {
   actor: OnboardingActor; tenantName: string; tenantCode?: string; commercialReference?: string;
   companyName: string; companyLegalName?: string; companyTaxId?: string; companyEmail?: string; companyPhone?: string;
   branchName: string; branchCode?: string; branchAddress?: string; branchCity?: string;
@@ -29,7 +29,7 @@ export type OnboardingTransaction = {
   assignInitialOwnerRole(input: { id: string; tenantId: string; membershipId: string; companyId: string; branchId: string; actor: OnboardingActor }): Promise<void>;
   applyInitialConfiguration(input: { tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void>;
   completeOnboarding(input: { onboardingId: string; tenantId: string; companyId: string; branchId: string; ownerUserId: string; membershipId: string; status: OnboardingStatus; licenseReference?: string; requestedPlan?: string; correlationId: string }): Promise<OnboardingResult>;
-  audit(input: { onboardingId: string; tenantId: string; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void>;
+  audit(input: { onboardingId: string; tenantId: string; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void>;\n  recordSyncOperation(input: { operationId: string; tenantId: string; companyId: string; branchId: string; actor: OnboardingActor; aggregateId: string; operationType: string; correlationId: string; payload: Record<string, unknown>; payloadChecksum: string }): Promise<void>;\n  recordOutbox(input: { id: string; tenantId: string; operationId: string; operationType: string; correlationId: string; payloadChecksum: string }): Promise<void>;
 };
 
 function canonicalize(value: unknown): string {
