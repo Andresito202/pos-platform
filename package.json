@@ -25,7 +25,8 @@
     "ci:license-gate": "node tools/ci/run-license-compatibility-gate.mjs",
     "ci:license-tests": "node --test tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs",
     "ci:provenance-tests": "node --test tools/ci/provenance-manifest.test.mjs",
-    "test:runtime": "pnpm --filter @pos-platform/database-sqlite test && pnpm --filter @pos-platform/observability test && pnpm --filter @pos-platform/pos-local-service test && pnpm --filter @pos-platform/pos-desktop test"
+    "test:runtime": "pnpm --filter @pos-platform/database-sqlite test && pnpm --filter @pos-platform/observability test && pnpm --filter @pos-platform/pos-local-service test && pnpm --filter @pos-platform/pos-desktop test",
+    "test:database-postgres": "pnpm --filter @pos-platform/database-postgres test"
   },
   "devDependencies": {
     "nx": "23.1.2",
