@@ -25,6 +25,24 @@ function tx(): OnboardingTransaction {
 }
 
 describe("InitializeTenant", () => {
+  it("authorizes the actor before opening the transaction", async () => {
+    let opened = false;
+    let authorized = false;
+    const authorizer = { authorize: async () => { authorized = true; } };
+    const repository = { transaction: async () => { opened = true; throw new Error("TRANSACTION_SHOULD_NOT_OPEN"); } };
+    await expect(new InitializeTenant(repository, authorizer).execute(input())).rejects.toThrow("TRANSACTION_SHOULD_NOT_OPEN");
+    expect(authorized).toBe(true);
+    expect(opened).toBe(true);
+  });
+
+  it("rejects unauthorized actors before opening the transaction", async () => {
+    let opened = false;
+    const authorizer = { authorize: async () => { throw new Error("ONBOARDING_ACTOR_UNAUTHORIZED"); } };
+    const repository = { transaction: async () => { opened = true; throw new Error("TRANSACTION_SHOULD_NOT_OPEN"); } };
+    await expect(new InitializeTenant(repository, authorizer).execute(input())).rejects.toThrow("ONBOARDING_ACTOR_UNAUTHORIZED");
+    expect(opened).toBe(false);
+  });
+
   it("creates the complete minimum onboarding chain in one repository transaction", async () => {
     const calls: string[] = []; const base = tx();
     const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;
