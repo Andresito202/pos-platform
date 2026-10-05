@@ -19,7 +19,6 @@ export type OnboardingTransaction = {
   setActorContext(actor: OnboardingActor): Promise<void>;
   setTenantContext(tenantId: string): Promise<void>;
   findOnboarding(actor: OnboardingActor, idempotencyKey: string): Promise<OnboardingRecord | null>;
-  assertCommercialReferenceAvailable(reference: string | undefined): Promise<void>;
   resolveOrCreateOwner(input: { userId?: string; email: string; phone?: string; fullName: string }): Promise<{ userId: string; created: boolean }>;
   createOnboarding(input: { id: string; actor: OnboardingActor; idempotencyKey: string; requestChecksum: string; correlationId: string; commercialReference?: string }): Promise<{ claimed: boolean }>;
   createTenant(input: { id: string; name: string; code?: string }): Promise<void>;
