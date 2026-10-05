@@ -38,8 +38,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
               tenant_membership_id::text, status, reason_code, license_reference, requested_plan,
               created_at, updated_at
          FROM tenancy.onboarding_operations
-        WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3
-        FOR UPDATE`,
+        WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3`,
       [actor.type, actor.id, idempotencyKey],
     );
     return rows[0] ? mapOnboarding(rows[0]) : null;
