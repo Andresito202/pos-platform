@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InitializeTenant, type OnboardingInput, type OnboardingTransaction } from "../src/onboarding/initialize-tenant.js";
 
 function input(): OnboardingInput { return {
-  actor: { type: "PLATFORM_ACCOUNT", id: "01890f5a-0000-7000-8000-000000000001" }, tenantName: "Tenant A", tenantCode: "TEN-A",
+  actor: { type: "PLATFORM_ACCOUNT", id: "01890f5a-0000-7000-8000-000000000001" }, tenantName: "Tenant A", tenantCode: "TEN-A", commercialReference: "COMM-A",
   companyName: "Company A", branchName: "Branch A", ownerEmail: "owner@example.com", ownerFullName: "Owner A",
   initialLocale: "es-CO", initialTimezone: "America/Bogota", initialCurrency: "COP", initialConfiguration: { printer: "default" },
   idempotencyKey: "onb-001", correlationId: "01890f5a-0000-7000-8000-000000000002",
