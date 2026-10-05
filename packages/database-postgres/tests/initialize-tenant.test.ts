@@ -37,7 +37,7 @@ function request(suffix: string, actorId = "01890f5a-0000-7000-8000-000000000001
 
 describe("database-postgres ONB-002 integration", () => {
   let admin: Pool;
-  let runtime: Pool;
+  let runtime: Pool;\n  let inspection: Pool;
 
   beforeAll(async () => {
     admin = new Pool({ connectionString: SERVER_URL, max: 2 });
@@ -62,11 +62,11 @@ describe("database-postgres ONB-002 integration", () => {
     } finally {
       await root.end();
     }
-    runtime = new Pool({ connectionString: roleUrl("pos_platform_app"), max: 4 });
+    runtime = new Pool({ connectionString: roleUrl("pos_platform_app"), max: 4 });\n    inspection = new Pool({ connectionString: dbUrl(), max: 2 });
   }, 120_000);
 
   afterAll(async () => {
-    await runtime?.end();
+    await runtime?.end();\n    await inspection?.end();
     await admin?.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin?.end();
   });
@@ -83,16 +83,16 @@ describe("database-postgres ONB-002 integration", () => {
     const outcome = await useCase().execute(request("A"));
     expect(outcome.status).toBe("READY_FOR_LICENSE");
 
-    const tenant = (await runtime.query("SELECT id FROM tenancy.tenants WHERE id=$1", [outcome.tenantId])).rows[0];
+    const tenant = (await inspection.query("SELECT id FROM tenancy.tenants WHERE id=$1", [outcome.tenantId])).rows[0];
     expect(tenant.id).toBe(outcome.tenantId);
 
-    const config = (await runtime.query(
+    const config = (await inspection.query(
       "SELECT pricing_policy_version,tax_policy_version FROM tenancy.onboarding_operations WHERE id=$1",
       [outcome.onboardingId],
     )).rows[0];
     expect(config).toEqual({ pricing_policy_version: "pricing-v1", tax_policy_version: "tax-v1" });
 
-    const audits = (await runtime.query(
+    const audits = (await inspection.query(
       "SELECT action_code FROM audit.audit_events WHERE correlation_id=$1 ORDER BY action_code",
       [outcome.correlationId],
     )).rows.map((row: { action_code: string }) => row.action_code);
@@ -101,7 +101,7 @@ describe("database-postgres ONB-002 integration", () => {
       "OWNER_ROLE_ASSIGNED", "TENANT_CREATED", "TENANT_OWNER_ASSIGNED",
     ]);
 
-    const outbox = (await runtime.query(
+    const outbox = (await inspection.query(
       "SELECT operation_type,sync_status FROM sync.outbox_entries WHERE tenant_id=$1",
       [outcome.tenantId],
     )).rows;
@@ -114,15 +114,15 @@ describe("database-postgres ONB-002 integration", () => {
     expect([first.tenantId, second.tenantId].sort()).toEqual([first.tenantId, second.tenantId].sort());
     expect(new Set([first.onboardingId, second.onboardingId]).size).toBe(1);
     expect(new Set([first.status, second.status])).toEqual(new Set(["READY_FOR_LICENSE"]));
-    expect((await runtime.query("SELECT count(*)::int AS n FROM tenancy.onboarding_operations WHERE idempotency_key=$1", [base.idempotencyKey])).rows[0].n).toBe(1);
+    expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.onboarding_operations WHERE idempotency_key=$1", [base.idempotencyKey])).rows[0].n).toBe(1);
   });
 
   it("rejects a commercial reference already claimed by another actor", async () => {
     const first = await useCase().execute(request("C"));
     const conflicting = { ...request("D", "01890f5a-0000-7000-8000-000000000002"), commercialReference: "COMM-C" };
     await expect(useCase().execute(conflicting)).rejects.toThrow("ONBOARDING_COMMERCIAL_REFERENCE_CONFLICT");
-    expect((await runtime.query("SELECT count(*)::int AS n FROM tenancy.tenants WHERE id=$1", [first.tenantId])).rows[0].n).toBe(1);
-    expect((await runtime.query("SELECT count(*)::int AS n FROM tenancy.tenants WHERE name=$1", [conflicting.tenantName])).rows[0].n).toBe(0);
+    expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.tenants WHERE id=$1", [first.tenantId])).rows[0].n).toBe(1);
+    expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.tenants WHERE name=$1", [conflicting.tenantName])).rows[0].n).toBe(0);
   });
 
   it("reuses the owner identity across tenants without crossing memberships", async () => {
@@ -130,7 +130,7 @@ describe("database-postgres ONB-002 integration", () => {
     const b = await useCase().execute({ ...request("F"), ownerEmail: "owner+e@example.test" });
     expect(a.ownerUserId).toBe(b.ownerUserId);
     expect(a.tenantId).not.toBe(b.tenantId);
-    const memberships = (await runtime.query("SELECT tenant_id FROM tenancy.tenant_memberships WHERE user_id=$1 ORDER BY tenant_id", [a.ownerUserId])).rows.map((row: { tenant_id: string }) => row.tenant_id);
+    const memberships = (await inspection.query("SELECT tenant_id FROM tenancy.tenant_memberships WHERE user_id=$1 ORDER BY tenant_id", [a.ownerUserId])).rows.map((row: { tenant_id: string }) => row.tenant_id);
     expect(memberships).toEqual([a.tenantId, b.tenantId].sort());
   });
 });
