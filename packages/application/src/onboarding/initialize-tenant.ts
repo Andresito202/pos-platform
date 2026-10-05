@@ -16,6 +16,7 @@ export type OnboardingRecord = OnboardingResult & { requestChecksum: string; act
 
 export type OnboardingRepository = { transaction<T>(work: (tx: OnboardingTransaction) => Promise<T>): Promise<T> };
 export type OnboardingTransaction = {
+  setTenantContext(tenantId: string): Promise<void>;
   findOnboarding(actor: OnboardingActor, idempotencyKey: string): Promise<OnboardingRecord | null>;
   assertCommercialReferenceAvailable(reference: string | undefined): Promise<void>;
   resolveOrCreateOwner(input: { userId?: string; email: string; phone?: string; fullName: string }): Promise<{ userId: string; created: boolean }>;
@@ -62,6 +63,7 @@ export class InitializeTenant {
       const ids = [uuidV7(this.now().getTime()), uuidV7(this.now().getTime()), uuidV7(this.now().getTime()), uuidV7(this.now().getTime()), uuidV7(this.now().getTime()), uuidV7(this.now().getTime())];
       const onboardingId = ids[0]!, tenantId = ids[1]!, companyId = ids[2]!, branchId = ids[3]!, membershipId = ids[4]!, roleAssignmentId = ids[5]!;
       await tx.createOnboarding({ id: onboardingId, actor: input.actor, idempotencyKey: input.idempotencyKey, requestChecksum, correlationId: input.correlationId });
+      await tx.setTenantContext(tenantId);
       const owner = await tx.resolveOrCreateOwner({ userId: input.ownerUserId, email: input.ownerEmail, phone: input.ownerPhone, fullName: input.ownerFullName });
       await tx.createTenant({ id: tenantId, name: input.tenantName, code: input.tenantCode });
       await tx.createCompany({ id: companyId, tenantId, name: input.companyName, legalName: input.companyLegalName, taxId: input.companyTaxId, email: input.companyEmail, phone: input.companyPhone, timezone: input.initialTimezone, currency: input.initialCurrency });
