@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InitializeTenant, type OnboardingInput, type OnboardingTransaction } from "../src/onboarding/initialize-tenant.js";
 
 function input(): OnboardingInput { return {
-  actor: { type: "PLATFORM_ACCOUNT", id: "01890f5a-0000-7000-8000-000000000001" }, tenantName: "Tenant A", tenantCode: "TEN-A", commercialReference: "COMM-A",
+  actor: { type: "PLATFORM_ACCOUNT", id: "01890f5a-0000-7000-8000-000000000001" }, tenantName: "Tenant A", tenantCode: "TEN-A",
   companyName: "Company A", branchName: "Branch A", ownerEmail: "owner@example.com", ownerFullName: "Owner A",
   initialLocale: "es-CO", initialTimezone: "America/Bogota", initialCurrency: "COP", initialConfiguration: { printer: "default" },
   idempotencyKey: "onb-001", correlationId: "01890f5a-0000-7000-8000-000000000002",
@@ -21,7 +21,7 @@ function tx(): OnboardingTransaction {
     createBranch: async () => undefined, createOwnerMembership: async () => undefined, assignInitialOwnerRole: async () => undefined,
     applyInitialConfiguration: async () => undefined,
     completeOnboarding: async (v) => ({ onboardingId: v.onboardingId, tenantId: v.tenantId, companyId: v.companyId, branchId: v.branchId, ownerUserId: v.ownerUserId, tenantMembershipId: v.membershipId, status: v.status, reasonCode: null, licenseReference: v.licenseReference ?? null, requestedPlan: v.requestedPlan ?? null, correlationId: v.correlationId, idempotencyKey: "onb-001", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
-    audit: async () => undefined, recordSyncOperation: async () => undefined, recordOutbox: async () => undefined,
+    audit: async () => undefined,
   };
 }
 
@@ -49,7 +49,7 @@ describe("InitializeTenant", () => {
     const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;
     const result = await new InitializeTenant({ transaction: async (work) => work(tracked) }, { authorize: async () => undefined }).execute(input());
     expect(result.status).toBe("READY_FOR_LICENSE");
-    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "audit", "createCompany", "audit", "createBranch", "audit", "createOwnerMembership", "audit", "assignInitialOwnerRole", "audit", "applyInitialConfiguration", "audit", "recordSyncOperation", "recordOutbox", "completeOnboarding", "audit"]);
+    expect(calls).toEqual(["setActorContext", "findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "setTenantContext", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "audit"]);
   });
 
   it("returns the existing result for an exact idempotent replay", async () => {
