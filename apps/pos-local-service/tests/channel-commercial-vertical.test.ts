@@ -21,8 +21,18 @@ import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-au
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
+import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
+import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
+import {
+  FACTUS_ADAPTER_DECLARATION,
+  type DocumentIssuanceOutcome,
+  type DocumentIssuancePort,
+  type DocumentIssuanceRequest,
+  type FrozenDocumentPayload,
+  type PayloadValidationResult,
+} from "@pos-platform/fiscal-adapters";
 
 /**
  * La vertical comercial **completa**, atravesando el socket real hasta SQLite.
@@ -89,6 +99,9 @@ const PERMISSIONS = [
   "PAYMENTS_TRANSFER_REPORT",
   "PAYMENTS_TRANSFER_CONFIRM",
   "PAYMENTS_PAYMENT_READ",
+  "CUSTOMERS_CUSTOMER_REGISTER",
+  "CUSTOMERS_CUSTOMER_READ",
+  "FISCAL_DOCUMENT_ISSUE",
 ];
 
 const directories: string[] = [];
@@ -174,6 +187,11 @@ function config(): ServiceConfig {
     protocol_min: "1.0.0",
     protocol_max: "1.0.0",
   } as ServiceConfig;
+}
+
+/** `config()` con el ambiente FACTUS puesto — `DEC-021` F5. */
+function fiscalConfig(): ServiceConfig {
+  return { ...config(), fiscal_environment: "SANDBOX" } as ServiceConfig;
 }
 
 /** Caja activa en la proyección maestra, igual que en `commercial-ipc.test.ts`. */
@@ -328,6 +346,275 @@ async function withRealChannel(
     secret.fill(0);
   }
 }
+
+/** Puerto de emisión falso y determinista, sólo para cruzar el transporte. */
+class FakeIssuancePort implements DocumentIssuancePort {
+  constructor(private readonly outcome: DocumentIssuanceOutcome) {}
+  validatePayload(_document: FrozenDocumentPayload): Promise<PayloadValidationResult> {
+    return Promise.resolve({ kind: "VALID" });
+  }
+  issue(_request: DocumentIssuanceRequest, _signal: AbortSignal): Promise<DocumentIssuanceOutcome> {
+    return Promise.resolve(this.outcome);
+  }
+}
+
+/**
+ * Igual que `withRealChannel`, con la pieza fiscal (`DEC-021` F5) además
+ * conectada: almacén de secretos con una credencial real depositada
+ * (`FiscalCredentialStore.deposit`, la misma vía que usa el operador en F2) y
+ * un `DocumentIssuancePort` falso — el único punto de la vertical fiscal que
+ * no puede ser real en CI, porque hablar con FACTUS de verdad es `F6`,
+ * exclusivo del equipo del propietario.
+ *
+ * Todo lo demás —contrato, socket, `CommercialRequestHandler` de producción,
+ * `IssueElectronicDocumentUseCase`, SQLite— es el real.
+ */
+async function withRealFiscalChannel(
+  outcome: DocumentIssuanceOutcome,
+  run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
+): Promise<void> {
+  const dir = await directory();
+  const database = LocalDatabase.open({ dataDirectory: dir });
+  databases.push(database);
+
+  const keys = new Map<string, TrustedSigningKey>([
+    [SESSION_KEY_ID, { key: createPublicKey(testOnlyKeyPair.privateKey), status: "ACTIVE" }],
+  ]);
+
+  const fiscalSecretStore = new EncryptedFileSecretStore(
+    dir,
+    new InsecureDerivedKeyProvider(dir),
+    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
+  );
+  new FiscalCredentialStore(fiscalSecretStore).deposit(
+    {
+      provider: "FACTUS", environment: "SANDBOX",
+      fields: { client_id: "x", client_secret: "x", username: "x", password: "x" },
+    },
+    FACTUS_ADAPTER_DECLARATION.credential,
+  );
+
+  const commercial = new CommercialComponent(
+    fiscalConfig(),
+    { database } as never,
+    { store: new DurableSyncStore(database) } as never,
+    keys,
+    () => NOW,
+    fiscalSecretStore,
+    new FakeIssuancePort(outcome),
+  );
+  await commercial.start();
+  const handler = new CommercialRequestHandler(fiscalConfig(), commercial);
+
+  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const secret = randomBytes(32);
+
+  const server = new LocalChannelServer(
+    endpoint,
+    new LocalChannelAuthenticator(secret, clock),
+    async (request, _signal, context) => {
+      const envelope = request as { message_type: string; request_id: string; correlation_id: string };
+      if (envelope.message_type === "runtime.handshake") {
+        return {
+          protocol_version: "1.0.0",
+          request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id,
+          operation_id: null,
+          status: "SUCCEEDED",
+          result_code: "COMPATIBLE",
+          result_schema_version: "1.0.0",
+          error: null,
+          server_time: NOW.toISOString(),
+          result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
+        };
+      }
+      return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId, _signal);
+    },
+    { min: "1.0.0", max: "1.0.0" },
+    undefined,
+    undefined,
+    undefined,
+    (connectionId) => { commercial.bindings.release(connectionId); },
+  );
+
+  const client = new LocalChannelClient(
+    endpoint,
+    new LocalChannelAuthenticator(secret, clock),
+    { min: "1.0.0", max: "1.0.0" },
+  );
+
+  try {
+    await server.start();
+    await client.connect(handshakeRequest());
+    await run(
+      async (request) => await client.request(request) as ChannelResponse,
+      database,
+    );
+  } finally {
+    await client.close();
+    await server.stop();
+    await commercial.stop();
+    secret.fill(0);
+  }
+}
+
+/** Rango de numeración sincronizado directamente en SQLite: no hay operación de canal para F1/F4 (`synchronizeRanges` no está expuesto). */
+function seedFiscalRange(database: LocalDatabase): void {
+  const at = NOW.toISOString();
+  database.native.prepare(`
+    INSERT INTO fiscal_numbering_range(
+      tenant_id,company_id,provider,environment,range_id,document_type,prefix,authority,
+      resolution_number,range_from,range_to,current_number,valid_from,valid_until,
+      provider_active,provider_expired,provider_document_code,synchronized_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    TENANT, COMPANY, "FACTUS", "SANDBOX", "FACTUS-RANGE-VERTICAL", "SALES_INVOICE", "SETP", "PROVIDER",
+    "18760000001", 1, 5000, 0, "2026-01-01", "2027-01-01", 1, 0, "01", at,
+  );
+}
+
+/** El atributo fiscal de la presentación: sin él, la línea bloquea (`LINE_FISCAL_ATTRIBUTE_MISSING`). */
+function seedFiscalAttribute(database: LocalDatabase, presentationId: string): void {
+  const at = NOW.toISOString();
+  database.native.prepare(`
+    INSERT INTO catalog_fiscal_attribute(
+      tenant_id, presentation_id, code_reference, unit_measure_code, standard_code,
+      tax_code, tax_rate, status, created_at, updated_at
+    ) VALUES (?,?,?,'94','999','01','19.000000','ACTIVE',?,?)`,
+  ).run(TENANT, presentationId, `REF-${presentationId.slice(0, 8)}`, at, at);
+}
+
+describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)", () => {
+  it("adquiriente anónimo: BLOCKED por GENERIC_ACQUIRER_NOT_VERIFIED, cruzando el transporte con el handler de producción", async () => {
+    await withRealFiscalChannel({
+      kind: "EVIDENCED", transportStatus: "COMPLETED", normalizedResult: "ACCEPTED",
+      externalIdentity: { providerOperationId: "op", providerDocumentId: null, prefix: "SETP", number: "1", cufe: "a".repeat(96) },
+      providerStatus: { providerCode: "0", providerStatus: "processed", httpStatus: 200 },
+    }, async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "0.000000",
+        business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "fiscalv:shift:1"));
+
+      const product = await send(mutating("catalog.product.register", {
+        code: "FISCV-001", name: "Producto fiscal", stock_controlled: false,
+        presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+        barcode: "7700000000001", price_amount: "10000.000000", currency_code: "COP",
+      }, "fiscalv:catalog:1"));
+      const presentationId = product.result["presentation_id"] as string;
+      seedFiscalAttribute(database, presentationId);
+      seedFiscalRange(database);
+      const found = await send(reading("catalog.item.find", { barcode: "7700000000001" }));
+
+      const sale = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS",
+        business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "A", currency_code: "COP",
+        lines: [{ product_id: found.result["product_id"], presentation_id: presentationId, quantity: "1.000000" }],
+      }, "fiscalv:sale:1"));
+      const saleId = sale.result["sale_id"] as string;
+      const payable = sale.result["payable_amount"] as string;
+
+      const payment = await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount: payable, tendered_amount: null,
+      }, "fiscalv:payment:1"));
+      expect(payment.result["sale_completed"]).toBe(true);
+
+      // El adquiriente anónimo (D-13): la única salida hoy es bloquear.
+      const issued = await send(mutating("fiscal.document.issue", {
+        sale_id: saleId,
+        document_type: "SALES_INVOICE",
+        customer: { kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE" },
+        observation: null,
+      }, "fiscalv:issue:1"));
+
+      expect(issued.result["outcome"]).toBe("BLOCKED");
+      expect(issued.result["block_code"]).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
+      expect((issued.result["reasons"] as { code: string }[]).some((r) => r.code === "GENERIC_ACQUIRER_NOT_VERIFIED"))
+        .toBe(true);
+    });
+  }, 30_000);
+
+  it("adquiriente identificado: ISSUED de extremo a extremo por el canal, con cufe persistido en SQLite", async () => {
+    const outcome: DocumentIssuanceOutcome = {
+      kind: "EVIDENCED", transportStatus: "COMPLETED", normalizedResult: "ACCEPTED",
+      externalIdentity: {
+        providerOperationId: "op-vert", providerDocumentId: "doc-vert",
+        prefix: "SETP", number: "990000001", cufe: "b".repeat(96),
+      },
+      providerStatus: { providerCode: "0", providerStatus: "processed", httpStatus: 200 },
+    };
+    await withRealFiscalChannel(outcome, async (send, database) => {
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+        signAuthorization(authorizationClaims()),
+        { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+      );
+      seedRegister(database);
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      await send(mutating("cash.shift.open", {
+        cash_register_id: REGISTER, opening_amount: "0.000000",
+        business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      }, "fiscalv2:shift:1"));
+
+      const customer = await send(mutating("customer.register", {
+        identification_document_code: "13", identification: "1020304050",
+        verification_digit: null, legal_organization_code: "2",
+        company: null, names: "Cliente Vertical", tribute_code: "ZZ",
+        fiscal_responsibility_codes: ["R-99-PN"],
+        email: null, phone: null, address: null, country_code: null, municipality_code: null,
+      }, "fiscalv2:customer:1"));
+      expect(customer.result["outcome"]).toBe("REGISTERED");
+      const customerId = customer.result["customer_id"] as string;
+
+      const product = await send(mutating("catalog.product.register", {
+        code: "FISCV-002", name: "Producto fiscal 2", stock_controlled: false,
+        presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+        barcode: "7700000000002", price_amount: "10000.000000", currency_code: "COP",
+      }, "fiscalv2:catalog:1"));
+      const presentationId = product.result["presentation_id"] as string;
+      seedFiscalAttribute(database, presentationId);
+      seedFiscalRange(database);
+      const found = await send(reading("catalog.item.find", { barcode: "7700000000002" }));
+
+      const sale = await send(mutating("sale.create", {
+        cash_register_id: REGISTER, channel: "POS",
+        business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "A", currency_code: "COP",
+        lines: [{ product_id: found.result["product_id"], presentation_id: presentationId, quantity: "1.000000" }],
+      }, "fiscalv2:sale:1"));
+      const saleId = sale.result["sale_id"] as string;
+      const payable = sale.result["payable_amount"] as string;
+
+      const payment = await send(mutating("payment.register.cash", {
+        sale_id: saleId, amount: payable, tendered_amount: null,
+      }, "fiscalv2:payment:1"));
+      expect(payment.result["sale_completed"]).toBe(true);
+
+      const issued = await send(mutating("fiscal.document.issue", {
+        sale_id: saleId,
+        document_type: "SALES_INVOICE",
+        customer: { kind: "IDENTIFIED", customer_id: customerId },
+        observation: null,
+      }, "fiscalv2:issue:1"));
+
+      expect(issued.status).toBe("SUCCEEDED");
+      expect(issued.result["outcome"]).toBe("ISSUED");
+      expect(issued.result["cufe"]).toBe("b".repeat(96));
+      expect(issued.result["issued_number"]).toBe("990000001");
+
+      const persisted = database.native.prepare(
+        "SELECT transport_status, normalized_result, cufe FROM fiscal_electronic_document WHERE sale_id=?",
+      ).get(saleId) as { transport_status: string; normalized_result: string; cufe: string };
+      expect(persisted).toEqual({ transport_status: "COMPLETED", normalized_result: "ACCEPTED", cufe: "b".repeat(96) });
+    });
+  }, 30_000);
+});
 
 describe("la vertical comercial atraviesa el socket real hasta SQLite", () => {
   it("turno → producto → existencia → venta → cobro → COMPLETED, todo por el canal", async () => {

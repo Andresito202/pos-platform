@@ -452,6 +452,62 @@ describe("operaciones comerciales — la conexión debe estar vinculada", () => 
   });
 });
 
+// ── authorization.capabilities.get ───────────────────────────────────────────
+
+describe("authorization.capabilities.get — proyección de permisos efectivos", () => {
+  it("devuelve sólo los permisos activos y efectivos del usuario vinculado", async () => {
+    const { handler, database } = await buildEnv();
+    seedAuthorization(database, USER, [
+      "CASH_SHIFT_OPEN",
+      "CASH_SHIFT_CLOSE",
+      "CATALOG_PRODUCT_READ",
+    ]);
+
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+
+    const result = response(handler.handle(
+      {
+        ...BASE,
+        message_type: "authorization.capabilities.get",
+        request_id: randomUUID(),
+        correlation_id: randomUUID(),
+        payload: {},
+      },
+      connection,
+    ));
+
+    expect(result.status).toBe("SUCCEEDED");
+    expect(result.result_code).toBe("AVAILABLE");
+    expect(result.result.outcome).toBe("AVAILABLE");
+    expect(result.result.permissions).toEqual([
+      "CASH_SHIFT_OPEN",
+      "CASH_SHIFT_CLOSE",
+      "CATALOG_PRODUCT_READ",
+    ]);
+  });
+
+  it("falla cerrado cuando la conexión no está vinculada", async () => {
+    const { handler } = await buildEnv();
+
+    const result = response(handler.handle(
+      {
+        ...BASE,
+        message_type: "authorization.capabilities.get",
+        request_id: randomUUID(),
+        correlation_id: randomUUID(),
+        payload: {},
+      },
+      randomUUID(),
+    ));
+
+    expect(result.status).toBe("REJECTED");
+    expect(result.result_code).toBe("SESSION_NOT_BOUND");
+    expect(result.result.outcome).toBe("UNAUTHORIZED");
+    expect(result.result.permissions).toEqual([]);
+  });
+});
+
 // ── Ciclo de vida del vínculo ────────────────────────────────────────────────
 
 describe("ciclo de vida del vínculo", () => {

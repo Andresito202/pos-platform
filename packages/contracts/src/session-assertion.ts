@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { StableCodeSchema, UtcDateTimeSchema, UuidSchema } from "./primitives.js";
+import { SessionTrustCodeSchema } from "./session-trust.js";
 
 /**
  * Contrato de la Signed Session Assertion (SSA), definida por `DEC-012`. Es la
@@ -59,7 +60,7 @@ export const SessionAssertionClaimsSchema = z.strictObject({
    * replay, y ninguna desplaza a la sesión activa.
    */
   sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  key_id: StableCodeSchema,
+  key_id: SessionTrustCodeSchema,
 }).superRefine((claims, context) => {
   // Vigencia semiabierta [issued_at, offline_valid_until), coherente con la del
   // snapshot de autorización. Sin gracia: en el instante exacto de expiración

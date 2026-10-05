@@ -220,6 +220,9 @@ jobs:
       - name: Validate fiscal capability ports
         run: pnpm test:fiscal-adapters
 
+      - name: Validate PostgreSQL onboarding adapter
+        run: pnpm test:database-postgres
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -235,7 +238,7 @@ jobs:
       - name: Validate that the POS desktop really boots
         run: xvfb-run -a pnpm --filter @pos-platform/pos-desktop test:e2e
 
-      - name: Validate PostgreSQL migrations 001/002/003 including physical runner
+      - name: Validate PostgreSQL migrations 001/002/003/004/005 including physical runner
         run: pnpm test:migrations:postgres
 
       - name: Validate MAT-003 preflight tooling
@@ -280,7 +283,7 @@ jobs:
           - local_channel_runtime_test_suite: PASS
           - local_security_runtime_test_suite: PASS
           - sqlite_migrations: PASS
-          - postgres_001_002_003_and_physical_runner: PASS
+          - postgres_001_002_003_004_005_and_physical_runner: PASS
           - fiscal_model_a_regression: PASS
           - mat_003_preflight: PASS
           - mat_003_role_readiness: PASS

@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * El POS de escritorio **real** contra el POS Local Service **real**.
+ * El POS de escritorio **real** contra el Camacho POS Colombia Service **real**.
  *
  * `boot.spec.ts` comprueba que la aplicación monta, y para eso le basta un
  * `ServiceChannel` de doble. Esta prueba es otra cosa: **no hay doble en ningún
@@ -85,6 +85,13 @@ test.beforeAll(async () => {
       cwd: serviceRoot,
       env: {
         ...process.env,
+        // El arnés declara que es una prueba, y tiene que hacerlo: desde
+        // `DEC-021` F5 abre un almacén de secretos para la credencial fiscal, y
+        // `InsecureDerivedKeyProvider` **se niega a construirse** fuera de
+        // `NODE_ENV=test`. No es una concesión del proveedor de clave —ese
+        // guardia es de producción y hace bien en negarse—: es el arnés
+        // diciendo la verdad sobre lo que es.
+        NODE_ENV: "test",
         POS_E2E_DATA_DIR: dataDirectory,
         POS_E2E_CHANNEL_SECRET: channelSecret,
         POS_E2E_TENANT_ID: TENANT,
@@ -122,7 +129,7 @@ test.afterAll(async () => {
 
 test("un cajero vende de verdad: Electron real → canal real → servicio real", async () => {
   const page = await app.firstWindow();
-  await expect(page).toHaveTitle("POS Local");
+  await expect(page).toHaveTitle("Camacho POS Colombia");
 
   // El canal ya negoció el handshake contra el servicio real: si no, Electron
   // no habría llegado a abrir ventana (`startPosDesktop` falla cerrado).
@@ -528,4 +535,119 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   expect(await page.getByTestId("catalog-error").count()).toBe(0);
   expect(await page.getByTestId("inventory-error").count()).toBe(0);
   expect(await page.getByTestId("customer-error").count()).toBe(0);
+});
+
+/**
+ * La emisión fiscal **desde la pantalla**, contra el servicio real — `DEC-021` F5.
+ *
+ * Esta prueba afirma lo que hoy ocurre de verdad, no lo que nos gustaría que
+ * ocurriera, y por eso su aserción principal es un **bloqueo**:
+ *
+ * `D-19` está registrado desde hace bloques: «hoy no hay ruta de usuario que
+ * inserte» un atributo fiscal de presentación —ni de usuario ni de servicio:
+ * `catalog_fiscal_attribute` tiene un lector en producción y **cero
+ * escritores**—. Sin `unit_measure_code`, `standard_code`, `tax_code` y
+ * `tax_rate`, ninguna línea de venta se puede declarar ante la DIAN, así que
+ * **ningún producto dado de alta por la pantalla se puede facturar todavía**.
+ *
+ * Sembrar ese atributo en el arnés haría pasar la prueba afirmando una
+ * capacidad que el producto no tiene. Es exactamente el error que este
+ * repositorio lleva corrigiendo desde que se retiró `CANONICALLY_APPLIED`, y no
+ * se repite aquí.
+ *
+ * Lo que sí acredita esta prueba, y no es poco: la pantalla de emisión alcanza
+ * el caso de uso real por el canal real, y el motivo del bloqueo llega intacto
+ * hasta el ojo del cajero, con su código y su ruta.
+ */
+test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por qué no puede emitir", async () => {
+  const page = await app.firstWindow();
+
+  const code = `FISC-${randomUUID().slice(0, 8)}`;
+  const barcode = `77055555${String(Date.now()).slice(-5)}`;
+
+  // El turno que dejó abierto la prueba anterior sigue sirviendo, y usarlo es
+  // lo que haría un cajero: no se abre un turno por factura. `reset` limpia la
+  // venta en curso, no el turno.
+  await page.getByTestId("reset-button").click();
+  await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
+
+  // Producto y existencia, tecleados en la pantalla.
+  await page.getByTestId("product-code-input").fill(code);
+  await page.getByTestId("product-name-input").fill("Producto facturable");
+  await page.getByTestId("presentation-name-input").fill("Unidad");
+  await page.getByTestId("unit-code-input").fill("UND");
+  await page.getByTestId("unit-precision-input").fill("0");
+  await page.getByTestId("product-barcode-input").fill(barcode);
+  await page.getByTestId("product-price-input").fill("10000");
+  await page.getByTestId("product-currency-input").fill("COP");
+  await page.getByTestId("register-product-button").click();
+  await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
+  const presentationId = await page.getByTestId("presentation-id").textContent();
+
+  await page.getByTestId("inventory-presentation-input").fill(presentationId!);
+  await page.getByTestId("receive-quantity-input").fill("5");
+  await page.getByTestId("receive-reason-input").fill("PURCHASE");
+  await page.getByTestId("receive-stock-button").click();
+  await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
+
+  // Venta y cobro, tambien desde la pantalla.
+  await page.getByTestId("barcode-input").fill(barcode);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("quantity-input").fill("1");
+  await page.getByTestId("add-item-button").click();
+  await page.getByTestId("create-sale-button").click();
+  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("charge-cash-button").click();
+  await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
+
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
+  expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // --- Y aqui empieza lo que esta prueba existe para comprobar ---------------
+
+  // 1 · Venta de mostrador sin identificar: el caso mayoritario de un POS.
+  await page.getByTestId("fiscal-sale-id-input").fill(saleId);
+  await page.getByTestId("issue-anonymous-button").click();
+  await expect(page.getByTestId("fiscal-blocked")).toBeVisible({ timeout: 15_000 });
+
+  // El bloqueo llega con su codigo, y **no** disfrazado de error de transporte.
+  expect(await page.getByTestId("fiscal-blocked-code").textContent()).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
+  expect(await page.getByTestId("fiscal-error").count()).toBe(0);
+  expect(await page.getByTestId("fiscal-issued").count()).toBe(0);
+
+  // El motivo es `D-19`, no el adquiriente: el producto que la pantalla acaba
+  // de dar de alta **no tiene atributo fiscal**, porque nada en el sistema
+  // puede darselo. Esta asercion es la que documenta el bloqueo real.
+  const reasons = await page.getByTestId("fiscal-blocked-reason").allTextContents();
+  expect(reasons.join(" ")).toContain("LINE_FISCAL_ATTRIBUTE_MISSING");
+
+  // 2 · Con un adquiriente identificado el bloqueo es el mismo, que es
+  //     justamente lo que prueba que el adquiriente no es la unica pieza que
+  //     falta para facturar.
+  const identification = `10${String(Date.now()).slice(-8)}`;
+  await page.getByTestId("customer-document-code-input").fill("13");
+  await page.getByTestId("customer-identification-input").fill(identification);
+  await page.getByTestId("customer-legal-organization-input").fill("2");
+  await page.getByTestId("customer-tribute-input").fill("ZZ");
+  await page.getByTestId("customer-responsibilities-input").fill("R-99-PN");
+  await page.getByTestId("customer-names-input").fill("Cliente Fiscal");
+  await page.getByTestId("register-customer-button").click();
+  await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
+  const customerId = await page.getByTestId("customer-registered-id").textContent();
+
+  await page.getByTestId("fiscal-customer-id-input").fill(customerId!);
+  await page.getByTestId("issue-identified-button").click();
+  await expect(page.getByTestId("fiscal-blocked")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("fiscal-blocked-code").textContent()).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
+  expect((await page.getByTestId("fiscal-blocked-reason").allTextContents()).join(" "))
+    .toContain("LINE_FISCAL_ATTRIBUTE_MISSING");
+
+  // 3 · Una venta que no existe no es un bloqueo de payload: es inelegible, y
+  //     la pantalla los distingue.
+  await page.getByTestId("fiscal-sale-id-input").fill("018f0000-0000-7000-8000-0000000000fd");
+  await page.getByTestId("issue-anonymous-button").click();
+  await expect(page.getByTestId("fiscal-retriable")).toBeVisible({ timeout: 15_000 });
+  expect(await page.getByTestId("fiscal-retriable-outcome").textContent()).toBe("NOT_ELIGIBLE");
+  expect(await page.getByTestId("fiscal-blocked").count()).toBe(0);
 });

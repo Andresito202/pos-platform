@@ -2,6 +2,7 @@ export const RENDERER_API_KEY = "posService" as const;
 
 export const RENDERER_API_METHODS = [
   "runtime.status.get",
+  "authorization.capabilities.get",
   "operation.result.get",
   "operation.confirm",
   "session.activate",
@@ -17,6 +18,7 @@ export const RENDERER_API_METHODS = [
   "customer.register",
   "customer.get",
   "customer.find",
+  "fiscal.document.issue",
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",

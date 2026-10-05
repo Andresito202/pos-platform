@@ -21,6 +21,9 @@ export type TrustedSigningKeyStatus = "ACTIVE" | "VERIFY_ONLY" | "REVOKED";
 export interface TrustedSigningKey {
   readonly key: KeyObject;
   readonly status: TrustedSigningKeyStatus;
+  /** Optional lifecycle window for trust domains that rotate operational keys. */
+  readonly validFrom?: string;
+  readonly validUntil?: string | null;
 }
 export interface LicenseBinding {
   readonly installationId: string;

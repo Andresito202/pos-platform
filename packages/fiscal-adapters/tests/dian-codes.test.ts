@@ -9,6 +9,7 @@ import {
   TAX_CODES,
   UNIT_MEASURE_CODES,
   DianCodeSchema,
+  canonicalDocumentTypeCode,
   fiscalDocumentTypeForCode,
   isVerifiedCode,
   lookupCode,
@@ -75,6 +76,26 @@ describe("traducción del código documental del proveedor", () => {
       expect(fiscalDocumentTypeForCode(code)).toBeNull();
     }
     expect(fiscalDocumentTypeForCode(null)).toBeNull();
+  });
+});
+
+describe("dirección inversa: tipo canónico → código del proveedor", () => {
+  it("devuelve el código del único tipo verificado", () => {
+    expect(canonicalDocumentTypeCode("SALES_INVOICE")).toBe("01");
+  });
+
+  it("no inventa código para un tipo canónico sin correspondencia verificada", () => {
+    // `CREDIT_NOTE`, `DEBIT_NOTE`, `SUPPORT_DOCUMENT` y su nota de ajuste existen
+    // en el contrato canónico, pero ningún código DIAN suyo está verificado.
+    for (const type of ["CREDIT_NOTE", "DEBIT_NOTE", "SUPPORT_DOCUMENT", "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE"] as const) {
+      expect(canonicalDocumentTypeCode(type)).toBeNull();
+    }
+  });
+
+  it("es la inversa exacta de `fiscalDocumentTypeForCode` para lo verificado", () => {
+    const code = canonicalDocumentTypeCode("SALES_INVOICE");
+    expect(code).not.toBeNull();
+    expect(fiscalDocumentTypeForCode(code)).toBe("SALES_INVOICE");
   });
 });
 

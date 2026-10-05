@@ -1,3 +1,5 @@
+import { createPublicKey } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
@@ -5,11 +7,20 @@ import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
 import { DurableSyncComponent } from "./sync/durable-sync-component.js";
+import { CentralSyncComponent } from "./sync/central-sync-component.js";
+import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
+import { SyncDispatcher } from "./sync/sync-dispatcher.js";
+import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
+import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
+  EncryptedFileSecretStore,
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
+  SessionTrustKeyResolver,
+  SessionTrustKeyStore,
+  SessionTrustKeyVerifier,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
@@ -28,6 +39,9 @@ const logger = new StructuredLogger({
   }),
 });
 
+/** Cadencia fija de despacho del outbox (`D-2`). */
+const CENTRAL_SYNC_INTERVAL_MS = 30_000;
+
 let lifecycle: ServiceLifecycle | undefined;
 let termination: Promise<void> | undefined;
 
@@ -45,7 +59,7 @@ function terminate(reason: string, exitCode: number, error?: unknown): Promise<v
       try {
         logger.log("error", "runtime.stop_failed", { reason, error: stopError });
       } catch {
-        // The logger can already be failed or saturated. Exit still proceeds fail-closed.
+        // Exit remains fail-closed if the logger is unavailable.
       }
       exitCode = 1;
     }
@@ -86,11 +100,6 @@ try {
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
-
-  // DEC-020. La rama es por plataforma y no consulta el entorno: en Windows no
-  // existe ruta alguna hacia el proveedor de pruebas. La produccion exige
-  // Windows —lo impone el guard de arriba— de modo que la segunda rama solo es
-  // alcanzable donde la produccion ya esta prohibida.
   const securityDirectory = join(config.data_directory, "security");
   const keyProvider: SecretStoreKeyProvider = process.platform === "win32"
     ? new WindowsDpapiKeyProvider(securityDirectory)
@@ -104,15 +113,41 @@ try {
 
   const durableSync = new DurableSyncComponent(localDatabase);
   const operationConfirmation = new OperationConfirmationComponent(localDatabase, durableSync);
-  // El mapa de claves de sesión llega vacío: no existe aprovisionamiento de
-  // claves en el runtime (`LIC-003`/`DEV-003`), de modo que `session.activate`
-  // falla cerrado hasta que exista. Se prefiere la negativa a una confianza
-  // fabricada.
-  const commercial = new CommercialComponent(config, localDatabase, durableSync);
+  mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
+  const fiscalSecretStore = new EncryptedFileSecretStore(
+    securityDirectory,
+    keyProvider,
+    fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
+  );
+
+  const sessionTrustKeys = (() => {
+    if (
+      config.session_trust_environment === undefined
+      || config.session_trust_root_public_key_pem === undefined
+    ) {
+      return { keys: new Map(), decision: "MISSING" as const };
+    }
+
+    const sessionTrustStore = new SessionTrustKeyStore(new EncryptedFileSecretStore(
+      securityDirectory,
+      keyProvider,
+      `session-trust:${config.installation_id}:${config.device_id}`,
+    ));
+    const sessionTrustVerifier = new SessionTrustKeyVerifier(
+      createPublicKey(config.session_trust_root_public_key_pem),
+      config.session_trust_environment,
+    );
+    return new SessionTrustKeyResolver(
+      sessionTrustStore,
+      sessionTrustVerifier,
+      config.session_trust_artifact_path,
+    ).resolve();
+  })();
+
+  const commercial = new CommercialComponent(
+    config, localDatabase, durableSync, sessionTrustKeys.keys, () => new Date(), fiscalSecretStore,
+  );
   let localChannel: LocalChannelComponent | undefined;
-  // `security` va inmediatamente despues de la base de datos y antes que todo
-  // lo demas: ninguna operacion comercial se sirve si el equipo no pudo
-  // materializar su identidad.
   const components: RuntimeComponent[] = [
     localDatabase,
     security,
@@ -120,6 +155,36 @@ try {
     operationConfirmation,
     commercial,
   ];
+
+  if (config.central_base_url !== undefined) {
+    const centralBaseUrl = config.central_base_url;
+    components.push(new CentralSyncComponent(
+      () => new SyncDispatcher(
+        durableSync.store,
+        new FetchCentralTransport(),
+        new UnprovisionedDeviceCredentialProvider(),
+        centralBaseUrl,
+        config.protocol_max,
+      ),
+      {
+        tenantId: config.tenant_id,
+        companyId: config.company_id,
+        branchId: config.branch_id,
+        deviceId: config.device_id,
+        installationId: config.installation_id,
+      },
+      CENTRAL_SYNC_INTERVAL_MS,
+      {
+        onOutcome: (outcome) => {
+          if (outcome.kind === "IDLE") return;
+          logger.log(outcome.kind === "DELIVERED" ? "info" : "warn", "sync.dispatch", { ...outcome });
+        },
+        onLifecycle: (reason, detail) => {
+          logger.log(reason === "STARTED" ? "info" : "warn", "sync.dispatch.lifecycle", { reason, ...detail });
+        },
+      },
+    ));
+  }
 
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
@@ -133,16 +198,15 @@ try {
   }
 
   lifecycle = new ServiceLifecycle(components);
-
   await lifecycle.start();
   logger.log("info", "runtime.started", {
     service_version: config.service_version,
     installation_id: config.installation_id,
     device_key_id: security.deviceKeyId,
-    // `key_protection`, no `secret_protection`: el redactor del logger
-    // convierte en `[REDACTED]` todo campo cuyo nombre contenga «secret».
-    // El nombre se adapta al redactor; el redactor no se toca.
     key_protection: security.protection,
+    central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
+    session_trust: sessionTrustKeys.decision,
+    fiscal_issuance: config.fiscal_environment === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),
   });
   await logger.flush();

@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
+import {
+  createActor,
+  createOperationScope,
+  evaluatePermission,
+  toRoleAssignments,
+} from "@pos-platform/application";
 import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
+import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -12,11 +19,13 @@ type CommercialRequest = Extract<
   IpcRequest,
   {
     message_type:
+      | "authorization.capabilities.get"
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
+      | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "sales.receipt.get";
@@ -65,6 +74,13 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   IDENTITY_ALREADY_REGISTERED: "CONFLICT",
   CODE_ALREADY_REGISTERED: "CONFLICT",
   BARCODE_ALREADY_REGISTERED: "CONFLICT",
+  FISCAL_NOT_CONFIGURED: "CONFLICT",
+  CUSTOMER_NOT_FOUND: "NOT_FOUND",
+  NOT_ELIGIBLE: "CONFLICT",
+  BLOCKED: "VALIDATION",
+  REQUIRES_RECONCILIATION: "CONFLICT",
+  TRANSPORT_FAILED: "CONFLICT",
+  UNCERTAIN: "CONFLICT",
   REJECTED: "AUTHENTICATION",
   STALE_SEQUENCE: "CONFLICT",
   BINDING_MISMATCH: "AUTHENTICATION",
@@ -165,8 +181,17 @@ export class CommercialRequestHandler {
     return { identity, snapshot };
   }
 
-  handle(request: CommercialRequest, connectionId: string): unknown {
+  handle(
+    request: CommercialRequest,
+    connectionId: string,
+    // Sólo lo usa `fiscal.document.issue`: es el único caso de uso que
+    // transmite por red. El resto de operaciones son transacciones SQLite
+    // síncronas y no lo miran; el valor por defecto evita tocar cada
+    // llamador existente por una señal que casi ninguno necesita.
+    signal: AbortSignal = new AbortController().signal,
+  ): unknown {
     switch (request.message_type) {
+      case "authorization.capabilities.get": return this.getAuthorizationCapabilities(request, connectionId);
       case "session.activate": return this.activate(request, connectionId);
       case "session.recover": return this.recover(request, connectionId);
       case "cash.shift.open": return this.openShift(request, connectionId);
@@ -180,6 +205,7 @@ export class CommercialRequestHandler {
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
+      case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
@@ -542,6 +568,111 @@ export class CommercialRequestHandler {
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
   }
 
+  // ── fiscal.document.issue ───────────────────────────────────────────────────
+
+  /**
+   * `fiscal.document.issue` — `DEC-021` F5.
+   *
+   * El adquiriente llega por referencia (`customer_id`) y se resuelve aquí
+   * contra `customer.register` (`D-9`) antes de entrar al caso de uso, que
+   * exige la forma canónica de `FiscalCustomer`, no un identificador — ni
+   * `sales_sales` ni este handler guardan una segunda copia del adquiriente.
+   *
+   * Único método `async` de este handler: es el único caso de uso que
+   * transmite por red (`DocumentIssuancePort.issue`). Los demás son
+   * transacciones SQLite síncronas.
+   */
+  private async issueDocument(
+    request: Extract<CommercialRequest, { message_type: "fiscal.document.issue" }>,
+    connectionId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const empty = {
+      document_id: null, transport_status: null, normalized_result: null,
+      cufe: null, issued_prefix: null, issued_number: null, attempt_count: null,
+      block_code: null, reasons: [] as never[],
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const useCase = this.commercial.issueElectronicDocument;
+    if (useCase === null) {
+      return rejected(request, "FISCAL_NOT_CONFIGURED", { outcome: "BLOCKED", ...empty, block_code: "FISCAL_NOT_CONFIGURED" });
+    }
+
+    const payload = request.payload;
+    let customer: FiscalCustomerResolution;
+    if (payload.customer.kind === "IDENTIFIED") {
+      const found = this.commercial.getCustomer.execute(
+        this.scope(),
+        authenticated.snapshot,
+        { by: "ID", customerId: payload.customer.customer_id },
+      );
+      if (found.kind !== "FOUND") {
+        return rejected(request, "CUSTOMER_NOT_FOUND", { outcome: "BLOCKED", ...empty, block_code: "CUSTOMER_NOT_FOUND" });
+      }
+      customer = { kind: "IDENTIFIED", customer: found.customer };
+    } else {
+      customer = { kind: "NOT_IDENTIFIED", reason: payload.customer.reason };
+    }
+
+    const result = await useCase.execute(
+      authenticated.snapshot,
+      {
+        scope: this.scope(),
+        saleId: payload.sale_id,
+        provider: "FACTUS",
+        // Presente: `useCase` sólo es no nulo cuando `CommercialComponent`
+        // encontró `config.fiscal_environment` definido (`start()`, `DEC-021` F5).
+        environment: this.config.fiscal_environment as FiscalEnvironment,
+        documentType: payload.document_type as FiscalDocumentType,
+        customer,
+        observation: payload.observation,
+      },
+      signal,
+    );
+
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+    if (result.kind === "NOT_ELIGIBLE") {
+      return rejected(request, "NOT_ELIGIBLE", { outcome: "NOT_ELIGIBLE", ...empty });
+    }
+    if (result.kind === "BLOCKED") {
+      return rejected(request, "BLOCKED", {
+        outcome: "BLOCKED", ...empty, block_code: result.code,
+        reasons: (result.reasons ?? []).map((reason) => ({
+          code: reason.code, path: reason.path, ...(reason.detail === undefined ? {} : { detail: [...reason.detail] }),
+        })),
+      });
+    }
+
+    const document = result.document;
+    const documentFields = {
+      document_id: document.id,
+      transport_status: document.transportStatus,
+      normalized_result: document.normalizedResult,
+      cufe: document.cufe,
+      issued_prefix: document.issuedPrefix,
+      issued_number: document.issuedNumber,
+      attempt_count: document.attemptCount,
+      block_code: null,
+      reasons: [] as never[],
+    };
+
+    if (result.kind === "ISSUED" || result.kind === "ALREADY_ISSUED") {
+      return succeeded(request, result.kind, { outcome: result.kind, ...documentFields });
+    }
+    // REQUIRES_RECONCILIATION, TRANSPORT_FAILED, UNCERTAIN: ninguno es un
+    // acierto de la petición, pero ninguno es tampoco un error de programa —
+    // son desenlaces reales del protocolo de resultado incierto (`DEC-021`
+    // §2.1) que el operador necesita ver, no un socket cerrado en silencio.
+    return rejected(request, result.kind, { outcome: result.kind, ...documentFields });
+  }
+
   // ── catalog.product.register ───────────────────────────────────────────────
 
   private registerProduct(
@@ -807,6 +938,53 @@ export class CommercialRequestHandler {
         confirmed_at: payment.confirmedAt,
       })),
       calculation_checksum: receipt.calculationChecksum,
+    });
+  }
+
+  // ── authorization.capabilities.get ─────────────────────────────────────────
+
+  /**
+   * Devuelve sólo permisos efectivos para el ámbito de esta instalación.
+   * Nunca entrega el snapshot firmado ni las asignaciones al renderer.
+   */
+  private getAuthorizationCapabilities(
+    request: Extract<CommercialRequest, { message_type: "authorization.capabilities.get" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED",
+        permissions: [],
+      });
+    }
+
+    const assignments = toRoleAssignments(authenticated.snapshot.claims);
+    const scope = createOperationScope(
+      this.scope().tenantId,
+      this.scope().companyId,
+      this.scope().branchId,
+    );
+    const actor = createActor("USER", authenticated.snapshot.claims.user_id);
+    const permissions = [...new Set(
+      authenticated.snapshot.claims.assignments.flatMap(
+        (assignment) => assignment.permissions
+          .filter((permission) => permission.status === "ACTIVE")
+          .map((permission) => permission.code),
+      ),
+    )].filter((permission) =>
+      evaluatePermission({
+        actor,
+        permission,
+        scope,
+        at: new Date(),
+        assignments,
+      }).allowed,
+    );
+
+    return succeeded(request, "AVAILABLE", {
+      outcome: "AVAILABLE",
+      permissions,
     });
   }
 

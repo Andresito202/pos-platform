@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CatalogProductRegisterRequestSchema,
   CustomerRegisterRequestSchema,
+  FiscalDocumentIssueRequestSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
 } from "@pos-platform/contracts";
@@ -11,6 +12,7 @@ import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 import { CatalogPanel } from "../../renderer/src/components/CatalogPanel.js";
 import { InventoryPanel } from "../../renderer/src/components/InventoryPanel.js";
 import { CustomerPanel } from "../../renderer/src/components/CustomerPanel.js";
+import { FiscalPanel } from "../../renderer/src/components/FiscalPanel.js";
 
 /**
  * Las tres pantallas de administración contra respuestas controladas.
@@ -348,5 +350,155 @@ describe("CustomerPanel", () => {
     const envelope = sent("customer.find");
     expect(envelope["idempotency_key"]).toBeUndefined();
     expect(envelope["operation_id"]).toBeUndefined();
+  });
+});
+
+/**
+ * `FiscalPanel` — `DEC-021` F5, mitad pantalla.
+ *
+ * La emisión fiscal tiene siete desenlaces y cinco llegan como `REJECTED` con
+ * `result` poblado. Lo que se prueba aquí es que la pantalla **los distingue**:
+ * un bloqueo por adquiriente genérico no es lo mismo que un fallo de
+ * transporte, y un desenlace incierto no es un error que invite a reintentar.
+ */
+describe("FiscalPanel", () => {
+  const SALE = "33333333-3333-4333-8333-333333333333";
+  const CUSTOMER = "44444444-4444-4444-8444-444444444444";
+
+  function empty() {
+    return {
+      document_id: null, transport_status: null, normalized_result: null,
+      cufe: null, issued_prefix: null, issued_number: null, attempt_count: null,
+      block_code: null, reasons: [],
+    };
+  }
+
+  function fillSale(): void {
+    fireEvent.change(screen.getByTestId("fiscal-sale-id-input"), { target: { value: SALE } });
+  }
+
+  it("construye un sobre que el esquema real del contrato acepta", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "ISSUED",
+      result: {
+        ...empty(),
+        outcome: "ISSUED",
+        document_id: "55555555-5555-4555-8555-555555555555",
+        transport_status: "COMPLETED",
+        normalized_result: "ACCEPTED",
+        cufe: "a".repeat(96),
+        issued_prefix: "SETP",
+        issued_number: "990000001",
+        attempt_count: 1,
+      },
+    });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.change(screen.getByTestId("fiscal-customer-id-input"), { target: { value: CUSTOMER } });
+    fireEvent.click(screen.getByTestId("issue-identified-button"));
+
+    await waitFor(() => { expect(screen.getByTestId("fiscal-issued")).toBeTruthy(); });
+
+    const envelope = sent("fiscal.document.issue");
+    expect(() => FiscalDocumentIssueRequestSchema.parse(envelope)).not.toThrow();
+    const payload = envelope["payload"] as Record<string, unknown>;
+    // El adquiriente viaja **por referencia**: ni un campo fiscal suelto.
+    expect(payload["customer"]).toEqual({ kind: "IDENTIFIED", customer_id: CUSTOMER });
+    expect(payload["sale_id"]).toBe(SALE);
+    // Emitir es una operación: exige idempotencia, y el sobre no lleva identidad.
+    expect(envelope["idempotency_key"]).toBeDefined();
+    expect(envelope["operation_id"]).toBeDefined();
+    expect(envelope["tenant_id"]).toBeUndefined();
+  });
+
+  it("muestra el cufe y el consecutivo cuando la emisión queda evidenciada", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "ISSUED",
+      result: {
+        ...empty(),
+        outcome: "ISSUED", transport_status: "COMPLETED", normalized_result: "ACCEPTED",
+        cufe: "b".repeat(96), issued_number: "990000002", attempt_count: 1,
+      },
+    });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.change(screen.getByTestId("fiscal-customer-id-input"), { target: { value: CUSTOMER } });
+    fireEvent.click(screen.getByTestId("issue-identified-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fiscal-issued-cufe").textContent).toBe("b".repeat(96));
+    });
+    expect(screen.getByTestId("fiscal-issued-number").textContent).toBe("990000002");
+  });
+
+  /**
+   * `D-13` visto desde la caja. Es el caso mayoritario de un POS colombiano y
+   * hoy no tiene salida fiscal: lo que la pantalla debe hacer es **decir por
+   * qué**, no fingir un error genérico.
+   */
+  it("el adquiriente anónimo bloquea, y el motivo se lee entero en pantalla", async () => {
+    install({
+      status: "REJECTED",
+      result_code: "BLOCKED",
+      result: {
+        ...empty(),
+        outcome: "BLOCKED",
+        block_code: "PAYLOAD_ASSEMBLY_BLOCKED",
+        reasons: [{ code: "GENERIC_ACQUIRER_NOT_VERIFIED", path: "customer" }],
+      },
+    });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.click(screen.getByTestId("issue-anonymous-button"));
+
+    await waitFor(() => { expect(screen.getByTestId("fiscal-blocked")).toBeTruthy(); });
+    expect(screen.getByTestId("fiscal-blocked-code").textContent).toBe("PAYLOAD_ASSEMBLY_BLOCKED");
+    expect(screen.getByTestId("fiscal-blocked-reason").textContent)
+      .toContain("GENERIC_ACQUIRER_NOT_VERIFIED");
+    // Un bloqueo **no** es un fallo de transporte, y no debe presentarse como tal.
+    expect(screen.queryByTestId("fiscal-error")).toBeNull();
+
+    const payload = sent("fiscal.document.issue")["payload"] as Record<string, unknown>;
+    expect(payload["customer"]).toEqual({ kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE" });
+  });
+
+  /**
+   * Regla 5 de §Idempotencia: un desenlace incierto **no se reintenta**. La
+   * pantalla lo separa del resto porque el documento pudo haberse emitido, y
+   * volver a intentarlo duplicaría la factura ante la DIAN.
+   */
+  it("un desenlace incierto se muestra aparte, no como un fallo cualquiera", async () => {
+    install({
+      status: "REJECTED",
+      result_code: "UNCERTAIN",
+      result: {
+        ...empty(),
+        outcome: "UNCERTAIN", transport_status: "UNKNOWN_OUTCOME", attempt_count: 1,
+        document_id: "66666666-6666-4666-8666-666666666666",
+      },
+    });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.change(screen.getByTestId("fiscal-customer-id-input"), { target: { value: CUSTOMER } });
+    fireEvent.click(screen.getByTestId("issue-identified-button"));
+
+    await waitFor(() => { expect(screen.getByTestId("fiscal-uncertain")).toBeTruthy(); });
+    expect(screen.getByTestId("fiscal-uncertain-status").textContent).toBe("UNKNOWN_OUTCOME");
+    expect(screen.queryByTestId("fiscal-issued")).toBeNull();
+    expect(screen.queryByTestId("fiscal-blocked")).toBeNull();
+  });
+
+  it("un fallo sin `result` sí es error de transporte, y se dice como tal", async () => {
+    install({ status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: null });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.click(screen.getByTestId("issue-anonymous-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fiscal-error").textContent).toBe("SESSION_NOT_BOUND");
+    });
+    expect(screen.queryByTestId("fiscal-blocked")).toBeNull();
   });
 });

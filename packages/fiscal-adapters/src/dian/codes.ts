@@ -136,6 +136,21 @@ export function fiscalDocumentTypeForCode(code: string | null): FiscalDocumentTy
   return DOCUMENT_TYPE_BY_CODE.get(code) ?? null;
 }
 
+/**
+ * Dirección inversa: tipo canónico → código del proveedor.
+ *
+ * Deriva de la misma tabla verificada, no de una segunda: dos tablas para la
+ * misma correspondencia podrían discreparse. `null` para cualquier tipo cuyo
+ * código DIAN no está verificado (`DEC-021` F4): quien va a **emitir** con ese
+ * tipo debe bloquear, no adivinar el código que va en el documento.
+ */
+export function canonicalDocumentTypeCode(type: FiscalDocumentType): string | null {
+  for (const [code, canonical] of DOCUMENT_TYPE_BY_CODE) {
+    if (canonical === type) return code;
+  }
+  return null;
+}
+
 /** Busca un código en una tabla. `null` si no está listado. */
 export function lookupCode(
   codes: ReadonlyMap<string, DianCode>,

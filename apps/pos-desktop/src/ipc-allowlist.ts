@@ -1,5 +1,6 @@
 export const IPC_ALLOWED_CHANNELS = [
   "pos:runtime.status.get",
+  "pos:authorization.capabilities.get",
   "pos:operation.result.get",
   "pos:operation.confirm",
   // Superficie comercial V1 — `DEC-014` §3.2. El prefijo `pos:` pertenece a
@@ -19,6 +20,8 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  // Emisión fiscal — `DEC-021` F5.
+  "pos:fiscal.document.issue",
   "pos:catalog.product.register",
   "pos:catalog.item.find",
   "pos:catalog.item.get",

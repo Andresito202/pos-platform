@@ -8,15 +8,24 @@
     "role-readiness:003:check": "tsx src/postgres-003-role-readiness-cli.ts check",
     "role-readiness:003:apply": "tsx src/postgres-003-role-readiness-cli.ts apply",
     "role-readiness:003:revert": "tsx src/postgres-003-role-readiness-cli.ts revert",
+    "central-sync:start": "tsx src/central-sync-server.ts",
+    "central-sync:gate": "tsx src/central-sync-gate.ts",
+    "postgres:004:apply": "tsx src/postgres-004-cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:preflight:003": "vitest run tests/postgres-003-preflight.test.ts",
     "test:role-readiness:003": "vitest run tests/postgres-003-role-readiness.test.ts",
-    "test:postgres": "vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts tests/postgres-003-descriptor.test.ts tests/postgres-003-artifact.test.ts tests/postgres-003-runner.test.ts tests/postgres-003-model-a.test.ts tests/postgres-down-safety-regression.test.ts",
+    "test:postgres": "vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts tests/postgres-003-descriptor.test.ts tests/postgres-003-artifact.test.ts tests/postgres-003-runner.test.ts tests/postgres-003-model-a.test.ts tests/postgres-down-safety-regression.test.ts tests/postgres-004-device-trust.test.ts tests/postgres-005-onboarding.test.ts tests/postgres-005-rls.test.ts",
     "test:sqlite": "vitest run tests/sqlite-migration.test.ts tests/sqlite-concurrency-regression.test.ts",
-    "test:runner:003": "vitest run tests/postgres-003-runner.test.ts"
+    "test:runner:003": "vitest run tests/postgres-003-runner.test.ts",
+    "test:descriptor:004": "vitest run tests/postgres-004-device-trust.test.ts",
+    "postgres:005:apply": "tsx src/postgres-005-cli.ts",
+    "test:descriptor:005": "vitest run tests/postgres-005-onboarding.test.ts"
   },
   "dependencies": {
+    "@pos-platform/contracts": "workspace:*",
+    "@pos-platform/device-trust": "workspace:*",
+    "@pos-platform/local-channel": "workspace:*",
     "better-sqlite3": "13.0.3",
     "kysely": "0.29.5",
     "pg": "8.23.0"
