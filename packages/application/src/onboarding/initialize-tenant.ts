@@ -49,6 +49,7 @@ export class InitializeTenant {
   constructor(private readonly repository: OnboardingRepository, private readonly authorizer: OnboardingAuthorizer, private readonly now: () => Date = () => new Date()) {}
   async execute(input: OnboardingInput): Promise<OnboardingResult> {
     validate(input);
+    await this.authorizer.authorize(input.actor);
     const requestChecksum = await checksum(input);
     return this.repository.transaction(async (tx) => {
       const existing = await tx.findOnboarding(input.actor, input.idempotencyKey);
