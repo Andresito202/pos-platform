@@ -145,7 +145,7 @@ function seedSale(
   const saleId = options.saleId ?? randomUUID();
   const payable = options.payable ?? "10000.000000";
   const shiftId = options.shiftId === undefined ? null : options.shiftId;
-  const operationId = uuidV7(NOW);
+  const operationId = uuidV7(NOW.getTime());
   const at = NOW.toISOString();
   const zero = "0.000000";
   // `sales_sales_document_idx` es UNIQUE por (tenant, branch, serie, número):
