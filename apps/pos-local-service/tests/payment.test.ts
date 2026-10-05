@@ -1064,7 +1064,7 @@ describe("salida de existencia al completar la venta", () => {
       sessionId: SESSION,
       operatorUserId: USER,
       movementId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(NOW.getTime()),
       presentationId,
       movementType: "OPENING_COUNT",
       quantity,
