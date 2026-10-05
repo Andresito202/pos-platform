@@ -27,7 +27,7 @@ export type OnboardingTransaction = {
   createBranch(input: { id: string; tenantId: string; companyId: string; name: string; code?: string; address?: string; city?: string; timezone: string }): Promise<void>;
   createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor }): Promise<void>;
   assignInitialOwnerRole(input: { id: string; tenantId: string; membershipId: string; companyId: string; branchId: string; actor: OnboardingActor }): Promise<void>;
-  applyInitialConfiguration(input: { tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void>;
+  applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: string; configuration: InitialConfiguration }): Promise<void>;
   completeOnboarding(input: { onboardingId: string; tenantId: string; companyId: string; branchId: string; ownerUserId: string; membershipId: string; status: OnboardingStatus; licenseReference?: string; requestedPlan?: string; correlationId: string }): Promise<OnboardingResult>;
   audit(input: { onboardingId: string; tenantId: string; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void>;\n  recordSyncOperation(input: { operationId: string; tenantId: string; companyId: string; branchId: string; actor: OnboardingActor; aggregateId: string; operationType: string; correlationId: string; payload: Record<string, unknown>; payloadChecksum: string }): Promise<void>;\n  recordOutbox(input: { id: string; tenantId: string; operationId: string; operationType: string; correlationId: string; payloadChecksum: string }): Promise<void>;
 };
@@ -72,7 +72,7 @@ export class InitializeTenant {
       await tx.createBranch({ id: branchId, tenantId, companyId, name: input.branchName, code: input.branchCode, address: input.branchAddress, city: input.branchCity, timezone: input.initialTimezone });
       await tx.createOwnerMembership({ id: membershipId, tenantId, userId: owner.userId, actor: input.actor });
       await tx.assignInitialOwnerRole({ id: roleAssignmentId, tenantId, membershipId, companyId, branchId, actor: input.actor });
-      await tx.applyInitialConfiguration({ tenantId, locale: input.initialLocale, timezone: input.initialTimezone, currency: input.initialCurrency, taxProfile: input.initialTaxProfile, configuration: input.initialConfiguration });
+      await tx.applyInitialConfiguration({ onboardingId, tenantId, locale: input.initialLocale, timezone: input.initialTimezone, currency: input.initialCurrency, taxProfile: input.initialTaxProfile, configuration: input.initialConfiguration });
       const status: OnboardingStatus = input.licenseReference ? "READY_FOR_ACTIVATION" : "READY_FOR_LICENSE";
       const result = await tx.completeOnboarding({ onboardingId, tenantId, companyId, branchId, ownerUserId: owner.userId, membershipId, status, licenseReference: input.licenseReference, requestedPlan: input.requestedPlan, correlationId: input.correlationId });
       await tx.audit({ onboardingId, tenantId, actor: input.actor, actionCode: "ONBOARDING_COMPLETED", resourceType: "TENANT", resourceId: tenantId, correlationId: input.correlationId, result: "SUCCESS", newValue: { status, owner_created: owner.created } });
