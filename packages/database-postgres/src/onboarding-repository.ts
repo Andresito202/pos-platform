@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/application";
-import type { SqlQueryExecutor, TransactionalSql } from "./sql.js";
+import type { SqlQueryExecutor } from "./sql.js";
 import { uuidV7 } from "./sql.js";
 
 export interface PostgresPoolClient extends SqlQueryExecutor { release(): void; }
@@ -37,7 +38,8 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
               tenant_membership_id::text, status, reason_code, license_reference, requested_plan,
               created_at, updated_at
          FROM tenancy.onboarding_operations
-        WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3`,
+        WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3
+        FOR UPDATE`,
       [actor.type, actor.id, idempotencyKey],
     );
     return rows[0] ? mapOnboarding(rows[0]) : null;
@@ -122,12 +124,16 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     );
   }
 
-  async createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor; isPrimary: boolean }): Promise<void> {
+  async createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor }): Promise<void> {
+    const rows = await this.client.query<{ exists: boolean }>(
+      "SELECT EXISTS(SELECT 1 FROM tenancy.tenant_memberships WHERE user_id=$1 AND is_primary AND status='ACTIVE') AS exists",
+      [input.userId],
+    );
     await this.client.query(
       `INSERT INTO tenancy.tenant_memberships
         (id,tenant_id,user_id,membership_type,status,is_primary,created_by_actor_type,created_by_actor_id,created_at,activated_at,version)
        VALUES ($1,$2,$3,'OWNER','ACTIVE',$4,$5,$6,clock_timestamp(),clock_timestamp(),1)`,
-      [input.id,input.tenantId,input.userId,input.isPrimary,input.actor.type,input.actor.id],
+      [input.id,input.tenantId,input.userId,rows[0]?.exists !== true,input.actor.type,input.actor.id],
     );
   }
 
@@ -141,13 +147,13 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     await this.client.query(
       `INSERT INTO "authorization".user_role_assignments
         (id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,valid_until,created_at,created_by_actor_type,created_by_actor_id,revoked_at,version)
-       VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$7,$8,NULL,1)`,
-      [input.id,input.tenantId,input.membershipId,role[0].id,input.companyId,input.branchId,input.actor.type,input.actor.id],
+       VALUES ($1,$2,$3,$4,$5,NULL,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$6,$7,NULL,1)`,
+      [input.id,input.tenantId,input.membershipId,role[0].id,input.companyId,input.actor.type,input.actor.id],
     );
   }
 
-  async applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void> {
-    if (input.taxProfile !== undefined && typeof input.taxProfile !== "string") throw new Error("ONBOARDING_TAX_PROFILE_UNSUPPORTED");\n    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
+  async applyInitialConfiguration(input: { tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void> {
+    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
     for (const key of Object.keys(input.configuration)) if (!allowed.has(key)) throw new Error("ONBOARDING_CONFIGURATION_UNSUPPORTED_" + key);
     const pricing = typeof input.configuration.pricingPolicyVersion === "string" ? input.configuration.pricingPolicyVersion : null;
     const tax = typeof input.configuration.taxPolicyVersion === "string" ? input.configuration.taxPolicyVersion : typeof input.taxProfile === "string" ? input.taxProfile : null;
@@ -157,7 +163,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       `UPDATE tenancy.onboarding_operations
           SET pricing_policy_version=$2,tax_policy_version=$3,rounding_policy_version=$4,authorization_policy_version_id=$5,updated_at=clock_timestamp(),version=version+1
         WHERE id=$1`,
-      [input.onboardingId,pricing,tax,rounding,authorization],
+      [input.tenantId,pricing,tax,rounding,authorization],
     );
   }
 
@@ -168,20 +174,20 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
               status='READY_FOR_LICENSE',license_reference=$7,requested_plan=$8,updated_at=clock_timestamp(),version=version+1
         WHERE id=$1
         RETURNING id::text,tenant_id::text,company_id::text,branch_id::text,owner_user_id::text,tenant_membership_id::text,
-                  actor_type,actor_id::text,status,reason_code,license_reference,requested_plan,correlation_id::text,idempotency_key,request_checksum,created_at,updated_at`,
+                  status,reason_code,license_reference,requested_plan,correlation_id::text,idempotency_key,request_checksum,created_at,updated_at`,
       [input.onboardingId,input.tenantId,input.companyId,input.branchId,input.ownerUserId,input.membershipId,input.licenseReference ?? null,input.requestedPlan ?? null],
     );
     if (!rows[0]) throw new Error("ONBOARDING_COMPLETION_FAILED");
     return mapOnboarding(rows[0]);
   }
 
-  async audit(input: { onboardingId: string; tenantId: string | null; companyId?: string | null; branchId?: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void> {
+  async audit(input: { onboardingId: string; tenantId: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void> {
     const payload = JSON.stringify(input.newValue ?? null);
     await this.client.query(
       `INSERT INTO audit.audit_events
         (id,tenant_id,company_id,branch_id,actor_type,actor_id,session_id,device_id,action_code,resource_type,resource_reference_kind,resource_id,operation_id,correlation_id,schema_version,reported_at,server_recorded_at,result,reason_code,new_value,payload_checksum)
-       VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,'INSTANCE',$9,$10,$11,1,clock_timestamp(),clock_timestamp(),$12,$13,$14::jsonb,encode(sha256(convert_to($14::jsonb::text,'UTF8')),'hex'))`,
-      [uuidV7(),input.tenantId,input.companyId ?? null,input.branchId ?? null,input.actor.type,input.actor.id,input.actionCode,input.resourceType,input.resourceId ?? input.tenantId ?? input.onboardingId,input.operationId ?? null,input.correlationId,input.result,input.reasonCode ?? null,payload],
+       VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,'INSTANCE',$7,$8,$9,1,clock_timestamp(),clock_timestamp(),$10,$11,$12::jsonb,encode(sha256(convert_to($12::jsonb::text,'UTF8')),'hex'))`,
+      [uuidV7(),input.tenantId,input.actor.type,input.actor.id,input.actionCode,input.resourceType,input.resourceId ?? input.tenantId ?? input.onboardingId,input.operationId ?? null,input.correlationId,input.result,input.reasonCode ?? null,payload],
     );
   }
 
@@ -204,7 +210,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
   }
 }
 
-class PostgresTransactionalSql implements TransactionalSql {
+class PostgresTransactionalSql implements import("./sql.js").TransactionalSql {
   constructor(private readonly pool: PostgresPoolLike) {}
   async withTransaction<T>(run: (tx: SqlQueryExecutor) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
