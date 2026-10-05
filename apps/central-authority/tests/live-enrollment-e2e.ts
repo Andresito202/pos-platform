@@ -1,5 +1,6 @@
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { Pool } from "pg";
+import { DeviceEnrollmentRequestSchema } from "@pos-platform/contracts";
 import { createEnrollmentChallenge, activationSecretChecksum, canonicalDeviceTrustJson } from "@pos-platform/device-trust";
 
 const databaseUrl = process.env.CENTRAL_DATABASE_URL ?? "";
@@ -63,6 +64,8 @@ const request = {
   version: 1,
 };
 
+const validatedRequest = DeviceEnrollmentRequestSchema.parse(request);
+
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 try {
   await pool.query(
@@ -86,7 +89,7 @@ try {
       "x-request-id": `d3-live-${ids.activation}`,
       "x-correlation-id": `d3-live-${ids.device}`,
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(validatedRequest),
   });
   const body = await response.text();
   if (response.status !== 200) throw new Error(`live enrollment failed: ${response.status} ${body}`);
