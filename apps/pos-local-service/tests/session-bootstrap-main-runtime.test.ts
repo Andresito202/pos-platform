@@ -26,14 +26,16 @@ function sessionAssertion(operational: ReturnType<typeof generateKeyPairSync>): 
   claims: SessionAssertionClaims;
   signature: string;
 } {
+  const issuedAt = new Date(Date.now() - 60_000).toISOString();
+  const validUntil = new Date(Date.now() + 86_400_000).toISOString();
   const claims: SessionAssertionClaims = {
     session_id: "018f0000-0000-7000-8000-0000000000b0",
     user_id: IDS.userId,
     tenant_membership_id: "018f0000-0000-7000-8000-0000000000b1",
     installation_id: IDS.installationId,
     device_id: IDS.deviceId,
-    issued_at: "2026-09-17T00:00:00.000Z",
-    offline_valid_until: "2026-09-18T00:00:00.000Z",
+    issued_at: issuedAt,
+    offline_valid_until: validUntil,
     sequence: 1,
     key_id: "ssa-runtime-01",
   };
