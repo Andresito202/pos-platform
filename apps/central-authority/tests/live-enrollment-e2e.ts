@@ -67,7 +67,7 @@ const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 try {
   await pool.query(
     `INSERT INTO identity.device_registry
-      (device_id, installation_id, tenant_id, company_id, device_key_id, device_public_key, algorithm, status, trust_key_id, trust_key_purpose, created_at, updated_at, version)
+      (device_id, installation_id, tenant_id, company_id, device_key_id, device_public_key, device_public_key_algorithm, status, trust_key_id, trust_key_purpose, created_at, updated_at, version)
      VALUES ($1,$2,$3,$4,$5,$6,'Ed25519','PENDING',$7,'DEVICE_TRUST',clock_timestamp(),clock_timestamp(),1)`,
     [ids.device, ids.installation, ids.tenant, ids.company, deviceKeyId, Buffer.from(publicKeyPem), trustKeyId],
   );
