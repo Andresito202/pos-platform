@@ -134,7 +134,7 @@ describe("D-3 device trust verifier", () => {
     expect(unknownVerifier.verifyCredential(unknown.signedCredential, binding).decision).toBe("UNKNOWN_KEY");
 
     const revokedVerifier = new DeviceTrustVerifier(
-      createPublicKey(fixture.root.publicKey),
+      fixture.root.publicKey,
       new Map([["DEVICE_TRUST_KEY_1", {
         key: fixture.operational.publicKey,
         status: "REVOKED" as const,
