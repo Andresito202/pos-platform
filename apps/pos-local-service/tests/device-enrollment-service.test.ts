@@ -3,6 +3,7 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { LocalDatabase as LocalDatabaseType } from "@pos-platform/database-sqlite";
