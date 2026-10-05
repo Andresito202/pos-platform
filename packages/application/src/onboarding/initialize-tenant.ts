@@ -96,3 +96,5 @@ export class InitializeTenant {
       await tx.audit({ onboardingId, tenantId, companyId, branchId, actor: input.actor, actionCode: "ONBOARDING_STATUS_CHANGED", resourceType: "ONBOARDING_OPERATION", resourceId: onboardingId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { previous_status: "PENDING", status } });
       return result;
     });
+  }
+}
