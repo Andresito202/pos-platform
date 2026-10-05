@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createHash } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
@@ -164,7 +165,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     );
   }
 
-  async applyInitialConfiguration(input: { tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: string; configuration: Record<string, unknown> }): Promise<void> {
+  async applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: string; configuration: Record<string, unknown> }): Promise<void> {
     const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
     for (const key of Object.keys(input.configuration)) if (!allowed.has(key)) throw new Error("ONBOARDING_CONFIGURATION_UNSUPPORTED_" + key);
     const pricing = typeof input.configuration.pricingPolicyVersion === "string" ? input.configuration.pricingPolicyVersion : null;
@@ -227,7 +228,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
 }
 
 function cryptoUuidV7(): string {
-  const bytes = Buffer.from(crypto.randomBytes(16));
+  const bytes = Buffer.from(randomBytes(16));
   const timestamp = BigInt(Date.now());
   for (let index=5; index>=0; index--) { bytes[index]=Number((timestamp >> BigInt((5-index)*8)) & 0xffn); }
   bytes[6]=(bytes[6]!&0x0f)|0x70; bytes[8]=(bytes[8]!&0x3f)|0x80;
