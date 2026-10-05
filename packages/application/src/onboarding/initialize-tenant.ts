@@ -16,6 +16,7 @@ export type OnboardingRecord = OnboardingResult & { requestChecksum: string; act
 
 export type OnboardingRepository = { transaction<T>(work: (tx: OnboardingTransaction) => Promise<T>): Promise<T> };
 export type OnboardingTransaction = {
+  setActorContext(actor: OnboardingActor): Promise<void>;
   setTenantContext(tenantId: string): Promise<void>;
   findOnboarding(actor: OnboardingActor, idempotencyKey: string): Promise<OnboardingRecord | null>;
   assertCommercialReferenceAvailable(reference: string | undefined): Promise<void>;
@@ -53,6 +54,7 @@ export class InitializeTenant {
     await this.authorizer.authorize(input.actor);
     const requestChecksum = await checksum(input);
     return this.repository.transaction(async (tx) => {
+      await tx.setActorContext(input.actor);
       const existing = await tx.findOnboarding(input.actor, input.idempotencyKey);
       if (existing) {
         const decision = classifyIdempotency({ operation_id: existing.onboardingId, idempotency_key: existing.idempotencyKey, payload_checksum: existing.requestChecksum }, { operation_id: existing.onboardingId, idempotency_key: input.idempotencyKey, payload_checksum: requestChecksum });
