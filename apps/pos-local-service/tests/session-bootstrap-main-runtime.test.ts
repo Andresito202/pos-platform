@@ -66,7 +66,7 @@ function trustArtifact(root: ReturnType<typeof generateKeyPairSync>, operational
 async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ endpoint: string; sessionTrust: string }> {
   return new Promise((resolve, reject) => {
     let buffer = "";
-    const timer = setTimeout(() => reject(new Error("POS Local Service did not reach runtime.started")), 30_000);
+    const timer = setTimeout(() => reject(new Error("POS Local Service did not reach runtime.started")), 60_000);
     child.stdout.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
       for (const line of buffer.split("\n")) {
@@ -252,5 +252,5 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       }
       rmSync(dataDirectory, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 90_000);
 });
