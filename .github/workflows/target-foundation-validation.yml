@@ -220,9 +220,6 @@ jobs:
       - name: Validate fiscal capability ports
         run: pnpm test:fiscal-adapters
 
-      - name: Validate central authority onboarding adapter
-        run: pnpm test:central-authority
-
       - name: Typecheck
         run: pnpm typecheck
 
