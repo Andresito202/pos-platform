@@ -42,3 +42,7 @@ export type { Postgres003RunnerConfig, Postgres003DownConfig, Postgres003ApplyRe
 export { POSTGRES_004_DESCRIPTOR, DEVICE_TRUST_004_COLUMNS, DEVICE_TRUST_004_TABLES } from "./postgres-004-contract.js";
 export { applyPostgres004 } from "./postgres-004-runner.js";
 export type { Postgres004RunnerConfig, Postgres004ApplyResult } from "./postgres-004-runner.js";
+
+export { POSTGRES_005_DESCRIPTOR } from "./postgres-005-contract.js";
+export { applyPostgres005 } from "./postgres-005-runner.js";
+export type { Postgres005RunnerConfig, Postgres005ApplyResult } from "./postgres-005-runner.js";
