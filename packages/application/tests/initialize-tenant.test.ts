@@ -1,5 +1,54 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";\nimport { InitializeTenant, type OnboardingInput, type OnboardingTransaction } from "../src/onboarding/initialize-tenant.js";\n\nfunction input(): OnboardingInput { return {\n  actor: { type: "PLATFORM_ACCOUNT", id: "01890f5a-0000-7000-8000-000000000001" }, tenantName: "Tenant A", tenantCode: "TEN-A",\n  companyName: "Company A", branchName: "Branch A", ownerEmail: "owner@example.com", ownerFullName: "Owner A",\n  initialLocale: "es-CO", initialTimezone: "America/Bogota", initialCurrency: "COP", initialConfiguration: { printer: "default" },\n  idempotencyKey: "onb-001", correlationId: "01890f5a-0000-7000-8000-000000000002",\n}; }\n\nfunction checksum(value: unknown): string { if (value === null || typeof value !== "object") return JSON.stringify(value) as string; if (Array.isArray(value)) return "[" + value.map(checksum).join(",") + "]"; const object = value as Record<string, unknown>; return "{" + Object.keys(object).sort().map((key) => JSON.stringify(key) + ":" + checksum(object[key])).join(",") + "}"; }
+import { describe, expect, it } from "vitest";
+import { InitializeTenant, type OnboardingInput, type OnboardingTransaction } from "../src/onboarding/initialize-tenant.js";
+
+function input(): OnboardingInput { return {
+  actor: { type: "PLATFORM_ACCOUNT", id: "01890f5a-0000-7000-8000-000000000001" }, tenantName: "Tenant A", tenantCode: "TEN-A",
+  companyName: "Company A", branchName: "Branch A", ownerEmail: "owner@example.com", ownerFullName: "Owner A",
+  initialLocale: "es-CO", initialTimezone: "America/Bogota", initialCurrency: "COP", initialConfiguration: { printer: "default" },
+  idempotencyKey: "onb-001", correlationId: "01890f5a-0000-7000-8000-000000000002",
+}; }
+
+function checksum(value: unknown): string { if (value === null || typeof value !== "object") return JSON.stringify(value) as string; if (Array.isArray(value)) return "[" + value.map(checksum).join(",") + "]"; const object = value as Record<string, unknown>; return "{" + Object.keys(object).sort().map((key) => JSON.stringify(key) + ":" + checksum(object[key])).join(",") + "}"; }
 function requestChecksum(value: OnboardingInput): string { return createHash("sha256").update(checksum(value)).digest("hex"); }
 
-function tx(): OnboardingTransaction {\n  return {\n    findOnboarding: async () => null, assertCommercialReferenceAvailable: async () => undefined,\n    resolveOrCreateOwner: async () => ({ userId: "01890f5a-0000-7000-8000-000000000003", created: false }),\n    createOnboarding: async () => undefined, createTenant: async () => undefined, createCompany: async () => undefined,\n    createBranch: async () => undefined, createOwnerMembership: async () => undefined, assignInitialOwnerRole: async () => undefined,\n    applyInitialConfiguration: async () => undefined,\n    completeOnboarding: async (v) => ({ onboardingId: v.onboardingId, tenantId: v.tenantId, companyId: v.companyId, branchId: v.branchId, ownerUserId: v.ownerUserId, tenantMembershipId: v.membershipId, status: v.status, reasonCode: null, licenseReference: v.licenseReference ?? null, requestedPlan: v.requestedPlan ?? null, correlationId: v.correlationId, idempotencyKey: "onb-001", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),\n    audit: async () => undefined,\n  };\n}\n\ndescribe("InitializeTenant", () => {\n  it("creates the complete minimum onboarding chain in one repository transaction", async () => {\n    const calls: string[] = []; const base = tx();\n    const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;\n    const result = await new InitializeTenant({ transaction: async (work) => work(tracked) }).execute(input());\n    expect(result.status).toBe("READY_FOR_LICENSE");\n    expect(calls).toEqual(["findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "audit"]);\n  });\n\n  it("returns the existing result for an exact idempotent replay", async () => {\n    const existing = { onboardingId: "01890f5a-0000-7000-8000-000000000010", tenantId: "01890f5a-0000-7000-8000-000000000011", companyId: "01890f5a-0000-7000-8000-000000000012", branchId: "01890f5a-0000-7000-8000-000000000013", ownerUserId: "01890f5a-0000-7000-8000-000000000014", tenantMembershipId: "01890f5a-0000-7000-8000-000000000015", status: "READY_FOR_LICENSE" as const, reasonCode: null, licenseReference: null, requestedPlan: null, correlationId: input().correlationId, idempotencyKey: input().idempotencyKey, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", requestChecksum: requestChecksum(input()), actor: input().actor };\n    const replayTx = tx(); replayTx.findOnboarding = async () => existing;\n    const result = await new InitializeTenant({ transaction: async (work) => work(replayTx) }).execute(input());\n    expect(result).toBe(existing);\n  });\n\n  it("rejects the same idempotency key with a different request", async () => {\n    const existing = { onboardingId: "01890f5a-0000-7000-8000-000000000020", tenantId: "01890f5a-0000-7000-8000-000000000021", companyId: "01890f5a-0000-7000-8000-000000000022", branchId: "01890f5a-0000-7000-8000-000000000023", ownerUserId: "01890f5a-0000-7000-8000-000000000024", tenantMembershipId: "01890f5a-0000-7000-8000-000000000025", status: "READY_FOR_LICENSE" as const, reasonCode: null, licenseReference: null, requestedPlan: null, correlationId: input().correlationId, idempotencyKey: input().idempotencyKey, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actor: input().actor };\n    const conflictTx = tx(); conflictTx.findOnboarding = async () => existing;\n    await expect(new InitializeTenant({ transaction: async (work) => work(conflictTx) }).execute({ ...input(), companyName: "Different Company" })).rejects.toThrow("ONBOARDING_IDEMPOTENCY_CONFLICT");\n  });\n\n  it("does not continue when validation fails", async () => {\n    let opened = false;\n    await expect(new InitializeTenant({ transaction: async (work) => { opened = true; return work(tx()); } }).execute({ ...input(), initialCurrency: "CO" })).rejects.toThrow("ONBOARDING_CURRENCY_INVALID");\n    expect(opened).toBe(false);\n  });\n});\n
+function tx(): OnboardingTransaction {
+  return {
+    findOnboarding: async () => null, assertCommercialReferenceAvailable: async () => undefined,
+    resolveOrCreateOwner: async () => ({ userId: "01890f5a-0000-7000-8000-000000000003", created: false }),
+    createOnboarding: async () => undefined, createTenant: async () => undefined, createCompany: async () => undefined,
+    createBranch: async () => undefined, createOwnerMembership: async () => undefined, assignInitialOwnerRole: async () => undefined,
+    applyInitialConfiguration: async () => undefined,
+    completeOnboarding: async (v) => ({ onboardingId: v.onboardingId, tenantId: v.tenantId, companyId: v.companyId, branchId: v.branchId, ownerUserId: v.ownerUserId, tenantMembershipId: v.membershipId, status: v.status, reasonCode: null, licenseReference: v.licenseReference ?? null, requestedPlan: v.requestedPlan ?? null, correlationId: v.correlationId, idempotencyKey: "onb-001", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    audit: async () => undefined,
+  };
+}
+
+describe("InitializeTenant", () => {
+  it("creates the complete minimum onboarding chain in one repository transaction", async () => {
+    const calls: string[] = []; const base = tx();
+    const tracked = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, async (...args: unknown[]) => { calls.push(key); return (value as (...x: unknown[]) => unknown)(...args); }])) as unknown as OnboardingTransaction;
+    const result = await new InitializeTenant({ transaction: async (work) => work(tracked) }, { authorize: async () => undefined }).execute(input());
+    expect(result.status).toBe("READY_FOR_LICENSE");
+    expect(calls).toEqual(["findOnboarding", "assertCommercialReferenceAvailable", "createOnboarding", "resolveOrCreateOwner", "createTenant", "createCompany", "createBranch", "createOwnerMembership", "assignInitialOwnerRole", "applyInitialConfiguration", "completeOnboarding", "audit"]);
+  });
+
+  it("returns the existing result for an exact idempotent replay", async () => {
+    const existing = { onboardingId: "01890f5a-0000-7000-8000-000000000010", tenantId: "01890f5a-0000-7000-8000-000000000011", companyId: "01890f5a-0000-7000-8000-000000000012", branchId: "01890f5a-0000-7000-8000-000000000013", ownerUserId: "01890f5a-0000-7000-8000-000000000014", tenantMembershipId: "01890f5a-0000-7000-8000-000000000015", status: "READY_FOR_LICENSE" as const, reasonCode: null, licenseReference: null, requestedPlan: null, correlationId: input().correlationId, idempotencyKey: input().idempotencyKey, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", requestChecksum: requestChecksum(input()), actor: input().actor };
+    const replayTx = tx(); replayTx.findOnboarding = async () => existing;
+    const result = await new InitializeTenant({ transaction: async (work) => work(replayTx) }, { authorize: async () => undefined }).execute(input());
+    expect(result).toBe(existing);
+  });
+
+  it("rejects the same idempotency key with a different request", async () => {
+    const existing = { onboardingId: "01890f5a-0000-7000-8000-000000000020", tenantId: "01890f5a-0000-7000-8000-000000000021", companyId: "01890f5a-0000-7000-8000-000000000022", branchId: "01890f5a-0000-7000-8000-000000000023", ownerUserId: "01890f5a-0000-7000-8000-000000000024", tenantMembershipId: "01890f5a-0000-7000-8000-000000000025", status: "READY_FOR_LICENSE" as const, reasonCode: null, licenseReference: null, requestedPlan: null, correlationId: input().correlationId, idempotencyKey: input().idempotencyKey, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actor: input().actor };
+    const conflictTx = tx(); conflictTx.findOnboarding = async () => existing;
+    await expect(new InitializeTenant({ transaction: async (work) => work(conflictTx) }, { authorize: async () => undefined }).execute({ ...input(), companyName: "Different Company" })).rejects.toThrow("ONBOARDING_IDEMPOTENCY_CONFLICT");
+  });
+
+  it("does not continue when validation fails", async () => {
+    let opened = false;
+    await expect(new InitializeTenant({ transaction: async (work) => { opened = true; return work(tx()); } }, { authorize: async () => undefined }).execute({ ...input(), initialCurrency: "CO" })).rejects.toThrow("ONBOARDING_CURRENCY_INVALID");
+    expect(opened).toBe(false);
+  });
+});
