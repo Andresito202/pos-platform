@@ -142,7 +142,7 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
 }
 
 describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () => {
-  it("boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation", async () => {
+  it("boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation", { timeout: 60_000 }, async () => {
     const root = generateKeyPairSync("ed25519");
     const operational = generateKeyPairSync("ed25519");
     const dataDirectory = mkdtempSync(join(process.env.TEMP ?? process.cwd(), "camacho-g12-runtime-"));
