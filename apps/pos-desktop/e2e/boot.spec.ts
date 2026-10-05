@@ -34,12 +34,12 @@ test.afterAll(async () => {
 
 test("el proceso principal compilado arranca y abre una ventana", async () => {
   const window = await app.firstWindow();
-  await expect(window).toHaveTitle("POS Local");
+  await expect(window).toHaveTitle("Camacho POS Colombia");
 });
 
 test("el renderer compilado monta la aplicación", async () => {
   const window = await app.firstWindow();
-  await expect(window.getByRole("heading", { name: "POS Local" })).toBeVisible();
+  await expect(window.getByRole("heading", { name: "Camacho POS Colombia" })).toBeVisible();
 });
 
 test("la superficie comercial está montada en la ventana real", async () => {
