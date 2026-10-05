@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/application";
-import type { SqlQueryExecutor } from "./sql.js";
+import type { SqlQueryExecutor, TransactionalSql } from "./sql.js";
 import { uuidV7 } from "./sql.js";
 
 export interface PostgresPoolClient extends SqlQueryExecutor { release(): void; }
@@ -210,7 +210,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
   }
 }
 
-class PostgresTransactionalSql implements import("./sql.js").TransactionalSql {
+class PostgresTransactionalSql implements TransactionalSql {
   constructor(private readonly pool: PostgresPoolLike) {}
   async withTransaction<T>(run: (tx: SqlQueryExecutor) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
