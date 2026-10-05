@@ -1,5 +1,4 @@
 import { generateKeyPairSync } from "node:crypto";
-import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
