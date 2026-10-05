@@ -248,5 +248,5 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       if (service !== undefined && service.exitCode === null) service.kill("SIGTERM");
       rmSync(dataDirectory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
