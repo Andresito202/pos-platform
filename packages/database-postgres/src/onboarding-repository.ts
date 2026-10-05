@@ -124,16 +124,12 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     );
   }
 
-  async createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor }): Promise<void> {
-    const rows = await this.client.query<{ exists: boolean }>(
-      "SELECT EXISTS(SELECT 1 FROM tenancy.tenant_memberships WHERE user_id=$1 AND is_primary AND status='ACTIVE') AS exists",
-      [input.userId],
-    );
+  async createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor; isPrimary: boolean }): Promise<void> {
     await this.client.query(
       `INSERT INTO tenancy.tenant_memberships
         (id,tenant_id,user_id,membership_type,status,is_primary,created_by_actor_type,created_by_actor_id,created_at,activated_at,version)
        VALUES ($1,$2,$3,'OWNER','ACTIVE',$4,$5,$6,clock_timestamp(),clock_timestamp(),1)`,
-      [input.id,input.tenantId,input.userId,rows[0]?.exists !== true,input.actor.type,input.actor.id],
+      [input.id,input.tenantId,input.userId,input.isPrimary,input.actor.type,input.actor.id],
     );
   }
 
