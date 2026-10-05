@@ -44,8 +44,10 @@ function validate(input: OnboardingInput): void {
   if (!/^[A-Z]{3}$/.test(input.initialCurrency)) throw new Error("ONBOARDING_CURRENCY_INVALID");
 }
 
+export type OnboardingAuthorizer = { authorize(actor: OnboardingActor): Promise<void> };
+
 export class InitializeTenant {
-  constructor(private readonly repository: OnboardingRepository, private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly repository: OnboardingRepository, private readonly authorizer: OnboardingAuthorizer, private readonly now: () => Date = () => new Date()) {}
   async execute(input: OnboardingInput): Promise<OnboardingResult> {
     validate(input);
     const requestChecksum = await checksum(input);
