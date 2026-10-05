@@ -73,8 +73,8 @@ try {
   );
   await pool.query(
     `INSERT INTO identity.device_enrollment_activations
-      (activation_id, tenant_id, company_id, installation_id, device_id, activation_checksum, status, issued_at, expires_at, version)
-     VALUES ($1,$2,$3,$4,$5,$6,'ISSUED',clock_timestamp(),clock_timestamp() + interval '10 minutes',1)`,
+      (activation_id, tenant_id, company_id, installation_id, device_id, activation_checksum, status, issued_at, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,'ISSUED',clock_timestamp(),clock_timestamp() + interval '10 minutes')`,
     [ids.activation, ids.tenant, ids.company, ids.installation, ids.device, activationSecretChecksum(activationSecret)],
   );
 
