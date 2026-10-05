@@ -5,7 +5,7 @@ const BASE = process.env.CENTRAL_SYNC_BASE_URL;
 const TOKEN = process.env.CENTRAL_SYNC_TOKEN;
 const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
 const POSTGRES_ADMIN_URL = process.env.POSTGRES_ADMIN_URL;
-const tenantId = "b03eea93-6bab-4417-a8c9-386691c617e7";
+// Fixed UUIDv7 test tenant; PostgreSQL 001 enforces platform.is_uuid_v7 on tenant IDs.\nconst tenantId = "018f0000-0000-7000-8000-0000000000e1";
 
 if (!BASE) throw new Error("CENTRAL_SYNC_BASE_URL is required");
 if (!TOKEN) throw new Error("CENTRAL_SYNC_TOKEN is required");
