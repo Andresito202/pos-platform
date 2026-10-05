@@ -1,4 +1,4 @@
-import { createPublicKey, generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +14,7 @@ import {
 } from "../src/index.js";
 
 const directories: string[] = [];
+const databases: LocalDatabase[] = [];
 async function directory(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), "pos-device-trust-"));
   directories.push(value);
@@ -21,6 +22,7 @@ async function directory(): Promise<string> {
 }
 
 afterEach(() => {
+  for (const database of databases.splice(0)) database.close();
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -84,7 +86,7 @@ function makeFixture(now = "2026-09-16T12:00:00Z") {
 
 function verifierFor(database: LocalDatabase, fixture: ReturnType<typeof makeFixture>) {
   return new DeviceTrustVerifier(
-    createPublicKey(fixture.root.publicKey),
+    fixture.root.publicKey,
     new Map([["DEVICE_TRUST_KEY_1", {
       key: createPublicKey(fixture.operational.publicKey),
       status: "ACTIVE" as const,
@@ -101,6 +103,7 @@ describe("D-3 device trust verifier", () => {
   it("validates the root-signed operational key, credential and proof-of-possession", async () => {
     const dir = await directory();
     const database = LocalDatabase.open({ dataDirectory: dir });
+    databases.push(database);
     const fixture = makeFixture();
     const verifier = verifierFor(database, fixture);
 
@@ -124,7 +127,7 @@ describe("D-3 device trust verifier", () => {
 
     const unknown = makeFixture();
     const unknownVerifier = new DeviceTrustVerifier(
-      createPublicKey(unknown.root.publicKey),
+      unknown.root.publicKey,
       new Map(),
       { now: () => new Date(unknown.now), accept: (now) => new TrustedClockGuard(database).accept(now) },
     );
@@ -133,7 +136,7 @@ describe("D-3 device trust verifier", () => {
     const revokedVerifier = new DeviceTrustVerifier(
       createPublicKey(fixture.root.publicKey),
       new Map([["DEVICE_TRUST_KEY_1", {
-        key: createPublicKey(fixture.operational.publicKey),
+        key: fixture.operational.publicKey,
         status: "REVOKED" as const,
         validFrom: "2026-09-01T00:00:00Z",
       }]]),
