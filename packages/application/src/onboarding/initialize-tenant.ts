@@ -87,7 +87,7 @@ export class InitializeTenant {
       const status: OnboardingStatus = "READY_FOR_LICENSE";
       const operationId = uuidV7(this.now().getTime());
       const payload = { onboarding_id: onboardingId, tenant_id: tenantId, company_id: companyId, branch_id: branchId, owner_user_id: owner.userId, status };
-      const payloadBytes = new TextEncoder().encode(canonicalize(payload));
+      const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
       const payloadDigest = await globalThis.crypto.subtle.digest("SHA-256", payloadBytes);
       const payloadChecksum = Array.from(new Uint8Array(payloadDigest), (value) => value.toString(16).padStart(2, "0")).join("");
       await tx.recordSyncOperation({ operationId, tenantId, companyId, branchId, actor: input.actor, aggregateId: tenantId, operationType: "TENANT_ONBOARDED", idempotencyKey: input.idempotencyKey, correlationId: input.correlationId, payload, payloadChecksum });
