@@ -14,7 +14,7 @@
     "role-readiness:migration:003:check": "pnpm --filter @pos-platform/target-migrations role-readiness:003:check",
     "role-readiness:migration:003:apply": "pnpm --filter @pos-platform/target-migrations role-readiness:003:apply",
     "role-readiness:migration:003:revert": "pnpm --filter @pos-platform/target-migrations role-readiness:003:revert",
-    "typecheck": "pnpm --filter @pos-platform/contracts typecheck && pnpm --filter @pos-platform/domain typecheck && pnpm --filter @pos-platform/application typecheck && pnpm --filter @pos-platform/database-sqlite typecheck && pnpm --filter @pos-platform/fiscal-adapters typecheck && pnpm --filter @pos-platform/observability typecheck && pnpm --filter @pos-platform/pos-local-service typecheck && pnpm --filter @pos-platform/pos-desktop typecheck && pnpm --filter @pos-platform/target-migrations typecheck",
+    "typecheck": "pnpm --filter @pos-platform/contracts typecheck && pnpm --filter @pos-platform/domain typecheck && pnpm --filter @pos-platform/application typecheck && pnpm --filter @pos-platform/database-sqlite typecheck && pnpm --filter @pos-platform/database-postgres typecheck && pnpm --filter @pos-platform/fiscal-adapters typecheck && pnpm --filter @pos-platform/observability typecheck && pnpm --filter @pos-platform/pos-local-service typecheck && pnpm --filter @pos-platform/pos-desktop typecheck && pnpm --filter @pos-platform/target-migrations typecheck",
     "test:migrations": "pnpm --filter @pos-platform/target-migrations test",
     "test:migrations:postgres": "pnpm --filter @pos-platform/target-migrations test:postgres",
     "test:migrations:sqlite": "pnpm --filter @pos-platform/target-migrations test:sqlite",
