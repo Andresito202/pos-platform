@@ -28,8 +28,8 @@ const ids = {
   device: uuidV7(),
   activation: uuidV7(),
 };
-const deviceKeyId = `D3_CI_DEVICE_${ids.device.replaceAll("-", "").slice(0, 16)}`;
-const trustKeyId = `D3_CI_TRUST_${ids.device.replaceAll("-", "").slice(0, 16)}`;
+const deviceKeyId = `D3_CI_DEVICE_${ids.device.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
+const trustKeyId = `D3_CI_TRUST_${ids.device.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
 const activationSecret = `D3CI_${randomBytes(36).toString("base64url")}`;
 const now = new Date();
 const challengeIssued = now.toISOString();
