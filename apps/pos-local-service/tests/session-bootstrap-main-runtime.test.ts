@@ -73,10 +73,10 @@ async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ 
         if (!line.includes("runtime.started")) continue;
         try {
           const record = JSON.parse(line) as {
-            message?: string;
+            event?: string;
             fields?: { local_channel_endpoint?: string; session_trust?: string };
           };
-          if (record.message !== "runtime.started" || record.fields?.local_channel_endpoint === undefined) continue;
+          if (record.event !== "runtime.started" || record.fields?.local_channel_endpoint === undefined) continue;
           clearTimeout(timer);
           resolve({
             endpoint: record.fields.local_channel_endpoint,
