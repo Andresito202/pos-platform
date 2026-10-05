@@ -24,7 +24,7 @@ export type OnboardingTransaction = {
   createTenant(input: { id: string; name: string; code?: string }): Promise<void>;
   createCompany(input: { id: string; tenantId: string; name: string; legalName?: string; taxId?: string; email?: string; phone?: string; timezone: string; currency: string }): Promise<void>;
   createBranch(input: { id: string; tenantId: string; companyId: string; name: string; code?: string; address?: string; city?: string; timezone: string }): Promise<void>;
-  createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor }): Promise<void>;
+  createOwnerMembership(input: { id: string; tenantId: string; userId: string; actor: OnboardingActor; isPrimary: boolean }): Promise<void>;
   assignInitialOwnerRole(input: { id: string; tenantId: string; membershipId: string; companyId: string; branchId: string; actor: OnboardingActor }): Promise<void>;
   applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void>;
   completeOnboarding(input: { onboardingId: string; tenantId: string; companyId: string; branchId: string; ownerUserId: string; membershipId: string; status: OnboardingStatus; licenseReference?: string; requestedPlan?: string; correlationId: string }): Promise<OnboardingResult>;
@@ -79,7 +79,7 @@ export class InitializeTenant {
       await tx.audit({ onboardingId, tenantId, actor: input.actor, actionCode: "COMPANY_CREATED", resourceType: "COMPANY", resourceId: companyId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { trade_name: input.companyName, currency_code: input.initialCurrency } });
       await tx.createBranch({ id: branchId, tenantId, companyId, name: input.branchName, code: input.branchCode, address: input.branchAddress, city: input.branchCity, timezone: input.initialTimezone });
       await tx.audit({ onboardingId, tenantId, actor: input.actor, actionCode: "BRANCH_CREATED", resourceType: "BRANCH", resourceId: branchId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { name: input.branchName, timezone: input.initialTimezone } });
-      await tx.createOwnerMembership({ id: membershipId, tenantId, userId: owner.userId, actor: input.actor });
+      await tx.createOwnerMembership({ id: membershipId, tenantId, userId: owner.userId, actor: input.actor, isPrimary: owner.created });
       await tx.audit({ onboardingId, tenantId, actor: input.actor, actionCode: "TENANT_OWNER_ASSIGNED", resourceType: "TENANT_MEMBERSHIP", resourceId: membershipId, correlationId: input.correlationId, result: "SUCCEEDED", newValue: { membership_type: "OWNER", owner_user_id: owner.userId, owner_created: owner.created } });
       await tx.assignInitialOwnerRole({ id: roleAssignmentId, tenantId, membershipId, companyId, branchId, actor: input.actor });
       await tx.audit({ onboardingId, tenantId, actor: input.actor, actionCode: "OWNER_ROLE_ASSIGNED", resourceType: "USER_ROLE_ASSIGNMENT", resourceId: roleAssignmentId, correlationId: input.correlationId, result: "SUCCEEDED" });
