@@ -29,9 +29,6 @@ importers:
       '@pos-platform/device-trust':
         specifier: workspace:*
         version: link:../../packages/device-trust
-      pg:
-        specifier: 8.23.0
-        version: 8.23.0
     devDependencies:
       '@types/node':
         specifier: 22.20.1
@@ -195,6 +192,12 @@ importers:
       '@pos-platform/application':
         specifier: workspace:*
         version: link:../application
+      '@pos-platform/device-trust':
+        specifier: workspace:*
+        version: link:../device-trust
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
     devDependencies:
       '@types/node':
         specifier: 22.20.1
