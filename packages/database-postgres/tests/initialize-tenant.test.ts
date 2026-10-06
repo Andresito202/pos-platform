@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { InitializeTenant, type OnboardingInput } from "@pos-platform/application";
+import { InitializeTenant } from "../../../apps/pos-local-service/src/onboarding/initialize-tenant.js";
+import type { OnboardingInput } from "@pos-platform/contracts";
 import { PostgresOnboardingRepository } from "../src/onboarding-repository.js";
 import { uuidV7 } from "../src/sql.js";
 
