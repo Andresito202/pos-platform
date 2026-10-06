@@ -65,8 +65,8 @@ describe("database-postgres ONB-002 integration", () => {
     const root = createPostgresPool(dbUrl());
     try {
       await root.query(bootstrap);
-      await root.query(foundation);
       await root.query("SET ROLE pos_schema_owner");
+      await root.query(foundation);
       await root.query(hardening);
       await root.query(
         `INSERT INTO "authorization".roles(id,code,name,scope_type,version,status,created_at)
