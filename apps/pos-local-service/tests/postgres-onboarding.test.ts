@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
+import { createPostgresPool } from "@pos-platform/database-postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { InitializeTenant } from "@pos-platform/pos-local-service";
 import { PostgresOnboardingRepository } from "@pos-platform/database-postgres";
@@ -41,7 +41,7 @@ describe("database-postgres ONB-002 integration", () => {
   let inspection: Pool;
 
   beforeAll(async () => {
-    admin = new Pool({ connectionString: SERVER_URL, max: 2 });
+    admin = createPostgresPool({ connectionString: SERVER_URL, max: 2 });
     await admin.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin.query('CREATE DATABASE "' + DATABASE + '"');
 
@@ -49,7 +49,7 @@ describe("database-postgres ONB-002 integration", () => {
     const foundation = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "001_central_foundation.up.sql"), "utf8");
     const hardening = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "005_onboarding_bootstrap_hardening.up.sql"), "utf8");
 
-    const root = new Pool({ connectionString: dbUrl() });
+    const root = createPostgresPool({ connectionString: dbUrl() });
     try {
       await root.query(bootstrap);
       await root.query(foundation);
@@ -63,8 +63,8 @@ describe("database-postgres ONB-002 integration", () => {
     } finally {
       await root.end();
     }
-    runtime = new Pool({ connectionString: roleUrl("pos_platform_app"), max: 4 });
-    inspection = new Pool({ connectionString: dbUrl(), max: 2 });
+    runtime = createPostgresPool({ connectionString: roleUrl("pos_platform_app"), max: 4 });
+    inspection = createPostgresPool({ connectionString: dbUrl(), max: 2 });
   }, 120_000);
 
   afterAll(async () => {
