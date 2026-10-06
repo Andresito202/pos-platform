@@ -41,7 +41,7 @@ describe("database-postgres ONB-002 integration", () => {
   let inspection: Pool;
 
   beforeAll(async () => {
-    admin = createPostgresPool({ connectionString: SERVER_URL, max: 2 });
+    admin = createPostgresPool(SERVER_URL, 2);
     await admin.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin.query('CREATE DATABASE "' + DATABASE + '"');
 
@@ -63,8 +63,8 @@ describe("database-postgres ONB-002 integration", () => {
     } finally {
       await root.end();
     }
-    runtime = createPostgresPool({ connectionString: roleUrl("pos_platform_app"), max: 4 });
-    inspection = createPostgresPool({ connectionString: dbUrl(), max: 2 });
+    runtime = createPostgresPool(roleUrl("pos_platform_app"), 4);
+    inspection = createPostgresPool(dbUrl(), 2);
   }, 120_000);
 
   afterAll(async () => {
