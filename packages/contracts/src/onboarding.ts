@@ -1,5 +1,3 @@
-import type { UUID } from "./primitives.js";
-
 export type OnboardingActor = { type: "USER" | "PLATFORM_ACCOUNT"; id: string };
 export type OnboardingInput = {
   actor: OnboardingActor; tenantName: string; tenantCode?: string; commercialReference?: string;
