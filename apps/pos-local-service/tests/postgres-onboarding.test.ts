@@ -49,7 +49,7 @@ describe("database-postgres ONB-002 integration", () => {
     const foundation = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "001_central_foundation.up.sql"), "utf8");
     const hardening = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "005_onboarding_bootstrap_hardening.up.sql"), "utf8");
 
-    const root = createPostgresPool({ connectionString: dbUrl() });
+    const root = createPostgresPool(dbUrl());
     try {
       await root.query(bootstrap);
       await root.query(foundation);
