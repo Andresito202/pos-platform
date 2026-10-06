@@ -9,15 +9,15 @@ import {
   createCentralHttpResponseSchema,
 } from "../src/index.js";
 
-const requestId = "550e8400-e29b-41d4-a716-446655440101";
-const correlationId = "550e8400-e29b-41d4-a716-446655440102";
-const operationId = "550e8400-e29b-41d4-a716-446655440103";
-const tenantId = "550e8400-e29b-41d4-a716-446655440104";
-const companyId = "550e8400-e29b-41d4-a716-446655440105";
-const branchId = "550e8400-e29b-41d4-a716-446655440106";
-const deviceId = "550e8400-e29b-41d4-a716-446655440107";
-const installationId = "550e8400-e29b-41d4-a716-446655440108";
-const diagnosticId = "550e8400-e29b-41d4-a716-446655440109";
+const requestId = "01890f5a-0000-7000-8000-000000000101";
+const correlationId = "01890f5a-0000-7000-8000-000000000102";
+const operationId = "01890f5a-0000-7000-8000-000000000103";
+const tenantId = "01890f5a-0000-7000-8000-000000000104";
+const companyId = "01890f5a-0000-7000-8000-000000000105";
+const branchId = "01890f5a-0000-7000-8000-000000000106";
+const deviceId = "01890f5a-0000-7000-8000-000000000107";
+const installationId = "01890f5a-0000-7000-8000-000000000108";
+const diagnosticId = "01890f5a-0000-7000-8000-000000000109";
 const idempotencyKey = "sale:complete:cross-boundary";
 
 const ipcRequest = {
