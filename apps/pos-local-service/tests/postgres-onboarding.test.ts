@@ -45,6 +45,23 @@ describe("database-postgres ONB-002 integration", () => {
     await admin.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin.query('CREATE DATABASE "' + DATABASE + '"');
 
+    await admin.query(`DO $
+DECLARE role_name text;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['pos_schema_owner','pos_migrator','pos_app','pos_worker','pos_platform_app','pos_platform_admin'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+      EXECUTE format('CREATE ROLE %I NOLOGIN', role_name);
+    END IF;
+  END LOOP;
+  ALTER ROLE pos_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  ALTER ROLE pos_migrator LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  ALTER ROLE pos_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  ALTER ROLE pos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  ALTER ROLE pos_platform_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  ALTER ROLE pos_platform_admin LOGIN NOSUPERUSER BYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  GRANT pos_schema_owner TO pos_migrator WITH SET TRUE, INHERIT FALSE, ADMIN FALSE;
+END $`);
+
     const bootstrap = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "bootstrap.sql"), "utf8");
     const foundation = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "001_central_foundation.up.sql"), "utf8");
     const hardening = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "005_onboarding_bootstrap_hardening.up.sql"), "utf8");
