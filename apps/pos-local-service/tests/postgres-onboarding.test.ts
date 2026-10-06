@@ -57,7 +57,7 @@ describe("database-postgres ONB-002 integration", () => {
     await admin.query('ALTER ROLE pos_platform_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
     await admin.query('ALTER ROLE pos_platform_admin LOGIN NOSUPERUSER BYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
     await admin.query('GRANT pos_schema_owner TO pos_migrator WITH SET TRUE, INHERIT FALSE, ADMIN FALSE');
-    await admin.query('GRANT CREATE ON DATABASE "+DATABASE+" TO pos_schema_owner');
+    await admin.query('GRANT CREATE ON DATABASE \"' + DATABASE + '\" TO pos_schema_owner');
 
     const bootstrap = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "bootstrap.sql"), "utf8");
     const foundation = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "001_central_foundation.up.sql"), "utf8");
