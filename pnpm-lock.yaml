@@ -29,6 +29,9 @@ importers:
       '@pos-platform/device-trust':
         specifier: workspace:*
         version: link:../../packages/device-trust
+      '@pos-platform/database-postgres':
+        specifier: workspace:*
+        version: link:../../packages/database-postgres
     devDependencies:
       '@types/node':
         specifier: 22.20.1
@@ -118,6 +121,9 @@ importers:
       '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pos-platform/database-postgres':
+        specifier: workspace:*
+        version: link:../../packages/database-postgres
       '@pos-platform/database-sqlite':
         specifier: workspace:*
         version: link:../../packages/database-sqlite
@@ -192,6 +198,9 @@ importers:
       '@pos-platform/application':
         specifier: workspace:*
         version: link:../application
+      '@pos-platform/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@pos-platform/device-trust':
         specifier: workspace:*
         version: link:../device-trust
