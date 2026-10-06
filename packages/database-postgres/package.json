@@ -15,7 +15,8 @@
   "dependencies": {
     "@pos-platform/application": "workspace:*",
     "pg": "8.23.0",
-    "@pos-platform/device-trust": "workspace:*"
+    "@pos-platform/device-trust": "workspace:*",
+    "@pos-platform/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
