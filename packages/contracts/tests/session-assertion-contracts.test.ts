@@ -230,8 +230,8 @@ describe("SessionAssertionClaimsSchema — sequence", () => {
 });
 
 describe("SessionAssertionClaimsSchema — key_id", () => {
-  it("rejects a lowercase key_id", () => {
-    expect(() => SessionAssertionClaimsSchema.parse(claims({ key_id: "session_key_1" }))).toThrow();
+  it("rejects a key_id starting with a digit", () => {
+    expect(() => SessionAssertionClaimsSchema.parse(claims({ key_id: "1session_key_1" }))).toThrow();
   });
 
   it("rejects a key_id with spaces", () => {
