@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPostgresPool } from "@pos-platform/database-postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { InitializeTenant } from "@pos-platform/pos-local-service";
+import { InitializeTenant } from "../src/onboarding/initialize-tenant.js";
 import { PostgresOnboardingRepository } from "@pos-platform/database-postgres";
 import { uuidV7 } from "@pos-platform/database-postgres";
 
