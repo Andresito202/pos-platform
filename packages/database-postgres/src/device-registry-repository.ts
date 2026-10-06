@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { createHash } from "node:crypto";
 import { DeviceTrustCredentialClaimsSchema, SignedDeviceTrustCredentialSchema } from "@pos-platform/contracts";
 import {
@@ -9,6 +9,10 @@ import {
 } from "@pos-platform/device-trust";
 
 export type DeviceRegistryRepositoryOptions = { pool: Pool };
+
+export function createPostgresPool(connectionString: string, max = 10, applicationName = "pos-platform-postgres"): Pool {
+  return new Pool({ connectionString, max, application_name: applicationName });
+}
 
 function publicKeyPemFromStorage(value: Buffer): string { return value.toString("utf8"); }
 
