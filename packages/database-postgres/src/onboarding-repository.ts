@@ -81,7 +81,14 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
          RETURNING id::text`,
         [input.id,input.actor.type,input.actor.id,input.idempotencyKey,input.requestChecksum,input.correlationId,normalizeOptional(input.commercialReference)],
       );
-      return { claimed: rows.length === 1 };
+      if (rows.length === 1) return { claimed: true };
+      const existing = await this.client.query<Record<string, string>>(
+        `SELECT id::text FROM tenancy.onboarding_operations
+          WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3
+          LIMIT 1`,
+        [input.actor.type, input.actor.id, input.idempotencyKey],
+      );
+      return { claimed: existing.length === 1 && existing[0].id === input.id };
     } catch (error) {
       const pgError = error as { code?: string; constraint?: string };
       if (pgError.code === "23505" && pgError.constraint === "onboarding_operations_commercial_reference_uq") {
