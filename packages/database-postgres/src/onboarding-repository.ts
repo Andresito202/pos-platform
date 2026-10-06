@@ -147,7 +147,8 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
   }
 
   async applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void> {
-    if (input.taxProfile !== undefined && typeof input.taxProfile !== "string") throw new Error("ONBOARDING_TAX_PROFILE_UNSUPPORTED");\n    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
+    if (input.taxProfile !== undefined && typeof input.taxProfile !== "string") throw new Error("ONBOARDING_TAX_PROFILE_UNSUPPORTED");
+    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
     for (const key of Object.keys(input.configuration)) if (!allowed.has(key)) throw new Error("ONBOARDING_CONFIGURATION_UNSUPPORTED_" + key);
     const pricing = typeof input.configuration.pricingPolicyVersion === "string" ? input.configuration.pricingPolicyVersion : null;
     const tax = typeof input.configuration.taxPolicyVersion === "string" ? input.configuration.taxPolicyVersion : typeof input.taxProfile === "string" ? input.taxProfile : null;
