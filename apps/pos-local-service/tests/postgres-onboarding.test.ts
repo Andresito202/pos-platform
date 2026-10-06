@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPostgresPool } from "@pos-platform/database-postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { InitializeTenant } from "../src/onboarding/initialize-tenant.js";
-import { PostgresOnboardingRepository } from "@pos-platform/database-postgres";
+import type { OnboardingInput } from "@pos-platform/contracts";
+import { PostgresOnboardingRepository, createPostgresPool } from "@pos-platform/database-postgres";
 import { uuidV7 } from "@pos-platform/database-postgres";
 
 const SERVER_URL = process.env.POSTGRES_TEST_URL ?? "postgres://postgres@127.0.0.1:55432/postgres";
@@ -36,93 +36,27 @@ function request(suffix: string, actorId = "01890f5a-0000-7000-8000-000000000001
 }
 
 describe("database-postgres ONB-002 integration", () => {
-  let admin: Pool;
-  let runtime: Pool;
-  let inspection: Pool;
+  let admin: ReturnType<typeof createPostgresPool>;
+  let runtime: ReturnType<typeof createPostgresPool>;
+  let inspection: ReturnType<typeof createPostgresPool>;
 
   beforeAll(async () => {
     admin = createPostgresPool(SERVER_URL, 2);
     await admin.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin.query('CREATE DATABASE "' + DATABASE + '"');
 
-    await admin.query(`DO $do$
-DECLARE role_name text;
-BEGIN
-  FOREACH role_name IN ARRAY ARRAY['pos_schema_owner','pos_migrator','pos_app','pos_worker','pos_platform_app','pos_platform_admin'] LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-      EXECUTE format('CREATE ROLE %I NOLOGIN', role_name);
-    END IF;
-  END LOOP;
-  ALTER ROLE pos_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_migrator LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_platform_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_platform_admin LOGIN NOSUPERUSER BYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  GRANT pos_schema_owner TO pos_migrator WITH SET TRUE, INHERIT FALSE, ADMIN FALSE;
-END $doimport { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createPostgresPool } from "@pos-platform/database-postgres";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { InitializeTenant } from "../src/onboarding/initialize-tenant.js";
-import { PostgresOnboardingRepository } from "@pos-platform/database-postgres";
-import { uuidV7 } from "@pos-platform/database-postgres";
-
-const SERVER_URL = process.env.POSTGRES_TEST_URL ?? "postgres://postgres@127.0.0.1:55432/postgres";
-const DATABASE = "target_database_postgres_onboarding";
-const NOW = new Date("2026-10-05T12:00:00.000Z");
-const OWNER_ROLE = "OWNER";
-
-function dbUrl(): string { const url = new URL(SERVER_URL); url.pathname = "/" + DATABASE; return url.toString(); }
-function roleUrl(role: string): string { const url = new URL(dbUrl()); url.username = role; url.password = ""; return url.toString(); }
-
-function request(suffix: string, actorId = "01890f5a-0000-7000-8000-000000000001"): OnboardingInput {
-  return {
-    actor: { type: "PLATFORM_ACCOUNT", id: actorId },
-    tenantName: "Tenant " + suffix,
-    tenantCode: "TEN-" + suffix,
-    commercialReference: "COMM-" + suffix,
-    companyName: "Company " + suffix,
-    companyTaxId: "900.123.456-7",
-    branchName: "Branch " + suffix,
-    ownerEmail: "owner+" + suffix.toLowerCase() + "@example.test",
-    ownerFullName: "Owner " + suffix,
-    initialLocale: "es-CO",
-    initialTimezone: "America/Bogota",
-    initialCurrency: "COP",
-    initialConfiguration: { taxPolicyVersion: "tax-v1", pricingPolicyVersion: "pricing-v1" },
-    idempotencyKey: "onb-" + suffix,
-    correlationId: uuidV7(NOW),
-  };
-}
-
-describe("database-postgres ONB-002 integration", () => {
-  let admin: Pool;
-  let runtime: Pool;
-  let inspection: Pool;
-
-  beforeAll(async () => {
-    admin = createPostgresPool(SERVER_URL, 2);
-    await admin.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
-    await admin.query('CREATE DATABASE "' + DATABASE + '"');
-
-    await admin.query(`DO $do$
-DECLARE role_name text;
-BEGIN
-  FOREACH role_name IN ARRAY ARRAY['pos_schema_owner','pos_migrator','pos_app','pos_worker','pos_platform_app','pos_platform_admin'] LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-      EXECUTE format('CREATE ROLE %I NOLOGIN', role_name);
-    END IF;
-  END LOOP;
-  ALTER ROLE pos_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_migrator LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_platform_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  ALTER ROLE pos_platform_admin LOGIN NOSUPERUSER BYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
-  GRANT pos_schema_owner TO pos_migrator WITH SET TRUE, INHERIT FALSE, ADMIN FALSE;
-);
+    const roles = ["pos_schema_owner","pos_migrator","pos_app","pos_worker","pos_platform_app","pos_platform_admin"] as const;
+    for (const role of roles) {
+      const exists = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+      if (exists.rowCount === 0) await admin.query('CREATE ROLE "' + role + '" NOLOGIN');
+    }
+    await admin.query('ALTER ROLE pos_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_migrator LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_platform_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_platform_admin LOGIN NOSUPERUSER BYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('GRANT pos_schema_owner TO pos_migrator WITH SET TRUE, INHERIT FALSE, ADMIN FALSE');
 
     const bootstrap = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "bootstrap.sql"), "utf8");
     const foundation = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "001_central_foundation.up.sql"), "utf8");
