@@ -77,18 +77,12 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
         `INSERT INTO tenancy.onboarding_operations
           (id,actor_type,actor_id,idempotency_key,request_checksum,correlation_id,commercial_reference,status,created_at,updated_at,version)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDING',clock_timestamp(),clock_timestamp(),1)
-         ON CONFLICT ON CONSTRAINT onboarding_operations_identity_uq DO NOTHING
+         ON CONFLICT ON CONSTRAINT onboarding_operations_identity_uq
+         DO UPDATE SET updated_at = tenancy.onboarding_operations.updated_at
          RETURNING id::text`,
         [input.id,input.actor.type,input.actor.id,input.idempotencyKey,input.requestChecksum,input.correlationId,normalizeOptional(input.commercialReference)],
       );
-      if (rows.length === 1) return { claimed: true };
-      const existing = await this.client.query<Record<string, string>>(
-        `SELECT id::text FROM tenancy.onboarding_operations
-          WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3
-          LIMIT 1`,
-        [input.actor.type, input.actor.id, input.idempotencyKey],
-      );
-      return { claimed: existing.length === 1 && existing[0].id === input.id };
+      return { claimed: rows.length === 1 && rows[0].id === input.id };
     } catch (error) {
       const pgError = error as { code?: string; constraint?: string };
       if (pgError.code === "23505" && pgError.constraint === "onboarding_operations_commercial_reference_uq") {
