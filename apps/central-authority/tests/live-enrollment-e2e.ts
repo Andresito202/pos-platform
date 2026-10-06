@@ -1,5 +1,5 @@
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
-import { Pool } from "pg";
+import { createPostgresPool } from "@pos-platform/database-postgres";
 import { DeviceEnrollmentRequestSchema, DeviceEnrollmentResultSchema } from "@pos-platform/contracts";
 import { createEnrollmentChallenge, activationSecretChecksum, canonicalDeviceTrustJson } from "@pos-platform/device-trust";
 
@@ -66,7 +66,7 @@ const request = {
 
 const validatedRequest = DeviceEnrollmentRequestSchema.parse(request);
 
-const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+const pool = createPostgresPool({ connectionString: databaseUrl, max: 2 });
 try {
   await pool.query(
     `INSERT INTO identity.device_registry
