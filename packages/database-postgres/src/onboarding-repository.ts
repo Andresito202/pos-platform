@@ -69,7 +69,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       [uuidV7(), email, emailNormalized, normalizeOptional(input.phone), normalizeOptional(input.phone)?.replace(/\D/g, "") ?? null, input.fullName.trim()],
     );
     const insertedOwner = inserted[0];
-    if (insertedOwner) return { userId: insertedOwner.id, created: true };
+    if (insertedOwner?.id) return { userId: insertedOwner.id, created: true };
     const existing = await this.client.query<Record<string, string>>(
       "SELECT id::text FROM identity.users WHERE email_normalized=$1 FOR UPDATE", [emailNormalized],
     );
