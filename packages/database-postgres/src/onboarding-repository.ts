@@ -28,7 +28,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       "SELECT set_config('app.actor_id',$1,true) AS actor_id",
       [actor.id],
     );
-    if (context.rows[0]?.actor_id !== actor.id) throw new Error("ONBOARDING_ACTOR_CONTEXT_MISMATCH:" + (context[0]?.actor_id ?? "<null>") + ":" + actor.id);
+    if (context[0]?.actor_id !== actor.id) throw new Error("ONBOARDING_ACTOR_CONTEXT_MISMATCH:" + (context[0]?.actor_id ?? "<null>") + ":" + actor.id);
   }
   async setTenantContext(tenantId: string): Promise<void> {
     await this.client.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
@@ -67,12 +67,14 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
        RETURNING id::text`,
       [uuidV7(), email, emailNormalized, normalizeOptional(input.phone), normalizeOptional(input.phone)?.replace(/\D/g, "") ?? null, input.fullName.trim()],
     );
-    if (inserted[0]) return { userId: inserted[0].id, created: true };
+    const insertedOwner = inserted[0];
+    if (insertedOwner) return { userId: insertedOwner.id, created: true };
     const existing = await this.client.query<Record<string, string>>(
       "SELECT id::text FROM identity.users WHERE email_normalized=$1 FOR UPDATE", [emailNormalized],
     );
-    if (!existing[0]) throw new Error("ONBOARDING_OWNER_CREATE_FAILED");
-    return { userId: existing[0].id, created: false };
+    const existingOwner = existing[0];
+    if (!existingOwner) throw new Error("ONBOARDING_OWNER_CREATE_FAILED");
+    return { userId: existingOwner.id, created: false };
   }
 
   async createOnboarding(input: { id: string; actor: OnboardingActor; idempotencyKey: string; requestChecksum: string; correlationId: string; commercialReference?: string }): Promise<{ claimed: boolean }> {
@@ -142,12 +144,13 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
         WHERE code='OWNER' AND status='ACTIVE' AND scope_type='BUSINESS'
         ORDER BY version DESC LIMIT 1`,
     );
-    if (!role[0]) throw new Error("ONBOARDING_OWNER_ROLE_NOT_MATERIALIZED");
+    const ownerRole = role[0];
+    if (!ownerRole) throw new Error("ONBOARDING_OWNER_ROLE_NOT_MATERIALIZED");
     await this.client.query(
       `INSERT INTO "authorization".user_role_assignments
         (id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,valid_until,created_at,created_by_actor_type,created_by_actor_id,revoked_at,version)
        VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$7,$8,NULL,1)`,
-      [input.id,input.tenantId,input.membershipId,role[0].id,input.companyId,input.branchId,input.actor.type,input.actor.id],
+      [input.id,input.tenantId,input.membershipId,ownerRole.id,input.companyId,input.branchId,input.actor.type,input.actor.id],
     );
   }
 
@@ -231,6 +234,6 @@ class PostgresTransactionalSql implements TransactionalSql {
 export class PostgresOnboardingRepository implements OnboardingRepository {
   constructor(private readonly pool: PostgresPoolLike) {}
   async transaction<T>(work: (tx: OnboardingTransaction) => Promise<T>): Promise<T> {
-    return new PostgresTransactionalSql(this.pool).withTransaction((client) => work(new PostgresOnboardingTransaction(client)));
+    return new PostgresTransactionalSql(this.pool).withTransaction(async (client) => work(new PostgresOnboardingTransaction(client)));
   }
 }
