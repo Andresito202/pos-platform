@@ -150,3 +150,94 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
     );
     const ownerRole = role[0];
     if (!ownerRole) throw new Error("ONBOARDING_OWNER_ROLE_NOT_MATERIALIZED");
+    await this.client.query(
+      `INSERT INTO "authorization".user_role_assignments
+        (id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,valid_until,created_at,created_by_actor_type,created_by_actor_id,revoked_at,version)
+       VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$7,$8,NULL,1)`,
+      [input.id,input.tenantId,input.membershipId,ownerRole.id,input.companyId,input.branchId,input.actor.type,input.actor.id],
+    );
+  }
+
+  async applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void> {
+    if (input.taxProfile !== undefined && typeof input.taxProfile !== "string") throw new Error("ONBOARDING_TAX_PROFILE_UNSUPPORTED");
+    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
+    for (const key of Object.keys(input.configuration)) if (!allowed.has(key)) throw new Error("ONBOARDING_CONFIGURATION_UNSUPPORTED_" + key);
+    const pricing = typeof input.configuration.pricingPolicyVersion === "string" ? input.configuration.pricingPolicyVersion : null;
+    const tax = typeof input.configuration.taxPolicyVersion === "string" ? input.configuration.taxPolicyVersion : typeof input.taxProfile === "string" ? input.taxProfile : null;
+    const rounding = typeof input.configuration.roundingPolicyVersion === "string" ? input.configuration.roundingPolicyVersion : null;
+    const authorization = typeof input.configuration.authorizationPolicyVersionId === "string" ? input.configuration.authorizationPolicyVersionId : null;
+    await this.client.query(
+      `UPDATE tenancy.onboarding_operations
+          SET pricing_policy_version=$2,tax_policy_version=$3,rounding_policy_version=$4,authorization_policy_version_id=$5,updated_at=clock_timestamp(),version=version+1
+        WHERE id=$1`,
+      [input.onboardingId,pricing,tax,rounding,authorization],
+    );
+  }
+
+  async completeOnboarding(input: { onboardingId: string; tenantId: string; companyId: string; branchId: string; ownerUserId: string; membershipId: string; status: "READY_FOR_LICENSE" | "READY_FOR_ACTIVATION" | "COMPLETED"; licenseReference?: string; requestedPlan?: string; correlationId: string }): Promise<OnboardingResult> {
+    const rows = await this.client.query<Record<string, any>>(
+      `UPDATE tenancy.onboarding_operations
+          SET tenant_id=$2,company_id=$3,branch_id=$4,owner_user_id=$5,tenant_membership_id=$6,
+              status='READY_FOR_LICENSE',license_reference=$7,requested_plan=$8,updated_at=clock_timestamp(),version=version+1
+        WHERE id=$1
+        RETURNING id::text,tenant_id::text,company_id::text,branch_id::text,owner_user_id::text,tenant_membership_id::text,
+                  actor_type,actor_id::text,status,reason_code,license_reference,requested_plan,correlation_id::text,idempotency_key,request_checksum,created_at,updated_at`,
+      [input.onboardingId,input.tenantId,input.companyId,input.branchId,input.ownerUserId,input.membershipId,input.licenseReference ?? null,input.requestedPlan ?? null],
+    );
+    if (!rows[0]) throw new Error("ONBOARDING_COMPLETION_FAILED");
+    return mapOnboarding(rows[0]);
+  }
+
+  async audit(input: { onboardingId: string; tenantId: string | null; companyId?: string | null; branchId?: string | null; actor: OnboardingActor; actionCode: string; resourceType: string; resourceId?: string; operationId?: string; correlationId: string; result: string; reasonCode?: string; newValue?: unknown }): Promise<void> {
+    const payload = JSON.stringify(input.newValue ?? null);
+    await this.client.query(
+      `INSERT INTO audit.audit_events
+        (id,tenant_id,company_id,branch_id,actor_type,actor_id,session_id,device_id,action_code,resource_type,resource_reference_kind,resource_id,operation_id,correlation_id,schema_version,reported_at,server_recorded_at,result,reason_code,new_value,payload_checksum)
+       VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,'INSTANCE',$9,$10,$11,1,clock_timestamp(),clock_timestamp(),$12,$13,$14::jsonb,encode(sha256(convert_to($14::jsonb::text,'UTF8')),'hex'))`,
+      [uuidV7(),input.tenantId,input.companyId ?? null,input.branchId ?? null,input.actor.type,input.actor.id,input.actionCode,input.resourceType,input.resourceId ?? input.tenantId ?? input.onboardingId,input.operationId ?? null,input.correlationId,input.result,input.reasonCode ?? null,payload],
+    );
+  }
+
+  async recordSyncOperation(input: { operationId: string; tenantId: string; companyId: string; branchId: string; actor: OnboardingActor; aggregateId: string; operationType: string; idempotencyKey: string; correlationId: string; payload: Record<string, unknown>; payloadChecksum: string }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO sync.sync_operations
+        (id,tenant_id,company_id,branch_id,source_kind,device_id,installation_id,session_id,actor_type,actor_id,aggregate_type,aggregate_id,operation_type,idempotency_key,expected_version,authority_policy,parent_operation_id,causation_id,correlation_id,schema_version,payload,payload_checksum,sync_status,occurred_at_local,recorded_at_local,received_at_server,committed_at_server,version)
+       VALUES ($1,$2,$3,$4,'CENTRAL_SERVICE',NULL,NULL,NULL,$5,$6,'TENANT',$7,$8,$9,NULL,'SERVER_AUTHORITATIVE',NULL,NULL,$10,1,$11::jsonb,decode($12,'hex'),'READY_TO_SYNC',NULL,NULL,clock_timestamp(),clock_timestamp(),1)`,
+      [input.operationId,input.tenantId,input.companyId,input.branchId,input.actor.type,input.actor.id,input.aggregateId,input.operationType,input.idempotencyKey,input.correlationId,JSON.stringify(input.payload),input.payloadChecksum],
+    );
+  }
+
+  async recordOutbox(input: { id: string; tenantId: string; operationId: string; operationType: string; correlationId: string; payloadChecksum: string }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO sync.outbox_entries
+        (id,tenant_id,operation_id,device_id,local_sequence,operation_type,schema_version,payload_checksum,correlation_id,causation_id,sync_status,created_at,available_at,attempt_count,updated_at,version)
+       VALUES ($1,$2,$3,NULL,NULL,$4,1,decode($5,'hex'),$6,NULL,'READY_TO_SYNC',clock_timestamp(),clock_timestamp(),0,clock_timestamp(),1)`,
+      [input.id,input.tenantId,input.operationId,input.operationType,input.payloadChecksum,input.correlationId],
+    );
+  }
+}
+
+class PostgresTransactionalSql {
+  constructor(private readonly pool: PostgresPoolLike) {}
+  async withTransaction<T>(run: (tx: PostgresPoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await run(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+export class PostgresOnboardingRepository implements OnboardingRepository {
+  constructor(private readonly pool: PostgresPoolLike) {}
+  async transaction<T>(work: (tx: OnboardingTransaction) => Promise<T>): Promise<T> {
+    return new PostgresTransactionalSql(this.pool).withTransaction(async (client) => work(new PostgresOnboardingTransaction(client)));
+  }
+}
