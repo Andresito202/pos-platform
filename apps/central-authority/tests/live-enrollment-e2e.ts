@@ -66,7 +66,7 @@ const request = {
 
 const validatedRequest = DeviceEnrollmentRequestSchema.parse(request);
 
-const pool = createPostgresPool({ connectionString: databaseUrl, max: 2 });
+const pool = createPostgresPool(databaseUrl, 2);
 try {
   await pool.query(
     `INSERT INTO identity.device_registry
