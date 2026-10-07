@@ -80,7 +80,7 @@ describe("InitializeTenant", () => {
       ownerUserId: "01890f5a-0000-7000-8000-000000000014", tenantMembershipId: "01890f5a-0000-7000-8000-000000000015",
       status: "READY_FOR_LICENSE" as const, reasonCode: null, licenseReference: null, requestedPlan: null,
       correlationId: input().correlationId, idempotencyKey: input().idempotencyKey, createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "unused", actor: input().actor,
+      updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actor: input().actor,
     };
     const replayTx = tx();
     replayTx.createOnboarding = async () => ({ claimed: false });
