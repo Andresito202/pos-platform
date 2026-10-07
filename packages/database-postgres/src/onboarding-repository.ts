@@ -54,9 +54,10 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       const rows = await this.client.query<Record<string, string>>(
         "SELECT id::text,email_normalized FROM identity.users WHERE id=$1 FOR UPDATE", [input.userId],
       );
-      if (!rows[0]) throw new Error("ONBOARDING_OWNER_USER_NOT_FOUND");
-      if (rows[0].email_normalized !== emailNormalized) throw new Error("ONBOARDING_OWNER_IDENTITY_MISMATCH");
-      return { userId: rows[0].id, created: false };
+      const existingUser = rows[0];
+      if (!existingUser) throw new Error("ONBOARDING_OWNER_USER_NOT_FOUND");
+      if (existingUser.email_normalized !== emailNormalized) throw new Error("ONBOARDING_OWNER_IDENTITY_MISMATCH");
+      return { userId: existingUser.id, created: false };
     }
 
     const inserted = await this.client.query<Record<string, string>>(
@@ -88,7 +89,8 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
          RETURNING id::text`,
         [input.id,input.actor.type,input.actor.id,input.idempotencyKey,input.requestChecksum,input.correlationId,normalizeOptional(input.commercialReference)],
       );
-      return { claimed: rows.length === 1 && rows[0].id === input.id };
+      const claimedRow = rows[0];
+      return { claimed: claimedRow?.id === input.id };
     } catch (error) {
       const pgError = error as { code?: string; constraint?: string };
       if (pgError.code === "23505" && pgError.constraint === "onboarding_operations_commercial_reference_uq") {
