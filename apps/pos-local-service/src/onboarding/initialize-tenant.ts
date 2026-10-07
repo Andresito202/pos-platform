@@ -1,5 +1,5 @@
 import { classifyIdempotency, uuidV7 } from "@pos-platform/contracts";
-import type { OnboardingActor, OnboardingAuthorizer, OnboardingInput, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/contracts";
+import type { OnboardingActor, OnboardingAuthorizer, OnboardingInput, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingStatus, OnboardingTransaction } from "@pos-platform/contracts";
 
 function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -14,7 +14,6 @@ function validate(input: OnboardingInput): void {
   if (!/^[A-Z]{3}$/.test(input.initialCurrency)) throw new Error("ONBOARDING_CURRENCY_INVALID");
 }
 
-export type OnboardingAuthorizer = { authorize(actor: OnboardingActor): Promise<void> };
 
 export class InitializeTenant {
   constructor(private readonly repository: OnboardingRepository, private readonly authorizer: OnboardingAuthorizer, private readonly now: () => Date = () => new Date()) {}
