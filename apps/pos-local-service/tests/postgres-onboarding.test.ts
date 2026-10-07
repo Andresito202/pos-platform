@@ -35,7 +35,7 @@ function request(suffix: string, actorId = "01890f5a-0000-7000-8000-000000000001
   };
 }
 
-describe("database-postgres ONB-002 integration", () => {
+describe.runIf(Boolean(process.env.POSTGRES_TEST_URL))("database-postgres ONB-002 integration", () => {
   let admin: ReturnType<typeof createPostgresPool>;
   let runtime: ReturnType<typeof createPostgresPool>;
   let inspection: ReturnType<typeof createPostgresPool>;
