@@ -1,6 +1,6 @@
-import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/application";
+import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/contracts";
 
-import { uuidV7 } from "./sql.js";
+import { uuidV7, type SqlQueryExecutor } from "./sql.js";
 
 export interface PostgresPoolClient extends SqlQueryExecutor { release(): void; }
 export interface PostgresPoolLike { connect(): Promise<PostgresPoolClient>; }
