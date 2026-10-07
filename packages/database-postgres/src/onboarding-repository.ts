@@ -28,7 +28,7 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       "SELECT set_config('app.actor_id',$1,true) AS actor_id",
       [actor.id],
     );
-    if (context[0]?.actor_id !== actor.id) throw new Error("ONBOARDING_ACTOR_CONTEXT_MISMATCH:" + (context[0]?.actor_id ?? "<null>") + ":" + actor.id);
+    if (context.rows[0]?.actor_id !== actor.id) throw new Error("ONBOARDING_ACTOR_CONTEXT_MISMATCH:" + (context[0]?.actor_id ?? "<null>") + ":" + actor.id);
   }
   async setTenantContext(tenantId: string): Promise<void> {
     await this.client.query("SELECT set_config('app.tenant_id',$1,true)", [tenantId]);
