@@ -88,6 +88,27 @@ describe("App", () => {
     });
   });
 
+  it("groups authorized screens under their existing navigation sections", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ"],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Caja y ventas" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy();
+    });
+
+    expect(screen.getByText("Operación")).toBeTruthy();
+    expect(screen.getByText("Catálogo e inventario")).toBeTruthy();
+  });
+
   it("materializes the first authorized screen and keeps navigation capability-driven", async () => {
     window.posService["authorization.capabilities.get"].mockResolvedValue({
       status: "SUCCEEDED",
