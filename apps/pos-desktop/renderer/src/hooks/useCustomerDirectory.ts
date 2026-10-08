@@ -30,6 +30,7 @@ export interface CustomerRegistration {
   readonly fiscalResponsibilityCodes: readonly string[];
   readonly email: string;
   readonly phone: string;
+  readonly subscribeToNews: boolean;
 }
 
 export interface CustomerDirectoryState {
@@ -91,6 +92,18 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
       // Se guarda también el rechazo: `findings` es lo que dice **qué** campo
       // fiscal está mal, y ocultarlo dejaría al operador adivinando.
       setRegistered(response.result);
+      if (input.subscribeToNews && response.result.customer_id !== null && response.result.outcome === "REGISTERED") {
+        const marketingResponse = await callCommercial<CustomerMarketingSubscriptionResult>(
+          "customer.marketing.subscribe",
+          { customer_id: response.result.customer_id },
+          newIdempotencyKey(),
+        );
+        if (marketingResponse.result === null) {
+          setError(marketingResponse.result_code);
+        } else {
+          setMarketing(marketingResponse.result);
+        }
+      }
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
