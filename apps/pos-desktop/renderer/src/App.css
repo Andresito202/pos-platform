@@ -304,3 +304,74 @@ button {
 .pos-admin-security-list span{padding:11px 12px;border:1px solid var(--camacho-border);border-radius:10px;background:var(--camacho-surface);font-size:13px}
 @media (max-width:900px){.pos-admin-header{flex-direction:column}.pos-admin-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:560px){.pos-admin-grid{grid-template-columns:1fr}.pos-admin-security-list{grid-template-columns:1fr}}
+
+
+.pos-admin-audit-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(150px, 1fr)) minmax(150px, .8fr) auto;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.pos-admin-audit-toolbar input,
+.pos-admin-audit-toolbar select,
+.pos-admin-audit-toolbar button {
+  min-height: 42px;
+  border: 1px solid var(--camacho-border);
+  border-radius: 12px;
+  background: var(--camacho-surface);
+  color: var(--camacho-ink);
+  padding: 0 12px;
+}
+.pos-admin-audit-toolbar button,
+.pos-admin-audit-actions button {
+  cursor: pointer;
+  font-weight: 700;
+}
+.pos-admin-audit-toolbar button:disabled,
+.pos-admin-audit-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+.pos-admin-audit-table {
+  overflow-x: auto;
+  border: 1px solid var(--camacho-border);
+  border-radius: 14px;
+  background: var(--camacho-card);
+}
+.pos-admin-audit-row {
+  display: grid;
+  grid-template-columns: 70px 190px 100px minmax(180px, 1fr) minmax(150px, .8fr) minmax(140px, .7fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 900px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--camacho-border);
+}
+.pos-admin-audit-row:last-child { border-bottom: 0; }
+.pos-admin-audit-head {
+  font-size: .78rem;
+  font-weight: 800;
+  color: var(--camacho-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.pos-admin-audit-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.pos-admin-audit-actions button {
+  min-height: 40px;
+  border: 1px solid var(--camacho-border);
+  border-radius: 12px;
+  padding: 0 14px;
+  background: var(--camacho-blue-soft);
+  color: var(--camacho-navy);
+}
+@media (max-width: 900px) {
+  .pos-admin-audit-toolbar { grid-template-columns: 1fr 1fr; }
+  .pos-admin-audit-toolbar input:first-child,
+  .pos-admin-audit-toolbar button { grid-column: 1 / -1; }
+}
