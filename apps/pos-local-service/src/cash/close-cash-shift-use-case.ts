@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
-import { uuidV7 } from "@pos-platform/contracts";
+import { uuidV7 }, PermissionCode } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SqliteCashShiftStore } from "./sqlite-cash-shift-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 
-export const PERMISSION_CASH_SHIFT_CLOSE = "CASH_SHIFT_CLOSE";
+export const PERMISSION_CASH_SHIFT_CLOSE = PermissionCode.CASH_SHIFT_CLOSE;
 
 export interface CloseCashShiftRequest {
   readonly shiftId: string;
