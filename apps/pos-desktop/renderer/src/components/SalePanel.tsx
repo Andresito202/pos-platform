@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
+import { ProductAvatar } from "./ProductAvatar.js";
 
 const paymentButtons = [
   { id: "cash", label: "Efectivo" },
@@ -63,19 +64,23 @@ export function SalePanel(): React.JSX.Element {
           </div>
 
           <div className="pos-touch-grid" data-testid="touch-product-grid">
-            <button type="button" className="pos-product-tile pos-product-tile-placeholder" disabled
-              title="Se conectará al listado real del catálogo cuando exista el contrato de consulta de productos.">
-              <span className="pos-product-icon" aria-hidden="true">+</span>
-              <strong>Productos del comercio</strong><small>Conectar catálogo táctil</small>
-            </button>
-            {sale.foundItem !== null && (
+            {sale.foundItem !== null ? (
               <button type="button" className="pos-product-tile" data-testid="found-product-tile"
                 onClick={() => { sale.addFoundItem(quantity.trim()); }}
                 disabled={sale.busy || sale.foundItem.price_amount === null}>
-                <span className="pos-product-icon" aria-hidden="true">●</span>
-                <strong data-testid="found-item-name">{sale.foundItem.name}</strong>
-                <small>{sale.foundItem.presentation_name} · {sale.foundItem.price_amount ?? "sin precio"}</small>
+                <ProductAvatar item={sale.foundItem} />
+                <strong className="pos-product-name-value" data-testid="found-item-name">{sale.foundItem.name}</strong>
+                <span className="pos-product-presentation">{sale.foundItem.presentation_name}</span>
+                <span className="pos-product-price" data-testid="found-item-price">
+                  {sale.foundItem.price_amount ?? "Sin precio"}
+                </span>
               </button>
+            ) : (
+              <div className="pos-product-empty" data-testid="touch-product-empty">
+                <span className="pos-product-icon" aria-hidden="true">⌕</span>
+                <strong>Busca un producto</strong>
+                <small>Escanea el código de barras para mostrar únicamente datos reales del catálogo.</small>
+              </div>
             )}
           </div>
 
