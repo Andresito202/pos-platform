@@ -29,7 +29,8 @@ type CommercialRequest = Extract<
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
-      | "sales.receipt.get";
+      | "sales.receipt.get"
+      | "audit.event.list";
   }
 >;
 
@@ -218,6 +219,7 @@ export class CommercialRequestHandler {
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
+      case "audit.event.list": return this.listAuditEvents(request, connectionId);
     }
   }
 
@@ -918,6 +920,57 @@ export class CommercialRequestHandler {
         stock_controlled: product.stockControlled,
         price_amount: price.amount,
         currency_code: price.currencyCode,
+      })),
+      has_more: result.hasMore,
+    });
+  }
+
+  // ── Auditoría local append-only ─────────────────────────────────────────────
+
+  private listAuditEvents(
+    request: Extract<CommercialRequest, { message_type: "audit.event.list" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { events: [], has_more: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.listAuditEvents.execute(
+      this.scope(),
+      authenticated.snapshot,
+      {
+        query: request.payload.query,
+        actionCode: request.payload.action_code,
+        resourceType: request.payload.resource_type,
+        actorType: request.payload.actor_type,
+        from: request.payload.from,
+        to: request.payload.to,
+        limit: request.payload.limit,
+        offset: request.payload.offset,
+      },
+    );
+
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    return succeeded(request, "FOUND", {
+      outcome: "FOUND",
+      events: result.events.map((event) => ({
+        sequence: event.sequence,
+        actor_type: event.actorType,
+        actor_id: event.actorId,
+        session_id: event.sessionId,
+        action_code: event.actionCode,
+        resource_type: event.resourceType,
+        resource_id: event.resourceId,
+        correlation_id: event.correlationId,
+        causation_id: event.causationId,
+        reason_code: event.reasonCode,
+        created_at: event.createdAt,
       })),
       has_more: result.hasMore,
     });
