@@ -230,3 +230,46 @@ Un bloque solo se cierra cuando existe:
 - evidencia de ejecución.
 
 No se considera cerrado por tener una pantalla, un botón o un archivo.
+
+
+## 2026-10-08 — catálogo canónico ejecutable materializado
+
+La auditoría de código encontró **18 códigos de permiso actualmente demostrados por casos de uso backend ejecutables**. Se centralizaron en `packages/contracts/src/permission-codes.ts` y los casos de uso existentes ahora consumen esa fuente común.
+
+Códigos materializados:
+
+- `SALES_SALE_CREATE`
+- `SALES_RECEIPT_READ`
+- `INVENTORY_STOCK_READ`
+- `INVENTORY_STOCK_RECEIVE`
+- `INVENTORY_STOCK_ADJUST`
+- `CATALOG_PRODUCT_READ`
+- `CATALOG_PRODUCT_REGISTER`
+- `CUSTOMERS_CUSTOMER_READ`
+- `CUSTOMERS_CUSTOMER_REGISTER`
+- `PAYMENTS_PAYMENT_READ`
+- `PAYMENTS_PAYMENT_REGISTER`
+- `PAYMENTS_PAYMENT_CANCEL`
+- `PAYMENTS_TRANSFER_REPORT`
+- `PAYMENTS_TRANSFER_CONFIRM`
+- `CASH_SHIFT_OPEN`
+- `CASH_SHIFT_CLOSE`
+- `FISCAL_DOCUMENT_ISSUE`
+- `AUDIT_EVENT_READ`
+
+Esto **no convierte la matriz conceptual de permisos en grants ejecutables**. La matriz contiene acciones adicionales que todavía requieren publicación autoritativa desde Central Authority. No se fabricaron equivalencias entre nombres conceptuales como `tenant.owner.change` y códigos ejecutables no demostrados.
+
+### Corrección de seguridad derivada
+
+La navegación administrativa ya no reutiliza permisos operativos de caja/ventas/inventario para habilitar superficies administrativas. Las pantallas administrativas/plataforma cuyo permiso canónico aún no está materializado permanecen no navegables; no reciben una autorización ficticia.
+
+El Dashboard administrativo queda actualmente limitado por `AUDIT_EVENT_READ`, y sus métricas individuales continúan fallando cerrado. En particular, ventas y caja agregadas permanecen ausentes hasta que Central Authority publique permisos administrativos específicos para esas lecturas.
+
+### Criterio de cierre de este bloque
+
+- **IMPLEMENTED:** catálogo común de los 18 permisos ejecutables existentes.
+- **IMPLEMENTED:** casos de uso backend alineados a esa fuente.
+- **IMPLEMENTED:** navegación sin reutilización de grants operativos para administración.
+- **PENDING:** publicación central de roles/grants para los permisos restantes de la matriz.
+- **PENDING:** API/servicio administrativo central para Usuarios, Roles, Empresa, Sucursales, Dispositivos, Licencias y Superadmin.
+- **PENDING:** pruebas CI/runtime; los runners de GitHub Actions continúan fallando antes del primer step.
