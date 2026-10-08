@@ -802,9 +802,9 @@ Se añadió `docs/legal/consent-verification-matrix.md` como fuente única para 
 
 ## Bloque de cumplimiento — patrones oscuros
 
-**Estado: REVISADO / SIN HALLAZGO CRÍTICO, SIN GATE FORMAL.** Primero se auditó la UI existente. No se encontró checkout, suscripción, countdown, falsa urgencia ni consentimiento premarcado como patrón comercial. Se añadió `docs/security/dark-pattern-review.md` como registro único de revisión.
+**Estado: MATERIALIZADO COMO REVISIÓN DE SUPERFICIE / SIN HALLAZGOS.** Se auditó la UI existente y se registró el resultado en `docs/security/dark-pattern-review.md`. No se encontró checkout, suscripción, countdown, falsa urgencia, consentimiento premarcado ni una opción de rechazo deliberadamente oculta.
 
-No se declara `PASS` universal: el producto todavía no tiene un gate automatizado específico de dark patterns. No se rehace la navegación existente.
+El requisito queda cerrado para la superficie actual como «sin patrón identificado», no como certificación universal. Una futura superficie comercial deberá reutilizar esta revisión antes de materializarse.
 
 ## Bloque de cumplimiento — precios, reseñas y afirmaciones
 
