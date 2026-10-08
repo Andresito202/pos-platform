@@ -66,6 +66,7 @@ Según el tipo de dato y la relación con el Responsable, las finalidades pueden
 - mantener trazabilidad y auditoría de operaciones cuando exista una obligación o finalidad legítima;
 - atender solicitudes, consultas y reclamos de los Titulares;
 - realizar soporte técnico cuando sea necesario para prestar el servicio;
+- enviar novedades del POS y comunicaciones comerciales relacionadas únicamente a Titulares que hayan otorgado una autorización separada y explícita para esa finalidad;
 - realizar sincronización o transmisión de información a servicios centrales o terceros únicamente cuando exista una finalidad autorizada, contractual o legal que lo permita.
 
 No se utilizarán datos para finalidades incompatibles con aquellas informadas al Titular.
@@ -97,7 +98,7 @@ Cuando la ley exija autorización, el Responsable deberá obtenerla mediante un 
 
 La clasificación de las finalidades actuales, incluyendo los casos en que la autorización no es la base jurídica aplicable y los casos que sí requieren una autorización separada, queda registrada en [docs/legal/consent-verification-matrix.md](./consent-verification-matrix.md).
 
-Cuando corresponda, deberán conservarse las evidencias necesarias para acreditar la autorización y su alcance. El producto no debe interpretar el simple registro de un adquiriente como consentimiento para comunicaciones comerciales u otra finalidad opcional.
+Cuando corresponda, deberán conservarse las evidencias necesarias para acreditar la autorización y su alcance. El producto no interpreta el simple registro de un adquiriente como consentimiento para comunicaciones comerciales. La capacidad materializada de `POS_NEWS` exige una acción separada de suscripción, registra versión y fecha de consentimiento y permite una baja explícita. La baja no elimina los datos fiscales que deban conservarse por otra finalidad.
 
 ## 9. Medidas de seguridad
 
