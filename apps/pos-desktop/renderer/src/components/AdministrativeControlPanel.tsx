@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
+import { useAdminMetrics } from "../hooks/useAdminMetrics.js";
 
 type ControlKind = "admin" | "superadmin" | "audit";
 
@@ -56,6 +57,7 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
   const [tab, setTab] = useState<Tab>("overview");
   const model = copy[kind];
   const audit = useAdministrativeAudit(kind === "audit");
+  const adminMetrics = useAdminMetrics(kind === "admin");
 
   return (
     <section className="pos-admin-panel" data-testid={`admin-panel-${kind}`}>
@@ -81,13 +83,21 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
         ))}
       </nav>
 
-      {tab === "overview" && kind !== "audit" && (
+      {tab === "overview" && kind === "admin" && (
+        <div className="pos-admin-grid">
+          <article className="pos-admin-card"><span>Ventas completadas</span><strong>{adminMetrics.metrics.sales_completed_count ?? "Sin permiso"}</strong><small>Total persistido en el scope de la sesión.</small></article>
+          <article className="pos-admin-card"><span>Ventas acumuladas</span><strong>{adminMetrics.metrics.sales_completed_amount ?? "Sin permiso"}</strong><small>Importe fiscal total persistido, escala 6.</small></article>
+          <article className="pos-admin-card"><span>Existencias controladas</span><strong>{adminMetrics.metrics.inventory_tracked_count ?? "Sin permiso"}</strong><small>Presentaciones con fila de existencia en la sucursal.</small></article>
+          <article className="pos-admin-card"><span>Turnos abiertos</span><strong>{adminMetrics.metrics.cash_open_shift_count ?? "Sin permiso"}</strong><small>Turnos OPEN/CLOSING del scope efectivo.</small></article>
+          {adminMetrics.error !== null && <div className="pos-admin-empty" role="alert"><strong>{adminMetrics.error}</strong><span>Las métricas no pudieron actualizarse.</span></div>}
+        </div>
+      )}
+
+      {tab === "overview" && kind === "superadmin" && (
         <div className="pos-admin-grid">
           {model.cards.map((card) => (
             <article key={card.label} className="pos-admin-card">
-              <span>{card.label}</span>
-              <strong>{card.value}</strong>
-              <small>{card.detail}</small>
+              <span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small>
             </article>
           ))}
         </div>
