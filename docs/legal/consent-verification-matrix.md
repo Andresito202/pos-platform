@@ -66,7 +66,13 @@ Esta matriz demuestra que existe una clasificación explícita de consentimiento
 
 No se crea una tabla, evento o endpoint de consentimiento genérico sin una finalidad real que lo necesite. Hacerlo ahora produciría almacenamiento de evidencia sin una semántica de negocio definida.
 
-## 7. Criterio de cierre
+## 7. Implementación de novedades del POS
+
+La captura de adquiriente ahora puede incluir un opt-in separado para `POS_NEWS` por correo. La autorización no se deriva del simple registro fiscal. El cliente puede consultar su estado, suscribirse o darse de baja desde la ficha del adquiriente. La baja cambia el estado a `UNSUBSCRIBED` y conserva la evidencia mínima necesaria; no borra el registro fiscal.
+
+La capacidad de **envío externo de correo/campañas** no se declara materializada por este bloque: el repositorio no tenía proveedor de correo, credenciales ni endpoint público de baja. La preferencia queda operativa y bloquea la elegibilidad para futuras campañas hasta que exista un despachador central autorizado. Un proveedor como Resend soporta contactos, bajas automáticas y encabezados `List-Unsubscribe`, pero su adopción requiere configuración explícita del Responsable y dominio/proveedor. citeturn4search1turn4search0
+
+## 8. Criterio de cierre
 
 El bloque de «verificar consentimientos» se considera **materializado como control de gobernanza y verificación de base jurídica**, mientras no exista una funcionalidad de producto que requiera capturar autorizaciones adicionales.
 
