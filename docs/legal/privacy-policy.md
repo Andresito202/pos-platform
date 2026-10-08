@@ -140,8 +140,8 @@ El Titular podrá ejercer los derechos reconocidos por la Ley 1581 de 2012 y las
 El canal formal para ejercer estos derechos será:
 
 **Correo:** andrescamacho.19@hotmail.com  
-**Dirección:** PENDIENTE DE FORMALIZACIÓN  
-**Responsable / área:** PENDIENTE DE FORMALIZACIÓN
+**Dirección:** Transversal 3A #87B-45 Sur, Bogotá D.C., Colombia  
+**Responsable / área:** Wilson Andrés Camacho Culma / CamachoPosColombia SAS
 
 Las consultas y reclamos deberán permitir verificar razonablemente la identidad del solicitante y deberán tramitarse dentro de los términos legales aplicables.
 
@@ -162,7 +162,7 @@ Si en el futuro se incorpora una superficie web, analítica, publicidad, cookies
 
 ## 16. Vigencia
 
-**Fecha de entrada en vigencia:** PENDIENTE DE FORMALIZACIÓN  
+**Fecha de entrada en vigencia:** pendiente de formalización final por falta del NIT  
 **Período de vigencia de las bases de datos:** conforme a las finalidades y períodos de conservación definidos por el Responsable y a las obligaciones legales aplicables.
 
 ## 17. Estado de materialización
