@@ -21,6 +21,7 @@ export function CustomerPanel(): React.JSX.Element {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [subscribeToNews, setSubscribeToNews] = useState(false);
 
   const incomplete = documentCode.trim() === ""
     || identification.trim() === ""
@@ -131,12 +132,24 @@ export function CustomerPanel(): React.JSX.Element {
               .filter((code) => code !== ""),
             email,
             phone,
+            subscribeToNews,
           });
         }}
         disabled={directory.busy || incomplete}
       >
         Registrar adquiriente
       </button>
+
+      <label>
+        <input
+          data-testid="customer-marketing-opt-in"
+          type="checkbox"
+          checked={subscribeToNews}
+          onChange={(e) => { setSubscribeToNews(e.target.checked); }}
+          disabled={directory.busy}
+        />
+        Autorizo recibir por correo novedades del POS y comunicaciones comerciales relacionadas con Camacho POS.
+      </label>
 
       <button
         data-testid="find-customer-button"
@@ -190,6 +203,43 @@ export function CustomerPanel(): React.JSX.Element {
       {directory.found !== null && directory.found.outcome === "NOT_FOUND" && (
         <div data-testid="customer-not-found">no está registrado</div>
       )}
+
+      {directory.found !== null && directory.found.outcome === "FOUND" && (
+        <section data-testid="customer-marketing">
+          <h3>Novedades del POS</h3>
+          <button
+            data-testid="customer-marketing-get-button"
+            onClick={() => { void directory.getMarketing(directory.found?.customer_id ?? ""); }}
+            disabled={directory.busy || directory.found.customer_id === null}
+          >
+            Consultar suscripción
+          </button>
+          {directory.marketing?.status === "SUBSCRIBED" ? (
+            <>
+              <p data-testid="customer-marketing-status">Suscrito a novedades por correo.</p>
+              <button
+                data-testid="customer-marketing-unsubscribe-button"
+                onClick={() => { void directory.unsubscribeMarketing(directory.found?.customer_id ?? ""); }}
+                disabled={directory.busy || directory.found.customer_id === null}
+              >
+                Darse de baja
+              </button>
+            </>
+          ) : (
+            <>
+              <p data-testid="customer-marketing-status">No suscrito a novedades.</p>
+              <button
+                data-testid="customer-marketing-subscribe-button"
+                onClick={() => { void directory.subscribeMarketing(directory.found?.customer_id ?? ""); }}
+                disabled={directory.busy || directory.found.customer_id === null || directory.found.email === null}
+              >
+                Suscribirse
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
       {directory.error !== null && <div data-testid="customer-error">{directory.error}</div>}
     </section>
   );
