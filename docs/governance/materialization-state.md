@@ -751,3 +751,19 @@ La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estad
 | Banner de cookies | **NO APLICA AL PRODUCTO ACTUAL** | No crear banner ni consentimiento de cookies sin una superficie web que lo requiera. |
 
 **Regla de continuidad:** si en el futuro se incorpora una superficie web con cookies, analítica, publicidad o tecnologías similares, se deberá auditar esa integración antes de activarla y crear el bloque correspondiente. No duplicar trabajo ahora.
+
+## Bloque de cumplimiento — consentimiento, minimización y SDKs
+
+### Consentimiento
+
+**Estado: PARCIAL.** La política de privacidad ya exige autorización cuando sea jurídicamente necesaria y define prueba, finalidad y derechos. La auditoría encontró consentimiento explícito sólo en el dominio de administración de dispositivos; no existe todavía un mecanismo general de runtime que registre y verifique autorización de tratamiento por finalidad para titulares de datos de clientes. No se inventa un PASS.
+
+### Minimización
+
+**Estado: BASE TÉCNICA MATERIALIZADA.** La forma canónica de `Customer` limita los campos, la auditoría de `CUSTOMER_REGISTER` excluye identificación, correo, teléfono y dirección del rastro de auditoría, y existen controles de payload, redacción de secretos y límites estructurales. Esto no equivale todavía a un inventario formal de retención por campo.
+
+### SDKs de terceros
+
+**Estado: MATERIALIZADO COMO INVENTARIO INICIAL / NO COMPLETO PARA TRANSITIVAS.** Se revisaron los manifests de runtime y la presencia de integraciones de analítica/telemetría conocidas. Se añadió `docs/security/third-party-sdk-privacy-inventory.md`. Los gates de SBOM, vulnerabilidades, licencias, procedencia y CodeQL ya existentes se preservan y no se duplican.
+
+**Regla de continuidad:** no agregar un segundo mecanismo de consentimiento, segundo inventario de SDKs ni otra capa de minimización. Cualquier cierre técnico posterior debe extender lo existente.
