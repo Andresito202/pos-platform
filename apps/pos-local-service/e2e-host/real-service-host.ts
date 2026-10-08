@@ -15,6 +15,7 @@ import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/sec
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
+import { PermissionCode } from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -66,28 +67,7 @@ const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
 const SESSION_KEY_ID = "SESSION_KEY_1";
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 
-const PERMISSIONS = [
-  "CASH_SHIFT_OPEN",
-  "CATALOG_PRODUCT_REGISTER",
-  "CATALOG_PRODUCT_READ",
-  "INVENTORY_STOCK_RECEIVE",
-  "INVENTORY_STOCK_READ",
-  "SALES_SALE_CREATE",
-  "PAYMENTS_PAYMENT_REGISTER",
-  "SALES_RECEIPT_READ",
-  "CASH_SHIFT_CLOSE",
-  "PAYMENTS_TRANSFER_REPORT",
-  "PAYMENTS_TRANSFER_CONFIRM",
-  "PAYMENTS_PAYMENT_READ",
-  // Anadidos con las pantallas de administracion: ajustar existencia y el
-  // adquiriente no eran alcanzables desde el producto y por tanto no hacian
-  // falta aqui.
-  "INVENTORY_STOCK_ADJUST",
-  "CUSTOMERS_CUSTOMER_REGISTER",
-  "CUSTOMERS_CUSTOMER_READ",
-  // `DEC-021` F5: la pantalla de emision fiscal.
-  "FISCAL_DOCUMENT_ISSUE",
-];
+const PERMISSIONS = Object.values(PermissionCode);
 
 const keyPair = generateKeyPairSync("ed25519");
 
