@@ -32,6 +32,7 @@ export function CatalogPanel(): React.JSX.Element {
 
       <input
         data-testid="product-code-input"
+        aria-label="Código interno"
         value={code}
         onChange={(e) => { setCode(e.target.value); }}
         placeholder="Código interno"
@@ -39,6 +40,7 @@ export function CatalogPanel(): React.JSX.Element {
       />
       <input
         data-testid="product-name-input"
+        aria-label="Nombre del producto"
         value={name}
         onChange={(e) => { setName(e.target.value); }}
         placeholder="Nombre del producto"
@@ -46,6 +48,7 @@ export function CatalogPanel(): React.JSX.Element {
       />
       <input
         data-testid="presentation-name-input"
+        aria-label="Presentación"
         value={presentationName}
         onChange={(e) => { setPresentationName(e.target.value); }}
         placeholder="Presentación"
@@ -53,6 +56,7 @@ export function CatalogPanel(): React.JSX.Element {
       />
       <input
         data-testid="unit-code-input"
+        aria-label="Unidad"
         value={unitCode}
         onChange={(e) => { setUnitCode(e.target.value); }}
         placeholder="Unidad"
@@ -62,6 +66,7 @@ export function CatalogPanel(): React.JSX.Element {
           cantidad: 0 para unidades enteras, 3 para kilos. No es cosmética. */}
       <input
         data-testid="unit-precision-input"
+        aria-label="Decimales de la unidad"
         value={unitPrecision}
         onChange={(e) => { setUnitPrecision(e.target.value); }}
         placeholder="Decimales de la unidad"
@@ -69,6 +74,7 @@ export function CatalogPanel(): React.JSX.Element {
       />
       <input
         data-testid="product-barcode-input"
+        aria-label="Código de barras"
         value={barcode}
         onChange={(e) => { setBarcode(e.target.value); }}
         placeholder="Código de barras (opcional)"
@@ -76,6 +82,7 @@ export function CatalogPanel(): React.JSX.Element {
       />
       <input
         data-testid="product-price-input"
+        aria-label="Precio"
         value={price}
         onChange={(e) => { setPrice(e.target.value); }}
         placeholder="Precio"
@@ -83,6 +90,7 @@ export function CatalogPanel(): React.JSX.Element {
       />
       <input
         data-testid="product-currency-input"
+        aria-label="Moneda"
         value={currency}
         onChange={(e) => { setCurrency(e.target.value); }}
         placeholder="Moneda"
