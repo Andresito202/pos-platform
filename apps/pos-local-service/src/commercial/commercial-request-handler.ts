@@ -900,8 +900,8 @@ export class CommercialRequestHandler {
       },
     );
 
-    if (result.kind !== "FOUND") {
-      return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
     }
 
     return succeeded(request, "FOUND", {
