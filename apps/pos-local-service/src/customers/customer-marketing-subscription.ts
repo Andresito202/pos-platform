@@ -5,7 +5,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { createHash, randomUUID } from "node:crypto";
 
-export const PERMISSION_CUSTOMERS_MARKETING_MANAGE = "CUSTOMERS_MARKETING_MANAGE";
+export const PERMISSION_CUSTOMERS_MARKETING_MANAGE = "CUSTOMERS_CUSTOMER_REGISTER";
 export const MARKETING_TOPIC_POS_NEWS = "POS_NEWS";
 export const MARKETING_CHANNEL_EMAIL = "EMAIL";
 export const MARKETING_CONSENT_VERSION = "1.0";
