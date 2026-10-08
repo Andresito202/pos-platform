@@ -112,7 +112,21 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
         </div>
       )}
 
-      {tab === "monitoring" && kind === "audit" ? (
+      {tab === "monitoring" && kind === "admin" ? (
+        <div className="pos-admin-surface">
+          <h3>Seguimiento operativo</h3>
+          <p>Las métricas proceden del servicio local y respetan el scope y los permisos efectivos de la sesión.</p>
+          <div className="pos-admin-grid">
+            <article className="pos-admin-card"><span>Ventas</span><strong>{adminMetrics.metrics.sales_completed_count ?? "Sin permiso"}</strong><small>{adminMetrics.metrics.sales_completed_amount ?? "Importe no autorizado"}</small></article>
+            <article className="pos-admin-card"><span>Inventario</span><strong>{adminMetrics.metrics.inventory_tracked_count ?? "Sin permiso"}</strong><small>Existencias controladas en el scope.</small></article>
+            <article className="pos-admin-card"><span>Caja</span><strong>{adminMetrics.metrics.cash_open_shift_count ?? "Sin permiso"}</strong><small>Turnos OPEN/CLOSING en el scope.</small></article>
+          </div>
+          <button type="button" onClick={() => void adminMetrics.refresh()} disabled={adminMetrics.busy}>
+            {adminMetrics.busy ? "Actualizando…" : "Actualizar métricas"}
+          </button>
+          {adminMetrics.error !== null && <div className="pos-admin-empty" role="alert"><strong>{adminMetrics.error}</strong><span>Las métricas no pudieron actualizarse.</span></div>}
+        </div>
+      ) : tab === "monitoring" && kind === "audit" ? (
         <div className="pos-admin-surface">
           <h3>Seguimiento de evidencia</h3>
           <p>Consulta read-only de la auditoría local append-only. No se exponen detalles JSON sensibles en esta vista.</p>
@@ -123,6 +137,8 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
             <select aria-label="Tipo de actor" value={audit.filters.actorType} onChange={(event) => audit.setFilters({ ...audit.filters, actorType: event.target.value as typeof audit.filters.actorType })}>
               <option value="">Todos los actores</option><option value="USER">Usuario</option><option value="DEVICE">Dispositivo</option><option value="SYSTEM">Sistema</option>
             </select>
+            <label>Desde <input aria-label="Fecha desde" type="datetime-local" value={audit.filters.from} onChange={(event) => audit.setFilters({ ...audit.filters, from: event.target.value })} /></label>
+            <label>Hasta <input aria-label="Fecha hasta" type="datetime-local" value={audit.filters.to} onChange={(event) => audit.setFilters({ ...audit.filters, to: event.target.value })} /></label>
             <button type="button" onClick={() => void audit.refresh()} disabled={audit.busy}>Actualizar</button>
           </div>
           {audit.error !== null && <div className="pos-admin-empty" role="alert"><strong>{audit.error}</strong><span>La consulta fue rechazada o no pudo completarse.</span></div>}
