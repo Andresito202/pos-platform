@@ -5,12 +5,17 @@
 - Nombre comercial del producto: `Camacho POS Colombia`.
 - Identificador técnico interno: `POS Platform` / `pos-platform`.
 - Scopes técnicos preservados: `@pos-platform/*`.
-- Titular legal de la marca: `PENDING_COMPANY_FORMATION`.
+- Titular legal / responsable declarado del producto: `CamachoPosColombia SAS`.  
+Representante / contacto responsable: `Wilson Andrés Camacho Culma`.  
+Domicilio declarado: `Transversal 3A #87B-45 Sur, Bogotá D.C., Colombia`.  
+Correo de contacto: `andrescamacho.19@hotmail.com`.  
+Teléfono de contacto: `3227506213`.  
+NIT: `PENDIENTE DE FORMALIZACIÓN`.
 - Antecedentes RUES/SIC: `REQUIRES_OFFICIAL_CLEARANCE`.
 - Registro marcario SIC: `NOT_REGISTERED`.
 - Registro de software DNDA: `PLANNED`.
 
-La adopción del nombre comercial no equivale a afirmar registro de marca, habilitación DIAN, certificación fiscal, condición SaaS ni readiness productivo.
+La identidad jurídica anterior se incorpora con los datos suministrados por el propietario del proyecto; el NIT permanece pendiente de formalización. La adopción del nombre comercial no equivale a afirmar registro de marca, habilitación DIAN, certificación fiscal, condición SaaS ni readiness productivo.
 
 ## Regla de uso
 
