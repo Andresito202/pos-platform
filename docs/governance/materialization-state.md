@@ -740,3 +740,14 @@ El documento cubre alcance, licencia, uso permitido, usuarios, datos, terceros, 
 La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estados, tablas ni flujos financieros paralelos. Define elegibilidad, parcialidad, medios, efectivo, terceros, mercancía, impuestos, rechazos y revisión.
 
 **Bloqueo real:** faltan titular contractual, canales oficiales y condiciones económicas formalizadas. No se inventan. La implementación financiera existente permanece como fuente técnica.
+
+## Bloque de cumplimiento — cookies
+
+> **Estado verificado en la línea activa, 2026-10-07.** Se buscó primero una superficie de cookies/tracking web. No existe `document.cookie` ni una implementación de cookies en el POS Electron/local-first actual. Las coincidencias de `cookie` corresponden a controles de redacción/seguridad y no a cookies de seguimiento.
+
+| Requisito | Estado real | Acción |
+|---|---|---|
+| Política de cookies | **NO APLICA AL PRODUCTO ACTUAL** | No crear una política ficticia para una superficie inexistente. |
+| Banner de cookies | **NO APLICA AL PRODUCTO ACTUAL** | No crear banner ni consentimiento de cookies sin una superficie web que lo requiera. |
+
+**Regla de continuidad:** si en el futuro se incorpora una superficie web con cookies, analítica, publicidad o tecnologías similares, se deberá auditar esa integración antes de activarla y crear el bloque correspondiente. No duplicar trabajo ahora.
