@@ -49,6 +49,7 @@ export function InventoryPanel(): React.JSX.Element {
 
       <input
         data-testid="inventory-presentation-input"
+        aria-label="ID de presentación"
         value={presentationId}
         onChange={(e) => { setPresentationId(e.target.value); }}
         placeholder="ID de presentación"
@@ -56,6 +57,7 @@ export function InventoryPanel(): React.JSX.Element {
       />
       <input
         data-testid="inventory-business-date-input"
+        aria-label="Fecha de negocio"
         value={businessDate}
         onChange={(e) => { setBusinessDate(e.target.value); }}
         placeholder="Fecha de negocio"
@@ -75,6 +77,7 @@ export function InventoryPanel(): React.JSX.Element {
       </select>
       <input
         data-testid="receive-quantity-input"
+        aria-label="Cantidad de entrada"
         value={receiveQuantity}
         onChange={(e) => { setReceiveQuantity(e.target.value); }}
         placeholder="Cantidad"
@@ -82,6 +85,7 @@ export function InventoryPanel(): React.JSX.Element {
       />
       <input
         data-testid="receive-reason-input"
+        aria-label="Motivo de entrada"
         value={receiveReason}
         onChange={(e) => { setReceiveReason(e.target.value); }}
         placeholder="Motivo"
@@ -112,6 +116,7 @@ export function InventoryPanel(): React.JSX.Element {
       </select>
       <input
         data-testid="adjust-quantity-input"
+        aria-label="Cantidad de ajuste"
         value={adjustQuantity}
         onChange={(e) => { setAdjustQuantity(e.target.value); }}
         placeholder="Cantidad"
@@ -119,6 +124,7 @@ export function InventoryPanel(): React.JSX.Element {
       />
       <input
         data-testid="adjust-reason-input"
+        aria-label="Motivo del ajuste"
         value={adjustReason}
         onChange={(e) => { setAdjustReason(e.target.value); }}
         placeholder="Motivo"
