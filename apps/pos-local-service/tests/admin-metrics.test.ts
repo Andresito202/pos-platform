@@ -37,13 +37,13 @@ const store = {
 } as unknown as SqliteAdminMetricsStore;
 
 describe("GetAdminMetricsUseCase", () => {
-  it("expone sólo métricas para las que existe permiso efectivo", () => {
+  it("no reutiliza permisos operativos para exponer agregados administrativos", () => {
     const result = new GetAdminMetricsUseCase(store).execute(
-      SCOPE, auth(["SALES_RECEIPT_READ", "INVENTORY_STOCK_READ"]),
+      SCOPE, auth(["SALES_RECEIPT_READ", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"]),
       new Date("2026-09-07T10:00:00.000Z"),
     );
     expect(result).toEqual({
-      sales_completed_count: 8, sales_completed_amount: "123456.000000",
+      sales_completed_count: null, sales_completed_amount: null,
       inventory_tracked_count: 21, cash_open_shift_count: null,
     });
   });
