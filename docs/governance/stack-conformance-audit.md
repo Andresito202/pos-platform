@@ -1,5 +1,7 @@
 # Auditoría de conformidad con el stack objetivo
 
+> **Estado documental:** este archivo conserva una auditoría histórica de conformidad y no debe usarse como fotografía del runtime actual. El corte actual de seguridad, autorización, panel administrativo, métricas y fronteras frontend/backend está en [`docs/governance/runtime-security-role-audit-2026-10-08.md`](./runtime-security-role-audit-2026-10-08.md). Cuando una afirmación de este documento contradiga evidencia posterior de la rama activa, prevalece la evidencia posterior y debe actualizarse este documento antes de reutilizarlo como baseline.
+>
 ## Qué es esto y por qué existe
 
 El propietario mantiene una lámina impresa —**STACK OBJETIVO DEFINIDO**,
