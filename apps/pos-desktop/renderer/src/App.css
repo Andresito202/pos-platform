@@ -228,3 +228,47 @@ button {
   cursor: not-allowed;
   opacity: .72;
 }
+
+.pos-sale-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.85fr);gap:18px}
+.pos-sale-products,.pos-sale-cart{min-width:0}
+.pos-section-heading{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.pos-section-heading h2{margin-bottom:4px}
+.pos-section-heading p{margin:0;color:var(--camacho-muted);font-size:13px}
+.pos-product-tools{display:flex;gap:8px;min-width:300px}
+.pos-product-tools input{min-width:0;flex:1}
+.pos-touch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-top:16px}
+.pos-product-tile{min-height:132px;padding:12px;border:1px solid var(--camacho-border);border-radius:14px;background:var(--camacho-card);display:grid;align-content:center;justify-items:center;gap:7px;text-align:center}
+.pos-product-tile:not(:disabled):hover{border-color:var(--camacho-blue);background:var(--camacho-blue-soft)}
+.pos-product-tile small{color:var(--camacho-muted)}
+.pos-product-icon{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--camacho-blue-soft);font-size:25px}
+.pos-product-tile-placeholder{border-style:dashed;color:var(--camacho-muted)}
+.pos-weighing-card{margin-top:16px;padding:14px;border:1px solid var(--camacho-border);border-radius:12px;background:var(--camacho-surface)}
+.pos-weighing-card>div:first-child{display:flex;justify-content:space-between;gap:12px}
+.pos-weighing-card span{color:var(--camacho-muted);font-size:13px}
+.pos-weighing-row{display:flex;align-items:end;gap:10px;margin-top:12px}
+.pos-weighing-row label{display:grid;gap:5px}
+.pos-weighing-row input{width:150px}
+.pos-weighing-row button{min-height:44px}
+.pos-cart-list{list-style:none;padding:0;margin:0 0 14px;display:grid;gap:8px}
+.pos-cart-list li{display:flex;justify-content:space-between;gap:12px;padding:10px;border-bottom:1px solid var(--camacho-border)}
+.pos-cart-list small{display:block;color:var(--camacho-muted)}
+.pos-primary-action{width:100%;min-height:50px;border:0;border-radius:10px;background:var(--camacho-navy);color:white;font-weight:700}
+.pos-payment-card{margin-top:14px;padding:14px;border:1px solid var(--camacho-border);border-radius:12px;background:var(--camacho-surface)}
+.pos-total{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.pos-total strong{font-size:24px}
+.pos-payment-reference{display:block;margin-top:4px;color:var(--camacho-muted);font-size:11px}
+.pos-payment-methods{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.pos-payment-methods button{min-height:52px;border:1px solid var(--camacho-border);border-radius:10px;background:var(--camacho-card);text-align:left;padding:8px 10px}
+.pos-payment-methods button:not(:disabled):hover{border-color:var(--camacho-blue)}
+.pos-payment-methods small{display:block;color:var(--camacho-muted);font-size:10px}
+.pos-cash-calculator{margin-top:14px;padding-top:12px;border-top:1px solid var(--camacho-border)}
+.pos-cash-calculator>div:first-child{display:flex;justify-content:space-between;font-size:15px}
+.pos-cash-calculator strong{font-size:22px}
+.pos-calculator-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}
+.pos-calculator-grid button{min-height:48px;border:1px solid var(--camacho-border);border-radius:9px;background:var(--camacho-card)}
+.pos-payment-note{font-size:11px;color:var(--camacho-muted)}
+.pos-result-success{margin-top:14px;padding:12px;border:1px solid var(--camacho-border);border-radius:10px}
+.pos-result-pending{margin-top:14px;padding:12px;border:1px solid var(--camacho-border);border-radius:10px;background:var(--camacho-surface)}
+.pos-shift-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media (max-width: 1000px){.pos-sale-layout{grid-template-columns:1fr}.pos-product-tools{min-width:0}.pos-section-heading{flex-direction:column}}
+@media (max-width: 600px){.pos-payment-methods{grid-template-columns:1fr}.pos-weighing-row{flex-wrap:wrap}.pos-product-tools{width:100%}}
