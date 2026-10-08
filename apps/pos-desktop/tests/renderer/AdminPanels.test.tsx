@@ -517,6 +517,29 @@ describe("AdministrativeControlPanel", () => {
     expect(screen.getByText("Autorización efectiva")).toBeTruthy();
   });
 
+  it("consume métricas administrativas reales sin calcularlas en el renderer", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        sales_completed_count: 12,
+        sales_completed_amount: "125000.000000",
+        inventory_tracked_count: 48,
+        cash_open_shift_count: 1,
+      },
+    });
+    render(<AdministrativeControlPanel kind="admin" />);
+    await waitFor(() => { expect(screen.getByText("12")).toBeTruthy(); });
+    expect(screen.getByText("125000.000000")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
+    expect(screen.getByText("Seguimiento operativo")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar métricas" }));
+    await waitFor(() => {
+      expect((calls.get("admin.metrics.get") ?? []).length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   it("consume eventos de auditoría reales mediante el contrato read-only", async () => {
     install({
       status: "SUCCEEDED",
