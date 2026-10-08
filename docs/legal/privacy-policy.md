@@ -72,7 +72,7 @@ No se utilizarán datos para finalidades incompatibles con aquellas informadas a
 
 ## 6. Datos que se procuran tratar
 
-El producto seguirá un criterio de minimización. Dependiendo de la funcionalidad utilizada, podrán tratarse categorías como:
+El producto seguirá un criterio de minimización. El inventario campo por campo y sus reglas de necesidad, opcionalidad y conservación están registrados en [docs/security/data-minimization-inventory.md](../security/data-minimization-inventory.md). Dependiendo de la funcionalidad utilizada, podrán tratarse categorías como:
 
 - identificación y datos tributarios requeridos por la operación;
 - nombre o razón social;
