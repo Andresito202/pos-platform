@@ -714,3 +714,17 @@ La política cubre finalidades, minimización, categorías de datos, autorizaci�
 **Bloqueo real:** `docs/product/brand.md` mantiene el titular legal como `PENDING_COMPANY_FORMATION`. El artículo 13 del Decreto 1377 de 2013 exige que la política identifique al Responsable con nombre/razón social y datos de contacto. Por ello esta materialización no se declara como política legal definitiva, ni como `CANON`, `PROD` o publicada al Titular.
 
 **Regla de continuidad:** no crear una segunda política ni duplicar este contenido. El siguiente bloque sólo podrá utilizar este documento como fuente base y completar lo que corresponda cuando exista evidencia de los datos legales.
+
+## Bloque de cumplimiento — términos del servicio
+
+> **Estado verificado en la línea activa, 2026-10-07.** Se auditó primero la existencia de términos del servicio; no había un documento equivalente. Se añadió `docs/legal/terms-of-service.md`.
+
+| Capacidad | Documento | Estado real | Evidencia |
+|---|---|---|---|
+| Términos del servicio | `docs/legal/terms-of-service.md` | **MATERIALIZADOS EN RAMA ACTIVA / NO PUBLICADOS COMO CONTRATO DEFINITIVO** | commit `ce07855fbae0c0aa2ed53689f73b88ba6ae1be0b` |
+
+El documento cubre alcance, licencia, uso permitido, usuarios, datos, terceros, actualizaciones, soporte, pagos, propiedad intelectual, seguridad, disponibilidad y terminación. No inventa precios, SLA, NIT, titular jurídico ni certificaciones.
+
+**Bloqueo real:** la identidad jurídica y los datos contractuales del proveedor siguen pendientes en `docs/product/brand.md`. Por tanto, no se declara este documento como contrato definitivo ni como `CANON`/`PROD`.
+
+**Regla de continuidad:** este archivo es la única base de términos creada para este requisito. No duplicarlo ni crear otra arquitectura contractual paralela.
