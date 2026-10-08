@@ -232,6 +232,10 @@ Un bloque solo se cierra cuando existe:
 No se considera cerrado por tener una pantalla, un botón o un archivo.
 
 
+### Pruebas negativas de lectura de auditoría
+
+Se añadió `apps/pos-local-service/tests/audit-read-authorization.test.ts` para cubrir tres rutas: permiso canónico presente, permiso ausente y asignación perteneciente a otro tenant. En las dos denegaciones se verifica además que el store de auditoría no sea consultado.
+
 ## 2026-10-08 — catálogo canónico ejecutable materializado
 
 La auditoría de código encontró **18 códigos de permiso actualmente demostrados por casos de uso backend ejecutables**. Se centralizaron en `packages/contracts/src/permission-codes.ts` y los casos de uso existentes ahora consumen esa fuente común.
