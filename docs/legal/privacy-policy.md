@@ -87,9 +87,9 @@ Los datos sensibles no se solicitarán de forma general. Si una funcionalidad fu
 
 ## 7. Datos de niños, niñas y adolescentes
 
-Camacho POS Colombia no está diseñado como un servicio dirigido a niños, niñas o adolescentes.
+Camacho POS Colombia no está diseñado como un servicio dirigido a niños, niñas o adolescentes. El POS no debe utilizarse para crear perfiles comerciales de menores como finalidad propia.
 
-Si una operación involucra datos de una persona menor de edad, el Responsable deberá aplicar las reglas especiales previstas por la legislación colombiana y proteger de manera reforzada su interés superior y sus derechos fundamentales. No se habilitará una recolección deliberada de datos de menores como mecanismo comercial sin una revisión jurídica y técnica previa.
+Si una operación involucra datos de una persona menor de edad, el Responsable deberá aplicar las reglas especiales previstas por la legislación colombiana y proteger de manera reforzada su interés superior y sus derechos fundamentales. No se habilitará una recolección deliberada de datos de menores como mecanismo comercial sin una revisión jurídica y técnica previa. Cuando el tratamiento sea excepcionalmente procedente, se deberá acreditar la finalidad legítima, el interés superior del menor, sus derechos fundamentales y la autorización de quien corresponda conforme a la normativa aplicable.
 
 ## 8. Autorización y prueba del consentimiento
 
