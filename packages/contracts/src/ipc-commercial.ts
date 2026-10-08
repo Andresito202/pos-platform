@@ -1146,6 +1146,60 @@ export const SalesReceiptGetResultSchema = z.strictObject({
 export const SalesReceiptGetResponseSchema =
   createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
 
+// ── audit.event.list ──────────────────────────────────────────────────────────
+
+/**
+ * Read-only local audit projection. The renderer can filter evidence, but it
+ * cannot assert tenant/company/branch identity. Sensitive JSON evidence is not
+ * returned by this V1 contract.
+ */
+export const AuditEventListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    query: z.string().max(200),
+    action_code: StableCodeSchema.nullable(),
+    resource_type: StableCodeSchema.nullable(),
+    actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]).nullable(),
+    from: UtcDateTimeSchema.nullable(),
+    to: UtcDateTimeSchema.nullable(),
+    limit: z.number().int().min(1).max(100),
+    offset: z.number().int().min(0).max(100000),
+  }),
+).safeExtend({ message_type: z.literal("audit.event.list") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    if (request.payload.from !== null && request.payload.to !== null &&
+        request.payload.from > request.payload.to) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "from"],
+        message: "from must be earlier than or equal to to",
+      });
+    }
+  });
+
+export const AuditEventListItemSchema = z.strictObject({
+  sequence: z.number().int().positive(),
+  actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]),
+  actor_id: UuidSchema.nullable(),
+  session_id: UuidSchema,
+  action_code: StableCodeSchema,
+  resource_type: StableCodeSchema,
+  resource_id: UuidSchema.nullable(),
+  correlation_id: UuidSchema,
+  causation_id: UuidSchema.nullable(),
+  reason_code: StableCodeSchema.nullable(),
+  created_at: UtcDateTimeSchema,
+});
+
+export const AuditEventListResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "UNAUTHORIZED"]),
+  events: z.array(AuditEventListItemSchema).max(100),
+  has_more: z.boolean(),
+});
+
+export const AuditEventListResponseSchema =
+  createResponseEnvelopeSchema(AuditEventListResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -1180,6 +1234,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
+  "audit.event.list",
 ]);
 
 /**
@@ -1235,3 +1290,4 @@ export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;
+export type AuditEventListResult = z.infer<typeof AuditEventListResultSchema>;
