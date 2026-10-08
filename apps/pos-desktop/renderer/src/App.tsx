@@ -1,3 +1,4 @@
+import { PermissionCode } from "@pos-platform/contracts";
 import { useMemo, useState } from "react";
 import "./App.css";
 import { StatusPanel } from "./components/StatusPanel.js";
@@ -20,19 +21,19 @@ type PlannedScreenDefinition = {
 };
 
 const plannedScreens: readonly PlannedScreenDefinition[] = [
-  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: ["SALES_RECEIPT_READ", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"] },
-  { id: "reports", label: "Reportes", section: "Administración", description: "Consultas y reportes comerciales y operativos.", actions: ["Ventas", "Inventario", "Caja", "Exportar"], requiredPermissions: ["SALES_RECEIPT_READ", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"] },
-  { id: "users", label: "Usuarios", section: "Administración", description: "Alta, consulta, suspensión y administración de usuarios.", actions: ["Nuevo usuario", "Consultar usuario", "Suspender usuario", "Restablecer contraseña", "Revocar sesión"], requiredPermissions: ["tenant.owner.change", "TENANT_OWNER_CHANGE"] },
-  { id: "roles", label: "Roles y permisos", section: "Administración", description: "Asignación de roles, permisos y alcance organizacional.", actions: ["Gestionar roles", "Asignar permisos", "Revisar alcance"], requiredPermissions: ["security.permission.change", "SECURITY_PERMISSION_CHANGE"] },
+  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: [PermissionCode.AUDIT_EVENT_READ] },
+  { id: "reports", label: "Reportes", section: "Administración", description: "Consultas y reportes comerciales y operativos.", actions: ["Ventas", "Inventario", "Caja", "Exportar"], requiredPermissions: [PermissionCode.SALES_RECEIPT_READ, PermissionCode.INVENTORY_STOCK_READ, PermissionCode.CASH_SHIFT_OPEN] },
+  { id: "users", label: "Usuarios", section: "Administración", description: "Alta, consulta, suspensión y administración de usuarios.", actions: ["Nuevo usuario", "Consultar usuario", "Suspender usuario", "Restablecer contraseña", "Revocar sesión"], requiredPermissions: [] },
+  { id: "roles", label: "Roles y permisos", section: "Administración", description: "Asignación de roles, permisos y alcance organizacional.", actions: ["Gestionar roles", "Asignar permisos", "Revisar alcance"], requiredPermissions: [] },
   { id: "company", label: "Empresa", section: "Administración", description: "Datos y configuración de la empresa.", actions: ["Editar empresa", "Datos fiscales", "Políticas"], requiredPermissions: ["tenant.owner.change", "TENANT_OWNER_CHANGE"] },
   { id: "branches", label: "Sucursales", section: "Administración", description: "Alta y administración de sucursales.", actions: ["Nueva sucursal", "Consultar sucursal", "Desactivar sucursal"], requiredPermissions: ["tenant.owner.change", "TENANT_OWNER_CHANGE"] },
-  { id: "devices", label: "Dispositivos", section: "Administración", description: "Registro, aprobación, actividad y ciclo de vida de dispositivos.", actions: ["Registrar dispositivo", "Aprobar dispositivo", "Reemplazar dispositivo"], requiredPermissions: ["DEVICE_REVOKE"] },
-  { id: "settings", label: "Configuración", section: "Administración", description: "Configuración general del entorno POS.", actions: ["Configuración general", "Sesión y seguridad", "Cambiar contraseña", "Cerrar sesiones", "Integraciones"], requiredPermissions: ["authorization.policy.read", "AUTHORIZATION_POLICY_READ", "security.permission.change", "SECURITY_PERMISSION_CHANGE"] },
-  { id: "licenses", label: "Licencias", section: "Plataforma", description: "Ciclo de vida de licencias y estado contractual.", actions: ["Emitir licencia", "Renovar", "Suspender", "Reactivar", "Revocar"], requiredPermissions: ["license.plan.change", "LICENSE_PLAN_CHANGE"] },
+  { id: "devices", label: "Dispositivos", section: "Administración", description: "Registro, aprobación, actividad y ciclo de vida de dispositivos.", actions: ["Registrar dispositivo", "Aprobar dispositivo", "Reemplazar dispositivo"], requiredPermissions: [] },
+  { id: "settings", label: "Configuración", section: "Administración", description: "Configuración general del entorno POS.", actions: ["Configuración general", "Sesión y seguridad", "Cambiar contraseña", "Cerrar sesiones", "Integraciones"], requiredPermissions: [] },
+  { id: "licenses", label: "Licencias", section: "Plataforma", description: "Ciclo de vida de licencias y estado contractual.", actions: ["Emitir licencia", "Renovar", "Suspender", "Reactivar", "Revocar"], requiredPermissions: [] },
   { id: "plans", label: "Planes y suscripciones", section: "Plataforma", description: "Planes mensual, anual y perpetuo; suscripciones y derechos.", actions: ["Nuevo plan", "Cambiar plan", "Gestionar suscripción", "Consultar entitlements"], requiredPermissions: ["license.plan.change", "LICENSE_PLAN_CHANGE"] },
-  { id: "super-admin", label: "Superadministrador", section: "Plataforma", description: "Administración global de plataforma, licencias y cuentas.", actions: ["Administrar cuentas", "Administrar licencias", "Administrar planes", "Iniciar recuperación asistida", "Revisar auditoría"], requiredPermissions: ["tenant.owner.change", "TENANT_OWNER_CHANGE", "license.plan.change", "LICENSE_PLAN_CHANGE"] },
-  { id: "support", label: "Soporte", section: "Plataforma", description: "Atención operativa y acciones autorizadas de soporte.", actions: ["Buscar cuenta", "Revisar dispositivo", "Registrar caso"], requiredPermissions: ["SUPPORT_ACCOUNT_READ", "DEVICE_REVOKE"] },
-  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos"], requiredPermissions: ["AUDIT_EVENT_READ"] },
+  { id: "super-admin", label: "Superadministrador", section: "Plataforma", description: "Administración global de plataforma, licencias y cuentas.", actions: ["Administrar cuentas", "Administrar licencias", "Administrar planes", "Iniciar recuperación asistida", "Revisar auditoría"], requiredPermissions: [] },
+  { id: "support", label: "Soporte", section: "Plataforma", description: "Atención operativa y acciones autorizadas de soporte.", actions: ["Buscar cuenta", "Revisar dispositivo", "Registrar caso"], requiredPermissions: [] },
+  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos"], requiredPermissions: [PermissionCode.AUDIT_EVENT_READ] },
 ];
 
 function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.JSX.Element {
@@ -80,12 +81,12 @@ export function App(): React.JSX.Element {
     const result: Screen[] = [];
 
     if (hasAny(permissions, [
-      "CASH_SHIFT_OPEN",
-      "CASH_SHIFT_CLOSE",
-      "SALES_SALE_CREATE",
-      "PAYMENTS_PAYMENT_REGISTER",
-      "PAYMENTS_TRANSFER_REPORT",
-      "PAYMENTS_TRANSFER_CONFIRM",
+      PermissionCode.CASH_SHIFT_OPEN,
+      PermissionCode.CASH_SHIFT_CLOSE,
+      PermissionCode.SALES_SALE_CREATE,
+      PermissionCode.PAYMENTS_PAYMENT_REGISTER,
+      PermissionCode.PAYMENTS_TRANSFER_REPORT,
+      PermissionCode.PAYMENTS_TRANSFER_CONFIRM,
     ])) {
       result.push({
         id: "sales",
@@ -95,7 +96,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (permissions.has("FISCAL_DOCUMENT_ISSUE")) {
+    if (permissions.has(PermissionCode.FISCAL_DOCUMENT_ISSUE)) {
       result.push({
         id: "fiscal",
         label: "Facturación electrónica",
@@ -104,7 +105,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (hasAny(permissions, ["CATALOG_PRODUCT_READ", "CATALOG_PRODUCT_REGISTER"])) {
+    if (hasAny(permissions, [PermissionCode.CATALOG_PRODUCT_READ, PermissionCode.CATALOG_PRODUCT_REGISTER])) {
       result.push({
         id: "catalog",
         label: "Catálogo",
@@ -114,9 +115,9 @@ export function App(): React.JSX.Element {
     }
 
     if (hasAny(permissions, [
-      "INVENTORY_STOCK_READ",
-      "INVENTORY_STOCK_RECEIVE",
-      "INVENTORY_STOCK_ADJUST",
+      PermissionCode.INVENTORY_STOCK_READ,
+      PermissionCode.INVENTORY_STOCK_RECEIVE,
+      PermissionCode.INVENTORY_STOCK_ADJUST,
     ])) {
       result.push({
         id: "inventory",
@@ -127,8 +128,8 @@ export function App(): React.JSX.Element {
     }
 
     if (hasAny(permissions, [
-      "CUSTOMERS_CUSTOMER_READ",
-      "CUSTOMERS_CUSTOMER_REGISTER",
+      PermissionCode.CUSTOMERS_CUSTOMER_READ,
+      PermissionCode.CUSTOMERS_CUSTOMER_REGISTER,
     ])) {
       result.push({
         id: "customers",
@@ -138,7 +139,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (permissions.has("SALES_RECEIPT_READ")) {
+    if (permissions.has(PermissionCode.SALES_RECEIPT_READ)) {
       result.push({
         id: "receipts",
         label: "Comprobantes",
