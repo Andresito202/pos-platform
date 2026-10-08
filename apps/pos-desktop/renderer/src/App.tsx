@@ -32,7 +32,7 @@ const plannedScreens: readonly PlannedScreenDefinition[] = [
   { id: "plans", label: "Planes y suscripciones", section: "Plataforma", description: "Planes mensual, anual y perpetuo; suscripciones y derechos.", actions: ["Nuevo plan", "Cambiar plan", "Gestionar suscripción", "Consultar entitlements"], requiredPermissions: ["license.plan.change", "LICENSE_PLAN_CHANGE"] },
   { id: "super-admin", label: "Superadministrador", section: "Plataforma", description: "Administración global de plataforma, licencias y cuentas.", actions: ["Administrar cuentas", "Administrar licencias", "Administrar planes", "Iniciar recuperación asistida", "Revisar auditoría"], requiredPermissions: ["tenant.owner.change", "TENANT_OWNER_CHANGE", "license.plan.change", "LICENSE_PLAN_CHANGE"] },
   { id: "support", label: "Soporte", section: "Plataforma", description: "Atención operativa y acciones autorizadas de soporte.", actions: ["Buscar cuenta", "Revisar dispositivo", "Registrar caso"], requiredPermissions: ["SUPPORT_ACCOUNT_READ", "DEVICE_REVOKE"] },
-  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos", "Exportar evidencia"], requiredPermissions: ["authorization.policy.read", "AUTHORIZATION_POLICY_READ"] },
+  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos"], requiredPermissions: ["AUDIT_EVENT_READ"] },
 ];
 
 function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.JSX.Element {
