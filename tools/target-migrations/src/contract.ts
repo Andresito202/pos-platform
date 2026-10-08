@@ -82,7 +82,7 @@ export const REQUIRED_POLICIES = [
 export const PROHIBITED_TABLE_NAMES = [
   "products","product_variants","barcodes","sales","sale_items","payments",
   "inventory_movements","stock_balances","price_lists","tax_rules","electronic_documents",
-  "devices","device_keys","licenses","license_activations","inbox_entries","sync_checkpoints",
+  "devices","device_keys","license_activations","inbox_entries","sync_checkpoints",
   "sync_conflicts","sync_reviews","sync_dead_letters","kysely_migration","kysely_migration_lock",
 ] as const;
 
