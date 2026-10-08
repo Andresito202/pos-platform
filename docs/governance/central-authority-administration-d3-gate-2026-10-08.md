@@ -215,6 +215,49 @@ El contrato ya no está bloqueado por una decisión de identidad. Lo pendiente e
 
 No se permite crear otra identidad, otra sesión, otro MFA, otro refresh token ni una UI que simule autenticación.
 
+## Revalidación de implementación — 2026-10-08
+
+La autorización de ejecución fue aplicada hasta el límite que permiten los contratos normativos existentes. La auditoría de implementación encontró dos dependencias concretas que no pueden inferirse ni inventarse:
+
+1. Verificador de credencial: identity.user_credentials.verifier está definido como un hash con algoritmo/parámetros/salt, pero el contrato del repositorio no fija una serialización canónica consumible por runtime. DEC-012 documenta scrypt con parámetros provisionales, pero declara expresamente que requieren benchmark sobre hardware real y que no constituyen una implementación definitiva.
+2. MFA administrativo: identity.mfa_factors.factor_type exige un método aprobado por implementación, pero la documentación física declara que no se selecciona ningún método hasta contar con implementación y pruebas de seguridad. No existe un contrato ejecutable para TOTP, PIN, WebAuthn u otro factor que pueda reutilizarse sin inventar un protocolo.
+
+Existe además una restricción normativa explícita: DEC-012 conserva login, MFA, rotación de refresh, bloqueo y recuperación como alcance central no evaluado/no autorizado. Por tanto, la autorización del usuario para ejecutar D-3 no permite sobreescribir una decisión arquitectónica previa ni fabricar una autenticación funcional.
+
+### Decisión operativa
+
+No se materializa todavía:
+
+- un verificador de contraseña con formato inventado;
+- un algoritmo MFA no aprobado;
+- un endpoint de login administrativo;
+- emisión de sesiones o refresh utilizables sin MFA verificable;
+- recuperación de cuenta;
+- UI Superadmin que aparente autenticación real.
+
+Esto no es trabajo pendiente por negligencia ni una implementación parcial: es un bloqueo de seguridad reproducible. Es preferible mantener el sistema sin autenticación administrativa que introducir una credencial o segundo factor no especificado y convertirlo en una autoridad falsa.
+
+### Evidencia de lo que sí está cerrado
+
+La frontera D-3 ya está materializada en packages/contracts/src/central-administration.ts y cubierta por packages/contracts/tests/platform-administration-session.test.ts. Esa parte fija identidad, ausencia de tenant membership, MFA satisfecho, reautenticación, sesión central y ausencia de permisos/entitlements transportados.
+
+### Condiciones exactas para desbloquear implementación
+
+Antes de escribir el runtime de autenticación deben quedar cerrados, en el mismo contrato/gate y sin crear otro sistema:
+
+1. serialización/versionado del UserCredential.verifier y parámetros aprobados;
+2. benchmark o autorización explícita del KDF que corresponda;
+3. método MFA administrativo y representación/verificación de su secret_reference;
+4. política de reautenticación y ventana aplicable;
+5. recuperación de PlatformAccount;
+6. catálogo de security_events para login/MFA/reauth/replay/revocación;
+7. política de expiración y rotación de refresh para esta sesión administrativa.
+
+Una vez cerrados esos siete puntos, la implementación puede continuar sobre identity.users, identity.user_credentials, identity.mfa_factors, identity.sessions, identity.session_refresh_tokens e identity.security_events, sin crear tablas paralelas.
+
+**Estado actualizado:** BLOCKED_BY_UNAUTHORIZED_AUTHENTICATION_DETAILS.
+
+
 ## Criterio de salida
 
 D-3 queda cerrado únicamente cuando esas decisiones estén expresadas en un contrato único y testeable.
