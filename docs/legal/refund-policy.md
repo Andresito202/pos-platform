@@ -180,8 +180,8 @@ Las solicitudes internas deberán tramitarse conforme a los procedimientos y té
 
 El canal oficial para solicitar un reembolso será:
 
-**Correo:** PENDIENTE DE FORMALIZACIÓN  
-**Canal:** PENDIENTE DE FORMALIZACIÓN  
+**Correo:** andrescamacho.19@hotmail.com  
+**Canal:** andrescamacho.19@hotmail.com / 3227506213  
 **Identificación requerida:** la necesaria para verificar la operación y la legitimidad de la solicitud.
 
 La solicitud deberá permitir localizar la operación, normalmente mediante comprobante, referencia, fecha, valor u otro identificador disponible.
