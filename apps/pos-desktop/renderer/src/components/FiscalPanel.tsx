@@ -34,6 +34,7 @@ export function FiscalPanel(): React.JSX.Element {
 
       <input
         data-testid="fiscal-sale-id-input"
+        aria-label="ID de la venta cobrada"
         value={saleId}
         onChange={(e) => { setSaleId(e.target.value); }}
         placeholder="ID de la venta cobrada"
@@ -41,6 +42,7 @@ export function FiscalPanel(): React.JSX.Element {
       />
       <input
         data-testid="fiscal-customer-id-input"
+        aria-label="ID del adquiriente registrado"
         value={customerId}
         onChange={(e) => { setCustomerId(e.target.value); }}
         placeholder="ID del adquiriente registrado"
