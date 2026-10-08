@@ -103,7 +103,7 @@ export function useCommercialSale(): CommercialSaleState & {
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
   createSale(): Promise<void>;
-  chargeCash(): Promise<void>;
+  chargeCash(tenderedAmount?: string): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
@@ -240,15 +240,15 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [lines, shift, run]);
 
-  const chargeCash = useCallback(async (): Promise<void> => {
+  const chargeCash = useCallback(async (tenderedAmount?: string): Promise<void> => {
     const current = sale;
     if (current === null) return;
     await run<PaymentRegisterCashResult>(
       () => callCommercial("payment.register.cash", {
         sale_id: current.saleId,
-        // Se cobra exactamente el importe que emitió la capa confiable.
+        // El importe de la venta sigue siendo autoridad del servicio; el cajero aporta cuánto efectivo recibió.
         amount: current.payableAmount,
-        tendered_amount: current.payableAmount,
+        tendered_amount: tenderedAmount ?? current.payableAmount,
       }, newIdempotencyKey()),
       (result) => {
         setPayment(result);
