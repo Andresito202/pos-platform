@@ -530,8 +530,10 @@ describe("AdministrativeControlPanel", () => {
       },
     });
     render(<AdministrativeControlPanel kind="admin" />);
-    await waitFor(() => { expect(screen.getByText("12")).toBeTruthy(); });
-    expect(screen.getByText("125000.000000")).toBeTruthy();
+    await waitFor(() => { expect(screen.getByText("48")).toBeTruthy(); });
+    // Aggregate sales and cash are intentionally unavailable until their
+    // canonical administrative-read permissions are published centrally.
+    expect(screen.getAllByText("Sin permiso").length).toBeGreaterThanOrEqual(2);
     fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
     expect(screen.getByText("Seguimiento operativo")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Actualizar métricas" }));
