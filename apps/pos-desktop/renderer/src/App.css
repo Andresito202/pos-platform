@@ -27,6 +27,14 @@ button, input {
   font: inherit;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--camacho-blue);
+  outline-offset: 2px;
+}
+
 button {
   cursor: pointer;
 }
