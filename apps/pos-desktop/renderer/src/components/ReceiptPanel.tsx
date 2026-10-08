@@ -25,6 +25,7 @@ export function ReceiptPanel(): React.JSX.Element {
       <h2>Recibo</h2>
       <input
         data-testid="receipt-sale-id-input"
+        aria-label="ID de la venta"
         value={saleId}
         onChange={(e) => { setSaleId(e.target.value); }}
         placeholder="ID de la venta"
