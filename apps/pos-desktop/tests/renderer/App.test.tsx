@@ -110,6 +110,50 @@ describe("App", () => {
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
   });
 
+  it("gives POS inputs accessible names across authorized screens", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: [
+          "CASH_SHIFT_OPEN",
+          "SALES_SALE_CREATE",
+          "FISCAL_DOCUMENT_ISSUE",
+          "CATALOG_PRODUCT_READ",
+          "INVENTORY_STOCK_READ",
+          "CUSTOMERS_CUSTOMER_READ",
+          "SALES_RECEIPT_READ",
+        ],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "ID de la caja" })).toBeTruthy();
+      expect(screen.getByRole("textbox", { name: "Código de barras" })).toBeTruthy();
+    });
+
+    await screen.getByRole("button", { name: "Catálogo" }).click();
+    expect(screen.getByRole("textbox", { name: "Código interno" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Nombre del producto" })).toBeTruthy();
+
+    await screen.getByRole("button", { name: "Inventario" }).click();
+    expect(screen.getByRole("textbox", { name: "ID de presentación" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Fecha de negocio" })).toBeTruthy();
+
+    await screen.getByRole("button", { name: "Clientes" }).click();
+    expect(screen.getByRole("textbox", { name: "Identificación del adquiriente" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Correo electrónico" })).toBeTruthy();
+
+    await screen.getByRole("button", { name: "Facturación electrónica" }).click();
+    expect(screen.getByRole("textbox", { name: "ID de la venta cobrada" })).toBeTruthy();
+
+    await screen.getByRole("button", { name: "Comprobantes" }).click();
+    expect(screen.getByRole("textbox", { name: "ID de la venta" })).toBeTruthy();
+  });
+
   it("fails closed when effective authorization cannot be loaded", async () => {
     window.posService["authorization.capabilities.get"].mockResolvedValue({
       status: "REJECTED",
