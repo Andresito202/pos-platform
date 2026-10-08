@@ -798,13 +798,13 @@ Evidencia consolidada: `docs/security/accessibility-audit.md`.
 
 ## Bloque de cumplimiento — datos de empresa
 
-**Estado: BLOQUEADO POR DATO FACTUAL EXTERNO AL REPOSITORIO.** La auditoría confirmó que `docs/product/brand.md` mantiene `PENDING_COMPANY_FORMATION` para el titular legal y `REQUIRES_OFFICIAL_CLEARANCE` para antecedentes RUES/SIC. No existe evidencia en el repositorio que permita completar legalmente razón social, NIT, domicilio, dirección, correo y teléfono del Responsable/Proveedor.
+**Estado: PARCIAL — NIT pendiente.** Se materializaron razón social, contacto responsable, domicilio, dirección, correo y teléfono con los datos declarados por el propietario del proyecto. El único dato de identidad empresarial que permanece pendiente es el NIT. `REQUIRES_OFFICIAL_CLEARANCE` de antecedentes RUES/SIC continúa siendo un control marcario/comercial independiente y no se utiliza para bloquear estos datos declarados.
 
-No se utilizarán datos encontrados por búsqueda genérica en Internet ni se asociará una empresa de terceros con Camacho POS Colombia. Eso sería una falsedad material.
+No se utilizan datos de terceros ni se inventa el NIT.
 
-**Dependencias:** este bloqueo impide declarar definitivos los documentos de privacidad, términos y reembolso ya materializados, porque la normativa exige identificar al Responsable y sus canales.
+**Dependencias:** los documentos legales ya incorporan los datos declarados; sólo mantienen el NIT como pendiente antes del cierre jurídico definitivo.
 
-**Regla de continuidad:** no avanzar al bloque 17 hasta cerrar este bloque con datos oficiales aportados o una evidencia oficial verificable del titular jurídico. No crear una segunda identidad comercial ni reemplazar `PENDING_COMPANY_FORMATION` por un supuesto.
+**Regla de continuidad:** los bloques 17–20 pueden continuar porque sus requisitos ya no dependen de inventar identidad. El bloque 16 sólo se cierra al incorporar el NIT oficial.
 
 ## Cierre secuencial de los bloques 16–20
 
