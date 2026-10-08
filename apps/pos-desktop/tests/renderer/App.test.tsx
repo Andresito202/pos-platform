@@ -175,6 +175,34 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "ID de la venta" })).toBeTruthy();
   });
 
+  it("materializes the complete administrative and platform navigation inventory", async () => {
+    render(<App />);
+
+    const labels = [
+      "Dashboard", "Reportes", "Usuarios", "Roles y permisos", "Empresa",
+      "Sucursales", "Dispositivos", "Configuración", "Licencias",
+      "Planes y suscripciones", "Superadministrador", "Soporte", "Auditoría administrativa",
+    ];
+
+    await waitFor(() => {
+      for (const label of labels) expect(screen.getByRole("button", { name: new RegExp(label) })).toBeTruthy();
+    });
+
+    await screen.getByRole("button", { name: "Licencias" }).click();
+    expect(screen.getByTestId("planned-screen-licenses")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Emitir licencia" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Suspender" })).toBeDisabled();
+
+    await screen.getByRole("button", { name: "Planes y suscripciones" }).click();
+    expect(screen.getByTestId("planned-screen-plans")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cambiar plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Gestionar suscripción" })).toBeDisabled();
+
+    await screen.getByRole("button", { name: "Superadministrador" }).click();
+    expect(screen.getByTestId("planned-screen-super-admin")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Administrar licencias" })).toBeDisabled();
+  });
+
   it("fails closed when effective authorization cannot be loaded", async () => {
     window.posService["authorization.capabilities.get"].mockResolvedValue({
       status: "REJECTED",
