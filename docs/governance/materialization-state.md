@@ -795,3 +795,13 @@ No se declara `PASS` universal: el producto todavía no tiene un gate automatiza
 Evidencia consolidada: `docs/security/accessibility-audit.md`.
 
 **CI:** las ejecuciones de la rama ya estaban fallando antes del bloque de accesibilidad (por ejemplo, `TARGET foundation validation` #633 sobre el commit previo `88e25ab4...` también concluyó `failure`). Por tanto, no se atribuye el rojo a estos cambios sin evidencia de causalidad.
+
+## Bloque de cumplimiento — datos de empresa
+
+**Estado: BLOQUEADO POR DATO FACTUAL EXTERNO AL REPOSITORIO.** La auditoría confirmó que `docs/product/brand.md` mantiene `PENDING_COMPANY_FORMATION` para el titular legal y `REQUIRES_OFFICIAL_CLEARANCE` para antecedentes RUES/SIC. No existe evidencia en el repositorio que permita completar legalmente razón social, NIT, domicilio, dirección, correo y teléfono del Responsable/Proveedor.
+
+No se utilizarán datos encontrados por búsqueda genérica en Internet ni se asociará una empresa de terceros con Camacho POS Colombia. Eso sería una falsedad material.
+
+**Dependencias:** este bloqueo impide declarar definitivos los documentos de privacidad, términos y reembolso ya materializados, porque la normativa exige identificar al Responsable y sus canales.
+
+**Regla de continuidad:** no avanzar al bloque 17 hasta cerrar este bloque con datos oficiales aportados o una evidencia oficial verificable del titular jurídico. No crear una segunda identidad comercial ni reemplazar `PENDING_COMPANY_FORMATION` por un supuesto.
