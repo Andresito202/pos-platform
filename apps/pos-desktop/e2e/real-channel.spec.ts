@@ -354,7 +354,6 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // presentación que ya devolvió el catálogo confiable.
   await page.getByTestId("catalog-search-input").fill("Café");
   await page.getByTestId("catalog-search-button").click();
-  await expect(page.getByTestId("catalog-product-").first()).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("quantity-input").fill("1");
   const catalogCard = page.locator('[data-testid^="catalog-product-"]').first();
   await expect(catalogCard).toBeVisible({ timeout: 15_000 });
