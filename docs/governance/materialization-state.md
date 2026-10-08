@@ -886,3 +886,11 @@ Se materializó 006_licensing_foundation sobre el PostgreSQL central, dependient
 - Existe runner idempotente applyPostgres006 y pruebas estructurales del contrato.
 
 **Límite deliberado:** todavía no se creó un panel PLATFORM_OWNER, ni botones de activar/suspender/reactivar/revocar/cambiar plan. Falta el servicio central autoritativo de lifecycle y su frontera de autorización; construir esa UI antes sería una implementación falsa.
+
+## Identity / login / recuperación de contraseña
+
+- Fundación de recuperación central materializada en PostgreSQL mediante 007_password_recovery.
+- El token de recuperación se persiste únicamente como hash; existe expiración, consumo único, límite de intentos y RLS forzado.
+- El Superadministrador puede iniciar recuperación asistida, pero no establece ni conoce la contraseña; el cambio final lo realiza el titular mediante el canal registrado.
+- Preguntas de seguridad no se consideran mecanismo único de recuperación.
+- Login, emisión/rotación de sesión y despacho real de correo siguen como subfase de Identity/Central Authority; no se declara END_TO_END ni RUNTIME_VERIFIED.
