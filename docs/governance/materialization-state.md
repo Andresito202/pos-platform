@@ -764,9 +764,11 @@ La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estad
 
 ### SDKs de terceros
 
-**Estado: MATERIALIZADO COMO INVENTARIO INICIAL / NO COMPLETO PARA TRANSITIVAS.** Se revisaron los manifests de runtime y la presencia de integraciones de analítica/telemetría conocidas. Se añadió `docs/security/third-party-sdk-privacy-inventory.md`. Los gates de SBOM, vulnerabilidades, licencias, procedencia y CodeQL ya existentes se preservan y no se duplican.
+**Estado: MATERIALIZADO PARA LA SUPERFICIE DE RUNTIME DIRECTA.** Se verificaron los manifests activos de Electron/renderer, POS Local Service, SQLite, contratos y fiscal adapters, además de buscar integraciones de analítica/telemetría conocidas. `docs/security/third-party-sdk-privacy-inventory.md` registra uso, comunicaciones propias observadas, finalidad y controles.
 
-**Regla de continuidad:** no agregar un segundo mecanismo de consentimiento, segundo inventario de SDKs ni otra capa de minimización. Cualquier cierre técnico posterior debe extender lo existente.
+Las dependencias transitivas no se declaran una auditoría de privacidad independiente: quedan cubiertas por el inventario de supply chain/SBOM y, si una dependencia transitiva introduce una capacidad de telemetría o acceso a datos que pase a ser usada por el producto, debe abrirse una revisión específica.
+
+**Regla de continuidad:** no agregar un segundo inventario de SDKs. Toda dependencia nueva que pueda recopilar o transmitir datos debe pasar por el gate de privacidad ya documentado.
 
 ## Bloque de cumplimiento — verificación de consentimientos
 
