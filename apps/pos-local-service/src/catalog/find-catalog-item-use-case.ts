@@ -1,3 +1,4 @@
+import { PermissionCode } from "@pos-platform/contracts";
 import {
   createActor,
   createOperationScope,
@@ -8,7 +9,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { CatalogItem, SqliteCatalogStore } from "./sqlite-catalog-store.js";
 
-export const PERMISSION_CATALOG_PRODUCT_READ = "CATALOG_PRODUCT_READ";
+export const PERMISSION_CATALOG_PRODUCT_READ = PermissionCode.CATALOG_PRODUCT_READ;
 
 /**
  * Dos formas de buscar, y son las dos que ocurren en un mostrador: se escanea
