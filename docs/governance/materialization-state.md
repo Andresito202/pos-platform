@@ -847,7 +847,7 @@ No se utilizan datos de terceros ni se inventa el NIT.
 **Estado: MATERIALIZADO COMO REGLA DE TRATAMIENTO.** La Política de Privacidad establece que el POS no está dirigido a menores, prohíbe la recolección comercial deliberada de datos de menores sin revisión previa y exige finalidad legítima, interés superior, derechos fundamentales y requisitos de autorización cuando excepcionalmente proceda. No se creó una recolección infantil que el producto no necesita.
 
 ### Bloque 18 — cancelación de suscripción en correos
-**Estado: NO APLICA AL PRODUCTO ACTUAL.** La auditoría no encontró newsletter, marketing email ni suscripción por correo implementados en el POS. No se inventa un mecanismo de unsubscribe inexistente. Si se incorpora email marketing, deberá existir cancelación equivalente antes de activarlo.
+**Estado: PARCIAL — preferencia local materializada; despacho externo pendiente.** La auditoría encontró y materializó la suscripción explícita POS_NEWS, su consulta y baja local mediante MIGRATION_017 y las operaciones customer.marketing.*. La entrega por proveedor externo, List-Unsubscribe público y despacho central todavía no existen. No se declara envío de correo ni una baja externa inexistente.
 
 ### Bloque 19 — licenciamiento de imágenes
 **Estado: MATERIALIZADO PARA ACTIVOS IDENTIFICADOS.** Se añadió docs/legal/asset-license-registry.md para registrar procedencia y autorización del logo existente y su derivado. Los activos futuros deberán registrar fuente, titular, licencia/permiso y restricciones antes de incorporarse.
@@ -870,3 +870,19 @@ El bloque 16 sigue abierto únicamente por el NIT. Los bloques 17–20 ya fueron
 - La baja no elimina el registro fiscal ni sus evidencias legales.
 - V1 reutiliza el permiso existente CUSTOMERS_CUSTOMER_REGISTER para no depender de grants nuevos que no estén presentes en snapshots actuales.
 - No se declara envío externo operativo: el repo no tenía proveedor de correo, credenciales, despachador central ni endpoint público de baja. Por tanto, no se inventa un “email enviado” ni un enlace de baja falso.
+
+
+## Licenciamiento central — fundación administrativa
+
+**Estado: MATERIALIZADO COMO FUNDACIÓN PERSISTENTE; OPERACIÓN ADMINISTRATIVA AÚN PENDIENTE.**
+
+Se materializó 006_licensing_foundation sobre el PostgreSQL central, dependiente de 005_onboarding_bootstrap_hardening.
+
+- licensing.plans soporta modalidades comerciales MONTHLY, ANNUAL y PERPETUAL y modalidades técnicas HYBRID / LOCAL_PERPETUAL.
+- licensing.plan_entitlements conserva capacidades y límites con FINITE, UNLIMITED y NOT_APPLICABLE, sin sentinelas numéricos.
+- licensing.licenses conserva tenant, plan, modalidad, estado contractual, vigencia y referencia comercial.
+- licensing.license_entitlements materializa el snapshot contractual de derechos de la licencia.
+- Las cuatro tablas tienen RLS forzado, claves foráneas, invariantes de límites e índices de consulta.
+- Existe runner idempotente applyPostgres006 y pruebas estructurales del contrato.
+
+**Límite deliberado:** todavía no se creó un panel PLATFORM_OWNER, ni botones de activar/suspender/reactivar/revocar/cambiar plan. Falta el servicio central autoritativo de lifecycle y su frontera de autorización; construir esa UI antes sería una implementación falsa.
