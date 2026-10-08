@@ -188,3 +188,43 @@ button {
     padding: 16px;
   }
 }
+
+.pos-nav-button-planned {
+  border: 1px dashed rgb(255 255 255 / 24%);
+}
+
+.pos-nav-button-planned::after {
+  content: " · próximamente";
+  color: var(--camacho-on-dark-muted);
+  font-size: 10px;
+}
+
+.pos-planned-state {
+  padding: 10px 12px;
+  border: 1px solid var(--camacho-border);
+  border-radius: 8px;
+  background: var(--camacho-blue-soft);
+  color: var(--camacho-muted);
+  font-size: 13px;
+}
+
+.pos-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.pos-action-grid button {
+  min-height: 42px;
+  border: 1px solid var(--camacho-border);
+  border-radius: 9px;
+  background: var(--camacho-surface);
+  color: var(--camacho-muted);
+  text-align: left;
+}
+
+.pos-action-grid button:disabled {
+  cursor: not-allowed;
+  opacity: .72;
+}
