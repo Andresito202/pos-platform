@@ -44,6 +44,8 @@ import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
 import { SqliteAuditStore } from "../audit/sqlite-audit-store.js";
 import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
+import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
+import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 
 /**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
@@ -84,6 +86,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly listCatalogItems: ListCatalogItemsUseCase;
         readonly listAuditEvents: ListAuditEventsUseCase;
+        readonly getAdminMetrics: GetAdminMetricsUseCase;
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
@@ -145,6 +148,7 @@ export class CommercialComponent implements RuntimeComponent {
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
+  get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
@@ -170,6 +174,7 @@ export class CommercialComponent implements RuntimeComponent {
     const customerStore = new SqliteCustomerStore(database, sync, this.now);
     const catalogStore = new SqliteCatalogStore(database, sync, this.now);
     const auditStore = new SqliteAuditStore(database);
+    const adminMetricsStore = new SqliteAdminMetricsStore(database);
     // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
@@ -221,6 +226,7 @@ export class CommercialComponent implements RuntimeComponent {
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
       listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
       listAuditEvents: new ListAuditEventsUseCase(auditStore),
+      getAdminMetrics: new GetAdminMetricsUseCase(adminMetricsStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
