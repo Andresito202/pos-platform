@@ -348,11 +348,18 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // Una venta nueva y sin cobrar existe, y por eso no puede anunciarse como
   // inexistente: el cajero la tiene delante y lo que debe hacer es cobrarla.
   await page.getByTestId("reset-button").click();
-  await page.getByTestId("barcode-input").fill(BARCODE);
-  await page.getByTestId("find-item-button").click();
-  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
+
+  // Segunda venta por la ruta táctil real: búsqueda de catálogo → tarjeta → carrito
+  // → sale.create. La tarjeta no aporta precio ni identidad; sólo selecciona la
+  // presentación que ya devolvió el catálogo confiable.
+  await page.getByTestId("catalog-search-input").fill("Café");
+  await page.getByTestId("catalog-search-button").click();
+  await expect(page.getByTestId("catalog-product-").first()).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("quantity-input").fill("1");
-  await page.getByTestId("add-item-button").click();
+  const catalogCard = page.locator('[data-testid^="catalog-product-"]').first();
+  await expect(catalogCard).toBeVisible({ timeout: 15_000 });
+  await catalogCard.click();
+  await expect(page.getByTestId("cart-line")).toHaveCount(1);
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
