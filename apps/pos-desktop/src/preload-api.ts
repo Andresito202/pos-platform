@@ -28,6 +28,7 @@ export const RENDERER_API_METHODS = [
   "inventory.stock.get",
   "sales.receipt.get",
   "audit.event.list",
+  "admin.metrics.get",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];
