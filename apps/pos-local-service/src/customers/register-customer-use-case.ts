@@ -1,3 +1,4 @@
+import { PermissionCode } from "@pos-platform/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createActor,
@@ -16,7 +17,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { SqliteCustomerStore } from "./sqlite-customer-store.js";
 
-export const PERMISSION_CUSTOMERS_CUSTOMER_REGISTER = "CUSTOMERS_CUSTOMER_REGISTER";
+export const PERMISSION_CUSTOMERS_CUSTOMER_REGISTER = PermissionCode.CUSTOMERS_CUSTOMER_REGISTER;
 
 export interface RegisterCustomerRequest {
   readonly customer: FiscalCustomer;
