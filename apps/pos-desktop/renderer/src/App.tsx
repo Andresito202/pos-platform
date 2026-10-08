@@ -8,6 +8,47 @@ import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
+
+type PlannedScreenDefinition = {
+  id: string;
+  label: string;
+  section: "Administración" | "Plataforma";
+  description: string;
+  actions: readonly string[];
+};
+
+const plannedScreens: readonly PlannedScreenDefinition[] = [
+  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"] },
+  { id: "reports", label: "Reportes", section: "Administración", description: "Consultas y reportes comerciales y operativos.", actions: ["Ventas", "Inventario", "Caja", "Exportar"] },
+  { id: "users", label: "Usuarios", section: "Administración", description: "Alta, consulta, suspensión y administración de usuarios.", actions: ["Nuevo usuario", "Consultar usuario", "Suspender usuario"] },
+  { id: "roles", label: "Roles y permisos", section: "Administración", description: "Asignación de roles, permisos y alcance organizacional.", actions: ["Gestionar roles", "Asignar permisos", "Revisar alcance"] },
+  { id: "company", label: "Empresa", section: "Administración", description: "Datos y configuración de la empresa.", actions: ["Editar empresa", "Datos fiscales", "Políticas"] },
+  { id: "branches", label: "Sucursales", section: "Administración", description: "Alta y administración de sucursales.", actions: ["Nueva sucursal", "Consultar sucursal", "Desactivar sucursal"] },
+  { id: "devices", label: "Dispositivos", section: "Administración", description: "Registro, aprobación, actividad y ciclo de vida de dispositivos.", actions: ["Registrar dispositivo", "Aprobar dispositivo", "Reemplazar dispositivo"] },
+  { id: "settings", label: "Configuración", section: "Administración", description: "Configuración general del entorno POS.", actions: ["Configuración general", "Sesión y seguridad", "Integraciones"] },
+  { id: "licenses", label: "Licencias", section: "Plataforma", description: "Ciclo de vida de licencias y estado contractual.", actions: ["Emitir licencia", "Renovar", "Suspender", "Reactivar", "Revocar"] },
+  { id: "plans", label: "Planes y suscripciones", section: "Plataforma", description: "Planes mensual, anual y perpetuo; suscripciones y derechos.", actions: ["Nuevo plan", "Cambiar plan", "Gestionar suscripción", "Consultar entitlements"] },
+  { id: "super-admin", label: "Superadministrador", section: "Plataforma", description: "Administración global de plataforma, licencias y cuentas.", actions: ["Administrar cuentas", "Administrar licencias", "Administrar planes", "Revisar auditoría"] },
+  { id: "support", label: "Soporte", section: "Plataforma", description: "Atención operativa y acciones autorizadas de soporte.", actions: ["Buscar cuenta", "Revisar dispositivo", "Registrar caso"] },
+  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos", "Exportar evidencia"] },
+];
+
+function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.JSX.Element {
+  return (
+    <section data-testid={`planned-screen-${screen.id}`}>
+      <h2>{screen.label}</h2>
+      <p>{screen.description}</p>
+      <p className="pos-planned-state">Interfaz materializada · conexión de servicio pendiente.</p>
+      <div className="pos-action-grid">
+        {screen.actions.map((action) => (
+          <button key={action} type="button" disabled title="La operación se conectará cuando exista el contrato de servicio ejecutable.">
+            {action}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
 
 function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): boolean {
@@ -17,8 +58,9 @@ function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): 
 type Screen = {
   id: string;
   label: string;
-  section: "Operación" | "Catálogo e inventario";
+  section: "Operación" | "Catálogo e inventario" | "Administración" | "Plataforma";
   render: () => React.JSX.Element;
+  planned?: boolean;
 };
 
 export function App(): React.JSX.Element {
@@ -99,6 +141,16 @@ export function App(): React.JSX.Element {
       });
     }
 
+    for (const planned of plannedScreens) {
+      result.push({
+        id: planned.id,
+        label: planned.label,
+        section: planned.section,
+        planned: true,
+        render: () => <PlannedScreen screen={planned} />,
+      });
+    }
+
     return result;
   }, [authorization]);
 
@@ -133,7 +185,7 @@ export function App(): React.JSX.Element {
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
         <nav className="pos-nav">
-          {(["Operación", "Catálogo e inventario"] as const).map((section) => {
+          {(["Operación", "Catálogo e inventario", "Administración", "Plataforma"] as const).map((section) => {
             const sectionScreens = screens.filter((screen) => screen.section === section);
             if (sectionScreens.length === 0) return null;
 
@@ -144,7 +196,7 @@ export function App(): React.JSX.Element {
                   <button
                     key={screen.id}
                     type="button"
-                    className="pos-nav-button"
+                    className={`pos-nav-button${screen.planned ? " pos-nav-button-planned" : ""}`}
                     aria-current={selectedScreen?.id === screen.id ? "page" : undefined}
                     onClick={() => { setActiveScreen(screen.id); }}
                   >
@@ -162,7 +214,7 @@ export function App(): React.JSX.Element {
           <div>
             <p className="pos-product-name">Camacho POS Colombia</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
-            <p>Acceso disponible según la autorización efectiva de la sesión.</p>
+            <p>Acceso disponible según la autorización efectiva de la sesión. Las interfaces administrativas ya están identificadas; sus acciones se conectan al servicio real por bloque.</p>
           </div>
         </header>
 
