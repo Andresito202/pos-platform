@@ -22,6 +22,7 @@ export const RENDERER_API_METHODS = [
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",
+  "catalog.item.list",
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
