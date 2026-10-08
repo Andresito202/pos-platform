@@ -168,7 +168,7 @@ La versión y fecha efectiva deberán mantenerse identificables.
 ## 18. Ley aplicable y jurisdicción
 
 **Ley aplicable:** Colombia, sujeto a revisión y confirmación contractual.  
-**Domicilio contractual / jurisdicción:** PENDIENTE DE FORMALIZACIÓN.
+**Domicilio contractual / jurisdicción:** Transversal 3A #87B-45 Sur, Bogotá D.C., Colombia / jurisdicción colombiana, sujeto al contrato específico.
 
 ## 19. Orden de prelación
 
@@ -180,6 +180,6 @@ La Política de Privacidad, la Política de Reembolso y otros documentos incorpo
 
 Estos términos quedan incorporados al repositorio como **documento materializado del producto**.
 
-No se declaran todavía como términos contractuales definitivos porque el titular jurídico, los canales oficiales y algunos parámetros comerciales no están formalizados. No se inventan esos datos para cerrar el requisito.
+No se declaran todavía como términos contractuales definitivos porque el NIT es el único dato de identidad empresarial pendiente de este bloque; los datos de contacto declarados ya están incorporados.
 
 **Fuente de continuidad:** `docs/product/brand.md` y este documento. No crear una segunda versión paralela.
