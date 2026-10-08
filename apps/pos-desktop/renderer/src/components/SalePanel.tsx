@@ -17,6 +17,7 @@ export function SalePanel(): React.JSX.Element {
   const [registerId, setRegisterId] = useState("");
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
   const [tendered, setTendered] = useState("");
@@ -54,8 +55,12 @@ export function SalePanel(): React.JSX.Element {
       <div className="pos-sale-layout">
         <section className="pos-sale-products" aria-label="Productos para venta">
           <div className="pos-section-heading">
-            <div><h2>Productos</h2><p>Catálogo táctil del comercio: cada producto tendrá su icono, nombre, presentación y precio.</p></div>
+            <div><h2>Productos</h2><p>Catálogo táctil real: cada tarjeta usa nombre, presentación y precio del catálogo activo.</p></div>
             <div className="pos-product-tools">
+              <input data-testid="catalog-search-input" aria-label="Buscar producto" value={catalogQuery}
+                onChange={(e) => { setCatalogQuery(e.target.value); }} placeholder="Buscar producto, código o barras" disabled={sale.busy} />
+              <button data-testid="catalog-search-button" onClick={() => { void sale.listCatalogItems(catalogQuery.trim()); }}
+                disabled={sale.busy}>Buscar catálogo</button>
               <input data-testid="barcode-input" aria-label="Código de barras" value={barcode}
                 onChange={(e) => { setBarcode(e.target.value); }} placeholder="Escanear o escribir código" disabled={sale.busy} />
               <button data-testid="find-item-button" onClick={() => { void sale.findItem(barcode.trim()); }}
@@ -64,7 +69,17 @@ export function SalePanel(): React.JSX.Element {
           </div>
 
           <div className="pos-touch-grid" data-testid="touch-product-grid">
-            {sale.foundItem !== null ? (
+            {sale.catalogItems.length > 0 ? (
+              sale.catalogItems.map((item) => (
+                <button type="button" className="pos-product-tile" key={item.presentation_id} data-testid={`catalog-product-${item.presentation_id}`}
+                  onClick={() => { sale.addCatalogItem(item, quantity.trim()); }} disabled={sale.busy}>
+                  <ProductAvatar item={item} />
+                  <strong className="pos-product-name-value">{item.name}</strong>
+                  <span className="pos-product-presentation">{item.presentation_name}</span>
+                  <span className="pos-product-price">{item.price_amount}</span>
+                </button>
+              ))
+            ) : sale.foundItem !== null ? (
               <button type="button" className="pos-product-tile" data-testid="found-product-tile"
                 onClick={() => { sale.addFoundItem(quantity.trim()); }}
                 disabled={sale.busy || sale.foundItem.price_amount === null}>
@@ -81,8 +96,19 @@ export function SalePanel(): React.JSX.Element {
                 <strong>Busca un producto</strong>
                 <small>Escanea el código de barras para mostrar únicamente datos reales del catálogo.</small>
               </div>
+            ) : (
+              <div className="pos-product-empty" data-testid="touch-product-empty">
+                <span className="pos-product-icon" aria-hidden="true">⌕</span>
+                <strong>Sin productos vendibles</strong>
+                <small>El catálogo debe tener producto, presentación y precio activos.</small>
+              </div>
             )}
           </div>
+          {sale.catalogHasMore && (
+            <button type="button" data-testid="catalog-load-more" onClick={() => { void sale.listCatalogItems(catalogQuery.trim(), sale.catalogItems.length); }} disabled={sale.busy}>
+              Cargar más productos
+            </button>
+          )}
 
           {sale.foundItem !== null && (
             <div className="pos-weighing-card" data-testid="product-capture">
