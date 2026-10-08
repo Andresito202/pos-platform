@@ -104,19 +104,28 @@ export function SalePanel(): React.JSX.Element {
             </button>
           )}
 
-          {sale.foundItem !== null && (
-            <div className="pos-weighing-card" data-testid="product-capture">
-              <div><strong>Captura de cantidad</strong><span>{sale.foundItem.unit_code} · precisión {sale.foundItem.unit_precision}</span></div>
-              <div className="pos-weighing-row">
-                <label>Cantidad<input data-testid="quantity-input" aria-label="Cantidad" value={quantity}
-                  onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy} /></label>
-                <button data-testid="read-scale-button" type="button" disabled
-                  title="La lectura real depende del adaptador de balanza del Hardware Service.">Leer balanza</button>
+          <div className="pos-weighing-card" data-testid="product-capture">
+            <div>
+              <strong>Captura de cantidad</strong>
+              <span>
+                {sale.foundItem !== null
+                  ? `${sale.foundItem.unit_code} · precisión ${sale.foundItem.unit_precision}`
+                  : "La precisión final la valida el catálogo al crear la venta"}
+              </span>
+            </div>
+            <div className="pos-weighing-row">
+              <label>Cantidad<input data-testid="quantity-input" aria-label="Cantidad" value={quantity}
+                onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy} /></label>
+              <button data-testid="read-scale-button" type="button" disabled
+                title="La lectura real depende del adaptador de balanza del Hardware Service.">Leer balanza</button>
+              {sale.foundItem !== null ? (
                 <button data-testid="add-item-button" onClick={() => { sale.addFoundItem(quantity.trim()); }}
                   disabled={sale.busy || sale.foundItem.price_amount === null}>Agregar al carrito</button>
-              </div>
+              ) : (
+                <span className="pos-product-capture-hint">La cantidad se aplica a la tarjeta que toques.</span>
+              )}
             </div>
-          )}
+          </div>
         </section>
 
         <section className="pos-sale-cart" aria-label="Venta actual">
