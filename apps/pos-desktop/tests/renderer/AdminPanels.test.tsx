@@ -517,10 +517,32 @@ describe("AdministrativeControlPanel", () => {
     expect(screen.getByText("Autorización efectiva")).toBeTruthy();
   });
 
-  it("mantiene auditoría separada de las superficies de operación", () => {
+  it("consume eventos de auditoría reales mediante el contrato read-only", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "FOUND",
+      result: {
+        outcome: "FOUND",
+        events: [{
+          sequence: 7,
+          actor_type: "USER",
+          actor_id: "11111111-1111-4111-8111-111111111111",
+          session_id: "22222222-2222-4222-8222-222222222222",
+          action_code: "SALE_CREATED",
+          resource_type: "SALE",
+          resource_id: "33333333-3333-4333-8333-333333333333",
+          correlation_id: "44444444-4444-4444-8444-444444444444",
+          causation_id: null,
+          reason_code: null,
+          created_at: "2026-09-07T10:00:00.000Z",
+        }],
+        has_more: false,
+      },
+    });
     render(<AdministrativeControlPanel kind="audit" />);
-    expect(screen.getByTestId("admin-panel-audit")).toBeTruthy();
+    await waitFor(() => { expect(screen.getByText("SALE_CREATED")).toBeTruthy(); });
     expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
-    expect(screen.getByText("Los eventos deben proceder del registro de auditoría real; no se muestran datos simulados.")).toBeTruthy();
+    expect(screen.getByText("Eventos cargados")).toBeTruthy();
+    expect(sent("audit.event.list")["payload"]).toBeDefined();
   });
 });
