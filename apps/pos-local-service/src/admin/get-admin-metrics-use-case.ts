@@ -8,9 +8,13 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { SqliteAdminMetricsStore } from "./sqlite-admin-metrics-store.js";
 
-export const PERMISSION_ADMIN_SALES_READ = "SALES_RECEIPT_READ";
+/**
+ * The product matrix defines aggregate sales/cash visibility separately from
+ * operational receipt/shift permissions. Until those canonical aggregate-read
+ * grants are materialized in the central authorization package, these metrics
+ * must remain unavailable rather than inheriting a broader operational grant.
+ */
 export const PERMISSION_ADMIN_INVENTORY_READ = "INVENTORY_STOCK_READ";
-export const PERMISSION_ADMIN_CASH_READ = "CASH_SHIFT_OPEN";
 
 export interface AdminMetricsResult {
   readonly sales_completed_count: number | null;
@@ -31,19 +35,17 @@ export class GetAdminMetricsUseCase {
     const operationScope = createOperationScope(scope.tenantId, scope.companyId, scope.branchId);
     const assignments = toRoleAssignments(authSnapshot.claims);
 
-    const canReadSales = evaluatePermission({
-      actor, permission: PERMISSION_ADMIN_SALES_READ, scope: operationScope, at, assignments,
-    }).allowed;
     const canReadInventory = evaluatePermission({
       actor, permission: PERMISSION_ADMIN_INVENTORY_READ, scope: operationScope, at, assignments,
     }).allowed;
-    const canReadCash = evaluatePermission({
-      actor, permission: PERMISSION_ADMIN_CASH_READ, scope: operationScope, at, assignments,
-    }).allowed;
 
-    const sales = canReadSales ? this.store.readSales(scope) : null;
+    // Do not reuse SALES_RECEIPT_READ or CASH_SHIFT_OPEN here. Those permissions
+    // authorize operational actions/reads, not branch-wide administrative
+    // aggregates. Returning null is fail-closed until canonical aggregate-read
+    // permissions are published by the central authorization authority.
+    const sales = null;
     const inventory = canReadInventory ? this.store.readInventory(scope) : null;
-    const cash = canReadCash ? this.store.readCash(scope) : null;
+    const cash = null;
 
     return {
       sales_completed_count: sales?.count ?? null,
