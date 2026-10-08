@@ -30,7 +30,8 @@ type CommercialRequest = Extract<
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "sales.receipt.get"
-      | "audit.event.list";
+      | "audit.event.list"
+      | "admin.metrics.get";
   }
 >;
 
@@ -220,6 +221,7 @@ export class CommercialRequestHandler {
       case "inventory.stock.get": return this.getStock(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
+      case "admin.metrics.get": return this.getAdminMetrics(request, connectionId);
     }
   }
 
@@ -922,6 +924,32 @@ export class CommercialRequestHandler {
         currency_code: price.currencyCode,
       })),
       has_more: result.hasMore,
+    });
+  }
+
+  private getAdminMetrics(
+    request: Extract<CommercialRequest, { message_type: "admin.metrics.get" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "AVAILABLE",
+        sales_completed_count: null,
+        sales_completed_amount: null,
+        inventory_tracked_count: null,
+        cash_open_shift_count: null,
+      });
+    }
+
+    const result = this.commercial.getAdminMetrics.execute(
+      this.scope(),
+      authenticated.snapshot,
+    );
+
+    return succeeded(request, "AVAILABLE", {
+      outcome: "AVAILABLE",
+      ...result,
     });
   }
 
