@@ -13,6 +13,7 @@ import { CatalogPanel } from "../../renderer/src/components/CatalogPanel.js";
 import { InventoryPanel } from "../../renderer/src/components/InventoryPanel.js";
 import { CustomerPanel } from "../../renderer/src/components/CustomerPanel.js";
 import { FiscalPanel } from "../../renderer/src/components/FiscalPanel.js";
+import { AdministrativeControlPanel } from "../../renderer/src/components/AdministrativeControlPanel.js";
 
 /**
  * Las tres pantallas de administración contra respuestas controladas.
@@ -500,5 +501,26 @@ describe("FiscalPanel", () => {
       expect(screen.getByTestId("fiscal-error").textContent).toBe("SESSION_NOT_BOUND");
     });
     expect(screen.queryByTestId("fiscal-blocked")).toBeNull();
+  });
+});
+
+
+describe("AdministrativeControlPanel", () => {
+  it("navega entre pestañas sin fabricar métricas", () => {
+    render(<AdministrativeControlPanel kind="superadmin" />);
+    expect(screen.getByTestId("admin-panel-superadmin")).toBeTruthy();
+    expect(screen.getAllByText("—")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
+    expect(screen.getByText("Seguimiento")).toBeTruthy();
+    expect(screen.getByText("Sin datos ejecutables")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Seguridad" }));
+    expect(screen.getByText("Autorización efectiva")).toBeTruthy();
+  });
+
+  it("mantiene auditoría separada de las superficies de operación", () => {
+    render(<AdministrativeControlPanel kind="audit" />);
+    expect(screen.getByTestId("admin-panel-audit")).toBeTruthy();
+    expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
+    expect(screen.getByText("Los eventos deben proceder del registro de auditoría real; no se muestran datos simulados.")).toBeTruthy();
   });
 });
