@@ -733,6 +733,45 @@ export const CustomerReadResultSchema = z.strictObject({
 
 export const CustomerReadResponseSchema = createResponseEnvelopeSchema(CustomerReadResultSchema);
 
+
+export const CustomerMarketingSubscribeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.marketing.subscribe") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CustomerMarketingUnsubscribeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.marketing.unsubscribe") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CustomerMarketingGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.marketing.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+const CustomerMarketingSubscriptionResultSchema = z.strictObject({
+  outcome: z.enum(["SUBSCRIBED", "UNSUBSCRIBED", "IDEMPOTENT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND", "EMAIL_REQUIRED", "IDEMPOTENCY_CONFLICT", "NOT_SUBSCRIBED"]),
+  customer_id: UuidSchema.nullable(),
+  channel: z.literal("EMAIL").nullable(),
+  topic: z.literal("POS_NEWS").nullable(),
+  status: z.enum(["SUBSCRIBED", "UNSUBSCRIBED"]).nullable(),
+  consent_version: z.string().min(1).max(32).nullable(),
+  consented_at: UtcDateTimeSchema.nullable(),
+  unsubscribed_at: UtcDateTimeSchema.nullable(),
+  source: z.literal("POS").nullable(),
+  updated_at: UtcDateTimeSchema.nullable(),
+});
+
+export const CustomerMarketingSubscribeResponseSchema = createResponseEnvelopeSchema(CustomerMarketingSubscriptionResultSchema);
+export const CustomerMarketingUnsubscribeResponseSchema = createResponseEnvelopeSchema(CustomerMarketingSubscriptionResultSchema);
+export const CustomerMarketingGetResponseSchema = createResponseEnvelopeSchema(CustomerMarketingSubscriptionResultSchema);
+
 // ── fiscal.document.issue ────────────────────────────────────────────────────
 
 /**
@@ -1098,6 +1137,9 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.register",
   "customer.get",
   "customer.find",
+  "customer.marketing.subscribe",
+  "customer.marketing.unsubscribe",
+  "customer.marketing.get",
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",
@@ -1149,6 +1191,7 @@ export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
+export type CustomerMarketingSubscriptionResult = z.infer<typeof CustomerMarketingSubscriptionResultSchema>;
 export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
