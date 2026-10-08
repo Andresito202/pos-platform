@@ -95,9 +95,9 @@ Si una operación involucra datos de una persona menor de edad, el Responsable d
 
 Cuando la ley exija autorización, el Responsable deberá obtenerla mediante un mecanismo que permita demostrar que fue previa, expresa e informada.
 
-La existencia de esta política no reemplaza por sí sola la autorización que deba obtenerse para una finalidad determinada.
+La clasificación de las finalidades actuales, incluyendo los casos en que la autorización no es la base jurídica aplicable y los casos que sí requieren una autorización separada, queda registrada en [docs/legal/consent-verification-matrix.md](./consent-verification-matrix.md).
 
-Cuando corresponda, deberán conservarse las evidencias necesarias para acreditar la autorización y su alcance.
+Cuando corresponda, deberán conservarse las evidencias necesarias para acreditar la autorización y su alcance. El producto no debe interpretar el simple registro de un adquiriente como consentimiento para comunicaciones comerciales u otra finalidad opcional.
 
 ## 9. Medidas de seguridad
 
