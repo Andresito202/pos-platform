@@ -1,3 +1,6 @@
+import * as z from "zod";
+import { UtcDateTimeSchema, UuidSchema } from "./primitives.js";
+
 /**
  * Central administration contract.
  *
@@ -45,4 +48,67 @@ export const CENTRAL_ADMINISTRATION_AUTHORITY = Object.freeze({
   localMayIssueLicense: false,
   localMayChangePlan: false,
   localMayGrantEntitlement: false,
+} as const);
+
+/**
+ * D-3 boundary: PlatformAccount is the administrative representation of an
+ * existing identity.users row. The account does not receive a second
+ * credential, MFA store, session store or tenant membership.
+ *
+ * identity.users.status remains the account lifecycle source of truth;
+ * identity.user_credentials and identity.mfa_factors remain the credential
+ * and MFA sources of truth.
+ */
+export const PLATFORM_ACCOUNT_IDENTITY_MODEL = Object.freeze({
+  identityTable: "identity.users",
+  credentialTable: "identity.user_credentials",
+  mfaTable: "identity.mfa_factors",
+  sessionTable: "identity.sessions",
+  refreshTokenTable: "identity.session_refresh_tokens",
+  securityEventTable: "identity.security_events",
+  accountIdIsUserId: true,
+  tenantMembershipRequired: false,
+  tenantContextRequired: false,
+} as const);
+
+/**
+ * Authenticated administrative session context.
+ *
+ * This is a central identity/session assertion, not a bearer token and not an
+ * authorization snapshot. Permissions, roles and entitlements are deliberately
+ * absent. The service resolves D-1 operations from the central authority.
+ */
+export const PlatformAdministrationSessionSchema = z.strictObject({
+  session_id: UuidSchema,
+  platform_account_id: UuidSchema,
+  actor_type: z.literal("PLATFORM_ACCOUNT"),
+  tenant_id: z.null(),
+  tenant_membership_id: z.null(),
+  mfa_status: z.literal("SATISFIED"),
+  last_reauthenticated_at: UtcDateTimeSchema,
+  expires_at: UtcDateTimeSchema,
+}).superRefine((session, context) => {
+  if (Date.parse(session.expires_at) <= Date.parse(session.last_reauthenticated_at)) {
+    context.addIssue({
+      code: "custom",
+      path: ["expires_at"],
+      message: "expires_at must be later than last_reauthenticated_at",
+    });
+  }
+});
+
+export type PlatformAdministrationSession =
+  z.infer<typeof PlatformAdministrationSessionSchema>;
+
+/**
+ * Every D-1 administrative operation requires a fully authenticated platform
+ * session. No tenant membership is substituted for platform authority.
+ */
+export const CENTRAL_ADMINISTRATION_SESSION_POLICY = Object.freeze({
+  actorType: "PLATFORM_ACCOUNT",
+  mfaRequired: true,
+  reauthenticationRequired: true,
+  tenantMembershipRequired: false,
+  localClientMayInvokeDirectly: false,
+  authorizationSource: "CENTRAL_ADMINISTRATION_OPERATION",
 } as const);
