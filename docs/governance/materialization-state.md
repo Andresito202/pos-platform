@@ -767,3 +767,9 @@ La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estad
 **Estado: MATERIALIZADO COMO INVENTARIO INICIAL / NO COMPLETO PARA TRANSITIVAS.** Se revisaron los manifests de runtime y la presencia de integraciones de analítica/telemetría conocidas. Se añadió `docs/security/third-party-sdk-privacy-inventory.md`. Los gates de SBOM, vulnerabilidades, licencias, procedencia y CodeQL ya existentes se preservan y no se duplican.
 
 **Regla de continuidad:** no agregar un segundo mecanismo de consentimiento, segundo inventario de SDKs ni otra capa de minimización. Cualquier cierre técnico posterior debe extender lo existente.
+
+## Bloque de cumplimiento — patrones oscuros
+
+**Estado: REVISADO / SIN HALLAZGO CRÍTICO, SIN GATE FORMAL.** Primero se auditó la UI existente. No se encontró checkout, suscripción, countdown, falsa urgencia ni consentimiento premarcado como patrón comercial. Se añadió `docs/security/dark-pattern-review.md` como registro único de revisión.
+
+No se declara `PASS` universal: el producto todavía no tiene un gate automatizado específico de dark patterns. No se rehace la navegación existente.
