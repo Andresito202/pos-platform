@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
 
 type ControlKind = "admin" | "superadmin" | "audit";
 
@@ -54,6 +55,7 @@ const copy: Record<ControlKind, {
 export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): React.JSX.Element {
   const [tab, setTab] = useState<Tab>("overview");
   const model = copy[kind];
+  const audit = useAdministrativeAudit(kind === "audit");
 
   return (
     <section className="pos-admin-panel" data-testid={`admin-panel-${kind}`}>
@@ -79,7 +81,7 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
         ))}
       </nav>
 
-      {tab === "overview" && (
+      {tab === "overview" && kind !== "audit" && (
         <div className="pos-admin-grid">
           {model.cards.map((card) => (
             <article key={card.label} className="pos-admin-card">
@@ -91,16 +93,45 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
         </div>
       )}
 
-      {tab === "monitoring" && (
-        <div className="pos-admin-surface">
-          <h3>Seguimiento</h3>
-          <p>La superficie está preparada para consumir métricas y estados del servicio sin inventar cifras en el renderer.</p>
-          <div className="pos-admin-empty" role="status">
-            <strong>Sin datos ejecutables</strong>
-            <span>El contrato de lectura correspondiente debe materializarse antes de mostrar métricas reales.</span>
-          </div>
+      {tab === "overview" && kind === "audit" && (
+        <div className="pos-admin-grid">
+          <article className="pos-admin-card"><span>Eventos cargados</span><strong>{audit.totalLoaded}</strong><small>Filas reales de auditoría dentro del scope efectivo.</small></article>
+          <article className="pos-admin-card"><span>Última actividad</span><strong>{audit.events[0]?.created_at ? new Date(audit.events[0].created_at).toLocaleString() : "—"}</strong><small>Ordenada por secuencia descendente.</small></article>
+          <article className="pos-admin-card"><span>Scope</span><strong>Sesión</strong><small>Tenant, empresa y sucursal los resuelve el servicio.</small></article>
+          <article className="pos-admin-card"><span>Paginación</span><strong>{audit.hasMore ? "Disponible" : "Completa"}</strong><small>El renderer no calcula páginas fuera del contrato.</small></article>
         </div>
       )}
+
+      {tab === "monitoring" && kind === "audit" ? (
+        <div className="pos-admin-surface">
+          <h3>Seguimiento de evidencia</h3>
+          <p>Consulta read-only de la auditoría local append-only. No se exponen detalles JSON sensibles en esta vista.</p>
+          <div className="pos-admin-audit-toolbar">
+            <input aria-label="Buscar auditoría" placeholder="Acción, recurso o motivo" value={audit.filters.query} onChange={(event) => audit.setFilters({ ...audit.filters, query: event.target.value })} />
+            <input aria-label="Código de acción" placeholder="Código de acción" value={audit.filters.actionCode} onChange={(event) => audit.setFilters({ ...audit.filters, actionCode: event.target.value })} />
+            <input aria-label="Tipo de recurso" placeholder="Tipo de recurso" value={audit.filters.resourceType} onChange={(event) => audit.setFilters({ ...audit.filters, resourceType: event.target.value })} />
+            <select aria-label="Tipo de actor" value={audit.filters.actorType} onChange={(event) => audit.setFilters({ ...audit.filters, actorType: event.target.value as typeof audit.filters.actorType })}>
+              <option value="">Todos los actores</option><option value="USER">Usuario</option><option value="DEVICE">Dispositivo</option><option value="SYSTEM">Sistema</option>
+            </select>
+            <button type="button" onClick={() => void audit.refresh()} disabled={audit.busy}>Actualizar</button>
+          </div>
+          {audit.error !== null && <div className="pos-admin-empty" role="alert"><strong>{audit.error}</strong><span>La consulta fue rechazada o no pudo completarse.</span></div>}
+          <div className="pos-admin-audit-table" role="table" aria-label="Eventos de auditoría">
+            <div className="pos-admin-audit-row pos-admin-audit-head" role="row"><span>Sec.</span><span>Fecha</span><span>Actor</span><span>Acción</span><span>Recurso</span><span>Motivo</span></div>
+            {audit.events.map((event) => (
+              <div className="pos-admin-audit-row" role="row" key={event.sequence}>
+                <span>{event.sequence}</span><span>{new Date(event.created_at).toLocaleString()}</span><span>{event.actor_type}</span><span>{event.action_code}</span><span>{event.resource_type}</span><span>{event.reason_code ?? "—"}</span>
+              </div>
+            ))}
+          </div>
+          <div className="pos-admin-audit-actions"><span>{audit.busy ? "Consultando…" : `${audit.totalLoaded} eventos cargados`}</span><button type="button" onClick={() => void audit.nextPage()} disabled={!audit.hasMore || audit.busy}>Cargar más</button></div>
+        </div>
+      ) : tab === "monitoring" ? (
+        <div className="pos-admin-surface">
+          <h3>Seguimiento</h3><p>La superficie está preparada para consumir métricas y estados del servicio sin inventar cifras en el renderer.</p>
+          <div className="pos-admin-empty" role="status"><strong>Sin datos ejecutables</strong><span>El contrato de lectura correspondiente debe materializarse antes de mostrar métricas reales.</span></div>
+        </div>
+      ) : null}
 
       {tab === "security" && (
         <div className="pos-admin-surface">
