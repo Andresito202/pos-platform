@@ -25,6 +25,7 @@ type CommercialRequest = Extract<
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
+      | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
@@ -205,6 +206,9 @@ export class CommercialRequestHandler {
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
+      case "customer.marketing.subscribe":
+      case "customer.marketing.unsubscribe":
+      case "customer.marketing.get": return this.marketingSubscription(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.item.find":
@@ -566,6 +570,100 @@ export class CommercialRequestHandler {
       return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     }
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+
+  // ── customer.marketing.* ──────────────────────────────────────────────────
+
+  private marketingSubscription(
+    request: Extract<CommercialRequest, {
+      message_type: "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get";
+    }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      customer_id: request.payload.customer_id,
+      channel: null,
+      topic: null,
+      status: null,
+      consent_version: null,
+      consented_at: null,
+      unsubscribed_at: null,
+      source: null,
+      updated_at: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const scope = this.scope();
+    if (request.message_type === "customer.marketing.get") {
+      const subscription = this.commercial.customerMarketing.get(scope, request.payload.customer_id);
+      if (!subscription) {
+        return succeeded(request, "NOT_SUBSCRIBED", {
+          outcome: "NOT_SUBSCRIBED",
+          ...empty,
+          customer_id: request.payload.customer_id,
+        });
+      }
+      return succeeded(request, "FOUND", {
+        outcome: subscription.status,
+        customer_id: subscription.customerId,
+        channel: subscription.channel,
+        topic: subscription.topic,
+        status: subscription.status,
+        consent_version: subscription.consentVersion,
+        consented_at: subscription.consentedAt,
+        unsubscribed_at: subscription.unsubscribedAt,
+        source: subscription.source,
+        updated_at: subscription.updatedAt,
+      });
+    }
+
+    const result = request.message_type === "customer.marketing.subscribe"
+      ? this.commercial.customerMarketing.executeSubscribe({
+          scope,
+          sessionId: authenticated.identity.ssaSessionId,
+          authSnapshot: authenticated.snapshot,
+          customerId: request.payload.customer_id,
+          idempotencyKey: request.idempotency_key as string,
+          correlationId: request.correlation_id,
+          causationId: request.causation_id ?? null,
+          at: new Date(),
+        })
+      : this.commercial.customerMarketing.executeUnsubscribe({
+          scope,
+          sessionId: authenticated.identity.ssaSessionId,
+          authSnapshot: authenticated.snapshot,
+          customerId: request.payload.customer_id,
+          idempotencyKey: request.idempotency_key as string,
+          correlationId: request.correlation_id,
+          causationId: request.causation_id ?? null,
+          at: new Date(),
+        });
+
+    if (result.kind === "SUBSCRIBED" || result.kind === "UNSUBSCRIBED" || result.kind === "IDEMPOTENT") {
+      const subscription = result.subscription;
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        customer_id: subscription.customerId,
+        channel: subscription.channel,
+        topic: subscription.topic,
+        status: subscription.status,
+        consent_version: subscription.consentVersion,
+        consented_at: subscription.consentedAt,
+        unsubscribed_at: subscription.unsubscribedAt,
+        source: subscription.source,
+        updated_at: subscription.updatedAt,
+      });
+    }
+
+    return rejected(request, result.kind, {
+      outcome: result.kind,
+      ...empty,
+    });
   }
 
   // ── fiscal.document.issue ───────────────────────────────────────────────────
