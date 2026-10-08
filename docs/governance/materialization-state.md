@@ -768,6 +768,36 @@ La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estad
 
 **Regla de continuidad:** no agregar un segundo mecanismo de consentimiento, segundo inventario de SDKs ni otra capa de minimización. Cualquier cierre técnico posterior debe extender lo existente.
 
+## Bloque de cumplimiento — verificación de consentimientos
+
+
+
+**Estado: MATERIALIZADO COMO CONTROL DE GOBERNANZA Y VERIFICACIÓN DE BASE JURÍDICA.**
+
+
+
+Se añadió `docs/legal/consent-verification-matrix.md` como fuente única para clasificar los flujos actuales entre tratamiento necesario, otras bases jurídicas y tratamientos que sí requerirían autorización separada.
+
+
+
+- El registro de adquirientes no se convierte artificialmente en un consentimiento comercial.
+
+- La administración `DEVICE_MANAGED` / `KIOSK_MANAGED` conserva el requisito existente de consentimiento y contrato explícitos de `UC-DEV-001`.
+
+- Cookies/seguimiento web y marketing/newsletter permanecen `N/A` mientras esas superficies no existan.
+
+- Si una nueva finalidad requiere autorización, debe materializarse con captura explícita, evidencia versionada, retiro, sincronización y pruebas; no se permite una aceptación implícita.
+
+
+
+**Límite:** esto no declara un gestor universal de consentimientos, porque esa capacidad no existe. No se añadió persistencia genérica sin una finalidad real que la necesite.
+
+
+
+**Evidencia documental:** `docs/legal/consent-verification-matrix.md` y §8 de `docs/legal/privacy-policy.md`.
+
+
+
 ## Bloque de cumplimiento — patrones oscuros
 
 **Estado: REVISADO / SIN HALLAZGO CRÍTICO, SIN GATE FORMAL.** Primero se auditó la UI existente. No se encontró checkout, suscripción, countdown, falsa urgencia ni consentimiento premarcado como patrón comercial. Se añadió `docs/security/dark-pattern-review.md` como registro único de revisión.
