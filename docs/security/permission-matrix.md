@@ -183,6 +183,12 @@ La tabla no crea roles financieros. Cada celda exige el permiso atómico corresp
 | Modificar QR | Reautenticación | Condicional con `payments.provider.configure` | No | No | No | No |
 | Ver ubicación del domiciliario | Sí | Sí | Sí | Condicional | Propia | Pedido propio |
 
+## Comunicaciones comerciales de clientes
+
+La V1 de novedades del POS se gestiona desde la ficha del adquiriente. La captura, suscripción y baja usan el permiso existente `CUSTOMERS_CUSTOMER_REGISTER`, porque la capacidad pertenece al mantenimiento operativo del adquiriente y no se introduce un grant nuevo que ningún snapshot de autorización actual conozca.
+
+Esto no convierte el alta fiscal en consentimiento comercial: la suscripción es una operación separada y explícita, con evidencia de versión, fecha, actor, sesión, origen y auditoría.
+
 ## Permisos atómicos
 
 Los permisos de producto descritos en esta matriz se descomponen en permisos atómicos verificables por backend.
