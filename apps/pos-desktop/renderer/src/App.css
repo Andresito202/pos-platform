@@ -72,7 +72,22 @@ button {
 
 .pos-nav {
   display: grid;
-  gap: 8px;
+  gap: 16px;
+}
+
+.pos-nav-section {
+  display: grid;
+  gap: 4px;
+}
+
+.pos-nav-section-title {
+  margin: 0;
+  padding: 0 12px 4px;
+  color: var(--camacho-on-dark-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
 .pos-nav-button {
