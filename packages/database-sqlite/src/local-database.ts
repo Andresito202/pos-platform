@@ -1233,6 +1233,40 @@ CREATE INDEX inventory_movement_sale_idx
  * asignacion local cuando la autoridad es del proveedor, de modo que
  * `current_number` aqui es informativo y nunca fuente de un consecutivo.
  */
+
+/**
+ * `MIGRATION_017` — preferencias explícitas de comunicaciones comerciales.
+ *
+ * Separada de `customers_customers`: el registro fiscal no implica consentimiento
+ * comercial. V1 materializa sólo el tema "Novedades del POS" por correo.
+ */
+const MIGRATION_017 = `
+CREATE TABLE customer_marketing_subscriptions (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  customer_id TEXT NOT NULL CHECK(length(customer_id) = 36),
+  channel TEXT NOT NULL CHECK(channel = 'EMAIL'),
+  topic TEXT NOT NULL CHECK(topic = 'POS_NEWS'),
+  status TEXT NOT NULL CHECK(status IN ('SUBSCRIBED','UNSUBSCRIBED')),
+  consent_version TEXT,
+  consented_at TEXT,
+  unsubscribed_at TEXT,
+  source TEXT NOT NULL CHECK(source = 'POS'),
+  updated_by_actor_id TEXT NOT NULL CHECK(length(updated_by_actor_id) = 36),
+  session_id TEXT NOT NULL CHECK(length(session_id) = 36),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, company_id, customer_id, channel, topic),
+  FOREIGN KEY (tenant_id, customer_id) REFERENCES customers_customers(tenant_id, id),
+  CHECK(status <> 'SUBSCRIBED' OR (consent_version IS NOT NULL AND consented_at IS NOT NULL)),
+  CHECK(status <> 'UNSUBSCRIBED' OR unsubscribed_at IS NOT NULL)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX customer_marketing_subscriptions_status_idx
+  ON customer_marketing_subscriptions(tenant_id, company_id, topic, channel, status);
+`.trim();
+
 const MIGRATION_016 = `
 CREATE TABLE fiscal_numbering_range (
   tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
@@ -1363,6 +1397,7 @@ const MIGRATIONS = [
   { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
+  { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
 ] as const;
 
 /**
