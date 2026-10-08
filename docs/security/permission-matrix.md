@@ -318,6 +318,7 @@ Ejemplos:
 - `fiscal.reconciliation.reopen`;
 - `fiscal.contingency.start`;
 - `fiscal.contingency.close`;
+- `audit.event.read`;
 - `sync.dead_letter.read`;
 - `sync.dead_letter.review`;
 - `sync.dead_letter.retry`;
@@ -340,6 +341,7 @@ Reglas:
 12. Los permisos `fiscal.*` no conceden derechos de Tax, Sales, Payments, Cash Register o Inventory; leer artefactos tampoco concede acceso a secretos o payloads completos.
 13. `payments.transfer.report` autoriza **reportar** un pago por transferencia, billetera o QR manual, que nace `PENDING`; `payments.transfer.confirm` autoriza **confirmar** que el dinero fue recibido (`UC-PAY-003`). **Son permisos distintos y no se implican**: reportar no es confirmar. Ambos proceden de `UC-PAY-001:111-112` y cubren la familia de medios manuales de `UC-PAY-003` —transferencia bancaria, Nequi, Daviplata y QR estático—, no sólo la transferencia. Ninguno autoriza refund, reversal, settlement, reconciliation ni configuración de proveedor. `payments.cash.register` (`UC-PAY-001:105`) queda **fuera** de la primera materialización, porque el medio `CASH` lo está.
 14. Los códigos de esta matriz son la forma de referencia de producto. La representación **canónica** que transporta el SAS es la fijada por `DEC-012` D6 —`CASH_SHIFT_OPEN`— y §33 —`CASH_SHIFT_CLOSE`—, conforme a `STABLE_CODE_PATTERN` de `packages/contracts/src/primitives.ts:5`. Los dos permisos de la regla 13 son, en forma canónica, `PAYMENTS_TRANSFER_REPORT` y `PAYMENTS_TRANSFER_CONFIRM`. Alinear el resto de la matriz con esa forma es tarea pendiente de `D6`, no de esta regla.
+15. `audit.event.read` autoriza únicamente lectura de evidencia de auditoría disponible en el scope efectivo. No concede lectura de payloads sensibles, cambios de evidencia ni acceso cross-tenant; la consulta debe aplicar tenant/company/branch en backend.
 
 ### Operación fiscal
 
