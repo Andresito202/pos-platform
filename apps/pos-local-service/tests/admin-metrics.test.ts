@@ -31,7 +31,9 @@ function auth(permissions: string[]): StoredAuthorizationSnapshot {
 }
 
 const store = {
-  read: () => ({ salesCompletedCount: 8, salesCompletedAmount: "123456.000000", inventoryTrackedCount: 21, cashOpenShiftCount: 1 }),
+  readSales: () => ({ count: 8, amount: "123456.000000" }),
+  readInventory: () => 21,
+  readCash: () => 1,
 } as unknown as SqliteAdminMetricsStore;
 
 describe("GetAdminMetricsUseCase", () => {
