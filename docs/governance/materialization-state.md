@@ -857,3 +857,16 @@ No se utilizan datos de terceros ni se inventa el NIT.
 
 ### Regla de cierre
 El bloque 16 sigue abierto únicamente por el NIT. Los bloques 17–20 ya fueron tratados en orden y no requieren repetir el trabajo anterior. Ningún estado se eleva a PASS si no existe evidencia de ejecución que lo soporte.
+
+## Comunicaciones comerciales de clientes — POS_NEWS
+
+**Estado:** IMPLEMENTADO — preferencia y baja locales; despacho externo pendiente de proveedor.
+
+- El registro fiscal de un adquiriente no implica suscripción.
+- La captura ofrece opt-in explícito para POS_NEWS por correo.
+- Existe customer.marketing.subscribe, customer.marketing.unsubscribe y customer.marketing.get.
+- La preferencia se persiste en customer_marketing_subscriptions mediante MIGRATION_017.
+- Se conserva versión de consentimiento, fecha, actor, sesión, origen y auditoría.
+- La baja no elimina el registro fiscal ni sus evidencias legales.
+- V1 reutiliza el permiso existente CUSTOMERS_CUSTOMER_REGISTER para no depender de grants nuevos que no estén presentes en snapshots actuales.
+- No se declara envío externo operativo: el repo no tenía proveedor de correo, credenciales, despachador central ni endpoint público de baja. Por tanto, no se inventa un “email enviado” ni un enlace de baja falso.
