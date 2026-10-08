@@ -30,7 +30,6 @@ export class GetAdminMetricsUseCase {
     const actor = createActor("USER", authSnapshot.claims.user_id);
     const operationScope = createOperationScope(scope.tenantId, scope.companyId, scope.branchId);
     const assignments = toRoleAssignments(authSnapshot.claims);
-    const metrics = this.store.read(scope);
 
     const canReadSales = evaluatePermission({
       actor, permission: PERMISSION_ADMIN_SALES_READ, scope: operationScope, at, assignments,
@@ -42,11 +41,15 @@ export class GetAdminMetricsUseCase {
       actor, permission: PERMISSION_ADMIN_CASH_READ, scope: operationScope, at, assignments,
     }).allowed;
 
+    const sales = canReadSales ? this.store.readSales(scope) : null;
+    const inventory = canReadInventory ? this.store.readInventory(scope) : null;
+    const cash = canReadCash ? this.store.readCash(scope) : null;
+
     return {
-      sales_completed_count: canReadSales ? metrics.salesCompletedCount : null,
-      sales_completed_amount: canReadSales ? metrics.salesCompletedAmount : null,
-      inventory_tracked_count: canReadInventory ? metrics.inventoryTrackedCount : null,
-      cash_open_shift_count: canReadCash ? metrics.cashOpenShiftCount : null,
+      sales_completed_count: sales?.count ?? null,
+      sales_completed_amount: sales?.amount ?? null,
+      inventory_tracked_count: inventory,
+      cash_open_shift_count: cash,
     };
   }
 }
