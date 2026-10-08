@@ -93,12 +93,6 @@ export function SalePanel(): React.JSX.Element {
             ) : (
               <div className="pos-product-empty" data-testid="touch-product-empty">
                 <span className="pos-product-icon" aria-hidden="true">⌕</span>
-                <strong>Busca un producto</strong>
-                <small>Escanea el código de barras para mostrar únicamente datos reales del catálogo.</small>
-              </div>
-            ) : (
-              <div className="pos-product-empty" data-testid="touch-product-empty">
-                <span className="pos-product-icon" aria-hidden="true">⌕</span>
                 <strong>Sin productos vendibles</strong>
                 <small>El catálogo debe tener producto, presentación y precio activos.</small>
               </div>
