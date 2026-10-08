@@ -20,7 +20,7 @@ type PlannedScreenDefinition = {
 };
 
 const plannedScreens: readonly PlannedScreenDefinition[] = [
-  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"] },
+  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: ["SALES_RECEIPT_READ", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"] },
   { id: "reports", label: "Reportes", section: "Administración", description: "Consultas y reportes comerciales y operativos.", actions: ["Ventas", "Inventario", "Caja", "Exportar"], requiredPermissions: ["SALES_RECEIPT_READ", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"] },
   { id: "users", label: "Usuarios", section: "Administración", description: "Alta, consulta, suspensión y administración de usuarios.", actions: ["Nuevo usuario", "Consultar usuario", "Suspender usuario", "Restablecer contraseña", "Revocar sesión"], requiredPermissions: ["tenant.owner.change", "TENANT_OWNER_CHANGE"] },
   { id: "roles", label: "Roles y permisos", section: "Administración", description: "Asignación de roles, permisos y alcance organizacional.", actions: ["Gestionar roles", "Asignar permisos", "Revisar alcance"], requiredPermissions: ["security.permission.change", "SECURITY_PERMISSION_CHANGE"] },
