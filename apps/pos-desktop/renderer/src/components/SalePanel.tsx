@@ -24,6 +24,7 @@ export function SalePanel(): React.JSX.Element {
         <div data-testid="shift-closed">
           <input
             data-testid="cash-register-input"
+        aria-label="ID de la caja"
             value={registerId}
             onChange={(e) => { setRegisterId(e.target.value); }}
             placeholder="ID de la caja"
@@ -31,6 +32,7 @@ export function SalePanel(): React.JSX.Element {
           />
           <input
             data-testid="opening-amount-input"
+        aria-label="Base inicial"
             value={opening}
             onChange={(e) => { setOpening(e.target.value); }}
             placeholder="Base inicial"
@@ -52,6 +54,7 @@ export function SalePanel(): React.JSX.Element {
               cierre la caja queda inservible al día siguiente. */}
           <input
             data-testid="counted-amount-input"
+        aria-label="Efectivo contado"
             value={counted}
             onChange={(e) => { setCounted(e.target.value); }}
             placeholder="Efectivo contado"
@@ -70,6 +73,7 @@ export function SalePanel(): React.JSX.Element {
       <h2>Producto</h2>
       <input
         data-testid="barcode-input"
+        aria-label="Código de barras"
         value={barcode}
         onChange={(e) => { setBarcode(e.target.value); }}
         placeholder="Código de barras"
@@ -89,6 +93,7 @@ export function SalePanel(): React.JSX.Element {
           <span data-testid="found-item-price">{sale.foundItem.price_amount ?? "sin precio"}</span>
           <input
             data-testid="quantity-input"
+        aria-label="Cantidad"
             value={quantity}
             onChange={(e) => { setQuantity(e.target.value); }}
             disabled={sale.busy}
