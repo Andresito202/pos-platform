@@ -1146,6 +1146,24 @@ export const SalesReceiptGetResultSchema = z.strictObject({
 export const SalesReceiptGetResponseSchema =
   createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
 
+// ── admin.metrics.get ───────────────────────────────────────────────────────
+
+export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("admin.metrics.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const AdminMetricsGetResultSchema = z.strictObject({
+  outcome: z.literal("AVAILABLE"),
+  sales_completed_count: z.number().int().nonnegative().nullable(),
+  sales_completed_amount: NonNegativeScale6Schema.nullable(),
+  inventory_tracked_count: z.number().int().nonnegative().nullable(),
+  cash_open_shift_count: z.number().int().nonnegative().nullable(),
+});
+
+export const AdminMetricsGetResponseSchema =
+  createResponseEnvelopeSchema(AdminMetricsGetResultSchema);
+
 // ── audit.event.list ──────────────────────────────────────────────────────────
 
 /**
@@ -1235,6 +1253,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.adjust",
   "inventory.stock.get",
   "audit.event.list",
+  "admin.metrics.get",
 ]);
 
 /**
@@ -1291,3 +1310,4 @@ export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;
 export type AuditEventListResult = z.infer<typeof AuditEventListResultSchema>;
+export type AdminMetricsGetResult = z.infer<typeof AdminMetricsGetResultSchema>;
