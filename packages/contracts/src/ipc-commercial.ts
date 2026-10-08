@@ -945,6 +945,40 @@ export const CatalogItemResultSchema = z.strictObject({
 
 export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
 
+export const CatalogItemListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    query: z.string().max(200),
+    limit: z.number().int().min(1).max(60),
+    offset: z.number().int().min(0).max(100000),
+  }),
+).safeExtend({ message_type: z.literal("catalog.item.list") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogItemListItemSchema = z.strictObject({
+  product_id: UuidSchema,
+  presentation_id: UuidSchema,
+  code: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  presentation_name: z.string().min(1).max(200),
+  unit_code: z.string().min(1).max(16),
+  unit_precision: z.number().int().min(0).max(6),
+  barcode: BarcodeSchema.nullable(),
+  stock_controlled: z.boolean(),
+  price_amount: PositiveScale6Schema,
+  currency_code: CurrencyCodeSchema,
+});
+
+export const CatalogItemListResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "UNAUTHORIZED"]),
+  items: z.array(CatalogItemListItemSchema).max(60),
+  has_more: z.boolean(),
+});
+
+export const CatalogItemListResponseSchema =
+  createResponseEnvelopeSchema(CatalogItemListResultSchema);
+
+
+
 // ── inventory.stock.receive · inventory.stock.adjust · inventory.stock.get ───
 
 /**
