@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   CashShiftCloseResult,
   CashShiftOpenResult,
@@ -6,6 +6,7 @@ import type {
   PaymentRegisterTransferResult,
   PaymentTransferConfirmResult,
   CatalogItemResult,
+  CatalogItemListItem,
   PaymentRegisterCashResult,
   SaleCreateResult,
 } from "@pos-platform/contracts";
@@ -57,6 +58,8 @@ export interface CommercialSaleState {
   readonly error: string | null;
   readonly shift: OpenShift | null;
   readonly foundItem: CatalogItemResult | null;
+  readonly catalogItems: readonly CatalogItemListItem[];
+  readonly catalogHasMore: boolean;
   readonly lines: readonly CartLine[];
   readonly sale: { readonly saleId: string; readonly payableAmount: string } | null;
   readonly payment: PaymentRegisterCashResult | null;
@@ -100,6 +103,8 @@ function operationTime(now: Date): {
  */
 export function useCommercialSale(): CommercialSaleState & {
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
+  listCatalogItems(query?: string, offset?: number): Promise<void>;
+  addCatalogItem(item: CatalogItemListItem, quantity: string): void;
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
   createSale(): Promise<void>;
@@ -113,6 +118,8 @@ export function useCommercialSale(): CommercialSaleState & {
   const [error, setError] = useState<string | null>(null);
   const [shift, setShift] = useState<OpenShift | null>(null);
   const [foundItem, setFoundItem] = useState<CatalogItemResult | null>(null);
+  const [catalogItems, setCatalogItems] = useState<readonly CatalogItemListItem[]>([]);
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
   const [lines, setLines] = useState<readonly CartLine[]>([]);
   const [sale, setSale] = useState<{ saleId: string; payableAmount: string } | null>(null);
   const [payment, setPayment] = useState<PaymentRegisterCashResult | null>(null);
@@ -170,6 +177,41 @@ export function useCommercialSale(): CommercialSaleState & {
       },
     );
   }, [run]);
+
+  const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
+    await run<{ outcome: "FOUND" | "UNAUTHORIZED"; items: CatalogItemListItem[]; has_more: boolean }>(
+      () => callCommercial("catalog.item.list", { query, limit: 24, offset }),
+      (result) => {
+        if (result.outcome !== "FOUND") {
+          setError(result.outcome);
+          return;
+        }
+        setCatalogItems((current) => offset === 0 ? result.items : [...current, ...result.items]);
+        setCatalogHasMore(result.has_more);
+      },
+    );
+  }, [run]);
+
+  useEffect(() => {
+    void listCatalogItems();
+  }, [listCatalogItems]);
+
+  const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {
+    const canonical = toScale6(quantity);
+    if (canonical === null) {
+      setError("INVALID_QUANTITY");
+      return;
+    }
+    setLines((current) => [...current, {
+      productId: item.product_id,
+      presentationId: item.presentation_id,
+      name: item.name,
+      presentationName: item.presentation_name,
+      priceAmount: item.price_amount,
+      currencyCode: item.currency_code,
+      quantity: canonical,
+    }]);
+  }, []);
 
   const findItem = useCallback(async (barcode: string): Promise<void> => {
     setFoundItem(null);
@@ -386,15 +428,17 @@ export function useCommercialSale(): CommercialSaleState & {
     setSale(null);
     setPayment(null);
     setFoundItem(null);
+    setCatalogItems([]);
+    setCatalogHasMore(false);
     setTransfer(null);
     setTransferConfirmation(null);
     setError(null);
   }, []);
 
   return {
-    busy, error, shift, foundItem, lines, sale, payment, closedShift,
+    busy, error, shift, foundItem, catalogItems, catalogHasMore, lines, sale, payment, closedShift,
     transfer, transferConfirmation,
-    openShift, findItem, addFoundItem, createSale, chargeCash,
+    openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, createSale, chargeCash,
     registerTransfer, confirmTransfer, closeShift, reset,
   };
 }
