@@ -728,3 +728,15 @@ El documento cubre alcance, licencia, uso permitido, usuarios, datos, terceros, 
 **Bloqueo real:** la identidad jurídica y los datos contractuales del proveedor siguen pendientes en `docs/product/brand.md`. Por tanto, no se declara este documento como contrato definitivo ni como `CANON`/`PROD`.
 
 **Regla de continuidad:** este archivo es la única base de términos creada para este requisito. No duplicarlo ni crear otra arquitectura contractual paralela.
+
+## Bloque de cumplimiento — política de reembolso
+
+> **Estado verificado en la línea activa, 2026-10-07.** Primero se auditó el dominio existente: `Refund`/`Reversal` ya están definidos en `docs/use-cases/payments/UC-PAY-004-refund-payment.md` y `docs/adr/DEC-002-payment-compensation-policy.md`. No se rehízo ese trabajo. Lo que faltaba era la política comercial; se añadió `docs/legal/refund-policy.md`.
+
+| Capacidad | Documento | Estado real | Evidencia |
+|---|---|---|---|
+| Política de reembolso | `docs/legal/refund-policy.md` | **MATERIALIZADA EN RAMA ACTIVA / PENDIENTE DE FORMALIZACIÓN COMERCIAL** | commit `2d1b6a3a29115abfe4032d0978ffaa3c56419cfb` |
+
+La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estados, tablas ni flujos financieros paralelos. Define elegibilidad, parcialidad, medios, efectivo, terceros, mercancía, impuestos, rechazos y revisión.
+
+**Bloqueo real:** faltan titular contractual, canales oficiales y condiciones económicas formalizadas. No se inventan. La implementación financiera existente permanece como fuente técnica.
