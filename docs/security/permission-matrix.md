@@ -15,6 +15,14 @@
 4. Las acciones críticas requieren motivo, auditoría y, cuando corresponda, reautenticación o aprobación.
 5. El proveedor de la plataforma no obtiene acceso automático a datos comerciales del cliente.
 
+## Estado de ejecución de esta matriz
+
+Esta matriz define la **política funcional objetivo**. No todas sus celdas ni todos sus nombres conceptuales son actualmente grants ejecutables.
+
+La fuente compartida de los permisos que ya tienen enforcement backend es `packages/contracts/src/permission-codes.ts`. Actualmente contiene 18 códigos demostrados por casos de uso ejecutables. Los nombres conceptuales restantes —por ejemplo `tenant.owner.change`, `security.permission.change` y `license.plan.change`— permanecen en esta matriz como política objetivo y **no se convierten automáticamente en permisos de runtime**.
+
+Central Authority es quien debe publicar `roles`, `permissions` y `role_permission_grants`. No se fabrican semillas ni equivalencias para cerrar artificialmente esta diferencia.
+
 ## Roles
 
 - PLATFORM_OWNER
