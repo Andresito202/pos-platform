@@ -783,3 +783,15 @@ No se declara `PASS` universal: el producto todavía no tiene un gate automatiza
 | Afirmaciones no sustentadas | **MATERIALIZADO** | `docs/product/brand.md` ya mantiene el gate de claims y prohíbe certificaciones, registro marcario o readiness productivo sin evidencia. No se duplicó ese control. |
 
 **Regla de continuidad:** si aparece una superficie comercial real, se reutiliza este control y se audita esa superficie antes de publicarla.
+
+## Bloque de cumplimiento — accesibilidad de interfaz
+
+**Estado verificado después de auditar lo existente:** no se rehízo el renderer. Se corrigieron únicamente los huecos demostrados.
+
+- **Texto alternativo / nombres accesibles:** inputs de las pantallas POS recibieron `aria-label`; el logo ya tenía `role="img"` + `aria-label`, y el `README` ya tenía `alt`. Se añadió prueba de renderer para nombres accesibles.
+- **Contraste:** la paleta principal fue calculada manualmente y las combinaciones observadas quedan por encima de 4.5:1 para texto normal. No se declara un gate WCAG automatizado completo.
+- **Teclado:** los controles siguen siendo nativos y se añadió `:focus-visible` explícito. No se declara todavía E2E completo de teclado.
+
+Evidencia consolidada: `docs/security/accessibility-audit.md`.
+
+**CI:** las ejecuciones de la rama ya estaban fallando antes del bloque de accesibilidad (por ejemplo, `TARGET foundation validation` #633 sobre el commit previo `88e25ab4...` también concluyó `failure`). Por tanto, no se atribuye el rojo a estos cambios sin evidencia de causalidad.
