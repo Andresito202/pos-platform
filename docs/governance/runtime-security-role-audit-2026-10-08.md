@@ -265,6 +265,10 @@ La navegación administrativa ya no reutiliza permisos operativos de caja/ventas
 
 El Dashboard administrativo queda actualmente limitado por `AUDIT_EVENT_READ`, y sus métricas individuales continúan fallando cerrado. En particular, ventas y caja agregadas permanecen ausentes hasta que Central Authority publique permisos administrativos específicos para esas lecturas.
 
+### Verificación de alineación del catálogo
+
+Se añadió `apps/pos-local-service/tests/permission-catalog.test.ts` para comprobar que el conjunto de permisos consumidos por los casos de uso ejecutables coincide exactamente con `CANONICAL_PERMISSION_CODES`, sin duplicados. Esta prueba es estructural y no sustituye ejecución real del runner.
+
 ### Criterio de cierre de este bloque
 
 - **IMPLEMENTED:** catálogo común de los 18 permisos ejecutables existentes.
