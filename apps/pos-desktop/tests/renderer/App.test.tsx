@@ -175,32 +175,52 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "ID de la venta" })).toBeTruthy();
   });
 
-  it("materializes the complete administrative and platform navigation inventory", async () => {
-    render(<App />);
-
-    const labels = [
-      "Dashboard", "Reportes", "Usuarios", "Roles y permisos", "Empresa",
-      "Sucursales", "Dispositivos", "Configuración", "Licencias",
-      "Planes y suscripciones", "Superadministrador", "Soporte", "Auditoría administrativa",
-    ];
-
-    await waitFor(() => {
-      for (const label of labels) expect(screen.getByRole("button", { name: new RegExp(label) })).toBeTruthy();
+  it("exposes only the currently executable administrative surfaces", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["AUDIT_EVENT_READ"],
+      },
     });
 
-    await screen.getByRole("button", { name: "Licencias" }).click();
-    expect(screen.getByTestId("planned-screen-licenses")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Emitir licencia" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Suspender" })).toBeDisabled();
+    render(<App />);
 
-    await screen.getByRole("button", { name: "Planes y suscripciones" }).click();
-    expect(screen.getByTestId("planned-screen-plans")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cambiar plan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Gestionar suscripción" })).toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Dashboard" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Auditoría administrativa" })).toBeTruthy();
+    });
 
-    await screen.getByRole("button", { name: "Superadministrador" }).click();
-    expect(screen.getByTestId("planned-screen-super-admin")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Administrar licencias" })).toBeDisabled();
+    for (const label of [
+      "Reportes", "Usuarios", "Roles y permisos", "Empresa", "Sucursales",
+      "Dispositivos", "Configuración", "Licencias", "Planes y suscripciones",
+      "Superadministrador", "Soporte",
+    ]) {
+      expect(screen.queryByRole("button", { name: label })).toBeNull();
+    }
+
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
+  });
+
+  it("does not expose the administrative dashboard from operational permissions alone", async () => {
+    window.posService["authorization.capabilities.get"].mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Caja y ventas" })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Auditoría administrativa" })).toBeNull();
   });
 
   it("fails closed when effective authorization cannot be loaded", async () => {
