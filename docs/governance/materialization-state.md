@@ -821,8 +821,8 @@ El requisito queda cerrado para la superficie actual como «sin patrón identifi
 **Estado verificado después de auditar lo existente:** no se rehízo el renderer. Se corrigieron únicamente los huecos demostrados.
 
 - **Texto alternativo / nombres accesibles:** inputs de las pantallas POS recibieron `aria-label`; el logo ya tenía `role="img"` + `aria-label`, y el `README` ya tenía `alt`. Se añadió prueba de renderer para nombres accesibles.
-- **Contraste:** la paleta principal fue calculada manualmente y las combinaciones observadas quedan por encima de 4.5:1 para texto normal. No se declara un gate WCAG automatizado completo.
-- **Teclado:** los controles siguen siendo nativos y se añadió `:focus-visible` explícito. No se declara todavía E2E completo de teclado.
+- **Contraste:** la paleta principal fue calculada manualmente y las combinaciones observadas quedan por encima de 4.5:1 para texto normal. El indicador `:focus-visible` fue corregido de `#1f5fae` a `#4d8fd1`: 4.78:1 sobre `#172033`, 3.14:1 sobre `#f4f6f8` y 3.41:1 sobre blanco. No se declara un gate WCAG automatizado completo.
+- **Teclado:** los controles siguen siendo nativos y se mantiene `:focus-visible` explícito, ahora con contraste suficiente en los fondos auditados. No se declara todavía E2E completo de teclado.
 
 Evidencia consolidada: `docs/security/accessibility-audit.md`.
 
