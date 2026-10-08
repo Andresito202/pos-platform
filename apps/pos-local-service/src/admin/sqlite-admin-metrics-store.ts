@@ -1,4 +1,5 @@
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
+import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 
 export interface AdminMetrics {
@@ -13,11 +14,10 @@ export class SqliteAdminMetricsStore {
 
   read(scope: SyncScope): AdminMetrics {
     const sales = this.database.native.prepare(
-      `SELECT count(*) AS count,
-              COALESCE(SUM(CAST(fiscal_total_amount AS REAL)), 0) AS amount
+      `SELECT fiscal_total_amount
        FROM sales_sales
        WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='COMPLETED'`,
-    ).get(scope.tenantId, scope.companyId, scope.branchId) as { count: number; amount: number };
+    ).all(scope.tenantId, scope.companyId, scope.branchId) as Array<{ fiscal_total_amount: string }>;
 
     const inventory = this.database.native.prepare(
       `SELECT count(*) AS count
@@ -31,12 +31,13 @@ export class SqliteAdminMetricsStore {
        WHERE tenant_id=? AND company_id=? AND branch_id=? AND status IN ('OPEN','CLOSING')`,
     ).get(scope.tenantId, scope.companyId, scope.branchId) as { count: number };
 
-    // Dashboard read only. The amount is re-canonicalized from the persisted
-    // scale-6 text without moving calculation authority into the renderer.
-    const amount = Number.isFinite(sales.amount) ? sales.amount.toFixed(6) : "0.000000";
+    // Dashboard read only. Money stays integer-at-scale-6; JavaScript floating
+    // point is deliberately not used for a financial total.
+    const amountUnits = sales.reduce((sum, row) => sum + scale6ToBigInt(row.fiscal_total_amount), 0n);
 
     return {
-      salesCompletedCount: sales.count,
+      salesCompletedCount: sales.length,
+      salesCompletedAmount: bigIntToScale6(amountUnits),
       salesCompletedAmount: amount,
       inventoryTrackedCount: inventory.count,
       cashOpenShiftCount: cash.count,
