@@ -92,7 +92,7 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
       // Se guarda también el rechazo: `findings` es lo que dice **qué** campo
       // fiscal está mal, y ocultarlo dejaría al operador adivinando.
       setRegistered(response.result);
-      if (input.subscribeToNews && response.result.customer_id !== null && response.result.outcome === "REGISTERED") {
+      if (input.subscribeToNews && response.result.customer_id !== null && (response.result.outcome === "REGISTERED" || response.result.outcome === "IDEMPOTENT")) {
         const marketingResponse = await callCommercial<CustomerMarketingSubscriptionResult>(
           "customer.marketing.subscribe",
           { customer_id: response.result.customer_id },
