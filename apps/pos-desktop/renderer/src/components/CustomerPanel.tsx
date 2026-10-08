@@ -33,6 +33,7 @@ export function CustomerPanel(): React.JSX.Element {
 
       <input
         data-testid="customer-document-code-input"
+        aria-label="Código DIAN del documento"
         value={documentCode}
         onChange={(e) => { setDocumentCode(e.target.value); }}
         placeholder="Código DIAN del documento"
@@ -40,6 +41,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-identification-input"
+        aria-label="Identificación del adquiriente"
         value={identification}
         onChange={(e) => { setIdentification(e.target.value); }}
         placeholder="Identificación"
@@ -47,6 +49,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-verification-digit-input"
+        aria-label="Dígito de verificación"
         value={verificationDigit}
         onChange={(e) => { setVerificationDigit(e.target.value); }}
         placeholder="DV (opcional)"
@@ -54,6 +57,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-legal-organization-input"
+        aria-label="Código de organización legal"
         value={legalOrganizationCode}
         onChange={(e) => { setLegalOrganizationCode(e.target.value); }}
         placeholder="Código de organización legal"
@@ -61,6 +65,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-company-input"
+        aria-label="Razón social"
         value={company}
         onChange={(e) => { setCompany(e.target.value); }}
         placeholder="Razón social (persona jurídica)"
@@ -68,6 +73,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-names-input"
+        aria-label="Nombres"
         value={names}
         onChange={(e) => { setNames(e.target.value); }}
         placeholder="Nombres (persona natural)"
@@ -75,6 +81,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-tribute-input"
+        aria-label="Código de tributo"
         value={tributeCode}
         onChange={(e) => { setTributeCode(e.target.value); }}
         placeholder="Código de tributo"
@@ -84,6 +91,7 @@ export function CustomerPanel(): React.JSX.Element {
           un solo código, porque un responsable puede tener varios. */}
       <input
         data-testid="customer-responsibilities-input"
+        aria-label="Responsabilidades fiscales"
         value={responsibilities}
         onChange={(e) => { setResponsibilities(e.target.value); }}
         placeholder="Responsabilidades fiscales, separadas por coma"
@@ -91,6 +99,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-email-input"
+        aria-label="Correo electrónico"
         value={email}
         onChange={(e) => { setEmail(e.target.value); }}
         placeholder="Correo (opcional)"
@@ -98,6 +107,7 @@ export function CustomerPanel(): React.JSX.Element {
       />
       <input
         data-testid="customer-phone-input"
+        aria-label="Teléfono"
         value={phone}
         onChange={(e) => { setPhone(e.target.value); }}
         placeholder="Teléfono (opcional)"
@@ -138,6 +148,7 @@ export function CustomerPanel(): React.JSX.Element {
 
       <input
         data-testid="customer-id-input"
+        aria-label="ID del adquiriente"
         value={customerId}
         onChange={(e) => { setCustomerId(e.target.value); }}
         placeholder="ID del adquiriente"
