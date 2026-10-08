@@ -773,3 +773,13 @@ La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estad
 **Estado: REVISADO / SIN HALLAZGO CRÍTICO, SIN GATE FORMAL.** Primero se auditó la UI existente. No se encontró checkout, suscripción, countdown, falsa urgencia ni consentimiento premarcado como patrón comercial. Se añadió `docs/security/dark-pattern-review.md` como registro único de revisión.
 
 No se declara `PASS` universal: el producto todavía no tiene un gate automatizado específico de dark patterns. No se rehace la navegación existente.
+
+## Bloque de cumplimiento — precios, reseñas y afirmaciones
+
+| Requisito | Estado real | Evidencia / decisión |
+|---|---|---|
+| Tarifas ocultas | **NO APLICA A LA SUPERFICIE ACTUAL** | El POS actual no contiene checkout de suscripción ni pantalla comercial de contratación. No inventar una tarifa ni construir un flujo inexistente. |
+| Reseñas falsas | **NO APLICA A LA SUPERFICIE ACTUAL** | No existe módulo de reseñas/testimonios de clientes en el producto auditado. |
+| Afirmaciones no sustentadas | **MATERIALIZADO** | `docs/product/brand.md` ya mantiene el gate de claims y prohíbe certificaciones, registro marcario o readiness productivo sin evidencia. No se duplicó ese control. |
+
+**Regla de continuidad:** si aparece una superficie comercial real, se reutiliza este control y se audita esa superficie antes de publicarla.
