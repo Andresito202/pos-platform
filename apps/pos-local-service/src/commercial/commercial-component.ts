@@ -35,6 +35,7 @@ import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
+import { CustomerMarketingSubscriptionStore } from "../customers/customer-marketing-subscription.js";
 import { FiscalCredentialStore } from "../fiscal/fiscal-credential-store.js";
 import { SecretStoreFactusCredentialResolver } from "../fiscal/factus-credential-resolver.js";
 import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-store.js";
@@ -75,6 +76,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getPayment: GetPaymentUseCase;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
+        readonly customerMarketing: CustomerMarketingSubscriptionStore;
         readonly registerProduct: RegisterProductUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly receiveStock: ReceiveStockUseCase;
@@ -133,6 +135,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
+  get customerMarketing(): CustomerMarketingSubscriptionStore { return this.ready.customerMarketing; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
@@ -215,6 +218,7 @@ export class CommercialComponent implements RuntimeComponent {
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
+      customerMarketing: new CustomerMarketingSubscriptionStore(database, this.now),
     };
   }
 
