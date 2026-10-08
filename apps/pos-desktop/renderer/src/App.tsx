@@ -8,6 +8,7 @@ import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
+import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
 
 type PlannedScreenDefinition = {
   id: string;
@@ -35,14 +36,18 @@ const plannedScreens: readonly PlannedScreenDefinition[] = [
 ];
 
 function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.JSX.Element {
+  if (screen.id === "dashboard") return <AdministrativeControlPanel kind="admin" />;
+  if (screen.id === "super-admin") return <AdministrativeControlPanel kind="superadmin" />;
+  if (screen.id === "admin-audit") return <AdministrativeControlPanel kind="audit" />;
+
   return (
     <section data-testid={`planned-screen-${screen.id}`}>
       <h2>{screen.label}</h2>
       <p>{screen.description}</p>
-      <p className="pos-planned-state">Interfaz materializada · conexión de servicio pendiente.</p>
+      <p className="pos-planned-state">Superficie de navegación materializada · las operaciones requieren contrato ejecutable y autorización backend.</p>
       <div className="pos-action-grid">
         {screen.actions.map((action) => (
-          <button key={action} type="button" disabled title="La operación se conectará cuando exista el contrato de servicio ejecutable.">
+          <button key={action} type="button" disabled title="La operación requiere un contrato de servicio ejecutable.">
             {action}
           </button>
         ))}
