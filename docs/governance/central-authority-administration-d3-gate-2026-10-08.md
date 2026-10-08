@@ -2,7 +2,7 @@
 
 Fecha: 2026-10-08  
 Rama: `claude/pos-camacho-bloque-4c-ld43py`  
-Estado: `BLOCKED_BY_MISSING_AUTHORITY_CONTRACT`
+Estado: `CONTRACT_MATERIALIZED_IMPLEMENTATION_PENDING`
 
 ## Objetivo
 
@@ -182,6 +182,38 @@ La implementación debe extender/reutilizar los artefactos existentes una vez ce
 - actor auditado;
 - servicio emisor;
 - transporte administrativo.
+
+## Decisión materializada — frontera PlatformAccount
+
+La auditoría de la migración central demuestra que no hace falta una segunda identidad para cerrar la frontera D-3:
+
+- PlatformAccount.id se representa por el mismo identificador de identity.users.id.
+- identity.user_credentials sigue siendo la única fuente de credencial PASSWORD.
+- identity.mfa_factors sigue siendo la única fuente de MFA.
+- identity.sessions sigue siendo la única fuente de sesión; una sesión administrativa no tiene tenant_id ni tenant_membership_id.
+- identity.session_refresh_tokens sigue siendo la única fuente de refresh.
+- identity.security_events sigue siendo la fuente append-only de señales de seguridad.
+- No se crea membership de tenant para conferir autoridad de plataforma.
+- La sesión administrativa exige mfa_status = SATISFIED y reautenticación vigente.
+- La sesión no transporta roles, permisos ni entitlements; D-1 continúa siendo la autoridad de operaciones administrativas.
+- El cliente local no puede invocar directamente operaciones administrativas centrales.
+
+Este contrato quedó materializado en packages/contracts/src/central-administration.ts y bloqueado por pruebas en packages/contracts/tests/platform-administration-session.test.ts.
+
+## Qué queda realmente pendiente después de D-3
+
+El contrato ya no está bloqueado por una decisión de identidad. Lo pendiente es implementación, en este orden:
+
+1. implementar el servicio central que autentica/reautentica contra identity.users + identity.user_credentials y satisface MFA mediante identity.mfa_factors;
+2. persistir/revocar la sesión administrativa usando identity.sessions y rotación existente de refresh;
+3. emitir y verificar el contexto PlatformAdministrationSession;
+4. registrar login, MFA, reautenticación, revocación y replay en identity.security_events;
+5. conectar el contexto autenticado con las operaciones D-1 sin convertirlo en permisos tenant;
+6. exponer el transporte administrativo central;
+7. probar end-to-end;
+8. solamente después materializar la pantalla Superadministrador.
+
+No se permite crear otra identidad, otra sesión, otro MFA, otro refresh token ni una UI que simule autenticación.
 
 ## Criterio de salida
 
