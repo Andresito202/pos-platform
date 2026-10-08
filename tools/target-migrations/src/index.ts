@@ -50,3 +50,6 @@ export type { Postgres005RunnerConfig, Postgres005ApplyResult } from "./postgres
 export { POSTGRES_006_DESCRIPTOR, LICENSING_006_TABLES } from "./postgres-006-contract.js";
 export { applyPostgres006 } from "./postgres-006-runner.js";
 export type { Postgres006RunnerConfig, Postgres006ApplyResult } from "./postgres-006-runner.js";
+export { POSTGRES_007_DESCRIPTOR, PASSWORD_RECOVERY_007_TABLES } from "./postgres-007-contract.js";
+export { applyPostgres007 } from "./postgres-007-runner.js";
+export type { Postgres007RunnerConfig, Postgres007ApplyResult } from "./postgres-007-runner.js";
