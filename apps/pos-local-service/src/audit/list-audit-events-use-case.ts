@@ -6,7 +6,7 @@ import {
 } from "@pos-platform/application";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { SqliteAuditStore, AuditEventQuery } from "./sqlite-audit-store.js";
+import type { LocalAuditEvent, SqliteAuditStore, AuditEventQuery } from "./sqlite-audit-store.js";
 
 /**
  * V1 audit read permission. It is deliberately separate from mutation/admin
@@ -15,7 +15,7 @@ import type { SqliteAuditStore, AuditEventQuery } from "./sqlite-audit-store.js"
 export const PERMISSION_AUDIT_EVENT_READ = "AUDIT_EVENT_READ";
 
 export type ListAuditEventsResult =
-  | { readonly kind: "FOUND"; readonly events: readonly ReturnType<SqliteAuditStore["list"]>["events"][number][]; readonly hasMore: boolean }
+  | { readonly kind: "FOUND"; readonly events: readonly LocalAuditEvent[]; readonly hasMore: boolean }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
 
 export class ListAuditEventsUseCase {
