@@ -5,7 +5,7 @@
 **Estado:** MATERIALIZADA — pendiente de formalización del Responsable del Tratamiento  
 **Fecha de preparación:** 2026-10-07
 
-> **Aviso de estado:** este documento materializa la política del producto sin inventar la identidad jurídica del Responsable del Tratamiento. El repositorio registra actualmente el titular legal como `PENDING_COMPANY_FORMATION`. Por tanto, los campos marcados como `PENDIENTE DE FORMALIZACIÓN` deben completarse antes de publicar esta política como documento legal definitivo. No se sustituyen por datos ficticios.
+> **Aviso de estado:** este documento materializa la política del producto sin inventar la identidad jurídica del Responsable del Tratamiento. El repositorio registra actualmente el titular legal como El NIT permanece pendiente de formalización. Los demás datos de identificación y contacto del Responsable ya fueron declarados en este documento.
 
 ## 1. Objeto
 
