@@ -805,3 +805,23 @@ No se utilizarán datos encontrados por búsqueda genérica en Internet ni se as
 **Dependencias:** este bloqueo impide declarar definitivos los documentos de privacidad, términos y reembolso ya materializados, porque la normativa exige identificar al Responsable y sus canales.
 
 **Regla de continuidad:** no avanzar al bloque 17 hasta cerrar este bloque con datos oficiales aportados o una evidencia oficial verificable del titular jurídico. No crear una segunda identidad comercial ni reemplazar `PENDING_COMPANY_FORMATION` por un supuesto.
+
+## Cierre secuencial de los bloques 16–20
+
+### Bloque 16 — datos de empresa
+**Estado: PARCIAL — NIT pendiente.** Se materializaron los datos declarados: CamachoPosColombia SAS, Wilson Andrés Camacho Culma, Transversal 3A #87B-45 Sur, Bogotá D.C., andrescamacho.19@hotmail.com y 3227506213. El NIT sigue explícitamente pendiente. No se inventa ni se sustituye por un dato de terceros.
+
+### Bloque 17 — consentimiento de niños
+**Estado: MATERIALIZADO COMO REGLA DE TRATAMIENTO.** La Política de Privacidad establece que el POS no está dirigido a menores, prohíbe la recolección comercial deliberada de datos de menores sin revisión previa y exige finalidad legítima, interés superior, derechos fundamentales y requisitos de autorización cuando excepcionalmente proceda. No se creó una recolección infantil que el producto no necesita.
+
+### Bloque 18 — cancelación de suscripción en correos
+**Estado: NO APLICA AL PRODUCTO ACTUAL.** La auditoría no encontró newsletter, marketing email ni suscripción por correo implementados en el POS. No se inventa un mecanismo de unsubscribe inexistente. Si se incorpora email marketing, deberá existir cancelación equivalente antes de activarlo.
+
+### Bloque 19 — licenciamiento de imágenes
+**Estado: MATERIALIZADO PARA ACTIVOS IDENTIFICADOS.** Se añadió docs/legal/asset-license-registry.md para registrar procedencia y autorización del logo existente y su derivado. Los activos futuros deberán registrar fuente, titular, licencia/permiso y restricciones antes de incorporarse.
+
+### Bloque 20 — solicitud de eliminación de datos
+**Estado: MATERIALIZADO COMO PROCEDIMIENTO OPERATIVO; ELIMINACIÓN AUTOMÁTICA NO MATERIALIZADA.** Se añadió docs/legal/data-subject-rights-procedure.md con canal oficial, verificación, localización, evaluación de conservación y resolución. No se creó customer.delete porque un borrado físico indiscriminado podría destruir trazabilidad fiscal/contable/auditable. La anonimización/desidentificación técnica por entidad queda como trabajo posterior y sólo debe implementarse después de definir retención.
+
+### Regla de cierre
+El bloque 16 sigue abierto únicamente por el NIT. Los bloques 17–20 ya fueron tratados en orden y no requieren repetir el trabajo anterior. Ningún estado se eleva a PASS si no existe evidencia de ejecución que lo soporte.
