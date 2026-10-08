@@ -276,3 +276,8 @@ Hasta entonces, el estado correcto es **bloqueado por contrato**, no “pendient
 8. Superadmin UI.
 
 No se salta a Licensing, Plan ni frontend mientras esta frontera siga abierta.
+
+
+## Ejecución secuencial autorizada — 2026-10-08
+
+La inspección de DEC-012 confirma que su PIN de seis dígitos y scrypt pertenecen a presencia local de caja, no a autenticación central de PlatformAccount. No se trasladan a identidad central. El servicio central sigue sin implementación en apps/central-authority/src y apps/central-authority/tests; no se declara autenticación, pruebas, CI ni interfaz como completadas. Para continuar sin crear una segunda arquitectura, primero se debe ratificar el contrato central de credenciales, MFA, recuperación y sesiones; después se implementarán y probarán el servicio, el transporte y la interfaz sobre las tablas identity existentes.
