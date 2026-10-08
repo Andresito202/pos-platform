@@ -756,7 +756,7 @@ export const CustomerMarketingGetRequestSchema = createRequestEnvelopeSchema(
   .superRefine(forbidCallerAssertedIdentity);
 
 const CustomerMarketingSubscriptionResultSchema = z.strictObject({
-  outcome: z.enum(["SUBSCRIBED", "UNSUBSCRIBED", "IDEMPOTENT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND", "EMAIL_REQUIRED", "IDEMPOTENCY_CONFLICT", "NOT_SUBSCRIBED"]),
+  outcome: z.enum(["SUBSCRIBED", "UNSUBSCRIBED", "IDEMPOTENT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND", "EMAIL_REQUIRED", "IDEMPOTENCY_CONFLICT", "NOT_SUBSCRIBED", "FOUND"]),
   customer_id: UuidSchema.nullable(),
   channel: z.literal("EMAIL").nullable(),
   topic: z.literal("POS_NEWS").nullable(),
