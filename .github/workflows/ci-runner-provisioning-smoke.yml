@@ -1,0 +1,35 @@
+name: CI Runner Provisioning Smoke
+
+on:
+  push:
+    branches:
+      - claude/pos-camacho-bloque-4c-ld43py
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ubuntu-smoke:
+    name: Ubuntu runner provisioning
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runner reached
+        run: |
+          echo "runner-provisioned=true"
+          echo "os=$RUNNER_OS"
+          echo "arch=$RUNNER_ARCH"
+          echo "name=$RUNNER_NAME"
+
+  windows-smoke:
+    name: Windows runner provisioning
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Runner reached
+        shell: pwsh
+        run: |
+          Write-Output "runner-provisioned=true"
+          Write-Output "os=$env:RUNNER_OS"
+          Write-Output "arch=$env:RUNNER_ARCH"
+          Write-Output "name=$env:RUNNER_NAME"
