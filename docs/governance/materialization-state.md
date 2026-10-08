@@ -700,3 +700,17 @@ prueba. **No integrable** por colisión de identidad de migraciones (`DEC-017` �
 
 Consultable como referencia de diseño para `Catalog`, `Inventory`, `CashCount` y
 `CashDifferenceReview`. Prohibido integrarlo por merge o `cherry-pick`.
+
+## Bloque de cumplimiento — política de privacidad
+
+> **Estado verificado en la línea activa, 2026-10-07.** Se auditó primero la existencia de una política de privacidad materializada; no había una política equivalente. Se añadió `docs/legal/privacy-policy.md`.
+
+| Capacidad | Documento | Estado real | Evidencia |
+|---|---|---|---|
+| Política de privacidad y tratamiento de datos | `docs/legal/privacy-policy.md` | **MATERIALIZADA EN RAMA ACTIVA / NO PUBLICABLE AÚN** | commit `9885a7ebd2792430b23bd696e77dd02014322b9d` |
+
+La política cubre finalidades, minimización, categorías de datos, autorización, seguridad, encargados, conservación, derechos, consultas, reclamos, menores y cookies futuras. No inventa identidad jurídica ni canales de contacto.
+
+**Bloqueo real:** `docs/product/brand.md` mantiene el titular legal como `PENDING_COMPANY_FORMATION`. El artículo 13 del Decreto 1377 de 2013 exige que la política identifique al Responsable con nombre/razón social y datos de contacto. Por ello esta materialización no se declara como política legal definitiva, ni como `CANON`, `PROD` o publicada al Titular.
+
+**Regla de continuidad:** no crear una segunda política ni duplicar este contenido. El siguiente bloque sólo podrá utilizar este documento como fuente base y completar lo que corresponda cuando exista evidencia de los datos legales.
