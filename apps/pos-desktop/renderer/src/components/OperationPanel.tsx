@@ -43,6 +43,7 @@ export function OperationPanel(): React.JSX.Element {
     <div data-testid="operation-panel">
       <input
         data-testid="operation-id-input"
+        aria-label="ID de operación"
         type="text"
         value={operationId}
         onChange={(e) => { setOperationId(e.target.value); }}
