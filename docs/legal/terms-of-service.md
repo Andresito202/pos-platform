@@ -5,7 +5,7 @@
 **Estado:** MATERIALIZADOS — pendientes de formalización del titular contractual  
 **Fecha de preparación:** 2026-10-07
 
-> **Aviso de estado:** estos términos materializan las reglas de uso del producto sin inventar la identidad jurídica de la parte contratante. El repositorio mantiene actualmente el titular legal como `PENDING_COMPANY_FORMATION`. Los campos marcados como `PENDIENTE DE FORMALIZACIÓN` deben completarse antes de publicación contractual definitiva.
+> **Aviso de estado:** estos términos materializan las reglas de uso del producto sin inventar la identidad jurídica de la parte contratante. El repositorio mantiene actualmente el titular legal como El NIT permanece pendiente de formalización. Los demás datos de identidad y contacto declarados ya están incorporados.
 
 ## 1. Partes
 
