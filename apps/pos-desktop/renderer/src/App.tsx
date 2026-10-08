@@ -17,6 +17,7 @@ function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): 
 type Screen = {
   id: string;
   label: string;
+  section: "Operación" | "Catálogo e inventario";
   render: () => React.JSX.Element;
 };
 
@@ -41,6 +42,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "sales",
         label: "Caja y ventas",
+        section: "Operación",
         render: () => <SalePanel />,
       });
     }
@@ -49,6 +51,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "fiscal",
         label: "Facturación electrónica",
+        section: "Operación",
         render: () => <FiscalPanel />,
       });
     }
@@ -57,6 +60,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "catalog",
         label: "Catálogo",
+        section: "Catálogo e inventario",
         render: () => <CatalogPanel />,
       });
     }
@@ -69,6 +73,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "inventory",
         label: "Inventario",
+        section: "Catálogo e inventario",
         render: () => <InventoryPanel />,
       });
     }
@@ -80,6 +85,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "customers",
         label: "Clientes",
+        section: "Operación",
         render: () => <CustomerPanel />,
       });
     }
@@ -88,6 +94,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "receipts",
         label: "Comprobantes",
+        section: "Operación",
         render: () => <ReceiptPanel />,
       });
     }
@@ -126,17 +133,27 @@ export function App(): React.JSX.Element {
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
         <nav className="pos-nav">
-          {screens.map((screen) => (
-            <button
-              key={screen.id}
-              type="button"
-              className="pos-nav-button"
-              aria-current={selectedScreen?.id === screen.id ? "page" : undefined}
-              onClick={() => { setActiveScreen(screen.id); }}
-            >
-              {screen.label}
-            </button>
-          ))}
+          {(["Operación", "Catálogo e inventario"] as const).map((section) => {
+            const sectionScreens = screens.filter((screen) => screen.section === section);
+            if (sectionScreens.length === 0) return null;
+
+            return (
+              <div key={section} className="pos-nav-section">
+                <p className="pos-nav-section-title">{section}</p>
+                {sectionScreens.map((screen) => (
+                  <button
+                    key={screen.id}
+                    type="button"
+                    className="pos-nav-button"
+                    aria-current={selectedScreen?.id === screen.id ? "page" : undefined}
+                    onClick={() => { setActiveScreen(screen.id); }}
+                  >
+                    {screen.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
       </aside>
 
