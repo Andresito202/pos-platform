@@ -756,11 +756,11 @@ La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estad
 
 ### Consentimiento
 
-**Estado: PARCIAL.** La política de privacidad ya exige autorización cuando sea jurídicamente necesaria y define prueba, finalidad y derechos. La auditoría encontró consentimiento explícito sólo en el dominio de administración de dispositivos; no existe todavía un mecanismo general de runtime que registre y verifique autorización de tratamiento por finalidad para titulares de datos de clientes. No se inventa un PASS.
+**Estado: MATERIALIZADO COMO CONTROL DE GOBERNANZA Y VERIFICACIÓN DE BASE JURÍDICA.** Se añadió `docs/legal/consent-verification-matrix.md`. La matriz separa tratamientos que dependen de autorización de aquellos que pueden apoyarse en otra base jurídica, conserva el control explícito ya existente para administración de dispositivos y prohíbe interpretar el simple registro de un adquiriente como consentimiento comercial. No se declara un gestor universal de consentimientos porque esa capacidad no existe.
 
 ### Minimización
 
-**Estado: BASE TÉCNICA MATERIALIZADA.** La forma canónica de `Customer` limita los campos, la auditoría de `CUSTOMER_REGISTER` excluye identificación, correo, teléfono y dirección del rastro de auditoría, y existen controles de payload, redacción de secretos y límites estructurales. Esto no equivale todavía a un inventario formal de retención por campo.
+**Estado: MATERIALIZADO COMO INVENTARIO DE CAMPOS Y CONSERVACIÓN.** Se añadió `docs/security/data-minimization-inventory.md`. El documento cubre el adquiriente campo por campo, distingue necesidad de opcionalidad y fija reglas de conservación sin inventar plazos numéricos. Mantiene la separación ya existente entre auditoría mínima y payload de sincronización.
 
 ### SDKs de terceros
 
