@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type {
   CustomerReadResult,
   CustomerRegisterResult,
+  CustomerMarketingSubscriptionResult,
 } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 
@@ -32,6 +33,7 @@ export interface CustomerRegistration {
 }
 
 export interface CustomerDirectoryState {
+  readonly marketing: CustomerMarketingSubscriptionResult | null;
   readonly busy: boolean;
   readonly registered: CustomerRegisterResult | null;
   readonly found: CustomerReadResult | null;
@@ -48,11 +50,15 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
   register(input: CustomerRegistration): Promise<void>;
   find(documentCode: string, identification: string): Promise<void>;
   get(customerId: string): Promise<void>;
+  getMarketing(customerId: string): Promise<void>;
+  subscribeMarketing(customerId: string): Promise<void>;
+  unsubscribeMarketing(customerId: string): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [registered, setRegistered] = useState<CustomerRegisterResult | null>(null);
   const [found, setFound] = useState<CustomerReadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [marketing, setMarketing] = useState<CustomerMarketingSubscriptionResult | null>(null);
 
   const register = useCallback(async (input: CustomerRegistration): Promise<void> => {
     setBusy(true);
@@ -122,5 +128,59 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
     "customer.get", { customer_id: customerId },
   ), [read]);
 
-  return { busy, registered, found, error, register, find, get };
+  const getMarketing = useCallback(async (customerId: string): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await callCommercial<CustomerMarketingSubscriptionResult>(
+        "customer.marketing.get",
+        { customer_id: customerId },
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setMarketing(response.result);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const changeMarketing = useCallback(async (
+    messageType: "customer.marketing.subscribe" | "customer.marketing.unsubscribe",
+    customerId: string,
+  ): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await callCommercial<CustomerMarketingSubscriptionResult>(
+        messageType,
+        { customer_id: customerId },
+        newIdempotencyKey(),
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setMarketing(response.result);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const subscribeMarketing = useCallback(
+    (customerId: string) => changeMarketing("customer.marketing.subscribe", customerId),
+    [changeMarketing],
+  );
+
+  const unsubscribeMarketing = useCallback(
+    (customerId: string) => changeMarketing("customer.marketing.unsubscribe", customerId),
+    [changeMarketing],
+  );
+
+  return { busy, registered, found, marketing, error, register, find, get, getMarketing, subscribeMarketing, unsubscribeMarketing };
 }
