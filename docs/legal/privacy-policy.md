@@ -19,13 +19,13 @@ Los datos que deben completarse antes de publicación son:
 
 | Dato requerido | Estado |
 |---|---|
-| Razón social / nombre del Responsable | **PENDIENTE DE FORMALIZACIÓN** |
+| Razón social / nombre del Responsable | **CamachoPosColombia SAS** |
 | NIT o identificación aplicable | **PENDIENTE DE FORMALIZACIÓN** |
-| Domicilio | **PENDIENTE DE FORMALIZACIÓN** |
-| Dirección | **PENDIENTE DE FORMALIZACIÓN** |
-| Correo para privacidad y habeas data | **PENDIENTE DE FORMALIZACIÓN** |
-| Teléfono | **PENDIENTE DE FORMALIZACIÓN** |
-| Persona o área responsable de consultas y reclamos | **PENDIENTE DE FORMALIZACIÓN** |
+| Domicilio | **Transversal 3A #87B-45 Sur, Bogotá D.C., Colombia** |
+| Dirección | **Transversal 3A #87B-45 Sur, Bogotá D.C., Colombia** |
+| Correo para privacidad y habeas data | **andrescamacho.19@hotmail.com** |
+| Teléfono | **3227506213** |
+| Persona o área responsable de consultas y reclamos | **Wilson Andrés Camacho Culma / CamachoPosColombia SAS** |
 
 No se publicará una política definitiva mientras estos datos no estén definidos por el titular responsable.
 
@@ -139,7 +139,7 @@ El Titular podrá ejercer los derechos reconocidos por la Ley 1581 de 2012 y las
 
 El canal formal para ejercer estos derechos será:
 
-**Correo:** PENDIENTE DE FORMALIZACIÓN  
+**Correo:** andrescamacho.19@hotmail.com  
 **Dirección:** PENDIENTE DE FORMALIZACIÓN  
 **Responsable / área:** PENDIENTE DE FORMALIZACIÓN
 
