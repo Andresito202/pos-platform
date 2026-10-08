@@ -58,6 +58,8 @@ import {
   SessionActivateResponseSchema,
   SessionRecoverRequestSchema,
   SessionRecoverResponseSchema,
+  AuditEventListRequestSchema,
+  AuditEventListResponseSchema,
 } from "./ipc-commercial.js";
 
 export const IpcMessageTypeSchema = z.enum([
@@ -93,6 +95,7 @@ export const IpcMessageTypeSchema = z.enum([
   "inventory.stock.adjust",
   "inventory.stock.get",
   "sales.receipt.get",
+  "audit.event.list",
 ]);
 
 const EmptyPayloadSchema = z.strictObject({});
@@ -192,6 +195,7 @@ export const IpcRequestSchema = z.union([
   InventoryStockAdjustRequestSchema,
   InventoryStockGetRequestSchema,
   SalesReceiptGetRequestSchema,
+  AuditEventListRequestSchema,
 ]);
 
 export const IpcResponseSchema = z.union([
@@ -219,6 +223,7 @@ export const IpcResponseSchema = z.union([
   InventoryMovementResponseSchema,
   InventoryStockGetResponseSchema,
   SalesReceiptGetResponseSchema,
+  AuditEventListResponseSchema,
 ]);
 
 export type IpcRequest = z.infer<typeof IpcRequestSchema>;
