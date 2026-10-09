@@ -1,12 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import {
   PlatformSecurityEventSchema,
+  PlatformSecurityEventWriteSchema,
   UuidV7Schema,
   uuidV7FromModule,
   type PlatformSecurityEvent,
+  type PlatformSecurityEventWrite,
 } from "@pos-platform/contracts";
-
-export type PlatformSecurityEventWrite = Omit<PlatformSecurityEvent, "server_recorded_at">;
 
 /**
  * Persists identity security events into the existing identity.security_events
@@ -22,12 +22,9 @@ export class PostgresPlatformSecurityEventRepository {
   async append(eventInput: PlatformSecurityEventWrite, transaction?: PoolClient): Promise<PlatformSecurityEvent> {
     const eventId = uuidV7FromModule();
     UuidV7Schema.parse(eventInput.correlation_id);
-    const event = {
-      ...eventInput,
-      server_recorded_at: eventInput.occurred_at,
-    };
-    // Validate the stable event vocabulary and metadata before touching SQL.
-    PlatformSecurityEventSchema.parse(event);
+    // Validate the write contract without inventing a server timestamp.
+    // The persisted event is validated again using PostgreSQL's returned timestamp.
+    PlatformSecurityEventWriteSchema.parse(eventInput);
 
     const executor = transaction ?? this.pool;
     const result = await executor.query<{
