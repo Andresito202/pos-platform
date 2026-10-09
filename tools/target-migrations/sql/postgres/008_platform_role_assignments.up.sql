@@ -93,6 +93,28 @@ BEGIN
        OR NEW.version <> OLD.version + 1 THEN
       RAISE EXCEPTION 'platform role assignments are immutable except for one-way revocation';
     END IF;
+    IF current_user = 'pos_platform_app' THEN
+      IF NEW.revoked_by_actor_type <> 'PLATFORM_ACCOUNT'
+         OR NEW.revoked_by_actor_id::text IS DISTINCT FROM current_setting('app.actor_id', true) THEN
+        RAISE EXCEPTION 'platform assignment revocation requires the authenticated platform actor';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1
+        FROM "authorization".platform_role_assignments a
+        JOIN "authorization".roles r ON r.id = a.role_id AND r.scope_type = 'PLATFORM' AND r.status = 'ACTIVE'
+        JOIN "authorization".role_permission_grants g ON g.role_id = r.id AND g.status = 'ACTIVE'
+          AND g.valid_from <= pg_catalog.clock_timestamp()
+          AND (g.valid_until IS NULL OR g.valid_until > pg_catalog.clock_timestamp())
+        JOIN "authorization".permissions p ON p.id = g.permission_id AND p.status = 'ACTIVE'
+        WHERE a.user_id = NEW.revoked_by_actor_id
+          AND a.status = 'ACTIVE'
+          AND a.valid_from <= pg_catalog.clock_timestamp()
+          AND (a.valid_until IS NULL OR a.valid_until > pg_catalog.clock_timestamp())
+          AND p.code = 'PLATFORM_ROLE_ASSIGNMENT_MANAGE'
+      ) THEN
+        RAISE EXCEPTION 'platform actor lacks PLATFORM_ROLE_ASSIGNMENT_MANAGE';
+      END IF;
+    END IF;
     event_actor_type := NEW.revoked_by_actor_type;
     event_actor_id := NEW.revoked_by_actor_id;
     event_action := 'PLATFORM_ROLE_ASSIGNMENT_REVOKED';
@@ -119,6 +141,29 @@ BEGIN
       WHERE r.id = NEW.role_id AND r.scope_type = 'PLATFORM' AND r.status = 'ACTIVE'
     ) THEN
       RAISE EXCEPTION 'platform role assignment requires an ACTIVE PLATFORM role';
+    END IF;
+    IF current_user = 'pos_platform_app' THEN
+      IF NEW.created_by_actor_type <> 'PLATFORM_ACCOUNT'
+         OR NEW.created_by_actor_id::text IS DISTINCT FROM current_setting('app.actor_id', true)
+         OR NEW.user_id::text = current_setting('app.actor_id', true) THEN
+        RAISE EXCEPTION 'platform assignment requires a distinct authenticated platform actor';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1
+        FROM "authorization".platform_role_assignments a
+        JOIN "authorization".roles r ON r.id = a.role_id AND r.scope_type = 'PLATFORM' AND r.status = 'ACTIVE'
+        JOIN "authorization".role_permission_grants g ON g.role_id = r.id AND g.status = 'ACTIVE'
+          AND g.valid_from <= pg_catalog.clock_timestamp()
+          AND (g.valid_until IS NULL OR g.valid_until > pg_catalog.clock_timestamp())
+        JOIN "authorization".permissions p ON p.id = g.permission_id AND p.status = 'ACTIVE'
+        WHERE a.user_id = NEW.created_by_actor_id
+          AND a.status = 'ACTIVE'
+          AND a.valid_from <= pg_catalog.clock_timestamp()
+          AND (a.valid_until IS NULL OR a.valid_until > pg_catalog.clock_timestamp())
+          AND p.code = 'PLATFORM_ROLE_ASSIGNMENT_MANAGE'
+      ) THEN
+        RAISE EXCEPTION 'platform actor lacks PLATFORM_ROLE_ASSIGNMENT_MANAGE';
+      END IF;
     END IF;
     event_actor_type := NEW.created_by_actor_type;
     event_actor_id := NEW.created_by_actor_id;
