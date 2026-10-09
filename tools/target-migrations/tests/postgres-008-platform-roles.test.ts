@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readArtifact, sha256 } from "../src/shared.js";
 import { PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES, POSTGRES_008_DESCRIPTOR } from "../src/postgres-008-platform-roles-contract.js";
+import { POSTGRES_TABLE_COLUMNS, REQUIRED_POLICIES, RLS_TABLES } from "../src/contract.js";
 
 describe("PostgreSQL 008 global platform role assignments", () => {
   it("follows password recovery and owns only the global assignment relation", () => {
@@ -10,6 +11,9 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(POSTGRES_008_DESCRIPTOR.ownedTables).toEqual(PLATFORM_ROLE_008_TABLES);
     expect(PLATFORM_ROLE_008_COLUMNS).toContain("revocation_reason");
     expect(PLATFORM_ROLE_008_COLUMNS).toContain("role_scope_type");
+    expect(POSTGRES_TABLE_COLUMNS["authorization.platform_role_assignments"]).toEqual(PLATFORM_ROLE_008_COLUMNS);
+    expect(RLS_TABLES).toContain("authorization.platform_role_assignments");
+    expect(REQUIRED_POLICIES).toContain("platform_role_assignments_platform_only");
   });
 
   it("restricts assignment to PLATFORM roles and platform service access", async () => {
@@ -27,6 +31,8 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
     expect(sql).toContain("REVOKE ALL ON FUNCTION");
     expect(sql).toContain("GRANT EXECUTE ON FUNCTION");
+    const runner = await (await import("../src/shared.js")).readArtifact("postgres/008_platform_role_assignments.up.sql");
+    expect(runner).toContain("REVOKE ALL ON FUNCTION");
     expect(sql).toContain("platform.is_uuid_v7(event_id)");
     expect(sql).toContain("one-way revocation");
     expect(sql).toContain("requires an ACTIVE identity user");
