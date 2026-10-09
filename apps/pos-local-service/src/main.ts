@@ -22,6 +22,7 @@ import {
   SessionTrustKeyStore,
   SessionTrustKeyVerifier,
   SessionTrustBundleFetcher,
+  SessionTrustRefreshComponent,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
@@ -42,6 +43,15 @@ const logger = new StructuredLogger({
 
 /** Cadencia fija de despacho del outbox (`D-2`). */
 const CENTRAL_SYNC_INTERVAL_MS = 30_000;
+
+function readSessionTrustTransportToken(path: string): string {
+  const tokenStat = lstatSync(path);
+  if (tokenStat.isSymbolicLink()) throw new Error("session trust transport token file cannot be a symbolic link");
+  if (!tokenStat.isFile() || tokenStat.size > 4096) throw new Error("session trust transport token file is invalid");
+  const token = readFileSync(path, "utf8").trim();
+  if (Buffer.byteLength(token, "utf8") > 4096) throw new Error("session trust transport token file is invalid");
+  return token;
+}
 
 let lifecycle: ServiceLifecycle | undefined;
 let termination: Promise<void> | undefined;
@@ -121,12 +131,15 @@ try {
     fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
   );
 
-  const sessionTrustKeys = await (async () => {
+  const sessionTrustContext = await (async () => {
     if (
       config.session_trust_environment === undefined
       || config.session_trust_root_public_key_pem === undefined
     ) {
-      return { keys: new Map(), decision: "MISSING" as const };
+      return {
+        resolution: { keys: new Map(), decision: "MISSING" as const },
+        resolver: undefined,
+      };
     }
 
     const sessionTrustStore = new SessionTrustKeyStore(new EncryptedFileSecretStore(
@@ -146,14 +159,10 @@ try {
 
     if (config.session_trust_transport_token_file !== undefined && config.central_base_url !== undefined) {
       try {
-        const tokenPath = config.session_trust_transport_token_file;
-        if (lstatSync(tokenPath).isSymbolicLink()) throw new Error("session trust transport token file cannot be a symbolic link");
-        const tokenStat = lstatSync(tokenPath);
-        if (!tokenStat.isFile() || tokenStat.size > 4096) throw new Error("session trust transport token file is invalid");
-        const token = readFileSync(tokenPath, "utf8").trim();
+        const token = readSessionTrustTransportToken(config.session_trust_transport_token_file);
         const endpoint = new URL("/v1/session-trust", config.central_base_url).toString();
         const artifact = await new SessionTrustBundleFetcher().fetch(endpoint, token);
-        return resolver.resolveWithArtifact(artifact);
+        return { resolution: resolver.resolveWithArtifact(artifact), resolver };
       } catch (error) {
         logger.log("warn", "session_trust.central_fetch_failed", {
           reason: error instanceof Error ? error.message : "unknown error",
@@ -161,11 +170,15 @@ try {
         });
       }
     }
-    return resolver.resolve();
+    return { resolution: resolver.resolve(), resolver };
   })();
+  const sessionTrustKeys = sessionTrustContext.resolution;
+  // Keep the map identity stable: CommercialComponent's verifier reads it on
+  // every activation, so runtime refresh can apply rotation/revocation in place.
+  const liveSessionTrustKeys = new Map(sessionTrustKeys.keys);
 
   const commercial = new CommercialComponent(
-    config, localDatabase, durableSync, sessionTrustKeys.keys, () => new Date(), fiscalSecretStore,
+    config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
   );
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [
@@ -175,6 +188,27 @@ try {
     operationConfirmation,
     commercial,
   ];
+
+  if (
+    sessionTrustContext.resolver !== undefined
+    && config.session_trust_transport_token_file !== undefined
+    && config.central_base_url !== undefined
+  ) {
+    const resolver = sessionTrustContext.resolver;
+    const endpoint = new URL("/v1/session-trust", config.central_base_url).toString();
+    components.push(new SessionTrustRefreshComponent(
+      async () => new SessionTrustBundleFetcher().fetch(
+        endpoint,
+        readSessionTrustTransportToken(config.session_trust_transport_token_file as string),
+      ),
+      (artifact) => resolver.resolveWithArtifact(artifact),
+      liveSessionTrustKeys,
+      (event, detail) => {
+        logger.log(event === "FAILED" || detail.decision === "INVALID" ? "warn" : "info",
+          `session_trust.refresh_${event.toLowerCase()}`, detail);
+      },
+    ));
+  }
 
   if (config.central_base_url !== undefined) {
     const centralBaseUrl = config.central_base_url;
