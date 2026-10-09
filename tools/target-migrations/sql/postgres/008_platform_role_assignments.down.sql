@@ -7,4 +7,5 @@ END
 $$;
 
 DROP TABLE "authorization".platform_role_assignments;
+DROP FUNCTION "authorization".audit_platform_role_assignment_change();
 DROP INDEX "authorization".authorization_roles_id_scope_uq;
