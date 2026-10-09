@@ -13,7 +13,8 @@ test("session trust root is public Ed25519 material matching the pinned SHA-256 
   const pem = readFileSync(publicKeyPath, "utf8");
   const expectedFingerprint = readFileSync(fingerprintPath, "utf8").trim();
 
-  assert.match(pem, /^-----BEGIN PUBLIC KEY-----\\n[\\s\\S]+\\n-----END PUBLIC KEY-----\\n?$/);
+  assert.ok(pem.startsWith("-----BEGIN PUBLIC KEY-----\n"));
+  assert.ok(pem.endsWith("-----END PUBLIC KEY-----\n"));
   assert.doesNotMatch(pem, /PRIVATE KEY/);
   assert.match(expectedFingerprint, /^[0-9a-f]{64}$/);
 
