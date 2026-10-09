@@ -55,5 +55,3 @@ export { applyPostgres007 } from "./postgres-007-runner.js";
 export type { Postgres007RunnerConfig, Postgres007ApplyResult } from "./postgres-007-runner.js";
 
 export { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
-export { applyPostgres008 } from "./postgres-008-runner.js";
-export type { Postgres008RunnerConfig, Postgres008ApplyResult } from "./postgres-008-runner.js";
