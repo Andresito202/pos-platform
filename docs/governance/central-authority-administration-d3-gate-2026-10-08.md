@@ -280,4 +280,46 @@ No se salta a Licensing, Plan ni frontend mientras esta frontera siga abierta.
 
 ## Ejecución secuencial autorizada — 2026-10-08
 
-La inspección de DEC-012 confirma que su PIN de seis dígitos y scrypt pertenecen a presencia local de caja, no a autenticación central de PlatformAccount. No se trasladan a identidad central. El servicio central sigue sin implementación en apps/central-authority/src y apps/central-authority/tests; no se declara autenticación, pruebas, CI ni interfaz como completadas. Para continuar sin crear una segunda arquitectura, primero se debe ratificar el contrato central de credenciales, MFA, recuperación y sesiones; después se implementarán y probarán el servicio, el transporte y la interfaz sobre las tablas identity existentes.
+La inspección de DEC-012 confirma que su PIN de seis dígitos y scrypt pertenecen a presencia local de caja, no a autenticación central de PlatformAccount. No se trasladan a identidad central. El servicio central sí contiene runtime y pruebas de enrolamiento de dispositivos, publicación de confianza de sesión y eventos Wompi. Sin embargo, no se encontró un flujo de autenticación administrativa PlatformAccount conectado a D-1; no se declara ese flujo, sus pruebas, CI ni su interfaz como completados. Para continuar sin crear una segunda arquitectura, primero se debe ratificar el contrato central de credenciales, MFA, recuperación y sesiones; después se implementarán y probarán el servicio, el transporte y la interfaz sobre las tablas identity existentes.
+
+
+## Revisión de integración de pantallas — 2026-10-08
+
+### Alcance y evidencia
+
+Inspección estática de la rama `claude/pos-camacho-bloque-4c-ld43py`, en `apps/pos-desktop/renderer/src/App.tsx`, `components/AdministrativeControlPanel.tsx`, hooks de autorización/métricas/auditoría, `apps/pos-desktop/tests/renderer/App.test.tsx`, `AdminPanels.test.tsx`, `packages/contracts/src/ipc-commercial.ts` y `packages/contracts/src/central-administration.ts`. Esta revisión no equivale a ejecutar Vitest, TypeScript, Electron ni CI.
+
+### Matriz real de integración
+
+| Superficie | Integración comprobada en código | Estado |
+|---|---|---|
+| Navegación comercial | `authorization.capabilities.get` carga permisos efectivos; la aplicación falla cerrada cuando la lectura falla y solo agrega pantallas comerciales con permisos requeridos. | Implementada en código; pruebas de renderer presentes, ejecución no verificada en esta revisión. |
+| Caja/ventas, catálogo, inventario, clientes, comprobantes y facturación | Componentes existentes consumen el canal de servicio local; las pruebas de renderer validan sobres y desenlaces contra esquemas reales de contratos. Facturación diferencia emisión, bloqueo, fallo de transporte y resultado incierto. | Integración local presente; no se infiere disponibilidad de proveedor fiscal real a partir de pruebas con dobles. |
+| Dashboard administrativo | `useAdminMetrics` llama `admin.metrics.get`; los datos son entregados por el servicio, no calculados en el renderer. Las métricas sin permiso se muestran como no autorizadas. | Lectura local parcial y limitada por permisos existentes. |
+| Auditoría administrativa actual | `useAdministrativeAudit` llama `audit.event.list`, con filtros, paginación y lectura sin mutación. | Integrada con la auditoría de la sesión/tenant; no equivale a auditoría de seguridad de identidad ni a la auditoría global de PlatformAccount. |
+| Superadministrador | Las tarjetas de licencias, cuentas, planes y riesgo siguen en valores `—`; Seguimiento informa que no hay datos ejecutables; Seguridad es informativa. No se encontró hook/transporte de lectura o mutación D-1 en la pantalla. | No integrada con autoridad central. No debe mostrarse como consola funcional. |
+| Usuarios, roles, empresa, sucursales, dispositivos, configuración, licencias, planes y soporte | `plannedScreens` los describe, pero sus acciones están deshabilitadas. La mayoría declara `requiredPermissions: []`; como la visibilidad usa `required.some(...)`, una lista vacía nunca habilita esa pantalla. | Superficie declarativa, no flujo ejecutable. No inventar permisos para hacerlas aparecer. |
+| Seguridad de PlatformAccount | El contrato D-3 define el contexto de sesión, pero el gate conserva siete decisiones de implementación de autenticación sin ratificar. | Bloqueo de seguridad vigente. No conectar UI antes del servicio real. |
+
+### Hallazgos de integración que deben conservarse
+
+1. La UI no debe usar `AUDIT_EVENT_READ` como sustituto de autoridad de plataforma. El contrato central requiere actor `PLATFORM_ACCOUNT`, MFA satisfecho, reautenticación vigente y autorización central independiente de permisos tenant.
+2. `identity.security_events` y `audit.audit_events` tienen propósitos diferentes. La vista existente `audit.event.list` no debe rotularse ni reutilizarse como registro global de login/MFA/replay de PlatformAccount.
+3. La presencia de archivos en `apps/central-authority` no demuestra que exista el flujo de login administrativo. El runtime actual contiene enrolamiento de dispositivos, publicación de confianza de sesión y procesamiento de eventos Wompi; no se halló un servicio de autenticación PlatformAccount conectado a operaciones D-1.
+4. La pantalla Seguridad actual es una lista informativa, no una interfaz para gestionar MFA, sesiones, credenciales o políticas. No debe describirse como gestión de seguridad materializada.
+5. Las pruebas de `AdminPanels.test.tsx` usan respuestas controladas para verificar la conducta del renderer. Son pruebas unitarias de integración de pantalla/canal, no evidencia de conectividad central real ni de despliegue.
+
+### Orden de implementación sin saltos
+
+1. Resolver y ratificar los siete puntos de autenticación de este gate.
+2. Implementar autenticación, MFA, sesión, refresh y eventos de seguridad reutilizando las tablas `identity.*` existentes.
+3. Implementar el transporte central autenticado y los casos de uso D-1; probar denegación por actor incorrecto, MFA ausente, reautenticación vencida, expiración, revocación y replay.
+4. Añadir contratos de lectura/mutación de plataforma que correspondan a operaciones D-1, con autorización y auditoría del lado servidor.
+5. Conectar primero la pantalla Superadministrador a lecturas reales y estados de error/denegación; no usar datos ficticios ni habilitar botones antes de que existan los casos de uso.
+6. Conectar cada acción de licencias/cuentas a su operación central específica, con confirmación, idempotencia donde aplique y resultado visible.
+7. Extender auditoría con una vista separada para eventos de seguridad de identidad, sin mezclarla con auditoría comercial del tenant.
+8. Añadir pruebas de renderer, contratos, servicio y E2E contra el runtime real; reportar cada conjunto por separado y no marcarlo verde sin resultados de ejecución.
+
+### Resultado de esta pasada
+
+Se completó la inspección estática y se registró la matriz de integración sobre el gate existente. No se implementaron endpoints, permisos, credenciales ni controles de seguridad ficticios. No se ejecutaron pruebas ni se declara CI verde. El siguiente bloque funcional depende de la ratificación de las decisiones de autenticación enumeradas en este mismo documento.
