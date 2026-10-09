@@ -26,6 +26,7 @@ import {
   SessionTrustRefreshComponent,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
+  type TrustedSigningKey,
 } from "./security/index.js";
 
 const logger = new StructuredLogger({
@@ -176,7 +177,7 @@ try {
   const sessionTrustKeys = sessionTrustContext.resolution;
   // Keep the map identity stable: CommercialComponent's verifier reads it on
   // every activation, so runtime refresh can apply rotation/revocation in place.
-  const liveSessionTrustKeys = new Map(sessionTrustKeys.keys);
+  const liveSessionTrustKeys = new Map<string, TrustedSigningKey>(sessionTrustKeys.keys);
 
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
