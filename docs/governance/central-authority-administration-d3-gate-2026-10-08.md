@@ -519,3 +519,12 @@ El repositorio genera un identificador UUIDv7 distinto del identificador de corr
 Se añadió `PlatformSecurityEventWriteSchema` para validar los metadatos de entrada sin fabricar un `server_recorded_at`; ese timestamp sigue siendo generado por PostgreSQL. Se añadieron pruebas para el rechazo de eventos con tenant sin sesión y de timestamps suministrados por el llamador. Cambios en commits `226a56629b6fe65bba34ed3635228015231eec61`, `43486a910cb2911f5b95482e387c7f3894b98b01`, `be2e9707588de6dea644f56e211db995e0820bf5` y `0c582c3ab491643c8542aecdad5bbb8207364557`.
 
 **Verificación pendiente:** no se ejecutaron Vitest ni TypeScript. Las pruebas de PostgreSQL real y la atomicidad transaccional siguen pendientes; esta corrección no implementa login/MFA.
+
+
+## Revisión incremental del repositorio de eventos y dependencias — 2026-10-09
+
+Se añadieron dos pruebas unitarias de validación de salida: rechazar una fila persistida si `server_recorded_at` precede a `occurred_at`, y fallar explícitamente cuando el `INSERT ... RETURNING` no entrega fila. Commit: `47c53135e06b461014e120b35263e955713b1533`.
+
+Inspección estática del workspace en la misma rama: `pnpm-lock.yaml` no contiene `argon2`, `@node-rs/argon2`, `@simplewebauthn/server`, `@simplewebauthn/browser` ni `@simplewebauthn/types`; `apps/central-authority/src/main.ts` no expone flujo de login, sesiones de PlatformAccount o MFA. `identity.mfa_factors.secret_reference` existe como texto no vacío opcional, pero el contrato de referencia/gestor de secretos no está definido en el DDL inspeccionado. No se agregaron dependencias ni se implementó autenticación con primitivas improvisadas.
+
+**Pendiente de ejecución:** las pruebas añadidas y el typecheck no se ejecutaron en esta sesión; no existe evidencia de CI para el SHA actual en la consulta realizada. La validación con PostgreSQL real, atomicidad/rollback y revisión de privilegios efectivos sigue abierta.
