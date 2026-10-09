@@ -70,6 +70,46 @@ describe("PostgresPlatformAdministrationSessionRepository", () => {
       .resolves.toBeNull();
   });
 
+  it("requires an effective role grant and active permission for a requested platform permission", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ ...row(), permission_code: "PLATFORM_ROLE_ASSIGNMENT_MANAGE" }], rowCount: 1 });
+    const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
+
+    await expect(repository.findActivePlatformPermissionForSession(
+      SESSION_ID, "PLATFORM_ROLE_ASSIGNMENT_MANAGE", 15 * 60 * 1000, NOW,
+    )).resolves.toMatchObject({
+      session_id: SESSION_ID, user_id: USER_ID, permission_code: "PLATFORM_ROLE_ASSIGNMENT_MANAGE",
+    });
+
+    const [sql, parameters] = query.mock.calls[0] as [string, unknown[]];
+    expect(parameters).toEqual([SESSION_ID, "PLATFORM_ROLE_ASSIGNMENT_MANAGE"]);
+    expect(sql).toContain('JOIN "authorization".platform_role_assignments AS pra');
+    expect(sql).toContain('JOIN "authorization".roles AS r');
+    expect(sql).toContain('JOIN "authorization".role_permission_grants AS g');
+    expect(sql).toContain('JOIN "authorization".permissions AS p');
+    expect(sql).toContain("g.status = 'ACTIVE'");
+    expect(sql).toContain("p.status = 'ACTIVE'");
+    expect(sql).toContain("p.code = $2");
+  });
+
+  it("fails closed when the requested permission has no effective grant", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
+
+    await expect(repository.findActivePlatformPermissionForSession(
+      SESSION_ID, "PLATFORM_ROLE_ASSIGNMENT_MANAGE", 15 * 60 * 1000, NOW,
+    )).resolves.toBeNull();
+  });
+
+  it("rejects invalid permission codes before querying PostgreSQL", async () => {
+    const query = vi.fn();
+    const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
+
+    await expect(repository.findActivePlatformPermissionForSession(
+      SESSION_ID, "bad permission", 15 * 60 * 1000, NOW,
+    )).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("returns null when the persisted session fails a database-side active-session condition", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
     const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
