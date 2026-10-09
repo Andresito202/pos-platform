@@ -22,13 +22,13 @@ function signedKey(
   root: ReturnType<typeof generateKeyPairSync>,
   keyId: string,
   status: "ACTIVE" | "VERIFY_ONLY" | "REVOKED",
+  publicKeyPem?: string,
 ) {
-  const operational = generateKeyPairSync("ed25519");
   const claims = SessionAssertionOperationalKeyClaimsSchema.parse({
     key_id: keyId,
     key_purpose: "SESSION_ASSERTION",
     environment: "production",
-    public_key_pem: operational.publicKey.export({ type: "spki", format: "pem" }),
+    public_key_pem: publicKeyPem ?? generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }),
     status,
     valid_from: "2026-01-01T00:00:00.000Z",
     valid_until: null,
@@ -50,17 +50,25 @@ describe("SessionTrustRefreshComponent", () => {
       ));
       const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
       const resolver = new SessionTrustKeyResolver(store, verifier);
+      const oldPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
+      const newPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
       const v1 = SessionAssertionTrustBundleSchema.parse({
         version: 1,
-        keys: [signedKey(root, "ssa-old", "ACTIVE")],
+        keys: [signedKey(root, "ssa-old", "ACTIVE", oldPublicKeyPem)],
       });
       const v2 = SessionAssertionTrustBundleSchema.parse({
         version: 2,
-        keys: [signedKey(root, "ssa-old", "VERIFY_ONLY"), signedKey(root, "ssa-new", "ACTIVE")],
+        keys: [
+          signedKey(root, "ssa-old", "VERIFY_ONLY", oldPublicKeyPem),
+          signedKey(root, "ssa-new", "ACTIVE", newPublicKeyPem),
+        ],
       });
       const v3 = SessionAssertionTrustBundleSchema.parse({
         version: 3,
-        keys: [signedKey(root, "ssa-old", "REVOKED"), signedKey(root, "ssa-new", "ACTIVE")],
+        keys: [
+          signedKey(root, "ssa-old", "REVOKED", oldPublicKeyPem),
+          signedKey(root, "ssa-new", "ACTIVE", newPublicKeyPem),
+        ],
       });
       store.install(v1, verifier);
       const liveKeys = new Map(resolver.resolve().keys);
