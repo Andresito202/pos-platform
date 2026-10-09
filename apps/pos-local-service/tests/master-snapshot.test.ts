@@ -33,11 +33,13 @@ const OTHER_TENANT = "018f0000-0000-7000-8000-00000000cfff";
 const REGISTER_A = "018f0000-0000-7000-8000-00000000d001";
 const REGISTER_B = "018f0000-0000-7000-8000-00000000d002";
 const KEY_ID = "MASTER_SNAPSHOT_KEY_1";
+const INSTALLATION_A = "018f0000-0000-7000-8000-00000000c004";
 
 const SCOPE = {
   tenantId: TENANT,
   companyId: COMPANY,
   branchId: BRANCH,
+  installationId: INSTALLATION_A,
   environment: "PRODUCTION" as const,
 };
 const SCOPE_KEY = { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH };
@@ -337,6 +339,24 @@ describe("E. recuperación", () => {
     expect(service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "TRANSPORT_FAILURE" });
     expect(store.highestAcceptedSequence(SCOPE_KEY)).toBeNull();
+  });
+
+  it("consulta la cota central con instalación, tipo y binding exactos", async () => {
+    const requests: unknown[] = [];
+    const floor: AcknowledgedFloorSource = {
+      floorFor: (request) => {
+        requests.push(request);
+        return null;
+      },
+    };
+    const { service } = await harness({ floor });
+    expect(service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
+      .toEqual({ kind: "ACTIVATED", sequence: 1 });
+    expect(requests).toEqual([{
+      installationId: INSTALLATION_A,
+      snapshotType: "CASH_REGISTER",
+      binding: SCOPE_KEY,
+    }]);
   });
 });
 
