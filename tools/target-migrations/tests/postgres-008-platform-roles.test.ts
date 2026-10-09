@@ -30,8 +30,8 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("app.correlation_id");
     expect(sql).toContain("event_id, NULL, NULL, NULL");
     expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
-    expect(sql).toContain("REVOKE ALL ON FUNCTION");
-    expect(sql).toContain("GRANT EXECUTE ON FUNCTION");
+    expect(sql).toContain('REVOKE ALL ON FUNCTION "authorization".audit_platform_role_assignment_change() FROM PUBLIC, pos_app, pos_worker, pos_platform_admin;');
+    expect(sql).toContain('GRANT EXECUTE ON FUNCTION "authorization".audit_platform_role_assignment_change() TO pos_platform_app;');
     expect(sql).toContain("platform.is_uuid_v7(event_id)");
     expect(sql).toContain("one-way revocation");
     expect(sql).toContain("requires an ACTIVE identity user");
@@ -39,9 +39,6 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("PLATFORM_ROLE_ASSIGNMENT_MANAGE");
     expect(sql).toContain("app.actor_id");
     expect(sql).toContain("distinct authenticated platform actor");
-    expect(sql).toContain("INSERT INTO audit.audit_events");
-    expect(sql).toContain("pg_catalog.sha256");
-    expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
     expect(sql).not.toMatch(/INSERT\s+INTO\s+"authorization"\.platform_role_assignments/i);
     expect(sql).not.toMatch(/INSERT\s+INTO\s+identity\.users/i);
     expect(sha256(sql)).toHaveLength(32);
@@ -61,6 +58,6 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("revoked_by_actor_type");
     expect(sql).toContain("revocation_reason");
     expect(sql).toContain("created_by_actor_type");
-    expect(sql).not.toContain("DEFAULT 'ACTIVE'"); 
+    expect(sql).not.toContain("DEFAULT 'ACTIVE'");
   });
 });
