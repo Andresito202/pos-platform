@@ -64,3 +64,81 @@ CREATE POLICY platform_role_assignments_platform_only
 REVOKE ALL ON "authorization".platform_role_assignments FROM PUBLIC, pos_app, pos_worker;
 GRANT SELECT, INSERT, UPDATE ON "authorization".platform_role_assignments TO pos_platform_app;
 GRANT SELECT ON "authorization".platform_role_assignments TO pos_platform_admin;
+
+
+CREATE FUNCTION "authorization".audit_platform_role_assignment_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  event_actor_type text;
+  event_actor_id uuid;
+  event_action text;
+  event_payload jsonb;
+  previous_payload jsonb;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.status <> 'ACTIVE' OR NEW.status <> 'REVOKED'
+       OR NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.user_id IS DISTINCT FROM OLD.user_id
+       OR NEW.role_id IS DISTINCT FROM OLD.role_id
+       OR NEW.role_scope_type IS DISTINCT FROM OLD.role_scope_type
+       OR NEW.valid_from IS DISTINCT FROM OLD.valid_from
+       OR NEW.valid_until IS DISTINCT FROM OLD.valid_until
+       OR NEW.created_at IS DISTINCT FROM OLD.created_at
+       OR NEW.created_by_actor_type IS DISTINCT FROM OLD.created_by_actor_type
+       OR NEW.created_by_actor_id IS DISTINCT FROM OLD.created_by_actor_id
+       OR NEW.version <> OLD.version + 1 THEN
+      RAISE EXCEPTION 'platform role assignments are immutable except for one-way revocation';
+    END IF;
+    event_actor_type := NEW.revoked_by_actor_type;
+    event_actor_id := NEW.revoked_by_actor_id;
+    event_action := 'PLATFORM_ROLE_ASSIGNMENT_REVOKED';
+    previous_payload := pg_catalog.jsonb_build_object(
+      'id', OLD.id, 'userId', OLD.user_id, 'roleId', OLD.role_id,
+      'status', OLD.status, 'validFrom', OLD.valid_from, 'validUntil', OLD.valid_until
+    );
+    event_payload := pg_catalog.jsonb_build_object(
+      'id', NEW.id, 'userId', NEW.user_id, 'roleId', NEW.role_id,
+      'status', NEW.status, 'validFrom', NEW.valid_from, 'validUntil', NEW.valid_until,
+      'revokedAt', NEW.revoked_at, 'reason', NEW.revocation_reason, 'version', NEW.version
+    );
+  ELSE
+    IF NEW.status <> 'ACTIVE' OR NEW.version <> 1 THEN
+      RAISE EXCEPTION 'platform role assignment must begin ACTIVE at version 1';
+    END IF;
+    event_actor_type := NEW.created_by_actor_type;
+    event_actor_id := NEW.created_by_actor_id;
+    event_action := 'PLATFORM_ROLE_ASSIGNMENT_CREATED';
+    previous_payload := NULL;
+    event_payload := pg_catalog.jsonb_build_object(
+      'id', NEW.id, 'userId', NEW.user_id, 'roleId', NEW.role_id,
+      'status', NEW.status, 'validFrom', NEW.valid_from, 'validUntil', NEW.valid_until,
+      'createdAt', NEW.created_at, 'createdByActorType', NEW.created_by_actor_type,
+      'createdByActorId', NEW.created_by_actor_id, 'version', NEW.version
+    );
+  END IF;
+
+  INSERT INTO audit.audit_events (
+    id, tenant_id, company_id, branch_id, actor_type, actor_id, session_id, device_id,
+    action_code, resource_type, resource_reference_kind, resource_id, operation_id,
+    correlation_id, schema_version, reported_at, server_recorded_at, result, reason_code,
+    previous_value, new_value, payload_checksum
+  ) VALUES (
+    NEW.id, NULL, NULL, NULL, event_actor_type, event_actor_id, NULL, NULL,
+    event_action, 'PlatformRoleAssignment', 'INSTANCE', NEW.id, NULL,
+    NEW.id, 1, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp(),
+    'SUCCESS', CASE WHEN TG_OP = 'UPDATE' THEN 'EXPLICIT_REVOCATION' ELSE NULL END,
+    previous_payload, event_payload,
+    pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(event_payload::text, 'UTF8')), 'hex')
+  );
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER platform_role_assignment_audit_guard
+BEFORE INSERT OR UPDATE ON "authorization".platform_role_assignments
+FOR EACH ROW EXECUTE FUNCTION "authorization".audit_platform_role_assignment_change();
