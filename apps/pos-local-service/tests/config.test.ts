@@ -76,6 +76,39 @@ describe("parseServiceConfig", () => {
     expect(parsed.session_trust_artifact_path).toBe("/var/lib/camacho-pos/security/session-trust.json");
   });
 
+  it("accepts the authenticated central trust distribution configuration", () => {
+    const parsed = parseServiceConfig({
+      ...valid,
+      POS_CENTRAL_BASE_URL: "https://api.camachopos.co",
+      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "/var/lib/camacho-pos/security/session-trust-token",
+    });
+    expect(parsed.session_trust_transport_token_file).toBe("/var/lib/camacho-pos/security/session-trust-token");
+  });
+
+  it("requires central HTTPS and a root trust anchor for remote trust distribution", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "/var/lib/camacho-pos/security/session-trust-token",
+    })).toThrow("session trust transport token requires POS_CENTRAL_BASE_URL");
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_CENTRAL_BASE_URL: "https://api.camachopos.co",
+      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "/var/lib/camacho-pos/security/session-trust-token",
+    })).toThrow("central session trust distribution requires the configured root public key and environment");
+  });
+
+  it("rejects a relative session trust transport token path", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_CENTRAL_BASE_URL: "https://api.camachopos.co",
+      POS_SESSION_TRUST_ENVIRONMENT: "production",
+      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
+      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "./token",
+    })).toThrow("session trust transport token file path must be absolute");
+  });
+
   it("rejects a relative session trust artifact path", () => {
     expect(() => parseServiceConfig({
       ...valid,
