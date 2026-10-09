@@ -40,10 +40,27 @@ export class SessionTrustBundleFetcher {
       if (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_BUNDLE_BYTES)) {
         throw new Error("SESSION_TRUST_RESPONSE_TOO_LARGE");
       }
-      const body = await response.text();
-      if (Buffer.byteLength(body, "utf8") > MAX_BUNDLE_BYTES) throw new Error("SESSION_TRUST_RESPONSE_TOO_LARGE");
+      if (response.body === null) throw new Error("SESSION_TRUST_RESPONSE_EMPTY");
+      const reader = response.body.getReader();
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_BUNDLE_BYTES) {
+            await reader.cancel();
+            throw new Error("SESSION_TRUST_RESPONSE_TOO_LARGE");
+          }
+          chunks.push(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+      }
       let artifact: unknown;
-      try { artifact = JSON.parse(body); } catch { throw new Error("SESSION_TRUST_RESPONSE_INVALID_JSON"); }
+      try { artifact = JSON.parse(Buffer.concat(chunks, totalBytes).toString("utf8")); }
+      catch { throw new Error("SESSION_TRUST_RESPONSE_INVALID_JSON"); }
       return SessionAssertionTrustBundleSchema.parse(artifact);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") throw new Error("SESSION_TRUST_REQUEST_TIMEOUT");
