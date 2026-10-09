@@ -40,7 +40,7 @@ CREATE TABLE "authorization".platform_role_assignments (
       AND btrim(revocation_reason) <> ''
       AND ((revoked_by_actor_type = 'SYSTEM' AND revoked_by_actor_id IS NULL)
         OR (revoked_by_actor_type = 'PLATFORM_ACCOUNT' AND revoked_by_actor_id IS NOT NULL))
-  ),
+  )),
   CONSTRAINT platform_role_assignments_range_ck
     CHECK (valid_until IS NULL OR valid_until > valid_from),
   CONSTRAINT platform_role_assignments_user_role_start_uq UNIQUE (user_id, role_id, valid_from)
