@@ -597,3 +597,51 @@ La inspección del DDL no encontró una relación de asignación/eligibilidad de
 Se añadieron pruebas unitarias para candidato válido, sesión no encontrada/inactiva, reautenticación antigua, expiración, reautenticación futura, UUID inválido, error de base de datos y política inválida. Están escritas pero **no ejecutadas**. Tampoco se probó contra PostgreSQL real ni se verificaron permisos efectivos/RLS. Este bloque no implementa login, emisión/revocación de sesión, refresh, MFA challenge ni autorización D-1.
 
 **Estado:** repositorio de lectura candidato materializado; tests pendientes de ejecución; elegibilidad PlatformAccount y runtime de autenticación siguen abiertos. No se declara PASS ni se considera completado D-3.
+
+
+## Cierre de auditoría del bloque D-3 — elegibilidad de PlatformAccount — 2026-10-09
+
+### Resultado de inspección de fuentes existentes
+
+Se contrastaron el contrato `packages/contracts/src/central-administration.ts`, el repositorio `packages/database-postgres/src/platform-administration-session-repository.ts`, el modelo conceptual `docs/architecture/conceptual-data-model.md`, la migración PostgreSQL `001_central_foundation.up.sql` y la configuración de `apps/central-authority/src/main.ts`.
+
+Hallazgos verificables:
+
+1. El contrato declara que `PlatformAccount.id` es el mismo UUID que `identity.users.id`; no debe crearse una segunda identidad ni duplicar contraseña, MFA o sesión.
+2. El modelo conceptual menciona `PlatformAccount.security_level`, pero el DDL físico inspeccionado de `identity.users` no contiene esa columna ni existe una relación física específica de elegibilidad de PlatformAccount en la migración base.
+3. `authorization.user_role_assignments` es contexto de autorización de usuarios vinculados a tenant; no constituye por sí misma una asignación global de PlatformAccount y no se reutiliza como bypass tenant.
+4. `apps/central-authority/src/main.ts` instancia el flujo de enrolamiento de dispositivos; en la ruta inspeccionada no registra endpoints de login administrativo, desafío MFA, reautenticación, recuperación, refresh ni autorización de operaciones D-1.
+5. El repositorio de sesión añadido devuelve únicamente `GlobalMfaSessionCandidate`. Ese tipo no acredita elegibilidad administrativa y no se convierte implícitamente en `PlatformAdministrationSession`.
+
+### Por qué no se añadió una migración especulativa
+
+La ausencia de una fuente física de elegibilidad es un bloqueo de autorización, no una omisión que se pueda cerrar asignando cualquier usuario activo con MFA a la administración de plataforma. Hacerlo permitiría escalar a un usuario que nunca fue autorizado como operador interno. Tampoco es válido reutilizar una asignación tenant como autoridad global ni añadir una tabla duplicada sin definir su ciclo de vida, asignador autorizado, revocación, auditoría, RLS y restricciones de unicidad.
+
+Antes de crear o cambiar el esquema debe ratificarse explícitamente una de estas opciones:
+
+- **A. Relación explícita de elegibilidad** vinculada por FK a `identity.users.id`, con estado, nivel de seguridad, fechas/auditoría y reglas de alta/revocación; es más expresiva, pero requiere definir quién puede conceder o retirar la elegibilidad y cómo se protege esa fuente.
+- **B. Atributos en `identity.users`** para distinguir elegibilidad/estado de plataforma; evita una tabla nueva, pero mezcla el ciclo de vida de identidad con privilegios internos y necesita un mecanismo de cambios privilegiados y auditoría igualmente definido.
+
+La decisión debe especificar además la primera cuenta de plataforma (bootstrap seguro, sin credencial predeterminada), los roles/permisos globales admitidos, el procedimiento de revocación de emergencia y la matriz RLS por rol PostgreSQL. Ninguna de esas políticas se infiere automáticamente de `security_level` conceptual.
+
+### Estado real de materialización y verificación
+
+- **Materializado en la rama:** guarda temporal de sesión, repositorio de lectura de candidato MFA global, exportación del paquete, pruebas unitarias escritas y este diagnóstico de brecha.
+- **No materializado:** fuente de elegibilidad de PlatformAccount, autenticación de credenciales, verificación MFA real, emisión/rotación/revocación de sesión y refresh, recuperación segura, registro de eventos de seguridad desde los flujos, guardas de reautenticación integradas al runtime, autorización D-1 por operación y pruebas PostgreSQL/RLS end-to-end.
+- **No ejecutado:** los nuevos tests del contrato y del repositorio. Las pruebas que sólo mockean `Pool.query` no demuestran que el SQL compile ni que RLS permita/deniegue correctamente.
+- **CI:** se sigue excluyendo del ciclo por instrucción. Los fallos anteriores con `runner_id: 0`, `runner_name` vacío y sin pasos registrados no prueban un fallo de código, pero tampoco constituyen validación positiva.
+- **Estado de salida:** `D-3 INCOMPLETO / NO PASS`. No declarar 100% ni seguridad lista hasta implementar y probar todos los flujos y cerrar la decisión de elegibilidad.
+
+### Secuencia de cierre pendiente (orden obligatorio)
+
+1. Ratificar la fuente de elegibilidad y bootstrap de la primera cuenta.
+2. Materializar esquema/RLS/grants/auditoría y su reversión de forma versionada, si la decisión lo exige.
+3. Implementar autenticación de contraseña con un KDF soportado y parámetros aprobados; no reutilizar PIN local ni inventar codificación de `verifier`.
+4. Implementar MFA real con contrato de almacenamiento/recuperación de `secret_reference` o credenciales WebAuthn; no simular desafíos.
+5. Implementar sesión central y refresh con hashes, rotación atómica, detección de replay y revocación de familia.
+6. Conectar reautenticación reciente y resolución de permisos a cada operación D-1; denegar por defecto.
+7. Emitir eventos de seguridad append-only respetando UUIDv7, correlación, reloj y RLS del DDL existente.
+8. Añadir pruebas negativas, concurrencia, replay, expiración, revocación, aislamiento de roles/RLS y E2E.
+9. Ejecutar typecheck, tests de paquetes, migraciones PostgreSQL, arquitectura/policy gates y CI; registrar los resultados reales por SHA.
+
+Este cierre no crea un contrato alternativo ni abre una rama paralela. Deja documentado el punto exacto donde continuar sobre el mismo trabajo sin conceder autoridad por inferencia.
