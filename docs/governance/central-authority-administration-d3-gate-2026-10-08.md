@@ -663,3 +663,29 @@ Se amplió la inspección del DDL y los manifiestos existentes para evitar intro
 La solución debe conservar `authorization.roles` y `authorization.role_permission_grants`, añadir una relación global explícita de asignación de rol sólo si se formaliza su contrato físico, y hacer que la elegibilidad se compruebe junto con usuario activo, sesión no revocada, MFA verificado y reautenticación reciente. La asignación debe ser revocable y auditada; las cuentas sin asignación deben fallar cerradas. No se sembrará ningún administrador por defecto ni se concederá autoridad automáticamente al primer usuario.
 
 Esta inspección no cambia el estado: sigue siendo `D-3 INCOMPLETO / NO PASS`. No se ejecutaron typecheck, Vitest ni pruebas PostgreSQL en este entorno, y no se atribuye ningún resultado positivo a Actions.
+
+
+### Materialización de asignación global PLATFORM — 2026-10-09
+
+Se añadió el primer bloque físico versionado para resolver la incompatibilidad entre las asignaciones de negocio tenant-bound y los roles globales de administración. Archivos nuevos en la misma rama:
+
+- `tools/target-migrations/sql/postgres/008_platform_role_assignments.up.sql` y `.down.sql`.
+- `tools/target-migrations/src/postgres-008-platform-roles-contract.ts`, `postgres-008-runner.ts` y `postgres-008-cli.ts`.
+- `tools/target-migrations/tests/postgres-008-platform-roles.test.ts`.
+- Se exportó el descriptor/runner y se agregó `postgres:008:apply` y la prueba al paquete `tools/target-migrations/package.json`.
+
+Invariantes incorporados al DDL:
+- La asignación referencia `identity.users` y `authorization.roles` existentes; no crea identidades ni un catálogo de roles duplicado.
+- Una FK compuesta junto con el índice único correspondiente obliga a que la asignación referencie un rol con `scope_type = 'PLATFORM'`; no basta con enviar un ID de rol BUSINESS.
+- La tabla usa UUIDv7, estados ACTIVE/REVOKED, ventana de validez, actor creador, metadatos de revocación y motivo obligatorio al revocar.
+- RLS está habilitada y forzada. El acceso de escritura se limita a `pos_platform_app`; `pos_platform_admin` tiene lectura; `pos_app` y `pos_worker` no reciben privilegios sobre la tabla.
+- No hay seed, administrador por defecto ni promoción automática del primer usuario.
+- El runner comprueba versión/base de datos, rol migrador, checksum, historial y checksum de la migración 007 precedente, usa bloqueo advisory y verifica que la tabla tenga RLS forzada.
+
+Límites que permanecen abiertos:
+- **No se ejecutaron** Vitest, TypeScript ni PostgreSQL; el test agregado es estático y no acredita que el DDL aplique correctamente ni que las políticas RLS funcionen contra la base real.
+- La migración aún no integra una escritura de evento en `audit.audit_events` por cada asignación/revocación. Los metadatos de la fila no sustituyen un historial append-only de cambios; esto debe cerrarse antes de habilitar operaciones administrativas.
+- La tabla no conecta por sí sola autenticación, MFA, reautenticación, resolución de permisos ni endpoints de D-1. No constituye un login de superadministrador utilizable.
+- Deben probarse también reversión segura, unicidad/concurrencia, rechazo de rol BUSINESS, aislamiento entre roles y consistencia de contrato/introspección para la migración 008.
+
+**Estado actualizado: D-3 INCOMPLETO / NO PASS.** Este bloque queda materializado en la rama de trabajo, pero no está verificado en ejecución y no autoriza afirmar cierre de seguridad ni 100% de materialización.
