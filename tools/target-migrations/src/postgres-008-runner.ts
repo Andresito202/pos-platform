@@ -44,6 +44,16 @@ export async function applyPostgres008(config: Postgres008RunnerConfig): Promise
         }
         const rls = await client.query<{enabled:boolean;forced:boolean}>("SELECT c.relrowsecurity enabled,c.relforcerowsecurity forced FROM pg_class c WHERE c.oid='authorization.platform_role_assignments'::regclass");
         invariant(rls.rows[0]?.enabled === true && rls.rows[0]?.forced === true, "008 platform role assignment RLS not forced");
+        const policy = await client.query<{present:boolean}>("SELECT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='authorization' AND tablename='platform_role_assignments' AND policyname='platform_role_assignments_platform_only') AS present");
+        invariant(policy.rows[0]?.present === true, "008 platform role assignment RLS policy missing");
+        const roleScopeFk = await client.query<{present:boolean}>("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='authorization.platform_role_assignments'::regclass AND conname='platform_role_assignments_role_scope_fk' AND contype='f') AS present");
+        invariant(roleScopeFk.rows[0]?.present === true, "008 platform role scope FK missing");
+        const auditTrigger = await client.query<{present:boolean}>("SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='authorization.platform_role_assignments'::regclass AND tgname='platform_role_assignment_audit_guard' AND NOT tgisinternal) AS present");
+        invariant(auditTrigger.rows[0]?.present === true, "008 platform role assignment audit trigger missing");
+        const auditFunction = await client.query<{present:boolean}>("SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='authorization' AND p.proname='audit_platform_role_assignment_change') AS present");
+        invariant(auditFunction.rows[0]?.present === true, "008 platform role assignment audit function missing");
+        const grants = await client.query<{appWrite:boolean;adminRead:boolean;businessDenied:boolean}>("SELECT has_table_privilege('pos_platform_app','authorization.platform_role_assignments','INSERT') AND has_table_privilege('pos_platform_app','authorization.platform_role_assignments','UPDATE') AS \"appWrite\", has_table_privilege('pos_platform_admin','authorization.platform_role_assignments','SELECT') AS \"adminRead\", NOT has_table_privilege('pos_app','authorization.platform_role_assignments','SELECT') AND NOT has_table_privilege('pos_worker','authorization.platform_role_assignments','SELECT') AS \"businessDenied\"");
+        invariant(grants.rows[0]?.appWrite === true && grants.rows[0]?.adminRead === true && grants.rows[0]?.businessDenied === true, "008 role grants mismatch");
         await client.query("COMMIT");
       } catch(error) {
         await client.query("ROLLBACK").catch(() => undefined);
