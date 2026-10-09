@@ -1,6 +1,5 @@
 import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
-import { POSTGRES_008_DESCRIPTOR } from "./postgres-008-contract.js";
 import { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
 
 export interface Postgres008RunnerConfig { adminUrl: string; expectedDatabase: string; repositoryCommit: string; }
@@ -43,7 +42,7 @@ export async function applyPostgres008(config: Postgres008RunnerConfig): Promise
           invariant(check.rows[0]?.present === true, "008 table missing: " + table);
         }
         const rls = await client.query<{enabled:boolean;forced:boolean}>("SELECT c.relrowsecurity enabled,c.relforcerowsecurity forced FROM pg_class c WHERE c.oid='authorization.platform_role_assignments'::regclass");
-        invariant(rls.rows[0]?.enabled === true && rls.rows[0]?.forced === true, "008 password recovery RLS not forced");
+        invariant(rls.rows[0]?.enabled === true && rls.rows[0]?.forced === true, "008 platform role assignment RLS not forced");
         await client.query("COMMIT");
       } catch(error) {
         await client.query("ROLLBACK").catch(() => undefined);
