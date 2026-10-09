@@ -413,3 +413,33 @@ No se añadió una dependencia directa ni se modificó manualmente el lockfile: 
 5. Solo después de esos resultados, fijar versiones y parámetros y comenzar repositorios/casos de uso sobre `identity.user_credentials`, `identity.mfa_factors`, `identity.sessions`, `identity.session_refresh_tokens` e `identity.security_events`.
 
 **Estado:** auditoría de compatibilidad completada por inspección estática; runtime de autenticación y benchmark no ejecutados. No se declara compatibilidad ni gate de seguridad aprobado.
+
+## Diagnóstico real de GitHub Actions en el SHA revisado — 2026-10-09 UTC
+
+### Evidencia de ejecución consultada
+
+Se consultaron los runs asociados por GitHub Actions al HEAD `3e67825a1237b346b101a276c02f87f21b83d95e` del PR #92. La API devuelve seis runs del evento `pull_request`, todos completados con conclusión `failure`:
+
+| Workflow | Run ID | Conclusión observada | URL |
+|---|---:|---|---|
+| Central Sync Persistence Gate | 37869811417 | `failure` | https://github.com/Andresito202/pos-platform/actions/runs/37869811417 |
+| CodeQL SAST | 37869811439 | `failure` | https://github.com/Andresito202/pos-platform/actions/runs/37869811439 |
+| D-3 Live Security E2E | 37869811316 | `failure` | https://github.com/Andresito202/pos-platform/actions/runs/37869811316 |
+| TARGET foundation validation | 37869811344 | `failure` | https://github.com/Andresito202/pos-platform/actions/runs/37869811344 |
+| Strix penetration test | 37869811369 | `failure` | https://github.com/Andresito202/pos-platform/actions/runs/37869811369 |
+| G1.2 Live Session Bootstrap | 37869811407 | `failure` | https://github.com/Andresito202/pos-platform/actions/runs/37869811407 |
+
+Los runs se crearon alrededor de `2026-10-09T01:26:51Z` y figuran completados entre 3 y 4 segundos después. En los datos consultados, los jobs no exponen pasos ejecutados (`steps: []`); tampoco aparecen status checks en el endpoint de estado combinado del commit.
+
+### Interpretación correcta y límite de la evidencia
+
+- **GitHub Actions no está ausente:** sí hay workflows y runs asociados a este SHA.
+- **El CI está rojo:** las seis conclusiones publicadas son `failure`; no hay base para declarar CI verde.
+- **Causa raíz aún no identificada:** la finalización casi inmediata y la ausencia de pasos visibles sugieren un fallo anterior a la ejecución normal de los pasos, pero la evidencia consultada no distingue entre error de configuración/validación del workflow, fallo de plataforma o problema de exposición de datos del job. No se atribuye causa sin logs diagnósticos.
+- **No equivale a fallo de pruebas de aplicación:** como no hay pasos visibles, no se puede afirmar que TypeScript, Vitest, PostgreSQL, E2E, CodeQL o Strix hayan llegado a ejecutarse.
+- **Siguiente control de diagnóstico:** abrir cada run en GitHub y obtener el mensaje de fallo a nivel workflow/job; después corregir únicamente la causa demostrada y volver a validar el mismo HEAD actualizado. No deshabilitar workflows, no relajar gates ni declarar tests PASS para hacer desaparecer el rojo.
+
+### Estado del bloque
+
+Diagnóstico de metadatos de Actions materializado en esta documentación. **Causa raíz de los runs: PENDIENTE.** **Pruebas de aplicación en este SHA: NO DEMOSTRADAS por estos runs.** **D-3 autenticación PlatformAccount: NO IMPLEMENTADA**, según la auditoría de código precedente. El PR #92 sigue abierto y no fusionado.
+
