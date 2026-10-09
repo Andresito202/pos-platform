@@ -8,6 +8,8 @@ import {
   type PlatformSecurityEventWrite,
 } from "@pos-platform/contracts";
 
+export type { PlatformSecurityEventWrite } from "@pos-platform/contracts";
+
 /**
  * Persists identity security events into the existing identity.security_events
  * table. The caller must pass a PoolClient inside the same transaction as the
