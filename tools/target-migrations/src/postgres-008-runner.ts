@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
+import { POSTGRES_007_DESCRIPTOR } from "./postgres-007-contract.js";
 import { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
 
 export interface Postgres008RunnerConfig { adminUrl: string; expectedDatabase: string; repositoryCommit: string; }
@@ -28,8 +29,8 @@ export async function applyPostgres008(config: Postgres008RunnerConfig): Promise
       const applied = history.rows.find((row) => row.status === "APPLIED");
       if (applied) return { executionId: applied.execution_id, noOp: true, checksumHex, result: "ALREADY_APPLIED" };
       invariant(!history.rows.some((row) => row.status === "STARTED"), "008 STARTED execution requires reconciliation");
-      const predecessorChecksum = sha256(await readArtifact(POSTGRES_008_DESCRIPTOR.upArtifact));
-      const predecessor = await client.query<{checksum:Buffer}>("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_008_DESCRIPTOR.migrationId]);
+      const predecessorChecksum = sha256(await readArtifact(POSTGRES_007_DESCRIPTOR.upArtifact));
+      const predecessor = await client.query<{checksum:Buffer}>("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_007_DESCRIPTOR.migrationId]);
       invariant(predecessor.rows[0] && Buffer.from(predecessor.rows[0].checksum).equals(predecessorChecksum), "008 predecessor checksum mismatch");
       const executionId = uuidV7();
       await client.query("INSERT INTO platform.target_migration_executions (execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version) VALUES ($1,$2,'POSTGRESQL',$3,$4,'STARTED',clock_timestamp(),$5)",[executionId,POSTGRES_008_DESCRIPTOR.migrationId,POSTGRES_008_DESCRIPTOR.manifestVersion,checksum,RUNNER_VERSION + ";migration=008;repo=" + config.repositoryCommit]);
