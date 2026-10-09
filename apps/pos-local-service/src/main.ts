@@ -1,4 +1,5 @@
 import { createPublicKey } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
@@ -195,11 +196,12 @@ try {
     && config.central_base_url !== undefined
   ) {
     const resolver = sessionTrustContext.resolver;
+    const tokenPath = config.session_trust_transport_token_file;
     const endpoint = new URL("/v1/session-trust", config.central_base_url).toString();
     components.push(new SessionTrustRefreshComponent(
       async () => new SessionTrustBundleFetcher().fetch(
         endpoint,
-        readSessionTrustTransportToken(config.session_trust_transport_token_file as string),
+        readSessionTrustTransportToken(tokenPath),
       ),
       (artifact) => resolver.resolveWithArtifact(artifact),
       liveSessionTrustKeys,
