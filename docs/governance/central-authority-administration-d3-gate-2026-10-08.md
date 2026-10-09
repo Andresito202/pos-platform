@@ -459,3 +459,30 @@ Commit: `3034c6de27f6e708b9c70700b099b86687112276`.
 
 Continuar con la autenticación real de PlatformAccount sobre las tablas existentes y con los gates de seguridad ya ratificados. Antes de escribir el verificador de credenciales se requiere resolver una biblioteca Argon2id mantenida en el workspace y su lockfile mediante el gestor real; no se sustituirá por un hash improvisado ni por el PIN local. Antes de MFA se debe resolver la implementación WebAuthn y el contrato operacional de `secret_reference`. La conexión actual permite editar y leer archivos remotos, pero no ejecutar la instalación del workspace, benchmarks ni las suites; por eso los cambios que requieran esas validaciones deben permanecer explícitamente no verificados hasta obtener ejecución real.
 
+
+
+## Materialización D-3 — contrato de eventos de seguridad — 2026-10-09
+
+### Cambios guardados en la rama del PR #92
+
+- Se añadió `packages/contracts/src/platform-security-events.ts`.
+- Se exportó el contrato desde `packages/contracts/src/index.ts`.
+- Se añadió `packages/contracts/tests/platform-security-events.test.ts`.
+
+El contrato tipa 19 códigos estables para login, credenciales, MFA, reautenticación, ciclo de sesión, rotación/reutilización de refresh, recuperación y abuso. El sobre usa metadatos compatibles con la forma existente de `identity.security_events`, exige que `server_recorded_at` no sea anterior a `occurred_at`, y exige `session_id` cuando el evento tiene `tenant_id`. Su forma estricta rechaza campos adicionales de contraseña, token de refresh o secreto MFA.
+
+### Límites de lo materializado
+
+Esto es contrato y cobertura de invariantes, **no** el escritor de eventos ni el flujo de autenticación. La autoridad del timestamp del servidor, la escritura append-only, la atomicidad con cambios de sesión/credenciales y el control de acceso deben imponerse en el servicio/repositorio central. No se ha conectado todavía el contrato al runtime ni a D-1.
+
+### Verificación
+
+Los tres archivos se volvieron a leer desde la rama remota y se confirmó la exportación. No se ejecutaron Vitest ni TypeScript en esta sesión; los tests añadidos están **pendientes de ejecución** y no se declara PASS.
+
+### Siguiente bloque en orden
+
+1. Materializar y probar repositorio de eventos sobre la tabla existente, con timestamps generados por el servidor y sin registrar secretos.
+2. Validar dependencias reales de Argon2id y WebAuthn mediante pnpm/lockfile y runtime; no se puede dar ese paso por cerrado con una inspección estática.
+3. Implementar el caso de uso de login y MFA solo después de resolver la verificación criptográfica y el contrato operacional de `secret_reference`.
+4. Implementar sesión/refresh con transacciones y pruebas de replay/concurrencia sobre `identity.sessions` y `identity.session_refresh_tokens`.
+5. Ejecutar pruebas de contrato, typecheck, integración y gates SEC-G02/SEC-G03 en un entorno ejecutable. Actions rojo o sin diagnóstico sigue siendo un estado no verde; no detiene el trabajo de código, pero tampoco sustituye estas pruebas.
