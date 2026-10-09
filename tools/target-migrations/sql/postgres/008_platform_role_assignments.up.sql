@@ -58,7 +58,7 @@ ALTER TABLE "authorization".platform_role_assignments FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY platform_role_assignments_platform_only
   ON "authorization".platform_role_assignments
-  FOR ALL TO pos_platform_app
+  FOR ALL TO pos_platform_app, pos_platform_admin
   USING (true) WITH CHECK (true);
 
 REVOKE ALL ON "authorization".platform_role_assignments FROM PUBLIC, pos_app, pos_worker;
