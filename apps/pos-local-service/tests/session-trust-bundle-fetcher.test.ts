@@ -56,7 +56,7 @@ describe("SessionTrustBundleFetcher", () => {
     const request = vi.fn<typeof fetch>();
     await expect(new SessionTrustBundleFetcher(request).fetch(endpoint, "short"))
       .rejects.toThrow("SESSION_TRUST_TRANSPORT_TOKEN_INVALID");
-    await expect(new SessionTrustBundleFetcher(request).fetch(endpoint, `${token}\\n`))
+    await expect(new SessionTrustBundleFetcher(request).fetch(endpoint, `${token}\n`))
       .rejects.toThrow("SESSION_TRUST_TRANSPORT_TOKEN_INVALID");
     expect(request).not.toHaveBeenCalled();
   });
