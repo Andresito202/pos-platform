@@ -18,6 +18,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_SESSION_TRUST_ENVIRONMENT",
   "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM",
   "POS_SESSION_TRUST_ARTIFACT_PATH",
+  "POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -36,6 +37,8 @@ const ServiceConfigSchema = z.strictObject({
   session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
   /** Public signed bundle supplied by the installer; never contains private keys. */
   session_trust_artifact_path: z.string().min(1).max(4096).optional(),
+  /** Path to the deployment-managed bearer token for the public trust endpoint. */
+  session_trust_transport_token_file: z.string().min(1).max(4096).optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
@@ -45,6 +48,15 @@ const ServiceConfigSchema = z.strictObject({
   }
   if (value.session_trust_artifact_path !== undefined && !isAbsolute(value.session_trust_artifact_path)) {
     context.addIssue({ code: "custom", path: ["session_trust_artifact_path"], message: "session trust artifact path must be absolute" });
+  }
+  if (value.session_trust_transport_token_file !== undefined && !isAbsolute(value.session_trust_transport_token_file)) {
+    context.addIssue({ code: "custom", path: ["session_trust_transport_token_file"], message: "session trust transport token file path must be absolute" });
+  }
+  if (value.session_trust_transport_token_file !== undefined && value.central_base_url === undefined) {
+    context.addIssue({ code: "custom", path: ["session_trust_transport_token_file"], message: "session trust transport token requires POS_CENTRAL_BASE_URL" });
+  }
+  if (value.session_trust_transport_token_file !== undefined && value.session_trust_root_public_key_pem === undefined) {
+    context.addIssue({ code: "custom", path: ["session_trust_transport_token_file"], message: "central session trust distribution requires the configured root public key and environment" });
   }
 });
 export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
@@ -68,6 +80,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_environment: environment.POS_SESSION_TRUST_ENVIRONMENT,
     session_trust_root_public_key_pem: environment.POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM,
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
+    session_trust_transport_token_file: environment.POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };
