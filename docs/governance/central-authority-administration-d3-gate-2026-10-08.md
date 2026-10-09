@@ -323,3 +323,66 @@ Inspección estática de la rama `claude/pos-camacho-bloque-4c-ld43py`, en `apps
 ### Resultado de esta pasada
 
 Se completó la inspección estática y se registró la matriz de integración sobre el gate existente. No se implementaron endpoints, permisos, credenciales ni controles de seguridad ficticios. No se ejecutaron pruebas ni se declara CI verde. El siguiente bloque funcional depende de la ratificación de las decisiones de autenticación enumeradas en este mismo documento.
+
+
+## Decisiones ratificadas para implementar D-3 — 2026-10-08
+
+**Autoridad:** aprobación explícita del usuario en esta conversación.  
+**Alcance:** política y fronteras de diseño. Esta aprobación no equivale a gate de seguridad aprobado, pruebas ejecutadas ni autorización para declarar producción lista.
+
+### D3-01 — Identidad y credenciales
+
+- `PlatformAccount.id` es el mismo UUID que `identity.users.id`; no se crea tabla de cuentas de plataforma.
+- `identity.user_credentials` es la única fuente de credenciales PASSWORD y `identity.mfa_factors` la única fuente de factores MFA.
+- La implementación evaluará **Argon2id** como KDF preferido. Antes de fijar parámetros se hará benchmark reproducible en los entornos objetivo; se versionará el formato almacenado e incluirá salt único y parámetros. No se almacenarán contraseñas reversibles ni se copiarán credenciales al cliente local.
+- La elección de KDF queda aprobada como dirección de diseño; los parámetros y el formato final permanecen bloqueados hasta revisión de benchmark y pruebas.
+
+### D3-02 — MFA administrativo
+
+- Se adopta **WebAuthn/passkeys** como método preferido para MFA de cuentas de plataforma, sujeto a validar la compatibilidad real de clientes, autenticadores y biblioteca mantenida.
+- No se crea una tabla MFA ni se inventa una representación de secreto: la integración debe cumplir el contrato existente de `identity.mfa_factors.secret_reference` y el ciclo de vida de `MfaFactor`.
+- No se emitirá sesión administrativa completa hasta que el factor requerido quede verificado. Si la infraestructura WebAuthn no se puede validar, se mantiene el gate bloqueado; no se degradará silenciosamente a PIN local ni a MFA ficticio.
+
+### D3-03 — Reautenticación
+
+- Toda operación D-1 requiere sesión central vigente, MFA satisfecho y evidencia de reautenticación dentro de la ventana aplicable.
+- La reautenticación debe verificarse en el servicio central para cada operación crítica; el renderer no es una frontera de autorización.
+- La duración concreta se configura y versiona tras revisar riesgo, usabilidad y pruebas de expiración. No se fija un número de minutos sin evidencia.
+
+### D3-04 — Recuperación de PlatformAccount
+
+- La recuperación es un flujo central separado del login normal, con verificación reforzada, credencial de recuperación de un solo uso, expiración, consumo atómico y auditoría.
+- Recuperar o reemplazar el factor invalida las sesiones/familias de refresh según política y registra evento de seguridad.
+- No se define una recuperación basada únicamente en correo entrante, SMS, soporte informal ni acceso al POS local. El canal de verificación y el procedimiento de aprobación deben demostrarse seguros antes de habilitar recuperación en producción.
+
+### D3-05 — Catálogo de eventos de seguridad
+
+Se definirá un catálogo versionado de códigos estables, al menos para: login exitoso/fallido, credencial inválida, MFA requerido/incorrecto/registrado/revocado, reautenticación fallida/satisfecha, sesión emitida/expirada/revocada, refresh rotado/reutilizado, recuperación solicitada/completada/rechazada y limitación/bloqueo por abuso.
+
+- Los hechos de identidad se escriben append-only en `identity.security_events`, con resultado, razón estable, correlación y timestamps.
+- Los cambios administrativos de negocio se registran además en `audit.audit_events` cuando corresponda; no se sustituye un ledger por el otro.
+- No se registran contraseñas, secretos MFA, tokens completos ni datos sensibles innecesarios.
+
+### D3-06 — Sesión y refresh
+
+- Se reutilizan `identity.sessions` y `identity.session_refresh_tokens`; no se crean tokens ni tablas paralelas.
+- Los refresh tokens se almacenan protegidos mediante hash, rotan con consumo atómico y detectan reutilización; la detección revoca la familia/sesión según política y emite evento.
+- Access y refresh tienen expiraciones distintas, configurables y versionadas. Los valores concretos quedan pendientes de threat modeling, compatibilidad operativa y pruebas de replay/concurrencia.
+- La sesión de PlatformAccount no tiene `tenant_id` ni `tenant_membership_id`; las operaciones D-1 se autorizan desde la autoridad central.
+
+### D3-07 — Abuso y limitación de intentos
+
+- Se implementa rate limiting y backoff configurables por cuenta y contexto de origen, con respuesta externa que no permita enumerar cuentas.
+- Las decisiones de bloqueo, escalamiento y desbloqueo deben ser versionadas, auditables y resistentes a carreras; se monitorean ráfagas distribuidas y credential stuffing.
+- Umbrales, ventanas y duración de bloqueo se fijan tras pruebas de carga y abuso en el entorno objetivo, no mediante valores arbitrarios.
+
+### Condiciones obligatorias antes de habilitar el flujo
+
+1. Confirmar bibliotecas mantenidas y compatibilidad WebAuthn/KDF en el stack real; fijar versiones y configuración.
+2. Definir el contrato versionado de `secret_reference` sin guardar secretos MFA directamente en texto claro.
+3. Materializar casos de uso y repositorios sobre las tablas de identidad existentes.
+4. Añadir pruebas negativas de login, MFA, reautenticación, recuperación, expiración, revocación, replay y concurrencia.
+5. Verificar auditoría y no enumeración de cuentas.
+6. Ejecutar los gates `SEC-G02` y `SEC-G03` con evidencia reproducible y registrar su estado real. La documentación por sí sola no cambia `PLANNED / NOT_EVALUATED`.
+
+**Estado después de la ratificación:** decisiones de dirección documentadas; implementación aún pendiente. Los parámetros criptográficos/temporales, el contrato concreto del secreto MFA y los gates ejecutables no se consideran cerrados por inferencia.
