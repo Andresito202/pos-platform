@@ -114,7 +114,7 @@ export const POSTGRES_001_DESCRIPTOR: MigrationDescriptor = {
   downArtifact: "postgres/001_central_foundation.down.sql",
   checksum: "DERIVED_FROM_UP_ARTIFACT",
   ownedSchemas: TARGET_SCHEMAS,
-  ownedTables: Object.keys(POSTGRES_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.")),
+  ownedTables: Object.keys(POSTGRES_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.") && name !== "authorization.platform_role_assignments"),
   ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
   ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
   ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
