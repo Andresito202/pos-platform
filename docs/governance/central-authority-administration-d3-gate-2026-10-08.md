@@ -512,3 +512,10 @@ El repositorio genera un identificador UUIDv7 distinto del identificador de corr
 2. Cerrar la instalación y verificación real de Argon2id/WebAuthn y el contrato de `secret_reference`.
 3. Implementar login/MFA, emisión y revocación de sesiones, y rotación/replay de refresh sobre las tablas existentes.
 4. Ejecutar pruebas y gates de seguridad en un entorno que pueda correr el workspace. El estado de CI no se considera verde sin evidencia de ejecución.
+
+
+## Corrección del contrato de escritura de eventos — 2026-10-09
+
+Se añadió `PlatformSecurityEventWriteSchema` para validar los metadatos de entrada sin fabricar un `server_recorded_at`; ese timestamp sigue siendo generado por PostgreSQL. Se añadieron pruebas para el rechazo de eventos con tenant sin sesión y de timestamps suministrados por el llamador. Cambios en commits `226a56629b6fe65bba34ed3635228015231eec61`, `43486a910cb2911f5b95482e387c7f3894b98b01`, `be2e9707588de6dea644f56e211db995e0820bf5` y `0c582c3ab491643c8542aecdad5bbb8207364557`.
+
+**Verificación pendiente:** no se ejecutaron Vitest ni TypeScript. Las pruebas de PostgreSQL real y la atomicidad transaccional siguen pendientes; esta corrección no implementa login/MFA.
