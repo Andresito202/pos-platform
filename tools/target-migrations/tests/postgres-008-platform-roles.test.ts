@@ -21,6 +21,9 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("REVOKE ALL ON");
     expect(sql).toContain("INSERT INTO audit.audit_events");
     expect(sql).toContain("pg_catalog.sha256");
+    expect(sql).toContain("app.audit_id");
+    expect(sql).toContain("app.correlation_id");
+    expect(sql).toContain("event_id, NULL, NULL, NULL");
     expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
     expect(sql).toContain("one-way revocation");
     expect(sql).toContain("requires an ACTIVE identity user");
