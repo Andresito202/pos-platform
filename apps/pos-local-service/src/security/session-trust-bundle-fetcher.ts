@@ -13,7 +13,7 @@ export class SessionTrustBundleFetcher {
     if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.hash !== "") {
       throw new Error("SESSION_TRUST_ENDPOINT_MUST_BE_HTTPS");
     }
-    if (!url.pathname.endsWith("/v1/session-trust") || url.search !== "") {
+    if (url.pathname !== "/v1/session-trust" || url.search !== "") {
       throw new Error("SESSION_TRUST_ENDPOINT_PATH_INVALID");
     }
     if (bearerToken.length < 32 || bearerToken.length > 4096 || /[\\r\\n]/.test(bearerToken)) {
