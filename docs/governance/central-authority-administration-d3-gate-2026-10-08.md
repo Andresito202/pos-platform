@@ -563,3 +563,22 @@ Las ejecuciones de Actions consultadas para el SHA anterior finalizaron como `fa
 Se reintentaron los jobs fallidos de TARGET foundation validation, D-3 Live Security E2E, Central Sync persistence/idempotency, Windows session bootstrap, CodeQL y Strix sobre el mismo SHA `d145d3e2edea721a40282282a5762706be8aebe2`. El segundo intento de TARGET muestra jobs completados como `failure` en 3–7 segundos, `runner_id: 0`, `runner_name: ""` y `steps: []`. Los logs descargables responden `BlobNotFound`; los jobs no aportan salida de comandos ni pruebas ejecutadas. Esto demuestra que esos resultados no permiten diagnosticar fallos del código: la ejecución no llegó a registrar un runner ni pasos. No se etiqueta como PASS y no se modifica código de producto para “arreglar” un fallo de infraestructura. Se requiere restaurar/validar la disponibilidad y permisos de runners de GitHub Actions y volver a ejecutar el SHA exacto.
 
 La lectura estática del DDL también confirmó que existen políticas separadas para eventos de seguridad por tenant (`security_events_tenant_isolation`, contexto `platform.current_tenant_id()`) y eventos globales de plataforma (`security_events_platform_context`, `tenant_id IS NULL`), además de permisos SELECT/INSERT para `pos_app`, `pos_worker` y `pos_platform_app`. Esto es inspección del SQL versionado, no una prueba de integración PostgreSQL/RLS en ejecución.
+
+
+## Avance posterior — vigencia temporal de sesión administrativa
+
+Se añadió `assertPlatformAdministrationSessionUsable` en `packages/contracts/src/central-administration.ts`. La validación de esquema por sí sola solo confirma la forma y la relación entre fechas; no demuestra que la sesión siga vigente frente al reloj actual.
+
+La función nueva comprueba en tiempo de ejecución:
+
+- reloj válido;
+- límite de reautenticación configurado por el llamador, positivo y entero seguro;
+- sesión no expirada;
+- reautenticación no situada en el futuro;
+- reautenticación dentro del máximo aprobado que recibe como parámetro.
+
+No se fija un timeout global sin decisión de política, no emite tokens, no autentica al usuario y no concede permisos D-1. El servicio central deberá invocarla con el límite aprobado antes de cada operación protegida y resolver la autorización por separado.
+
+Se añadieron pruebas de contrato para expiración, reautenticación antigua, fecha futura, caso válido y parámetros inválidos en `packages/contracts/tests/platform-administration-session.test.ts`.
+
+**Estado de verificación:** las pruebas se añadieron al repositorio, pero no se ejecutaron en este entorno. GitHub Actions queda deliberadamente fuera del ciclo de avance por instrucción; no se declara PASS. Sigue pendiente conectar esta guarda a un servicio de sesión/operación real y verificarla mediante pruebas ejecutadas.
