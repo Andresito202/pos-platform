@@ -113,6 +113,7 @@ BEGIN
       IF NOT EXISTS (
         SELECT 1
         FROM "authorization".platform_role_assignments a
+        JOIN identity.users actor_user ON actor_user.id = a.user_id AND actor_user.status = 'ACTIVE'
         JOIN "authorization".roles r ON r.id = a.role_id AND r.scope_type = 'PLATFORM' AND r.status = 'ACTIVE'
         JOIN "authorization".role_permission_grants g ON g.role_id = r.id AND g.status = 'ACTIVE'
           AND g.valid_from <= pg_catalog.clock_timestamp()
@@ -163,6 +164,7 @@ BEGIN
       IF NOT EXISTS (
         SELECT 1
         FROM "authorization".platform_role_assignments a
+        JOIN identity.users actor_user ON actor_user.id = a.user_id AND actor_user.status = 'ACTIVE'
         JOIN "authorization".roles r ON r.id = a.role_id AND r.scope_type = 'PLATFORM' AND r.status = 'ACTIVE'
         JOIN "authorization".role_permission_grants g ON g.role_id = r.id AND g.status = 'ACTIVE'
           AND g.valid_from <= pg_catalog.clock_timestamp()
