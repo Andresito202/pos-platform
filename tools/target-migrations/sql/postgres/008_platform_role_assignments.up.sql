@@ -139,6 +139,9 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION "authorization".audit_platform_role_assignment_change() FROM PUBLIC, pos_app, pos_worker, pos_platform_admin;
+GRANT EXECUTE ON FUNCTION "authorization".audit_platform_role_assignment_change() TO pos_platform_app;
+
 CREATE TRIGGER platform_role_assignment_audit_guard
 BEFORE INSERT OR UPDATE ON "authorization".platform_role_assignments
 FOR EACH ROW EXECUTE FUNCTION "authorization".audit_platform_role_assignment_change();
