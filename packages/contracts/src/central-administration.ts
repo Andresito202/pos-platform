@@ -112,3 +112,43 @@ export const CENTRAL_ADMINISTRATION_SESSION_POLICY = Object.freeze({
   localClientMayInvokeDirectly: false,
   authorizationSource: "CENTRAL_ADMINISTRATION_OPERATION",
 } as const);
+
+
+/**
+ * Runtime guard for a platform-administration session.
+ *
+ * Schema validation alone cannot establish freshness against the current clock.
+ * The caller must supply the approved maximum reauthentication age; this
+ * function deliberately does not invent a global timeout or authorize an
+ * operation. The caller must still resolve the requested D-1 operation.
+ */
+export function assertPlatformAdministrationSessionUsable(
+  input: unknown,
+  now: Date,
+  maxReauthenticationAgeMs: number,
+): PlatformAdministrationSession {
+  const session = PlatformAdministrationSessionSchema.parse(input);
+  const nowMs = now.getTime();
+
+  if (!Number.isFinite(nowMs)) {
+    throw new Error("PLATFORM_ADMINISTRATION_INVALID_CLOCK");
+  }
+  if (!Number.isSafeInteger(maxReauthenticationAgeMs) || maxReauthenticationAgeMs <= 0) {
+    throw new Error("PLATFORM_ADMINISTRATION_INVALID_REAUTHENTICATION_POLICY");
+  }
+
+  const expiresAt = Date.parse(session.expires_at);
+  const reauthenticatedAt = Date.parse(session.last_reauthenticated_at);
+
+  if (expiresAt <= nowMs) {
+    throw new Error("PLATFORM_ADMINISTRATION_SESSION_EXPIRED");
+  }
+  if (reauthenticatedAt > nowMs) {
+    throw new Error("PLATFORM_ADMINISTRATION_REAUTHENTICATION_IN_FUTURE");
+  }
+  if (nowMs - reauthenticatedAt > maxReauthenticationAgeMs) {
+    throw new Error("PLATFORM_ADMINISTRATION_REAUTHENTICATION_STALE");
+  }
+
+  return session;
+}
