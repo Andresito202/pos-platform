@@ -386,3 +386,30 @@ Se definirá un catálogo versionado de códigos estables, al menos para: login 
 6. Ejecutar los gates `SEC-G02` y `SEC-G03` con evidencia reproducible y registrar su estado real. La documentación por sí sola no cambia `PLANNED / NOT_EVALUATED`.
 
 **Estado después de la ratificación:** decisiones de dirección documentadas; implementación aún pendiente. Los parámetros criptográficos/temporales, el contrato concreto del secreto MFA y los gates ejecutables no se consideran cerrados por inferencia.
+
+
+## Auditoría de dependencias para D-3 — 2026-10-08
+
+### Evidencia inspeccionada
+
+- `apps/central-authority/package.json`: dependencias actuales de contratos, confianza de dispositivos y acceso PostgreSQL; no declara `argon2`, `@simplewebauthn/server` ni una biblioteca WebAuthn.
+- `pnpm-lock.yaml`: no contiene paquetes `argon2`, `@simplewebauthn/server`, `@simplewebauthn/browser` ni `@node-rs/argon2`.
+- `apps/central-authority/src/main.ts`: el runtime expone health, publicación de confianza de sesión y enrolamiento de dispositivos; tiene un rate limiter en memoria para esos flujos. No implementa login de PlatformAccount, MFA WebAuthn, sesiones administrativas ni refresh.
+- `apps/central-authority/tests/`: las pruebas presentes cubren enrolamiento, publicación de confianza y eventos Wompi; no se encontró una suite de autenticación de PlatformAccount.
+- El workspace usa Node/TypeScript, pnpm 9.15.0 y Vitest. La inspección fue estática por GitHub; no fue posible instalar dependencias ni medir KDF desde este entorno.
+
+### Decisión de compatibilidad
+
+**Resultado: dependencias de autenticación no materializadas; implementación bloqueada hasta validar entorno y lockfile.**
+
+No se añadió una dependencia directa ni se modificó manualmente el lockfile: sin ejecutar resolución e instalación en el workspace no hay evidencia de compatibilidad, integridad del lockfile, binarios nativos o soporte de runtime. Tampoco se ha comparado el rendimiento de Argon2id en los sistemas objetivo ni validado WebAuthn con autenticadores reales.
+
+### Siguiente acción ejecutable en el repositorio
+
+1. En el workspace de la rama, verificar versiones de Node y pnpm, plataformas objetivo y políticas de dependencias.
+2. Evaluar la biblioteca Argon2id mantenida para ese entorno, resolverla con pnpm y ejecutar pruebas de formato versionado, salt, verificación y benchmark sin credenciales reales.
+3. Evaluar una biblioteca WebAuthn mantenida en servidor; comprobar challenge/origin/RP ID, verificación de firma, contador/backup flags según soporte, expiración y replay con autenticadores de prueba.
+4. Revisar las licencias, avisos de seguridad, dependencias transitivas y generación del lockfile; ejecutar typecheck, pruebas de contratos y análisis de dependencias.
+5. Solo después de esos resultados, fijar versiones y parámetros y comenzar repositorios/casos de uso sobre `identity.user_credentials`, `identity.mfa_factors`, `identity.sessions`, `identity.session_refresh_tokens` e `identity.security_events`.
+
+**Estado:** auditoría de compatibilidad completada por inspección estática; runtime de autenticación y benchmark no ejecutados. No se declara compatibilidad ni gate de seguridad aprobado.
