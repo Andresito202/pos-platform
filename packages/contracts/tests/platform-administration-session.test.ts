@@ -64,10 +64,15 @@ describe("PlatformAccount administration boundary", () => {
     })).toThrow();
   });
 
-  it("rejects an already expired administrative session", () => {
+  it("requires expiry to be strictly later than the reauthentication timestamp", () => {
     expect(() => PlatformAdministrationSessionSchema.parse({
       ...VALID_SESSION,
       expires_at: "2026-10-08T11:59:59Z",
+    })).toThrow();
+
+    expect(() => PlatformAdministrationSessionSchema.parse({
+      ...VALID_SESSION,
+      expires_at: VALID_SESSION.last_reauthenticated_at,
     })).toThrow();
   });
 
