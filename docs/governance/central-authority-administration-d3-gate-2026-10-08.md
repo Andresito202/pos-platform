@@ -742,3 +742,9 @@ La inspección del DDL base confirma que el rol de servicio ya tiene `USAGE` sob
 **Verificación pendiente:** no se ejecutaron TypeScript, Vitest ni PostgreSQL. El test 008 sigue siendo estático y los privilegios efectivos sólo se comprobarán cuando el runner se ejecute en una base PostgreSQL compatible. El riesgo de suplantación de `app.actor_id` mediante GUC y el bootstrap inicial siguen abiertos; D-3 continúa `INCOMPLETO / NO PASS`.
 
 La actualización del contrato también excluye explícitamente `authorization.platform_role_assignments` de `POSTGRES_001_DESCRIPTOR.ownedTables`: la relación pertenece a la migración 008 y no debe atribuirse al artefacto fundacional 001. Se añadió una aserción estática para proteger ese límite de propiedad entre migraciones. Esta comprobación tampoco se ha ejecutado en Vitest.
+
+### Control adicional de identidad del actor — migración 008
+
+Las dos comprobaciones del permiso `PLATFORM_ROLE_ASSIGNMENT_MANAGE` ahora exigen también que la identidad del actor que tiene la asignación de rol esté en estado `ACTIVE`. Esto evita aceptar una asignación administrativa todavía marcada como activa cuando la identidad correspondiente ya fue desactivada. Se añadió una aserción estática que exige ambas comprobaciones (concesión y revocación).
+
+Este control complementa, pero no sustituye, la revocación de sesiones ni la validación del actor por el servicio central. No se ha ejecutado contra PostgreSQL ni se ha corrido Vitest; permanece `D-3 INCOMPLETO / NO PASS`.
