@@ -23,7 +23,24 @@ export class SessionTrustKeyResolver {
   ) {}
 
   resolve(): SessionTrustKeyResolution {
+    return this.resolveInternal(undefined, false);
+  }
+
+  /** Installs a freshly fetched artifact only after the store verifies its root signature. */
+  resolveWithArtifact(artifact: unknown): SessionTrustKeyResolution {
+    return this.resolveInternal(artifact, true);
+  }
+
+  private resolveInternal(remoteArtifact: unknown, hasRemoteArtifact: boolean): SessionTrustKeyResolution {
     try {
+      if (hasRemoteArtifact) {
+        try {
+          this.store.install(remoteArtifact, this.verifier);
+        } catch (error) {
+          // A failed remote update must not discard a previously protected trust bundle.
+          if (!this.store.has()) throw error;
+        }
+      }
       if (this.installerArtifactPath !== undefined) {
         try {
           const artifact = JSON.parse(readFileSync(this.installerArtifactPath, "utf8"));
