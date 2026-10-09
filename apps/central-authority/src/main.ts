@@ -95,8 +95,19 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 
   if (request.method === "GET" && request.url === "/v1/session-trust") {
+    // Rate-limit before bearer validation so failed token guesses consume the same remote-address budget.
     if (!limiter.allow(`${remote}:session-trust`)) {
       send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
+      return;
+    }
+    const authorization = request.headers.authorization ?? null;
+    const authorized = sessionTrustPublication !== null
+      && sessionTrustTransportToken !== null
+      && authorization !== null
+      && authorization.startsWith("Bearer ")
+      && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
+    if (!authorized) {
+      send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
       return;
     }
     try {
@@ -144,9 +155,4 @@ const shutdown = async (signal: string) => {
   process.exit(0);
 };
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
-process.once("SIGINT", () => void shutdown("SIGINT"))    if (!limiter.allow(`${remote}:session-trust`)) {
-      send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
-      return;
-    }
-    // Rate-limit before bearer validation so failed token guesses consume the same remote-address budget.
-;
+process.once("SIGINT", () => void shutdown("SIGINT"));
