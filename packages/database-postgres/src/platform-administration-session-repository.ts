@@ -71,7 +71,7 @@ export class PostgresPlatformAdministrationSessionRepository {
       expires_at: Date;
       permission_code: string;
     }>(
-      \`SELECT s.id::text AS session_id, s.user_id::text AS user_id, s.mfa_status,
+      `SELECT s.id::text AS session_id, s.user_id::text AS user_id, s.mfa_status,
               s.last_reauthenticated_at, s.expires_at, p.code AS permission_code
          FROM identity.sessions AS s
          JOIN identity.users AS u ON u.id = s.user_id AND u.status = 'ACTIVE'
@@ -93,7 +93,7 @@ export class PostgresPlatformAdministrationSessionRepository {
           AND EXISTS (SELECT 1 FROM identity.mfa_factors AS mf
             WHERE mf.user_id = s.user_id AND mf.status = 'ACTIVE'
               AND mf.verified_at IS NOT NULL AND mf.revoked_at IS NULL)
-        LIMIT 1\`,
+        LIMIT 1`,
       [validSessionId, validPermissionCode],
     );
 
