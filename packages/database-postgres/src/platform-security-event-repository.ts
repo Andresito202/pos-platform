@@ -5,10 +5,10 @@ import {
   UuidV7Schema,
   uuidV7FromModule,
   type PlatformSecurityEvent,
-  type PlatformSecurityEventWrite,
+  type PlatformSecurityEventWrite as PlatformSecurityEventWriteInput,
 } from "@pos-platform/contracts";
 
-export type { PlatformSecurityEventWrite } from "@pos-platform/contracts";
+export type PlatformSecurityEventWrite = PlatformSecurityEventWriteInput;
 
 /**
  * Persists identity security events into the existing identity.security_events
@@ -21,7 +21,7 @@ export type { PlatformSecurityEventWrite } from "@pos-platform/contracts";
 export class PostgresPlatformSecurityEventRepository {
   constructor(private readonly pool: Pool) {}
 
-  async append(eventInput: PlatformSecurityEventWrite, transaction?: PoolClient): Promise<PlatformSecurityEvent> {
+  async append(eventInput: PlatformSecurityEventWriteInput, transaction?: PoolClient): Promise<PlatformSecurityEvent> {
     const eventId = uuidV7FromModule();
     UuidV7Schema.parse(eventInput.correlation_id);
     // Validate the write contract without inventing a server timestamp.
