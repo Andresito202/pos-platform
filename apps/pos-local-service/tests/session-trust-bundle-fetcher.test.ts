@@ -45,6 +45,13 @@ describe("SessionTrustBundleFetcher", () => {
     expect(init?.cache).toBe("no-store");
   });
 
+  it("rejects a path other than the exact central trust endpoint", async () => {
+    const request = vi.fn<typeof fetch>();
+    await expect(new SessionTrustBundleFetcher(request).fetch("https://authority.example/other/v1/session-trust", token))
+      .rejects.toThrow("SESSION_TRUST_ENDPOINT_PATH_INVALID");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("rejects non-HTTPS endpoints before making a request", async () => {
     const request = vi.fn<typeof fetch>();
     await expect(new SessionTrustBundleFetcher(request).fetch("http://authority.example/v1/session-trust", token))
