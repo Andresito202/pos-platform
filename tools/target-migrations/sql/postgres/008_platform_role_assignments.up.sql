@@ -43,7 +43,6 @@ CREATE TABLE "authorization".platform_role_assignments (
   ),
   CONSTRAINT platform_role_assignments_range_ck
     CHECK (valid_until IS NULL OR valid_until > valid_from),
-  CONSTRAINT platform_role_assignments_created_ck CHECK (created_at >= valid_from OR valid_from <= created_at),
   CONSTRAINT platform_role_assignments_user_role_start_uq UNIQUE (user_id, role_id, valid_from)
 );
 
