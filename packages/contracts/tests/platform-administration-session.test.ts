@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertPlatformAdministrationSessionUsable,
   CENTRAL_ADMINISTRATION_SESSION_POLICY,
   PLATFORM_ACCOUNT_IDENTITY_MODEL,
   PlatformAdministrationSessionSchema,
@@ -91,6 +92,52 @@ describe("PlatformAccount administration boundary", () => {
       ...VALID_SESSION,
       entitlements: [],
     })).toThrow();
+  });
+
+  it("rejects an expired platform session at runtime", () => {
+    expect(() => assertPlatformAdministrationSessionUsable(
+      VALID_SESSION,
+      new Date("2026-10-08T13:00:00.000Z"),
+      15 * 60 * 1000,
+    )).toThrow("PLATFORM_ADMINISTRATION_SESSION_EXPIRED");
+  });
+
+  it("rejects reauthentication older than the caller-approved maximum", () => {
+    expect(() => assertPlatformAdministrationSessionUsable(
+      VALID_SESSION,
+      new Date("2026-10-08T12:16:00.000Z"),
+      15 * 60 * 1000,
+    )).toThrow("PLATFORM_ADMINISTRATION_REAUTHENTICATION_STALE");
+  });
+
+  it("rejects a reauthentication timestamp in the future", () => {
+    expect(() => assertPlatformAdministrationSessionUsable(
+      VALID_SESSION,
+      new Date("2026-10-08T11:59:59.000Z"),
+      15 * 60 * 1000,
+    )).toThrow("PLATFORM_ADMINISTRATION_REAUTHENTICATION_IN_FUTURE");
+  });
+
+  it("accepts a live session when reauthentication is within the supplied limit", () => {
+    expect(assertPlatformAdministrationSessionUsable(
+      VALID_SESSION,
+      new Date("2026-10-08T12:15:00.000Z"),
+      15 * 60 * 1000,
+    )).toEqual(VALID_SESSION);
+  });
+
+  it("rejects invalid clocks and invalid reauthentication limits", () => {
+    expect(() => assertPlatformAdministrationSessionUsable(
+      VALID_SESSION,
+      new Date(Number.NaN),
+      15 * 60 * 1000,
+    )).toThrow("PLATFORM_ADMINISTRATION_INVALID_CLOCK");
+
+    expect(() => assertPlatformAdministrationSessionUsable(
+      VALID_SESSION,
+      new Date("2026-10-08T12:00:00.000Z"),
+      0,
+    )).toThrow("PLATFORM_ADMINISTRATION_INVALID_REAUTHENTICATION_POLICY");
   });
 
   it("makes the privileged session policy explicit and fail-closed", () => {
