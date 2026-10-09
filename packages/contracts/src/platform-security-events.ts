@@ -84,4 +84,24 @@ export const PlatformSecurityEventSchema = z.strictObject({
 
 export type PlatformSecurityEventCode =
   (typeof PlatformSecurityEventCode)[keyof typeof PlatformSecurityEventCode];
+export const PlatformSecurityEventWriteSchema = z.strictObject({
+  user_id: UuidSchema.nullable(),
+  session_id: UuidSchema.nullable(),
+  tenant_id: UuidSchema.nullable(),
+  event_code: PlatformSecurityEventCodeSchema,
+  result: PlatformSecurityEventResultSchema,
+  reason_code: StableCodeSchema.nullable(),
+  correlation_id: UuidSchema,
+  occurred_at: UtcDateTimeSchema,
+}).superRefine((event, context) => {
+  if (event.tenant_id !== null && event.session_id === null) {
+    context.addIssue({
+      code: "custom",
+      path: ["session_id"],
+      message: "tenant-scoped security events require a session_id",
+    });
+  }
+});
+
+export type PlatformSecurityEventWrite = z.infer<typeof PlatformSecurityEventWriteSchema>;
 export type PlatformSecurityEvent = z.infer<typeof PlatformSecurityEventSchema>;
