@@ -1,14 +1,7 @@
 import type { Pool } from "pg";
 import { UuidSchema } from "@pos-platform/contracts";
 
-/**
- * A live, global MFA session candidate read from the existing identity store.
- *
- * This is deliberately NOT a PlatformAdministrationSession and does not prove
- * that the user is entitled to act as PLATFORM_ACCOUNT. The current schema has
- * no platform-account assignment/eligibility relation; callers must not promote
- * this candidate to platform authority until that authorization source exists.
- */
+/** A live, global MFA session candidate. This alone does not prove platform authority. */
 export type GlobalMfaSessionCandidate = {
   session_id: string;
   user_id: string;
@@ -17,13 +10,42 @@ export type GlobalMfaSessionCandidate = {
   expires_at: string;
 };
 
+/** A live global MFA session whose user also has an effective PLATFORM role assignment. */
+export type ActivePlatformAdministrationSessionCandidate = GlobalMfaSessionCandidate;
+
 export class PostgresPlatformAdministrationSessionRepository {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * Identity/session check only. Deliberately does not assert platform authority.
+   * Retained for callers that need to distinguish authentication from authorization.
+   */
   async findActiveGlobalMfaSession(
     sessionId: string,
     maxReauthenticationAgeMs: number,
     now = new Date(),
+  ): Promise<GlobalMfaSessionCandidate | null> {
+    return this.findActiveSession(sessionId, maxReauthenticationAgeMs, now, false);
+  }
+
+  /**
+   * Resolves the session-to-platform-authority boundary using the existing
+   * platform_role_assignments and roles tables. This still does not authorize
+   * any particular D-1 operation; that requires resolving its permission.
+   */
+  async findActivePlatformAdministrationSession(
+    sessionId: string,
+    maxReauthenticationAgeMs: number,
+    now = new Date(),
+  ): Promise<ActivePlatformAdministrationSessionCandidate | null> {
+    return this.findActiveSession(sessionId, maxReauthenticationAgeMs, now, true);
+  }
+
+  private async findActiveSession(
+    sessionId: string,
+    maxReauthenticationAgeMs: number,
+    now: Date,
+    requirePlatformRole: boolean,
   ): Promise<GlobalMfaSessionCandidate | null> {
     const validSessionId = UuidSchema.parse(sessionId);
     const nowMs = now.getTime();
@@ -31,6 +53,22 @@ export class PostgresPlatformAdministrationSessionRepository {
     if (!Number.isSafeInteger(maxReauthenticationAgeMs) || maxReauthenticationAgeMs <= 0) {
       throw new Error("PLATFORM_ADMINISTRATION_INVALID_REAUTHENTICATION_POLICY");
     }
+
+    const platformRolePredicate = requirePlatformRole
+      ? `AND EXISTS (
+            SELECT 1
+              FROM "authorization".platform_role_assignments AS pra
+              JOIN "authorization".roles AS pr
+                ON pr.id = pra.role_id
+               AND pr.scope_type = 'PLATFORM'
+               AND pr.status = 'ACTIVE'
+             WHERE pra.user_id = s.user_id
+               AND pra.role_scope_type = 'PLATFORM'
+               AND pra.status = 'ACTIVE'
+               AND pra.valid_from <= clock_timestamp()
+               AND (pra.valid_until IS NULL OR pra.valid_until > clock_timestamp())
+          )`
+      : "";
 
     const result = await this.pool.query<{
       session_id: string;
@@ -62,6 +100,7 @@ export class PostgresPlatformAdministrationSessionRepository {
                AND mf.verified_at IS NOT NULL
                AND mf.revoked_at IS NULL
           )
+          ${platformRolePredicate}
         LIMIT 1`,
       [validSessionId],
     );
