@@ -42,7 +42,22 @@ describe("PostgresPlatformSecurityEventRepository", () => {
     expect(sql).toContain("INSERT INTO identity.security_events");
     expect(sql).toContain("clock_timestamp()");
     expect(sql).not.toContain("UPDATE identity.security_events");
+    expect(sql).toContain("id, user_id, session_id, tenant_id, device_id, event_code, result");
+    expect(sql).toContain("reason_code, correlation_id, occurred_at, server_recorded_at");
+    expect(sql).not.toMatch(/\b(password|refresh_token|mfa_secret)\b/i);
     expect(values).toHaveLength(9);
+    expect(values[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(values[0]).not.toBe(INPUT.correlation_id);
+    expect(values.slice(1)).toEqual([
+      INPUT.user_id,
+      INPUT.session_id,
+      INPUT.tenant_id,
+      INPUT.event_code,
+      INPUT.result,
+      INPUT.reason_code,
+      INPUT.correlation_id,
+      INPUT.occurred_at,
+    ]);
     expect(values).not.toContain("must-not-be-logged");
     expect(event.server_recorded_at).toBe("2026-10-08T12:00:01.000Z");
   });
