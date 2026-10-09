@@ -729,3 +729,14 @@ La revisión de la migración 008 detecta una limitación importante: `app.actor
 Por tanto, no debe describirse `app.actor_id` como una identidad autenticada por el solo hecho de estar presente. Antes de habilitar operaciones administrativas, debe verificarse que únicamente el servicio central de confianza pueda usar las credenciales de `pos_platform_app`, que ningún cliente/desktop tenga acceso directo a esa conexión y que el servicio derive el actor de una sesión central validada. También se necesita una prueba de integración que intente falsificar el GUC y confirme que no se puede escalar privilegios; si la arquitectura actual no ofrece esa garantía, hay que cambiar el mecanismo de contexto, no dar por cerrado el control.
 
 La migración 008 y sus pruebas siguen siendo trabajo en progreso. No se ejecutaron contra PostgreSQL, y el bootstrap de la primera autoridad continúa sin habilitarse.
+
+### Verificación estática adicional de migración 008 — 2026-10-09
+
+La pasada posterior añadió dos controles de consistencia en la misma rama:
+
+- El contrato de esquema incorpora `authorization.platform_role_assignments`, su lista exacta de columnas, la tabla en el inventario RLS y la policy `platform_role_assignments_platform_only`. Esto evita que la relación exista en el artefacto de migración pero quede fuera del contrato de catálogo esperado.
+- El runner de la migración 008 inspecciona los privilegios efectivos de ejecución de la función de auditoría: exige `EXECUTE` para `pos_platform_app` y rechaza concesiones a `pos_platform_admin`, `pos_app`, `pos_worker` o `PUBLIC`. También mantiene las comprobaciones de grants de tabla, RLS forzada, policy, FK de ámbito y trigger.
+
+La inspección del DDL base confirma que el rol de servicio ya tiene `USAGE` sobre el esquema `authorization`, el rol administrativo también tiene ese uso, y `pos_platform_app` dispone de inserción en `audit.audit_events` con policy de contexto de plataforma. Esto valida la coherencia nominal de privilegios entre los artefactos; no equivale a ejecutar el DDL ni demuestra la conducta real de RLS.
+
+**Verificación pendiente:** no se ejecutaron TypeScript, Vitest ni PostgreSQL. El test 008 sigue siendo estático y los privilegios efectivos sólo se comprobarán cuando el runner se ejecute en una base PostgreSQL compatible. El riesgo de suplantación de `app.actor_id` mediante GUC y el bootstrap inicial siguen abiertos; D-3 continúa `INCOMPLETO / NO PASS`.
