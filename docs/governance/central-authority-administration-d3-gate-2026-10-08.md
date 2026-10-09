@@ -540,3 +540,12 @@ Se contrastó el SQL del repositorio contra `tools/target-migrations/sql/postgre
 - Se reforzó la prueba unitaria para comprobar la forma de columnas, el orden de parámetros, el ID UUIDv7 independiente de la correlación y la ausencia de nombres de campos secretos en el SQL.
 
 **Límite de verificación:** es una comprobación estática del DDL y del código, no una prueba de permisos efectivos de PostgreSQL. No se ejecutaron las pruebas ni typecheck. Falta ejecutar la prueba contra la base de datos real con roles RLS de runtime, comprobar inserción global permitida y tenant cruzado denegado, y verificar rollback de la transición junto al evento. El bloque D-3 sigue parcial y no autoriza a marcar D-1 como implementado.
+
+
+## Comprobación de Actions y fallo transaccional — 2026-10-09
+
+Se añadió una prueba unitaria que exige propagar el error del cliente transaccional y prohíbe reintentar silenciosamente el INSERT usando el pool fuera de la transacción. Esto protege contra la pérdida de atomicidad si falla la escritura del evento. La prueba está escrita pero **no ejecutada**.
+
+Consulta de GitHub Actions para HEAD `c981ca1733f88e0cf36f0bed0c76557aa648e194`: seis ejecuciones asociadas finalizaron con `failure` (Central Sync Persistence Gate, D-3 Live Security E2E, TARGET foundation validation, G1.2 Live Session Bootstrap, CodeQL SAST y Strix penetration test). Los endpoints disponibles no devolvieron logs de trabajo utilizables; por ello no se atribuye una causa raíz sin evidencia. La consulta de status combinado no mostró estados individuales. Los siguientes pasos son recuperar los logs/anotaciones desde GitHub, corregir cada causa demostrada y esperar nuevas ejecuciones sobre el SHA actualizado. No se debe interpretar el fallo de Actions como prueba de que el nuevo test es la causa.
+
+La lectura estática del DDL confirma que `identity.security_events` exige ID UUIDv7, correlation ID UUIDv7, `server_recorded_at >= occurred_at`, `device_id IS NULL` y sesión no nula para eventos con tenant; además, tiene triggers append-only y RLS forzado. La comprobación estática no sustituye una ejecución PostgreSQL con roles de runtime.
