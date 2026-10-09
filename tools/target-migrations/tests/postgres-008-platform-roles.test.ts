@@ -37,6 +37,7 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("requires an ACTIVE identity user");
     expect(sql).toContain("requires an ACTIVE PLATFORM role");
     expect(sql).toContain("PLATFORM_ROLE_ASSIGNMENT_MANAGE");
+    expect(sql.match(/JOIN identity\.users actor_user ON actor_user\.id = a\.user_id AND actor_user\.status = 'ACTIVE'/g)).toHaveLength(2);
     expect(sql).toContain("app.actor_id");
     expect(sql).toContain("distinct authenticated platform actor");
     expect(sql).not.toMatch(/INSERT\s+INTO\s+"authorization"\.platform_role_assignments/i);
