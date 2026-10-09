@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readArtifact, sha256 } from "../src/shared.js";
-import { PLATFORM_ROLE_008_TABLES, POSTGRES_008_DESCRIPTOR } from "../src/postgres-008-platform-roles-contract.js";
+import { PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES, POSTGRES_008_DESCRIPTOR } from "../src/postgres-008-platform-roles-contract.js";
 
 describe("PostgreSQL 008 global platform role assignments", () => {
   it("follows password recovery and owns only the global assignment relation", () => {
@@ -8,6 +8,8 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(POSTGRES_008_DESCRIPTOR.dependencies).toEqual(["007_password_recovery"]);
     expect(POSTGRES_008_DESCRIPTOR.ownedSchemas).toEqual(["authorization"]);
     expect(POSTGRES_008_DESCRIPTOR.ownedTables).toEqual(PLATFORM_ROLE_008_TABLES);
+    expect(PLATFORM_ROLE_008_COLUMNS).toContain("revocation_reason");
+    expect(PLATFORM_ROLE_008_COLUMNS).toContain("role_scope_type");
   });
 
   it("restricts assignment to PLATFORM roles and platform service access", async () => {
@@ -32,6 +34,13 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("RAISE EXCEPTION");
     expect(sql).toContain("DROP FUNCTION \"authorization\".audit_platform_role_assignment_change()");
     expect(sql).toContain("DROP TABLE \"authorization\".platform_role_assignments");
+  });
+
+  it("refuses rollback while global assignments remain", async () => {
+    const sql = await readArtifact(POSTGRES_008_DESCRIPTOR.downArtifact);
+    expect(sql).toContain("IF EXISTS (SELECT 1 FROM \"authorization\".platform_role_assignments)");
+    expect(sql).toContain("RAISE EXCEPTION");
+    expect(sql).toContain("DROP FUNCTION \"authorization\".audit_platform_role_assignment_change()");
   });
 
   it("requires explicit revocation evidence and leaves bootstrap authority unassigned", async () => {
