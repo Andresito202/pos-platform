@@ -17,6 +17,10 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("FORCE ROW LEVEL SECURITY");
     expect(sql).toContain("TO pos_platform_app");
     expect(sql).toContain("REVOKE ALL ON");
+    expect(sql).toContain("INSERT INTO audit.audit_events");
+    expect(sql).toContain("pg_catalog.sha256");
+    expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
+    expect(sql).toContain("one-way revocation");
     expect(sql).not.toMatch(/INSERT\s+INTO\s+"authorization"\.platform_role_assignments/i);
     expect(sql).not.toMatch(/INSERT\s+INTO\s+identity\.users/i);
     expect(sha256(sql)).toHaveLength(32);
@@ -26,6 +30,7 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     const sql = await readArtifact(POSTGRES_008_DESCRIPTOR.downArtifact);
     expect(sql).toContain("IF EXISTS (SELECT 1 FROM \"authorization\".platform_role_assignments)");
     expect(sql).toContain("RAISE EXCEPTION");
+    expect(sql).toContain("DROP FUNCTION \"authorization\".audit_platform_role_assignment_change()");
     expect(sql).toContain("DROP TABLE \"authorization\".platform_role_assignments");
   });
 
