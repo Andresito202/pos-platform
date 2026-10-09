@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -132,6 +132,36 @@ describe("SessionTrustKeyResolver", () => {
       expect(result.decision).toBe("INVALID");
       expect(result.keys.size).toBe(0);
       expect(store.has()).toBe(false);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to a valid installer artifact when the first central bundle is not trusted", () => {
+    const root = generateKeyPairSync("ed25519");
+    const otherRoot = generateKeyPairSync("ed25519");
+    const temp = mkdtempSync(join(process.cwd(), ".session-trust-resolver-test-"));
+    try {
+      const store = new SessionTrustKeyStore(new EncryptedFileSecretStore(
+        temp, new InsecureDerivedKeyProvider(temp), "session-trust-resolver-test",
+      ));
+      const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
+      const installerBundle = SessionAssertionTrustBundleSchema.parse({
+        version: 1,
+        keys: [signedKey(root, "ssa-installer", "ACTIVE")],
+      });
+      const untrustedRemoteBundle = SessionAssertionTrustBundleSchema.parse({
+        version: 2,
+        keys: [signedKey(otherRoot, "ssa-untrusted-remote", "ACTIVE")],
+      });
+      const installerPath = join(temp, "session-trust-installer.json");
+      writeFileSync(installerPath, JSON.stringify(installerBundle), { flag: "wx", mode: 0o600 });
+
+      const result = new SessionTrustKeyResolver(store, verifier, installerPath)
+        .resolveWithArtifact(untrustedRemoteBundle);
+      expect(result.decision).toBe("VALID");
+      expect([...result.keys.keys()]).toEqual(["ssa-installer"]);
+      expect(store.load().version).toBe(1);
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
