@@ -486,3 +486,29 @@ Los tres archivos se volvieron a leer desde la rama remota y se confirmó la exp
 3. Implementar el caso de uso de login y MFA solo después de resolver la verificación criptográfica y el contrato operacional de `secret_reference`.
 4. Implementar sesión/refresh con transacciones y pruebas de replay/concurrencia sobre `identity.sessions` y `identity.session_refresh_tokens`.
 5. Ejecutar pruebas de contrato, typecheck, integración y gates SEC-G02/SEC-G03 en un entorno ejecutable. Actions rojo o sin diagnóstico sigue siendo un estado no verde; no detiene el trabajo de código, pero tampoco sustituye estas pruebas.
+
+
+## Materialización D-3 — persistencia append-only de eventos — 2026-10-09
+
+### Cambios guardados
+
+- `packages/database-postgres/src/platform-security-event-repository.ts`: repositorio que inserta en la tabla existente `identity.security_events`.
+- `packages/database-postgres/src/index.ts`: exportación del repositorio.
+- `packages/database-postgres/tests/platform-security-event-repository.test.ts`: pruebas unitarias con pool/cliente de PostgreSQL simulado.
+
+El repositorio genera un identificador UUIDv7 distinto del identificador de correlación, valida los metadatos con el contrato de eventos, inserta exclusivamente el evento y obtiene `server_recorded_at` de PostgreSQL mediante `clock_timestamp()`. No ofrece operaciones de actualización ni borrado. Acepta un `PoolClient` para que el caso de uso pueda escribir el evento dentro de la misma transacción que el cambio de seguridad.
+
+### Límites y riesgos aún abiertos
+
+- Las pruebas usan dobles de `pg`; no prueban conexión real, permisos SQL, restricciones reales, rollback ni atomicidad en PostgreSQL.
+- La atomicidad solo se consigue si el caso de uso inicia y confirma/revierte la transacción correcta y pasa ese mismo cliente al repositorio. Aún no existe el caso de uso de autenticación que lo haga.
+- La tabla actual contiene `device_id` con una restricción diferida que exige `NULL`; el repositorio respeta esa restricción y no atribuye un dispositivo a estos eventos.
+- El contrato de entrada usa `occurred_at` aportado por el evento y el servidor registra su propio timestamp. Un evento cuya hora de ocurrencia sea futura puede ser rechazado por la restricción temporal de base de datos; no se ajusta silenciosamente.
+- No se ejecutaron Vitest, typecheck ni pruebas contra PostgreSQL en esta sesión. Las pruebas nuevas permanecen **pendientes de ejecución**.
+
+### Siguiente bloque
+
+1. Integrar este repositorio en una capa de aplicación con transacción explícita y pruebas de rollback/atomicidad contra PostgreSQL.
+2. Cerrar la instalación y verificación real de Argon2id/WebAuthn y el contrato de `secret_reference`.
+3. Implementar login/MFA, emisión y revocación de sesiones, y rotación/replay de refresh sobre las tablas existentes.
+4. Ejecutar pruebas y gates de seguridad en un entorno que pueda correr el workspace. El estado de CI no se considera verde sin evidencia de ejecución.
