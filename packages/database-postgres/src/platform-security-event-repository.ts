@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import {
   PlatformSecurityEventSchema,
   UuidV7Schema,
+  uuidV7FromModule,
   type PlatformSecurityEvent,
 } from "@pos-platform/contracts";
 
@@ -19,7 +20,8 @@ export class PostgresPlatformSecurityEventRepository {
   constructor(private readonly pool: Pool) {}
 
   async append(eventInput: PlatformSecurityEventWrite, transaction?: PoolClient): Promise<PlatformSecurityEvent> {
-    const eventId = UuidV7Schema.parse(eventInput.correlation_id);
+    const eventId = uuidV7FromModule();
+    UuidV7Schema.parse(eventInput.correlation_id);
     const event = {
       ...eventInput,
       server_recorded_at: eventInput.occurred_at,
