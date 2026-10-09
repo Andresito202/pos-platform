@@ -82,4 +82,29 @@ describe("PostgresPlatformSecurityEventRepository", () => {
 
     expect(query).not.toHaveBeenCalled();
   });
+  it("rejects tenant-scoped events without a session before reaching PostgreSQL", async () => {
+    const query = vi.fn();
+    const repository = new PostgresPlatformSecurityEventRepository({ query } as unknown as Pool);
+
+    await expect(repository.append({
+      ...INPUT,
+      tenant_id: "018f0000-0000-7000-8000-0000000000d3",
+      session_id: null,
+    })).rejects.toThrow();
+
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("rejects caller-supplied server timestamps before reaching PostgreSQL", async () => {
+    const query = vi.fn();
+    const repository = new PostgresPlatformSecurityEventRepository({ query } as unknown as Pool);
+
+    await expect(repository.append({
+      ...INPUT,
+      server_recorded_at: INPUT.occurred_at,
+    } as PlatformSecurityEventWrite)).rejects.toThrow();
+
+    expect(query).not.toHaveBeenCalled();
+  });
+
 });
