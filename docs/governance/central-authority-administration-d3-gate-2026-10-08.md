@@ -706,3 +706,10 @@ No se cambió el estado de autenticación D-3: siguen faltando password/KDF cent
 ### Nota de ejecución y alcance de Git
 
 El estado de trabajo previsto sigue siendo la rama `claude/pos-camacho-bloque-4c-ld43py` y el PR #92, sin merge. Durante esta pasada se detectó una escritura accidental del runner en la rama por defecto; se eliminó inmediatamente en un commit de reversión. El archivo de runner de la rama por defecto vuelve a no existir; la implementación intencionada permanece en la rama de trabajo. La historia de la rama por defecto conserva ambos commits de compensación, por lo que esta incidencia no debe ocultarse en el registro de cambios.
+
+
+### Control de privilegio del actor que modifica asignaciones — 2026-10-09
+
+La migración 008 ahora comprueba dentro del trigger que, cuando el cambio proviene de `pos_platform_app`, el actor coincida con `app.actor_id`, sea distinto del usuario al que se concede el rol y tenga una asignación PLATFORM vigente que le otorgue el permiso activo `PLATFORM_ROLE_ASSIGNMENT_MANAGE`. La revocación aplica el mismo permiso. La comprobación ocurre en PostgreSQL y comparte la transacción con el evento de auditoría; no depende únicamente de que la UI o un handler valide el permiso.
+
+No se crea ese permiso ni se concede a ningún rol en esta migración. Hasta que exista una decisión y un procedimiento de bootstrap auditado que otorgue la primera autoridad legítima, la tabla permanece fail-closed para mutaciones de `pos_platform_app`; no se debe inventar una cuenta inicial ni permitir que el primer usuario se promueva a sí mismo.
