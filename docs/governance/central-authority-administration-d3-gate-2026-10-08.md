@@ -689,3 +689,20 @@ Límites que permanecen abiertos:
 - Deben probarse también reversión segura, unicidad/concurrencia, rechazo de rol BUSINESS, aislamiento entre roles y consistencia de contrato/introspección para la migración 008.
 
 **Estado actualizado: D-3 INCOMPLETO / NO PASS.** Este bloque queda materializado en la rama de trabajo, pero no está verificado en ejecución y no autoriza afirmar cierre de seguridad ni 100% de materialización.
+
+
+### Endurecimiento del ciclo de asignación global — 2026-10-09
+
+Se completó una segunda pasada del bloque 008 en la misma rama:
+
+- Se agregó un trigger transaccional que escribe en la tabla existente `audit.audit_events` al crear y revocar una asignación. El checksum del payload se calcula con SHA-256 sobre el JSONB serializado; si la inserción de auditoría falla, la mutación de asignación también falla por estar en la misma transacción.
+- El trigger prohíbe editar los atributos originales de una asignación y sólo permite la transición `ACTIVE → REVOKED`, con incremento exacto de versión y metadatos de revocación.
+- La creación exige que la identidad esté `ACTIVE` y que el rol referenciado esté `ACTIVE` y tenga ámbito `PLATFORM`. Los IDs de actor creador/revocador, cuando son cuentas de plataforma, deben existir en `identity.users`.
+- El runner comprueba el contrato exacto de columnas, RLS forzada, policy, FK de ámbito, trigger de auditoría, función y matriz de grants.
+- El down SQL se niega a eliminar la tabla si aún existen asignaciones, para evitar borrar silenciosamente autoridad ya concedida. La reversión exige exportar evidencia y dejar la tabla vacía primero.
+
+No se cambió el estado de autenticación D-3: siguen faltando password/KDF central, MFA real, sesión/refresh, recuperación, resolución de permisos en endpoints administrativos y pruebas de integración reales. La auditoría transaccional del ciclo de asignación ya está codificada en el artefacto 008, pero **no se ha ejecutado contra PostgreSQL** y no se afirma que compile o pase hasta correrlo.
+
+### Nota de ejecución y alcance de Git
+
+El estado de trabajo previsto sigue siendo la rama `claude/pos-camacho-bloque-4c-ld43py` y el PR #92, sin merge. Durante esta pasada se detectó una escritura accidental del runner en la rama por defecto; se eliminó inmediatamente en un commit de reversión. El archivo de runner de la rama por defecto vuelve a no existir; la implementación intencionada permanece en la rama de trabajo. La historia de la rama por defecto conserva ambos commits de compensación, por lo que esta incidencia no debe ocultarse en el registro de cambios.
