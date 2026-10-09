@@ -47,6 +47,29 @@ describe("PostgresPlatformAdministrationSessionRepository", () => {
     expect(sql).not.toMatch(/\b(password|verifier|secret_reference|refresh_token)\b/i);
   });
 
+  it("requires an effective active PLATFORM role before resolving administrative authority", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [row()], rowCount: 1 });
+    const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
+    await expect(repository.findActivePlatformAdministrationSession(SESSION_ID, 15 * 60 * 1000, NOW))
+      .resolves.toMatchObject({ session_id: SESSION_ID, user_id: USER_ID });
+    const [sql, parameters] = query.mock.calls[0] as [string, unknown[]];
+    expect(parameters).toEqual([SESSION_ID]);
+    expect(sql).toContain('FROM "authorization".platform_role_assignments AS pra');
+    expect(sql).toContain('JOIN "authorization".roles AS pr');
+    expect(sql).toContain("pr.scope_type = 'PLATFORM'");
+    expect(sql).toContain("pr.status = 'ACTIVE'");
+    expect(sql).toContain("pra.status = 'ACTIVE'");
+    expect(sql).toContain("pra.valid_from <= clock_timestamp()");
+    expect(sql).toContain("pra.user_id = s.user_id");
+  });
+
+  it("fails closed when no effective PLATFORM role assignment exists", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
+    await expect(repository.findActivePlatformAdministrationSession(SESSION_ID, 15 * 60 * 1000, NOW))
+      .resolves.toBeNull();
+  });
+
   it("returns null when the persisted session fails a database-side active-session condition", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
     const repository = new PostgresPlatformAdministrationSessionRepository({ query } as unknown as Pool);
