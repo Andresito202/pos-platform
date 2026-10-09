@@ -1,5 +1,5 @@
 import { createPublicKey } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
@@ -21,6 +21,7 @@ import {
   SessionTrustKeyResolver,
   SessionTrustKeyStore,
   SessionTrustKeyVerifier,
+  SessionTrustBundleFetcher,
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
@@ -120,7 +121,7 @@ try {
     fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
   );
 
-  const sessionTrustKeys = (() => {
+  const sessionTrustKeys = await (async () => {
     if (
       config.session_trust_environment === undefined
       || config.session_trust_root_public_key_pem === undefined
@@ -137,11 +138,30 @@ try {
       createPublicKey(config.session_trust_root_public_key_pem),
       config.session_trust_environment,
     );
-    return new SessionTrustKeyResolver(
+    const resolver = new SessionTrustKeyResolver(
       sessionTrustStore,
       sessionTrustVerifier,
       config.session_trust_artifact_path,
-    ).resolve();
+    );
+
+    if (config.session_trust_transport_token_file !== undefined && config.central_base_url !== undefined) {
+      try {
+        const tokenPath = config.session_trust_transport_token_file;
+        if (lstatSync(tokenPath).isSymbolicLink()) throw new Error("session trust transport token file cannot be a symbolic link");
+        const tokenStat = lstatSync(tokenPath);
+        if (!tokenStat.isFile() || tokenStat.size > 4096) throw new Error("session trust transport token file is invalid");
+        const token = readFileSync(tokenPath, "utf8").trim();
+        const endpoint = new URL("/v1/session-trust", config.central_base_url).toString();
+        const artifact = await new SessionTrustBundleFetcher().fetch(endpoint, token);
+        return resolver.resolveWithArtifact(artifact);
+      } catch (error) {
+        logger.log("warn", "session_trust.central_fetch_failed", {
+          reason: error instanceof Error ? error.message : "unknown error",
+          fallback: "protected_local_or_installer_artifact",
+        });
+      }
+    }
+    return resolver.resolve();
   })();
 
   const commercial = new CommercialComponent(
