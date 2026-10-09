@@ -18,10 +18,10 @@ CREATE TABLE "authorization".platform_role_assignments (
   created_by_actor_type text NOT NULL
     CONSTRAINT platform_role_assignments_creator_type_ck
     CHECK (created_by_actor_type IN ('PLATFORM_ACCOUNT','SYSTEM')),
-  created_by_actor_id uuid NULL,
+  created_by_actor_id uuid NULL REFERENCES identity.users(id) ON DELETE NO ACTION,
   revoked_at timestamptz NULL,
   revoked_by_actor_type text NULL,
-  revoked_by_actor_id uuid NULL,
+  revoked_by_actor_id uuid NULL REFERENCES identity.users(id) ON DELETE NO ACTION,
   revocation_reason text NULL,
   version bigint NOT NULL DEFAULT 1
     CONSTRAINT platform_role_assignments_version_ck CHECK (version >= 1),
@@ -108,6 +108,17 @@ BEGIN
   ELSE
     IF NEW.status <> 'ACTIVE' OR NEW.version <> 1 THEN
       RAISE EXCEPTION 'platform role assignment must begin ACTIVE at version 1';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM identity.users u WHERE u.id = NEW.user_id AND u.status = 'ACTIVE'
+    ) THEN
+      RAISE EXCEPTION 'platform role assignment requires an ACTIVE identity user';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM "authorization".roles r
+      WHERE r.id = NEW.role_id AND r.scope_type = 'PLATFORM' AND r.status = 'ACTIVE'
+    ) THEN
+      RAISE EXCEPTION 'platform role assignment requires an ACTIVE PLATFORM role';
     END IF;
     event_actor_type := NEW.created_by_actor_type;
     event_actor_id := NEW.created_by_actor_id;
