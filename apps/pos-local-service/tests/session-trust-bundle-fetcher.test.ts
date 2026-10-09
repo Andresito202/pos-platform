@@ -52,6 +52,15 @@ describe("SessionTrustBundleFetcher", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("rejects malformed bearer tokens before making a request", async () => {
+    const request = vi.fn<typeof fetch>();
+    await expect(new SessionTrustBundleFetcher(request).fetch(endpoint, "short"))
+      .rejects.toThrow("SESSION_TRUST_TRANSPORT_TOKEN_INVALID");
+    await expect(new SessionTrustBundleFetcher(request).fetch(endpoint, `${token}\\n`))
+      .rejects.toThrow("SESSION_TRUST_TRANSPORT_TOKEN_INVALID");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("rejects non-HTTPS endpoints before making a request", async () => {
     const request = vi.fn<typeof fetch>();
     await expect(new SessionTrustBundleFetcher(request).fetch("http://authority.example/v1/session-trust", token))
