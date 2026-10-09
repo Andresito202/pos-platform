@@ -44,6 +44,9 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate checked-in session trust root fingerprint
+        run: node --test tools/ci/session-trust-anchor.test.mjs
+
       - name: Typecheck POS Local Service
         run: pnpm --filter @pos-platform/pos-local-service typecheck
 
