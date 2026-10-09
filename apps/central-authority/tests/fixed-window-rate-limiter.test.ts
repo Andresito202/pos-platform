@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FixedWindowRateLimiter } from "../src/fixed-window-rate-limiter.js";
 
@@ -31,5 +32,17 @@ describe("FixedWindowRateLimiter", () => {
     }
     expect(limiter.allow("client-a", 61_000)).toBe(true);
     expect(limiter.allow("client-a", 61_000)).toBe(true);
+  });
+
+  it("applies the session-trust rate limit before bearer-token validation", () => {
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    const routeStart = source.indexOf('request.url === "/v1/session-trust"');
+    const routeEnd = source.indexOf('request.url !== "/v1/device-enrollment"', routeStart);
+    expect(routeStart).toBeGreaterThanOrEqual(0);
+    expect(routeEnd).toBeGreaterThan(routeStart);
+    const route = source.slice(routeStart, routeEnd);
+    expect(route.indexOf("limiter.allow(")).toBeLessThan(route.indexOf("const authorization"));
+    expect(route.indexOf("const authorization")).toBeLessThan(route.indexOf("const authorized"));
+    expect(route).toContain("SESSION_TRUST_UNAUTHORIZED");
   });
 });
