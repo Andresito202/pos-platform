@@ -713,3 +713,10 @@ El estado de trabajo previsto sigue siendo la rama `claude/pos-camacho-bloque-4c
 La migración 008 ahora comprueba dentro del trigger que, cuando el cambio proviene de `pos_platform_app`, el actor coincida con `app.actor_id`, sea distinto del usuario al que se concede el rol y tenga una asignación PLATFORM vigente que le otorgue el permiso activo `PLATFORM_ROLE_ASSIGNMENT_MANAGE`. La revocación aplica el mismo permiso. La comprobación ocurre en PostgreSQL y comparte la transacción con el evento de auditoría; no depende únicamente de que la UI o un handler valide el permiso.
 
 No se crea ese permiso ni se concede a ningún rol en esta migración. Hasta que exista una decisión y un procedimiento de bootstrap auditado que otorgue la primera autoridad legítima, la tabla permanece fail-closed para mutaciones de `pos_platform_app`; no se debe inventar una cuenta inicial ni permitir que el primer usuario se promueva a sí mismo.
+
+
+### Prerrequisitos explícitos de ejecución del trigger 008
+
+El trigger exige que la transacción de aplicación establezca `app.audit_id` y `app.correlation_id` como UUIDv7 distintos cuando corresponda; usa esos valores para evitar colisiones de clave primaria entre el evento de creación y el de revocación. Si faltan o son inválidos, rechaza la mutación. El caller también debe establecer `app.actor_id` a partir de una sesión central ya autenticada, no de un valor enviado directamente por el cliente.
+
+El permiso `PLATFORM_ROLE_ASSIGNMENT_MANAGE` debe existir y concederse a través del catálogo de permisos/grants existente antes de habilitar esta operación. Esta migración no lo crea ni asigna. La creación de la primera cuenta administradora y su asignación inicial sigue bloqueada hasta definir un bootstrap fuera de banda, autorizado, auditado y probado. Sin ese bootstrap, el comportamiento esperado es denegar, no promover automáticamente a ningún usuario.
