@@ -5,14 +5,11 @@ import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
 import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
 import { SessionTrustPublication } from "./session-trust-publication.js";
+import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
 const MAX_CREDENTIAL_LIFETIME_MS = Number(process.env.D3_CREDENTIAL_LIFETIME_MS ?? String(24 * 60 * 60 * 1000));
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 30;
-const RATE_LIMIT_BUCKETS_MAX = 10_000;
-
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
@@ -32,23 +29,6 @@ function constantTimeEqual(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-class FixedWindowRateLimiter {
-  private readonly buckets = new Map<string, { count: number; startedAt: number }>();
-  allow(key: string, now = Date.now()): boolean {
-    const existing = this.buckets.get(key);
-    if (!existing || now - existing.startedAt >= RATE_LIMIT_WINDOW_MS) {
-      if (this.buckets.size >= RATE_LIMIT_BUCKETS_MAX) {
-        const first = this.buckets.keys().next().value;
-        if (first) this.buckets.delete(first);
-      }
-      this.buckets.set(key, { count: 1, startedAt: now });
-      return true;
-    }
-    if (existing.count >= RATE_LIMIT_MAX) return false;
-    existing.count += 1;
-    return true;
-  }
-}
 
 async function readBody(request: IncomingMessage, maxBytes: number): Promise<string> {
   const chunks: Buffer[] = [];
@@ -115,16 +95,6 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 
   if (request.method === "GET" && request.url === "/v1/session-trust") {
-    const authorization = request.headers.authorization ?? null;
-    const authorized = sessionTrustPublication !== null
-      && sessionTrustTransportToken !== null
-      && authorization !== null
-      && authorization.startsWith("Bearer ")
-      && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
-    if (!authorized) {
-      send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
-      return;
-    }
     if (!limiter.allow(`${remote}:session-trust`)) {
       send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
       return;
@@ -174,4 +144,9 @@ const shutdown = async (signal: string) => {
   process.exit(0);
 };
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
-process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGINT", () => void shutdown("SIGINT"))    if (!limiter.allow(`${remote}:session-trust`)) {
+      send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
+      return;
+    }
+    // Rate-limit before bearer validation so failed token guesses consume the same remote-address budget.
+;
