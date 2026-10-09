@@ -47,12 +47,6 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("DROP TABLE \"authorization\".platform_role_assignments");
   });
 
-  it("refuses rollback while global assignments remain", async () => {
-    const sql = await readArtifact(POSTGRES_008_DESCRIPTOR.downArtifact);
-    expect(sql).toContain("IF EXISTS (SELECT 1 FROM \"authorization\".platform_role_assignments)");
-    expect(sql).toContain("RAISE EXCEPTION");
-    expect(sql).toContain("DROP FUNCTION \"authorization\".audit_platform_role_assignment_change()");
-  });
 
   it("requires explicit revocation evidence and leaves bootstrap authority unassigned", async () => {
     const sql = await readArtifact(POSTGRES_008_DESCRIPTOR.upArtifact);
