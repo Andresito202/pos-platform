@@ -86,6 +86,19 @@ describe("PostgresPlatformSecurityEventRepository", () => {
     expect(poolQuery).not.toHaveBeenCalled();
   });
 
+  it("propagates transaction write failures without falling back to the pool", async () => {
+    const transactionError = new Error("transaction aborted");
+    const transactionQuery = vi.fn().mockRejectedValue(transactionError);
+    const poolQuery = vi.fn();
+    const repository = new PostgresPlatformSecurityEventRepository({ query: poolQuery } as unknown as Pool);
+
+    await expect(repository.append(INPUT, { query: transactionQuery } as unknown as PoolClient))
+      .rejects.toBe(transactionError);
+
+    expect(transactionQuery).toHaveBeenCalledOnce();
+    expect(poolQuery).not.toHaveBeenCalled();
+  });
+
   it("rejects extra credential or token fields before reaching PostgreSQL", async () => {
     const query = vi.fn();
     const repository = new PostgresPlatformSecurityEventRepository({ query } as unknown as Pool);
