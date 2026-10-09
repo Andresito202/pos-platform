@@ -748,3 +748,8 @@ La actualización del contrato también excluye explícitamente `authorization.p
 Las dos comprobaciones del permiso `PLATFORM_ROLE_ASSIGNMENT_MANAGE` ahora exigen también que la identidad del actor que tiene la asignación de rol esté en estado `ACTIVE`. Esto evita aceptar una asignación administrativa todavía marcada como activa cuando la identidad correspondiente ya fue desactivada. Se añadió una aserción estática que exige ambas comprobaciones (concesión y revocación).
 
 Este control complementa, pero no sustituye, la revocación de sesiones ni la validación del actor por el servicio central. No se ha ejecutado contra PostgreSQL ni se ha corrido Vitest; permanece `D-3 INCOMPLETO / NO PASS`.
+
+
+### Reconciliación con la decisión vigente de `main` — 2026-10-09
+
+Las secciones históricas anteriores describen una materialización provisional del runner de migración 008 y sus comprobaciones estáticas. El commit de `main` `591ad4c19df9c8e36f451e9c243dda8b47dc7e51` elimina explícitamente `tools/target-migrations/src/postgres-008-runner.ts` con el mensaje «remove migration runner not intended for main». Para no reintroducir ese runner al integrar la PR, la rama de trabajo ahora conserva el descriptor, el SQL y las pruebas estáticas de contrato 008, pero elimina el runner, su CLI, sus exports y el script `postgres:008:apply`. Esto no certifica la migración como ejecutable: su aplicación contra PostgreSQL, sus pruebas de integración y el bootstrap de la primera autoridad siguen pendientes y no deben marcarse PASS.
