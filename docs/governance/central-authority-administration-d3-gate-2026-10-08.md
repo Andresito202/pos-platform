@@ -443,3 +443,19 @@ Los runs se crearon alrededor de `2026-10-09T01:26:51Z` y figuran completados en
 
 Diagnóstico de metadatos de Actions materializado en esta documentación. **Causa raíz de los runs: PENDIENTE.** **Pruebas de aplicación en este SHA: NO DEMOSTRADAS por estos runs.** **D-3 autenticación PlatformAccount: NO IMPLEMENTADA**, según la auditoría de código precedente. El PR #92 sigue abierto y no fusionado.
 
+## Continuación tras limitación operativa de Actions — 2026-10-09
+
+El usuario autorizó continuar la materialización sin detenerse por la disponibilidad de GitHub Actions e indicó que los fallos se deben al plan Free. Esa explicación se registra como contexto operativo aportado por el usuario, no como causa técnica demostrada por los metadatos consultados. Se mantiene la regla de no afirmar que las pruebas pasaron si no existe ejecución verificable.
+
+### Ajuste de contrato de sesión administrativa
+
+En `packages/contracts/tests/platform-administration-session.test.ts` se corrigió el nombre del caso de expiración para describir la invariante que valida realmente `PlatformAdministrationSessionSchema`: `expires_at` debe ser estrictamente posterior a `last_reauthenticated_at`. Se añadió la condición límite de igualdad, que debe rechazarse. No se cambió la implementación de autenticación ni se presentó la validación estática del contrato como comprobación de vigencia contra el reloj actual.
+
+Commit: `3034c6de27f6e708b9c70700b099b86687112276`.
+
+**Verificación:** cambio guardado y releído desde la rama remota. **Ejecución de Vitest/typecheck:** no ejecutada en esta sesión. **Resultado de prueba:** pendiente de ejecución; no se declara PASS.
+
+### Próximo bloque de implementación
+
+Continuar con la autenticación real de PlatformAccount sobre las tablas existentes y con los gates de seguridad ya ratificados. Antes de escribir el verificador de credenciales se requiere resolver una biblioteca Argon2id mantenida en el workspace y su lockfile mediante el gestor real; no se sustituirá por un hash improvisado ni por el PIN local. Antes de MFA se debe resolver la implementación WebAuthn y el contrato operacional de `secret_reference`. La conexión actual permite editar y leer archivos remotos, pero no ejecutar la instalación del workspace, benchmarks ni las suites; por eso los cambios que requieran esas validaciones deben permanecer explícitamente no verificados hasta obtener ejecución real.
+
