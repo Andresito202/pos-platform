@@ -25,6 +25,9 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("one-way revocation");
     expect(sql).toContain("requires an ACTIVE identity user");
     expect(sql).toContain("requires an ACTIVE PLATFORM role");
+    expect(sql).toContain("PLATFORM_ROLE_ASSIGNMENT_MANAGE");
+    expect(sql).toContain("app.actor_id");
+    expect(sql).toContain("distinct authenticated platform actor");
     expect(sql).toContain("INSERT INTO audit.audit_events");
     expect(sql).toContain("pg_catalog.sha256");
     expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
