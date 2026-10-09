@@ -15,6 +15,7 @@ export * from "./release.js";
 export * from "./authorization.js";
 export * from "./permission-codes.js";
 export * from "./central-administration.js";
+export * from "./platform-security-events.js";
 export * from "./authorization-snapshot.js";
 export * from "./session-assertion.js";
 export * from "./session-trust.js";
