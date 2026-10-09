@@ -106,5 +106,31 @@ describe("PostgresPlatformSecurityEventRepository", () => {
 
     expect(query).not.toHaveBeenCalled();
   });
+  it("rejects a persisted row whose server timestamp precedes occurred_at", async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [{
+        user_id: INPUT.user_id,
+        session_id: null,
+        tenant_id: null,
+        event_code: INPUT.event_code,
+        result: INPUT.result,
+        reason_code: INPUT.reason_code,
+        correlation_id: INPUT.correlation_id,
+        occurred_at: new Date(INPUT.occurred_at),
+        server_recorded_at: new Date("2026-10-08T11:59:59.000Z"),
+      }],
+      rowCount: 1,
+    });
+    const repository = new PostgresPlatformSecurityEventRepository({ query } as unknown as Pool);
+
+    await expect(repository.append(INPUT)).rejects.toThrow();
+  });
+
+  it("fails closed when PostgreSQL reports no inserted row", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    const repository = new PostgresPlatformSecurityEventRepository({ query } as unknown as Pool);
+
+    await expect(repository.append(INPUT)).rejects.toThrow("PLATFORM_SECURITY_EVENT_INSERT_RETURNED_NO_ROW");
+  });
 
 });
