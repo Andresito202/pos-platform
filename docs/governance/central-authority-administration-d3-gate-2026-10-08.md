@@ -720,3 +720,12 @@ No se crea ese permiso ni se concede a ningún rol en esta migración. Hasta que
 El trigger exige que la transacción de aplicación establezca `app.audit_id` y `app.correlation_id` como UUIDv7 distintos cuando corresponda; usa esos valores para evitar colisiones de clave primaria entre el evento de creación y el de revocación. Si faltan o son inválidos, rechaza la mutación. El caller también debe establecer `app.actor_id` a partir de una sesión central ya autenticada, no de un valor enviado directamente por el cliente.
 
 El permiso `PLATFORM_ROLE_ASSIGNMENT_MANAGE` debe existir y concederse a través del catálogo de permisos/grants existente antes de habilitar esta operación. Esta migración no lo crea ni asigna. La creación de la primera cuenta administradora y su asignación inicial sigue bloqueada hasta definir un bootstrap fuera de banda, autorizado, auditado y probado. Sin ese bootstrap, el comportamiento esperado es denegar, no promover automáticamente a ningún usuario.
+
+
+### Hallazgo de seguridad adicional: el contexto GUC no autentica por sí solo — 2026-10-09
+
+La revisión de la migración 008 detecta una limitación importante: `app.actor_id`, `app.audit_id` y `app.correlation_id` son variables de configuración de sesión PostgreSQL. Validar que existan y que tengan formato UUIDv7 **no prueba por sí solo la identidad del actor**, porque un cliente que tenga acceso SQL como `pos_platform_app` puede intentar establecer valores propios. La verificación del permiso en el trigger reduce errores de autorización, pero tampoco sustituye una frontera de autenticación confiable.
+
+Por tanto, no debe describirse `app.actor_id` como una identidad autenticada por el solo hecho de estar presente. Antes de habilitar operaciones administrativas, debe verificarse que únicamente el servicio central de confianza pueda usar las credenciales de `pos_platform_app`, que ningún cliente/desktop tenga acceso directo a esa conexión y que el servicio derive el actor de una sesión central validada. También se necesita una prueba de integración que intente falsificar el GUC y confirme que no se puede escalar privilegios; si la arquitectura actual no ofrece esa garantía, hay que cambiar el mecanismo de contexto, no dar por cerrado el control.
+
+La migración 008 y sus pruebas siguen siendo trabajo en progreso. No se ejecutaron contra PostgreSQL, y el bootstrap de la primera autoridad continúa sin habilitarse.
