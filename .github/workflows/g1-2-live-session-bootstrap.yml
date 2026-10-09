@@ -48,4 +48,4 @@ jobs:
         run: pnpm --filter @pos-platform/pos-local-service typecheck
 
       - name: Execute G1.2 real Windows runtime
-        run: pnpm --filter @pos-platform/pos-local-service test -- session-trust-key.test.ts session-trust-key-resolver.test.ts session-trust-key-store.test.ts session-trust-bundle-fetcher.test.ts session-bootstrap-runtime.test.ts session-bootstrap-main-runtime.test.ts
+        run: pnpm --filter @pos-platform/pos-local-service test -- config.test.ts session-trust-key.test.ts session-trust-key-resolver.test.ts session-trust-key-store.test.ts session-trust-bundle-fetcher.test.ts session-bootstrap-runtime.test.ts session-bootstrap-main-runtime.test.ts
