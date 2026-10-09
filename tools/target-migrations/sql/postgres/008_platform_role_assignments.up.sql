@@ -78,7 +78,19 @@ DECLARE
   event_action text;
   event_payload jsonb;
   previous_payload jsonb;
+  event_id uuid;
+  event_correlation_id uuid;
 BEGIN
+  BEGIN
+    event_id := current_setting('app.audit_id', true)::uuid;
+    event_correlation_id := current_setting('app.correlation_id', true)::uuid;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'platform role assignment audit context is invalid';
+  END;
+  IF event_id IS NULL OR NOT platform.is_uuid_v7(event_id)
+     OR event_correlation_id IS NULL OR NOT platform.is_uuid_v7(event_correlation_id) THEN
+    RAISE EXCEPTION 'platform role assignment requires UUIDv7 audit and correlation context';
+  END IF;
   IF TG_OP = 'UPDATE' THEN
     IF OLD.status <> 'ACTIVE' OR NEW.status <> 'REVOKED'
        OR NEW.id IS DISTINCT FROM OLD.id
@@ -183,9 +195,9 @@ BEGIN
     correlation_id, schema_version, reported_at, server_recorded_at, result, reason_code,
     previous_value, new_value, payload_checksum
   ) VALUES (
-    NEW.id, NULL, NULL, NULL, event_actor_type, event_actor_id, NULL, NULL,
+    event_id, NULL, NULL, NULL, event_actor_type, event_actor_id, NULL, NULL,
     event_action, 'PlatformRoleAssignment', 'INSTANCE', NEW.id, NULL,
-    NEW.id, 1, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp(),
+    event_correlation_id, 1, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp(),
     'SUCCESS', CASE WHEN TG_OP = 'UPDATE' THEN 'EXPLICIT_REVOCATION' ELSE NULL END,
     previous_payload, event_payload,
     pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(event_payload::text, 'UTF8')), 'hex')
