@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
 import { POSTGRES_007_DESCRIPTOR } from "./postgres-007-contract.js";
-import { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
+import { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
 
 export interface Postgres008RunnerConfig { adminUrl: string; expectedDatabase: string; repositoryCommit: string; }
 export interface Postgres008ApplyResult { executionId: string; noOp: boolean; checksumHex: string; result: "APPLIED" | "ALREADY_APPLIED"; }
@@ -42,6 +42,8 @@ export async function applyPostgres008(config: Postgres008RunnerConfig): Promise
           const check = await client.query<{present:boolean}>("SELECT to_regclass($1) IS NOT NULL AS present",[table]);
           invariant(check.rows[0]?.present === true, "008 table missing: " + table);
         }
+        const columns = await client.query<{column_name:string}>("SELECT column_name FROM information_schema.columns WHERE table_schema='authorization' AND table_name='platform_role_assignments' ORDER BY ordinal_position");
+        invariant(columns.rows.map((row) => row.column_name).join(",") === PLATFORM_ROLE_008_COLUMNS.join(","), "008 platform role assignment column contract mismatch");
         const rls = await client.query<{enabled:boolean;forced:boolean}>("SELECT c.relrowsecurity enabled,c.relforcerowsecurity forced FROM pg_class c WHERE c.oid='authorization.platform_role_assignments'::regclass");
         invariant(rls.rows[0]?.enabled === true && rls.rows[0]?.forced === true, "008 platform role assignment RLS not forced");
         const policy = await client.query<{present:boolean}>("SELECT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='authorization' AND tablename='platform_role_assignments' AND policyname='platform_role_assignments_platform_only') AS present");
