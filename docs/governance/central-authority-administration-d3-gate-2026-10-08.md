@@ -528,3 +528,15 @@ Se añadieron dos pruebas unitarias de validación de salida: rechazar una fila 
 Inspección estática del workspace en la misma rama: `pnpm-lock.yaml` no contiene `argon2`, `@node-rs/argon2`, `@simplewebauthn/server`, `@simplewebauthn/browser` ni `@simplewebauthn/types`; `apps/central-authority/src/main.ts` no expone flujo de login, sesiones de PlatformAccount o MFA. `identity.mfa_factors.secret_reference` existe como texto no vacío opcional, pero el contrato de referencia/gestor de secretos no está definido en el DDL inspeccionado. No se agregaron dependencias ni se implementó autenticación con primitivas improvisadas.
 
 **Pendiente de ejecución:** las pruebas añadidas y el typecheck no se ejecutaron en esta sesión; no existe evidencia de CI para el SHA actual en la consulta realizada. La validación con PostgreSQL real, atomicidad/rollback y revisión de privilegios efectivos sigue abierta.
+
+
+## Revisión de compatibilidad con DDL y RLS — 2026-10-09
+
+Se contrastó el SQL del repositorio contra `tools/target-migrations/sql/postgres/001_central_foundation.up.sql` en la misma rama:
+
+- La tabla existente incluye las columnas insertadas por el repositorio; `device_id` está explícitamente restringido a `NULL`, y el repositorio envía `NULL`.
+- `server_recorded_at` se calcula en PostgreSQL y el DDL exige que no sea anterior a `occurred_at`.
+- La tabla tiene RLS habilitado y forzado. La política `security_events_platform_context` permite a `pos_platform_app` escribir eventos globales solo con `tenant_id IS NULL`; la política tenant exige contexto tenant y sesión según las restricciones de tabla. El repositorio no cambia el rol ni el contexto de la conexión: el caller debe usar el rol/conexión de servicio previsto y el caso de uso debe controlar transacciones/contexto.
+- Se reforzó la prueba unitaria para comprobar la forma de columnas, el orden de parámetros, el ID UUIDv7 independiente de la correlación y la ausencia de nombres de campos secretos en el SQL.
+
+**Límite de verificación:** es una comprobación estática del DDL y del código, no una prueba de permisos efectivos de PostgreSQL. No se ejecutaron las pruebas ni typecheck. Falta ejecutar la prueba contra la base de datos real con roles RLS de runtime, comprobar inserción global permitida y tenant cruzado denegado, y verificar rollback de la transición junto al evento. El bloque D-3 sigue parcial y no autoriza a marcar D-1 como implementado.
