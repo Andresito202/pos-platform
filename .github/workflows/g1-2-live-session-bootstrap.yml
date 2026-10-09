@@ -49,3 +49,6 @@ jobs:
 
       - name: Execute G1.2 real Windows runtime
         run: pnpm --filter @pos-platform/pos-local-service test -- config.test.ts session-trust-key.test.ts session-trust-key-resolver.test.ts session-trust-key-store.test.ts session-trust-bundle-fetcher.test.ts session-trust-refresh-component.test.ts session-bootstrap-runtime.test.ts session-bootstrap-main-runtime.test.ts
+
+      - name: Verify Central Authority trust publication contract
+        run: pnpm --filter @pos-platform/central-authority test -- session-trust-publication.test.ts
