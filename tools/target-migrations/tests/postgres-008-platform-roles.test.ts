@@ -23,6 +23,11 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(sql).toContain("pg_catalog.sha256");
     expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
     expect(sql).toContain("one-way revocation");
+    expect(sql).toContain("requires an ACTIVE identity user");
+    expect(sql).toContain("requires an ACTIVE PLATFORM role");
+    expect(sql).toContain("INSERT INTO audit.audit_events");
+    expect(sql).toContain("pg_catalog.sha256");
+    expect(sql).toContain("CREATE TRIGGER platform_role_assignment_audit_guard");
     expect(sql).not.toMatch(/INSERT\s+INTO\s+"authorization"\.platform_role_assignments/i);
     expect(sql).not.toMatch(/INSERT\s+INTO\s+identity\.users/i);
     expect(sha256(sql)).toHaveLength(32);
