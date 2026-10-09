@@ -16,7 +16,7 @@ export class SessionTrustBundleFetcher {
     if (url.pathname !== "/v1/session-trust" || url.search !== "") {
       throw new Error("SESSION_TRUST_ENDPOINT_PATH_INVALID");
     }
-    if (bearerToken.length < 32 || bearerToken.length > 4096 || /[\\r\\n]/.test(bearerToken)) {
+    if (bearerToken.length < 32 || bearerToken.length > 4096 || /[\r\n]/.test(bearerToken)) {
       throw new Error("SESSION_TRUST_TRANSPORT_TOKEN_INVALID");
     }
 
@@ -37,7 +37,7 @@ export class SessionTrustBundleFetcher {
       });
       if (response.status !== 200) throw new Error(`SESSION_TRUST_HTTP_${response.status}`);
       const declaredLength = response.headers.get("content-length");
-      if (declaredLength !== null && (!/^\\d+$/.test(declaredLength) || Number(declaredLength) > MAX_BUNDLE_BYTES)) {
+      if (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_BUNDLE_BYTES)) {
         throw new Error("SESSION_TRUST_RESPONSE_TOO_LARGE");
       }
       const body = await response.text();
