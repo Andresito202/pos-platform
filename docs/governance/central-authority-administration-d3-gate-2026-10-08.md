@@ -645,3 +645,21 @@ La decisión debe especificar además la primera cuenta de plataforma (bootstrap
 9. Ejecutar typecheck, tests de paquetes, migraciones PostgreSQL, arquitectura/policy gates y CI; registrar los resultados reales por SHA.
 
 Este cierre no crea un contrato alternativo ni abre una rama paralela. Deja documentado el punto exacto donde continuar sobre el mismo trabajo sin conceder autoridad por inferencia.
+
+
+### Verificación adicional de autorización y dependencias — 2026-10-09
+
+Se amplió la inspección del DDL y los manifiestos existentes para evitar introducir una segunda fuente de roles o un mecanismo criptográfico no soportado.
+
+- `authorization.roles` ya admite `scope_type = 'PLATFORM'`; se reutilizará ese catálogo de roles y permisos.
+- `authorization.user_role_assignments` exige `tenant_id` y `tenant_membership_id`. Por su contrato físico no puede representar una asignación global de PlatformAccount sin romper su invariante tenant.
+- El modelo físico y `tools/target-migrations/src/contract.ts` no declaran una tabla de asignaciones globales de cuentas de plataforma. Por tanto, la existencia de roles de ámbito PLATFORM no implica que un usuario tenga uno asignado.
+- El manifiesto ya contiene `identity.session_refresh_tokens`, `identity.password_recovery_requests` e `identity.security_events`; no se deben duplicar. Sus tablas existentes permiten diseñar la implementación sobre la base actual, pero no prueban que los flujos de runtime estén conectados.
+- El `package.json` raíz declara pnpm 9.15.0 y los scripts de typecheck y tests por paquete. `packages/database-postgres` declara sólo `pg`, los paquetes workspace y Vitest como dependencias; no declara una biblioteca Argon2 ni una biblioteca WebAuthn. La búsqueda del repositorio tampoco encontró uso de Argon2. No se añadirá un import de biblioteca inexistente ni se tratará el PIN local basado en scrypt como autenticación central.
+- El paquete de migraciones ya tiene convenciones de descriptores, runners, contratos físicos e introspección. Cualquier nueva migración debe integrarse en todos esos puntos y tener pruebas de aplicación, reversión y RLS; crear únicamente un archivo SQL no sería una materialización completa.
+
+### Decisión técnica provisional para el siguiente cambio de código
+
+La solución debe conservar `authorization.roles` y `authorization.role_permission_grants`, añadir una relación global explícita de asignación de rol sólo si se formaliza su contrato físico, y hacer que la elegibilidad se compruebe junto con usuario activo, sesión no revocada, MFA verificado y reautenticación reciente. La asignación debe ser revocable y auditada; las cuentas sin asignación deben fallar cerradas. No se sembrará ningún administrador por defecto ni se concederá autoridad automáticamente al primer usuario.
+
+Esta inspección no cambia el estado: sigue siendo `D-3 INCOMPLETO / NO PASS`. No se ejecutaron typecheck, Vitest ni pruebas PostgreSQL en este entorno, y no se atribuye ningún resultado positivo a Actions.
