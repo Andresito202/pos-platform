@@ -582,3 +582,18 @@ No se fija un timeout global sin decisión de política, no emite tokens, no aut
 Se añadieron pruebas de contrato para expiración, reautenticación antigua, fecha futura, caso válido y parámetros inválidos en `packages/contracts/tests/platform-administration-session.test.ts`.
 
 **Estado de verificación:** las pruebas se añadieron al repositorio, pero no se ejecutaron en este entorno. GitHub Actions queda deliberadamente fuera del ciclo de avance por instrucción; no se declara PASS. Sigue pendiente conectar esta guarda a un servicio de sesión/operación real y verificarla mediante pruebas ejecutadas.
+
+
+## Materialización incremental — lectura de sesión global MFA — 2026-10-09
+
+Se añadió `PostgresPlatformAdministrationSessionRepository` en `packages/database-postgres/src/platform-administration-session-repository.ts` y se exportó desde el índice del paquete. El método `findActiveGlobalMfaSession` consulta las tablas existentes `identity.sessions`, `identity.users` e `identity.mfa_factors`; no emite sesiones ni lee credenciales o secretos.
+
+La consulta solo devuelve un candidato si la sesión no está revocada, sigue vigente según el reloj de PostgreSQL, no tiene contexto tenant, registra MFA satisfecho, tiene reautenticación y el usuario está activo con al menos un factor MFA verificado y activo. La capa de repositorio también rechaza reloj inválido, política de antigüedad inválida, reautenticación futura o antigua y sesión expirada. Los errores de base de datos se propagan.
+
+### Límite de seguridad identificado y preservado
+
+La inspección del DDL no encontró una relación de asignación/eligibilidad de PlatformAccount independiente del contexto tenant. Por eso el repositorio devuelve deliberadamente `GlobalMfaSessionCandidate` con `user_id`, no un `PlatformAdministrationSession` ni un actor `PLATFORM_ACCOUNT`. Una sesión global con MFA no prueba por sí misma que la identidad tenga autoridad administrativa central. No se permite usar este resultado para autorizar operaciones D-1 hasta que la fuente de elegibilidad de PlatformAccount y la autorización de cada operación estén materializadas.
+
+Se añadieron pruebas unitarias para candidato válido, sesión no encontrada/inactiva, reautenticación antigua, expiración, reautenticación futura, UUID inválido, error de base de datos y política inválida. Están escritas pero **no ejecutadas**. Tampoco se probó contra PostgreSQL real ni se verificaron permisos efectivos/RLS. Este bloque no implementa login, emisión/revocación de sesión, refresh, MFA challenge ni autorización D-1.
+
+**Estado:** repositorio de lectura candidato materializado; tests pendientes de ejecución; elegibilidad PlatformAccount y runtime de autenticación siguen abiertos. No se declara PASS ni se considera completado D-3.
