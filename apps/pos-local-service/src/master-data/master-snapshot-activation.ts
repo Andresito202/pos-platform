@@ -39,7 +39,7 @@ export interface AcknowledgedFloorRequest {
 
 export interface AcknowledgedFloorSource {
   /** `null` cuando la central no tiene acuse registrado para este ámbito. */
-  floorFor(request: AcknowledgedFloorRequest): number | null;
+  floorFor(request: AcknowledgedFloorRequest): Promise<number | null>;
 }
 
 /**
@@ -92,11 +92,11 @@ export class MasterSnapshotActivationService {
     private readonly observer?: MasterSnapshotObserver,
   ) {}
 
-  accept(
+  async accept(
     input: unknown,
     scope: MasterSnapshotScope,
     options: MasterSnapshotAcceptanceOptions = {},
-  ): MasterSnapshotAcceptanceOutcome {
+  ): Promise<MasterSnapshotAcceptanceOutcome> {
     const scopeKey: MasterSnapshotScopeKey = {
       tenantId: scope.tenantId,
       companyId: scope.companyId,
@@ -110,7 +110,7 @@ export class MasterSnapshotActivationService {
     // restauración silenciosa queda cubierta por construcción.
     let central: number | null;
     try {
-      central = this.acknowledgedFloor.floorFor({
+      central = await this.acknowledgedFloor.floorFor({
         installationId: scope.installationId,
         snapshotType: "CASH_REGISTER",
         binding: scopeKey,
