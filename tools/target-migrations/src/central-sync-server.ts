@@ -39,8 +39,14 @@ const responseSchema = createCentralHttpResponseSchema(SyncBatchResponseSchema, 
 function json(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
   response.statusCode = status;
-  response.setHeader("content-type", "application/json");
+  response.setHeader("content-type", "application/json; charset=utf-8");
   response.setHeader("content-length", Buffer.byteLength(payload));
+  response.setHeader("cache-control", "no-store");
+  response.setHeader("x-content-type-options", "nosniff");
+  response.setHeader("x-frame-options", "DENY");
+  response.setHeader("referrer-policy", "no-referrer");
+  response.setHeader("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  response.setHeader("cross-origin-resource-policy", "same-origin");
   for (const [key, value] of Object.entries(headers)) response.setHeader(key, value);
   response.end(payload);
 }
