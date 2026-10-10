@@ -360,6 +360,23 @@ describe("E. recuperación", () => {
       binding: SCOPE_KEY,
     }]);
   });
+
+  it("no activa el snapshot antes de resolver la consulta asíncrona de cota central", async () => {
+    let resolveFloor!: (value: number | null) => void;
+    const floorPromise = new Promise<number | null>((resolve) => {
+      resolveFloor = resolve;
+    });
+    const floor: AcknowledgedFloorSource = {
+      floorFor: async () => floorPromise,
+    };
+    const { service, store } = await harness({ floor });
+    const pending = service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+
+    expect(store.highestAcceptedSequence(SCOPE_KEY)).toBeNull();
+    resolveFloor(null);
+    expect(await pending).toEqual({ kind: "ACTIVATED", sequence: 1 });
+    expect(store.highestAcceptedSequence(SCOPE_KEY)).toBe(1);
+  });
 });
 
 describe("F. atomicidad", () => {
