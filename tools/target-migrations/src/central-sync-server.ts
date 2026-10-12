@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool, type PoolClient } from "pg";
 import {
@@ -289,7 +289,12 @@ const server = createServer(async (request, response) => {
     json(response, 404, { error: "NOT_FOUND" });
     return;
   }
-  if (request.headers.authorization !== `Bearer ${syncToken}`) {
+  const authorization = request.headers.authorization;
+  const expectedAuthorization = `Bearer ${syncToken}`;
+  const authorizationMatches = typeof authorization === "string"
+    && Buffer.byteLength(authorization, "utf8") === Buffer.byteLength(expectedAuthorization, "utf8")
+    && timingSafeEqual(Buffer.from(authorization, "utf8"), Buffer.from(expectedAuthorization, "utf8"));
+  if (!authorizationMatches) {
     json(response, 401, { error: "UNAUTHORIZED" });
     return;
   }
