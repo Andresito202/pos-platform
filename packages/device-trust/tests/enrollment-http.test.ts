@@ -26,6 +26,17 @@ function validHandler(consumable = true) {
   return new DeviceEnrollmentHttpHandler(issuer(consumable), { authorize: (value) => value.authorization === "Bearer transport-test", maxBodyBytes: 16 * 1024, maxCredentialLifetimeMs: 60 * 60 * 1000, now: () => new Date("2099-09-16T12:00:00Z") });
 }
 
+function requestWithChallengeTimes(issuedAt: string, expiresAt: string) {
+  const timedChallenge = { ...challenge, issued_at: issuedAt, expires_at: expiresAt };
+  const signature = sign(null, Buffer.from(canonicalDeviceTrustJson(timedChallenge)), DEVICE.privateKey).toString("base64url");
+  return {
+    ...request,
+    challenge: timedChallenge,
+    proof: { ...request.proof, signature },
+    requested_at: issuedAt,
+  };
+}
+
 describe("D-3 enrollment HTTP boundary", () => {
   it("rejects unauthenticated transport before parsing the body", async () => {
     const result = await validHandler().handle({ ...context, authorization: null }, "not-json");
@@ -48,6 +59,19 @@ describe("D-3 enrollment HTTP boundary", () => {
     const body = result.body.result as { credential_id: string; credential: unknown };
     expect(body.credential_id).toBeTruthy();
     expect(SignedDeviceTrustCredentialSchema.safeParse(body.credential).success).toBe(true);
+  });
+  it("rejects expired and not-yet-valid signed challenges", async () => {
+    const handler = validHandler();
+    const expired = requestWithChallengeTimes("2099-09-16T11:54:00Z", "2099-09-16T11:59:59Z");
+    const future = requestWithChallengeTimes("2099-09-16T12:00:01Z", "2099-09-16T12:05:00Z");
+
+    const expiredResult = await handler.handle(context, JSON.stringify(expired));
+    const futureResult = await handler.handle(context, JSON.stringify(future));
+
+    expect(expiredResult.statusCode).toBe(422);
+    expect(expiredResult.body.result_code).toBe("ENROLLMENT_CHALLENGE_EXPIRED");
+    expect(futureResult.statusCode).toBe(422);
+    expect(futureResult.body.result_code).toBe("ENROLLMENT_CHALLENGE_EXPIRED");
   });
   it("consumes the one-shot activation and rejects replay", async () => {
     const handler = validHandler(true);
