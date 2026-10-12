@@ -58,7 +58,12 @@ describe("D-3 enrollment HTTP boundary", () => {
     expect(result.statusCode).toBe(200);
     const body = result.body.result as { credential_id: string; credential: unknown };
     expect(body.credential_id).toBeTruthy();
-    expect(SignedDeviceTrustCredentialSchema.safeParse(body.credential).success).toBe(true);
+    const parsedCredential = SignedDeviceTrustCredentialSchema.safeParse(body.credential);
+    expect(parsedCredential.success).toBe(true);
+    if (!parsedCredential.success) throw new Error("issuer returned an invalid signed credential");
+    // The handler's one-hour policy must bound the credential, not merely be
+    // passed to the issuer as an unchecked configuration value.
+    expect(parsedCredential.data.claims.expires_at).toBe("2099-09-16T13:00:00.000Z");
   });
   it("rejects expired and not-yet-valid signed challenges", async () => {
     const handler = validHandler();
