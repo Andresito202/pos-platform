@@ -43,8 +43,19 @@ async function readBody(request: IncomingMessage, maxBytes: number): Promise<str
 }
 
 function send(response: ServerResponse, statusCode: number, body: Record<string, unknown>, headers: Record<string, string> = {}): void {
-  response.writeHead(statusCode, { "content-type": "application/json", "cache-control": "no-store", ...headers });
-  response.end(JSON.stringify(body));
+  const payload = JSON.stringify(body);
+  response.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": String(Buffer.byteLength(payload, "utf8")),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "cross-origin-resource-policy": "same-origin",
+    ...headers,
+  });
+  response.end(payload);
 }
 
 function protocolContext(request: IncomingMessage, requestId: string, correlationId: string, authorization: string | null): DeviceEnrollmentTransportContext {
