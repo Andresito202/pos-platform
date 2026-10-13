@@ -28,7 +28,7 @@ Antes de tratar un dato se debe identificar:
 | Administración de dispositivo | datos técnicos/identidad de dispositivo | administración autorizada del dispositivo | **Sí**, cuando el flujo está clasificado como `DEVICE_MANAGED` o `KIOSK_MANAGED` | consentimiento y contrato explícitos según `UC-DEV-001` |
 | Seguridad, auditoría y trazabilidad | identificadores técnicos y evidencia mínima | seguridad, prevención de abuso, auditoría y cumplimiento | **No por defecto** cuando otra base jurídica habilite el tratamiento | auditoría append-only y controles de acceso |
 | Cookies/seguimiento web | — | — | **N/A** en la aplicación Electron/local-first actual | no existe superficie web de cookies materializada |
-| Marketing/newsletter | — | — | **N/A** mientras no exista el flujo | no existe suscripción de marketing materializada |
+| Marketing/newsletter (`POS_NEWS`) | correo, identificador de cliente y evidencia de autorización | envío futuro de novedades del POS por correo | **Sí**: opt-in explícito antes de activar la suscripción | suscripción local materializada; persiste versión `1.0`, fecha/hora, origen `POS`, actor/sesión y auditoría mínima; permite consulta y baja. No existe despachador de campañas externas, por lo que no se declara envío de correos materializado |
 
 ## 3. Verificación en la captura de adquirientes
 
@@ -68,7 +68,7 @@ No se crea una tabla, evento o endpoint de consentimiento genérico sin una fina
 
 ## 7. Implementación de novedades del POS
 
-La captura de adquiriente ahora puede incluir un opt-in separado para `POS_NEWS` por correo. La autorización no se deriva del simple registro fiscal. El cliente puede consultar su estado, suscribirse o darse de baja desde la ficha del adquiriente. La baja cambia el estado a `UNSUBSCRIBED` y conserva la evidencia mínima necesaria; no borra el registro fiscal.
+La captura de adquiriente incluye un opt-in separado para `POS_NEWS` por correo. La autorización no se deriva del simple registro fiscal: el renderer sólo solicita la suscripción si el checkbox fue marcado; también existe una acción explícita de suscripción desde la ficha del adquiriente. El servicio persiste estado, versión `1.0`, fecha/hora de consentimiento, origen `POS`, actor/sesión y auditoría mínima. El cliente puede consultar su estado y darse de baja. La baja cambia el estado a `UNSUBSCRIBED` y conserva la evidencia mínima necesaria; no borra el registro fiscal.
 
 La capacidad de **envío externo de correo/campañas** no se declara materializada por este bloque: el repositorio no tenía proveedor de correo, credenciales ni endpoint público de baja. La preferencia queda operativa y bloquea la elegibilidad para futuras campañas hasta que exista un despachador central autorizado. Un proveedor como Resend soporta contactos, bajas automáticas y encabezados `List-Unsubscribe`, pero su adopción requiere configuración explícita del Responsable y dominio/proveedor. citeturn4search1turn4search0
 
