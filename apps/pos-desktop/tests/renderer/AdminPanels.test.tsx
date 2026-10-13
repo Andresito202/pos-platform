@@ -260,6 +260,18 @@ describe("InventoryPanel", () => {
 });
 
 describe("CustomerPanel", () => {
+  it("expone el aviso de privacidad y el canal de consultas desde el formulario", () => {
+    install({ status: "SUCCEEDED", result_code: "NOT_FOUND", result: null });
+    render(<CustomerPanel />);
+
+    expect(screen.getByTestId("customer-privacy-notice")).toBeTruthy();
+    expect(screen.getByTestId("customer-privacy-details").querySelector("summary")?.textContent)
+      .toContain("Consultar el aviso de privacidad");
+    expect(screen.getByRole("link", { name: "andrescamacho.19@hotmail.com" }).getAttribute("href"))
+      .toBe("mailto:andrescamacho.19@hotmail.com");
+    expect(screen.getByText(/política definitiva está pendiente de formalización/i)).toBeTruthy();
+  });
+
   function fillCustomer(): void {
     fireEvent.change(screen.getByTestId("customer-document-code-input"), { target: { value: "13" } });
     fireEvent.change(screen.getByTestId("customer-identification-input"), { target: { value: "1020304050" } });
