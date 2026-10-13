@@ -5,6 +5,7 @@
   --camacho-navy: #172033;
   --camacho-navy-hover: #263249;
   --camacho-blue: #4d8fd1;
+  --camacho-blue-text: #2866a6;
   --camacho-blue-soft: #e9f1fb;
   --camacho-surface: #f4f6f8;
   --camacho-card: #fff;
@@ -125,7 +126,7 @@ button {
 
 .pos-product-name {
   margin: 0 0 4px;
-  color: var(--camacho-blue);
+  color: var(--camacho-blue-text);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: .02em;
@@ -284,7 +285,7 @@ button {
 .pos-admin-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding-bottom:18px;border-bottom:1px solid var(--camacho-border)}
 .pos-admin-header h2{margin:4px 0 6px;font-size:25px}
 .pos-admin-header p{margin:0;color:var(--camacho-muted);max-width:760px}
-.pos-admin-eyebrow{color:var(--camacho-blue);font-size:11px;font-weight:800;letter-spacing:.08em}
+.pos-admin-eyebrow{color:var(--camacho-blue-text);font-size:11px;font-weight:800;letter-spacing:.08em}
 .pos-scope-chip{max-width:360px;padding:8px 10px;border:1px solid var(--camacho-border);border-radius:999px;background:var(--camacho-surface);color:var(--camacho-muted);font-size:11px;line-height:1.3}
 .pos-admin-tabs{display:flex;gap:6px;overflow:auto;padding:14px 0}
 .pos-admin-tabs button{border:1px solid transparent;border-radius:10px;padding:9px 13px;background:transparent;color:var(--camacho-muted);white-space:nowrap}
