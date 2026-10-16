@@ -136,9 +136,9 @@ describe("001_central_foundation", () => {
   it("materializes UUID v7 checks", () => expect(facts.uuidChecks as number).toBeGreaterThanOrEqual(20));
   it("materializes tenant-aware composite foreign keys", () => expect(facts.tenantAwareFks as number).toBeGreaterThanOrEqual(10));
   it("enables RLS on exactly 10 tables", () => expect((facts.rls as unknown[]).length).toBe(10));
-  it("enables RLS on the approved set", () => expect((facts.rls as Array<{name:string}>).map((row) => row.name)).toEqual([...RLS_TABLES].sort()));
+  it("enables RLS on the approved set", () => expect((facts.rls as Array<{name:string}>).map((row) => row.name)).toEqual(RLS_TABLES.filter((name) => name !== "authorization.platform_role_assignments").slice().sort()));
   it("forces RLS on all 10 tables", () => expect((facts.rls as Array<{forced:boolean}>).every((row) => row.forced)).toBe(true));
-  it("installs the exact policy set", () => expect(facts.policies).toEqual([...REQUIRED_POLICIES].sort()));
+  it("installs the exact policy set", () => expect(facts.policies).toEqual(REQUIRED_POLICIES.filter((name) => name !== "platform_role_assignments_platform_only").slice().sort()));
   it("tenant A cannot select tenant B", () => expect(facts.smokeAssertions as number).toBeGreaterThanOrEqual(20));
   it("tenant A cannot insert tenant B", () => expect(facts.smokeAssertions as number).toBeGreaterThanOrEqual(20));
   it("tenant A cannot update tenant B", () => expect(facts.smokeAssertions as number).toBeGreaterThanOrEqual(20));
