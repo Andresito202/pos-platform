@@ -106,6 +106,24 @@ if (process.connected && process.env.NODE_ENV === "test") {
   });
 }
 
+function describeStartupError(error: unknown): Record<string, unknown> {
+  if (error instanceof AggregateError) {
+    return {
+      name: error.name,
+      message: error.message,
+      errors: error.errors.map((nested) => describeStartupError(nested)),
+    };
+  }
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.cause === undefined ? {} : { cause: describeStartupError(error.cause) }),
+    };
+  }
+  return { name: typeof error, message: String(error) };
+}
+
 try {
   const config = parseServiceConfig(process.env);
   if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
@@ -269,7 +287,7 @@ try {
   await logger.flush();
 } catch (error) {
   try {
-    logger.log("error", "runtime.start_failed", { error });
+    logger.log("error", "runtime.start_failed", { error: describeStartupError(error) });
     await logger.flush();
   } finally {
     process.exit(1);
