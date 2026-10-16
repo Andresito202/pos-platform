@@ -60,7 +60,7 @@ export function SalePanel(): React.JSX.Element {
               <input data-testid="catalog-search-input" aria-label="Buscar producto" value={catalogQuery}
                 onChange={(e) => { setCatalogQuery(e.target.value); }} placeholder="Buscar producto, código o barras" disabled={sale.busy} />
               <button data-testid="catalog-search-button" onClick={() => { void sale.listCatalogItems(catalogQuery.trim()); }}
-                disabled={sale.busy}>Buscar catálogo</button>
+                disabled={sale.busy || sale.catalogBusy}>Buscar catálogo</button>
               <input data-testid="barcode-input" aria-label="Código de barras" value={barcode}
                 onChange={(e) => { setBarcode(e.target.value); }} placeholder="Escanear o escribir código" disabled={sale.busy} />
               <button data-testid="find-item-button" onClick={() => { void sale.findItem(barcode.trim()); }}
@@ -99,7 +99,7 @@ export function SalePanel(): React.JSX.Element {
             )}
           </div>
           {sale.catalogHasMore && (
-            <button type="button" data-testid="catalog-load-more" onClick={() => { void sale.listCatalogItems(catalogQuery.trim(), sale.catalogItems.length); }} disabled={sale.busy}>
+            <button type="button" data-testid="catalog-load-more" onClick={() => { void sale.listCatalogItems(catalogQuery.trim(), sale.catalogItems.length); }} disabled={sale.busy || sale.catalogBusy}>
               Cargar más productos
             </button>
           )}
