@@ -2,6 +2,7 @@ import type { SqlExecutor } from "./database.js";
 import { queryRows } from "./database.js";
 import {
   POSTGRES_001_TABLE_COLUMNS,
+  POSTGRES_TABLE_COLUMNS,
   INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
   PROHIBITED_TABLE_NAMES,
