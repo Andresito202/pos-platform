@@ -5,7 +5,7 @@ import {
   INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
   POSTGRES_003_DESCRIPTOR,
-  POSTGRES_TABLE_COLUMNS,
+  POSTGRES_001_TABLE_COLUMNS,
   TARGET_SCHEMAS,
 } from "./contract.js";
 import { MigrationInvariantError, sha256 } from "./shared.js";
@@ -46,7 +46,7 @@ async function validate001FoundationShape(db:SqlExecutor):Promise<void>{
   `);
   invariant(same(schemas.map(row=>row.name),expectedSchemas),"003 predecessor 001 schema set diverges");
 
-  for(const [qualified,expected] of Object.entries(POSTGRES_TABLE_COLUMNS)){
+  for(const [qualified,expected] of Object.entries(POSTGRES_001_TABLE_COLUMNS)){
     const [schemaName,tableName]=qualified.split(".");
     const columns=await queryRows<{name:string}>(db,`
       SELECT a.attname name
