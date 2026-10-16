@@ -98,8 +98,10 @@ async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ 
   });
 }
 
+const closedServices = new WeakSet<ChildProcessWithoutNullStreams>();
+
 async function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
-  if (child.closed) return;
+  if (closedServices.has(child)) return;
 
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
@@ -117,7 +119,7 @@ async function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs: nu
 
     child.once("close", onClose);
     // Close may have happened between the initial check and listener registration.
-    if (child.closed) {
+    if (closedServices.has(child)) {
       cleanup();
       resolve();
     }
@@ -132,7 +134,7 @@ async function stopService(child: ChildProcessWithoutNullStreams): Promise<void>
   try {
     await waitForClose(child, 10_000);
   } catch {
-    if (child.closed) return;
+    if (closedServices.has(child)) return;
     child.kill("SIGKILL");
     await waitForClose(child, 5_000);
   }
@@ -140,7 +142,7 @@ async function stopService(child: ChildProcessWithoutNullStreams): Promise<void>
 
 function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string): ChildProcessWithoutNullStreams {
   const tsxCli = join(serviceRoot, "node_modules", "tsx", "dist", "cli.mjs");
-  return spawn(process.execPath, [tsxCli, "src/main.ts"], {
+  const child = spawn(process.execPath, [tsxCli, "src/main.ts"], {
     cwd: serviceRoot,
     env: {
       ...process.env,
@@ -159,6 +161,8 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
       POS_SESSION_TRUST_ARTIFACT_PATH: artifactPath,
     },
   }) as ChildProcessWithoutNullStreams;
+  child.once("close", () => closedServices.add(child));
+  return child;
 }
 describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () => {
   it("boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation", async () => {
