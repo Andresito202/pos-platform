@@ -93,6 +93,7 @@ async function createSale(): Promise<void> {
 
 const BASE_OVERRIDES = {
   "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 1 }),
+  "catalog.item.list": succeeded({ outcome: "FOUND", items: [], has_more: false }),
   "catalog.item.find": FOUND_ITEM,
   "sale.create": succeeded({
     outcome: "CREATED",
