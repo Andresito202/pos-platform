@@ -150,7 +150,7 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
               </div>
             ))}
           </div>
-          <div className="pos-admin-audit-actions"><span>{audit.busy ? "Consultando…" : `${audit.totalLoaded} eventos cargados`}</span><button type="button" onClick={() => void audit.nextPage()} disabled={!audit.hasMore || audit.busy}>Cargar más</button></div>
+          <div className="pos-admin-audit-actions"><span>{audit.busy ? "Consultando…" : `${audit.totalLoaded} ${audit.totalLoaded === 1 ? "evento cargado" : "eventos cargados"}`}</span><button type="button" onClick={() => void audit.nextPage()} disabled={!audit.hasMore || audit.busy}>Cargar más</button></div>
         </div>
       ) : tab === "monitoring" ? (
         <div className="pos-admin-surface">
