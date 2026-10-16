@@ -53,9 +53,9 @@ export interface CatalogItem {
 }
 
 /** List query guarantees an ACTIVE price through its INNER JOIN. */
-export interface SellableCatalogItem extends Omit<CatalogItem, "price"> {
+export type SellableCatalogItem = Omit<CatalogItem, "price"> & {
   readonly price: CatalogPrice;
-}
+};
 
 /** Atributos fiscales de la presentación — `MIGRATION_013`. */
 export interface CatalogFiscalAttribute {
