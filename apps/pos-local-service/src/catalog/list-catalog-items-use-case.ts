@@ -6,7 +6,7 @@ import {
 } from "@pos-platform/application";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { CatalogItem, SqliteCatalogStore } from "./sqlite-catalog-store.js";
+import type { SellableCatalogItem, SqliteCatalogStore } from "./sqlite-catalog-store.js";
 
 export const PERMISSION_CATALOG_PRODUCT_READ = "CATALOG_PRODUCT_READ";
 
@@ -17,7 +17,7 @@ export interface ListCatalogItemsRequest {
 }
 
 export type ListCatalogItemsResult =
-  | { readonly kind: "FOUND"; readonly items: readonly CatalogItem[]; readonly hasMore: boolean }
+  | { readonly kind: "FOUND"; readonly items: readonly SellableCatalogItem[]; readonly hasMore: boolean }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
 
 export class ListCatalogItemsUseCase {
