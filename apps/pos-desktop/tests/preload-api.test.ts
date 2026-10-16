@@ -9,6 +9,7 @@ describe("preload-api", () => {
   it("exposes exactly the ratified methods", () => {
     expect(Array.from(RENDERER_API_METHODS)).toEqual([
       "runtime.status.get",
+      "authorization.capabilities.get",
       "operation.result.get",
       "operation.confirm",
       "session.activate",
@@ -24,14 +25,20 @@ describe("preload-api", () => {
       "customer.register",
       "customer.get",
       "customer.find",
+      "customer.marketing.subscribe",
+      "customer.marketing.unsubscribe",
+      "customer.marketing.get",
       "fiscal.document.issue",
       "catalog.product.register",
       "catalog.item.find",
       "catalog.item.get",
+      "catalog.item.list",
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.stock.get",
       "sales.receipt.get",
+      "audit.event.list",
+      "admin.metrics.get",
     ]);
   });
 
