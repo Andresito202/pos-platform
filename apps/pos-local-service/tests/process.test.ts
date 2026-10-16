@@ -390,7 +390,9 @@ describe("POS Local Service process boundary", () => {
       const dataDirectory = await directory();
       const child = spawnServiceWithFatal(serviceEnvironment(dataDirectory), mode);
       const stdout = captureStdout(child);
-      expect(await waitForExit(child)).toBe(1);
+      // Lifecycle component shutdown permits up to 10 seconds; leave bounded
+      // headroom for the process to flush logs and exit on slower Windows hosts.
+      expect(await waitForExit(child, 15_000)).toBe(1);
       expect(stdout()).toContain('"event":"runtime.started"');
       expect(stdout()).toContain('"event":"runtime.stopping"');
       expect(stdout()).toContain(`"reason":"${mode}"`);

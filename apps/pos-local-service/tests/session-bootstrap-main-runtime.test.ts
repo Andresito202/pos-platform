@@ -93,7 +93,7 @@ async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ 
     child.stderr.on("data", (chunk: Buffer) => process.stderr.write(chunk));
     child.once("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`POS Local Service exited before runtime.started: ${String(code)}`));
+      reject(new Error(`POS Local Service exited before runtime.started: ${String(code)}; stdout: ${buffer}`));
     });
   });
 }

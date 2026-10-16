@@ -83,8 +83,9 @@ describe("InitializeTenant", () => {
       updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actor: input().actor,
     };
     const replayTx = tx();
-    replayTx.createOnboarding = async () => ({ claimed: false });
-    replayTx.findOnboarding = async () => existing;
+    let replayChecksum = "";
+    replayTx.createOnboarding = async (record) => { replayChecksum = record.requestChecksum; return { claimed: false }; };
+    replayTx.findOnboarding = async () => ({ ...existing, requestChecksum: replayChecksum });
     const result = await new InitializeTenant({ transaction: async (work) => work(replayTx) }, { authorize: async () => undefined }).execute(input());
     expect(result).toBe(existing);
   });

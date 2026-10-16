@@ -27,7 +27,7 @@ export function SalePanel(): React.JSX.Element {
       setTendered("");
       return;
     }
-    setTendered((current) => \`\${current}\${key}\`.replace(/^0+(?=\d)/, ""));
+    setTendered((current) => `${current}${key}`.replace(/^0+(?=\d)/, ""));
   };
 
   return (
@@ -132,7 +132,7 @@ export function SalePanel(): React.JSX.Element {
           <h2>Carrito</h2>
           <ul data-testid="cart" className="pos-cart-list">
             {sale.lines.map((line, index) => (
-              <li key={\`\${line.presentationId}-\${String(index)}\`} data-testid="cart-line">
+              <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
                 <span><strong>{line.name}</strong><small>{line.presentationName} · {line.quantity}</small></span>
                 <strong>{line.priceAmount}</strong>
               </li>
