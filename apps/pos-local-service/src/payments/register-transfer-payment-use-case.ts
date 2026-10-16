@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { uuidV7 } from "@pos-platform/contracts";
@@ -7,7 +7,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
-export const PERMISSION_PAYMENTS_TRANSFER_REPORT = PermissionCode.PAYMENTS_TRANSFER_REPORT;
+export const PERMISSION_PAYMENTS_TRANSFER_REPORT = CanonicalPermission.PAYMENTS_TRANSFER_REPORT;
 
 export interface RegisterTransferPaymentRequest {
   readonly saleId: string;
