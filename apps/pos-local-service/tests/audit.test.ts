@@ -86,8 +86,11 @@ describe("lectura de auditoría administrativa", () => {
     expect(result.kind).toBe("FOUND");
     if (result.kind !== "FOUND") return;
     expect(result.events).toHaveLength(1);
-    expect(result.events[0].actionCode).toBe("SALE_CREATED");
-    expect(result.events[0]).not.toHaveProperty("detailsJson");
+    const event = result.events[0];
+    expect(event).toBeDefined();
+    if (event === undefined) throw new Error("expected one audit event");
+    expect(event.actionCode).toBe("SALE_CREATED");
+    expect(event).not.toHaveProperty("detailsJson");
   });
 
   it("deniega sin el permiso dedicado", async () => {
