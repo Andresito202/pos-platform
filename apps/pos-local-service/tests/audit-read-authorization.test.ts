@@ -76,7 +76,7 @@ describe("ListAuditEventsUseCase authorization", () => {
   it("denies audit read when the permission is absent and does not query the store", () => {
     const auditStore = store();
     const result = new ListAuditEventsUseCase(auditStore).execute(
-      { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH },
+      { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH, deviceId: DEVICE, installationId: INSTALLATION },
       snapshot(TENANT, CanonicalPermission.SALES_RECEIPT_READ),
       request,
       new Date("2026-10-08T12:00:00.000Z"),
@@ -89,7 +89,7 @@ describe("ListAuditEventsUseCase authorization", () => {
   it("denies an assignment from another tenant even when it carries audit read", () => {
     const auditStore = store();
     const result = new ListAuditEventsUseCase(auditStore).execute(
-      { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH },
+      { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH, deviceId: DEVICE, installationId: INSTALLATION },
       snapshot(OTHER_TENANT),
       request,
       new Date("2026-10-08T12:00:00.000Z"),
