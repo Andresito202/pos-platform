@@ -1,4 +1,4 @@
-import type { CatalogItemResult } from "@pos-platform/contracts";
+import type { CatalogItemListItem, CatalogItemResult } from "@pos-platform/contracts";
 
 export type PosBusinessType =
   | "tienda_barrio"
@@ -46,8 +46,12 @@ export function ProductAvatar({
   item,
 }: {
   readonly businessType?: PosBusinessType;
-  readonly item: CatalogItemResult;
+  /** Catalog listing tiles and barcode lookup have distinct, valid contracts. */
+  readonly item: CatalogItemListItem | CatalogItemResult;
 }): React.JSX.Element {
+  // The item is intentionally not used to infer a business profile: the avatar
+  // is driven by the configured business type, not by guessed product metadata.
+  void item;
   const symbol = businessType === undefined ? "□" : avatarSymbols[businessType];
   return (
     <span
