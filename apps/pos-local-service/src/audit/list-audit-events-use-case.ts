@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import {
   createActor,
   createOperationScope,
@@ -13,7 +13,7 @@ import type { LocalAuditEvent, SqliteAuditStore, AuditEventQuery } from "./sqlit
  * V1 audit read permission. It is deliberately separate from mutation/admin
  * permissions: reading evidence must never be implied by changing policy.
  */
-export const PERMISSION_AUDIT_EVENT_READ = PermissionCode.AUDIT_EVENT_READ;
+export const PERMISSION_AUDIT_EVENT_READ = CanonicalPermission.AUDIT_EVENT_READ;
 
 export type ListAuditEventsResult =
   | { readonly kind: "FOUND"; readonly events: readonly LocalAuditEvent[]; readonly hasMore: boolean }
