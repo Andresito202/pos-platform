@@ -580,7 +580,7 @@ describe("AdministrativeControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
     await waitFor(() => { expect(screen.getByText("SALE_CREATED")).toBeTruthy(); });
     expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
-    expect(screen.getByText("Eventos cargados")).toBeTruthy();
+    expect(screen.getByText("1 evento cargado")).toBeTruthy();
     expect(sent("audit.event.list")["payload"]).toBeDefined();
   });
 });
