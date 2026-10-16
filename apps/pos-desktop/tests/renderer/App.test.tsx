@@ -26,7 +26,7 @@ beforeEach(() => {
 
 describe("App", () => {
   it("shows only navigation areas covered by effective permissions", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -51,7 +51,7 @@ describe("App", () => {
 
 
   it("does not expose fiscal navigation without the fiscal permission", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -71,7 +71,7 @@ describe("App", () => {
   });
 
   it("exposes fiscal navigation only when the effective fiscal permission is present", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -89,7 +89,7 @@ describe("App", () => {
   });
 
   it("groups authorized screens under their existing navigation sections", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -110,7 +110,7 @@ describe("App", () => {
   });
 
   it("materializes the first authorized screen and keeps navigation capability-driven", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -132,7 +132,7 @@ describe("App", () => {
   });
 
   it("gives POS inputs accessible names across authorized screens", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -176,7 +176,7 @@ describe("App", () => {
   });
 
   it("exposes only the currently executable administrative surfaces", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -204,7 +204,7 @@ describe("App", () => {
   });
 
   it("does not expose the administrative dashboard from operational permissions alone", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
@@ -224,7 +224,7 @@ describe("App", () => {
   });
 
   it("fails closed when effective authorization cannot be loaded", async () => {
-    window.posService["authorization.capabilities.get"].mockResolvedValue({
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "REJECTED",
       result_code: "SESSION_NOT_BOUND",
       result: { outcome: "UNAUTHORIZED", permissions: [] },

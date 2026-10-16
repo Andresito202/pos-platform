@@ -24,7 +24,7 @@ export interface AdministrativeAuditState {
   readonly busy: boolean;
   readonly error: string | null;
   readonly filters: AuditFilters;
-  readonly events: readonly AuditEventListResult["events"];
+  readonly events: Readonly<AuditEventListResult["events"]>;
   readonly hasMore: boolean;
   readonly totalLoaded: number;
 }
@@ -37,7 +37,7 @@ export function useAdministrativeAudit(enabled: boolean): AdministrativeAuditSta
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<AuditFilters>(EMPTY_FILTERS);
-  const [events, setEvents] = useState<readonly AuditEventListResult["events"]>([]);
+  const [events, setEvents] = useState<Readonly<AuditEventListResult["events"]>>([]);
   const [hasMore, setHasMore] = useState(false);
 
   const load = useCallback(async (offset: number, append: boolean): Promise<void> => {
@@ -45,7 +45,7 @@ export function useAdministrativeAudit(enabled: boolean): AdministrativeAuditSta
     setBusy(true);
     setError(null);
     try {
-      const response = await callCommercial("audit.event.list", {
+      const response = await callCommercial<AuditEventListResult>("audit.event.list", {
         query: filters.query.trim(),
         action_code: filters.actionCode.trim() === "" ? null : filters.actionCode.trim(),
         resource_type: filters.resourceType.trim() === "" ? null : filters.resourceType.trim(),

@@ -1276,12 +1276,17 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  "pos:customer.marketing.subscribe",
+  "pos:customer.marketing.unsubscribe",
+  "pos:customer.marketing.get",
   "pos:catalog.product.register",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
   "pos:inventory.stock.get",
+  "pos:audit.event.list",
+  "pos:admin.metrics.get",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -1304,6 +1309,7 @@ export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResult
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
+export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;

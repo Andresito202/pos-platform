@@ -25,7 +25,7 @@ export function useAdminMetrics(enabled: boolean): {
     setBusy(true);
     setError(null);
     try {
-      const response = await callCommercial("admin.metrics.get", {});
+      const response = await callCommercial<AdminMetricsGetResult>("admin.metrics.get", {});
       if (response.status !== "SUCCEEDED" || response.result === null) {
         setError(response.result_code);
         return;

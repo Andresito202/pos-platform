@@ -20,6 +20,9 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  "pos:customer.marketing.subscribe",
+  "pos:customer.marketing.unsubscribe",
+  "pos:customer.marketing.get",
   // Emisión fiscal — `DEC-021` F5.
   "pos:fiscal.document.issue",
   "pos:catalog.product.register",
@@ -31,6 +34,8 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:inventory.stock.get",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
+  "pos:audit.event.list",
+  "pos:admin.metrics.get",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];
