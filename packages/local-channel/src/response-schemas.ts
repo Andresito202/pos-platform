@@ -1,10 +1,16 @@
 import type * as z from "zod";
 import {
+  AdminMetricsGetResponseSchema,
+  AuditEventListResponseSchema,
   AuthorizationCapabilitiesGetResponseSchema,
   CashShiftCloseResponseSchema,
   CashShiftOpenResponseSchema,
+  CatalogItemListResponseSchema,
   CatalogItemResponseSchema,
   CatalogProductRegisterResponseSchema,
+  CustomerMarketingGetResponseSchema,
+  CustomerMarketingSubscribeResponseSchema,
+  CustomerMarketingUnsubscribeResponseSchema,
   CustomerReadResponseSchema,
   CustomerRegisterResponseSchema,
   FiscalDocumentIssueResponseSchema,
@@ -27,26 +33,9 @@ import {
 } from "@pos-platform/contracts";
 
 /**
- * Qué esquema de respuesta corresponde a cada operación del canal.
- *
- * Antes no existía: el cliente decidía con dos ternarios y mandaba **todo lo
- * que no fuera `runtime.status.get` ni `operation.confirm`** a
- * `OperationResultResponseSchema`, un `strictObject` de cuatro campos. Las 19
- * operaciones comerciales caían ahí, así que **ninguna respuesta comercial se
- * podía parsear**: un `SaleCreateResult` no tiene `operation_id` ni
- * `idempotency_key`, y el `strictObject` lo rechaza.
- *
- * No se declara ningún contrato nuevo: la tabla **referencia** los esquemas que
- * `@pos-platform/contracts` ya exporta. Y el tipo es
- * `Record<IpcMessageType, …>`, de modo que **añadir una operación al contrato
- * sin darle su respuesta rompe la compilación** — que es exactamente lo que no
- * ocurrió cuando se añadieron las 19.
- *
- * Tres operaciones comparten esquema de respuesta porque el contrato ya las
- * unificó: `customer.get`/`customer.find` en `CustomerReadResponseSchema`,
- * `catalog.item.find`/`catalog.item.get` en `CatalogItemResponseSchema`, y
- * `inventory.stock.receive`/`inventory.stock.adjust` en
- * `InventoryMovementResponseSchema`.
+ * Correspondencia exhaustiva entre cada mensaje IPC y su esquema de respuesta.
+ * Las operaciones que comparten un contrato de resultado reutilizan el mismo
+ * esquema; las demás conservan validación estricta en la frontera.
  */
 export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodType> = {
   "runtime.handshake": RuntimeHandshakeResponseSchema,
@@ -67,14 +56,20 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "customer.register": CustomerRegisterResponseSchema,
   "customer.get": CustomerReadResponseSchema,
   "customer.find": CustomerReadResponseSchema,
+  "customer.marketing.subscribe": CustomerMarketingSubscribeResponseSchema,
+  "customer.marketing.unsubscribe": CustomerMarketingUnsubscribeResponseSchema,
+  "customer.marketing.get": CustomerMarketingGetResponseSchema,
   "fiscal.document.issue": FiscalDocumentIssueResponseSchema,
   "catalog.product.register": CatalogProductRegisterResponseSchema,
   "catalog.item.find": CatalogItemResponseSchema,
   "catalog.item.get": CatalogItemResponseSchema,
+  "catalog.item.list": CatalogItemListResponseSchema,
   "inventory.stock.receive": InventoryMovementResponseSchema,
   "inventory.stock.adjust": InventoryMovementResponseSchema,
   "inventory.stock.get": InventoryStockGetResponseSchema,
   "sales.receipt.get": SalesReceiptGetResponseSchema,
+  "audit.event.list": AuditEventListResponseSchema,
+  "admin.metrics.get": AdminMetricsGetResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {
