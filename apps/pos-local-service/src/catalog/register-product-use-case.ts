@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createActor,
@@ -12,7 +12,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { RegisterProductOutcome, SqliteCatalogStore } from "./sqlite-catalog-store.js";
 
-export const PERMISSION_CATALOG_PRODUCT_REGISTER = PermissionCode.CATALOG_PRODUCT_REGISTER;
+export const PERMISSION_CATALOG_PRODUCT_REGISTER = CanonicalPermission.CATALOG_PRODUCT_REGISTER;
 
 export interface RegisterProductRequest {
   readonly code: string;
