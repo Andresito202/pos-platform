@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectDirectDependencies } from "./generate-dependency-inventory.mjs";
+import { collectDirectDependencies, generateDependencyInventory, isInstalledPackageManifest } from "./generate-dependency-inventory.mjs";
 import { discoverWorkspaceManifestPaths } from "./workspace-manifests.mjs";
 
 function writeManifest(root, relativePath, manifest) {
@@ -57,6 +57,51 @@ test("fails closed when a discovered workspace manifest is invalid JSON", () => 
     mkdirSync(path.join(root, "packages/broken"), { recursive: true });
     writeFileSync(path.join(root, "packages/broken/package.json"), "{");
     assert.throws(() => collectDirectDependencies(root), SyntaxError);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("excludes nested dependency fixtures and benchmarks from installed package inventory", () => {
+  const store = path.join("root", "node_modules", ".pnpm");
+  assert.equal(
+    isInstalledPackageManifest(path.join(store, "pino@10.3.1", "node_modules", "pino", "package.json"), store),
+    true,
+  );
+  assert.equal(
+    isInstalledPackageManifest(path.join(store, "pino@10.3.1", "node_modules", "pino", "test", "fixtures", "transport", "package.json"), store),
+    false,
+  );
+  assert.equal(
+    isInstalledPackageManifest(path.join(store, "secure-json-parse@4.1.0", "node_modules", "secure-json-parse", "benchmarks", "package.json"), store),
+    false,
+  );
+  assert.equal(
+    isInstalledPackageManifest(path.join(store, "scope@1.0.0", "node_modules", "@scope", "pkg", "package.json"), store),
+    true,
+  );
+});
+
+test("inventory ignores package.json files nested inside installed packages", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-fixtures-"));
+  try {
+    writeManifest(root, "package.json", { name: "root", version: "1.0.0" });
+    writeManifest(root, "node_modules/.pnpm/pino@10.3.1/node_modules/pino/package.json", {
+      name: "pino", version: "10.3.1", license: "MIT",
+    });
+    writeManifest(root, "node_modules/.pnpm/pino@10.3.1/node_modules/pino/test/fixtures/transport/package.json", {
+      name: "transport", version: "0.0.1",
+    });
+    writeManifest(root, "node_modules/.pnpm/secure-json-parse@4.1.0/node_modules/secure-json-parse/package.json", {
+      name: "secure-json-parse", version: "4.1.0", license: "MIT",
+    });
+    writeManifest(root, "node_modules/.pnpm/secure-json-parse@4.1.0/node_modules/secure-json-parse/benchmarks/package.json", {
+      name: "benchmarks", version: "1.0.0",
+    });
+    const inventory = generateDependencyInventory(root, { REVIEWED_SHA: "a".repeat(40) });
+    assert.equal(inventory.packageCount, 2);
+    assert.deepEqual(inventory.reviewFindings, []);
+    assert.deepEqual(inventory.packages.map(({ name }) => name), ["pino", "secure-json-parse"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
