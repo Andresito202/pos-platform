@@ -98,6 +98,46 @@ async function waitForRuntime(child: ChildProcessWithoutNullStreams): Promise<{ 
   });
 }
 
+async function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
+  if (child.closed) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off("close", onClose);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`POS Local Service stdio did not close within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.once("close", onClose);
+    // Close may have happened between the initial check and listener registration.
+    if (child.closed) {
+      cleanup();
+      resolve();
+    }
+  });
+}
+
+async function stopService(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGTERM");
+  }
+
+  try {
+    await waitForClose(child, 10_000);
+  } catch {
+    if (child.closed) return;
+    child.kill("SIGKILL");
+    await waitForClose(child, 5_000);
+  }
+}
+
 function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string): ChildProcessWithoutNullStreams {
   const tsxCli = join(serviceRoot, "node_modules", "tsx", "dist", "cli.mjs");
   return spawn(process.execPath, [tsxCli, "src/main.ts"], {
@@ -170,9 +210,7 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       expect(activate.status).toBe("SUCCEEDED");
 
       await client.close();
-      const stopped = new Promise<void>((resolve) => service!.once("exit", () => resolve()));
-      service.kill("SIGTERM");
-      await stopped;
+      await stopService(service);
       service = undefined;
 
       service = spawnService(serviceRoot, dataDirectory, root.publicKey.export({ type: "spki", format: "pem" }) as string, artifactPath);
@@ -208,9 +246,7 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       expect(recovered.status).toBe("SUCCEEDED");
 
       await client.close();
-      const stoppedAgain = new Promise<void>((resolve) => service!.once("exit", () => resolve()));
-      service.kill("SIGTERM");
-      await stoppedAgain;
+      await stopService(service);
       service = undefined;
 
       writeFileSync(artifactPath, JSON.stringify(trustArtifact(root, operational, 2, "REVOKED")), "utf8");
@@ -247,10 +283,8 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       expect(rejected.status).toBe("REJECTED");
     } finally {
       await client?.close().catch(() => undefined);
-      if (service !== undefined && service.exitCode === null) {
-        const stopped = new Promise<void>((resolve) => service!.once("exit", () => resolve()));
-        service.kill("SIGTERM");
-        await stopped;
+      if (service !== undefined) {
+        await stopService(service);
       }
       rmSync(dataDirectory, { recursive: true, force: true });
     }
