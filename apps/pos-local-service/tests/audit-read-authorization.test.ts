@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { ListAuditEventsUseCase } from "../src/audit/list-audit-events-use-case.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SqliteAuditStore } from "../src/audit/sqlite-audit-store.js";
@@ -23,7 +23,7 @@ const request = {
 
 function snapshot(
   assignmentTenant = TENANT,
-  permissionCode: string = PermissionCode.AUDIT_EVENT_READ,
+  permissionCode: string = CanonicalPermission.AUDIT_EVENT_READ,
 ): StoredAuthorizationSnapshot {
   return {
     claims: {
@@ -75,7 +75,7 @@ describe("ListAuditEventsUseCase authorization", () => {
     const auditStore = store();
     const result = new ListAuditEventsUseCase(auditStore).execute(
       { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH },
-      snapshot(TENANT, PermissionCode.SALES_RECEIPT_READ),
+      snapshot(TENANT, CanonicalPermission.SALES_RECEIPT_READ),
       request,
       new Date("2026-10-08T12:00:00.000Z"),
     );
