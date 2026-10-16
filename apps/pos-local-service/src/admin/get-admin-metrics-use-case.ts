@@ -43,7 +43,7 @@ export class GetAdminMetricsUseCase {
     // authorize operational actions/reads, not branch-wide administrative
     // aggregates. Returning null is fail-closed until canonical aggregate-read
     // permissions are published by the central authorization authority.
-    const sales = null;
+    const sales: { readonly count: number; readonly amount: string } | null = null;
     const inventory = canReadInventory ? this.store.readInventory(scope) : null;
     const cash = null;
 
