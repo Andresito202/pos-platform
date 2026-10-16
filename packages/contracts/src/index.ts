@@ -13,7 +13,7 @@ export * from "./local-channel.js";
 export * from "./local-security.js";
 export * from "./release.js";
 export * from "./authorization.js";
-export { PermissionCode, CANONICAL_PERMISSION_CODES } from "./permission-codes.js";
+export { PermissionCode as CanonicalPermission, CANONICAL_PERMISSION_CODES } from "./permission-codes.js";
 export type { CanonicalPermissionCode } from "./permission-codes.js";
 export type { PermissionCode } from "./authorization.js";
 export * from "./central-administration.js";
