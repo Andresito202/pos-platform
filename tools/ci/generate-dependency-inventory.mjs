@@ -39,6 +39,23 @@ function walkForPackageJson(directory, results) {
   }
 }
 
+/**
+ * Only inspect package-root manifests in pnpm's virtual store. Nested fixtures,
+ * benchmarks and test projects inside a dependency are not installed packages.
+ */
+export function isInstalledPackageManifest(packageJsonPath, pnpmStore) {
+  const relative = path.relative(pnpmStore, packageJsonPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  const segments = relative.split(path.sep);
+  const nodeModulesIndex = segments.lastIndexOf("node_modules");
+  if (nodeModulesIndex < 0) return false;
+  const packageSegments = segments.slice(nodeModulesIndex + 1);
+  if (packageSegments.length === 2 && packageSegments[1] === "package.json") return true;
+  return packageSegments.length === 3
+    && packageSegments[0].startsWith("@")
+    && packageSegments[2] === "package.json";
+}
+
 export function normalizedLicense(manifest) {
   if (typeof manifest.license === "string" && manifest.license.trim()) return manifest.license.trim();
   if (manifest.license && typeof manifest.license.type === "string") return manifest.license.type.trim();
@@ -62,12 +79,15 @@ export function generateDependencyInventory(root, env = process.env) {
   const directDependencies = collectDirectDependencies(root, manifestPaths);
   const packageJsonPaths = [];
   walkForPackageJson(pnpmStore, packageJsonPaths);
+  const installedPackageJsonPaths = packageJsonPaths.filter((manifestPath) =>
+    isInstalledPackageManifest(manifestPath, pnpmStore),
+  );
 
   const packages = new Map();
   const reviewFindings = [];
   const restrictedLicensePattern = /\b(?:AGPL(?:-\d+(?:\.\d+)?)?|GPL(?:-\d+(?:\.\d+)?)?|LGPL(?:-\d+(?:\.\d+)?)?|SSPL(?:-\d+(?:\.\d+)?)?|BUSL(?:-\d+(?:\.\d+)?)?|UNLICENSED)\b|Commons Clause/i;
 
-  for (const packageJsonPath of packageJsonPaths) {
+  for (const packageJsonPath of installedPackageJsonPaths) {
     let manifest;
     try {
       manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
