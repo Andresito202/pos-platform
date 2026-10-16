@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import {
@@ -47,7 +47,7 @@ import {
  * `assembleFactusBill`.
  */
 
-export const PERMISSION_FISCAL_DOCUMENT_ISSUE = PermissionCode.FISCAL_DOCUMENT_ISSUE;
+export const PERMISSION_FISCAL_DOCUMENT_ISSUE = CanonicalPermission.FISCAL_DOCUMENT_ISSUE;
 
 export interface IssueElectronicDocumentInput {
   readonly scope: DocumentScope;
