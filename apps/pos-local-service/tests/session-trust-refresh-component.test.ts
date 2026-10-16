@@ -28,7 +28,7 @@ function signedKey(
     key_id: keyId,
     key_purpose: "SESSION_ASSERTION",
     environment: "production",
-    public_key_pem: publicKeyPem ?? generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }),
+    public_key_pem: publicKeyPem ?? generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString(),
     status,
     valid_from: "2026-01-01T00:00:00.000Z",
     valid_until: null,
@@ -50,7 +50,7 @@ describe("SessionTrustRefreshComponent", () => {
       ));
       const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
       const resolver = new SessionTrustKeyResolver(store, verifier);
-      const oldPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
+      const oldPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
       const newPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
       const v1 = SessionAssertionTrustBundleSchema.parse({
         version: 1,
