@@ -50,6 +50,13 @@ export const POSTGRES_TABLE_COLUMNS = {
   "audit.audit_events": ["id","tenant_id","company_id","branch_id","actor_type","actor_id","session_id","device_id","action_code","resource_type","resource_reference_kind","resource_id","operation_id","correlation_id","causation_id","schema_version","reported_at","server_recorded_at","result","reason_code","reason_detail","previous_value","new_value","reviewer_actor_type","reviewer_actor_id","approver_actor_type","approver_actor_id","evidence_reference","evidence_checksum","payload_checksum"],
 } as const;
 
+// Stage-specific contract: 001/002 must not require tables owned by 007/008.
+export const POSTGRES_001_TABLE_COLUMNS = Object.fromEntries(
+  Object.entries(POSTGRES_TABLE_COLUMNS).filter(([name]) =>
+    name !== "identity.password_recovery_requests" && name !== "authorization.platform_role_assignments"
+  ),
+) as Pick<typeof POSTGRES_TABLE_COLUMNS, Exclude<keyof typeof POSTGRES_TABLE_COLUMNS, "identity.password_recovery_requests" | "authorization.platform_role_assignments">>;
+
 export const RLS_TABLES = [
   "tenancy.tenants",
   "organization.companies",
@@ -114,7 +121,7 @@ export const POSTGRES_001_DESCRIPTOR: MigrationDescriptor = {
   downArtifact: "postgres/001_central_foundation.down.sql",
   checksum: "DERIVED_FROM_UP_ARTIFACT",
   ownedSchemas: TARGET_SCHEMAS,
-  ownedTables: Object.keys(POSTGRES_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.") && name !== "authorization.platform_role_assignments"),
+  ownedTables: Object.keys(POSTGRES_001_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.")),
   ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
   ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
   ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",
