@@ -16,12 +16,18 @@ import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/local-databas
  */
 
 const directories: string[] = [];
+const openDatabases: LocalDatabase[] = [];
 async function open(): Promise<LocalDatabase> {
   const dataDirectory = await mkdtemp(join(tmpdir(), "pos-fiscal-"));
   directories.push(dataDirectory);
-  return LocalDatabase.open({ dataDirectory });
+  const database = LocalDatabase.open({ dataDirectory });
+  openDatabases.push(database);
+  return database;
 }
 afterEach(() => {
+  for (const database of openDatabases.splice(0)) {
+    if (database.native.open) database.close();
+  }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -187,10 +193,13 @@ const ACCEPTED = {
 describe("MIGRATION_016 — esquema", () => {
   it("llega a la última versión y crea las dos tablas de DEC-021 F1", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(16);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(16);
     expect((database.native
       .prepare("SELECT max(version) AS version FROM local_schema_migrations")
-      .get() as { version: number }).version).toBe(16);
+      .get() as { version: number }).version).toBe(LATEST_LOCAL_SCHEMA_VERSION);
+    expect((database.native
+      .prepare("SELECT COUNT(*) AS count FROM local_schema_migrations WHERE version = 16")
+      .get() as { count: number }).count).toBe(1);
 
     const tables = (database.native
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'fiscal_%' ORDER BY name")

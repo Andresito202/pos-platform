@@ -144,6 +144,9 @@ importers:
       '@types/node':
         specifier: 22.20.1
         version: 22.20.1
+      better-sqlite3:
+        specifier: 13.0.3
+        version: 13.0.3
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

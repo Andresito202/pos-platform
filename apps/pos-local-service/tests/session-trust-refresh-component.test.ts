@@ -51,7 +51,7 @@ describe("SessionTrustRefreshComponent", () => {
       const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
       const resolver = new SessionTrustKeyResolver(store, verifier);
       const oldPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
-      const newPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
+      const newPublicKeyPem = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
       const v1 = SessionAssertionTrustBundleSchema.parse({
         version: 1,
         keys: [signedKey(root, "ssa-old", "ACTIVE", oldPublicKeyPem)],

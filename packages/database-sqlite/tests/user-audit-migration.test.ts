@@ -103,6 +103,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_schema_migrations_no_delete;
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
+      DROP TABLE customer_marketing_subscriptions;
       DROP TABLE inventory_movement;
       DROP TABLE inventory_stock;
       DROP TABLE catalog_price;
