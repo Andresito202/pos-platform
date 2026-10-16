@@ -523,7 +523,7 @@ describe("AdministrativeControlPanel", () => {
     expect(screen.getByTestId("admin-panel-superadmin")).toBeTruthy();
     expect(screen.getAllByText("—")).toHaveLength(4);
     fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
-    expect(screen.getByText("Seguimiento")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Seguimiento" })).toBeTruthy();
     expect(screen.getByText("Sin datos ejecutables")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Seguridad" }));
     expect(screen.getByText("Autorización efectiva")).toBeTruthy();
@@ -535,10 +535,10 @@ describe("AdministrativeControlPanel", () => {
       result_code: "AVAILABLE",
       result: {
         outcome: "AVAILABLE",
-        sales_completed_count: 12,
-        sales_completed_amount: "125000.000000",
+        sales_completed_count: null,
+        sales_completed_amount: null,
         inventory_tracked_count: 48,
-        cash_open_shift_count: 1,
+        cash_open_shift_count: null,
       },
     });
     render(<AdministrativeControlPanel kind="admin" />);
@@ -577,6 +577,7 @@ describe("AdministrativeControlPanel", () => {
       },
     });
     render(<AdministrativeControlPanel kind="audit" />);
+    fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
     await waitFor(() => { expect(screen.getByText("SALE_CREATED")).toBeTruthy(); });
     expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
     expect(screen.getByText("Eventos cargados")).toBeTruthy();
