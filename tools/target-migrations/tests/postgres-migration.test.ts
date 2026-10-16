@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { POSTGRES_TABLE_COLUMNS, PROHIBITED_TABLE_NAMES, REQUIRED_POLICIES, RLS_TABLES, TARGET_SCHEMAS } from "../src/contract.js";
+import { POSTGRES_001_TABLE_COLUMNS, PROHIBITED_TABLE_NAMES, REQUIRED_POLICIES, RLS_TABLES, TARGET_SCHEMAS } from "../src/contract.js";
 import { postgresDatabase, queryRows } from "../src/database.js";
 import { validatePostgresCatalog } from "../src/postgres-introspection.js";
 import { runPostgresSmoke } from "../src/postgres-smoke.js";
@@ -130,7 +130,7 @@ describe("001_central_foundation", () => {
   it("repeat APPLIED retains execution identity", () => expect(facts.sameExecution).toBe(true));
   it("checksum mismatch fails closed", () => expect(facts.checksumRejected).toBe(true));
   it("has exactly 20 target tables", () => expect((facts.tables as string[]).length).toBe(20));
-  it("has the exact table contract", () => expect(facts.tables).toEqual(Object.keys(POSTGRES_TABLE_COLUMNS).sort()));
+  it("has the exact table contract", () => expect(facts.tables).toEqual(Object.keys(POSTGRES_001_TABLE_COLUMNS).sort()));
   it("has all six body schemas", () => expect(facts.schemas).toEqual([...TARGET_SCHEMAS].sort()));
   it("has zero prohibited commercial objects", () => expect(facts.prohibited).toEqual([]));
   it("materializes UUID v7 checks", () => expect(facts.uuidChecks as number).toBeGreaterThanOrEqual(20));
