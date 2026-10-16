@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import {
   createActor,
   createOperationScope,
@@ -9,7 +9,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { InventoryStock, SqliteInventoryStore } from "./sqlite-inventory-store.js";
 
-export const PERMISSION_INVENTORY_STOCK_READ = PermissionCode.INVENTORY_STOCK_READ;
+export const PERMISSION_INVENTORY_STOCK_READ = CanonicalPermission.INVENTORY_STOCK_READ;
 
 export type GetStockResult =
   | { readonly kind: "FOUND"; readonly stock: InventoryStock }
