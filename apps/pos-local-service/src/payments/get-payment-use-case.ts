@@ -1,10 +1,10 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { PaymentView, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
-export const PERMISSION_PAYMENTS_PAYMENT_READ = PermissionCode.PAYMENTS_PAYMENT_READ;
+export const PERMISSION_PAYMENTS_PAYMENT_READ = CanonicalPermission.PAYMENTS_PAYMENT_READ;
 
 export interface GetPaymentRequest {
   readonly paymentId: string;
