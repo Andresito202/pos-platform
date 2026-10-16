@@ -3,13 +3,56 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectDirectDependencies, generateDependencyInventory, isInstalledPackageManifest } from "./generate-dependency-inventory.mjs";
+import { collectDependencyGraphKeys, collectDirectDependencies, generateDependencyInventory, isInstalledPackageManifest } from "./generate-dependency-inventory.mjs";
 import { discoverWorkspaceManifestPaths } from "./workspace-manifests.mjs";
 
 function writeManifest(root, relativePath, manifest) {
   mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
   writeFileSync(path.join(root, relativePath), JSON.stringify(manifest));
 }
+
+test("uses exact third-party identities from the recursive pnpm dependency graph", () => {
+  const keys = collectDependencyGraphKeys([{
+    name: "root",
+    dependencies: {
+      "@babel/parser": {
+        from: "@babel/parser",
+        version: "7.29.8",
+        dependencies: {
+          "@babel/types": { from: "@babel/types", version: "7.29.8" },
+        },
+      },
+      "@pos-platform/domain": {
+        from: "@pos-platform/domain",
+        version: "link:packages/domain",
+      },
+    },
+  }]);
+  assert.deepEqual([...keys].sort(), ["@babel/parser@7.29.8", "@babel/types@7.29.8"]);
+  assert.throws(() => collectDependencyGraphKeys([{ name: "root", dependencies: { broken: { from: "broken" } } }]), /missing an exact version/);
+});
+
+test("inventory excludes stale physical package versions absent from the pnpm graph", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-stale-"));
+  try {
+    writeManifest(root, "package.json", { name: "root", version: "1.0.0" });
+    writeManifest(root, "node_modules/.pnpm/@babel+parser@7.29.8/node_modules/@babel/parser/package.json", {
+      name: "@babel/parser", version: "7.29.8", license: "MIT",
+    });
+    writeManifest(root, "node_modules/.pnpm/@babel+parser@7.29.9/node_modules/@babel/parser/package.json", {
+      name: "@babel/parser", version: "7.29.9", license: "MIT",
+    });
+    const inventory = generateDependencyInventory(
+      root,
+      { REVIEWED_SHA: "a".repeat(40) },
+      new Set(["@babel/parser@7.29.8"]),
+    );
+    assert.deepEqual(inventory.packages.map(({ name, version }) => [name, version]), [["@babel/parser", "7.29.8"]]);
+    assert.equal(inventory.reviewFindingCount, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("collects direct dependency scopes from root, apps, packages and tools", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-"));
