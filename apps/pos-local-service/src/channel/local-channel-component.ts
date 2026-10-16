@@ -118,14 +118,20 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.register":
       case "customer.get":
       case "customer.find":
+      case "customer.marketing.subscribe":
+      case "customer.marketing.unsubscribe":
+      case "customer.marketing.get":
       case "fiscal.document.issue":
       case "catalog.product.register":
       case "catalog.item.find":
       case "catalog.item.get":
+      case "catalog.item.list":
       case "inventory.stock.receive":
       case "inventory.stock.adjust":
       case "inventory.stock.get":
       case "sales.receipt.get":
+      case "audit.event.list":
+      case "admin.metrics.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);
