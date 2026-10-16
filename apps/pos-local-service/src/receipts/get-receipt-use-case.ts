@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import {
   createActor,
   createOperationScope,
@@ -10,7 +10,7 @@ import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { Receipt } from "./receipt.js";
 import type { SqliteReceiptStore } from "./sqlite-receipt-store.js";
 
-export const PERMISSION_SALES_RECEIPT_READ = PermissionCode.SALES_RECEIPT_READ;
+export const PERMISSION_SALES_RECEIPT_READ = CanonicalPermission.SALES_RECEIPT_READ;
 
 export type GetReceiptResult =
   | { readonly kind: "FOUND"; readonly receipt: Receipt }
