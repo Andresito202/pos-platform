@@ -52,6 +52,11 @@ export interface CatalogItem {
   readonly price: CatalogPrice | null;
 }
 
+/** List query guarantees an ACTIVE price through its INNER JOIN. */
+export interface SellableCatalogItem extends Omit<CatalogItem, "price"> {
+  readonly price: CatalogPrice;
+}
+
 /** Atributos fiscales de la presentación — `MIGRATION_013`. */
 export interface CatalogFiscalAttribute {
   readonly codeReference: string;
@@ -231,7 +236,7 @@ export class SqliteCatalogStore {
     query: string,
     limit: number,
     offset: number,
-  ): { readonly items: CatalogItem[]; readonly hasMore: boolean } {
+  ): { readonly items: SellableCatalogItem[]; readonly hasMore: boolean } {
     const normalizedQuery = query.trim();
     const like = normalizedQuery === "" ? null : `%${normalizedQuery}%`;
     const rows = this.database.native.prepare(
