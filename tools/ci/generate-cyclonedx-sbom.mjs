@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnPnpm } from "./pnpm-exec.mjs";
 import { fileURLToPath } from "node:url";
 import {
   discoverWorkspaceManifestPaths,
@@ -248,7 +248,7 @@ function main() {
   const root = process.cwd();
   const sourceCommit = process.env.REVIEWED_SHA ?? process.env.GITHUB_SHA;
   const lockfile = readFileSync(path.join(root, "pnpm-lock.yaml"));
-  const execution = spawnSync("pnpm", ["list", "--json", "--recursive", "--depth", "Infinity"], {
+  const execution = spawnPnpm(["list", "--json", "--recursive", "--depth", "Infinity"], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 50 * 1024 * 1024,
