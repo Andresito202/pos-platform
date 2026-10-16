@@ -60,6 +60,8 @@ export interface CommercialSaleState {
   readonly foundItem: CatalogItemResult | null;
   readonly catalogItems: readonly CatalogItemListItem[];
   readonly catalogHasMore: boolean;
+  /** Carga del catálogo, independiente de las operaciones de caja/venta. */
+  readonly catalogBusy: boolean;
   readonly lines: readonly CartLine[];
   readonly sale: { readonly saleId: string; readonly payableAmount: string } | null;
   readonly payment: PaymentRegisterCashResult | null;
@@ -120,6 +122,7 @@ export function useCommercialSale(): CommercialSaleState & {
   const [foundItem, setFoundItem] = useState<CatalogItemResult | null>(null);
   const [catalogItems, setCatalogItems] = useState<readonly CatalogItemListItem[]>([]);
   const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogBusy, setCatalogBusy] = useState(false);
   const [lines, setLines] = useState<readonly CartLine[]>([]);
   const [sale, setSale] = useState<{ saleId: string; payableAmount: string } | null>(null);
   const [payment, setPayment] = useState<PaymentRegisterCashResult | null>(null);
@@ -136,8 +139,9 @@ export function useCommercialSale(): CommercialSaleState & {
   const run = useCallback(async <T,>(
     work: () => Promise<{ status: string; result_code: string; result: T | null }>,
     onSuccess: (result: T) => void,
+    trackOperationBusy = true,
   ): Promise<void> => {
-    setBusy(true);
+    if (trackOperationBusy) setBusy(true);
     setError(null);
     try {
       const response = await work();
@@ -149,7 +153,7 @@ export function useCommercialSale(): CommercialSaleState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
-      setBusy(false);
+      if (trackOperationBusy) setBusy(false);
     }
   }, []);
 
@@ -179,17 +183,23 @@ export function useCommercialSale(): CommercialSaleState & {
   }, [run]);
 
   const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
-    await run<{ outcome: "FOUND" | "UNAUTHORIZED"; items: CatalogItemListItem[]; has_more: boolean }>(
-      () => callCommercial("catalog.item.list", { query, limit: 24, offset }),
-      (result) => {
-        if (result.outcome !== "FOUND") {
-          setError(result.outcome);
-          return;
-        }
-        setCatalogItems((current) => offset === 0 ? result.items : [...current, ...result.items]);
-        setCatalogHasMore(result.has_more);
-      },
-    );
+    setCatalogBusy(true);
+    try {
+      await run<{ outcome: "FOUND" | "UNAUTHORIZED"; items: CatalogItemListItem[]; has_more: boolean }>(
+        () => callCommercial("catalog.item.list", { query, limit: 24, offset }),
+        (result) => {
+          if (result.outcome !== "FOUND") {
+            setError(result.outcome);
+            return;
+          }
+          setCatalogItems((current) => offset === 0 ? result.items : [...current, ...result.items]);
+          setCatalogHasMore(result.has_more);
+        },
+        false,
+      );
+    } finally {
+      setCatalogBusy(false);
+    }
   }, [run]);
 
   useEffect(() => {
@@ -436,7 +446,7 @@ export function useCommercialSale(): CommercialSaleState & {
   }, []);
 
   return {
-    busy, error, shift, foundItem, catalogItems, catalogHasMore, lines, sale, payment, closedShift,
+    busy, error, shift, foundItem, catalogItems, catalogHasMore, catalogBusy, lines, sale, payment, closedShift,
     transfer, transferConfirmation,
     openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, createSale, chargeCash,
     registerTransfer, confirmTransfer, closeShift, reset,
