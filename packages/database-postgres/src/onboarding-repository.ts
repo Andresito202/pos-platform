@@ -2,8 +2,12 @@ import type { OnboardingActor, OnboardingRecord, OnboardingRepository, Onboardin
 
 import { uuidV7, type SqlQueryExecutor } from "./sql.js";
 
+interface NativePostgresPoolClient {
+  query(text: string, params?: readonly unknown[]): Promise<unknown>;
+  release(): void;
+}
 export interface PostgresPoolClient extends SqlQueryExecutor { release(): void; }
-export interface PostgresPoolLike { connect(): Promise<PostgresPoolClient>; }
+export interface PostgresPoolLike { connect(): Promise<NativePostgresPoolClient>; }
 
 function normalize(value: string): string { return value.trim().toLowerCase(); }
 function normalizeOptional(value: string | undefined): string | null { const v = value?.trim(); return v ? v : null; }
@@ -216,7 +220,21 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
 class PostgresTransactionalSql {
   constructor(private readonly pool: PostgresPoolLike) {}
   async withTransaction<T>(run: (tx: PostgresPoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
+    const nativeClient = await this.pool.connect();
+    // pg.PoolClient.query() returns QueryResult { rows }, while the onboarding
+    // repository contract intentionally exposes rows directly. Adapt at this
+    // boundary so repository methods cannot mistake QueryResult for a row array.
+    const client: PostgresPoolClient = {
+      query: async <R = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<readonly R[]> => {
+        const result = await nativeClient.query(text, params ? [...params] : undefined);
+        if (Array.isArray(result)) return result as readonly R[];
+        if (result !== null && typeof result === "object" && Array.isArray((result as { rows?: unknown }).rows)) {
+          return (result as { rows: readonly R[] }).rows;
+        }
+        throw new Error("POSTGRES_QUERY_RESULT_INVALID");
+      },
+      release: () => nativeClient.release(),
+    };
     try {
       await client.query("BEGIN");
       const result = await run(client);
