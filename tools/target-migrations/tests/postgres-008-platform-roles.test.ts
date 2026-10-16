@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readArtifact, sha256 } from "../src/shared.js";
 import { PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES, POSTGRES_008_DESCRIPTOR } from "../src/postgres-008-platform-roles-contract.js";
-import { POSTGRES_001_DESCRIPTOR, POSTGRES_TABLE_COLUMNS, REQUIRED_POLICIES, RLS_TABLES } from "../src/contract.js";
+import { POSTGRES_001_DESCRIPTOR, POSTGRES_TABLE_COLUMNS, POSTGRES_001_TABLE_COLUMNS, REQUIRED_POLICIES, RLS_TABLES } from "../src/contract.js";
 
 describe("PostgreSQL 008 global platform role assignments", () => {
   it("follows password recovery and owns only the global assignment relation", () => {
@@ -13,6 +13,9 @@ describe("PostgreSQL 008 global platform role assignments", () => {
     expect(PLATFORM_ROLE_008_COLUMNS).toContain("role_scope_type");
     expect(POSTGRES_TABLE_COLUMNS["authorization.platform_role_assignments"]).toEqual(PLATFORM_ROLE_008_COLUMNS);
     expect(POSTGRES_001_DESCRIPTOR.ownedTables).not.toContain("authorization.platform_role_assignments");
+    expect(POSTGRES_001_DESCRIPTOR.ownedTables).not.toContain("identity.password_recovery_requests");
+    expect(Object.keys(POSTGRES_001_TABLE_COLUMNS)).not.toContain("identity.password_recovery_requests");
+    expect(Object.keys(POSTGRES_001_TABLE_COLUMNS)).not.toContain("authorization.platform_role_assignments");
     expect(RLS_TABLES).toContain("authorization.platform_role_assignments");
     expect(REQUIRED_POLICIES).toContain("platform_role_assignments_platform_only");
   });
