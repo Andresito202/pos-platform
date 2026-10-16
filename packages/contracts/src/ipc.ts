@@ -169,7 +169,6 @@ export type IpcMessageType = z.infer<typeof IpcMessageTypeSchema>;
 export type OperationResultQuery = z.infer<typeof OperationResultQuerySchema>;
 export type OperationConfirmation = z.infer<typeof OperationConfirmationSchema>;
 
-
 export const IpcRequestSchema = z.union([
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
@@ -189,6 +188,9 @@ export const IpcRequestSchema = z.union([
   CustomerRegisterRequestSchema,
   CustomerGetRequestSchema,
   CustomerFindRequestSchema,
+  CustomerMarketingSubscribeRequestSchema,
+  CustomerMarketingUnsubscribeRequestSchema,
+  CustomerMarketingGetRequestSchema,
   FiscalDocumentIssueRequestSchema,
   CatalogProductRegisterRequestSchema,
   CatalogItemFindRequestSchema,
@@ -219,6 +221,9 @@ export const IpcResponseSchema = z.union([
   PaymentCancelResponseSchema,
   PaymentGetResponseSchema,
   CustomerRegisterResponseSchema,
+  CustomerMarketingSubscribeResponseSchema,
+  CustomerMarketingUnsubscribeResponseSchema,
+  CustomerMarketingGetResponseSchema,
   CustomerReadResponseSchema,
   FiscalDocumentIssueResponseSchema,
   CatalogProductRegisterResponseSchema,
