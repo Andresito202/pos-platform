@@ -84,10 +84,16 @@ describe("InitializeTenant", () => {
     };
     const replayTx = tx();
     let replayChecksum = "";
-    replayTx.createOnboarding = async (record) => { replayChecksum = record.requestChecksum; return { claimed: false }; };
-    replayTx.findOnboarding = async () => ({ ...existing, requestChecksum: replayChecksum });
+    let persisted: typeof existing | undefined;
+    replayTx.createOnboarding = async (record) => {
+      replayChecksum = record.requestChecksum;
+      persisted = { ...existing, requestChecksum: replayChecksum };
+      return { claimed: false };
+    };
+    replayTx.findOnboarding = async () => persisted ?? null;
     const result = await new InitializeTenant({ transaction: async (work) => work(replayTx) }, { authorize: async () => undefined }).execute(input());
-    expect(result).toBe(existing);
+    expect(result).toBe(persisted);
+    expect(result.requestChecksum).toBe(replayChecksum);
   });
 
   it("rejects the same idempotency key with a different request", async () => {
