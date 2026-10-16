@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
-import { uuidV7, PermissionCode } from "@pos-platform/contracts";
+import { uuidV7, CanonicalPermission } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SqliteMasterSnapshotStore } from "../master-data/sqlite-master-snapshot-store.js";
 import type { SqliteCashShiftStore } from "./sqlite-cash-shift-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 
-export const PERMISSION_CASH_SHIFT_OPEN = PermissionCode.CASH_SHIFT_OPEN;
+export const PERMISSION_CASH_SHIFT_OPEN = CanonicalPermission.CASH_SHIFT_OPEN;
 
 export interface OpenCashShiftRequest {
   readonly cashRegisterId: string;
