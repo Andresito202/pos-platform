@@ -93,7 +93,7 @@ describe("InitializeTenant", () => {
     replayTx.findOnboarding = async () => persisted ?? null;
     const result = await new InitializeTenant({ transaction: async (work) => work(replayTx) }, { authorize: async () => undefined }).execute(input());
     expect(result).toBe(persisted);
-    expect(result.requestChecksum).toBe(replayChecksum);
+    expect(persisted?.requestChecksum).toBe(replayChecksum);
   });
 
   it("rejects the same idempotency key with a different request", async () => {
