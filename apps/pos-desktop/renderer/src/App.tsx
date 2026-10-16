@@ -1,4 +1,4 @@
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { useMemo, useState } from "react";
 import "./App.css";
 import { StatusPanel } from "./components/StatusPanel.js";
@@ -21,7 +21,7 @@ type PlannedScreenDefinition = {
 };
 
 const plannedScreens: readonly PlannedScreenDefinition[] = [
-  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: [PermissionCode.AUDIT_EVENT_READ] },
+  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: [CanonicalPermission.AUDIT_EVENT_READ] },
   { id: "reports", label: "Reportes", section: "Administración", description: "Consultas y reportes comerciales y operativos.", actions: ["Ventas", "Inventario", "Caja", "Exportar"], requiredPermissions: [] },
   { id: "users", label: "Usuarios", section: "Administración", description: "Alta, consulta, suspensión y administración de usuarios.", actions: ["Nuevo usuario", "Consultar usuario", "Suspender usuario", "Restablecer contraseña", "Revocar sesión"], requiredPermissions: [] },
   { id: "roles", label: "Roles y permisos", section: "Administración", description: "Asignación de roles, permisos y alcance organizacional.", actions: ["Gestionar roles", "Asignar permisos", "Revisar alcance"], requiredPermissions: [] },
@@ -33,7 +33,7 @@ const plannedScreens: readonly PlannedScreenDefinition[] = [
   { id: "plans", label: "Planes y suscripciones", section: "Plataforma", description: "Planes mensual, anual y perpetuo; suscripciones y derechos.", actions: ["Nuevo plan", "Cambiar plan", "Gestionar suscripción", "Consultar entitlements"], requiredPermissions: [] },
   { id: "super-admin", label: "Superadministrador", section: "Plataforma", description: "Administración global de plataforma, licencias y cuentas.", actions: ["Administrar cuentas", "Administrar licencias", "Administrar planes", "Iniciar recuperación asistida", "Revisar auditoría"], requiredPermissions: [] },
   { id: "support", label: "Soporte", section: "Plataforma", description: "Atención operativa y acciones autorizadas de soporte.", actions: ["Buscar cuenta", "Revisar dispositivo", "Registrar caso"], requiredPermissions: [] },
-  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos"], requiredPermissions: [PermissionCode.AUDIT_EVENT_READ] },
+  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos"], requiredPermissions: [CanonicalPermission.AUDIT_EVENT_READ] },
 ];
 
 function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.JSX.Element {
@@ -81,12 +81,12 @@ export function App(): React.JSX.Element {
     const result: Screen[] = [];
 
     if (hasAny(permissions, [
-      PermissionCode.CASH_SHIFT_OPEN,
-      PermissionCode.CASH_SHIFT_CLOSE,
-      PermissionCode.SALES_SALE_CREATE,
-      PermissionCode.PAYMENTS_PAYMENT_REGISTER,
-      PermissionCode.PAYMENTS_TRANSFER_REPORT,
-      PermissionCode.PAYMENTS_TRANSFER_CONFIRM,
+      CanonicalPermission.CASH_SHIFT_OPEN,
+      CanonicalPermission.CASH_SHIFT_CLOSE,
+      CanonicalPermission.SALES_SALE_CREATE,
+      CanonicalPermission.PAYMENTS_PAYMENT_REGISTER,
+      CanonicalPermission.PAYMENTS_TRANSFER_REPORT,
+      CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
     ])) {
       result.push({
         id: "sales",
@@ -96,7 +96,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (permissions.has(PermissionCode.FISCAL_DOCUMENT_ISSUE)) {
+    if (permissions.has(CanonicalPermission.FISCAL_DOCUMENT_ISSUE)) {
       result.push({
         id: "fiscal",
         label: "Facturación electrónica",
@@ -105,7 +105,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (hasAny(permissions, [PermissionCode.CATALOG_PRODUCT_READ, PermissionCode.CATALOG_PRODUCT_REGISTER])) {
+    if (hasAny(permissions, [CanonicalPermission.CATALOG_PRODUCT_READ, CanonicalPermission.CATALOG_PRODUCT_REGISTER])) {
       result.push({
         id: "catalog",
         label: "Catálogo",
@@ -115,9 +115,9 @@ export function App(): React.JSX.Element {
     }
 
     if (hasAny(permissions, [
-      PermissionCode.INVENTORY_STOCK_READ,
-      PermissionCode.INVENTORY_STOCK_RECEIVE,
-      PermissionCode.INVENTORY_STOCK_ADJUST,
+      CanonicalPermission.INVENTORY_STOCK_READ,
+      CanonicalPermission.INVENTORY_STOCK_RECEIVE,
+      CanonicalPermission.INVENTORY_STOCK_ADJUST,
     ])) {
       result.push({
         id: "inventory",
@@ -128,8 +128,8 @@ export function App(): React.JSX.Element {
     }
 
     if (hasAny(permissions, [
-      PermissionCode.CUSTOMERS_CUSTOMER_READ,
-      PermissionCode.CUSTOMERS_CUSTOMER_REGISTER,
+      CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
+      CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,
     ])) {
       result.push({
         id: "customers",
@@ -139,7 +139,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (permissions.has(PermissionCode.SALES_RECEIPT_READ)) {
+    if (permissions.has(CanonicalPermission.SALES_RECEIPT_READ)) {
       result.push({
         id: "receipts",
         label: "Comprobantes",
