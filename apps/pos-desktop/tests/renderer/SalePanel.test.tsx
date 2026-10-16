@@ -81,7 +81,7 @@ async function openShift(): Promise<void> {
 async function addProduct(): Promise<void> {
   fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: "7701234567890" } });
   fireEvent.click(screen.getByTestId("find-item-button"));
-  await screen.findByTestId("found-item");
+  await screen.findByTestId("found-product-tile");
   fireEvent.click(screen.getByTestId("add-item-button"));
   await screen.findByTestId("cart-line");
 }
@@ -143,7 +143,7 @@ describe("SalePanel — vertical comercial", () => {
     await openShift();
     fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: "7701234567890" } });
     fireEvent.click(screen.getByTestId("find-item-button"));
-    await screen.findByTestId("found-item");
+    await screen.findByTestId("found-product-tile");
 
     expect(screen.getByTestId("found-item-name").textContent).toBe("Arroz");
     expect(() => CatalogItemFindRequestSchema.parse(calls.get("catalog.item.find")![0])).not.toThrow();
