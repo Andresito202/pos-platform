@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnPnpm } from "./pnpm-exec.mjs";
 import {
   discoverWorkspaceManifestPaths,
   readWorkspaceManifest,
@@ -56,6 +57,37 @@ export function isInstalledPackageManifest(packageJsonPath, pnpmStore) {
     && packageSegments[2] === "package.json";
 }
 
+export function collectDependencyGraphKeys(projects) {
+  if (!Array.isArray(projects) || projects.length === 0) {
+    throw new Error("pnpm dependency graph must contain at least one project");
+  }
+
+  const keys = new Set();
+  const visited = new Set();
+
+  function visitContainer(container) {
+    if (!container || typeof container !== "object" || visited.has(container)) return;
+    visited.add(container);
+
+    for (const section of ["dependencies", "devDependencies", "optionalDependencies"]) {
+      for (const [declaredName, node] of Object.entries(container[section] ?? {})) {
+        if (!node || typeof node !== "object") {
+          throw new Error(`pnpm graph entry ${declaredName} is invalid`);
+        }
+        const name = typeof node.from === "string" && node.from ? node.from : declaredName;
+        const version = typeof node.version === "string" ? node.version : null;
+        if (!version) throw new Error(`pnpm graph dependency ${name} is missing an exact version`);
+        if (!version.startsWith("link:")) keys.add(`${name}@${version}`);
+        visitContainer(node);
+      }
+    }
+  }
+
+  for (const project of projects) visitContainer(project);
+  if (keys.size === 0) throw new Error("pnpm dependency graph contains no third-party package identities");
+  return keys;
+}
+
 export function normalizedLicense(manifest) {
   if (typeof manifest.license === "string" && manifest.license.trim()) return manifest.license.trim();
   if (manifest.license && typeof manifest.license.type === "string") return manifest.license.type.trim();
@@ -69,7 +101,7 @@ export function normalizedLicense(manifest) {
   return null;
 }
 
-export function generateDependencyInventory(root, env = process.env) {
+export function generateDependencyInventory(root, env = process.env, activePackageKeys = null) {
   const pnpmStore = path.join(root, "node_modules", ".pnpm");
   if (!existsSync(pnpmStore)) {
     throw new Error("Dependency inventory requires a completed pnpm install. node_modules/.pnpm was not found.");
@@ -102,6 +134,7 @@ export function generateDependencyInventory(root, env = process.env) {
     if (typeof manifest.name !== "string" || typeof manifest.version !== "string") continue;
 
     const key = `${manifest.name}@${manifest.version}`;
+    if (activePackageKeys && !activePackageKeys.has(key)) continue;
     if (packages.has(key)) continue;
 
     const license = normalizedLicense(manifest);
@@ -154,7 +187,23 @@ function main() {
 
   let inventory;
   try {
-    inventory = generateDependencyInventory(root);
+    const execution = spawnPnpm(["list", "--json", "--recursive", "--depth", "Infinity"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+    });
+    if (execution.error) throw execution.error;
+    if (execution.status !== 0) {
+      throw new Error(`pnpm list failed with exit code ${execution.status}: ${execution.stderr.trim()}`);
+    }
+    let projects;
+    try {
+      projects = JSON.parse(execution.stdout);
+    } catch {
+      throw new Error("pnpm list did not return valid JSON");
+    }
+    const activePackageKeys = collectDependencyGraphKeys(projects);
+    inventory = generateDependencyInventory(root, process.env, activePackageKeys);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
