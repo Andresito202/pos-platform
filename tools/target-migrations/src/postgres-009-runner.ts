@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
 import { POSTGRES_002_DESCRIPTOR } from "./contract.js";
 import { POSTGRES_007_DESCRIPTOR } from "./postgres-007-contract.js";
+import { POSTGRES_008_DESCRIPTOR } from "./postgres-008-platform-roles-contract.js";
 import { POSTGRES_009_DESCRIPTOR, FACTUS_PAY_009_TABLES } from "./postgres-009-contract.js";
 
 export interface Postgres009RunnerConfig { adminUrl: string; expectedDatabase: string; repositoryCommit: string; }
@@ -37,6 +38,7 @@ export async function applyPostgres009(config: Postgres009RunnerConfig): Promise
       for (const predecessor of [
         { descriptor: POSTGRES_002_DESCRIPTOR, path: POSTGRES_002_DESCRIPTOR.upArtifact },
         { descriptor: POSTGRES_007_DESCRIPTOR, path: POSTGRES_007_DESCRIPTOR.upArtifact },
+        { descriptor: POSTGRES_008_DESCRIPTOR, path: POSTGRES_008_DESCRIPTOR.upArtifact },
       ]) {
         const expected = sha256(await readArtifact(predecessor.path));
         const found = await client.query<{checksum:Buffer}>(
