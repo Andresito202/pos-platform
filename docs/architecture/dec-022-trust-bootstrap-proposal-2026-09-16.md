@@ -2,7 +2,7 @@
 
 ## Estado
 
-`PROPOSED / NOT RATIFIED`
+`RATIFIED — 2026-10-16 (principios arquitectónicos)`
 
 Este documento convierte la evidencia existente de SEC-004, DEC-008, DEC-011 y la preparación D-3 en una propuesta arquitectónica concreta. No se considera una decisión ratificada por su mera existencia y no autoriza por sí solo secretos, KMS, endpoints productivos ni credenciales reales.
 
@@ -168,21 +168,23 @@ No introduce una segunda canonicalización ni una segunda familia criptográfica
 
 El servidor de persistence gate sigue siendo exclusivamente evidencia de D-2. No se convierte por copia en Central Authority.
 
-## 7. Criterio para ratificar DEC-022
+## 7. Ratificación de principios arquitectónicos — 2026-10-16
 
-La decisión humana debe confirmar expresamente:
+Se ratifican los siete principios de seguridad de esta propuesta para orientar la implementación, a partir de la autorización expresa del responsable del proyecto de resolver el bloqueo de confianza del dispositivo y cerrar la certificación. Esta ratificación **no equivale a despliegue ni a certificación de runtime**.
 
 ```text
-[ ] trust anchor público embebido en artefacto firmado
-[ ] cadena root → operational DEVICE_TRUST key
-[ ] identidad privada generada localmente
-[ ] enrollment de un solo uso/equivalente
-[ ] device authentication firmada + TLS
-[ ] revocación y rotación
-[ ] restore/clone no equivale a trust
+[x] trust anchor público distribuido por artefacto firmado
+[x] cadena root → operational DEVICE_TRUST key
+[x] identidad privada generada localmente y protegida por el sistema
+[x] enrollment con autorización de un solo uso/equivalente administrativo
+[x] autenticación de dispositivo firmada sobre TLS
+[x] revocación y rotación
+[x] restore/clone no equivale a trust
 ```
 
-Hasta esa confirmación, el estado continúa `PROPOSED / NOT RATIFIED`.
+La implementación sigue obligada a demostrar cada propiedad con pruebas ejecutables. No se autorizan claves privadas raíz en el POS/repositorio/CI, bearer estático como sustituto de device trust, credenciales ficticias, bypass de expiraciones ni excepciones para hacer verde la suite.
+
+Los parámetros operativos enumerados en §5 siguen requiriendo valores reales y revisión antes de habilitar producción; no se inventarán proveedor KMS/HSM, claves, tokens, certificados, ni endpoints desplegados.
 
 ## 8. Consecuencia para D-3
 
