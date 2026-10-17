@@ -11,7 +11,7 @@ import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 import { CentralSyncComponent } from "./sync/central-sync-component.js";
 import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
 import { SyncDispatcher } from "./sync/sync-dispatcher.js";
-import { EnrolledDeviceCredentialProvider, UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
+import { EnrolledDeviceCredentialProvider, UnprovisionedDeviceCredentialProvider, type DeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
@@ -159,7 +159,7 @@ try {
     `device-trust:${config.installation_id}:${config.device_id}`,
   );
   const deviceTrustCredentialStore = new DeviceTrustCredentialStore(deviceTrustSecretStore);
-  let centralDeviceCredentials = new UnprovisionedDeviceCredentialProvider();
+  let centralDeviceCredentials: DeviceCredentialProvider = new UnprovisionedDeviceCredentialProvider();
   try {
     if (deviceTrustSecretStore.has("device-identity") && deviceTrustCredentialStore.has()) {
       centralDeviceCredentials = new EnrolledDeviceCredentialProvider(
