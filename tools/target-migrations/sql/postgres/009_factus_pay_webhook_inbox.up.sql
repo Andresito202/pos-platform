@@ -13,7 +13,7 @@ CREATE TABLE integrations.factus_pay_webhook_keys (
   CONSTRAINT factus_pay_webhook_keys_lifecycle_ck CHECK (
     (status='ACTIVE' AND revoked_at IS NULL) OR (status='REVOKED' AND revoked_at IS NOT NULL)
   ),
-  CONSTRAINT factus_pay_webhook_keys_tenant_integration_id_uq UNIQUE (tenant_id,integration_id,id)
+  CONSTRAINT factus_pay_webhook_keys_tenant_company_integration_id_uq UNIQUE (tenant_id,company_id,integration_id,id)
 );
 
 CREATE UNIQUE INDEX factus_pay_webhook_keys_active_secret_uq
