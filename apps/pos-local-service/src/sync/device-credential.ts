@@ -1,23 +1,5 @@
-/**
- * Credencial de dispositivo para la API central.
- *
- * `integration-contracts.md:208` exige «autenticación de dispositivo conforme a
- * `DEC-008`», y `CentralHttpRequestHeadersSchema` declara `authorization` como
- * cabecera obligatoria. Nada de eso está materializado en el runtime: no existe
- * registro del dispositivo contra la autoridad, no existe emisión de credencial
- * y no existe transporte por el que hubieran viajado.
- *
- * Se declara el puerto y la implementación por defecto **se niega**. Es la misma
- * disciplina que `sessionSigningKeys` en `main.ts`: se prefiere la negativa
- * explícita a fabricar una autenticación que nadie ha provisto.
- *
- * **La credencial no llega nunca por variable de entorno.** Un secreto en el
- * entorno del proceso es legible por cualquier diagnóstico, acaba en volcados de
- * memoria y sobrevive en el historial del shell.
- * `secret-key-and-support-management.md:39` prohíbe la clase «Firma operativa»
- * en el cliente, y `security-model.md:155` sitúa los secretos locales en el
- * almacén protegido del sistema, nunca en configuración plana.
- */
+import type { DeviceIdentity } from "../security/device-identity.js";
+import type { DeviceTrustCredentialStore } from "../security/device-trust-credential-store.js";
 
 export const DEVICE_CREDENTIAL_UNPROVISIONED = "DEVICE_CREDENTIAL_UNPROVISIONED";
 
@@ -29,23 +11,53 @@ export class CentralCredentialUnavailableError extends Error {
   }
 }
 
-export interface DeviceCredentialProvider {
-  /**
-   * Valor opaco de la cabecera `Authorization`, ya formado.
-   *
-   * Devolverlo formado —y no un token desnudo— evita que el llamador tenga que
-   * conocer el esquema de autenticación, que `DEC-008` todavía no fija.
-   */
-  authorization(): Promise<string>;
+export interface DeviceRequestSigningContext {
+  readonly method: "POST";
+  readonly path: string;
+  readonly requestId: string;
+  readonly correlationId: string;
+  readonly body: string;
 }
 
-/** Implementación por defecto en producción: no hay credencial y no se inventa. */
+export interface DeviceCredentialProvider {
+  /** Optional synchronous preflight avoids claiming an outbox batch without a provisioned credential. */
+  isProvisioned?(): boolean;
+  /** Generates a one-request proof bound to method, route, IDs and exact serialized body. */
+  authorization(context?: DeviceRequestSigningContext): Promise<string>;
+}
+
+/** Fail-closed until a centrally issued credential and encrypted device identity exist. */
 export class UnprovisionedDeviceCredentialProvider implements DeviceCredentialProvider {
+  isProvisioned(): boolean { return false; }
   authorization(): Promise<string> {
-    return Promise.reject(
-      new CentralCredentialUnavailableError(
-        "device credential is not provisioned: DEC-008 device authentication has no runtime materialization",
-      ),
-    );
+    return Promise.reject(new CentralCredentialUnavailableError(
+      "device credential is not provisioned; central sync requires an enrolled Ed25519 device",
+    ));
+  }
+}
+
+/** Reads the signed credential from the encrypted store and signs each request with the device key. */
+export class EnrolledDeviceCredentialProvider implements DeviceCredentialProvider {
+  constructor(
+    private readonly identity: DeviceIdentity,
+    private readonly credentials: DeviceTrustCredentialStore,
+  ) {}
+
+  isProvisioned(): boolean {
+    return this.credentials.has();
+  }
+
+  async authorization(context?: DeviceRequestSigningContext): Promise<string> {
+    if (!context) throw new CentralCredentialUnavailableError("request context is required for device proof");
+    if (!this.credentials.has()) throw new CentralCredentialUnavailableError("device trust credential is not provisioned");
+    const credential = this.credentials.load();
+    return this.identity.signRequestAuthorization({
+      method: context.method,
+      path: context.path,
+      requestId: context.requestId,
+      correlationId: context.correlationId,
+      body: context.body,
+      credentialId: credential.claims.credential_id,
+    });
   }
 }
