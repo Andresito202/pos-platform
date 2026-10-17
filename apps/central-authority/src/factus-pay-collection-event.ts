@@ -12,6 +12,8 @@ interface FactusPayWebhookBody {
   readonly data?: unknown;
 }
 
+const MAX_COLLECTION_AMOUNT_COP = 12_100_000;
+
 function constantTimeEqual(left: string, right: string): boolean {
   const a = Buffer.from(left, "utf8");
   const b = Buffer.from(right, "utf8");
@@ -29,14 +31,17 @@ function collectionAmount(value: unknown): string {
   }
   const [whole, fraction = ""] = raw.split(".");
   const amount = whole + "." + fraction.padEnd(6, "0");
-  if (/^0\.0{6}$/.test(amount)) throw new Error("FACTUS_PAY_INVALID_AMOUNT");
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0 || numericAmount > MAX_COLLECTION_AMOUNT_COP) {
+    throw new Error("FACTUS_PAY_INVALID_AMOUNT");
+  }
   return amount;
 }
 
 function optionalString(value: unknown, maxLength: number): string | null {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength
-    ? value
-    : null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 && normalized.length <= maxLength ? normalized : null;
 }
 
 /**
