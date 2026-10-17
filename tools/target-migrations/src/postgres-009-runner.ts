@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
-import { POSTGRES_002_DESCRIPTOR, POSTGRES_001_DESCRIPTOR } from "./contract.js";
+import { POSTGRES_002_DESCRIPTOR } from "./contract.js";
 import { POSTGRES_007_DESCRIPTOR } from "./postgres-007-contract.js";
 import { POSTGRES_009_DESCRIPTOR, FACTUS_PAY_009_TABLES } from "./postgres-009-contract.js";
 
