@@ -180,6 +180,16 @@ async function main(): Promise<void> {
   console.log(firstText);
   if (first.status !== 200) throw new Error("FIRST_POST_FAILED");
 
+  const exactReplay = await fetch(`${BASE}/v1/sync/batches`, {
+    method: "POST",
+    headers,
+    body: envelopeBody,
+  });
+  const exactReplayText = await exactReplay.text();
+  console.log(`EXACT_PROOF_REPLAY_STATUS=${exactReplay.status}`);
+  console.log(exactReplayText);
+  if (exactReplay.status !== 409) throw new Error("EXACT_PROOF_REPLAY_NOT_REJECTED");
+
   const pool = new Pool({ connectionString: POSTGRES_TEST_URL });
 
   try {
@@ -294,6 +304,7 @@ async function main(): Promise<void> {
 
     console.log("POSTGRES_PERSISTENCE=VERIFIED");
     console.log("IDEMPOTENCY_REPLAY=VERIFIED");
+    console.log("DEVICE_PROOF_REPLAY=REJECTED");
     console.log("IDEMPOTENCY_CONFLICT=VERIFIED");
     console.log("CENTRAL-SYNC GATE: VERIFIED");
   } finally {
