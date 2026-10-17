@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 function inbox(
-  persist: (observation: QrPaymentObservation, keyContext: typeof keyContext, idempotencyKey: string) => Promise<"STORED" | "DUPLICATE">,
+  persist: (observation: QrPaymentObservation, resolvedContext: typeof keyContext, idempotencyKey: string) => Promise<"STORED" | "DUPLICATE">,
 ): FactusPayWebhookInbox {
   return {
     resolveKey: async (suppliedKey) => suppliedKey === key ? keyContext : null,
