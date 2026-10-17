@@ -134,3 +134,5 @@ export class DeviceTrustVerifier {
 
 export * from "./enrollment.js";
 export * from "./enrollment-http.js";
+
+export * from "./request-proof.js";
