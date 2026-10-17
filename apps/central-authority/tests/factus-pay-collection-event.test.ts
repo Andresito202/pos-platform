@@ -10,7 +10,7 @@ function payload(overrides: Record<string, unknown> = {}) {
       reference_code: "FACT-00123",
       amount: 150000,
       status: "paid",
-      payer: { name: "Cliente prueba", email: "cliente@example.com" },
+      payer: { name: " Cliente prueba ", email: "cliente@example.com" },
       ...overrides,
     },
   };
@@ -57,6 +57,13 @@ describe("Factus Pay collection webhook verification", () => {
       .toThrow("FACTUS_PAY_INVALID_AMOUNT");
     expect(() => verifyFactusPayCollectionWebhook(payload({ amount: "1e5" }), key, key, observedAt))
       .toThrow("FACTUS_PAY_INVALID_AMOUNT");
+  });
+
+  it("rejects collection amounts above the documented COP limit", () => {
+    expect(() => verifyFactusPayCollectionWebhook(payload({ amount: 12_100_001 }), key, key, observedAt))
+      .toThrow("FACTUS_PAY_INVALID_AMOUNT");
+    expect(verifyFactusPayCollectionWebhook(payload({ amount: 12_100_000 }), key, key, observedAt).amount)
+      .toBe("12100000.000000");
   });
 
   it("accepts optional payer identity as absent instead of fabricating it", () => {
