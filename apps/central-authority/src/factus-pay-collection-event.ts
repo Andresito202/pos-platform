@@ -64,6 +64,14 @@ export function verifyFactusPayCollectionWebhook(
   if (suppliedKey === null || !constantTimeEqual(suppliedKey, expectedKey)) {
     throw new Error("FACTUS_PAY_UNAUTHORIZED");
   }
+  return normalizeFactusPayCollectionWebhook(input, observedAt);
+}
+
+/** Normalizes a collection only after the caller has authenticated its provider key. */
+export function normalizeFactusPayCollectionWebhook(
+  input: unknown,
+  observedAt: Date = new Date(),
+): QrPaymentObservation {
   if (!Number.isFinite(observedAt.getTime())) throw new Error("FACTUS_PAY_INVALID_OBSERVED_AT");
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new Error("FACTUS_PAY_INVALID_EVENT");
