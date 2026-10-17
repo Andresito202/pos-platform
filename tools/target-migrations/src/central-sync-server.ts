@@ -9,6 +9,7 @@ import {
   type SyncBatchRequest,
   type SyncBatchResponse,
   type SyncOperation,
+  uuidV7FromModule,
 } from "@pos-platform/contracts";
 import { canonicalJson } from "@pos-platform/local-channel";
 import { parseDeviceRequestAuthorization, verifyDeviceRequestAuthorization } from "@pos-platform/device-trust";
@@ -265,7 +266,7 @@ async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevi
       `INSERT INTO identity.device_authentication_events
         (id, device_id, credential_id, tenant_id, company_id, installation_id, result, reason_code, correlation_id, occurred_at, evidence_checksum)
        VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', 'DEVICE_PROOF_VALID', $7, clock_timestamp(), $8)`,
-      [randomUUID(), principal.deviceId, principal.credentialId, principal.tenantId, principal.companyId,
+      [uuidV7FromModule(), principal.deviceId, principal.credentialId, principal.tenantId, principal.companyId,
         principal.installationId, principal.correlationId, nonceDigest],
     );
     await setTenantContext(client, principal.tenantId);
