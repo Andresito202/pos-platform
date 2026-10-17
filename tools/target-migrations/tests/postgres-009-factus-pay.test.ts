@@ -5,7 +5,7 @@ import { FACTUS_PAY_009_TABLES, POSTGRES_009_DESCRIPTOR } from "../src/postgres-
 describe("PostgreSQL 009 Factus Pay webhook inbox", () => {
   it("depends on integration foundations and password recovery without modifying prior migrations", () => {
     expect(POSTGRES_009_DESCRIPTOR.migrationId).toBe("009_factus_pay_webhook_inbox");
-    expect(POSTGRES_009_DESCRIPTOR.dependencies).toEqual(["002_external_integrations_foundation", "007_password_recovery"]);
+    expect(POSTGRES_009_DESCRIPTOR.dependencies).toEqual(["008_platform_role_assignments"]);
     expect(POSTGRES_009_DESCRIPTOR.ownedSchemas).toEqual(["integrations"]);
     expect(POSTGRES_009_DESCRIPTOR.ownedTables).toEqual(FACTUS_PAY_009_TABLES);
   });
