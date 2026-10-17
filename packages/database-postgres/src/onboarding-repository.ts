@@ -3,7 +3,7 @@ import type { OnboardingActor, OnboardingRecord, OnboardingRepository, Onboardin
 import { uuidV7, type SqlQueryExecutor } from "./sql.js";
 
 interface NativePostgresPoolClient {
-  query(text: string, params?: readonly unknown[]): Promise<unknown>;
+  query(text: string, params?: unknown[]): Promise<unknown>;
   release(): void;
 }
 export interface PostgresPoolClient extends SqlQueryExecutor { release(): void; }
