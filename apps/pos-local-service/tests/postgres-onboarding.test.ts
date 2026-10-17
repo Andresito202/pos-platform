@@ -82,9 +82,13 @@ describe.runIf(Boolean(process.env.POSTGRES_TEST_URL))("database-postgres ONB-00
   }, 120_000);
 
   afterAll(async () => {
+    // Close application and inspection pools before dropping the disposable DB.
+    // Do not use DROP DATABASE ... WITH (FORCE) here: forcibly terminating a
+    // leftover backend can emit an uncaught pg client error after tests pass,
+    // hiding a resource-lifecycle defect as a green test run.
     await runtime?.end();
     await inspection?.end();
-    await admin?.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
+    await admin?.query('DROP DATABASE IF EXISTS "' + DATABASE + '"');
     await admin?.end();
   });
 
