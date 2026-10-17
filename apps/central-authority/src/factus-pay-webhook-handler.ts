@@ -5,19 +5,28 @@ import type { QrPaymentObservation } from "@pos-platform/contracts";
 export const FACTUS_PAY_COLLECTION_WEBHOOK_PATH = "/v1/webhooks/factus-pay/collections";
 const DEFAULT_MAX_BODY_BYTES = 16 * 1024;
 
+export interface FactusPayWebhookKeyContext {
+  readonly keyId: string;
+  readonly tenantId: string;
+  readonly companyId: string;
+  readonly integrationId: string;
+}
+
 export interface FactusPayWebhookInbox {
+  /** Resolves a hashed secret to exactly one active Factus Pay integration. */
+  resolveKey(suppliedKey: string): Promise<FactusPayWebhookKeyContext | null>;
   /**
    * Must commit the normalized observation and provider transaction deduplication
-   * key durably before resolving. It must not confirm a POS payment.
+   * identity durably before resolving. It must not confirm a POS payment.
    */
   persistVerifiedObservation(
     observation: QrPaymentObservation,
+    keyContext: FactusPayWebhookKeyContext,
     idempotencyKey: string,
   ): Promise<"STORED" | "DUPLICATE">;
 }
 
 export interface FactusPayWebhookHandlerOptions {
-  expectedKey: string;
   inbox: FactusPayWebhookInbox;
   maxBodyBytes?: number;
   now?: () => Date;
@@ -65,8 +74,6 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1) {
     throw new Error("FACTUS_PAY_INVALID_BODY_LIMIT");
   }
-  if (options.expectedKey.length < 32) throw new Error("FACTUS_PAY_WEBHOOK_KEY_TOO_SHORT");
-
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (request.method !== "POST") {
       send(response, 405);
@@ -91,6 +98,18 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
       return;
     }
 
+    let keyContext: FactusPayWebhookKeyContext | null;
+    try {
+      keyContext = await options.inbox.resolveKey(keys[0] ?? "");
+    } catch {
+      send(response, 503);
+      return;
+    }
+    if (!keyContext) {
+      send(response, 401);
+      return;
+    }
+
     const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
     if (contentType !== "application/json") {
       send(response, 415);
@@ -108,10 +127,12 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
         return;
       }
 
+      // The database resolver has already authenticated the configured secret hash.
+      // Use the resolved integration key as the verification gate without retaining plaintext.
       observation = verifyFactusPayCollectionWebhook(
         input,
         keys[0] ?? null,
-        options.expectedKey,
+        keys[0] ?? "",
         (options.now ?? (() => new Date()))(),
       );
     } catch (error) {
@@ -124,6 +145,7 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
     try {
       await options.inbox.persistVerifiedObservation(
         observation,
+        keyContext,
         "FACTUS_PAY:" + observation.external_transaction_id,
       );
     } catch {
