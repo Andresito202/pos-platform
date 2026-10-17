@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { verifyFactusPayCollectionWebhook } from "./factus-pay-collection-event.js";
+import { normalizeFactusPayCollectionWebhook } from "./factus-pay-collection-event.js";
 import type { QrPaymentObservation } from "@pos-platform/contracts";
 
 export const FACTUS_PAY_COLLECTION_WEBHOOK_PATH = "/v1/webhooks/factus-pay/collections";
@@ -128,13 +128,7 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
       }
 
       // The database resolver has already authenticated the configured secret hash.
-      // Use the resolved integration key as the verification gate without retaining plaintext.
-      observation = verifyFactusPayCollectionWebhook(
-        input,
-        keys[0] ?? null,
-        keys[0] ?? "",
-        (options.now ?? (() => new Date()))(),
-      );
+      observation = normalizeFactusPayCollectionWebhook(input, (options.now ?? (() => new Date()))());
     } catch (error) {
       send(response, publicErrorStatus(error));
       return;
