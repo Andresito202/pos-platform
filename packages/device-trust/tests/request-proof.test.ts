@@ -1,4 +1,4 @@
-import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   createDeviceRequestAuthorization,
@@ -24,7 +24,7 @@ describe("device request proof", () => {
     expect(verifyDeviceRequestAuthorization(authorization, {
       method: request.method, path: request.path, requestId: request.requestId,
       correlationId: request.correlationId, body: request.body,
-    }, createPublicKey(pair.publicKey), now)).toMatchObject({
+    }, pair.publicKey, now)).toMatchObject({
       credentialId: request.credentialId, timestamp: now.toISOString(),
     });
   });
