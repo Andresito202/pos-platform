@@ -33,11 +33,14 @@ Estos resultados no certifican automáticamente commits posteriores ni el compor
 
 ## Hallazgo funcional que bloquea la certificación de extremo a extremo
 
-En `apps/pos-local-service/src/main.ts`, el runtime sigue inyectando `UnprovisionedDeviceCredentialProvider` a `SyncDispatcher`. Ese proveedor siempre devuelve `DEVICE_CREDENTIAL_UNPROVISIONED`. Por diseño, `CentralSyncComponent` hace un intento inicial y no activa el temporizador cuando no hay credencial.
+La implementación inicial de este bloque ya está materializada en la rama actual, pero sigue **sin certificación**:
 
-Por tanto, las ventas locales y el outbox durable pueden funcionar offline, pero el código actual no demuestra que la cola se entregue automáticamente a una autoridad central autenticada cuando regresa la conexión.
+- `apps/pos-local-service/src/main.ts` selecciona `EnrolledDeviceCredentialProvider` solo si existen la identidad Ed25519 y la credencial cifrada; en ausencia de ellas falla cerrado con `DEVICE_CREDENTIAL_UNPROVISIONED`.
+- `packages/device-trust/src/request-proof.ts` firma el método, ruta, IDs de petición/correlación, timestamp, nonce y hash del cuerpo. Se añadieron pruebas unitarias para alteración del cuerpo/ruta, prueba vencida y formato inválido.
+- `tools/target-migrations/src/central-sync-server.ts` dejó de aceptar `CENTRAL_SYNC_TOKEN` como autenticación del dispositivo. Comprueba una credencial activa en PostgreSQL, su binding con el registro del dispositivo, firma Ed25519 de la petición y replay de nonce dentro de la transacción que persiste el lote.
+- `tools/target-migrations/src/central-sync-gate.ts` prepara una identidad Ed25519 de prueba, comprueba rechazo de replay exacto y reintento idempotente con una prueba nueva. La puerta de integración aún no se ha ejecutado.
 
-La autoridad de `apps/central-authority/src/main.ts` expone salud, publicación de session trust y enrollment. No registra un receptor productivo `POST /v1/sync/batches`. El receptor existente en `tools/target-migrations/src/central-sync-server.ts` usa `CENTRAL_SYNC_TOKEN` y pertenece al persistence gate; no se reutiliza como autoridad productiva ni se acepta ese token como identidad de dispositivo.
+**Bloqueo restante:** el flujo de enrollment/provisionamiento no está conectado al runtime del POS para crear y completar esa identidad y credencial de forma operativa. Además, el receptor sigue alojado en el servicio `target-migrations/central-sync`; falta resolver su ownership de producción con `apps/central-authority` según la arquitectura aprobada. No se afirma que la sincronización E2E esté certificada.
 
 ## Bloques obligatorios para el cierre
 
