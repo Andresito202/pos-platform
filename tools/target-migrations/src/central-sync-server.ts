@@ -215,7 +215,9 @@ async function authenticateDeviceRequest(input: {
        FROM identity.device_credentials c
        JOIN identity.device_registry r ON r.device_id = c.device_id
       WHERE c.credential_id = $1 AND c.installation_id = r.installation_id
-        AND c.tenant_id = r.tenant_id AND c.company_id = r.company_id`,
+        AND c.tenant_id = r.tenant_id AND c.company_id = r.company_id
+        AND c.device_key_id = r.device_key_id AND c.trust_key_id = r.trust_key_id
+        AND c.key_purpose = 'DEVICE_TRUST'`,
     [parsed.credentialId],
   );
   const row = result.rows[0];
