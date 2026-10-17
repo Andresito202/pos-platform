@@ -87,6 +87,18 @@ describe("Factus Pay HTTP webhook handler", () => {
     expect(duplicate.status).toBe(401);
   });
 
+  it("rejects an invalid provider observation without calling the inbox", async () => {
+    let writes = 0;
+    await start(inbox(async () => { writes += 1; return "STORED"; }));
+    const response = await fetch(endpoint + FACTUS_PAY_COLLECTION_WEBHOOK_PATH + "?key=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: { reference_code: "FACT-00123", amount: 150000, status: "pending" } }),
+    });
+    expect(response.status).toBe(400);
+    expect(writes).toBe(0);
+  });
+
   it("rejects wrong path, method, content type, malformed JSON, and oversized bodies", async () => {
     await start(inbox(async () => "STORED"), 64);
     const base = endpoint + FACTUS_PAY_COLLECTION_WEBHOOK_PATH + "?key=" + encodeURIComponent(key);
