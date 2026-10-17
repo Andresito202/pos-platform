@@ -261,7 +261,7 @@ async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevi
         WHERE device_id = $1 AND evidence_checksum = $2 LIMIT 1`,
       [principal.deviceId, nonceDigest],
     );
-    if (replay.rowCount) throw Object.assign(new Error("device proof nonce replayed"), { code: "SYNC.DEVICE_PROOF_REPLAY" });
+    if (replay.rowCount) throw Object.assign(new Error("device proof nonce replayed"), { code: "SYNC.DEVICE_PROOF_REPLAY_CONFLICT" });
     await client.query(
       `INSERT INTO identity.device_authentication_events
         (id, device_id, credential_id, tenant_id, company_id, installation_id, result, reason_code, correlation_id, occurred_at, evidence_checksum)
@@ -482,7 +482,7 @@ const server = createServer(async (request, response) => {
       ?? (error && typeof error === "object" && "code" in error ? String(error.code) : null)
       ?? "SYNC.CENTRAL_SYNC_FAILED";
     const status = code.includes("CONFLICT") || code === "SYNC.UNIQUE_VIOLATION" ? 409
-      : code === "SYNC.PAYLOAD_CHECKSUM_MISMATCH" ? 422
+      : code === "SYNC.PAYLOAD_CHECKSUM_MISMATCH" || code === "SYNC.DEVICE_BINDING_MISMATCH" ? 422
       : code === "SYNC.FOREIGN_KEY_VIOLATION" || code === "SYNC.CONSTRAINT_VIOLATION" || code === "SYNC.INVALID_DATABASE_VALUE" ? 422
       : 500;
     const category = status === 409 ? "CONFLICT" : status === 422 ? "INTEGRITY" : "INTERNAL";
