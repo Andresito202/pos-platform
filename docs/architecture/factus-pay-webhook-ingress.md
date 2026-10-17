@@ -1,17 +1,26 @@
 # Factus Pay collection webhook ingress
 
-## Contract
+## HTTP endpoint
 
-The transport adapter is `apps/central-authority/src/factus-pay-webhook-handler.ts`. It accepts only `POST /v1/webhooks/factus-pay/collections?key=...`, JSON content, and a bounded request body. The provider's documented `key` query parameter is checked by the pure verifier; duplicate or missing `key` parameters are rejected.
+The central HTTPS listener mounts `POST /v1/webhooks/factus-pay/collections?key=...` only when `FACTUS_PAY_DATABASE_URL` is configured. The connection must use the dedicated `pos_platform_app` database role. The handler applies an in-process remote-address rate limit, bounds the JSON body, rejects duplicate/missing `key` query parameters, and authenticates the key by SHA-256 digest against the database registry.
 
-The adapter requires an injected `FactusPayWebhookInbox`. It emits HTTP 204 only after `persistVerifiedObservation` resolves. A persistence exception produces HTTP 503 so Factus Pay can retry. The idempotency key is provider-scoped and based on the provider's `reference_code`. The adapter does not confirm a POS payment.
+A successful response is HTTP 204 only after the normalized observation is committed to the durable inbox. Persistence errors return HTTP 503 so Factus Pay can retry. Invalid payloads do not enter the inbox. The handler never confirms a POS payment.
 
-## Deliberate integration gate
+## Database contract
 
-This adapter is not mounted on the production HTTPS listener yet. There is no approved durable payment-inbox table or repository contract materialized in the current PostgreSQL migrations, and the payment physical model remains documented rather than implemented. The existing `integrations.external_webhook_receipts` table is not a drop-in store: it requires tenant/company/integration scope to be resolved before insertion, stores payload evidence references/checksums rather than the normalized payment observation, and has fiscal correlation guards.
+Migration `009_factus_pay_webhook_inbox` creates two additive tables:
 
-Before wiring a production inbox, the integration must resolve the callback secret to exactly one active tenant/company/integration without exposing secrets, store a sanitized normalized observation and deduplication identity durably, and enqueue it for payment correlation. It must not store the raw provider payload or mark a payment confirmed in the HTTP handler. Correlation must use the existing QR matching contract and the actual pending-payment authority; ambiguity, amount mismatch, duplicate external reference, or missing pending payment must never confirm a sale.
+- `integrations.factus_pay_webhook_keys`: stores only a SHA-256 digest, scoped to one tenant/company/integration, with an active/revoked lifecycle.
+- `integrations.factus_pay_webhook_inbox`: stores normalized provider reference, COP amount, paid status, optional payer fields, timestamps, processing status, and a unique provider transaction key scoped by tenant/integration.
 
-## Operational status
+Both tables have forced RLS. The inbox deduplicates repeated references. If the same reference arrives with a different amount, the adapter fails closed and returns a retryable 503 rather than acknowledging a conflicting event. The raw provider payload and plaintext key are not persisted.
 
-**Not operational / do not register in Factus Pay yet.** The HTTP handler currently exists as an injectable transport adapter with tests, but is not wired to a production persistence adapter, route, or deployment. Unit tests have been authored but not executed in this environment.
+The registration command is `pnpm --filter @pos-platform/central-authority factus-pay:key:register`. It requires `FACTUS_PAY_DATABASE_URL`, `FACTUS_PAY_WEBHOOK_SECRET`, `FACTUS_PAY_TENANT_ID`, `FACTUS_PAY_COMPANY_ID`, and `FACTUS_PAY_INTEGRATION_ID`. The command verifies an ACTIVE `FACTUS_PAY` integration with exactly one active credential binding, inserts only the secret digest, and does not print the secret. Configure that same secret in the Factus Pay dashboard. Keep the secret out of source control, shell history, logs, and chat.
+
+Apply the additive migration using `pnpm --filter @pos-platform/target-migrations postgres:009:apply` after the existing 002 and 007 migration ledger entries are present and their artifact checksums match. The runner validates PostgreSQL 16.14, repository commit format, migration lock, predecessor checksums, table presence, and forced RLS. Run the descriptor test with `pnpm --filter @pos-platform/target-migrations test:descriptor:009`.
+
+## Activation and payment confirmation gate
+
+The route is disabled unless `FACTUS_PAY_DATABASE_URL` is present. This URL must be a dedicated least-privilege connection as `pos_platform_app`; do not reuse an owner or superuser credential. The migration must be applied before enabling the route. Register a key only for the intended tenant/company/integration and use the same key in Factus Pay.
+
+**The payment flow is still not end-to-end.** The inbox persists verified provider evidence but no worker yet correlates it with the authoritative pending payment or propagates a confirmed result through Sync to Local Service. Do not enable this endpoint in production or configure the provider until the migration, typecheck, tests, HTTPS reachability, key provisioning, retry behavior, and payment correlation have been verified in the target environment. No raw payload is stored; only the normalized observation needed for later correlation is persisted.
