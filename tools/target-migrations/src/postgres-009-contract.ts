@@ -8,7 +8,7 @@ export const FACTUS_PAY_009_TABLES = [
 export const POSTGRES_009_DESCRIPTOR: MigrationDescriptor = {
   migrationId: "009_factus_pay_webhook_inbox",
   manifestVersion: 1,
-  dependencies: ["002_external_integrations_foundation", "007_password_recovery"],
+  dependencies: ["008_platform_role_assignments"],
   upArtifact: "postgres/009_factus_pay_webhook_inbox.up.sql",
   downArtifact: "postgres/009_factus_pay_webhook_inbox.down.sql",
   checksum: "DERIVED_FROM_UP_ARTIFACT",
