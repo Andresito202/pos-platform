@@ -1,15 +1,14 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
+import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
 
 const BASE = process.env.CENTRAL_SYNC_BASE_URL;
-const TOKEN = process.env.CENTRAL_SYNC_TOKEN;
 const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
 const POSTGRES_ADMIN_URL = process.env.POSTGRES_ADMIN_URL;
 // Fixed UUIDv7 test tenant; PostgreSQL 001 enforces platform.is_uuid_v7 on tenant IDs.
 const tenantId = "018f0000-0000-7000-8000-0000000000e1";
 
 if (!BASE) throw new Error("CENTRAL_SYNC_BASE_URL is required");
-if (!TOKEN) throw new Error("CENTRAL_SYNC_TOKEN is required");
 if (!POSTGRES_TEST_URL) throw new Error("POSTGRES_TEST_URL is required");
 if (!POSTGRES_ADMIN_URL) throw new Error("POSTGRES_ADMIN_URL is required");
 
@@ -36,7 +35,7 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
-async function seedCentralScope(companyId: string, branchId: string): Promise<void> {
+async function seedCentralScope(companyId: string, branchId: string, deviceId: string, installationId: string, credentialId: string, publicKeyPem: string): Promise<void> {
   const admin = new Pool({ connectionString: POSTGRES_ADMIN_URL, max: 1 });
   const client = await admin.connect();
   try {
@@ -59,6 +58,21 @@ async function seedCentralScope(companyId: string, branchId: string): Promise<vo
        ON CONFLICT (id) DO NOTHING`,
       [branchId, tenantId, companyId],
     );
+    await client.query(
+      `INSERT INTO identity.device_registry
+        (device_id,installation_id,tenant_id,company_id,device_key_id,device_public_key,device_public_key_algorithm,status,trust_key_id,trust_key_purpose,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'Ed25519','ACTIVE','GATE_DEVICE_TRUST','DEVICE_TRUST',clock_timestamp(),clock_timestamp())
+       ON CONFLICT (device_id) DO UPDATE SET status='ACTIVE', device_public_key=EXCLUDED.device_public_key`,
+      [deviceId, installationId, tenantId, companyId, `GATE_${deviceId}`, Buffer.from(publicKeyPem, "utf8")],
+    );
+    await client.query(
+      `INSERT INTO identity.device_credentials
+        (credential_id,device_id,installation_id,tenant_id,company_id,device_key_id,trust_key_id,key_purpose,status,generation,issued_at,expires_at,credential_checksum,issuer_signature,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'GATE_DEVICE_TRUST','DEVICE_TRUST','ACTIVE',1,clock_timestamp(),clock_timestamp()+interval '1 hour',$7,$8,clock_timestamp())
+       ON CONFLICT (credential_id) DO UPDATE SET status='ACTIVE', expires_at=clock_timestamp()+interval '1 hour'`,
+      [credentialId, deviceId, installationId, tenantId, companyId, `GATE_${deviceId}`,
+        createHash("sha256").update(credentialId).digest("hex"), Buffer.from("central-sync-gate")],
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
@@ -79,6 +93,9 @@ async function main(): Promise<void> {
   const correlationId = uuidV7();
   const deviceId = uuidV7();
   const installationId = uuidV7();
+  const credentialId = uuidV7();
+  const deviceKeyPair = generateKeyPairSync("ed25519");
+  const publicKeyPem = deviceKeyPair.publicKey.export({ type: "spki", format: "pem" }).toString();
   const companyId = uuidV7();
   const branchId = uuidV7();
   const sessionId = uuidV7();
@@ -135,23 +152,28 @@ async function main(): Promise<void> {
     payload: batch,
   };
 
-  const headers = {
-    authorization: `Bearer ${TOKEN}`,
+  const requestHeaders = (value: typeof envelope, body: string) => ({
+    authorization: createDeviceRequestAuthorization({
+      method: "POST" as const, path: "/v1/sync/batches",
+      requestId: value.request_id, correlationId: value.correlation_id,
+      credentialId, body,
+    }, deviceKeyPair.privateKey),
     "content-type": "application/json",
     accept: "application/json",
     "x-pos-api-version": "1.0.0",
-    "x-request-id": requestId,
-    "x-correlation-id": correlationId,
+    "x-request-id": value.request_id,
+    "x-correlation-id": value.correlation_id,
     "x-pos-device-id": deviceId,
     "x-pos-installation-id": installationId,
-  };
+  });
 
-  await seedCentralScope(companyId, branchId);
-
+  await seedCentralScope(companyId, branchId, deviceId, installationId, credentialId, publicKeyPem);
+  const envelopeBody = JSON.stringify(envelope);
+  const headers = requestHeaders(envelope, envelopeBody);
   const first = await fetch(`${BASE}/v1/sync/batches`, {
     method: "POST",
     headers,
-    body: JSON.stringify(envelope),
+    body: envelopeBody,
   });
   const firstText = await first.text();
   console.log(`FIRST_POST_STATUS=${first.status}`);
@@ -204,10 +226,12 @@ async function main(): Promise<void> {
       [tenantId, operation.idempotency_key],
     );
 
+    const replayEnvelope = { ...envelope, request_id: uuidV7(), correlation_id: uuidV7() };
+    const replayBody = JSON.stringify(replayEnvelope);
     const replay = await fetch(`${BASE}/v1/sync/batches`, {
       method: "POST",
-      headers,
-      body: JSON.stringify(envelope),
+      headers: requestHeaders(replayEnvelope, replayBody),
+      body: replayBody,
     });
     const replayText = await replay.text();
     console.log(`REPLAY_STATUS=${replay.status}`);
@@ -251,14 +275,11 @@ async function main(): Promise<void> {
       payload_schema_version: "1.0.0",
       payload: conflictBatch,
     };
+    const conflictBody = JSON.stringify(conflictEnvelope);
     const conflict = await fetch(`${BASE}/v1/sync/batches`, {
       method: "POST",
-      headers: {
-        ...headers,
-        "x-request-id": conflictEnvelope.request_id,
-        "x-correlation-id": conflictOperation.correlation_id,
-      },
-      body: JSON.stringify(conflictEnvelope),
+      headers: requestHeaders(conflictEnvelope, conflictBody),
+      body: conflictBody,
     });
     const conflictText = await conflict.text();
     console.log(`IDEMPOTENCY_CONFLICT_STATUS=${conflict.status}`);
