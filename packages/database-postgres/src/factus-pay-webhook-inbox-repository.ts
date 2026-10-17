@@ -2,7 +2,20 @@ import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import type { QrPaymentObservation } from "@pos-platform/contracts";
 import { uuidV7 } from "./sql.js";
-import type { FactusPayWebhookInbox, FactusPayWebhookKeyContext } from "../../../apps/central-authority/src/factus-pay-webhook-handler.js";
+export interface FactusPayWebhookKeyContext {
+  readonly keyId: string;
+  readonly tenantId: string;
+  readonly companyId: string;
+  readonly integrationId: string;
+}
+export interface FactusPayWebhookInbox {
+  resolveKey(suppliedKey: string): Promise<FactusPayWebhookKeyContext | null>;
+  persistVerifiedObservation(
+    observation: QrPaymentObservation,
+    keyContext: FactusPayWebhookKeyContext,
+    idempotencyKey: string,
+  ): Promise<"STORED" | "DUPLICATE">;
+}
 
 export interface FactusPayWebhookInboxRepositoryOptions {
   pool: Pool;
