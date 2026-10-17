@@ -97,6 +97,7 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
       return;
     }
 
+    let observation: QrPaymentObservation;
     try {
       const rawBody = await readBody(request, maxBodyBytes);
       let input: unknown;
@@ -107,26 +108,29 @@ export function createFactusPayWebhookHandler(options: FactusPayWebhookHandlerOp
         return;
       }
 
-      const observation = verifyFactusPayCollectionWebhook(
+      observation = verifyFactusPayCollectionWebhook(
         input,
         keys[0] ?? null,
         options.expectedKey,
         (options.now ?? (() => new Date()))(),
       );
-      // This await is the acknowledgement boundary: failures return 503 so
-      // Factus Pay can retry; 2xx means the event is durably recorded.
+    } catch (error) {
+      send(response, publicErrorStatus(error));
+      return;
+    }
+
+    // This await is the acknowledgement boundary: failures return 503 so
+    // Factus Pay can retry; 2xx means the event is durably recorded.
+    try {
       await options.inbox.persistVerifiedObservation(
         observation,
         "FACTUS_PAY:" + observation.external_transaction_id,
       );
-      send(response, 204);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("FACTUS_PAY_")) {
-        send(response, publicErrorStatus(error));
-        return;
-      }
+    } catch {
       // Do not expose persistence errors, SQL details, or secret material.
       send(response, 503);
+      return;
     }
+    send(response, 204);
   };
 }
