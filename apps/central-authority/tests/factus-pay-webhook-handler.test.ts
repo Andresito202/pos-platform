@@ -11,13 +11,13 @@ const key = "factus-pay-webhook-test-key-0123456789";
 const payload = {
   data: { reference_code: "FACT-00123", amount: 150000, status: "paid" },
 };
+const keyContext = { keyId: "018f3000-0000-7000-8000-000000000001", tenantId: "018f3000-0000-7000-8000-000000000002", companyId: "018f3000-0000-7000-8000-000000000003", integrationId: "018f3000-0000-7000-8000-000000000004" };
 
 let server: Server | undefined;
 let endpoint = "";
 
 async function start(inbox: FactusPayWebhookInbox, maxBodyBytes = 16 * 1024) {
   server = createServer(createFactusPayWebhookHandler({
-    expectedKey: key,
     inbox,
     maxBodyBytes,
     now: () => new Date("2026-10-17T14:00:00.000Z"),
@@ -35,9 +35,12 @@ afterEach(async () => {
 });
 
 function inbox(
-  persist: (observation: QrPaymentObservation, idempotencyKey: string) => Promise<"STORED" | "DUPLICATE">,
+  persist: (observation: QrPaymentObservation, keyContext: typeof keyContext, idempotencyKey: string) => Promise<"STORED" | "DUPLICATE">,
 ): FactusPayWebhookInbox {
-  return { persistVerifiedObservation: persist };
+  return {
+    resolveKey: async (suppliedKey) => suppliedKey === key ? keyContext : null,
+    persistVerifiedObservation: persist,
+  };
 }
 
 describe("Factus Pay HTTP webhook handler", () => {
@@ -45,8 +48,9 @@ describe("Factus Pay HTTP webhook handler", () => {
     let release!: () => void;
     let stored = false;
     const persistenceGate = new Promise<"STORED">((resolve) => { release = () => resolve("STORED"); });
-    await start(inbox(async (observation, idempotencyKey) => {
+    await start(inbox(async (observation, resolvedKey, idempotencyKey) => {
       expect(observation.external_transaction_id).toBe("FACT-00123");
+      expect(resolvedKey.integrationId).toBe(keyContext.integrationId);
       expect(idempotencyKey).toBe("FACTUS_PAY:FACT-00123");
       const result = await persistenceGate;
       stored = true;
