@@ -46,7 +46,8 @@ try {
   foreach ($check in $checks) {
     Write-Host ""
     Write-Host ("=== " + $check.name + " ===") -ForegroundColor Yellow
-    & pnpm @($check.args)
+    $arguments = $check.args
+    & pnpm @arguments
     $code = $LASTEXITCODE
     $result = if ($code -eq 0) { "PASS" } else { "FAIL" }
     $results.Add([pscustomobject]@{ check = $check.name; exitCode = $code; result = $result })
