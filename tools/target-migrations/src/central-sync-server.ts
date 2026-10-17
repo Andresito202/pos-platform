@@ -248,6 +248,15 @@ async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevi
       [principal.deviceId, principal.installationId, principal.tenantId, principal.companyId],
     );
     if (!locked.rowCount) throw Object.assign(new Error("device is no longer active"), { code: "SYNC.DEVICE_REVOKED" });
+    const credential = await client.query<{ status: string; expires_at: Date }>(
+      `SELECT status, expires_at FROM identity.device_credentials
+        WHERE credential_id = $1 AND device_id = $2 FOR UPDATE`,
+      [principal.credentialId, principal.deviceId],
+    );
+    const activeCredential = credential.rows[0];
+    if (!activeCredential || activeCredential.status !== "ACTIVE" || activeCredential.expires_at.getTime() < Date.now()) {
+      throw Object.assign(new Error("device credential is no longer active"), { code: "SYNC.DEVICE_CREDENTIAL_REVOKED" });
+    }
     if (batch.device_id !== principal.deviceId || batch.installation_id !== principal.installationId
       || batch.tenant_id !== principal.tenantId || batch.company_id !== principal.companyId
       || batch.operations.some((operation) => operation.tenant_id !== principal.tenantId
