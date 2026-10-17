@@ -11,12 +11,14 @@ import { DurableSyncComponent } from "./sync/durable-sync-component.js";
 import { CentralSyncComponent } from "./sync/central-sync-component.js";
 import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
 import { SyncDispatcher } from "./sync/sync-dispatcher.js";
-import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
+import { EnrolledDeviceCredentialProvider, UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
+  DeviceIdentity,
+  DeviceTrustCredentialStore,
   InsecureDerivedKeyProvider,
   LocalSecurityComponent,
   SessionTrustKeyResolver,
@@ -151,6 +153,26 @@ try {
     fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
   );
 
+  const deviceTrustSecretStore = new EncryptedFileSecretStore(
+    securityDirectory,
+    keyProvider,
+    `device-trust:${config.installation_id}:${config.device_id}`,
+  );
+  const deviceTrustCredentialStore = new DeviceTrustCredentialStore(deviceTrustSecretStore);
+  let centralDeviceCredentials = new UnprovisionedDeviceCredentialProvider();
+  try {
+    if (deviceTrustSecretStore.has("device-identity") && deviceTrustCredentialStore.has()) {
+      centralDeviceCredentials = new EnrolledDeviceCredentialProvider(
+        DeviceIdentity.load(deviceTrustSecretStore),
+        deviceTrustCredentialStore,
+      );
+    }
+  } catch (error) {
+    logger.log("warn", "sync.device_credential_unavailable", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+
   const sessionTrustContext = await (async () => {
     if (
       config.session_trust_environment === undefined
@@ -237,7 +259,7 @@ try {
       () => new SyncDispatcher(
         durableSync.store,
         new FetchCentralTransport(),
-        new UnprovisionedDeviceCredentialProvider(),
+        centralDeviceCredentials,
         centralBaseUrl,
         config.protocol_max,
       ),
