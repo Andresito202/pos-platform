@@ -3,9 +3,14 @@ import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
-import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
+import {
+  createPostgresPool,
+  PostgresDeviceRegistryRepository,
+  PostgresFactusPayWebhookInboxRepository,
+} from "@pos-platform/database-postgres";
 import { SessionTrustPublication } from "./session-trust-publication.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
+import { createFactusPayWebhookHandler, FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -94,6 +99,16 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
   now: () => new Date(),
 });
 const limiter = new FixedWindowRateLimiter();
+const factusPayDatabaseUrl = process.env.FACTUS_PAY_DATABASE_URL;
+const factusPayPool = factusPayDatabaseUrl
+  ? createPostgresPool(factusPayDatabaseUrl, 5, "pos-platform-factus-pay-webhook")
+  : null;
+const factusPayInbox = factusPayPool
+  ? new PostgresFactusPayWebhookInboxRepository({ pool: factusPayPool })
+  : null;
+const factusPayWebhookHandler = factusPayInbox
+  ? createFactusPayWebhookHandler({ inbox: factusPayInbox, maxBodyBytes: 16 * 1024 })
+  : null;
 
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
@@ -130,6 +145,19 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
 
+  if (request.method === "POST" && request.url?.split("?", 1)[0] === FACTUS_PAY_COLLECTION_WEBHOOK_PATH) {
+    if (!factusPayWebhookHandler) {
+      send(response, 404, { status: "REJECTED", result_code: "NOT_FOUND" });
+      return;
+    }
+    if (!limiter.allow(`${remote}:factus-pay-webhook`)) {
+      send(response, 429, { status: "REJECTED", result_code: "FACTUS_PAY_RATE_LIMITED" }, { "retry-after": "60" });
+      return;
+    }
+    await factusPayWebhookHandler(request, response);
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/v1/device-enrollment") {
     send(response, 404, { status: "REJECTED", result_code: "NOT_FOUND" });
     return;
@@ -162,6 +190,7 @@ server.listen(PORT, "0.0.0.0", () => process.stdout.write(JSON.stringify({ servi
 const shutdown = async (signal: string) => {
   server.close();
   await pool.end();
+  if (factusPayPool) await factusPayPool.end();
   process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");
   process.exit(0);
 };

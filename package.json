@@ -26,7 +26,8 @@
     "ci:license-tests": "node --test tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs",
     "ci:provenance-tests": "node --test tools/ci/provenance-manifest.test.mjs",
     "test:runtime": "pnpm --filter @pos-platform/database-sqlite test && pnpm --filter @pos-platform/observability test && pnpm --filter @pos-platform/pos-local-service test && pnpm --filter @pos-platform/pos-desktop test",
-    "test:database-postgres": "pnpm --filter @pos-platform/pos-local-service test -- tests/postgres-onboarding.test.ts"
+    "test:database-postgres": "pnpm --filter @pos-platform/pos-local-service test -- tests/postgres-onboarding.test.ts",
+    "validate:factus-pay:local": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci/validate-factus-pay-local.ps1"
   },
   "devDependencies": {
     "nx": "23.1.2",

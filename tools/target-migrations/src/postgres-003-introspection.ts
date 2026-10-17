@@ -215,10 +215,18 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='integrations' AND c.relkind='r' ORDER BY c.relname
   `);
-  invariant(same(integrationTables.map(row=>row.name),[...INTEGRATION_TABLES].sort()),"003 predecessor integration table set diverges");
+  const factusPayExtensionNames = ["factus_pay_webhook_inbox", "factus_pay_webhook_keys"];
+  const actualIntegrationNames = integrationTables.map(row=>row.name);
+  const factusPayExtensionPresent = factusPayExtensionNames.filter(name=>actualIntegrationNames.includes(name));
+  invariant(factusPayExtensionPresent.length===0||factusPayExtensionPresent.length===factusPayExtensionNames.length,
+    "003 integration schema has a partial Factus Pay 009 extension");
+  const expectedIntegrationNames = factusPayExtensionPresent.length===2
+    ? [...INTEGRATION_TABLES,...factusPayExtensionNames].sort()
+    : [...INTEGRATION_TABLES].sort();
+  invariant(same(actualIntegrationNames,expectedIntegrationNames),"003 predecessor integration table set diverges");
   invariant(integrationTables.every(row=>row.owner==="pos_schema_owner"),"003 predecessor integration table owner diverges");
   invariant(integrationTables.every(row=>{
-    const expected=INTEGRATION_RLS_TABLES.includes(row.name);
+    const expected=INTEGRATION_RLS_TABLES.includes(row.name)||factusPayExtensionNames.includes(row.name);
     return row.rls===expected&&row.forced===expected;
   }),"003 predecessor integration table RLS diverges");
 

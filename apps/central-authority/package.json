@@ -7,7 +7,8 @@
   "scripts": {
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "factus-pay:key:register": "tsx src/register-factus-pay-webhook-key.ts"
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
