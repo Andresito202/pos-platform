@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import type { QrPaymentObservation } from "@pos-platform/contracts";
 import { uuidV7 } from "./sql.js";
 export interface FactusPayWebhookKeyContext {
@@ -22,7 +22,7 @@ export interface FactusPayWebhookInboxRepositoryOptions {
   now?: () => Date;
 }
 
-interface ResolvedKeyRow extends FactusPayWebhookKeyContext {}
+type ResolvedKeyRow = FactusPayWebhookKeyContext;
 
 function secretDigest(secret: string): string {
   return createHash("sha256").update(secret, "utf8").digest("hex");
