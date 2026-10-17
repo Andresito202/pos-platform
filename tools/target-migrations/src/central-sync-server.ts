@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, createPublicKey } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool, type PoolClient } from "pg";
 import {
@@ -11,9 +11,9 @@ import {
   type SyncOperation,
 } from "@pos-platform/contracts";
 import { canonicalJson } from "@pos-platform/local-channel";
+import { parseDeviceRequestAuthorization, verifyDeviceRequestAuthorization } from "@pos-platform/device-trust";
 
 const databaseUrl = process.env.DATABASE_URL;
-const syncToken = process.env.CENTRAL_SYNC_TOKEN;
 const port = Number(process.env.PORT ?? 8787);
 const maxOperations = Number(process.env.SYNC_MAX_OPERATIONS ?? 100);
 const maxBodyBytes = Number(process.env.SYNC_MAX_BODY_BYTES ?? 4 * 1024 * 1024);
@@ -21,7 +21,6 @@ const protocolVersion = "1.0.0";
 const resultSchemaVersion = "1.0.0";
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
-if (!syncToken) throw new Error("CENTRAL_SYNC_TOKEN is required");
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT must be a valid TCP port");
 if (!Number.isInteger(maxOperations) || maxOperations < 1) throw new Error("SYNC_MAX_OPERATIONS must be a positive integer");
 if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1) throw new Error("SYNC_MAX_BODY_BYTES must be a positive integer");
@@ -183,12 +182,93 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
   );
 }
 
-async function acceptBatch(batch: SyncBatchRequest): Promise<{ result: SyncBatchResponse; committedAt: string }> {
+type AuthenticatedDevice = {
+  credentialId: string;
+  deviceId: string;
+  installationId: string;
+  tenantId: string;
+  companyId: string;
+  publicKeyPem: string;
+  nonce: string;
+  correlationId: string;
+};
+
+async function authenticateDeviceRequest(input: {
+  authorization: string;
+  rawBody: string;
+  requestId: string;
+  correlationId: string;
+  deviceIdHeader: string;
+  installationIdHeader: string;
+}): Promise<AuthenticatedDevice | null> {
+  const parsed = parseDeviceRequestAuthorization(input.authorization);
+  if (!parsed) return null;
+  const result = await pool.query<{
+    credential_id: string; device_id: string; installation_id: string; tenant_id: string;
+    company_id: string; device_public_key: Buffer; credential_status: string;
+    device_status: string; expires_at: Date | null; not_before: Date;
+  }>(
+    `SELECT c.credential_id::text, c.device_id::text, c.installation_id::text,
+            c.tenant_id::text, c.company_id::text, r.device_public_key,
+            c.status AS credential_status, r.status AS device_status, c.expires_at, c.issued_at AS not_before
+       FROM identity.device_credentials c
+       JOIN identity.device_registry r ON r.device_id = c.device_id
+      WHERE c.credential_id = $1 AND c.installation_id = r.installation_id
+        AND c.tenant_id = r.tenant_id AND c.company_id = r.company_id`,
+    [parsed.credentialId],
+  );
+  const row = result.rows[0];
+  if (!row || row.credential_status !== "ACTIVE" || row.device_status !== "ACTIVE"
+    || (row.expires_at !== null && row.expires_at.getTime() < Date.now())
+    || row.not_before.getTime() > Date.now()
+    || row.device_id !== input.deviceIdHeader || row.installation_id !== input.installationIdHeader) return null;
+  const proof = verifyDeviceRequestAuthorization(input.authorization, {
+    method: "POST", path: "/v1/sync/batches", requestId: input.requestId,
+    correlationId: input.correlationId, body: input.rawBody,
+  }, createPublicKey(Buffer.from(row.device_public_key).toString("utf8")));
+  if (!proof || proof.credentialId !== row.credential_id) return null;
+  return {
+    credentialId: row.credential_id, deviceId: row.device_id, installationId: row.installation_id,
+    tenantId: row.tenant_id, companyId: row.company_id,
+    publicKeyPem: Buffer.from(row.device_public_key).toString("utf8"),
+    nonce: proof.nonce, correlationId: input.correlationId,
+  };
+}
+
+async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevice): Promise<{ result: SyncBatchResponse; committedAt: string }> {
   const client = await pool.connect();
   const receivedAt = new Date();
   try {
     await client.query("BEGIN");
-    await setTenantContext(client, batch.tenant_id);
+    const locked = await client.query<{ device_id: string }>(
+      `SELECT device_id::text FROM identity.device_registry
+        WHERE device_id = $1 AND installation_id = $2 AND tenant_id = $3
+          AND company_id = $4 AND status = 'ACTIVE' FOR UPDATE`,
+      [principal.deviceId, principal.installationId, principal.tenantId, principal.companyId],
+    );
+    if (!locked.rowCount) throw Object.assign(new Error("device is no longer active"), { code: "SYNC.DEVICE_REVOKED" });
+    if (batch.device_id !== principal.deviceId || batch.installation_id !== principal.installationId
+      || batch.tenant_id !== principal.tenantId || batch.company_id !== principal.companyId
+      || batch.operations.some((operation) => operation.tenant_id !== principal.tenantId
+        || operation.company_id !== principal.companyId || operation.device_id !== principal.deviceId
+        || operation.installation_id !== principal.installationId)) {
+      throw Object.assign(new Error("payload identity does not match authenticated device"), { code: "SYNC.DEVICE_BINDING_MISMATCH" });
+    }
+    const nonceDigest = createHash("sha256").update(principal.nonce, "utf8").digest("hex");
+    const replay = await client.query(
+      `SELECT 1 FROM identity.device_authentication_events
+        WHERE device_id = $1 AND evidence_checksum = $2 LIMIT 1`,
+      [principal.deviceId, nonceDigest],
+    );
+    if (replay.rowCount) throw Object.assign(new Error("device proof nonce replayed"), { code: "SYNC.DEVICE_PROOF_REPLAY" });
+    await client.query(
+      `INSERT INTO identity.device_authentication_events
+        (id, device_id, credential_id, tenant_id, company_id, installation_id, result, reason_code, correlation_id, occurred_at, evidence_checksum)
+       VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', 'DEVICE_PROOF_VALID', $7, clock_timestamp(), $8)`,
+      [randomUUID(), principal.deviceId, principal.credentialId, principal.tenantId, principal.companyId,
+        principal.installationId, principal.correlationId, nonceDigest],
+    );
+    await setTenantContext(client, principal.tenantId);
 
     for (const operation of batch.operations) {
       await persistOperation(client, operation, receivedAt);
@@ -290,12 +370,8 @@ const server = createServer(async (request, response) => {
     return;
   }
   const authorization = request.headers.authorization;
-  const expectedAuthorization = `Bearer ${syncToken}`;
-  const authorizationMatches = typeof authorization === "string"
-    && Buffer.byteLength(authorization, "utf8") === Buffer.byteLength(expectedAuthorization, "utf8")
-    && timingSafeEqual(Buffer.from(authorization, "utf8"), Buffer.from(expectedAuthorization, "utf8"));
-  if (!authorizationMatches) {
-    json(response, 401, { error: "UNAUTHORIZED" });
+  if (typeof authorization !== "string") {
+    json(response, 401, { error: "DEVICE_PROOF_REQUIRED" });
     return;
   }
 
@@ -343,8 +419,27 @@ const server = createServer(async (request, response) => {
   const requestId = envelope.request_id;
   const correlationId = envelope.correlation_id;
 
+  let principal: AuthenticatedDevice | null;
   try {
-    const accepted = await acceptBatch(envelope.payload);
+    principal = await authenticateDeviceRequest({
+      authorization,
+      rawBody: raw,
+      requestId,
+      correlationId,
+      deviceIdHeader: String(request.headers["x-pos-device-id"] ?? ""),
+      installationIdHeader: String(request.headers["x-pos-installation-id"] ?? ""),
+    });
+  } catch {
+    json(response, 503, { error: "DEVICE_AUTHORITY_UNAVAILABLE" });
+    return;
+  }
+  if (!principal) {
+    json(response, 401, { error: "DEVICE_PROOF_INVALID" });
+    return;
+  }
+
+  try {
+    const accepted = await acceptBatch(envelope.payload, principal);
     const responseBody = {
       protocol_version: protocolVersion,
       request_id: requestId,
