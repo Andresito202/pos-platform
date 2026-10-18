@@ -6,13 +6,13 @@ Este repositorio se desarrolla sobre **una única línea activa**. La existencia
 
 ### Línea activa vigente
 
-- Rama activa: `claude/pos-camacho-bloque-4c-ld43py`
+- Rama activa: [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
 - Rama canónica del producto: `main`
 - El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
 
 ## Prohibido crear trabajo paralelo por iniciativa propia
 
-Una IA, Claude Code, agente o colaborador **NO DEBE**:
+Una IA, agente o colaborador **NO DEBE**:
 
 - abrir otra rama porque considere que su enfoque es mejor;
 - crear un segundo diseño para el mismo problema;
@@ -79,9 +79,9 @@ Los componentes críticos —contratos, migrations cerradas, reglas de ownership
 - No integrar a `main` sin PR, CI del HEAD exacto, autorización y verificación post-merge.
 - No declarar `PASS`, `TESTED` o `VERIFIED` por inferencia.
 
-## Regla para Claude Code
+## Regla de continuidad para agentes
 
-Claude Code debe tratar este archivo como una restricción de continuidad del proyecto. Antes de ejecutar una tarea debe auditar la línea activa y continuar desde el estado existente. Si detecta una solución alternativa, debe documentarla como hallazgo y no implementarla en paralelo.
+Cada agente debe tratar este archivo como una restricción de continuidad del proyecto. Antes de ejecutar una tarea debe auditar la línea activa y continuar desde el estado existente. Si detecta una solución alternativa, debe documentarla como hallazgo y no implementarla en paralelo.
 
 ## Regla para cualquier otra IA/agente
 
@@ -90,3 +90,23 @@ Si el agente no puede determinar cuál es la línea activa, **no debe crear una 
 ## Principio final
 
 > **Una sola línea. Un solo objetivo activo. Una sola fuente de verdad por tipo de decisión. Se construye sobre lo existente; no se dispersa el proyecto.**
+
+## Guía técnica y herramientas reutilizables
+
+- Monolito modular, TypeScript estricto, pnpm workspaces y Nx; owners en `docs/architecture/module-map.md` y `data-ownership.md`.
+- Electron + React + Vite no acceden directamente a la base de datos. POS Local Service es el único writer SQLite/WAL.
+- Tenant, empresa y sucursal se derivan del contexto confiable; los IDs del cliente no conceden autoridad.
+- Ventas autorizadas local-first no dependen de Internet. Conservar idempotencia, causalidad, append-only y conflictos explícitos; no usar last-write-wins genérico.
+- Providers y hardware se integran mediante adapters, sin redefinir el dominio.
+- Consultar scripts reales de `package.json`; no inventar comandos. Central Sync usa `central-sync:gate` en `@pos-platform/target-migrations`.
+- Las guías existentes se conservan en `.agents/skills/` y el procedimiento en `.agents/commands/pipeline.md`. Su reubicación no amplía el alcance autorizado ni altera el código del POS.
+
+## Pipeline de trabajo
+
+1. AUDIT: identificar defecto, contrato, owner y solución existente.
+2. PLAN: delimitar archivos, riesgos y evidencia necesaria.
+3. BUILD: modificar sólo el alcance autorizado sobre lo construido.
+4. TEST: ejecutar validaciones aplicables y conservar salidas reales, incluidos fallos y omitidas.
+5. REVIEW: revisar diff, permisos, errores, regresiones y ausencia de duplicación.
+6. EVIDENCE: registrar SHA, entorno y nivel realmente observado.
+7. SHIP: publicar en la misma línea; integrar a main sólo mediante el flujo de gobernanza vigente.

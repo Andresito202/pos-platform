@@ -2,7 +2,7 @@
 
 ## Alcance
 
-Auditoría del estado real de la rama `claude/pos-camacho-bloque-4c-ld43py`.
+Auditoría del estado real de la rama [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92).
 No sustituye evidencia de ejecución de CI. Los runners de GitHub siguen siendo un bloqueo de infraestructura y no se consideran prueba de producto.
 
 ## Regla de autoridad

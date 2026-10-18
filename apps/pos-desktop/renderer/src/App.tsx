@@ -1,5 +1,5 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import "./App.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
@@ -73,6 +73,15 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
+  const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
+  const [receiptTarget, setReceiptTarget] = useState<string | null>(null);
+  const [fiscalTarget, setFiscalTarget] = useState<string | null>(null);
+  const [inventoryTarget, setInventoryTarget] = useState<string | null>(null);
+  const navigateTo = useCallback((id: string, from: string | null): void => {
+    setVisitedScreens((visited) => new Set([...visited, ...(from === null ? [] : [from]), id]));
+    setActiveScreen(id);
+  }, []);
+
 
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready") return [];
@@ -87,12 +96,16 @@ export function App(): React.JSX.Element {
       CanonicalPermission.PAYMENTS_PAYMENT_REGISTER,
       CanonicalPermission.PAYMENTS_TRANSFER_REPORT,
       CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
+      CanonicalPermission.PAYMENTS_PAYMENT_READ,
+      CanonicalPermission.PAYMENTS_PAYMENT_CANCEL,
     ])) {
       result.push({
         id: "sales",
         label: "Caja y ventas",
         section: "Operación",
-        render: () => <SalePanel />,
+        render: () => <SalePanel permissions={permissions}
+          onReceipt={permissions.has(CanonicalPermission.SALES_RECEIPT_READ) ? (id) => { setReceiptTarget(id); navigateTo("receipts", "sales"); } : undefined}
+          onInvoice={permissions.has(CanonicalPermission.FISCAL_DOCUMENT_ISSUE) ? (id) => { setFiscalTarget(id); navigateTo("fiscal", "sales"); } : undefined} />,
       });
     }
 
@@ -101,7 +114,7 @@ export function App(): React.JSX.Element {
         id: "fiscal",
         label: "Facturación electrónica",
         section: "Operación",
-        render: () => <FiscalPanel />,
+        render: () => <FiscalPanel initialSaleId={fiscalTarget} />,
       });
     }
 
@@ -110,7 +123,8 @@ export function App(): React.JSX.Element {
         id: "catalog",
         label: "Catálogo",
         section: "Catálogo e inventario",
-        render: () => <CatalogPanel />,
+        render: () => <CatalogPanel permissions={permissions}
+          onReceiveStock={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) ? (id) => { setInventoryTarget(id); navigateTo("inventory", "catalog"); } : undefined} />,
       });
     }
 
@@ -123,7 +137,7 @@ export function App(): React.JSX.Element {
         id: "inventory",
         label: "Inventario",
         section: "Catálogo e inventario",
-        render: () => <InventoryPanel />,
+        render: () => <InventoryPanel permissions={permissions} initialPresentationId={inventoryTarget} />,
       });
     }
 
@@ -135,7 +149,7 @@ export function App(): React.JSX.Element {
         id: "customers",
         label: "Clientes",
         section: "Operación",
-        render: () => <CustomerPanel />,
+        render: () => <CustomerPanel permissions={permissions} />,
       });
     }
 
@@ -144,7 +158,7 @@ export function App(): React.JSX.Element {
         id: "receipts",
         label: "Comprobantes",
         section: "Operación",
-        render: () => <ReceiptPanel />,
+        render: () => <ReceiptPanel initialSaleId={receiptTarget} />,
       });
     }
 
@@ -160,7 +174,7 @@ export function App(): React.JSX.Element {
     }
 
     return result;
-  }, [authorization]);
+  }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo]);
 
   if (authorization.phase === "loading") {
     return (
@@ -206,7 +220,7 @@ export function App(): React.JSX.Element {
                     type="button"
                     className={`pos-nav-button${screen.planned ? " pos-nav-button-planned" : ""}`}
                     aria-current={selectedScreen?.id === screen.id ? "page" : undefined}
-                    onClick={() => { setActiveScreen(screen.id); }}
+                    onClick={() => navigateTo(screen.id, selectedScreen?.id ?? null)}
                   >
                     {screen.label}
                   </button>
@@ -222,7 +236,7 @@ export function App(): React.JSX.Element {
           <div>
             <p className="pos-product-name">Camacho POS Colombia</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
-            <p>Acceso disponible según la autorización efectiva de la sesión. Las interfaces administrativas ya están identificadas; sus acciones se conectan al servicio real por bloque.</p>
+            <p>Operación disponible según los permisos efectivos de la sesión.</p>
           </div>
         </header>
 
@@ -232,7 +246,11 @@ export function App(): React.JSX.Element {
 
         <section className="pos-screen" aria-label="Pantalla activa">
           {selectedScreen ? (
-            selectedScreen.render()
+            screens.map((screen) => (
+              <div key={screen.id} hidden={screen.id !== selectedScreen.id}>
+                {(screen.id === selectedScreen.id || visitedScreens.has(screen.id)) && screen.render()}
+              </div>
+            ))
           ) : (
             <div data-testid="no-authorized-screens">
               No hay pantallas comerciales disponibles para los permisos de esta sesión.

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { SalesReceiptGetRequestSchema } from "@pos-platform/contracts";
 import { App } from "../../renderer/src/App.js";
 
 function makeService() {
@@ -272,4 +273,71 @@ describe("App", () => {
       expect(screen.getByTestId("confirm-button")).toBeTruthy();
     });
   });
+  it("preserves the cash screen while navigating to another authorized screen", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE",
+      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "CASH_SHIFT_OPEN", "CATALOG_PRODUCT_READ"] },
+    });
+    render(<App />);
+    const register = await screen.findByTestId("cash-register-input");
+    fireEvent.change(register, { target: { value: "11111111-1111-4111-8111-111111111111" } });
+    fireEvent.click(screen.getByRole("button", { name: "Catálogo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Caja y ventas" }));
+    expect((screen.getByTestId("cash-register-input") as HTMLInputElement).value).toBe("11111111-1111-4111-8111-111111111111");
+  });
+
+  it("connects product registration to stock entry using the returned presentation ID", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE", result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_REGISTER", "INVENTORY_STOCK_RECEIVE"] },
+    });
+    Object.defineProperty(window.posService, "catalog.product.register", { value: vi.fn().mockResolvedValue({
+      status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: "22222222-2222-4222-8222-222222222222" },
+    }) });
+    render(<App />);
+    await screen.findByTestId("catalog-panel");
+    for (const [field, value] of [["product-code-input", "ARZ"], ["product-name-input", "Arroz"], ["presentation-name-input", "Bolsa"], ["product-price-input", "1500"]]) {
+      fireEvent.change(screen.getByTestId(field!), { target: { value } });
+    }
+    fireEvent.click(screen.getByTestId("register-product-button"));
+    fireEvent.click(await screen.findByTestId("product-receive-stock"));
+    await waitFor(() => expect((screen.getByTestId("inventory-presentation-input") as HTMLInputElement).value).toBe("22222222-2222-4222-8222-222222222222"));
+    expect(screen.getByRole("heading", { name: "Inventario", level: 1 })).toBeTruthy();
+  });
+
+  it("connects the paid sale to its receipt and fiscal form without retyping IDs", async () => {
+    const id = "55555555-5555-4555-8555-555555555555";
+    const success = (result: unknown) => ({ status: "SUCCEEDED", result_code: "OK", result });
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue(success({ outcome: "AVAILABLE", permissions: [
+      "CASH_SHIFT_OPEN", "CATALOG_PRODUCT_READ", "SALES_SALE_CREATE", "PAYMENTS_PAYMENT_REGISTER", "SALES_RECEIPT_READ", "FISCAL_DOCUMENT_ISSUE",
+    ] }));
+    const receipt = vi.fn().mockReturnValue(new Promise<never>(() => undefined));
+    const fiscal = vi.fn();
+    const methods = {
+      "cash.shift.open": vi.fn().mockResolvedValue(success({ outcome: "OPENED", shift_id: "44444444-4444-4444-8444-444444444444", version: 1 })),
+      "catalog.item.list": vi.fn().mockResolvedValue(success({ outcome: "FOUND", items: [], has_more: false })),
+      "catalog.item.find": vi.fn().mockResolvedValue(success({ outcome: "FOUND", product_id: "22222222-2222-4222-8222-222222222222", presentation_id: "33333333-3333-4333-8333-333333333333", name: "Arroz", presentation_name: "Bolsa", price_amount: "3500.000000", currency_code: "COP" })),
+      "sale.create": vi.fn().mockResolvedValue(success({ outcome: "CREATED", sale_id: id, payable_amount: "3500.000000" })),
+      "payment.register.cash": vi.fn().mockResolvedValue(success({ outcome: "CONFIRMED", sale_completed: true, confirmed_coverage: "3500.000000", change_amount: "0.000000" })),
+      "sales.receipt.get": receipt, "fiscal.document.issue": fiscal,
+    };
+    for (const [method, value] of Object.entries(methods)) Object.defineProperty(window.posService, method, { value });
+    render(<App />);
+    fireEvent.change(await screen.findByTestId("cash-register-input"), { target: { value: "11111111-1111-4111-8111-111111111111" } });
+    fireEvent.click(screen.getByTestId("open-shift-button")); await screen.findByTestId("shift-open");
+    fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: "7701234567890" } });
+    fireEvent.click(screen.getByTestId("find-item-button")); await screen.findByTestId("found-product-tile");
+    fireEvent.click(screen.getByTestId("add-item-button"));
+    fireEvent.click(screen.getByTestId("create-sale-button")); await screen.findByTestId("sale-created");
+    fireEvent.click(screen.getByTestId("charge-cash-button")); await screen.findByTestId("sale-completed");
+    fireEvent.click(screen.getByTestId("sale-view-receipt"));
+    await waitFor(() => expect(receipt).toHaveBeenCalledTimes(1));
+    const request = receipt.mock.calls[0]?.[0];
+    expect(SalesReceiptGetRequestSchema.safeParse(request).success).toBe(true);
+    expect(request).toMatchObject({ payload: { sale_id: id } });
+    fireEvent.click(screen.getByRole("button", { name: "Caja y ventas" }));
+    fireEvent.click(screen.getByTestId("sale-issue-invoice"));
+    expect((screen.getByTestId("fiscal-sale-id-input") as HTMLInputElement).value).toBe(id);
+    expect(fiscal).not.toHaveBeenCalled();
+  });
+
 });

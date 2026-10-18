@@ -2,13 +2,15 @@
 
 > Alcance de lectura — 2026-10-17. El censo de 68 refs y sus distancias pertenece al 2026-09-16. El inventario remoto actual (17 refs al corte auditado), las disposiciones y las dependencias de PR están en el backlog; los números inferiores no son el inventario vigente. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
 
+> Los prefijos de proveedor se retiraron por solicitud del propietario. Las etiquetas históricas abreviadas se identifican por sus SHAs y PR; no son nombres completos de rama.
+
 ## Veredicto
 
-Se auditaron los **68 refs existentes antes de esta auditoría** comparándolos contra la línea activa `claude/pos-camacho-bloque-4c-ld43py`.
+Se auditaron los **68 refs existentes antes de esta auditoría** comparándolos contra la línea activa [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92).
 
 Resultado de la comparación Git:
 
-- **1 línea activa:** `claude/pos-camacho-bloque-4c-ld43py`.
+- **1 línea activa:** [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92).
 - **57 ramas con `ahead_by=0`:** todos sus commits están contenidos en la línea activa; no representan una implementación distinta que deba mantenerse activa.
 - **10 ramas divergentes:** contienen commits que no están en la línea activa y por eso no se borran ni se consideran automáticamente inútiles; se clasifican por contenido abajo.
 - `main` permanece como rama canónica del producto y no se considera una línea de implementación paralela.
@@ -25,7 +27,7 @@ Eso permite retirar la rama como línea de trabajo **sin perder sus commits del 
 
 ## Línea activa
 
-### `claude/pos-camacho-bloque-4c-ld43py`
+### [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
 
 **Estado:** `ACTIVE / CANONICAL IMPLEMENTATION LINE`
 
@@ -66,9 +68,9 @@ No se integra como bloque. Parte de su contenido ya fue incorporado selectivamen
 
 **Disposición:** `HISTORICAL_EVIDENCE / SELECTIVE_INTEGRATION_ONLY`.
 
-No es línea activa. PR #81 fue cerrado. Antes de reutilizar cualquier cambio se debe comprobar si ya existe en `claude/pos-camacho-bloque-4c-ld43py` y ejecutar regresión.
+No es línea activa. PR #81 fue cerrado. Antes de reutilizar cualquier cambio se debe comprobar si ya existe en [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92) y ejecutar regresión.
 
-## 3. `claude/sale-cash-shift-binding`
+## 3. `sale-cash-shift-binding` (etiqueta histórica)
 
 **Comparación:** `ahead_by=1`, `behind_by=70`.
 
@@ -82,7 +84,7 @@ No es línea activa. PR #81 fue cerrado. Antes de reutilizar cualquier cambio se
 
 La prueba vertical es valiosa como evidencia de una juntura que debe existir, pero debe adaptarse al contrato vigente; no se copia la implementación que contradice la decisión ratificada. PR #82 fue cerrado.
 
-## 4. `claude/fiscal-adapter-gate`
+## 4. `fiscal-adapter-gate` (etiqueta histórica)
 
 **Comparación:** `ahead_by=2`, `behind_by=134`.
 
@@ -92,7 +94,7 @@ La prueba vertical es valiosa como evidencia de una juntura que debe existir, pe
 
 El trabajo fiscal no se reabre desde esta rama. La investigación y decisiones que ya estén reflejadas en el árbol activo son la fuente. Si algún documento único sigue faltando, se extrae como documentación, no como rama de código.
 
-## 5. `claude/handler-response-typing`
+## 5. `handler-response-typing` (etiqueta histórica)
 
 **Comparación:** `ahead_by=1`, `behind_by=70`.
 
@@ -106,7 +108,7 @@ El trabajo fiscal no se reabre desde esta rama. La investigación y decisiones q
 
 El árbol activo ya tiene una versión más reciente del handler con operaciones fiscales y Receipt. No se reemplaza el archivo completo por la rama antigua. Si el guard de tipos aún falta en la versión actual, se extrae únicamente ese delta y se prueba sobre la línea activa.
 
-## 6. `claude/ledger-wip-lineage-correction`
+## 6. `ledger-wip-lineage-correction` (etiqueta histórica)
 
 **Comparación:** `ahead_by=1`, `behind_by=133`.
 
@@ -160,7 +162,7 @@ No se revive. Sirve como evidencia comparativa si aparece un defecto que obligue
 
 # Ramas cuyo tip ya está contenido en la línea activa
 
-Todas las siguientes tienen `ahead_by=0` frente a `claude/pos-camacho-bloque-4c-ld43py`. Por tanto, **no contienen una implementación que falte en la línea activa**.
+Todas las siguientes tienen `ahead_by=0` frente a [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92). Por tanto, **no contienen una implementación que falte en la línea activa**.
 
 Su estado pasa a `INTEGRATED / HISTORICAL — CANDIDATE FOR REF DELETION`.
 
@@ -170,33 +172,33 @@ Su estado pasa a `INTEGRATED / HISTORICAL — CANDIDATE FOR REF DELETION`.
 - `audit/main-governance-reconciliation-20260826`
 - `brand/canonical-identity-assets-20260826`
 - `ci/supply-chain-baseline-20260826`
-- `claude/audit-figures-and-dead-constant`
-- `claude/catalog-authorization-pack`
-- `claude/d8-preserved-lineage-disposition`
-- `claude/dec012-catalog-authorization`
-- `claude/dec017-architecture-ratification`
-- `claude/dian-reference-codes`
-- `claude/factus-adapter`
-- `claude/factus-nullable-fields`
-- `claude/factus-paginated-ranges`
-- `claude/factus-sandbox-diagnostics`
-- `claude/fiscal-capability-ports`
-- `claude/inventory`
-- `claude/ledger-transport-correction`
-- `claude/merge-governance-rule`
-- `claude/payment-wire-routing`
-- `claude/per-port-verification`
-- `claude/pos-platform-a7f38u`
-- `claude/pos-platform-repo-switch-02opws`
-- `claude/posix-process-test-contract`
-- `claude/provider-payload-research`
-- `claude/sale-cash-shift-binding-fixed`
-- `claude/self-describing-shape-mismatch`
-- `claude/skills-truth-pass`
-- `claude/stability-sweep`
-- `claude/strix-configuration-gate`
-- `claude/strix-required-vars-fix`
-- `claude/vulnerability-gate`
+- `audit-figures-and-dead-constant` (etiqueta histórica)
+- `catalog-authorization-pack` (etiqueta histórica)
+- `d8-preserved-lineage-disposition` (etiqueta histórica)
+- `dec012-catalog-authorization` (etiqueta histórica)
+- `dec017-architecture-ratification` (etiqueta histórica)
+- `dian-reference-codes` (etiqueta histórica)
+- `factus-adapter` (etiqueta histórica)
+- `factus-nullable-fields` (etiqueta histórica)
+- `factus-paginated-ranges` (etiqueta histórica)
+- `factus-sandbox-diagnostics` (etiqueta histórica)
+- `fiscal-capability-ports` (etiqueta histórica)
+- `inventory` (etiqueta histórica)
+- `ledger-transport-correction` (etiqueta histórica)
+- `merge-governance-rule` (etiqueta histórica)
+- `payment-wire-routing` (etiqueta histórica)
+- `per-port-verification` (etiqueta histórica)
+- `pos-platform-a7f38u` (etiqueta histórica)
+- `pos-platform-repo-switch-02opws` (etiqueta histórica)
+- `posix-process-test-contract` (etiqueta histórica)
+- `provider-payload-research` (etiqueta histórica)
+- `sale-cash-shift-binding-fixed` (etiqueta histórica)
+- `self-describing-shape-mismatch` (etiqueta histórica)
+- `skills-truth-pass` (etiqueta histórica)
+- `stability-sweep` (etiqueta histórica)
+- `strix-configuration-gate` (etiqueta histórica)
+- `strix-required-vars-fix` (etiqueta histórica)
+- `vulnerability-gate` (etiqueta histórica)
 - `cleanup/pure-pos-platform-20260825`
 - `design/sql003-contract-reconciliation-20260826`
 - `docs/backlog-rt008-integrated-20260903`
@@ -222,9 +224,9 @@ Su estado pasa a `INTEGRATED / HISTORICAL — CANDIDATE FOR REF DELETION`.
 - `tech/tech003-executable-contracts-20260828`
 - `tech/tech004-quality-supply-chain-20260828`
 
-## Excepción importante: `claude/sale-cash-shift-binding-fixed`
+## Excepción importante: `sale-cash-shift-binding-fixed` (etiqueta histórica)
 
-Está contenida y por tanto no tiene delta pendiente. No se debe confundir con `claude/sale-cash-shift-binding`: la primera ya está incorporada; la segunda contiene el commit histórico que contradice el selector de caja vigente.
+Está contenida y por tanto no tiene delta pendiente. No se debe confundir con `sale-cash-shift-binding` (etiqueta histórica): la primera ya está incorporada; la segunda contiene el commit histórico que contradice el selector de caja vigente.
 
 ---
 
@@ -246,7 +248,7 @@ Desde este registro:
 
 > **NO SE DESARROLLA EN NINGUNA DE LAS RAMAS ANTERIORES.**
 >
-> El único lugar donde se implementa es `claude/pos-camacho-bloque-4c-ld43py`.
+> El único lugar donde se implementa es [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92).
 >
 > Todo lo demás es evidencia, historial o producto integrado.
 

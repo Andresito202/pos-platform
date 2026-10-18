@@ -1,7 +1,7 @@
 # Certificación final POS — criterio de cierre y evidencia
 
 Fecha de actualización: 2026-10-16
-Rama canónica: `claude/pos-camacho-bloque-4c-ld43py`
+Rama canónica: [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
 PR de trabajo: #92
 Estado: `LOCAL_REGRESSION_EVIDENCE_PRESENT / END_TO_END_CENTRAL_SYNC_NOT_CERTIFIED`
 

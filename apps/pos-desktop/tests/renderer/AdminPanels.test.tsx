@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CatalogProductRegisterRequestSchema,
+  CatalogItemListRequestSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
   InventoryStockAdjustRequestSchema,
@@ -70,7 +72,7 @@ describe("CatalogPanel", () => {
         presentation_id: PRESENTATION,
       },
     });
-    render(<CatalogPanel />);
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillProduct();
     fireEvent.change(screen.getByTestId("product-barcode-input"), { target: { value: "7700000000017" } });
     fireEvent.click(screen.getByTestId("register-product-button"));
@@ -99,7 +101,7 @@ describe("CatalogPanel", () => {
         presentation_id: PRESENTATION,
       },
     });
-    render(<CatalogPanel />);
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillProduct();
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -115,7 +117,7 @@ describe("CatalogPanel", () => {
       result_code: "REGISTERED",
       result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION },
     });
-    render(<CatalogPanel />);
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillProduct();
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -126,7 +128,7 @@ describe("CatalogPanel", () => {
 
   it("rechaza un precio que no cabe en escala 6 en vez de truncarlo", async () => {
     install({ status: "SUCCEEDED", result_code: "REGISTERED", result: null });
-    render(<CatalogPanel />);
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillProduct("1500.1234567");
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -143,7 +145,7 @@ describe("CatalogPanel", () => {
       result_code: "UNAUTHORIZED",
       result: { outcome: "UNAUTHORIZED", product_id: null, presentation_id: null },
     });
-    render(<CatalogPanel />);
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillProduct();
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -167,7 +169,7 @@ describe("InventoryPanel", () => {
       result_code: "POSTED",
       result: { outcome: "POSTED", stock_sequence: 1, quantity_after: "12.000000", available: null },
     });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
 
     fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "12" } });
@@ -185,7 +187,7 @@ describe("InventoryPanel", () => {
 
   it("los motivos de entrada y de ajuste son listas disjuntas", () => {
     install({ status: "SUCCEEDED", result_code: "POSTED", result: null });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
 
     const receive = Array.from(
       screen.getByTestId("receive-movement-select").querySelectorAll("option"),
@@ -213,7 +215,7 @@ describe("InventoryPanel", () => {
         available: "3.000000",
       },
     });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
     fireEvent.change(screen.getByTestId("adjust-quantity-input"), { target: { value: "9" } });
     fireEvent.click(screen.getByTestId("adjust-stock-button"));
@@ -236,7 +238,7 @@ describe("InventoryPanel", () => {
         last_movement_sequence: null,
       },
     });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
     fireEvent.click(screen.getByTestId("get-stock-button"));
 
@@ -247,7 +249,7 @@ describe("InventoryPanel", () => {
 
   it("rechaza una cantidad fuera de escala 6 sin tocar el canal", async () => {
     install({ status: "SUCCEEDED", result_code: "POSTED", result: null });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
     fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "1.0000001" } });
     fireEvent.click(screen.getByTestId("receive-stock-button"));
@@ -262,7 +264,7 @@ describe("InventoryPanel", () => {
 describe("CustomerPanel", () => {
   it("expone el aviso de privacidad y el canal de consultas desde el formulario", () => {
     install({ status: "SUCCEEDED", result_code: "NOT_FOUND", result: null });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
 
     expect(screen.getByTestId("customer-privacy-notice")).toBeTruthy();
     expect(screen.getByTestId("customer-privacy-details").querySelector("summary")?.textContent)
@@ -291,7 +293,7 @@ describe("CustomerPanel", () => {
         findings: [],
       },
     });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillCustomer();
     fireEvent.change(screen.getByTestId("customer-responsibilities-input"), {
       target: { value: "R-99-PN, O-13" },
@@ -321,7 +323,7 @@ describe("CustomerPanel", () => {
         findings: [{ code: "TRIBUTE_CODE_UNKNOWN", path: "tribute_code" }],
       },
     });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillCustomer();
     fireEvent.click(screen.getByTestId("register-customer-button"));
 
@@ -353,7 +355,7 @@ describe("CustomerPanel", () => {
         version: null,
       },
     });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillCustomer();
     fireEvent.click(screen.getByTestId("find-customer-button"));
 
@@ -582,5 +584,35 @@ describe("AdministrativeControlPanel", () => {
     expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
     expect(screen.getByText("1 evento cargado")).toBeTruthy();
     expect(sent("audit.event.list")["payload"]).toBeDefined();
+  });
+});
+
+
+describe("permisos por acción y consultas conectadas", () => {
+  it("connects catalog-read without enabling product registration", async () => {
+    install({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } });
+    render(<CatalogPanel permissions={new Set(["CATALOG_PRODUCT_READ"])} />);
+    fireEvent.click(screen.getByTestId("catalog-list-button"));
+    await waitFor(() => expect(calls.get("catalog.item.list")).toHaveLength(1));
+    expect(CatalogItemListRequestSchema.safeParse(sent("catalog.item.list")).success).toBe(true);
+    expect((screen.getByTestId("register-product-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.get("catalog.product.register")).toBeUndefined();
+  });
+
+  it("does not enable stock mutations for an inventory reader", () => {
+    install(null);
+    render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} initialPresentationId={PRESENTATION} />);
+    fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "2" } });
+    fireEvent.change(screen.getByTestId("adjust-quantity-input"), { target: { value: "1" } });
+    expect((screen.getByTestId("receive-stock-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("adjust-stock-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("get-stock-button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("preselects the completed sale for fiscal issuance without issuing automatically", () => {
+    install(null);
+    render(<FiscalPanel initialSaleId="55555555-5555-4555-8555-555555555555" />);
+    expect((screen.getByTestId("fiscal-sale-id-input") as HTMLInputElement).value).toBe("55555555-5555-4555-8555-555555555555");
+    expect(calls.get("fiscal.document.issue")).toBeUndefined();
   });
 });

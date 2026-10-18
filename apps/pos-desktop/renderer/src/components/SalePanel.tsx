@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { useState } from "react";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
 import { ProductAvatar } from "./ProductAvatar.js";
@@ -12,8 +13,17 @@ const paymentButtons = [
 
 const calculatorKeys = ["1","2","3","4","5","6","7","8","9","0","00","Borrar"] as const;
 
-export function SalePanel(): React.JSX.Element {
-  const sale = useCommercialSale();
+export function SalePanel({ permissions, onReceipt, onInvoice }: {
+  permissions: ReadonlySet<string>;
+  onReceipt?: ((saleId: string) => void) | undefined;
+  onInvoice?: ((saleId: string) => void) | undefined;
+}): React.JSX.Element {
+  const sale = useCommercialSale({
+    canReadCatalog: permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ),
+    canReadPayment: permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ),
+  });
+  const completed = sale.payment?.sale_completed === true
+    || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true);
   const [registerId, setRegisterId] = useState("");
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
@@ -21,6 +31,8 @@ export function SalePanel(): React.JSX.Element {
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
   const [tendered, setTendered] = useState("");
+  const [paymentId, setPaymentId] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
 
   const appendTendered = (key: string): void => {
     if (key === "Borrar") {
@@ -40,7 +52,7 @@ export function SalePanel(): React.JSX.Element {
           <input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}
             onChange={(e) => { setOpening(e.target.value); }} placeholder="Base inicial" disabled={sale.busy} />
           <button data-testid="open-shift-button" onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
-            disabled={sale.busy || registerId.trim() === ""}>Abrir turno</button>
+            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>Abrir turno</button>
         </div>
       ) : (
         <div data-testid="shift-open" className="pos-shift-bar">
@@ -48,7 +60,7 @@ export function SalePanel(): React.JSX.Element {
           <input data-testid="counted-amount-input" aria-label="Efectivo contado" value={counted}
             onChange={(e) => { setCounted(e.target.value); }} placeholder="Efectivo contado" disabled={sale.busy} />
           <button data-testid="close-shift-button" onClick={() => { void sale.closeShift(counted.trim()); }}
-            disabled={sale.busy || counted.trim() === ""}>Cerrar turno</button>
+            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_CLOSE) || counted.trim() === ""}>Cerrar turno</button>
         </div>
       )}
 
@@ -60,11 +72,11 @@ export function SalePanel(): React.JSX.Element {
               <input data-testid="catalog-search-input" aria-label="Buscar producto" value={catalogQuery}
                 onChange={(e) => { setCatalogQuery(e.target.value); }} placeholder="Buscar producto, código o barras" disabled={sale.busy} />
               <button data-testid="catalog-search-button" onClick={() => { void sale.listCatalogItems(catalogQuery.trim()); }}
-                disabled={sale.busy || sale.catalogBusy}>Buscar catálogo</button>
+                disabled={sale.busy || sale.catalogBusy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}>Buscar catálogo</button>
               <input data-testid="barcode-input" aria-label="Código de barras" value={barcode}
                 onChange={(e) => { setBarcode(e.target.value); }} placeholder="Escanear o escribir código" disabled={sale.busy} />
               <button data-testid="find-item-button" onClick={() => { void sale.findItem(barcode.trim()); }}
-                disabled={sale.busy || barcode.trim() === ""}>Buscar</button>
+                disabled={sale.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ) || barcode.trim() === ""}>Buscar</button>
             </div>
           </div>
 
@@ -72,7 +84,7 @@ export function SalePanel(): React.JSX.Element {
             {sale.catalogItems.length > 0 ? (
               sale.catalogItems.map((item) => (
                 <button type="button" className="pos-product-tile" key={item.presentation_id} data-testid={`catalog-product-${item.presentation_id}`}
-                  onClick={() => { sale.addCatalogItem(item, quantity.trim()); }} disabled={sale.busy}>
+                  onClick={() => { sale.addCatalogItem(item, quantity.trim()); }} disabled={sale.busy || sale.unresolved || sale.sale !== null}>
                   <ProductAvatar item={item} />
                   <strong className="pos-product-name-value">{item.name}</strong>
                   <span className="pos-product-presentation">{item.presentation_name}</span>
@@ -82,7 +94,7 @@ export function SalePanel(): React.JSX.Element {
             ) : sale.foundItem !== null ? (
               <button type="button" className="pos-product-tile" data-testid="found-product-tile"
                 onClick={() => { sale.addFoundItem(quantity.trim()); }}
-                disabled={sale.busy || sale.foundItem.price_amount === null}>
+                disabled={sale.busy || sale.unresolved || sale.sale !== null || sale.foundItem.price_amount === null}>
                 <ProductAvatar item={sale.foundItem} />
                 <strong className="pos-product-name-value" data-testid="found-item-name">{sale.foundItem.name}</strong>
                 <span className="pos-product-presentation">{sale.foundItem.presentation_name}</span>
@@ -99,7 +111,7 @@ export function SalePanel(): React.JSX.Element {
             )}
           </div>
           {sale.catalogHasMore && (
-            <button type="button" data-testid="catalog-load-more" onClick={() => { void sale.listCatalogItems(catalogQuery.trim(), sale.catalogItems.length); }} disabled={sale.busy || sale.catalogBusy}>
+            <button type="button" data-testid="catalog-load-more" onClick={() => { void sale.listCatalogItems(catalogQuery.trim(), sale.catalogItems.length); }} disabled={sale.busy || sale.catalogBusy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}>
               Cargar más productos
             </button>
           )}
@@ -120,7 +132,7 @@ export function SalePanel(): React.JSX.Element {
                 title="La lectura real depende del adaptador de balanza del Hardware Service.">Leer balanza</button>
               {sale.foundItem !== null ? (
                 <button data-testid="add-item-button" onClick={() => { sale.addFoundItem(quantity.trim()); }}
-                  disabled={sale.busy || sale.foundItem.price_amount === null}>Agregar al carrito</button>
+                  disabled={sale.busy || sale.unresolved || sale.sale !== null || sale.foundItem.price_amount === null}>Agregar al carrito</button>
               ) : (
                 <span className="pos-product-capture-hint">La cantidad se aplica a la tarjeta que toques.</span>
               )}
@@ -135,28 +147,32 @@ export function SalePanel(): React.JSX.Element {
               <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
                 <span><strong>{line.name}</strong><small>{line.presentationName} · {line.quantity}</small></span>
                 <strong>{line.priceAmount}</strong>
+                <button aria-label={`Quitar ${line.name} del carrito`} disabled={sale.busy || sale.unresolved || sale.sale !== null}
+                  onClick={() => sale.removeLine(index)}>Quitar</button>
               </li>
             ))}
           </ul>
           <button data-testid="create-sale-button" className="pos-primary-action"
             onClick={() => { void sale.createSale(); }}
-            disabled={sale.busy || sale.lines.length === 0 || sale.sale !== null}>Continuar al cobro</button>
+            disabled={sale.busy || !permissions.has(CanonicalPermission.SALES_SALE_CREATE) || sale.lines.length === 0 || sale.sale !== null}>Continuar al cobro</button>
 
           {sale.sale !== null && (
             <div data-testid="sale-created" className="pos-payment-card">
               <div className="pos-total"><span>Total a pagar</span><strong data-testid="payable-amount">{sale.sale.payableAmount}</strong></div>
               <span className="pos-payment-reference">Venta {sale.sale.saleId}</span>
               <h3>Medio de pago</h3>
+              <label>Importe de este pago<input data-testid="payment-amount-input" aria-label="Importe de este pago"
+                value={paymentAmount} placeholder={sale.sale.payableAmount} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>
               <div className="pos-payment-methods">
                 {paymentButtons.map((method) => (
                   method.id === "cash" ? (
                     <button key={method.id} type="button" data-testid="charge-cash-button"
-                      onClick={() => { void sale.chargeCash(tendered || sale.sale?.payableAmount); }}
-                      disabled={sale.busy}>{method.label}</button>
+                      onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
+                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>{method.label}</button>
                   ) : method.id === "transfer" ? (
                     <button key={method.id} type="button" data-testid="register-transfer-button"
-                      onClick={() => { void sale.registerTransfer(); }}
-                      disabled={sale.busy || sale.transfer !== null}>{method.label}</button>
+                      onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
+                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>{method.label}</button>
                   ) : (
                     <button key={method.id} type="button" disabled title="Interfaz reservada; falta el contrato de pago integrado.">
                       {method.label}<small>En materialización</small>
@@ -179,27 +195,46 @@ export function SalePanel(): React.JSX.Element {
         </section>
       </div>
 
+      {completed && sale.sale !== null && (
+        <div>
+          {onReceipt && <button data-testid="sale-view-receipt" onClick={() => onReceipt(sale.sale!.saleId)}>Ver comprobante de esta venta</button>}
+          {onInvoice && <button data-testid="sale-issue-invoice" onClick={() => onInvoice(sale.sale!.saleId)}>Facturar esta venta</button>}
+        </div>
+      )}
+
       {sale.payment !== null && (
         sale.payment.sale_completed ? (
           <div data-testid="sale-completed" className="pos-result-success">Venta cobrada · cambio {sale.payment.change_amount ?? "0.000000"}</div>
         ) : (
-          <div data-testid="payment-partial">Pago registrado ({sale.payment.outcome}) · cobertura <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span> · la venta aún no está cobrada</div>
+          !completed && <div data-testid="payment-partial">Pago registrado ({sale.payment.outcome}) · cobertura <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span> · la venta aún no está cobrada</div>
         )
       )}
 
       {sale.transfer !== null && (
         <div data-testid="transfer-registered" className="pos-result-pending">
           Transferencia registrada · pago <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span> · estado <span data-testid="transfer-status">{sale.transfer.status}</span> · reportado <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
-          <div data-testid="transfer-pending">Pendiente de confirmación</div>
-          <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy}>Confirmar transferencia</button>
+          {sale.transfer.status === "REPORTED" && sale.transferConfirmation === null && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
+          {sale.transfer.status === null && <p>El pago quedó registrado. Su estado y versión requieren consulta autorizada.</p>}
+          <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) || sale.transfer.version === null || sale.transfer.status !== "REPORTED"}>Confirmar transferencia</button>
+          <button data-testid="cancel-transfer-button" onClick={() => { void sale.cancelTransfer(); }}
+            disabled={sale.busy || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_CANCEL) || sale.transfer.version === null || sale.transfer.status !== "REPORTED"}>Cancelar transferencia no confirmada</button>
+          {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && <button disabled={sale.busy}
+            onClick={() => { void sale.loadTransfer(sale.transfer!.paymentId); }}>Actualizar estado de la transferencia</button>}
         </div>
+      )}
+
+      {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && (
+        <section aria-label="Consultar transferencia">
+          <input aria-label="ID del pago por transferencia" data-testid="transfer-lookup-input" value={paymentId} onChange={(event) => setPaymentId(event.target.value)} disabled={sale.busy} />
+          <button data-testid="transfer-lookup-button" onClick={() => { void sale.loadTransfer(paymentId.trim()); }} disabled={sale.busy || paymentId.trim() === ""}>Consultar transferencia</button>
+        </section>
       )}
 
       {sale.transferConfirmation !== null && (
         sale.transferConfirmation.sale_completed ? (
           <div data-testid="transfer-sale-completed" className="pos-result-success">Venta cobrada por transferencia · cobertura <span data-testid="transfer-confirmed-coverage">{sale.transferConfirmation.confirmed_coverage}</span></div>
         ) : (
-          <div data-testid="transfer-partial">Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada</div>
+          !completed && <div data-testid="transfer-partial">Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada</div>
         )
       )}
 
@@ -210,7 +245,11 @@ export function SalePanel(): React.JSX.Element {
       )}
 
       {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
-      <button data-testid="reset-button" onClick={() => { sale.reset(); setTendered(""); }} disabled={sale.busy}>Nueva venta</button>
+      {sale.unresolved && <div role="alert">
+        El resultado de una operación sigue pendiente. El reintento conserva los datos y el importe originales. Resuélvala antes de iniciar otra.
+        <button data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
+      </div>}
+      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setTendered(""); setPaymentAmount(""); } }} disabled={sale.busy}>Nueva venta</button>
     </section>
   );
 }

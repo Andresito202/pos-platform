@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CashShiftCloseResult,
   CashShiftOpenResult,
   PaymentGetResult,
   PaymentRegisterTransferResult,
   PaymentTransferConfirmResult,
+  PaymentCancelResult,
   CatalogItemResult,
   CatalogItemListItem,
   PaymentRegisterCashResult,
   SaleCreateResult,
 } from "@pos-platform/contracts";
-import { callCommercial, newIdempotencyKey } from "../pos-service.js";
+import { buildEnvelope, callCommercial, getPosService, newIdempotencyKey, type CommercialEnvelope, type CommercialResponse } from "../pos-service.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
 import { toScale6 } from "../scale6.js";
 
@@ -47,10 +48,11 @@ export interface OpenShift {
  */
 export interface RegisteredTransfer {
   readonly paymentId: string;
-  readonly version: number;
+  readonly saleId: string | null;
+  readonly version: number | null;
   /** Estado real del pago según el servicio, no según la interfaz. */
-  readonly status: string;
-  readonly expectedAmount: string;
+  readonly status: string | null;
+  readonly expectedAmount: string | null;
 }
 
 export interface CommercialSaleState {
@@ -103,20 +105,59 @@ function operationTime(now: Date): {
  * `caja → CashShift → cash_shift_id` vive en `CreateSaleUseCase` (`DEC-012`
  * §25.2). El renderer no conoce esa regla y no debe conocerla.
  */
-export function useCommercialSale(): CommercialSaleState & {
+export function useCommercialSale({ canReadCatalog, canReadPayment }: {
+  canReadCatalog: boolean;
+  canReadPayment: boolean;
+}): CommercialSaleState & {
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   listCatalogItems(query?: string, offset?: number): Promise<void>;
   addCatalogItem(item: CatalogItemListItem, quantity: string): void;
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
+  removeLine(index: number): void;
   createSale(): Promise<void>;
-  chargeCash(tenderedAmount?: string): Promise<void>;
-  registerTransfer(): Promise<void>;
+  chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
+  registerTransfer(paymentAmount?: string): Promise<void>;
   confirmTransfer(): Promise<void>;
+  loadTransfer(paymentId: string): Promise<void>;
+  cancelTransfer(): Promise<void>;
+  unresolved: boolean;
+  retryPending(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
-  reset(): void;
+  reset(): boolean;
 } {
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const applyMutation = useRef<(result: unknown) => void>(() => undefined);
+  const [unresolved, setUnresolved] = useState(false);
+  const pendingMutation = useRef<{
+    signature: string;
+    messageType: Parameters<typeof buildEnvelope>[0];
+    request: CommercialEnvelope;
+    apply: (result: unknown) => void;
+  } | null>(null);
+  const sendMutation = useCallback(async <T,>(pending: NonNullable<typeof pendingMutation.current>): Promise<CommercialResponse<T>> => {
+    const response = await getPosService()[pending.messageType](pending.request) as CommercialResponse<T>;
+    if (response.status === "REJECTED" || (response.status === "SUCCEEDED" && response.result !== null)) {
+      pendingMutation.current = null;
+      setUnresolved(false);
+    }
+    return response;
+  }, []);
+  // A lost response does not authorize a new financial operation. Retain the
+  // original envelope until the service returns a definitive outcome.
+  const callMutation = useCallback(async <T,>(
+    messageType: Parameters<typeof buildEnvelope>[0], payload: unknown,
+  ): Promise<CommercialResponse<T>> => {
+    const signature = JSON.stringify({ messageType, payload });
+    if (pendingMutation.current !== null && pendingMutation.current.signature !== signature) {
+      throw new Error("OPERATION_OUTCOME_UNRESOLVED");
+    }
+    pendingMutation.current ??= { signature, messageType, request: buildEnvelope(messageType, payload, newIdempotencyKey()), apply: applyMutation.current };
+    setUnresolved(true);
+    return sendMutation<T>(pendingMutation.current);
+  }, [sendMutation]);
+
   const [error, setError] = useState<string | null>(null);
   const [shift, setShift] = useState<OpenShift | null>(null);
   const [foundItem, setFoundItem] = useState<CatalogItemResult | null>(null);
@@ -141,7 +182,9 @@ export function useCommercialSale(): CommercialSaleState & {
     onSuccess: (result: T) => void,
     trackOperationBusy = true,
   ): Promise<void> => {
-    if (trackOperationBusy) setBusy(true);
+    if (trackOperationBusy && busyRef.current) return;
+    if (trackOperationBusy) { busyRef.current = true; setBusy(true); }
+    applyMutation.current = (result) => onSuccess(result as T);
     setError(null);
     try {
       const response = await work();
@@ -153,9 +196,15 @@ export function useCommercialSale(): CommercialSaleState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
-      if (trackOperationBusy) setBusy(false);
+      if (trackOperationBusy) { busyRef.current = false; setBusy(false); }
     }
   }, []);
+
+  const retryPending = useCallback(async (): Promise<void> => {
+    const pending = pendingMutation.current;
+    if (pending === null) return;
+    await run(() => sendMutation<unknown>(pending), pending.apply);
+  }, [run, sendMutation]);
 
   const openShift = useCallback(async (
     cashRegisterId: string,
@@ -167,11 +216,11 @@ export function useCommercialSale(): CommercialSaleState & {
       return;
     }
     await run<CashShiftOpenResult>(
-      () => callCommercial("cash.shift.open", {
+      () => callMutation("cash.shift.open", {
         cash_register_id: cashRegisterId,
         opening_amount: opening,
         ...operationTime(new Date()),
-      }, newIdempotencyKey()),
+      }),
       (result) => {
         if (result.shift_id === null || result.version === null) {
           setError(result.outcome);
@@ -180,7 +229,7 @@ export function useCommercialSale(): CommercialSaleState & {
         setShift({ shiftId: result.shift_id, cashRegisterId, version: result.version });
       },
     );
-  }, [run]);
+  }, [run, callMutation]);
 
   const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
     setCatalogBusy(true);
@@ -200,15 +249,16 @@ export function useCommercialSale(): CommercialSaleState & {
     } finally {
       setCatalogBusy(false);
     }
-  }, [run]);
+  }, [run, callMutation]);
 
   useEffect(() => {
-    void listCatalogItems();
-  }, [listCatalogItems]);
+    if (canReadCatalog) void listCatalogItems();
+  }, [canReadCatalog, listCatalogItems]);
 
   const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {
+    if (sale !== null || pendingMutation.current !== null) return;
     const canonical = toScale6(quantity);
-    if (canonical === null) {
+    if (canonical === null || canonical === "0.000000") {
       setError("INVALID_QUANTITY");
       return;
     }
@@ -221,7 +271,7 @@ export function useCommercialSale(): CommercialSaleState & {
       currencyCode: item.currency_code,
       quantity: canonical,
     }]);
-  }, []);
+  }, [sale]);
 
   const findItem = useCallback(async (barcode: string): Promise<void> => {
     setFoundItem(null);
@@ -235,40 +285,34 @@ export function useCommercialSale(): CommercialSaleState & {
         setFoundItem(result);
       },
     );
-  }, [run]);
+  }, [run, callMutation]);
 
   const addFoundItem = useCallback((quantity: string): void => {
+    if (pendingMutation.current !== null) return;
     const canonical = toScale6(quantity);
-    if (canonical === null) {
+    if (canonical === null || canonical === "0.000000") {
       setError("INVALID_QUANTITY");
       return;
     }
-    setFoundItem((item) => {
-      if (
-        item === null
-        || item.product_id === null
-        || item.presentation_id === null
-        || item.price_amount === null
-        || item.currency_code === null
-      ) return item;
-      setLines((current) => [...current, {
-        productId: item.product_id as string,
-        presentationId: item.presentation_id as string,
-        name: item.name ?? "",
-        presentationName: item.presentation_name ?? "",
-        priceAmount: item.price_amount as string,
-        currencyCode: item.currency_code as string,
-        quantity: canonical,
-      }]);
-      return null;
-    });
-  }, []);
+    const item = foundItem;
+    if (sale !== null || item?.product_id == null || item.presentation_id === null || item.price_amount === null || item.currency_code === null) return;
+    setLines((current) => [...current, {
+      productId: item.product_id!, presentationId: item.presentation_id!, name: item.name ?? "",
+      presentationName: item.presentation_name ?? "", priceAmount: item.price_amount!, currencyCode: item.currency_code!, quantity: canonical,
+    }]);
+    setFoundItem(null);
+  }, [foundItem, sale]);
+
+  const removeLine = useCallback((index: number): void => {
+    if (sale !== null || pendingMutation.current !== null) return;
+    setLines((current) => current.filter((_, position) => position !== index));
+  }, [sale]);
 
   const createSale = useCallback(async (): Promise<void> => {
     if (lines.length === 0) return;
     const currency = lines[0]!.currencyCode;
     await run<SaleCreateResult>(
-      () => callCommercial("sale.create", {
+      () => callMutation("sale.create", {
         // El único selector del turno. `null` si no hay caja abierta: la venta
         // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
         cash_register_id: shift?.cashRegisterId ?? null,
@@ -281,7 +325,7 @@ export function useCommercialSale(): CommercialSaleState & {
           quantity: line.quantity,
         })),
         ...operationTime(new Date()),
-      }, newIdempotencyKey()),
+      }),
       (result) => {
         if (result.sale_id === null || result.payable_amount === null) {
           setError(result.outcome);
@@ -290,24 +334,31 @@ export function useCommercialSale(): CommercialSaleState & {
         setSale({ saleId: result.sale_id, payableAmount: result.payable_amount });
       },
     );
-  }, [lines, shift, run]);
+  }, [lines, shift, run, callMutation]);
 
-  const chargeCash = useCallback(async (tenderedAmount?: string): Promise<void> => {
+  const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
     if (current === null) return;
+    const amount = toScale6(paymentAmount ?? current.payableAmount);
+    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
+    const tendered = toScale6(tenderedAmount ?? amount);
+    if (tendered === null) {
+      setError("INVALID_TENDERED_AMOUNT");
+      return;
+    }
     await run<PaymentRegisterCashResult>(
-      () => callCommercial("payment.register.cash", {
+      () => callMutation("payment.register.cash", {
         sale_id: current.saleId,
         // El importe de la venta sigue siendo autoridad del servicio; el cajero aporta cuánto efectivo recibió.
-        amount: current.payableAmount,
-        tendered_amount: tenderedAmount ?? current.payableAmount,
-      }, newIdempotencyKey()),
+        amount,
+        tendered_amount: tendered,
+      }),
       (result) => {
         setPayment(result);
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [sale, run]);
+  }, [sale, run, callMutation]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -330,18 +381,18 @@ export function useCommercialSale(): CommercialSaleState & {
       return;
     }
     await run<CashShiftCloseResult>(
-      () => callCommercial("cash.shift.close", {
+      () => callMutation("cash.shift.close", {
         shift_id: current.shiftId,
         counted_amount: counted,
         expected_version: current.version,
-      }, newIdempotencyKey()),
+      }),
       (result) => {
         setClosedShift(result);
         // El turno deja de estar abierto sólo si el servicio lo cerró de verdad.
         if (result.outcome === "CLOSED") setShift(null);
       },
     );
-  }, [shift, run]);
+  }, [shift, run, callMutation]);
 
   /**
    * Reportar una transferencia — `UC-PAY-002`.
@@ -360,50 +411,50 @@ export function useCommercialSale(): CommercialSaleState & {
    * admite nulos y la pantalla todavía no los pide. Inventar campos que el
    * contrato no define sería fabricar datos de un comprobante.
    */
-  const registerTransfer = useCallback(async (): Promise<void> => {
+  const loadTransfer = useCallback(async (paymentId: string): Promise<void> => {
+    if (!canReadPayment) return;
+    setTransfer(null);
+    setTransferConfirmation(null);
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: paymentId }),
+      (result) => {
+        if (result.outcome !== "FOUND" || result.payment_id === null || result.method !== "TRANSFER") {
+          setError(result.outcome === "FOUND" ? "PAYMENT_NOT_TRANSFER" : result.outcome);
+          return;
+        }
+        setTransfer({ paymentId: result.payment_id, saleId: result.sale_id, version: result.version, status: result.status, expectedAmount: result.expected_amount });
+      },
+    );
+  }, [canReadPayment, run]);
+
+  const registerTransfer = useCallback(async (paymentAmount?: string): Promise<void> => {
     const current = sale;
     if (current === null) return;
+    const amount = toScale6(paymentAmount ?? current.payableAmount);
+    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
     setTransferConfirmation(null);
 
     let registeredId: string | null = null;
     await run<PaymentRegisterTransferResult>(
-      () => callCommercial("payment.register.transfer", {
+      () => callMutation("payment.register.transfer", {
         sale_id: current.saleId,
-        amount: current.payableAmount,
+        amount,
         provider_code: null,
         provider_reference: null,
-      }, newIdempotencyKey()),
+      }),
       (result) => {
         if (result.payment_id === null) {
           setError(result.outcome);
           return;
         }
         registeredId = result.payment_id;
+        setTransfer({ paymentId: result.payment_id, saleId: current.saleId, version: null, status: null, expectedAmount: null });
       },
     );
     if (registeredId === null) return;
 
-    await run<PaymentGetResult>(
-      () => callCommercial("payment.get", { payment_id: registeredId }),
-      (result) => {
-        if (
-          result.payment_id === null
-          || result.version === null
-          || result.status === null
-          || result.expected_amount === null
-        ) {
-          setError(result.outcome);
-          return;
-        }
-        setTransfer({
-          paymentId: result.payment_id,
-          version: result.version,
-          status: result.status,
-          expectedAmount: result.expected_amount,
-        });
-      },
-    );
-  }, [sale, run]);
+    await loadTransfer(registeredId);
+  }, [sale, run, loadTransfer, callMutation]);
 
   /**
    * Atestiguar la transferencia — `UC-PAY-003`.
@@ -420,35 +471,56 @@ export function useCommercialSale(): CommercialSaleState & {
    */
   const confirmTransfer = useCallback(async (): Promise<void> => {
     const current = transfer;
-    if (current === null) return;
+    if (current === null || current.version === null) return;
     await run<PaymentTransferConfirmResult>(
-      () => callCommercial("payment.transfer.confirm", {
+      () => callMutation("payment.transfer.confirm", {
         payment_id: current.paymentId,
         expected_version: current.version,
-      }, newIdempotencyKey()),
+      }),
       (result) => {
         setTransferConfirmation(result);
+        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") {
+          setTransfer((value) => value?.paymentId === current.paymentId ? { ...value, status: "CONFIRMED", version: null } : value);
+        }
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [transfer, run]);
+  }, [transfer, run, callMutation]);
 
-  const reset = useCallback((): void => {
+  const cancelTransfer = useCallback(async (): Promise<void> => {
+    const current = transfer;
+    if (current === null || current.version === null) return;
+    let cancelled = false;
+    await run<PaymentCancelResult>(
+      () => callMutation("payment.cancel", { payment_id: current.paymentId, expected_version: current.version }),
+      (result) => {
+        cancelled = result.outcome === "CANCELLED" || result.outcome === "IDEMPOTENT";
+        if (!cancelled) setError(result.outcome);
+        else {
+          setTransfer((value) => value?.paymentId === current.paymentId ? { ...value, status: "CANCELLED", version: null } : value);
+          setTransferConfirmation(null);
+        }
+      },
+    );
+    if (cancelled) { setTransferConfirmation(null); await loadTransfer(current.paymentId); }
+  }, [transfer, run, loadTransfer, callMutation]);
+
+  const reset = useCallback((): boolean => {
+    if (pendingMutation.current !== null) { setError("OPERATION_OUTCOME_UNRESOLVED"); return false; }
     setLines([]);
     setSale(null);
     setPayment(null);
     setFoundItem(null);
-    setCatalogItems([]);
-    setCatalogHasMore(false);
     setTransfer(null);
     setTransferConfirmation(null);
     setError(null);
+    return true;
   }, []);
 
   return {
     busy, error, shift, foundItem, catalogItems, catalogHasMore, catalogBusy, lines, sale, payment, closedShift,
     transfer, transferConfirmation,
-    openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, createSale, chargeCash,
-    registerTransfer, confirmTransfer, closeShift, reset,
+    openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, removeLine, createSale, chargeCash,
+    registerTransfer, confirmTransfer, loadTransfer, cancelTransfer, unresolved, retryPending, closeShift, reset,
   };
 }

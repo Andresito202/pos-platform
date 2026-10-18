@@ -1061,3 +1061,22 @@ describe("inventory.* — el inventario es alcanzable por el canal", () => {
       .get() as { n: number }).n).toBe(0);
   });
 });
+
+
+describe("customer.marketing.get — autorización backend", () => {
+  it.each([
+    { permissions: [] as string[], expectedStatus: "REJECTED", expectedCode: "UNAUTHORIZED" },
+    { permissions: ["CUSTOMERS_CUSTOMER_READ"], expectedStatus: "SUCCEEDED", expectedCode: "NOT_SUBSCRIBED" },
+  ])("$expectedCode con permisos $permissions", async ({ permissions, expectedStatus, expectedCode }) => {
+    const { handler, database } = await buildEnv();
+    seedAuthorization(database, USER, permissions);
+    const connection = randomUUID();
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+    const result = response(handler.handle({
+      ...BASE, message_type: "customer.marketing.get", request_id: randomUUID(), correlation_id: randomUUID(),
+      payload: { customer_id: "018f0000-0000-7000-8000-0000000000ff" },
+    }, connection));
+    expect(result.status).toBe(expectedStatus);
+    expect(result.result_code).toBe(expectedCode);
+  });
+});

@@ -48,4 +48,4 @@ No debe prometerse operación offline ilimitada: la expiración de sesión/autor
 
 ## Limitación de esta auditoría
 
-Se inspeccionó el contenido remoto de la rama `claude/pos-camacho-bloque-4c-ld43py`. En esta sesión no se ejecutó el workspace local, no se probó hardware/Windows físico y GitHub Actions sigue sin entregar pasos/logs observables. Por ello este documento es diagnóstico de código/configuración, **no una certificación runtime**.
+Se inspeccionó el contenido remoto de la rama [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92). En esta sesión no se ejecutó el workspace local, no se probó hardware/Windows físico y GitHub Actions sigue sin entregar pasos/logs observables. Por ello este documento es diagnóstico de código/configuración, **no una certificación runtime**.

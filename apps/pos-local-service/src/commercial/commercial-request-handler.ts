@@ -5,7 +5,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
+import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -605,6 +605,14 @@ export class CommercialRequestHandler {
 
     const scope = this.scope();
     if (request.message_type === "customer.marketing.get") {
+      const decision = evaluatePermission({
+        actor: createActor("USER", authenticated.snapshot.claims.user_id),
+        permission: CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
+        scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+        at: new Date(),
+        assignments: toRoleAssignments(authenticated.snapshot.claims),
+      });
+      if (!decision.allowed) return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
       const subscription = this.commercial.customerMarketing.get(scope, request.payload.customer_id);
       if (!subscription) {
         return succeeded(request, "NOT_SUBSCRIBED", {

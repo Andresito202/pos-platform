@@ -118,6 +118,7 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
     setBusy(true);
     setError(null);
     setFound(null);
+    setMarketing(null);
     try {
       const response = await callCommercial<CustomerReadResult>(messageType, payload);
       if (response.result === null) {

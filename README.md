@@ -1,6 +1,6 @@
 <p align="center">
   <img src="docs/brand/camacho-pos-colombia-logo-960.png"
-       alt="Camacho POS Colombia — Vende. Controla. Sigue operando."
+       alt="Camacho POS Colombia"
        width="640">
 </p>
 
@@ -16,13 +16,13 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-`claude/pos-camacho-bloque-4c-ld43py`
+[rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
 
-Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
+Cualquier IA o agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
 
 No se permite abrir una rama paralela, duplicar una arquitectura, rehacer un módulo o inventar un trabajo alternativo porque una IA considere que es “mejor”. Primero se audita lo construido. Sólo se modifica lo existente cuando hay evidencia de defecto, incompatibilidad, requisito nuevo autorizado o gate fallido.
 
-Reglas completas para agentes: [`AGENTS.md`](AGENTS.md) y [`CLAUDE.md`](CLAUDE.md).
+Reglas completas para agentes: [`AGENTS.md`](AGENTS.md).
 
 ## Fuentes de verdad
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useReceipt } from "../hooks/useReceipt.js";
 
 /**
@@ -16,9 +16,12 @@ import { useReceipt } from "../hooks/useReceipt.js";
  * valor inventado mientras no haya identidad de compañía en local ni consumidor
  * del adapter fiscal.
  */
-export function ReceiptPanel(): React.JSX.Element {
+export function ReceiptPanel({ initialSaleId = null }: { initialSaleId?: string | null }): React.JSX.Element {
   const receipt = useReceipt();
   const [saleId, setSaleId] = useState("");
+  useEffect(() => {
+    if (initialSaleId !== null) { setSaleId(initialSaleId); void receipt.load(initialSaleId); }
+  }, [initialSaleId, receipt.load]);
 
   return (
     <section data-testid="receipt-panel">

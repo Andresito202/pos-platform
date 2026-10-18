@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { useState } from "react";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 
@@ -8,7 +9,7 @@ import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
  * decir qué campo falla obliga a probar a ciegas, y probar a ciegas contra una
  * tabla DIAN es como no tener la tabla.
  */
-export function CustomerPanel(): React.JSX.Element {
+export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string> }): React.JSX.Element {
   const directory = useCustomerDirectory();
   const [documentCode, setDocumentCode] = useState("");
   const [identification, setIdentification] = useState("");
@@ -182,7 +183,7 @@ export function CustomerPanel(): React.JSX.Element {
             subscribeToNews,
           });
         }}
-        disabled={directory.busy || incomplete}
+        disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || incomplete}
       >
         Registrar adquiriente
       </button>
@@ -202,7 +203,7 @@ export function CustomerPanel(): React.JSX.Element {
         data-testid="find-customer-button"
         type="button"
         onClick={() => { void directory.find(documentCode.trim(), identification.trim()); }}
-        disabled={directory.busy || documentCode.trim() === "" || identification.trim() === ""}
+        disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) || documentCode.trim() === "" || identification.trim() === ""}
       >
         Buscar
       </button>
@@ -219,7 +220,7 @@ export function CustomerPanel(): React.JSX.Element {
         data-testid="get-customer-button"
         type="button"
         onClick={() => { void directory.get(customerId.trim()); }}
-        disabled={directory.busy || customerId.trim() === ""}
+        disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) || customerId.trim() === ""}
       >
         Consultar por ID
       </button>
@@ -260,7 +261,7 @@ export function CustomerPanel(): React.JSX.Element {
             data-testid="customer-marketing-get-button"
             type="button"
             onClick={() => { void directory.getMarketing(directory.found?.customer_id ?? ""); }}
-            disabled={directory.busy || directory.found.customer_id === null}
+            disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) || directory.found.customer_id === null}
           >
             Consultar suscripción
           </button>
@@ -271,19 +272,19 @@ export function CustomerPanel(): React.JSX.Element {
                 data-testid="customer-marketing-unsubscribe-button"
                 type="button"
                 onClick={() => { void directory.unsubscribeMarketing(directory.found?.customer_id ?? ""); }}
-                disabled={directory.busy || directory.found.customer_id === null}
+                disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || directory.found.customer_id === null}
               >
                 Darse de baja
               </button>
             </>
           ) : (
             <>
-              <p data-testid="customer-marketing-status">No suscrito a novedades.</p>
+              <p data-testid="customer-marketing-status">{directory.marketing === null ? "Preferencia pendiente de consulta." : "No suscrito a novedades."}</p>
               <button
                 data-testid="customer-marketing-subscribe-button"
                 type="button"
                 onClick={() => { void directory.subscribeMarketing(directory.found?.customer_id ?? ""); }}
-                disabled={directory.busy || directory.found.customer_id === null || directory.found.email === null}
+                disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || directory.found.customer_id === null || directory.found.email === null}
               >
                 Suscribirse
               </button>

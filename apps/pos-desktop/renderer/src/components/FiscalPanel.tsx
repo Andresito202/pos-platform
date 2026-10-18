@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
 
 /**
@@ -21,9 +21,10 @@ import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
  * con su ruta, porque es la diferencia entre «el sistema falló» y «esta venta
  * necesita un adquiriente identificado».
  */
-export function FiscalPanel(): React.JSX.Element {
+export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string | null }): React.JSX.Element {
   const fiscal = useFiscalIssuance();
   const [saleId, setSaleId] = useState("");
+  useEffect(() => { if (initialSaleId !== null) setSaleId(initialSaleId); }, [initialSaleId]);
   const [customerId, setCustomerId] = useState("");
 
   const issued = fiscal.issued;

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { CanonicalPermission } from "@pos-platform/contracts";
+import { useEffect, useState } from "react";
 import {
   useInventoryAdmin,
   type AdjustMovement,
@@ -30,9 +31,10 @@ function today(): string {
  * permitiría registrar una merma eligiendo «compra», y el libro de movimientos
  * dejaría de servir para auditar.
  */
-export function InventoryPanel(): React.JSX.Element {
+export function InventoryPanel({ permissions, initialPresentationId = null }: { permissions: ReadonlySet<string>; initialPresentationId?: string | null }): React.JSX.Element {
   const inventory = useInventoryAdmin();
   const [presentationId, setPresentationId] = useState("");
+  useEffect(() => { if (initialPresentationId !== null) setPresentationId(initialPresentationId); }, [initialPresentationId]);
   const [receiveType, setReceiveType] = useState<ReceiveMovement>("PURCHASE_RECEIPT");
   const [receiveQuantity, setReceiveQuantity] = useState("");
   const [receiveReason, setReceiveReason] = useState("PURCHASE");
@@ -98,7 +100,7 @@ export function InventoryPanel(): React.JSX.Element {
             target, receiveType, receiveQuantity, receiveReason.trim(), businessDate.trim(),
           );
         }}
-        disabled={inventory.busy || target === "" || receiveQuantity.trim() === ""}
+        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === ""}
       >
         Recibir
       </button>
@@ -137,7 +139,7 @@ export function InventoryPanel(): React.JSX.Element {
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
           );
         }}
-        disabled={inventory.busy || target === "" || adjustQuantity.trim() === ""}
+        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) || target === "" || adjustQuantity.trim() === ""}
       >
         Ajustar
       </button>
@@ -146,7 +148,7 @@ export function InventoryPanel(): React.JSX.Element {
       <button
         data-testid="get-stock-button"
         onClick={() => { void inventory.getStock(target); }}
-        disabled={inventory.busy || target === ""}
+        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_READ) || target === ""}
       >
         Consultar
       </button>

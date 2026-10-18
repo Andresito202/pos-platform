@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
 
@@ -9,7 +10,10 @@ import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
  * existencia necesita a continuación. Esconderlo obligaría a buscarlo en la base
  * de datos, que es justo lo que una pantalla existe para evitar.
  */
-export function CatalogPanel(): React.JSX.Element {
+export function CatalogPanel({ permissions, onReceiveStock }: {
+  permissions: ReadonlySet<string>;
+  onReceiveStock?: ((presentationId: string) => void) | undefined;
+}): React.JSX.Element {
   const catalog = useCatalogAdmin();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -20,6 +24,8 @@ export function CatalogPanel(): React.JSX.Element {
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("COP");
   const [stockControlled, setStockControlled] = useState(true);
+  const [query, setQuery] = useState("");
+  const [loadedQuery, setLoadedQuery] = useState("");
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -29,6 +35,16 @@ export function CatalogPanel(): React.JSX.Element {
   return (
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
+      <div>
+        <input aria-label="Buscar en catálogo" value={query} onChange={(event) => setQuery(event.target.value)} disabled={catalog.busy} />
+        <button data-testid="catalog-list-button" disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
+          onClick={() => { setLoadedQuery(query.trim()); void catalog.listItems(query.trim()); }}>Consultar catálogo</button>
+        <ul>{catalog.items.map((item) => (
+          <li key={item.presentation_id}>{item.name} · {item.presentation_name} · {item.price_amount} {item.currency_code} · {item.presentation_id}</li>
+        ))}</ul>
+        {catalog.hasMore && <button disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
+          onClick={() => { void catalog.listItems(loadedQuery, catalog.items.length); }}>Cargar más resultados</button>}
+      </div>
 
       <input
         data-testid="product-code-input"
@@ -122,7 +138,7 @@ export function CatalogPanel(): React.JSX.Element {
             currencyCode: currency.trim(),
           });
         }}
-        disabled={catalog.busy || incomplete}
+        disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) || incomplete}
       >
         Dar de alta
       </button>
@@ -132,6 +148,7 @@ export function CatalogPanel(): React.JSX.Element {
           <span data-testid="product-id">{catalog.product.productId}</span>
           <span data-testid="presentation-id">{catalog.product.presentationId}</span>
           <span data-testid="product-outcome">{catalog.product.outcome}</span>
+          {onReceiveStock && <button data-testid="product-receive-stock" onClick={() => onReceiveStock(catalog.product!.presentationId)}>Registrar entrada de este producto</button>}
         </div>
       )}
       {catalog.product === null && catalog.outcome !== null && (

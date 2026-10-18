@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { CatalogProductRegisterResult } from "@pos-platform/contracts";
+import type { CatalogItemListItem, CatalogProductRegisterResult } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { toScale6 } from "../scale6.js";
 
@@ -41,11 +41,32 @@ export interface CatalogAdminState {
 
 export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
+  items: readonly CatalogItemListItem[];
+  hasMore: boolean;
+  listItems(query: string, offset?: number): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<RegisteredProduct | null>(null);
   const [outcome, setOutcome] = useState<CatalogProductRegisterResult["outcome"] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [items, setItems] = useState<readonly CatalogItemListItem[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+
+  const listItems = useCallback(async (query: string, offset = 0): Promise<void> => {
+    setBusy(true); setError(null);
+    try {
+      const response = await callCommercial<{ outcome: string; items: CatalogItemListItem[]; has_more: boolean }>(
+        "catalog.item.list", { query, limit: 24, offset },
+      );
+      if (response.status !== "SUCCEEDED" || response.result?.outcome !== "FOUND") {
+        setError(response.result_code); return;
+      }
+      setItems((previous) => offset === 0 ? response.result!.items : [...previous, ...response.result!.items]);
+      setHasMore(response.result.has_more);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally { setBusy(false); }
+  }, []);
 
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
     setBusy(true);
@@ -96,5 +117,5 @@ export function useCatalogAdmin(): CatalogAdminState & {
     }
   }, []);
 
-  return { busy, product, outcome, error, registerProduct };
+  return { busy, product, outcome, error, registerProduct, items, hasMore, listItems };
 }

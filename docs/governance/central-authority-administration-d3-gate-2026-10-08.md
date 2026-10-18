@@ -1,7 +1,7 @@
 # D-3 — Platform Account: identidad, autenticación, recuperación y sesión
 
 Fecha: 2026-10-08  
-Rama: `claude/pos-camacho-bloque-4c-ld43py`  
+Rama: [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
 Estado: `CONTRACT_MATERIALIZED_IMPLEMENTATION_PENDING`
 
 ## Objetivo
@@ -287,7 +287,7 @@ La inspección de DEC-012 confirma que su PIN de seis dígitos y scrypt pertenec
 
 ### Alcance y evidencia
 
-Inspección estática de la rama `claude/pos-camacho-bloque-4c-ld43py`, en `apps/pos-desktop/renderer/src/App.tsx`, `components/AdministrativeControlPanel.tsx`, hooks de autorización/métricas/auditoría, `apps/pos-desktop/tests/renderer/App.test.tsx`, `AdminPanels.test.tsx`, `packages/contracts/src/ipc-commercial.ts` y `packages/contracts/src/central-administration.ts`. Esta revisión no equivale a ejecutar Vitest, TypeScript, Electron ni CI.
+Inspección estática de la rama [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92), en `apps/pos-desktop/renderer/src/App.tsx`, `components/AdministrativeControlPanel.tsx`, hooks de autorización/métricas/auditoría, `apps/pos-desktop/tests/renderer/App.test.tsx`, `AdminPanels.test.tsx`, `packages/contracts/src/ipc-commercial.ts` y `packages/contracts/src/central-administration.ts`. Esta revisión no equivale a ejecutar Vitest, TypeScript, Electron ni CI.
 
 ### Matriz real de integración
 
@@ -705,7 +705,7 @@ No se cambió el estado de autenticación D-3: siguen faltando password/KDF cent
 
 ### Nota de ejecución y alcance de Git
 
-El estado de trabajo previsto sigue siendo la rama `claude/pos-camacho-bloque-4c-ld43py` y el PR #92, sin merge. Durante esta pasada se detectó una escritura accidental del runner en la rama por defecto; se eliminó inmediatamente en un commit de reversión. El archivo de runner de la rama por defecto vuelve a no existir; la implementación intencionada permanece en la rama de trabajo. La historia de la rama por defecto conserva ambos commits de compensación, por lo que esta incidencia no debe ocultarse en el registro de cambios.
+El estado de trabajo previsto sigue siendo la rama [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92) y el PR #92, sin merge. Durante esta pasada se detectó una escritura accidental del runner en la rama por defecto; se eliminó inmediatamente en un commit de reversión. El archivo de runner de la rama por defecto vuelve a no existir; la implementación intencionada permanece en la rama de trabajo. La historia de la rama por defecto conserva ambos commits de compensación, por lo que esta incidencia no debe ocultarse en el registro de cambios.
 
 
 ### Control de privilegio del actor que modifica asignaciones — 2026-10-09
