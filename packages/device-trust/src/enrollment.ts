@@ -93,7 +93,7 @@ export class CentralDeviceCredentialIssuer {
     if (challenge.tenant_id !== request.tenant_id || challenge.installation_id !== request.installation_id || challenge.device_id !== request.device_id) {
       throw new Error("ENROLLMENT_CHALLENGE_BINDING_MISMATCH");
     }
-    if (nowMs < Date.parse(challenge.issued_at) || nowMs > Date.parse(challenge.expires_at)) {
+    if (nowMs < Date.parse(challenge.issued_at) || nowMs >= Date.parse(challenge.expires_at)) {
       throw new Error("ENROLLMENT_CHALLENGE_EXPIRED");
     }
 
