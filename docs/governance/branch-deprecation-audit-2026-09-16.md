@@ -1,5 +1,7 @@
 # Auditoría y depuración de ramas — 2026-09-16
 
+> Alcance de lectura — 2026-10-17. El censo de 68 refs y sus distancias pertenece al 2026-09-16. El inventario remoto actual (17 refs al corte auditado), las disposiciones y las dependencias de PR están en el backlog; los números inferiores no son el inventario vigente. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
+
 ## Veredicto
 
 Se auditaron los **68 refs existentes antes de esta auditoría** comparándolos contra la línea activa `claude/pos-camacho-bloque-4c-ld43py`.

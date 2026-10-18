@@ -6,7 +6,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación normativa: 2026-08-28.
+Última reconciliación operativa: 2026-10-17. Los cierres históricos conservan su fecha y SHA.
 
 ## Jerarquía relacionada
 
@@ -20,6 +20,46 @@ No funciona como diario histórico exhaustivo. La cronología detallada permanec
 - Remediación contractual vigente de INT-006: `docs/migration/sql003-authoritative-contract-remediation-index.md` y su bundle V2.
 
 Si una fuente vigente contradice otra, la transición afectada se bloquea hasta reconciliación. No se elige una interpretación arbitraria.
+
+## Reconciliación operativa — 2026-10-17 (America/Bogota)
+
+Esta sección fija el corte remoto de esta auditoría y prevalece para el estado actual sobre los snapshots históricos de agosto/septiembre conservados abajo. No cambia contratos, ADR, SQL ni niveles de evidencia.
+
+- Producto integrado: `main@591ad4c19df9c8e36f451e9c243dda8b47dc7e51`.
+- Línea de implementación: `claude/pos-camacho-bloque-4c-ld43py@3a4f70b22efbf0a18d3ec6ed2db33ad33cdb13c7`, antes del commit documental de reconciliación.
+- Objetivo único: reconciliar, revisar y validar el delta acumulado de PR #92; no abrir otra implementación.
+- Comparación por ascendencia: 553 commits propios y 9 de `main` ausentes en la línea. El número de commits no mide funcionalidades pendientes ni duplicadas.
+- Comparación de PR desde el ancestro común: 188 archivos, +9732/-896. Comparación directa de los dos árboles completos: 194 rutas diferentes (111 modificadas, 77 añadidas y 6 ausentes). Incluye movimientos de archivos; no son 194 defectos.
+- PR #89 y #91 fueron fusionadas el 2026-10-05. PR #78 está cerrada sin merge propio: ya no representa la cola actual.
+- Los nueve commits posteriores a `ed13f6e` en la primera línea de `main` tienen un solo padre. Incumplen el método de integración vigente, que exige merge commit de PR; no se reescribe historia para ocultarlos.
+- GitHub devuelve `protected: false`; la consulta de rulesets responde 403 por el plan del repositorio privado. El control existente es detectivo.
+- TARGET run `39084346449` y CodeQL run `39084346418`, sobre `41e2b1a8`: jobs de ejecución con `runner_id: 0` y cero pasos. No son evidencia de tests fallidos ni aprobados; la causa de facturación no se revalidó en esta auditoría.
+- Se ejecutaron inspección remota de Git/árboles/código/configuración y una reproducción aislada del limiter con su expresión de clave de producción (Node 24.19.0, salida 0). Las suites del repositorio, typecheck, PostgreSQL real, Windows/Electron y estado del PC: `REQUIRES_LOCAL_VERIFICATION`.
+
+### Cola de integración existente
+
+| PR | Dependencia y alcance observado | Estado / siguiente condición |
+|---|---|---|
+| #94 | Base `main`; 4 commits, 3 archivos: rate limit de session-trust | `BLOCKED`: ejecutar tests/typecheck. El módulo del limiter coincide byte a byte con la línea activa, pero los otros dos archivos difieren; reconciliar ese solapamiento, no copiar archivos completos. |
+| #95 | Base `main`; 3 commits, 2 archivos: rechazo en el instante exacto de expiración | `BLOCKED`: ejecutar tests/typecheck. El guard `now >= expires_at` difiere del código de la línea activa; conservar el delta y su regresión al reconciliar. |
+| #92 | Base `main`; acumulación de CI, seguridad/sync, onboarding, administración, UI y migraciones | `BLOCKED`: reconciliar los nueve commits de `main`, revisar por unidades y ejecutar validación sobre el candidato completo. No es una corrección pequeña de CI. |
+| #93 | Base en la línea de #92; +39 commits, 21 archivos, +1013/-7 | `BLOCKED`: webhook/inbox de FACTUS Pay. No sustituye la facturación electrónica; falta correlación autoritativa con el pago, PostgreSQL/HTTPS real y verificación del prerrequisito 008 del runner 009. |
+
+Los cuatro PR continúan en borrador. `mergeable: true` sólo indica que GitHub puede construir una fusión textual; `mergeable_state: unstable` no certifica el producto. La tabla no autoriza un merge ni crea ramas nuevas.
+
+### Estado técnico verificado por inspección
+
+| Área | Existe en la línea auditada | Falta demostrar o completar |
+|---|---|---|
+| POS local | Electron/React/Vite, Local Service, SQLite/WAL y módulos comerciales bajo `apps/pos-local-service/src/` | Regresión completa, transporte Windows real y flujo por rol en el candidato de integración. No declarar ausentes estas aplicaciones por los textos históricos inferiores. |
+| Credenciales y sync | `main.ts` carga `EnrolledDeviceCredentialProvider` cuando existen identidad y credencial cifradas, e inyecta claves de sesión; `central-sync-server.ts` verifica prueba firmada y revalida credencial en la transacción | Aprovisionamiento/rotación/revocación y persistencia/replay probados en el entorno objetivo. El fallback no aprovisionado sigue siendo fail-closed; no significa que el único provider sea ya el no aprovisionado. |
+| Login y recuperación | Contratos/repositorios y SQL 007/008 | El listener revisado expone health, session-trust y device-enrollment; no contiene login/refresh/recuperación de usuario completos. Las tablas no acreditan esos flujos. |
+| Administración | Métricas de tenant y consulta de auditoría tienen hooks/casos de uso; panel de superadministrador presenta valores pendientes | Lifecycle central de cuentas, usuarios/roles, planes y licencias; conectar la superficie al contrato autoritativo y probar límites de tenant/rol. |
+| FACTUS fiscal | Adapter y puertos existentes | La declaración mantiene emisión/consulta/artefactos en `MOCK_TESTED`; no equivale a emisión real verificada ahora. |
+| Rate limit de enrolamiento | La clave de bucket combina IP y hash del bearer; 30 intentos del mismo token agotan su bucket | Reproducción aislada: 100 tokens inválidos distintos recibieron presupuesto desde la misma IP y ventana. No se levantó HTTP ni se autenticó ninguno. #94 sólo cubre session-trust; falta corregir y probar la política de enrolamiento sobre el runtime. |
+| Validación | Suites y workflows específicos existen | `pnpm typecheck` raíz omite central-authority, device-trust y local-channel. D-3 cubre typechecks de los dos primeros por separado, pero usa `pnpm install --no-frozen-lockfile`; su selección de tests central no incluye el nuevo limiter. Revisar cobertura y reproducibilidad antes de certificar. |
+
+La retirada del runner 008 en `main@591ad4c` fue explícita. No se restaura automáticamente para satisfacer 009: comprobar la disposición aprobada y el ledger real. El runner 009 exige checksums APPLIED de 002, 007 y 008; el script local de FACTUS Pay no prueba aplicación física de migraciones ni HTTPS.
 
 ## Estados
 
@@ -69,7 +109,9 @@ Los niveles `DOCUMENTED`, `MATERIALIZED`, `TESTED`, `REVIEWED`, `CANONICALLY_APP
 
 La evidencia de SHA anterior es commit-scoped; el HEAD vigente de `main` siempre se consulta en GitHub antes de cualquier integración.
 
-### No materializado / no aprobado como producto
+### Snapshot histórico de ausencias — agosto de 2026
+
+Estas ausencias describen aquel baseline, no el árbol actual. El estado actual está en la reconciliación operativa de la cabecera.
 
 - NestJS/Fastify runtime: `ABSENT / NOT_MATERIALIZED`.
 - Electron/React/Vite: `ABSENT / NOT_MATERIALIZED`.
@@ -100,27 +142,31 @@ Control compensatorio integrado:
 
 Este control es detectivo, no preventivo.
 
-## Ramas persistentes no canónicas
+## Ramas persistentes — inventario remoto al 2026-10-17
 
-| Rama | Estado | Decisión |
-|---|---|---|
-| `architecture/foundation` | `INTEGRATED / HISTORICAL` | Eliminar cuando exista operación de borrado de ref autorizada/disponible. No reutilizar. |
-| `architecture/physical-model` | `INTEGRATED / HISTORICAL` | PR #2 ya integrada; no reutilizar. |
-| `cleanup/pure-pos-platform-20260825` | `INTEGRATED / HISTORICAL` | PR #3 ya integrada; no reutilizar. |
-| `ci/supply-chain-baseline-20260826` | `INTEGRATED / HISTORICAL` | PR #5 ya integrada; no reutilizar. |
-| `docs/canonical-state-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #6 ya integrada; no reutilizar. |
-| `docs/camacho-pos-colombia-branding-20260826` | `INTEGRATED / HISTORICAL` | PR #7 ya integrada; no reutilizar. |
-| `audit/main-governance-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #8 ya integrada; no reutilizar. |
-| `brand/canonical-identity-assets-20260826` | `REDUNDANT_REF / NO_UNIQUE_COMMITS` | Idéntica a un baseline ya integrado; eliminar de forma segura cuando la operación de borrado de refs esté autorizada/disponible. |
-| `design/sql003-contract-reconciliation-20260826` | `INTEGRATED / HISTORICAL` | PR #4 integrada; proposal V7 cerrada. No reutilizar para remediación autoritativa. |
-| `docs/sql003-authoritative-contract-remediation-20260826` | `INTEGRATED / HISTORICAL` | PR #9 integrada; bundle V2 autoritativo cerrado. No reutilizar para SQL/descriptor 003. |
-| `feat/sql003-v2-materialization-20260826` | `INTEGRATED / HISTORICAL` | PR #11 integrada; INT-007 cerrado. No reutilizar para ARCH-003 ni para runtime/providers. |
-| `architecture/executable-boundaries-20260828` | `INTEGRATED / HISTORICAL` | PR #12 integrada; ARCH-003 cerrado. No reutilizar para TECH-003. |
-| `tech/tech003-executable-contracts-20260828` | `INTEGRATED / HISTORICAL` | PR #14 integrada; TECH-003 cerrado. No reutilizar para TECH-004 ni runtime. |
-| `tech/tech004-quality-supply-chain-20260828` | `INTEGRATED / HISTORICAL` | PR #15 integrada; TECH-004 cerrado. No reutilizar para runtime. |
-| `wip/sql003-contract-gap-20260825` | `HISTORICAL_WIP / NOT_INTEGRABLE` | No merge/cherry-pick completo; retirar solo después de reconciliación autoritativa revisada y trazabilidad demostrada. |
+Son 17 refs observados, no los 68 del registro histórico de septiembre. A/B son commits exclusivos por ascendencia respecto de `main@591ad4c`, no una medida de valor funcional. SHAs completos consultados por API; aquí se abrevian para lectura. Los conteos preceden al commit documental de reconciliación.
 
-Las ramas temporales de una PR pasan a `INTEGRATED` tras el merge y no se reutilizan, aunque GitHub conserve físicamente el ref.
+| Rama | HEAD | A/B | Disposición |
+|---|---|---|---|
+| `audit/branch-deprecation-record` | `bf39de72` | 0/424 | INTEGRATED; ref auxiliar sin commits únicos respecto de main; candidato a retiro separado |
+| `_audit-temp` | `bf39de72` | 0/424 | INTEGRATED; mismo tip que el otro ref de auditoría; candidato a retiro separado |
+| `claude/fiscal-adapter-gate` | `c7eaa2dd` | 2/556 | HISTORICAL_WIP; documentación, extraer sólo valor vigente si falta |
+| `claude/handler-response-typing` | `ad7c711a` | 1/492 | HISTORICAL_WIP; revisar guard de tipos vigente; no reemplazar el handler |
+| `claude/ledger-wip-lineage-correction` | `6651596a` | 1/555 | HISTORICAL_WIP; corrección documental histórica |
+| `claude/pos-camacho-bloque-4c-ld43py` | `3a4f70b2` | 553/9 | ACTIVE; única línea de implementación, PR #92 |
+| `claude/sale-cash-shift-binding` | `940f5d70` | 1/492 | HISTORICAL_WIP; no integrar selector por origin_device_id contrario al contrato de caja vigente |
+| `domain/cash-open-vertical-20260901` | `503aeb14` | 20/628 | HISTORICAL_WIP; referencia de diseño, no integrar código (DEC-017) |
+| `feat/factus-pay-webhook-ingress` | `9804cdc1` | 592/9 | BLOCKED; PR #93 apilada sobre #92, conservar delta |
+| `feat/payment-qr-provider-foundation` | `5b363823` | 191/220 | HISTORICAL_WIP; auditar sólo delta útil no contenido; no merge completo |
+| `feat/selective-pr79-payment-cash-sale` | `d495915c` | 4/425 | HISTORICAL_WIP; origen selectivo previo, comprobar duplicación funcional |
+| `fix/runtime-status-envelope` | `024987b0` | 21/464 | HISTORICAL_WIP; evidencia del PR #79 cerrado, no merge completo |
+| `fix/session-trust-rate-limit-order` | `b08efb8f` | 4/0 | BLOCKED; PR #94 extraída hacia main; solapa con #92 |
+| `main` | `591ad4c1` | 0/0 | CANONICAL_PRODUCT; preservar historial |
+| `test/device-enrollment-challenge-time-boundary` | `41e2b1a8` | 3/0 | BLOCKED; PR #95 extraída hacia main; pendiente de ejecución |
+| `wip/local-catalog-inventory-payment-20260906` | `a10249fe` | 21/628 | HISTORICAL_WIP; referencia de diseño, no portar código (DEC-018) |
+| `wip/sql003-contract-gap-20260825` | `dd07f9d4` | 1/1010 | HISTORICAL_WIP; SQL003 sustituida, no reintroducir migraciones |
+
+El inventario de `branch-deprecation-audit-2026-09-16.md` se conserva como evidencia histórica, no como lista de ramas presentes. Esta reconciliación sólo avanza documentalmente la línea activa; no borra refs ni altera sus linajes. Los dos refs auxiliares están contenidos en main; las demás ramas históricas divergentes no se consideran integradas sólo porque algunas capacidades coincidan.
 
 ## Flujo oficial de trabajo
 
@@ -139,7 +185,7 @@ Reglas:
 7. No se usan estados locales históricos (`CLEAN`, upstream 0/0, Docker, PostgreSQL) como hechos presentes.
 8. Un documento V2 abreviado nunca sustituye destructivamente contratos históricos ricos; las remediaciones usan overlays/versionado o reemplazo completo verificable sin pérdida.
 
-## Último bloque cerrado
+## Registro histórico de cierres
 
 ### TECH-004 — CI, calidad y supply chain
 
@@ -382,6 +428,20 @@ Esta tabla gobierna la materialización del runtime. **Estado normativo y presen
 PR #18 no autoriza RT-005+, Electron, renderer, negocio comercial, providers SIIGO/FACTUS/ALEGRA, producción, packaging final ni promoción automática de security gates. Mientras RT-001..004 no estén cerrados, la PR permanece `DRAFT / NOT_MERGE_AUTHORIZED`.
 
 ## Orden inmediato obligatorio
+
+1. Continuar únicamente en la línea activa. Congelar ampliaciones funcionales mientras se reconcilia el alcance acumulado; conservar los cuatro PR existentes y las referencias históricas.
+2. Validar los cambios acotados de #94 y #95 contra el `main` consultado. Son candidatos iniciales, no merges aprobados. Registrar ejecución real, revisar sus diferencias con #92 y evitar doble aplicación.
+3. Reconciliar los nueve commits propios de `main` con la línea activa, conservando el diseño de avatar y las retiradas intencionales. No reintroducir el runner 008 ni archivos accidentales por resolver conflictos mecánicamente.
+4. Revisar el delta de #92 en este orden de dependencias: CI/fixtures y límites; claves/credenciales y sync; onboarding y persistencia central; contratos/handlers de administración; renderer y regresión comercial. Revisar archivos y efectos, no escoger commits por el título. Contratos, backend y llamadores que dependan entre sí forman una unidad.
+5. Usar las suites existentes para cada unidad y una regresión completa sobre el candidato conjunto: typechecks de todos los paquetes implicados, arquitectura/política, SQLite, PostgreSQL real, canal Windows y Electron. Registrar SHA, comandos, salidas, omitidas y limitaciones.
+6. La política de merge y verificación post-merge sigue siendo `repository-governance.md`. Sin Actions observable se pueden ejecutar validaciones locales, pero no se declara CI verde ni se cambia esa política por inferencia.
+7. Después de reconciliar #92, reevaluar #93 sobre su base final: 008/009, persistencia concurrente/idempotente, correlación de pago y HTTPS público. No activar el webhook antes de esa evidencia.
+8. Retirar refs redundantes sólo mediante borrado autorizado y disponible, después de conservar su disposición. No crear más ramas para ordenar carpetas ni reimplementar los linajes archivados.
+
+### Registro histórico de orden de trabajo — septiembre de 2026
+
+Lo siguiente conserva decisiones y ejecuciones históricas sobre sus SHAs; no constituye la cola actual ni prueba del HEAD auditado.
+
 
 1. Mantener **INT-007**, **ARCH-003**, **TECH-003**, **TECH-004** y **RT-000** `DONE / INTEGRATED`; no reabrirlos salvo defecto reproducible o decisión versionada nueva.
 2. `main@77f96fcf7f9580a9e33520a0f284bc7af6e18d8f` integra RT-001..006 (PR #18 + PR #19 + PR #20 + PR #21). Post-merge de PR #21: TARGET foundation validation + CodeQL + `Main push governance` `SUCCESS` sobre ese SHA exacto, verificado en esta sesión vía `gh run list` y `git ls-remote origin main`. No hay línea runtime activa en una rama de trabajo en este momento.

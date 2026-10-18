@@ -1,5 +1,7 @@
 # Estado de materialización — fuente única
 
+> Alcance de lectura — 2026-10-17. Este archivo mezcla evidencias de varios cortes y ramas. Cada afirmación conserva el alcance del SHA/entorno que la respalda; no se traslada automáticamente al main ni al HEAD actuales. Las referencias antiguas a packages vacíos, credenciales ausentes o capacidades no alcanzables requieren leer el código actual antes de repetirlas. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
+
 ## Propósito
 
 Este documento existe porque el proyecto perdió trabajo dos veces por la misma

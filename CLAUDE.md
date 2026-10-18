@@ -106,12 +106,11 @@ Este repo distingue niveles de claim. NUNCA afirmes un nivel que no verificaste 
 
 ## Estado vigente
 
-- Fase 1 — fundación técnica ejecutable.
-- `main` es la única rama canónica.
-- La línea activa de desarrollo es `claude/pos-camacho-bloque-4c-ld43py`.
-- PR #78/D-2 es trabajo de la línea activa y todavía no debe describirse como integrado en `main` hasta merge + verificación post-merge.
-- El persistence gate de Central Sync está implementado en la línea activa, con workflow dedicado; su ejecución real debe demostrar persistencia y replay antes de declararse `VERIFIED`.
-- Migrations PostgreSQL 001/002/003: integradas con gates cerrados. SQLite 003: `NONE`.
+- `main` es la única rama canónica; la línea activa continúa siendo `claude/pos-camacho-bloque-4c-ld43py`.
+- La cola, inventario de ramas y dependencias de los PR #92–#95 se mantienen únicamente en `docs/product/backlog.md`, reconciliación del 2026-10-17.
+- Objetivo actual: reconciliar y validar el delta acumulado de #92, conservando los cambios acotados de #94/#95 y el delta dependiente de #93. No ampliar funcionalidades para ordenar el repositorio.
+- PR #89/#91 ya fueron fusionadas y #78 está cerrada sin merge propio; sus referencias anteriores son historia.
+- Código implementado, ejecución observada e integración siguen siendo ejes distintos. Los bloqueos de Actions y la revisión documental no autorizan declarar CI verde ni omitir el gate vigente.
 
 ## Arquitectura TARGET (única, no forks)
 - Monolito modular, TypeScript estricto, pnpm workspaces + Nx.

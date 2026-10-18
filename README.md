@@ -10,7 +10,7 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 `Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
 
-## Estado y regla de continuidad — 2026-09-16
+## Estado y regla de continuidad — 2026-10-17
 
 > **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
 
@@ -52,72 +52,17 @@ La fundación local y comercial ya existente incluye, según la evidencia regist
 
 **Estas piezas no se rehacen por iniciativa de una IA.** Si una auditoría encuentra un defecto, se corrige el componente existente y se preserva su contrato salvo decisión arquitectónica explícita.
 
-## Trabajo activo — D-2 / Central Sync
+## Trabajo actual e integración
 
-La línea activa está cerrando el transporte saliente del outbox y su evidencia de persistencia.
+El inventario remoto, las dependencias de PR y el orden vigente están en [Backlog maestro — reconciliación operativa](docs/product/backlog.md#reconciliación-operativa--2026-10-17-americabogota). Ésta es la única cola operativa; los documentos de septiembre conservan evidencia histórica sobre sus SHAs.
 
-PR #78 corresponde a D-2: `DurableSyncStore` → `SyncDispatcher` → `CentralTransport`/`FetchCentralTransport`, con validación de contrato, `request_id`, fail-closed de credenciales y backoff/dead-letter.
+Al corte auditado, `main@591ad4c` y la línea de trabajo `3a4f70b2` están divergidos. PR #92 acumula varios módulos y permanece en borrador; #94 y #95 son correcciones acotadas hacia main y #93 depende de la línea de #92. Primero corresponde reconciliar y validar lo existente, sin abrir otra arquitectura ni ampliar alcance.
 
-Además, la línea activa contiene un **Central Sync Persistence Gate** dedicado que debe probar contra infraestructura real:
+PR #89 y #91 fueron fusionadas el 2026-10-05; PR #78 quedó cerrada sin merge propio. No debe seguir presentándose como el trabajo pendiente actual.
 
-```text
-PostgreSQL 16.14 real
-        ↓
-migration runner real
-        ↓
-central-sync-server real
-        ↓
-HTTP POST real
-        ↓
-sync.sync_operations
-        ↓
-replay HTTP real
-        ↓
-idempotency = una sola persistencia
-```
+La inspección confirma credenciales de dispositivos enrolados y prueba firmada en sync, además de claves de sesión inyectadas en el arranque. Su existencia no acredita aprovisionamiento, sincronización, login ni administración completos en el entorno real. Las verificaciones pendientes y sus rutas están en el backlog.
 
-El workflow es `.github/workflows/central-sync-persistence-gate.yml` y el paquete expone `central-sync:gate`.
-
-### Estado exacto del gate
-
-- Implementación del gate: `IMPLEMENTED`.
-- Workflow dedicado: `IMPLEMENTED`.
-- PostgreSQL 16.14 configurado: `IMPLEMENTED`.
-- Servidor Central Sync real configurado: `IMPLEMENTED`.
-- Persistencia real observada: **pendiente de ejecución del workflow nuevo**.
-- Replay real observado: **pendiente**.
-- Idempotencia real observada: **pendiente**.
-- `CENTRAL-SYNC GATE: VERIFIED`: **NO declarado todavía**.
-
-La ejecución anterior sobre el commit `0afefdb` falló y no puede usarse como evidencia del workflow posterior. Un cambio preparado para ejecutar no equivale a una ejecución verificada.
-
-## PR #78 y `main`
-
-PR #78 es trabajo de la línea activa y **no debe describirse como integrado en `main` mientras no exista merge + verificación post-merge**.
-
-`main` continúa siendo la fuente canónica del producto. Una rama de trabajo no se vuelve canónica por tener más commits o CI verde.
-
-Flujo obligatorio:
-
-`rama activa → PR → revisión del autor → CI exact-head → autorización → merge commit → CI post-merge → documentación reconciliada`
-
-No squash, no rebase y no force-push para integrar a `main`.
-
-## Qué NO se debe hacer ahora
-
-Mientras D-2 y su gate no estén cerrados, no se debe abrir trabajo paralelo sobre:
-
-- una segunda arquitectura de sync;
-- otra implementación de Central Sync;
-- otra base central o API paralela;
-- una migración nueva para resolver el mismo problema;
-- snapshots/SSA/SAS de entrada como sustituto de D-2;
-- G1/trust bootstrap como supuesto requisito del gate actual;
-- DEC-022 como si ya estuviera ratificada;
-- verticales de negocio nuevas sólo porque el núcleo ya tenga handlers;
-- hardware, packaging o infraestructura productiva como desviación del objetivo activo.
-
-Si una de estas áreas tiene un defecto que bloquea D-2, primero se documenta la relación y se audita; no se crea una segunda línea.
+Los jobs recientes consultados de TARGET y CodeQL no iniciaron runner ni pasos. No se declara PASS, ni fallo de tests por ese resultado. La política de integración sigue en [Gobernanza](docs/governance/repository-governance.md); esta reconciliación no autoriza merges.
 
 ## Arquitectura canónica
 

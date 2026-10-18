@@ -1,5 +1,7 @@
 # Tablero de materialización — estructura permanente
 
+> Alcance de lectura — 2026-10-17. Las filas y recuentos inferiores evalúan el SHA histórico indicado en «El tablero»; no constituyen una evaluación del main o de la rama activa actuales. No se promueve ningún peldaño con esta reconciliación documental. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
+
 ## Para qué existe este documento
 
 El propietario mantiene un **tablero físico**. Un tablero físico no se puede
