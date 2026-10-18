@@ -136,8 +136,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 
   const authorization = request.headers.authorization ?? null;
-  const authFingerprint = createHash("sha256").update(authorization ?? "anonymous").digest("hex");
-  if (!limiter.allow(`${remote}:${authFingerprint}`)) {
+  if (!limiter.allow(`${remote}:device-enrollment`)) {
     send(response, 429, { status: "REJECTED", result_code: "DEVICE_ENROLLMENT_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
     return;
   }
