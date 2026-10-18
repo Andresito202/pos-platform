@@ -325,6 +325,34 @@ Inspección estática de la rama [rama de origen de PR #92](https://github.com/A
 Se completó la inspección estática y se registró la matriz de integración sobre el gate existente. No se implementaron endpoints, permisos, credenciales ni controles de seguridad ficticios. No se ejecutaron pruebas ni se declara CI verde. El siguiente bloque funcional depende de la ratificación de las decisiones de autenticación enumeradas en este mismo documento.
 
 
+## Compatibilidad criptográfica ejecutada — 2026-10-18
+
+Este corte prevalece sobre las notas históricas que describían instalación/benchmark imposibles. Continúa la rama de PR #92 desde `37d467c8`; no habilita autenticación ni modifica las decisiones ratificadas inferiores.
+
+Se resolvieron e instalaron mediante pnpm 9.15.0 las versiones exactas `argon2@0.45.1` y `@simplewebauthn/server@14.0.3`, con lockfile generado por el gestor e instalación congelada offline aprobada. Permanecen como devDependencies hasta que exista una integración de runtime autorizada y verificada. La biblioteca nativa Argon2id cargó y verificó contraseñas realmente; no se sustituyó por un hash de prueba.
+
+Sobre Linux x64, Node 22.19.0 (versión de CI), se aprobaron typecheck y **24 pruebas centrales**, 13 nuevas de compatibilidad. Argon2id prueba PHC v19 con parámetros/salt/digest, salts independientes, contraseña incorrecta y rechazo de formato inválido. El orden textual de parámetros PHC no se interpreta como política propia. WebAuthn prueba opciones con UV requerida, registro de una fixture con attestation none, firma real P-256 y rechazo de challenge/origen/RP ID, UV ausente, firma alterada y contador no creciente. Esta fixture no certifica navegador, autenticador físico ni identidad de hardware.
+
+La suite también comprueba explícitamente que una passkey con contador cero permite verificar dos veces la misma respuesta si el caller no consume el challenge. Por tanto, el futuro runtime deberá persistir y consumir el challenge atómicamente con vencimiento y vinculación a cuenta/intento; no se declarará replay resuelto por llamar a la biblioteca. No se ha creado un almacén alternativo ni definido secret_reference por inferencia.
+
+### Medición local de candidatos
+
+Comando disponible: `pnpm --filter @pos-platform/central-authority benchmark:kdf`. El runner genera JSON sin contraseña, salt ni verifier; informa entorno, parámetros, 12 muestras por operación, calentamiento excluido y tres lotes de cuatro verificaciones concurrentes. El workflow D3 conservará ese JSON cuando pueda ejecutarse. El RSS máximo es acumulado del proceso, no memoria por perfil ni presupuesto de producción.
+
+Medición sin otros checks del agente en paralelo: Node 22.19.0, Linux x64, AMD EPYC 7763, 8 CPU disponibles, threadpool Node de 4. Sólo mide este host.
+
+| Candidato Argon2id | Hash mediana ms | Verify mediana ms | Verify p95 ms | Lote 4 mediana ms |
+|---|---:|---:|---:|---:|
+| 19 MiB / t=2 / p=1 | 27.92 | 26.11 | 41.87 | 41.31 |
+| 64 MiB / t=3 / p=1 | 149.20 | 154.13 | 185.25 | 178.31 |
+| 64 MiB / t=3 / p=4 | 55.40 | 56.15 | 62.93 | 125.24 |
+
+SHA-256 del JSON medido: `e04590909a3498e1f81e907eb3294ae5f27d8583359c06d0996af9bdcbe9ae3f`. No se fija un perfil de producción: siguen pendientes medición del servidor objetivo, límites de concurrencia/carga y revisión de parámetros/formato conforme D3-01. Las medidas de rendimiento no acreditan resistencia criptográfica por sí solas.
+
+Fuentes primarias consultadas para la evaluación: [node-argon2](https://github.com/ranisalt/node-argon2), [SimpleWebAuthn Server](https://simplewebauthn.dev/docs/packages/server) y [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html). El perfil de 19 MiB / t=2 / p=1 es un candidato mínimo de esa guía, no una selección productiva del proyecto.
+
+**Estado: compatibilidad de bibliotecas TESTED en este host; D3 sigue INCOMPLETO / NO PASS.** Faltan contrato de almacenamiento/referencia de credenciales MFA, RP/orígenes reales, challenge durable de un solo uso, login, sesiones/refresh/recuperación, bootstrap administrativo y gates PostgreSQL/SEC reales. No se emitieron tokens ni sesiones y no se agregaron grants/DDL. Los 33 casos de canal local conservan su bloqueo de entorno separado. El CI del HEAD final y la integración a main siguen pendientes.
+
 ## Decisiones ratificadas para implementar D-3 — 2026-10-08
 
 **Autoridad:** aprobación explícita del usuario en esta conversación.  

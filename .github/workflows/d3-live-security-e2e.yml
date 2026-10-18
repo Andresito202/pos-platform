@@ -59,7 +59,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install workspace dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Typecheck D-3 packages and authority
         run: |
           pnpm --filter @pos-platform/contracts typecheck
@@ -70,8 +70,12 @@ jobs:
       - name: Run D-3 security tests
         run: |
           pnpm --filter @pos-platform/device-trust test
-          pnpm --filter @pos-platform/central-authority test -- session-trust-publication.test.ts session-trust-key-issuer.test.ts
+          pnpm --filter @pos-platform/central-authority test
           pnpm --filter @pos-platform/pos-local-service test -- device-trust-credential-store.test.ts device-enrollment-service.test.ts session-trust-key.test.ts session-trust-key-resolver.test.ts session-bootstrap-runtime.test.ts
+      - name: Measure candidate password KDF profiles (not production policy)
+        run: |
+          mkdir -p artifacts/d3
+          pnpm --filter @pos-platform/central-authority exec node --import tsx benchmarks/password-kdf.ts > artifacts/d3/password-kdf.json
       - name: Apply PostgreSQL 001-002
         run: |
           pnpm --filter @pos-platform/target-migrations exec tsx -e '

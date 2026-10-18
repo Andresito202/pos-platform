@@ -8,7 +8,7 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación operativa: 2026-10-17. Los cierres históricos conservan su fecha y SHA.
+Última reconciliación operativa: 2026-10-18. Los cierres históricos conservan su fecha y SHA.
 
 ## Jerarquía relacionada
 
@@ -26,6 +26,18 @@ Si una fuente vigente contradice otra, la transición afectada se bloquea hasta 
 ## Reconciliación operativa — 2026-10-17 (America/Bogota)
 
 Esta sección fija el corte remoto de esta auditoría y prevalece para el estado actual sobre los snapshots históricos de agosto/septiembre conservados abajo. No cambia contratos, ADR, SQL ni niveles de evidencia.
+
+### Prerrequisito de administración central: bibliotecas D3 — 2026-10-18
+
+Continúa PR #92, sin otra rama ni reemplazo de módulos. Se resolvieron con pnpm 9.15.0 `argon2@0.45.1` y `@simplewebauthn/server@14.0.3` como dependencias de desarrollo de central-authority, con integridades en el lockfile. No se importan desde el runtime ni se habilita login por este cambio: el formato final, el contrato de secret_reference y los parámetros de producción mantienen las condiciones de D3-01/D3-02.
+
+- Node 22.19.0/Linux x64: typecheck central aprobado y **24 pruebas centrales aprobadas**, incluidas 13 nuevas de compatibilidad criptográfica. Verifican Argon2id nativo, PHC/salt/parámetros, contraseña incorrecta, enrolamiento WebAuthn de prueba, firma P-256, origen/challenge/RP ID, UV y contador. El autenticador es una fixture software, no navegador/hardware físico.
+- Una prueba explícita muestra que las passkeys sin contador requieren consumo atómico del challenge por el futuro runtime: la biblioteca criptográfica es deliberadamente stateless y no acredita por sí sola protección durable contra replay.
+- Benchmark reproducible de tres perfiles candidatos ejecutado con Node 22.19.0. No selecciona parámetros de producción; faltan hardware objetivo y prueba de carga. Comando: `pnpm --filter @pos-platform/central-authority benchmark:kdf`. Alcance y mediciones en el [gate D3](../governance/central-authority-administration-d3-gate-2026-10-08.md#compatibilidad-criptográfica-ejecutada--2026-10-18).
+- Instalación offline con lockfile congelado y scanner de arquitectura aprobados. Inventario: 343 paquetes, sin hallazgos de licencia. Auditoría según política vigente: sin bloqueantes; conserva dos avisos moderados para triage en Nx/smol-toml, sin cambiar la política.
+- El workflow D3 ahora instala con lockfile congelado, ejecuta toda la suite central y conserva el benchmark como artefacto. Esto es configuración materializada, no ejecución de CI acreditada.
+
+Los **33 casos de transporte continúan sin aprobar** por EPERM del socket Unix. La comprobación con elevación fue rechazada por la política automática de esta sesión; no se modificaron los tests, skips ni transporte para ocultarlo. Los checks consultados de `37d467c8` siguen sin ejecución utilizable de runner. No hay merge a main ni cierre de las once pantallas administrativas: aún faltan contrato operacional de MFA, autenticación/sesión/refresh/recuperación central, handlers/grants de cada capacidad y verificación con PostgreSQL real. Se continúa sobre las tablas existentes.
 
 ### Pantallas, marca y continuidad — 2026-10-18
 
