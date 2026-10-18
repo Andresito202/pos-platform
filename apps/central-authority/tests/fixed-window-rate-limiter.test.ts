@@ -40,9 +40,18 @@ describe("FixedWindowRateLimiter", () => {
     const routeEnd = source.indexOf('request.url !== "/v1/device-enrollment"', routeStart);
     expect(routeStart).toBeGreaterThanOrEqual(0);
     expect(routeEnd).toBeGreaterThan(routeStart);
+
     const route = source.slice(routeStart, routeEnd);
-    expect(route.indexOf("limiter.allow(")).toBeLessThan(route.indexOf("const authorization"));
-    expect(route.indexOf("const authorization")).toBeLessThan(route.indexOf("const authorized"));
+    const limiterIndex = route.indexOf("limiter.allow(");
+    const authorizationIndex = route.indexOf("const authorization");
+    const authorizedIndex = route.indexOf("const authorized");
+
+    // Assert that every anchor exists before comparing order. A missing limiter
+    // must fail the test rather than pass because indexOf returned -1.
+    expect(limiterIndex).toBeGreaterThanOrEqual(0);
+    expect(authorizationIndex).toBeGreaterThanOrEqual(0);
+    expect(authorizedIndex).toBeGreaterThan(authorizationIndex);
+    expect(limiterIndex).toBeLessThan(authorizationIndex);
     expect(route).toContain("SESSION_TRUST_UNAUTHORIZED");
   });
 });
