@@ -25,6 +25,13 @@ Si una fuente vigente contradice otra, la transición afectada se bloquea hasta 
 
 Esta sección fija el corte remoto de esta auditoría y prevalece para el estado actual sobre los snapshots históricos de agosto/septiembre conservados abajo. No cambia contratos, ADR, SQL ni niveles de evidencia.
 
+### Revisión adicional de persistencia — 2026-10-18
+
+- Sobre `116d64e7` limpio se ejecutaron 20 pruebas unitarias de repositorios centrales y 13 comprobaciones estáticas de las migraciones 004–008: aprobadas. Los repositorios usan pools simulados en esas pruebas; no acreditan PostgreSQL físico ni RLS real.
+- Se corrigió una aserción tautológica en la prueba física existente de concurrencia de onboarding. Ahora compara tenant, company, branch, owner y membership entre ambas respuestas, conforme a UC-ONB-001; antes comparaba el mismo arreglo consigo mismo. No cambia código de producción, contratos ni SQL.
+- El typecheck de pos-local-service y las 6 pruebas unitarias existentes de InitializeTenant aprobaron tras el cambio. La suite física reportó expresamente **5 omitidas** por ausencia de POSTGRES_TEST_URL; su salida 0 no se declara PASS físico. La ejecución real de esas aserciones queda REQUIRES_LOCAL_VERIFICATION.
+- Los bloqueos de transporte/Windows/PostgreSQL del apartado siguiente siguen abiertos; no se fusiona #92 ni se activa #93 por estas comprobaciones estáticas/unitarias.
+
 ### Ejecución autorizada — reconciliación y seguridad
 
 Esta actualización sustituye el estado operativo del corte inicial conservado abajo. La línea activa ya contiene `main@591ad4c`: comparación remota **0 behind**. `main` permanece en su SHA; la integración siguiente sigue siendo PR #92.

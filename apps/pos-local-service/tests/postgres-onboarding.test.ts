@@ -132,7 +132,11 @@ describe.runIf(Boolean(process.env.POSTGRES_TEST_URL))("database-postgres ONB-00
   it("uses physical idempotency under concurrent identical requests", async () => {
     const base = request("B");
     const [first, second] = await Promise.all([useCase().execute(base), useCase().execute(base)]);
-    expect([first.tenantId, second.tenantId].sort()).toEqual([first.tenantId, second.tenantId].sort());
+    expect(first.tenantId).toBe(second.tenantId);
+    expect(first.companyId).toBe(second.companyId);
+    expect(first.branchId).toBe(second.branchId);
+    expect(first.ownerUserId).toBe(second.ownerUserId);
+    expect(first.tenantMembershipId).toBe(second.tenantMembershipId);
     expect(new Set([first.onboardingId, second.onboardingId]).size).toBe(1);
     expect(new Set([first.status, second.status])).toEqual(new Set(["READY_FOR_LICENSE"]));
     expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.onboarding_operations WHERE idempotency_key=$1", [base.idempotencyKey])).rows[0].n).toBe(1);
