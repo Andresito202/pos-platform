@@ -56,7 +56,7 @@ La fundación local y comercial ya existente incluye, según la evidencia regist
 
 El inventario remoto, las dependencias de PR y el orden vigente están en [Backlog maestro — reconciliación operativa](docs/product/backlog.md#reconciliación-operativa--2026-10-17-americabogota). Ésta es la única cola operativa; los documentos de septiembre conservan evidencia histórica sobre sus SHAs.
 
-Al corte auditado, `main@591ad4c` y la línea de trabajo `3a4f70b2` están divergidos. PR #92 acumula varios módulos y permanece en borrador; #94 y #95 son correcciones acotadas hacia main y #93 depende de la línea de #92. Primero corresponde reconciliar y validar lo existente, sin abrir otra arquitectura ni ampliar alcance.
+La línea activa ya contiene `main@591ad4c` y los deltas probados de #94/#95, con 0 commits pendientes de main. También corrige el rate limit de enrolamiento. PR #92 conserva la integración acumulada hacia main y #93 sigue dependiendo de su base final. La evidencia ejecutada, las limitaciones de transporte del entorno y la cola restante están en el backlog.
 
 PR #89 y #91 fueron fusionadas el 2026-10-05; PR #78 quedó cerrada sin merge propio. No debe seguir presentándose como el trabajo pendiente actual.
 

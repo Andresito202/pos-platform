@@ -108,7 +108,7 @@ Este repo distingue niveles de claim. NUNCA afirmes un nivel que no verificaste 
 
 - `main` es la única rama canónica; la línea activa continúa siendo `claude/pos-camacho-bloque-4c-ld43py`.
 - La cola, inventario de ramas y dependencias de los PR #92–#95 se mantienen únicamente en `docs/product/backlog.md`, reconciliación del 2026-10-17.
-- Objetivo actual: reconciliar y validar el delta acumulado de #92, conservando los cambios acotados de #94/#95 y el delta dependiente de #93. No ampliar funcionalidades para ordenar el repositorio.
+- Main ya está reconciliado y los deltas probados de #94/#95 están contenidos en la línea activa; no repetir su aplicación. Objetivo restante: revisar/validar el candidato acumulado de #92 y conservar el delta dependiente de #93. El fallo de sockets Unix del entorno continúa explícito; no equivale a gate aprobado.
 - PR #89/#91 ya fueron fusionadas y #78 está cerrada sin merge propio; sus referencias anteriores son historia.
 - Código implementado, ejecución observada e integración siguen siendo ejes distintos. Los bloqueos de Actions y la revisión documental no autorizan declarar CI verde ni omitir el gate vigente.
 

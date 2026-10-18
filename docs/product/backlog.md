@@ -25,6 +25,52 @@ Si una fuente vigente contradice otra, la transición afectada se bloquea hasta 
 
 Esta sección fija el corte remoto de esta auditoría y prevalece para el estado actual sobre los snapshots históricos de agosto/septiembre conservados abajo. No cambia contratos, ADR, SQL ni niveles de evidencia.
 
+### Ejecución autorizada — reconciliación y seguridad
+
+Esta actualización sustituye el estado operativo del corte inicial conservado abajo. La línea activa ya contiene `main@591ad4c`: comparación remota **0 behind**. `main` permanece en su SHA; la integración siguiente sigue siendo PR #92.
+
+| Cambio aplicado en la línea activa | Commit | Evidencia |
+|---|---|---|
+| Incorporar main respetando sus retiradas | `690b8836` | Merge con padres `6c0aaea2` y `591ad4c1`; comparación de tres árboles sin conflictos. Único delta neto: documento del avatar. |
+| Conservar el delta útil de #94 | `8336a0dd` | Segundo padre `b08efb8f`; el limiter/orden ya existían. Se incorporan las aserciones que impiden aprobar por un índice -1. |
+| Conservar el delta útil de #95 | `10be72ed` | Segundo padre `41e2b1a8`; expiración exclusiva y regresión correspondiente. |
+| Corregir el presupuesto de enrolamiento | `0b662018` | Un presupuesto por dirección remota/ruta, independiente del bearer. Cambio de producción de dos líneas retiradas y una añadida, más regresión de listener. |
+
+#94 y #95 están integradas en la línea activa, **no fusionadas en main**. Sus PR originales conservan la evidencia del HEAD probado. La cola ya no requiere volver a aplicar esos deltas. No se crearon ramas ni se portaron los linajes archivados.
+
+#### Ejecuciones observadas
+
+Entorno de validación: Linux, Node 24.19.0, pnpm 9.15.0, TypeScript 6.0.3 y Vitest 4.1.11. Copias de los HEAD remotos verificadas por SHA de blob; la línea activa también se materializó como checkout Git con commit y árbol exactos e historia shallow. Instalación de la línea activa con `--frozen-lockfile`: salida 0.
+
+| Comprobación | Resultado y alcance |
+|---|---|
+| #94 exacto `b08efb8f` | 4 pruebas del limiter y typecheck central: salida 0. |
+| #95 exacto `41e2b1a8` | 19 pruebas de device-trust y su typecheck: salida 0. |
+| Baseline activo `6c0aaea2` | Typecheck general: salida 0; 16 pruebas del validador, límites y política: aprobados. |
+| Seguridad sobre `0b662018`, checkout limpio | 23 pruebas device-trust + 11 centrales: aprobadas; typechecks central-authority/device-trust/local-channel: salida 0. |
+| Juntura local sobre `0b662018`, checkout limpio | 25 pruebas existentes de enrolamiento, dispatcher, componente de sync y refresco de trust: aprobadas. |
+| Contratos / canal local | 277 / 6 pruebas: aprobadas. |
+| Domain / Application / adapters fiscales | 47 / 16 / 173 aprobadas; 2 de sandbox fiscal omitidas. |
+| SQLite / observabilidad / escritorio / migraciones SQLite | 58 / 4 / 142 / 13 aprobadas. |
+| Runtime local completo, baseline | **No aprobado:** 618 aprobadas, 33 fallidas, 10 omitidas; 3 archivos fallan al abrir sockets Unix con EPERM. El script encadenado se detuvo antes del escritorio; sus 142 pruebas se ejecutaron después por separado. |
+
+La regresión nueva importa el listener de producción y envía 31 solicitudes HTTP por loopback cambiando bearer. Antes de la corrección falla (401 en lugar de 429); después aprueba: las primeras 30 son 401 y la 31 devuelve 429, sin consultas a PostgreSQL. También comprueba que session-trust mantiene su presupuesto separado y health continúa respondiendo. TLS y PostgreSQL se sustituyen sólo dentro de esta prueba; no se presenta como E2E de TLS/DB.
+
+Los 33 fallos no se ocultaron ni se cambiaron por skips. Una sonda independiente confirmó EPERM al crear sockets Unix en /tmp, /dev/shm y el workspace; TCP loopback sí admite bind. No se modificó el transporte de producción para acomodar esta restricción. PostgreSQL real, canal Windows, E2E Electron y CI del candidato siguen sin certificar.
+
+El intento inicial del comando general invocó el pnpm global 11 y se abortó antes de probar; se repitió fijando PATH a pnpm 9.15.0. Un directorio vacío residual del cambio de snapshot causó un primer fallo del scanner de áreas; se retiró al comprobar que no existe en el árbol Git. Ninguno se atribuye al código del producto.
+
+#### Cola actual
+
+1. Validar el transporte completo en un entorno que permita sus sockets y el canal de Windows; conservar el fallo observado en este entorno.
+2. Continuar la revisión restante de #92 por los módulos y dependencias ya inventariados, con PostgreSQL real donde corresponda y controles de permisos/tenant.
+3. Satisfacer el gate vigente del HEAD final y la verificación post-merge antes de integrar #92 en main.
+4. Reevaluar #93 sobre la base final y cerrar prerrequisitos 008/009, correlación de pagos y HTTPS; no ampliar su alcance antes.
+
+### Corte inicial de auditoría — evidencia histórica
+
+Las cifras A/B y decisiones de la primera cola que siguen corresponden al estado anterior a esta ejecución. Para la cola vigente se aplica el apartado anterior.
+
 - Producto integrado: `main@591ad4c19df9c8e36f451e9c243dda8b47dc7e51`.
 - Línea de implementación: `claude/pos-camacho-bloque-4c-ld43py@3a4f70b22efbf0a18d3ec6ed2db33ad33cdb13c7`, antes del commit documental de reconciliación.
 - Objetivo único: reconciliar, revisar y validar el delta acumulado de PR #92; no abrir otra implementación.
@@ -36,7 +82,7 @@ Esta sección fija el corte remoto de esta auditoría y prevalece para el estado
 - TARGET run `39084346449` y CodeQL run `39084346418`, sobre `41e2b1a8`: jobs de ejecución con `runner_id: 0` y cero pasos. No son evidencia de tests fallidos ni aprobados; la causa de facturación no se revalidó en esta auditoría.
 - Se ejecutaron inspección remota de Git/árboles/código/configuración y una reproducción aislada del limiter con su expresión de clave de producción (Node 24.19.0, salida 0). Las suites del repositorio, typecheck, PostgreSQL real, Windows/Electron y estado del PC: `REQUIRES_LOCAL_VERIFICATION`.
 
-### Cola de integración existente
+### Cola de integración del corte inicial (histórica)
 
 | PR | Dependencia y alcance observado | Estado / siguiente condición |
 |---|---|---|
