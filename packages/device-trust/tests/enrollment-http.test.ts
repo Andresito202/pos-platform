@@ -70,9 +70,13 @@ describe("D-3 enrollment HTTP boundary", () => {
     const expired = requestWithChallengeTimes("2099-09-16T11:54:00Z", "2099-09-16T11:59:59Z");
     const future = requestWithChallengeTimes("2099-09-16T12:00:01Z", "2099-09-16T12:05:00Z");
 
+    const atExpiry = requestWithChallengeTimes("2099-09-16T11:55:00Z", "2099-09-16T12:00:00Z");
     const expiredResult = await handler.handle(context, JSON.stringify(expired));
     const futureResult = await handler.handle(context, JSON.stringify(future));
+    const atExpiryResult = await handler.handle(context, JSON.stringify(atExpiry));
 
+    expect(atExpiryResult.statusCode).toBe(422);
+    expect(atExpiryResult.body.result_code).toBe("ENROLLMENT_CHALLENGE_EXPIRED");
     expect(expiredResult.statusCode).toBe(422);
     expect(expiredResult.body.result_code).toBe("ENROLLMENT_CHALLENGE_EXPIRED");
     expect(futureResult.statusCode).toBe(422);
