@@ -833,3 +833,43 @@ Sobre HEAD de código `60670ee54affb4378e4e274e026668d566580732`:
 `@pos-platform/database-postgres typecheck` terminó exit 0; `@pos-platform/target-migrations typecheck` ejecutó `tsc` sin errores visibles pero el transcript no muestra exit numérico; 7/7 unitarias del repositorio, 4/4 pruebas SQL/descriptor y 2/2 físicas de concurrencia/expiración **PASS exit 0**. Los seis casos históricos del archivo físico permanecieron skipped por filtro deliberado; el árbol Git quedó limpio. El PostgreSQL utilizado es aislado y temporal, no acredita ejecución de runner 009 ni despliegue.
 
 Este hito cierra exclusivamente la **persistencia y consumo de desafíos**, no la verificación criptográfica ni la autenticación. La fixture de firma es un callback que devuelve éxito y no representa un autenticador WebAuthn real. Se mantiene pendiente el enlace de `secret_reference`, clave pública, credencial ID, contador y metadatos, así como los gates SEC-G02/SEC-G03, MFA y recuperación E2E. No repetir estas 13 pruebas sin cambio de alcance o código.
+
+### D3-R5.2b — verificación de aserción y contrato opaco de credencial
+
+Se materializó un contrato de referencia \`webauthn:v1:<UUIDv7>\` en
+\`packages/contracts\`. El valor de \`identity.mfa_factors.secret_reference\`
+es exclusivamente un identificador opaco: no es una clave COSE, un objeto
+serializado WebAuthn, un secreto, un URL que se pueda descargar ni una prueba
+de identidad. Las referencias malformadas, sin versión admitida o distintas
+del factor consultado se rechazan.
+
+\`PostgresPlatformWebAuthnFactorReferenceRepository\` reutiliza la tabla
+\`identity.mfa_factors\` con el usuario \`ACTIVE\`, factor
+\`factor_type='WEBAUTHN'\`, estado \`ACTIVE\`, \`verified_at\` presente y
+\`revoked_at\` nulo. No se crea una segunda tabla de cuentas, credenciales o
+factores MFA.
+
+\`apps/central-authority/src/platform-webauthn-assertion-verifier.ts\`
+verifica, con \`@simplewebauthn/server\` ya presente en el lockfile,
+una aserción WebAuthn contra el challenge y factor bloqueados, RP ID/origin
+configurados por el servidor y material **público** v1 recuperado desde un
+almacén central confiable (por integrar). Exige el ID de credencial y
+referencia correspondientes, bytes COSE canónicos, \`userVerified=true\`
+y contador apropiado. Su salida consiste únicamente en metadatos de una
+prueba verificada; no emite sesión ni modifica \`mfa_status\`,
+\`support_verified\` o la credencial almacenada.
+
+Se agregaron **13 pruebas focalizadas nuevas**: ocho firmas/verificaciones
+criptográficas P-256 (incluidos rechazo por firma, RP/origin, challenge, UV,
+counter y binding incorrectos), tres consultas de factor y dos del contrato
+de referencia. Pendientes de ejecución Windows, de modo que su estado es
+\`MATERIALIZED / SOURCE_REVIEWED / NOT_TESTED\`.
+
+Antes de usar el verificador para conceder MFA o aprobar recuperación se debe
+materializar y probar el almacén autorizado de material público:
+\`credentialId\`, \`publicKeyCoseBase64url\`, contador y metadatos de respaldo;
+su resolución por \`secret_reference\` debe ser independiente del cliente.
+Se requiere CAS del contador con disciplina transaccional respecto al consumo
+de challenge, revocación y auditoría, así como mover la biblioteca WebAuthn
+a \`dependencies\` mediante pnpm y actualizar lockfile con evidencia.
+**No hay permiso para publicar endpoints ni marcar MFA satisfecho todavía.**
