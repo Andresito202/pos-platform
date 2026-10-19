@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, PostgresPlatformWebAuthnMaterialRepository, uuidV7 } from "../src/index.js";
+import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, PostgresPlatformWebAuthnMaterialRepository, PostgresPlatformWebAuthnAssertionTransaction, uuidV7 } from "../src/index.js";
 
 /**
  * Opt-in physical verification. POSTGRES_TEST_URL must point to an isolated
@@ -30,6 +30,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
   let repository: PostgresPlatformPasswordRecoveryRepository;
   let webauthn: PostgresPlatformWebAuthnChallengeRepository;
   let materialStore: PostgresPlatformWebAuthnMaterialRepository;
+  let assertionTx: PostgresPlatformWebAuthnAssertionTransaction;
 
   async function createUser(): Promise<string> {
     const id = uuidV7();
@@ -128,6 +129,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     repository = new PostgresPlatformPasswordRecoveryRepository(scopedPool);
     webauthn = new PostgresPlatformWebAuthnChallengeRepository(scopedPool);
     materialStore = new PostgresPlatformWebAuthnMaterialRepository(scopedPool);
+    assertionTx = new PostgresPlatformWebAuthnAssertionTransaction(scopedPool);
   }, 120_000);
 
   afterAll(async () => {
@@ -460,5 +462,65 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     );
     expect(await materialStore.findVerifiedMaterial(secondUser, factorId)).toBeNull();
     expect(await materialStore.findVerifiedMaterial(firstUser, factorId)).not.toBeNull();
+  });
+  it("physically commits a WebAuthn proof receipt with counter, challenge and audit together", async () => {
+    const userId = await createUser();
+    const factorId = uuidV7(), materialId = uuidV7(), sessionId = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.mfa_factors
+         (id, user_id, factor_type, secret_reference, status, enrolled_at, verified_at, version)
+       VALUES ($1, $2, 'WEBAUTHN', $3, 'ACTIVE', clock_timestamp(), clock_timestamp(), 1)`,
+      [factorId, userId, "webauthn:v1:" + materialId],
+    );
+    await owner!.query(
+      `INSERT INTO identity.webauthn_credential_material
+         (id, factor_id, credential_id, public_key_cose_base64url)
+       VALUES ($1, $2, $3, $4)`,
+      [materialId, factorId, randomBytes(32).toString("base64url"),
+       randomBytes(65).toString("base64url")],
+    );
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'SATISFIED', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const issued = await webauthn.issue({
+      userId, factorId, sessionId, purpose: "REAUTHENTICATE",
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+      expiresAt: new Date(Date.now() + 300000).toISOString(), correlationId: uuidV7(),
+    });
+    const inputs = { userId, factorId, sessionId, challenge: issued.challenge,
+      purpose: "REAUTHENTICATE" as const, rpId: "admin.example.test",
+      expectedOrigin: "https://admin.example.test" };
+    // Fixture-only proof: this test certifies transaction atomicity, NOT a real
+    // hardware authenticator or the Central Authority cryptographic callback.
+    let attempts = 0;
+    const proof = async () => { attempts++; return {
+      userVerified: true as const, newCounter: 1, credentialBackedUp: false,
+    }; };
+    expect(await assertionTx.verifyAndCommit(inputs, proof)).toBe(true);
+    expect(await assertionTx.verifyAndCommit(inputs, proof)).toBe(false);
+    expect(attempts).toBe(1);
+    const rows = await owner!.query(
+      `SELECT m.counter::text AS counter, m.version::text AS material_version,
+              c.consumed_at IS NOT NULL AS consumed, c.version::text AS challenge_version
+         FROM identity.webauthn_credential_material AS m
+         CROSS JOIN identity.webauthn_challenges AS c
+        WHERE m.id = $1 AND c.id = $2`,
+      [materialId, issued.challengeId],
+    );
+    expect(rows.rows).toEqual([{
+      counter: "1", material_version: "2", consumed: true, challenge_version: "2",
+    }]);
+    const audits = await owner!.query(
+      `SELECT count(*)::int AS total FROM identity.security_events
+        WHERE user_id = $1 AND session_id = $2
+          AND event_code = 'PLATFORM_WEBAUTHN_ASSERTION_VERIFIED'`,
+      [userId, sessionId],
+    );
+    expect(audits.rows).toEqual([{ total: 1 }]);
   });
 });
