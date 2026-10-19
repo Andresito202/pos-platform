@@ -13,3 +13,12 @@ export function isPlatformWebAuthnCredentialReference(value: unknown): value is 
   return UuidV7Schema.safeParse(opaqueId).success &&
     opaqueId === opaqueId.toLowerCase();
 }
+
+/** Public authenticator material only; private credential keys remain on authenticators. */
+export interface PlatformWebAuthnCredentialMaterialV1 {
+  readonly schemaVersion: 1;
+  readonly secretReference: string;
+  readonly credentialId: string;
+  readonly publicKeyCoseBase64url: string;
+  readonly counter: number;
+}
