@@ -781,3 +781,48 @@ Este control complementa, pero no sustituye, la revocación de sesiones ni la va
 ### Reconciliación con la decisión vigente de `main` — 2026-10-09
 
 Las secciones históricas anteriores describen una materialización provisional del runner de migración 008 y sus comprobaciones estáticas. El commit de `main` `591ad4c19df9c8e36f451e9c243dda8b47dc7e51` elimina explícitamente `tools/target-migrations/src/postgres-008-runner.ts` con el mensaje «remove migration runner not intended for main». Para no reintroducir ese runner al integrar la PR, la rama de trabajo ahora conserva el descriptor, el SQL y las pruebas estáticas de contrato 008, pero elimina el runner, su CLI, sus exports y el script `postgres:008:apply`. Esto no certifica la migración como ejecutable: su aplicación contra PostgreSQL, sus pruebas de integración y el bootstrap de la primera autoridad siguen pendientes y no deben marcarse PASS.
+
+## Continuidad D3-R5.2 — persistencia incremental del desafío WebAuthn (2026-10-18)
+
+**Alcance autorizado y materializado, aún NO probado en PostgreSQL físico:** se diseñó
+`009_webauthn_challenges` como migración aditiva dependiente de `008_platform_role_assignments`.
+La tabla `identity.webauthn_challenges` almacena identificador UUIDv7, usuario (FK a
+`identity.users`), factor opcional (FK a `identity.mfa_factors`), sesión opcional
+(FK a `identity.sessions`), propósito, hash SHA-256 del desafío, RP ID, origin
+esperado, vencimiento, instante de consumo y correlación. **No** guarda el
+desafío original, contraseñas, credenciales privadas ni secret_reference.
+
+El SQL fuerza RLS y restringe el acceso a `pos_platform_app`; para la inspección
+de la migración inversa, `pos_schema_owner` posee exclusivamente política SELECT
+explícita, para que los registros retenidos no queden invisibles. Trigger de
+consumo irreversible prohíbe reabrir o editar un desafío ya consumido. La
+migración inversa rechaza borrar una tabla que contenga registros.
+
+`PostgresPlatformWebAuthnChallengeRepository` genera desafío de 32 bytes mediante
+CSPRNG, guarda únicamente su digest, vincula emisión al usuario activo y valida
+la pertenencia del factor/sesión en un único INSERT. Acepta el origin HTTPS
+exacto del RP ID (restricción conservadora), y deja la expiración en manos
+de la política central, aún por ratificar. `consumeAfterVerifiedProof` bloquea
+la fila, exige mismo usuario, propósito, sesión y vigencia, llama al comprobador
+criptográfico proporcionado por el futuro servicio central confiable, y consume
+atómicamente solo cuando este devuelve éxito. **Un callback de prueba que
+devuelva true no es verificación WebAuthn real**: no puede habilitar MFA ni una
+sesión. Este repositorio no está expuesto mediante HTTP ni renderer.
+
+**Persistencia de credencial real pendiente:** `identity.mfa_factors` continúa
+siendo la fuente única del factor. Su `secret_reference` debe ser una
+referencia opaca y versionada a material de credencial administrado por el
+servicio central; no guardar claves privadas ni interpretar referencias como
+pruebas de posesión. Aún no se ha seleccionado/verificado un almacén durable
+para la clave pública, el credential ID, contador y señales de backup ni un
+contrato de referencias ejecutable. No se debe crear otro registro de cuentas
+o MFA para suplir esta decisión.
+
+**Bloqueos explícitos:** no existe runner de despliegue 009 ratificado ni se ha
+aplicado 009 a una base de producción; la migración 008 debe verificarse antes.
+Faltan la verificación `@simplewebauthn/server` de firma, challenge, RP ID,
+origin, user verification y contador, la actualización de factor/contador
+con transacción y auditoría, la política aprobada de vencimiento/rate-limit y
+las pruebas de replay/concurrencia/expiración bajo PostgreSQL real. Los gates
+SEC-G02 y SEC-G03 siguen sin aprobarse. No habilitar MFA `SATISFIED`,
+`support_verified`, login ni recuperación pública basándose en este incremento.
