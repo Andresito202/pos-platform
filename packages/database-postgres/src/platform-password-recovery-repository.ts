@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Pool } from "pg";
 import { Sha256HexSchema, UtcDateTimeSchema, UuidSchema, UuidV7Schema, uuidV7 } from "@pos-platform/contracts";
-import { PlatformSecurityEventCode, UuidSchema, isSupportedPlatformPasswordVerifier } from "@pos-platform/contracts";
+import { PlatformSecurityEventCode, isSupportedPlatformPasswordVerifier } from "@pos-platform/contracts";
 import { PostgresPlatformSecurityEventRepository } from "./platform-security-event-repository.js";
 
 /**
