@@ -43,7 +43,7 @@ function fixture(options: { challenge?: boolean; material?: boolean; cas?: boole
     if (statement === "SELECT clock_timestamp() AS occurred_at") return { rows: [{ occurred_at: NOW }] };
     if (statement.includes("INSERT INTO identity.security_events")) {
       if (options.auditFailure) throw new Error("security audit unavailable");
-      expect(args?.[5]).toBe("PLATFORM_WEBAUTHN_ASSERTION_VERIFIED");
+      expect(args?.[4]).toBe("PLATFORM_WEBAUTHN_ASSERTION_VERIFIED");
       return { rows: [{ user_id: USER, session_id: SESSION, tenant_id: null,
         event_code: "PLATFORM_WEBAUTHN_ASSERTION_VERIFIED", result: "SUCCEEDED",
         reason_code: null, correlation_id: CORRELATION,
