@@ -23,6 +23,16 @@ No funciona como diario histórico exhaustivo. La cronología detallada permanec
 
 Si una fuente vigente contradice otra, la transición afectada se bloquea hasta reconciliación. No se elige una interpretación arbitraria.
 
+## Cierre acotado e inmutable por evidencia — IPC/escritorio (2026-10-18)
+
+**Decisión del propietario:** no repetir diagnósticos, recorridos o suites ya aprobados para reabrir el mismo trabajo sin un defecto nuevo y reproducible. La excepción es un cambio que afecte el contrato, una regresión documentada o el gate integral del nuevo HEAD candidato a `main`; no se transforma esta decisión en una exención de pruebas para funcionalidades nuevas.
+
+- **Área cerrada en la línea activa:** endurecimiento de `ChannelBridge` (`message_type` debe coincidir con el canal IPC autorizado) y compatibilidad de `tests/main.test.ts` con el sobre canónico. Commits `4bb5bcc7`, `2ac4c7ac` y `1dd6a285`; PR #92, HEAD probado `1dd6a2850e4a456d63ce856a606a67a7f0a04bc9`.
+- **Evidencia aportada desde Windows `C:\\Proyectos\\pos-platform`:** `git pull --ff-only` sin conflicto, `pnpm --filter @pos-platform/pos-desktop test` = **15 archivos / 161 pruebas aprobados, 0 fallidas**, exit 0; `pnpm --filter @pos-platform/pos-desktop typecheck` = ambos `tsc` sin errores, exit 0; `git status --short --branch` = sin cambios locales, en la rama activa. Prueba anterior sobre `2ac4c7ac` falló en dos fixtures desactualizadas; esa regresión quedó corregida y aprobada en `1dd6a285`. Ver comentarios de evidencia en PR #92.
+- **Estado de este corte:** `MATERIALIZED / TESTED / CLOSED_FOR_REWORK`. No se vuelve a abrir el alcance anterior para mejoras especulativas ni se repiten sus 161 tests como tarea individual. **No significa** `END_TO_END`, Electron real certificado, CI exact-head ni integración en `main`; esos gates siguen abiertos donde corresponda.
+- **Siguiente frente, sin reabrir RT-006:** `operation.confirm` es el slice técnico de actor `DEVICE` integrado históricamente y `OperationPanel` lo expone en el renderer. La identidad de transporte y el guard de canal IPC no constituyen por sí solos autorización de **usuario**. `SEC-G03` / administración central deben definir autoridad, alcance, política de exposición de la operación técnica y casos de rechazo para llamadas al canal correcto antes de cambiarla. No añadir un grant inexistente a los 18 permisos operativos, ni atribuir operaciones técnicas a un usuario ficticio; conservar idempotencia/outbox/auditoría RT-006. Este hallazgo queda **OPEN / REQUIRES_AUTHORIZATION_DESIGN**, separado del bloque IPC cerrado.
+- **Prioridad de continuidad:** avanzar en los pendientes de administración central y seguridad y en el transporte/entorno aún no acreditado según la cola vigente; no revalidar módulos ajenos a cada cambio, y mantener la PR #92 sin merge hasta cumplir sus gates de integración.
+
 ## Reconciliación operativa — 2026-10-17 (America/Bogota)
 
 Esta sección fija el corte remoto de esta auditoría y prevalece para el estado actual sobre los snapshots históricos de agosto/septiembre conservados abajo. No cambia contratos, ADR, SQL ni niveles de evidencia.
