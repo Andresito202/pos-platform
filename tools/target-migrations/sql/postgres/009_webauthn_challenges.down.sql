@@ -9,3 +9,4 @@ END
 $$;
 
 DROP TABLE identity.webauthn_challenges;
+DROP FUNCTION identity.webauthn_challenge_consume_guard();
