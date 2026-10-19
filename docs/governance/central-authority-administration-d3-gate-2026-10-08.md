@@ -784,7 +784,7 @@ Las secciones históricas anteriores describen una materialización provisional 
 
 ## Continuidad D3-R5.2 — persistencia incremental del desafío WebAuthn (2026-10-18)
 
-**Alcance autorizado y materializado, aún NO probado en PostgreSQL físico:** se diseñó
+**Alcance autorizado y materializado, verificado en PostgreSQL físico solo para concurrencia y expiración:** se diseñó
 `009_webauthn_challenges` como migración aditiva dependiente de `008_platform_role_assignments`.
 La tabla `identity.webauthn_challenges` almacena identificador UUIDv7, usuario (FK a
 `identity.users`), factor opcional (FK a `identity.mfa_factors`), sesión opcional
@@ -826,3 +826,10 @@ con transacción y auditoría, la política aprobada de vencimiento/rate-limit y
 las pruebas de replay/concurrencia/expiración bajo PostgreSQL real. Los gates
 SEC-G02 y SEC-G03 siguen sin aprobarse. No habilitar MFA `SATISFIED`,
 `support_verified`, login ni recuperación pública basándose en este incremento.
+
+### Evidencia focalizada R5.2a — Windows + PostgreSQL, 2026-10-18
+
+Sobre HEAD de código `60670ee54affb4378e4e274e026668d566580732`:
+`@pos-platform/database-postgres typecheck` terminó exit 0; `@pos-platform/target-migrations typecheck` ejecutó `tsc` sin errores visibles pero el transcript no muestra exit numérico; 7/7 unitarias del repositorio, 4/4 pruebas SQL/descriptor y 2/2 físicas de concurrencia/expiración **PASS exit 0**. Los seis casos históricos del archivo físico permanecieron skipped por filtro deliberado; el árbol Git quedó limpio. El PostgreSQL utilizado es aislado y temporal, no acredita ejecución de runner 009 ni despliegue.
+
+Este hito cierra exclusivamente la **persistencia y consumo de desafíos**, no la verificación criptográfica ni la autenticación. La fixture de firma es un callback que devuelve éxito y no representa un autenticador WebAuthn real. Se mantiene pendiente el enlace de `secret_reference`, clave pública, credencial ID, contador y metadatos, así como los gates SEC-G02/SEC-G03, MFA y recuperación E2E. No repetir estas 13 pruebas sin cambio de alcance o código.
