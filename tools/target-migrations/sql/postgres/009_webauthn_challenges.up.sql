@@ -26,6 +26,37 @@ CREATE TABLE identity.webauthn_challenges (
   CONSTRAINT webauthn_challenges_unique_hash UNIQUE (challenge_hash)
 );
 
+-- This is a state machine, not a general-purpose UPDATE-able table.
+-- Even the privileged application role may only transition once to consumed.
+CREATE FUNCTION identity.webauthn_challenge_consume_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  IF OLD.consumed_at IS NOT NULL OR NEW.consumed_at IS NULL
+     OR NEW.consumed_at > OLD.expires_at
+     OR NEW.version <> OLD.version + 1
+     OR ROW(NEW.id, NEW.user_id, NEW.factor_id, NEW.session_id,
+            NEW.purpose, NEW.challenge_hash, NEW.rp_id,
+            NEW.expected_origin, NEW.issued_at, NEW.expires_at, NEW.correlation_id)
+        IS DISTINCT FROM
+        ROW(OLD.id, OLD.user_id, OLD.factor_id, OLD.session_id,
+            OLD.purpose, OLD.challenge_hash, OLD.rp_id,
+            OLD.expected_origin, OLD.issued_at, OLD.expires_at, OLD.correlation_id)
+  THEN
+    RAISE EXCEPTION 'WebAuthn challenge only permits one irreversible consumption';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER webauthn_challenge_consume_guard
+BEFORE UPDATE ON identity.webauthn_challenges
+FOR EACH ROW EXECUTE FUNCTION identity.webauthn_challenge_consume_guard();
+
+REVOKE ALL ON FUNCTION identity.webauthn_challenge_consume_guard() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION identity.webauthn_challenge_consume_guard() TO pos_platform_app;
+
 CREATE INDEX webauthn_challenges_pending_idx
   ON identity.webauthn_challenges(user_id, purpose, expires_at)
   WHERE consumed_at IS NULL;
