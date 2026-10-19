@@ -66,20 +66,39 @@ export class PostgresPlatformWebAuthnChallengeRepository {
         origin.origin !== input.expectedOrigin || origin.username || origin.password) {
       throw new Error("PLATFORM_WEBAUTHN_ORIGIN_INVALID");
     }
+    if ((input.purpose === "REAUTHENTICATE" || input.purpose === "RECOVERY_APPROVAL") &&
+      sessionId === null) {
+      throw new Error("PLATFORM_WEBAUTHN_SESSION_REQUIRED");
+    }
     const expiresAt = UtcDateTimeSchema.parse(input.expiresAt);
     if (Date.parse(expiresAt) <= Date.now()) throw new Error("PLATFORM_WEBAUTHN_EXPIRY_INVALID");
 
     const challenge = randomBytes(32).toString("base64url");
     const digest = createHash("sha256").update(challenge, "utf8").digest("hex");
     const challengeId = uuidV7();
-    await this.pool.query(
+    const inserted = await this.pool.query<{ id: string }>(
       `INSERT INTO identity.webauthn_challenges (
          id, user_id, factor_id, session_id, purpose, challenge_hash,
          rp_id, expected_origin, issued_at, expires_at, correlation_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, clock_timestamp(), $9::timestamptz, $10)`,
+       )
+       SELECT $1, u.id, $3::uuid, $4::uuid, $5, $6, $7, $8,
+              clock_timestamp(), $9::timestamptz, $10::uuid
+         FROM identity.users AS u
+        WHERE u.id = $2 AND u.status = 'ACTIVE'
+          AND ($3::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM identity.mfa_factors AS f
+             WHERE f.id = $3 AND f.user_id = u.id AND f.status <> 'REVOKED'
+          ))
+          AND ($4::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM identity.sessions AS s
+             WHERE s.id = $4 AND s.user_id = u.id
+               AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp()
+          ))
+       RETURNING id::text`,
       [challengeId, userId, factorId, sessionId, input.purpose, digest,
        input.rpId, input.expectedOrigin, expiresAt, correlationId],
     );
+    if (inserted.rows.length !== 1) throw new Error("PLATFORM_WEBAUTHN_IDENTITY_SCOPE_INVALID");
     return { challengeId, challenge };
   }
 
@@ -101,6 +120,8 @@ export class PostgresPlatformWebAuthnChallengeRepository {
     if (typeof input.challenge !== "string") return false;
     const raw = Buffer.from(input.challenge, "base64url");
     if (raw.length !== 32 || raw.toString("base64url") !== input.challenge) return false;
+    if ((input.purpose === "REAUTHENTICATE" || input.purpose === "RECOVERY_APPROVAL") &&
+      sessionId === null) return false;
     const digest = createHash("sha256").update(input.challenge, "utf8").digest("hex");
     const client = await this.pool.connect();
     try {
