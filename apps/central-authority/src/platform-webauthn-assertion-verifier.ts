@@ -3,7 +3,8 @@ import {
   type AuthenticationResponseJSON,
   type WebAuthnCredential,
 } from "@simplewebauthn/server";
-import { isPlatformWebAuthnCredentialReference } from "@pos-platform/contracts";
+import { isPlatformWebAuthnCredentialReference, type PlatformWebAuthnCredentialMaterialV1 } from "@pos-platform/contracts";
+export type { PlatformWebAuthnCredentialMaterialV1 } from "@pos-platform/contracts";
 import type {
   LockedPlatformWebAuthnChallenge,
   VerifiedPlatformWebAuthnFactorReference,
@@ -16,13 +17,6 @@ import type {
  * This is a proposed v1 material contract, not yet a deployed secret manager.
  * Its counter must be updated by a trusted compare-and-swap before granting MFA.
  */
-export interface PlatformWebAuthnCredentialMaterialV1 {
-  readonly schemaVersion: 1;
-  readonly secretReference: string;
-  readonly credentialId: string;
-  readonly publicKeyCoseBase64url: string;
-  readonly counter: number;
-}
 
 export interface PlatformWebAuthnExpectedRp {
   readonly rpId: string;
