@@ -10,7 +10,9 @@ describe("platform PASSWORD verifier preparation (no production policy selected)
     const password = "D3-verifier-fixture-only-contraseña";
     const first = await createPlatformPasswordVerifier(password, "owasp-19m-t2-p1");
     const second = await createPlatformPasswordVerifier(password, "owasp-19m-t2-p1");
-    expect(first).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
+    expect(first).toMatch(/^\$argon2id\$v=19\$/);
+    expect(Object.fromEntries(first.split("$")[3]!.split(",").map(p => p.split("="))))
+      .toEqual({ m: "19456", t: "2", p: "1" });
     expect(first).not.toBe(second);
     expect(isSupportedPlatformPasswordVerifier(first)).toBe(true);
     expect(await verifyPlatformPasswordVerifier(password, first)).toBe(true);
@@ -19,7 +21,9 @@ describe("platform PASSWORD verifier preparation (no production policy selected)
 
   it("accepts an explicitly selected measured 64 MiB candidate", async () => {
     const verifier = await createPlatformPasswordVerifier("D3-strong-fixture", "candidate-64m-t3-p1");
-    expect(verifier).toMatch(/^\$argon2id\$v=19\$m=65536,t=3,p=1\$/);
+    expect(verifier).toMatch(/^\$argon2id\$v=19\$/);
+    expect(Object.fromEntries(verifier.split("$")[3]!.split(",").map(p => p.split("="))))
+      .toEqual({ m: "65536", t: "3", p: "1" });
     expect(await verifyPlatformPasswordVerifier("D3-strong-fixture", verifier)).toBe(true);
   });
 
@@ -34,6 +38,16 @@ describe("platform PASSWORD verifier preparation (no production policy selected)
       expect(isSupportedPlatformPasswordVerifier(unsupported)).toBe(false);
       expect(await verifyPlatformPasswordVerifier("test", unsupported)).toBe(false);
     }
+  });
+
+  it("accepts either PHC parameter ordering but rejects duplicates and unbounded costs", () => {
+    const suffix = "MTIzNDU2Nzg5MGFiY2RlZg$" + "Y".repeat(43);
+    const base = "$argon2id$v=19$";
+    expect(isSupportedPlatformPasswordVerifier(base + "m=19456,p=1,t=2$" + suffix)).toBe(true);
+    expect(isSupportedPlatformPasswordVerifier(base + "t=2,m=19456,p=1$" + suffix)).toBe(true);
+    expect(isSupportedPlatformPasswordVerifier(base + "m=19456,m=19456,p=1$" + suffix)).toBe(false);
+    expect(isSupportedPlatformPasswordVerifier(base + "m=1048576,p=1,t=2$" + suffix)).toBe(false);
+    expect(isSupportedPlatformPasswordVerifier(base + "m=19456,p=1,t=2,q=1$" + suffix)).toBe(false);
   });
 
   it("refuses to select a profile implicitly or accept an empty password", async () => {
