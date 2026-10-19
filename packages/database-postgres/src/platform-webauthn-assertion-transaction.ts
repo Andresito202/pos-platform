@@ -50,6 +50,7 @@ export class PostgresPlatformWebAuthnAssertionTransaction {
     const raw = Buffer.from(input.challenge, "base64url");
     if (raw.length !== 32 || raw.toString("base64url") !== input.challenge) return false;
     const digest = createHash("sha256").update(input.challenge, "utf8").digest("hex");
+    const materialRepository = new PostgresPlatformWebAuthnMaterialRepository(this.pool);
     const client = await this.pool.connect();
     let begun = false;
     try {
@@ -80,8 +81,7 @@ export class PostgresPlatformWebAuthnAssertionTransaction {
         await client.query("ROLLBACK"); begun = false;
         return false;
       }
-      const material = await new PostgresPlatformWebAuthnMaterialRepository(this.pool)
-        .findVerifiedMaterial(userId, factorId, client);
+      const material = await materialRepository.findVerifiedMaterial(userId, factorId, client);
       if (!material) {
         await client.query("ROLLBACK"); begun = false;
         return false;
@@ -100,8 +100,7 @@ export class PostgresPlatformWebAuthnAssertionTransaction {
         await client.query("ROLLBACK"); begun = false;
         return false;
       }
-      const advanced = await new PostgresPlatformWebAuthnMaterialRepository(this.pool)
-        .advanceCounterCas(client, {
+      const advanced = await materialRepository.advanceCounterCas(client, {
           userId, factorId, materialId: material.materialId,
           expectedCounter: material.counter, expectedVersion: material.version,
           newCounter: result.newCounter, backedUp: result.credentialBackedUp,
