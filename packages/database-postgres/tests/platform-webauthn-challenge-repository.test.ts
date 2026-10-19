@@ -11,7 +11,7 @@ const CHALLENGE = Buffer.alloc(32, 7).toString("base64url");
 const DIGEST = createHash("sha256").update(CHALLENGE, "utf8").digest("hex");
 const EXPIRES = () => new Date(Date.now() + 120000).toISOString();
 
-function fixture(mode: "normal" | "absent" | "update-failure" = "normal") {
+function fixture(mode: "normal" | "absent" | "update-failure" | "issue-denied" = "normal") {
   const sql: string[] = [];
   const query = vi.fn(async (statement: string, values?: unknown[]) => {
     sql.push(statement);
@@ -29,7 +29,7 @@ function fixture(mode: "normal" | "absent" | "update-failure" = "normal") {
       expect(values).toEqual([CHALLENGE_ID]);
       return { rows: [{ id: CHALLENGE_ID }] };
     }
-    if (statement.includes("INSERT INTO identity.webauthn_challenges")) return { rows: [{ id: values?.[0] }] };
+    if (statement.includes("INSERT INTO identity.webauthn_challenges")) return { rows: mode === "issue-denied" ? [] : [{ id: values?.[0] }] };
     throw new Error("unexpected SQL");
   });
   const release = vi.fn();
@@ -59,6 +59,16 @@ describe("durable WebAuthn challenge persistence (not identity authentication)",
     expect(inserted?.[0]).toContain("f.user_id = u.id");
     expect(inserted?.[0]).toContain("s.user_id = u.id");
     expect(t.connect).not.toHaveBeenCalled();
+  });
+
+  it("refuses issuance when PostgreSQL cannot bind the identity, factor or session", async () => {
+    const t = fixture("issue-denied");
+    await expect(t.repository.issue({
+      userId: USER, factorId: null, sessionId: SESSION,
+      purpose: "REAUTHENTICATE", rpId: "pos.example.test",
+      expectedOrigin: "https://pos.example.test",
+      expiresAt: EXPIRES(), correlationId: CORRELATION,
+    })).rejects.toThrow("PLATFORM_WEBAUTHN_IDENTITY_SCOPE_INVALID");
   });
 
   it("locks a bound live challenge, verifies server-stored RP and origin, consumes once", async () => {
