@@ -212,13 +212,16 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
 
     const { requestId, digest } = await createRequest(userId);
     expect(await repository.verifyRequestToken({ requestId, tokenHash: digest })).toBe(true);
+    const phcFixture = "$argon2id$v=19$m=19456,t=2,p=1$MTIzNDU2Nzg5MGFiY2RlZg$" + "Y".repeat(43);
+    await expect(repository.completeAssistedRecovery({
+      requestId, tokenHash: digest, newVerifier: phcFixture,
+    })).rejects.toThrow("PLATFORM_RECOVERY_COMPLETION_NOT_AUTHORIZED");
     // Isolated test-only fixture: the real reinforced identity proof workflow
     // does not exist yet, so the production API must remain unavailable.
     await owner!.query(
       "UPDATE identity.password_recovery_requests SET support_verified = true WHERE id = $1",
       [requestId],
     );
-    const phcFixture = "$argon2id$v=19$m=19456,t=2,p=1$MTIzNDU2Nzg5MGFiY2RlZg$" + "Y".repeat(43);
     const completion = await repository.completeAssistedRecovery({
       requestId, tokenHash: digest, newVerifier: phcFixture,
     });
