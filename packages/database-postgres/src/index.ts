@@ -7,3 +7,4 @@ export * from "./platform-administration-session-repository.js";
 export { PlatformSecurityEventCode } from "@pos-platform/contracts";
 
 export * from "./platform-webauthn-challenge-repository.js";
+export * from "./platform-webauthn-factor-reference-repository.js";
