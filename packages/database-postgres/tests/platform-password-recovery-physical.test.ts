@@ -421,6 +421,9 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       await client.query("ROLLBACK");
       await client.query("RESET ROLE");
     } finally {
+      // An assertion/SQL failure must not leak SET ROLE into the pooled connection.
+      await client.query("ROLLBACK").catch(() => undefined);
+      await client.query("RESET ROLE").catch(() => undefined);
       client.release();
     }
     const rows = await owner!.query(
