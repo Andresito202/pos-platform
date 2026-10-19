@@ -55,3 +55,5 @@ export { applyPostgres007 } from "./postgres-007-runner.js";
 export type { Postgres007RunnerConfig, Postgres007ApplyResult } from "./postgres-007-runner.js";
 
 export { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
+
+export { POSTGRES_009_DESCRIPTOR, WEBAUTHN_009_COLUMNS, WEBAUTHN_009_TABLES } from "./postgres-009-webauthn-contract.js";
