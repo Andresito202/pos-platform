@@ -36,12 +36,15 @@ export interface VerifiedPlatformWebAuthnAssertion {
   readonly credentialBackedUp: boolean;
 }
 
-function decodeCanonicalBase64url(value: string, minLength: number, maxLength: number): Uint8Array | null {
+function decodeCanonicalBase64url(value: string, minLength: number, maxLength: number): Uint8Array<ArrayBuffer> | null {
   if (!/^[a-zA-Z0-9_-]+$/.test(value) || value.length > maxLength * 2) return null;
   const decoded = Buffer.from(value, "base64url");
   if (decoded.length < minLength || decoded.length > maxLength
     || decoded.toString("base64url") !== value) return null;
-  return new Uint8Array(decoded);
+  // WebAuthnCredential expects an ArrayBuffer-backed Uint8Array, not Buffer<ArrayBufferLike>.
+  const bytes = new Uint8Array(new ArrayBuffer(decoded.byteLength));
+  bytes.set(decoded);
+  return bytes;
 }
 
 /**
