@@ -39,10 +39,10 @@ function counterValid(value: number): boolean {
 export class PostgresPlatformWebAuthnMaterialRepository {
   constructor(private readonly pool: Pool) {}
 
-  async findVerifiedMaterial(userId: string, factorId: string): Promise<VerifiedPlatformWebAuthnMaterial | null> {
+  async findVerifiedMaterial(userId: string, factorId: string, transaction?: PoolClient): Promise<VerifiedPlatformWebAuthnMaterial | null> {
     const validUserId = UuidSchema.parse(userId);
     const validFactorId = UuidSchema.parse(factorId);
-    const result = await this.pool.query<{
+    const result = await (transaction ?? this.pool).query<{
       material_id: string; user_id: string; factor_id: string;
       secret_reference: string; credential_id: string; public_key_cose_base64url: string;
       counter: string; version: string; backup_eligible: boolean; backed_up: boolean;
@@ -56,7 +56,7 @@ export class PostgresPlatformWebAuthnMaterialRepository {
         WHERE f.id = $1 AND f.user_id = $2 AND f.factor_type = 'WEBAUTHN'
           AND f.status = 'ACTIVE' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
           AND f.secret_reference = 'webauthn:v1:' || m.id::text
-        LIMIT 1`,
+        LIMIT 1${transaction ? " FOR UPDATE OF m" : ""}`,
       [validFactorId, validUserId],
     );
     const row = result.rows[0];
