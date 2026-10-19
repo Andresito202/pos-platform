@@ -54,7 +54,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
   beforeAll(async () => {
     admin = new Pool({ connectionString: SERVER_URL!, max: 2 });
     // Missing roles are a preflight failure, not permission to change the cluster.
-    const required = ["pos_schema_owner", "pos_platform_app", "pos_app", "pos_worker", "pos_platform_admin"];
+    const required = ["pos_schema_owner", "pos_migrator", "pos_platform_app", "pos_app", "pos_worker", "pos_platform_admin"];
     const found = await admin.query<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[])", [required]);
     for (const name of required) {
       if (!found.rows.some((row) => row.rolname === name)) throw new Error(`RECOVERY_PHYSICAL_ROLE_MISSING_${name}`);
@@ -148,7 +148,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       "SELECT event_code, reason_code FROM identity.security_events WHERE user_id=$1 AND event_code='PLATFORM_RECOVERY_REJECTED'",
       [userId],
     );
-    expect(audit.rows).toEqual([{ event_code: "PLATFORM_RECOVERY_REJECTED", reason_code: "ATTEMPT_LIMIT_REACHED" === "TOKEN_INVALID" ? "ATTEMPT_LIMIT_REACHED" : "TOKEN_INVALID" }]);
+    expect(audit.rows).toEqual([{ event_code: "PLATFORM_RECOVERY_REJECTED", reason_code: "TOKEN_INVALID" }]);
   });
 
   it("rolls back request creation when the actual security ledger denies INSERT", async () => {
