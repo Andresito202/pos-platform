@@ -1,10 +1,10 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresPlatformPasswordRecoveryRepository, uuidV7 } from "../src/index.js";
+import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, uuidV7 } from "../src/index.js";
 
 /**
  * Opt-in physical verification. POSTGRES_TEST_URL must point to an isolated
@@ -28,6 +28,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
   let runtime: Pool | undefined;
   let createdDatabase = false;
   let repository: PostgresPlatformPasswordRecoveryRepository;
+  let webauthn: PostgresPlatformWebAuthnChallengeRepository;
 
   async function createUser(): Promise<string> {
     const id = uuidV7();
@@ -71,6 +72,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       await ddl.query(await readFile(join(SQL_DIR, "007_password_recovery.up.sql"), "utf8"));
       // Existing platform-role schema (008) is needed by the new R5 approval gate.
       await ddl.query(await readFile(join(SQL_DIR, "008_platform_role_assignments.up.sql"), "utf8"));
+      await ddl.query(await readFile(join(SQL_DIR, "009_webauthn_challenges.up.sql"), "utf8"));
     } finally {
       // SET ROLE is session-scoped: reset it before returning this connection
       // to the inspector pool, or FORCE RLS will silently hide persisted rows.
@@ -100,6 +102,16 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     // Connect as the server's privileged test fixture, then SET ROLE to the
     // actual non-BYPASSRLS application role on every borrowed connection.
     const scopedPool = {
+      query: async (statement: string, params?: unknown[]) => {
+        const client = await runtime!.connect();
+        try {
+          await client.query("SET ROLE pos_platform_app");
+          return await client.query(statement, params);
+        } finally {
+          await client.query("RESET ROLE").catch(() => undefined);
+          client.release();
+        }
+      },
       connect: async (): Promise<PoolClient> => {
         const client = await runtime!.connect();
         try {
@@ -112,6 +124,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       },
     } as unknown as Pool;
     repository = new PostgresPlatformPasswordRecoveryRepository(scopedPool);
+    webauthn = new PostgresPlatformWebAuthnChallengeRepository(scopedPool);
   }, 120_000);
 
   afterAll(async () => {
@@ -306,5 +319,64 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
        WHERE user_id = $1`, [approverUserId],
     );
     expect(grants.rows).toEqual([{ total: 0 }]);
+  });
+
+  it("physically consumes WebAuthn challenge once under concurrent attempts", async () => {
+    const userId = await createUser();
+    const issued = await webauthn.issue({
+      userId, factorId: null, sessionId: null,
+      purpose: "AUTHENTICATE",
+      rpId: "pos.example.test", expectedOrigin: "https://pos.example.test",
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      correlationId: uuidV7(),
+    });
+    const consume = () => webauthn.consumeAfterVerifiedProof({
+      userId, purpose: "AUTHENTICATE", sessionId: null, challenge: issued.challenge,
+    }, async challenge => {
+      expect(challenge.rpId).toBe("pos.example.test");
+      expect(challenge.expectedOrigin).toBe("https://pos.example.test");
+      // A test-only success callback, NOT real WebAuthn cryptographic evidence.
+      return true;
+    });
+    const outcomes = await Promise.all([consume(), consume()]);
+    expect(outcomes.sort()).toEqual([false, true]);
+    const stored = await owner!.query(
+      `SELECT consumed_at IS NOT NULL AS consumed, version,
+              challenge_hash
+         FROM identity.webauthn_challenges WHERE id = $1`, [issued.challengeId],
+    );
+    expect(stored.rows).toEqual([{
+      consumed: true, version: "2",
+      challenge_hash: createHash("sha256").update(issued.challenge).digest("hex"),
+    }]);
+    await expect(owner!.query(
+      "UPDATE identity.webauthn_challenges SET consumed_at = NULL WHERE id = $1",
+      [issued.challengeId],
+    )).rejects.toThrow();
+  });
+
+  it("physically rejects expired WebAuthn challenges without invoking proof validation", async () => {
+    const userId = await createUser();
+    const challenge = randomBytes(32).toString("base64url");
+    const digest = createHash("sha256").update(challenge).digest("hex");
+    const id = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.webauthn_challenges
+         (id, user_id, purpose, challenge_hash, rp_id, expected_origin,
+          issued_at, expires_at, correlation_id)
+       VALUES ($1, $2, 'AUTHENTICATE', $3, 'pos.example.test', 'https://pos.example.test',
+               clock_timestamp() - interval '5 minutes',
+               clock_timestamp() - interval '3 minutes', $4)`,
+      [id, userId, digest, uuidV7()],
+    );
+    let invoked = false;
+    expect(await webauthn.consumeAfterVerifiedProof({
+      userId, purpose: "AUTHENTICATE", sessionId: null, challenge,
+    }, async () => { invoked = true; return true; })).toBe(false);
+    expect(invoked).toBe(false);
+    const status = await owner!.query(
+      "SELECT consumed_at FROM identity.webauthn_challenges WHERE id=$1", [id],
+    );
+    expect(status.rows).toEqual([{ consumed_at: null }]);
   });
 });
