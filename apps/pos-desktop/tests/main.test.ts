@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { OperationConfirmRequestSchema, RuntimeStatusRequestSchema } from "@pos-platform/contracts";
 import { IPC_ALLOWED_CHANNELS } from "../src/ipc-allowlist.js";
 import { WINDOW_SECURITY_CONFIG } from "../src/window-security.js";
 import type { ServiceChannel } from "../src/channel-bridge.js";
@@ -87,7 +88,17 @@ describe("main bootstrap IPC registration", () => {
     const service = makeServiceChannel();
     await bootstrapWith(service);
     const handler = handlers.get("pos:operation.confirm");
-    const payload = { operation_id: "op-99" };
+    const payload = {
+      protocol_version: "1.0.0",
+      message_type: "operation.confirm",
+      request_id: "00000000-0000-4000-8000-000000000091",
+      correlation_id: "00000000-0000-4000-8000-000000000092",
+      payload_schema_version: "1.0.0",
+      operation_id: "00000000-0000-4000-8000-000000000099",
+      idempotency_key: "main-test-operation",
+      payload: { operation_type: "DIAGNOSTIC", payload: { source: "main-test" } },
+    };
+    expect(OperationConfirmRequestSchema.safeParse(payload).success).toBe(true);
     await handler?.({}, payload);
     expect(service.request).toHaveBeenCalledWith(payload);
   });
@@ -97,7 +108,16 @@ describe("main bootstrap IPC registration", () => {
     service.request.mockRejectedValue(new Error("servicio local caido"));
     await bootstrapWith(service);
     const handler = handlers.get("pos:runtime.status.get");
-    await expect(handler?.({}, {})).rejects.toThrow("servicio local caido");
+    const payload = {
+      protocol_version: "1.0.0",
+      message_type: "runtime.status.get",
+      request_id: "00000000-0000-4000-8000-0000000000a1",
+      correlation_id: "00000000-0000-4000-8000-0000000000a2",
+      payload_schema_version: "1.0.0",
+      payload: {},
+    };
+    expect(RuntimeStatusRequestSchema.safeParse(payload).success).toBe(true);
+    await expect(handler?.({}, payload)).rejects.toThrow("servicio local caido");
   });
 });
 
