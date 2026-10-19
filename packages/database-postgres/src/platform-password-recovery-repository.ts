@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Pool } from "pg";
 import { Sha256HexSchema, UtcDateTimeSchema, UuidSchema, UuidV7Schema, uuidV7 } from "@pos-platform/contracts";
-import { PlatformSecurityEventCode } from "@pos-platform/contracts";
+import { PlatformSecurityEventCode, isSupportedPlatformPasswordVerifier } from "@pos-platform/contracts";
 import { PostgresPlatformSecurityEventRepository } from "./platform-security-event-repository.js";
 
 /**
@@ -189,16 +189,7 @@ export class PostgresPlatformPasswordRecoveryRepository {
   async completeAssistedRecovery(input: CompleteAssistedPlatformRecovery): Promise<{ credentialId: string }> {
     const requestId = UuidV7Schema.parse(input.requestId);
     const tokenHash = Sha256HexSchema.parse(input.tokenHash);
-    const phc = typeof input.newVerifier === "string" && input.newVerifier.length <= 256
-      ? /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/.exec(input.newVerifier)
-      : null;
-    const policyAccepted = phc !== null && (
-      (phc[1] === "19456" && phc[2] === "2" && phc[3] === "1") ||
-      (phc[1] === "65536" && phc[2] === "3" && phc[3] === "1")
-    );
-    if (!policyAccepted || !phc?.[4] || !phc[5] ||
-      Buffer.from(phc[4], "base64").length < 16 ||
-      Buffer.from(phc[5], "base64").length !== 32) {
+    if (!isSupportedPlatformPasswordVerifier(input.newVerifier)) {
       throw new Error("PLATFORM_RECOVERY_VERIFIER_FORMAT_INVALID");
     }
     const credentialId = uuidV7();
