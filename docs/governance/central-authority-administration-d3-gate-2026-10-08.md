@@ -873,3 +873,41 @@ Se requiere CAS del contador con disciplina transaccional respecto al consumo
 de challenge, revocación y auditoría, así como mover la biblioteca WebAuthn
 a \`dependencies\` mediante pnpm y actualizar lockfile con evidencia.
 **No hay permiso para publicar endpoints ni marcar MFA satisfecho todavía.**
+
+### D3-R5.2c — material público durable WebAuthn, preparado sin habilitar autenticación
+
+**Incremento adicional materializado, aún sin validación local:** migración
+`010_webauthn_credential_material`, dependiente de 009, con relación
+`identity.webauthn_credential_material.factor_id` única y FK a la tabla
+canónica `identity.mfa_factors`. La tabla no reproduce nombre, estado ni
+autoridad del factor: guarda solamente ID de credencial WebAuthn, clave
+**pública** COSE, contador uint32, metadatos de respaldo y versión, con
+RLS forzada y acceso restringido a Central Authority. Un trigger impide
+reemplazar identidad, credential ID o clave y hacer retroceder el contador.
+El material queda retenido si un rollback eliminaría evidencia.
+
+`identity.mfa_factors.secret_reference` sigue usando el formato opaco
+`webauthn:v1:<UUIDv7>` con el UUID de esa fila de material. La resolución
+requiere usuario y factor canónicos activos, `factor_type=WEBAUTHN`,
+`verified_at` no nulo y referencia que coincida exactamente con el ID
+persistido. `PostgresPlatformWebAuthnMaterialRepository.advanceCounterCas`
+exige una transacción aportada por el llamador y una comparación exacta
+de factor, usuario, contador y versión; un contador positivo debe avanzar
+estrictamente, mientras que un autenticador sin contador puede actualizar
+de cero a cero incrementando la versión para evitar aceptación concurrente.
+
+**Queda por comprobar:** typecheck de contratos, database-postgres,
+target-migrations y central-authority; cinco unitarias nuevas,
+cuatro pruebas estructurales SQL/descriptor y dos físicas opt-in de CAS
+y aislamiento entre usuarios. Estas pruebas solo comprueban persistencia
+y control concurrente, no prueba criptográfica integral, enrollment ni
+autenticador real. La migración 010 no tiene despliegue/runner productivo
+aprobado y no ha sido ejecutada fuera de su fixture de prueba.
+
+**No activar MFA ni recuperación aún:** hace falta servicio de enrollment
+que escriba la fila únicamente tras validar `verifyRegistrationResponse`,
+una sola transacción que coordine actualización CAS de contador, consumo
+del desafío 009 y evento `identity.security_events`, además de emisión
+autenticada de sesiones y protección de rutas. La biblioteca
+`@simplewebauthn/server` aún pertenece a devDependencies y debe
+promoverse a runtime con pnpm/lockfile antes de habilitarla.
