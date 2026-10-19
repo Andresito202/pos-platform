@@ -27,49 +27,9 @@ describe("PostgreSQL 010 public credential material (no duplicate MFA registry)"
 
   it("uses PostgreSQL-safe length checks rather than unsupported large regex repetitions", async () => {
     const sql = await readArtifact(POSTGRES_010_DESCRIPTOR.upArtifact);
-    expect(sql).toContain("credential_id ~ '^[A-Za-z0-9_-]+
-    const sql = await readArtifact(POSTGRES_010_DESCRIPTOR.upArtifact);
-    expect(sql).toContain("FORCE ROW LEVEL SECURITY");
-    expect(sql).toContain("CREATE POLICY webauthn_material_platform_only");
-    expect(sql).toContain("CREATE POLICY webauthn_material_owner_inspect");
-    expect(sql).toContain("NEW.counter < OLD.counter");
-    expect(sql).toContain("NEW.version <> OLD.version + 1");
-    expect(sql).toContain("CREATE TRIGGER webauthn_credential_material_guard");
-    expect(sql).toContain("GRANT UPDATE (counter, backed_up, last_used_at, version)");
-    expect(sql).toContain("REVOKE ALL ON identity.webauthn_credential_material FROM PUBLIC, pos_app, pos_worker, pos_platform_admin");
-    expect(sql).not.toContain("GRANT UPDATE ON identity.webauthn_credential_material");
-  });
-
-  it("rejects any rollback that would erase public key or counter evidence", async () => {
-    const down = await readArtifact(POSTGRES_010_DESCRIPTOR.downArtifact);
-    expect(down).toContain("IF EXISTS (SELECT 1 FROM identity.webauthn_credential_material LIMIT 1)");
-    expect(down).toContain("RAISE EXCEPTION");
-    expect(down).toContain("DROP TABLE identity.webauthn_credential_material");
-  });
-});
-");
+    expect(sql).toContain("credential_id ~ '^[A-Za-z0-9_-]+$'");
     expect(sql).toContain("char_length(credential_id) BETWEEN 22 AND 1366");
-    expect(sql).toContain("public_key_cose_base64url ~ '^[A-Za-z0-9_-]+
-    const sql = await readArtifact(POSTGRES_010_DESCRIPTOR.upArtifact);
-    expect(sql).toContain("FORCE ROW LEVEL SECURITY");
-    expect(sql).toContain("CREATE POLICY webauthn_material_platform_only");
-    expect(sql).toContain("CREATE POLICY webauthn_material_owner_inspect");
-    expect(sql).toContain("NEW.counter < OLD.counter");
-    expect(sql).toContain("NEW.version <> OLD.version + 1");
-    expect(sql).toContain("CREATE TRIGGER webauthn_credential_material_guard");
-    expect(sql).toContain("GRANT UPDATE (counter, backed_up, last_used_at, version)");
-    expect(sql).toContain("REVOKE ALL ON identity.webauthn_credential_material FROM PUBLIC, pos_app, pos_worker, pos_platform_admin");
-    expect(sql).not.toContain("GRANT UPDATE ON identity.webauthn_credential_material");
-  });
-
-  it("rejects any rollback that would erase public key or counter evidence", async () => {
-    const down = await readArtifact(POSTGRES_010_DESCRIPTOR.downArtifact);
-    expect(down).toContain("IF EXISTS (SELECT 1 FROM identity.webauthn_credential_material LIMIT 1)");
-    expect(down).toContain("RAISE EXCEPTION");
-    expect(down).toContain("DROP TABLE identity.webauthn_credential_material");
-  });
-});
-");
+    expect(sql).toContain("public_key_cose_base64url ~ '^[A-Za-z0-9_-]+$'");
     expect(sql).toContain("char_length(public_key_cose_base64url) BETWEEN 43 AND 2731");
     expect(sql).not.toMatch(/\{\d+,\d+\}/);
   });
