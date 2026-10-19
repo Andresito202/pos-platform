@@ -69,6 +69,8 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       await ddl.query("SET ROLE pos_schema_owner");
       await ddl.query(await readFile(join(SQL_DIR, "001_central_foundation.up.sql"), "utf8"));
       await ddl.query(await readFile(join(SQL_DIR, "007_password_recovery.up.sql"), "utf8"));
+      // Existing platform-role schema (008) is needed by the new R5 approval gate.
+      await ddl.query(await readFile(join(SQL_DIR, "008_platform_role_assignments.up.sql"), "utf8"));
     } finally {
       // SET ROLE is session-scoped: reset it before returning this connection
       // to the inspector pool, or FORCE RLS will silently hide persisted rows.
@@ -258,5 +260,51 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     await expect(repository.completeAssistedRecovery({
       requestId, tokenHash: digest, newVerifier: phcFixture,
     })).rejects.toThrow("PLATFORM_RECOVERY_COMPLETION_NOT_AUTHORIZED");
+  });
+
+  it("physically denies recovery approval without an explicit platform role or permission", async () => {
+    const subjectUserId = await createUser();
+    const approverUserId = await createUser();
+    const approverSessionId = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'SATISFIED', clock_timestamp(), 1)`,
+      [approverSessionId, approverUserId],
+    );
+    // Test-only MFA fixture: no WebAuthn challenge or real authenticator is
+    // asserted here. This deliberately isolates the platform-grant rejection.
+    await owner!.query(
+      `INSERT INTO identity.mfa_factors
+         (id, user_id, factor_type, secret_reference, status, enrolled_at, verified_at, version)
+       VALUES ($1, $2, 'WEBAUTHN_TEST_FIXTURE', NULL, 'ACTIVE',
+               clock_timestamp(), clock_timestamp(), 1)`,
+      [uuidV7(), approverUserId],
+    );
+    const { requestId, digest } = await createRequest(subjectUserId);
+    expect(await repository.verifyRequestToken({ requestId, tokenHash: digest })).toBe(true);
+
+    await expect(repository.approveAssistedRecovery({
+      requestId, approverSessionId, maxReauthenticationAgeMs: 300000,
+    })).rejects.toThrow("PLATFORM_RECOVERY_APPROVER_NOT_AUTHORIZED");
+
+    const request = await owner!.query(
+      "SELECT status, support_verified FROM identity.password_recovery_requests WHERE id = $1",
+      [requestId],
+    );
+    expect(request.rows).toEqual([{ status: "VERIFIED", support_verified: false }]);
+    const event = await owner!.query(
+      `SELECT count(*)::int AS total FROM identity.security_events
+        WHERE user_id = $1 AND event_code = 'PLATFORM_RECOVERY_APPROVED'`,
+      [subjectUserId],
+    );
+    expect(event.rows).toEqual([{ total: 0 }]);
+    const grants = await owner!.query(
+      `SELECT count(*)::int AS total FROM "authorization".platform_role_assignments
+       WHERE user_id = $1`, [approverUserId],
+    );
+    expect(grants.rows).toEqual([{ total: 0 }]);
   });
 });
