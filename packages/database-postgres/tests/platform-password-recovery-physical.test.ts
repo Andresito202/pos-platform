@@ -186,4 +186,74 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       await owner!.query("GRANT INSERT ON identity.security_events TO pos_platform_app");
     }
   });
+
+  it("physically completes approved assisted recovery and revokes identity sessions atomically", async () => {
+    const userId = await createUser();
+    const oldCredentialId = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.user_credentials
+       (id, user_id, credential_type, verifier, status, created_at, version)
+       VALUES ($1, $2, 'PASSWORD', 'legacy-verifier-test-only', 'ACTIVE', clock_timestamp(), 1)`,
+      [oldCredentialId, userId],
+    );
+    const sessionId = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.sessions
+       (id, user_id, authenticated_at, expires_at, mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               'PENDING', clock_timestamp(), 1)`, [sessionId, userId],
+    );
+    await owner!.query(
+      `INSERT INTO identity.session_refresh_tokens
+       (id, session_id, token_family_id, token_hash, issued_at, expires_at)
+       VALUES ($1, $2, $3, $4, clock_timestamp(), clock_timestamp() + interval '1 hour')`,
+      [uuidV7(), sessionId, uuidV7(), randomBytes(32).toString("hex")],
+    );
+
+    const { requestId, digest } = await createRequest(userId);
+    expect(await repository.verifyRequestToken({ requestId, tokenHash: digest })).toBe(true);
+    // Isolated test-only fixture: the real reinforced identity proof workflow
+    // does not exist yet, so the production API must remain unavailable.
+    await owner!.query(
+      "UPDATE identity.password_recovery_requests SET support_verified = true WHERE id = $1",
+      [requestId],
+    );
+    const phcFixture = "$argon2id$v=19$m=19456,t=2,p=1$MTIzNDU2Nzg5MGFiY2RlZg$" + "Y".repeat(43);
+    const completion = await repository.completeAssistedRecovery({
+      requestId, tokenHash: digest, newVerifier: phcFixture,
+    });
+    expect(completion.credentialId).toMatch(/^[a-f0-9-]{36}$/);
+
+    const credentials = await owner!.query(
+      "SELECT id::text, status FROM identity.user_credentials WHERE user_id = $1 ORDER BY status",
+      [userId],
+    );
+    expect(credentials.rows).toEqual([
+      { id: completion.credentialId, status: "ACTIVE" },
+      { id: oldCredentialId, status: "RETIRED" },
+    ]);
+    const request = await owner!.query(
+      "SELECT status, consumed_at IS NOT NULL AS consumed FROM identity.password_recovery_requests WHERE id=$1",
+      [requestId],
+    );
+    expect(request.rows).toEqual([{ status: "CONSUMED", consumed: true }]);
+    const sessions = await owner!.query(
+      "SELECT revoked_at IS NOT NULL AS revoked, revocation_reason FROM identity.sessions WHERE id=$1",
+      [sessionId],
+    );
+    expect(sessions.rows).toEqual([{ revoked: true, revocation_reason: "PASSWORD_RECOVERY" }]);
+    const refresh = await owner!.query(
+      "SELECT revoked_at IS NOT NULL AS revoked, revocation_reason FROM identity.session_refresh_tokens WHERE session_id=$1",
+      [sessionId],
+    );
+    expect(refresh.rows).toEqual([{ revoked: true, revocation_reason: "PASSWORD_RECOVERY" }]);
+    const events = await owner!.query(
+      "SELECT event_code FROM identity.security_events WHERE user_id=$1 AND event_code='PLATFORM_RECOVERY_COMPLETED'",
+      [userId],
+    );
+    expect(events.rows).toEqual([{ event_code: "PLATFORM_RECOVERY_COMPLETED" }]);
+    await expect(repository.completeAssistedRecovery({
+      requestId, tokenHash: digest, newVerifier: phcFixture,
+    })).rejects.toThrow("PLATFORM_RECOVERY_COMPLETION_NOT_AUTHORIZED");
+  });
 });
