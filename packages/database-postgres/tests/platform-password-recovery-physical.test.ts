@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, uuidV7 } from "../src/index.js";
+import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, PostgresPlatformWebAuthnMaterialRepository, uuidV7 } from "../src/index.js";
 
 /**
  * Opt-in physical verification. POSTGRES_TEST_URL must point to an isolated
@@ -29,6 +29,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
   let createdDatabase = false;
   let repository: PostgresPlatformPasswordRecoveryRepository;
   let webauthn: PostgresPlatformWebAuthnChallengeRepository;
+  let materialStore: PostgresPlatformWebAuthnMaterialRepository;
 
   async function createUser(): Promise<string> {
     const id = uuidV7();
@@ -73,6 +74,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       // Existing platform-role schema (008) is needed by the new R5 approval gate.
       await ddl.query(await readFile(join(SQL_DIR, "008_platform_role_assignments.up.sql"), "utf8"));
       await ddl.query(await readFile(join(SQL_DIR, "009_webauthn_challenges.up.sql"), "utf8"));
+      await ddl.query(await readFile(join(SQL_DIR, "010_webauthn_credential_material.up.sql"), "utf8"));
     } finally {
       // SET ROLE is session-scoped: reset it before returning this connection
       // to the inspector pool, or FORCE RLS will silently hide persisted rows.
@@ -125,6 +127,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     } as unknown as Pool;
     repository = new PostgresPlatformPasswordRecoveryRepository(scopedPool);
     webauthn = new PostgresPlatformWebAuthnChallengeRepository(scopedPool);
+    materialStore = new PostgresPlatformWebAuthnMaterialRepository(scopedPool);
   }, 120_000);
 
   afterAll(async () => {
@@ -378,5 +381,81 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       "SELECT consumed_at FROM identity.webauthn_challenges WHERE id=$1", [id],
     );
     expect(status.rows).toEqual([{ consumed_at: null }]);
+  });
+
+  it("physically advances WebAuthn material counter once and rejects stale CAS and key mutation", async () => {
+    const userId = await createUser();
+    const factorId = uuidV7();
+    const materialId = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.mfa_factors
+         (id, user_id, factor_type, secret_reference, status, enrolled_at, verified_at, version)
+       VALUES ($1, $2, 'WEBAUTHN', $3, 'ACTIVE', clock_timestamp(), clock_timestamp(), 1)`,
+      [factorId, userId, "webauthn:v1:" + materialId],
+    );
+    const id = randomBytes(32).toString("base64url");
+    const publicKeyFixture = randomBytes(65).toString("base64url");
+    await owner!.query(
+      `INSERT INTO identity.webauthn_credential_material
+         (id, factor_id, credential_id, public_key_cose_base64url,
+          counter, backup_eligible, backed_up, version)
+       VALUES ($1, $2, $3, $4, 0, false, false, 1)`,
+      [materialId, factorId, id, publicKeyFixture],
+    );
+    const found = await materialStore.findVerifiedMaterial(userId, factorId);
+    expect(found).toMatchObject({
+      materialId, factorId, userId, credentialId: id, counter: 0, version: 1,
+    });
+    const client = await runtime!.connect();
+    try {
+      await client.query("SET ROLE pos_platform_app");
+      const args = {
+        userId, factorId, materialId,
+        expectedCounter: 0, newCounter: 1, expectedVersion: 1, backedUp: false,
+      };
+      await client.query("BEGIN");
+      expect(await materialStore.advanceCounterCas(client, args)).toBe(true);
+      await client.query("COMMIT");
+      await client.query("BEGIN");
+      expect(await materialStore.advanceCounterCas(client, args)).toBe(false);
+      await client.query("ROLLBACK");
+      await client.query("RESET ROLE");
+    } finally {
+      client.release();
+    }
+    const rows = await owner!.query(
+      `SELECT counter::text, version::text, last_used_at IS NOT NULL AS used
+         FROM identity.webauthn_credential_material WHERE id = $1`, [materialId],
+    );
+    expect(rows.rows).toEqual([{ counter: "1", version: "2", used: true }]);
+    await expect(owner!.query(
+      `UPDATE identity.webauthn_credential_material
+          SET public_key_cose_base64url = $1, version = version + 1,
+              last_used_at = clock_timestamp()
+        WHERE id = $2`,
+      [randomBytes(65).toString("base64url"), materialId],
+    )).rejects.toThrow();
+  });
+
+  it("physically refuses WebAuthn public material lookup across user accounts", async () => {
+    const firstUser = await createUser();
+    const secondUser = await createUser();
+    const factorId = uuidV7();
+    const materialId = uuidV7();
+    await owner!.query(
+      `INSERT INTO identity.mfa_factors
+         (id, user_id, factor_type, secret_reference, status, enrolled_at, verified_at, version)
+       VALUES ($1, $2, 'WEBAUTHN', $3, 'ACTIVE', clock_timestamp(), clock_timestamp(), 1)`,
+      [factorId, firstUser, "webauthn:v1:" + materialId],
+    );
+    await owner!.query(
+      `INSERT INTO identity.webauthn_credential_material
+         (id, factor_id, credential_id, public_key_cose_base64url)
+       VALUES ($1, $2, $3, $4)`,
+      [materialId, factorId, randomBytes(32).toString("base64url"),
+       randomBytes(65).toString("base64url")],
+    );
+    expect(await materialStore.findVerifiedMaterial(secondUser, factorId)).toBeNull();
+    expect(await materialStore.findVerifiedMaterial(firstUser, factorId)).not.toBeNull();
   });
 });
