@@ -68,6 +68,11 @@ CREATE POLICY webauthn_challenges_central_only
   ON identity.webauthn_challenges FOR ALL TO pos_platform_app
   USING (true) WITH CHECK (true);
 
+-- Explicit schema-owner SELECT policy is required because FORCE RLS would
+-- otherwise hide existing rows from the empty-only migration rollback guard.
+CREATE POLICY webauthn_challenges_owner_inspect
+  ON identity.webauthn_challenges FOR SELECT TO pos_schema_owner USING (true);
+
 REVOKE ALL ON identity.webauthn_challenges FROM PUBLIC, pos_app, pos_worker, pos_platform_admin;
 GRANT SELECT ON identity.webauthn_challenges TO pos_platform_app;
 GRANT INSERT (id, user_id, factor_id, session_id, purpose, challenge_hash,
