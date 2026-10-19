@@ -152,7 +152,7 @@ function setupVerification(options: {
         tenant_id: null,
         event_code: "PLATFORM_RECOVERY_REJECTED",
         result: "REJECTED",
-        reason_code: params?.[7] ?? null,
+        reason_code: params?.[6] ?? null,
         correlation_id: INPUT.correlationId,
         occurred_at: EVENT_AT,
         server_recorded_at: new Date("2026-10-18T20:45:01.000Z"),
