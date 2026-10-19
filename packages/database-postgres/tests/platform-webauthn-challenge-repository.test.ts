@@ -29,7 +29,7 @@ function fixture(mode: "normal" | "absent" | "update-failure" = "normal") {
       expect(values).toEqual([CHALLENGE_ID]);
       return { rows: [{ id: CHALLENGE_ID }] };
     }
-    if (statement.includes("INSERT INTO identity.webauthn_challenges")) return { rows: [] };
+    if (statement.includes("INSERT INTO identity.webauthn_challenges")) return { rows: [{ id: values?.[0] }] };
     throw new Error("unexpected SQL");
   });
   const release = vi.fn();
@@ -55,6 +55,9 @@ describe("durable WebAuthn challenge persistence (not identity authentication)",
     const values = inserted?.[1] as unknown[];
     expect(values[5]).toBe(createHash("sha256").update(created.challenge).digest("hex"));
     expect(values).not.toContain(created.challenge);
+    expect(inserted?.[0]).toContain("u.status = 'ACTIVE'");
+    expect(inserted?.[0]).toContain("f.user_id = u.id");
+    expect(inserted?.[0]).toContain("s.user_id = u.id");
     expect(t.connect).not.toHaveBeenCalled();
   });
 
