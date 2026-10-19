@@ -70,7 +70,28 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       await ddl.query(await readFile(join(SQL_DIR, "001_central_foundation.up.sql"), "utf8"));
       await ddl.query(await readFile(join(SQL_DIR, "007_password_recovery.up.sql"), "utf8"));
     } finally {
-      ddl.release();
+      // SET ROLE is session-scoped: reset it before returning this connection
+      // to the inspector pool, or FORCE RLS will silently hide persisted rows.
+      try {
+        await ddl.query("RESET ROLE");
+      } finally {
+        ddl.release();
+      }
+    }
+
+    // Inspector queries must bypass RLS, unlike the runtime queries below.
+    // This guard prevents a false PASS on rollback when rows are merely hidden.
+    const inspector = await owner.query<{
+      effective_role: string;
+      login_role: string;
+      bypasses_rls: boolean;
+    }>(`SELECT current_user AS effective_role, session_user AS login_role,
+                (rolsuper OR rolbypassrls) AS bypasses_rls
+           FROM pg_roles WHERE rolname = current_user`);
+    const inspectorRole = inspector.rows[0];
+    if (!inspectorRole || inspectorRole.effective_role !== inspectorRole.login_role
+      || !inspectorRole.bypasses_rls) {
+      throw new Error("RECOVERY_PHYSICAL_INSPECTOR_RLS_UNTRUSTED");
     }
 
     runtime = new Pool({ connectionString: databaseUrl(), max: 4 });
