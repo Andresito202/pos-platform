@@ -9,3 +9,4 @@ export { PlatformSecurityEventCode } from "@pos-platform/contracts";
 export * from "./platform-webauthn-challenge-repository.js";
 export * from "./platform-webauthn-factor-reference-repository.js";
 export * from "./platform-webauthn-material-repository.js";
+export * from "./platform-webauthn-assertion-transaction.js";
