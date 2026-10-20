@@ -122,10 +122,11 @@ describe("D3 SSA central signing primitive — not a login endpoint", () => {
   );
 
   it("does not allow cross-environment or mismatched key identifiers", async () => {
-    for (const changes of [
+    const rejectedCases: Partial<TrustedSessionAssertionIssuance>[] = [
       { signedOperationalKey: certificate({ environment: "staging" }) },
       { claims: claims({ key_id: "ssa-another-key" }) },
-    ]) {
+    ];
+    for (const changes of rejectedCases) {
       const { issuer } = fixture(changes);
       await expect(issuer.issue("opaque-trusted-session-proof"))
         .rejects.toThrow("SSA_ISSUER_OPERATIONAL_KEY_NOT_ACTIVE");
@@ -138,12 +139,13 @@ describe("D3 SSA central signing primitive — not a login endpoint", () => {
     await expect(issuer.issue("opaque-trusted-session-proof")).rejects.toThrow();
   });
 
-  it.each([
+  const temporalCases: Array<{ description: string; overrides: Partial<SessionAssertionClaims> }> = [
     { description: "future issuance", overrides: { issued_at: "2026-10-20T10:00:01.000Z" } },
     { description: "stale issuance", overrides: { issued_at: "2026-10-20T09:58:00.000Z" } },
     { description: "too long offline", overrides: { offline_valid_until: "2026-10-20T13:00:00.000Z" } },
     { description: "already expired", overrides: { offline_valid_until: "2026-10-20T09:59:59.500Z" } },
-  ])("fails closed for $description", async ({ overrides }) => {
+  ];
+  it.each(temporalCases)("fails closed for $description", async ({ overrides }) => {
     const { issuer } = fixture({ claims: claims(overrides) });
     await expect(issuer.issue("opaque-trusted-session-proof"))
       .rejects.toThrow("SSA_ISSUER_VALIDITY_POLICY_REJECTED");
