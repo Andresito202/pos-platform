@@ -1,5 +1,5 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import "./App.css";
 import lampIllustration from "./assets/lamp.svg";
 import { StatusPanel } from "./components/StatusPanel.js";
@@ -75,6 +75,9 @@ export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
   const [lampOn, setLampOn] = useState(true);
+  const [cordPull, setCordPull] = useState(0);
+  const cordStart = useRef<number | null>(null);
+  const suppressClick = useRef(false);
   const [visualTheme, setVisualTheme] = useState<"cyan" | "blue" | "violet" | "amber" | "rose">("cyan");
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
   const [receiptTarget, setReceiptTarget] = useState<string | null>(null);
@@ -211,11 +214,35 @@ export function App(): React.JSX.Element {
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
         <button type="button" className={`pos-lamp-illustration pos-lamp-interactive${lampOn ? " is-on" : ""}`}
           aria-label={lampOn ? "Apagar lámpara decorativa" : "Encender lámpara decorativa"}
-          aria-pressed={lampOn} onClick={() => setLampOn((current) => !current)}>
+          aria-pressed={lampOn}
+          onPointerDown={(event) => {
+            if (event.pointerType === "mouse" && event.button !== 0) return;
+            cordStart.current = event.clientY;
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (cordStart.current === null) return;
+            setCordPull(Math.max(0, Math.min(78, event.clientY - cordStart.current)));
+          }}
+          onPointerUp={(event) => {
+            if (cordStart.current === null) return;
+            const distance = Math.max(0, event.clientY - cordStart.current);
+            cordStart.current = null;
+            setCordPull(0);
+            if (distance >= 36) {
+              suppressClick.current = true;
+              setLampOn((current) => !current);
+            }
+          }}
+          onPointerCancel={() => { cordStart.current = null; setCordPull(0); }}
+          onClick={() => {
+            if (suppressClick.current) { suppressClick.current = false; return; }
+            setLampOn((current) => !current);
+          }}>
           <span className="pos-lamp-halo" aria-hidden="true" />
           <span className="pos-lamp-beam" aria-hidden="true" />
           <span className="pos-lamp-particles" aria-hidden="true" />
-          <span className="pos-lamp-pull-cue" aria-hidden="true" />
+          <span className="pos-lamp-pull-cue" aria-hidden="true" style={{ transform: `translateY(${cordPull}px) scaleY(${1 + cordPull / 80})` }} />
           <img className="pos-lamp-image" src={lampIllustration} alt="" draggable={false} />
           <span className="pos-lamp-help" aria-hidden="true">Lámpara · {lampOn ? "encendida" : "apagada"}</span>
         </button>
