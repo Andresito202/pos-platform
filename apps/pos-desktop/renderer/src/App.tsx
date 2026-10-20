@@ -214,6 +214,8 @@ export function App(): React.JSX.Element {
           aria-pressed={lampOn} onClick={() => setLampOn((current) => !current)}>
           <span className="pos-lamp-halo" aria-hidden="true" />
           <span className="pos-lamp-beam" aria-hidden="true" />
+          <span className="pos-lamp-particles" aria-hidden="true" />
+          <span className="pos-lamp-pull-cue" aria-hidden="true" />
           <img className="pos-lamp-image" src={lampIllustration} alt="" draggable={false} />
           <span className="pos-lamp-help" aria-hidden="true">Lámpara · {lampOn ? "encendida" : "apagada"}</span>
         </button>
