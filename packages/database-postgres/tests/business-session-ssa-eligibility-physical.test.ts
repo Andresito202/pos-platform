@@ -140,7 +140,9 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
   afterAll(async () => {
     await runtime?.end();
     await owner?.end();
-    if (created) await admin?.query('DROP DATABASE "' + TEST_DB + '" WITH (FORCE)');
+    // Never force-kill test connections during teardown (pg 57P01).
+    // If a connection leaked, fail the cleanup rather than report a false PASS.
+    if (created) await admin?.query('DROP DATABASE "' + TEST_DB + '"');
     await admin?.end();
   }, 120_000);
 
