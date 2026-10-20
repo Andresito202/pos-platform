@@ -1,10 +1,14 @@
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes, type KeyObject } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresBusinessSessionSsaEligibilityRepository, PostgresBusinessSsaSequenceAllocator, uuidV7 } from "../src/index.js";
+import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
+import {
+  BUSINESS_SSA_DEVICE_PROOF_PATH, PostgresDeviceProofReplayVerifier,
+  PostgresBusinessSessionSsaEligibilityRepository, PostgresBusinessSsaSequenceAllocator, uuidV7,
+} from "../src/index.js";
 
 /**
  * Opt-in physical RLS proof. ONLY a throwaway, RANDOM database is created on
@@ -45,6 +49,8 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
   let created = false;
   let repository: PostgresBusinessSessionSsaEligibilityRepository;
   let allocator: PostgresBusinessSsaSequenceAllocator;
+  let replayVerifier: PostgresDeviceProofReplayVerifier;
+  let devicePrivateKey: KeyObject;
 
   beforeAll(async () => {
     fixtureUrl();
@@ -70,6 +76,7 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
       await ddl.query(await readFile(join(SQL_DIR, "009_webauthn_challenges.up.sql"), "utf8"));
       await ddl.query(await readFile(join(SQL_DIR, "010_webauthn_credential_material.up.sql"), "utf8"));
       await ddl.query(await readFile(join(SQL_DIR, "011_session_assertion_sequences.up.sql"), "utf8"));
+      await ddl.query(await readFile(join(SQL_DIR, "012_device_request_proof_replays.up.sql"), "utf8"));
     } finally {
       try { await ddl.query("RESET ROLE"); } finally { ddl.release(); }
     }
@@ -107,6 +114,7 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
       [ids.session, ids.user, ids.tenant, ids.member],
     );
     const keys = generateKeyPairSync("ed25519");
+    devicePrivateKey = keys.privateKey;
     await owner.query(
       "INSERT INTO identity.device_registry (device_id,installation_id,tenant_id,company_id,device_key_id,device_public_key,device_public_key_algorithm,status,trust_key_id,trust_key_purpose,created_at,updated_at) VALUES ($1,$2,$3,$4,'ssa-fixture-device',$5,'Ed25519','ACTIVE','ssa-fixture-trust','DEVICE_TRUST',clock_timestamp(),clock_timestamp())",
       [ids.device, ids.installation, ids.tenant, ids.company, keys.publicKey.export({ format: "pem", type: "spki" })],
@@ -126,6 +134,7 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
     }
     repository = new PostgresBusinessSessionSsaEligibilityRepository(runtime, 5 * 60 * 1000);
     allocator = new PostgresBusinessSsaSequenceAllocator(runtime, 5 * 60 * 1000);
+    replayVerifier = new PostgresDeviceProofReplayVerifier(runtime);
   }, 120_000);
 
   afterAll(async () => {
@@ -278,6 +287,88 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
       [ids.user],
     );
     expect(persisted.rows).toEqual([{ count: "1" }]);
+  });
+
+  function signedDeviceRequest(requestId = uuidV7(), body = '{"request":"ssa"}') {
+    const correlationId = uuidV7();
+    const authorization = createDeviceRequestAuthorization({
+      method: "POST",
+      path: BUSINESS_SSA_DEVICE_PROOF_PATH,
+      requestId, correlationId, credentialId: ids.credential, body,
+    }, devicePrivateKey);
+    return { authorization, requestId, correlationId, body };
+  }
+
+  it("physically verifies an Ed25519 device proof under central role then rejects its replay", async () => {
+    const policy = await owner!.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+      "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid='identity.device_request_proof_replays'::regclass",
+    );
+    expect(policy.rows).toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
+    const input = signedDeviceRequest();
+    const first = await replayVerifier.verifyAndConsume(input);
+    expect(first).toMatchObject({
+      credentialId: ids.credential,
+      deviceId: ids.device,
+      installationId: ids.installation,
+      tenantId: ids.tenant,
+      companyId: ids.company,
+    });
+    expect(await replayVerifier.verifyAndConsume(input)).toBeNull();
+    const count = await owner!.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM identity.device_request_proof_replays WHERE credential_id=$1", [ids.credential],
+    );
+    expect(count.rows).toEqual([{ n: "1" }]);
+  });
+
+  it("physically consumes the same proof exactly once across concurrent workers", async () => {
+    const input = signedDeviceRequest();
+    const results = await Promise.all(Array.from({ length: 5 }, () => replayVerifier.verifyAndConsume(input)));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(results.filter(x => x === null)).toHaveLength(4);
+    const rows = await owner!.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM identity.device_request_proof_replays WHERE credential_id=$1", [ids.credential],
+    );
+    expect(rows.rows).toEqual([{ n: "2" }]);
+    // A separately signed nonce may not reuse the same signed request ID.
+    expect(await replayVerifier.verifyAndConsume(signedDeviceRequest(input.requestId))).toBeNull();
+    const after = await owner!.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM identity.device_request_proof_replays WHERE credential_id=$1", [ids.credential],
+    );
+    expect(after.rows).toEqual([{ n: "2" }]);
+  });
+
+  it("physically rejects tampered body, forged device key and revoked credential before storing proof", async () => {
+    const input = signedDeviceRequest();
+    expect(await replayVerifier.verifyAndConsume({ ...input, body: '{"request":"revoke"}' })).toBeNull();
+    const forged = createDeviceRequestAuthorization({
+      method: "POST", path: BUSINESS_SSA_DEVICE_PROOF_PATH,
+      requestId: input.requestId, correlationId: input.correlationId, credentialId: ids.credential,
+      body: input.body,
+    }, generateKeyPairSync("ed25519").privateKey);
+    expect(await replayVerifier.verifyAndConsume({
+      authorization: forged, requestId: input.requestId, correlationId: input.correlationId, body: input.body,
+    })).toBeNull();
+    await owner!.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp() WHERE credential_id=$1", [ids.credential]);
+    try {
+      expect(await replayVerifier.verifyAndConsume(signedDeviceRequest())).toBeNull();
+    } finally {
+      await owner!.query("UPDATE identity.device_credentials SET status='ACTIVE',revoked_at=NULL WHERE credential_id=$1", [ids.credential]);
+    }
+    const count = await owner!.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM identity.device_request_proof_replays WHERE credential_id=$1", [ids.credential],
+    );
+    expect(count.rows).toEqual([{ n: "2" }]);
+  });
+
+  it("physically prevents deleting proof history or destructive migration 012 rollback", async () => {
+    await expect(owner!.query(
+      "DELETE FROM identity.device_request_proof_replays WHERE credential_id=$1", [ids.credential],
+    )).rejects.toThrow();
+    await expect(owner!.query(
+      "UPDATE identity.device_request_proof_replays SET consumed_at=clock_timestamp() WHERE credential_id=$1", [ids.credential],
+    )).rejects.toThrow();
+    await expect(owner!.query(await readFile(join(SQL_DIR, "012_device_request_proof_replays.down.sql"), "utf8")))
+      .rejects.toThrow("012 rollback refused");
   });
 
 });
