@@ -341,3 +341,30 @@ describe("App", () => {
   });
 
 });
+
+
+describe("Animated visual controls remain authorization-independent", () => {
+  it("toggles lamp and changes palette without changing the effective permissions", async () => {
+    render(<App />);
+    const lamp = await screen.findByRole("button", { name: "Apagar lámpara decorativa" });
+    expect(lamp.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(lamp);
+    expect(screen.getByRole("button", { name: "Encender lámpara decorativa" }).getAttribute("aria-pressed")).toBe("false");
+    const violet = screen.getByRole("button", { name: "Color violet" });
+    fireEvent.click(violet);
+    expect(violet.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Superadministrador" })).toBeNull();
+    expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render decorative controls or operational screens when authorization fails", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "REJECTED", result_code: "SESSION_NOT_BOUND",
+      result: { outcome: "UNAUTHORIZED", permissions: [] },
+    });
+    render(<App />);
+    await screen.findByTestId("authorization-error");
+    expect(screen.queryByRole("button", { name: "Apagar lámpara decorativa" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
+  });
+});
