@@ -9,11 +9,11 @@ import {
   type SignedSessionAssertion,
   type SignedSessionAssertionOperationalKey,
 } from "@pos-platform/contracts";
-import type { EligibleBusinessSessionCandidate } from "@pos-platform/database-postgres";
+import type { ReservedBusinessSsaSequence } from "@pos-platform/database-postgres";
 
 /**
  * The resolver is a SECURITY BOUNDARY, not a type conversion.
- * The returned eligibleScope must correspond to the authenticated session
+ * The durable reservation eligibleScope must correspond to the authenticated session
  * and verified device; expiry in signed claims cannot exceed either expiry.
  *
  * A future central authentication service must validate possession of a
@@ -26,8 +26,8 @@ import type { EligibleBusinessSessionCandidate } from "@pos-platform/database-po
  */
 export interface TrustedSessionAssertionIssuance {
   readonly claims: SessionAssertionClaims;
-  /** Durable business scope resolved from PostgreSQL, not the renderer. */
-  readonly eligibleScope: EligibleBusinessSessionCandidate;
+  /** Result of the central PostgreSQL allocator, never raw renderer data. */
+  readonly reservation: ReservedBusinessSsaSequence;
   /** Current root-signed artifact obtained from the trusted key lifecycle. */
   readonly signedOperationalKey: SignedSessionAssertionOperationalKey;
 }
@@ -50,7 +50,9 @@ export interface SessionAssertionIssuancePolicy {
  * be ACTIVE, in the intended environment and bound to the injected Ed25519
  * private key. VERIFY_ONLY and REVOKED keys cannot issue new assertions.
  *
- * This primitive cannot provide durable sequence allocation or revocation
+ * This primitive checks correspondence to an allocator result but cannot
+ * independently attest that such a reservation was committed. Only a trusted
+ * server-side resolver can provide it. It cannot provide revocation
  * freshness by itself. Do not expose it until the resolver, operational key
  * lifecycle and issuance transaction are implemented and tested. This check
  * cannot replace revalidation against revocation or physical device proof.
@@ -89,7 +91,17 @@ export class CentralSessionAssertionIssuer {
     if (trusted === null) return null;
 
     const claims = SessionAssertionClaimsSchema.parse(trusted.claims);
-    const scope = trusted.eligibleScope;
+    const reservation = trusted.reservation;
+    // The only trusted source of sequence is the PostgreSQL allocator; do not
+    // accept a sequence selected by the client or independently fabricated
+    // from identity.sessions.version. The resolver must produce this result
+    // from a real committed reservation AFTER verifying user/device proofs.
+    if (reservation === null || typeof reservation !== "object" ||
+        !Number.isSafeInteger(reservation.sequence) || reservation.sequence <= 0 ||
+        reservation.sequence !== claims.sequence) {
+      throw new Error("SSA_ISSUER_SEQUENCE_RESERVATION_MISMATCH");
+    }
+    const scope = reservation.eligibleScope;
     // Fail closed if the claims no longer correspond to the authenticated
     // server-resolved business session and physical device scope.
     if (scope === null || typeof scope !== "object" ||

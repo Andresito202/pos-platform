@@ -7,7 +7,7 @@ import {
   type SessionAssertionOperationalKeyClaims,
   type SignedSessionAssertionOperationalKey,
 } from "@pos-platform/contracts";
-import type { EligibleBusinessSessionCandidate } from "@pos-platform/database-postgres";
+import type { EligibleBusinessSessionCandidate, ReservedBusinessSsaSequence } from "@pos-platform/database-postgres";
 import {
   CentralSessionAssertionIssuer,
   type TrustedSessionAssertionIssuance,
@@ -42,6 +42,12 @@ function eligibleScope(overrides: Partial<EligibleBusinessSessionCandidate> = {}
     ...overrides,
   };
 }
+function reservation(
+  scope: EligibleBusinessSessionCandidate = eligibleScope(),
+  sequence = 7,
+): ReservedBusinessSsaSequence {
+  return { eligibleScope: scope, sequence };
+}
 function certificate(
   overrides: Partial<SessionAssertionOperationalKeyClaims> = {},
   rootPrivateKey = rootKeys.privateKey,
@@ -66,7 +72,7 @@ function fixture(
   acceptedProof = "opaque-trusted-session-proof",
 ) {
   const resolved: TrustedSessionAssertionIssuance = {
-    claims: claims(), signedOperationalKey: certificate(), eligibleScope: eligibleScope(), ...changes,
+    claims: claims(), signedOperationalKey: certificate(), reservation: reservation(), ...changes,
   };
   const resolver = vi.fn(async (proof: string) =>
     proof === acceptedProof ? resolved : null);
@@ -104,7 +110,7 @@ describe("D3 SSA central signing primitive — not a login endpoint", () => {
     { field: "installationId", value: "018f0000-0000-7000-8000-0000000000b4" },
     { field: "deviceId", value: "018f0000-0000-7000-8000-0000000000b5" },
   ] as const)("does not sign when the trusted scope differs at $field", async ({ field, value }) => {
-    const { issuer } = fixture({ eligibleScope: eligibleScope({ [field]: value } as Partial<EligibleBusinessSessionCandidate>) });
+    const { issuer } = fixture({ reservation: reservation(eligibleScope({ [field]: value } as Partial<EligibleBusinessSessionCandidate>)) });
     await expect(issuer.issue("opaque-trusted-session-proof"))
       .rejects.toThrow("SSA_ISSUER_TRUSTED_SCOPE_MISMATCH");
   });
@@ -116,9 +122,24 @@ describe("D3 SSA central signing primitive — not a login endpoint", () => {
     { label: "expired device credential", scope: { deviceCredentialExpiresAt: "2026-10-20T09:59:59.000Z" } },
     { label: "invalid scope expiry", scope: { deviceCredentialExpiresAt: "invalid" } },
   ])("rejects an SSA that exceeds $label validity", async ({ scope }) => {
-    const { issuer } = fixture({ eligibleScope: eligibleScope(scope) });
+    const { issuer } = fixture({ reservation: reservation(eligibleScope(scope)) });
     await expect(issuer.issue("opaque-trusted-session-proof"))
       .rejects.toThrow("SSA_ISSUER_VALIDITY_POLICY_REJECTED");
+  });
+
+  it.each([6, 8, 0, Number.MAX_SAFE_INTEGER + 1])(
+    "never signs claims.sequence=7 against an invalid or mismatched reservation %s",
+    async (sequence) => {
+      const { issuer } = fixture({ reservation: reservation(eligibleScope(), sequence) });
+      await expect(issuer.issue("opaque-trusted-session-proof"))
+        .rejects.toThrow("SSA_ISSUER_SEQUENCE_RESERVATION_MISMATCH");
+    },
+  );
+
+  it("requires a reservation result rather than merely a matching eligible scope", async () => {
+    const { issuer } = fixture({ reservation: undefined as unknown as ReservedBusinessSsaSequence });
+    await expect(issuer.issue("opaque-trusted-session-proof"))
+      .rejects.toThrow("SSA_ISSUER_SEQUENCE_RESERVATION_MISMATCH");
   });
 
   it("never signs when the trusted resolver rejects a proof", async () => {
