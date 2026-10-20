@@ -17,57 +17,88 @@ const row = {
   credential_expires_at: new Date("2026-10-20T12:00:00Z"),
 };
 
-function fixture(rows: unknown[] = [row]) {
-  const query = vi.fn(async (_statement: string, _params?: unknown[]) => ({ rows }));
-  const pool = { query } as unknown as Pool;
+function fixture(rows: unknown[] = [row], tenantId: string | null = T) {
+  const query = vi.fn(async (statement: string, _params?: unknown[]) => {
+    if (statement.includes("SELECT tenant_id::text AS tenant_id FROM identity.sessions")) {
+      return { rows: tenantId === null ? [] : [{ tenant_id: tenantId }] };
+    }
+    if (statement.includes("SELECT s.id::text AS session_id")) return { rows };
+    return { rows: [] };
+  });
+  const release = vi.fn();
+  const connect = vi.fn(async () => ({ query, release }));
+  const pool = { connect } as unknown as Pool;
   return {
-    query,
+    query, release, connect,
     repository: new PostgresBusinessSessionSsaEligibilityRepository(pool, 300_000),
   };
 }
 
-describe("D3 business SSA eligibility gate (not login or device authentication)", () => {
-  it("returns server-resolved identity, scope and expirations", async () => {
-    const { query, repository } = fixture();
-    expect(await repository.findCandidate(input)).toEqual({
+function sqlCalls(query: ReturnType<typeof fixture>["query"]): string[] {
+  return query.mock.calls.map(([sql]) => sql);
+}
+
+describe("D3 business SSA eligibility — tenant RLS and read-only scope", () => {
+  it("resolves a tenant from PostgreSQL, sets it only locally, then returns durable scope", async () => {
+    const { query, release, connect, repository } = fixture();
+    const resolved = await repository.findCandidate(input);
+    expect(resolved).toEqual({
       sessionId: S, userId: U, tenantId: T, tenantMembershipId: M,
       companyId: C, deviceId: D, installationId: I,
       sessionExpiresAt: "2026-10-20T11:00:00.000Z",
       deviceCredentialExpiresAt: "2026-10-20T12:00:00.000Z",
     });
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0]?.[1]).toEqual([S, D, I, 300000]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(sqlCalls(query)[0]).toBe("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+    expect(sqlCalls(query)[1]).toContain("SELECT tenant_id::text AS tenant_id FROM identity.sessions");
+    expect(query.mock.calls[1]?.[1]).toEqual([S]);
+    expect(sqlCalls(query)[2]).toBe("SELECT set_config('app.tenant_id', $1, true)");
+    expect(query.mock.calls[2]?.[1]).toEqual([T]);
+    expect(query.mock.calls[3]?.[1]).toEqual([S, D, I, 300000]);
+    expect(sqlCalls(query).at(-1)).toBe("COMMIT");
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null when no eligible persisted session/device scope exists", async () => {
-    const { repository } = fixture([]);
+  it("fails closed and rolls back when the session has no tenant", async () => {
+    const { repository, query, release } = fixture([row], null);
     expect(await repository.findCandidate(input)).toBeNull();
+    expect(sqlCalls(query)).toEqual([
+      "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+      "SELECT tenant_id::text AS tenant_id FROM identity.sessions WHERE id = $1 AND tenant_id IS NOT NULL",
+      "ROLLBACK",
+    ]);
+    expect(release).toHaveBeenCalledOnce();
   });
 
-  it("refuses malformed identifiers before querying the database", async () => {
-    const { query, repository } = fixture();
+  it("returns null with rollback when no eligible persisted scope exists", async () => {
+    const { repository, query, release } = fixture([]);
+    expect(await repository.findCandidate(input)).toBeNull();
+    expect(sqlCalls(query).at(-1)).toBe("ROLLBACK");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed IDs before opening a transaction", async () => {
+    const { connect, repository } = fixture();
     for (const bad of [
       { ...input, sessionId: "not-a-session" },
       { ...input, deviceId: "not-a-device" },
       { ...input, installationId: "not-an-installation" },
-    ]) {
-      await expect(repository.findCandidate(bad)).rejects.toThrow();
-    }
-    expect(query).not.toHaveBeenCalled();
+    ]) await expect(repository.findCandidate(bad)).rejects.toThrow();
+    expect(connect).not.toHaveBeenCalled();
   });
 
-  it("requires a positive, safe integer reauthentication policy", () => {
-    const pool = { query: vi.fn() } as unknown as Pool;
+  it("requires an explicit positive reauthentication policy", () => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
     for (const age of [0, -1, 3.5, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
       expect(() => new PostgresBusinessSessionSsaEligibilityRepository(pool, age))
         .toThrow("SSA_BUSINESS_REAUTH_POLICY_INVALID");
     }
   });
 
-  it("checks server state and active credentials using one read-only SQL statement", async () => {
+  it("uses existing business session, MFA, membership, company and device predicates", async () => {
     const { query, repository } = fixture();
     await repository.findCandidate(input);
-    const sql = query.mock.calls[0]?.[0] ?? "";
+    const sql = sqlCalls(query)[3] ?? "";
     for (const invariant of [
       "JOIN tenancy.tenant_memberships AS tm",
       "tm.user_id = s.user_id AND tm.status = 'ACTIVE'",
@@ -92,18 +123,39 @@ describe("D3 business SSA eligibility gate (not login or device authentication)"
     expect(sql).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|ALTER|DROP)\b/i);
   });
 
-  it("fails closed if the database returns corrupted timestamps", async () => {
-    const { repository } = fixture([{ ...row, credential_expires_at: "2026-10-20T12:00:00Z" }]);
-    await expect(repository.findCandidate(input))
-      .rejects.toThrow("SSA_BUSINESS_ELIGIBILITY_INVALID_TIMESTAMP");
+  it("rejects database corruption and releases a borrowed connection", async () => {
+    const { repository, query, release } = fixture([{ ...row, credential_expires_at: "2026-10-20T12:00:00Z" }]);
+    await expect(repository.findCandidate(input)).rejects.toThrow("SSA_BUSINESS_ELIGIBILITY_INVALID_TIMESTAMP");
+    expect(sqlCalls(query).at(-1)).toBe("ROLLBACK");
+    expect(release).toHaveBeenCalledOnce();
   });
 
-  it("never produces an assertion or grants authorizations", async () => {
+  it("rejects a tenant_id returned by PostgreSQL that is not a UUID", async () => {
+    const { repository, query, release } = fixture([row], "not-a-uuid");
+    await expect(repository.findCandidate(input)).rejects.toThrow();
+    expect(sqlCalls(query)).not.toContain("SELECT set_config('app.tenant_id', $1, true)");
+    expect(sqlCalls(query).at(-1)).toBe("ROLLBACK");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("does not leak connections or tenant context after a SQL failure", async () => {
+    const { repository, query, release } = fixture();
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT s.id::text AS session_id")) throw new Error("DB_UNAVAILABLE");
+      if (sql.includes("SELECT tenant_id::text AS tenant_id")) return { rows: [{ tenant_id: T }] };
+      return { rows: [] };
+    });
+    await expect(repository.findCandidate(input)).rejects.toThrow("DB_UNAVAILABLE");
+    expect(sqlCalls(query).at(-1)).toBe("ROLLBACK");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("does not issue SSA, allocate sequence or grant permissions", async () => {
     const { repository } = fixture();
-    const result = await repository.findCandidate(input);
-    expect(result).not.toHaveProperty("sequence");
-    expect(result).not.toHaveProperty("keyId");
-    expect(result).not.toHaveProperty("permissions");
-    expect(result).not.toHaveProperty("roles");
+    const resolved = await repository.findCandidate(input);
+    expect(resolved).not.toHaveProperty("sequence");
+    expect(resolved).not.toHaveProperty("permissions");
+    expect(resolved).not.toHaveProperty("roles");
+    expect(resolved).not.toHaveProperty("signature");
   });
 });

@@ -49,7 +49,28 @@ export class PostgresBusinessSessionSsaEligibilityRepository {
     const sessionId = UuidSchema.parse(input.sessionId);
     const deviceId = UuidSchema.parse(input.deviceId);
     const installationId = UuidSchema.parse(input.installationId);
-    const result = await this.pool.query<{
+    // Read-only consistent snapshot. RLS on tenancy and company tables is
+    // enabled and FORCEd by migration 001. A PostgreSQL pool without a tenant
+    // context sees no eligible rows; never take app.tenant_id from the client.
+    const client = await this.pool.connect();
+    let transactionOpen = false;
+    try {
+      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+      transactionOpen = true;
+      // pos_platform_app has the existing sessions_identity_select policy;
+      // derive the tenant from the durable session, not untrusted input.
+      const scope = await client.query<{ tenant_id: string }>(
+        "SELECT tenant_id::text AS tenant_id FROM identity.sessions WHERE id = $1 AND tenant_id IS NOT NULL",
+        [sessionId],
+      );
+      const tenantId = scope.rows[0]?.tenant_id;
+      if (!tenantId) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+        return null;
+      }
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [UuidSchema.parse(tenantId)]);
+      const result = await client.query<{
       session_id: string;
       user_id: string;
       tenant_id: string;
@@ -115,14 +136,18 @@ export class PostgresBusinessSessionSsaEligibilityRepository {
       [sessionId, deviceId, installationId, this.maximumReauthenticationAgeMs],
     );
     const row = result.rows[0];
-    if (!row) return null;
-    if (!(row.session_expires_at instanceof Date) ||
+      if (!row) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+        return null;
+      }
+      if (!(row.session_expires_at instanceof Date) ||
         !Number.isFinite(row.session_expires_at.getTime()) ||
         !(row.credential_expires_at instanceof Date) ||
         !Number.isFinite(row.credential_expires_at.getTime())) {
       throw new Error("SSA_BUSINESS_ELIGIBILITY_INVALID_TIMESTAMP");
     }
-    return {
+      const candidate: EligibleBusinessSessionCandidate = {
       sessionId: row.session_id,
       userId: row.user_id,
       tenantId: row.tenant_id,
@@ -132,6 +157,15 @@ export class PostgresBusinessSessionSsaEligibilityRepository {
       installationId: row.installation_id,
       sessionExpiresAt: row.session_expires_at.toISOString(),
       deviceCredentialExpiresAt: row.credential_expires_at.toISOString(),
-    };
+      };
+      await client.query("COMMIT");
+      transactionOpen = false;
+      return candidate;
+    } catch (error) {
+      if (transactionOpen) await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
