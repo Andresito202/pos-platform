@@ -1,6 +1,7 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useCallback, useMemo, useState } from "react";
 import "./App.css";
+import lampIllustration from "./assets/lamp.svg";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
@@ -73,6 +74,7 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
+  const [lampOn, setLampOn] = useState(true);
   const [visualTheme, setVisualTheme] = useState<"cyan" | "blue" | "violet" | "amber" | "rose">("cyan");
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
   const [receiptTarget, setReceiptTarget] = useState<string | null>(null);
@@ -207,16 +209,14 @@ export function App(): React.JSX.Element {
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
-        <div className="pos-lamp-illustration" aria-hidden="true">
-          <div className="pos-lamp-halo" />
-          <div className="pos-lamp-beam" />
-          <div className="pos-lamp-shade" />
-          <div className="pos-lamp-upper-arm" />
-          <div className="pos-lamp-joint pos-lamp-joint-top" />
-          <div className="pos-lamp-lower-arm" />
-          <div className="pos-lamp-joint pos-lamp-joint-bottom" />
-          <div className="pos-lamp-base" />
-        </div>
+        <button type="button" className={`pos-lamp-illustration pos-lamp-interactive${lampOn ? " is-on" : ""}`}
+          aria-label={lampOn ? "Apagar lámpara decorativa" : "Encender lámpara decorativa"}
+          aria-pressed={lampOn} onClick={() => setLampOn((current) => !current)}>
+          <span className="pos-lamp-halo" aria-hidden="true" />
+          <span className="pos-lamp-beam" aria-hidden="true" />
+          <img className="pos-lamp-image" src={lampIllustration} alt="" draggable={false} />
+          <span className="pos-lamp-help" aria-hidden="true">Lámpara · {lampOn ? "encendida" : "apagada"}</span>
+        </button>
         <div className="pos-theme-picker" role="group" aria-label="Color de la interfaz">
           {(["cyan", "blue", "violet", "amber", "rose"] as const).map((theme) => (
             <button key={theme} type="button" className={`pos-theme-swatch pos-theme-swatch-${theme}`}
