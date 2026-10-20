@@ -182,24 +182,31 @@ export function App(): React.JSX.Element {
     return result;
   }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo]);
 
-  if (authorization.phase === "loading") {
+  if (authorization.phase === "loading" || authorization.phase === "error") {
+    const loading = authorization.phase === "loading";
     return (
-      <main>
-        <h1>Camacho POS Colombia</h1>
-        <StatusPanel />
-        <div data-testid="authorization-loading">Cargando permisos…</div>
-      </main>
-    );
-  }
-
-  if (authorization.phase === "error") {
-    return (
-      <main>
-        <h1>Camacho POS Colombia</h1>
-        <StatusPanel />
-        <div data-testid="authorization-error">
-          No se pudo cargar la autorización: {authorization.message}
-        </div>
+      <main className="pos-entry" aria-busy={loading}>
+        <section className="pos-entry-brand" aria-label="Camacho POS Colombia">
+          <div className="pos-entry-logo" role="img" aria-label="Camacho POS Colombia" />
+          <div className="pos-entry-lamp" aria-hidden="true">
+            <span className="pos-entry-light" />
+            <img src={lampIllustration} alt="" />
+          </div>
+        </section>
+        <section className="pos-entry-card" aria-label="Estado de acceso">
+          <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
+          <h1>Camacho POS Colombia</h1>
+          <h2>{loading ? "Validando sesión" : "Acceso no disponible"}</h2>
+          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : "El POS no ha podido verificar una sesión autorizada."}</p>
+          {loading ? (
+            <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
+          ) : (
+            <div data-testid="authorization-error" role="alert">
+              No se pudo cargar la autorización: {authorization.message}
+            </div>
+          )}
+          <StatusPanel />
+        </section>
       </main>
     );
   }
