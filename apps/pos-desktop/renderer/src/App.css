@@ -547,3 +547,38 @@ button {
 .pos-nav-button[aria-current="page"] { box-shadow: inset 4px 0 var(--pos-accent, #1bc9bd); }
 @keyframes pos-lamp-glow { from { transform: translateY(14px) scale(.92); opacity: .22; } to { transform: translateY(-12px) scale(1.12); opacity: .52; } }
 @media (prefers-reduced-motion: reduce) { .pos-sidebar::before { animation: none; } .pos-theme-swatch { transition: none; } }
+
+/* Lamp is a pure CSS illustration: no assets, scripting, network or permission effects. */
+.pos-lamp-illustration {
+  width: 194px; height: 220px; position: relative; margin: 1px auto 25px;
+  overflow: hidden; pointer-events: none; isolation: isolate;
+}
+.pos-lamp-halo { position: absolute; left: 67px; top: 43px; width: 122px; height: 130px;
+  background: radial-gradient(ellipse at 25% 5%, color-mix(in srgb, var(--pos-accent, #1bc9bd) 45%, transparent), transparent 68%);
+  filter: blur(13px); animation: pos-lamp-pulse 3.6s ease-in-out infinite alternate;
+}
+.pos-lamp-beam { position: absolute; left: 95px; top: 60px; width: 112px; height: 145px;
+  background: linear-gradient(155deg, rgb(255 218 143 / 42%), rgb(255 200 108 / 9%) 66%, transparent);
+  clip-path: polygon(0 0, 34% 0, 100% 100%, 0 100%); filter: blur(6px);
+  animation: pos-lamp-pulse 3.6s ease-in-out infinite alternate;
+}
+.pos-lamp-shade { position: absolute; z-index: 5; top: 39px; left: 75px; width: 69px; height: 50px;
+  border-radius: 55% 55% 38% 38%; transform: rotate(25deg);
+  border: 2px solid #cda257; background: linear-gradient(125deg, #27374d, #060e17 62%);
+  box-shadow: inset 0 -9px 8px -5px #ffd58b, 0 6px 18px #eeb35b70;
+}
+.pos-lamp-upper-arm,.pos-lamp-lower-arm {position:absolute; z-index:3; width:7px;
+  border-radius:6px; background:linear-gradient(90deg,#6b522c,#f8d68b,#704c20); transform-origin:center bottom}
+.pos-lamp-upper-arm {height:84px; left:65px; top:67px; transform:rotate(34deg)}
+.pos-lamp-lower-arm {height:75px; left:49px; top:130px; transform:rotate(-23deg)}
+.pos-lamp-joint {position:absolute;z-index:6;width:17px;height:17px;border:3px solid #bb8738;
+  border-radius:50%;background:radial-gradient(circle at 37% 34%,#ffecaf,#b98530 65%,#48321e)}
+.pos-lamp-joint-top {left:69px;top:108px}
+.pos-lamp-joint-bottom {left:40px;top:185px}
+.pos-lamp-base {position:absolute;z-index:7;left:21px;bottom:8px;width:91px;height:13px;
+  border:2px solid #af802e;border-radius:50%;background:linear-gradient(#3c3a30,#080f17);
+  box-shadow:0 5px 15px #0009}
+@keyframes pos-lamp-pulse {from{opacity:.65}to{opacity:1}}
+@media (prefers-reduced-motion: reduce) {
+ .pos-lamp-halo,.pos-lamp-beam{animation:none}
+}
