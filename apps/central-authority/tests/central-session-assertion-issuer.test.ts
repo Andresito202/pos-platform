@@ -7,6 +7,7 @@ import {
   type SessionAssertionOperationalKeyClaims,
   type SignedSessionAssertionOperationalKey,
 } from "@pos-platform/contracts";
+import type { EligibleBusinessSessionCandidate } from "@pos-platform/database-postgres";
 import {
   CentralSessionAssertionIssuer,
   type TrustedSessionAssertionIssuance,
@@ -28,6 +29,16 @@ function claims(overrides: Partial<SessionAssertionClaims> = {}): SessionAsserti
     issued_at: "2026-10-20T09:59:59.000Z",
     offline_valid_until: "2026-10-20T10:59:59.000Z",
     sequence: 7, key_id: "ssa-2026-10",
+    ...overrides,
+  };
+}
+function eligibleScope(overrides: Partial<EligibleBusinessSessionCandidate> = {}): EligibleBusinessSessionCandidate {
+  return {
+    sessionId: SESSION, userId: USER, tenantId: "018f0000-0000-7000-8000-0000000000a7",
+    tenantMembershipId: MEMBERSHIP, companyId: "018f0000-0000-7000-8000-0000000000a8",
+    deviceId: DEVICE, installationId: INSTALLATION,
+    sessionExpiresAt: "2026-10-20T11:20:00.000Z",
+    deviceCredentialExpiresAt: "2026-10-20T11:30:00.000Z",
     ...overrides,
   };
 }
@@ -55,7 +66,7 @@ function fixture(
   acceptedProof = "opaque-trusted-session-proof",
 ) {
   const resolved: TrustedSessionAssertionIssuance = {
-    claims: claims(), signedOperationalKey: certificate(), ...changes,
+    claims: claims(), signedOperationalKey: certificate(), eligibleScope: eligibleScope(), ...changes,
   };
   const resolver = vi.fn(async (proof: string) =>
     proof === acceptedProof ? resolved : null);
@@ -84,6 +95,30 @@ describe("D3 SSA central signing primitive — not a login endpoint", () => {
     )).toBe(true);
     expect(signed?.claims).not.toHaveProperty("permissions");
     expect(signed?.claims).not.toHaveProperty("roles");
+  });
+
+  it.each([
+    { field: "sessionId", value: "018f0000-0000-7000-8000-0000000000b1" },
+    { field: "userId", value: "018f0000-0000-7000-8000-0000000000b2" },
+    { field: "tenantMembershipId", value: "018f0000-0000-7000-8000-0000000000b3" },
+    { field: "installationId", value: "018f0000-0000-7000-8000-0000000000b4" },
+    { field: "deviceId", value: "018f0000-0000-7000-8000-0000000000b5" },
+  ] as const)("does not sign when the trusted scope differs at $field", async ({ field, value }) => {
+    const { issuer } = fixture({ eligibleScope: eligibleScope({ [field]: value } as Partial<EligibleBusinessSessionCandidate>) });
+    await expect(issuer.issue("opaque-trusted-session-proof"))
+      .rejects.toThrow("SSA_ISSUER_TRUSTED_SCOPE_MISMATCH");
+  });
+
+  it.each([
+    { label: "business session", scope: { sessionExpiresAt: "2026-10-20T10:59:58.000Z" } },
+    { label: "device credential", scope: { deviceCredentialExpiresAt: "2026-10-20T10:59:58.000Z" } },
+    { label: "expired session", scope: { sessionExpiresAt: "2026-10-20T09:59:59.000Z" } },
+    { label: "expired device credential", scope: { deviceCredentialExpiresAt: "2026-10-20T09:59:59.000Z" } },
+    { label: "invalid scope expiry", scope: { deviceCredentialExpiresAt: "invalid" } },
+  ])("rejects an SSA that exceeds $label validity", async ({ scope }) => {
+    const { issuer } = fixture({ eligibleScope: eligibleScope(scope) });
+    await expect(issuer.issue("opaque-trusted-session-proof"))
+      .rejects.toThrow("SSA_ISSUER_VALIDITY_POLICY_REJECTED");
   });
 
   it("never signs when the trusted resolver rejects a proof", async () => {

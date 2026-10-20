@@ -9,9 +9,12 @@ import {
   type SignedSessionAssertion,
   type SignedSessionAssertionOperationalKey,
 } from "@pos-platform/contracts";
+import type { EligibleBusinessSessionCandidate } from "@pos-platform/database-postgres";
 
 /**
  * The resolver is a SECURITY BOUNDARY, not a type conversion.
+ * The returned eligibleScope must correspond to the authenticated session
+ * and verified device; expiry in signed claims cannot exceed either expiry.
  *
  * A future central authentication service must validate possession of a
  * server-issued, revocable session and derive every claim from trusted
@@ -23,6 +26,8 @@ import {
  */
 export interface TrustedSessionAssertionIssuance {
   readonly claims: SessionAssertionClaims;
+  /** Durable business scope resolved from PostgreSQL, not the renderer. */
+  readonly eligibleScope: EligibleBusinessSessionCandidate;
   /** Current root-signed artifact obtained from the trusted key lifecycle. */
   readonly signedOperationalKey: SignedSessionAssertionOperationalKey;
 }
@@ -47,7 +52,8 @@ export interface SessionAssertionIssuancePolicy {
  *
  * This primitive cannot provide durable sequence allocation or revocation
  * freshness by itself. Do not expose it until the resolver, operational key
- * lifecycle and issuance transaction are implemented and tested.
+ * lifecycle and issuance transaction are implemented and tested. This check
+ * cannot replace revalidation against revocation or physical device proof.
  */
 export class CentralSessionAssertionIssuer {
   constructor(
@@ -83,6 +89,17 @@ export class CentralSessionAssertionIssuer {
     if (trusted === null) return null;
 
     const claims = SessionAssertionClaimsSchema.parse(trusted.claims);
+    const scope = trusted.eligibleScope;
+    // Fail closed if the claims no longer correspond to the authenticated
+    // server-resolved business session and physical device scope.
+    if (scope === null || typeof scope !== "object" ||
+        scope.sessionId !== claims.session_id ||
+        scope.userId !== claims.user_id ||
+        scope.tenantMembershipId !== claims.tenant_membership_id ||
+        scope.installationId !== claims.installation_id ||
+        scope.deviceId !== claims.device_id) {
+      throw new Error("SSA_ISSUER_TRUSTED_SCOPE_MISMATCH");
+    }
     const artifact = SignedSessionAssertionOperationalKeySchema.parse(trusted.signedOperationalKey);
     const key = artifact.claims;
     if (key.environment !== this.expectedEnvironment ||
@@ -119,7 +136,15 @@ export class CentralSessionAssertionIssuer {
     const validUntil = Date.parse(claims.offline_valid_until);
     const keyFrom = Date.parse(key.valid_from);
     const keyUntil = key.valid_until === null ? null : Date.parse(key.valid_until);
+    const sessionUntil = Date.parse(scope.sessionExpiresAt);
+    const deviceCredentialUntil = Date.parse(scope.deviceCredentialExpiresAt);
     if (!Number.isFinite(instant) ||
+        !Number.isFinite(sessionUntil) ||
+        !Number.isFinite(deviceCredentialUntil) ||
+        validUntil > sessionUntil ||
+        validUntil > deviceCredentialUntil ||
+        instant >= sessionUntil ||
+        instant >= deviceCredentialUntil ||
         instant < keyFrom || (keyUntil !== null && instant >= keyUntil) ||
         issuedAt < keyFrom || issuedAt > instant ||
         instant - issuedAt > this.policy.maximumClaimAgeMs ||
