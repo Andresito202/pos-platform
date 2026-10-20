@@ -518,3 +518,32 @@ button {
   .pos-admin-card, .pos-admin-surface, .pos-privacy-notice { padding: 12px; }
   .pos-total strong { font-size: 20px; }
 }
+
+
+/* Decorative, permission-independent theme controls for the existing desktop shell. */
+.pos-shell[data-visual-theme="cyan"] { --pos-accent: #1bc9bd; --pos-accent-soft: #dcfaf6; }
+.pos-shell[data-visual-theme="blue"] { --pos-accent: #4186e5; --pos-accent-soft: #e6f0ff; }
+.pos-shell[data-visual-theme="violet"] { --pos-accent: #9660e8; --pos-accent-soft: #f1eaff; }
+.pos-shell[data-visual-theme="amber"] { --pos-accent: #cc8a26; --pos-accent-soft: #fff4dc; }
+.pos-shell[data-visual-theme="rose"] { --pos-accent: #d35593; --pos-accent-soft: #ffebf4; }
+.pos-shell { --camacho-blue: var(--pos-accent, #1bc9bd); --camacho-blue-text: var(--pos-accent, #128e85); --camacho-blue-soft: var(--pos-accent-soft, #dcfaf6); }
+.pos-sidebar { position: relative; overflow: hidden; isolation: isolate; }
+.pos-sidebar > * { position: relative; z-index: 1; }
+.pos-sidebar::before {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  width: 230px; height: 230px; border-radius: 50%;
+  left: -110px; bottom: 12%; opacity: .42;
+  background: radial-gradient(circle, var(--pos-accent, #1bc9bd) 0%, transparent 68%);
+  filter: blur(26px); animation: pos-lamp-glow 4s ease-in-out infinite alternate;
+}
+.pos-theme-picker { display: flex; gap: 9px; flex-wrap: wrap; margin: -7px 0 23px; }
+.pos-theme-swatch { width: 23px; height: 23px; border: 2px solid #ffffff80; border-radius: 50%; padding: 0; transition: transform .18s, box-shadow .18s; }
+.pos-theme-swatch[aria-pressed="true"] { outline: 2px solid white; outline-offset: 3px; transform: scale(1.06); }
+.pos-theme-swatch-cyan { background: #1bc9bd; }
+.pos-theme-swatch-blue { background: #4186e5; }
+.pos-theme-swatch-violet { background: #9660e8; }
+.pos-theme-swatch-amber { background: #cc8a26; }
+.pos-theme-swatch-rose { background: #d35593; }
+.pos-nav-button[aria-current="page"] { box-shadow: inset 4px 0 var(--pos-accent, #1bc9bd); }
+@keyframes pos-lamp-glow { from { transform: translateY(14px) scale(.92); opacity: .22; } to { transform: translateY(-12px) scale(1.12); opacity: .52; } }
+@media (prefers-reduced-motion: reduce) { .pos-sidebar::before { animation: none; } .pos-theme-swatch { transition: none; } }
