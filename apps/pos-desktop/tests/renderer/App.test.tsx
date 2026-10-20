@@ -382,6 +382,14 @@ describe("Animated visual controls remain authorization-independent", () => {
     expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the branded entry screen fail-closed while authorization is pending", () => {
+    const { container } = render(<App />);
+    expect(screen.getByTestId("authorization-loading")).toBeTruthy();
+    expect(container.querySelector(".pos-entry-logo")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Iniciar sesión" })).toBeNull();
+  });
+
   it("does not render decorative controls or operational screens when authorization fails", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "REJECTED", result_code: "SESSION_NOT_BOUND",
