@@ -577,3 +577,37 @@ button {
 @media (prefers-reduced-motion: reduce) {
  .pos-lamp-interactive .pos-lamp-halo,.pos-lamp-interactive .pos-lamp-beam { transition: none; }
 }
+
+/* Local decorative effects only; no external scripts, requests or new dependencies. */
+.pos-lamp-interactive { touch-action: manipulation; }
+.pos-lamp-interactive .pos-lamp-particles {
+  position: absolute; inset: 35% 9% 4% 35%; z-index: 2; pointer-events: none;
+  background-image:
+    radial-gradient(circle, #ffe6a0ba 0 1px, transparent 2px),
+    radial-gradient(circle, #fff9d299 0 1px, transparent 2px),
+    radial-gradient(circle, #efc879aa 0 1px, transparent 2px);
+  background-size: 32px 41px, 49px 62px, 65px 48px;
+  animation: pos-lamp-dust 7s linear infinite;
+}
+.pos-lamp-interactive:not(.is-on) .pos-lamp-particles { opacity: 0; animation: none; }
+.pos-lamp-interactive .pos-lamp-pull-cue {
+  position: absolute; z-index: 4; top: 57%; left: 54%;
+  height: 25px; width: 2px; pointer-events: none;
+  background: linear-gradient(#f5dc99,#b88234);
+  transform-origin: top center;
+  transition: transform .24s ease;
+}
+.pos-lamp-interactive .pos-lamp-pull-cue::after {
+  content: ""; position: absolute; bottom: -5px; left: -4px;
+  width: 10px; height: 11px; border-radius: 50%;
+  background: linear-gradient(135deg,#ffebad,#9b6a25); border: 1px solid #5e431f;
+}
+.pos-lamp-interactive:active .pos-lamp-pull-cue { transform: translateY(15px) scaleY(1.35); }
+@keyframes pos-lamp-dust {
+  from { background-position: 0 0, 9px 20px, 22px 14px; }
+  to { background-position: 0 -80px, 9px -102px, 22px -72px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pos-lamp-interactive .pos-lamp-particles { animation: none; }
+  .pos-lamp-interactive .pos-lamp-pull-cue { transition: none; }
+}
