@@ -207,6 +207,16 @@ export function App(): React.JSX.Element {
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
+        <div className="pos-lamp-illustration" aria-hidden="true">
+          <div className="pos-lamp-halo" />
+          <div className="pos-lamp-beam" />
+          <div className="pos-lamp-shade" />
+          <div className="pos-lamp-upper-arm" />
+          <div className="pos-lamp-joint pos-lamp-joint-top" />
+          <div className="pos-lamp-lower-arm" />
+          <div className="pos-lamp-joint pos-lamp-joint-bottom" />
+          <div className="pos-lamp-base" />
+        </div>
         <div className="pos-theme-picker" role="group" aria-label="Color de la interfaz">
           {(["cyan", "blue", "violet", "amber", "rose"] as const).map((theme) => (
             <button key={theme} type="button" className={`pos-theme-swatch pos-theme-swatch-${theme}`}
