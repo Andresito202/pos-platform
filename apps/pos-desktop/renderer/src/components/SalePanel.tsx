@@ -46,7 +46,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
     <section data-testid="sale-panel">
       <h2>Caja</h2>
       {sale.shift === null ? (
-        <div data-testid="shift-closed">
+        <div data-testid="shift-closed" className="pos-shift-card">
           <input data-testid="cash-register-input" aria-label="ID de la caja" value={registerId}
             onChange={(e) => { setRegisterId(e.target.value); }} placeholder="ID de la caja" disabled={sale.busy} />
           <input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}

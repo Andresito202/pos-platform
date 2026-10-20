@@ -1,7 +1,6 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import "./App.css";
-import lampIllustration from "./assets/lamp.svg";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
@@ -74,11 +73,6 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
-  const [lampOn, setLampOn] = useState(true);
-  const [cordPull, setCordPull] = useState(0);
-  const cordStart = useRef<number | null>(null);
-  const suppressClick = useRef(false);
-  const [visualTheme, setVisualTheme] = useState<"cyan" | "blue" | "violet" | "amber" | "rose">("cyan");
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
   const [receiptTarget, setReceiptTarget] = useState<string | null>(null);
   const [fiscalTarget, setFiscalTarget] = useState<string | null>(null);
@@ -188,10 +182,6 @@ export function App(): React.JSX.Element {
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Camacho POS Colombia">
           <div className="pos-entry-logo" role="img" aria-label="Camacho POS Colombia" />
-          <div className="pos-entry-lamp" aria-hidden="true">
-            <span className="pos-entry-light" />
-            <img src={lampIllustration} alt="" />
-          </div>
         </section>
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
@@ -214,52 +204,11 @@ export function App(): React.JSX.Element {
   const selectedScreen = screens.find((screen) => screen.id === activeScreen) ?? screens[0] ?? null;
 
   return (
-    <main className="pos-shell" data-visual-theme={visualTheme} data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}>
+    <main className="pos-shell" data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}>
       <aside className="pos-sidebar" aria-label="Navegación principal">
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
-        <button type="button" className={`pos-lamp-illustration pos-lamp-interactive${lampOn ? " is-on" : ""}`}
-          aria-label={lampOn ? "Apagar lámpara decorativa" : "Encender lámpara decorativa"}
-          aria-pressed={lampOn}
-          onPointerDown={(event) => {
-            if (event.pointerType === "mouse" && event.button !== 0) return;
-            cordStart.current = event.clientY;
-            event.currentTarget.setPointerCapture?.(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            if (cordStart.current === null) return;
-            setCordPull(Math.max(0, Math.min(78, event.clientY - cordStart.current)));
-          }}
-          onPointerUp={(event) => {
-            if (cordStart.current === null) return;
-            const distance = Math.max(0, event.clientY - cordStart.current);
-            cordStart.current = null;
-            setCordPull(0);
-            if (distance >= 36) {
-              suppressClick.current = true;
-              setLampOn((current) => !current);
-            }
-          }}
-          onPointerCancel={() => { cordStart.current = null; setCordPull(0); }}
-          onClick={() => {
-            if (suppressClick.current) { suppressClick.current = false; return; }
-            setLampOn((current) => !current);
-          }}>
-          <span className="pos-lamp-halo" aria-hidden="true" />
-          <span className="pos-lamp-beam" aria-hidden="true" />
-          <span className="pos-lamp-particles" aria-hidden="true" />
-          <span className="pos-lamp-pull-cue" aria-hidden="true" style={{ transform: `translateY(${cordPull}px) scaleY(${1 + cordPull / 80})` }} />
-          <img className="pos-lamp-image" src={lampIllustration} alt="" draggable={false} />
-          <span className="pos-lamp-help" aria-hidden="true">Lámpara · {lampOn ? "encendida" : "apagada"}</span>
-        </button>
-        <div className="pos-theme-picker" role="group" aria-label="Color de la interfaz">
-          {(["cyan", "blue", "violet", "amber", "rose"] as const).map((theme) => (
-            <button key={theme} type="button" className={`pos-theme-swatch pos-theme-swatch-${theme}`}
-              aria-label={`Color ${theme}`} aria-pressed={visualTheme === theme}
-              onClick={() => setVisualTheme(theme)} />
-          ))}
-        </div>
         <nav className="pos-nav">
           {(["Operación", "Catálogo e inventario", "Administración", "Plataforma"] as const).map((section) => {
             const sectionScreens = screens.filter((screen) => screen.section === section);
@@ -312,9 +261,10 @@ export function App(): React.JSX.Element {
           )}
         </section>
 
-        <section className="pos-operation" aria-label="Operación técnica">
+        <details className="pos-operation" aria-label="Herramientas técnicas">
+          <summary>Herramientas técnicas y diagnóstico</summary>
           <OperationPanel />
-        </section>
+        </details>
       </div>
     </main>
   );

@@ -246,6 +246,17 @@ describe("App", () => {
   });
 
 
+  it("keeps technical diagnostics collapsed in the operator workspace", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("operation-panel")).toBeTruthy());
+    const summary = screen.getByText("Herramientas técnicas y diagnóstico");
+    const disclosure = summary.closest("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure?.hasAttribute("open")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Encender lámpara decorativa" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Apagar lámpara decorativa" })).toBeNull();
+  });
+
   it("renders the POS Local heading", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: /Camacho POS Colombia/i })).toBeTruthy();
