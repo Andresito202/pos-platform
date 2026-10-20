@@ -213,11 +213,11 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
       {sale.transfer !== null && (
         <div data-testid="transfer-registered" className="pos-result-pending">
           Transferencia registrada · pago <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span> · estado <span data-testid="transfer-status">{sale.transfer.status}</span> · reportado <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
-          {sale.transfer.status === "REPORTED" && sale.transferConfirmation === null && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
+          {sale.transfer.status === "CREATED" && sale.transferConfirmation === null && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
           {sale.transfer.status === null && <p>El pago quedó registrado. Su estado y versión requieren consulta autorizada.</p>}
-          <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) || sale.transfer.version === null || sale.transfer.status !== "REPORTED"}>Confirmar transferencia</button>
+          <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Confirmar transferencia</button>
           <button data-testid="cancel-transfer-button" onClick={() => { void sale.cancelTransfer(); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_CANCEL) || sale.transfer.version === null || sale.transfer.status !== "REPORTED"}>Cancelar transferencia no confirmada</button>
+            disabled={sale.busy || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_CANCEL) || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Cancelar transferencia no confirmada</button>
           {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && <button disabled={sale.busy}
             onClick={() => { void sale.loadTransfer(sale.transfer!.paymentId); }}>Actualizar estado de la transferencia</button>}
         </div>

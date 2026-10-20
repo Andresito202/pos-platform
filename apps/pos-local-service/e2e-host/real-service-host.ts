@@ -7,15 +7,18 @@ import {
   unsignedSessionAssertionBytes,
   type TrustedSigningKey,
 } from "../src/index.js";
-import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
+import { LocalDatabaseComponent } from "../src/local-database-component.js";
+import { DurableSyncComponent } from "../src/sync/durable-sync-component.js";
+import { OperationConfirmationComponent } from "../src/operations/operation-confirmation-component.js";
+import { LocalChannelComponent } from "../src/channel/local-channel-component.js";
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
-import { PermissionCode } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -28,19 +31,17 @@ import {
  * POS Local Service **real** como proceso independiente, para verificar el
  * canal contra un Electron real.
  *
- * No es un doble ni un simulador: levanta `LocalChannelServer`,
- * `CommercialComponent` y SQLite de producción, y los puentea igual que
- * `local-channel-component.ts`. Lo único que aporta el arnés es el secreto del
- * canal y el material criptográfico de la sesión, que en producción resuelven
- * DPAPI y el emisor central —piezas que aquí no existen y que **no se simulan**:
- * simplemente se inyectan desde fuera.
+ * Levanta CommercialComponent y SQLite reales. En Windows reutiliza
+ * LocalChannelComponent con DPAPI; en POSIX conecta LocalChannelServer al
+ * handler comercial. Identidad, SSA, snapshot, caja y rango son fixtures.
+ * El proveedor fiscal es FakeIssuancePort: no se acredita FACTUS ni login.
  *
  * Vive fuera de `src/` a propósito. No forma parte del servicio distribuible:
  * es andamiaje de verificación, y mezclarlo con el runtime sería exactamente el
  * tipo de confusión que este proyecto persigue.
  *
- * TODO EL MATERIAL CRIPTOGRÁFICO ES EXCLUSIVO DE VERIFICACIÓN: se genera en
- * memoria, no se persiste y no sustituye a un trust anchor de producción.
+ * TODO EL MATERIAL CRIPTOGRÁFICO ES EXCLUSIVO DE VERIFICACIÓN: las claves de
+ * firma viven en memoria; el secreto DPAPI queda sólo en el directorio temporal.
  *
  * Protocolo con el proceso que lo lanza: imprime una línea JSON en `stdout`
  * —`{"ready":true,...}`— con lo que la prueba necesita, y se apaga con SIGTERM.
@@ -67,12 +68,14 @@ const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
 const SESSION_KEY_ID = "SESSION_KEY_1";
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 
-const PERMISSIONS = Object.values(PermissionCode);
+const PERMISSIONS = Object.values(CanonicalPermission);
 
 const keyPair = generateKeyPairSync("ed25519");
 
 function config(): ServiceConfig {
   return {
+    data_directory: DATA_DIRECTORY,
+    service_version: "1.0.0",
     tenant_id: TENANT,
     company_id: COMPANY,
     branch_id: BRANCH,
@@ -83,7 +86,7 @@ function config(): ServiceConfig {
     // `DEC-021` F5. En produccion lo pone `POS_FISCAL_ENVIRONMENT`; aqui va
     // fijo a SANDBOX porque la credencial que deposita el arnes es de prueba.
     fiscal_environment: "SANDBOX",
-  } as ServiceConfig;
+  };
 }
 
 /**
@@ -198,7 +201,13 @@ function seedRegister(database: LocalDatabase): void {
 }
 
 async function main(): Promise<void> {
-  const database = LocalDatabase.open({ dataDirectory: DATA_DIRECTORY });
+  const localDatabase = new LocalDatabaseComponent(DATA_DIRECTORY);
+  await localDatabase.start();
+  const database = localDatabase.database;
+  const durableSync = new DurableSyncComponent(localDatabase);
+  await durableSync.start();
+  const operations = new OperationConfirmationComponent(localDatabase, durableSync);
+  await operations.start();
 
   new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
     {
@@ -232,8 +241,8 @@ async function main(): Promise<void> {
 
   const commercial = new CommercialComponent(
     config(),
-    { database } as never,
-    { store: new DurableSyncStore(database) } as never,
+    localDatabase,
+    durableSync,
     keys,
     () => NOW,
     fiscalSecretStore,
@@ -243,7 +252,9 @@ async function main(): Promise<void> {
   const handler = new CommercialRequestHandler(config(), commercial);
 
   const endpoint = localChannelEndpoint(INSTALLATION, process.platform, DATA_DIRECTORY);
-  const server = new LocalChannelServer(
+  const server = process.platform === "win32"
+    ? new LocalChannelComponent(config(), localDatabase, () => "READY", operations, commercial)
+    : new LocalChannelServer(
     endpoint,
     // Reloj del sistema, no `NOW`: el autenticador valida la marca temporal de
     // cada trama contra una ventana de deriva, y el Electron del otro extremo
@@ -265,6 +276,16 @@ async function main(): Promise<void> {
           error: null,
           server_time: NOW.toISOString(),
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
+        };
+      }
+      // POSIX harness metadata only; Windows uses the production component.
+      if (envelope.message_type === "runtime.status.get") {
+        return {
+          protocol_version: "1.0.0", request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id, operation_id: null,
+          status: "SUCCEEDED", result_code: "OK", result_schema_version: "1.0.0",
+          error: null, server_time: NOW.toISOString(),
+          result: { service_version: "1.0.0", protocol_version: "1.0.0", service_state: "READY", schema_version: "5" },
         };
       }
       // El servidor ya validó el sobre; el handshake quedó atendido arriba.
@@ -294,6 +315,8 @@ async function main(): Promise<void> {
       try {
         await server.stop();
         await commercial.stop();
+        await operations.stop();
+        await durableSync.stop();
       } finally {
         database.close();
         process.exit(0);
@@ -302,6 +325,11 @@ async function main(): Promise<void> {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+  if (process.connected && process.env.NODE_ENV === "test") {
+    process.on("message", (message: unknown) => {
+      if (message === "pos-e2e-shutdown") shutdown();
+    });
+  }
 }
 
 main().catch((error: unknown) => {

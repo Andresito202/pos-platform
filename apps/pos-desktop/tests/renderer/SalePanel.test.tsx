@@ -456,7 +456,7 @@ describe("SalePanel · transferencia", () => {
 
   const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
 
-  const fetched = (version: number, status = "REPORTED") => succeeded({
+  const fetched = (version: number, status = "CREATED") => succeeded({
     outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
     method: "TRANSFER", status, expected_amount: "3500.000000",
     confirmed_amount: null, currency_code: "COP", version,
@@ -506,7 +506,7 @@ describe("SalePanel · transferencia", () => {
 
     // payment.get se consulta de verdad: es la única fuente de la versión.
     expect(calls.get("payment.get")).toHaveLength(1);
-    expect(screen.getByTestId("transfer-status").textContent).toBe("REPORTED");
+    expect(screen.getByTestId("transfer-status").textContent).toBe("CREATED");
     expect(screen.getByTestId("transfer-expected-amount").textContent).toBe("3500.000000");
   });
 
