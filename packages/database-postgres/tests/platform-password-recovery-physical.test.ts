@@ -696,4 +696,143 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     expect(stored.rows).toEqual([{ total: 1 }]);
   });
 
+  it("physically rejects cross-account and revoked global sessions before WebAuthn verification", async () => {
+    const userId = await createUser(), otherUserId = await createUser(), sessionId = uuidV7();
+    await createPlatformRoleFor(userId);
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'PENDING', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const issued = await webauthn.issue({
+      userId, sessionId, factorId: null, purpose: "ENROLL",
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+      expiresAt: new Date(Date.now() + 300000).toISOString(), correlationId: uuidV7(),
+    });
+    const tx = new PostgresPlatformWebAuthnEnrollmentTransaction(
+      platformPool, async (proof) => ({
+        userId: proof === "wrong-account" ? otherUserId : userId, sessionId,
+      }), 300000,
+    );
+    const input = { challenge: issued.challenge, rpId: "admin.example.test",
+      expectedOrigin: "https://admin.example.test" };
+    let calls = 0;
+    const proof = async () => {
+      calls++;
+      return {
+        credentialId: randomBytes(32).toString("base64url"),
+        publicKeyCoseBase64url: randomBytes(65).toString("base64url"),
+        counter: 0, backupEligible: false, backedUp: false, userVerified: true as const,
+      };
+    };
+    expect(await tx.verifyAndEnroll({ ...input, authorizationProof: "wrong-account" }, proof))
+      .toBeNull();
+    await owner!.query(
+      `UPDATE identity.sessions
+          SET revoked_at = clock_timestamp(), revoked_by_actor_type = 'SYSTEM',
+              revocation_reason = 'TEST_REVOKED', version = version + 1
+        WHERE id = $1`,
+      [sessionId],
+    );
+    expect(await tx.verifyAndEnroll({ ...input, authorizationProof: "correct-account" }, proof))
+      .toBeNull();
+    expect(calls).toBe(0);
+    const stored = await owner!.query(
+      `SELECT (SELECT count(*)::int FROM identity.mfa_factors WHERE user_id = $1) AS factors,
+              (SELECT consumed_at IS NULL FROM identity.webauthn_challenges WHERE id = $2) AS pending`,
+      [userId, issued.challengeId],
+    );
+    expect(stored.rows).toEqual([{ factors: 0, pending: true }]);
+  });
+
+  it("physically rejects an already expired ENROLL challenge without producing a factor", async () => {
+    const userId = await createUser(), sessionId = uuidV7(), challengeId = uuidV7();
+    await createPlatformRoleFor(userId);
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'PENDING', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const challenge = randomBytes(32).toString("base64url");
+    const digest = createHash("sha256").update(challenge, "utf8").digest("hex");
+    await owner!.query(
+      `INSERT INTO identity.webauthn_challenges
+         (id, user_id, factor_id, session_id, purpose, challenge_hash,
+          rp_id, expected_origin, issued_at, expires_at, correlation_id)
+       VALUES ($1, $2, NULL, $3, 'ENROLL', $4, 'admin.example.test',
+               'https://admin.example.test', clock_timestamp() - interval '2 minutes',
+               clock_timestamp() - interval '1 minute', $5)`,
+      [challengeId, userId, sessionId, digest, uuidV7()],
+    );
+    const tx = new PostgresPlatformWebAuthnEnrollmentTransaction(
+      platformPool, async () => ({ userId, sessionId }), 300000,
+    );
+    let called = false;
+    expect(await tx.verifyAndEnroll({
+      authorizationProof: "fixture", challenge,
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+    }, async () => {
+      called = true;
+      return null;
+    })).toBeNull();
+    expect(called).toBe(false);
+    const stored = await owner!.query(
+      `SELECT consumed_at IS NULL AS pending FROM identity.webauthn_challenges WHERE id=$1`,
+      [challengeId],
+    );
+    expect(stored.rows).toEqual([{ pending: true }]);
+  });
+
+  it("physically rolls back a duplicate credential with a second unused ENROLL challenge", async () => {
+    const userId = await createUser(), sessionId = uuidV7();
+    await createPlatformRoleFor(userId);
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'PENDING', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const issue = () => webauthn.issue({
+      userId, sessionId, factorId: null, purpose: "ENROLL" as const,
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+      expiresAt: new Date(Date.now() + 300000).toISOString(), correlationId: uuidV7(),
+    });
+    const first = await issue(), second = await issue();
+    const tx = new PostgresPlatformWebAuthnEnrollmentTransaction(
+      platformPool, async () => ({ userId, sessionId }), 300000,
+    );
+    const proof = async () => ({
+      credentialId: randomBytes(32).toString("base64url"),
+      publicKeyCoseBase64url: randomBytes(65).toString("base64url"),
+      counter: 0, backupEligible: false, backedUp: false, userVerified: true as const,
+    });
+    // Keep a single credential identifier for both valid challenge proofs.
+    const oneCredential = await proof();
+    const args = (challenge: string) => ({
+      authorizationProof: "fixture", challenge, rpId: "admin.example.test",
+      expectedOrigin: "https://admin.example.test",
+    });
+    expect(await tx.verifyAndEnroll(args(first.challenge), async () => oneCredential))
+      .not.toBeNull();
+    await expect(tx.verifyAndEnroll(args(second.challenge), async () => oneCredential))
+      .rejects.toThrow();
+    const stored = await owner!.query(
+      `SELECT
+         (SELECT count(*)::int FROM identity.mfa_factors WHERE user_id=$1) AS factors,
+         (SELECT consumed_at IS NULL FROM identity.webauthn_challenges WHERE id=$2) AS second_pending,
+         (SELECT count(*)::int FROM identity.security_events
+           WHERE user_id=$1 AND event_code='PLATFORM_MFA_ENROLLED') AS audit_count`,
+      [userId, second.challengeId],
+    );
+    expect(stored.rows).toEqual([{ factors: 1, second_pending: true, audit_count: 1 }]);
+  });
+
 });
