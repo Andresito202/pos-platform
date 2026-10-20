@@ -611,3 +611,14 @@ button {
   .pos-lamp-interactive .pos-lamp-particles { animation: none; }
   .pos-lamp-interactive .pos-lamp-pull-cue { transition: none; }
 }
+
+/* Visual area is derived from the already-authorized navigation, never from a role picker. */
+.pos-shell[data-visual-area="operation"] .pos-header { border-bottom: 2px solid color-mix(in srgb, var(--pos-accent, #1bc9bd) 35%, transparent); }
+.pos-shell[data-visual-area="administration"] .pos-header { border-bottom: 2px solid color-mix(in srgb, var(--pos-accent, #1bc9bd) 65%, transparent); }
+.pos-shell[data-visual-area="platform"] .pos-header { border-bottom: 2px solid #b89253; }
+.pos-shell[data-visual-area="platform"] .pos-product-name { letter-spacing: .1em; }
+.pos-shell[data-visual-area="platform"] .pos-sidebar { box-shadow: inset -3px 0 #b8925360; }
+.pos-shell[data-visual-area="administration"] .pos-sidebar { box-shadow: inset -3px 0 var(--pos-accent, #1bc9bd); }
+.pos-shell .pos-content { animation: pos-screen-reveal .32s ease-out both; }
+@keyframes pos-screen-reveal { from { opacity: .8; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pos-shell .pos-content { animation: none; } }
