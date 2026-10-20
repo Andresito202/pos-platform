@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresBusinessSessionSsaEligibilityRepository, uuidV7 } from "../src/index.js";
+import { PostgresBusinessSessionSsaEligibilityRepository, PostgresBusinessSsaSequenceAllocator, uuidV7 } from "../src/index.js";
 
 /**
  * Opt-in physical RLS proof. ONLY a throwaway, RANDOM database is created on
@@ -44,6 +44,7 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
   let runtime: Pool | undefined;
   let created = false;
   let repository: PostgresBusinessSessionSsaEligibilityRepository;
+  let allocator: PostgresBusinessSsaSequenceAllocator;
 
   beforeAll(async () => {
     fixtureUrl();
@@ -66,6 +67,9 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
       await ddl.query("SET ROLE pos_schema_owner");
       await ddl.query(await readFile(join(SQL_DIR, "001_central_foundation.up.sql"), "utf8"));
       await ddl.query(await readFile(join(SQL_DIR, "004_device_trust.up.sql"), "utf8"));
+      await ddl.query(await readFile(join(SQL_DIR, "009_webauthn_challenges.up.sql"), "utf8"));
+      await ddl.query(await readFile(join(SQL_DIR, "010_webauthn_credential_material.up.sql"), "utf8"));
+      await ddl.query(await readFile(join(SQL_DIR, "011_session_assertion_sequences.up.sql"), "utf8"));
     } finally {
       try { await ddl.query("RESET ROLE"); } finally { ddl.release(); }
     }
@@ -121,6 +125,7 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
       throw new Error("SSA_PHYSICAL_RUNTIME_ROLE_INVALID");
     }
     repository = new PostgresBusinessSessionSsaEligibilityRepository(runtime, 5 * 60 * 1000);
+    allocator = new PostgresBusinessSsaSequenceAllocator(runtime, 5 * 60 * 1000);
   }, 120_000);
 
   afterAll(async () => {
@@ -203,4 +208,76 @@ describe.runIf(Boolean(SERVER_URL))("business SSA session eligibility — physic
       await owner!.query("UPDATE identity.sessions SET mfa_status='SATISFIED',version=version+1 WHERE id=$1", [ids.session]);
     }
   });
+
+  it("physically reserves monotonic concurrent SSA sequences under pos_platform_app and FORCE RLS", async () => {
+    const policy = await owner!.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+      "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid='identity.session_assertion_sequences'::regclass",
+    );
+    expect(policy.rows).toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
+    const first = await allocator.reserveForVerifiedProof(request());
+    expect(first?.sequence).toBe(1);
+    expect(first?.eligibleScope).toMatchObject({ sessionId: ids.session, userId: ids.user, tenantId: ids.tenant });
+
+    const results = await Promise.all(Array.from({ length: 6 }, () => allocator.reserveForVerifiedProof(request())));
+    expect(results.map((v) => v?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([2, 3, 4, 5, 6, 7]);
+    const persisted = await owner!.query<{ last_issued_sequence: string }>(
+      "SELECT last_issued_sequence::text FROM identity.session_assertion_sequences WHERE user_id=$1 AND installation_id=$2 AND device_id=$3",
+      [ids.user, ids.installation, ids.device],
+    );
+    expect(persisted.rows).toEqual([{ last_issued_sequence: "7" }]);
+    // A checked-out connection cannot inherit the tenant context from reserve.
+    const scoped = await runtime!.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM tenancy.tenants WHERE id=$1", [ids.tenant],
+    );
+    expect(scoped.rows[0]?.count).toBe("0");
+  });
+
+  it("persists SSA watermark across a newly created session for the same binding", async () => {
+    const newSession = uuidV7();
+    await owner!.query(
+      "INSERT INTO identity.sessions (id,user_id,tenant_id,tenant_membership_id,device_id,authenticated_at,expires_at,last_reauthenticated_at,mfa_status,created_at) VALUES ($1,$2,$3,$4,NULL,clock_timestamp()-interval '30 seconds',clock_timestamp()+interval '30 minutes',clock_timestamp()-interval '30 seconds','SATISFIED',clock_timestamp()-interval '30 seconds')",
+      [newSession, ids.user, ids.tenant, ids.member],
+    );
+    const res = await allocator.reserveForVerifiedProof({ ...request(), sessionId: newSession });
+    expect(res?.sequence).toBe(8);
+    expect(res?.eligibleScope.sessionId).toBe(newSession);
+  });
+
+  it("physically refuses reservation on revoked session or MFA and preserves watermark", async () => {
+    await owner!.query("UPDATE identity.sessions SET mfa_status='PENDING',version=version+1 WHERE id=$1", [ids.session]);
+    try {
+      expect(await allocator.reserveForVerifiedProof(request())).toBeNull();
+    } finally {
+      await owner!.query("UPDATE identity.sessions SET mfa_status='SATISFIED',version=version+1 WHERE id=$1", [ids.session]);
+    }
+    await owner!.query("UPDATE identity.mfa_factors SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1", [ids.factor]);
+    try {
+      expect(await allocator.reserveForVerifiedProof(request())).toBeNull();
+    } finally {
+      await owner!.query("UPDATE identity.mfa_factors SET status='ACTIVE',revoked_at=NULL,version=version+1 WHERE id=$1", [ids.factor]);
+    }
+    const persisted = await owner!.query<{ seq: string }>(
+      "SELECT last_issued_sequence::text AS seq FROM identity.session_assertion_sequences WHERE user_id=$1 AND installation_id=$2 AND device_id=$3",
+      [ids.user, ids.installation, ids.device],
+    );
+    expect(persisted.rows).toEqual([{ seq: "8" }]);
+  });
+
+  it("forbids watermark rewinds or deletes and rejects destructive rollback", async () => {
+    await expect(owner!.query(
+      "UPDATE identity.session_assertion_sequences SET last_issued_sequence=1 WHERE user_id=$1 AND installation_id=$2 AND device_id=$3",
+      [ids.user, ids.installation, ids.device],
+    )).rejects.toThrow();
+    await expect(owner!.query(
+      "DELETE FROM identity.session_assertion_sequences WHERE user_id=$1 AND installation_id=$2 AND device_id=$3",
+      [ids.user, ids.installation, ids.device],
+    )).rejects.toThrow();
+    await expect(owner!.query(await readFile(join(SQL_DIR, "011_session_assertion_sequences.down.sql"), "utf8"))).rejects.toThrow("011 rollback refused");
+    const persisted = await owner!.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM identity.session_assertion_sequences WHERE user_id=$1",
+      [ids.user],
+    );
+    expect(persisted.rows).toEqual([{ count: "1" }]);
+  });
+
 });

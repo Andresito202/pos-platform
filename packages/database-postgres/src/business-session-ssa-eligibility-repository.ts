@@ -34,54 +34,9 @@ export interface EligibleBusinessSessionCandidate {
  * and credential tables. This gate reads all relevant records in one statement;
  * it never changes sessions, permissions, MFA state or schema.
  */
-export class PostgresBusinessSessionSsaEligibilityRepository {
-  constructor(
-    private readonly pool: Pool,
-    private readonly maximumReauthenticationAgeMs: number,
-  ) {
-    if (!Number.isSafeInteger(maximumReauthenticationAgeMs) ||
-        maximumReauthenticationAgeMs <= 0) {
-      throw new Error("SSA_BUSINESS_REAUTH_POLICY_INVALID");
-    }
-  }
 
-  async findCandidate(input: BusinessSessionEligibilityInput): Promise<EligibleBusinessSessionCandidate | null> {
-    const sessionId = UuidSchema.parse(input.sessionId);
-    const deviceId = UuidSchema.parse(input.deviceId);
-    const installationId = UuidSchema.parse(input.installationId);
-    // Read-only consistent snapshot. RLS on tenancy and company tables is
-    // enabled and FORCEd by migration 001. A PostgreSQL pool without a tenant
-    // context sees no eligible rows; never take app.tenant_id from the client.
-    const client = await this.pool.connect();
-    let transactionOpen = false;
-    try {
-      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY");
-      transactionOpen = true;
-      // pos_platform_app has the existing sessions_identity_select policy;
-      // derive the tenant from the durable session, not untrusted input.
-      const scope = await client.query<{ tenant_id: string }>(
-        "SELECT tenant_id::text AS tenant_id FROM identity.sessions WHERE id = $1 AND tenant_id IS NOT NULL",
-        [sessionId],
-      );
-      const tenantId = scope.rows[0]?.tenant_id;
-      if (!tenantId) {
-        await client.query("ROLLBACK");
-        transactionOpen = false;
-        return null;
-      }
-      await client.query("SELECT set_config('app.tenant_id', $1, true)", [UuidSchema.parse(tenantId)]);
-      const result = await client.query<{
-      session_id: string;
-      user_id: string;
-      tenant_id: string;
-      tenant_membership_id: string;
-      company_id: string;
-      device_id: string;
-      installation_id: string;
-      session_expires_at: Date;
-      credential_expires_at: Date;
-    }>(
-      [
+/** Shared server-side eligibility predicate: consumer must set transaction-local RLS tenant. */
+export const BUSINESS_SSA_ELIGIBILITY_SQL = [
         "SELECT s.id::text AS session_id, s.user_id::text AS user_id,",
         "       s.tenant_id::text AS tenant_id,",
         "       s.tenant_membership_id::text AS tenant_membership_id,",
@@ -132,7 +87,56 @@ export class PostgresBusinessSessionSsaEligibilityRepository {
         "                  AND mf.revoked_at IS NULL)",
         " ORDER BY dc.generation DESC",
         " LIMIT 1",
-      ].join("\n"),
+      ].join("\n");
+
+export class PostgresBusinessSessionSsaEligibilityRepository {
+  constructor(
+    private readonly pool: Pool,
+    private readonly maximumReauthenticationAgeMs: number,
+  ) {
+    if (!Number.isSafeInteger(maximumReauthenticationAgeMs) ||
+        maximumReauthenticationAgeMs <= 0) {
+      throw new Error("SSA_BUSINESS_REAUTH_POLICY_INVALID");
+    }
+  }
+
+  async findCandidate(input: BusinessSessionEligibilityInput): Promise<EligibleBusinessSessionCandidate | null> {
+    const sessionId = UuidSchema.parse(input.sessionId);
+    const deviceId = UuidSchema.parse(input.deviceId);
+    const installationId = UuidSchema.parse(input.installationId);
+    // Read-only consistent snapshot. RLS on tenancy and company tables is
+    // enabled and FORCEd by migration 001. A PostgreSQL pool without a tenant
+    // context sees no eligible rows; never take app.tenant_id from the client.
+    const client = await this.pool.connect();
+    let transactionOpen = false;
+    try {
+      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+      transactionOpen = true;
+      // pos_platform_app has the existing sessions_identity_select policy;
+      // derive the tenant from the durable session, not untrusted input.
+      const scope = await client.query<{ tenant_id: string }>(
+        "SELECT tenant_id::text AS tenant_id FROM identity.sessions WHERE id = $1 AND tenant_id IS NOT NULL",
+        [sessionId],
+      );
+      const tenantId = scope.rows[0]?.tenant_id;
+      if (!tenantId) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+        return null;
+      }
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [UuidSchema.parse(tenantId)]);
+      const result = await client.query<{
+      session_id: string;
+      user_id: string;
+      tenant_id: string;
+      tenant_membership_id: string;
+      company_id: string;
+      device_id: string;
+      installation_id: string;
+      session_expires_at: Date;
+      credential_expires_at: Date;
+    }>(
+      BUSINESS_SSA_ELIGIBILITY_SQL,
       [sessionId, deviceId, installationId, this.maximumReauthenticationAgeMs],
     );
     const row = result.rows[0];

@@ -12,3 +12,4 @@ export * from "./platform-webauthn-material-repository.js";
 export * from "./platform-webauthn-assertion-transaction.js";
 export * from "./platform-webauthn-enrollment-transaction.js";
 export * from "./business-session-ssa-eligibility-repository.js";
+export * from "./business-session-ssa-sequence-allocator.js";
