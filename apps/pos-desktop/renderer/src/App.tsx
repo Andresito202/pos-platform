@@ -207,7 +207,7 @@ export function App(): React.JSX.Element {
   const selectedScreen = screens.find((screen) => screen.id === activeScreen) ?? screens[0] ?? null;
 
   return (
-    <main className="pos-shell" data-visual-theme={visualTheme}>
+    <main className="pos-shell" data-visual-theme={visualTheme} data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}>
       <aside className="pos-sidebar" aria-label="Navegación principal">
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
@@ -281,7 +281,7 @@ export function App(): React.JSX.Element {
       <div className="pos-content">
         <header className="pos-header">
           <div>
-            <p className="pos-product-name">Camacho POS Colombia</p>
+            <p className="pos-product-name">Camacho POS Colombia · {selectedScreen?.section ?? "Sesión autorizada"}</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
             <p>Operación disponible según los permisos efectivos de la sesión.</p>
           </div>
