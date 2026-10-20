@@ -13,8 +13,8 @@ El launcher usa los procesos existentes:
 
 En PowerShell, desde la raíz:
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\local\launch-windows.ps1 -CheckOnly
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\local\launch-windows.ps1
+    powershell -NoProfile -File .\tools\local\launch-windows.ps1 -CheckOnly
+    powershell -NoProfile -File .\tools\local\launch-windows.ps1
 
 Requiere los valores de aprovisionamiento ya existentes:
 POS_DATA_DIRECTORY, POS_INSTALLATION_ID, POS_DEVICE_ID,
