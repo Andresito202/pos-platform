@@ -357,6 +357,16 @@ describe("Animated visual controls remain authorization-independent", () => {
     expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
   });
 
+  it("supports dragging the decorative lamp cord without changing authorization", async () => {
+    render(<App />);
+    const lamp = await screen.findByRole("button", { name: "Apagar lámpara decorativa" });
+    fireEvent.pointerDown(lamp, { pointerType: "mouse", button: 0, pointerId: 1, clientY: 100 });
+    fireEvent.pointerMove(lamp, { pointerId: 1, clientY: 145 });
+    fireEvent.pointerUp(lamp, { pointerId: 1, clientY: 145 });
+    expect(screen.getByRole("button", { name: "Encender lámpara decorativa" }).getAttribute("aria-pressed")).toBe("false");
+    expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
+  });
+
   it("changes visual area only after an authorized navigation event", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED", result_code: "AVAILABLE",
