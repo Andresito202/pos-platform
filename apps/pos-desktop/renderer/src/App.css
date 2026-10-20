@@ -584,7 +584,7 @@ button {
 }
 
 /* SVG lamp presentation, isolated from authentication and permissions. */
-.pos-lamp-interactive { display: block; background: transparent; border: 0; padding: 0; cursor: pointer; overflow: visible; }
+.pos-lamp-interactive { display: block; background: transparent; border: 0; padding: 0; cursor: pointer; pointer-events: auto; overflow: visible; }
 .pos-lamp-interactive .pos-lamp-image { display: block; position: relative; z-index: 3; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 5px 8px #0009); }
 .pos-lamp-interactive .pos-lamp-halo { z-index: 1; transition: opacity .3s ease; }
 .pos-lamp-interactive .pos-lamp-beam { z-index: 2; transition: opacity .3s ease; }
