@@ -583,16 +583,34 @@ button {
   padding: 23px 13px;
   border-right: 1px solid #0a1427;
 }
+/* Official Camacho logo on a contrasting, centered brand plate.
+   Keep the original PNG asset and security/authorization layout unchanged. */
 .pos-brand-mark {
-  height: 74px;
-  margin-bottom: 12px;
-  background-position: left center;
+  display: block;
+  width: min(100%, 208px);
+  height: 104px;
+  margin: 0 auto 16px;
+  border: 1px solid #e2edf0;
+  border-radius: 14px;
+  background-color: #f7fbfc;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: 91% auto;
+  box-shadow: 0 8px 23px rgb(5 13 27 / 21%);
 }
 .pos-brand-name {
+  margin: 0 0 5px;
+  text-align: center;
   font-size: 15px;
   letter-spacing: -.02em;
+  color: #fff;
 }
-.pos-subtitle { margin-bottom: 26px; font-size: 12px; }
+.pos-subtitle {
+  margin: 0 0 26px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--camacho-on-dark-muted);
+}
 .pos-nav { gap: 19px; }
 .pos-nav-section { gap: 5px; }
 .pos-nav-section-title {
