@@ -97,7 +97,7 @@ describe("D3-R5.2e.2 atomic enrollment persistence (no session issuer)", () => {
     expect(db.sql.join("\n")).toContain("s.last_reauthenticated_at IS NOT NULL");
     expect(db.sql.join("\n")).toContain("'PENDING'");
     expect(db.sql.join("\n")).toContain("SET status = 'ACTIVE'");
-    expect(db.query.mock.calls.some(([statement, params]) => statement.includes("INSERT INTO identity.security_events") && params[4] === "PLATFORM_MFA_ENROLLED")).toBe(true);
+    expect(db.query.mock.calls.some(([statement, params]) => statement.includes("INSERT INTO identity.security_events") && params?.[4] === "PLATFORM_MFA_ENROLLED")).toBe(true);
     expect(db.sql.at(-1)).toBe("COMMIT");
     expect(db.release).toHaveBeenCalledOnce();
   });
