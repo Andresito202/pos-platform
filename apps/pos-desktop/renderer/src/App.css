@@ -579,7 +579,7 @@ button {
 }
 
 /* Local decorative effects only; no external scripts, requests or new dependencies. */
-.pos-lamp-interactive { touch-action: manipulation; }
+.pos-lamp-interactive { touch-action: none; user-select: none; }
 .pos-lamp-interactive .pos-lamp-particles {
   position: absolute; inset: 35% 9% 4% 35%; z-index: 2; pointer-events: none;
   background-image:
