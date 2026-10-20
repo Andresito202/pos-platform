@@ -73,6 +73,7 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
+  const [visualTheme, setVisualTheme] = useState<"cyan" | "blue" | "violet" | "amber" | "rose">("cyan");
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
   const [receiptTarget, setReceiptTarget] = useState<string | null>(null);
   const [fiscalTarget, setFiscalTarget] = useState<string | null>(null);
@@ -201,11 +202,18 @@ export function App(): React.JSX.Element {
   const selectedScreen = screens.find((screen) => screen.id === activeScreen) ?? screens[0] ?? null;
 
   return (
-    <main className="pos-shell">
+    <main className="pos-shell" data-visual-theme={visualTheme}>
       <aside className="pos-sidebar" aria-label="Navegación principal">
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
+        <div className="pos-theme-picker" role="group" aria-label="Color de la interfaz">
+          {(["cyan", "blue", "violet", "amber", "rose"] as const).map((theme) => (
+            <button key={theme} type="button" className={`pos-theme-swatch pos-theme-swatch-${theme}`}
+              aria-label={`Color ${theme}`} aria-pressed={visualTheme === theme}
+              onClick={() => setVisualTheme(theme)} />
+          ))}
+        </div>
         <nav className="pos-nav">
           {(["Operación", "Catálogo e inventario", "Administración", "Plataforma"] as const).map((section) => {
             const sectionScreens = screens.filter((screen) => screen.section === section);
