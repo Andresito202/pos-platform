@@ -218,7 +218,7 @@ export function App(): React.JSX.Element {
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;
             cordStart.current = event.clientY;
-            event.currentTarget.setPointerCapture(event.pointerId);
+            event.currentTarget.setPointerCapture?.(event.pointerId);
           }}
           onPointerMove={(event) => {
             if (cordStart.current === null) return;
