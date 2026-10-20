@@ -622,3 +622,34 @@ button {
 .pos-shell .pos-content { animation: pos-screen-reveal .32s ease-out both; }
 @keyframes pos-screen-reveal { from { opacity: .8; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .pos-shell .pos-content { animation: none; } }
+
+/* Authorization states: presentation only. They never render operational controls. */
+.pos-entry { min-height: 100vh; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(320px, 1fr);
+  gap: clamp(20px, 5vw, 80px); align-items: center; padding: clamp(24px, 5vw, 72px);
+  color: #e9f0f6; background: radial-gradient(ellipse at 27% 75%, #143735 0%, transparent 48%), #090f19;
+}
+.pos-entry-brand { min-width: 0; display: grid; justify-items: center; gap: 36px; }
+.pos-entry-logo { width: min(100%, 480px); height: 115px;
+  background: url("../../../../docs/brand/camacho-pos-colombia-logo-960.png") center / contain no-repeat;
+}
+.pos-entry-lamp { position: relative; width: min(100%, 320px); aspect-ratio: 4 / 5; }
+.pos-entry-lamp img { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: contain; }
+.pos-entry-light { position: absolute; inset: 25% 0 15% 35%; border-radius: 50%;
+  background: radial-gradient(ellipse, #d2ae6b44, transparent 70%); filter: blur(25px);
+  animation: pos-lamp-pulse 3.6s ease-in-out infinite alternate;
+}
+.pos-entry-card { max-width: 540px; width: 100%; padding: clamp(28px, 4vw, 54px); border: 1px solid #58c2a44d;
+  border-radius: 25px; background: linear-gradient(130deg, #1a2d37ee, #111a25ed);
+  box-shadow: 0 25px 65px #0008, inset 0 1px #ffffff14; }
+.pos-entry-eyebrow { color: #65d3b9; letter-spacing: .12em; font-size: .76rem; font-weight: 750; }
+.pos-entry-card h1 { margin: 12px 0 24px; font-size: 1rem; color: #c4d6dc; }
+.pos-entry-card h2 { margin: 0 0 10px; font-size: clamp(1.8rem, 3vw, 2.5rem); }
+.pos-entry-card p { color: #c7d4de; line-height: 1.5; }
+.pos-entry-card [data-testid="authorization-loading"],
+.pos-entry-card [data-testid="authorization-error"] {
+  margin: 28px 0; padding: 13px 16px; border-radius: 12px; background: #0a1624;
+  border: 1px solid #ffffff2b; color: #e8f2f6; overflow-wrap: anywhere;
+}
+.pos-entry-card [data-testid="authorization-error"] { border-color: #e99c7f99; }
+@media (max-width: 760px) { .pos-entry { grid-template-columns: minmax(0, 1fr); } .pos-entry-lamp { max-width: 175px; } .pos-entry-brand { gap: 0; } }
+@media (prefers-reduced-motion: reduce) { .pos-entry-light { animation: none; } }
