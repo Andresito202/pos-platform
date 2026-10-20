@@ -357,6 +357,21 @@ describe("Animated visual controls remain authorization-independent", () => {
     expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
   });
 
+  it("changes visual area only after an authorized navigation event", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE",
+      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "AUDIT_EVENT_READ"] },
+    });
+    const { container } = render(<App />);
+    await screen.findByRole("button", { name: "Caja y ventas" });
+    expect(container.querySelector(".pos-shell")?.getAttribute("data-visual-area")).toBe("operation");
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+    expect(container.querySelector(".pos-shell")?.getAttribute("data-visual-area")).toBe("administration");
+    fireEvent.click(screen.getByRole("button", { name: "Auditoría administrativa" }));
+    expect(container.querySelector(".pos-shell")?.getAttribute("data-visual-area")).toBe("platform");
+    expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
+  });
+
   it("does not render decorative controls or operational screens when authorization fails", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "REJECTED", result_code: "SESSION_NOT_BOUND",
