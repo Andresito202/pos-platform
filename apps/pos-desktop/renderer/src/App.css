@@ -653,3 +653,14 @@ button {
 .pos-entry-card [data-testid="authorization-error"] { border-color: #e99c7f99; }
 @media (max-width: 760px) { .pos-entry { grid-template-columns: minmax(0, 1fr); } .pos-entry-lamp { max-width: 175px; } .pos-entry-brand { gap: 0; } }
 @media (prefers-reduced-motion: reduce) { .pos-entry-light { animation: none; } }
+
+/* Login-state presentation aligns with POS typography and respects native auth status. */
+.pos-entry-card { position: relative; overflow: hidden; animation: pos-entry-reveal .45s ease-out both; }
+.pos-entry-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px;
+  background: linear-gradient(90deg, #0e807a, #4cc0a9 50%, #c6a86d); }
+.pos-entry-card h2 { font-weight: 730; letter-spacing: -.03em; }
+.pos-entry-card [role="status"] { border-left: 3px solid #4cc0a9; }
+.pos-entry-card [role="alert"] { border-left: 3px solid #e99c7f; }
+.pos-entry-brand { animation: pos-entry-reveal .7s ease-out both; }
+@keyframes pos-entry-reveal { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .pos-entry-card, .pos-entry-brand { animation: none; } }
