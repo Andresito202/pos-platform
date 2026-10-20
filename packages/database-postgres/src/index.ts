@@ -10,3 +10,4 @@ export * from "./platform-webauthn-challenge-repository.js";
 export * from "./platform-webauthn-factor-reference-repository.js";
 export * from "./platform-webauthn-material-repository.js";
 export * from "./platform-webauthn-assertion-transaction.js";
+export * from "./platform-webauthn-enrollment-transaction.js";

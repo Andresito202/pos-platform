@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, PostgresPlatformWebAuthnMaterialRepository, PostgresPlatformWebAuthnAssertionTransaction, uuidV7 } from "../src/index.js";
+import { PostgresPlatformPasswordRecoveryRepository, PostgresPlatformWebAuthnChallengeRepository, PostgresPlatformWebAuthnMaterialRepository, PostgresPlatformWebAuthnAssertionTransaction, PostgresPlatformWebAuthnEnrollmentTransaction, uuidV7 } from "../src/index.js";
 
 /**
  * Opt-in physical verification. POSTGRES_TEST_URL must point to an isolated
@@ -31,6 +31,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
   let webauthn: PostgresPlatformWebAuthnChallengeRepository;
   let materialStore: PostgresPlatformWebAuthnMaterialRepository;
   let assertionTx: PostgresPlatformWebAuthnAssertionTransaction;
+  let platformPool: Pool;
 
   async function createUser(): Promise<string> {
     const id = uuidV7();
@@ -42,6 +43,39 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
       [id, email],
     );
     return id;
+  }
+
+  async function createPlatformRoleFor(userId: string): Promise<void> {
+    // Test-only trusted SYSTEM provisioning inside the throwaway fixture DB.
+    const id = uuidV7();
+    const connection = await owner!.connect();
+    try {
+      await connection.query("BEGIN");
+      await connection.query(
+        "SELECT set_config('app.audit_id', $1, true), set_config('app.correlation_id', $2, true)",
+        [uuidV7(), uuidV7()],
+      );
+      await connection.query(
+        `INSERT INTO "authorization".roles
+           (id, code, name, scope_type, version, status, created_at)
+         VALUES ($1, $2, 'Fixture WebAuthn Platform', 'PLATFORM', 1, 'ACTIVE', clock_timestamp())`,
+        [id, "WEBAUTHN_FIXTURE_" + id.replace(/-/g, "")],
+      );
+      await connection.query(
+        `INSERT INTO "authorization".platform_role_assignments
+           (id, user_id, role_id, status, valid_from, created_at,
+            created_by_actor_type, version)
+         VALUES ($1, $2, $3, 'ACTIVE', clock_timestamp(),
+                 clock_timestamp(), 'SYSTEM', 1)`,
+        [uuidV7(), userId, id],
+      );
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async function createRequest(userId: string, maxAttempts = 5): Promise<{ requestId: string; digest: string }> {
@@ -130,6 +164,7 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     webauthn = new PostgresPlatformWebAuthnChallengeRepository(scopedPool);
     materialStore = new PostgresPlatformWebAuthnMaterialRepository(scopedPool);
     assertionTx = new PostgresPlatformWebAuthnAssertionTransaction(scopedPool);
+    platformPool = scopedPool;
   }, 120_000);
 
   afterAll(async () => {
@@ -523,4 +558,142 @@ describe.runIf(Boolean(SERVER_URL))("platform password recovery physical Postgre
     );
     expect(audits.rows).toEqual([{ total: 1 }]);
   });
+  it("physically persists verified WebAuthn enrollment, consumes ENROLL once and appends audit atomically", async () => {
+    const userId = await createUser(), sessionId = uuidV7();
+    await createPlatformRoleFor(userId);
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'PENDING', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const issued = await webauthn.issue({
+      userId, sessionId, factorId: null, purpose: "ENROLL",
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+      expiresAt: new Date(Date.now() + 300000).toISOString(), correlationId: uuidV7(),
+    });
+    // The resolver is intentionally a fixture, NOT a production authentication
+    // provider. This test certifies atomic SQL only, not session legitimacy.
+    const enrollment = new PostgresPlatformWebAuthnEnrollmentTransaction(
+      platformPool,
+      async (proof) => proof === "fixture-session-proof" ? { userId, sessionId } : null,
+      300000,
+    );
+    const input = { authorizationProof: "fixture-session-proof",
+      challenge: issued.challenge, rpId: "admin.example.test",
+      expectedOrigin: "https://admin.example.test" };
+    const proof = async () => ({
+      credentialId: randomBytes(32).toString("base64url"),
+      publicKeyCoseBase64url: randomBytes(65).toString("base64url"),
+      counter: 0, backupEligible: false, backedUp: false, userVerified: true as const,
+    });
+    const result = await enrollment.verifyAndEnroll(input, proof);
+    expect(result).toMatchObject({ userId });
+    expect(result).not.toBeNull();
+    expect(await enrollment.verifyAndEnroll(input, proof)).toBeNull();
+    const rows = await owner!.query(
+      `SELECT f.status, f.verified_at IS NOT NULL AS verified,
+              f.secret_reference, m.id::text AS material_id,
+              c.consumed_at IS NOT NULL AS consumed,
+              (SELECT count(*)::int FROM identity.security_events AS e
+                 WHERE e.user_id = $1 AND e.event_code = 'PLATFORM_MFA_ENROLLED') AS events
+         FROM identity.mfa_factors AS f
+         JOIN identity.webauthn_credential_material AS m ON m.factor_id = f.id
+         JOIN identity.webauthn_challenges AS c ON c.id = $2
+        WHERE f.id = $3`,
+      [userId, issued.challengeId, result!.factorId],
+    );
+    expect(rows.rows).toEqual([{
+      status: "ACTIVE", verified: true,
+      secret_reference: "webauthn:v1:" + result!.materialId,
+      material_id: result!.materialId, consumed: true, events: 1,
+    }]);
+  });
+
+  it("physically rolls back factor and material when MFA enrollment audit INSERT is denied", async () => {
+    const userId = await createUser(), sessionId = uuidV7();
+    await createPlatformRoleFor(userId);
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'PENDING', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const issued = await webauthn.issue({
+      userId, sessionId, factorId: null, purpose: "ENROLL",
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+      expiresAt: new Date(Date.now() + 300000).toISOString(), correlationId: uuidV7(),
+    });
+    const enrollment = new PostgresPlatformWebAuthnEnrollmentTransaction(
+      platformPool, async () => ({ userId, sessionId }), 300000,
+    );
+    await owner!.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(enrollment.verifyAndEnroll({
+        authorizationProof: "fixture",
+        challenge: issued.challenge,
+        rpId: "admin.example.test",
+        expectedOrigin: "https://admin.example.test",
+      }, async () => ({
+        credentialId: randomBytes(32).toString("base64url"),
+        publicKeyCoseBase64url: randomBytes(65).toString("base64url"),
+        counter: 0, backupEligible: false, backedUp: false, userVerified: true as const,
+      }))).rejects.toThrow();
+      const rows = await owner!.query(
+        `SELECT
+           (SELECT count(*)::int FROM identity.mfa_factors WHERE user_id=$1) AS factors,
+           (SELECT count(*)::int FROM identity.webauthn_credential_material AS m
+              JOIN identity.mfa_factors AS f ON f.id = m.factor_id
+             WHERE f.user_id = $1) AS materials,
+           (SELECT consumed_at IS NULL FROM identity.webauthn_challenges WHERE id = $2) AS pending`,
+        [userId, issued.challengeId],
+      );
+      expect(rows.rows).toEqual([{ factors: 0, materials: 0, pending: true }]);
+    } finally {
+      await owner!.query("GRANT INSERT ON identity.security_events TO pos_platform_app");
+    }
+  });
+
+  it("physically permits one winner for simultaneous attempts against one ENROLL challenge", async () => {
+    const userId = await createUser(), sessionId = uuidV7();
+    await createPlatformRoleFor(userId);
+    await owner!.query(
+      `INSERT INTO identity.sessions
+         (id, user_id, authenticated_at, expires_at, last_reauthenticated_at,
+          mfa_status, created_at, version)
+       VALUES ($1, $2, clock_timestamp(), clock_timestamp() + interval '1 hour',
+               clock_timestamp(), 'PENDING', clock_timestamp(), 1)`,
+      [sessionId, userId],
+    );
+    const issued = await webauthn.issue({
+      userId, sessionId, factorId: null, purpose: "ENROLL",
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test",
+      expiresAt: new Date(Date.now() + 300000).toISOString(), correlationId: uuidV7(),
+    });
+    const enrollment = new PostgresPlatformWebAuthnEnrollmentTransaction(
+      platformPool, async () => ({ userId, sessionId }), 300000,
+    );
+    const input = { authorizationProof: "fixture", challenge: issued.challenge,
+      rpId: "admin.example.test", expectedOrigin: "https://admin.example.test" };
+    const proof = async () => ({
+      credentialId: randomBytes(32).toString("base64url"),
+      publicKeyCoseBase64url: randomBytes(65).toString("base64url"),
+      counter: 0, backupEligible: false, backedUp: false, userVerified: true as const,
+    });
+    const results = await Promise.all([
+      enrollment.verifyAndEnroll(input, proof),
+      enrollment.verifyAndEnroll(input, proof),
+    ]);
+    expect(results.filter((result) => result !== null)).toHaveLength(1);
+    const stored = await owner!.query(
+      `SELECT count(*)::int AS total FROM identity.mfa_factors WHERE user_id=$1`,
+      [userId],
+    );
+    expect(stored.rows).toEqual([{ total: 1 }]);
+  });
+
 });
