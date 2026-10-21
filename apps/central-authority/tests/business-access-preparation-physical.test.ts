@@ -297,4 +297,3 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect(await counters()).toEqual({nonces:1,sequence:0});
   });
 });
-
