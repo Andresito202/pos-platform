@@ -1,5 +1,7 @@
 # Autoridad interna de sesión BUSINESS — 2026-10-20
 
+Continuidad posterior: [resolución de acceso y preparación SSA](business-access-continuity-2026-10-20.md) añade lectura vigente y composición interna de DeviceProof/secuencia, sin emitir prueba de acceso ni SSA. Agrupa las decisiones realmente bloqueantes en una solicitud D3; no presenta los candidatos de este snapshot como aprobados.
+
 ## Alcance comprobado
 
 Base local y remota comprobada: `d120a564a7d80f261a05859d814bdcc894c5360d`, rama `claude/pos-camacho-bloque-4c-ld43py`, árbol inicialmente limpio. El commit que contiene este informe identifica el incremento comprobado. Owners existentes: Identity para credenciales, MFA y sesiones; Tenants para membresía; Central Authority como coordinador. No hay cambios de esquema, roles, frontend ni transacción GLOBAL.

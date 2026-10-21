@@ -17,3 +17,4 @@ export * from "./device-proof-replay-verifier.js";
 export * from "./password-credential-verification-repository.js";
 export * from "./business-initial-webauthn-transaction.js";
 export * from "./business-session-creation-transaction.js";
+export * from "./business-session-access-repository.js";
