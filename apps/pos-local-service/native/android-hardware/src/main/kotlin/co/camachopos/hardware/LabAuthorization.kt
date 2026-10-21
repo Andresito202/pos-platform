@@ -56,8 +56,13 @@ object LabAuthorization {
         keys(p,setOf("printer_model","printer_firmware","protocol","identity_evidence","command_evidence","timeout_ms","drawer"))
         require(text(p,"printer_model") == "GP-L80160" && text(p,"protocol") == "ESC_POS") { "LAB_MODEL_REJECTED" }
         val firmware=text(p,"printer_firmware"); val identity=text(p,"identity_evidence"); val command=text(p,"command_evidence")
-        val timeout=integer(p,"timeout_ms"); require(timeout in 100..30000)
         val kind=text(job,"kind"); val reason=text(job,"reason"); require(reason.length in 3..200)
+        val firmwareUnidentified=firmware == "UNIDENTIFIED_LAB_ASCII_ONLY"
+        require(!firmwareUnidentified || kind == "PRINT_TEST") { "UNIDENTIFIED_FIRMWARE_PRINT_ONLY" }
+        for(value in listOf(identity,command) + if(firmwareUnidentified) emptyList() else listOf(firmware)) {
+            require(!Regex("unknown|pending|por verificar|por confirmar|unidentified",RegexOption.IGNORE_CASE).containsMatchIn(value)) { "VERIFIED_PROFILE_EVIDENCE_REQUIRED" }
+        }
+        val timeout=integer(p,"timeout_ms"); require(timeout in 100..30000)
         val jobId=text(job,"job_id"); java.util.UUID.fromString(jobId)
         var electrical="Sin pulso ni corte."
         val bytes=when(kind) {

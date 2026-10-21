@@ -38,6 +38,31 @@ class LabAuthorizationTest {
         val verified=LabAuthorization.verify(envelope(job()),policy,binding,now)
         assertEquals(JobKind.PRINT,verified.intent.kind);assertFalse(verified.bytes.any { it==27.toByte()||it==29.toByte() })
     }
+    @Test fun unidentifiedFirmwarePermitsFixedAsciiPrintOnly() {
+        val limited=job()
+        limited.getJSONObject("profile").put("printer_firmware","UNIDENTIFIED_LAB_ASCII_ONLY")
+        val verified=LabAuthorization.verify(envelope(limited),policy,binding,now)
+        assertEquals(JobKind.PRINT,verified.intent.kind)
+        assertTrue(verified.bytes.all { it.toInt() in 0..127 })
+        assertFalse(verified.bytes.any { it==27.toByte() || it==29.toByte() })
+        assertTrue(verified.summary.contains("UNIDENTIFIED_LAB_ASCII_ONLY"))
+    }
+    @Test fun unidentifiedFirmwareCannotAuthorizeDrawerEvenWithCompletePulseFields() {
+        val limited=job().put("kind","DRAWER_OPEN")
+        val profile=limited.getJSONObject("profile")
+        profile.put("printer_firmware","UNIDENTIFIED_LAB_ASCII_ONLY")
+        profile.put("drawer",JSONObject().put("model","CD350").put("pin",1).put("on_byte",7)
+            .put("off_byte",9).put("time_unit_ms",2).put("voltage_v","12")
+            .put("electrical_evidence","SYNTHETIC TEST ONLY; NOT A DEVICE PROFILE"))
+        assertFails { LabAuthorization.verify(envelope(limited),policy,binding,now) }
+    }
+    @Test fun unreviewedFirmwareWordsStillRejected() {
+        for(value in listOf("unknown","pending","por verificar","UNIDENTIFIED_OTHER")) {
+            val invalid=job()
+            invalid.getJSONObject("profile").put("printer_firmware",value)
+            assertFails { LabAuthorization.verify(envelope(invalid),policy,binding,now) }
+        }
+    }
     @Test fun wrongSigningKeyRejected() { assertFails { LabAuthorization.verify(envelope(job(),true),policy,binding,now) } }
     @Test fun bodyMutationRejected() {
         val outer=JSONObject(envelope(job()));val changed=job().put("reason","Altered")

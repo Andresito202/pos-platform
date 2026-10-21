@@ -63,7 +63,7 @@ class LabActivity : Activity() {
         button("2. Solicitar permiso USB (sin imprimir)") { requestUsbPermission() }
         button("3. Exportar informe firmado") { exportText=signedReport();createDocument("camacho-hardware-report.json") }
         button("4. Importar orden de laboratorio firmada") {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="application/json";addCategory(Intent.CATEGORY_OPENABLE) },100)
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*";addCategory(Intent.CATEGORY_OPENABLE) },100)
         }
         button("5. Revisar y ejecutar UNA orden") { reviewAndExecute() }
         button("Exportar registro de ejecución") { exportText=signedEvidence();createDocument("camacho-hardware-evidence.json") }

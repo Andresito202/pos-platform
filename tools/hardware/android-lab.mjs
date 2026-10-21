@@ -45,7 +45,16 @@ export function issueJob({policy,privateKey,report,usbName,interfaceIndex,endpoi
   const usb=report.devices.find(d=>d.usb_name===usbName);check(usb?.permission===true&&/^[a-f0-9]{64}$/.test(usb.descriptor_sha256),"USB_PERMISSION_AND_DESCRIPTOR_REQUIRED");
   check(usb.endpoints.some(e=>e.interface_index===interfaceIndex&&e.address===endpoint&&e.bulk_out===true),"EXACT_USB_BULK_OUT_REQUIRED");
   check(profile.printer_model==="GP-L80160"&&profile.protocol==="ESC_POS","REVIEWED_PRINTER_MODEL_REQUIRED");
-  for(const key of ["printer_firmware","identity_evidence","command_evidence"])check(typeof profile[key]==="string"&&profile[key].trim().length>=3&&!/unknown|pending|por verificar|por confirmar/i.test(profile[key]),"VERIFIED_PROFILE_EVIDENCE_REQUIRED");
+  // Explicit restricted state: unknown firmware is permitted ONLY for the fixed ASCII print test.
+  // This is not a firmware version or production hardware certification.
+  const firmwareUnidentified=profile.printer_firmware==="UNIDENTIFIED_LAB_ASCII_ONLY";
+  check(!firmwareUnidentified||kind==="PRINT_TEST","UNIDENTIFIED_FIRMWARE_PRINT_ONLY");
+  for(const key of ["printer_firmware","identity_evidence","command_evidence"]){
+    const value=profile[key];
+    check(typeof value==="string"&&value.trim().length>=3&&value.length<=2048,"VERIFIED_PROFILE_EVIDENCE_REQUIRED");
+    if(key!=="printer_firmware"||!firmwareUnidentified)
+      check(!/unknown|pending|por verificar|por confirmar|unidentified/i.test(value),"VERIFIED_PROFILE_EVIDENCE_REQUIRED");
+  }
   check(Number.isInteger(profile.timeout_ms)&&profile.timeout_ms>=100&&profile.timeout_ms<=30000,"EXPLICIT_USB_TIMEOUT_REQUIRED");
   if(kind==="PRINT_TEST")check(profile.drawer===null,"PRINT_MUST_NOT_INCLUDE_DRAWER");
   else {
