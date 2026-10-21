@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="co.camachopos.android.runtimeprobe" android:versionCode="1" android:versionName="0.1-runtime-probe">
+  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
+  <!-- No network, USB, drawer, business session or external storage permission. -->
+  <application android:label="Camacho Node Runtime Probe" android:allowBackup="false" android:debuggable="false" android:usesCleartextTraffic="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <activity android:name="co.camachopos.android.RuntimeProbeActivity" android:exported="true" android:configChanges="orientation|screenSize">
+      <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+    </activity>
+  </application>
+</manifest>

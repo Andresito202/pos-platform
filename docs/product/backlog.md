@@ -8,7 +8,9 @@ Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Pl
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación operativa: 2026-10-18. Los cierres históricos conservan su fecha y SHA.
+Última continuidad autorizada: 2026-10-21. La orden expresa del propietario mueve el trabajo activo a `feat/android-commercial-runtime@51d5feb`, continuación de `claude/pos-camacho-bloque-4c-ld43py@b907d20f`. No se elimina ni desarrolla en paralelo la rama de laboratorio y PR #92 sigue draft. La reconciliación de 2026-10-18 inferior y sus cierres conservan su fecha y SHA; sus referencias a la rama activa anterior describen aquel snapshot.
+
+Objetivo único actual: runtime Android autónomo que reutilice contratos, servicio y persistencia canónicos, seguido de PRINT_RECEIPT autorizado y hardware certificado. Base comunicada y conservada: SQLite Android nativo e impresión ASCII USB ya probados en M60WL; no equivalen al motor Node/better-sqlite3 ni a recibo comercial. Cajón CD350 sin perfil eléctrico validado: bloqueado, sin apertura automática. No se aprueban por esta continuidad las políticas D3 ni una sesión comercial ficticia. Evidencia de cada nuevo incremento en `docs/testing/`; no se eleva un peldaño por compilar o por inferencia.
 
 ## Jerarquía relacionada
 

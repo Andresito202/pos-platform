@@ -6,7 +6,8 @@ Este repositorio se desarrolla sobre **una única línea activa**. La existencia
 
 ### Línea activa vigente
 
-- Rama activa: [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
+- Rama activa: `feat/android-commercial-runtime`, por orden explícita del propietario de 2026-10-21, desde `51d5feb`. Es la continuación única para la integración Android; no se abre otra línea.
+- Predecesora de laboratorio: `claude/pos-camacho-bloque-4c-ld43py@b907d20f`; [PR #92](https://github.com/Andresito202/pos-platform/pull/92) se conserva draft, sin merge ni trabajo paralelo sobre ella.
 - Rama canónica del producto: `main`
 - El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
 

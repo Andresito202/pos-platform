@@ -42,13 +42,13 @@ Esta tabla identifica familias candidatas, no recomienda comprar un modelo todav
 
 | ID | Equipo / versión comunicada | Enlace | Estado Camacho | Evidencia y límites |
 |---|---|---|---|---|
-| HW-TERM-M60WL | M60WL, Android 9, M60WL_V2.01, aproximadamente 4 GB RAM | USB depuración habilitada; autorización ADB no confirmada | `UNTESTED` | Fabricante, ABI, firmware de periféricos, instalación y rendimiento Camacho pendientes. No aparece conectado al Windows inspeccionado |
-| HW-PRN-GPL80160 | Gprinter GP-L80160 | USB, ESC/POS comunicado | `UNTESTED` | El propietario imprimió usando Mharmal Printer; no es una prueba Camacho. Faltan VID/PID/interfaz/endpoint, firmware, code page, ancho efectivo y corte observados |
-| HW-DRW-CD350 | 3nStar CD350 | Salida de cajón de GP-L80160 | `UNTESTED` | El propietario abrió con «Test Print & Drawer». Faltan revisión, voltaje/pinout, pulso y disponibilidad real de sensor. No se copia un pulso genérico |
+| HW-TERM-M60WL | M60WL, Android 9, M60WL_V2.01, aproximadamente 4 GB RAM | ADB autorizado por WiFi, ARM64 observado | `UNTESTED` | Certificación del POS completo pendiente. SQLite nativo ya probado en `51d5feb`; prueba del motor Node/better-sqlite3 canónico documentada [aquí](../testing/android-runtime-engine-2026-10-21.md). No acredita sesión, venta ni autorización React |
+| HW-PRN-GPL80160 | Gprinter GP-L80160 | USB VID 26728 / PID 1280, interfaz 0, BULK OUT 2 observado | `UNTESTED` | Certificación comercial pendiente. Impresión ASCII propia confirmada por el operador en `b907d20f`; no se repitió. Faltan firmware, CP1252, ancho efectivo, corte y PRINT_RECEIPT autorizado. La ruta USB se redescubre, no se fija `/dev/bus/usb/...` |
+| HW-DRW-CD350 | 3nStar CD350 | Recorrido eléctrico exacto sin confirmar | `UNTESTED` | Apertura externa comunicada por el propietario; ninguna apertura Camacho acreditada. Sin revisión, voltaje, pinout ni pulso verificados. Bloqueo explícito de DRAWER_OPEN para ese VID/PID; apertura automática deshabilitada |
 
 Mharmal informa un WebSocket en 22300; Camacho **no se conecta a él**, no lo expone ni presupone su autenticación. Quick Printer 1.7.3, Printer y HardwareManager no constituyen integraciones verificadas. El fallo de Más Control/MasPrint Windows en Android no acredita un protocolo alternativo.
 
-En esta entrega, Windows solo enumera colas virtuales; Linux ejecuta TCP loopback y proyección de texto; Android compila una biblioteca AAR y ejecuta tests JVM. Ninguna de esas evidencias eleva las tres filas anteriores. Ver [evidencia y límites de la entrega](../testing/hardware-portability-2026-10-21.md).
+La [entrega inicial](../testing/hardware-portability-2026-10-21.md) registró Windows con colas virtuales, Linux TCP loopback y Android AAR/JVM. La continuidad física posterior anterior se registra por capacidad; no transforma esas pruebas parciales en certificación del conjunto ni habilita operaciones eléctricas.
 
 ## Registro obligatorio por equipo
 

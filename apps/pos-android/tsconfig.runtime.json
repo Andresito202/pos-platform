@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "typeRoots": ["../pos-local-service/node_modules/@types"] },
+  "include": ["runtime-probe.mts"]
+}
