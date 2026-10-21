@@ -96,7 +96,7 @@ try {
     $stdoutPath = Join-Path $logRoot "service-$run.stdout.log"
     $stderrPath = Join-Path $logRoot "service-$run.stderr.log"
     Write-Host 'Iniciando POS Local Service REAL. No se modifica configuración ni se crean usuarios.'
-    $service = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d','/c','pnpm --filter @pos-platform/pos-local-service start') -WorkingDirectory $root -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $service = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d','/c','pnpm --filter @pos-platform/pos-local-service start') -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
 
     $ready = $false
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -125,7 +125,13 @@ try {
 
     Write-Host 'POS Local Service iniciado; canal Windows y SQLite activos según runtime.started.'
     Write-Host 'Iniciando Electron por la entrada de PRODUCCIÓN (no visual-preview).'
-    & $pnpm.Source --filter '@pos-platform/pos-desktop' start:production
+    $previousElectronMode = [Environment]::GetEnvironmentVariable('ELECTRON_RUN_AS_NODE')
+    try {
+        Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+        & $pnpm.Source --filter '@pos-platform/pos-desktop' start:production
+    } finally {
+        if ($null -ne $previousElectronMode) { $env:ELECTRON_RUN_AS_NODE = $previousElectronMode }
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "LOCAL_LAUNCH_ELECTRON_EXIT: $LASTEXITCODE"
     }

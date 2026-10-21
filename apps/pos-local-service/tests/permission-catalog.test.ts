@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { PERMISSION_SALES_SALE_CREATE } from "../src/sales/create-sale-use-case.js";
 import { PERMISSION_SALES_RECEIPT_READ } from "../src/receipts/get-receipt-use-case.js";
 import { PERMISSION_INVENTORY_STOCK_READ } from "../src/inventory/get-stock-use-case.js";
@@ -20,6 +21,10 @@ import { PERMISSION_FISCAL_DOCUMENT_ISSUE } from "../src/fiscal/issue-electronic
 import { PERMISSION_AUDIT_EVENT_READ } from "../src/audit/list-audit-events-use-case.js";
 
 const EXECUTABLE_PERMISSION_CODES = [
+  CanonicalPermission.HARDWARE_READ,
+  CanonicalPermission.HARDWARE_CONFIGURE,
+  CanonicalPermission.HARDWARE_PRINT,
+  CanonicalPermission.HARDWARE_DRAWER_OPEN,
   PERMISSION_SALES_SALE_CREATE,
   PERMISSION_SALES_RECEIPT_READ,
   PERMISSION_INVENTORY_STOCK_READ,

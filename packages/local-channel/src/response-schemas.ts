@@ -1,5 +1,6 @@
 import type * as z from "zod";
 import {
+  HardwareResponseSchema,
   AdminMetricsGetResponseSchema,
   AuditEventListResponseSchema,
   AuthorizationCapabilitiesGetResponseSchema,
@@ -38,6 +39,7 @@ import {
  * esquema; las demás conservan validación estricta en la frontera.
  */
 export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodType> = {
+  "hardware.command": HardwareResponseSchema,
   "runtime.handshake": RuntimeHandshakeResponseSchema,
   "runtime.status.get": RuntimeStatusResponseSchema,
   "operation.result.get": OperationResultResponseSchema,

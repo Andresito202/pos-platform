@@ -4,6 +4,7 @@ import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "../src/ipc-allowlist.js"
 describe("ipc-allowlist", () => {
   it("contains exactly the ratified operational and commercial channels", () => {
     expect(Array.from(IPC_ALLOWED_CHANNELS)).toEqual([
+      "pos:hardware.command",
       "pos:runtime.status.get",
       "pos:authorization.capabilities.get",
       "pos:operation.result.get",

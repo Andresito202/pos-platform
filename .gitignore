@@ -38,3 +38,5 @@ settings.json.*-bak
 # Artefactos de ejecucion de Playwright (trazas y capturas de un fallo).
 test-results/
 playwright-report/
+.gradle/
+apps/pos-local-service/native/android-hardware/build/

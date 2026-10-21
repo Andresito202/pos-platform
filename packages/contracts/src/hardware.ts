@@ -12,11 +12,13 @@ export const HardwareProfileSchema=z.strictObject({
   paper_mm:z.union([z.literal(58),z.literal(80)]),columns:z.number().int().min(16).max(80),
   encoding:z.literal("CP1252"),code_page:z.number().int().min(0).max(255),
   cut:HardwareCapabilitySchema,drawer:HardwareCapabilitySchema,drawer_sensor:HardwareCapabilitySchema,
+  cut_command:z.enum(["GS_V_0","GS_V_1"]).nullable().default(null),
   paper_sensor:HardwareCapabilitySchema,
   // Trusted, model-specific values from its manual; NO electrical defaults.
   drawer_pulse:z.strictObject({pin:z.union([z.literal(0),z.literal(1)]),on:z.number().int().min(1).max(255),off:z.number().int().min(1).max(255)}).nullable(),
 }).superRefine((value,ctx)=>{
   if ((value.drawer==="SUPPORTED")!==(value.drawer_pulse!==null)) ctx.addIssue({code:"custom",message:"documented drawer profile required"});
+  if ((value.cut==="SUPPORTED")!==(value.cut_command!==null)) ctx.addIssue({code:"custom",message:"documented cutter command required"});
 });
 export type HardwareProfile=z.infer<typeof HardwareProfileSchema>;
 export const HardwareJobStateSchema=z.enum(["PENDING","DISPATCHING","TRANSPORT_ACCEPTED","FAILED","UNKNOWN"]);

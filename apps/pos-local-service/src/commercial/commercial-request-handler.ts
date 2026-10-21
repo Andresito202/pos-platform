@@ -263,6 +263,8 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "CONFIRMED") {
+      void this.commercial.hardware.afterConfirmedCashPayment(this.scope(),authenticated.snapshot,
+        {userId:authenticated.identity.userId,sessionId:authenticated.identity.ssaSessionId},result.paymentId);
       return succeeded(request, "CONFIRMED", {
         outcome: "CONFIRMED",
         payment_id: result.paymentId,

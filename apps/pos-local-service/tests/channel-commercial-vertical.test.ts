@@ -21,6 +21,8 @@ import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-au
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
+import { HardwareStore } from "../src/hardware/hardware-store.js";
+import { HardwareProfileSchema } from "@pos-platform/contracts";
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
@@ -85,6 +87,33 @@ const SCOPE = {
 
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 const clock = { now: () => NOW };
+
+it("hardware: confirmed cash fact authorizes one durable drawer intent, never an unpaid sale or replay",async()=>{
+  await withRealChannel(async(send,database)=>{
+    const ids=await prepareCounter(send,database,"hardware");
+    const store=new HardwareStore(database),binding=randomUUID(),actor={userId:USER,sessionId:SSA_SESSION};
+    const profile=HardwareProfileSchema.parse({schema_version:"1.0.0",id:"TEST_ONLY",revision:1,manufacturer:"Fixture",model:"Test only",firmware:"none",support_status:"SIMULATED",evidence:"SQLite test only",protocol:"ESC_POS",transport:"SIMULATOR",paper_mm:80,columns:48,encoding:"CP1252",code_page:16,cut:"UNSUPPORTED",drawer:"SUPPORTED",drawer_sensor:"UNKNOWN",paper_sensor:"UNKNOWN",drawer_pulse:{pin:0,on:10,off:10}});
+    store.associate(SCOPE,actor,binding,REGISTER,"TEST_ONLY",profile);
+    expect(store.enqueueConfirmedCashDrawer(SCOPE,actor,randomUUID(),binding,"TEST_ONLY_POLICY")).toBeNull();
+    const sale=await createSale(send,ids,"1.000000","hardware:sale");
+    const paid=await send(mutating("payment.register.cash",{sale_id:sale.saleId,amount:sale.payable,tendered_amount:null},"hardware:pay"));
+    expect(paid.result["sale_completed"]).toBe(true);
+    const payment=paid.result["payment_id"] as string;
+    expect(store.enqueueConfirmedCashDrawer({...SCOPE,branchId:randomUUID()},actor,payment,binding,"TEST_ONLY_POLICY")).toBeNull();
+    database.native.exec("CREATE TRIGGER hardware_auto_audit_failure BEFORE INSERT ON hardware_events BEGIN SELECT RAISE(ABORT,'test failure'); END");
+    expect(()=>store.enqueueConfirmedCashDrawer(SCOPE,actor,payment,binding,"TEST_ONLY_POLICY")).toThrow();
+    expect(store.list(SCOPE).jobs).toHaveLength(0);
+    database.native.exec("DROP TRIGGER hardware_auto_audit_failure");
+    const job=store.enqueueConfirmedCashDrawer(SCOPE,actor,payment,binding,"TEST_ONLY_POLICY");
+    expect(job?.kind).toBe("DRAWER_OPEN");
+    expect(store.enqueueConfirmedCashDrawer(SCOPE,actor,payment,binding,"TEST_ONLY_POLICY")).toBeNull();
+    expect(store.list(SCOPE).jobs).toHaveLength(1);
+    expect(stockOf(database,ids.presentationId)).toBe("11.000000");
+    const denied=await send(reading("hardware.command",{action:"list"}));
+    expect(denied.status).toBe("REJECTED"); // canonical cashier fixture has no hardware permission
+    expect(store.list(SCOPE).jobs[0]?.state).toBe("PENDING");
+  });
+},30000);
 
 const PERMISSIONS = [
   "CASH_SHIFT_OPEN",

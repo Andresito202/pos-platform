@@ -5,6 +5,7 @@ import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
+import { HardwarePanel } from "./components/HardwarePanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
@@ -160,6 +161,10 @@ export function App(): React.JSX.Element {
         section: "Operación",
         render: () => <ReceiptPanel initialSaleId={receiptTarget} />,
       });
+    }
+
+    if (permissions.has(CanonicalPermission.HARDWARE_READ)) {
+      result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel /> });
     }
 
     for (const planned of plannedScreens) {

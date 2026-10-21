@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { HardwareProfileSchema,type HardwareProfile,type HardwareJobState } from "@pos-platform/contracts";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -10,6 +11,24 @@ export interface HardwareJob {
 }
 export class HardwareStore {
   constructor(private readonly database:LocalDatabase){}
+  enqueueConfirmedCashDrawer(scope:SyncScope,actor:HardwareActor,paymentId:string,bindingId:string,policyReference:string):HardwareJob|null {
+    return this.database.native.transaction(()=>{
+      const prior=this.database.native.prepare("SELECT id FROM hardware_jobs WHERE tenant_id=? AND company_id=? AND branch_id=? AND source_payment_id=?").get(scope.tenantId,scope.companyId,scope.branchId,paymentId) as {id:string}|undefined;
+      if(prior)return null; // Never replay an old automatic pulse, even if still pending.
+      const eligible=this.database.native.prepare(`SELECT p.id FROM payments_payments p
+        JOIN payments_payment_allocations a ON a.tenant_id=p.tenant_id AND a.payment_id=p.id
+        JOIN sales_sales s ON s.tenant_id=a.tenant_id AND s.id=a.collection_subject_id
+        JOIN hardware_bindings b ON b.tenant_id=s.tenant_id AND b.company_id=s.company_id
+          AND b.branch_id=s.branch_id AND b.cash_register_id=s.cash_register_id
+        WHERE p.id=? AND p.tenant_id=? AND p.status='CONFIRMED' AND p.payment_method='CASH'
+          AND a.collection_subject_type='SALE' AND s.status='COMPLETED' AND b.id=?
+          AND b.company_id=? AND b.branch_id=? LIMIT 1`).get(paymentId,scope.tenantId,bindingId,scope.companyId,scope.branchId);
+      if(!eligible)return null;
+      const job=this.enqueue(scope,actor,{job_id:randomUUID(),binding_id:bindingId,kind:"DRAWER_OPEN",sale_id:null,reason:policyReference});
+      this.database.native.prepare("UPDATE hardware_jobs SET source_payment_id=? WHERE id=?").run(paymentId,job.id);
+      return job;
+    }).immediate();
+  }
   recoverInterrupted():void {
     this.database.native.transaction(()=>{
       const interrupted=this.database.native.prepare("SELECT id,actor_id,session_id FROM hardware_jobs WHERE state='DISPATCHING'").all() as {id:string;actor_id:string;session_id:string}[];

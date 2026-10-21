@@ -1229,6 +1229,7 @@ export const AuditEventListResponseSchema =
  * correspondencia está tabulada en `DEC-014` §3.2.
  */
 export const CommercialIpcMessageTypeSchema = z.enum([
+  "hardware.command",
   "authorization.capabilities.get",
   "session.activate",
   "session.recover",

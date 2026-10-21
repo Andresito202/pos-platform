@@ -38,3 +38,7 @@ export function drawerPulse(profile:HardwareProfile):Uint8Array {
   if(profile.protocol!=="ESC_POS" || profile.drawer!=="SUPPORTED" || !profile.drawer_pulse)throw new Error("DRAWER_PROFILE_UNSUPPORTED");
   return Uint8Array.from([0x1b,0x70,profile.drawer_pulse.pin,profile.drawer_pulse.on,profile.drawer_pulse.off]);
 }
+export function cutterCommand(profile:HardwareProfile):Uint8Array {
+  if(profile.cut!=="SUPPORTED"||!profile.cut_command)throw new Error("PRINTER_HAS_NO_VERIFIED_CUTTER");
+  return Uint8Array.from([0x1d,0x56,profile.cut_command==="GS_V_0"?0:1]);
+}

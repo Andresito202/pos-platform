@@ -4,6 +4,10 @@ import { CANONICAL_PERMISSION_CODES, PermissionCode } from "../src/permission-co
 describe("canonical permission catalog", () => {
   it("contains exactly the permission codes already enforced by executable backend use cases", () => {
     expect(CANONICAL_PERMISSION_CODES).toEqual([
+      "HARDWARE_READ",
+      "HARDWARE_CONFIGURE",
+      "HARDWARE_PRINT",
+      "HARDWARE_DRAWER_OPEN",
       "SALES_SALE_CREATE",
       "SALES_RECEIPT_READ",
       "INVENTORY_STOCK_READ",

@@ -1389,7 +1389,7 @@ CREATE TABLE hardware_bindings (
 ) STRICT;
 CREATE TABLE hardware_jobs (
  id TEXT PRIMARY KEY NOT NULL,tenant_id TEXT NOT NULL,company_id TEXT NOT NULL,branch_id TEXT NOT NULL,
- binding_id TEXT NOT NULL REFERENCES hardware_bindings(id),kind TEXT NOT NULL CHECK(kind IN ('PRINT_TEST','PRINT_RECEIPT','DRAWER_OPEN','CUT')),
+ binding_id TEXT NOT NULL REFERENCES hardware_bindings(id),source_payment_id TEXT UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('PRINT_TEST','PRINT_RECEIPT','DRAWER_OPEN','CUT')),
  sale_id TEXT,reason TEXT NOT NULL,actor_id TEXT NOT NULL,session_id TEXT NOT NULL,
  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
  state TEXT NOT NULL CHECK(state IN ('PENDING','DISPATCHING','TRANSPORT_ACCEPTED','FAILED','UNKNOWN')),

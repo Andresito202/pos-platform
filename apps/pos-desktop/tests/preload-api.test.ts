@@ -8,6 +8,7 @@ describe("preload-api", () => {
 
   it("exposes exactly the ratified methods", () => {
     expect(Array.from(RENDERER_API_METHODS)).toEqual([
+      "hardware.command",
       "runtime.status.get",
       "authorization.capabilities.get",
       "operation.result.get",

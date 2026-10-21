@@ -5,13 +5,31 @@ import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
 import { HardwareStore,type HardwareActor } from "./hardware-store.js";
 import { discoverSystemPrinters,requirePhysicalProfile,type HardwareTransport,type DiscoveredPeripheral } from "./adapters.js";
-import { drawerPulse,encodePrinterText,projectPrintableReceipt } from "./receipt-printer.js";
+import { cutterCommand,drawerPulse,encodePrinterText,projectPrintableReceipt } from "./receipt-printer.js";
+import type { AutomaticDrawerPolicy } from "./platform-transports.js";
 
 export interface RegisteredHardware {readonly transport:HardwareTransport;readonly profile:HardwareProfile}
 export class HardwareService {
   constructor(private readonly store:HardwareStore,private readonly receipts:GetReceiptUseCase,
     private readonly registry:ReadonlyMap<string,RegisteredHardware>=new Map(),
-    private readonly discover:()=>Promise<DiscoveredPeripheral[]>=discoverSystemPrinters){}
+    private readonly discover:()=>Promise<DiscoveredPeripheral[]>=discoverSystemPrinters,
+    private readonly automaticPolicy:AutomaticDrawerPolicy|null=null){}
+  async afterConfirmedCashPayment(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,paymentId:string):Promise<void> {
+    if(!this.automaticPolicy)return;
+    try {
+      if(actor.userId!==snapshot.claims.user_id)throw new Error("HARDWARE_ACTOR_CONTEXT_MISMATCH");
+      const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission:CanonicalPermission.HARDWARE_DRAWER_OPEN,
+        scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(snapshot.claims)});
+      if(!decision.allowed){this.store.audit(null,actor,"AUTOMATIC_DRAWER_DENIED",decision.reason);return;}
+      const job=this.store.enqueueConfirmedCashDrawer(scope,actor,paymentId,this.automaticPolicy.binding_id,this.automaticPolicy.policy_reference);
+      if(job){
+        const outcome=await this.execute(scope,snapshot,actor,{action:"dispatch",job_id:job.id});
+        if(outcome.kind==="REJECTED"||outcome.kind==="UNAUTHORIZED")this.store.audit(job.id,actor,"AUTOMATIC_DRAWER_INCIDENT",outcome.reason??"RECONCILIATION_REQUIRED");
+      }
+    }catch{
+      try{this.store.audit(null,actor,"AUTOMATIC_DRAWER_INCIDENT","RECONCILIATION_REQUIRED");}catch{/* never roll back a confirmed payment or replay automatically */}
+    }
+  }
   async execute(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,input:HardwareCommand):Promise<{kind:string;data:unknown;reason:string|null}> {
     const command=HardwareCommandSchema.parse(input);
     const job=command.action==="dispatch"?this.store.job(scope,command.job_id):null;
@@ -21,8 +39,11 @@ export class HardwareService {
       kind==="DRAWER_OPEN"?CanonicalPermission.HARDWARE_DRAWER_OPEN:CanonicalPermission.HARDWARE_PRINT;
     const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission,
       scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(snapshot.claims)});
-    if(!decision.allowed)return {kind:"UNAUTHORIZED",data:null,reason:decision.reason};
     if(actor.userId!==snapshot.claims.user_id)throw new Error("HARDWARE_ACTOR_CONTEXT_MISMATCH");
+    if(!decision.allowed){
+      if(kind==="DRAWER_OPEN")this.store.audit(null,actor,"DENIED_MANUAL_DRAWER",decision.reason);
+      return {kind:"UNAUTHORIZED",data:null,reason:decision.reason};
+    }
     try {
       if(command.action==="diagnose")return {kind:"DIAGNOSED",data:{devices:await this.discover(),profiles:[...this.registry.values()].map(value=>value.profile),physical_confirmation:"NOT_OBSERVED"},reason:null};
       if(command.action==="list")return {kind:"FOUND",data:this.store.list(scope),reason:null};
@@ -50,7 +71,7 @@ export class HardwareService {
       requirePhysicalProfile(binding.profile,selected.transport);
       let bytes:Uint8Array;
       if(job.kind==="DRAWER_OPEN")bytes=drawerPulse(binding.profile);
-      else if(job.kind==="CUT")throw new Error("MODEL_SPECIFIC_CUT_COMMAND_NOT_CONFIGURED");
+      else if(job.kind==="CUT")bytes=cutterCommand(binding.profile);
       else {
         let text="Camacho POS — prueba de impresión\nSin confirmación física\n";
         if(job.kind==="PRINT_RECEIPT"){

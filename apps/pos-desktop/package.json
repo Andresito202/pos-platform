@@ -12,7 +12,7 @@
     "build:entry": "esbuild src/production-entry.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/start.bundle.mjs && esbuild src/start.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/channel-start.bundle.mjs",
     "build": "pnpm build:main && pnpm build:entry && pnpm build:preload && pnpm build:renderer",
     "start:smoke": "electron --no-sandbox e2e/smoke-entry.mjs",
-    "start:production": "electron --no-sandbox dist/start.bundle.mjs",
+    "start:production": "electron dist/start.bundle.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test --config e2e/playwright.config.ts"
   },
