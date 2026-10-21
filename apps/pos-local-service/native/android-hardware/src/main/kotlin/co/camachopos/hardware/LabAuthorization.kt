@@ -57,6 +57,9 @@ object LabAuthorization {
         require(text(p,"printer_model") == "GP-L80160" && text(p,"protocol") == "ESC_POS") { "LAB_MODEL_REJECTED" }
         val firmware=text(p,"printer_firmware"); val identity=text(p,"identity_evidence"); val command=text(p,"command_evidence")
         val kind=text(job,"kind"); val reason=text(job,"reason"); require(reason.length in 3..200)
+        // M60WL/GP-L80160: ASCII observed, but its CD350 electrical path is still unverified.
+        // A signed laboratory request cannot promote that unknown physical capability.
+        require(!(kind=="DRAWER_OPEN" && binding.vendor==26728 && binding.product==1280)) { "M60WL_DRAWER_ELECTRICAL_PROFILE_UNVERIFIED" }
         val firmwareUnidentified=firmware == "UNIDENTIFIED_LAB_ASCII_ONLY"
         require(!firmwareUnidentified || kind == "PRINT_TEST") { "UNIDENTIFIED_FIRMWARE_PRINT_ONLY" }
         for(value in listOf(identity,command) + if(firmwareUnidentified) emptyList() else listOf(firmware)) {

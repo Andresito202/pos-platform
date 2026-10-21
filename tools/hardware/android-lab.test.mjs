@@ -36,3 +36,8 @@ test("cannot invent missing firmware or electrical parameters",()=>{
   assert.throws(()=>issueJob({...options,kind:"DRAWER_OPEN"}));
   assert.throws(()=>issueJob({...options,kind:"DRAWER_OPEN",profile:{...profile,drawer:{model:"CD350",pin:0}}}));
 });
+test("cannot issue a drawer request for the unverified M60WL electrical path",()=>{
+  const changed={...report,devices:[{...report.devices[0],vendor:26728,product:1280}]};
+  assert.throws(()=>issueJob({...options,report:changed,kind:"DRAWER_OPEN"}),/M60WL_DRAWER_ELECTRICAL_PROFILE_UNVERIFIED/);
+  assert.ok(issueJob({...options,report:changed}).signature_base64); // ASCII remains available, no physical I/O.
+});
