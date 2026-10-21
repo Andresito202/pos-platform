@@ -15,3 +15,4 @@ export * from "./business-session-ssa-eligibility-repository.js";
 export * from "./business-session-ssa-sequence-allocator.js";
 export * from "./device-proof-replay-verifier.js";
 export * from "./password-credential-verification-repository.js";
+export * from "./business-initial-webauthn-transaction.js";
