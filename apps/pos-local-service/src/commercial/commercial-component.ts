@@ -46,6 +46,8 @@ import { SqliteAuditStore } from "../audit/sqlite-audit-store.js";
 import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
 import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
+import { HardwareService,type RegisteredHardware } from "../hardware/hardware-service.js";
+import { HardwareStore } from "../hardware/hardware-store.js";
 
 /**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
@@ -64,6 +66,8 @@ import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
  * fabricar una confianza que nadie ha provisto.
  */
 export class CommercialComponent implements RuntimeComponent {
+  private hardwareInstance:HardwareService|null=null;
+  get hardware():HardwareService {if(!this.hardwareInstance)throw new Error("HARDWARE_RUNTIME_NOT_STARTED");return this.hardwareInstance;}
   readonly name = "commercial";
 
   private state:
@@ -179,6 +183,9 @@ export class CommercialComponent implements RuntimeComponent {
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
     const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
+    const hardwareStore=new HardwareStore(database);
+    hardwareStore.recoverInterrupted();
+    this.hardwareInstance=new HardwareService(hardwareStore,new GetReceiptUseCase(new SqliteReceiptStore(database)));
 
     // `DEC-021` F5. Sin almacén de secretos fiscal o sin ambiente configurado,
     // la pieza no se construye — `fiscal.document.issue` falla cerrado con un

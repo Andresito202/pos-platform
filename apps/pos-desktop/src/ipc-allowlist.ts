@@ -1,4 +1,5 @@
 export const IPC_ALLOWED_CHANNELS = [
+  "pos:hardware.command",
   "pos:runtime.status.get",
   "pos:authorization.capabilities.get",
   "pos:operation.result.get",

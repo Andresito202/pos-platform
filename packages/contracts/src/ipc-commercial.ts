@@ -1263,6 +1263,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
  * ampliaría la superficie del renderer sin contrapartida.
  */
 export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
+  "pos:hardware.command",
   "pos:session.activate",
   "pos:session.recover",
   "pos:cash.shift.open",

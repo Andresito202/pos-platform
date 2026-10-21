@@ -130,6 +130,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.stock.adjust":
       case "inventory.stock.get":
       case "sales.receipt.get":
+      case "hardware.command":
       case "audit.event.list":
       case "admin.metrics.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y

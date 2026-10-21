@@ -30,6 +30,7 @@ type CommercialRequest = Extract<
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "sales.receipt.get"
+      | "hardware.command"
       | "audit.event.list"
       | "admin.metrics.get";
   }
@@ -220,6 +221,7 @@ export class CommercialRequestHandler {
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
+      case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
       case "admin.metrics.get": return this.getAdminMetrics(request, connectionId);
     }
@@ -1098,6 +1100,14 @@ export class CommercialRequestHandler {
   }
 
   // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────
+  private async hardwareCommand(request:Extract<CommercialRequest,{message_type:"hardware.command"}>,connectionId:string):Promise<unknown> {
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)return rejected(request,authenticated.rejection,{kind:"UNAUTHORIZED",data:null,reason:authenticated.rejection});
+    const result=await this.commercial.hardware.execute(this.scope(),authenticated.snapshot,
+      {userId:authenticated.identity.userId,sessionId:authenticated.identity.ssaSessionId},request.payload);
+    return result.kind==="UNAUTHORIZED"||result.kind==="REJECTED"?rejected(request,result.reason??result.kind,result):succeeded(request,result.kind,result);
+  }
+
 
   /**
    * El recibo de una venta cobrada.

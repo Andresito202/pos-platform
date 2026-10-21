@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { HardwareRequestSchema,HardwareResponseSchema } from "./hardware.js";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
 import { RuntimeCompatibilitySnapshotSchema, RuntimeHandshakeOutcomeSchema } from "./handshake.js";
 import {
@@ -65,6 +66,7 @@ import {
 } from "./ipc-commercial.js";
 
 export const IpcMessageTypeSchema = z.enum([
+  "hardware.command",
   "runtime.handshake",
   "runtime.status.get",
   "operation.result.get",
@@ -170,6 +172,7 @@ export type OperationResultQuery = z.infer<typeof OperationResultQuerySchema>;
 export type OperationConfirmation = z.infer<typeof OperationConfirmationSchema>;
 
 export const IpcRequestSchema = z.union([
+  HardwareRequestSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
   OperationResultRequestSchema,
@@ -205,6 +208,7 @@ export const IpcRequestSchema = z.union([
 ]);
 
 export const IpcResponseSchema = z.union([
+  HardwareResponseSchema,
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,
   OperationResultResponseSchema,

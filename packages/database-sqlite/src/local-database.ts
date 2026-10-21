@@ -1380,6 +1380,30 @@ CREATE TRIGGER fiscal_electronic_document_resolved_is_final
 `.trim();
 
 
+// Hardware owns execution metadata only. Receipts remain projections (DEC-019).
+const MIGRATION_018 = `
+CREATE TABLE hardware_bindings (
+ id TEXT PRIMARY KEY NOT NULL,tenant_id TEXT NOT NULL,company_id TEXT NOT NULL,branch_id TEXT NOT NULL,
+ cash_register_id TEXT NOT NULL,device_id TEXT NOT NULL,profile_json TEXT NOT NULL CHECK(json_valid(profile_json)),
+ created_at TEXT NOT NULL,UNIQUE(tenant_id,branch_id,cash_register_id,device_id)
+) STRICT;
+CREATE TABLE hardware_jobs (
+ id TEXT PRIMARY KEY NOT NULL,tenant_id TEXT NOT NULL,company_id TEXT NOT NULL,branch_id TEXT NOT NULL,
+ binding_id TEXT NOT NULL REFERENCES hardware_bindings(id),kind TEXT NOT NULL CHECK(kind IN ('PRINT_TEST','PRINT_RECEIPT','DRAWER_OPEN','CUT')),
+ sale_id TEXT,reason TEXT NOT NULL,actor_id TEXT NOT NULL,session_id TEXT NOT NULL,
+ request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+ state TEXT NOT NULL CHECK(state IN ('PENDING','DISPATCHING','TRANSPORT_ACCEPTED','FAILED','UNKNOWN')),
+ result_code TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE hardware_events (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT,actor_id TEXT NOT NULL,session_id TEXT NOT NULL,
+ event_code TEXT NOT NULL,reason TEXT NOT NULL,recorded_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER hardware_events_no_update BEFORE UPDATE ON hardware_events BEGIN SELECT RAISE(ABORT,'hardware audit is append-only'); END;
+CREATE TRIGGER hardware_events_no_delete BEFORE DELETE ON hardware_events BEGIN SELECT RAISE(ABORT,'hardware audit is append-only'); END;
+CREATE INDEX hardware_jobs_pending_idx ON hardware_jobs(tenant_id,branch_id,state,created_at);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1398,6 +1422,7 @@ const MIGRATIONS = [
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
+  { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
 ] as const;
 
 /**
