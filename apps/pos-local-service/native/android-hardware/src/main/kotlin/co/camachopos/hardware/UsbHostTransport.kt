@@ -7,7 +7,8 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbManager
 
 /** Exact VID/PID/interface/endpoint from an approved physical device profile. No defaults. */
-data class UsbPrinterProfile(val vendorId: Int, val productId: Int, val interfaceIndex: Int, val endpointAddress: Int, val timeoutMs: Int)
+data class UsbPrinterProfile(val vendorId: Int, val productId: Int, val interfaceIndex: Int, val endpointAddress: Int, val timeoutMs: Int,
+    val expectedDeviceName: String? = null, val expectedDescriptorSha256: String? = null)
 data class UsbPeripheral(val deviceName: String, val vendorId: Int, val productId: Int, val permissionGranted: Boolean)
 class UsbHostTransport(private val context: Context, private val profile: UsbPrinterProfile) : ByteTransport {
     private val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -26,6 +27,7 @@ class UsbHostTransport(private val context: Context, private val profile: UsbPri
         val matches = manager.deviceList.values.filter { it.vendorId == profile.vendorId && it.productId == profile.productId }
         if (matches.size != 1) return JobState.FAILED // Do not choose between identical printers silently.
         val device = matches.single()
+        if (profile.expectedDeviceName != null && device.deviceName != profile.expectedDeviceName) return JobState.FAILED
         if (!manager.hasPermission(device) || profile.interfaceIndex !in 0 until device.interfaceCount) return JobState.FAILED
         val usbInterface = device.getInterface(profile.interfaceIndex)
         val endpoint = (0 until usbInterface.endpointCount).map { usbInterface.getEndpoint(it) }.singleOrNull {
@@ -33,6 +35,7 @@ class UsbHostTransport(private val context: Context, private val profile: UsbPri
         } ?: return JobState.FAILED
         val connection = manager.openDevice(device) ?: return JobState.FAILED
         try {
+            if (profile.expectedDescriptorSha256 != null && LabAuthorization.sha256(connection.rawDescriptors) != profile.expectedDescriptorSha256) return JobState.FAILED
             if (!connection.claimInterface(usbInterface, false)) return JobState.FAILED
             var offset = 0
             while (offset < bytes.size) {

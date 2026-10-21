@@ -15,3 +15,13 @@ El host Linux requiere resolver custodia de claves y autenticación del cliente 
 Se propone aprobar por separado de la política D3 ya solicitada: topología Android (servicio local en terminal o servicio LAN), origen HTTPS permitido, emparejamiento y prueba de posesión con ciclo de revocación, protocolo/versiones y distribución/actualización del host nativo. El análisis se entrega para decisión; no activa red, credenciales ni permisos. Bluetooth/SPP/BLE/serial y SDK propietarios permanecen pendientes de equipos y contratos específicos.
 
 Consecuencia actual: Windows alcanza diagnóstico desde Electron en laboratorio; no hay login comercial. Android entrega AAR, no APK ni integración web utilizable. Linux entrega piezas de transporte probadas parcialmente, no despliegue certificado. El objetivo multiplataforma y las pruebas físicas siguen abiertos.
+
+## Continuidad autorizada de laboratorio — 2026-10-21
+
+El propietario solicitó expresamente completar el host Android mínimo, APK, autorización confiable, descubrimiento, perfiles y transporte seguro para pruebas físicas M60WL/GP-L80160/CD350 desde `1674296c`. Esta autorización concreta permite el host **de pruebas físicas**, sin aprobar por inferencia una topología comercial, login, servicio LAN o protocolo web productivo de esta propuesta.
+
+Se reutiliza la biblioteca y su AAR con un host nativo dentro del mismo owner. Se entrega transporte documental firmado fuera de red: clave pública de laboratorio fijada en el APK, órdenes P-256 de uso único y duración explícita, binding a clave local de app/nonce/descriptores USB, permiso Android y revisión física nativa antes del envío. No hay servidor, WebView ni puente para páginas arbitrarias. Los bytes se construyen en código a partir de un perfil técnico revisado; no se importan comandos crudos. La autoridad de laboratorio no concede roles, sesiones BUSINESS ni SSA. El ledger privado existente se conserva.
+
+La instalación de esta app crea únicamente material propio del laboratorio en su sandbox/Keystore y en el kit aislado del técnico. No se altera ninguna credencial comercial ni se reutilizan sus claves. La clave de órdenes no se empaqueta en APK/Git. Revocar/desarmar bloquea intentos posteriores; no puede deshacer una escritura física ya iniciada. La matriz de certificación permanece `UNTESTED` hasta observar las pruebas físicas suficientes. [Procedimiento reproducible](../hardware/android-m60wl-lab-runbook.md).
+
+El estado histórico anterior de AAR sin host se conserva como evidencia de `1674296c`; el resultado nuevo del empaquetado y sus límites se registran en el [informe del host](../testing/android-hardware-host-2026-10-21.md). La propuesta comercial general de este ADR sigue pendiente.

@@ -1,0 +1,26 @@
+{
+  "policy": {
+    "version": "1.0.0",
+    "purpose": "HARDWARE_PHYSICAL_LAB",
+    "public_key_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmIauFZBHSInxZxMU9TKdQyrqk/JQmi9sYGZhjRgRVj4ACHqGhTJwajAel3fpr7j33gBZ/hOZ2jYWzvQTvKTwPw==",
+    "not_before_ms": 1799999999000,
+    "expires_at_ms": 1800003600000,
+    "max_job_seconds": 300
+  },
+  "binding": {
+    "installation": "TEST_ONLY",
+    "key_fingerprint": "1863c5feb28921c28eea73f32185af149fed2c370edc96618331a34e7fea4bae",
+    "report_nonce": "TEST_ONLY_NONCE",
+    "usb_name": "TEST_ONLY_USB",
+    "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "vendor": 123,
+    "product": 456,
+    "interface_index": 0,
+    "endpoint": 1
+  },
+  "now": 1800000000000,
+  "envelope": {
+    "body_base64": "eyJ2ZXJzaW9uIjoiMS4wLjAiLCJwdXJwb3NlIjoiSEFSRFdBUkVfUEhZU0lDQUxfTEFCIiwiam9iX2lkIjoiMGQ3N2JiZmUtYmI2NS00ZTlhLWE2MmItYWUxNzA3MjU1YmJjIiwicmVhc29uIjoiTk9ERSBUTyBKVk0gVEVTVCBPTkxZIiwiaXNzdWVkX2F0X21zIjoxODAwMDAwMDAwMDAwLCJleHBpcmVzX2F0X21zIjoxODAwMDAwMDYwMDAwLCJiaW5kaW5nIjp7Imluc3RhbGxhdGlvbiI6IlRFU1RfT05MWSIsImtleV9maW5nZXJwcmludCI6IjE4NjNjNWZlYjI4OTIxYzI4ZWVhNzNmMzIxODVhZjE0OWZlZDJjMzcwZWRjOTY2MTgzMzFhMzRlN2ZlYTRiYWUiLCJyZXBvcnRfbm9uY2UiOiJURVNUX09OTFlfTk9OQ0UiLCJ1c2JfbmFtZSI6IlRFU1RfT05MWV9VU0IiLCJkZXNjcmlwdG9yX3NoYTI1NiI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiLCJ2ZW5kb3IiOjEyMywicHJvZHVjdCI6NDU2LCJpbnRlcmZhY2VfaW5kZXgiOjAsImVuZHBvaW50IjoxfSwicHJvZmlsZSI6eyJwcmludGVyX21vZGVsIjoiR1AtTDgwMTYwIiwicHJpbnRlcl9maXJtd2FyZSI6IlRFU1QgT05MWSIsInByb3RvY29sIjoiRVNDX1BPUyIsImlkZW50aXR5X2V2aWRlbmNlIjoiU1lOVEhFVElDIFRFU1QgT05MWSIsImNvbW1hbmRfZXZpZGVuY2UiOiJTWU5USEVUSUMgVEVTVCBPTkxZIiwidGltZW91dF9tcyI6MTAwMCwiZHJhd2VyIjpudWxsfSwia2luZCI6IlBSSU5UX1RFU1QifQ==",
+    "signature_base64": "MEUCICKMpl53yB02JkEBsWiX1J1nEp3245trVwzc8XJj71t2AiEAhOjvaKXG4XMXXgLASMuG0YNUyR51w8AAcDmd8haMmKk="
+  }
+}
