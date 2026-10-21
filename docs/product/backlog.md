@@ -23,6 +23,14 @@ No funciona como diario histórico exhaustivo. La cronología detallada permanec
 
 Si una fuente vigente contradice otra, la transición afectada se bloquea hasta reconciliación. No se elige una interpretación arbitraria.
 
+## Continuidad de autenticación Windows — 2026-10-20
+
+Orden del propietario: consolidar el diff de la auditoría y avanzar exclusivamente sobre sus bloqueos. **Publicado `0a1510091ab845f616af144e797f576f8b1f8825`** en la rama activa: arreglo CREATED de transferencias, reparación del arnés real Windows y evidencia anterior. Coincidencia **8/8 hashes** antes de consolidar; no se repitieron 4/4 E2E, 39/39 canal, 34/34 SalePanel ni 4/4 runtime/autorización. PR #92 sigue OPEN/DRAFT, sin merge.
+
+**Incremento de credenciales, no login completo:** `PostgresPasswordCredentialVerificationRepository` conecta users/user_credentials existentes con `verifyStoredPlatformPassword` y Argon2id existente en Central Authority. Locks SHARE sobre usuario y credencial durante verificación; estado ACTIVE/no revocado/no bloqueado; PHC/rechazo en callback central, sin devolver secretos, permisos ni token y sin crear sesiones. Política de rechazo explícita, sin seleccionar KDF productivo. **12/12 pruebas físicas nuevas PASS, exit 0**, con PostgreSQL 16.14 localhost:55433 y Argon2id nativo en DB temporal separada; typechecks database-postgres y central-authority exit 0. Fallo inicial **10 PASS / 2 FAIL** por expectativas erróneas de RLS y CHECK en el test, conservado y corregido sin tocar esquema. [Alcance, archivos y bloqueo restante](../testing/authentication-continuity-2026-10-20.md).
+
+Lectura de catálogos persistentes: `pos_target_test`/`postgres` sin ledger de migraciones ni tablas de identidad/011/012; **no aplicadas a esas bases**, no se reaplicaron. **Ningún humano/rol autenticado**. Sigue faltando AUTHENTICATE inicial + autoridad/prueba de sesión comercial: las transacciones WebAuthn actuales requieren sesión GLOBAL previa y no emiten sesión empresarial. No conectar una coincidencia de contraseña o UUID a SSA. Se conservan las políticas pendientes D3 y los componentes de dispositivo/allocator/emisor; no se abre HTTP ni se fabrica MFA, permisos o aprovisionamiento.
+
 ## Auditoría integral Windows — 2026-10-20
 
 Misión del propietario: arranque local y diagnóstico real en `C:\Proyectos\pos-platform`, sobre la misma línea #92. Se actualizó el checkout limpio por fast-forward de `d6bee7f6` a `2ac19a236f8fd98028b761e65a42f62aa5db3666` (HEAD remoto observado); las correcciones descritas siguen como diff local, sin commit/publicación/merge. [Informe completo y evidencia local](../testing/local-integrated-audit-2026-10-20.md).

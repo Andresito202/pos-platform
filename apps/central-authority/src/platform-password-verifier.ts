@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { argon2id, hash, verify } from "argon2";
+import type { PasswordCredentialMatch, PostgresPasswordCredentialVerificationRepository } from "@pos-platform/database-postgres";
 import {
   PlatformPasswordKdfProfiles,
   isSupportedPlatformPasswordVerifier,
@@ -49,4 +50,29 @@ export async function verifyPlatformPasswordVerifier(
   } catch {
     return false;
   }
+}
+
+/**
+ * INTERNAL UC-AUTH-001 credential step: persisted PASSWORD -> existing Argon2id
+ * verifier. This does not emit an authenticated session or authorize SSA/MFA.
+ * A deployment must supply its own supported dummy verifier under its approved
+ * KDF policy. There is no default profile and no HTTP exposure in this binding.
+ */
+export async function verifyStoredPlatformPassword(
+  repository: PostgresPasswordCredentialVerificationRepository,
+  input: { readonly email: string; readonly password: string },
+  trustedPolicy: { readonly rejectionVerifier: string },
+): Promise<PasswordCredentialMatch | null> {
+  if (!isSupportedPlatformPasswordVerifier(trustedPolicy.rejectionVerifier)) {
+    throw new Error("PLATFORM_PASSWORD_REJECTION_VERIFIER_INVALID");
+  }
+  if (typeof input.email !== "string" || typeof input.password !== "string") return null;
+  // Same normalization as the existing onboarding repository.
+  return repository.verifyActivePassword(input.email.trim().toLowerCase(), async stored => {
+    const supported = isSupportedPlatformPasswordVerifier(stored);
+    const valid = await verifyPlatformPasswordVerifier(
+      input.password, supported ? stored : trustedPolicy.rejectionVerifier,
+    );
+    return supported && valid;
+  });
 }
