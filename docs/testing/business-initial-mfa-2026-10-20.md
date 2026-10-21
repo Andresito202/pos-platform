@@ -1,5 +1,7 @@
 # MFA inicial BUSINESS — 2026-10-20
 
+Continuidad posterior: [autoridad interna de sesión BUSINESS](business-session-authority-2026-10-20.md) materializa y prueba la persistencia de sesión en DB temporal desde la referencia de este flujo. El bloqueo productivo de políticas/prueba de acceso y la ausencia de login humano se conservan; el estado inferior describe el cierre anterior del MFA.
+
 Base local/remota comprobada: `c51d3fed1e872a7938fc29ce662e8b94a4aeaf16`, rama `claude/pos-camacho-bloque-4c-ld43py`. Incremento autorizado: coordinación interna AUTHENTICATE; el commit que contiene este informe identifica el delta comprobado. Sin merge a main.
 
 ## Implementación y contrato interno
