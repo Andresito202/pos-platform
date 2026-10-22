@@ -1,5 +1,5 @@
 import {createPrivateKey,createPublicKey,sign,verify,randomBytes,type KeyObject} from "node:crypto";
-import type {Pool} from "pg";
+import type {Pool,PoolClient} from "pg";
 import {uuidV7,PlatformSecurityEventCode} from "@pos-platform/contracts";
 import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
@@ -27,8 +27,11 @@ export class IsolatedBusinessAccessTokenCodec {
       throw Error("ACCESS_SIGNING_KEY_MISMATCH");
   }
   async issue(identity:Identity,device:Device,correlationId:string):Promise<string|null>{
+    return this.guard.whileActive(identity,client=>this.issueInTransaction(client,identity,device,correlationId));
+  }
+  /** Only call under the same verified IsolatedBusinessAuditSessionGuard transaction. */
+  async issueInTransaction(client:PoolClient,identity:Identity,device:Device,correlationId:string):Promise<string>{
     const clock=Math.floor(Date.now()/1000),auditor=new PostgresPlatformSecurityEventRepository(this.pool);
-    return this.guard.whileActive(identity,async client=>{
       const checked=await client.query<{expires_at:Date}>(`SELECT s.expires_at FROM identity.sessions s
         JOIN identity.users u ON u.id=s.user_id AND u.status='ACTIVE'
         JOIN tenancy.tenants t ON t.id=s.tenant_id AND t.status='ACTIVE'
@@ -59,7 +62,6 @@ export class IsolatedBusinessAccessTokenCodec {
         reason_code:"ISOLATED_ACCESS_SIGNING",correlation_id:correlationId,
         occurred_at:new Date(Date.now()-1000).toISOString()},client);
       return token;
-    });
   }
   async verify(token:string):Promise<Claims|null>{
     if(typeof token!=="string"||token.length>8192)return null;
