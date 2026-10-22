@@ -2,7 +2,6 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Pool } from "pg";
 import { IsolatedBusinessAuditSessionGuard } from "./isolated-business-audit-session-guard.js";
 import type { ValidatedCommercialBinding } from "./commercial-binding-prerequisite.js";
-import { validateNativeClientRegistration } from "./native-authorization-constraints.js";
 
 /**
  * ISOLATED_VALIDATION only. Uses the existing locked BUSINESS session as the
@@ -29,7 +28,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     if (!input?.binding?.identity || !input.binding.device ||
       input.binding.identity.tenantId !== input.binding.device.tenantId ||
       !/^[A-Za-z0-9._~-]{1,128}$/.test(input.clientId) ||
-      !/^https:\/\//.test(input.redirectUri) ||
+      !/^http:\/\/127\.0\.0\.1:[0-9]+\/callback$/.test(input.redirectUri) ||
       !/^[A-Za-z0-9_-]{43}$/.test(input.codeChallenge) ||
       !/^[A-Za-z0-9_-]{32,256}$/.test(input.state) ||
       typeof input.recordAudit !== "function") return null;
