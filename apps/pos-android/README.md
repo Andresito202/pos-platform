@@ -6,7 +6,9 @@ La prueba SQLite nativa `co.camachopos.android.probe` se conserva sin cambios: f
 
 El nuevo `co.camachopos.android.runtimeprobe` incluye Node ARM64/Bionic 24.18.0 y **better-sqlite3 13.0.3**, recompilado con NDK r27d, API 28, N-API 10. Ejecuta `LocalDatabase` y las migraciones canónicas 1–18 sin modificarlas. Prueba WAL, integridad, exclusión de segundo writer en el proceso, transacción, rollback, cierre/reapertura y persistencia entre dos procesos del APK. Sus datos viven exclusivamente en `files/commercial-engine-probe` de ese paquete. No instala Termux ni necesita un servicio Windows para ejecutar el motor.
 
-No contiene React, sesiones, ventas, permisos USB, red, WebView ni endpoints. El arranque comercial existente continúa bloqueando plataformas sin custodia segura implementada; no se cambia ese control. La firma de laboratorio y target 28 son para este ensayo en Android 9, no un perfil de distribución productivo ni de Android moderno.
+No contiene React, sesiones, ventas, permisos USB, red, WebView ni endpoints. La continuidad de 2026-10-22 añade un Service nativo no exportado, foreground explícito y controles de inicio/estado/parada. El Node hijo ejecuta `ServiceLifecycle` y `LocalDatabaseComponent` existentes en `files/android-local-service`; **no inicia outbox ni comercio antes de local-security**, conforme a DEC-020. `READY` describe únicamente ese fundamento: `commercial_access=BLOCKED_PENDING_TRUSTED_PROVISIONING`, `local_security=NOT_PROVISIONED`, canal externo cerrado.
+
+El arranque comercial Windows y DPAPI permanecen intactos. La firma de laboratorio y target 28 son para Android 9; no constituyen perfil de distribución productivo ni soporte de Android moderno. El único permiso nuevo es FOREGROUND_SERVICE; su notificación indica que el servicio carece de aprovisionamiento comercial.
 
 ## Procedimiento único
 
@@ -43,3 +45,20 @@ pnpm --filter @pos-platform/pos-local-service exec tsc -p ../pos-android/tsconfi
 docker run --rm --mount type=bind,source=C:\Proyectos\pos-platform\apps\pos-android,target=/work gradle:8.14-jdk17 python3 /work/test-extract-runtime.py
 node tools/architecture/validate-boundaries.mjs
 ```
+
+Para actualizar únicamente TypeScript/Kotlin del host sin descargar ni recompilar otra vez los binarios ya verificados:
+
+```powershell
+node apps/pos-android/bundle-runtime.mjs
+node apps/pos-android/package-runtime-assets.mjs
+powershell -NoProfile -File apps/pos-android/build-runtime-probe.ps1 -KitDirectory artifacts/android-hardware/mi-kit
+```
+
+Después de instalar con `adb install -r` como arriba, probar solo el nuevo ciclo de vida:
+
+```powershell
+powershell -NoProfile -File apps/pos-android/test-service-device.ps1 `
+  -AdbPath $adb -Serial $serial -EvidenceDirectory artifacts/android-runtime/2026-10-22/device-service
+```
+
+El script verifica inicio, Activity en segundo plano, parada ordenada y nuevo proceso Node al reiniciar. No ejecuta la prueba SQLite anterior ni impresiones. No se abre canal comercial ni se asignan IDs de tenant/dispositivo/usuario.

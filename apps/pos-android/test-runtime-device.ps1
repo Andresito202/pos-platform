@@ -20,7 +20,7 @@ function Read-Screen([string]$Name){
 function Run-Probe([string]$Name){
     Adb @('shell','am','start','-W','-n',"$package/$activity") | Out-Null
     $screen=Read-Screen "$Name-initial"
-    $buttons=@($screen.SelectNodes('//node[@class="android.widget.Button" and @package="co.camachopos.android.runtimeprobe"]'))
+    $buttons=@($screen.SelectNodes('//node[@class="android.widget.Button" and @package="co.camachopos.android.runtimeprobe" and starts-with(@text,"EJECUTAR MOTOR")]'))
     if($buttons.Count -ne 1 -or $buttons[0].text -notlike 'EJECUTAR MOTOR*' -or $buttons[0].bounds -notmatch '^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$'){throw 'OWN_PROBE_ACTION_NOT_IDENTIFIED'}
     $x=[int](([int]$Matches[1]+[int]$Matches[3])/2);$y=[int](([int]$Matches[2]+[int]$Matches[4])/2)
     Adb @('shell','input','tap',"$x","$y") | Out-Null

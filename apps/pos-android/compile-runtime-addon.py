@@ -23,6 +23,7 @@ subprocess.run([str(cxx),'-O2','-fPIC','-shared','-std=c++20','-fvisibility=hidd
     '-I'+str(target/'include/node'),'-I'+str(inputs/'node-addon-api'),'-I'+str(source/'deps/sqlite3'),
     str(source/'src/better_sqlite3.cpp'),str(obj),'-Wl,-Bsymbolic','-Wl,--exclude-libs,ALL','-ldl','-lm','-o',str(destination)],check=True)
 shutil.copyfile(inputs/'runtime-probe.mjs',target/'runtime-probe.mjs')
+shutil.copyfile(inputs/'runtime-service.mjs',target/'runtime-service.mjs')
 notices=target/'share/doc/android-runtime-build'; notices.mkdir(parents=True,exist_ok=True)
 for name in ['NOTICE','NOTICE.toolchain']:
     shutil.copyfile(ndk/name,notices/('NDK-'+name))

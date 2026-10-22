@@ -12,6 +12,8 @@ No funciona como diario histórico exhaustivo. La cronología detallada permanec
 
 Objetivo único actual: runtime Android autónomo que reutilice contratos, servicio y persistencia canónicos, seguido de PRINT_RECEIPT autorizado y hardware certificado. Base comunicada y conservada: SQLite Android nativo e impresión ASCII USB ya probados en M60WL; no equivalen al motor Node/better-sqlite3 ni a recibo comercial. Cajón CD350 sin perfil eléctrico validado: bloqueado, sin apertura automática. No se aprueban por esta continuidad las políticas D3 ni una sesión comercial ficticia. Evidencia de cada nuevo incremento en `docs/testing/`; no se eleva un peldaño por compilar o por inferencia.
 
+Continuidad 2026-10-22: [fundamento Service Android](../testing/android-service-lifecycle-2026-10-22.md), proceso Node propio con ciclo de vida y base canónica; acceso comercial cerrado, sin outbox antes de local-security (DEC-020). No se cambia el objetivo activo ni se declara POS Android completo.
+
 ## Jerarquía relacionada
 
 - Estado y orden de trabajo: este backlog.

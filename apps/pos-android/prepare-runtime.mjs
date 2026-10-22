@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { cpSync,existsSync,mkdirSync,readFileSync,writeFileSync } from "node:fs";
 import { dirname,join,resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bundleRuntime } from "./bundle-runtime.mjs";
 const project=dirname(fileURLToPath(import.meta.url)),root=resolve(project,"../..");
 const output=resolve(process.argv[2]??join(project,"build/runtime-inputs"));mkdirSync(output,{recursive:true});
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -38,6 +39,5 @@ const addon=dirname(createRequire(join(better,"package.json")).resolve("node-add
 const native=join(output,"better-sqlite3");mkdirSync(native,{recursive:true});
 for(const item of ["src","deps","lib","package.json","LICENSE"])if(existsSync(join(better,item)))cpSync(join(better,item),join(native,item),{recursive:true});
 cpSync(addon,join(output,"node-addon-api"),{recursive:true});
-const { build }=createRequire(join(root,"apps/pos-local-service/package.json"))("esbuild");
-await build({entryPoints:[join(project,"runtime-probe.mts")],bundle:true,platform:"node",target:"node22",format:"esm",external:["better-sqlite3"],outfile:join(output,"runtime-probe.mjs"),banner:{js:"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);"}});
+await bundleRuntime(output);
 console.log(JSON.stringify({prepared:output,node:selected[0].Version,betterSqlite:"13.0.3",execution:"NOT_YET_TESTED"}));
