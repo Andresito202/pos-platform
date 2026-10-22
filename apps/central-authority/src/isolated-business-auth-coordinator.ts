@@ -11,6 +11,8 @@ import type {NativeClientRegistration} from "./native-authorization-constraints.
 import type {TrustedCommercialAudit} from "./commercial-binding-prerequisite.js";
 import {validateNativeClientRegistration} from "./native-authorization-constraints.js";
 import type {createPostgresPool} from "@pos-platform/database-postgres";
+import {IsolatedBusinessCredentialPairIssuer} from "./isolated-business-credential-pair-issuer.js";
+import type {ValidatedCommercialBinding} from "./commercial-binding-prerequisite.js";
 
 /**
  * INTERNAL ISOLATED orchestration only. A client cannot supply a serialized
@@ -63,4 +65,33 @@ export class IsolatedBusinessAuthCoordinator {
     // No public credential is returned. Atomic access+refresh is still unapproved.
     return new NativeAuthorizationCodeExchange(registration,this.consumer).exchange(request);
   }
+  /**
+   * Single-transaction lab-only PKCE redemption and credential-pair issue.
+   * A failed pair insertion/audit rolls the code consumption back as well.
+   * No identifiers supplied by the callback are trusted over the wire.
+   */
+  async exchangeCredentials(registration:NativeClientRegistration,request:{
+    code:string;verifier:string;state:string;
+  },pairIssuer:IsolatedBusinessCredentialPairIssuer):Promise<{
+    accessToken:string;refreshToken:string;
+  }|null>{
+    validateNativeClientRegistration(registration);
+    if(!(pairIssuer instanceof IsolatedBusinessCredentialPairIssuer))
+      throw Error("BUSINESS_COORDINATOR_TRUSTED_PAIR_ISSUER_REQUIRED");
+    const consumer={
+      durabilityPolicyReference:this.consumer.durabilityPolicyReference,
+      consume:(code:string,verify:Parameters<IsolatedBusinessBoundCodeConsumer["consume"]>[1])=>
+        this.consumer.consumeWith(code,verify,async(client,row)=>{
+          const binding:ValidatedCommercialBinding={
+            identity:{sessionId:row.sessionId,userId:row.userId,tenantId:row.tenantId,
+              tenantMembershipId:row.tenantMembershipId},
+            device:{deviceId:row.deviceId,credentialId:row.credentialId,
+              tenantId:row.tenantId,installationId:row.installationId,companyId:row.companyId},
+          };
+          return pairIssuer.issueInTransaction(client,binding,uuidV7());
+        }),
+    };
+    return new NativeAuthorizationCodeExchange(registration,consumer).exchange(request);
+  }
+
 }
