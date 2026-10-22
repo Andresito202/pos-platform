@@ -135,7 +135,10 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   // Do not route isolated PostgreSQL fixtures or accept client session IDs.
   if (request.url === "/v1/commercial/token" ||
       request.url === "/v1/commercial/authorize" ||
-      request.url === "/v1/commercial/login") {
+      request.url === "/v1/commercial/login" ||
+      request.url === "/v1/commercial/browser/session" ||
+      request.url === "/v1/commercial/browser/logout" ||
+      request.url === "/v1/commercial/browser/rotate") {
     if (!limiter.allow(`${remote}:commercial-auth`)) {
       send(response,429,{status:"REJECTED",result_code:"COMMERCIAL_AUTH_RATE_LIMITED",
         request_id:requestId,correlation_id:correlationId},{"retry-after":"60"});
