@@ -607,6 +607,34 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       sessionId:binding.sessionId,deviceId,tenantId,credentialId:deviceCredentialId,
     });
   });
+  it("persists canonical redemption audit for one successful PKCE exchange",async()=>{
+    const code=await issueExchangeReadyCode();
+    expect(await linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})).not.toBeNull();
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2`,
+      [binding.sessionId,PlatformSecurityEventCode.AUTHORIZATION_CODE_REDEEMED]);
+    expect(rows.rows[0].n).toBe(1);
+  });
+  it("persists canonical rejection audit when a valid code has incorrect PKCE",async()=>{
+    const code=await issueExchangeReadyCode();
+    expect(await linkedExchange().exchange({code:code!,verifier:"Q".repeat(43),state:exchangeState})).toBeNull();
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2`,
+      [binding.sessionId,PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED]);
+    expect(rows.rows[0].n).toBe(1);
+  });
+  it("rolls back code consumption if canonical redemption audit fails",async()=>{
+    const code=await issueExchangeReadyCode();
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState}))
+        .rejects.toMatchObject({code:"42501"});
+    } finally { await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app"); }
+    const digest=createHash("sha256").update(code!).digest("hex");
+    const rows=await owner.query(`SELECT consumed_at FROM identity.native_authorization_code_validation
+      WHERE code_hash=$1`,[digest]);
+    expect(rows.rows[0].consumed_at).toBeNull();
+  });
   it("burns the code after invalid PKCE without leaking a device binding",async()=>{
     const code=await issueExchangeReadyCode();
     expect(await linkedExchange().exchange({code:code!,verifier:"Q".repeat(43),state:exchangeState})).toBeNull();
