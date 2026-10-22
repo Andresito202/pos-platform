@@ -7,6 +7,7 @@ import { IsolatedBusinessCredentialPairIssuer } from "../src/isolated-business-c
 import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-coordinator.js";
 import { IsolatedBusinessBrowserLogin } from "../src/isolated-business-browser-login.js";
 import { IsolatedBrowserSessionVault } from "../src/isolated-browser-session-vault.js";
+import { IsolatedDurableBrowserSessionStore } from "../src/isolated-durable-browser-session-store.js";
 import { IsolatedBusinessBrowserSessionBridge } from "../src/isolated-business-browser-session-bridge.js";
 import { CommercialNativeClientCatalog } from "../src/commercial-native-client-catalog.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
@@ -83,6 +84,13 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.native_authorization_code_validation TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT ON identity.native_code_audit_fixture TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.session_refresh_tokens TO pos_platform_app");
+    await owner.query(`CREATE TABLE identity.browser_session_validation (
+      cookie_hash text PRIMARY KEY,csrf_hash text NOT NULL,
+      session_id uuid NOT NULL,user_id uuid NOT NULL,tenant_id uuid NOT NULL,
+      membership_id uuid NOT NULL,origin text NOT NULL,
+      created_at timestamptz NOT NULL,expires_at timestamptz NOT NULL,
+      revoked_at timestamptz NULL)`);
+    await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.browser_session_validation TO pos_platform_app");
     url.username="pos_platform_app";
     runtime=createPostgresPool(url.toString(),5,"business-access-central-runtime");
     verifier=await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1");
@@ -954,6 +962,38 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect(closed?.sessionState).toBe("REVOKED");
     expect(closed?.clearCookie).toContain("Max-Age=0");
     expect(vault.inspect(valid)).toBeNull();
+  });
+
+  it("persists opaque browser sessions across independent store instances, rotating atomically",async()=>{
+    const one=new IsolatedDurableBrowserSessionStore(runtime,origin);
+    const second=new IsolatedDurableBrowserSessionStore(runtime,origin);
+    expect(await one.establish(preparation,{...reference})).toBeNull();
+    const issued=await one.establish(preparation,reference);
+    expect(issued?.setCookie).toContain("Secure; HttpOnly; SameSite=Strict");
+    const req=(cookie:string,csrfToken:string)=>({
+      cookie:cookie.split(";")[0]!,csrfToken,origin,fetchSite:"same-origin",method:"POST",
+    });
+    expect(await second.inspect(req(issued!.setCookie,issued!.csrfToken)))
+      .toEqual({sessionId:binding.sessionId,userId,tenantId,tenantMembershipId:membershipId});
+    const rotated=await Promise.all([
+      one.rotate(req(issued!.setCookie,issued!.csrfToken)),
+      second.rotate(req(issued!.setCookie,issued!.csrfToken)),
+    ]);
+    expect(rotated.filter(Boolean)).toHaveLength(1);
+    expect(await one.inspect(req(issued!.setCookie,issued!.csrfToken))).toBeNull();
+    const next=rotated.find(Boolean)!;
+    expect(await second.inspect(req(next.setCookie,next.csrfToken))).not.toBeNull();
+    expect(await one.logout(req(next.setCookie,next.csrfToken))).toBe(true);
+    expect(await second.inspect(req(next.setCookie,next.csrfToken))).toBeNull();
+  });
+  it("rejects durable browser sessions after canonical BUSINESS session revocation",async()=>{
+    const store=new IsolatedDurableBrowserSessionStore(runtime,origin);
+    const issued=await store.establish(preparation,reference);
+    expect(issued).not.toBeNull();
+    await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
+      revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
+    expect(await store.inspect({cookie:issued!.setCookie.split(";")[0]!,csrfToken:issued!.csrfToken,
+      origin,fetchSite:"same-origin",method:"POST"})).toBeNull();
   });
 
 });
