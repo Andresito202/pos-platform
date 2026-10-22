@@ -1,3 +1,4 @@
+import {BusinessAccessPreparation} from "./business-access-preparation.js";
 import {createHash,randomBytes,timingSafeEqual} from "node:crypto";
 import type {Pool} from "pg";
 import {UuidSchema} from "@pos-platform/contracts";
@@ -64,10 +65,10 @@ export class IsolatedDurableBrowserSessionStore {
   private cookie(token:string,maxAge:number){
     return `${COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`;
   }
-  async establish(binding:Bound,authenticatedProvenance:object):Promise<Issued|null>{
-    // Non-serializable provenance is required by caller; never exposed in HTTP.
-    if(!authenticatedProvenance||typeof authenticatedProvenance!=="object"||
-      !Object.isFrozen(authenticatedProvenance))return null;
+  async establish(preparation:BusinessAccessPreparation,protectedReference:unknown):Promise<Issued|null>{
+    if(!(preparation instanceof BusinessAccessPreparation))return null;
+    const binding=await preparation.resolveCurrent(protectedReference);
+    if(!binding)return null;
     const token=random(),csrf=random();
     return this.transaction(async c=>{
       if(!await this.active(c,binding))return null;
