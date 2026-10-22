@@ -90,6 +90,8 @@ export class IsolatedDurableBrowserSessionStore {
       !["POST","DELETE"].includes(input.method)||!input.csrfToken||
       !/^[A-Za-z0-9_-]{43}$/.test(input.csrfToken))return null;
     const token=this.extract(input.cookie);if(!token)return null;
+    const csrfToken=input.csrfToken;
+    if(typeof csrfToken!=="string")return null;
     return this.transaction(async c=>{
       const found=await c.query<{session_id:string;user_id:string;tenant_id:string;membership_id:string;csrf_hash:string}>(`
         SELECT session_id::text,user_id::text,tenant_id::text,
@@ -98,7 +100,7 @@ export class IsolatedDurableBrowserSessionStore {
         WHERE cookie_hash=$1 AND revoked_at IS NULL
           AND expires_at>clock_timestamp() FOR UPDATE`,[hash(token)]);
       const row=found.rows[0];if(!row)return null;
-      const a=Buffer.from(row.csrf_hash,"hex"),b=Buffer.from(hash(input.csrfToken),"hex");
+      const a=Buffer.from(row.csrf_hash,"hex"),b=Buffer.from(hash(csrfToken),"hex");
       if(a.length!==b.length||!timingSafeEqual(a,b))return null;
       const bound={sessionId:row.session_id,userId:row.user_id,tenantId:row.tenant_id,
         tenantMembershipId:row.membership_id};
@@ -116,6 +118,8 @@ export class IsolatedDurableBrowserSessionStore {
       !["POST","DELETE"].includes(input.method)||!input.csrfToken||
       !/^[A-Za-z0-9_-]{43}$/.test(input.csrfToken))return null;
     const old=this.extract(input.cookie);if(!old)return null;
+    const csrfToken=input.csrfToken;
+    if(typeof csrfToken!=="string")return null;
     const fresh=random(),csrf=random();
     return this.transaction(async c=>{
       const found=await c.query<{session_id:string;user_id:string;tenant_id:string;membership_id:string;csrf_hash:string}>(`
@@ -124,7 +128,7 @@ export class IsolatedDurableBrowserSessionStore {
         WHERE cookie_hash=$1 AND revoked_at IS NULL AND expires_at>clock_timestamp()
         FOR UPDATE`,[hash(old)]);
       const row=found.rows[0];if(!row)return null;
-      const a=Buffer.from(row.csrf_hash,"hex"),b=Buffer.from(hash(input.csrfToken),"hex");
+      const a=Buffer.from(row.csrf_hash,"hex"),b=Buffer.from(hash(csrfToken),"hex");
       if(a.length!==b.length||!timingSafeEqual(a,b))return null;
       if(!await this.active(c,{sessionId:row.session_id,userId:row.user_id,
         tenantId:row.tenant_id,tenantMembershipId:row.membership_id}))return null;
