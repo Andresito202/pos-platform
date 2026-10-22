@@ -55,6 +55,8 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   ALREADY_CLOSED: "CONFLICT",
   VERSION_CONFLICT: "CONFLICT",
   CATALOG_NOT_FOUND: "NOT_FOUND",
+  IDENTIFIER_MISMATCH: "VALIDATION",
+  INVALID_FISCAL_ATTRIBUTES: "VALIDATION",
   // La venta existe pero no esta cobrada: es un conflicto de estado, no una
   // ausencia. El cajero tiene que cobrarla, no buscarla en otra caja.
   NOT_COMPLETED: "CONFLICT",

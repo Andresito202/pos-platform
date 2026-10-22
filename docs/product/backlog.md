@@ -24,6 +24,8 @@ Continuidad catálogo fiscal 2026-10-22: [D-19, escritor inicial](../testing/cat
 
 Continuidad importación 2026-10-22: [CSV de catálogo](../testing/catalog-csv-2026-10-22.md) en el panel existente, plantilla, validación/vista previa/coincidencias y confirmación backend por fila recuperable por idempotencia. 5 nuevas parser/orquestación, 7 renderer focalizadas y 1 SQLite de aislamiento de empresa. No XLSX/XML ni importación de stock/facturas/recepción física.
 
+Continuidad permisos 2026-10-22: [11 pruebas focalizadas de fronteras](../testing/commercial-role-boundaries-2026-10-22.md) del handler real sobre SQLite temporal; denegaciones por grant ausente, alcance, retiro y caducidad en catálogo/recepción/ajuste, sin grants centrales fabricados. No aprobación crítica, SaleReturn ni reserva de inventario materializados por estos tests.
+
 - Estado y orden de trabajo: este backlog.
 - Arquitectura/decisiones: `docs/adr/`.
 - Módulos y ownership: `docs/architecture/module-map.md` + `docs/architecture/data-ownership.md`.

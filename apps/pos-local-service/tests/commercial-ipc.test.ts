@@ -859,6 +859,28 @@ function registerProductRequest(overrides: Record<string, unknown> = {}) {
 }
 
 describe("catalog.* — el catálogo es alcanzable por el canal", () => {
+  it.each(["cashier-without-grant", "other-tenant", "other-company", "other-branch", "inactive-role", "expired-assignment", "expired-snapshot", "missing-snapshot"])("role boundary rejects catalog mutation: %s", async (scenario) => {
+    const { database, handler } = await buildEnv(); const connection = randomUUID();
+    const claims = authorizationClaims(USER, scenario === "cashier-without-grant" ? ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ"] : CATALOG_PERMISSIONS);
+    const other = "018f0000-0000-7000-8000-000000000099";
+    if (scenario === "other-tenant") claims.assignments[0]!.tenant_id = other;
+    if (scenario === "other-company") claims.assignments[0]!.company_id = other;
+    if (scenario === "other-branch") claims.assignments[0]!.branch_id = other;
+    if (scenario === "inactive-role") claims.assignments[0]!.role_status = "RETIRED";
+    if (scenario === "expired-assignment") claims.assignments[0]!.valid_until = "2026-09-03T10:00:00.000Z";
+    if (scenario === "expired-snapshot") claims.expires_at = "2026-09-03T10:00:00.000Z";
+    if (scenario !== "missing-snapshot") new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(signAuthorization(claims), { userId: USER, installationId: INSTALLATION, deviceId: DEVICE });
+    handler.handle(activateRequest(signSession(sessionClaims())), connection);
+    const result = response(handler.handle(registerProductRequest(), connection));
+    expect(result.status).toBe("REJECTED"); expect(result.result["outcome"]).toBe("UNAUTHORIZED");
+    for (const table of ["catalog_product", "catalog_fiscal_attribute", "local_sync_outbox", "runtime_operations"]) expect(database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
+  });
+  it("role boundary: mutation payload cannot self-assert a grant, actor or supervisor approval", () => {
+    const request = registerProductRequest();
+    for (const field of ["permissions", "actor_id", "approved", "approval_actor_id"]) {
+      expect(CatalogProductRegisterRequestSchema.safeParse({ ...request, payload: { ...request.payload, [field]: field === "approved" ? true : USER } }).success).toBe(false);
+    }
+  });
   it("registra un producto y lo devuelve al escanear su código de barras", async () => {
     const { database, handler } = await buildEnv();
     seedAuthorization(database, USER, CATALOG_PERMISSIONS);
@@ -932,6 +954,24 @@ const INVENTORY_PERMISSIONS = [
 ];
 
 describe("inventory.* — el inventario es alcanzable por el canal", () => {
+  it.each(["receive", "adjust"] as const)("role boundary: %s denies absent, cross-branch, retired and expired grants", async (operation) => {
+    for (const scenario of ["missing-grant", "other-branch", "retired-role", "expired-grant"]) {
+      const { database, handler } = await buildEnv(); const connection = randomUUID();
+      const permission = operation === "receive" ? "INVENTORY_STOCK_RECEIVE" : "INVENTORY_STOCK_ADJUST";
+      const claims = authorizationClaims(USER, scenario === "missing-grant" ? ["INVENTORY_STOCK_READ", "SALES_SALE_CREATE"] : [permission]);
+      if (scenario === "other-branch") claims.assignments[0]!.branch_id = "018f0000-0000-7000-8000-000000000099";
+      if (scenario === "retired-role") claims.assignments[0]!.role_status = "RETIRED";
+      if (scenario === "expired-grant") claims.assignments[0]!.valid_until = "2026-09-03T10:00:00.000Z";
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(signAuthorization(claims), { userId: USER, installationId: INSTALLATION, deviceId: DEVICE });
+      handler.handle(activateRequest(signSession(sessionClaims())), connection);
+      const input = { ...BASE, message_type: `inventory.stock.${operation}`, request_id: randomUUID(), correlation_id: randomUUID(), operation_id: randomUUID(), idempotency_key: `role:${operation}:${scenario}`,
+        payload: { presentation_id: "018f0000-0000-7000-8000-000000000099", movement_type: operation === "receive" ? "PURCHASE_RECEIPT" : "SHRINKAGE", quantity: "1.000000", reason_code: "TEST_REASON", business_date: "2026-09-03" } };
+      const request = operation === "receive" ? InventoryStockReceiveRequestSchema.parse(input) : InventoryStockAdjustRequestSchema.parse(input);
+      const result = response(handler.handle(request, connection));
+      expect(result.status).toBe("REJECTED"); expect(result.result["outcome"]).toBe("UNAUTHORIZED");
+      for (const table of ["inventory_movement", "inventory_stock", "local_sync_outbox", "runtime_operations"]) expect(database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
+    }
+  });
   async function withProduct() {
     const env = await buildEnv();
     seedAuthorization(env.database, USER, INVENTORY_PERMISSIONS);
