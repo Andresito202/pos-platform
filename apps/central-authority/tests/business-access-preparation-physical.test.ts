@@ -2,6 +2,7 @@ import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityE
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
 import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refresh-rotation.js";
+import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-access-token-codec.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
 import { derivePkceS256Challenge } from "../src/native-authorization-constraints.js";
@@ -678,6 +679,48 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
       revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
     expect(await rotation.rotate(binding,token!,uuidV7())).toBeNull();
+  });
+
+  function isolatedAccessCodec() {
+    const keys=generateKeyPairSync("ed25519");
+    return new IsolatedBusinessAccessTokenCodec(runtime,{
+      privatePem:keys.privateKey.export({format:"pem",type:"pkcs8"}).toString(),
+      publicPem:keys.publicKey.export({format:"pem",type:"spki"}).toString(),
+    },{issuer:"https://business.example.test",audience:"camacho-pos-isolated",
+      keyId:"ACCESS_SIGNING_TEST_fixture"});
+  }
+  it("issues signed short-lived access with canonical atomic audit and verifies live BUSINESS/device",async()=>{
+    const codec=isolatedAccessCodec();
+    const token=await codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7());
+    expect(token?.split(".")).toHaveLength(3);
+    const decoded=await codec.verify(token!);
+    expect(decoded).toMatchObject({sub:userId,sid:binding.sessionId,
+      tid:tenantId,mid:membershipId,did:deviceId,cid:deviceCredentialId});
+    expect(decoded!.exp-decoded!.iat).toBeLessThanOrEqual(300);
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2`,[binding.sessionId,PlatformSecurityEventCode.ACCESS_ISSUED]);
+    expect(rows.rows[0].n).toBe(1);
+  });
+  it("rejects manipulated or unknown-key access signatures",async()=>{
+    const codec=isolatedAccessCodec();
+    const token=await codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7());
+    expect(await codec.verify(token!.slice(0,-2)+"ab")).toBeNull();
+    expect(await isolatedAccessCodec().verify(token!)).toBeNull();
+  });
+  it("rejects access after the BUSINESS session or bound device credential is revoked",async()=>{
+    const codec=isolatedAccessCodec();
+    const token=await codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7());
+    await owner.query(`UPDATE identity.device_credentials SET status='REVOKED',
+      revoked_at=clock_timestamp(),revoked_reason='FIXTURE' WHERE credential_id=$1`,[deviceCredentialId]);
+    expect(await codec.verify(token!)).toBeNull();
+  });
+  it("rolls back access emission when canonical audit cannot be persisted",async()=>{
+    const codec=isolatedAccessCodec();
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7()))
+        .rejects.toMatchObject({code:"42501"});
+    } finally {await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
   });
 
 });
