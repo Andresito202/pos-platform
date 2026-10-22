@@ -1,6 +1,7 @@
 import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityEventRepository } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
+import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refresh-rotation.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
 import { derivePkceS256Challenge } from "../src/native-authorization-constraints.js";
@@ -74,6 +75,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       session_id uuid NOT NULL,code_hash text NOT NULL,recorded_at timestamptz NOT NULL DEFAULT clock_timestamp())`);
     await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.native_authorization_code_validation TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT ON identity.native_code_audit_fixture TO pos_platform_app");
+    await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.session_refresh_tokens TO pos_platform_app");
     url.username="pos_platform_app";
     runtime=createPostgresPool(url.toString(),5,"business-access-central-runtime");
     verifier=await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1");
@@ -621,6 +623,61 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       SET status='REVOKED',revoked_at=clock_timestamp(),revoked_reason='FIXTURE'
       WHERE credential_id=$1`,[deviceCredentialId]);
     expect(await linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
+  });
+
+  it("rotates isolated refresh atomically, then detects replay and revokes the family",async()=>{
+    const rotation=new IsolatedBusinessRefreshRotation(runtime);
+    const initial=await rotation.issue(binding,uuidV7());
+    expect(initial).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    const first=await rotation.rotate(binding,initial!,uuidV7());
+    expect(first?.status).toBe("ROTATED");
+    const replay=await rotation.rotate(binding,initial!,uuidV7());
+    expect(replay).toEqual({status:"REUSE_DETECTED"});
+    const replacement=first?.status==="ROTATED" ? first.refreshToken : "";
+    expect(await rotation.rotate(binding,replacement,uuidV7())).toBeNull();
+    const rows=await owner.query(`SELECT count(*)::int AS total,
+      count(*) FILTER (WHERE revoked_at IS NOT NULL)::int AS revoked
+      FROM identity.session_refresh_tokens WHERE session_id=$1`,[binding.sessionId]);
+    expect(rows.rows[0]).toEqual({total:2,revoked:2});
+    const events=await owner.query(`SELECT event_code FROM identity.security_events
+      WHERE session_id=$1 AND event_code=ANY($2::text[])`,[binding.sessionId,[
+      PlatformSecurityEventCode.REFRESH_ROTATED,PlatformSecurityEventCode.REFRESH_REUSE_DETECTED]]);
+    expect(events.rows.map((row:{event_code:string})=>row.event_code).sort()).toEqual([
+      PlatformSecurityEventCode.REFRESH_REUSE_DETECTED,
+      PlatformSecurityEventCode.REFRESH_ROTATED,
+    ].sort());
+  });
+  it("serializes concurrent refresh requests and returns at most one replacement",async()=>{
+    const rotation=new IsolatedBusinessRefreshRotation(runtime);
+    const token=await rotation.issue(binding,uuidV7());
+    expect(token).not.toBeNull();
+    const results=await Promise.all(Array.from({length:4},()=>rotation.rotate(binding,token!,uuidV7())));
+    expect(results.filter(value=>value?.status==="ROTATED")).toHaveLength(1);
+    expect(results.some(value=>value?.status==="REUSE_DETECTED")).toBe(true);
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.session_refresh_tokens
+      WHERE session_id=$1 AND parent_token_id IS NOT NULL`,[binding.sessionId]);
+    expect(rows.rows[0].n).toBe(1);
+  });
+  it("rolls back refresh consumption and replacement on canonical audit write failure",async()=>{
+    const rotation=new IsolatedBusinessRefreshRotation(runtime);
+    const token=await rotation.issue(binding,uuidV7());
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(rotation.rotate(binding,token!,uuidV7())).rejects.toMatchObject({code:"42501"});
+    } finally {
+      await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");
+    }
+    const rows=await owner.query(`SELECT consumed_at FROM identity.session_refresh_tokens
+      WHERE session_id=$1`,[binding.sessionId]);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].consumed_at).toBeNull();
+  });
+  it("rejects refresh renewal after BUSINESS session revocation",async()=>{
+    const rotation=new IsolatedBusinessRefreshRotation(runtime);
+    const token=await rotation.issue(binding,uuidV7());
+    await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
+      revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
+    expect(await rotation.rotate(binding,token!,uuidV7())).toBeNull();
   });
 
 });
