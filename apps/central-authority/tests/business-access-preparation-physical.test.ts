@@ -72,7 +72,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       consumed_at timestamptz)`);
     await owner.query(`CREATE TABLE identity.native_code_audit_fixture (
       session_id uuid NOT NULL,code_hash text NOT NULL,recorded_at timestamptz NOT NULL DEFAULT clock_timestamp())`);
-    await owner.query("GRANT SELECT, INSERT ON identity.native_authorization_code_validation TO pos_platform_app");
+    await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.native_authorization_code_validation TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT ON identity.native_code_audit_fixture TO pos_platform_app");
     url.username="pos_platform_app";
     runtime=createPostgresPool(url.toString(),5,"business-access-central-runtime");
