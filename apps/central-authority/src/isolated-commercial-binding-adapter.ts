@@ -33,14 +33,14 @@ export function createIsolatedCommercialBindingPrerequisite(
     },
     {
       authorityReference: "POSTGRES_DEVICE_PROOF_REPLAY_VERIFIER",
-      inspect: async proof => {
+      inspect: async (proof, identity) => {
         if (!proof || typeof proof.body !== "string" ||
           Buffer.byteLength(proof.body, "utf8") > 16 * 1024) return null;
         let body: unknown;
         try { body = JSON.parse(proof.body); } catch { return null; }
         if (!body || typeof body !== "object" || Array.isArray(body) ||
           Object.keys(body).length !== 1 || !("session_id" in body) ||
-          typeof body.session_id !== "string") return null;
+          typeof body.session_id !== "string" || body.session_id !== identity.sessionId) return null;
         const device = await verifier.verifyAndConsume(proof);
         return device === null ? null : Object.freeze({
           deviceId: device.deviceId, installationId: device.installationId,
