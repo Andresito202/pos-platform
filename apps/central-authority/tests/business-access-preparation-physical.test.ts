@@ -3,6 +3,7 @@ import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audi
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
 import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refresh-rotation.js";
 import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-access-token-codec.js";
+import { IsolatedBusinessCredentialPairIssuer } from "../src/isolated-business-credential-pair-issuer.js";
 import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-coordinator.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
@@ -772,6 +773,61 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const result=await coordinator.exchange(registration,{code:code!,verifier:exchangeVerifier,state:exchangeState});
     expect(result).toEqual({sessionId:binding.sessionId,deviceId,tenantId,credentialId:deviceCredentialId});
     expect(await coordinator.exchange(registration,{code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
+  });
+
+  async function getPairBinding() {
+    const verified=await createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"DURABLE_PHYSICAL_PAIR_FIXTURE",
+      record:async checked=>{
+        await owner.query(`INSERT INTO identity.native_code_audit_fixture (session_id,code_hash)
+          VALUES ($1,$2)`,[checked.identity.sessionId,"pair-"+uuidV7()]);
+      },
+    }).establish(reference,request());
+    if(!verified)throw Error("PAIR_BINDING_FIXTURE_FAILED");
+    return verified;
+  }
+  it("atomically issues both access and refresh from the verified BUSINESS binding",async()=>{
+    const trusted=await getPairBinding(),codec=isolatedAccessCodec();
+    const pair=await new IsolatedBusinessCredentialPairIssuer(runtime,codec).issue(trusted,uuidV7());
+    expect(pair?.refreshToken).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(await codec.verify(pair!.accessToken)).toMatchObject({
+      sid:binding.sessionId,sub:userId,tid:tenantId,did:deviceId,
+    });
+    const saved=await owner.query(`SELECT count(*)::int AS n FROM identity.session_refresh_tokens
+      WHERE session_id=$1 AND token_hash=$2`,
+      [binding.sessionId,createHash("sha256").update(pair!.refreshToken).digest("hex")]);
+    expect(saved.rows[0].n).toBe(1);
+    const audit=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2`,[binding.sessionId,PlatformSecurityEventCode.ACCESS_ISSUED]);
+    expect(audit.rows[0].n).toBe(1);
+  });
+  it("rolls back access audit when refresh insertion fails",async()=>{
+    const trusted=await getPairBinding(),codec=isolatedAccessCodec();
+    await owner.query("REVOKE INSERT ON identity.session_refresh_tokens FROM pos_platform_app");
+    try {
+      await expect(new IsolatedBusinessCredentialPairIssuer(runtime,codec).issue(trusted,uuidV7()))
+        .rejects.toMatchObject({code:"42501"});
+    } finally {await owner.query("GRANT INSERT ON identity.session_refresh_tokens TO pos_platform_app");}
+    const events=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2`,[binding.sessionId,PlatformSecurityEventCode.ACCESS_ISSUED]);
+    expect(events.rows[0].n).toBe(0);
+  });
+  it("rolls back refresh and access when canonical audit fails",async()=>{
+    const trusted=await getPairBinding(),codec=isolatedAccessCodec();
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(new IsolatedBusinessCredentialPairIssuer(runtime,codec).issue(trusted,uuidV7()))
+        .rejects.toMatchObject({code:"42501"});
+    } finally {await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    const refreshed=await owner.query(`SELECT count(*)::int AS n FROM identity.session_refresh_tokens
+      WHERE session_id=$1`,[binding.sessionId]);
+    expect(refreshed.rows[0].n).toBe(0);
+  });
+  it("rejects a revoked BUSINESS session before issuing any credential pair",async()=>{
+    const trusted=await getPairBinding(),codec=isolatedAccessCodec();
+    await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
+      revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
+    expect(await new IsolatedBusinessCredentialPairIssuer(runtime,codec).issue(trusted,uuidV7())).toBeNull();
   });
 
 });
