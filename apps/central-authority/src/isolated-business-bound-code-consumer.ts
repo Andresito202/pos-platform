@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import {PlatformSecurityEventCode,uuidV7} from "@pos-platform/contracts";
+import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from "./native-authorization-code-exchange.js";
 
 /**
@@ -21,6 +23,7 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
     if (!/^[A-Za-z0-9._~-]{16,512}$/.test(code) || typeof verify !== "function") return null;
     const client = await this.pool.connect();
     let begun = false;
+    const audit=new PostgresPlatformSecurityEventRepository(this.pool);
     try {
       await client.query("BEGIN"); begun = true;
       const approved = await client.query<{approved:boolean}>(
@@ -45,6 +48,15 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
         SET consumed_at=clock_timestamp() WHERE code_hash=$1 AND consumed_at IS NULL`,[digest]);
       if (!verify({clientId:grant.client_id,redirectUri:grant.redirect_uri,
         codeChallenge:grant.code_challenge,state:grant.state})) {
+        await client.query("SELECT set_config('app.tenant_id',$1,true)",[grant.tenant_id]);
+        const identity=await client.query<{user_id:string}>(
+          "SELECT user_id::text FROM identity.sessions WHERE id=$1 AND tenant_id=$2",
+          [grant.session_id,grant.tenant_id]);
+        if(identity.rows[0]) await audit.append({
+          user_id:identity.rows[0].user_id,session_id:grant.session_id,tenant_id:grant.tenant_id,
+          event_code:PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED,result:"REJECTED",
+          reason_code:"ISOLATED_PKCE_MISMATCH",correlation_id:uuidV7(),
+          occurred_at:new Date(Date.now()-1000).toISOString()},client);
         await client.query("COMMIT");begun=false;return null;
       }
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[grant.tenant_id]);
@@ -66,6 +78,17 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
           AND s.expires_at>clock_timestamp()
         FOR SHARE OF s,u,m,t,d,dc`,[
         grant.session_id,grant.device_id,grant.trusted_binding_id,grant.tenant_id]);
+      const identity=await client.query<{user_id:string}>(
+        "SELECT user_id::text FROM identity.sessions WHERE id=$1 AND tenant_id=$2",
+        [grant.session_id,grant.tenant_id]);
+      if(!identity.rows[0])throw new Error("NATIVE_CODE_AUDIT_IDENTITY_MISSING");
+      await audit.append({
+        user_id:identity.rows[0].user_id,session_id:grant.session_id,tenant_id:grant.tenant_id,
+        event_code:eligible.rows.length===1?PlatformSecurityEventCode.AUTHORIZATION_CODE_REDEEMED:
+          PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED,
+        result:eligible.rows.length===1?"SUCCEEDED":"REJECTED",
+        reason_code:eligible.rows.length===1?"ISOLATED_PKCE_REDEEMED":"ISOLATED_BINDING_INACTIVE",
+        correlation_id:uuidV7(),occurred_at:new Date(Date.now()-1000).toISOString()},client);
       await client.query("COMMIT");begun=false;
       return eligible.rows.length===1 ? Object.freeze({
         sessionId:grant.session_id,deviceId:grant.device_id,
