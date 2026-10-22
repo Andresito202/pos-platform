@@ -1,4 +1,5 @@
 import { PostgresBusinessSessionRevocationTransaction } from "@pos-platform/database-postgres";
+import { createIsolatedCommercialBindingPrerequisite } from "../src/isolated-commercial-binding-adapter.js";
 import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -346,4 +347,55 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect(await preparation.close(JSON.stringify(reference),uuidV7())).toBeNull();
     expect(await preparation.resolveCurrent(reference)).not.toBeNull();
   });
+  // Physical integration of current session, real Ed25519 DeviceProof and
+  // transactionally persisted fixture-only audit. Not an access token or SSA.
+  function physicalBindingAudit() {
+    return createIsolatedCommercialBindingPrerequisite(preparation, runtime, {
+      authorityReference:"IDENTITY_SECURITY_EVENTS_PHYSICAL_FIXTURE",
+      record:async checked => {
+        await owner.query(`INSERT INTO identity.security_events
+          (id,user_id,session_id,tenant_id,device_id,event_code,result,reason_code,
+           correlation_id,occurred_at,server_recorded_at)
+          VALUES ($1,$2,$3,$4,NULL,'COMMERCIAL_BINDING_VALIDATED','ACCEPTED',
+                  'ISOLATED_FIXTURE',$5,clock_timestamp(),clock_timestamp())`,
+          [uuidV7(),checked.identity.userId,checked.identity.sessionId,checked.identity.tenantId,uuidV7()]);
+      },
+    });
+  }
+  it("physically verifies current BUSINESS session, Ed25519 proof and durable fixture audit",async()=>{
+    const result=await physicalBindingAudit().establish(reference,request());
+    expect(result).toMatchObject({identity:{sessionId:binding.sessionId,userId,tenantId},
+      device:{deviceId,installationId,tenantId,companyId,credentialId:deviceCredentialId}});
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code='COMMERCIAL_BINDING_VALIDATED'`,[binding.sessionId]);
+    expect(rows.rows[0].n).toBe(1);
+    expect((await counters()).nonces).toBe(1);
+    expect((await counters()).sequence).toBe(0);
+  });
+  it("physically rejects replay of the original signed DeviceProof without another audit",async()=>{
+    const proof=request();
+    expect(await physicalBindingAudit().establish(reference,proof)).not.toBeNull();
+    expect(await physicalBindingAudit().establish(reference,proof)).toBeNull();
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code='COMMERCIAL_BINDING_VALIDATED'`,[binding.sessionId]);
+    expect(rows.rows[0].n).toBe(1);
+  });
+  it("physically rejects a revoked BUSINESS session before consuming proof",async()=>{
+    await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
+      revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
+    expect(await physicalBindingAudit().establish(reference,request())).toBeNull();
+    expect((await counters()).nonces).toBe(0);
+  });
+  it("does not return a binding when durable audit INSERT fails after consuming proof",async()=>{
+    const failing=createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"IDENTITY_SECURITY_EVENTS_PHYSICAL_FIXTURE",
+      record:async()=>{throw new Error("FIXTURE_AUDIT_FAILED");},
+    });
+    await expect(failing.establish(reference,request())).rejects.toThrow("FIXTURE_AUDIT_FAILED");
+    expect((await counters()).nonces).toBe(1);
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code='COMMERCIAL_BINDING_VALIDATED'`,[binding.sessionId]);
+    expect(rows.rows[0].n).toBe(0);
+  });
+
 });
