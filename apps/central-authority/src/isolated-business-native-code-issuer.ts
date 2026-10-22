@@ -45,6 +45,14 @@ export class IsolatedBusinessNativeCodeIssuer {
         SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp(),
           LEAST(clock_timestamp()+interval '60 seconds',s.expires_at)
         FROM identity.sessions s
+        JOIN identity.device_registry d ON d.device_id=$8
+          AND d.tenant_id=s.tenant_id AND d.company_id=$12
+          AND d.installation_id=$13 AND d.status='ACTIVE'
+        JOIN identity.device_credentials dc ON dc.credential_id=$6
+          AND dc.device_id=d.device_id AND dc.installation_id=d.installation_id
+          AND dc.tenant_id=d.tenant_id AND dc.company_id=d.company_id
+          AND dc.status='ACTIVE' AND dc.expires_at>clock_timestamp()
+          AND dc.key_purpose='DEVICE_TRUST'
         WHERE s.id=$7 AND s.user_id=$10 AND s.tenant_id=$9
           AND s.tenant_membership_id=$11 AND s.revoked_at IS NULL
           AND s.expires_at>clock_timestamp()+interval '1 second'
@@ -52,6 +60,7 @@ export class IsolatedBusinessNativeCodeIssuer {
         codeHash,input.clientId,input.redirectUri,input.codeChallenge,
         input.state,device.credentialId,identity.sessionId,device.deviceId,
         identity.tenantId,identity.userId,identity.tenantMembershipId,
+        device.companyId,device.installationId,
       ]);
       // Check exactly one INSERT before committing audit. SQL errors abort.
       const found = await client.query<{n:number}>(
