@@ -3,6 +3,7 @@ import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audi
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
 import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refresh-rotation.js";
 import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-access-token-codec.js";
+import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-coordinator.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
 import { derivePkceS256Challenge } from "../src/native-authorization-constraints.js";
@@ -749,6 +750,28 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       await expect(codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7()))
         .rejects.toMatchObject({code:"42501"});
     } finally {await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+  });
+
+  it("coordinates trusted BUSINESS reference and device proof to one-use PKCE exchange",async()=>{
+    const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
+      authorityReference:"DURABLE_FIXTURE_BINDING_AUDIT",
+      record:async checked=>{
+        await owner.query(`INSERT INTO identity.native_code_audit_fixture (session_id,code_hash)
+          VALUES ($1,$2)`,[checked.identity.sessionId,"proof-"+uuidV7()]);
+      },
+    });
+    const registration={clientId:"desktop",redirectUri:exchangeRedirect,
+      authorizationOrigin:"https://business.example.test"};
+    expect(await coordinator.authorize({...reference},request(),registration,{
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    })).toBeNull();
+    const code=await coordinator.authorize(reference,request(),registration,{
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    });
+    expect(code).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    const result=await coordinator.exchange(registration,{code:code!,verifier:exchangeVerifier,state:exchangeState});
+    expect(result).toEqual({sessionId:binding.sessionId,deviceId,tenantId,credentialId:deviceCredentialId});
+    expect(await coordinator.exchange(registration,{code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
   });
 
 });
