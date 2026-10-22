@@ -1,0 +1,79 @@
+import { createHash } from "node:crypto";
+import type { Pool } from "pg";
+import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from "./native-authorization-code-exchange.js";
+
+/**
+ * ISOLATED BUSINESS fixture only: an exchange consumes the code atomically and
+ * returns a non-credential binding only if the durable session and device are
+ * still active. This is NOT an OAuth token endpoint or production grant store.
+ */
+export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsumer<{
+  sessionId: string; deviceId: string; tenantId: string; credentialId: string;
+}> {
+  readonly durabilityPolicyReference = "ISOLATED_BUSINESS_BOUND_CODE_V1";
+  constructor(private readonly pool: Pool) {
+    const url = new URL(pool.options.connectionString ?? "invalid:");
+    if (!["localhost","127.0.0.1"].includes(url.hostname) || url.port !== "55433")
+      throw new Error("BUSINESS_BOUND_CODE_LOCAL_FIXTURE_REQUIRED");
+  }
+
+  async consume(code: string, verify: (grant: StoredNativeAuthorizationGrant) => boolean) {
+    if (!/^[A-Za-z0-9._~-]{16,512}$/.test(code) || typeof verify !== "function") return null;
+    const client = await this.pool.connect();
+    let begun = false;
+    try {
+      await client.query("BEGIN"); begun = true;
+      const approved = await client.query<{approved:boolean}>(
+        "SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS approved");
+      if (approved.rows[0]?.approved !== true) throw new Error("BUSINESS_BOUND_CODE_DATABASE_REQUIRED");
+      const digest=createHash("sha256").update(code).digest("hex");
+      const found = await client.query<{
+        client_id:string;redirect_uri:string;code_challenge:string;state:string;
+        session_id:string;device_id:string;tenant_id:string;trusted_binding_id:string;
+        usable:boolean;
+      }>(`SELECT client_id,redirect_uri,code_challenge,state,session_id::text,
+        device_id::text,tenant_id::text,trusted_binding_id,
+        (consumed_at IS NULL AND expires_at>clock_timestamp()) AS usable
+        FROM identity.native_authorization_code_validation
+        WHERE code_hash=$1 FOR UPDATE`,[digest]);
+      const grant=found.rows[0];
+      if (!grant?.usable) {
+        await client.query("COMMIT");begun=false;return null;
+      }
+      // Invalid PKCE/client/state attempts burn the code permanently.
+      await client.query(`UPDATE identity.native_authorization_code_validation
+        SET consumed_at=clock_timestamp() WHERE code_hash=$1 AND consumed_at IS NULL`,[digest]);
+      if (!verify({clientId:grant.client_id,redirectUri:grant.redirect_uri,
+        codeChallenge:grant.code_challenge,state:grant.state})) {
+        await client.query("COMMIT");begun=false;return null;
+      }
+      await client.query("SELECT set_config('app.tenant_id',$1,true)",[grant.tenant_id]);
+      const eligible=await client.query(`SELECT 1 FROM identity.sessions s
+        JOIN identity.users u ON u.id=s.user_id AND u.status='ACTIVE'
+        JOIN tenancy.tenant_memberships m ON m.id=s.tenant_membership_id
+          AND m.user_id=s.user_id AND m.tenant_id=s.tenant_id
+          AND m.status='ACTIVE' AND m.suspended_at IS NULL AND m.revoked_at IS NULL
+        JOIN tenancy.tenants t ON t.id=s.tenant_id AND t.status='ACTIVE'
+        JOIN identity.device_registry d ON d.device_id=$2 AND d.tenant_id=s.tenant_id
+          AND d.status='ACTIVE'
+        JOIN identity.device_credentials dc ON dc.credential_id=$3
+          AND dc.device_id=d.device_id AND dc.installation_id=d.installation_id
+          AND dc.tenant_id=d.tenant_id AND dc.company_id=d.company_id
+          AND dc.status='ACTIVE' AND dc.key_purpose='DEVICE_TRUST'
+          AND dc.expires_at>clock_timestamp()
+        WHERE s.id=$1 AND s.tenant_id=$4 AND s.revoked_at IS NULL
+          AND s.device_id IS NULL AND s.mfa_status='SATISFIED'
+          AND s.expires_at>clock_timestamp()
+        FOR SHARE OF s,u,m,t,d,dc`,[
+        grant.session_id,grant.device_id,grant.trusted_binding_id,grant.tenant_id]);
+      await client.query("COMMIT");begun=false;
+      return eligible.rows.length===1 ? Object.freeze({
+        sessionId:grant.session_id,deviceId:grant.device_id,
+        tenantId:grant.tenant_id,credentialId:grant.trusted_binding_id,
+      }) : null;
+    } catch(error) {
+      if(begun) await client.query("ROLLBACK").catch(()=>undefined);
+      throw error;
+    } finally {client.release();}
+  }
+}
