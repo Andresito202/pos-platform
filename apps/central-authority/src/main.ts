@@ -130,6 +130,22 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
 
+  // Reserved commercial authorization surface: explicitly fail closed until
+  // D3 deployment approval, native registrations and key custody are verified.
+  // Do not route isolated PostgreSQL fixtures or accept client session IDs.
+  if (request.url === "/v1/commercial/token" ||
+      request.url === "/v1/commercial/authorize" ||
+      request.url === "/v1/commercial/login") {
+    if (!limiter.allow(`${remote}:commercial-auth`)) {
+      send(response,429,{status:"REJECTED",result_code:"COMMERCIAL_AUTH_RATE_LIMITED",
+        request_id:requestId,correlation_id:correlationId},{"retry-after":"60"});
+      return;
+    }
+    send(response,503,{status:"REJECTED",result_code:"COMMERCIAL_AUTH_NOT_ACTIVATED",
+      request_id:requestId,correlation_id:correlationId});
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/v1/device-enrollment") {
     send(response, 404, { status: "REJECTED", result_code: "NOT_FOUND" });
     return;
