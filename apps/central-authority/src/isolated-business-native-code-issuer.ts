@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Pool } from "pg";
 import { IsolatedBusinessAuditSessionGuard } from "./isolated-business-audit-session-guard.js";
 import type { ValidatedCommercialBinding } from "./commercial-binding-prerequisite.js";
+import { validateNativeClientRegistration } from "./native-authorization-constraints.js";
 
 /**
  * ISOLATED_VALIDATION only. Uses the existing locked BUSINESS session as the
