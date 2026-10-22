@@ -312,6 +312,9 @@ export const SaleCreateLineSchema = z.strictObject({
   product_id: UuidSchema,
   presentation_id: UuidSchema,
   quantity: PositiveScale6Schema,
+  /** D-23: actual scanned/selected identifier; backend resolves it against catalog.
+   * Omitted by legacy callers, never synthesized as a barcode. */
+  identifier: z.string().min(1).max(128).optional(),
 });
 
 /**
@@ -370,6 +373,7 @@ export const SaleCreateOutcomeSchema = z.enum([
   "IDEMPOTENT",
   "UNAUTHORIZED",
   "CATALOG_NOT_FOUND",
+  "IDENTIFIER_MISMATCH",
   "PRICE_NOT_FOUND",
   "CURRENCY_MISMATCH",
   // La cantidad no cabe en la precisión que declara la unidad: media botella no

@@ -1482,6 +1482,7 @@ export class CommercialRequestHandler {
           productId: line.product_id,
           presentationId: line.presentation_id,
           quantity: line.quantity,
+          ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
         })),
       },
     );

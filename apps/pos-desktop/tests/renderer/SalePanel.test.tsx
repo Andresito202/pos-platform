@@ -169,6 +169,7 @@ describe("SalePanel — vertical comercial", () => {
 
     const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
     expect(request.payload["cash_register_id"]).toBe(REGISTER);
+    expect(request.payload["lines"]).toEqual([{ product_id: PRODUCT, presentation_id: PRESENTATION, quantity: "1.000000", identifier: "7701234567890" }]);
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
     expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
   });

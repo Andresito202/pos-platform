@@ -16,6 +16,8 @@ Continuidad 2026-10-22: [fundamento Service Android](../testing/android-service-
 
 Continuidad de seguridad 2026-10-22: [composición Android local-security/enrolamiento](../testing/android-security-composition-2026-10-22.md), contrato interno con proveedor Keystore y verificador central explícitos; 16/16 pruebas focalizadas en SQLite temporal. Rechaza credencial de otra clave local y credencial sin auditoría completada. Implementado/probado en host de desarrollo, sin caller APK ni autoridad comercial real; dependencias SEC-004/DEV-003/D3/DEC-025 pendientes, sin elevar a E2E.
 
+Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](../testing/sold-identifier-2026-10-22.md), snapshot validado por backend desde escaneo/selección compartidos, contrato opcional compatible y checksum sin cambiar callers anteriores. 4 nuevas SQLite/49 regresión de ventas, 1 contrato y 34 renderer; no venta real Android ni cierre de D-19/D-21/D-22.
+
 ## Jerarquía relacionada
 
 - Estado y orden de trabajo: este backlog.

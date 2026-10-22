@@ -24,6 +24,7 @@ export interface CartLine {
   readonly priceAmount: string;
   readonly currencyCode: string;
   readonly quantity: string;
+  readonly identifier: string;
 }
 
 export interface OpenShift {
@@ -270,6 +271,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       priceAmount: item.price_amount,
       currencyCode: item.currency_code,
       quantity: canonical,
+      identifier: item.code,
     }]);
   }, [sale]);
 
@@ -295,10 +297,11 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       return;
     }
     const item = foundItem;
-    if (sale !== null || item?.product_id == null || item.presentation_id === null || item.price_amount === null || item.currency_code === null) return;
+    if (sale !== null || item?.product_id == null || item.presentation_id === null || item.price_amount === null || item.currency_code === null || item.barcode === null) return;
     setLines((current) => [...current, {
       productId: item.product_id!, presentationId: item.presentation_id!, name: item.name ?? "",
       presentationName: item.presentation_name ?? "", priceAmount: item.price_amount!, currencyCode: item.currency_code!, quantity: canonical,
+      identifier: item.barcode!,
     }]);
     setFoundItem(null);
   }, [foundItem, sale]);
@@ -323,6 +326,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
           product_id: line.productId,
           presentation_id: line.presentationId,
           quantity: line.quantity,
+          identifier: line.identifier,
         })),
         ...operationTime(new Date()),
       }),
