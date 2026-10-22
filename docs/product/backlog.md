@@ -6,6 +6,8 @@
 
 Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Platform: prioridad, dependencia, bloqueo, trabajo activo y orden inmediato.
 
+Orden del propietario 2026-10-22: continuar los incrementos ejecutables de Android comercial en la misma rama, después compras/catálogo/inventario/ventas/permisos y finalmente hardware, dejando CD350 último. El propietario confirmó ausencia de activación/confianza DEV-003 y ausencia de aprobación SEC-004/D3/DEC-025. La [propuesta conjunta](../testing/android-commercial-approval-proposal-2026-10-22.md) reúne datos/decisiones y obtención segura; no los activa ni considera una cuenta de fixtures como persona autenticada.
+
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
 Última continuidad autorizada: 2026-10-21. La orden expresa del propietario mueve el trabajo activo a `feat/android-commercial-runtime@51d5feb`, continuación de `claude/pos-camacho-bloque-4c-ld43py@b907d20f`. No se elimina ni desarrolla en paralelo la rama de laboratorio y PR #92 sigue draft. La reconciliación de 2026-10-18 inferior y sus cierres conservan su fecha y SHA; sus referencias a la rama activa anterior describen aquel snapshot.
@@ -25,6 +27,8 @@ Continuidad catálogo fiscal 2026-10-22: [D-19, escritor inicial](../testing/cat
 Continuidad importación 2026-10-22: [CSV de catálogo](../testing/catalog-csv-2026-10-22.md) en el panel existente, plantilla, validación/vista previa/coincidencias y confirmación backend por fila recuperable por idempotencia. 5 nuevas parser/orquestación, 7 renderer focalizadas y 1 SQLite de aislamiento de empresa. No XLSX/XML ni importación de stock/facturas/recepción física.
 
 Continuidad permisos 2026-10-22: [11 pruebas focalizadas de fronteras](../testing/commercial-role-boundaries-2026-10-22.md) del handler real sobre SQLite temporal; denegaciones por grant ausente, alcance, retiro y caducidad en catálogo/recepción/ajuste, sin grants centrales fabricados. No aprobación crítica, SaleReturn ni reserva de inventario materializados por estos tests.
+
+Continuidad recepción 2026-10-22: [cantidades y asignaciones exactas](../testing/receipt-quantity-preparation-2026-10-22.md), factor escala 10/cantidad escala 6 sin redondeo, 7/7 focalizadas. Recepción completa sigue pendiente de reconciliar maestros/políticas: el contrato de snapshot vigente solo autoriza CASH_REGISTER, no Supplier/InventoryLocation/InventoryPolicy. Sin tablas/protocolos paralelos ni cierre de D-21/D-22 por inferencia.
 
 - Estado y orden de trabajo: este backlog.
 - Arquitectura/decisiones: `docs/adr/`.

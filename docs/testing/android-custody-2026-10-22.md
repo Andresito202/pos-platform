@@ -23,6 +23,8 @@ Reproducción y fuentes: [README](../../apps/pos-android/README.md), [Android Ke
 
 ## Solicitud conjunta pendiente antes del siguiente arranque comercial
 
+Continuidad: la [propuesta única consolidada](android-commercial-approval-proposal-2026-10-22.md) es el punto vigente de decisión DEV-003/SEC-004/D3/DEC-025. La tabla inferior conserva los candidatos de este incremento, sin aprobación ni solicitud separada.
+
 | Decisión / fuente | Candidato concreto, no activado | Riesgo y aprobación necesaria |
 | --- | --- | --- |
 | Perfil Android SEC-004 / DEC-020 | Keystore AES-256-GCM para envolver semilla de 32 bytes, HKDF-SHA256/contextos canónicos, solo RAM/pipe del UID, sin regeneración silenciosa; proponer hardware-backed obligatorio en producción (observado en este equipo), sin autenticación OS por cada uso para permitir servicio de fondo; backup excluido y recuperación mediante revocación/reaprovisionamiento explícitos | El proceso usa semilla/claves en RAM. La configuración implementada es de laboratorio y no exige hardware para producción porque no la habilita. Aprobar perfil, uso con pantalla bloqueada, recuperación y ciclo de actualización/firma; el éxito de laboratorio no lo ratifica |

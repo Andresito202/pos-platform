@@ -61,6 +61,8 @@ Se mantienen allowlists del destino, validación del callback, aislamiento del r
 
 ## Solicitud única de aprobación D3 — propuesta completa, NO aprobada
 
+Consolidación 2026-10-22: estos candidatos se incorporan a la [propuesta única Android/DEV-003/SEC-004/D3/DEC-025](android-commercial-approval-proposal-2026-10-22.md). Siguen sin aprobar; esta sección conserva su fundamento y no abre otra solicitud ni autoriza producción.
+
 Se solicita **una sola decisión del propietario sobre este paquete**, incluyendo los datos de despliegue que faltan. Aprobar el diseño no habilita automáticamente producción: permanecen las implementaciones y pruebas indicadas. Fuente normativa: [D3-01/02/03/06/07 ratificados](../governance/central-authority-administration-d3-gate-2026-10-08.md). Las cifras siguientes son hipótesis para validar, no resultados de carga ni defaults.
 
 | Decisión propuesta | Valores / fundamento | Riesgo y dependencia que impiden activarla |
