@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {PlatformSecurityEventCode,uuidV7} from "@pos-platform/contracts";
 import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from "./native-authorization-code-exchange.js";
@@ -20,6 +20,17 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
   }
 
   async consume(code: string, verify: (grant: StoredNativeAuthorizationGrant) => boolean) {
+    return this.consumeWith(code,verify,async (_client,binding)=>binding);
+  }
+
+  /** Execute credential persistence BEFORE committing PKCE consumption. */
+  async consumeWith<T>(
+    code:string, verify:(grant:StoredNativeAuthorizationGrant)=>boolean,
+    issue:(client:PoolClient,binding:{
+      sessionId:string;userId:string;tenantId:string;tenantMembershipId:string;
+      deviceId:string;credentialId:string;installationId:string;companyId:string;
+    })=>Promise<T>,
+  ):Promise<T|null> {
     if (!/^[A-Za-z0-9._~-]{16,512}$/.test(code) || typeof verify !== "function") return null;
     const client = await this.pool.connect();
     let begun = false;
@@ -60,7 +71,7 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
         await client.query("COMMIT");begun=false;return null;
       }
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[grant.tenant_id]);
-      const eligible=await client.query(`SELECT 1 FROM identity.sessions s
+      const eligible=await client.query<{user_id:string;tenant_membership_id:string;installation_id:string;company_id:string}>(`SELECT s.user_id::text, s.tenant_membership_id::text, d.installation_id::text, d.company_id::text FROM identity.sessions s
         JOIN identity.users u ON u.id=s.user_id AND u.status='ACTIVE'
         JOIN tenancy.tenant_memberships m ON m.id=s.tenant_membership_id
           AND m.user_id=s.user_id AND m.tenant_id=s.tenant_id
@@ -89,11 +100,15 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
         result:eligible.rows.length===1?"SUCCEEDED":"REJECTED",
         reason_code:eligible.rows.length===1?"ISOLATED_PKCE_REDEEMED":"ISOLATED_BINDING_INACTIVE",
         correlation_id:uuidV7(),occurred_at:new Date(Date.now()-1000).toISOString()},client);
+      const row=eligible.rows[0];
+      const output=row ? await issue(client,Object.freeze({
+        sessionId:grant.session_id,userId:row.user_id,tenantId:grant.tenant_id,
+        tenantMembershipId:row.tenant_membership_id,deviceId:grant.device_id,
+        credentialId:grant.trusted_binding_id,installationId:row.installation_id,
+        companyId:row.company_id,
+      })) : null;
       await client.query("COMMIT");begun=false;
-      return eligible.rows.length===1 ? Object.freeze({
-        sessionId:grant.session_id,deviceId:grant.device_id,
-        tenantId:grant.tenant_id,credentialId:grant.trusted_binding_id,
-      }) : null;
+      return output;
     } catch(error) {
       if(begun) await client.query("ROLLBACK").catch(()=>undefined);
       throw error;
