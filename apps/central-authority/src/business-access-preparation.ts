@@ -1,5 +1,6 @@
 import {
   PostgresBusinessSessionAccessRepository,PostgresDeviceProofReplayVerifier,PostgresBusinessSsaSequenceAllocator,
+  PostgresBusinessSessionRevocationTransaction,
   type BusinessAccessValidationPolicy,type DeviceProofRequest,type TrustedBusinessSessionBinding,type createPostgresPool,
 } from "@pos-platform/database-postgres";
 import { BusinessSessionAuthority } from "./business-session-authority.js";
@@ -60,6 +61,19 @@ export class BusinessAccessPreparation {
   async resolveCurrent(reference:unknown):Promise<TrustedBusinessSessionBinding|null> {
     const context=this.context(reference);
     return context ? this.sessions.findCurrent(context) : null;
+  }
+
+  /** Local reference is invalidated synchronously even if persistence fails.
+   * Only this instance's own reference can request logout, never a session UUID.
+   * Failure leaves the durable transaction rolled back and requires fresh auth;
+   * it must not be reported as successful remote revocation by a future host.
+   */
+  async close(reference:unknown,correlationId:string):Promise<"REVOKED"|"ALREADY_REVOKED"|null> {
+    const context=this.context(reference);
+    if (!context) return null;
+    this.contexts.delete(reference as object);
+    await this.requireIsolatedDatabase();
+    return new PostgresBusinessSessionRevocationTransaction(this.pool).revokeOwn(context,correlationId);
   }
 
   async prepareSequence(reference:unknown,request:DeviceProofRequest):Promise<PreparedBusinessAssertionReservation|null> {

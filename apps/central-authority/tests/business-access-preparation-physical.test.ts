@@ -1,3 +1,5 @@
+import { PostgresBusinessSessionRevocationTransaction } from "@pos-platform/database-postgres";
+import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -295,5 +297,53 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     try { expect(await preparation.prepareSequence(reference,request())).toBeNull(); }
     finally { await owner.query("DROP TRIGGER access_test_revoke_session ON identity.device_request_proof_replays; DROP FUNCTION identity.access_test_revoke_session()"); }
     expect(await counters()).toEqual({nonces:1,sequence:0});
+  });
+
+  // CAMACHO_LOGOUT_PHYSICAL_REGRESSION_V1
+  it("logs out the bound BUSINESS session and atomically records exactly one security event", async () => {
+    const result = await preparation.close(reference, uuidV7());
+    expect(result).toBe("REVOKED");
+    const state = await owner.query(`SELECT revoked_at,revocation_reason FROM identity.sessions WHERE id=$1`,[binding.sessionId]);
+    expect(state.rows[0]?.revoked_at).not.toBeNull();
+    expect(state.rows[0]?.revocation_reason).toBe("USER_LOGOUT");
+    const events = await owner.query(`SELECT count(*)::int AS count FROM identity.security_events WHERE session_id=$1 AND event_code=$2`,[binding.sessionId,PlatformSecurityEventCode.SESSION_REVOKED]);
+    expect(events.rows[0].count).toBe(1);
+    expect(await preparation.resolveCurrent(reference)).toBeNull();
+    expect(await preparation.close(reference,uuidV7())).toBeNull();
+  });
+
+  it("serializes concurrent durable revocations and audits the transition once", async () => {
+    const revoke = new PostgresBusinessSessionRevocationTransaction(runtime);
+    const results = await Promise.all([revoke.revokeOwn(binding,uuidV7()),revoke.revokeOwn(binding,uuidV7())]);
+    expect(results.sort()).toEqual(["ALREADY_REVOKED","REVOKED"]);
+    const rows = await owner.query(`SELECT count(*)::int AS count FROM identity.security_events WHERE session_id=$1 AND event_code=$2`,[binding.sessionId,PlatformSecurityEventCode.SESSION_REVOKED]);
+    expect(rows.rows[0].count).toBe(1);
+  });
+
+  it("refuses a mismatched authenticated tenant and does not revoke the actual session", async () => {
+    const revoke = new PostgresBusinessSessionRevocationTransaction(runtime);
+    expect(await revoke.revokeOwn({...binding,tenantId:uuidV7()},uuidV7())).toBeNull();
+    const rows = await owner.query(`SELECT revoked_at FROM identity.sessions WHERE id=$1`,[binding.sessionId]);
+    expect(rows.rows[0]?.revoked_at).toBeNull();
+  });
+
+  it("rolls back durable logout when security event insertion fails", async () => {
+    const revoke = new PostgresBusinessSessionRevocationTransaction(runtime);
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(revoke.revokeOwn(binding,uuidV7())).rejects.toMatchObject({code:"42501"});
+    } finally {
+      await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");
+    }
+    const session = await owner.query(`SELECT revoked_at FROM identity.sessions WHERE id=$1`,[binding.sessionId]);
+    expect(session.rows[0]?.revoked_at).toBeNull();
+    const events = await owner.query(`SELECT count(*)::int AS count FROM identity.security_events WHERE session_id=$1 AND event_code=$2`,[binding.sessionId,PlatformSecurityEventCode.SESSION_REVOKED]);
+    expect(events.rows[0].count).toBe(0);
+  });
+
+  it("rejects copied or serialized preparation references for logout", async () => {
+    expect(await preparation.close({...reference},uuidV7())).toBeNull();
+    expect(await preparation.close(JSON.stringify(reference),uuidV7())).toBeNull();
+    expect(await preparation.resolveCurrent(reference)).not.toBeNull();
   });
 });
