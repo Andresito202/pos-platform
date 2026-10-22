@@ -20,6 +20,8 @@ Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](
 
 ## Jerarquía relacionada
 
+Continuidad catálogo fiscal 2026-10-22: [D-19, escritor inicial](../testing/catalog-fiscal-write-2026-10-22.md), atributos fiscales opcionales explícitos en el alta existente, validación fiscal canónica y transacción única, 20/20 catálogo, 6/6 renderer y nueva prueba por canal real. No edición fiscal de productos previos, documento productivo ni E2E Android; D-21/D-22 siguen abiertos.
+
 - Estado y orden de trabajo: este backlog.
 - Arquitectura/decisiones: `docs/adr/`.
 - Módulos y ownership: `docs/architecture/module-map.md` + `docs/architecture/data-ownership.md`.

@@ -26,6 +26,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   const [stockControlled, setStockControlled] = useState(true);
   const [query, setQuery] = useState("");
   const [loadedQuery, setLoadedQuery] = useState("");
+  const [includeFiscal, setIncludeFiscal] = useState(false);
+  const [fiscal, setFiscal] = useState({ codeReference: "", unitMeasureCode: "", standardCode: "", taxCode: "", taxRate: "" });
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -123,6 +125,18 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         Controla existencia
       </label>
 
+      <label><input type="checkbox" aria-label="Declarar atributos fiscales" checked={includeFiscal}
+        disabled={catalog.busy} onChange={(event) => setIncludeFiscal(event.target.checked)} />Declarar atributos fiscales</label>
+      {includeFiscal && <fieldset disabled={catalog.busy}>
+        <legend>Atributos fiscales de esta presentación</legend>
+        {([
+          ["codeReference", "Referencia fiscal"], ["unitMeasureCode", "Código DIAN de unidad"],
+          ["standardCode", "Estándar de producto"], ["taxCode", "Código de impuesto"], ["taxRate", "Tasa de impuesto (%)"],
+        ] as const).map(([key, label]) => <label key={key}>{label}<input aria-label={label} value={fiscal[key]}
+          onChange={(event) => setFiscal((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
+        <p>Declare los códigos verificados y la tasa aplicable. Dejarlos sin declarar no significa exención.</p>
+      </fieldset>}
+
       <button
         data-testid="register-product-button"
         onClick={() => {
@@ -136,6 +150,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
             barcode,
             price,
             currencyCode: currency.trim(),
+            ...(includeFiscal ? { fiscalAttributes: fiscal } : {}),
           });
         }}
         disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) || incomplete}

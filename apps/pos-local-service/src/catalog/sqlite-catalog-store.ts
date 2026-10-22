@@ -1,4 +1,5 @@
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
+import { FiscalDocumentItemSchema, validateFiscalDocumentItem } from "@pos-platform/fiscal-adapters";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 
@@ -84,6 +85,7 @@ export interface RegisterProductInput {
   readonly barcode: string | null;
   readonly priceAmount: string;
   readonly currencyCode: string;
+  readonly fiscalAttributes?: CatalogFiscalAttribute;
   readonly idempotencyKey: string;
   readonly requestChecksum: string;
   readonly correlationId: string;
@@ -94,6 +96,7 @@ export type RegisterProductOutcome =
   | { readonly kind: "REGISTERED"; readonly productId: string; readonly presentationId: string }
   | { readonly kind: "IDEMPOTENT"; readonly productId: string; readonly presentationId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "INVALID_FISCAL_ATTRIBUTES" }
   | { readonly kind: "CODE_ALREADY_REGISTERED"; readonly productId: string }
   | { readonly kind: "BARCODE_ALREADY_REGISTERED"; readonly presentationId: string };
 
@@ -297,6 +300,15 @@ export class SqliteCatalogStore {
    * medias sería un estado que ninguna pantalla puede resolver.
    */
   register(input: RegisterProductInput): RegisterProductOutcome {
+    if (input.fiscalAttributes !== undefined) {
+      const fiscal = input.fiscalAttributes;
+      const parsed = FiscalDocumentItemSchema.safeParse({
+        codeReference: fiscal.codeReference, name: input.name, quantity: "1.000000", unitPrice: input.priceAmount,
+        unitMeasureCode: fiscal.unitMeasureCode, standardCode: fiscal.standardCode,
+        discount: null, taxes: [{ code: fiscal.taxCode, rate: fiscal.taxRate }],
+      });
+      if (!parsed.success || validateFiscalDocumentItem(parsed.data).length > 0) return { kind: "INVALID_FISCAL_ATTRIBUTES" };
+    }
     return this.database.native.transaction((): RegisterProductOutcome => {
       const nowIso = this.now().toISOString();
       // Idempotencia antes de escribir: dejar saltar la restricción UNIQUE
@@ -375,6 +387,15 @@ export class SqliteCatalogStore {
         input.priceAmount, input.currencyCode, nowIso, nowIso,
       );
 
+      if (input.fiscalAttributes !== undefined) {
+        const fiscal = input.fiscalAttributes;
+        this.database.native.prepare(
+          `INSERT INTO catalog_fiscal_attribute(tenant_id,presentation_id,code_reference,unit_measure_code,
+            standard_code,tax_code,tax_rate,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+        ).run(input.scope.tenantId,input.presentationId,fiscal.codeReference,fiscal.unitMeasureCode,
+          fiscal.standardCode,fiscal.taxCode,fiscal.taxRate,nowIso,nowIso);
+      }
+
       this.database.native.prepare(
         `INSERT INTO runtime_operations(
           operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
@@ -445,6 +466,10 @@ export class SqliteCatalogStore {
         barcode: input.barcode,
         price_amount: input.priceAmount,
         currency_code: input.currencyCode,
+        ...(input.fiscalAttributes === undefined ? {} : { fiscal_attributes: {
+          code_reference: input.fiscalAttributes.codeReference, unit_measure_code: input.fiscalAttributes.unitMeasureCode,
+          standard_code: input.fiscalAttributes.standardCode, tax_code: input.fiscalAttributes.taxCode, tax_rate: input.fiscalAttributes.taxRate,
+        } }),
       },
       payload_checksum: input.requestChecksum,
       causation_id: input.causationId,

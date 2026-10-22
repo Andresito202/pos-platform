@@ -870,6 +870,15 @@ export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(Fi
  */
 const BarcodeSchema = z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/);
 
+/** Shape only. Verified fiscal code membership is enforced by Local Service. */
+export const CatalogFiscalAttributeSchema = z.strictObject({
+  code_reference: z.string().min(1).max(80),
+  unit_measure_code: z.string().min(1).max(8),
+  standard_code: z.string().min(1).max(8),
+  tax_code: z.string().min(1).max(8),
+  tax_rate: NonNegativeScale6Schema,
+});
+
 export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     code: z.string().min(1).max(64),
@@ -881,6 +890,7 @@ export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
     barcode: BarcodeSchema.nullable(),
     price_amount: PositiveScale6Schema,
     currency_code: CurrencyCodeSchema,
+    fiscal_attributes: CatalogFiscalAttributeSchema.optional(),
   }),
 ).safeExtend({ message_type: z.literal("catalog.product.register") })
   .superRefine((request, context) => {
@@ -895,6 +905,7 @@ export const CatalogProductRegisterOutcomeSchema = z.enum([
   "IDEMPOTENCY_CONFLICT",
   "CODE_ALREADY_REGISTERED",
   "BARCODE_ALREADY_REGISTERED",
+  "INVALID_FISCAL_ATTRIBUTES",
 ]);
 
 /**

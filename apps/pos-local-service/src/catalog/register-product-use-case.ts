@@ -10,7 +10,7 @@ import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
-import type { RegisterProductOutcome, SqliteCatalogStore } from "./sqlite-catalog-store.js";
+import type { CatalogFiscalAttribute, RegisterProductOutcome, SqliteCatalogStore } from "./sqlite-catalog-store.js";
 
 export const PERMISSION_CATALOG_PRODUCT_REGISTER = CanonicalPermission.CATALOG_PRODUCT_REGISTER;
 
@@ -24,6 +24,7 @@ export interface RegisterProductRequest {
   readonly barcode: string | null;
   readonly priceAmount: string;
   readonly currencyCode: string;
+  readonly fiscalAttributes?: CatalogFiscalAttribute;
   readonly idempotencyKey: string;
   readonly correlationId: string;
   readonly causationId: string | null;
@@ -44,6 +45,7 @@ function requestChecksum(request: RegisterProductRequest, operatorUserId: string
       price_amount: request.priceAmount,
       unit_code: request.unitCode,
       unit_precision: request.unitPrecision,
+      ...(request.fiscalAttributes === undefined ? {} : { fiscal_attributes: request.fiscalAttributes }),
     }))
     .digest("hex");
 }
@@ -85,6 +87,7 @@ export class RegisterProductUseCase {
       barcode: request.barcode,
       priceAmount: request.priceAmount,
       currencyCode: request.currencyCode,
+      ...(request.fiscalAttributes === undefined ? {} : { fiscalAttributes: request.fiscalAttributes }),
       idempotencyKey: request.idempotencyKey,
       requestChecksum: requestChecksum(request, operatorUserId),
       correlationId: request.correlationId,

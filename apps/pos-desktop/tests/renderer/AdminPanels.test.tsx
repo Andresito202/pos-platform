@@ -62,6 +62,19 @@ describe("CatalogPanel", () => {
     fireEvent.change(screen.getByTestId("product-price-input"), { target: { value: price } });
   }
 
+  it("D-19 sends only explicitly declared fiscal attributes, normalizing the tax rate", async () => {
+    install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />); fillProduct();
+    fireEvent.click(screen.getByLabelText("Declarar atributos fiscales"));
+    for (const [label, value] of [["Referencia fiscal", "ARZ-FISCAL"], ["Código DIAN de unidad", "94"], ["Estándar de producto", "999"], ["Código de impuesto", "01"], ["Tasa de impuesto (%)", "19"]]) {
+      fireEvent.change(screen.getByLabelText(label!), { target: { value } });
+    }
+    fireEvent.click(screen.getByTestId("register-product-button"));
+    await screen.findByTestId("product-registered");
+    const request = CatalogProductRegisterRequestSchema.parse(sent("catalog.product.register"));
+    expect(request.payload.fiscal_attributes).toEqual({ code_reference: "ARZ-FISCAL", unit_measure_code: "94", standard_code: "999", tax_code: "01", tax_rate: "19.000000" });
+  });
+
   it("construye un sobre que el esquema real del contrato acepta", async () => {
     install({
       status: "SUCCEEDED",
@@ -86,6 +99,7 @@ describe("CatalogPanel", () => {
     // la frontera.
     expect(payload["price_amount"]).toBe("1500.000000");
     expect(payload["barcode"]).toBe("7700000000017");
+    expect(payload["fiscal_attributes"]).toBeUndefined();
     // El sobre no lleva identidad: la operación la rechaza si la lleva.
     expect(envelope["tenant_id"]).toBeUndefined();
     expect(envelope["branch_id"]).toBeUndefined();

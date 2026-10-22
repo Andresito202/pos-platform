@@ -646,6 +646,24 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
 });
 
 describe("la vertical comercial atraviesa el socket real hasta SQLite", () => {
+  it("D-19/D-23 validates fiscal registration and freezes the sold scan through the real channel", async () => {
+    await withRealChannel(async (send, database) => {
+      const payload = { code: "D19-001", name: "Producto fiscal", stock_controlled: false, presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
+        barcode: "7700000000019", price_amount: "10000.000000", currency_code: "COP",
+        fiscal_attributes: { code_reference: "D19-001", unit_measure_code: "94", standard_code: "999", tax_code: "01", tax_rate: "19.000000" } };
+      expect((await send(mutating("catalog.product.register", payload, "d19:unauth"))).status).toBe("REJECTED");
+      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(signAuthorization(authorizationClaims()), { userId: USER, installationId: INSTALLATION, deviceId: DEVICE });
+      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
+      expect((await send(mutating("catalog.product.register", { ...payload, fiscal_attributes: { ...payload.fiscal_attributes, unit_measure_code: "KGM" } }, "d19:invalid"))).result["outcome"]).toBe("INVALID_FISCAL_ATTRIBUTES");
+      const product = await send(mutating("catalog.product.register", payload, "d19:valid"));
+      expect(product.result["outcome"]).toBe("REGISTERED");
+      expect(database.native.prepare("SELECT tax_rate FROM catalog_fiscal_attribute WHERE presentation_id=?").get(product.result["presentation_id"])).toEqual({ tax_rate: "19.000000" });
+      const sale = await send(mutating("sale.create", { cash_register_id: null, channel: "POS", business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+        document_series: "D19", currency_code: "COP", lines: [{ product_id: product.result["product_id"], presentation_id: product.result["presentation_id"], quantity: "1.000000", identifier: payload.barcode }] }, "d23:valid"));
+      expect(sale.result["outcome"]).toBe("CREATED");
+      expect(database.native.prepare("SELECT identifier_snapshot FROM sales_sale_items WHERE sale_id=?").get(sale.result["sale_id"])).toEqual({ identifier_snapshot: payload.barcode });
+    });
+  }, 60_000);
   it("turno → producto → existencia → venta → cobro → COMPLETED, todo por el canal", async () => {
     await withRealChannel(async (send, database) => {
       new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(

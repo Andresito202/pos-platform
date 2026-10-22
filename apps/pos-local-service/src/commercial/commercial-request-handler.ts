@@ -814,6 +814,10 @@ export class CommercialRequestHandler {
         unitCode: payload.unit_code,
         unitPrecision: payload.unit_precision,
         barcode: payload.barcode,
+        ...(payload.fiscal_attributes === undefined ? {} : { fiscalAttributes: {
+          codeReference: payload.fiscal_attributes.code_reference, unitMeasureCode: payload.fiscal_attributes.unit_measure_code,
+          standardCode: payload.fiscal_attributes.standard_code, taxCode: payload.fiscal_attributes.tax_code, taxRate: payload.fiscal_attributes.tax_rate,
+        } }),
         priceAmount: payload.price_amount,
         currencyCode: payload.currency_code,
         idempotencyKey: request.idempotency_key ?? "",

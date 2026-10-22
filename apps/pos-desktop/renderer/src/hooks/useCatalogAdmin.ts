@@ -29,6 +29,10 @@ export interface CatalogAdminInput {
   /** Tal como lo teclea el operador: `1500`, `1500,50`. */
   readonly price: string;
   readonly currencyCode: string;
+  readonly fiscalAttributes?: {
+    readonly codeReference: string; readonly unitMeasureCode: string; readonly standardCode: string;
+    readonly taxCode: string; readonly taxRate: string;
+  };
 }
 
 export interface CatalogAdminState {
@@ -82,6 +86,9 @@ export function useCatalogAdmin(): CatalogAdminState & {
         setError("PRICE_NOT_SCALE6");
         return;
       }
+      const fiscal = input.fiscalAttributes;
+      const taxRate = fiscal === undefined ? null : toScale6(fiscal.taxRate);
+      if (fiscal !== undefined && taxRate === null) { setError("TAX_RATE_NOT_SCALE6"); return; }
 
       const response = await callCommercial<CatalogProductRegisterResult>(
         "catalog.product.register",
@@ -97,6 +104,10 @@ export function useCatalogAdmin(): CatalogAdminState & {
           barcode: input.barcode.trim() === "" ? null : input.barcode.trim(),
           price_amount: price,
           currency_code: input.currencyCode,
+          ...(fiscal === undefined ? {} : { fiscal_attributes: {
+            code_reference: fiscal.codeReference, unit_measure_code: fiscal.unitMeasureCode,
+            standard_code: fiscal.standardCode, tax_code: fiscal.taxCode, tax_rate: taxRate!,
+          } }),
         },
         newIdempotencyKey(),
       );
