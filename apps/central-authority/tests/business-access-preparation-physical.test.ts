@@ -1,5 +1,6 @@
 import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityEventRepository } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
+import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
 import { createIsolatedCommercialBindingPrerequisite } from "../src/isolated-commercial-binding-adapter.js";
 import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
@@ -60,6 +61,16 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         await ddl.query(await readFile(new URL(name,root),"utf8"));
       }
     } finally { try { await ddl.query("RESET ROLE"); } finally { ddl.release(); } }
+    await owner.query(`CREATE TABLE identity.native_authorization_code_validation (
+      code_hash text PRIMARY KEY,client_id text NOT NULL,redirect_uri text NOT NULL,
+      code_challenge text NOT NULL,state text NOT NULL,trusted_binding_id text NOT NULL,
+      session_id uuid NOT NULL,device_id uuid NOT NULL,tenant_id uuid NOT NULL,
+      issued_at timestamptz NOT NULL,expires_at timestamptz NOT NULL,
+      consumed_at timestamptz)`);
+    await owner.query(`CREATE TABLE identity.native_code_audit_fixture (
+      session_id uuid NOT NULL,code_hash text NOT NULL,recorded_at timestamptz NOT NULL DEFAULT clock_timestamp())`);
+    await owner.query("GRANT SELECT, INSERT ON identity.native_authorization_code_validation TO pos_platform_app");
+    await owner.query("GRANT SELECT, INSERT ON identity.native_code_audit_fixture TO pos_platform_app");
     url.username="pos_platform_app";
     runtime=createPostgresPool(url.toString(),5,"business-access-central-runtime");
     verifier=await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1");
@@ -450,6 +461,63 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       WHERE session_id=$1 AND event_code=$2 AND reason_code='FIXTURE_CANONICAL_AUDIT'`,
       [binding.sessionId,PlatformSecurityEventCode.SESSION_REVOKED]);
     expect(events.rows[0].n).toBe(1);
+  });
+
+  // Isolated end-to-end issuance with a verified DeviceProof and a locked
+  // durable BUSINESS session. Audit here is explicitly a disposable fixture,
+  // not a production security event vocabulary.
+  async function issueNativeCode(failAudit=false) {
+    const proven=await createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"PHYSICAL_DEVICE_PROOF_AUDIT_FIXTURE",
+      record:async()=>undefined,
+    }).establish(reference,request());
+    if(!proven) throw new Error("DEVICE_PROOF_FIXTURE_REJECTED");
+    return new IsolatedBusinessNativeCodeIssuer(runtime).issue({
+      binding:proven,clientId:"desktop",
+      redirectUri:"https://localhost.example.test/callback",
+      codeChallenge:"x".repeat(43),state:"s".repeat(43),
+      recordAudit:async transaction=>{
+        if(failAudit) throw new Error("ISSUER_AUDIT_FAILED");
+        await transaction.query(`INSERT INTO identity.native_code_audit_fixture
+          (session_id,code_hash)
+          SELECT session_id,code_hash FROM identity.native_authorization_code_validation
+          WHERE session_id=$1 ORDER BY issued_at DESC LIMIT 1`,[binding.sessionId]);
+      },
+    });
+  }
+  it("issues a one-use fixture code from verified BUSINESS session and Ed25519 device with committed audit",async()=>{
+    const code=await issueNativeCode();
+    expect(code).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    const hash=createHash("sha256").update(code!).digest("hex");
+    const rows=await owner.query(`SELECT c.session_id,c.device_id,c.tenant_id,
+      (c.expires_at-c.issued_at) AS lifetime,a.code_hash AS audited
+      FROM identity.native_authorization_code_validation c
+      JOIN identity.native_code_audit_fixture a ON a.code_hash=c.code_hash
+      WHERE c.code_hash=$1`,[hash]);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({session_id:binding.sessionId,device_id:deviceId,tenant_id:tenantId,audited:hash});
+  });
+  it("rolls back both code insertion and fixture audit if the required writer fails",async()=>{
+    await expect(issueNativeCode(true)).rejects.toThrow("ISSUER_AUDIT_FAILED");
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.native_authorization_code_validation
+      WHERE session_id=$1`,[binding.sessionId]);
+    expect(rows.rows[0].n).toBe(0);
+  });
+  it("denies isolated code issuance after the authenticated session is revoked",async()=>{
+    const proven=await createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"PHYSICAL_DEVICE_PROOF_AUDIT_FIXTURE",record:async()=>undefined,
+    }).establish(reference,request());
+    expect(proven).not.toBeNull();
+    await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
+      revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE'
+      WHERE id=$1`,[binding.sessionId]);
+    const result=await new IsolatedBusinessNativeCodeIssuer(runtime).issue({
+      binding:proven!,clientId:"desktop",
+      redirectUri:"https://localhost.example.test/callback",
+      codeChallenge:"x".repeat(43),state:"s".repeat(43),
+      recordAudit:async()=>{throw new Error("AUDIT_SHOULD_NOT_RUN");},
+    });
+    expect(result).toBeNull();
   });
 
 });
