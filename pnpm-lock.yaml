@@ -33,6 +33,9 @@ importers:
       '@pos-platform/device-trust':
         specifier: workspace:*
         version: link:../../packages/device-trust
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
     devDependencies:
       '@simplewebauthn/server':
         specifier: 14.0.3
