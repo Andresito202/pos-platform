@@ -8,6 +8,8 @@ import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-c
 import { IsolatedBusinessBrowserLogin } from "../src/isolated-business-browser-login.js";
 import { IsolatedBrowserSessionVault } from "../src/isolated-browser-session-vault.js";
 import { IsolatedDurableBrowserSessionStore } from "../src/isolated-durable-browser-session-store.js";
+import {DurableBrowserSessionStore} from "../src/durable-browser-session-store.js";
+import {PostgresBrowserSessionHandoffWriter} from "@pos-platform/database-postgres";
 import { IsolatedBusinessBrowserSessionBridge } from "../src/isolated-business-browser-session-bridge.js";
 import { CommercialNativeClientCatalog } from "../src/commercial-native-client-catalog.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
@@ -26,6 +28,9 @@ import { BusinessSessionAuthority } from "../src/business-session-authority.js";
 import { BusinessAccessPreparation, type BusinessAccessPreparationReference } from "../src/business-access-preparation.js";
 import { PostgresBusinessSessionAccessRepository, BUSINESS_SSA_DEVICE_PROOF_PATH, type TrustedBusinessSessionBinding } from "@pos-platform/database-postgres";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
+import {createIsolatedCommercialHttpsServer} from "../src/isolated-commercial-https.js";
+import {labTls,postLabHttps,closeLabHttps} from "./helpers/lab-https.js";
+import type {AuthenticationResponseJSON} from "@simplewebauthn/server";
 
 const serverUrl = process.env.POSTGRES_TEST_URL;
 const databaseName = `pos_business_session_test_${randomBytes(8).toString("hex")}`;
@@ -69,7 +74,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const ddl = await owner.connect();
     try {
       await ddl.query("SET ROLE pos_schema_owner");
-      for (const name of ["001_central_foundation.up.sql","004_device_trust.up.sql","009_webauthn_challenges.up.sql","010_webauthn_credential_material.up.sql","011_session_assertion_sequences.up.sql","012_device_request_proof_replays.up.sql"]) {
+      for (const name of ["001_central_foundation.up.sql","004_device_trust.up.sql","009_webauthn_challenges.up.sql","010_webauthn_credential_material.up.sql","011_session_assertion_sequences.up.sql","012_device_request_proof_replays.up.sql","013_business_browser_sessions.up.sql"]) {
         await ddl.query(await readFile(new URL(name,root),"utf8"));
       }
     } finally { try { await ddl.query("RESET ROLE"); } finally { ddl.release(); } }
@@ -100,18 +105,21 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   async function authenticate(): Promise<BusinessInitialMfaReceipt> {
     const challenge=await flow.begin({email,password,factorId,correlationId:uuidV7()});
     if (!challenge) throw new Error("BUSINESS_SESSION_FIXTURE_CHALLENGE_MISSING");
-    const data=Buffer.from(JSON.stringify({type:"webauthn.get",challenge:challenge.challenge,origin,crossOrigin:false}));
+    const result=await flow.complete({email,password,challenge:challenge.challenge,response:await assertionFor(challenge.challenge)});
+    if (!result) throw new Error("BUSINESS_SESSION_FIXTURE_MFA_MISSING");
+    return result;
+  }
+  async function assertionFor(challenge:string):Promise<AuthenticationResponseJSON>{
+    const data=Buffer.from(JSON.stringify({type:"webauthn.get",challenge,origin,crossOrigin:false}));
     const auth=Buffer.alloc(37); sha(rpId).copy(auth); auth[32]=0x05;
     const counter=await owner.query("SELECT counter::int AS counter FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
     auth.writeUInt32BE(counter.rows[0].counter+1,33);
-    const result=await flow.complete({email,password,challenge:challenge.challenge,response:{
+    return {
       id:publicCredentialId,rawId:publicCredentialId,type:"public-key",clientExtensionResults:{},response:{
         clientDataJSON:data.toString("base64url"),authenticatorData:auth.toString("base64url"),
         signature:sign("sha256",Buffer.concat([auth,sha(data)]),keys.privateKey).toString("base64url"),
       },
-    }});
-    if (!result) throw new Error("BUSINESS_SESSION_FIXTURE_MFA_MISSING");
-    return result;
+    };
   }
 
   beforeEach(async () => {
@@ -994,6 +1002,242 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
     expect(await store.inspect({cookie:issued!.setCookie.split(";")[0]!,csrfToken:issued!.csrfToken,
       origin,fetchSite:"same-origin",method:"POST"})).toBeNull();
+  });
+
+  const canonicalPolicy={mode:"CANONICAL" as const,lifetimeMs:30_000,idleTimeoutMs:20_000,maximumReauthenticationAgeMs:30_000};
+  const browserRequest=(issued:{setCookie:string;csrfToken:string})=>({cookie:issued.setCookie.split(";")[0]!,csrfToken:issued.csrfToken,origin,fetchSite:"same-origin",method:"POST"});
+  async function canonicalHandoff(){
+    const writer=new PostgresBrowserSessionHandoffWriter(origin,15_000);
+    const token=await authority.createBrowserHandoff({mfaReceipt:await authenticate(),selection:{tenantId,membershipId}},writer);
+    if(!token)throw Error("CANONICAL_HANDOFF_MISSING");
+    const row=await owner.query<{session_id:string}>("SELECT session_id::text FROM identity.browser_session_handoffs WHERE handoff_hash=$1",[sha(token).toString("hex")]);
+    return {token,sessionId:row.rows[0]!.session_id};
+  }
+  it("canonical browser: requires original MFA provenance and consumes its durable handoff once across workers",async()=>{
+    const writer=new PostgresBrowserSessionHandoffWriter(origin,15_000);
+    expect(await authority.createBrowserHandoff({mfaReceipt:{kind:"BUSINESS_INITIAL_MFA_RECEIPT"},selection:{tenantId,membershipId}},writer)).toBeNull();
+    const proof=await canonicalHandoff();
+    const one=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),two=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy);
+    expect(await one.establishFromHandoff(binding.sessionId)).toBeNull();
+    expect(await one.establishFromHandoff({...binding})).toBeNull();
+    expect("establish" in one).toBe(false);
+    const issued=await Promise.all([one.establishFromHandoff(proof.token),two.establishFromHandoff(proof.token)]);
+    expect(issued.filter(Boolean)).toHaveLength(1);const cookie=issued.find(Boolean)!;
+    expect(await two.inspect(browserRequest(cookie))).toMatchObject({sessionId:proof.sessionId,userId,tenantId});
+    expect(await one.establishFromHandoff(proof.token)).toBeNull();
+    const persisted=await owner.query("SELECT * FROM identity.browser_sessions WHERE session_id=$1",[proof.sessionId]);
+    expect(JSON.stringify(persisted.rows)).not.toContain(cookie.csrfToken);
+    expect(JSON.stringify(persisted.rows)).not.toContain(cookie.setCookie.split("=")[1]!.split(";")[0]!);
+  });
+  it("canonical browser: rejects forged and duplicate cookies, bad CSRF, origin and fetch metadata",async()=>{
+    const store=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy);const proof=await canonicalHandoff();
+    const issued=(await store.establishFromHandoff(proof.token))!;const req=browserRequest(issued);
+    for(const input of [{...req,cookie:req.cookie+"; "+req.cookie},{...req,cookie:"__Host-camacho_business="+"x".repeat(43)},
+      {...req,csrfToken:"x".repeat(43)},{...req,origin:"https://evil.example.test"},{...req,fetchSite:"cross-site"},{...req,method:"GET"}])expect(await store.inspect(input)).toBeNull();
+    expect(await store.inspect(req)).not.toBeNull();
+  });
+  it.each(["user","tenant","membership","factor","password","session"])("canonical browser: revalidates %s changes across instances",async(kind)=>{
+    const proof=await canonicalHandoff();const store=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy);
+    const issued=(await store.establishFromHandoff(proof.token))!;
+    if(kind==="user")await owner.query("UPDATE identity.users SET status='INACTIVE' WHERE id=$1",[userId]);
+    if(kind==="tenant")await owner.query("UPDATE tenancy.tenants SET status='SUSPENDED' WHERE id=$1",[tenantId]);
+    if(kind==="membership")await owner.query("UPDATE tenancy.tenant_memberships SET status='SUSPENDED',suspended_at=clock_timestamp() WHERE id=$1",[membershipId]);
+    if(kind==="factor")await owner.query("UPDATE identity.mfa_factors SET status='REVOKED',revoked_at=clock_timestamp() WHERE id=$1",[factorId]);
+    if(kind==="password")await owner.query("UPDATE identity.user_credentials SET version=version+1 WHERE id=$1",[credentialId]);
+    if(kind==="session")await owner.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='TEST' WHERE id=$1",[proof.sessionId]);
+    expect(await new DurableBrowserSessionStore(runtime,origin,canonicalPolicy).inspect(browserRequest(issued))).toBeNull();
+  });
+  it("canonical browser: concurrent rotation has one winner and preserves absolute expiry",async()=>{
+    const proof=await canonicalHandoff();const one=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),two=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy);
+    const issued=(await one.establishFromHandoff(proof.token))!;const req=browserRequest(issued);
+    const results=await Promise.all([one.rotate(req),two.rotate(req)]);expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await one.inspect(req)).toBeNull();expect(await two.inspect(browserRequest(results.find(Boolean)!))).not.toBeNull();
+    const rows=await owner.query<{n:number}>("SELECT count(DISTINCT expires_at)::int AS n FROM identity.browser_sessions WHERE session_id=$1",[proof.sessionId]);expect(rows.rows[0]!.n).toBe(1);
+  });
+  it("canonical browser: logout revokes BUSINESS, every refresh and browser session atomically",async()=>{
+    const proof=await canonicalHandoff();const store=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy);
+    const issued=(await store.establishFromHandoff(proof.token))!;
+    await owner.query("INSERT INTO identity.session_refresh_tokens(id,session_id,token_family_id,token_hash,issued_at,expires_at) VALUES($1,$2,$3,$4,clock_timestamp(),clock_timestamp()+interval '1 minute')",[uuidV7(),proof.sessionId,uuidV7(),randomBytes(32).toString("hex")]);
+    expect(await store.logout(browserRequest(issued))).toBe(true);
+    expect(await new DurableBrowserSessionStore(runtime,origin,canonicalPolicy).inspect(browserRequest(issued))).toBeNull();
+    const rows=await owner.query("SELECT revoked_at IS NOT NULL AS closed FROM identity.sessions WHERE id=$1",[proof.sessionId]);expect(rows.rows[0].closed).toBe(true);
+    const refresh=await owner.query("SELECT revoked_at IS NOT NULL AS closed FROM identity.session_refresh_tokens WHERE session_id=$1",[proof.sessionId]);expect(refresh.rows[0].closed).toBe(true);
+  });
+  it("canonical browser: audit failure rolls cookie creation and handoff consumption back",async()=>{
+    const proof=await canonicalHandoff();const store=new DurableBrowserSessionStore(runtime,origin,canonicalPolicy);
+    await owner.query(`CREATE FUNCTION identity.test_browser_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_code='PLATFORM_BROWSER_SESSION_ISSUED' THEN RAISE EXCEPTION 'browser audit unavailable'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_browser_audit_failure BEFORE INSERT ON identity.security_events FOR EACH ROW EXECUTE FUNCTION identity.test_browser_audit_failure()`);
+    try{await expect(store.establishFromHandoff(proof.token)).rejects.toThrow("browser audit unavailable");}
+    finally{await owner.query("DROP TRIGGER test_browser_audit_failure ON identity.security_events; DROP FUNCTION identity.test_browser_audit_failure()");}
+    expect((await owner.query("SELECT consumed_at FROM identity.browser_session_handoffs WHERE session_id=$1",[proof.sessionId])).rows[0].consumed_at).toBeNull();
+    expect(await store.establishFromHandoff(proof.token)).not.toBeNull();
+  });
+  it("canonical browser: expires using PostgreSQL time and refuses unapproved policy omissions",async()=>{
+    const proof=await canonicalHandoff();const store=new DurableBrowserSessionStore(runtime,origin,{...canonicalPolicy,lifetimeMs:100});
+    const issued=(await store.establishFromHandoff(proof.token))!;await new Promise(resolve=>setTimeout(resolve,150));
+    expect(await store.inspect(browserRequest(issued))).toBeNull();
+    expect(()=>new DurableBrowserSessionStore(runtime,origin,{} as never)).toThrow("EXPLICIT_POLICY_REQUIRED");
+  });
+  it("canonical browser: handoff writer failure rolls BUSINESS and its issuance audit back",async()=>{
+    const before=await owner.query("SELECT count(*)::int AS n FROM identity.sessions WHERE user_id=$1",[userId]);
+    const next=await authenticate();const writer=new PostgresBrowserSessionHandoffWriter(origin,15_000);
+    await owner.query(`CREATE FUNCTION identity.test_handoff_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'handoff write unavailable'; END $$;
+      CREATE TRIGGER test_handoff_failure BEFORE INSERT ON identity.browser_session_handoffs FOR EACH ROW EXECUTE FUNCTION identity.test_handoff_failure()`);
+    try{await expect(authority.createBrowserHandoff({mfaReceipt:next,selection:{tenantId,membershipId}},writer)).rejects.toThrow("handoff write unavailable");}
+    finally{await owner.query("DROP TRIGGER test_handoff_failure ON identity.browser_session_handoffs; DROP FUNCTION identity.test_handoff_failure()");}
+    expect((await owner.query("SELECT count(*)::int AS n FROM identity.sessions WHERE user_id=$1",[userId])).rows[0].n).toBe(before.rows[0].n);
+    expect(await authority.createBrowserHandoff({mfaReceipt:next,selection:{tenantId,membershipId}},writer)).toBeNull();
+  });
+  it("canonical browser: idle expiry, immutable history and least-privilege permissions",async()=>{
+    const proof=await canonicalHandoff();const store=new DurableBrowserSessionStore(runtime,origin,{...canonicalPolicy,idleTimeoutMs:100});
+    const issued=(await store.establishFromHandoff(proof.token))!;
+    await expect(runtime.query("UPDATE identity.browser_sessions SET user_id=$1 WHERE session_id=$2",[userId,proof.sessionId])).rejects.toThrow("permission denied");
+    await expect(runtime.query("DELETE FROM identity.browser_sessions WHERE session_id=$1",[proof.sessionId])).rejects.toThrow("permission denied");
+    await expect(runtime.query("UPDATE identity.browser_session_handoffs SET consumed_at=NULL WHERE session_id=$1",[proof.sessionId])).rejects.toThrow("cannot be replaced or reused");
+    await new Promise(resolve=>setTimeout(resolve,150));expect(await store.inspect(browserRequest(issued))).toBeNull();
+    const role=await runtime.query("SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user");expect(role.rows[0]).toEqual({rolsuper:false,rolbypassrls:false});
+  });
+
+  let tls:ReturnType<typeof labTls>|undefined;
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec)=>Promise<void>,requestsPerMinute=100){
+    tls??=labTls();
+    const codec=isolatedAccessCodec();
+    const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
+      authorityReference:"CANONICAL_HTTPS_BINDING_AUDIT",
+      record:async checked=>{
+        const client=await runtime.connect();
+        try{
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.tenant_id',$1,true)",[checked.identity.tenantId]);
+        const clock=await client.query<{at:Date}>("SELECT clock_timestamp() AS at");
+        await new PostgresPlatformSecurityEventRepository(runtime).append({user_id:checked.identity.userId,
+          session_id:checked.identity.sessionId,tenant_id:checked.identity.tenantId,
+          event_code:PlatformSecurityEventCode.LOGIN_SUCCEEDED,result:"SUCCEEDED",reason_code:"ISOLATED_HTTPS_DEVICE_BINDING",
+          correlation_id:uuidV7(),occurred_at:clock.rows[0]!.at.toISOString()},client);
+        await client.query("COMMIT");
+        }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+      },
+    });
+    const registration={clientId:"desktop",redirectUri:exchangeRedirect,authorizationOrigin:origin};
+    const server=await createIsolatedCommercialHttpsServer({pool:runtime,tls,origin,mfa:flow,authority,
+      handoffs:new PostgresBrowserSessionHandoffWriter(origin,15_000),browser:new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),
+      coordinator,clients:new CommercialNativeClientCatalog([registration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
+      policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
+    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec);}
+    finally{await closeLabHttps(server);}
+  }
+  const originHeaders={origin,"sec-fetch-site":"same-origin"};
+  async function httpLogin(post:Parameters<Parameters<typeof withHttps>[0]>[0]){
+    const start=await post("login",{phase:"begin",email,password,factorId},originHeaders);
+    expect(start.status).toBe(200);
+    const complete={phase:"complete",email,password,challenge:start.body.challenge,
+      response:await assertionFor(start.body.challenge as string),tenantId,membershipId};
+    const established=await post("login",complete,originHeaders);
+    expect(established.status).toBe(200);
+    expect(established.headers["cache-control"]).toBe("no-store");
+    expect(established.headers["set-cookie"]?.[0]).toContain("Secure; HttpOnly; SameSite=Strict");
+    const headers={...originHeaders,cookie:established.headers["set-cookie"]![0]!.split(";")[0]!,"x-csrf-token":established.body.csrfToken as string};
+    const current=await post("browser/session",{},headers);expect(current.status).toBe(200);
+    return {headers,sessionId:current.body.sessionId as string,complete};
+  }
+  it("HTTPS commercial: actual password MFA BUSINESS cookie DeviceProof PKCE signed JWT refresh and logout",async()=>withHttps(async(post,codec)=>{
+    const login=await httpLogin(post);
+    const authorized=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);
+    expect(authorized.status).toBe(200);expect(authorized.headers.location).toBeUndefined();
+    const redeem={grant_type:"authorization_code",code:authorized.body.code,code_verifier:exchangeVerifier,state:exchangeState,client_id:"desktop",redirect_uri:exchangeRedirect};
+    const credentials=await post("token",redeem);expect(credentials.status).toBe(200);
+    expect(credentials.body.accessToken).toEqual(expect.any(String));expect(credentials.body.refreshToken).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(await codec.verify(credentials.body.accessToken as string)).not.toBeNull();
+    expect((await post("token",redeem)).status).toBe(401);
+    expect((await post("login",login.complete,originHeaders)).status).toBe(401);
+    expect((await post("browser/logout",{},login.headers)).status).toBe(200);
+    expect((await post("browser/session",{},login.headers)).status).toBe(401);
+    expect(await codec.verify(credentials.body.accessToken as string)).toBeNull();
+    const refresh=await owner.query("SELECT revoked_at IS NOT NULL AS closed FROM identity.session_refresh_tokens WHERE session_id=$1",[login.sessionId]);expect(refresh.rows[0].closed).toBe(true);
+  }));
+  it("HTTPS commercial: rejects wrong password altered assertion and suspended membership without cookie",async()=>withHttps(async post=>{
+    expect((await post("login",{phase:"begin",email,password:"wrong-password",factorId},originHeaders)).status).toBe(401);
+    const start=await post("login",{phase:"begin",email,password,factorId},originHeaders);
+    const assertion=await assertionFor(start.body.challenge as string);assertion.response.signature=randomBytes(72).toString("base64url");
+    const invalid=await post("login",{phase:"complete",email,password,challenge:start.body.challenge,response:assertion,tenantId,membershipId},originHeaders);
+    expect(invalid.status).toBe(401);expect(invalid.headers["set-cookie"]).toBeUndefined();
+    const fresh=await post("login",{phase:"begin",email,password,factorId},originHeaders);
+    await owner.query("UPDATE tenancy.tenant_memberships SET status='SUSPENDED',suspended_at=clock_timestamp() WHERE id=$1",[membershipId]);
+    const suspended=await post("login",{phase:"complete",email,password,challenge:fresh.body.challenge,response:await assertionFor(fresh.body.challenge as string),tenantId,membershipId},originHeaders);
+    expect(suspended.status).toBe(403);expect(suspended.headers["set-cookie"]).toBeUndefined();
+  }));
+  it("HTTPS commercial: rejects forged cookies CSRF cross-origin duplicated headers proxies and extra parameters",async()=>withHttps(async post=>{
+    const {headers}=await httpLogin(post);
+    for(const altered of [{...headers,cookie:"__Host-camacho_business="+"f".repeat(43)},
+      {...headers,cookie:headers.cookie+"; "+headers.cookie},{...headers,"x-csrf-token":"f".repeat(43)}])expect((await post("browser/session",{},altered)).status).toBe(401);
+    for(const altered of [{...headers,origin:"https://evil.example.test"},{...headers,"sec-fetch-site":"cross-site"}])expect((await post("browser/session",{},altered)).status).toBe(403);
+    for(const altered of [{...headers,"x-forwarded-host":"business.example.test"},{...headers,origin:[origin,origin]}])expect((await post("browser/session",{},altered)).status).toBe(400);
+    expect((await post("browser/session?tenantId="+tenantId,{},headers)).status).toBe(400);
+    expect((await post("browser/session",{userId},headers)).status).toBe(400);
+    expect((await post("browser/session",{},headers,'{"userId":1,"userId":2}')).status).toBe(400);
+    expect((await post("browser/session",{},headers,'{"userId":1,"\\u0075serId":2}')).status).toBe(400);
+    expect((await post("browser/session",{},headers)).status).toBe(200);
+  }));
+  it("HTTPS commercial: bounds bodies JSON content-type and remote-address abuse budget",async()=>withHttps(async post=>{
+    expect((await post("login",{extra:"x".repeat(33*1024)},originHeaders)).status).toBe(413);
+    expect((await post("login",{}, {...originHeaders,"content-type":"text/plain"})).status).toBe(415);
+    expect((await post("login",{},originHeaders,"{")).status).toBe(400);
+    expect((await post("login",{},originHeaders)).status).toBe(429);
+    const audit=await owner.query("SELECT count(*)::int AS n FROM identity.security_events WHERE event_code=$1",[PlatformSecurityEventCode.ABUSE_RATE_LIMITED]);expect(audit.rows[0].n).toBeGreaterThan(0);
+  },3));
+  it("HTTPS commercial: rejects invalid replayed device proof malicious redirect and PKCE mismatch",async()=>withHttps(async post=>{
+    const {headers,sessionId}=await httpLogin(post);
+    const proof=request(sessionId),payload={clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:proof};
+    expect((await post("authorize",{...payload,redirectUri:"https://evil.example.test/callback"},headers)).status).toBe(403);
+    expect((await post("authorize",{...payload,deviceProof:{...proof,authorization:"DeviceProof invalid"}},headers)).status).toBe(401);
+    const code=await post("authorize",payload,headers);expect(code.status).toBe(200);
+    expect((await post("authorize",payload,headers)).status).toBe(401);
+    const redeem={grant_type:"authorization_code",code:code.body.code,code_verifier:"x".repeat(64),state:exchangeState,client_id:"desktop",redirect_uri:exchangeRedirect};
+    expect((await post("token",redeem)).status).toBe(401);
+    expect((await post("token",{...redeem,code_verifier:exchangeVerifier})).status).toBe(401);
+  }));
+  it("HTTPS commercial: concurrent cookie rotation has one winner and rejects old cookie across requests",async()=>withHttps(async post=>{
+    const {headers}=await httpLogin(post);
+    const results=await Promise.all([post("browser/rotate",{},headers),post("browser/rotate",{},headers)]);
+    expect(results.map(r=>r.status).sort()).toEqual([200,401]);
+    expect((await post("browser/session",{},headers)).status).toBe(401);
+    const winner=results.find(r=>r.status===200)!;
+    expect((await post("browser/session",{},{...headers,cookie:winner.headers["set-cookie"]![0]!.split(";")[0]!,"x-csrf-token":winner.body.csrfToken as string})).status).toBe(200);
+  }));
+  it("HTTPS commercial: audit failure rolls atomic code redemption and credentials back before retry",async()=>withHttps(async post=>{
+    const {headers,sessionId}=await httpLogin(post);
+    const authorized=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(sessionId)},headers);
+    expect(authorized.status).toBe(200);
+    const redeem={grant_type:"authorization_code",code:authorized.body.code,code_verifier:exchangeVerifier,state:exchangeState,client_id:"desktop",redirect_uri:exchangeRedirect};
+    await owner.query(`CREATE FUNCTION identity.test_https_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_code='PLATFORM_ACCESS_ISSUED' THEN RAISE EXCEPTION 'https audit unavailable'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_https_audit_failure BEFORE INSERT ON identity.security_events FOR EACH ROW EXECUTE FUNCTION identity.test_https_audit_failure()`);
+    try{
+      const denied=await post("token",redeem);expect(denied.status).toBe(503);expect(JSON.stringify(denied.body)).not.toContain("audit unavailable");
+      expect((await owner.query("SELECT count(*)::int AS n FROM identity.session_refresh_tokens WHERE session_id=$1",[sessionId])).rows[0].n).toBe(0);
+      expect((await owner.query("SELECT consumed_at FROM identity.native_authorization_code_validation WHERE code_hash=$1",[sha(authorized.body.code as string).toString("hex")])).rows[0].consumed_at).toBeNull();
+    }finally{await owner.query("DROP TRIGGER test_https_audit_failure ON identity.security_events; DROP FUNCTION identity.test_https_audit_failure()");}
+    const races=await Promise.all([post("token",redeem),post("token",redeem)]);expect(races.map(r=>r.status).sort()).toEqual([200,401]);
+  }));
+  it("HTTPS commercial: logout audit failure rolls revocation back and permits a verified retry",async()=>withHttps(async post=>{
+    const {headers,sessionId}=await httpLogin(post);
+    await owner.query(`CREATE FUNCTION identity.test_https_logout_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_code='PLATFORM_SESSION_REVOKED' THEN RAISE EXCEPTION 'logout audit unavailable'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_https_logout_failure BEFORE INSERT ON identity.security_events FOR EACH ROW EXECUTE FUNCTION identity.test_https_logout_failure()`);
+    try{
+      expect((await post("browser/logout",{},headers)).status).toBe(503);
+      expect((await post("browser/session",{},headers)).status).toBe(200);
+      expect((await owner.query("SELECT revoked_at FROM identity.sessions WHERE id=$1",[sessionId])).rows[0].revoked_at).toBeNull();
+    }finally{await owner.query("DROP TRIGGER test_https_logout_failure ON identity.security_events; DROP FUNCTION identity.test_https_logout_failure()");}
+    expect((await post("browser/logout",{},headers)).status).toBe(200);
+  }));
+  it("canonical browser: migration rollback refuses to erase authentication history",async()=>{
+    await canonicalHandoff();
+    const down=await readFile(new URL("../../../tools/target-migrations/sql/postgres/013_business_browser_sessions.down.sql",import.meta.url),"utf8");
+    const client=await owner.connect();try{
+      await client.query("BEGIN");await client.query("SET LOCAL ROLE pos_schema_owner");
+      await expect(client.query(down)).rejects.toThrow("013 rollback refused");
+    }finally{await client.query("ROLLBACK");client.release();}
+    expect((await runtime.query("SELECT to_regclass('identity.browser_sessions') AS name")).rows[0].name).toBe("identity.browser_sessions");
   });
 
 });

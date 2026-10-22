@@ -1,6 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Pool } from "pg";
+import {createPostgresPool,type Pool} from "@pos-platform/database-postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { IsolatedPostgresNativeCodeConsumer } from "../src/isolated-postgres-native-code-consumer.js";
 
@@ -15,11 +15,11 @@ const suite = enabled ? describe : describe.skip;
 suite("native code atomic consumption — physical isolated PostgreSQL", () => {
   let admin: Pool, runtime: Pool;
   beforeAll(async () => {
-    if (!allowed) throw new Error("NATIVE_CODE_PHYSICAL_TEST_URL_MUST_BE_LOCAL_FIXTURE");
-    admin = new Pool({connectionString:base});
+    if (!base || !allowed) throw new Error("NATIVE_CODE_PHYSICAL_TEST_URL_MUST_BE_LOCAL_FIXTURE");
+    admin = createPostgresPool(base);
     await admin.query(`CREATE DATABASE "${name}"`);
     const uri=new URL(base!); uri.pathname="/"+name;
-    runtime=new Pool({connectionString:uri.href,max:5});
+    runtime=createPostgresPool(uri.href,5);
     const fixture=readFileSync(new URL("../../../tools/target-migrations/sql/postgres/native-authorization-code-isolated-fixture.sql",import.meta.url),"utf8");
     await runtime.query(fixture);
   });

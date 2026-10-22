@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient } from "@pos-platform/database-postgres";
 import {PlatformSecurityEventCode,uuidV7} from "@pos-platform/contracts";
 import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from "./native-authorization-code-exchange.js";

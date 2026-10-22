@@ -1,5 +1,5 @@
 import {createHash,randomBytes} from "node:crypto";
-import type {Pool,PoolClient} from "pg";
+import type {Pool,PoolClient} from "@pos-platform/database-postgres";
 import {UuidSchema,uuidV7} from "@pos-platform/contracts";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";

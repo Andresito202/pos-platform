@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Pool } from "pg";
+import {createPostgresPool,type Pool} from "@pos-platform/database-postgres";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
 import { IsolatedPostgresNativeCodeConsumer } from "../src/isolated-postgres-native-code-consumer.js";
@@ -28,10 +28,10 @@ suite("native callback + PKCE exchange + PostgreSQL — physical composition", (
     if (!["localhost", "127.0.0.1"].includes(uri.hostname) ||
       uri.port !== "55433" || uri.pathname !== "/pos_target_test")
       throw new Error("NATIVE_CODE_PHYSICAL_TEST_URL_MUST_BE_LOCAL_FIXTURE");
-    admin = new Pool({ connectionString: base });
+    admin = createPostgresPool(base);
     await admin.query(`CREATE DATABASE "${name}"`);
     uri.pathname = "/" + name;
-    runtime = new Pool({ connectionString: uri.href, max: 8 });
+    runtime = createPostgresPool(uri.href,8);
     const fixture = readFileSync(
       new URL("../../../tools/target-migrations/sql/postgres/native-authorization-code-isolated-fixture.sql", import.meta.url),
       "utf8",

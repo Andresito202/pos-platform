@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient } from "@pos-platform/database-postgres";
 import { UuidSchema } from "@pos-platform/contracts";
 
 /**

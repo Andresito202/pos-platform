@@ -1,5 +1,5 @@
 import {createPrivateKey,createPublicKey,sign,verify,randomBytes,type KeyObject} from "node:crypto";
-import type {Pool,PoolClient} from "pg";
+import type {Pool,PoolClient} from "@pos-platform/database-postgres";
 import {uuidV7,PlatformSecurityEventCode} from "@pos-platform/contracts";
 import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";

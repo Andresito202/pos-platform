@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "./isolated-business-audit-session-guard.js";
 import type { ValidatedCommercialBinding } from "./commercial-binding-prerequisite.js";
 
@@ -23,7 +23,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     readonly redirectUri: string;
     readonly codeChallenge: string;
     readonly state: string;
-    readonly recordAudit: (transaction: import("pg").PoolClient) => Promise<void>;
+    readonly recordAudit: (transaction: import("@pos-platform/database-postgres").PoolClient) => Promise<void>;
   }): Promise<string | null> {
     if (!input?.binding?.identity || !input.binding.device ||
       input.binding.identity.tenantId !== input.binding.device.tenantId ||

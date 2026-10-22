@@ -1,9 +1,11 @@
-import type {PoolClient} from "pg";
+import type {PoolClient} from "@pos-platform/database-postgres";
 import type {DeviceProofRequest} from "@pos-platform/database-postgres";
 import {PlatformSecurityEventCode,uuidV7} from "@pos-platform/contracts";
 import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import {BusinessAccessPreparation} from "./business-access-preparation.js";
-import {createIsolatedCommercialBindingPrerequisite} from "./isolated-commercial-binding-adapter.js";
+import {createIsolatedCommercialBindingPrerequisite,createCommercialDeviceInspector} from "./isolated-commercial-binding-adapter.js";
+import {CommercialBindingPrerequisite} from "./commercial-binding-prerequisite.js";
+import {DurableBrowserSessionStore,type BrowserSessionRequest} from "./durable-browser-session-store.js";
 import {IsolatedBusinessNativeCodeIssuer} from "./isolated-business-native-code-issuer.js";
 import {IsolatedBusinessBoundCodeConsumer} from "./isolated-business-bound-code-consumer.js";
 import {NativeAuthorizationCodeExchange} from "./native-authorization-code-exchange.js";
@@ -43,6 +45,22 @@ export class IsolatedBusinessAuthCoordinator {
     const prerequisite=createIsolatedCommercialBindingPrerequisite(this.preparation,this.pool,this.bindingAudit);
     const binding=await prerequisite.establish(protectedReference,proof);
     if(!binding)return null;
+    return this.issueBinding(binding,registration,request);
+  }
+  /** Lab composition over durable cookie custody; the local marker is never sent over HTTP. */
+  async authorizeBrowser(store:DurableBrowserSessionStore,browser:BrowserSessionRequest,proof:DeviceProofRequest,
+    registration:NativeClientRegistration,request:{codeChallenge:string;state:string}):Promise<string|null>{
+    validateNativeClientRegistration(registration);
+    if(!(store instanceof DurableBrowserSessionStore))throw Error("BUSINESS_DURABLE_BROWSER_OWNER_REQUIRED");
+    const marker=Object.freeze({});
+    const prerequisite=new CommercialBindingPrerequisite({
+      authorityReference:"POSTGRES_AUTHENTICATED_BROWSER_SESSION",
+      inspect:async candidate=>candidate===marker?store.inspect(browser):null,
+    },createCommercialDeviceInspector(this.pool),this.bindingAudit);
+    const binding=await prerequisite.establish(marker,proof);
+    return binding?this.issueBinding(binding,registration,request):null;
+  }
+  private issueBinding(binding:ValidatedCommercialBinding,registration:NativeClientRegistration,request:{codeChallenge:string;state:string}):Promise<string|null>{
     return this.issuer.issue({
       binding,clientId:registration.clientId,redirectUri:registration.redirectUri,
       codeChallenge:request.codeChallenge,state:request.state,

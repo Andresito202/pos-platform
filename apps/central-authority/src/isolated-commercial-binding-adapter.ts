@@ -1,7 +1,7 @@
 import { PostgresDeviceProofReplayVerifier, type DeviceProofRequest } from "@pos-platform/database-postgres";
 import type { createPostgresPool } from "@pos-platform/database-postgres";
 import { BusinessAccessPreparation } from "./business-access-preparation.js";
-import { CommercialBindingPrerequisite, type TrustedCommercialAudit } from "./commercial-binding-prerequisite.js";
+import { CommercialBindingPrerequisite, type TrustedCommercialAudit, type TrustedDeviceInspector } from "./commercial-binding-prerequisite.js";
 
 /**
  * The signed request's exact body is a selector only; it cannot authenticate
@@ -17,7 +17,6 @@ export function createIsolatedCommercialBindingPrerequisite(
 ): CommercialBindingPrerequisite<DeviceProofRequest> {
   if (!(preparation instanceof BusinessAccessPreparation))
     throw new Error("BUSINESS_ACCESS_TRUSTED_PREPARATION_REQUIRED");
-  const verifier = new PostgresDeviceProofReplayVerifier(pool);
   return new CommercialBindingPrerequisite(
     {
       authorityReference: "BUSINESS_ACCESS_PREPARATION_CURRENT",
@@ -31,7 +30,15 @@ export function createIsolatedCommercialBindingPrerequisite(
         });
       },
     },
-    {
+    createCommercialDeviceInspector(pool),
+    audit,
+  );
+}
+
+/** Reuses the canonical verifier; the signed body selects, never authenticates, a BUSINESS session. */
+export function createCommercialDeviceInspector(pool:ReturnType<typeof createPostgresPool>):TrustedDeviceInspector<DeviceProofRequest>{
+  const verifier = new PostgresDeviceProofReplayVerifier(pool);
+  return {
       authorityReference: "POSTGRES_DEVICE_PROOF_REPLAY_VERIFIER",
       inspect: async (proof, identity) => {
         if (!proof || typeof proof.body !== "string" ||
@@ -48,7 +55,5 @@ export function createIsolatedCommercialBindingPrerequisite(
           credentialId: device.credentialId,
         });
       },
-    },
-    audit,
-  );
+    };
 }

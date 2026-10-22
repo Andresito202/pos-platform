@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import type { Pool } from "@pos-platform/database-postgres";
 import { createHash } from "node:crypto";
 import { IsolatedPostgresNativeCodeConsumer } from "../src/isolated-postgres-native-code-consumer.js";
 

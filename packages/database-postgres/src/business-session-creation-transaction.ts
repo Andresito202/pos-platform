@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool,PoolClient } from "pg";
 import { PlatformSecurityEventCode, UtcDateTimeSchema, UuidSchema, uuidV7 } from "@pos-platform/contracts";
 import type { CommittedBusinessInitialMfa } from "./business-initial-webauthn-transaction.js";
 import { PostgresPlatformSecurityEventRepository } from "./platform-security-event-repository.js";
@@ -50,7 +50,7 @@ export class PostgresBusinessSessionCreationTransaction {
 
   async create(evidence: CommittedBusinessInitialMfa, selection: {
     readonly tenantId: string; readonly membershipId: string;
-  }): Promise<PersistedBusinessSession | null> {
+  },completion?: (client:PoolClient,session:PersistedBusinessSession,evidence:CommittedBusinessInitialMfa)=>Promise<void>): Promise<PersistedBusinessSession | null> {
     if (evidence.purpose !== "BUSINESS_INITIAL_MFA" || evidence.sessionId !== null) return null;
     const userId = UuidSchema.parse(evidence.userId);
     const tenantId = UuidSchema.parse(selection.tenantId);
@@ -128,6 +128,10 @@ export class PostgresBusinessSessionCreationTransaction {
         event_code:PlatformSecurityEventCode.SESSION_ISSUED,result:"SUCCEEDED",reason_code:"BUSINESS_INITIAL_MFA",
         correlation_id:correlationId,occurred_at:clock.rows[0]!.at.toISOString(),
       },client);
+      const persisted:PersistedBusinessSession=Object.freeze({scope:"BUSINESS",sessionId,userId:row.user_id,tenantId:row.tenant_id,
+        tenantMembershipId:row.membership_id,authenticatedAt:session.authenticated_at.toISOString(),
+        expiresAt:session.expires_at.toISOString(),deviceId:null,accessProof:null});
+      if(completion)await completion(client,persisted,evidence);
       // Audit can itself wait for I/O/locks. Do not commit aged evidence or an
       // already expired session merely because it was fresh before INSERT.
       const fresh = await client.query<{ valid: boolean }>(`SELECT
@@ -136,9 +140,7 @@ export class PostgresBusinessSessionCreationTransaction {
       [verifiedAt,this.policy.maximumMfaAgeMs,this.policy.maximumReauthenticationAgeMs,session.expires_at]);
       if (fresh.rows[0]?.valid !== true) return await reject();
       await client.query("COMMIT"); begun = false;
-      return Object.freeze({ scope:"BUSINESS",sessionId,userId:row.user_id,tenantId:row.tenant_id,
-        tenantMembershipId:row.membership_id,authenticatedAt:session.authenticated_at.toISOString(),
-        expiresAt:session.expires_at.toISOString(),deviceId:null,accessProof:null });
+      return persisted;
     } catch (error) {
       if (begun) await client.query("ROLLBACK").catch(() => undefined);
       throw error;

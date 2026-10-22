@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool } from "@pos-platform/database-postgres";
 import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from "./native-authorization-code-exchange.js";
 
 /**

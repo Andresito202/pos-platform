@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import type { Pool } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
 const id=(tail:string)=>"018f0000-0000-7000-8000-0000000000"+tail;
 const binding={sessionId:id("a1"),userId:id("a2"),tenantId:id("a3"),tenantMembershipId:id("a4")};
