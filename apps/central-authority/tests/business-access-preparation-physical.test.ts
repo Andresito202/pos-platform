@@ -1,6 +1,9 @@
 import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityEventRepository } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
+import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
+import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
+import { derivePkceS256Challenge } from "../src/native-authorization-constraints.js";
 import { createIsolatedCommercialBindingPrerequisite } from "../src/isolated-commercial-binding-adapter.js";
 import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
@@ -474,7 +477,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     if(!proven) throw new Error("DEVICE_PROOF_FIXTURE_REJECTED");
     return new IsolatedBusinessNativeCodeIssuer(runtime).issue({
       binding:proven,clientId:"desktop",
-      redirectUri:"https://localhost.example.test/callback",
+      redirectUri:"http://127.0.0.1:42133/callback",
       codeChallenge:"x".repeat(43),state:"s".repeat(43),
       recordAudit:async transaction=>{
         if(failAudit) throw new Error("ISSUER_AUDIT_FAILED");
@@ -513,11 +516,64 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       WHERE id=$1`,[binding.sessionId]);
     const result=await new IsolatedBusinessNativeCodeIssuer(runtime).issue({
       binding:proven!,clientId:"desktop",
-      redirectUri:"https://localhost.example.test/callback",
+      redirectUri:"http://127.0.0.1:42133/callback",
       codeChallenge:"x".repeat(43),state:"s".repeat(43),
       recordAudit:async()=>{throw new Error("AUDIT_SHOULD_NOT_RUN");},
     });
     expect(result).toBeNull();
+  });
+
+  const exchangeVerifier = "V".repeat(43);
+  const exchangeState = "s".repeat(43);
+  const exchangeRedirect = "http://127.0.0.1:42133/callback";
+  async function issueExchangeReadyCode() {
+    const proven = await createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"PHYSICAL_DEVICE_PROOF_AUDIT_FIXTURE",record:async()=>undefined,
+    }).establish(reference,request());
+    if(!proven) throw new Error("VERIFIED_FIXTURE_REQUIRED");
+    return new IsolatedBusinessNativeCodeIssuer(runtime).issue({
+      binding:proven,clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+      recordAudit:async transaction=>{
+        await transaction.query(`INSERT INTO identity.native_code_audit_fixture (session_id,code_hash)
+          SELECT session_id,code_hash FROM identity.native_authorization_code_validation
+          WHERE session_id=$1 ORDER BY issued_at DESC LIMIT 1`,[binding.sessionId]);
+      },
+    });
+  }
+  function linkedExchange() {
+    return new NativeAuthorizationCodeExchange({
+      clientId:"desktop",redirectUri:exchangeRedirect,
+      authorizationOrigin:"https://business.example.test",
+    },new IsolatedBusinessBoundCodeConsumer(runtime));
+  }
+  it("exchanges a BUSINESS-bound PKCE code exactly once with concurrent consumers",async()=>{
+    const code=await issueExchangeReadyCode();
+    expect(code).not.toBeNull();
+    const results=await Promise.all(Array.from({length:8},()=>
+      linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(results.filter(Boolean)[0]).toMatchObject({
+      sessionId:binding.sessionId,deviceId,tenantId,credentialId:deviceCredentialId,
+    });
+  });
+  it("burns the code after invalid PKCE without leaking a device binding",async()=>{
+    const code=await issueExchangeReadyCode();
+    expect(await linkedExchange().exchange({code:code!,verifier:"Q".repeat(43),state:exchangeState})).toBeNull();
+    expect(await linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
+  });
+  it("rejects a code exchanged after the original BUSINESS session is revoked",async()=>{
+    const code=await issueExchangeReadyCode();
+    await owner.query(`UPDATE identity.sessions SET revoked_at=clock_timestamp(),
+      revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1`,[binding.sessionId]);
+    expect(await linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
+  });
+  it("rejects a code if the bound device credential is revoked before exchange",async()=>{
+    const code=await issueExchangeReadyCode();
+    await owner.query(`UPDATE identity.device_credentials
+      SET status='REVOKED',revoked_at=clock_timestamp(),revoked_reason='FIXTURE'
+      WHERE credential_id=$1`,[deviceCredentialId]);
+    expect(await linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
   });
 
 });
