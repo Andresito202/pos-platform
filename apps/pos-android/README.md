@@ -10,6 +10,8 @@ No contiene React, sesiones, ventas, permisos USB, red, WebView ni endpoints. La
 
 El arranque comercial Windows y DPAPI permanecen intactos. La firma de laboratorio y target 28 son para Android 9; no constituyen perfil de distribución productivo ni soporte de Android moderno. El único permiso nuevo es FOREGROUND_SERVICE; su notificación indica que el servicio carece de aprovisionamiento comercial.
 
+La continuidad de custodia añade un **candidato de laboratorio**: Android Keystore protege con AES-256-GCM una semilla aleatoria; el padre nativo entrega sus 32 bytes en memoria por el pipe heredado al Node propio. `AndroidKeystoreKeyProvider` deriva claves por contexto y reutiliza `EncryptedFileSecretStore`. La prueba guarda únicamente un sello de diagnóstico cifrado; no crea una identidad de dispositivo ni credencial comercial. El cierre final limpia las claves del diagnóstico inmediatamente después de comprobar el sello. La semilla en claro existe en RAM durante el uso; la clave AES de envoltura es no exportable. `OS_BOUND` describe esta custodia en reposo, no aprobación del perfil productivo ni autenticación de una persona. Falta aprobar el perfil SEC-004 y el aprovisionamiento confiable antes de local-security/outbox/comercio. Si falta la clave de envoltura o su archivo, o falla su autenticación, no se regeneran silenciosamente.
+
 ## Procedimiento único
 
 Requisitos: dependencias pnpm existentes, Node Windows, Docker y el kit privado Hardware LAB ya provisionado. Descargar el [NDK oficial r27d Linux](https://dl.google.com/android/repository/android-ndk-r27d-linux.zip) y proporcionar su ruta; el script verifica SHA-256 antes de extraerlo únicamente en el volumen Docker `camacho-android-ndk-r27d`.
@@ -61,4 +63,4 @@ powershell -NoProfile -File apps/pos-android/test-service-device.ps1 `
   -AdbPath $adb -Serial $serial -EvidenceDirectory artifacts/android-runtime/2026-10-22/device-service
 ```
 
-El script verifica inicio, Activity en segundo plano, parada ordenada y nuevo proceso Node al reiniciar. No ejecuta la prueba SQLite anterior ni impresiones. No se abre canal comercial ni se asignan IDs de tenant/dispositivo/usuario.
+El script verifica inicio, Activity en segundo plano, parada ordenada, nuevo proceso Node y restauración del sello cifrado después de reiniciar únicamente el host propio. `-ExistingCustodyOnly` permite comprobar una instalación en lugar sin repetir la prueba completa: exige un sello previo, inicia, verifica su restauración y detiene el servicio. No ejecuta la prueba SQLite anterior ni impresiones. No se abre canal comercial ni se asignan IDs de tenant/dispositivo/usuario. Evidencia y decisiones pendientes en [custodia Android](../../docs/testing/android-custody-2026-10-22.md).

@@ -20,6 +20,7 @@ class LocalRuntimeService:Service() {
     private val worker=Executors.newSingleThreadExecutor()
     private val started=AtomicBoolean(false)
     private val stopping=AtomicBoolean(false)
+    @Volatile private var custodyHardware:Boolean?=null
     @Volatile private var child:java.lang.Process?=null
     @Volatile private var status="{\"state\":\"STARTING\",\"commercial_access\":\"BLOCKED_PENDING_TRUSTED_PROVISIONING\"}"
     inner class LocalBinder:Binder() {
@@ -43,6 +44,7 @@ class LocalRuntimeService:Service() {
         val result=JSONObject(value)
         check(result.getString("commercial_access")=="BLOCKED_PENDING_TRUSTED_PROVISIONING")
         check(result.getString("state") in listOf("STARTING","READY","STOPPED","FAILED"))
+        custodyHardware?.let { result.put("keystore_hardware_backed",it) }
         status=result.toString()
         val file=AtomicFile(File(filesDir,"android-service-status.json"))
         val stream=file.startWrite()
@@ -62,12 +64,20 @@ class LocalRuntimeService:Service() {
                 put("LD_LIBRARY_PATH",File(root,"lib").path);put("HOME",filesDir.path);put("TMPDIR",cacheDir.path)
                 put("CAMACHO_ANDROID_SERVICE_DIRECTORY",directory.path)
             }
-            process=builder.start();child=process
-            if(stopping.get())sendStop(process)
-            process.inputStream.bufferedReader().useLines { lines -> lines.forEach { line ->
+            val material=AndroidRootCustody.load(this)
+            custodyHardware=material.hardwareBacked
+            try {
+                process=builder.start()
+                // Root seed travels only through this inherited private pipe, never env/argv/files/logs.
+                process.outputStream.write(material.root);process.outputStream.flush()
+            } finally { material.root.fill(0) }
+            val active=process ?: error("RUNTIME_PROCESS_MISSING")
+            child=active
+            if(stopping.get())sendStop(active)
+            active.inputStream.bufferedReader().useLines { lines -> lines.forEach { line ->
                 check(line.length<=4096) { "RUNTIME_STATUS_SIZE_REJECTED" };publish(line)
             } }
-            check(process.waitFor()==0&&JSONObject(status).getString("state")=="STOPPED") { "RUNTIME_PROCESS_FAILED" }
+            check(active.waitFor()==0&&JSONObject(status).getString("state")=="STOPPED") { "RUNTIME_PROCESS_FAILED" }
         } catch(error:Exception) {
             publish("{\"state\":\"FAILED\",\"commercial_access\":\"BLOCKED_PENDING_TRUSTED_PROVISIONING\"}")
         } finally {

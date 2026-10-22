@@ -12,4 +12,6 @@ with zipfile.ZipFile(apk) as archive:
     assert b'BUNDLED_RUNTIME_COPY_MISMATCH' in archive.read('classes.dex'), 'ATOMIC_RUNTIME_COPY_CODE_MISSING'
     assert b'PERSISTED_PROBE_ROW_LOST_OR_CHANGED' in archive.read('assets/runtime/runtime-probe.mjs'), 'PROCESS_PERSISTENCE_ASSERTION_MISSING'
     assert b'BLOCKED_PENDING_TRUSTED_PROVISIONING' in archive.read('assets/runtime/runtime-service.mjs'), 'UNPROVISIONED_SERVICE_BOUNDARY_MISSING'
+    assert b'INHERITED_NATIVE_PARENT_PIPE_REQUIRED' in archive.read('assets/runtime/runtime-service.mjs'), 'NATIVE_CUSTODY_PIPE_GUARD_MISSING'
+    assert b'ANDROID_CUSTODY_INCOMPLETE_NO_AUTOMATIC_REPLACEMENT' in archive.read('classes.dex'), 'KEYSTORE_NO_REPLACEMENT_GUARD_MISSING'
 print(json.dumps({'apk_sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),'bundle_id':manifest['bundle_id'],'verified_assets':len(manifest['files']),'private_signing_material':False,'artifact_validation':'PASS'}))
