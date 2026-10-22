@@ -1,4 +1,5 @@
-import { PostgresBusinessSessionRevocationTransaction } from "@pos-platform/database-postgres";
+import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityEventRepository } from "@pos-platform/database-postgres";
+import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
 import { createIsolatedCommercialBindingPrerequisite } from "../src/isolated-commercial-binding-adapter.js";
 import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
@@ -396,6 +397,59 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
       WHERE session_id=$1 AND event_code='COMMERCIAL_BINDING_VALIDATED'`,[binding.sessionId]);
     expect(rows.rows[0].n).toBe(0);
+  });
+
+  // Canonical audit integration: an actual session revocation is committed
+  // together with its existing SESSION_REVOKED event by the existing repository.
+  // No synthetic commercial authorization event or token is introduced.
+  async function revokeAndAuditInsideLock() {
+    const guard = new IsolatedBusinessAuditSessionGuard(runtime);
+    const repository = new PostgresPlatformSecurityEventRepository(runtime);
+    return guard.whileActive(binding, async client => {
+      const changed = await client.query(`UPDATE identity.sessions
+        SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',
+            revocation_reason='FIXTURE_CANONICAL_AUDIT'
+        WHERE id=$1 AND revoked_at IS NULL RETURNING id`,[binding.sessionId]);
+      if (changed.rows.length !== 1) throw new Error("SESSION_REVOCATION_NOT_COMMITTED");
+      return repository.append({
+        user_id:binding.userId,session_id:binding.sessionId,tenant_id:binding.tenantId,
+        event_code:PlatformSecurityEventCode.SESSION_REVOKED,result:"REVOKED",
+        reason_code:"FIXTURE_CANONICAL_AUDIT",correlation_id:uuidV7(),
+        occurred_at:new Date(Date.now()-1_000).toISOString(),
+      },client);
+    });
+  }
+  it("atomically persists canonical SESSION_REVOKED audit with the session transition",async()=>{
+    const event = await revokeAndAuditInsideLock();
+    expect(event).toMatchObject({session_id:binding.sessionId,tenant_id:tenantId,
+      event_code:PlatformSecurityEventCode.SESSION_REVOKED,result:"REVOKED"});
+    const state=await owner.query(`SELECT revoked_at FROM identity.sessions WHERE id=$1`,[binding.sessionId]);
+    expect(state.rows[0].revoked_at).not.toBeNull();
+    const events=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2 AND reason_code='FIXTURE_CANONICAL_AUDIT'`,
+      [binding.sessionId,PlatformSecurityEventCode.SESSION_REVOKED]);
+    expect(events.rows[0].n).toBe(1);
+  });
+  it("rolls back a canonical revocation if audit INSERT lacks permission",async()=>{
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(revokeAndAuditInsideLock()).rejects.toMatchObject({code:"42501"});
+    } finally {
+      await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");
+    }
+    const state=await owner.query(`SELECT revoked_at FROM identity.sessions WHERE id=$1`,[binding.sessionId]);
+    expect(state.rows[0].revoked_at).toBeNull();
+    const events=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND reason_code='FIXTURE_CANONICAL_AUDIT'`,[binding.sessionId]);
+    expect(events.rows[0].n).toBe(0);
+  });
+  it("serializes concurrent guarded revocations and writes only one canonical event",async()=>{
+    const results=await Promise.all([revokeAndAuditInsideLock(),revokeAndAuditInsideLock()]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const events=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2 AND reason_code='FIXTURE_CANONICAL_AUDIT'`,
+      [binding.sessionId,PlatformSecurityEventCode.SESSION_REVOKED]);
+    expect(events.rows[0].n).toBe(1);
   });
 
 });
