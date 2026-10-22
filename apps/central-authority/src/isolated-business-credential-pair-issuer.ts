@@ -1,5 +1,5 @@
 import {createHash,randomBytes} from "node:crypto";
-import type {Pool} from "pg";
+import type {Pool,PoolClient} from "pg";
 import {UuidSchema,uuidV7} from "@pos-platform/contracts";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
@@ -27,6 +27,17 @@ export class IsolatedBusinessCredentialPairIssuer {
     if(!binding?.identity||!binding?.device||binding.identity.tenantId!==binding.device.tenantId)return null;
     const refreshToken=randomBytes(48).toString("base64url");
     const result=await this.guard.whileActive(binding.identity,async client=>{
+      return this.issueInTransaction(client,binding,correlationId,refreshToken);
+    });
+    return result;
+  }
+  /** Caller must hold a verified and locked BUSINESS session in this transaction. */
+  async issueInTransaction(client:PoolClient,binding:ValidatedCommercialBinding,
+    correlationId:string,providedToken?:string):Promise<{accessToken:string;refreshToken:string}>{
+      UuidSchema.parse(correlationId);
+      if(!binding?.identity||!binding?.device||binding.identity.tenantId!==binding.device.tenantId)
+        throw Error("CREDENTIAL_PAIR_BINDING_REQUIRED");
+      const refreshToken=providedToken??randomBytes(48).toString("base64url");
       // The access codec revalidates the full BUSINESS membership and device
       // before signing, using this exact transaction and canonical audit.
       const accessToken=await this.access.issueInTransaction(client,binding.identity,{
@@ -44,7 +55,5 @@ export class IsolatedBusinessCredentialPairIssuer {
           binding.identity.userId,binding.identity.tenantId,binding.identity.tenantMembershipId]);
       if(insert.rowCount!==1)throw new Error("CREDENTIAL_PAIR_REFRESH_PERSIST_FAILED");
       return {accessToken,refreshToken};
-    });
-    return result;
   }
 }
