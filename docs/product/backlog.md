@@ -22,6 +22,8 @@ Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](
 
 ## Jerarquía relacionada
 
+Continuidad prioritaria de autenticación 2026-10-22: [custodia HTTP canónica y HTTPS](../testing/business-browser-https-2026-10-22.md), publicada en `114b8812`; [preparación nativa Windows/Android](../testing/native-business-auth-preparation-2026-10-22.md). Evidencia de laboratorio separada de activación: no se autentica una persona ni se concede sesión POS. La propuesta conjunta incorpora el binding navegador/dispositivo y refresh que necesitan aprobación; no se avanza al resto del backlog mientras este incremento siga pendiente.
+
 Continuidad catálogo fiscal 2026-10-22: [D-19, escritor inicial](../testing/catalog-fiscal-write-2026-10-22.md), atributos fiscales opcionales explícitos en el alta existente, validación fiscal canónica y transacción única, 20/20 catálogo, 6/6 renderer y nueva prueba por canal real. No edición fiscal de productos previos, documento productivo ni E2E Android; D-21/D-22 siguen abiertos.
 
 Continuidad importación 2026-10-22: [CSV de catálogo](../testing/catalog-csv-2026-10-22.md) en el panel existente, plantilla, validación/vista previa/coincidencias y confirmación backend por fila recuperable por idempotencia. 5 nuevas parser/orquestación, 7 renderer focalizadas y 1 SQLite de aislamiento de empresa. No XLSX/XML ni importación de stock/facturas/recepción física.

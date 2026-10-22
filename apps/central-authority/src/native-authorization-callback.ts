@@ -38,7 +38,7 @@ export function inspectNativeAuthorizationCallback(
   try { actual = new URL(callbackUrl); }
   catch { return null; }
   if (actual.origin !== new URL(registration.redirectUri).origin ||
-      actual.pathname !== "/callback" || actual.hash ||
+      actual.pathname !== new URL(registration.redirectUri).pathname || actual.hash ||
       actual.username || actual.password) return null;
   const params = [...actual.searchParams.entries()];
   if (params.length !== 2 || params.some(([key]) => key !== "code" && key !== "state")) return null;

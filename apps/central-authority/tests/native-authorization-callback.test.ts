@@ -11,6 +11,14 @@ const expectation = { registration, state };
 const valid = registration.redirectUri + "?code=" + code + "&state=" + state;
 
 describe("native authorization callback — pre-exchange only", () => {
+  it("validates an Android App Link separately from the Electron loopback callback",()=>{
+    const android={...registration,clientId:"android",platform:"ANDROID" as const,redirectUri:registration.authorizationOrigin+"/android/callback",
+      androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
+    const callback=android.redirectUri+"?code="+code+"&state="+state;
+    expect(inspectNativeAuthorizationCallback(callback,{registration:android,state})).toEqual({code,clientId:"android"});
+    expect(inspectNativeAuthorizationCallback(valid,{registration:android,state})).toBeNull();
+    expect(inspectNativeAuthorizationCallback(callback.replace("/android/callback","/callback"),{registration:android,state})).toBeNull();
+  });
   it("accepts an exact bound loopback callback but does not issue access", () => {
     expect(inspectNativeAuthorizationCallback(valid, expectation))
       .toEqual({ code, clientId: registration.clientId });

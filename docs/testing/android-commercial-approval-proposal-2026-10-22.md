@@ -21,6 +21,29 @@ El propietario no necesita inventar UUID ni proporcionar secretos. Primero debe 
 
 ## Cómo obtenerlo y activarlo con seguridad
 
+### Precisión del contrato nativo tras conectar HTTPS (misma solicitud)
+
+La prueba HTTPS ya conecta contraseña/MFA/BUSINESS/cookie con DeviceProof, PKCE
+y JWT/refresh en PostgreSQL temporal; eso no resuelve automáticamente la entrega
+entre navegador externo y cliente nativo. El verificador actual firma
+`/v1/business-session/assertions` y un cuerpo con `session_id`. Al abrir el navegador
+el cliente aún no conoce ese BUSINESS recién autenticado. El navegador tampoco
+puede custodiar la clave de dispositivo. No debe trasladarse esa clave a React
+ni llamarse DPoP a la prueba existente. Las siguientes filas precisan la misma
+aprobación conjunta; no son una segunda solicitud ni una configuración activada.
+
+| Parámetro bloqueante | Propuesta concreta, no activada | Riesgo / fundamento | Aprobación y dependencia |
+| --- | --- | --- | --- |
+| Correlación navegador ↔ dispositivo antes de BUSINESS | Solicitud nativa previa, autenticada con la credencial instalada, vinculada de forma inmutable a `client_id`, redirect exacto, S256 y state; nonce de autoridad de un uso y 60 s como candidato. Después de contraseña/MFA, resolver esa solicitud en servidor y revalidar el dispositivo antes de emitir el código existente. No reutilizar el propósito/ruta SSA ni aceptar un sessionId como posesión | Inferencia de integración propia: evita pedir la clave al navegador y evita un puente HTTP local de firma. [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) sustenta navegador externo/PKCE, pero **no especifica este DeviceProof propio**. Requiere amenazas de login swapping, replay y mezclas de clientes/tenant; 60 s debe medirse | Owner Identity + Device Trust + seguridad deben aprobar schema, firma/propósito, URL, almacenamiento durable y consumo atómico. No se han inventado ese formato ni una tabla paralela; hasta aprobar, sólo existe la composición de prueba con proof delegado |
+| Renovación nativa con access vencido | Vincular en la persistencia canónica de refresh la familia con cliente y credencial de dispositivo verificados en el canje original; resolver por hash del refresh y exigir posesión fresca de esa misma clave. Conservar la tabla existente mediante migration revisada, no vincular `identity.sessions.device_id` | La tabla actual liga refresh a BUSINESS pero no almacena cliente/credencial. No es seguro derivarlos de UUID/JSON del llamador ni depender de un access todavía vigente para renovarlo. [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700) trata replay/rotación y credenciales restringidas al emisor; [RFC 9449](https://www.rfc-editor.org/rfc/rfc9449) es una alternativa estándar que **no se declara implementada** | Aprobar perfil sender-constrained propio o DPoP completo, binding durable, revocación y recuperación; Identity/DB/seguridad. Sigue sin habilitarse grant refresh HTTP productivo. La rotación interna existente no se reconstruye |
+| Retorno Electron | Mantener callback exacto registrado en `127.0.0.1:<puerto>/callback`, main exclusivo, S256/state efímeros y un uso. Si se elige puerto dinámico, aprobar expresamente la regla de registro que sólo varía ese puerto | [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) describe loopback/puertos efímeros. El contrato existente exige puerto exacto; el componente nuevo lo conserva. Riesgo de puerto ocupado mitigado con fallo cerrado, sin buscar silenciosamente otro | Responsable del despliegue proporciona registro real y aprueba puerto fijo o excepción dinámica; no cambiar redirects registrados desde React |
+| Retorno Android y custodia | App Link exacto `/android/callback`, paquete y SHA-256 del firmante instalado; DAL HTTPS sin redirects y comprobación OS. Estado/verifier de un uso en memoria; reinicio exige login nuevo. El root Keystore y el pipe privado existentes no cambian | [Verificación Android](https://developer.android.com/training/app-links/verify-applinks): comprobar DAL manualmente no acredita que Android haya verificado el intent-filter. Componentes Kotlin compilan y sus contratos JVM se prueban; la Activity permanece no exportada, sin filtro de dominio ni permiso nuevo | Dominio/paquete/firmante reales, publicación DAL, firma de APK y pruebas en Android 9. SEC-004/DEC-025 deben aprobar custodia/retorno/entrega al servicio; no abrir un callback externo antes de ello |
+
+El entry browser GET y la integración de login visual/entrega privada al servicio
+no se consideran terminados. Se conectarán con ese protocolo ya especificado;
+no debe montarse la URL propuesta por los clientes como un login funcional sin
+resolver primero su binding. La aprobación no crea grants ni una sesión POS.
+
 1. Identificar entorno central y administrador autorizado. Si todavía no existe despliegue, preparar su configuración/artefactos y plan de arranque revisable; no crear credenciales ficticias para saltarlo. Confirmar dominio controlado mediante su responsable y disponibilidad TLS antes de fijar RP/redirect.
 2. Obtener por los servicios centrales los registros y artefactos públicos; comparar huellas por canal independiente. Mantener privadas las claves de firma. Aprobar por escrito las filas anteriores, incluyendo valores y alternativas que se sustituyan; un silencio no aprueba.
 3. Tras aprobar, implementar/validar intercambio, políticas y transporte pendientes en el código existente. Aprovisionar únicamente por procedimiento confiable con auditoría. No abrir un endpoint antes de contar con autenticación/abuso y consumo único. Probar negativos/carreras/rollback en DB temporal primero.

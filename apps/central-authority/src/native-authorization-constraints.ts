@@ -1,41 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-/**
- * Validation primitives for a prospective native authorization-code flow.
- * No code store, issuer, token, callback listener or production endpoint is
- * created here. An exact externally approved deployment policy is required.
- */
-export interface NativeClientRegistration {
-  readonly clientId: string;
-  readonly redirectUri: string;
-  readonly authorizationOrigin: string;
-}
-
-function canonicalLoopbackRedirect(raw: string): boolean {
-  try {
-    const uri = new URL(raw);
-    if (uri.protocol !== "http:" || uri.hostname !== "127.0.0.1" ||
-        uri.username || uri.password || uri.hash || uri.search ||
-        !uri.port || Number(uri.port) < 1 || Number(uri.port) > 65535 ||
-        uri.pathname !== "/callback") return false;
-    return uri.href === raw;
-  } catch { return false; }
-}
-
-/** Rejects absent, ambiguous, wildcard or client-supplied registration. */
-export function validateNativeClientRegistration(value: NativeClientRegistration): NativeClientRegistration {
-  if (!value || !/^[A-Za-z0-9._~-]{1,128}$/.test(value.clientId) ||
-      !canonicalLoopbackRedirect(value.redirectUri)) throw new Error("NATIVE_CLIENT_REGISTRATION_INVALID");
-  let origin: URL;
-  try { origin = new URL(value.authorizationOrigin); }
-  catch { throw new Error("NATIVE_AUTHORIZATION_ORIGIN_INVALID"); }
-  if (origin.protocol !== "https:" || !origin.hostname ||
-      origin.username || origin.password || origin.pathname !== "/" ||
-      origin.search || origin.hash || origin.origin !== value.authorizationOrigin ||
-      origin.hostname === "localhost" || origin.hostname.endsWith(".localhost") ||
-      origin.hostname === "127.0.0.1") throw new Error("NATIVE_AUTHORIZATION_ORIGIN_INVALID");
-  return Object.freeze({ clientId: value.clientId, redirectUri: value.redirectUri, authorizationOrigin: value.authorizationOrigin });
-}
+export {validateNativeClientRegistration} from "@pos-platform/contracts";
+export type {NativeClientRegistration} from "@pos-platform/contracts";
 
 const verifierPattern = /^[A-Za-z0-9._~-]{43,128}$/;
 const challengePattern = /^[A-Za-z0-9_-]{43}$/;

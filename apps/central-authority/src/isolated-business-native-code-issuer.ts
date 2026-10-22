@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Pool } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "./isolated-business-audit-session-guard.js";
 import type { ValidatedCommercialBinding } from "./commercial-binding-prerequisite.js";
+import {validateNativeClientRegistration,type NativeClientRegistration} from "./native-authorization-constraints.js";
 
 /**
  * ISOLATED_VALIDATION only. Uses the existing locked BUSINESS session as the
@@ -21,6 +22,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     readonly binding: ValidatedCommercialBinding;
     readonly clientId: string;
     readonly redirectUri: string;
+    readonly registration?:NativeClientRegistration;
     readonly codeChallenge: string;
     readonly state: string;
     readonly recordAudit: (transaction: import("@pos-platform/database-postgres").PoolClient) => Promise<void>;
@@ -28,10 +30,14 @@ export class IsolatedBusinessNativeCodeIssuer {
     if (!input?.binding?.identity || !input.binding.device ||
       input.binding.identity.tenantId !== input.binding.device.tenantId ||
       !/^[A-Za-z0-9._~-]{1,128}$/.test(input.clientId) ||
-      !/^http:\/\/127\.0\.0\.1:[0-9]+\/callback$/.test(input.redirectUri) ||
+      (!input.registration&&!/^http:\/\/127\.0\.0\.1:[0-9]+\/callback$/.test(input.redirectUri)) ||
       !/^[A-Za-z0-9_-]{43}$/.test(input.codeChallenge) ||
       !/^[A-Za-z0-9_-]{32,256}$/.test(input.state) ||
       typeof input.recordAudit !== "function") return null;
+    if(input.registration){
+      const trusted=validateNativeClientRegistration(input.registration);
+      if(trusted.clientId!==input.clientId||trusted.redirectUri!==input.redirectUri)return null;
+    }
     const code = randomBytes(48).toString("base64url");
     const codeHash = createHash("sha256").update(code).digest("hex");
     const identity = input.binding.identity;

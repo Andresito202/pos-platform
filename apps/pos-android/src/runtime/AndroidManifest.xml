@@ -4,6 +4,8 @@
   <!-- No network, USB, drawer, business session or external storage permission. -->
   <application android:label="Camacho Node Runtime Probe" android:allowBackup="false" android:debuggable="false" android:usesCleartextTraffic="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
     <service android:name="co.camachopos.android.LocalRuntimeService" android:exported="false" />
+    <!-- No external callback until the real domain/signer/DAL and D3 profile are verified. -->
+    <activity android:name="co.camachopos.android.BusinessAuthorizationCallbackActivity" android:exported="false" android:noHistory="true" />
     <activity android:name="co.camachopos.android.RuntimeProbeActivity" android:exported="true" android:configChanges="orientation|screenSize">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
     </activity>

@@ -39,8 +39,8 @@ async function body(req:IncomingMessage,maxBytes:number):Promise<{object:ObjectB
   if(Number(length)>maxBytes)throw new Rejection(413);
   const chunks:Buffer[]=[];let bytes=0;
   for await(const chunk of req){const b=Buffer.from(chunk);bytes+=b.length;if(bytes>maxBytes)throw new Rejection(413);chunks.push(b);}
-  let value:unknown;const raw=new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(chunks));
-  try{value=JSON.parse(raw);}catch{throw new Rejection(400);}
+  let value:unknown,raw:string;
+  try{raw=new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(chunks));value=JSON.parse(raw);}catch{throw new Rejection(400);}
   // JSON.parse otherwise accepts duplicate names, including escaped aliases.
   const stack:(Set<string>|null)[]=[];
   for(let i=0;i<raw.length;i++){
@@ -122,11 +122,13 @@ export async function createIsolatedCommercialHttpsServer(input:{
           cookie:req.headers.cookie??null,csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null};
         if(req.url==="/v1/commercial/login"){
           // Login CSRF is prevented by exact Origin + same-origin Fetch Metadata
-          // and strict non-simple JSON; existing cookies cannot fix a new login.
-          if(req.headers.cookie)throw new Rejection(403);
+          // and strict non-simple JSON. An ambient/expired cookie is NEVER
+          // authentication evidence: a fresh password and assertion are required.
+          // Clear it on begin so lost CSRF state cannot strand a browser after
+          // restart. Successful completion always creates a new random cookie.
           if(o.phase==="begin"&&exact(o,["phase","email","password","factorId"])&&text(o.email,320)&&text(o.password,1024)&&uuid(o.factorId)){
             const challenge=await mfa.begin({email:o.email,password:o.password,factorId:o.factorId,correlationId:uuidV7()});
-            if(!challenge)throw new Rejection(401);send(res,200,challenge);return;
+            if(!challenge)throw new Rejection(401);send(res,200,challenge,req.headers.cookie?browser.clearCookie():undefined);return;
           }
           if(o.phase!=="complete"||!exact(o,["phase","email","password","challenge","response","tenantId","membershipId"])||
             !text(o.email,320)||!text(o.password,1024)||!text(o.challenge,1024)||!assertion(o.response)||!uuid(o.tenantId)||!uuid(o.membershipId))throw new Rejection(400);

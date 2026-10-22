@@ -28,6 +28,16 @@ val runtimeHostJar by tasks.registering(Jar::class) {
     from(runtime.output)
     archiveFileName.set("runtime-probe-host.jar")
 }
+val nativeAuthTest by sourceSets.creating {
+    kotlin.srcDir("src/nativeAuthTest/kotlin")
+    compileClasspath += runtime.output + runtime.compileClasspath
+    runtimeClasspath += output + compileClasspath + configurations.runtimeClasspath.get()
+}
+tasks.register<JavaExec>("nativeAuthContractsTest") {
+    dependsOn(nativeAuthTest.classesTaskName)
+    classpath=nativeAuthTest.runtimeClasspath
+    mainClass.set("co.camachopos.android.NativeBusinessAuthorizationTestKt")
+}
 
 fun registerProbeApk(name: String, runtimeVariant: Boolean) = tasks.register(name) {
     dependsOn(if(runtimeVariant) runtimeHostJar else tasks.jar)

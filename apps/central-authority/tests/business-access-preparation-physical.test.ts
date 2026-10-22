@@ -1099,7 +1099,9 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   });
 
   let tls:ReturnType<typeof labTls>|undefined;
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec)=>Promise<void>,requestsPerMinute=100){
+  const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
+    androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec)=>Promise<void>,requestsPerMinute=100){
     tls??=labTls();
     const codec=isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
@@ -1121,7 +1123,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const registration={clientId:"desktop",redirectUri:exchangeRedirect,authorizationOrigin:origin};
     const server=await createIsolatedCommercialHttpsServer({pool:runtime,tls,origin,mfa:flow,authority,
       handoffs:new PostgresBrowserSessionHandoffWriter(origin,15_000),browser:new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),
-      coordinator,clients:new CommercialNativeClientCatalog([registration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
+      coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
     try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec);}
     finally{await closeLabHttps(server);}
@@ -1149,6 +1151,16 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const credentials=await post("token",redeem);expect(credentials.status).toBe(200);
     expect(credentials.body.accessToken).toEqual(expect.any(String));expect(credentials.body.refreshToken).toMatch(/^[A-Za-z0-9_-]{64}$/);
     expect(await codec.verify(credentials.body.accessToken as string)).not.toBeNull();
+    const forged=(credentials.body.accessToken as string).split(".");
+    const claims=JSON.parse(Buffer.from(forged[1]!,"base64url").toString()) as Record<string,unknown>;
+    forged[1]=Buffer.from(JSON.stringify({...claims,did:uuidV7()})).toString("base64url");
+    expect(await codec.verify(forged.join("."))).toBeNull();
+    const rotation=new IsolatedBusinessRefreshRotation(runtime);
+    const current={sessionId:login.sessionId,userId,tenantId,tenantMembershipId:membershipId};
+    const next=await rotation.rotate(current,credentials.body.refreshToken as string,uuidV7());expect(next?.status).toBe("ROTATED");
+    expect((await rotation.rotate(current,credentials.body.refreshToken as string,uuidV7()))?.status).toBe("REUSE_DETECTED");
+    if(next?.status!=="ROTATED")throw Error("HTTPS_REFRESH_ROTATION_MISSING");
+    expect(await rotation.rotate(current,next.refreshToken,uuidV7())).toBeNull();
     expect((await post("token",redeem)).status).toBe(401);
     expect((await post("login",login.complete,originHeaders)).status).toBe(401);
     expect((await post("browser/logout",{},login.headers)).status).toBe(200);
@@ -1162,6 +1174,9 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const assertion=await assertionFor(start.body.challenge as string);assertion.response.signature=randomBytes(72).toString("base64url");
     const invalid=await post("login",{phase:"complete",email,password,challenge:start.body.challenge,response:assertion,tenantId,membershipId},originHeaders);
     expect(invalid.status).toBe(401);expect(invalid.headers["set-cookie"]).toBeUndefined();
+    const wrongTenant=await post("login",{phase:"begin",email,password,factorId},originHeaders);
+    expect((await post("login",{phase:"complete",email,password,challenge:wrongTenant.body.challenge,
+      response:await assertionFor(wrongTenant.body.challenge as string),tenantId:uuidV7(),membershipId},originHeaders)).status).toBe(403);
     const fresh=await post("login",{phase:"begin",email,password,factorId},originHeaders);
     await owner.query("UPDATE tenancy.tenant_memberships SET status='SUSPENDED',suspended_at=clock_timestamp() WHERE id=$1",[membershipId]);
     const suspended=await post("login",{phase:"complete",email,password,challenge:fresh.body.challenge,response:await assertionFor(fresh.body.challenge as string),tenantId,membershipId},originHeaders);
@@ -1183,9 +1198,10 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect((await post("login",{extra:"x".repeat(33*1024)},originHeaders)).status).toBe(413);
     expect((await post("login",{}, {...originHeaders,"content-type":"text/plain"})).status).toBe(415);
     expect((await post("login",{},originHeaders,"{")).status).toBe(400);
+    expect((await post("login",{},originHeaders,Buffer.from([0xc3,0x28]))).status).toBe(400);
     expect((await post("login",{},originHeaders)).status).toBe(429);
     const audit=await owner.query("SELECT count(*)::int AS n FROM identity.security_events WHERE event_code=$1",[PlatformSecurityEventCode.ABUSE_RATE_LIMITED]);expect(audit.rows[0].n).toBeGreaterThan(0);
-  },3));
+  },4));
   it("HTTPS commercial: rejects invalid replayed device proof malicious redirect and PKCE mismatch",async()=>withHttps(async post=>{
     const {headers,sessionId}=await httpLogin(post);
     const proof=request(sessionId),payload={clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:proof};
@@ -1229,6 +1245,31 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       expect((await owner.query("SELECT revoked_at FROM identity.sessions WHERE id=$1",[sessionId])).rows[0].revoked_at).toBeNull();
     }finally{await owner.query("DROP TRIGGER test_https_logout_failure ON identity.security_events; DROP FUNCTION identity.test_https_logout_failure()");}
     expect((await post("browser/logout",{},headers)).status).toBe(200);
+  }));
+  it("HTTPS commercial: Android registration uses its HTTPS App Link and cannot exchange as Electron",async()=>withHttps(async post=>{
+    const {headers,sessionId}=await httpLogin(post);
+    const authorized=await post("authorize",{clientId:androidRegistration.clientId,redirectUri:androidRegistration.redirectUri,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(sessionId)},headers);
+    expect(authorized.status).toBe(200);expect(authorized.body.redirectUri).toBe(androidRegistration.redirectUri);
+    const redeem={grant_type:"authorization_code",code:authorized.body.code,code_verifier:exchangeVerifier,state:exchangeState,client_id:"desktop",redirect_uri:exchangeRedirect};
+    expect((await post("token",redeem)).status).toBe(401);
+    const fresh=await post("authorize",{clientId:androidRegistration.clientId,redirectUri:androidRegistration.redirectUri,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(sessionId)},headers);
+    const exchanged=await post("token",{...redeem,code:fresh.body.code,client_id:androidRegistration.clientId,redirect_uri:androidRegistration.redirectUri});
+    expect(exchanged.status).toBe(200);
+  }));
+  it("HTTPS commercial: lost CSRF state requires fresh password and MFA instead of trusting an ambient cookie",async()=>withHttps(async post=>{
+    const original=await httpLogin(post);
+    const ambient={...originHeaders,cookie:original.headers.cookie};
+    expect((await post("browser/session",{},ambient)).status).toBe(401);
+    expect((await post("login",{phase:"begin",email,password:"wrong",factorId},ambient)).status).toBe(401);
+    const begin=await post("login",{phase:"begin",email,password,factorId},ambient);
+    expect(begin.status).toBe(200);expect(begin.headers["set-cookie"]![0]).toContain("Max-Age=0");
+    const completed=await post("login",{phase:"complete",email,password,challenge:begin.body.challenge,
+      response:await assertionFor(begin.body.challenge as string),tenantId,membershipId},ambient);
+    expect(completed.status).toBe(200);
+    const cookie=completed.headers["set-cookie"]![0]!.split(";")[0]!;expect(cookie).not.toBe(original.headers.cookie);
+    expect((await post("browser/session",{},{...originHeaders,cookie,"x-csrf-token":completed.body.csrfToken as string})).status).toBe(200);
   }));
   it("canonical browser: migration rollback refuses to erase authentication history",async()=>{
     await canonicalHandoff();

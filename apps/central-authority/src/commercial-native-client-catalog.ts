@@ -3,7 +3,8 @@ import {validateNativeClientRegistration,type NativeClientRegistration} from "./
 /**
  * Server-owned native registration catalog. Clients may send a client_id selector
  * but cannot supply or replace its redirect or issuer registration.
- * There is no production activation or Android handler in this catalog.
+ * Android registration names its HTTPS App Link and signer explicitly. Domain
+ * association, the native receiver and production activation are separate.
  */
 export class CommercialNativeClientCatalog {
   private readonly records:ReadonlyMap<string,NativeClientRegistration>;

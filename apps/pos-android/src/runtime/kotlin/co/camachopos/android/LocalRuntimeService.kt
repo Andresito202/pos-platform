@@ -26,6 +26,13 @@ class LocalRuntimeService:Service() {
     inner class LocalBinder:Binder() {
         fun status():String { check(Binder.getCallingUid()==AndroidProcess.myUid());return status }
         fun stop() { check(Binder.getCallingUid()==AndroidProcess.myUid());requestStop() }
+        fun takeBusinessAuthorizationCode():AndroidPendingBusinessAuthorization.Exchange? {
+            check(Binder.getCallingUid()==AndroidProcess.myUid())
+            return AndroidBusinessAuthorizationHost.takeForNativeExchange()
+        }
+        fun cancelBusinessAuthorization() {
+            check(Binder.getCallingUid()==AndroidProcess.myUid());AndroidBusinessAuthorizationHost.cancel()
+        }
     }
     override fun onBind(intent:Intent?):IBinder=LocalBinder()
     override fun onCreate() {
@@ -89,6 +96,7 @@ class LocalRuntimeService:Service() {
         Thread { if(!process.waitFor(10,TimeUnit.SECONDS))process.destroyForcibly() }.apply { isDaemon=true;start() }
     }
     private fun requestStop() {
+        AndroidBusinessAuthorizationHost.cancel()
         if(stopping.compareAndSet(false,true))child?.let { sendStop(it) }
         if(!started.get())stopSelf()
     }

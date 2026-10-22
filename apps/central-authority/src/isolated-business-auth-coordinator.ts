@@ -63,6 +63,7 @@ export class IsolatedBusinessAuthCoordinator {
   private issueBinding(binding:ValidatedCommercialBinding,registration:NativeClientRegistration,request:{codeChallenge:string;state:string}):Promise<string|null>{
     return this.issuer.issue({
       binding,clientId:registration.clientId,redirectUri:registration.redirectUri,
+      registration,
       codeChallenge:request.codeChallenge,state:request.state,
       recordAudit:async (client:PoolClient)=>{
         await this.audit.append({

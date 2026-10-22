@@ -29,3 +29,4 @@ export { uuidV7 as uuidV7FromModule } from "./uuid-v7.js";export * from "./onboa
 export * from "./platform-password-verifier.js";
 export * from "./platform-webauthn-credential-reference.js";
 export * from "./hardware.js";
+export * from "./native-client-registration.js";

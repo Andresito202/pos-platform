@@ -1,7 +1,7 @@
 import {execFileSync} from "node:child_process";
 import {existsSync,mkdtempSync,readFileSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join,basename,dirname,resolve} from "node:path";
 import {request} from "node:https";
 import type {Server} from "node:https";
 
@@ -13,9 +13,12 @@ export function labTls(){
     execFileSync(executable,["req","-x509","-newkey","rsa:3072","-nodes","-days","1","-subj","/CN=business.example.test",
       "-addext","subjectAltName=DNS:business.example.test","-keyout",join(directory,"key.pem"),"-out",join(directory,"cert.pem")],{stdio:"ignore"});
     return {key:readFileSync(join(directory,"key.pem")),cert:readFileSync(join(directory,"cert.pem"))};
-  }finally{rmSync(directory,{recursive:true,force:true});}
+  }finally{
+    if(dirname(resolve(directory))!==resolve(tmpdir())||!basename(directory).startsWith("camacho-auth-tls-"))throw Error("LAB_TLS_CLEANUP_PATH_REJECTED");
+    rmSync(directory,{recursive:true,force:true});
+  }
 }
-export function postLabHttps(server:Server,ca:Buffer,path:string,payload:unknown,headers:Record<string,string|string[]>={},raw?:string){
+export function postLabHttps(server:Server,ca:Buffer,path:string,payload:unknown,headers:Record<string,string|string[]>={},raw?:string|Buffer){
   const address=server.address();if(!address||typeof address==="string")throw Error("LAB_SERVER_NOT_LISTENING");
   const body=raw??JSON.stringify(payload);
   return new Promise<{status:number;headers:import("node:http").IncomingHttpHeaders;body:Record<string,unknown>}>((resolve,reject)=>{
