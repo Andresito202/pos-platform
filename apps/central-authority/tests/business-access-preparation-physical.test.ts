@@ -6,6 +6,8 @@ import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-acces
 import { IsolatedBusinessCredentialPairIssuer } from "../src/isolated-business-credential-pair-issuer.js";
 import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-coordinator.js";
 import { IsolatedBusinessBrowserLogin } from "../src/isolated-business-browser-login.js";
+import { IsolatedBrowserSessionVault } from "../src/isolated-browser-session-vault.js";
+import { IsolatedBusinessBrowserSessionBridge } from "../src/isolated-business-browser-session-bridge.js";
 import { CommercialNativeClientCatalog } from "../src/commercial-native-client-catalog.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
@@ -914,6 +916,44 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     });
     expect(trusted).toEqual({sessionId:binding.sessionId,deviceId,tenantId,
       credentialId:deviceCredentialId});
+  });
+
+  it("binds browser cookie and CSRF to genuine BUSINESS DeviceProof PKCE, rotates and durably logs out",async()=>{
+    const registration={clientId:"desktop",redirectUri:exchangeRedirect,
+      authorizationOrigin:"https://business.example.test"};
+    const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
+      authorityReference:"DURABLE_COOKIE_BRIDGE_FIXTURE",
+      record:async checked=>{
+        await owner.query(`INSERT INTO identity.native_code_audit_fixture(session_id,code_hash)
+          VALUES ($1,$2)`,[checked.identity.sessionId,"cookie-"+uuidV7()]);
+      },
+    });
+    const origin="https://business.example.test";
+    const browser=new IsolatedBusinessBrowserLogin(flow,preparation,coordinator,
+      new CommercialNativeClientCatalog([registration]));
+    const vault=new IsolatedBrowserSessionVault(origin);
+    const bridge=new IsolatedBusinessBrowserSessionBridge(browser,vault,preparation);
+    const issued=vault.establish(reference,origin)!;
+    const protectedRequest=(cookie=issued.setCookie,csrfToken=issued.csrfToken)=>({
+      cookie:cookie.split(";")[0]!,csrfToken,origin,fetchSite:"same-origin",method:"POST",
+    });
+    expect(await bridge.authorize(protectedRequest(issued.setCookie,"x".repeat(43)),request(),{
+      clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    })).toBeNull();
+    const rotated=bridge.rotate(protectedRequest())!;
+    expect(rotated).not.toBeNull();
+    expect(vault.inspect(protectedRequest())).toBeNull();
+    const valid=protectedRequest(rotated.setCookie,rotated.csrfToken);
+    const auth=await bridge.authorize(valid,request(),{
+      clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    });
+    expect(auth?.code).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    const closed=await bridge.logout(valid);
+    expect(closed?.sessionState).toBe("REVOKED");
+    expect(closed?.clearCookie).toContain("Max-Age=0");
+    expect(vault.inspect(valid)).toBeNull();
   });
 
 });
