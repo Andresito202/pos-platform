@@ -6,7 +6,7 @@ import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-sessi
 
 type Identity={sessionId:string;userId:string;tenantId:string;tenantMembershipId:string};
 type Device={deviceId:string;credentialId:string};
-type Claims={iss:string;aud:string;sub:string;sid:string;tid:string;did:string;cid:string;exp:number;iat:number;jti:string};
+type Claims={iss:string;aud:string;sub:string;sid:string;tid:string;mid:string;did:string;cid:string;exp:number;iat:number;jti:string};
 const b64=(v:unknown)=>Buffer.from(JSON.stringify(v)).toString("base64url");
 const strict=(s:string)=>{const decoded=Buffer.from(s,"base64url");if(decoded.toString("base64url")!==s)throw Error("ACCESS_ENCODING_INVALID");return JSON.parse(decoded.toString("utf8")) as unknown;};
 /** ISOLATED VALIDATION: no production JWT authority and no online access endpoint. */
@@ -48,7 +48,7 @@ export class IsolatedBusinessAccessTokenCodec {
       const exp=Math.min(clock+300,Math.floor(row.expires_at.getTime()/1000));
       if(exp<=clock)throw Error("ACCESS_SESSION_TOO_SHORT");
       const claims:Claims={iss:this.policy.issuer,aud:this.policy.audience,sub:identity.userId,
-        sid:identity.sessionId,tid:identity.tenantId,did:device.deviceId,cid:device.credentialId,
+        sid:identity.sessionId,tid:identity.tenantId,mid:identity.tenantMembershipId,did:device.deviceId,cid:device.credentialId,
         iat:clock,exp,jti:uuidV7()};
       const header=b64({alg:"EdDSA",typ:"at+jwt",kid:this.policy.keyId});
       const payload=b64(claims);
@@ -75,14 +75,14 @@ export class IsolatedBusinessAccessTokenCodec {
     const now=Math.floor(Date.now()/1000);
     if(c.iss!==this.policy.issuer||c.aud!==this.policy.audience||
       !Number.isSafeInteger(c.exp)||!Number.isSafeInteger(c.iat)||c.exp<=now||
-      c.iat>now+5||c.exp>c.iat+300||!c.sid||!c.sub||!c.tid||!c.did||!c.cid||!c.jti)return null;
+      c.iat>now+5||c.exp>c.iat+300||!c.sid||!c.sub||!c.tid||!c.mid||!c.did||!c.cid||!c.jti)return null;
     try{
       const signature=Buffer.from(parts[2]!,"base64url");
       if(signature.toString("base64url")!==parts[2]||
          !verify(null,Buffer.from(parts[0]+"."+parts[1]),this.publicKey,signature))return null;
     }catch{return null;}
     const result=await this.guard.whileActive({
-      sessionId:c.sid,userId:c.sub,tenantId:c.tid,tenantMembershipId:await this.findMembership(c.sid),
+      sessionId:c.sid,userId:c.sub,tenantId:c.tid,tenantMembershipId:c.mid,
     },async client=>{
       const rows=await client.query(`SELECT 1 FROM identity.sessions s
         JOIN identity.device_registry d ON d.device_id=$2 AND d.tenant_id=s.tenant_id AND d.status='ACTIVE'
@@ -97,10 +97,5 @@ export class IsolatedBusinessAccessTokenCodec {
       return rows.rowCount===1;
     }).catch(()=>null);
     return result===true?c:null;
-  }
-  private async findMembership(sessionId:string):Promise<string>{
-    const row=await this.pool.query<{tenant_membership_id:string}>(`SELECT tenant_membership_id::text
-      FROM identity.sessions WHERE id=$1`,[sessionId]);
-    return row.rows[0]?.tenant_membership_id??"";
   }
 }
