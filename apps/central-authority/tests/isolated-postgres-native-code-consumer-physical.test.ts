@@ -33,9 +33,9 @@ suite("native code atomic consumption — physical isolated PostgreSQL", () => {
 
   async function issue(code:string, expiresSeconds:number) {
     await runtime.query(`INSERT INTO identity.native_authorization_code_validation
-      (code_hash,client_id,redirect_uri,code_challenge,state,trusted_binding_id,expires_at)
+      (code_hash,client_id,redirect_uri,code_challenge,state,trusted_binding_id,issued_at,expires_at)
       VALUES($1,'desktop','http://127.0.0.1:42133/callback',$2,$3,'trusted-fixture',
-        clock_timestamp()+($4::int * interval '1 second'))`,[
+        clock_timestamp()-interval '2 minutes',clock_timestamp()+($4::int * interval '1 second'))`,[
       createHash("sha256").update(code).digest("hex"),"x".repeat(43),"s".repeat(43),expiresSeconds,
     ]);
   }
