@@ -5,6 +5,8 @@ import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refres
 import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-access-token-codec.js";
 import { IsolatedBusinessCredentialPairIssuer } from "../src/isolated-business-credential-pair-issuer.js";
 import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-coordinator.js";
+import { IsolatedBusinessBrowserLogin } from "../src/isolated-business-browser-login.js";
+import { CommercialNativeClientCatalog } from "../src/commercial-native-client-catalog.js";
 import { IsolatedBusinessBoundCodeConsumer } from "../src/isolated-business-bound-code-consumer.js";
 import { NativeAuthorizationCodeExchange } from "../src/native-authorization-code-exchange.js";
 import { derivePkceS256Challenge } from "../src/native-authorization-constraints.js";
@@ -883,6 +885,35 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       code:code!,verifier:exchangeVerifier,state:exchangeState,
     },pair);
     expect(delivered?.accessToken.split(".")).toHaveLength(3);
+  });
+
+  it("bridges protected browser BUSINESS reference to registered native PKCE without client redirect override",async()=>{
+    const registration={clientId:"desktop",redirectUri:exchangeRedirect,
+      authorizationOrigin:"https://business.example.test"};
+    const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
+      authorityReference:"DURABLE_BROWSER_BRIDGE_TEST",
+      record:async checked=>{
+        await owner.query(`INSERT INTO identity.native_code_audit_fixture(session_id,code_hash)
+          VALUES ($1,$2)`,[checked.identity.sessionId,"browser-"+uuidV7()]);
+      },
+    });
+    const browser=new IsolatedBusinessBrowserLogin(flow,preparation,coordinator,
+      new CommercialNativeClientCatalog([registration]));
+    const invalid=await browser.authorize(reference,request(),{
+      clientId:"desktop",redirectUri:"http://127.0.0.1:23456/callback",
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    });
+    expect(invalid).toBeNull();
+    const authorized=await browser.authorize(reference,request(),{
+      clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    });
+    expect(authorized).toMatchObject({redirectUri:exchangeRedirect,state:exchangeState});
+    const trusted=await coordinator.exchange(registration,{
+      code:authorized!.code,verifier:exchangeVerifier,state:exchangeState,
+    });
+    expect(trusted).toEqual({sessionId:binding.sessionId,deviceId,tenantId,
+      credentialId:deviceCredentialId});
   });
 
 });
