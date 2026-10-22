@@ -1,12 +1,11 @@
 import { randomBytes, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import pg from "pg";
+import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { IsolatedPostgresNativeCodeConsumer } from "../src/isolated-postgres-native-code-consumer.js";
 
 const base = process.env.POSTGRES_TEST_URL;
 const enabled = !!base;
-const { Pool } = pg;
 const name = "pos_native_code_test_" + randomBytes(8).toString("hex");
 const candidate = base ? new URL(base) : null;
 const allowed = candidate && ["127.0.0.1","localhost"].includes(candidate.hostname) &&
@@ -14,7 +13,7 @@ const allowed = candidate && ["127.0.0.1","localhost"].includes(candidate.hostna
 const suite = enabled ? describe : describe.skip;
 
 suite("native code atomic consumption — physical isolated PostgreSQL", () => {
-  let admin: pg.Pool, runtime: pg.Pool;
+  let admin: Pool, runtime: Pool;
   beforeAll(async () => {
     if (!allowed) throw new Error("NATIVE_CODE_PHYSICAL_TEST_URL_MUST_BE_LOCAL_FIXTURE");
     admin = new Pool({connectionString:base});
