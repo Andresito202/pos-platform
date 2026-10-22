@@ -23,6 +23,7 @@ export class IsolatedBrowserSessionVault {
       u.username||u.password||u.hostname==="localhost"||u.hostname==="127.0.0.1")
       throw Error("BROWSER_SESSION_HTTPS_ORIGIN_REQUIRED");
   }
+  acceptsOrigin(origin:unknown):boolean{return origin===this.trustedOrigin;}
   private tokenFromCookie(raw:string|null):string|null{
     if(typeof raw!=="string"||raw.length>8192)return null;
     const items=raw.split(";");
