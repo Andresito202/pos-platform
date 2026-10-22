@@ -14,6 +14,8 @@ Objetivo único actual: runtime Android autónomo que reutilice contratos, servi
 
 Continuidad 2026-10-22: [fundamento Service Android](../testing/android-service-lifecycle-2026-10-22.md), proceso Node propio con ciclo de vida y base canónica; acceso comercial cerrado, sin outbox antes de local-security (DEC-020). No se cambia el objetivo activo ni se declara POS Android completo.
 
+Continuidad de seguridad 2026-10-22: [composición Android local-security/enrolamiento](../testing/android-security-composition-2026-10-22.md), contrato interno con proveedor Keystore y verificador central explícitos; 16/16 pruebas focalizadas en SQLite temporal. Rechaza credencial de otra clave local y credencial sin auditoría completada. Implementado/probado en host de desarrollo, sin caller APK ni autoridad comercial real; dependencias SEC-004/DEV-003/D3/DEC-025 pendientes, sin elevar a E2E.
+
 ## Jerarquía relacionada
 
 - Estado y orden de trabajo: este backlog.
