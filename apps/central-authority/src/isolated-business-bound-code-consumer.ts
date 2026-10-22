@@ -20,7 +20,10 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
   }
 
   async consume(code: string, verify: (grant: StoredNativeAuthorizationGrant) => boolean) {
-    return this.consumeWith(code,verify,async (_client,binding)=>binding);
+    return this.consumeWith(code,verify,async (_client,binding)=>Object.freeze({
+      sessionId:binding.sessionId,deviceId:binding.deviceId,
+      tenantId:binding.tenantId,credentialId:binding.credentialId,
+    }));
   }
 
   /** Execute credential persistence BEFORE committing PKCE consumption. */
