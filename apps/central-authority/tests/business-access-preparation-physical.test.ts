@@ -547,6 +547,53 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       authorizationOrigin:"https://business.example.test",
     },new IsolatedBusinessBoundCodeConsumer(runtime));
   }
+  it("commits canonical issuance audit on the same transaction as a BUSINESS-bound code",async()=>{
+    const proven=await createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"PHYSICAL_DEVICE_PROOF_AUDIT_FIXTURE",record:async()=>undefined,
+    }).establish(reference,request());
+    expect(proven).not.toBeNull();
+    const eventRepository=new PostgresPlatformSecurityEventRepository(runtime);
+    const issued=await new IsolatedBusinessNativeCodeIssuer(runtime).issue({
+      binding:proven!,clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+      recordAudit:async transaction=>{
+        await eventRepository.append({
+          user_id:binding.userId,session_id:binding.sessionId,tenant_id:binding.tenantId,
+          event_code:PlatformSecurityEventCode.AUTHORIZATION_CODE_ISSUED,result:"SUCCEEDED",
+          reason_code:"ISOLATED_NATIVE_CODE",correlation_id:uuidV7(),
+          occurred_at:new Date(Date.now()-1000).toISOString(),
+        },transaction);
+      },
+    });
+    expect(issued).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    const events=await owner.query(`SELECT count(*)::int AS n FROM identity.security_events
+      WHERE session_id=$1 AND event_code=$2 AND reason_code='ISOLATED_NATIVE_CODE'`,
+      [binding.sessionId,PlatformSecurityEventCode.AUTHORIZATION_CODE_ISSUED]);
+    expect(events.rows[0].n).toBe(1);
+  });
+  it("rolls back native code issuance if canonical security audit cannot be inserted",async()=>{
+    const proven=await createIsolatedCommercialBindingPrerequisite(preparation,runtime,{
+      authorityReference:"PHYSICAL_DEVICE_PROOF_AUDIT_FIXTURE",record:async()=>undefined,
+    }).establish(reference,request());
+    expect(proven).not.toBeNull();
+    const audit=new PostgresPlatformSecurityEventRepository(runtime);
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try {
+      await expect(new IsolatedBusinessNativeCodeIssuer(runtime).issue({
+        binding:proven!,clientId:"desktop",redirectUri:exchangeRedirect,
+        codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+        recordAudit:async transaction=>{
+          await audit.append({user_id:binding.userId,session_id:binding.sessionId,
+            tenant_id:binding.tenantId,event_code:PlatformSecurityEventCode.AUTHORIZATION_CODE_ISSUED,
+            result:"SUCCEEDED",reason_code:"ISOLATED_NATIVE_CODE",correlation_id:uuidV7(),
+            occurred_at:new Date(Date.now()-1000).toISOString()},transaction);
+        },
+      })).rejects.toMatchObject({code:"42501"});
+    } finally {await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    const rows=await owner.query(`SELECT count(*)::int AS n FROM identity.native_authorization_code_validation
+      WHERE session_id=$1`,[binding.sessionId]);
+    expect(rows.rows[0].n).toBe(0);
+  });
   it("exchanges a BUSINESS-bound PKCE code exactly once with concurrent consumers",async()=>{
     const code=await issueExchangeReadyCode();
     expect(code).not.toBeNull();
