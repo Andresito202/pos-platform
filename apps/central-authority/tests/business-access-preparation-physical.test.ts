@@ -830,4 +830,59 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect(await new IsolatedBusinessCredentialPairIssuer(runtime,codec).issue(trusted,uuidV7())).toBeNull();
   });
 
+  function coordinatedCredentials() {
+    const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
+      authorityReference:"DURABLE_PHYSICAL_CREDENTIAL_FLOW",
+      record:async checked=>{
+        await owner.query(`INSERT INTO identity.native_code_audit_fixture (session_id,code_hash)
+          VALUES ($1,$2)`,[checked.identity.sessionId,"credential-"+uuidV7()]);
+      },
+    });
+    const registration={clientId:"desktop",redirectUri:exchangeRedirect,
+      authorizationOrigin:"https://business.example.test"};
+    const pair=new IsolatedBusinessCredentialPairIssuer(runtime,isolatedAccessCodec());
+    return {coordinator,registration,pair};
+  }
+  it("commits PKCE consumption and access-refresh pair together",async()=>{
+    const {coordinator,registration,pair}=coordinatedCredentials();
+    const code=await coordinator.authorize(reference,request(),registration,{
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    });
+    expect(code).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    const credentials=await coordinator.exchangeCredentials(registration,{
+      code:code!,verifier:exchangeVerifier,state:exchangeState,
+    },pair);
+    expect(credentials?.accessToken.split(".")).toHaveLength(3);
+    expect(credentials?.refreshToken).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(await coordinator.exchangeCredentials(registration,{
+      code:code!,verifier:exchangeVerifier,state:exchangeState,
+    },pair)).toBeNull();
+    const stored=await owner.query(`SELECT consumed_at FROM identity.native_authorization_code_validation
+      WHERE code_hash=$1`,[createHash("sha256").update(code!).digest("hex")]);
+    expect(stored.rows[0].consumed_at).not.toBeNull();
+    const refresh=await owner.query(`SELECT count(*)::int AS n FROM identity.session_refresh_tokens
+      WHERE session_id=$1`,[binding.sessionId]);
+    expect(refresh.rows[0].n).toBe(1);
+  });
+  it("rolls back PKCE redemption when credential pair persistence fails, allowing retry",async()=>{
+    const {coordinator,registration,pair}=coordinatedCredentials();
+    const code=await coordinator.authorize(reference,request(),registration,{
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,
+    });
+    await owner.query("REVOKE INSERT ON identity.session_refresh_tokens FROM pos_platform_app");
+    try {
+      await expect(coordinator.exchangeCredentials(registration,{
+        code:code!,verifier:exchangeVerifier,state:exchangeState,
+      },pair)).rejects.toMatchObject({code:"42501"});
+    } finally {await owner.query("GRANT INSERT ON identity.session_refresh_tokens TO pos_platform_app");}
+    const digest=createHash("sha256").update(code!).digest("hex");
+    const state=await owner.query(`SELECT consumed_at FROM identity.native_authorization_code_validation
+      WHERE code_hash=$1`,[digest]);
+    expect(state.rows[0].consumed_at).toBeNull();
+    const delivered=await coordinator.exchangeCredentials(registration,{
+      code:code!,verifier:exchangeVerifier,state:exchangeState,
+    },pair);
+    expect(delivered?.accessToken.split(".")).toHaveLength(3);
+  });
+
 });
