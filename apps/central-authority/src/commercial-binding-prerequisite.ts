@@ -29,7 +29,7 @@ export interface TrustedSessionInspector {
 /** Cryptographic device verification and single-use replay protection are required. */
 export interface TrustedDeviceInspector<Proof> {
   readonly authorityReference: string;
-  inspect(proof: Proof): Promise<TrustedCommercialDevice | null>;
+  inspect(proof: Proof, identity: TrustedCommercialIdentity): Promise<TrustedCommercialDevice | null>;
 }
 /** Committed security audit, not a best-effort logging callback. */
 export interface TrustedCommercialAudit {
@@ -55,8 +55,12 @@ export class CommercialBindingPrerequisite<Proof> {
     if (sessionReference === null || typeof sessionReference !== "object") return null;
     const identity = await this.sessions.inspect(sessionReference);
     if (!identity) return null;
-    const device = await this.devices.inspect(deviceProof);
+    const device = await this.devices.inspect(deviceProof, identity);
     if (!device || identity.tenantId !== device.tenantId) return null;
+    const refreshed = await this.sessions.inspect(sessionReference);
+    if (!refreshed || refreshed.sessionId !== identity.sessionId ||
+      refreshed.userId !== identity.userId || refreshed.tenantId !== identity.tenantId ||
+      refreshed.tenantMembershipId !== identity.tenantMembershipId) return null;
     if (![identity.sessionId, identity.userId, identity.tenantId, identity.tenantMembershipId,
       device.deviceId, device.installationId, device.tenantId, device.companyId,
       device.credentialId].every(value => typeof value === "string" && value.length > 0)) return null;
