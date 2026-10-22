@@ -86,6 +86,13 @@ const producto = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("registrar un producto vendible", () => {
+  it("CSV retry never returns another company's product under the same tenant, actor and key", async () => {
+    const { register } = await buildEnv(); const request = producto();
+    expect(register.execute(SCOPE, SESSION, auth(), request, NOW).kind).toBe("REGISTERED");
+    const otherCompany = "018f0000-0000-7000-8000-000000000099";
+    const snapshot = auth(); snapshot.claims.assignments[0]!.company_id = otherCompany;
+    expect(register.execute({ ...SCOPE, companyId: otherCompany }, SESSION, snapshot, request, NOW).kind).toBe("IDEMPOTENCY_CONFLICT");
+  });
   const fiscal = { codeReference: "CAFE-FISCAL", unitMeasureCode: "94", standardCode: "999", taxCode: "01", taxRate: "19.000000" };
   it("D-19 persists explicitly validated fiscal attributes atomically and includes them in idempotency", async () => {
     const { register, store, database } = await buildEnv(); const request = producto({ fiscalAttributes: fiscal });

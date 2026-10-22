@@ -1,6 +1,7 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
+import { catalogCsvTemplate, previewCatalogCsv, matchCatalogCsv, confirmCatalogCsv, type CatalogCsvPlan, type CatalogCsvOutcome } from "../catalog-csv.js";
 
 /**
  * Alta de producto. Es la pantalla que faltaba para poder usar el POS el primer
@@ -28,6 +29,32 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   const [loadedQuery, setLoadedQuery] = useState("");
   const [includeFiscal, setIncludeFiscal] = useState(false);
   const [fiscal, setFiscal] = useState({ codeReference: "", unitMeasureCode: "", standardCode: "", taxCode: "", taxRate: "" });
+  const [csv, setCsv] = useState<CatalogCsvPlan | null>(null);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvMatched, setCsvMatched] = useState(false);
+  const [csvResults, setCsvResults] = useState<readonly CatalogCsvOutcome[]>([]);
+  const [delimiter, setDelimiter] = useState<"," | ";">(",");
+  const csvRunning = useRef(false);
+
+  async function loadCsv(file: File): Promise<void> {
+    if (csvRunning.current) return;
+    csvRunning.current = true; setCsvBusy(true); setCsv(null); setCsvMatched(false); setCsvError(null); setCsvResults([]);
+    try {
+      if (file.size > 1_048_576) throw new Error("CSV_SIZE_OR_CONTENT_REJECTED");
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+      const plan = await previewCatalogCsv(source, delimiter); setCsv(plan);
+      if (!plan.rows.some((row) => row.errors.length)) { setCsvResults(await matchCatalogCsv(plan)); setCsvMatched(true); }
+    } catch (error) { setCsvError(error instanceof Error ? error.message : String(error)); }
+    finally { csvRunning.current = false; setCsvBusy(false); }
+  }
+  async function confirmCsv(): Promise<void> {
+    if (csvRunning.current || !csv || !csvMatched) return;
+    csvRunning.current = true; setCsvBusy(true); setCsvError(null); setCsvResults([]);
+    try { await confirmCatalogCsv(csv, (outcome) => setCsvResults((current) => [...current, outcome])); }
+    catch (error) { setCsvError(error instanceof Error ? error.message : String(error)); }
+    finally { csvRunning.current = false; setCsvBusy(false); }
+  }
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -37,6 +64,22 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   return (
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
+      <details><summary>Importar catálogo CSV</summary>
+        <p>CSV UTF-8 exportado desde Excel u otra hoja. No carga stock, costos ni facturas. Cada fila se confirma por separado; reintentar el mismo archivo conserva sus claves.</p>
+        <label>Separador<select aria-label="Separador CSV" value={delimiter} disabled={csvBusy} onChange={(event) => { setDelimiter(event.target.value as "," | ";"); setCsv(null); setCsvResults([]); }}>
+          <option value=",">Coma</option><option value=";">Punto y coma</option>
+        </select></label>
+        <a download="camacho-catalogo.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(catalogCsvTemplate(delimiter))}`}>Descargar plantilla CSV</a>
+        <input type="file" aria-label="Archivo de catálogo CSV" accept=".csv,text/csv" disabled={csvBusy || catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
+          onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadCsv(file); event.target.value = ""; }} />
+        {csv && <><p>{csv.rows.length} filas. Vista previa sin escrituras.</p>
+          <table><thead><tr><th>Fila</th><th>Código</th><th>Producto</th><th>Precio</th><th>Validación</th></tr></thead>
+            <tbody>{csv.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.payload?.code}</td><td>{row.payload?.name}</td><td>{row.payload?.price_amount}</td><td>{row.errors.join(", ") || "Forma válida; el backend revalidará"}</td></tr>)}</tbody></table>
+          <button disabled={csvBusy || catalog.busy || !csvMatched || csv.rows.length === 0 || csv.rows.some((row) => row.errors.length > 0) || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)}
+            onClick={() => { void confirmCsv(); }}>Confirmar o reanudar altas CSV</button></>}
+        <ul>{csvResults.map((result) => <li key={result.row}>Fila {result.row}: {result.outcome}</li>)}</ul>
+        {csvError && <p role="alert">{csvError}. Las filas ya confirmadas permanecen; reintente el mismo archivo para recuperar el resultado.</p>}
+      </details>
       <div>
         <input aria-label="Buscar en catálogo" value={query} onChange={(event) => setQuery(event.target.value)} disabled={catalog.busy} />
         <button data-testid="catalog-list-button" disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
@@ -153,7 +196,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
             ...(includeFiscal ? { fiscalAttributes: fiscal } : {}),
           });
         }}
-        disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) || incomplete}
+        disabled={csvBusy || catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) || incomplete}
       >
         Dar de alta
       </button>

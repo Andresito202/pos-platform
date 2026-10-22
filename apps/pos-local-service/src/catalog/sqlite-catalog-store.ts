@@ -322,8 +322,8 @@ export class SqliteCatalogStore {
           return { kind: "IDEMPOTENCY_CONFLICT" };
         }
         const existing = this.database.native.prepare(
-          "SELECT id FROM catalog_product WHERE tenant_id=? AND idempotency_key=?",
-        ).get(input.scope.tenantId, input.idempotencyKey) as { id: string } | undefined;
+          "SELECT id FROM catalog_product WHERE tenant_id=? AND company_id=? AND idempotency_key=?",
+        ).get(input.scope.tenantId, input.scope.companyId, input.idempotencyKey) as { id: string } | undefined;
         if (existing === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
         const presentation = this.database.native.prepare(
           "SELECT id FROM catalog_presentation WHERE tenant_id=? AND product_id=?",

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { webcrypto } from "node:crypto";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CatalogProductRegisterRequestSchema,
@@ -61,6 +62,27 @@ describe("CatalogPanel", () => {
     fireEvent.change(screen.getByTestId("presentation-name-input"), { target: { value: "Bolsa 500g" } });
     fireEvent.change(screen.getByTestId("product-price-input"), { target: { value: price } });
   }
+
+  it("CSV previews without writes and confirms only through existing backend registration", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    try {
+      install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
+      Object.defineProperty(window, "posService", { configurable: true, value: { ...window.posService,
+        "catalog.item.list": async () => ({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } }),
+      } });
+      render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+      const bytes = new TextEncoder().encode("code,name,stock_controlled,presentation_name,unit_code,unit_precision,barcode,price_amount,currency_code\r\nARZ,Arroz,true,Bolsa,UND,0,,1500,COP\r\n");
+      fireEvent.change(screen.getByLabelText("Archivo de catálogo CSV"), { target: { files: [{ size: bytes.length, arrayBuffer: async () => bytes.buffer }] } });
+      await screen.findByText("SIN_COINCIDENCIA_VISIBLE", { exact: false });
+      expect(calls.get("catalog.product.register")).toBeUndefined();
+      fireEvent.click(screen.getByText("Confirmar o reanudar altas CSV"));
+      await screen.findByText("Fila 2: REGISTERED");
+      const request = CatalogProductRegisterRequestSchema.parse(sent("catalog.product.register"));
+      expect(request.idempotency_key).toMatch(/^catalog-csv:[a-f0-9]{64}:2$/);
+      expect(request.payload.code).toBe("ARZ");
+      expect(calls.get("inventory.stock.receive")).toBeUndefined();
+    } finally { vi.unstubAllGlobals(); }
+  });
 
   it("D-19 sends only explicitly declared fiscal attributes, normalizing the tax rate", async () => {
     install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
