@@ -22,6 +22,10 @@ Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](
 
 ## Jerarquía relacionada
 
+Reanudación P0 2026-10-23: [canje → access verificado → DeviceProof → reserva SSA](../testing/business-access-sequence-2026-10-23.md), composición interna aislada sobre los owners existentes. No emite SSA/grants ni abre dashboard. El contrato previo dispositivo–PKCE se concreta, sin aprobación implícita, en la propuesta única; Windows no espera decisiones exclusivas de Android.
+
+Segundo frente conservado por orden del propietario, **sin implementación durante el bloqueo del login**: venta en espera con recuperación durable; importación Excel/CSV y PDF asistido; traslados multisucursal/existencias en tránsito; conversiones; pagos mixtos con confirmación efectiva; cierre ciego; permisos, módulos por comercio y carga selectiva; offline/sincronización idempotente; compatibilidad posterior CPC Android v0.12. Se continúa esta misma línea después de resolver el acceso, sin ramas paralelas.
+
 Continuidad de acceso positivo 2026-10-22: [ceremonia HTTPS desde Electron](../testing/commercial-browser-ceremony-2026-10-22.md), formulario real → contraseña → WebAuthn de Chromium → BUSINESS persistida → logout confirmado, con PostgreSQL temporal y servicio Windows real. 12/12 focalizadas (una nueva E2E positiva), sin empleado humano, grants de arnés ni acceso operativo simulado. Callback/entrega al dispositivo/SSA siguen pendientes del binding aprobado; las decisiones exclusivas de Android no bloquean la línea Windows.
 
 Continuidad prioritaria Electron 2026-10-22: [recuperación local y arranque real](../testing/electron-session-recovery-2026-10-22.md), entrada productiva y servicio real sin identidad sembrada; 3/3 E2E y 75/75 focalizadas. Ausencia de sesión, pérdida de servicio y denegaciones verificadas; login humano/Android siguen pendientes de la propuesta conjunta. Requisito posterior registrado: app `co.camachopos.printmini` v0.12, observación física del propietario; futura configuración con descarga oficial, versión y guía, sin API ni adapter inventados. No cambia la prioridad de autenticación.

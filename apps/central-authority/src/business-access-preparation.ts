@@ -5,6 +5,7 @@ import {
 } from "@pos-platform/database-postgres";
 import { BusinessSessionAuthority } from "./business-session-authority.js";
 import type { TrustedSessionAssertionIssuance } from "./central-session-assertion-issuer.js";
+import { IsolatedBusinessAccessTokenCodec } from "./isolated-business-access-token-codec.js";
 
 /** In-process preparation reference, NOT an access token or a transport contract. */
 export interface BusinessAccessPreparationReference { readonly kind:"BUSINESS_ACCESS_PREPARATION" }
@@ -76,6 +77,27 @@ export class BusinessAccessPreparation {
     return new PostgresBusinessSessionRevocationTransaction(this.pool).revokeOwn(context,correlationId);
   }
 
+  /** Post-code-exchange composition, ISOLATED_VALIDATION only. Neither a UUID,
+   * browser cookie nor serialized claims can substitute for the signed access.
+   * The device proof must be fresh and bound to the SAME credential as access.
+   * This reserves a watermark; it does not issue SSA or authorization grants. */
+  async prepareSequenceFromAccess(accessToken: string, request: DeviceProofRequest,
+    codec: IsolatedBusinessAccessTokenCodec): Promise<PreparedBusinessAssertionReservation | null> {
+    await this.requireIsolatedDatabase();
+    if (!(codec instanceof IsolatedBusinessAccessTokenCodec)) throw Error("BUSINESS_ACCESS_VERIFIER_REQUIRED");
+    const access = await codec.verify(accessToken);
+    if (!access) return null;
+    const context = await this.sessions.findCurrentForVerifiedIdentity({
+      sessionId: access.sid, userId: access.sub, tenantId: access.tid, tenantMembershipId: access.mid,
+    });
+    if (!context) return null;
+    const prepared = await this.prepareCurrentSequence(context, request, { deviceId: access.did, credentialId: access.cid });
+    // Revocation, expiry and credential state are checked again after durable
+    // reservation. Failure leaves a gap, never restores the nonce/watermark.
+    if (!prepared || !await codec.verify(accessToken)) return null;
+    return prepared;
+  }
+
   async prepareSequence(reference:unknown,request:DeviceProofRequest):Promise<PreparedBusinessAssertionReservation|null> {
     const context=this.context(reference);
     if (!context) return null;
@@ -83,6 +105,11 @@ export class BusinessAccessPreparation {
     // restart cannot reconstruct this reference from a sessionId.
     this.contexts.delete(reference as object);
     await this.requireIsolatedDatabase();
+    return this.prepareCurrentSequence(context, request);
+  }
+
+  private async prepareCurrentSequence(context: TrustedBusinessSessionBinding, request: DeviceProofRequest,
+    expectedDevice?: { deviceId: string; credentialId: string }): Promise<PreparedBusinessAssertionReservation | null> {
     if (typeof request.body!=="string" || Buffer.byteLength(request.body,"utf8")>16*1024) return null;
     if (!(await this.sessions.findCurrent(context))) return null;
     // Internal validation profile: session_id is only a selector bound to the
@@ -94,6 +121,7 @@ export class BusinessAccessPreparation {
       || Object.keys(body).length!==1 || !("session_id" in body) || body.session_id!==context.sessionId) return null;
     const device=await this.devices.verifyAndConsume(request);
     if (!device || device.tenantId!==context.tenantId) return null;
+    if (expectedDevice && (device.deviceId!==expectedDevice.deviceId || device.credentialId!==expectedDevice.credentialId)) return null;
     if (!(await this.sessions.findCurrent(context))) return null;
     const reservation=await this.sequences.reserveForVerifiedProof({
       sessionId:context.sessionId,deviceId:device.deviceId,installationId:device.installationId,
@@ -101,6 +129,7 @@ export class BusinessAccessPreparation {
     if (!reservation || reservation.eligibleScope.userId!==context.userId
       || reservation.eligibleScope.tenantId!==device.tenantId
       || reservation.eligibleScope.companyId!==device.companyId
+      || (expectedDevice && Date.parse(reservation.eligibleScope.deviceCredentialExpiresAt)>Date.parse(device.credentialExpiresAt))
       || !(await this.sessions.findCurrent(context))) return null;
     // Device nonce and sequence are already committed independently by their
     // canonical owners. Subsequent failure burns the nonce / leaves a sequence

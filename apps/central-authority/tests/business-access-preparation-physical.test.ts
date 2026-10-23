@@ -741,6 +741,79 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     },{issuer:"https://business.example.test",audience:"camacho-pos-isolated",
       keyId:"ACCESS_SIGNING_TEST_fixture"});
   }
+  async function signedAccessForSequence(){
+    const codec=isolatedAccessCodec();
+    const access=await codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7());
+    if(!access)throw Error("SEQUENCE_ACCESS_FIXTURE_REQUIRED");
+    return {codec,access};
+  }
+  it("access-to-sequence: rejects UUIDs serialized identities and modified access before consuming device nonce",async()=>{
+    const {codec,access}=await signedAccessForSequence();
+    for(const value of [binding.sessionId,JSON.stringify(binding),access.slice(0,-4)+"AAAA"]){
+      expect(await preparation.prepareSequenceFromAccess(value,request(),codec)).toBeNull();
+    }
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+  });
+  it("access-to-sequence: rejects another signed session selector before consuming the proof",async()=>{
+    const {codec,access}=await signedAccessForSequence();
+    expect(await preparation.prepareSequenceFromAccess(access,request(uuidV7()),codec)).toBeNull();
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+  });
+  it("access-to-sequence: accepts exactly one concurrent replay and retains the durable watermark",async()=>{
+    const {codec,access}=await signedAccessForSequence(),proof=request();
+    const results=await Promise.all([preparation.prepareSequenceFromAccess(access,proof,codec),preparation.prepareSequenceFromAccess(access,proof,codec)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await counters()).toEqual({nonces:1,sequence:1});
+  });
+  it("access-to-sequence: fresh proofs reserve increasing sequences for the same verified access",async()=>{
+    const {codec,access}=await signedAccessForSequence();
+    const results=await Promise.all([preparation.prepareSequenceFromAccess(access,request(),codec),preparation.prepareSequenceFromAccess(access,request(),codec)]);
+    expect(results.map(value=>value?.reservation.sequence).sort()).toEqual([1,2]);
+    expect(await counters()).toEqual({nonces:2,sequence:2});
+  });
+  it("access-to-sequence: rejects a different valid device credential despite matching device and signature",async()=>{
+    const {codec,access}=await signedAccessForSequence(),other=uuidV7();
+    await owner.query(`INSERT INTO identity.device_credentials(credential_id,device_id,installation_id,tenant_id,company_id,device_key_id,trust_key_id,key_purpose,status,generation,issued_at,expires_at,credential_checksum,issuer_signature,created_at)
+      SELECT $1,device_id,installation_id,tenant_id,company_id,device_key_id,trust_key_id,key_purpose,'ACTIVE',2,issued_at,expires_at,$2,issuer_signature,created_at
+      FROM identity.device_credentials WHERE credential_id=$3`,[other,randomBytes(32).toString("hex"),deviceCredentialId]);
+    const body=JSON.stringify({session_id:binding.sessionId}),requestId=uuidV7(),correlationId=uuidV7();
+    const authorization=createDeviceRequestAuthorization({method:"POST",path:BUSINESS_SSA_DEVICE_PROOF_PATH,requestId,correlationId,credentialId:other,body},deviceKeys.privateKey);
+    expect(await preparation.prepareSequenceFromAccess(access,{authorization,requestId,correlationId,body},codec)).toBeNull();
+    const watermark=await counters();expect(watermark.sequence).toBe(0);
+  });
+  it("access-to-sequence: rejects membership suspension before reservation",async()=>{
+    const {codec,access}=await signedAccessForSequence();
+    await owner.query("UPDATE tenancy.tenant_memberships SET status='SUSPENDED',suspended_at=clock_timestamp() WHERE id=$1",[membershipId]);
+    expect(await preparation.prepareSequenceFromAccess(access,request(),codec)).toBeNull();
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+  });
+  it.each(["device","session"])("access-to-sequence: rejects revoked %s before consuming the proof",async target=>{
+    const {codec,access}=await signedAccessForSequence();
+    if(target==="device")await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp() WHERE credential_id=$1",[deviceCredentialId]);
+    else await owner.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1",[binding.sessionId]);
+    expect(await preparation.prepareSequenceFromAccess(access,request(),codec)).toBeNull();
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+  });
+  it("access-to-sequence: final revocation rejects the reservation without restoring its nonce or watermark",async()=>{
+    const {codec,access}=await signedAccessForSequence();
+    await owner.query(`CREATE FUNCTION identity.sequence_test_revoke_session() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE'
+      WHERE id='${binding.sessionId}'; RETURN NEW; END $$;
+      CREATE TRIGGER sequence_test_revoke_session AFTER INSERT ON identity.session_assertion_sequences
+      FOR EACH ROW EXECUTE FUNCTION identity.sequence_test_revoke_session()`);
+    try{expect(await preparation.prepareSequenceFromAccess(access,request(),codec)).toBeNull();}
+    finally{await owner.query("DROP TRIGGER sequence_test_revoke_session ON identity.session_assertion_sequences; DROP FUNCTION identity.sequence_test_revoke_session()");}
+    expect(await counters()).toEqual({nonces:1,sequence:1});
+  });
+  it("access-to-sequence: allocation failure rolls watermark back and burns the independently committed nonce",async()=>{
+    const {codec,access}=await signedAccessForSequence(),proof=request();
+    await owner.query("REVOKE INSERT ON identity.session_assertion_sequences FROM pos_platform_app");
+    try{await expect(preparation.prepareSequenceFromAccess(access,proof,codec)).rejects.toMatchObject({code:"42501"});}
+    finally{await owner.query("GRANT INSERT ON identity.session_assertion_sequences TO pos_platform_app");}
+    expect(await counters()).toEqual({nonces:1,sequence:0});
+    expect(await preparation.prepareSequenceFromAccess(access,proof,codec)).toBeNull();
+    expect((await preparation.prepareSequenceFromAccess(access,request(),codec))?.reservation.sequence).toBe(1);
+  });
   it("issues signed short-lived access with canonical atomic audit and verifies live BUSINESS/device",async()=>{
     const codec=isolatedAccessCodec();
     const token=await codec.issue(binding,{deviceId,credentialId:deviceCredentialId},uuidV7());
@@ -1103,7 +1176,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let tls:ReturnType<typeof labTls>|undefined;
   const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
     androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server)=>Promise<void>,requestsPerMinute=100,browserEntry=false){
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator)=>Promise<void>,requestsPerMinute=100,browserEntry=false){
     tls??=labTls();
     const codec=isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
@@ -1128,7 +1201,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
       ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url))}}:{}),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
-    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server);}
+    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server,coordinator);}
     finally{await closeLabHttps(server);}
   }
   const originHeaders={origin,"sec-fetch-site":"same-origin"};
@@ -1188,6 +1261,21 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const current=await post("browser/session",{},headers);expect(current.status).toBe(200);
     return {headers,sessionId:current.body.sessionId as string,complete};
   }
+  it("access-to-sequence: HTTPS password MFA code exchange then verified access and fresh DeviceProof reserve 011",async()=>withHttps(async(post,codec,_server,coordinator)=>{
+    const login=await httpLogin(post);
+    const authorized=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,
+      codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);
+    expect(authorized.status).toBe(200);
+    const credentials=await post("token",{grant_type:"authorization_code",code:authorized.body.code,code_verifier:exchangeVerifier,
+      state:exchangeState,client_id:"desktop",redirect_uri:exchangeRedirect});
+    expect(credentials.status).toBe(200);
+    const prepared=await coordinator.prepareSessionAssertion(credentials.body.accessToken as string,request(login.sessionId),codec);
+    expect(prepared?.reservation).toMatchObject({sequence:1,eligibleScope:{sessionId:login.sessionId,userId,tenantId,deviceId,installationId}});
+    expect(prepared).not.toHaveProperty("claims");expect(prepared).not.toHaveProperty("signature");
+    expect(await counters()).toEqual({nonces:2,sequence:1});
+    expect((await post("browser/logout",{},login.headers)).status).toBe(200);
+    expect(await coordinator.prepareSessionAssertion(credentials.body.accessToken as string,request(login.sessionId),codec)).toBeNull();
+  }));
   it("HTTPS commercial: actual password MFA BUSINESS cookie DeviceProof PKCE signed JWT refresh and logout",async()=>withHttps(async(post,codec)=>{
     const login=await httpLogin(post);
     const authorized=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,

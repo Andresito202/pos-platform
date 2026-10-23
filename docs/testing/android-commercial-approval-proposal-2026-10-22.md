@@ -62,6 +62,74 @@ también necesita implementación: no se sustituye con autorizaciones de prueba.
 4. Enrolar el M60WL, verificar su credencial contra la identidad local y después autenticar una persona real. Observar Central → BUSINESS → DeviceProof → secuencia 011/012 → SSA → Local Service → autorización React. La emisión central de grants/snapshot RBAC sigue siendo implementación necesaria; la aprobación del diseño no la crea.
 5. Solo con ese recorrido, realizar venta/pago/recibo autorizados y certificación USB. La primera apertura física del CD350 necesita además perfil eléctrico real y autorización explícita separada para ese efecto físico, como ordenó el propietario. No se ejecuta ningún pulso por aprobar software.
 
+## Contrato Windows propuesto el 2026-10-23 — decisión pendiente
+
+Esta precisión pertenece a la misma solicitud. **No está aprobada, montada ni
+migrada.** El incremento ejecutable de hoy enlaza access verificado con DeviceProof
+y reserva 011/012 sólo en ISOLATED_VALIDATION; no sustituye este protocolo previo.
+
+1. **Registro confiable:** Central publica/configura issuer, RP/origen HTTPS,
+   client_id y callback loopback exacto. Main conserva verifier y state en memoria
+   y usa S256. React no recibe clave de dispositivo, verifier, access o refresh.
+   Android/App Links/Keystore/DEC-025 quedan fuera de esta aprobación Windows.
+2. **Challenge previo:** candidato `POST /v1/commercial/native-request-challenges`,
+   JSON estricto `{client_id,redirect_uri,code_challenge,code_challenge_method,state}`.
+   Central valida registro exacto y S256; devuelve `{challenge_id,challenge,expires_at}`.
+   Challenge aleatorio de 32 bytes, expiración 60 s como candidato, hash durable
+   y asociación inmutable a esos cinco campos. No autentica usuario/dispositivo.
+   Su presupuesto de abuso debe ser aprobado antes de montar una ruta pública.
+3. **Posesión nativa:** candidato `POST /v1/commercial/native-requests`, cuerpo
+   estricto `{purpose,challenge_id,challenge,client_id,redirect_uri,code_challenge,code_challenge_method,state}`,
+   purpose candidato `BUSINESS_NATIVE_AUTHORIZATION_V1`. Main firma los bytes
+   originales mediante el envoltorio DeviceProof existente: método POST, **esa
+   nueva ruta**, request-id, correlation-id, timestamp, nonce, credential-id y
+   SHA-256 del cuerpo bajo `POS-DEVICE-REQUEST-V1`. Hace falta un verificador
+   dedicado y versionado para este propósito; no ampliar el allowlist ni relajar
+   el verificador de `/v1/business-session/assertions`. Central resuelve clave,
+   instalación, dispositivo y tenant de la credencial vigente, no del JSON.
+   Consumo del challenge y registro del binding/auditoría en una transacción.
+4. **Entrada browser:** Central devuelve un request-id aleatorio de 32 bytes y
+   URL HTTPS propia con ese selector. El selector no es bearer ni prueba MFA.
+   Lifetime del request aceptado: 120 s como candidato para medir interacción.
+   Cambiará el perfil GET de laboratorio sólo mediante esa implementación aprobada.
+   Browser exige contraseña y WebAuthn, muestra el dispositivo/empresa derivados
+   centralmente y pide confirmación explícita del destino antes de ligar BUSINESS.
+   Request-id copiado por sí solo nunca autoriza acceso ni emisión de código.
+5. **Código y canje:** bajo locks, revalidar BUSINESS/MFA/membresía/tenant,
+   credencial y registro; consumir el request y emitir el código de un uso junto
+   al evento en la misma transacción. Código 60 s como candidato; almacenar sólo
+   hash. Su binding incluye sesión, cliente, redirect, S256/state y credencial
+   exacta. Callback conserva state y un uso. Canje requiere verifier y posesión
+   fresca de la misma credencial, firmando la ruta `/v1/commercial/token` y sus
+   bytes exactos con verificador dedicado; este requisito **no está implementado
+   por el token endpoint de laboratorio**. Rotación de credencial obliga a un
+   intento nuevo; no migrar silenciosamente familias entre claves.
+6. **Persistencia y entrega:** owner Identity, referencias a sesiones y Device
+   Trust canónicos, hashes únicos de challenge/request/código, FK y expiraciones,
+   transiciones irreversibles y auditoría atómica. La migration, privilegios y
+   ubicación física de esos registros requieren revisión del owner; no adoptar
+   tablas `*_validation` como almacén productivo ni crear otro sistema de sesión.
+   Después del canje, perfil de access/proof aprobado, elegibilidad actual y
+   reserva 011/012; issuer/key lifecycle y productor de política/grants aún deben
+   componer claims SSA auténticos. El dashboard sólo consume capabilities del
+   backend tras activar/verificar SSA y snapshot de autorización.
+
+| Amenaza | Condición exigida / riesgo residual |
+| --- | --- |
+| Login swapping / víctima abre un enlace ajeno | Binding a cliente y destino mostrado por Central, confirmación expresa y PKCE/state. Queda riesgo de phishing/engaño al confirmar; necesita revisión de seguridad, no se afirma eliminado |
+| Replay y doble canje | Nonces/códigos de un uso, hashes únicos y consumo con auditoría; probar carreras y rollback. No restaurar marcas 011/012 ante fallos posteriores |
+| Mezcla de cliente, tenant, dispositivo o credencial | Comparación exacta y estado actual bajo locks; rechazar incluso otra credencial ACTIVE del mismo dispositivo |
+| Robo de code/access/refresh | S256 y posesión fresca de la clave; custodia main; expiración/revocación y binding durable de refresh según la fila existente. El perfil actual de laboratorio no equivale a DPoP |
+| DoS / puerto ocupado / pérdida de proceso | Presupuesto durable aprobado, fallo cerrado, callback exacto sin elegir otro puerto y login nuevo al perder state/verifier |
+
+**Recomendación y aprobación específica:** aprobar o corregir los seis puntos
+anteriores como perfil Windows versionado, incluidos 60/120/60 s candidatos,
+semántica de firma por ruta, consumo y persistencia, consentimiento de destino,
+sender constraint y controles de abuso de las filas previas. Proporcionar dominio,
+registro y operador reales sin secretos. No se interpreta una autorización de
+desarrollo como aceptación. La evidencia actual es integración técnica, no
+aprobación de este protocolo ni de producción.
+
 ## Observaciones actuales del equipo, sin cambios
 
 Lecturas ADB autorizadas 2026-10-22: M60WL conectado como device; `ro.build.version.security_patch=2019-03-05`; `dumpsys webviewupdate` indica Chrome/WebView `101.0.4951.61` activo y Google WebView `77.0.3865.92` no habilitado para todos los usuarios. No se actualizó, desinstaló o reconfiguró software. Estos datos exigen validar compatibilidad/plan de soporte antes del perfil productivo; no se infiere que soporte el bridge o una ceremonia WebAuthn correcta.

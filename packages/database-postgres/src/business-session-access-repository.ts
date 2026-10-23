@@ -27,6 +27,19 @@ export class PostgresBusinessSessionAccessRepository {
     this.policy=Object.freeze({...policy});
   }
 
+  /** Internal adapter AFTER access-signature and possession validation.
+   * IDs are cross-checks only; authoritative dates come from canonical storage.
+   * This method by itself does not authenticate a caller. */
+  async findCurrentForVerifiedIdentity(binding: Pick<TrustedBusinessSessionBinding,
+    "sessionId" | "userId" | "tenantId" | "tenantMembershipId">): Promise<TrustedBusinessSessionBinding | null> {
+    const values = [binding.sessionId, binding.userId, binding.tenantId, binding.tenantMembershipId].map(value => UuidSchema.parse(value));
+    const found = await this.pool.query<{ authenticated_at: Date; expires_at: Date }>(
+      `SELECT authenticated_at, expires_at FROM identity.sessions
+       WHERE id=$1 AND user_id=$2 AND tenant_id=$3 AND tenant_membership_id=$4`, values);
+    const row = found.rows[0];
+    return row ? this.findCurrent({ ...binding, authenticatedAt: row.authenticated_at.toISOString(), expiresAt: row.expires_at.toISOString() }) : null;
+  }
+
   async findCurrent(binding: TrustedBusinessSessionBinding): Promise<TrustedBusinessSessionBinding | null> {
     const sessionId=UuidSchema.parse(binding.sessionId);
     const userId=UuidSchema.parse(binding.userId);

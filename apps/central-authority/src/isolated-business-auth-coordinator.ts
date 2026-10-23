@@ -15,6 +15,7 @@ import {validateNativeClientRegistration} from "./native-authorization-constrain
 import type {createPostgresPool} from "@pos-platform/database-postgres";
 import {IsolatedBusinessCredentialPairIssuer} from "./isolated-business-credential-pair-issuer.js";
 import type {ValidatedCommercialBinding} from "./commercial-binding-prerequisite.js";
+import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
 
 /**
  * INTERNAL ISOLATED orchestration only. A client cannot supply a serialized
@@ -25,6 +26,10 @@ export class IsolatedBusinessAuthCoordinator {
   private readonly issuer:IsolatedBusinessNativeCodeIssuer;
   private readonly consumer:IsolatedBusinessBoundCodeConsumer;
   private readonly audit:PostgresPlatformSecurityEventRepository;
+  /** Internal post-exchange consumer. No new HTTP protocol or claims producer. */
+  prepareSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec){
+    return this.preparation.prepareSequenceFromAccess(accessToken,proof,codec);
+  }
   constructor(
     private readonly preparation:BusinessAccessPreparation,
     private readonly pool:ReturnType<typeof createPostgresPool>,
