@@ -33,6 +33,7 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
       sessionId:string;userId:string;tenantId:string;tenantMembershipId:string;
       deviceId:string;credentialId:string;installationId:string;companyId:string;
     })=>Promise<T>,
+    expectedDevice?:{credentialId:string;deviceId:string;tenantId:string;maximumReauthenticationAgeMs:number},
   ):Promise<T|null> {
     if (!/^[A-Za-z0-9._~-]{16,512}$/.test(code) || typeof verify !== "function") return null;
     const client = await this.pool.connect();
@@ -60,7 +61,9 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
       // Invalid PKCE/client/state attempts burn the code permanently.
       await client.query(`UPDATE identity.native_authorization_code_validation
         SET consumed_at=clock_timestamp() WHERE code_hash=$1 AND consumed_at IS NULL`,[digest]);
-      if (!verify({clientId:grant.client_id,redirectUri:grant.redirect_uri,
+      const deviceMatches=!expectedDevice||(expectedDevice.credentialId===grant.trusted_binding_id&&
+        expectedDevice.deviceId===grant.device_id&&expectedDevice.tenantId===grant.tenant_id);
+      if (!deviceMatches||!verify({clientId:grant.client_id,redirectUri:grant.redirect_uri,
         codeChallenge:grant.code_challenge,state:grant.state})) {
         await client.query("SELECT set_config('app.tenant_id',$1,true)",[grant.tenant_id]);
         const identity=await client.query<{user_id:string}>(
@@ -69,7 +72,7 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
         if(identity.rows[0]) await audit.append({
           user_id:identity.rows[0].user_id,session_id:grant.session_id,tenant_id:grant.tenant_id,
           event_code:PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED,result:"REJECTED",
-          reason_code:"ISOLATED_PKCE_MISMATCH",correlation_id:uuidV7(),
+          reason_code:deviceMatches?"ISOLATED_PKCE_MISMATCH":"ISOLATED_DEVICE_MISMATCH",correlation_id:uuidV7(),
           occurred_at:new Date(Date.now()-1000).toISOString()},client);
         await client.query("COMMIT");begun=false;return null;
       }
@@ -90,8 +93,10 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
         WHERE s.id=$1 AND s.tenant_id=$4 AND s.revoked_at IS NULL
           AND s.device_id IS NULL AND s.mfa_status='SATISFIED'
           AND s.expires_at>clock_timestamp()
+          AND ($5::bigint IS NULL OR (s.last_reauthenticated_at<=clock_timestamp()
+            AND s.last_reauthenticated_at>=clock_timestamp()-($5::bigint*interval '1 millisecond')))
         FOR SHARE OF s,u,m,t,d,dc`,[
-        grant.session_id,grant.device_id,grant.trusted_binding_id,grant.tenant_id]);
+        grant.session_id,grant.device_id,grant.trusted_binding_id,grant.tenant_id,expectedDevice?.maximumReauthenticationAgeMs??null]);
       const identity=await client.query<{user_id:string}>(
         "SELECT user_id::text FROM identity.sessions WHERE id=$1 AND tenant_id=$2",
         [grant.session_id,grant.tenant_id]);

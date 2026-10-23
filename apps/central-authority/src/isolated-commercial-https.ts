@@ -1,7 +1,7 @@
 import {createServer, type ServerOptions} from "node:https";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
-import {uuidV7, UuidSchema, PlatformSecurityEventCode} from "@pos-platform/contracts";
+import {uuidV7, UuidSchema, UuidV7Schema, PlatformSecurityEventCode} from "@pos-platform/contracts";
 import {PostgresBrowserSessionHandoffWriter, PostgresPlatformSecurityEventRepository, type Pool, type BrowserSessionRequest} from "@pos-platform/database-postgres";
 import type {AuthenticationResponseJSON} from "@simplewebauthn/server";
 import {BusinessInitialMfaFlow} from "./business-initial-mfa-flow.js";
@@ -12,6 +12,8 @@ import {IsolatedBusinessAuthCoordinator} from "./isolated-business-auth-coordina
 import {IsolatedBusinessCredentialPairIssuer} from "./isolated-business-credential-pair-issuer.js";
 import {inspectCommercialTokenRequest} from "./commercial-token-http-contract.js";
 import {sendCommercialBrowserEntry, type CommercialBrowserEntryConfiguration} from "./commercial-browser-entry.js";
+import {IsolatedNativeBusinessRequests,type NativeRequestParameters} from "./isolated-native-business-requests.js";
+import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -82,6 +84,8 @@ export async function createIsolatedCommercialHttpsServer(input:{
   coordinator:IsolatedBusinessAuthCoordinator; pair:IsolatedBusinessCredentialPairIssuer;
   policy:{mode:"ISOLATED_VALIDATION";maximumBodyBytes:number;requestsPerMinute:number};
   browserEntry?:CommercialBrowserEntryConfiguration;
+  nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec;
+    signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   const url=new URL(pool.options.connectionString??"invalid:");
@@ -93,6 +97,8 @@ export async function createIsolatedCommercialHttpsServer(input:{
   const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
   if(database.rows[0]?.ok!==true)throw Error("COMMERCIAL_HTTPS_TEMPORARY_DATABASE_REQUIRED");
   const origin=new URL(input.origin);
+  const native=input.nativeValidation;
+  if(native&&(!(native.requests instanceof IsolatedNativeBusinessRequests)||!(native.codec instanceof IsolatedBusinessAccessTokenCodec)))throw Error("NATIVE_HTTPS_VALIDATION_OWNER_REQUIRED");
   if(input.browserEntry && (input.browserEntry.rpId!==origin.hostname ||
     ![input.browserEntry.factorId,input.browserEntry.tenantId,input.browserEntry.membershipId].every(uuid) ||
     !Buffer.isBuffer(input.browserEntry.logoPng) || input.browserEntry.logoPng.length>1024*1024 ||
@@ -118,6 +124,16 @@ export async function createIsolatedCommercialHttpsServer(input:{
         strictHeaders(req);
         if(req.method==="GET" && input.browserEntry && req.url){
           const entry=new URL(req.url,input.origin),params=entry.searchParams;
+          if(native){
+            if(req.headers.host!==origin.host||entry.origin!==input.origin||entry.pathname!=="/v1/commercial/login"||entry.hash||
+              [...params.keys()].length!==1||params.getAll("request").length!==1||
+              (req.headers.origin&&req.headers.origin!==input.origin)||Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
+            const token=params.get("request")!,destination=await native.requests.inspect(token);
+            const registration=destination?clients.requireExact(destination.client_id,destination.redirect_uri):null;
+            if(!destination||!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(401);
+            sendCommercialBrowserEntry(res,input.browserEntry,{request:token,tenantName:destination.tenant_name,companyName:destination.company_name,
+              deviceId:destination.device_id,installationId:destination.installation_id});return;
+          }
           const names=["client_id","redirect_uri","code_challenge","code_challenge_method","state"];
           const registration=clients.requireExact(params.get("client_id"),params.get("redirect_uri"));
           if(req.headers.host!==origin.host || entry.origin!==input.origin || entry.pathname!=="/v1/commercial/login" ||
@@ -127,13 +143,38 @@ export async function createIsolatedCommercialHttpsServer(input:{
             (req.headers.origin && req.headers.origin!==input.origin) || Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
           sendCommercialBrowserEntry(res,input.browserEntry);return;
         }
-        if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url))throw new Rejection(400);
+        if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
+          (!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
+            !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions"].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        if(tokenRoute){
+        const nativeRoute=tokenRoute||req.url.includes("/native-request")||req.url==="/v1/business-session/assertions";
+        if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
         }else if(req.headers.origin!==input.origin||req.headers["sec-fetch-site"]!=="same-origin")throw new Rejection(403);
         const {object:o,raw}=await body(req,policy.maximumBodyBytes);
+        const proof=()=>{
+          if(!text(req.headers.authorization,8192)||!uuid(req.headers["x-request-id"])||!UuidV7Schema.safeParse(req.headers["x-correlation-id"]).success)throw new Rejection(400);
+          const correlationId=req.headers["x-correlation-id"] as string;
+          return {authorization:req.headers.authorization,requestId:req.headers["x-request-id"],correlationId,body:raw};
+        };
+        if(native&&req.url==="/v1/commercial/native-request-challenges"){
+          const registration=clients.requireExact(o.client_id,o.redirect_uri);
+          if(!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(403);
+          const challenge=await native.requests.challenge(o as unknown as NativeRequestParameters,registration);
+          if(!challenge)throw new Rejection(429);send(res,200,challenge);return;
+        }
+        if(native&&req.url==="/v1/commercial/native-requests"){
+          const registration=clients.requireExact(o.client_id,o.redirect_uri);
+          if(!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(403);
+          const registered=await native.requests.register(proof(),registration);
+          if(!registered)throw new Rejection(401);send(res,200,registered);return;
+        }
+        if(native&&req.url==="/v1/business-session/assertions"){
+          if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);
+          const assertion=await coordinator.issueSessionAssertion(req.headers["x-isolated-business-access"],proof(),native.codec,native.signing);
+          if(!assertion)throw new Rejection(401);send(res,200,assertion);return;
+        }
         const sessionRequest:BrowserSessionRequest={method:"POST",origin:req.headers.origin??null,
           fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,
           cookie:req.headers.cookie??null,csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null};
@@ -162,10 +203,18 @@ export async function createIsolatedCommercialHttpsServer(input:{
           if(!registration)throw new Rejection(403);
           const checked=inspectCommercialTokenRequest({method:"POST",contentType:"application/json",body:raw,registration});
           if(checked.status!==200)throw new Rejection(checked.status);
-          const r=checked.request,credentials=await coordinator.exchangeCredentials(registration,{code:r.code,verifier:r.code_verifier,state:r.state},pair);
+          const r=checked.request,request={code:r.code,verifier:r.code_verifier,state:r.state};
+          const credentials=native?await coordinator.exchangeNativeCredentials(registration,request,pair,proof(),native.requests.policy.maximumReauthenticationAgeMs):await coordinator.exchangeCredentials(registration,request,pair);
           if(!credentials)throw new Rejection(401);send(res,200,credentials);return;
         }
         if(req.url==="/v1/commercial/authorize"){
+          if(native){
+            if(!exact(o,["request","confirmed"])||!opaque(o.request,43,43)||o.confirmed!==true)throw new Rejection(400);
+            const selected=await native.requests.inspect(o.request),registration=selected?clients.requireExact(selected.client_id,selected.redirect_uri):null;
+            if(!registration)throw new Rejection(401);
+            const grant=await coordinator.authorizeNativeBrowser(browser,sessionRequest,native.requests,o.request,true,registration);
+            if(!grant)throw new Rejection(401);send(res,200,grant);return;
+          }
           if(!exact(o,["clientId","redirectUri","codeChallenge","state","deviceProof"])||!opaque(o.codeChallenge,43,43)||!opaque(o.state,32,256))throw new Rejection(400);
           const registration=clients.requireExact(o.clientId,o.redirectUri);
           if(!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(403);

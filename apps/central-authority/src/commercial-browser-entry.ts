@@ -11,12 +11,14 @@ export interface CommercialBrowserEntryConfiguration {
   readonly logoPng: Buffer;
 }
 
-/** HTTPS document only. No native proof, token minting, redirect or POS grant.
+/** HTTPS document only. Optional central destination confirmation redirects the
+ * one-use code; no device key, token minting or POS grant enters the document.
  * Mounted by the existing isolated host; production activation stays gated. */
-export function sendCommercialBrowserEntry(res: ServerResponse, configuration: CommercialBrowserEntryConfiguration): void {
+export function sendCommercialBrowserEntry(res: ServerResponse, configuration: CommercialBrowserEntryConfiguration,
+  destination?:{request:string;tenantName:string;companyName:string;deviceId:string;installationId:string}): void {
   const nonce = randomBytes(24).toString("base64url");
   const config = JSON.stringify({ rpId: configuration.rpId, factorId: configuration.factorId,
-    tenantId: configuration.tenantId, membershipId: configuration.membershipId }).replace(/</g, "\\u003c");
+    tenantId: configuration.tenantId, membershipId: configuration.membershipId,destination }).replace(/</g, "\\u003c");
   const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Acceso — Camacho POS Colombia</title>
 <style nonce="${nonce}">
@@ -31,6 +33,7 @@ button{padding:12px 20px;margin:18px 10px 0 0;font:inherit;cursor:pointer}button
 <button id="start" type="submit">Iniciar autenticación</button><button id="cancel" type="button" disabled>Cancelar</button></form>
 <p id="status" role="status" aria-live="polite" data-phase="IDLE">Se exigirá verificación WebAuthn.</p>
 <button id="logout" type="button" hidden>Cerrar sesión central</button>
+<p id="destination" hidden></p><button id="confirm" type="button" hidden>Confirmar destino y continuar al POS</button>
 <script nonce="${nonce}">
 "use strict";
 (() => {
@@ -38,6 +41,9 @@ button{padding:12px 20px;margin:18px 10px 0 0;font:inherit;cursor:pointer}button
   const form = document.getElementById("login"), status = document.getElementById("status");
   const start = document.getElementById("start"), cancel = document.getElementById("cancel"), logout = document.getElementById("logout");
   let controller = null, csrf = null;
+  const target=document.getElementById("destination"),confirm=document.getElementById("confirm");
+  if(config.destination){target.hidden=false;target.textContent="Destino: "+config.destination.tenantName+" / "+config.destination.companyName+
+    " · Dispositivo "+config.destination.deviceId+" · Instalación "+config.destination.installationId;}
   const show = (phase, text) => { status.dataset.phase = phase; status.textContent = text; };
   const decode = value => Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));
   const encode = value => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");
@@ -77,13 +83,22 @@ button{padding:12px 20px;margin:18px 10px 0 0;font:inherit;cursor:pointer}button
       if (typeof csrf !== "string") throw new Error("AUTHENTICATION_UNAVAILABLE");
       logout.hidden = false;
       await post("browser/session", {}, undefined, csrf);
-      show("BUSINESS_VERIFIED", "Identidad, MFA y sesión BUSINESS verificados. La entrega al dispositivo sigue bloqueada hasta aprobar su binding. El POS no ha recibido permisos.");
+      show("BUSINESS_VERIFIED", config.destination ? "Identidad y MFA verificados. Comprueba el destino antes de continuar." :
+        "Identidad, MFA y sesión BUSINESS verificados. La entrega al dispositivo sigue bloqueada hasta aprobar su binding. El POS no ha recibido permisos.");
+      confirm.hidden=!config.destination;
     } catch (error) {
       show(error.name === "AbortError" || error.name === "NotAllowedError" ? "CANCELLED" : "REJECTED",
         error.name === "AbortError" || error.name === "NotAllowedError" ? "Autenticación cancelada. Inicia un intento nuevo." : "No se pudo verificar la autenticación. Comprueba las credenciales, el autenticador y la conexión.");
     } finally {
       password = ""; form.elements.password.value = ""; controller = null; start.disabled = Boolean(csrf); cancel.disabled = true;
     }
+  });
+  confirm.addEventListener("click",async()=>{
+    if(!csrf||!config.destination)return;confirm.disabled=true;
+    try{const grant=await post("authorize",{request:config.destination.request,confirmed:true},undefined,csrf);
+      const callback=new URL(grant.redirectUri);callback.search=new URLSearchParams({code:grant.code,state:grant.state}).toString();
+      show("NATIVE_REDIRECT","Destino confirmado. Continuando en el cliente nativo…");location.assign(callback.href);
+    }catch{show("REJECTED","Solicitud vencida o rechazada. Inicia un intento nuevo desde el POS.");}
   });
   logout.addEventListener("click", async () => {
     logout.disabled = true;

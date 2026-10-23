@@ -16,6 +16,7 @@ export async function exerciseElectronCommercialBrowser(input: {
   tenantId: string; companyId: string; branchId: string; installationId: string; deviceId: string;
   issuedAssertion?:unknown;
   ssaPublicTrust?:{rootPublicPem:string;artifact:unknown};
+  nativeBinding?:{deviceCredentialId:string;devicePrivatePem:string;ca:string};
 }): Promise<Record<string, unknown>> {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const desktop = join(root, "pos-desktop"), local = join(root, "pos-local-service");
@@ -26,7 +27,7 @@ export async function exerciseElectronCommercialBrowser(input: {
   const ready = (child: ChildProcess, predicate: (line: string) => boolean): Promise<string> => new Promise((done, reject) => {
     let output = "", diagnostic = "", settled = false;
     child.stderr!.on("data", (chunk: Buffer) => { diagnostic = (diagnostic + chunk.toString()).slice(-2000); });
-    const timeout = setTimeout(() => reject(Error("INTEGRATION_PROCESS_TIMEOUT")), 60_000);
+    const timeout = setTimeout(() => reject(Error("INTEGRATION_PROCESS_TIMEOUT: "+diagnostic)), 60_000);
     child.stdout!.on("data", (chunk: Buffer) => {
       output += chunk.toString();
       const match = output.split("\n").find(predicate);

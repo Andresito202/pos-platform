@@ -22,6 +22,7 @@ import type { Server } from "node:https";
 import { exerciseElectronCommercialBrowser } from "./helpers/electron-commercial-browser.js";
 import {SessionTrustKeyIssuer} from "../src/session-trust-key-issuer.js";
 import {canonicalSessionTrustJson} from "@pos-platform/contracts";
+import {IsolatedNativeBusinessRequests,type IsolatedNativeRequestPolicy} from "../src/isolated-native-business-requests.js";
 import {verify} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -60,6 +61,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let preparation: BusinessAccessPreparation, reference: BusinessAccessPreparationReference, binding: TrustedBusinessSessionBinding;
   let companyId: string, deviceId: string, installationId: string, deviceCredentialId: string;
   let deviceKeys: ReturnType<typeof generateKeyPairSync>;
+  let nativeClientId:string;
   const accessPolicy={mode:"ISOLATED_VALIDATION" as const,maximumContextAgeMs:30_000,maximumReauthenticationAgeMs:30_000};
 
   beforeAll(async () => {
@@ -92,6 +94,18 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     await owner.query(`CREATE TABLE identity.native_code_audit_fixture (
       session_id uuid NOT NULL,code_hash text NOT NULL,recorded_at timestamptz NOT NULL DEFAULT clock_timestamp())`);
     await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.native_authorization_code_validation TO pos_platform_app");
+    await owner.query(`CREATE TABLE identity.native_request_validation (
+      id uuid PRIMARY KEY,challenge_hash text NOT NULL UNIQUE CHECK(length(challenge_hash)=64),
+      client_id text NOT NULL,redirect_uri text NOT NULL,code_challenge text NOT NULL,state text NOT NULL,
+      created_at timestamptz NOT NULL,challenge_expires_at timestamptz NOT NULL,challenge_consumed_at timestamptz,
+      request_hash text UNIQUE CHECK(length(request_hash)=64),expires_at timestamptz,consumed_at timestamptz,
+      credential_id uuid REFERENCES identity.device_credentials(credential_id),device_id uuid REFERENCES identity.device_registry(device_id),
+      installation_id uuid,tenant_id uuid REFERENCES tenancy.tenants(id),company_id uuid REFERENCES organization.companies(id),
+      session_id uuid REFERENCES identity.sessions(id),
+      CHECK((challenge_consumed_at IS NULL AND request_hash IS NULL AND credential_id IS NULL) OR
+        (challenge_consumed_at IS NOT NULL AND request_hash IS NOT NULL AND credential_id IS NOT NULL AND expires_at IS NOT NULL)),
+      CHECK(consumed_at IS NULL OR session_id IS NOT NULL))`);
+    await owner.query("GRANT SELECT,INSERT,UPDATE ON identity.native_request_validation TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT ON identity.native_code_audit_fixture TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.session_refresh_tokens TO pos_platform_app");
     await owner.query(`CREATE TABLE identity.browser_session_validation (
@@ -128,6 +142,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   }
 
   beforeEach(async () => {
+    nativeClientId="native-"+uuidV7();
     userId=uuidV7();credentialId=uuidV7();factorId=uuidV7();materialId=uuidV7();tenantId=uuidV7();membershipId=uuidV7();
     email=`session-${randomBytes(8).toString("hex")}@example.test`;
     publicCredentialId=randomBytes(32).toString("base64url");
@@ -1242,7 +1257,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let tls:ReturnType<typeof labTls>|undefined;
   const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
     androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator)=>Promise<void>,requestsPerMinute=100,browserEntry=false){
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>){
     tls??=labTls();
     const codec=isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
@@ -1261,13 +1276,17 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
       },
     });
-    const registration={clientId:"desktop",redirectUri:exchangeRedirect,authorizationOrigin:origin};
+    const registration={clientId:nativePolicy?nativeClientId:"desktop",redirectUri:exchangeRedirect,authorizationOrigin:origin};
+    const signing=ssaMaterial();
+    const native=nativePolicy?new IsolatedNativeBusinessRequests(runtime,{mode:"ISOLATED_VALIDATION",challengeLifetimeMs:60_000,
+      requestLifetimeMs:120_000,codeLifetimeMs:60_000,maximumChallengesPerMinute:20,maximumReauthenticationAgeMs:30_000,...nativePolicy}):undefined;
     const server=await createIsolatedCommercialHttpsServer({pool:runtime,tls,origin,mfa:flow,authority,
       handoffs:new PostgresBrowserSessionHandoffWriter(origin,15_000),browser:new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),
       coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
+      ...(native?{nativeValidation:{requests:native,codec,signing}}:{}),
       ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url))}}:{}),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
-    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server,coordinator);}
+    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server,coordinator,signing);}
     finally{await closeLabHttps(server);}
   }
   const originHeaders={origin,"sec-fetch-site":"same-origin"};
@@ -1314,11 +1333,11 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const advanced=await owner.query("SELECT counter::int AS n FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
     expect(advanced.rows[0].n).toBeGreaterThan(counter.rows[0].n);
   },100,true),90_000);
-  async function httpLogin(post:Parameters<Parameters<typeof withHttps>[0]>[0]){
+  async function httpLogin(post:Parameters<Parameters<typeof withHttps>[0]>[0],selection={tenantId,membershipId}){
     const start=await post("login",{phase:"begin",email,password,factorId},originHeaders);
     expect(start.status).toBe(200);
     const complete={phase:"complete",email,password,challenge:start.body.challenge,
-      response:await assertionFor(start.body.challenge as string),tenantId,membershipId};
+      response:await assertionFor(start.body.challenge as string),...selection};
     const established=await post("login",complete,originHeaders);
     expect(established.status).toBe(200);
     expect(established.headers["cache-control"]).toBe("no-store");
@@ -1327,6 +1346,170 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const current=await post("browser/session",{},headers);expect(current.status).toBe(200);
     return {headers,sessionId:current.body.sessionId as string,complete};
   }
+  type LabPost=Parameters<Parameters<typeof withHttps>[0]>[0];
+  function nativeSigned(path:string,payload:unknown,credential=deviceCredentialId,key=deviceKeys.privateKey){
+    const raw=JSON.stringify(payload),requestId=uuidV7(),correlationId=uuidV7();
+    return {raw,headers:{authorization:createDeviceRequestAuthorization({method:"POST",path,body:raw,requestId,correlationId,credentialId:credential},key),
+      "x-request-id":requestId,"x-correlation-id":correlationId}};
+  }
+  const nativeParams=()=>({client_id:nativeClientId,redirect_uri:exchangeRedirect,code_challenge:derivePkceS256Challenge(exchangeVerifier),code_challenge_method:"S256",state:exchangeState});
+  async function nativeAttempt(post:LabPost){
+    const p=nativeParams(),challenge=await post("native-request-challenges",p);
+    expect(challenge.status).toBe(200);
+    const payload={...p,purpose:"BUSINESS_NATIVE_AUTHORIZATION_V1",challenge_id:challenge.body.challenge_id,challenge:challenge.body.challenge};
+    const proof=nativeSigned("/v1/commercial/native-requests",payload);
+    const registered=await post("native-requests",payload,proof.headers,proof.raw);
+    expect(registered.status).toBe(200);return {payload,proof,registered,token:registered.body.request as string};
+  }
+  async function nativeCode(post:LabPost){
+    const attempt=await nativeAttempt(post),login=await httpLogin(post);
+    const grant=await post("authorize",{request:attempt.token,confirmed:true},login.headers);
+    expect(grant.status).toBe(200);
+    return {...attempt,login,grant,payloadToken:{grant_type:"authorization_code",code:grant.body.code,
+      code_verifier:exchangeVerifier,state:exchangeState,client_id:nativeClientId,redirect_uri:exchangeRedirect}};
+  }
+  it("native binding: signed registration hashes secrets and requires BUSINESS plus explicit confirmation",async()=>withHttps(async post=>{
+    const a=await nativeAttempt(post);
+    const stored=await owner.query("SELECT * FROM identity.native_request_validation WHERE id=$1",[a.payload.challenge_id]);
+    expect(stored.rows[0].challenge_hash).toBe(sha(a.payload.challenge as string).toString("hex"));
+    expect(stored.rows[0].request_hash).toBe(sha(a.token).toString("hex"));expect(stored.rows[0].credential_id).toBe(deviceCredentialId);
+    expect((await post("authorize",{request:a.token,confirmed:true},originHeaders)).status).toBe(401);
+    const login=await httpLogin(post);
+    expect((await post("authorize",{request:a.token,confirmed:false},login.headers)).status).toBe(400);
+    expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(200);
+    expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(401);
+  },100,true,{}));
+  it.each(["unsigned","wrong path","wrong key","body tampering"])("native binding: rejects %s registration",async target=>withHttps(async post=>{
+    const c=await post("native-request-challenges",nativeParams());
+    const p={...nativeParams(),purpose:"BUSINESS_NATIVE_AUTHORIZATION_V1",challenge_id:c.body.challenge_id,challenge:c.body.challenge};
+    const proof=nativeSigned(target==="wrong path"?BUSINESS_SSA_DEVICE_PROOF_PATH:"/v1/commercial/native-requests",p,deviceCredentialId,
+      target==="wrong key"?generateKeyPairSync("ed25519").privateKey:deviceKeys.privateKey);
+    const result=await post("native-requests",p,target==="unsigned"?{}:proof.headers,target==="body tampering"?JSON.stringify({...p,state:"x".repeat(43)}):proof.raw);
+    expect([400,401]).toContain(result.status);
+    const count=await owner.query("SELECT count(*)::int AS n FROM identity.native_request_validation WHERE id=$1 AND request_hash IS NOT NULL",[c.body.challenge_id]);expect(count.rows[0].n).toBe(0);
+  },100,true,{}));
+  it("native binding: challenge and DeviceProof are each single-use under concurrent registration",async()=>withHttps(async post=>{
+    const c=await post("native-request-challenges",nativeParams()),p={...nativeParams(),purpose:"BUSINESS_NATIVE_AUTHORIZATION_V1",challenge_id:c.body.challenge_id,challenge:c.body.challenge};
+    const proof=nativeSigned("/v1/commercial/native-requests",p);
+    const results=await Promise.all([post("native-requests",p,proof.headers,proof.raw),post("native-requests",p,proof.headers,proof.raw)]);
+    expect(results.map(r=>r.status).sort()).toEqual([200,401]);
+    const fresh=nativeSigned("/v1/commercial/native-requests",p);expect((await post("native-requests",p,fresh.headers,fresh.raw)).status).toBe(401);
+  },100,true,{}));
+  it.each(["challenge","request","code"])("native binding: expired %s cannot advance",async target=>withHttps(async post=>{
+    if(target==="challenge"){
+      const c=await post("native-request-challenges",nativeParams()),p={...nativeParams(),purpose:"BUSINESS_NATIVE_AUTHORIZATION_V1",challenge_id:c.body.challenge_id,challenge:c.body.challenge};
+      await owner.query("UPDATE identity.native_request_validation SET challenge_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[c.body.challenge_id]);
+      const proof=nativeSigned("/v1/commercial/native-requests",p);expect((await post("native-requests",p,proof.headers,proof.raw)).status).toBe(401);return;
+    }
+    if(target==="request"){
+      const a=await nativeAttempt(post),login=await httpLogin(post);
+      await owner.query("UPDATE identity.native_request_validation SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[a.payload.challenge_id]);
+      expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(401);return;
+    }
+    const c=await nativeCode(post);await owner.query("UPDATE identity.native_authorization_code_validation SET expires_at=clock_timestamp()-interval '1 second' WHERE code_hash=$1",[sha(c.payloadToken.code as string).toString("hex")]);
+    const proof=nativeSigned("/v1/commercial/token",c.payloadToken);expect((await post("token",c.payloadToken,proof.headers,proof.raw)).status).toBe(401);
+  },100,true,{}));
+  it.each(["BUSINESS","credential"])("native binding: revocation of %s rejects confirmation",async target=>withHttps(async post=>{
+    const a=await nativeAttempt(post),login=await httpLogin(post);
+    if(target==="BUSINESS")await owner.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1",[login.sessionId]);
+    else await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp() WHERE credential_id=$1",[deviceCredentialId]);
+    expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(401);
+  },100,true,{}));
+  it("native binding: another valid tenant session cannot approve device destination",async()=>withHttps(async post=>{
+    const a=await nativeAttempt(post),otherTenant=uuidV7(),otherMembership=uuidV7();
+    await owner.query("INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES ($1,'Other tenant','ACTIVE',clock_timestamp(),clock_timestamp())",[otherTenant]);
+    await owner.query("INSERT INTO tenancy.tenant_memberships(id,tenant_id,user_id,membership_type,status,created_by_actor_type,created_at,activated_at) VALUES ($1,$2,$3,'MEMBER','ACTIVE','SYSTEM',clock_timestamp(),clock_timestamp())",[otherMembership,otherTenant,userId]);
+    const login=await httpLogin(post,{tenantId:otherTenant,membershipId:otherMembership});
+    expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(401);
+  },100,true,{}));
+  it("native binding: concurrent confirmation issues only one audited code",async()=>withHttps(async post=>{
+    const a=await nativeAttempt(post),login=await httpLogin(post);
+    const results=await Promise.all([post("authorize",{request:a.token,confirmed:true},login.headers),post("authorize",{request:a.token,confirmed:true},login.headers)]);
+    expect(results.filter(r=>r.status===200)).toHaveLength(1);
+    const codes=await owner.query("SELECT count(*)::int AS n FROM identity.native_authorization_code_validation WHERE session_id=$1",[login.sessionId]);expect(codes.rows[0].n).toBe(1);
+  },100,true,{}));
+  it.each(["challenge","confirmation","token"])("native binding: audit rollback preserves %s transition for fresh retry",async target=>withHttps(async post=>{
+    if(target==="challenge"){
+      await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+      try{expect((await post("native-request-challenges",nativeParams())).status).toBe(503);}finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+      expect((await post("native-request-challenges",nativeParams())).status).toBe(200);return;
+    }
+    const c=target==="token"?await nativeCode(post):null;
+    const a=c??await nativeAttempt(post),login=c?.login??await httpLogin(post);
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try{
+      if(c){const proof=nativeSigned("/v1/commercial/token",c.payloadToken);expect((await post("token",c.payloadToken,proof.headers,proof.raw)).status).toBe(503);}
+      else expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(503);
+    }finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    if(c){const proof=nativeSigned("/v1/commercial/token",c.payloadToken);expect((await post("token",c.payloadToken,proof.headers,proof.raw)).status).toBe(200);}
+    else expect((await post("authorize",{request:a.token,confirmed:true},login.headers)).status).toBe(200);
+  },100,true,{}));
+  it("native binding: registration audit failure rolls back challenge and binding but burns proof",async()=>withHttps(async post=>{
+    const c=await post("native-request-challenges",nativeParams()),p={...nativeParams(),purpose:"BUSINESS_NATIVE_AUTHORIZATION_V1",challenge_id:c.body.challenge_id,challenge:c.body.challenge};
+    const proof=nativeSigned("/v1/commercial/native-requests",p);
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try{expect((await post("native-requests",p,proof.headers,proof.raw)).status).toBe(503);}finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    const row=await owner.query("SELECT request_hash,challenge_consumed_at FROM identity.native_request_validation WHERE id=$1",[c.body.challenge_id]);
+    expect(row.rows[0]).toEqual({request_hash:null,challenge_consumed_at:null});
+    expect((await post("native-requests",p,proof.headers,proof.raw)).status).toBe(401);
+    const fresh=nativeSigned("/v1/commercial/native-requests",p);expect((await post("native-requests",p,fresh.headers,fresh.raw)).status).toBe(200);
+  },100,true,{}));
+  it.each(["PKCE","state","unsigned","other credential"])("native binding: token rejects %s",async target=>withHttps(async post=>{
+    const c=await nativeCode(post),p={...c.payloadToken};let credential=deviceCredentialId;
+    if(target==="PKCE")p.code_verifier="x".repeat(64);
+    if(target==="state")p.state="x".repeat(43);
+    if(target==="other credential"){
+      credential=uuidV7();await owner.query(`INSERT INTO identity.device_credentials
+        (credential_id,device_id,installation_id,tenant_id,company_id,device_key_id,trust_key_id,key_purpose,status,generation,issued_at,expires_at,credential_checksum,issuer_signature,created_at)
+        SELECT $1,device_id,installation_id,tenant_id,company_id,device_key_id,trust_key_id,key_purpose,'ACTIVE',2,issued_at,expires_at,$2,issuer_signature,created_at
+        FROM identity.device_credentials WHERE credential_id=$3`,[credential,randomBytes(32).toString("hex"),deviceCredentialId]);
+    }
+    const proof=nativeSigned("/v1/commercial/token",p,credential);
+    expect((await post("token",p,target==="unsigned"?{}:proof.headers,proof.raw)).status).toBe(target==="unsigned"?400:401);
+    if(target==="other credential"){
+      const audit=await owner.query("SELECT event_code,result,reason_code FROM identity.security_events WHERE session_id=$1 AND event_code=ANY($2::text[])",
+        [c.login.sessionId,[PlatformSecurityEventCode.AUTHORIZATION_CODE_REDEEMED,PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED]]);
+      expect(audit.rows).toEqual([{event_code:PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED,result:"REJECTED",reason_code:"ISOLATED_DEVICE_MISMATCH"}]);
+    }
+    if(target!=="unsigned"){
+      const retry=nativeSigned("/v1/commercial/token",c.payloadToken);expect((await post("token",c.payloadToken,retry.headers,retry.raw)).status).toBe(401);
+    }
+  },100,true,{}));
+  it("native binding: stale reauthentication rejects token delivery before credentials exist",async()=>withHttps(async post=>{
+    const c=await nativeCode(post);
+    await owner.query("UPDATE identity.sessions SET last_reauthenticated_at=clock_timestamp()-interval '31 seconds' WHERE id=$1",[c.login.sessionId]);
+    const proof=nativeSigned("/v1/commercial/token",c.payloadToken);
+    expect((await post("token",c.payloadToken,proof.headers,proof.raw)).status).toBe(401);
+    const refresh=await owner.query("SELECT count(*)::int AS n FROM identity.session_refresh_tokens WHERE session_id=$1",[c.login.sessionId]);
+    expect(refresh.rows[0].n).toBe(0);
+  },100,true,{}));
+  it("native binding: token proof cannot authorize a different raw request and fresh retry remains possible",async()=>withHttps(async post=>{
+    const c=await nativeCode(post),proof=nativeSigned("/v1/commercial/token",c.payloadToken);
+    expect((await post("token",c.payloadToken,proof.headers,JSON.stringify({...c.payloadToken,state:"x".repeat(43)}))).status).toBe(401);
+    const fresh=nativeSigned("/v1/commercial/token",c.payloadToken);
+    expect((await post("token",c.payloadToken,fresh.headers,fresh.raw)).status).toBe(200);
+  },100,true,{}));
+  it("native binding: concurrent token replay has one winner and no proof reuse",async()=>withHttps(async post=>{
+    const c=await nativeCode(post),proof=nativeSigned("/v1/commercial/token",c.payloadToken);
+    const results=await Promise.all([post("token",c.payloadToken,proof.headers,proof.raw),post("token",c.payloadToken,proof.headers,proof.raw)]);
+    expect(results.map(r=>r.status).sort()).toEqual([200,401]);
+  },100,true,{}));
+  it("native binding: durable challenge budget rejects concurrent overflow",async()=>withHttps(async post=>{
+    const results=await Promise.all([post("native-request-challenges",nativeParams()),post("native-request-challenges",nativeParams())]);
+    expect(results.map(r=>r.status).sort()).toEqual([200,429]);
+  },100,true,{maximumChallengesPerMinute:1}));
+  it.runIf(process.platform==="win32")("native binding: Electron signed request Chromium MFA confirmation callback token SSA and denied grants",async()=>withHttps(async(_post,_codec,server,_coordinator,signing)=>{
+    const address=server.address();if(!address||typeof address==="string")throw Error("NATIVE_E2E_ADDRESS_MISSING");
+    const counter=await owner.query("SELECT counter::int AS n FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
+    const observed=await exerciseElectronCommercialBrowser({port:address.port,certificateFingerprint:new X509Certificate(tls!.cert).fingerprint256,
+      email,password,credentialId:Buffer.from(publicCredentialId,"base64url").toString("base64"),privateKey:keys.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"),counter:counter.rows[0].n,
+      registration:{clientId:nativeClientId,redirectUri:exchangeRedirect,authorizationOrigin:origin},tenantId,companyId,branchId:uuidV7(),installationId,deviceId,
+      ssaPublicTrust:{rootPublicPem:signing.rootTrustAnchor.export({format:"pem",type:"spki"}).toString(),artifact:signing.signedOperationalKey},
+      nativeBinding:{deviceCredentialId,devicePrivatePem:deviceKeys.privateKey.export({format:"pem",type:"pkcs8"}).toString(),ca:tls!.cert.toString()}});
+    expect(observed).toMatchObject({boundNative:true,destinationConfirmed:true,custodyCleared:true,wrongPasswordRejected:true,erased:true,dashboardClosed:true,grantsFabricated:false,
+      nativeSsa:{invalid:"REJECTED",activated:"ACTIVATED",replay:"REJECTED",recovered:"ACTIVE",channelLossRejected:true,
+        capabilities:{result_code:"AUTHORIZATION_SNAPSHOT_UNAVAILABLE"}}});
+  },100,true,{}),90_000);
   it.runIf(process.platform==="win32")("business SSA composition: Electron main activates Central assertion but no grants cannot open dashboard",async()=>withHttps(async(post,codec,server,coordinator)=>{
     const login=await httpLogin(post),material=ssaMaterial();
     const code=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);

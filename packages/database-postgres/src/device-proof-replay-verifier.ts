@@ -45,6 +45,11 @@ export class PostgresDeviceProofReplayVerifier {
   ) {}
 
   async verifyAndConsume(input: DeviceProofRequest): Promise<VerifiedDeviceProofBinding | null> {
+    return this.verifyTargetAndConsume(input, BUSINESS_SSA_DEVICE_PROOF_PATH);
+  }
+
+  /** Shared persistence/crypto only. Public SSA entry retains its exact target. */
+  protected async verifyTargetAndConsume(input:DeviceProofRequest,path:string):Promise<VerifiedDeviceProofBinding|null>{
     const requestId = UuidSchema.parse(input.requestId);
     const correlationId = UuidSchema.parse(input.correlationId);
     if (typeof input.body !== "string" ||
@@ -105,7 +110,7 @@ export class PostgresDeviceProofReplayVerifier {
             input.authorization,
             {
               method: "POST",
-              path: BUSINESS_SSA_DEVICE_PROOF_PATH,
+              path,
               requestId,
               correlationId,
               body: input.body,
@@ -162,5 +167,16 @@ export class PostgresDeviceProofReplayVerifier {
     } finally {
       client.release();
     }
+  }
+}
+
+/** Dedicated native-login targets. Never accepts a caller-selected path or
+ * treats an assertion proof as proof for registration/token redemption. */
+export class PostgresNativeBusinessDeviceProofVerifier extends PostgresDeviceProofReplayVerifier {
+  verifyRegistrationAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/commercial/native-requests");
+  }
+  verifyTokenAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/commercial/token");
   }
 }

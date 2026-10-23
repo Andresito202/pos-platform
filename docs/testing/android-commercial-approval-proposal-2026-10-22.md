@@ -62,11 +62,13 @@ también necesita implementación: no se sustituye con autorizaciones de prueba.
 4. Enrolar el M60WL, verificar su credencial contra la identidad local y después autenticar una persona real. Observar Central → BUSINESS → DeviceProof → secuencia 011/012 → SSA → Local Service → autorización React. La emisión central de grants/snapshot RBAC sigue siendo implementación necesaria; la aprobación del diseño no la crea.
 5. Solo con ese recorrido, realizar venta/pago/recibo autorizados y certificación USB. La primera apertura física del CD350 necesita además perfil eléctrico real y autorización explícita separada para ese efecto físico, como ordenó el propietario. No se ejecuta ningún pulso por aprobar software.
 
-## Contrato Windows propuesto el 2026-10-23 — decisión pendiente
+## Contrato Windows propuesto el 2026-10-23 — laboratorio autorizado, producción pendiente
 
-Esta precisión pertenece a la misma solicitud. **No está aprobada, montada ni
-migrada.** El incremento ejecutable de hoy enlaza access verificado con DeviceProof
-y reserva 011/012 sólo en ISOLATED_VALIDATION; no sustituye este protocolo previo.
+Esta precisión pertenece a la misma solicitud. El propietario autorizó su
+materialización **solo en laboratorio aislado**, en la conversación de PR #96 y
+en la orden P0 posterior a `b971e294`. La [evidencia del binding nativo](native-business-binding-2026-10-23.md)
+registra el recorrido implementado. No aprueba producción, migraciones, claves
+comerciales ni los valores definitivos; 60/120/60 s siguen siendo candidatos.
 
 1. **Registro confiable:** Central publica/configura issuer, RP/origen HTTPS,
    client_id y callback loopback exacto. Main conserva verifier y state en memoria
@@ -83,8 +85,8 @@ y reserva 011/012 sólo en ISOLATED_VALIDATION; no sustituye este protocolo prev
    purpose candidato `BUSINESS_NATIVE_AUTHORIZATION_V1`. Main firma los bytes
    originales mediante el envoltorio DeviceProof existente: método POST, **esa
    nueva ruta**, request-id, correlation-id, timestamp, nonce, credential-id y
-   SHA-256 del cuerpo bajo `POS-DEVICE-REQUEST-V1`. Hace falta un verificador
-   dedicado y versionado para este propósito; no ampliar el allowlist ni relajar
+   SHA-256 del cuerpo bajo `POS-DEVICE-REQUEST-V1`. El laboratorio autorizado
+   incorpora un verificador dedicado, sin ampliar la entrada pública ni relajar
    el verificador de `/v1/business-session/assertions`. Central resuelve clave,
    instalación, dispositivo y tenant de la credencial vigente, no del JSON.
    Consumo del challenge y registro del binding/auditoría en una transacción.
@@ -101,8 +103,8 @@ y reserva 011/012 sólo en ISOLATED_VALIDATION; no sustituye este protocolo prev
    hash. Su binding incluye sesión, cliente, redirect, S256/state y credencial
    exacta. Callback conserva state y un uso. Canje requiere verifier y posesión
    fresca de la misma credencial, firmando la ruta `/v1/commercial/token` y sus
-   bytes exactos con verificador dedicado; este requisito **no está implementado
-   por el token endpoint de laboratorio**. Rotación de credencial obliga a un
+   bytes exactos con verificador dedicado; este requisito está implementado
+   por el perfil nativo opt-in del endpoint aislado, no en producción. Rotación de credencial obliga a un
    intento nuevo; no migrar silenciosamente familias entre claves.
 6. **Persistencia y entrega:** owner Identity, referencias a sesiones y Device
    Trust canónicos, hashes únicos de challenge/request/código, FK y expiraciones,
@@ -124,13 +126,13 @@ y reserva 011/012 sólo en ISOLATED_VALIDATION; no sustituye este protocolo prev
 | Robo de code/access/refresh | S256 y posesión fresca de la clave; custodia main; expiración/revocación y binding durable de refresh según la fila existente. El perfil actual de laboratorio no equivale a DPoP |
 | DoS / puerto ocupado / pérdida de proceso | Presupuesto durable aprobado, fallo cerrado, callback exacto sin elegir otro puerto y login nuevo al perder state/verifier |
 
-**Recomendación y aprobación específica:** aprobar o corregir los seis puntos
+**Recomendación y aprobación productiva pendiente:** aprobar o corregir los seis puntos
 anteriores como perfil Windows versionado, incluidos 60/120/60 s candidatos,
 semántica de firma por ruta, consumo y persistencia, consentimiento de destino,
 sender constraint y controles de abuso de las filas previas. Proporcionar dominio,
 registro y operador reales sin secretos. No se interpreta una autorización de
-desarrollo como aceptación. La evidencia actual es integración técnica, no
-aprobación de este protocolo ni de producción.
+desarrollo como aceptación productiva. La autorización expresa posterior cubre
+la implementación aislada; no aprueba despliegue ni parámetros productivos.
 
 ## Observaciones actuales del equipo, sin cambios
 

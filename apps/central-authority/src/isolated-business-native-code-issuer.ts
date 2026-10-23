@@ -25,6 +25,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     readonly registration?:NativeClientRegistration;
     readonly codeChallenge: string;
     readonly state: string;
+    readonly lifetimeMs?:number;
     readonly recordAudit: (transaction: import("@pos-platform/database-postgres").PoolClient) => Promise<void>;
   }): Promise<string | null> {
     if (!input?.binding?.identity || !input.binding.device ||
@@ -33,7 +34,7 @@ export class IsolatedBusinessNativeCodeIssuer {
       (!input.registration&&!/^http:\/\/127\.0\.0\.1:[0-9]+\/callback$/.test(input.redirectUri)) ||
       !/^[A-Za-z0-9_-]{43}$/.test(input.codeChallenge) ||
       !/^[A-Za-z0-9_-]{32,256}$/.test(input.state) ||
-      typeof input.recordAudit !== "function") return null;
+      typeof input.recordAudit !== "function" || (input.lifetimeMs!==undefined&&(!Number.isSafeInteger(input.lifetimeMs)||input.lifetimeMs<=0))) return null;
     if(input.registration){
       const trusted=validateNativeClientRegistration(input.registration);
       if(trusted.clientId!==input.clientId||trusted.redirectUri!==input.redirectUri)return null;
@@ -49,7 +50,7 @@ export class IsolatedBusinessNativeCodeIssuer {
         (code_hash,client_id,redirect_uri,code_challenge,state,trusted_binding_id,
          session_id,device_id,tenant_id,issued_at,expires_at)
         SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp(),
-          LEAST(clock_timestamp()+interval '60 seconds',s.expires_at)
+          LEAST(clock_timestamp()+($14::bigint*interval '1 millisecond'),s.expires_at,dc.expires_at)
         FROM identity.sessions s
         JOIN identity.device_registry d ON d.device_id=$8
           AND d.tenant_id=s.tenant_id AND d.company_id=$12
@@ -66,7 +67,7 @@ export class IsolatedBusinessNativeCodeIssuer {
         codeHash,input.clientId,input.redirectUri,input.codeChallenge,
         input.state,device.credentialId,identity.sessionId,device.deviceId,
         identity.tenantId,identity.userId,identity.tenantMembershipId,
-        device.companyId,device.installationId,
+        device.companyId,device.installationId,input.lifetimeMs??60_000,
       ]);
       // Check exactly one INSERT before committing audit. SQL errors abort.
       const found = await client.query<{n:number}>(

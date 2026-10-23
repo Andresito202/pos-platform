@@ -91,6 +91,9 @@ export async function beginNativeBusinessLogin(input:{
   registration:NativeClientRegistration;timeoutMs:number;vault:NativeBusinessCredentialVault;
   openSystemBrowser:(authorizationUrl:string)=>Promise<void>;
   exchange:(registration:NativeClientRegistration,input:Exchange)=>Promise<{accessToken:string;refreshToken:string}>;
+  /** Trusted main-only registration adapter. Not accepted through preload.
+   * May only return the same registered HTTPS origin and one opaque selector. */
+  prepareAuthorization?:(request:{client_id:string;redirect_uri:string;code_challenge:string;code_challenge_method:"S256";state:string})=>Promise<string>;
 }){
   const registration=validateNativeClientRegistration(input.registration);
   if(registration.platform==="ANDROID"||!Number.isSafeInteger(input.timeoutMs)||input.timeoutMs<=0||
@@ -141,7 +144,19 @@ export async function beginNativeBusinessLogin(input:{
       code_challenge_method:"S256",state:state.toString("base64url")}).toString();
     // A browser launcher may never resolve. The callback deadline and cancel
     // handle must remain reachable independently of that external application.
-    void input.openSystemBrowser(authorization.href).catch(() => dispose("FAILED"));
+    void (async()=>{
+      let target=authorization.href;
+      if(input.prepareAuthorization){
+        target=await input.prepareAuthorization({client_id:registration.clientId,redirect_uri:registration.redirectUri,
+          code_challenge:authorization.searchParams.get("code_challenge")!,code_challenge_method:"S256",state:state.toString("base64url")});
+        const bound=new URL(target);
+        if(bound.origin!==registration.authorizationOrigin||bound.pathname!=="/v1/commercial/login"||bound.hash||bound.username||bound.password||
+          [...bound.searchParams.keys()].length!==1||bound.searchParams.getAll("request").length!==1||
+          !/^[A-Za-z0-9_-]{43}$/.test(bound.searchParams.get("request")??""))throw Error("NATIVE_BOUND_AUTHORIZATION_URL_REJECTED");
+      }
+      if(phase!=="PENDING")return;
+      await input.openSystemBrowser(target);
+    })().catch(() => dispose("FAILED"));
   }catch{dispose("FAILED");}
   return Object.freeze({result,cancel:()=>dispose("CANCELLED")});
 }

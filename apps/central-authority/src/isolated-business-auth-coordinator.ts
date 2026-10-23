@@ -1,7 +1,9 @@
 import type {PoolClient} from "@pos-platform/database-postgres";
 import type {DeviceProofRequest} from "@pos-platform/database-postgres";
 import {PlatformSecurityEventCode,uuidV7,SignedSessionAssertionOperationalKeySchema,type SignedSessionAssertionOperationalKey} from "@pos-platform/contracts";
-import {PostgresPlatformSecurityEventRepository,BUSINESS_SSA_ELIGIBILITY_SQL} from "@pos-platform/database-postgres";
+import {PostgresPlatformSecurityEventRepository,BUSINESS_SSA_ELIGIBILITY_SQL,PostgresNativeBusinessDeviceProofVerifier,type VerifiedDeviceProofBinding} from "@pos-platform/database-postgres";
+import {IsolatedNativeBusinessRequests} from "./isolated-native-business-requests.js";
+import {inspectCommercialTokenRequest} from "./commercial-token-http-contract.js";
 import type {KeyObject} from "node:crypto";
 import {CentralSessionAssertionIssuer,type SessionAssertionIssuancePolicy} from "./central-session-assertion-issuer.js";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
@@ -120,12 +122,27 @@ export class IsolatedBusinessAuthCoordinator {
     const binding=await prerequisite.establish(marker,proof);
     return binding?this.issueBinding(binding,registration,request):null;
   }
-  private issueBinding(binding:ValidatedCommercialBinding,registration:NativeClientRegistration,request:{codeChallenge:string;state:string}):Promise<string|null>{
+  async authorizeNativeBrowser(store:DurableBrowserSessionStore,browser:BrowserSessionRequest,native:IsolatedNativeBusinessRequests,token:string,confirmed:boolean,
+    registration:NativeClientRegistration){
+    if(!(store instanceof DurableBrowserSessionStore)||!(native instanceof IsolatedNativeBusinessRequests)||confirmed!==true)return null;
+    validateNativeClientRegistration(registration);
+    const identity=await store.inspect(browser),request=await native.inspect(token);
+    if(!identity||!request||identity.tenantId!==request.tenant_id||request.client_id!==registration.clientId||request.redirect_uri!==registration.redirectUri)return null;
+    const binding={identity,device:{deviceId:request.device_id,installationId:request.installation_id,tenantId:request.tenant_id,
+      companyId:request.company_id,credentialId:request.credential_id}};
+    const code=await this.issueBinding(binding,registration,{codeChallenge:request.code_challenge,state:request.state},
+      {lifetimeMs:native.policy.codeLifetimeMs,consume:client=>native.consume(client,token,identity,binding.device)});
+    return code?{code,state:request.state,redirectUri:registration.redirectUri}:null;
+  }
+  private issueBinding(binding:ValidatedCommercialBinding,registration:NativeClientRegistration,request:{codeChallenge:string;state:string},
+    native?:{lifetimeMs:number;consume:(client:PoolClient)=>Promise<void>}):Promise<string|null>{
     return this.issuer.issue({
       binding,clientId:registration.clientId,redirectUri:registration.redirectUri,
       registration,
       codeChallenge:request.codeChallenge,state:request.state,
+      ...(native?{lifetimeMs:native.lifetimeMs}:{}),
       recordAudit:async (client:PoolClient)=>{
+        if(native)await native.consume(client);
         await this.audit.append({
           user_id:binding.identity.userId,session_id:binding.identity.sessionId,
           tenant_id:binding.identity.tenantId,
@@ -154,6 +171,18 @@ export class IsolatedBusinessAuthCoordinator {
   },pairIssuer:IsolatedBusinessCredentialPairIssuer):Promise<{
     accessToken:string;refreshToken:string;
   }|null>{
+    return this.exchangePair(registration,request,pairIssuer);
+  }
+  async exchangeNativeCredentials(registration:NativeClientRegistration,request:{code:string;verifier:string;state:string},
+    pairIssuer:IsolatedBusinessCredentialPairIssuer,proof:DeviceProofRequest,maximumReauthenticationAgeMs:number){
+    if(!Number.isSafeInteger(maximumReauthenticationAgeMs)||maximumReauthenticationAgeMs<=0)throw Error("NATIVE_EXCHANGE_REAUTHENTICATION_POLICY_REQUIRED");
+    const parsed=inspectCommercialTokenRequest({method:"POST",contentType:"application/json",body:proof.body,registration});
+    if(parsed.status!==200||parsed.request.code!==request.code||parsed.request.code_verifier!==request.verifier||parsed.request.state!==request.state)return null;
+    const device=await new PostgresNativeBusinessDeviceProofVerifier(this.pool).verifyTokenAndConsume(proof);
+    return device?this.exchangePair(registration,request,pairIssuer,{...device,maximumReauthenticationAgeMs}):null;
+  }
+  private async exchangePair(registration:NativeClientRegistration,request:{code:string;verifier:string;state:string},
+    pairIssuer:IsolatedBusinessCredentialPairIssuer,device?:VerifiedDeviceProofBinding & {maximumReauthenticationAgeMs:number}):Promise<{accessToken:string;refreshToken:string}|null>{
     validateNativeClientRegistration(registration);
     if(!(pairIssuer instanceof IsolatedBusinessCredentialPairIssuer))
       throw Error("BUSINESS_COORDINATOR_TRUSTED_PAIR_ISSUER_REQUIRED");
@@ -161,6 +190,7 @@ export class IsolatedBusinessAuthCoordinator {
       durabilityPolicyReference:this.consumer.durabilityPolicyReference,
       consume:(code:string,verify:Parameters<IsolatedBusinessBoundCodeConsumer["consume"]>[1])=>
         this.consumer.consumeWith(code,verify,async(client,row)=>{
+          if(device&&(device.credentialId!==row.credentialId||device.deviceId!==row.deviceId||device.installationId!==row.installationId||device.tenantId!==row.tenantId))return null;
           const binding:ValidatedCommercialBinding={
             identity:{sessionId:row.sessionId,userId:row.userId,tenantId:row.tenantId,
               tenantMembershipId:row.tenantMembershipId},
@@ -168,7 +198,7 @@ export class IsolatedBusinessAuthCoordinator {
               tenantId:row.tenantId,installationId:row.installationId,companyId:row.companyId},
           };
           return pairIssuer.issueInTransaction(client,binding,uuidV7());
-        }),
+        },device),
     };
     return new NativeAuthorizationCodeExchange(registration,consumer).exchange(request);
   }

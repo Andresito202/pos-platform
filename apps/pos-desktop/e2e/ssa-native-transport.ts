@@ -3,6 +3,7 @@ import {LocalChannelAuthenticator,loadProductionDesktopProvisioning} from "@pos-
 import {connectLocalServiceChannel} from "../src/local-service-channel.js";
 import {activateNativeBusinessAssertion} from "../src/native-business-login.js";
 import {SignedSessionAssertionSchema} from "@pos-platform/contracts";
+export {uuidV7} from "@pos-platform/contracts";
 
 /** Test driver reuses production DPAPI + channel + main delivery; no new IPC. */
 export async function exerciseNativeAssertion(assertion:unknown){

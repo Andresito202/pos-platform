@@ -19,6 +19,22 @@ async function registration(){
 }
 const credentials=()=>({accessToken:Array.from({length:3},()=>randomBytes(24).toString("base64url")).join("."),refreshToken:randomBytes(48).toString("base64url")});
 describe("privileged native BUSINESS callback transport",()=>{
+  it.each(["https://other.example.test/v1/commercial/login?request="+"a".repeat(43),
+    "https://business.example.test/v1/commercial/login?request="+"a".repeat(43)+"&tenant=untrusted",
+    "https://business.example.test/v1/commercial/login?request="+"a".repeat(43)+"#fragment"])("rejects an unsafe prepared authorization URL: %s",async target=>{
+    const r=await registration(),store=vault();let opened=false;
+    const attempt=await beginNativeBusinessLogin({registration:r,timeoutMs:2000,vault:store,
+      prepareAuthorization:async()=>target,openSystemBrowser:async()=>{opened=true;},exchange:async()=>credentials()});
+    expect(await attempt.result).toBe("FAILED");expect(opened).toBe(false);expect(await store.use(async()=>true)).toBeNull();
+  });
+  it("returns cancellation during pending signed registration and never opens a late browser",async()=>{
+    const r=await registration(),store=vault();let release!:(url:string)=>void,opened=false;
+    const attempt=await beginNativeBusinessLogin({registration:r,timeoutMs:2000,vault:store,
+      prepareAuthorization:()=>new Promise(resolve=>{release=resolve;}),openSystemBrowser:async()=>{opened=true;},exchange:async()=>credentials()});
+    attempt.cancel();expect(await attempt.result).toBe("CANCELLED");
+    release(r.authorizationOrigin+"/v1/commercial/login?request="+"a".repeat(43));await new Promise(resolve=>setImmediate(resolve));
+    expect(opened).toBe(false);expect(await store.use(async()=>true)).toBeNull();
+  });
   it("returns its cancellation handle even when the OS browser launcher never resolves",async()=>{
     const store=vault(),r=await registration();let exchanges=0;
     const pending=await Promise.race([

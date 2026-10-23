@@ -4,7 +4,8 @@ import { app, BrowserWindow, safeStorage, session } from "electron";
 import { resolve, join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { connect } from "node:net";
-import { X509Certificate } from "node:crypto";
+import { X509Certificate,createPrivateKey } from "node:crypto";
+import {request as httpsRequest} from "node:https";
 
 const directory = process.env.CAMACHO_BROWSER_TEST_DIRECTORY;
 const port = Number(process.env.CAMACHO_BROWSER_TEST_PORT);
@@ -76,13 +77,43 @@ async function run() {
   input.privateKey = "";
   const { beginNativeBusinessLogin, NativeBusinessCredentialVault, exchangeNativeBusinessCode } = await import("../dist/native-browser-login-probe.mjs");
   const vault = new NativeBusinessCredentialVault(safeStorage);
+  let nativePost;
+  if(input.nativeBinding){
+    const {createDeviceRequestAuthorization}=await import("../dist/device-proof-lab-probe.mjs");
+    const {uuidV7}=await import("../dist/ssa-native-transport-probe.mjs");
+    const deviceKey=createPrivateKey(input.nativeBinding.devicePrivatePem);input.nativeBinding.devicePrivatePem="";
+    nativePost=async(path,payload,signed=true,access)=>{
+      const body=JSON.stringify(payload),requestId=uuidV7(),correlationId=uuidV7();
+      const headers={host:"business.example.test","content-type":"application/json","content-length":Buffer.byteLength(body),
+        ...(signed?{authorization:createDeviceRequestAuthorization({method:"POST",path,requestId,correlationId,body,
+          credentialId:input.nativeBinding.deviceCredentialId},deviceKey),"x-request-id":requestId,"x-correlation-id":correlationId}:{}),
+        ...(access?{"x-isolated-business-access":access}:{})};
+      return new Promise((resolve,reject)=>{
+        const req=httpsRequest({host:"127.0.0.1",port,servername:"business.example.test",ca:input.nativeBinding.ca,
+          method:"POST",path,headers,agent:false},res=>{
+          let raw="";res.on("data",chunk=>{raw+=chunk;if(raw.length>32768)res.destroy();});res.on("error",reject);
+          res.on("end",()=>{process.stderr.write("NATIVE_LAB_RESPONSE_"+path.split("/").at(-1)+"_"+res.statusCode+"\n");
+            if(res.statusCode!==200){reject(Error("NATIVE_LAB_HTTP_"+res.statusCode));return;}
+            try{resolve(JSON.parse(raw));}catch(e){reject(e);}});
+        });req.setTimeout(5000,()=>req.destroy(Error("NATIVE_LAB_TIMEOUT")));req.on("error",reject);req.end(body);
+      });
+    };
+  }
   const attempt = await beginNativeBusinessLogin({ registration: input.registration, timeoutMs: 60_000, vault,
     openSystemBrowser: url => browser.loadURL(url),
-    exchange: (registration, request) => exchangeNativeBusinessCode(registration, request, 5_000),
+    ...(nativePost?{prepareAuthorization:async parameters=>{
+      const challenge=await nativePost("/v1/commercial/native-request-challenges",parameters,false);
+      const request=await nativePost("/v1/commercial/native-requests",{...parameters,purpose:"BUSINESS_NATIVE_AUTHORIZATION_V1",
+        challenge_id:challenge.challenge_id,challenge:challenge.challenge});return request.authorization_url;
+    }}:{}),
+    exchange: (registration, request) => nativePost?nativePost("/v1/commercial/token",{grant_type:"authorization_code",code:request.code,
+      code_verifier:request.verifier,state:request.state,client_id:registration.clientId,redirect_uri:registration.redirectUri}):exchangeNativeBusinessCode(registration, request, 5_000),
   });
   process.stderr.write("BROWSER_DRIVER_NATIVE_STARTED\n");
   try {
-    await waitFor(() => browser.webContents.executeJavaScript('Boolean(document.querySelector("#login"))'), "HTTPS_FORM");
+    await Promise.race([waitFor(() => browser.webContents.executeJavaScript('Boolean(document.querySelector("#login"))'), "HTTPS_FORM"),
+      attempt.result.then(status=>{throw Error("NATIVE_ATTEMPT_ENDED_BEFORE_FORM_"+status);})]);
+    process.stderr.write("BROWSER_DRIVER_FORM_READY\n");
     const visible = await browser.webContents.executeJavaScript(`({secure:window.isSecureContext,origin:location.origin,node:typeof require,bridge:typeof window.posService})`);
     if (!visible.secure || visible.origin !== "https://business.example.test" || visible.node !== "undefined" || visible.bridge !== "undefined") throw Error("BROWSER_ORIGIN_ISOLATION_FAILED");
     await browser.webContents.executeJavaScript(`(() => {
@@ -97,6 +128,7 @@ async function run() {
     })()`);
     await submit("incorrect-" + input.password);
     await waitFor(() => browser.webContents.executeJavaScript('document.querySelector("#status").dataset.phase === "REJECTED"'), "WRONG_PASSWORD");
+    process.stderr.write("BROWSER_DRIVER_WRONG_PASSWORD_REJECTED\n");
     await submit(input.password);
     input.password = "";
     const phase = await waitFor(async () => {
@@ -104,9 +136,37 @@ async function run() {
       if (phase === "REJECTED") throw Error("REAL_BROWSER_ASSERTION_REJECTED");
       return phase === "BUSINESS_VERIFIED" ? phase : null;
     }, "REAL_WEBAUTHN_BUSINESS");
+    process.stderr.write("BROWSER_DRIVER_BUSINESS_VERIFIED\n");
     const erased = await browser.webContents.executeJavaScript('document.querySelector("[name=password]").value === "" && localStorage.length === 0 && sessionStorage.length === 0 && document.cookie === ""');
     const protectedCookie = (await partition.cookies.get({url:"https://business.example.test"})).some(cookie => cookie.httpOnly && cookie.secure);
     if (!protectedCookie) throw Error("BROWSER_COOKIE_PROTECTION_MISSING");
+    if(nativePost){
+      const destination=await browser.webContents.executeJavaScript('document.querySelector("#destination").textContent');
+      if(!destination.includes(input.deviceId)||!destination.includes(input.installationId))throw Error("NATIVE_DESTINATION_NOT_DISPLAYED");
+      await browser.webContents.executeJavaScript('document.querySelector("#confirm").click()');
+      process.stderr.write("BROWSER_DRIVER_DESTINATION_CONFIRMED\n");
+      if(await attempt.result!=="CREDENTIALS_STORED")throw Error("NATIVE_BOUND_CODE_NOT_STORED");
+      const assertion=await vault.use(async tokens=>{
+        // JWT payload is a selector only; Central verifies signature/current
+        // state + exact credential proof before deriving any SSA identity.
+        const payload=JSON.parse(Buffer.from(tokens.accessToken.split(".")[1],"base64url").toString());
+        return nativePost("/v1/business-session/assertions",{session_id:payload.sid},true,tokens.accessToken);
+      });
+      const {exerciseNativeAssertion}=await import("../dist/ssa-native-transport-probe.mjs");
+      const nativeSsa=await exerciseNativeAssertion(assertion);
+      if(nativeSsa.activated!=="ACTIVATED"||nativeSsa.recovered!=="ACTIVE")throw Error("NATIVE_BOUND_SSA_NOT_ACTIVE");
+      await pos.webContents.executeJavaScript('document.querySelector("button").click()');
+      await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-error]")) && !document.querySelector(".pos-shell")'),"BOUND_SSA_WITHOUT_GRANTS");
+      if(process.env.POS_E2E_AUDIT_DIRECTORY){
+        const {mkdir,writeFile}=await import("node:fs/promises");await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});
+        await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"bound-ssa-without-grants.png"),(await pos.capturePage()).toPNG());
+      }
+      vault.clear();
+      const custodyCleared=await vault.use(async()=>false)===null;
+      process.stdout.write(JSON.stringify({browserIntegration:true,scope:"ISOLATED_VALIDATION",boundNative:true,destinationConfirmed:true,
+        wrongPasswordRejected:true,erased,custodyCleared,nativeSsa,grantsFabricated:false,dashboardClosed:true,authenticator:"CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"})+"\n");
+      return;
+    }
     const posStillClosed = await pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-unauthenticated]")) && !document.querySelector(".pos-shell")');
     if (process.env.POS_E2E_AUDIT_DIRECTORY) {
       const { mkdir, writeFile } = await import("node:fs/promises");
@@ -123,7 +183,7 @@ async function run() {
     process.stdout.write(JSON.stringify({ browserIntegration: true, phase, erased, posStillClosed, credentialCustodyEmpty,
       cancelled, wrongPasswordRejected: true, centralLogout: true, protectedCookie, phases, secure: visible.secure, platform: process.platform,
       authenticator: "CHROMIUM_VIRTUAL_CTAP2_REAL_SIGNATURE_NOT_A_HUMAN", scope: "ISOLATED_VALIDATION" }) + "\n");
-  } finally { attempt.cancel(); vault.clear(); browser.destroy(); }
+  } finally { attempt.cancel(); vault.clear(); browser.destroy();if(nativePost)app.quit(); }
   app.quit();
 }
 void run().catch(error => { process.stderr.write("REAL_BROWSER_INTEGRATION_FAILED: " + error.message + "\n"); app.exit(1); });
