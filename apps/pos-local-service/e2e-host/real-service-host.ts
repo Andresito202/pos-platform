@@ -19,6 +19,7 @@ import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fi
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
 import { CanonicalPermission } from "@pos-platform/contracts";
+import {SessionTrustKeyVerifier} from "../src/security/session-trust-key-verifier.js";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -213,10 +214,20 @@ async function main(): Promise<void> {
   await operations.start();
 
   let commercial: CommercialComponent;
+  let externalSigningKeyCount=0;
   if (WITHOUT_SESSION) {
-    // Actual owners and empty canonical storage. No signer, snapshot, SSA,
-    // user, cash seed, fiscal credential or fake provider exists in this mode.
-    commercial = new CommercialComponent(config(), localDatabase, durableSync);
+    // Empty canonical storage; optional Central public trust only. No private
+    // signer, seeded SSA/snapshot/user, cash seed or fake provider in this mode.
+    const externalKeys=new Map<string,TrustedSigningKey>();
+    if(process.env.POS_E2E_SSA_PUBLIC_TRUST){
+      const trust=JSON.parse(process.env.POS_E2E_SSA_PUBLIC_TRUST) as {rootPublicPem:string;artifact:unknown};
+      const verifier=new SessionTrustKeyVerifier(createPublicKey(trust.rootPublicPem),"isolated-validation");
+      const checked=verifier.verify(trust.artifact);
+      if(checked.decision!=="VALID"||!checked.claims)throw Error("E2E_EXTERNAL_SSA_TRUST_REJECTED");
+      externalKeys.set(checked.claims.key_id,verifier.toTrustedSigningKey(checked.claims));
+    }
+    externalSigningKeyCount=externalKeys.size;
+    commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys);
   } else {
     if(!keyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
     new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
@@ -343,7 +354,7 @@ async function main(): Promise<void> {
         const count=(table:string)=>database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {n:number};
         process.send?.({type:"pos-e2e-empty-state",sessions:count("local_session_assertion").n,
           snapshots:count("local_authorization_snapshot").n,sales:count("sales_sales").n,cashShifts:count("cash_shift").n,
-          signingKeys:0,authority:"NONE"});
+          signingKeys:externalSigningKeyCount,authority:externalSigningKeyCount?"EXTERNAL_TEST_PUBLIC_TRUST":"NONE"});
       }
     });
   }

@@ -20,6 +20,9 @@ import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } from "node:crypto";
 import type { Server } from "node:https";
 import { exerciseElectronCommercialBrowser } from "./helpers/electron-commercial-browser.js";
+import {SessionTrustKeyIssuer} from "../src/session-trust-key-issuer.js";
+import {canonicalSessionTrustJson} from "@pos-platform/contracts";
+import {verify} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresPool, type BusinessSessionValidationPolicy } from "@pos-platform/database-postgres";
@@ -747,6 +750,69 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     if(!access)throw Error("SEQUENCE_ACCESS_FIXTURE_REQUIRED");
     return {codec,access};
   }
+  function ssaMaterial(validUntil?:string){
+    const root=generateKeyPairSync("ed25519"),operational=generateKeyPairSync("ed25519");
+    return {mode:"ISOLATED_VALIDATION" as const,environment:"isolated-validation" as const,
+      operationalPrivateKey:operational.privateKey,rootTrustAnchor:root.publicKey,
+      signedOperationalKey:new SessionTrustKeyIssuer(root.privateKey).issue({key_id:"ssa-integration",key_purpose:"SESSION_ASSERTION",
+        environment:"isolated-validation",status:"ACTIVE",version:1,
+        public_key_pem:operational.publicKey.export({format:"pem",type:"spki"}).toString(),
+        valid_from:new Date(Date.now()-60_000).toISOString(),valid_until:validUntil??new Date(Date.now()+120_000).toISOString()}),
+      policy:{maximumClaimAgeMs:10_000,maximumOfflineLifetimeMs:30_000,maximumReauthenticationAgeMs:30_000}};
+  }
+  function ssaCoordinator(){return new IsolatedBusinessAuthCoordinator(preparation,runtime,{
+    authorityReference:"UNUSED_SSA_BINDING_AUDIT",record:async()=>{throw Error("NO_NEW_CODE_BINDING_IN_SSA_TEST");}});}
+  it("business SSA composition: emits canonical identity from real verified access proof and durable reservation",async()=>{
+    const {codec,access}=await signedAccessForSequence(),material=ssaMaterial();
+    const issued=await ssaCoordinator().issueSessionAssertion(access,request(),codec,material);
+    expect(issued?.claims).toMatchObject({session_id:binding.sessionId,user_id:userId,tenant_membership_id:membershipId,device_id:deviceId,installation_id:installationId,sequence:1});
+    expect(issued?.claims).not.toHaveProperty("permissions");expect(issued?.claims).not.toHaveProperty("roles");
+    expect(verify(null,Buffer.from(canonicalSessionTrustJson(issued!.claims)),material.signedOperationalKey.claims.public_key_pem,Buffer.from(issued!.signature,"base64url"))).toBe(true);
+    expect(Date.parse(issued!.claims.offline_valid_until)).toBeLessThanOrEqual(Date.parse(binding.expiresAt));
+    const events=await owner.query("SELECT count(*)::int AS n FROM identity.security_events WHERE session_id=$1 AND reason_code='ISOLATED_SSA_ISSUED'",[binding.sessionId]);
+    expect(events.rows[0].n).toBe(1);
+  });
+  it.each(["root","key","status"])("business SSA composition: rejects invalid %s signing material",async target=>{
+    const {codec,access}=await signedAccessForSequence(),material=ssaMaterial();
+    if(target==="root")material.rootTrustAnchor=generateKeyPairSync("ed25519").publicKey;
+    if(target==="key")material.operationalPrivateKey=generateKeyPairSync("ed25519").privateKey;
+    if(target==="status")material.signedOperationalKey.claims.status="REVOKED";
+    await expect(ssaCoordinator().issueSessionAssertion(access,request(),codec,material)).rejects.toThrow();
+    const events=await owner.query("SELECT count(*)::int AS n FROM identity.security_events WHERE session_id=$1 AND reason_code='ISOLATED_SSA_ISSUED'",[binding.sessionId]);
+    expect(events.rows[0].n).toBe(0);
+  });
+  it("business SSA composition: missing or forged identity never emits an assertion",async()=>{
+    const {codec}=await signedAccessForSequence();
+    expect(await ssaCoordinator().issueSessionAssertion(binding.sessionId,request(),codec,ssaMaterial())).toBeNull();
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+  });
+  it("business SSA composition: expired certified key cannot emit and missing policy fails before reservation",async()=>{
+    const {codec,access}=await signedAccessForSequence(),missing=ssaMaterial();
+    missing.policy.maximumOfflineLifetimeMs=0;
+    await expect(ssaCoordinator().issueSessionAssertion(access,request(),codec,missing)).rejects.toThrow("BUSINESS_SSA_ISOLATED_SIGNING_POLICY_REQUIRED");
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+    expect(await ssaCoordinator().issueSessionAssertion(access,request(),codec,ssaMaterial(new Date(Date.now()-1000).toISOString()))).toBeNull();
+  });
+  it.each(["BUSINESS","device credential"])("business SSA composition: rejects revoked %s",async target=>{
+    const {codec,access}=await signedAccessForSequence();
+    if(target==="BUSINESS")await owner.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1",[binding.sessionId]);
+    else await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp() WHERE credential_id=$1",[deviceCredentialId]);
+    expect(await ssaCoordinator().issueSessionAssertion(access,request(),codec,ssaMaterial())).toBeNull();
+    expect(await counters()).toEqual({nonces:0,sequence:0});
+  });
+  it("business SSA composition: audit rollback returns no assertion and preserves burned sequence",async()=>{
+    const {codec,access}=await signedAccessForSequence(),material=ssaMaterial();
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try{await expect(ssaCoordinator().issueSessionAssertion(access,request(),codec,material)).rejects.toMatchObject({code:"42501"});}
+    finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    expect(await counters()).toEqual({nonces:1,sequence:1});
+    expect((await ssaCoordinator().issueSessionAssertion(access,request(),codec,material))?.claims.sequence).toBe(2);
+  });
+  it("business SSA composition: concurrent replay emits only one assertion",async()=>{
+    const {codec,access}=await signedAccessForSequence(),proof=request(),material=ssaMaterial(),coordinator=ssaCoordinator();
+    const issued=await Promise.all([coordinator.issueSessionAssertion(access,proof,codec,material),coordinator.issueSessionAssertion(access,proof,codec,material)]);
+    expect(issued.filter(Boolean)).toHaveLength(1);
+  });
   it("access-to-sequence: rejects UUIDs serialized identities and modified access before consuming device nonce",async()=>{
     const {codec,access}=await signedAccessForSequence();
     for(const value of [binding.sessionId,JSON.stringify(binding),access.slice(0,-4)+"AAAA"]){
@@ -1261,6 +1327,23 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const current=await post("browser/session",{},headers);expect(current.status).toBe(200);
     return {headers,sessionId:current.body.sessionId as string,complete};
   }
+  it.runIf(process.platform==="win32")("business SSA composition: Electron main activates Central assertion but no grants cannot open dashboard",async()=>withHttps(async(post,codec,server,coordinator)=>{
+    const login=await httpLogin(post),material=ssaMaterial();
+    const code=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);
+    expect(code.status).toBe(200);
+    const tokens=await post("token",{grant_type:"authorization_code",code:code.body.code,code_verifier:exchangeVerifier,state:exchangeState,client_id:"desktop",redirect_uri:exchangeRedirect});
+    expect(tokens.status).toBe(200);
+    const assertion=await coordinator.issueSessionAssertion(tokens.body.accessToken as string,request(login.sessionId),codec,material);
+    if(!assertion)throw Error("CENTRAL_SSA_COMPOSITION_MISSING");
+    const address=server.address();if(!address||typeof address==="string")throw Error("SSA_HTTPS_FIXTURE_MISSING");
+    const observed=await exerciseElectronCommercialBrowser({port:address.port,certificateFingerprint:new X509Certificate(tls!.cert).fingerprint256,
+      email,password,credentialId:Buffer.from(publicCredentialId,"base64url").toString("base64"),privateKey:"",counter:0,
+      registration:{clientId:"desktop",redirectUri:exchangeRedirect,authorizationOrigin:origin},tenantId,companyId,branchId:uuidV7(),installationId,deviceId,
+      issuedAssertion:assertion,ssaPublicTrust:{rootPublicPem:material.rootTrustAnchor.export({format:"pem",type:"spki"}).toString(),artifact:material.signedOperationalKey}});
+    expect(observed).toMatchObject({dashboardClosed:true,grantsFabricated:false,nativeSsa:{invalid:"REJECTED",channelLossRejected:true,activated:"ACTIVATED",replay:"REJECTED",recovered:"ACTIVE",
+      capabilities:{status:"REJECTED",result_code:"AUTHORIZATION_SNAPSHOT_UNAVAILABLE"}}});
+    expect((await post("browser/logout",{},login.headers)).status).toBe(200);
+  }),90_000);
   it("access-to-sequence: HTTPS password MFA code exchange then verified access and fresh DeviceProof reserve 011",async()=>withHttps(async(post,codec,_server,coordinator)=>{
     const login=await httpLogin(post);
     const authorized=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,

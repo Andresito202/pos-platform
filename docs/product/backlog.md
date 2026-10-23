@@ -22,7 +22,7 @@ Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](
 
 ## Jerarquía relacionada
 
-Reanudación P0 2026-10-23: [canje → access verificado → DeviceProof → reserva SSA](../testing/business-access-sequence-2026-10-23.md), composición interna aislada sobre los owners existentes. No emite SSA/grants ni abre dashboard. El contrato previo dispositivo–PKCE se concreta, sin aprobación implícita, en la propuesta única; Windows no espera decisiones exclusivas de Android.
+Reanudación P0 2026-10-23: [canje → access verificado → DeviceProof → reserva SSA](../testing/business-access-sequence-2026-10-23.md), seguida de [composición SSA canónica y activación nativa Windows](../testing/business-ssa-composition-2026-10-23.md): emite SSA solo aislada, verifica/persiste/recupera ACTIVE en servicio real; sin snapshot/grants mantiene dashboard cerrado. El contrato previo dispositivo–PKCE sigue pendiente en la propuesta única; Windows no espera decisiones exclusivas de Android. Sin login humano ni producción aprobada.
 
 Segundo frente conservado por orden del propietario, **sin implementación durante el bloqueo del login**: venta en espera con recuperación durable; importación Excel/CSV y PDF asistido; traslados multisucursal/existencias en tránsito; conversiones; pagos mixtos con confirmación efectiva; cierre ciego; permisos, módulos por comercio y carga selectiva; offline/sincronización idempotente; compatibilidad posterior CPC Android v0.12. Se continúa esta misma línea después de resolver el acceso, sin ramas paralelas.
 

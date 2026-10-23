@@ -34,6 +34,21 @@ async function run() {
     return window && await window.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-unauthenticated]"))') ? window : null;
   }, "POS_BOOT");
   process.stderr.write("BROWSER_DRIVER_POS_READY\n");
+  if(input.issuedAssertion){
+    const {exerciseNativeAssertion}=await import("../dist/ssa-native-transport-probe.mjs");
+    const observed=await exerciseNativeAssertion(input.issuedAssertion);
+    if(observed.activated!=="ACTIVATED"||observed.replay!=="REJECTED"||observed.recovered!=="ACTIVE"||
+      observed.capabilities.result_code!=="AUTHORIZATION_SNAPSHOT_UNAVAILABLE")throw Error("SSA_DELIVERY_BOUNDARY_FAILED");
+    await pos.webContents.executeJavaScript('document.querySelector("button").click()');
+    await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-error]")) && !document.querySelector(".pos-shell")'),"SSA_WITHOUT_GRANTS");
+    if(process.env.POS_E2E_AUDIT_DIRECTORY){
+      const {mkdir,writeFile}=await import("node:fs/promises");
+      await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});
+      await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"ssa-active-without-grants.png"),(await pos.capturePage()).toPNG());
+    }
+    process.stdout.write(JSON.stringify({browserIntegration:true,scope:"ISOLATED_VALIDATION",nativeSsa:observed,grantsFabricated:false,dashboardClosed:true})+"\n");
+    app.quit();return;
+  }
   const partition = session.fromPartition("browser-integration-only");
   // Trust only the ephemeral fixture certificate and exact hostname, never a
   // wildcard/global --ignore-certificate-errors or a persistent OS root change.

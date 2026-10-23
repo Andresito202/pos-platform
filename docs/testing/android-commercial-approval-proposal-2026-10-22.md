@@ -110,8 +110,10 @@ y reserva 011/012 sólo en ISOLATED_VALIDATION; no sustituye este protocolo prev
    ubicación física de esos registros requieren revisión del owner; no adoptar
    tablas `*_validation` como almacén productivo ni crear otro sistema de sesión.
    Después del canje, perfil de access/proof aprobado, elegibilidad actual y
-   reserva 011/012; issuer/key lifecycle y productor de política/grants aún deben
-   componer claims SSA auténticos. El dashboard sólo consume capabilities del
+   reserva 011/012; la [composición SSA aislada](business-ssa-composition-2026-10-23.md)
+   deriva claims canónicos y conecta el issuer existente al canal Windows. Siguen
+   pendientes key lifecycle/perfil productivo y productor de política/grants.
+   El dashboard sólo consume capabilities del
    backend tras activar/verificar SSA y snapshot de autorización.
 
 | Amenaza | Condición exigida / riesgo residual |

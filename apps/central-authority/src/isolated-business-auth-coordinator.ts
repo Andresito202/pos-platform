@@ -1,7 +1,10 @@
 import type {PoolClient} from "@pos-platform/database-postgres";
 import type {DeviceProofRequest} from "@pos-platform/database-postgres";
-import {PlatformSecurityEventCode,uuidV7} from "@pos-platform/contracts";
-import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
+import {PlatformSecurityEventCode,uuidV7,SignedSessionAssertionOperationalKeySchema,type SignedSessionAssertionOperationalKey} from "@pos-platform/contracts";
+import {PostgresPlatformSecurityEventRepository,BUSINESS_SSA_ELIGIBILITY_SQL} from "@pos-platform/database-postgres";
+import type {KeyObject} from "node:crypto";
+import {CentralSessionAssertionIssuer,type SessionAssertionIssuancePolicy} from "./central-session-assertion-issuer.js";
+import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 import {BusinessAccessPreparation} from "./business-access-preparation.js";
 import {createIsolatedCommercialBindingPrerequisite,createCommercialDeviceInspector} from "./isolated-commercial-binding-adapter.js";
 import {CommercialBindingPrerequisite} from "./commercial-binding-prerequisite.js";
@@ -29,6 +32,58 @@ export class IsolatedBusinessAuthCoordinator {
   /** Internal post-exchange consumer. No new HTTP protocol or claims producer. */
   prepareSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec){
     return this.preparation.prepareSequenceFromAccess(accessToken,proof,codec);
+  }
+  /** Actual canonical SSA issuance, restricted to temporary integration DBs.
+   * Host-owned laboratory material only; never accepted from an HTTP body.
+   * No grants, policy assignments or authorization snapshot are produced. */
+  async issueSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec,material:{
+    mode:"ISOLATED_VALIDATION";environment:"isolated-validation";operationalPrivateKey:KeyObject;rootTrustAnchor:KeyObject;
+    signedOperationalKey:SignedSessionAssertionOperationalKey;
+    policy:SessionAssertionIssuancePolicy & {maximumReauthenticationAgeMs:number};
+  }){
+    if(material?.mode!=="ISOLATED_VALIDATION"||material.environment!=="isolated-validation"||
+      ![material.policy?.maximumReauthenticationAgeMs,material.policy?.maximumClaimAgeMs,material.policy?.maximumOfflineLifetimeMs]
+        .every(value=>Number.isSafeInteger(value)&&value!>0)||material.operationalPrivateKey?.type!=="private"||material.rootTrustAnchor?.type!=="public")
+      throw Error("BUSINESS_SSA_ISOLATED_SIGNING_POLICY_REQUIRED");
+    if(!(codec instanceof IsolatedBusinessAccessTokenCodec))throw Error("BUSINESS_ACCESS_VERIFIER_REQUIRED");
+    const artifact=SignedSessionAssertionOperationalKeySchema.parse(material.signedOperationalKey);
+    const access=await codec.verify(accessToken);if(!access)return null;
+    const prepared=await this.prepareSessionAssertion(accessToken,proof,codec);if(!prepared)return null;
+    const reservation=prepared.reservation,scope=reservation.eligibleScope;
+    return new IsolatedBusinessAuditSessionGuard(this.pool).whileActive({sessionId:scope.sessionId,userId:scope.userId,
+      tenantId:scope.tenantId,tenantMembershipId:scope.tenantMembershipId},async client=>{
+      // Same owner predicate, on this transaction client: locks remain held
+      // through canonical signing, audit and commit, serializing with logout.
+      const eligibilitySql=BUSINESS_SSA_ELIGIBILITY_SQL+" FOR SHARE OF s,u,tm,t,d,company,dc";
+      const eligible=await client.query(eligibilitySql,[scope.sessionId,scope.deviceId,scope.installationId,material.policy.maximumReauthenticationAgeMs]);
+      const current=eligible.rows[0];
+      const credential=await client.query(`SELECT expires_at FROM identity.device_credentials
+        WHERE credential_id=$1 AND device_id=$2 AND installation_id=$3 AND tenant_id=$4
+          AND status='ACTIVE' AND key_purpose='DEVICE_TRUST' AND expires_at>clock_timestamp() FOR SHARE`,
+        [access.cid,scope.deviceId,scope.installationId,scope.tenantId]);
+      if(!current||!credential.rows[0]||current.user_id!==scope.userId||current.tenant_membership_id!==scope.tenantMembershipId||
+        access.sid!==scope.sessionId||access.did!==scope.deviceId||access.tid!==scope.tenantId)return null;
+      const issuedAt=new Date();
+      const offlineUntil=Math.min(issuedAt.getTime()+material.policy.maximumOfflineLifetimeMs,
+        Date.parse(scope.sessionExpiresAt),Date.parse(scope.deviceCredentialExpiresAt),
+        current.session_expires_at.getTime(),credential.rows[0].expires_at.getTime(),access.exp*1000,
+        artifact.claims.valid_until===null?Infinity:Date.parse(artifact.claims.valid_until));
+      if(!Number.isFinite(offlineUntil)||offlineUntil<=issuedAt.getTime())return null;
+      const claims={session_id:scope.sessionId,user_id:scope.userId,tenant_membership_id:scope.tenantMembershipId,
+        installation_id:scope.installationId,device_id:scope.deviceId,sequence:reservation.sequence,
+        key_id:artifact.claims.key_id,issued_at:issuedAt.toISOString(),offline_valid_until:new Date(offlineUntil).toISOString()};
+      const issuer=new CentralSessionAssertionIssuer(material.operationalPrivateKey,material.rootTrustAnchor,
+        async candidate=>candidate===accessToken?{claims,reservation,signedOperationalKey:artifact}:null,
+        material.environment,material.policy);
+      const assertion=await issuer.issue(accessToken);if(!assertion)return null;
+      await this.audit.append({user_id:scope.userId,session_id:scope.sessionId,tenant_id:scope.tenantId,
+        event_code:PlatformSecurityEventCode.SESSION_ISSUED,result:"SUCCEEDED",reason_code:"ISOLATED_SSA_ISSUED",
+        correlation_id:proof.correlationId,occurred_at:issuedAt.toISOString()},client);
+      const final=await client.query(eligibilitySql,[scope.sessionId,scope.deviceId,scope.installationId,material.policy.maximumReauthenticationAgeMs]);
+      const finalCredential=await client.query("SELECT 1 FROM identity.device_credentials WHERE credential_id=$1 AND status='ACTIVE' AND expires_at>clock_timestamp()",[access.cid]);
+      if(!final.rows[0]||!finalCredential.rowCount||Date.now()>=offlineUntil)throw Error("BUSINESS_SSA_STATE_CHANGED_BEFORE_COMMIT");
+      return assertion;
+    });
   }
   constructor(
     private readonly preparation:BusinessAccessPreparation,

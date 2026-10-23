@@ -1,7 +1,21 @@
 import {createHash,randomBytes,timingSafeEqual} from "node:crypto";
 import {createServer} from "node:http";
 import {request} from "node:https";
-import {validateNativeClientRegistration,type NativeClientRegistration} from "@pos-platform/contracts";
+import {validateNativeClientRegistration,type NativeClientRegistration,SignedSessionAssertionSchema,SessionActivateResponseSchema} from "@pos-platform/contracts";
+import type {ServiceChannel} from "./channel-bridge.js";
+import {randomUUID} from "node:crypto";
+
+/** Main-only delivery. The Local Service verifies signature/binding/sequence;
+ * activation is identity only and cannot replace backend capabilities/grants. */
+export async function activateNativeBusinessAssertion(input:unknown,channel:ServiceChannel):Promise<"ACTIVATED"|"REJECTED">{
+  const assertion=SignedSessionAssertionSchema.parse(input),requestId=randomUUID(),correlationId=randomUUID();
+  const response=SessionActivateResponseSchema.parse(await channel.request({protocol_version:"1.0.0",message_type:"session.activate",
+    request_id:requestId,correlation_id:correlationId,payload_schema_version:"1.0.0",payload:{session_assertion:assertion}}));
+  if(response.request_id!==requestId||response.correlation_id!==correlationId)throw Error("NATIVE_SSA_RESPONSE_CORRELATION_REJECTED");
+  if(response.status==="SUCCEEDED"&&response.result_code==="ACTIVATED"&&response.result?.outcome==="ACTIVATED"&&
+    response.result.sequence===assertion.claims.sequence&&response.result.current_sequence===null&&response.result.decision===null)return "ACTIVATED";
+  return "REJECTED";
+}
 
 export interface NativeCredentialProtection {
   isEncryptionAvailable():boolean;

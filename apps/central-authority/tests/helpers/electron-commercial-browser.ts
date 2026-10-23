@@ -14,6 +14,8 @@ export async function exerciseElectronCommercialBrowser(input: {
   credentialId: string; privateKey: string; counter: number;
   registration: { clientId: string; redirectUri: string; authorizationOrigin: string };
   tenantId: string; companyId: string; branchId: string; installationId: string; deviceId: string;
+  issuedAssertion?:unknown;
+  ssaPublicTrust?:{rootPublicPem:string;artifact:unknown};
 }): Promise<Record<string, unknown>> {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const desktop = join(root, "pos-desktop"), local = join(root, "pos-local-service");
@@ -38,7 +40,8 @@ export async function exerciseElectronCommercialBrowser(input: {
     service = spawn(process.execPath, [createRequire(join(local, "package.json")).resolve("tsx/cli"), join(local, "e2e-host/real-service-host.ts")], {
       cwd: local, stdio: ["pipe", "pipe", "pipe", "ipc"], env: { ...process.env, NODE_ENV: "test", POS_E2E_SESSION_MODE: "NONE",
         POS_E2E_DATA_DIR: directory, POS_E2E_TENANT_ID: input.tenantId, POS_E2E_COMPANY_ID: input.companyId,
-        POS_E2E_BRANCH_ID: input.branchId, POS_E2E_INSTALLATION_ID: input.installationId, POS_E2E_DEVICE_ID: input.deviceId },
+        POS_E2E_BRANCH_ID: input.branchId, POS_E2E_INSTALLATION_ID: input.installationId, POS_E2E_DEVICE_ID: input.deviceId,
+        POS_E2E_SSA_PUBLIC_TRUST:input.ssaPublicTrust?JSON.stringify(input.ssaPublicTrust):"" },
     });
     await ready(service, line => line.includes('"ready":true'));
     const env = { ...process.env, POS_DATA_DIRECTORY: directory, POS_INSTALLATION_ID: input.installationId,
