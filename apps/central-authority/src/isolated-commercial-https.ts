@@ -11,6 +11,7 @@ import {CommercialNativeClientCatalog} from "./commercial-native-client-catalog.
 import {IsolatedBusinessAuthCoordinator} from "./isolated-business-auth-coordinator.js";
 import {IsolatedBusinessCredentialPairIssuer} from "./isolated-business-credential-pair-issuer.js";
 import {inspectCommercialTokenRequest} from "./commercial-token-http-contract.js";
+import {sendCommercialBrowserEntry, type CommercialBrowserEntryConfiguration} from "./commercial-browser-entry.js";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -80,6 +81,7 @@ export async function createIsolatedCommercialHttpsServer(input:{
   browser:DurableBrowserSessionStore; clients:CommercialNativeClientCatalog;
   coordinator:IsolatedBusinessAuthCoordinator; pair:IsolatedBusinessCredentialPairIssuer;
   policy:{mode:"ISOLATED_VALIDATION";maximumBodyBytes:number;requestsPerMinute:number};
+  browserEntry?:CommercialBrowserEntryConfiguration;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   const url=new URL(pool.options.connectionString??"invalid:");
@@ -91,6 +93,10 @@ export async function createIsolatedCommercialHttpsServer(input:{
   const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
   if(database.rows[0]?.ok!==true)throw Error("COMMERCIAL_HTTPS_TEMPORARY_DATABASE_REQUIRED");
   const origin=new URL(input.origin);
+  if(input.browserEntry && (input.browserEntry.rpId!==origin.hostname ||
+    ![input.browserEntry.factorId,input.browserEntry.tenantId,input.browserEntry.membershipId].every(uuid) ||
+    !Buffer.isBuffer(input.browserEntry.logoPng) || input.browserEntry.logoPng.length>1024*1024 ||
+    input.browserEntry.logoPng.subarray(0,8).toString("hex")!=="89504e470d0a1a0a"))throw Error("COMMERCIAL_BROWSER_CONFIGURATION_REQUIRED");
   const audit=new PostgresPlatformSecurityEventRepository(pool);
   const buckets=new Map<string,{start:number;count:number}>();
   async function rejectionAudit(limited:boolean){
@@ -110,6 +116,17 @@ export async function createIsolatedCommercialHttpsServer(input:{
         if(!bucket||now-bucket.start>=60_000){bucket={start:now,count:0};buckets.set(address,bucket);}
         if(++bucket.count>policy.requestsPerMinute)throw new Rejection(429);
         strictHeaders(req);
+        if(req.method==="GET" && input.browserEntry && req.url){
+          const entry=new URL(req.url,input.origin),params=entry.searchParams;
+          const names=["client_id","redirect_uri","code_challenge","code_challenge_method","state"];
+          const registration=clients.requireExact(params.get("client_id"),params.get("redirect_uri"));
+          if(req.headers.host!==origin.host || entry.origin!==input.origin || entry.pathname!=="/v1/commercial/login" ||
+            entry.hash || [...params.keys()].length!==names.length || names.some(name=>params.getAll(name).length!==1) ||
+            !registration || registration.authorizationOrigin!==input.origin || params.get("code_challenge_method")!=="S256" ||
+            !opaque(params.get("code_challenge"),43,43) || !opaque(params.get("state"),32,256) ||
+            (req.headers.origin && req.headers.origin!==input.origin) || Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
+          sendCommercialBrowserEntry(res,input.browserEntry);return;
+        }
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
         if(tokenRoute){

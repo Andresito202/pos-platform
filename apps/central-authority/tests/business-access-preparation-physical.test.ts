@@ -17,7 +17,9 @@ import { NativeAuthorizationCodeExchange } from "../src/native-authorization-cod
 import { derivePkceS256Challenge } from "../src/native-authorization-constraints.js";
 import { createIsolatedCommercialBindingPrerequisite } from "../src/isolated-commercial-binding-adapter.js";
 import { PlatformSecurityEventCode } from "@pos-platform/contracts";
-import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } from "node:crypto";
+import type { Server } from "node:https";
+import { exerciseElectronCommercialBrowser } from "./helpers/electron-commercial-browser.js";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresPool, type BusinessSessionValidationPolicy } from "@pos-platform/database-postgres";
@@ -29,7 +31,7 @@ import { BusinessAccessPreparation, type BusinessAccessPreparationReference } fr
 import { PostgresBusinessSessionAccessRepository, BUSINESS_SSA_DEVICE_PROOF_PATH, type TrustedBusinessSessionBinding } from "@pos-platform/database-postgres";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import {createIsolatedCommercialHttpsServer} from "../src/isolated-commercial-https.js";
-import {labTls,postLabHttps,closeLabHttps} from "./helpers/lab-https.js";
+import {labTls,postLabHttps,getLabHttps,closeLabHttps} from "./helpers/lab-https.js";
 import type {AuthenticationResponseJSON} from "@simplewebauthn/server";
 
 const serverUrl = process.env.POSTGRES_TEST_URL;
@@ -1101,7 +1103,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let tls:ReturnType<typeof labTls>|undefined;
   const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
     androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec)=>Promise<void>,requestsPerMinute=100){
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server)=>Promise<void>,requestsPerMinute=100,browserEntry=false){
     tls??=labTls();
     const codec=isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
@@ -1124,11 +1126,55 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const server=await createIsolatedCommercialHttpsServer({pool:runtime,tls,origin,mfa:flow,authority,
       handoffs:new PostgresBrowserSessionHandoffWriter(origin,15_000),browser:new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),
       coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
+      ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url))}}:{}),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
-    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec);}
+    try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server);}
     finally{await closeLabHttps(server);}
   }
   const originHeaders={origin,"sec-fetch-site":"same-origin"};
+  it("HTTPS browser entry: exact registered native request nonce CSP and no authentication side effects",async()=>withHttps(async(_post,_codec,server)=>{
+    const query=new URLSearchParams({client_id:"desktop",redirect_uri:exchangeRedirect,code_challenge:derivePkceS256Challenge(exchangeVerifier),code_challenge_method:"S256",state:exchangeState});
+    const path="/v1/commercial/login?"+query;
+    const before=await owner.query("SELECT count(*)::int AS n FROM identity.webauthn_challenges WHERE user_id=$1",[userId]);
+    const page=await getLabHttps(server,tls!.cert,path);
+    expect(page.status).toBe(200);expect(page.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(page.headers["cache-control"]).toBe("no-store");expect(page.headers["set-cookie"]).toBeUndefined();
+    expect(page.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(page.headers["content-security-policy"]).toContain("connect-src 'self'");
+    const nonce=page.body.match(/<script nonce="([A-Za-z0-9_-]+)"/)!;
+    expect(nonce?.[1]).toBeTruthy();expect(page.headers["content-security-policy"]).toContain("'nonce-"+nonce[1]+"'");
+    expect(page.body).toContain("navigator.credentials.get");expect(page.body).not.toContain(password);
+    expect(page.body).not.toContain("localStorage.setItem");
+    const again=await getLabHttps(server,tls!.cert,path);expect(again.body).not.toContain('nonce="'+nonce[1]+'"');
+    const bad=[path+"&client_id=desktop",path+"&unexpected=1"];
+    for(const [key,value] of [["redirect_uri","http://127.0.0.1:1/callback"],["client_id","unknown"],["code_challenge_method","plain"],["state","short"]]){
+      const altered=new URLSearchParams(query);altered.set(key!,value!);bad.push("/v1/commercial/login?"+altered);
+    }
+    for(const target of bad)expect((await getLabHttps(server,tls!.cert,target)).status).toBe(400);
+    expect((await getLabHttps(server,tls!.cert,path,{host:"another.example.test"})).status).toBe(400);
+    expect((await getLabHttps(server,tls!.cert,path,{origin:"https://another.example.test"})).status).toBe(400);
+    const after=await owner.query("SELECT count(*)::int AS n FROM identity.webauthn_challenges WHERE user_id=$1",[userId]);
+    expect(after.rows).toEqual(before.rows);
+  },100,true));
+  it.runIf(process.platform==="win32")("Electron browser ceremony: native PKCE entry real Chromium WebAuthn BUSINESS and confirmed logout",async()=>withHttps(async(_post,_codec,server)=>{
+    const address=server.address();if(!address||typeof address==="string")throw Error("HTTPS_BROWSER_ADDRESS_MISSING");
+    const before=await owner.query("SELECT count(*)::int AS n FROM identity.sessions WHERE user_id=$1",[userId]);
+    const counter=await owner.query("SELECT counter::int AS n FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
+    const observed=await exerciseElectronCommercialBrowser({port:address.port,certificateFingerprint:new X509Certificate(tls!.cert).fingerprint256,
+      email,password,credentialId:Buffer.from(publicCredentialId,"base64url").toString("base64"),
+      privateKey:keys.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"),counter:counter.rows[0].n,
+      registration:{clientId:"desktop",redirectUri:exchangeRedirect,authorizationOrigin:origin},
+      tenantId,companyId,branchId:uuidV7(),installationId,deviceId});
+    expect(observed).toMatchObject({browserIntegration:true,phase:"BUSINESS_VERIFIED",erased:true,posStillClosed:true,
+      credentialCustodyEmpty:true,cancelled:"CANCELLED",wrongPasswordRejected:true,centralLogout:true,protectedCookie:true,secure:true});
+    expect(observed.phases).toEqual(expect.arrayContaining(["AUTHENTICATING","MFA_REQUIRED","VERIFYING_MFA","BUSINESS_VERIFIED","SIGNED_OUT"]));
+    const after=await owner.query("SELECT count(*)::int AS n FROM identity.sessions WHERE user_id=$1",[userId]);
+    expect(after.rows[0].n).toBe(before.rows[0].n+1);
+    const persisted=await owner.query("SELECT s.revoked_at IS NOT NULL AS revoked FROM identity.sessions s JOIN identity.browser_sessions b ON b.session_id=s.id WHERE s.user_id=$1",[userId]);
+    expect(persisted.rows).toEqual([{revoked:true}]);
+    const advanced=await owner.query("SELECT counter::int AS n FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
+    expect(advanced.rows[0].n).toBeGreaterThan(counter.rows[0].n);
+  },100,true),90_000);
   async function httpLogin(post:Parameters<Parameters<typeof withHttps>[0]>[0]){
     const start=await post("login",{phase:"begin",email,password,factorId},originHeaders);
     expect(start.status).toBe(200);

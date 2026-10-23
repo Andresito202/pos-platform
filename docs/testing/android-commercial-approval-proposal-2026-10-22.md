@@ -39,10 +39,22 @@ aprobación conjunta; no son una segunda solicitud ni una configuración activad
 | Retorno Electron | Mantener callback exacto registrado en `127.0.0.1:<puerto>/callback`, main exclusivo, S256/state efímeros y un uso. Si se elige puerto dinámico, aprobar expresamente la regla de registro que sólo varía ese puerto | [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252) describe loopback/puertos efímeros. El contrato existente exige puerto exacto; el componente nuevo lo conserva. Riesgo de puerto ocupado mitigado con fallo cerrado, sin buscar silenciosamente otro | Responsable del despliegue proporciona registro real y aprueba puerto fijo o excepción dinámica; no cambiar redirects registrados desde React |
 | Retorno Android y custodia | App Link exacto `/android/callback`, paquete y SHA-256 del firmante instalado; DAL HTTPS sin redirects y comprobación OS. Estado/verifier de un uso en memoria; reinicio exige login nuevo. El root Keystore y el pipe privado existentes no cambian | [Verificación Android](https://developer.android.com/training/app-links/verify-applinks): comprobar DAL manualmente no acredita que Android haya verificado el intent-filter. Componentes Kotlin compilan y sus contratos JVM se prueban; la Activity permanece no exportada, sin filtro de dominio ni permiso nuevo | Dominio/paquete/firmante reales, publicación DAL, firma de APK y pruebas en Android 9. SEC-004/DEC-025 deben aprobar custodia/retorno/entrega al servicio; no abrir un callback externo antes de ello |
 
-El entry browser GET y la integración de login visual/entrega privada al servicio
-no se consideran terminados. Se conectarán con ese protocolo ya especificado;
-no debe montarse la URL propuesta por los clientes como un login funcional sin
-resolver primero su binding. La aprobación no crea grants ni una sesión POS.
+El entry browser GET y la ceremonia visual HTTPS ya están conectados en el host
+aislado: [prueba real de Electron/Chromium y PostgreSQL](commercial-browser-ceremony-2026-10-22.md).
+No se montan en producción ni entregan un código nativo, SSA o permisos al POS.
+Esa entrega privada sigue pendiente del binding previo especificado aquí;
+la aprobación no crea grants ni una sesión POS.
+
+**Prioridad Windows, independiente de Android:** decidir el registro Electron
+(dominio/RP/origen/cliente y loopback exacto), binding previo nativo-dispositivo,
+perfil de acceso/refresh, vigencias/abuso y provisión DEV-003. Se recomienda
+continuar con navegador externo + S256/state y el callback exacto ya existente,
+sin firma en React ni cambio del propósito SSA. La solicitud previa firmada,
+su nonce de un uso y 60 s como candidato requieren aprobar el contrato durable
+de la tabla anterior; no están aprobados por esta prueba. SEC-004 Android,
+WebView/DEC-025 y App Links no son condiciones de este recorrido Windows; siguen
+pendientes sólo para su plataforma. El productor central de grants/policy/SSA
+también necesita implementación: no se sustituye con autorizaciones de prueba.
 
 1. Identificar entorno central y administrador autorizado. Si todavía no existe despliegue, preparar su configuración/artefactos y plan de arranque revisable; no crear credenciales ficticias para saltarlo. Confirmar dominio controlado mediante su responsable y disponibilidad TLS antes de fijar RP/redirect.
 2. Obtener por los servicios centrales los registros y artefactos públicos; comparar huellas por canal independiente. Mantener privadas las claves de firma. Aprobar por escrito las filas anteriores, incluyendo valores y alternativas que se sustituyan; un silencio no aprueba.

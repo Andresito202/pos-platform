@@ -33,3 +33,15 @@ export function postLabHttps(server:Server,ca:Buffer,path:string,payload:unknown
 export async function closeLabHttps(server:Server){
   server.closeAllConnections();await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
 }
+
+export function getLabHttps(server:Server,ca:Buffer,path:string,headers:Record<string,string>={}){
+  const address=server.address();if(!address||typeof address==="string")throw Error("LAB_SERVER_NOT_LISTENING");
+  return new Promise<{status:number;headers:import("node:http").IncomingHttpHeaders;body:string}>((resolve,reject)=>{
+    const req=request({host:"127.0.0.1",port:address.port,servername:"business.example.test",ca,method:"GET",path,agent:false,
+      headers:{host:"business.example.test",...headers}},res=>{
+      const chunks:Buffer[]=[];res.on("data",chunk=>chunks.push(Buffer.from(chunk)));
+      res.on("end",()=>resolve({status:res.statusCode!,headers:res.headers,body:Buffer.concat(chunks).toString("utf8")}));
+      res.on("error",reject);
+    });req.on("error",reject);req.end();
+  });
+}

@@ -22,6 +22,8 @@ Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](
 
 ## Jerarquía relacionada
 
+Continuidad de acceso positivo 2026-10-22: [ceremonia HTTPS desde Electron](../testing/commercial-browser-ceremony-2026-10-22.md), formulario real → contraseña → WebAuthn de Chromium → BUSINESS persistida → logout confirmado, con PostgreSQL temporal y servicio Windows real. 12/12 focalizadas (una nueva E2E positiva), sin empleado humano, grants de arnés ni acceso operativo simulado. Callback/entrega al dispositivo/SSA siguen pendientes del binding aprobado; las decisiones exclusivas de Android no bloquean la línea Windows.
+
 Continuidad prioritaria Electron 2026-10-22: [recuperación local y arranque real](../testing/electron-session-recovery-2026-10-22.md), entrada productiva y servicio real sin identidad sembrada; 3/3 E2E y 75/75 focalizadas. Ausencia de sesión, pérdida de servicio y denegaciones verificadas; login humano/Android siguen pendientes de la propuesta conjunta. Requisito posterior registrado: app `co.camachopos.printmini` v0.12, observación física del propietario; futura configuración con descarga oficial, versión y guía, sin API ni adapter inventados. No cambia la prioridad de autenticación.
 
 Continuidad prioritaria de autenticación 2026-10-22: [custodia HTTP canónica y HTTPS](../testing/business-browser-https-2026-10-22.md), publicada en `114b8812`; [preparación nativa Windows/Android](../testing/native-business-auth-preparation-2026-10-22.md). Evidencia de laboratorio separada de activación: no se autentica una persona ni se concede sesión POS. La propuesta conjunta incorpora el binding navegador/dispositivo y refresh que necesitan aprobación; no se avanza al resto del backlog mientras este incremento siga pendiente.
