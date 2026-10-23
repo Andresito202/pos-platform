@@ -19,6 +19,16 @@ async function registration(){
 }
 const credentials=()=>({accessToken:Array.from({length:3},()=>randomBytes(24).toString("base64url")).join("."),refreshToken:randomBytes(48).toString("base64url")});
 describe("privileged native BUSINESS callback transport",()=>{
+  it("returns its cancellation handle even when the OS browser launcher never resolves",async()=>{
+    const store=vault(),r=await registration();let exchanges=0;
+    const pending=await Promise.race([
+      beginNativeBusinessLogin({registration:r,timeoutMs:40,vault:store,
+        openSystemBrowser:()=>new Promise<void>(()=>{}),exchange:async()=>{exchanges++;return credentials();}}),
+      new Promise<never>((_,reject)=>setTimeout(()=>reject(Error("UNREACHABLE_NATIVE_DEADLINE")),500)),
+    ]);
+    expect(await pending.result).toBe("CANCELLED");
+    expect(exchanges).toBe(0);expect(await store.use(async()=>true)).toBeNull();
+  });
   it("receives an exact loopback return once and exchanges with the original S256 verifier",async()=>{
     const r=await registration(),store=vault();let opened:URL|undefined,calls=0;
     const pending=await beginNativeBusinessLogin({registration:r,timeoutMs:2000,vault:store,

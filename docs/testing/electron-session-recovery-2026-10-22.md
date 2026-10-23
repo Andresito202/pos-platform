@@ -129,3 +129,64 @@ observación del propietario, sin certificarla en esta sesión. La configuració
 futura deberá incluir descarga oficial, versión y guía de instalación. Su API,
 autenticación y compatibilidad comercial deben verificarse antes de diseñar un
 adapter; no se inventa una API, copia un driver ni se opera impresora/cajón aquí.
+
+## Incremento posterior: continuidad del acceso desde 39ab7da2
+
+HEAD inicial local/remoto `39ab7da213914c21aa680884e8f6cbffc0b1ec96`, misma rama
+y PR #96 draft. Cambios concurrentes ajenos preservados. Sin hardware ni DB
+persistente. Este apartado acredita exclusivamente las ejecuciones siguientes.
+
+Código productivo modificado, dentro de `apps/pos-desktop`:
+
+- `renderer/src/pos-service.ts`: respuestas SESSION_NOT_BOUND/snapshot ausente
+  de operaciones y fallos de transporte retiran capacidades ya mostradas.
+  Observación interna sólo para quitar acceso; no concede identidad ni permisos.
+- `renderer/src/hooks/useAuthorizationCapabilities.ts`: revalida al recuperar
+  foco; invalida respuestas pendientes anteriores; cero permisos efectivos
+  cierra el contenedor operativo. EXPIRED sólo se muestra con esa decisión del
+  backend, no por un reloj o vigencia inventados en React.
+- `renderer/src/hooks/useRuntimeStatus.ts` y `renderer/src/App.tsx`: denegación,
+  expiración y pérdida de servicio sin volcar excepciones IPC en la tarjeta.
+  Logotipo/diseño y pantallas comerciales conservados. Revalidar retira la UI
+  operativa hasta obtener capacidades actuales; no persiste borradores de UI.
+- `src/native-business-login.ts`: el lanzador de navegador deja de impedir
+  recibir el control de cancelación cuando su promesa no termina. El deadline,
+  cierre de callback y destrucción de estado/custodia siguen siendo los existentes.
+
+Validación de este incremento: **52/52** desktop en App, session-recovery,
+native-business-login y native-business-code-transport. La primera ejecución
+detectó tres fixtures de navegación incompletos (métodos de lectura ausentes);
+se completaron como promesas pendientes, conservando el cierre ante errores.
+**3/3** PostgreSQL físico seleccionado: contraseña incorrecta/identidad aportada
+por cliente, firma P-256 alterada y challenge expirado; **20 omitidas por filtro**.
+Autenticador software y nueva DB aleatoria del fixture localhost:55433, no persona
+ni despliegue productivo. No se repitieron las suites completas MFA/Argon2id.
+
+Comandos focalizados adicionales:
+
+```powershell
+pnpm --filter @pos-platform/pos-desktop exec vitest run tests/renderer/App.test.tsx tests/renderer/session-recovery.test.tsx tests/native-business-login.test.ts tests/native-business-code-transport.test.ts
+$env:POSTGRES_TEST_URL='postgresql://postgres@127.0.0.1:55433/pos_target_test'
+pnpm --filter @pos-platform/central-authority exec vitest run tests/business-initial-mfa-physical.test.ts -t 'incorrect password|tampered P-256|expired challenge'
+```
+
+Build completo y TypeScript desktop aprobados; renderer final 376.41 kB/gzip
+108.01 kB. Arquitectura 16/16 y ARCH-003 aprobados. E2E de la entrada productiva
+repetido por el cambio de acceso: **3/3**, pérdida real del servicio cierra
+automáticamente sin pulsar «Comprobar sesión». Evidencia nueva en
+`artifacts/electron-auth/2026-10-22-access-continuity/`, con JSON y capturas;
+los artefactos anteriores conservan sus hashes y alcance.
+
+| Dependencia | Clasificación y resultado |
+| --- | --- |
+| Contraseña/MFA/BUSINESS, custodia, recovery, enrolamiento y SSA | Implementados: reutilizados, sin autenticador ni transporte alternativo |
+| Retirada de capacidades obsoletas, estados reales y deadline nativo | Integración incompleta dentro de contratos vigentes: corregida y probada en este incremento |
+| DEV-003/SEC-004/D3/DEC-025, registro y binding previo/refresh | Decisión humana pendiente: misma propuesta conjunta; no aprobada por esta misión |
+| Central Authority, dominio/RP/TLS, claves públicas y activación | Infraestructura externa no confirmada; preparación existente, no despliegue afirmado |
+
+No hay backend productivo que comunique inicio/pending/MFA a Electron. No se
+inventaron esos estados ni un botón de login funcional. El callback y el canje
+nativos siguen sin montar hasta aprobar el binding previo navegador/dispositivo
+y un registro real. La composición de grants/SSA y renovación productiva siguen
+siendo implementación pendiente, además de la infraestructura. No se autenticó
+una persona real ni se concedió acceso Android/Windows productivo.

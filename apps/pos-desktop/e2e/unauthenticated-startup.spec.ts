@@ -155,8 +155,9 @@ test("retry and actual process restart do not fabricate a durable session", asyn
 test("actual service loss becomes unavailable and stays closed", async () => {
   const page = await app.firstWindow();
   await stopService();
-  await page.getByRole("button", { name: "Comprobar sesión" }).click();
-  await expect(page.getByTestId("authorization-error")).toBeVisible();
+  // The existing runtime status poll must invalidate access automatically;
+  // an operator click must not be required after loss of the real channel.
+  await expect(page.getByTestId("authorization-error")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("status-error")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("sale-panel")).toHaveCount(0);
   if (auditDirectory) await page.screenshot({ path: join(auditDirectory, "electron-service-unavailable.png"), fullPage: true });

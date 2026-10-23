@@ -125,7 +125,9 @@ export async function beginNativeBusinessLogin(input:{
     authorization.search=new URLSearchParams({client_id:registration.clientId,redirect_uri:registration.redirectUri,
       code_challenge:createHash("sha256").update(verifier.toString("base64url")).digest("base64url"),
       code_challenge_method:"S256",state:state.toString("base64url")}).toString();
-    await input.openSystemBrowser(authorization.href);
+    // A browser launcher may never resolve. The callback deadline and cancel
+    // handle must remain reachable independently of that external application.
+    void input.openSystemBrowser(authorization.href).catch(() => dispose("FAILED"));
   }catch{dispose("FAILED");}
   return Object.freeze({result,cancel:()=>dispose("CANCELLED")});
 }

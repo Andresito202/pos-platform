@@ -2,6 +2,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { useAuthorizationCapabilities } from "../../renderer/src/hooks/useAuthorizationCapabilities.js";
+import { callCommercial } from "../../renderer/src/pos-service.js";
+import { useRuntimeStatus } from "../../renderer/src/hooks/useRuntimeStatus.js";
 
 const unbound = { status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] } };
 const available = { status: "SUCCEEDED", result_code: "AVAILABLE", result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_READ"] } };
@@ -17,6 +19,60 @@ function service(recovery: unknown) {
 }
 
 describe("canonical session recovery coordination (unit fixtures only)", () => {
+  it("does not expose an IPC exception as runtime status text", async () => {
+    service(active);
+    Object.defineProperty(window.posService, "runtime.status.get", { value: vi.fn().mockRejectedValue(Error("sensitive-detail")) });
+    const { result } = renderHook(() => useRuntimeStatus());
+    await waitFor(() => expect(result.current.phase).toBe("error"));
+    expect(result.current).toEqual({ phase: "error", message: "LOCAL_SERVICE_UNAVAILABLE" });
+  });
+  it("denies the workspace when the backend returns no effective permissions", async () => {
+    const api = service(active);
+    api.capabilities.mockReset().mockResolvedValue({ ...available, result: { outcome: "AVAILABLE", permissions: [] } });
+    const { result } = renderHook(useAuthorizationCapabilities);
+    await waitFor(() => expect(result.current.phase).toBe("denied"));
+    expect(result.current.permissions.size).toBe(0);
+  });
+  it("reports expiration only when the canonical recovery decision says EXPIRED", async () => {
+    service({ status: "REJECTED", result_code: "UNVERIFIABLE", result: {
+      outcome: "UNVERIFIABLE", session_id: null, offline_valid_until: null, decision: "EXPIRED",
+    } });
+    const { result } = renderHook(useAuthorizationCapabilities);
+    await waitFor(() => expect(result.current.phase).toBe("expired"));
+    expect(result.current.permissions.size).toBe(0);
+  });
+  it.each(["SESSION_NOT_BOUND", "AUTHORIZATION_SNAPSHOT_UNAVAILABLE"])("removes stale permissions after an operation returns %s", async code => {
+    const api = service(active);
+    api.capabilities.mockReset().mockResolvedValue(available);
+    Object.defineProperty(window.posService, "catalog.item.list", { value: vi.fn().mockResolvedValue({
+      status: "REJECTED", result_code: code, result: null,
+    }) });
+    const { result } = renderHook(useAuthorizationCapabilities);
+    await waitFor(() => expect(result.current.phase).toBe("ready"));
+    await act(async () => { await callCommercial("catalog.item.list", { query: "", limit: 10, offset: 0 }); });
+    expect(result.current.phase).toBe(code === "SESSION_NOT_BOUND" ? "unauthenticated" : "error");
+    expect(result.current.permissions.size).toBe(0);
+  });
+  it("channel failure clears prior grants without leaking the exception into the access card", async () => {
+    const api = service(active);
+    api.capabilities.mockReset().mockResolvedValue(available);
+    Object.defineProperty(window.posService, "runtime.status.get", { value: vi.fn().mockRejectedValue(Error("sensitive-detail")) });
+    const { result } = renderHook(useAuthorizationCapabilities);
+    await waitFor(() => expect(result.current.phase).toBe("ready"));
+    await act(async () => { await expect(callCommercial("runtime.status.get", {})).rejects.toThrow(); });
+    expect(result.current).toMatchObject({ phase: "error", message: "LOCAL_SERVICE_UNAVAILABLE" });
+    expect(result.current.permissions.size).toBe(0);
+  });
+  it("focus removes displayed grants until capabilities are revalidated", async () => {
+    const api = service(active);
+    api.capabilities.mockReset().mockResolvedValueOnce(available).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(useAuthorizationCapabilities);
+    await waitFor(() => expect(result.current.phase).toBe("ready"));
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(result.current.phase).toBe("loading");
+    expect(result.current.permissions.size).toBe(0);
+    await waitFor(() => expect(api.capabilities).toHaveBeenCalledTimes(2));
+  });
   it("ACTIVE rereads capabilities; the recovery UUID grants nothing", async () => {
     const api = service(active);
     const { result } = renderHook(useAuthorizationCapabilities);

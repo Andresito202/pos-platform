@@ -10,11 +10,14 @@ function makeService() {
     "authorization.capabilities.get": vi.fn().mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: [] },
+      result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_READ"] },
     }),
     "session.recover": vi.fn().mockResolvedValue({ status: "SUCCEEDED", result_code: "NONE", result: { outcome: "NONE", session_id: null, offline_valid_until: null, decision: null } }),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
+    "catalog.item.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "admin.metrics.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "audit.event.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
   };
 }
 
@@ -27,6 +30,28 @@ beforeEach(() => {
 });
 
 describe("App", () => {
+  it("does not open the operational shell for a session with zero capabilities", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE", result: { outcome: "AVAILABLE", permissions: [] },
+    });
+    const { container } = render(<App />);
+    await screen.findByTestId("authorization-denied");
+    expect(container.querySelector(".pos-shell")).toBeNull();
+    expect(screen.queryByTestId("operation-panel")).toBeNull();
+  });
+  it("shows expiration based on a canonical backend decision, without exposing operational screens", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
+    });
+    vi.mocked(window.posService["session.recover"]).mockResolvedValue({
+      status: "REJECTED", result_code: "UNVERIFIABLE", result: {
+        outcome: "UNVERIFIABLE", session_id: null, offline_valid_until: null, decision: "EXPIRED",
+      },
+    });
+    render(<App />);
+    await screen.findByTestId("authorization-expired");
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+  });
   it("shows only navigation areas covered by effective permissions", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
