@@ -181,8 +181,9 @@ export function App(): React.JSX.Element {
     return result;
   }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo]);
 
-  if (authorization.phase === "loading" || authorization.phase === "error") {
+  if (authorization.phase === "loading" || authorization.phase === "error" || authorization.phase === "unauthenticated") {
     const loading = authorization.phase === "loading";
+    const unauthenticated = authorization.phase === "unauthenticated";
     return (
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Camacho POS Colombia">
@@ -191,15 +192,18 @@ export function App(): React.JSX.Element {
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
           <h1>Camacho POS Colombia</h1>
-          <h2>{loading ? "Validando sesión" : "Acceso no disponible"}</h2>
-          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : "El POS no ha podido verificar una sesión autorizada."}</p>
+          <h2>{loading ? "Validando sesión" : unauthenticated ? "Sin sesión comercial" : "Acceso no disponible"}</h2>
+          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : unauthenticated ? "Contacta al administrador para habilitar el acceso comercial." : "El POS no ha podido verificar una sesión autorizada."}</p>
           {loading ? (
             <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
-          ) : (
+          ) : unauthenticated ? (
+            <div data-testid="authorization-unauthenticated" role="status">No hay una sesión comercial activa en este dispositivo.</div>
+          ) : authorization.phase === "error" ? (
             <div data-testid="authorization-error" role="alert">
               No se pudo cargar la autorización: {authorization.message}
             </div>
-          )}
+          ) : null}
+          <button type="button" onClick={authorization.retry} disabled={loading}>Comprobar sesión</button>
           <StatusPanel />
         </section>
       </main>

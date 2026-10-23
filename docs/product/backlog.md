@@ -22,6 +22,8 @@ Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](
 
 ## Jerarquía relacionada
 
+Continuidad prioritaria Electron 2026-10-22: [recuperación local y arranque real](../testing/electron-session-recovery-2026-10-22.md), entrada productiva y servicio real sin identidad sembrada; 3/3 E2E y 75/75 focalizadas. Ausencia de sesión, pérdida de servicio y denegaciones verificadas; login humano/Android siguen pendientes de la propuesta conjunta. Requisito posterior registrado: app `co.camachopos.printmini` v0.12, observación física del propietario; futura configuración con descarga oficial, versión y guía, sin API ni adapter inventados. No cambia la prioridad de autenticación.
+
 Continuidad prioritaria de autenticación 2026-10-22: [custodia HTTP canónica y HTTPS](../testing/business-browser-https-2026-10-22.md), publicada en `114b8812`; [preparación nativa Windows/Android](../testing/native-business-auth-preparation-2026-10-22.md). Evidencia de laboratorio separada de activación: no se autentica una persona ni se concede sesión POS. La propuesta conjunta incorpora el binding navegador/dispositivo y refresh que necesitan aprobación; no se avanza al resto del backlog mientras este incremento siga pendiente.
 
 Continuidad catálogo fiscal 2026-10-22: [D-19, escritor inicial](../testing/catalog-fiscal-write-2026-10-22.md), atributos fiscales opcionales explícitos en el alta existente, validación fiscal canónica y transacción única, 20/20 catálogo, 6/6 renderer y nueva prueba por canal real. No edición fiscal de productos previos, documento productivo ni E2E Android; D-21/D-22 siguen abiertos.

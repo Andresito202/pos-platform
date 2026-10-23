@@ -1,5 +1,11 @@
 # Estado verificable de continuidad comercial — 2026-10-22
 
+Actualización de autenticación: [arranque Electron y recuperación local](electron-session-recovery-2026-10-22.md).
+Entrada productiva, preload y canal Windows reales verificados sin sesión: 3/3 E2E,
+75/75 focalizadas. Complementa este corte histórico; no acredita login humano ni
+Android comercial. La [preparación nativa](native-business-auth-preparation-2026-10-22.md)
+y la [custodia HTTPS](business-browser-https-2026-10-22.md) conservan sus propios límites.
+
 Base inicial comprobada limpia/sincronizada `f1e5a0bb21009608eb49f6f0dcd6435e0d39bd37`. Una sola línea `feat/android-commercial-runtime`, sin merge/main/rebase ni cambios a bases persistentes. Corte de código publicado: **`e9a07458667d9241ce36374c7078ca5bdf6aa88f`**. Este informe no declara cierre integral ni producción.
 
 ## Incrementos publicados

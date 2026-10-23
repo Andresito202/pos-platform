@@ -53,15 +53,18 @@ function required(name: string): string {
   return value;
 }
 
+if(process.env.NODE_ENV!=="test")throw Error("E2E_HOST_REQUIRES_TEST_ENVIRONMENT");
+const WITHOUT_SESSION=process.env.POS_E2E_SESSION_MODE==="NONE";
+if(WITHOUT_SESSION&&process.platform!=="win32")throw Error("UNAUTHENTICATED_PRODUCTION_ENTRY_TEST_REQUIRES_WINDOWS");
 const DATA_DIRECTORY = required("POS_E2E_DATA_DIR");
-const SECRET = Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
+const SECRET = WITHOUT_SESSION?Buffer.alloc(0):Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
 const TENANT = required("POS_E2E_TENANT_ID");
 const COMPANY = required("POS_E2E_COMPANY_ID");
 const BRANCH = required("POS_E2E_BRANCH_ID");
 const INSTALLATION = required("POS_E2E_INSTALLATION_ID");
 const DEVICE = required("POS_E2E_DEVICE_ID");
-const USER = required("POS_E2E_USER_ID");
-const REGISTER = required("POS_E2E_REGISTER_ID");
+const USER = WITHOUT_SESSION?"":required("POS_E2E_USER_ID");
+const REGISTER = WITHOUT_SESSION?"":required("POS_E2E_REGISTER_ID");
 
 const MEMBERSHIP = "018f0000-0000-7000-8000-0000000000b1";
 const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
@@ -70,7 +73,7 @@ const NOW = new Date("2026-09-03T12:00:00.000Z");
 
 const PERMISSIONS = Object.values(CanonicalPermission);
 
-const keyPair = generateKeyPairSync("ed25519");
+const keyPair = WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
 
 function config(): ServiceConfig {
   return {
@@ -85,7 +88,7 @@ function config(): ServiceConfig {
     protocol_max: "1.0.0",
     // `DEC-021` F5. En produccion lo pone `POS_FISCAL_ENVIRONMENT`; aqui va
     // fijo a SANDBOX porque la credencial que deposita el arnes es de prueba.
-    fiscal_environment: "SANDBOX",
+    ...(WITHOUT_SESSION?{}:{fiscal_environment:"SANDBOX" as const}),
   };
 }
 
@@ -209,45 +212,53 @@ async function main(): Promise<void> {
   const operations = new OperationConfirmationComponent(localDatabase, durableSync);
   await operations.start();
 
-  new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
-    {
-      claims: authorizationClaims(),
-      signature: sign(null, unsignedAuthorizationSnapshotBytes(authorizationClaims()), keyPair.privateKey)
-        .toString("base64url"),
-    },
-    { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
-  );
-  seedRegister(database);
-  seedFiscalRange(database);
+  let commercial: CommercialComponent;
+  if (WITHOUT_SESSION) {
+    // Actual owners and empty canonical storage. No signer, snapshot, SSA,
+    // user, cash seed, fiscal credential or fake provider exists in this mode.
+    commercial = new CommercialComponent(config(), localDatabase, durableSync);
+  } else {
+    if(!keyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
+    new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+      {
+        claims: authorizationClaims(),
+        signature: sign(null, unsignedAuthorizationSnapshotBytes(authorizationClaims()), keyPair.privateKey)
+          .toString("base64url"),
+      },
+      { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+    );
+    seedRegister(database);
+    seedFiscalRange(database);
 
-  const keys = new Map<string, TrustedSigningKey>([
-    [SESSION_KEY_ID, { key: createPublicKey(keyPair.privateKey), status: "ACTIVE" }],
-  ]);
+    const keys = new Map<string, TrustedSigningKey>([
+      [SESSION_KEY_ID, { key: createPublicKey(keyPair.privateKey), status: "ACTIVE" }],
+    ]);
 
-  // Credencial fiscal depositada por la misma via que usa el operador en `F2`.
-  // El valor es de prueba y no sale de este directorio temporal.
-  const fiscalSecretStore = new EncryptedFileSecretStore(
-    DATA_DIRECTORY,
-    new InsecureDerivedKeyProvider(DATA_DIRECTORY),
-    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
-  );
-  new FiscalCredentialStore(fiscalSecretStore).deposit(
-    {
-      provider: "FACTUS", environment: "SANDBOX",
-      fields: { client_id: "e2e", client_secret: "e2e", username: "e2e", password: "e2e" },
-    },
-    FACTUS_ADAPTER_DECLARATION.credential,
-  );
+    // Credencial fiscal depositada por la misma via que usa el operador en `F2`.
+    // El valor es de prueba y no sale de este directorio temporal.
+    const fiscalSecretStore = new EncryptedFileSecretStore(
+      DATA_DIRECTORY,
+      new InsecureDerivedKeyProvider(DATA_DIRECTORY),
+      fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
+    );
+    new FiscalCredentialStore(fiscalSecretStore).deposit(
+      {
+        provider: "FACTUS", environment: "SANDBOX",
+        fields: { client_id: "e2e", client_secret: "e2e", username: "e2e", password: "e2e" },
+      },
+      FACTUS_ADAPTER_DECLARATION.credential,
+    );
 
-  const commercial = new CommercialComponent(
-    config(),
-    localDatabase,
-    durableSync,
-    keys,
-    () => NOW,
-    fiscalSecretStore,
-    new FakeIssuancePort(),
-  );
+    commercial = new CommercialComponent(
+      config(),
+      localDatabase,
+      durableSync,
+      keys,
+      () => NOW,
+      fiscalSecretStore,
+      new FakeIssuancePort(),
+    );
+  }
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
 
@@ -300,14 +311,14 @@ async function main(): Promise<void> {
 
   await server.start();
 
-  const claims = sessionClaims();
+  const claims = WITHOUT_SESSION?null:sessionClaims();
   process.stdout.write(`${JSON.stringify({
     ready: true,
     endpoint,
-    sessionAssertion: {
+    sessionAssertion: keyPair&&claims?{
       claims,
       signature: sign(null, unsignedSessionAssertionBytes(claims), keyPair.privateKey).toString("base64url"),
-    },
+    }:null,
   })}\n`);
 
   const shutdown = (): void => {
@@ -328,6 +339,12 @@ async function main(): Promise<void> {
   if (process.connected && process.env.NODE_ENV === "test") {
     process.on("message", (message: unknown) => {
       if (message === "pos-e2e-shutdown") shutdown();
+      if(WITHOUT_SESSION&&message==="pos-e2e-empty-state"){
+        const count=(table:string)=>database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {n:number};
+        process.send?.({type:"pos-e2e-empty-state",sessions:count("local_session_assertion").n,
+          snapshots:count("local_authorization_snapshot").n,sales:count("sales_sales").n,cashShifts:count("cash_shift").n,
+          signingKeys:0,authority:"NONE"});
+      }
     });
   }
 }
