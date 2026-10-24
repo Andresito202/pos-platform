@@ -67,6 +67,11 @@ export class LocalSecurityComponent implements RuntimeComponent {
     return this.keyProvider.protection;
   }
 
+  /** Public provisioning metadata only; a caller's IDs never rebind this key. */
+  matchesDeviceBinding(binding:LocalSecurityBinding):boolean {
+    return binding.installationId===this.binding.installationId&&binding.deviceId===this.binding.deviceId;
+  }
+
   /** Huella pública de la clave del dispositivo. No es un secreto. */
   get deviceKeyId(): string {
     if (!this.deviceKeyIdValue) throw new Error("device identity is not ready");

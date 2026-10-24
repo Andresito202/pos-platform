@@ -6,6 +6,8 @@ El propietario no necesita inventar UUID ni proporcionar secretos. Primero debe 
 
 ## Una decisión conjunta y sus datos
 
+Continuidad Windows 2026-10-24: [custodia comercial y preparación de despliegue](windows-commercial-custody-2026-10-24.md). El propietario confirma otra vez que no hay entorno Central Authority disponible. El adaptador interno firma desde LocalSecurityComponent y comprueba enrolamiento/credencial en cada uso; no está expuesto por el canal de producto. Para montarlo se propone que el coordinador privilegiado del Service construya y envíe sólo solicitudes comerciales concretas, y main conserve callback/PKCE/state. Revisar contrato de intercambio, binding al intento/cliente, cancelación, límites y custodia temporal antes de añadir handlers al canal autenticado existente. No aprobar ni implementar un RPC genérico de firma ni pasar claves al main. Configuración Windows puede inspeccionarse sin datos Android; eso no aprueba despliegue ni parámetros productivos.
+
 Continuidad 2026-10-24: el [productor SAS](central-authorization-snapshot-2026-10-24.md) ya está implementado/probado en laboratorio Windows. Las menciones inferiores a productor ausente conservan su corte histórico. La autorización de laboratorio no aprueba provisión productiva, nuevos privilegios ni migraciones.
 
 | Precisión SAS de esta misma solicitud | Candidato no activado | Fundamento / riesgo | Aprobación requerida |

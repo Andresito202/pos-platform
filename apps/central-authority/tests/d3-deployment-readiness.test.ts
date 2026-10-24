@@ -39,4 +39,20 @@ describe("D3 deployment evidence — configuration validation only",()=>{
   it("accepts structurally complete evidence without activating any runtime",()=>{
     expect(inspectD3DeploymentEvidence(candidate)).toEqual({ready:true,blockers:[]});
   });
+  it("validates Windows independently of Android while preserving the default joint gate",()=>{
+    const windows={issuerOrigin:candidate.issuerOrigin,webauthnRpId:candidate.webauthnRpId,
+      webauthnOrigin:candidate.webauthnOrigin,electronClientId:candidate.electronClientId,
+      electronRedirectUri:candidate.electronRedirectUri,centralDeviceTrustVerified:true,
+      signingKeyCustodianConfirmed:true,securityPolicyApprovalReference:candidate.securityPolicyApprovalReference};
+    expect(inspectD3DeploymentEvidence(windows,"WINDOWS")).toEqual({ready:true,blockers:[]});
+    expect(inspectD3DeploymentEvidence(windows).ready).toBe(false);
+    for(const missing of ["centralDeviceTrustVerified","signingKeyCustodianConfirmed","securityPolicyApprovalReference"] as const){
+      expect(inspectD3DeploymentEvidence({...windows,[missing]:undefined},"WINDOWS").ready).toBe(false);
+    }
+  });
+  it("does not bypass Windows RP, redirect or evidence checks with a target selector",()=>{
+    expect(inspectD3DeploymentEvidence({...candidate,electronRedirectUri:"http://localhost:42133/callback"},"WINDOWS").blockers).toContain("D3_ELECTRON_LOOPBACK_INVALID");
+    expect(inspectD3DeploymentEvidence({...candidate,webauthnOrigin:"https://other.example.test"},"WINDOWS").blockers).toContain("D3_WEBAUTHN_ORIGIN_MISMATCH");
+    expect(inspectD3DeploymentEvidence(candidate,"ANDROID" as never).ready).toBe(false);
+  });
 });
