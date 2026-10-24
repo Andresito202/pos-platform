@@ -14,6 +14,7 @@ import {boundIdentityFromClaims} from "../session/session-binding-registry.js";
 import {SignedSessionAssertionSchema,SignedAuthorizationSnapshotSchema} from "@pos-platform/contracts";
 import { SqliteAuthorizationSnapshotStore } from "../authorization/sqlite-authorization-snapshot-store.js";
 import {AuthorizationSnapshotVerifier} from "../security/authorization-snapshot-verifier.js";
+import {assertAuthorizationTrustSeparated} from "../security/authorization-trust-separation.js";
 import {SnapshotAcquisitionService} from "../authorization/snapshot-acquisition.js";
 import type {SnapshotProvider} from "../authorization/snapshot-provider.js";
 import type {SnapshotBinding} from "../authorization/authorization-snapshot-store.js";
@@ -147,6 +148,7 @@ export class CommercialComponent implements RuntimeComponent {
   get sessionActivation(): SessionActivationService { return this.ready.sessionActivation; }
   get authorizationStore(): SqliteAuthorizationSnapshotStore { return this.ready.authorizationStore; }
   verifyNativeAuthorization(assertion:unknown,snapshot:unknown){
+    assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
     const ssa=SignedSessionAssertionSchema.parse(assertion),sas=SignedAuthorizationSnapshotSchema.parse(snapshot);
     const binding={...this.deviceBinding(),userId:ssa.claims.user_id};
     const identity=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
@@ -165,12 +167,14 @@ export class CommercialComponent implements RuntimeComponent {
     this.bindings.bind(connectionId,boundIdentityFromClaims(ssa.claims));
   }
   loadVerifiedAuthorization(binding:SnapshotBinding){
+    try{assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);}catch{return null;}
     const stored=this.authorizationStore.loadActive(binding);if(!stored)return null;
     const verified=new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
       .verify({claims:stored.claims,signature:stored.signature},binding);
     return verified.decision==="VALID"?stored:null;
   }
   async refreshAuthorization(provider:SnapshotProvider){
+    assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
     const {installationId,deviceId}=this.deviceBinding();
     const found=this.sessionStore.loadActiveByDevice(installationId,deviceId);
     if(found.kind!=="FOUND")throw Error("AUTHORIZATION_ACTIVE_SESSION_REQUIRED");

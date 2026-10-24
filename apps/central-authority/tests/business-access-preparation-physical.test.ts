@@ -1,5 +1,6 @@
 import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityEventRepository } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
+import {verifyCentralRuntimeDatabase} from "../src/central-deployment-configuration.js";
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
 import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refresh-rotation.js";
 import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-access-token-codec.js";
@@ -196,6 +197,10 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       requestId,correlationId,credentialId:deviceCredentialId,body},deviceKeys.privateKey);
     return {authorization,requestId,correlationId,body};
   }
+  it("commercial deployment: runtime preflight validates canonical schema and rejects owner without writes",async()=>{
+    await expect(verifyCentralRuntimeDatabase(runtime)).resolves.toBeUndefined();
+    await expect(verifyCentralRuntimeDatabase(owner)).rejects.toThrow("CENTRAL_RUNTIME_DATABASE_REJECTED");
+  });
   async function openAgain() {
     const next=await preparation.open({mfaReceipt:await authenticate(),selection:{tenantId,membershipId}});
     if (!next) throw new Error("ACCESS_FIXTURE_REOPEN_FAILED");

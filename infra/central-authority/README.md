@@ -5,6 +5,38 @@ confirmado**. Este directorio prepara el servicio existente; no registra DNS,
 no genera claves, no aprovisiona cuentas y no despliega nada. `infra/central-sync`
 es transporte de sincronización, no la autoridad de identidad.
 
+## Perfil ejecutable preparado en P0-05
+
+`CENTRAL_DEPLOYMENT_ENVIRONMENT` selecciona LOCAL, PREPRODUCTION o PRODUCTION.
+No es una aprobación ni activa BUSINESS/SAS. Si se configura, el arranque exige
+origen HTTPS canónico, puerto/límites/tiempos explícitos, archivos absolutos de
+TLS/issuer/token y rol PostgreSQL `pos_platform_app`. PREPRODUCTION/PRODUCTION
+rechazan dominios de laboratorio y requieren `sslmode=verify-full` para DB.
+El cliente PostgreSQL debe disponer de su CA real por configuración del operador;
+no se instala ninguna CA por ejecutar este código.
+
+Antes de crear el pool/listener se verifica la hoja TLS contra hostname, vigencia
+y clave privada, y se exige issuer Ed25519. Esto no prueba que los clientes confíen
+en la cadena TLS: debe observarse contra el entorno real. Antes de escuchar se
+verifican rol sin superuser/BYPASSRLS/creación de roles/DB, sin membresía del owner,
+y presencia de las cuatro tablas canónicas de enrollment. No se concede ningún
+privilegio ni se ejecutan migraciones. El token se lee de archivo protegido, no
+del valor legacy de entorno. Archivos, CA, ACL y políticas deben provisionarse y
+aprobarse externamente; no se eligieron valores operativos en este incremento.
+
+`/health` conserva liveness. `/ready` devuelve 503 sin perfil o DB elegible y
+200 sólo para el servicio de enrollment listo; declara explícitamente
+`commercial_auth: NOT_ACTIVATED`. Las comprobaciones concurrentes comparten una
+consulta y tienen deadline explícito. SIGINT/SIGTERM drenan HTTP antes de cerrar
+el pool; el deadline configurado fuerza cierre de conexiones y salida fallida
+si no termina. Un Host distinto del origen configurado se rechaza.
+
+Sin selector ni campos del perfil se conserva el arranque **legacy de enrollment** para no
+alterar callers/workflows existentes. Sus defaults históricos no son configuración
+comercial aprobada. Las rutas BUSINESS permanecen bloqueadas en ambos casos.
+El ejemplo sigue vacío y no desplegable; no ejecutar el servidor públicamente
+como consecuencia de copiarlo. [Resultados P0-05](../../docs/testing/commercial-provisioning-2026-10-24.md).
+
 ## Separar los tres entornos
 
 | Entorno | Uso / identidad | Estado |

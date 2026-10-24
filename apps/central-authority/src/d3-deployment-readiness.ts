@@ -1,3 +1,4 @@
+import {validateWindowsCommercialRegistration} from "@pos-platform/contracts";
 /**
  * Deployment-owned D3 configuration gate. It deliberately has no defaults,
  * secret material, issuer or production activation switch.
@@ -23,6 +24,12 @@ export interface D3DeploymentEvidence {
 }
 
 export type D3Readiness = Readonly<{ready: boolean; blockers: readonly string[]}>;
+
+export function resolveWindowsCommercialRegistration(input:Partial<D3DeploymentEvidence>){
+  if(!inspectD3DeploymentEvidence(input,"WINDOWS").ready)throw Error("D3_WINDOWS_DEPLOYMENT_INCOMPLETE");
+  return validateWindowsCommercialRegistration({clientId:input.electronClientId!,redirectUri:input.electronRedirectUri!,
+    authorizationOrigin:input.issuerOrigin!,platform:"ELECTRON"},input.webauthnRpId!,input.webauthnOrigin!);
+}
 
 export function inspectD3DeploymentEvidence(input: Partial<D3DeploymentEvidence> | null,
   target:"ALL"|"WINDOWS"="ALL"): D3Readiness {

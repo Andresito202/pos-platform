@@ -88,6 +88,7 @@ const NOW = new Date("2026-09-03T12:00:00.000Z");
 const PERMISSIONS = Object.values(CanonicalPermission);
 
 const keyPair = WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
+const authorizationKeyPair=WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
 
 function config(): ServiceConfig {
   return {
@@ -254,11 +255,11 @@ async function main(): Promise<void> {
     }
     commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys,undefined,undefined,undefined,authorizationKeys);
   } else {
-    if(!keyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
+    if(!keyPair||!authorizationKeyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
     new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
       {
         claims: authorizationClaims(),
-        signature: sign(null, unsignedAuthorizationSnapshotBytes(authorizationClaims()), keyPair.privateKey)
+        signature: sign(null, unsignedAuthorizationSnapshotBytes(authorizationClaims()), authorizationKeyPair.privateKey)
           .toString("base64url"),
       },
       { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
@@ -293,7 +294,7 @@ async function main(): Promise<void> {
       () => NOW,
       fiscalSecretStore,
       new FakeIssuancePort(),
-      new Map([["AUTHZ_KEY_1",{key:keyPair.publicKey,status:"ACTIVE" as const}]]),
+      new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
     );
   }
   await commercial.start();

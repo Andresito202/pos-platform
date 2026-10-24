@@ -36,7 +36,9 @@ async function fixture(){
   const signed=(claims=projection())=>({claims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(claims)),sas.privateKey).toString("base64url")});
   const acquire=(artifact=signed())=>component.refreshAuthorization({fetch:async()=>artifact});
   cleanup.push(async()=>{await component.stop();db.close();if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("camacho-sas-reception-"))throw Error("SAS_TEST_CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});});
-  return {db,component,keys,projection,signed,acquire,call,advance:()=>{now=new Date(now.getTime()+31_000);}};
+  return {db,component,keys,projection,signed,acquire,call,sessionPublicKey:ssa.publicKey,
+    sessionSigned:(claims=projection())=>({claims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(claims)),ssa.privateKey).toString("base64url")}),
+    advance:()=>{now=new Date(now.getTime()+31_000);}};
 }
 it("central SAS reception: verified projection persists, permissions are scoped and direct forbidden operation is denied",async()=>{
   const f=await fixture();expect(await f.acquire()).toMatchObject({kind:"ACQUIRED",sequence:1});
@@ -90,5 +92,14 @@ it("central SAS reception: invalid or expired authorization key window fails clo
   f.keys.set("SAS_TEST_UNIT",{...key,validUntil:"not-a-date"});
   expect(f.call("authorization.capabilities.get").result_code).toBe("AUTHORIZATION_SNAPSHOT_UNAVAILABLE");
   f.keys.set("SAS_TEST_UNIT",{...key,validUntil:new Date(Date.now()-1000).toISOString()});
+  expect(f.call("authorization.capabilities.get").result_code).toBe("AUTHORIZATION_SNAPSHOT_UNAVAILABLE");
+});
+it("central SAS reception: an SSA key aliased as SAS cannot authorize despite a valid signature",async()=>{
+  const f=await fixture();f.keys.set("SAS_TEST_UNIT",{key:f.sessionPublicKey,status:"ACTIVE"});
+  await expect(f.acquire(f.sessionSigned())).rejects.toThrow("AUTHORIZATION_TRUST_PURPOSE_SEPARATION_REQUIRED");
+  expect(f.call("authorization.capabilities.get").result.permissions).toEqual([]);
+});
+it("central SAS reception: key rotation that reuses SSA material blocks an already stored SAS",async()=>{
+  const f=await fixture();await f.acquire();f.keys.set("SAS_TEST_UNIT",{key:f.sessionPublicKey,status:"ACTIVE"});
   expect(f.call("authorization.capabilities.get").result_code).toBe("AUTHORIZATION_SNAPSHOT_UNAVAILABLE");
 });

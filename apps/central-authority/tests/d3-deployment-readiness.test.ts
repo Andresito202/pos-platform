@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {inspectD3DeploymentEvidence} from "../src/d3-deployment-readiness.js";
+import {inspectD3DeploymentEvidence,resolveWindowsCommercialRegistration} from "../src/d3-deployment-readiness.js";
 const candidate={
   issuerOrigin:"https://auth.example.test",webauthnRpId:"auth.example.test",
   webauthnOrigin:"https://auth.example.test",
@@ -54,5 +54,11 @@ describe("D3 deployment evidence — configuration validation only",()=>{
     expect(inspectD3DeploymentEvidence({...candidate,electronRedirectUri:"http://localhost:42133/callback"},"WINDOWS").blockers).toContain("D3_ELECTRON_LOOPBACK_INVALID");
     expect(inspectD3DeploymentEvidence({...candidate,webauthnOrigin:"https://other.example.test"},"WINDOWS").blockers).toContain("D3_WEBAUTHN_ORIGIN_MISMATCH");
     expect(inspectD3DeploymentEvidence(candidate,"ANDROID" as never).ready).toBe(false);
+  });
+  it("resolves typed commercial registration only from complete, non-laboratory metadata",()=>{
+    const metadata={...candidate,issuerOrigin:"https://auth.operator-domain.co",webauthnRpId:"auth.operator-domain.co",webauthnOrigin:"https://auth.operator-domain.co"};
+    expect(resolveWindowsCommercialRegistration(metadata).registration.platform).toBe("ELECTRON");
+    expect(()=>resolveWindowsCommercialRegistration({...metadata,centralDeviceTrustVerified:false})).toThrow("D3_WINDOWS_DEPLOYMENT_INCOMPLETE");
+    expect(()=>resolveWindowsCommercialRegistration(candidate)).toThrow("COMMERCIAL_HTTPS_ORIGIN_INVALID");
   });
 });

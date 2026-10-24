@@ -31,3 +31,20 @@ export function validateNativeClientRegistration(value:NativeClientRegistration)
     redirect.protocol!=="http:"||redirect.hostname!=="127.0.0.1"||!redirect.port||Number(redirect.port)<1||Number(redirect.port)>65535||redirect.pathname!=="/callback")throw Error("NATIVE_CLIENT_REGISTRATION_INVALID");
   return Object.freeze({clientId:value.clientId,redirectUri:value.redirectUri,authorizationOrigin:value.authorizationOrigin,...(value.platform?{platform:value.platform}:{})});
 }
+
+/** Deployment metadata only: passing validation never proves domain ownership
+ * or security approval. Reserved laboratory origins cannot enter this profile. */
+export function validateCommercialHttpsOrigin(value:string):string{
+  let url:URL;try{url=new URL(value);}catch{throw Error("COMMERCIAL_HTTPS_ORIGIN_INVALID");}
+  if(url.protocol!=="https:"||url.origin!==value||url.username||url.password||url.pathname!=="/"||url.search||url.hash||
+    !url.hostname.includes(".")||url.hostname.startsWith("[")||/^\d+(\.\d+){3}$/.test(url.hostname)||
+    /(^|\.)(localhost|test|invalid|example)$/.test(url.hostname)||/(^|\.)example\.(com|net|org)$/.test(url.hostname))throw Error("COMMERCIAL_HTTPS_ORIGIN_INVALID");
+  return url.origin;
+}
+export function validateWindowsCommercialRegistration(registration:NativeClientRegistration,rpId:string,webauthnOrigin:string){
+  const client=validateNativeClientRegistration(registration),origin=validateCommercialHttpsOrigin(client.authorizationOrigin);
+  if(client.platform==="ANDROID"||webauthnOrigin!==origin||typeof rpId!=="string"||
+    !rpId.includes(".")||new URL("https://"+rpId).hostname!==rpId||
+    !(new URL(origin).hostname===rpId||new URL(origin).hostname.endsWith("."+rpId)))throw Error("COMMERCIAL_WINDOWS_RP_REGISTRATION_REJECTED");
+  return Object.freeze({registration:client,rpId,webauthnOrigin});
+}

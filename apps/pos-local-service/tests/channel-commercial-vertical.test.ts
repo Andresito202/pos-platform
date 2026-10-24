@@ -66,6 +66,7 @@ import {
  */
 
 const testOnlyKeyPair = generateKeyPairSync("ed25519");
+const authorizationKeyPair=generateKeyPairSync("ed25519");
 
 const TENANT = "018f0000-0000-7000-8000-0000000000a4";
 const COMPANY = "018f0000-0000-7000-8000-0000000000a5";
@@ -201,7 +202,7 @@ function authorizationClaims(): AuthorizationSnapshotClaims {
 function signAuthorization(claims: AuthorizationSnapshotClaims) {
   return {
     claims,
-    signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), testOnlyKeyPair.privateKey)
+    signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), authorizationKeyPair.privateKey)
       .toString("base64url"),
   };
 }
@@ -318,7 +319,7 @@ async function withRealChannel(
     { store: new DurableSyncStore(database) } as never,
     keys,
     () => NOW,
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:createPublicKey(testOnlyKeyPair.privateKey),status:"ACTIVE" as const}]]),
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
@@ -432,7 +433,7 @@ async function withRealFiscalChannel(
     () => NOW,
     fiscalSecretStore,
     new FakeIssuancePort(outcome),
-    new Map([["AUTHZ_KEY_1",{key:createPublicKey(testOnlyKeyPair.privateKey),status:"ACTIVE" as const}]]),
+    new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(fiscalConfig(), commercial);

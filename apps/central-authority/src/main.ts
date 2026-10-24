@@ -6,10 +6,13 @@ import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type Device
 import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
 import { SessionTrustPublication } from "./session-trust-publication.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
+import {resolveCentralDeploymentConfiguration,verifyCentralTlsIdentity,verifyEnrollmentIssuerKey,verifyCentralRuntimeDatabase,createCentralReadinessProbe} from "./central-deployment-configuration.js";
+import {drainCentralServer} from "./central-server-shutdown.js";
 
-const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
-const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
-const MAX_CREDENTIAL_LIFETIME_MS = Number(process.env.D3_CREDENTIAL_LIFETIME_MS ?? String(24 * 60 * 60 * 1000));
+const deployment=resolveCentralDeploymentConfiguration(process.env);
+const PORT = deployment?.port??Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
+const MAX_BODY_BYTES = deployment?.maxBodyBytes??Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
+const MAX_CREDENTIAL_LIFETIME_MS = deployment?.credentialLifetimeMs??Number(process.env.D3_CREDENTIAL_LIFETIME_MS ?? String(24 * 60 * 60 * 1000));
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
@@ -71,10 +74,12 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
 }
 
 const databaseUrl = required("CENTRAL_DATABASE_URL");
-const transportToken = required("D3_ENROLLMENT_TRANSPORT_TOKEN");
+const transportToken = deployment?secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE"):required("D3_ENROLLMENT_TRANSPORT_TOKEN");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
 const tlsKey = readFileSync(required("CENTRAL_TLS_KEY_FILE"));
 const tlsCert = readFileSync(required("CENTRAL_TLS_CERT_FILE"));
+if(deployment){verifyCentralTlsIdentity(deployment,tlsCert,createPrivateKey(tlsKey));verifyEnrollmentIssuerKey(issuerPrivateKey);
+  if(transportToken.length<32||transportToken.length>4096||/[\r\n]/.test(transportToken))throw Error("CENTRAL_MANAGED_TOKEN_REJECTED");}
 const sessionTrustPublication = process.env.SESSION_TRUST_ARTIFACT_FILE === undefined
   ? null
   : new SessionTrustPublication(process.env.SESSION_TRUST_ARTIFACT_FILE);
@@ -82,6 +87,8 @@ const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FIL
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
+if(deployment){try{await verifyCentralRuntimeDatabase(pool);}catch{await pool.end();throw Error("CENTRAL_RUNTIME_DATABASE_REJECTED");}}
+const readiness=deployment?createCentralReadinessProbe(pool,deployment.requestTimeoutMs):null;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
@@ -96,6 +103,7 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
 const limiter = new FixedWindowRateLimiter();
 
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, async (request, response) => {
+  if(deployment&&request.headers.host!==new URL(deployment.origin).host){send(response,421,{status:"REJECTED",result_code:"CENTRAL_HOST_REJECTED"});return;}
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
@@ -103,6 +111,10 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   if (request.method === "GET" && request.url === "/health") {
     send(response, 200, { status: "OK", service: "central-authority", protocol_version: "1.0.0" });
     return;
+  }
+  if(request.method==="GET"&&request.url==="/ready"){
+    if(readiness&&await readiness())send(response,200,{status:"READY",service:"central-authority",commercial_auth:"NOT_ACTIVATED"});
+    else send(response,503,{status:"NOT_READY",service:"central-authority"});return;
   }
 
   if (request.method === "GET" && request.url === "/v1/session-trust") {
@@ -175,13 +187,19 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
 });
 
 server.on("clientError", (_error, socket) => socket.destroy());
+if(deployment){server.requestTimeout=deployment.requestTimeoutMs;server.headersTimeout=deployment.headersTimeoutMs;}
+if(deployment)server.once("error",()=>{process.stderr.write("CENTRAL_LISTEN_FAILED\n");void pool.end().finally(()=>{process.exitCode=1;});});
 server.listen(PORT, "0.0.0.0", () => process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n"));
 
+let stopping=false;
 const shutdown = async (signal: string) => {
-  server.close();
-  await pool.end();
-  process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");
-  process.exit(0);
+  if(stopping)return;stopping=true;
+  try{
+    if(deployment){const outcome=await drainCentralServer(server,pool,deployment.shutdownTimeoutMs);
+      process.stdout.write(JSON.stringify({service:"central-authority",status:"STOPPED",signal,outcome})+"\n");process.exit(outcome==="DRAINED"?0:1);}
+    server.close();await pool.end();
+    process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");process.exit(0);
+  }catch{process.stderr.write("CENTRAL_SHUTDOWN_FAILED\n");process.exit(1);}
 };
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
