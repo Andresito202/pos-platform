@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+Estudio visual autorizado 2026-10-24 desde `781328ef`: [skills y tres propuestas de diseño](../design/pos-proposals-2026-10-24/README.md). Instalación personal, inventario de frontend y prototipos documentales A/B/C separados del runtime, con capturas reales sin datos/sesiones fabricados. No reemplazar pantallas antes de aprobación visual; no modifica contratos ni cambia el bloqueo/continuidad de autenticación. El futuro rediseño se ejecuta por módulos tras decisión, sin ramas paralelas ni mezclar commits de seguridad.
+
 Continuidad P0 2026-10-24 desde `9639c9f`: [confianza/provisión Windows](../testing/commercial-provisioning-continuity-2026-10-24.md). Se corrige revocación root-signed interpretada antes de autenticar y se exige material público Ed25519. Propuesta de contador Authorization ensayada sólo en PostgreSQL temporal, sin descriptor/montaje productivo ni UPDATE RBAC. Solicitud única precisa sobre SAS completo, access/refresh y privilegios/vigencias; no hay formato SAS de confianza activado ni aprobación nueva. El primer enrolamiento/login humano sigue bloqueado por entorno real y decisiones concretas.
 
 Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Platform: prioridad, dependencia, bloqueo, trabajo activo y orden inmediato.

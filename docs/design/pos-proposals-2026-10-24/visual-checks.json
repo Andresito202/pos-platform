@@ -1,0 +1,1441 @@
+{
+  "scope": "DOCUMENTATION_PROTOTYPES_ONLY",
+  "data": "NONE",
+  "backendCalls": 0,
+  "consoleErrors": [],
+  "layouts": [
+    {
+      "theme": "a",
+      "screen": "inventario",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "ventas",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "dashboard",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "login",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "catalogo",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "clientes",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "caja",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "auditoria",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "hardware",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "estados",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "componentes",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 37
+    },
+    {
+      "theme": "a",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "login",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "caja",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "estados",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "login",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "caja",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "estados",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "login",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "caja",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "estados",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "a",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "inventario",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "ventas",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "dashboard",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "login",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "catalogo",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "clientes",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "caja",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "auditoria",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "hardware",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "estados",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "componentes",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "b",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "login",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "caja",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "estados",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "login",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "caja",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "estados",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "login",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "caja",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "estados",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "b",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "inventario",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "ventas",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "dashboard",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "login",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "catalogo",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "clientes",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "caja",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "auditoria",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "hardware",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "estados",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "componentes",
+      "density": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 34
+    },
+    {
+      "theme": "c",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "login",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "caja",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "estados",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 1024,
+      "contentWidth": 1024,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "login",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "caja",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "estados",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 768,
+      "contentWidth": 768,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "inventario",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "ventas",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "dashboard",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "login",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "catalogo",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "clientes",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "caja",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "auditoria",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "hardware",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "estados",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    },
+    {
+      "theme": "c",
+      "screen": "componentes",
+      "density": "touch",
+      "width": 390,
+      "contentWidth": 390,
+      "logoLoaded": true,
+      "enabledBusinessInputs": 0,
+      "minimumControlHeight": 48
+    }
+  ],
+  "screenshots": [
+    "a-inventario-desktop.png",
+    "a-ventas-desktop.png",
+    "a-dashboard-desktop.png",
+    "a-login-desktop.png",
+    "a-inventario-touch.png",
+    "a-ventas-touch.png",
+    "a-dashboard-touch.png",
+    "a-login-touch.png",
+    "b-inventario-desktop.png",
+    "b-ventas-desktop.png",
+    "b-dashboard-desktop.png",
+    "b-login-desktop.png",
+    "b-inventario-touch.png",
+    "b-ventas-touch.png",
+    "b-dashboard-touch.png",
+    "b-login-touch.png",
+    "c-inventario-desktop.png",
+    "c-ventas-desktop.png",
+    "c-dashboard-desktop.png",
+    "c-login-desktop.png",
+    "c-inventario-touch.png",
+    "c-ventas-touch.png",
+    "c-dashboard-touch.png",
+    "c-login-touch.png"
+  ],
+  "contrasts": [
+    {
+      "theme": "a",
+      "pair": "primary",
+      "foreground": "#ffffff",
+      "background": "#176a4c",
+      "ratio": 6.56
+    },
+    {
+      "theme": "a",
+      "pair": "blue",
+      "foreground": "#174a74",
+      "background": "#ffffff",
+      "ratio": 9.26
+    },
+    {
+      "theme": "a",
+      "pair": "body",
+      "foreground": "#172d3b",
+      "background": "#f7f8fa",
+      "ratio": 13.4
+    },
+    {
+      "theme": "a",
+      "pair": "muted",
+      "foreground": "#536471",
+      "background": "#ffffff",
+      "ratio": 6.12
+    },
+    {
+      "theme": "b",
+      "pair": "primary",
+      "foreground": "#ffffff",
+      "background": "#087052",
+      "ratio": 6.09
+    },
+    {
+      "theme": "b",
+      "pair": "blue",
+      "foreground": "#123d68",
+      "background": "#ffffff",
+      "ratio": 11.09
+    },
+    {
+      "theme": "b",
+      "pair": "body",
+      "foreground": "#142b3a",
+      "background": "#f3f6f8",
+      "ratio": 13.47
+    },
+    {
+      "theme": "b",
+      "pair": "muted",
+      "foreground": "#536475",
+      "background": "#ffffff",
+      "ratio": 6.09
+    },
+    {
+      "theme": "c",
+      "pair": "primary",
+      "foreground": "#ffffff",
+      "background": "#136750",
+      "ratio": 6.81
+    },
+    {
+      "theme": "c",
+      "pair": "blue",
+      "foreground": "#064b78",
+      "background": "#ffffff",
+      "ratio": 9.19
+    },
+    {
+      "theme": "c",
+      "pair": "body",
+      "foreground": "#163145",
+      "background": "#f5f8f7",
+      "ratio": 12.6
+    },
+    {
+      "theme": "c",
+      "pair": "muted",
+      "foreground": "#526572",
+      "background": "#ffffff",
+      "ratio": 6.06
+    }
+  ],
+  "currentRenderer": "Observed built renderer: no bridge/session injected, Acceso no disponible"
+}
