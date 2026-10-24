@@ -1637,8 +1637,19 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       nativeSsa:{invalid:"REJECTED",activated:"ACTIVATED",replay:"REJECTED",recovered:"ACTIVE",channelLossRejected:true,
         capabilities:{result_code:"AUTHORIZATION_SNAPSHOT_UNAVAILABLE"}}});
   },100,true,{}),90_000);
-  it.runIf(process.platform==="win32")("central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard",async()=>{
+  it.runIf(process.platform==="win32").each([false,true])("central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=%s",async serviceCustody=>{
     const s=await sasFixture();
+    const deviceRoot=generateKeyPairSync("ed25519"),deviceOperational=generateKeyPairSync("ed25519"),at=new Date(Date.now()-1000).toISOString(),until=new Date(Date.now()+300000).toISOString();
+    const operationalClaims={key_id:"NATIVE_DEVICE_TEST",key_purpose:"DEVICE_TRUST",public_key_pem:deviceOperational.publicKey.export({format:"pem",type:"spki"}).toString(),status:"ACTIVE",valid_from:at,version:1};
+    const credentialClaims={credential_id:deviceCredentialId,key_id:operationalClaims.key_id,tenant_id:tenantId,company_id:companyId,installation_id:installationId,device_id:deviceId,
+      device_public_key_pem:deviceKeys.publicKey.export({format:"pem",type:"spki"}).toString(),issued_at:at,not_before:at,expires_at:until,version:1};
+    const activation={activation_id:uuidV7(),tenant_id:tenantId,company_id:companyId,installation_id:installationId,device_id:deviceId,
+      activation_secret:randomBytes(48).toString("base64url"),status:"ISSUED",issued_at:at,expires_at:until,version:1};
+    const custodyFixture={activation,rootPublicPem:deviceRoot.publicKey.export({format:"pem",type:"spki"}).toString(),
+      operational:{claims:operationalClaims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(operationalClaims)),deviceRoot.privateKey).toString("base64url")},
+      result:{status:"ENROLLED",activation_id:activation.activation_id,credential_id:deviceCredentialId,
+        credential:{claims:credentialClaims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(credentialClaims)),deviceOperational.privateKey).toString("base64url")},
+        enrolled_at:at,reason:null,version:1}};
     await withHttps(async(_post,_codec,server,_coordinator,signing)=>{
       const address=server.address();if(!address||typeof address==="string")throw Error("SAS_E2E_ADDRESS_REQUIRED");
       const counter=await owner.query("SELECT counter::int AS n FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
@@ -1647,10 +1658,13 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         registration:{clientId:nativeClientId,redirectUri:exchangeRedirect,authorizationOrigin:origin},tenantId,companyId,branchId:s.branchId,installationId,deviceId,
         ssaPublicTrust:{rootPublicPem:signing.rootTrustAnchor.export({format:"pem",type:"spki"}).toString(),artifact:signing.signedOperationalKey},
         nativeBinding:{deviceCredentialId,devicePrivatePem:deviceKeys.privateKey.export({format:"pem",type:"pkcs8"}).toString(),ca:tls!.cert.toString()},
+        ...(serviceCustody?{serviceCustody:custodyFixture}:{}),
         sasPublicTrust:{mode:s.material.mode,environment:s.material.environment,purpose:s.material.purpose,keyId:s.material.keyId,status:s.material.status,
           validFrom:s.material.validFrom,validUntil:s.material.validUntil,publicPem:s.material.publicKey.export({format:"pem",type:"spki"}).toString()},
         beforeAuthorizationRevocation:async()=>{await owner.query(`UPDATE "authorization".user_role_assignments SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1`,[s.assignmentId]);}});
-      expect(observed).toMatchObject({centralSas:true,dashboardAuthorized:true,revocationDenied:true,dashboardClosed:true,nativeSsa:{activated:"ACTIVATED",recovered:"ACTIVE",
+      if(serviceCustody)expect(observed).toMatchObject({serviceCustody:true,devicePrivateKeyInMain:false,dashboardAuthorized:true,
+        observed:{recovery:{result_code:"ACTIVE"},capabilities:{result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{result_code:"UNAUTHORIZED"}}});
+      else expect(observed).toMatchObject({centralSas:true,dashboardAuthorized:true,revocationDenied:true,dashboardClosed:true,nativeSsa:{activated:"ACTIVATED",recovered:"ACTIVE",
         capabilities:{status:"SUCCEEDED",result_code:"AVAILABLE",result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{status:"REJECTED",result_code:"UNAUTHORIZED"}}});
     },100,true,{},codec=>sasIssuer(codec,s));
   },90_000);

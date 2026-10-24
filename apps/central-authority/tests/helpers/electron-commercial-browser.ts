@@ -7,8 +7,9 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 
-/** Reuses the existing empty real-service host. No signer, SSA, grants or user
- * is installed into SQLite; central password/MFA/BUSINESS must do actual work. */
+/** Reuses the host with empty commercial storage. Optional device provisioning
+ * is Service-only; SSA/grants/user authorization are never seeded into SQLite.
+ * Central password/MFA/BUSINESS and the SQL SAS producer do the actual work. */
 export async function exerciseElectronCommercialBrowser(input: {
   port: number; certificateFingerprint: string; email: string; password: string;
   credentialId: string; privateKey: string; counter: number;
@@ -17,6 +18,7 @@ export async function exerciseElectronCommercialBrowser(input: {
   issuedAssertion?:unknown;
   ssaPublicTrust?:{rootPublicPem:string;artifact:unknown};
   nativeBinding?:{deviceCredentialId:string;devicePrivatePem:string;ca:string};
+  serviceCustody?:{activation:unknown;result:unknown;rootPublicPem:string;operational:unknown};
   sasPublicTrust?:{mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
   beforeAuthorizationRevocation?:()=>Promise<void>;
 }): Promise<Record<string, unknown>> {
@@ -27,7 +29,7 @@ export async function exerciseElectronCommercialBrowser(input: {
   const inputPipe = `\\\\.\\pipe\\camacho-browser-test-${randomUUID()}`;
   let initial=true;
   const inputServer = createServer(socket => {
-    if(initial){initial=false;socket.end(JSON.stringify(input));return;}
+    if(initial){initial=false;socket.end(JSON.stringify(input.serviceCustody?{...input,nativeBinding:undefined,serviceCustody:undefined,privilegedService:true}:input));return;}
     // Reuses the private integration-control pipe, never a product IPC or
     // renderer bridge. Service pulls the signed projection over real HTTPS.
     let data="";
@@ -64,8 +66,11 @@ export async function exerciseElectronCommercialBrowser(input: {
         POS_E2E_DATA_DIR: directory, POS_E2E_TENANT_ID: input.tenantId, POS_E2E_COMPANY_ID: input.companyId,
         POS_E2E_BRANCH_ID: input.branchId, POS_E2E_INSTALLATION_ID: input.installationId, POS_E2E_DEVICE_ID: input.deviceId,
         POS_E2E_SSA_PUBLIC_TRUST:input.ssaPublicTrust?JSON.stringify(input.ssaPublicTrust):"",
-        POS_E2E_SAS_PUBLIC_TRUST:input.sasPublicTrust?JSON.stringify(input.sasPublicTrust):"" },
+        POS_E2E_SAS_PUBLIC_TRUST:input.sasPublicTrust?JSON.stringify(input.sasPublicTrust):"",
+        POS_E2E_NATIVE_CUSTODY:input.serviceCustody?"1":"0" },
     });
+    if(input.serviceCustody)service.send!({type:"pos-e2e-native-provision",...input.serviceCustody,
+      binding:input.nativeBinding,registration:input.registration,port:input.port});
     await ready(service, line => line.includes('"ready":true'));
     const env = { ...process.env, POS_DATA_DIRECTORY: directory, POS_INSTALLATION_ID: input.installationId,
       POS_DEVICE_ID: input.deviceId, CAMACHO_BROWSER_TEST_DIRECTORY: directory, CAMACHO_BROWSER_TEST_PORT: String(input.port),

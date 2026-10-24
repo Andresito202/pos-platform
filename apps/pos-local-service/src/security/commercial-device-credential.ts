@@ -35,6 +35,11 @@ export class CommercialDeviceCredentialProvider {
     if(!context||context.method!=="POST"||!COMMERCIAL_PATHS.has(context.path)||
       typeof context.body!=="string"||Buffer.byteLength(context.body)>16*1024)
       throw Error("COMMERCIAL_DEVICE_REQUEST_REJECTED");
+    const {identity,credential}=this.requireVerified();
+    return identity.signRequestAuthorization({...context,credentialId:credential.claims.credential_id});
+  }
+  requireVerifiedCredentialId():string{return this.requireVerified().credential.claims.credential_id;}
+  private requireVerified(){
     if(this.security.protection!=="OS_BOUND")throw Error("COMMERCIAL_DEVICE_OS_CUSTODY_REQUIRED");
     if(!this.security.matchesDeviceBinding(this.binding))throw Error("COMMERCIAL_DEVICE_LOCAL_BINDING_MISMATCH");
     // Obtain the live identity on every call: stopped/replaced components cannot
@@ -59,6 +64,6 @@ export class CommercialDeviceCredentialProvider {
     if(!completed)throw Error("DEVICE_ENROLLMENT_COMPLETION_NOT_RECORDED");
     // Reuse the canonical request signer and nonce construction. No key copy,
     // second credential store or alternative DeviceProof format is introduced.
-    return identity.signRequestAuthorization({...context,credentialId:credential.claims.credential_id});
+    return {identity,credential};
   }
 }

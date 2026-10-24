@@ -1,5 +1,7 @@
 # Windows comercial: custodia nativa y preparación de despliegue
 
+Continuidad posterior: [P0-04, canal privilegiado Windows](windows-privileged-native-channel-2026-10-24.md). El adaptador ya está conectado a main y Service mediante operaciones cerradas en el host aislado; sustituye el pendiente de transporte de este corte. No implica montaje productivo ni certificación humana.
+
 Base local/remota `efe16803ca0cf596b2441b8acbc79e642b6246ce`, rama activa
 `feat/android-commercial-runtime`, PR #96 draft. Sólo estaba sin rastrear
 `docs/product/oracleJdk-27/`; se conserva intacto y fuera del commit.

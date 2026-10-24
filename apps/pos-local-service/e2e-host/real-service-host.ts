@@ -21,6 +21,18 @@ import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-p
 import { CanonicalPermission } from "@pos-platform/contracts";
 import {SessionTrustKeyVerifier} from "../src/security/session-trust-key-verifier.js";
 import {IsolatedHttpsSnapshotProvider} from "../src/authorization/isolated-https-snapshot-provider.js";
+import {mkdirSync} from "node:fs";
+import {join} from "node:path";
+import {WindowsDpapiKeyProvider} from "../src/security/windows-dpapi-key-provider.js";
+import {LocalSecurityComponent,deviceIdentityContext} from "../src/security/local-security-component.js";
+import {DeviceTrustCredentialStore} from "../src/security/device-trust-credential-store.js";
+import {DeviceEnrollmentService} from "../src/security/device-enrollment-service.js";
+import {DeviceTrustVerifier} from "@pos-platform/device-trust";
+import {CommercialDeviceCredentialProvider} from "../src/security/commercial-device-credential.js";
+import {NativeCommercialCoordinator} from "../src/security/native-commercial-coordinator.js";
+import {IsolatedNativeCommercialHttps} from "../src/security/native-commercial-https.js";
+import {TrustedClockGuard} from "../src/security/trusted-clock.js";
+import type {NativeClientRegistration} from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -206,6 +218,12 @@ function seedRegister(database: LocalDatabase): void {
 }
 
 async function main(): Promise<void> {
+  // Fixture provisioning comes from the parent test directly to Service, never
+  // Electron. Production main does not accept this control message.
+  const custody=process.env.POS_E2E_NATIVE_CUSTODY==="1"?await new Promise<{
+    activation:unknown;result:unknown;rootPublicPem:string;operational:unknown;registration:NativeClientRegistration;port:number;
+    binding:{devicePrivatePem:string;ca:string};
+  }>(resolve=>process.once("message",packet=>{if(packet&&typeof packet==="object"&&"type" in packet&&packet.type==="pos-e2e-native-provision")resolve(packet as never);else throw Error("NATIVE_TEST_PROVISION_REQUIRED");})):undefined;
   const localDatabase = new LocalDatabaseComponent(DATA_DIRECTORY);
   await localDatabase.start();
   const database = localDatabase.database;
@@ -279,11 +297,31 @@ async function main(): Promise<void> {
     );
   }
   await commercial.start();
+  let nativeCommercial:NativeCommercialCoordinator|undefined,localSecurity:LocalSecurityComponent|undefined,enrollmentSecrets:EncryptedFileSecretStore|undefined;
+  if(custody){
+    if(!WITHOUT_SESSION||process.platform!=="win32"||process.env.NODE_ENV!=="test")throw Error("NATIVE_TEST_PROVISION_FORBIDDEN");
+    const b={tenantId:TENANT,companyId:COMPANY,installationId:INSTALLATION,deviceId:DEVICE},directory=join(DATA_DIRECTORY,"security");
+    mkdirSync(directory,{recursive:true});const provider=new WindowsDpapiKeyProvider(directory);
+    const identitySecrets=new EncryptedFileSecretStore(directory,provider,deviceIdentityContext(b));
+    const bytes=Buffer.from(custody.binding.devicePrivatePem);custody.binding.devicePrivatePem="";
+    try{identitySecrets.write("device-identity",bytes);}finally{bytes.fill(0);identitySecrets.destroy();}
+    localSecurity=new LocalSecurityComponent(localDatabase,b,provider,directory);await localSecurity.start();
+    enrollmentSecrets=new EncryptedFileSecretStore(directory,provider,`device-trust:${INSTALLATION}:${DEVICE}`);
+    const credentials=new DeviceTrustCredentialStore(enrollmentSecrets),keys=new Map();
+    const verifier=new DeviceTrustVerifier(createPublicKey(custody.rootPublicPem),keys,{now:()=>new Date(),accept:at=>new TrustedClockGuard(database).accept(at)});
+    const operational=verifier.verifyOperationalKey(custody.operational);if(operational.decision!=="VALID"||!operational.value)throw Error("NATIVE_TEST_TRUST_REJECTED");
+    keys.set(operational.value.key_id,{key:createPublicKey(operational.value.public_key_pem),status:operational.value.status,validFrom:operational.value.valid_from});
+    const enrollment=new DeviceEnrollmentService(database,localSecurity.identity,b,()=>new Date(),credentials);
+    if(enrollment.prepare(custody.activation).decision!=="READY")throw Error("NATIVE_TEST_ENROLLMENT_PREPARE_REJECTED");enrollment.complete(custody.result,verifier);
+    nativeCommercial=new NativeCommercialCoordinator(new CommercialDeviceCredentialProvider(localSecurity,localDatabase,credentials,verifier,b),custody.registration,
+      new IsolatedNativeCommercialHttps(custody.registration,{mode:"ISOLATED_VALIDATION",port:custody.port,ca:Buffer.from(custody.binding.ca),timeoutMs:4000}),commercial,
+      {mode:"ISOLATED_VALIDATION",attemptLifetimeMs:60000});
+  }
   const handler = new CommercialRequestHandler(config(), commercial);
 
   const endpoint = localChannelEndpoint(INSTALLATION, process.platform, DATA_DIRECTORY);
   const server = process.platform === "win32"
-    ? new LocalChannelComponent(config(), localDatabase, () => "READY", operations, commercial)
+    ? new LocalChannelComponent(config(), localDatabase, () => "READY", operations, commercial,nativeCommercial)
     : new LocalChannelServer(
     endpoint,
     // Reloj del sistema, no `NOW`: el autenticador valida la marca temporal de
@@ -344,6 +382,7 @@ async function main(): Promise<void> {
     void (async () => {
       try {
         await server.stop();
+          enrollmentSecrets?.destroy();await localSecurity?.stop();
         await commercial.stop();
         await operations.stop();
         await durableSync.stop();

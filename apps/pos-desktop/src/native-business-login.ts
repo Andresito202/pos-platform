@@ -58,7 +58,7 @@ function validCredentials(value:unknown):value is {accessToken:string;refreshTok
   return Object.keys(v).length===2&&typeof v.accessToken==="string"&&v.accessToken.length<=8192&&
     /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v.accessToken)&&typeof v.refreshToken==="string"&&/^[A-Za-z0-9_-]{64}$/.test(v.refreshToken);
 }
-export type NativeLoginResult="CREDENTIALS_STORED"|"CANCELLED"|"FAILED";
+export type NativeLoginResult="CREDENTIALS_STORED"|"SESSION_ACTIVATED"|"CANCELLED"|"FAILED";
 type Exchange={code:string;verifier:string;state:string};
 
 /** Existing central token contract, OS TLS trust, no redirects or ambient browser credentials. */
@@ -91,6 +91,8 @@ export async function beginNativeBusinessLogin(input:{
   registration:NativeClientRegistration;timeoutMs:number;vault:NativeBusinessCredentialVault;
   openSystemBrowser:(authorizationUrl:string)=>Promise<void>;
   exchange:(registration:NativeClientRegistration,input:Exchange)=>Promise<{accessToken:string;refreshToken:string}>;
+  /** Privileged service completion; mutually exclusive with legacy token custody. */
+  complete?:(input:Exchange,signal:AbortSignal)=>Promise<void>;
   /** Trusted main-only registration adapter. Not accepted through preload.
    * May only return the same registered HTTPS origin and one opaque selector. */
   prepareAuthorization?:(request:{client_id:string;redirect_uri:string;code_challenge:string;code_challenge_method:"S256";state:string})=>Promise<string>;
@@ -105,8 +107,10 @@ export async function beginNativeBusinessLogin(input:{
   let finish!:(status:NativeLoginResult)=>void;
   const result=new Promise<NativeLoginResult>(resolve=>{finish=resolve;});
   let timer:ReturnType<typeof setTimeout>|undefined;
+  const completionAbort=new AbortController();
   const dispose=(status:NativeLoginResult)=>{
     if(phase==="DONE")return;phase="DONE";if(timer)clearTimeout(timer);
+    completionAbort.abort();
     verifier.fill(0);state.fill(0);server.closeAllConnections();server.close();
     if(status!=="CREDENTIALS_STORED")input.vault.clearAttempt(attempt);finish(status);
   };
@@ -129,6 +133,9 @@ export async function beginNativeBusinessLogin(input:{
     if(actual.toString("base64url")!==returned||actual.length!==state.length||!timingSafeEqual(actual,state)){reply(400);return;}
     phase="EXCHANGING";reply(200);server.close();
     const exchange={code,verifier:verifier.toString("base64url"),state:state.toString("base64url")};
+    if(input.complete){
+      void input.complete(exchange,completionAbort.signal).then(()=>{if(phase!=="DONE")dispose("SESSION_ACTIVATED");},()=>dispose("FAILED"));return;
+    }
     void input.exchange(registration,exchange).then(credentials=>{
       if(phase==="DONE")return;
       try{dispose(input.vault.replaceForAttempt(attempt,credentials)?"CREDENTIALS_STORED":"CANCELLED");}catch{dispose("FAILED");}

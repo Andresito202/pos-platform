@@ -1,5 +1,6 @@
 import type * as z from "zod";
 import {
+  NativeCommercialResponseSchema,
   HardwareResponseSchema,
   AdminMetricsGetResponseSchema,
   AuditEventListResponseSchema,
@@ -39,6 +40,10 @@ import {
  * esquema; las demás conservan validación estricta en la frontera.
  */
 export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodType> = {
+  "commercial.native.begin":NativeCommercialResponseSchema,
+  "commercial.native.complete":NativeCommercialResponseSchema,
+  "commercial.native.cancel":NativeCommercialResponseSchema,
+  "commercial.native.commit":NativeCommercialResponseSchema,
   "hardware.command": HardwareResponseSchema,
   "runtime.handshake": RuntimeHandshakeResponseSchema,
   "runtime.status.get": RuntimeStatusResponseSchema,

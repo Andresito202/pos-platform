@@ -76,7 +76,8 @@ async function run() {
   } });
   input.privateKey = "";
   const { beginNativeBusinessLogin, NativeBusinessCredentialVault, exchangeNativeBusinessCode } = await import("../dist/native-browser-login-probe.mjs");
-  const vault = new NativeBusinessCredentialVault(safeStorage);
+  const Vault=input.privilegedService?(await import("../dist/ssa-native-transport-probe.mjs")).NativeBusinessCredentialVault:NativeBusinessCredentialVault;
+  const vault = new Vault(safeStorage);
   let nativePost;
   if(input.nativeBinding){
     const {createDeviceRequestAuthorization}=await import("../dist/device-proof-lab-probe.mjs");
@@ -108,7 +109,10 @@ async function run() {
       });
     };
   }
-  const attempt = await beginNativeBusinessLogin({ registration: input.registration, timeoutMs: 60_000, vault,
+  const privileged=input.privilegedService?await import("../dist/ssa-native-transport-probe.mjs"):undefined;
+  const nativeConnection=privileged?await privileged.openNativeServiceChannel():undefined;
+  const attempt = privileged?await privileged.beginServiceBackedNativeLogin({channel:nativeConnection.channel,registration:input.registration,timeoutMs:60_000,vault,
+    openSystemBrowser:url=>browser.loadURL(url)}):await beginNativeBusinessLogin({ registration: input.registration, timeoutMs: 60_000, vault,
     openSystemBrowser: url => browser.loadURL(url),
     ...(nativePost?{prepareAuthorization:async parameters=>{
       const challenge=await nativePost("/v1/commercial/native-request-challenges",parameters,false);
@@ -149,11 +153,23 @@ async function run() {
     const erased = await browser.webContents.executeJavaScript('document.querySelector("[name=password]").value === "" && localStorage.length === 0 && sessionStorage.length === 0 && document.cookie === ""');
     const protectedCookie = (await partition.cookies.get({url:"https://business.example.test"})).some(cookie => cookie.httpOnly && cookie.secure);
     if (!protectedCookie) throw Error("BROWSER_COOKIE_PROTECTION_MISSING");
-    if(nativePost){
+    if(nativePost||privileged){
       const destination=await browser.webContents.executeJavaScript('document.querySelector("#destination").textContent');
       if(!destination.includes(input.deviceId)||!destination.includes(input.installationId))throw Error("NATIVE_DESTINATION_NOT_DISPLAYED");
       await browser.webContents.executeJavaScript('document.querySelector("#confirm").click()');
       process.stderr.write("BROWSER_DRIVER_DESTINATION_CONFIRMED\n");
+      if(privileged){
+        if(input.nativeBinding)throw Error("PRIVATE_DEVICE_MATERIAL_REACHED_MAIN");
+        if(await attempt.result!=="SESSION_ACTIVATED")throw Error("SERVICE_NATIVE_SESSION_NOT_ACTIVATED");
+        await nativeConnection.close();
+        const observed=await privileged.inspectNativeAuthorization();
+        if(observed.recovery.result_code!=="ACTIVE"||observed.capabilities.result.permissions.join()!=="AUDIT_EVENT_READ"||observed.forbidden.result_code!=="UNAUTHORIZED")throw Error("SERVICE_NATIVE_CAPABILITIES_REJECTED");
+        await pos.webContents.executeJavaScript('document.querySelector("button").click()');
+        await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector(".pos-shell"))'),"SERVICE_CUSTODY_DASHBOARD");
+        if(process.env.POS_E2E_AUDIT_DIRECTORY){const {writeFile,mkdir}=await import("node:fs/promises");await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"service-custody-dashboard.png"),(await pos.capturePage()).toPNG());}
+        process.stdout.write(JSON.stringify({browserIntegration:true,scope:"ISOLATED_VALIDATION",serviceCustody:true,devicePrivateKeyInMain:false,
+          dashboardAuthorized:true,wrongPasswordRejected:true,erased,observed,authenticator:"CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"})+"\n");return;
+      }
       if(await attempt.result!=="CREDENTIALS_STORED")throw Error("NATIVE_BOUND_CODE_NOT_STORED");
       const assertion=await vault.use(async tokens=>{
         // JWT payload is a selector only; Central verifies signature/current

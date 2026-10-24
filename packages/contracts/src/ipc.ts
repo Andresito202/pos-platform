@@ -1,4 +1,5 @@
 import * as z from "zod";
+import {NativeCommercialBeginRequestSchema,NativeCommercialCompleteRequestSchema,NativeCommercialCancelRequestSchema,NativeCommercialCommitRequestSchema,NativeCommercialResponseSchema} from "./ipc-native-commercial.js";
 import { HardwareRequestSchema,HardwareResponseSchema } from "./hardware.js";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
 import { RuntimeCompatibilitySnapshotSchema, RuntimeHandshakeOutcomeSchema } from "./handshake.js";
@@ -66,6 +67,7 @@ import {
 } from "./ipc-commercial.js";
 
 export const IpcMessageTypeSchema = z.enum([
+  "commercial.native.begin","commercial.native.complete","commercial.native.cancel","commercial.native.commit",
   "hardware.command",
   "runtime.handshake",
   "runtime.status.get",
@@ -172,6 +174,7 @@ export type OperationResultQuery = z.infer<typeof OperationResultQuerySchema>;
 export type OperationConfirmation = z.infer<typeof OperationConfirmationSchema>;
 
 export const IpcRequestSchema = z.union([
+  NativeCommercialBeginRequestSchema,NativeCommercialCompleteRequestSchema,NativeCommercialCancelRequestSchema,NativeCommercialCommitRequestSchema,
   HardwareRequestSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
@@ -208,6 +211,7 @@ export const IpcRequestSchema = z.union([
 ]);
 
 export const IpcResponseSchema = z.union([
+  NativeCommercialResponseSchema,
   HardwareResponseSchema,
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,

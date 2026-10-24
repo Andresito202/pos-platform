@@ -1,9 +1,14 @@
-import {createPublicKey,generateKeyPairSync,sign,randomUUID} from "node:crypto";
+import {createPublicKey,generateKeyPairSync,sign,randomUUID,randomBytes,createHash} from "node:crypto";
 import {mkdtemp,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,dirname,resolve,basename} from "node:path";
 import {afterEach,describe,it,expect} from "vitest";
-import {uuidV7,type SignedDeviceTrustCredential} from "@pos-platform/contracts";
+import {uuidV7,canonicalSessionTrustJson,NativeCommercialRequestSchema,type SignedDeviceTrustCredential} from "@pos-platform/contracts";
+import {NativeCommercialCoordinator,type NativeCommercialCentralTransport} from "../src/security/native-commercial-coordinator.js";
+import {CommercialComponent} from "../src/commercial/commercial-component.js";
+import {DurableSyncStore} from "../src/sync/durable-sync-store.js";
+import {LocalChannelClient,LocalChannelAuthenticator,loadOrCreateWindowsLocalChannelSecret} from "@pos-platform/local-channel";
+import {LocalChannelComponent} from "../src/channel/local-channel-component.js";
 import {CentralDeviceCredentialIssuer,DeviceTrustVerifier,canonicalDeviceTrustJson,verifyDeviceRequestAuthorization,
   type TrustedDeviceTrustKey} from "@pos-platform/device-trust";
 import {LocalDatabaseComponent} from "../src/local-database-component.js";
@@ -47,7 +52,7 @@ async function fixture(insecure=false){
     if(dirname(resolve(directory))!==resolve(tmpdir())||!basename(directory).startsWith("camacho-commercial-device-"))throw Error("TEST_CLEANUP_REJECTED");
     await rm(directory,{recursive:true,force:true});});
   const context=(path="/v1/commercial/native-requests")=>({method:"POST" as const,path,requestId:uuidV7(),correlationId:uuidV7(),body:JSON.stringify({fixture:"exact signed bytes"})});
-  return {database,binding,credentials,verifier,keys,context,signer,result,enroll:()=>enrollment.complete(result,verifier),
+  return {database,directory,binding,credentials,verifier,keys,context,signer,result,enroll:()=>enrollment.complete(result,verifier),
     withBinding:(other:typeof binding)=>new CommercialDeviceCredentialProvider(security,database,credentials,verifier,other),
     resign:(credential:SignedDeviceTrustCredential)=>({...credential,signature:sign(null,Buffer.from(canonicalDeviceTrustJson(credential.claims)),operational.privateKey).toString("base64url")}),
     identity:()=>security.identity,advance:(ms:number)=>{now=new Date(now.getTime()+ms);},
@@ -115,4 +120,109 @@ describe.runIf(process.platform==="win32")("commercial device custody — real W
   it("refuses the TEST_ONLY provider even with a valid credential and audit",async()=>{
     const f=await fixture(true);f.enroll();await expect(f.signer().authorization(f.context())).rejects.toThrow("COMMERCIAL_DEVICE_OS_CUSTODY_REQUIRED");
   });
+});
+
+async function coordinatedFixture(){
+  const f=await fixture();f.enroll();const user=randomUUID(),sid=randomUUID(),branch=randomUUID(),ssa=generateKeyPairSync("ed25519"),sas=generateKeyPairSync("ed25519");
+  const config={data_directory:f.directory,installation_id:f.binding.installationId,device_id:f.binding.deviceId,tenant_id:f.binding.tenantId,
+    company_id:f.binding.companyId,branch_id:branch,service_version:"1.0.0",protocol_min:"1.0.0",protocol_max:"1.0.0"};
+  const commercial=new CommercialComponent(config,f.database,{store:new DurableSyncStore(f.database.database)} as never,
+    new Map([["SSA_UNIT",{key:ssa.publicKey,status:"ACTIVE"}]]),undefined,undefined,undefined,new Map([["SAS_UNIT",{key:sas.publicKey,status:"ACTIVE"}]]));
+  await commercial.start();cleanup.push(()=>commercial.stop());
+  const at=new Date(),until=new Date(at.getTime()+60000).toISOString();
+  const assertionClaims={session_id:sid,user_id:user,tenant_membership_id:randomUUID(),installation_id:f.binding.installationId,device_id:f.binding.deviceId,
+    sequence:1,key_id:"SSA_UNIT",issued_at:at.toISOString(),offline_valid_until:until};
+  const snapshotClaims={snapshot_id:randomUUID(),user_id:user,installation_id:f.binding.installationId,device_id:f.binding.deviceId,sequence:1,
+    key_id:"SAS_UNIT",issued_at:at.toISOString(),expires_at:until,assignments:[]};
+  const artifact=(claims:object,key:ReturnType<typeof generateKeyPairSync>["privateKey"])=>({claims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(claims)),key).toString("base64url")});
+  const assertion=artifact(assertionClaims,ssa.privateKey),snapshot=artifact(snapshotClaims,sas.privateKey),nonce=new Set<string>(),paths:string[]=[];
+  const registration={clientId:"desktop",redirectUri:"http://127.0.0.1:42133/callback",authorizationOrigin:"https://business.example.test"};
+  let hook:((path:string)=>Promise<void>)|undefined;
+  const transport:NativeCommercialCentralTransport={post:async(path,body,headers,signal)=>{
+    paths.push(path);if(hook)await hook(path);if(signal.aborted)throw Error("ABORTED");
+    if(path.endsWith("native-request-challenges"))return {challenge_id:uuidV7(),challenge:randomBytes(32).toString("base64url"),expires_at:until};
+    const verified=verifyDeviceRequestAuthorization(headers.authorization!,{method:"POST",path,body,requestId:headers["x-request-id"]!,correlationId:headers["x-correlation-id"]!},createPublicKey(f.identity().publicKeyPem()));
+    expect(verified?.credentialId).toBe(f.result.credential_id);expect(nonce.has(verified!.nonce)).toBe(false);nonce.add(verified!.nonce);
+    if(path.endsWith("native-requests"))return {authorization_url:registration.authorizationOrigin+"/v1/commercial/login?request="+randomBytes(32).toString("base64url"),expires_at:until};
+    if(path.endsWith("/token"))return {accessToken:"e30."+Buffer.from(JSON.stringify({sid})).toString("base64url")+".c2ln",refreshToken:randomBytes(48).toString("base64url")};
+    if(path.endsWith("/assertions"))return assertion;return snapshot;
+  }};
+  let now=Date.now();const coordinator=new NativeCommercialCoordinator(f.signer(),registration,transport,commercial,{mode:"ISOLATED_VALIDATION",attemptLifetimeMs:30000},()=>now);
+  cleanup.push(async()=>coordinator.stop());
+  const state=randomBytes(32).toString("base64url"),verifier=randomBytes(48).toString("base64url");
+  const beginPayload={state,code_challenge:createHash("sha256").update(verifier).digest("base64url")};
+  const envelope=(message_type:string,payload:unknown)=>({protocol_version:"1.0.0",message_type,request_id:uuidV7(),correlation_id:uuidV7(),payload_schema_version:"1.0.0",payload});
+  const call=(type:string,payload:unknown,connection="owner",signal=new AbortController().signal)=>coordinator.handle(envelope(type,payload),connection,signal);
+  const begin=async()=>{const response=await call("commercial.native.begin",beginPayload);expect(response.result?.outcome).toBe("PREPARED");return response.result!.attempt_id!;};
+  const complete=(id:string,overrides={})=>call("commercial.native.complete",{attempt_id:id,code:"authorized-code-fixture",state,code_verifier:verifier,...overrides});
+  return {...f,config,commercial,coordinator,assertion,snapshot,paths,call,begin,complete,envelope,beginPayload,codeVerifier:verifier,
+    hook:(h:typeof hook)=>{hook=h;},expire:()=>{now+=30001;}};
+}
+
+describe.runIf(process.platform==="win32")("privileged native coordinator",()=>{
+  it("uses DPAPI proofs and commits verified SSA/SAS together only after explicit commit",async()=>{
+    const f=await coordinatedFixture(),id=await f.begin();expect((await f.complete(id)).result?.outcome).toBe("VERIFIED");
+    expect(f.commercial.bindings.resolve("owner")).toBeNull();
+    expect((await f.call("commercial.native.commit",{attempt_id:id})).result?.outcome).toBe("ACTIVATED");
+    expect(f.commercial.bindings.resolve("owner")?.ssaSessionId).toBe((f.assertion.claims as {session_id:string}).session_id);
+    expect((await f.call("commercial.native.commit",{attempt_id:id})).result?.outcome).toBe("DENIED");expect(f.paths).toHaveLength(5);
+  });
+  it.each(["state","code_verifier"])("rejects manipulated %s without redeeming a code",async field=>{
+    const f=await coordinatedFixture(),id=await f.begin();expect((await f.complete(id,{[field]:"x".repeat(43)})).result?.outcome).toBe("DENIED");expect(f.paths).toHaveLength(2);
+  });
+  it("rejects another connection, duplicate begin and replayed operation IDs",async()=>{
+    const f=await coordinatedFixture(),id=await f.begin();
+    expect((await f.call("commercial.native.commit",{attempt_id:id},"other")).result?.outcome).toBe("DENIED");
+    expect((await f.call("commercial.native.begin",f.beginPayload)).result?.outcome).toBe("DENIED");
+    const request=f.envelope("commercial.native.complete",{attempt_id:id,code:"authorized-code-fixture",state:f.beginPayload.state,code_verifier:f.codeVerifier});
+    expect((await f.coordinator.handle(request,"owner",new AbortController().signal)).result?.outcome).toBe("VERIFIED");
+    expect((await f.coordinator.handle(request,"owner",new AbortController().signal)).result?.outcome).toBe("DENIED");
+  });
+  it.each(["expiry","cancel","loss"])("never commits after %s",async reason=>{
+    const f=await coordinatedFixture(),id=await f.begin();await f.complete(id);
+    if(reason==="expiry")f.expire();else if(reason==="cancel")await f.call("commercial.native.cancel",{attempt_id:id});else f.coordinator.release("owner");
+    expect((await f.call("commercial.native.commit",{attempt_id:id})).result?.outcome).toBe("DENIED");expect(f.commercial.bindings.resolve("owner")).toBeNull();
+  });
+  it("rechecks the exact credential before commit",async()=>{
+    const f=await coordinatedFixture(),id=await f.begin();await f.complete(id);
+    const changed=f.credentials.load();changed.claims.credential_id=randomUUID();f.credentials.save(f.resign(changed));
+    f.database.database.native.prepare("INSERT INTO local_security_audit(event_type,subject_id,details_json,created_at) VALUES ('DEVICE_ENROLLMENT_COMPLETED','FIXTURE_ROTATION',?,?)")
+      .run(JSON.stringify({credential_id:changed.claims.credential_id}),new Date().toISOString());
+    expect((await f.call("commercial.native.commit",{attempt_id:id})).result?.outcome).toBe("DENIED");
+  });
+  it("rolls SSA back when SAS persistence fails",async()=>{
+    const f=await coordinatedFixture(),id=await f.begin();await f.complete(id);
+    f.database.database.native.exec("CREATE TRIGGER native_sas_fail BEFORE INSERT ON local_authorization_snapshot BEGIN SELECT RAISE(ABORT,'SAS_FAIL'); END");
+    expect((await f.call("commercial.native.commit",{attempt_id:id})).result?.outcome).toBe("DENIED");
+    expect(f.database.database.native.prepare("SELECT count(*) AS n FROM local_session_assertion").get()).toEqual({n:0});expect(f.commercial.bindings.resolve("owner")).toBeNull();
+  });
+  it("rejects altered SAS signatures and a channel lost while awaiting Central",async()=>{
+    const f=await coordinatedFixture(),id=await f.begin();f.snapshot.signature="A".repeat(86);await f.complete(id);
+    expect((await f.call("commercial.native.commit",{attempt_id:id})).result?.outcome).toBe("DENIED");
+    const next=await f.begin();f.hook(async path=>{if(path.endsWith("/token"))f.coordinator.release("owner");});
+    expect((await f.complete(next)).result?.outcome).toBe("DENIED");expect(f.commercial.bindings.resolve("owner")).toBeNull();
+  });
+  it("closed contracts reject signing bodies, paths, credential IDs and asserted tenant",async()=>{
+    const f=await coordinatedFixture();
+    for(const extra of [{path:"/anything"},{body:"{}"},{credential_id:randomUUID()}])
+      expect(NativeCommercialRequestSchema.safeParse(f.envelope("commercial.native.begin",{...f.beginPayload,...extra})).success).toBe(false);
+    expect(NativeCommercialRequestSchema.safeParse({...f.envelope("commercial.native.begin",f.beginPayload),tenant_id:randomUUID()}).success).toBe(false);
+  });
+  it("real Windows authenticated pipe denies bad MAC/binding and cannot transfer an attempt to another connection",async()=>{
+    const f=await coordinatedFixture();
+    const server=new LocalChannelComponent(f.config,f.database,()=>"READY",{} as never,f.commercial,f.coordinator);await server.start();
+    cleanup.push(()=>server.stop());
+    const secret=loadOrCreateWindowsLocalChannelSecret(f.directory,f.binding.installationId);
+    const connect=async(badMac=false,badBinding=false)=>{
+      const auth=new LocalChannelAuthenticator(badMac?randomBytes(32):secret),client=new LocalChannelClient(server.endpoint,auth,{min:"1.0.0",max:"1.0.0"},1500);
+      cleanup.push(async()=>{await client.close();auth.destroy();});
+      await client.connect(f.envelope("runtime.handshake",{desktop_version:"1.0.0",service_version:"1.0.0",protocol_min:"1.0.0",protocol_max:"1.0.0",
+        installation_id:badBinding?randomUUID():f.binding.installationId,device_id:f.binding.deviceId,schema_version:"5",service_state:"READY"}));return client;
+    };
+    await expect(connect(true)).rejects.toThrow();await expect(connect(false,true)).rejects.toThrow();expect(f.paths).toHaveLength(0);
+    const owner=await connect(),prepared=await owner.request(f.envelope("commercial.native.begin",f.beginPayload)) as {result:{attempt_id:string}};
+    const other=await connect();const stolen=await other.request(f.envelope("commercial.native.commit",{attempt_id:prepared.result.attempt_id})) as {result_code:string};
+    expect(stolen.result_code).toBe("DENIED");await owner.close();
+    expect((await other.request(f.envelope("commercial.native.commit",{attempt_id:prepared.result.attempt_id})) as {result_code:string}).result_code).toBe("DENIED");secret.fill(0);
+  },30000);
 });
