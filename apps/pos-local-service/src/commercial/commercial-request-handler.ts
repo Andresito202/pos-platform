@@ -177,7 +177,7 @@ export class CommercialRequestHandler {
     if (identity === null) return { rejection: SESSION_NOT_BOUND };
 
     const { installationId, deviceId } = this.commercial.deviceBinding();
-    const snapshot = this.commercial.authorizationStore.loadActive({
+    const snapshot = this.commercial.loadVerifiedAuthorization({
       userId: identity.userId,
       installationId,
       deviceId,

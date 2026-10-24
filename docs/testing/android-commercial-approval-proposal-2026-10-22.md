@@ -6,6 +6,15 @@ El propietario no necesita inventar UUID ni proporcionar secretos. Primero debe 
 
 ## Una decisión conjunta y sus datos
 
+Continuidad 2026-10-24: el [productor SAS](central-authorization-snapshot-2026-10-24.md) ya está implementado/probado en laboratorio Windows. Las menciones inferiores a productor ausente conservan su corte histórico. La autorización de laboratorio no aprueba provisión productiva, nuevos privilegios ni migraciones.
+
+| Precisión SAS de esta misma solicitud | Candidato no activado | Fundamento / riesgo | Aprobación requerida |
+| --- | --- | --- | --- |
+| Clave y distribución SAS | Ed25519 con propósito exclusivo AUTHORIZATION_SNAPSHOT, entorno, key-id, ACTIVE/VERIFY_ONLY/REVOKED y ventana; confianza pública provisionada por canal privilegiado, distinta de SSA | DEC-011 y receptor existente; confiar en SSA como SAS permite confusión de propósito. El runtime productivo falla cerrado sin claves SAS | Authorization/seguridad y operador del despliegue: perfil, custodia, root/cadena, rotación y revocación reales |
+| Monotonía y lectura consistente | Contador durable por usuario/instalación/dispositivo en owner Authorization, reservado con auditoría atómica; locks y checksum de fuentes | El contador del fixture no autoriza DDL productivo; FOR SHARE necesita privilegios que hoy no están concedidos para RBAC | DB/Authorization: migración y privilegios mínimos revisados; no ampliar UPDATE productivo automáticamente |
+| Roles y versiones ambiguos | Conservar rechazo explícito de dos roles al mismo scope y de versiones duplicadas del mismo grant hasta aprobar precedencia/composición | Contrato SAS admite un assignment por scope. Unir permisos o elegir la versión mayor puede conceder autoridad no aprobada | Authorization/propietario: definir composición y precedencia con ejemplos de permisos revocados; laboratorio no elige por ellos |
+| Sucursal y exposición de revocación | Binding tenant/company/branch/installation/device provisionado y validado; TTL explícito acotado por sesión/access/credencial/clave/transiciones | DeviceRegistry no prueba por sí solo una sucursal. DEC-011 permite revocación diferida offline hasta expiración; 30 s es sólo fixture medido funcionalmente | DEV-003/seguridad/operación: mapping real y vigencia/actualización tolerable; no activar el TTL de laboratorio como política |
+
 | Área / parámetro | Candidato concreto que se propone | Fundamento / riesgo | Información o aprobación requerida |
 | --- | --- | --- | --- |
 | DEV-003: origen del binding | Configuración instalada por canal privilegiado con tenant/company/branch/installation/device obtenidos de registros centrales; identidad local DEC-020 y prepare/complete del DeviceEnrollmentService existente | Los IDs son selectores, no prueba. La credencial debe certificar la clave local, el binding y su vigencia; la nueva composición lo verifica y exige auditoría completada | Identificar entorno central, operador autorizado y registros reales de empresa/sucursal/instalación/dispositivo. Yo verificaré por lectura su correspondencia antes de instalar configuración; no pedir al operador que genere IDs |

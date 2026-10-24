@@ -179,4 +179,7 @@ export class PostgresNativeBusinessDeviceProofVerifier extends PostgresDevicePro
   verifyTokenAndConsume(input:DeviceProofRequest){
     return this.verifyTargetAndConsume(input,"/v1/commercial/token");
   }
+  verifyAuthorizationAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/business-session/authorization");
+  }
 }

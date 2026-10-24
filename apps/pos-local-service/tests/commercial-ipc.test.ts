@@ -170,6 +170,7 @@ async function buildEnv(options: { trustKeys?: boolean } = {}) {
     { store: durableSync } as never,
     keys,
     () => NOW,
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:createPublicKey(testOnlyKeyPair.privateKey),status:"ACTIVE" as const}]]),
   );
   await commercial.start();
 

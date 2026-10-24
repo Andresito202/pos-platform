@@ -11,6 +11,10 @@ import { SqliteSessionAssertionStore } from "../session/sqlite-session-assertion
 import { SessionActivationService } from "../session/session-activation.js";
 import { SessionBindingRegistry } from "../session/session-binding-registry.js";
 import { SqliteAuthorizationSnapshotStore } from "../authorization/sqlite-authorization-snapshot-store.js";
+import {AuthorizationSnapshotVerifier} from "../security/authorization-snapshot-verifier.js";
+import {SnapshotAcquisitionService} from "../authorization/snapshot-acquisition.js";
+import type {SnapshotProvider} from "../authorization/snapshot-provider.js";
+import type {SnapshotBinding} from "../authorization/authorization-snapshot-store.js";
 import { SqliteMasterSnapshotStore } from "../master-data/sqlite-master-snapshot-store.js";
 import { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
 import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
@@ -126,6 +130,8 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
+    /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
+    private readonly authorizationSigningKeys:ReadonlyMap<string,TrustedSigningKey>=new Map(),
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -138,6 +144,22 @@ export class CommercialComponent implements RuntimeComponent {
   get sessionStore(): SqliteSessionAssertionStore { return this.ready.sessionStore; }
   get sessionActivation(): SessionActivationService { return this.ready.sessionActivation; }
   get authorizationStore(): SqliteAuthorizationSnapshotStore { return this.ready.authorizationStore; }
+  loadVerifiedAuthorization(binding:SnapshotBinding){
+    const stored=this.authorizationStore.loadActive(binding);if(!stored)return null;
+    const verified=new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
+      .verify({claims:stored.claims,signature:stored.signature},binding);
+    return verified.decision==="VALID"?stored:null;
+  }
+  async refreshAuthorization(provider:SnapshotProvider){
+    const {installationId,deviceId}=this.deviceBinding();
+    const found=this.sessionStore.loadActiveByDevice(installationId,deviceId);
+    if(found.kind!=="FOUND")throw Error("AUTHORIZATION_ACTIVE_SESSION_REQUIRED");
+    const binding={installationId,deviceId,userId:found.session.claims.user_id};
+    const verifier=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now);
+    if(verifier.verify({claims:found.session.claims,signature:found.session.signature},binding).decision!=="VALID")throw Error("AUTHORIZATION_VERIFIED_SESSION_REQUIRED");
+    return new SnapshotAcquisitionService(provider,new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,
+      new TrustedClockGuard(this.localDatabase.database),this.now),this.authorizationStore).acquire(binding);
+  }
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }

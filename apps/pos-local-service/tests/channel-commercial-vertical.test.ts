@@ -318,6 +318,7 @@ async function withRealChannel(
     { store: new DurableSyncStore(database) } as never,
     keys,
     () => NOW,
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:createPublicKey(testOnlyKeyPair.privateKey),status:"ACTIVE" as const}]]),
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
@@ -431,6 +432,7 @@ async function withRealFiscalChannel(
     () => NOW,
     fiscalSecretStore,
     new FakeIssuancePort(outcome),
+    new Map([["AUTHZ_KEY_1",{key:createPublicKey(testOnlyKeyPair.privateKey),status:"ACTIVE" as const}]]),
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(fiscalConfig(), commercial);

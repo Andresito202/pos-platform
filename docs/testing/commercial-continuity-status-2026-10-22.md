@@ -1,5 +1,7 @@
 # Estado verificable de continuidad comercial — 2026-10-22
 
+Continuidad posterior: [SAS central y dashboard Windows en laboratorio](central-authorization-snapshot-2026-10-24.md), sobre binding `09a370bc`. Productor canónico, recepción verificada y revocación observados; 22 pruebas PostgreSQL/Electron y 126 locales afectados aprobadas. Este avance sustituye la ausencia de productor descrita en el corte inferior, sin declarar login humano ni provisión productiva.
+
 Actualización de autenticación: [arranque Electron y recuperación local](electron-session-recovery-2026-10-22.md).
 Entrada productiva, preload y canal Windows reales verificados sin sesión: 3/3 E2E,
 75/75 focalizadas. Complementa este corte histórico; no acredita login humano ni

@@ -23,6 +23,7 @@ import { exerciseElectronCommercialBrowser } from "./helpers/electron-commercial
 import {SessionTrustKeyIssuer} from "../src/session-trust-key-issuer.js";
 import {canonicalSessionTrustJson} from "@pos-platform/contracts";
 import {IsolatedNativeBusinessRequests,type IsolatedNativeRequestPolicy} from "../src/isolated-native-business-requests.js";
+import {IsolatedAuthorizationSnapshotIssuer,type IsolatedAuthorizationSigning} from "../src/isolated-authorization-snapshot-issuer.js";
 import {verify} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -106,6 +107,14 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         (challenge_consumed_at IS NOT NULL AND request_hash IS NOT NULL AND credential_id IS NOT NULL AND expires_at IS NOT NULL)),
       CHECK(consumed_at IS NULL OR session_id IS NOT NULL))`);
     await owner.query("GRANT SELECT,INSERT,UPDATE ON identity.native_request_validation TO pos_platform_app");
+    await owner.query(`CREATE TABLE "authorization".snapshot_sequence_validation (
+      user_id uuid NOT NULL REFERENCES identity.users(id),installation_id uuid NOT NULL,device_id uuid NOT NULL REFERENCES identity.device_registry(device_id),
+      sequence bigint NOT NULL CHECK(sequence BETWEEN 1 AND 9007199254740991),source_checksum text NOT NULL CHECK(length(source_checksum)=64),snapshot_id uuid NOT NULL,
+      PRIMARY KEY(user_id,installation_id,device_id))`);
+    await owner.query('GRANT SELECT,INSERT,UPDATE ON "authorization".snapshot_sequence_validation TO pos_platform_app');
+    // Fixture-only lock privileges for this isolated producer; no production
+    // roles or closed migrations are changed by the increment.
+    await owner.query('GRANT UPDATE ON "authorization".roles,"authorization".permissions,"authorization".role_permission_grants TO pos_platform_app');
     await owner.query("GRANT SELECT, INSERT ON identity.native_code_audit_fixture TO pos_platform_app");
     await owner.query("GRANT SELECT, INSERT, UPDATE ON identity.session_refresh_tokens TO pos_platform_app");
     await owner.query(`CREATE TABLE identity.browser_session_validation (
@@ -777,6 +786,123 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   }
   function ssaCoordinator(){return new IsolatedBusinessAuthCoordinator(preparation,runtime,{
     authorityReference:"UNUSED_SSA_BINDING_AUDIT",record:async()=>{throw Error("NO_NEW_CODE_BINDING_IN_SSA_TEST");}});}
+  async function sasFixture(assign=true){
+    const branchId=uuidV7(),roleId=uuidV7(),assignmentId=uuidV7(),grantId=uuidV7();
+    await owner.query("INSERT INTO organization.branches(id,tenant_id,company_id,name,timezone,status,created_at,updated_at) VALUES($1,$2,$3,'SAS fixture branch','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())",[branchId,tenantId,companyId]);
+    await owner.query(`INSERT INTO "authorization".roles(id,code,name,scope_type,version,status,created_at) VALUES($1,$2,'Isolated SAS audit reader','BUSINESS',1,'ACTIVE',clock_timestamp())`,[roleId,"SAS_FIXTURE_"+roleId]);
+    const permission=await owner.query(`INSERT INTO "authorization".permissions(id,code,module,description,status,created_at)
+      VALUES($1,'AUDIT_EVENT_READ','AUDIT','Authorized isolated fixture','ACTIVE',clock_timestamp())
+      ON CONFLICT(code) DO UPDATE SET status='ACTIVE',retired_at=NULL RETURNING id`,[uuidV7()]);
+    const permissionId=permission.rows[0].id as string;
+    await owner.query(`INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,'ACTIVE',clock_timestamp()-interval '1 minute',clock_timestamp())`,[grantId,roleId,permissionId]);
+    if(assign)await owner.query(`INSERT INTO "authorization".user_role_assignments(id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,created_at,created_by_actor_type)
+      VALUES($1,$2,$3,$4,$5,$6,'ACTIVE',clock_timestamp()-interval '1 minute',clock_timestamp(),'SYSTEM')`,[assignmentId,tenantId,membershipId,roleId,companyId,branchId]);
+    const key=generateKeyPairSync("ed25519");
+    const material:IsolatedAuthorizationSigning={mode:"ISOLATED_VALIDATION",environment:"isolated-validation",purpose:"AUTHORIZATION_SNAPSHOT",keyId:"SAS_TEST_AUDIT",status:"ACTIVE",
+      privateKey:key.privateKey,publicKey:key.publicKey,validFrom:new Date(Date.now()-60_000).toISOString(),validUntil:new Date(Date.now()+120_000).toISOString()};
+    const deployment={tenantId,companyId,branchId,installationId,deviceId};
+    const sasPolicy={mode:"ISOLATED_VALIDATION" as const,lifetimeMs:30_000,maximumReauthenticationAgeMs:30_000};
+    return {branchId,roleId,permissionId,assignmentId,grantId,material,deployment,sasPolicy};
+  }
+  function sasProof(sessionId=binding.sessionId){
+    const payload={session_id:sessionId},p=nativeSigned("/v1/business-session/authorization",payload);
+    return {body:p.raw,authorization:p.headers.authorization,requestId:p.headers["x-request-id"],correlationId:p.headers["x-correlation-id"]};
+  }
+  function sasIssuer(codec:IsolatedBusinessAccessTokenCodec,s:Awaited<ReturnType<typeof sasFixture>>){
+    return new IsolatedAuthorizationSnapshotIssuer(runtime,codec,s.deployment,s.sasPolicy,s.material);
+  }
+  it("central SAS: projects canonical scoped grants and signs separate from SSA",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issued=await sasIssuer(codec,s).issue(access,sasProof());
+    expect(issued?.claims).toMatchObject({user_id:userId,device_id:deviceId,installation_id:installationId,sequence:1,
+      assignments:[{tenant_id:tenantId,company_id:companyId,branch_id:s.branchId,status:"ACTIVE",role_status:"ACTIVE",permissions:[{code:"AUDIT_EVENT_READ",status:"ACTIVE"}]}]});
+    expect(verify(null,Buffer.from(canonicalSessionTrustJson(issued!.claims)),s.material.publicKey,Buffer.from(issued!.signature,"base64url"))).toBe(true);
+    expect(issued?.claims).not.toHaveProperty("session_id");
+  });
+  it.each(["assignment","role","permission","grant"])("central SAS: propagates revoked or retired %s without implicit grants",async target=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    if(target==="assignment")await owner.query(`UPDATE "authorization".user_role_assignments SET status='REVOKED',revoked_at=clock_timestamp() WHERE id=$1`,[s.assignmentId]);
+    if(target==="role")await owner.query(`UPDATE "authorization".roles SET status='RETIRED',retired_at=clock_timestamp() WHERE id=$1`,[s.roleId]);
+    if(target==="permission")await owner.query(`UPDATE "authorization".permissions SET status='RETIRED',retired_at=clock_timestamp() WHERE id=$1`,[s.permissionId]);
+    if(target==="grant")await owner.query(`UPDATE "authorization".role_permission_grants SET status='RETIRED',retired_at=clock_timestamp() WHERE id=$1`,[s.grantId]);
+    const issued=await sasIssuer(codec,s).issue(access,sasProof());
+    if(target==="assignment")expect(issued?.claims.assignments[0]?.status).toBe("REVOKED");
+    if(target==="role")expect(issued?.claims.assignments[0]?.role_status).toBe("RETIRED");
+    if(["permission","grant"].includes(target))expect(issued?.claims.assignments[0]?.permissions[0]?.status).toBe("RETIRED");
+  });
+  it("central SAS: a user without assigned role receives an empty projection",async()=>{
+    const s=await sasFixture(false),{codec,access}=await signedAccessForSequence();
+    expect((await sasIssuer(codec,s).issue(access,sasProof()))?.claims.assignments).toEqual([]);
+  });
+  it.each(["company","branch"])("central SAS: assignments for another %s do not authorize this deployment",async target=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    if(target==="company")s.deployment.companyId=uuidV7();
+    else{const other=uuidV7();await owner.query("INSERT INTO organization.branches(id,tenant_id,company_id,name,timezone,status,created_at,updated_at) VALUES($1,$2,$3,'Other','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())",[other,tenantId,companyId]);s.deployment.branchId=other;}
+    const issued=await sasIssuer(codec,s).issue(access,sasProof());
+    if(target==="company")expect(issued).toBeNull();else expect(issued?.claims.assignments).toEqual([]);
+  });
+  it.each(["purpose","status","key","expiry"])("central SAS: rejects invalid signing %s",async target=>{
+    const s=await sasFixture(),{codec}=await signedAccessForSequence();
+    if(target==="purpose")s.material.purpose="SESSION_ASSERTION" as never;
+    if(target==="status")s.material.status="REVOKED" as never;
+    if(target==="key")s.material.publicKey=generateKeyPairSync("ed25519").publicKey;
+    if(target==="expiry")s.material.validUntil=new Date(Date.now()-1).toISOString();
+    expect(()=>sasIssuer(codec,s)).toThrow();
+  });
+  it("central SAS: expired grants are denied and future transitions cap snapshot lifetime",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    await owner.query(`UPDATE "authorization".role_permission_grants SET valid_until=clock_timestamp()-interval '1 second' WHERE id=$1`,[s.grantId]);
+    expect((await sasIssuer(codec,s).issue(access,sasProof()))?.claims.assignments[0]?.permissions[0]?.status).toBe("RETIRED");
+    await owner.query(`UPDATE "authorization".role_permission_grants SET valid_until=NULL,valid_from=clock_timestamp()+interval '5 seconds' WHERE id=$1`,[s.grantId]);
+    const issued=await sasIssuer(codec,s).issue(access,sasProof());
+    expect(issued?.claims.assignments[0]?.permissions[0]?.status).toBe("RETIRED");
+    expect(Date.parse(issued!.claims.expires_at)-Date.parse(issued!.claims.issued_at)).toBeLessThanOrEqual(5000);
+  });
+  it.each(["session","credential"])("central SAS: revoked %s cannot obtain a projection",async target=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    if(target==="session")await owner.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='FIXTURE' WHERE id=$1",[binding.sessionId]);
+    else await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp() WHERE credential_id=$1",[deviceCredentialId]);
+    expect(await sasIssuer(codec,s).issue(access,sasProof())).toBeNull();
+  });
+  it("central SAS: UUID identity and assertion-path proof cannot substitute for authenticated possession",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issuer=sasIssuer(codec,s);
+    expect(await issuer.issue(binding.sessionId,sasProof())).toBeNull();
+    expect(await issuer.issue(access,request())).toBeNull();
+  });
+  it("central SAS: replay is rejected and concurrent fresh proofs reserve distinct durable sequences",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issuer=sasIssuer(codec,s),proof=sasProof();
+    const replay=await Promise.all([issuer.issue(access,proof),issuer.issue(access,proof)]);expect(replay.filter(Boolean)).toHaveLength(1);
+    const fresh=await Promise.all([issuer.issue(access,sasProof()),issuer.issue(access,sasProof())]);
+    expect(fresh.map(x=>x?.claims.sequence).sort()).toEqual([2,3]);
+    expect((await sasIssuer(codec,s).issue(access,sasProof()))?.claims.sequence).toBe(4);
+  });
+  it("central SAS: two different roles at one scope require an explicit composition decision",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issuer=sasIssuer(codec,s);
+    const second=uuidV7();await owner.query(`INSERT INTO "authorization".roles(id,code,name,scope_type,version,status,created_at) VALUES($1,$2,'Second fixture role','BUSINESS',1,'ACTIVE',clock_timestamp())`,[second,"SAS_SECOND_"+second]);
+    await owner.query(`INSERT INTO "authorization".user_role_assignments SELECT $1,tenant_id,tenant_membership_id,$3,company_id,branch_id,status,valid_from,valid_until,created_at,created_by_actor_type,created_by_actor_id,revoked_at,version
+      FROM "authorization".user_role_assignments WHERE id=$2`,[uuidV7(),s.assignmentId,second]);
+    await expect(issuer.issue(access,sasProof())).rejects.toThrow("SAS_ROLE_COMPOSITION_DECISION_REQUIRED");
+  });
+  it("central SAS: overlapping grant versions are never resolved by silently selecting the highest",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    await owner.query(`INSERT INTO "authorization".role_permission_grants SELECT $1,role_id,permission_id,2,status,valid_from,valid_until,created_at,retired_at FROM "authorization".role_permission_grants WHERE id=$2`,[uuidV7(),s.grantId]);
+    await expect(sasIssuer(codec,s).issue(access,sasProof())).rejects.toThrow("SAS_GRANT_VERSION_DECISION_REQUIRED");
+  });
+  it("central SAS: a permission change in the publication transaction rolls audit and sequence back",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    await owner.query(`CREATE FUNCTION "authorization".sas_test_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      UPDATE "authorization".role_permission_grants SET status='RETIRED',retired_at=clock_timestamp() WHERE id='${s.grantId}'; RETURN NEW; END $$;
+      CREATE TRIGGER sas_change AFTER INSERT ON "authorization".snapshot_sequence_validation FOR EACH ROW EXECUTE FUNCTION "authorization".sas_test_change()`);
+    try{await expect(sasIssuer(codec,s).issue(access,sasProof())).rejects.toThrow("SAS_SOURCE_CHANGED_BEFORE_COMMIT");}
+    finally{await owner.query('DROP TRIGGER sas_change ON "authorization".snapshot_sequence_validation; DROP FUNCTION "authorization".sas_test_change()');}
+    const count=await owner.query('SELECT count(*)::int AS n FROM "authorization".snapshot_sequence_validation WHERE user_id=$1',[userId]);expect(count.rows[0].n).toBe(0);
+  });
+  it("central SAS: audit failure rolls sequence back while the device proof stays consumed",async()=>{
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issuer=sasIssuer(codec,s),proof=sasProof();
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try{await expect(issuer.issue(access,proof)).rejects.toMatchObject({code:"42501"});}finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    expect(await issuer.issue(access,proof)).toBeNull();
+    expect((await issuer.issue(access,sasProof()))?.claims.sequence).toBe(1);
+  });
   it("business SSA composition: emits canonical identity from real verified access proof and durable reservation",async()=>{
     const {codec,access}=await signedAccessForSequence(),material=ssaMaterial();
     const issued=await ssaCoordinator().issueSessionAssertion(access,request(),codec,material);
@@ -1257,7 +1383,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let tls:ReturnType<typeof labTls>|undefined;
   const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
     androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>){
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>,authorization?:(codec:IsolatedBusinessAccessTokenCodec)=>IsolatedAuthorizationSnapshotIssuer){
     tls??=labTls();
     const codec=isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
@@ -1284,6 +1410,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       handoffs:new PostgresBrowserSessionHandoffWriter(origin,15_000),browser:new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),
       coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
       ...(native?{nativeValidation:{requests:native,codec,signing}}:{}),
+      ...(authorization?{authorizationIssuer:authorization(codec)}:{}),
       ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url))}}:{}),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
     try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server,coordinator,signing);}
@@ -1510,6 +1637,23 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       nativeSsa:{invalid:"REJECTED",activated:"ACTIVATED",replay:"REJECTED",recovered:"ACTIVE",channelLossRejected:true,
         capabilities:{result_code:"AUTHORIZATION_SNAPSHOT_UNAVAILABLE"}}});
   },100,true,{}),90_000);
+  it.runIf(process.platform==="win32")("central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard",async()=>{
+    const s=await sasFixture();
+    await withHttps(async(_post,_codec,server,_coordinator,signing)=>{
+      const address=server.address();if(!address||typeof address==="string")throw Error("SAS_E2E_ADDRESS_REQUIRED");
+      const counter=await owner.query("SELECT counter::int AS n FROM identity.webauthn_credential_material WHERE id=$1",[materialId]);
+      const observed=await exerciseElectronCommercialBrowser({port:address.port,certificateFingerprint:new X509Certificate(tls!.cert).fingerprint256,
+        email,password,credentialId:Buffer.from(publicCredentialId,"base64url").toString("base64"),privateKey:keys.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"),counter:counter.rows[0].n,
+        registration:{clientId:nativeClientId,redirectUri:exchangeRedirect,authorizationOrigin:origin},tenantId,companyId,branchId:s.branchId,installationId,deviceId,
+        ssaPublicTrust:{rootPublicPem:signing.rootTrustAnchor.export({format:"pem",type:"spki"}).toString(),artifact:signing.signedOperationalKey},
+        nativeBinding:{deviceCredentialId,devicePrivatePem:deviceKeys.privateKey.export({format:"pem",type:"pkcs8"}).toString(),ca:tls!.cert.toString()},
+        sasPublicTrust:{mode:s.material.mode,environment:s.material.environment,purpose:s.material.purpose,keyId:s.material.keyId,status:s.material.status,
+          validFrom:s.material.validFrom,validUntil:s.material.validUntil,publicPem:s.material.publicKey.export({format:"pem",type:"spki"}).toString()},
+        beforeAuthorizationRevocation:async()=>{await owner.query(`UPDATE "authorization".user_role_assignments SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1`,[s.assignmentId]);}});
+      expect(observed).toMatchObject({centralSas:true,dashboardAuthorized:true,revocationDenied:true,dashboardClosed:true,nativeSsa:{activated:"ACTIVATED",recovered:"ACTIVE",
+        capabilities:{status:"SUCCEEDED",result_code:"AVAILABLE",result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{status:"REJECTED",result_code:"UNAUTHORIZED"}}});
+    },100,true,{},codec=>sasIssuer(codec,s));
+  },90_000);
   it.runIf(process.platform==="win32")("business SSA composition: Electron main activates Central assertion but no grants cannot open dashboard",async()=>withHttps(async(post,codec,server,coordinator)=>{
     const login=await httpLogin(post),material=ssaMaterial();
     const code=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);

@@ -14,6 +14,7 @@ import {inspectCommercialTokenRequest} from "./commercial-token-http-contract.js
 import {sendCommercialBrowserEntry, type CommercialBrowserEntryConfiguration} from "./commercial-browser-entry.js";
 import {IsolatedNativeBusinessRequests,type NativeRequestParameters} from "./isolated-native-business-requests.js";
 import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
+import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -86,6 +87,7 @@ export async function createIsolatedCommercialHttpsServer(input:{
   browserEntry?:CommercialBrowserEntryConfiguration;
   nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec;
     signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
+  authorizationIssuer?:IsolatedAuthorizationSnapshotIssuer;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   const url=new URL(pool.options.connectionString??"invalid:");
@@ -145,9 +147,10 @@ export async function createIsolatedCommercialHttpsServer(input:{
         }
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
           (!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
-            !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions"].includes(req.url))))throw new Rejection(400);
+            !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
+              ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        const nativeRoute=tokenRoute||req.url.includes("/native-request")||req.url==="/v1/business-session/assertions";
+        const nativeRoute=tokenRoute||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
         if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
@@ -174,6 +177,11 @@ export async function createIsolatedCommercialHttpsServer(input:{
           if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);
           const assertion=await coordinator.issueSessionAssertion(req.headers["x-isolated-business-access"],proof(),native.codec,native.signing);
           if(!assertion)throw new Rejection(401);send(res,200,assertion);return;
+        }
+        if(native&&input.authorizationIssuer&&req.url==="/v1/business-session/authorization"){
+          if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);
+          const signed=await input.authorizationIssuer.issue(req.headers["x-isolated-business-access"],proof());
+          if(!signed)throw new Rejection(401);send(res,200,signed);return;
         }
         const sessionRequest:BrowserSessionRequest={method:"POST",origin:req.headers.origin??null,
           fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,

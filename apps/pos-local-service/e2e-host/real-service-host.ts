@@ -20,6 +20,7 @@ import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
 import { CanonicalPermission } from "@pos-platform/contracts";
 import {SessionTrustKeyVerifier} from "../src/security/session-trust-key-verifier.js";
+import {IsolatedHttpsSnapshotProvider} from "../src/authorization/isolated-https-snapshot-provider.js";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -227,7 +228,13 @@ async function main(): Promise<void> {
       externalKeys.set(checked.claims.key_id,verifier.toTrustedSigningKey(checked.claims));
     }
     externalSigningKeyCount=externalKeys.size;
-    commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys);
+    const authorizationKeys=new Map<string,TrustedSigningKey>();
+    if(process.env.POS_E2E_SAS_PUBLIC_TRUST){
+      const trust=JSON.parse(process.env.POS_E2E_SAS_PUBLIC_TRUST) as {mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
+      if(trust.mode!=="ISOLATED_VALIDATION"||trust.environment!=="isolated-validation"||trust.purpose!=="AUTHORIZATION_SNAPSHOT"||trust.status!=="ACTIVE"||!/^SAS_TEST_[A-Z0-9_]+$/.test(trust.keyId))throw Error("E2E_SAS_TRUST_REJECTED");
+      authorizationKeys.set(trust.keyId,{key:createPublicKey(trust.publicPem),status:"ACTIVE",validFrom:trust.validFrom,validUntil:trust.validUntil});
+    }
+    commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys,undefined,undefined,undefined,authorizationKeys);
   } else {
     if(!keyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
     new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
@@ -268,6 +275,7 @@ async function main(): Promise<void> {
       () => NOW,
       fiscalSecretStore,
       new FakeIssuancePort(),
+      new Map([["AUTHZ_KEY_1",{key:keyPair.publicKey,status:"ACTIVE" as const}]]),
     );
   }
   await commercial.start();
@@ -349,6 +357,12 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
   if (process.connected && process.env.NODE_ENV === "test") {
     process.on("message", (message: unknown) => {
+      if(WITHOUT_SESSION&&message&&typeof message==="object"&&"type" in message&&message.type==="pos-e2e-sas-acquire"){
+        const packet=message as {type:string;id:string;input:Omit<ConstructorParameters<typeof IsolatedHttpsSnapshotProvider>[0],"ca"> & {ca:string}};
+        void commercial.refreshAuthorization(new IsolatedHttpsSnapshotProvider({...packet.input,ca:Buffer.from(packet.input.ca)})).then(
+          outcome=>process.send?.({type:"pos-e2e-sas-result",id:packet.id,outcome:{kind:outcome.kind,...(outcome.kind==="ACQUIRED"?{sequence:outcome.sequence}:{})}}),
+          ()=>process.send?.({type:"pos-e2e-sas-result",id:packet.id,outcome:{kind:"FAILED"}}));
+      }
       if (message === "pos-e2e-shutdown") shutdown();
       if(WITHOUT_SESSION&&message==="pos-e2e-empty-state"){
         const count=(table:string)=>database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {n:number};

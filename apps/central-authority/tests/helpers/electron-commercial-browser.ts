@@ -17,13 +17,34 @@ export async function exerciseElectronCommercialBrowser(input: {
   issuedAssertion?:unknown;
   ssaPublicTrust?:{rootPublicPem:string;artifact:unknown};
   nativeBinding?:{deviceCredentialId:string;devicePrivatePem:string;ca:string};
+  sasPublicTrust?:{mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
+  beforeAuthorizationRevocation?:()=>Promise<void>;
 }): Promise<Record<string, unknown>> {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const desktop = join(root, "pos-desktop"), local = join(root, "pos-local-service");
   const directory = await mkdtemp(join(tmpdir(), "camacho-browser-composition-"));
   let service: ChildProcess | undefined, electron: ChildProcess | undefined;
   const inputPipe = `\\\\.\\pipe\\camacho-browser-test-${randomUUID()}`;
-  const inputServer = createServer(socket => { socket.end(JSON.stringify(input)); inputServer.close(); });
+  let initial=true;
+  const inputServer = createServer(socket => {
+    if(initial){initial=false;socket.end(JSON.stringify(input));return;}
+    // Reuses the private integration-control pipe, never a product IPC or
+    // renderer bridge. Service pulls the signed projection over real HTTPS.
+    let data="";
+    socket.on("data",async chunk=>{
+      data+=chunk.toString();if(data.length>32768){socket.destroy();return;}
+      if(!data.endsWith("\n"))return;
+      const packet=JSON.parse(data) as Record<string,unknown>;data="";
+      if(packet.testPhase==="REVOKE"&&input.beforeAuthorizationRevocation)await input.beforeAuthorizationRevocation();
+      const id=randomUUID(),listener=(message:unknown)=>{
+        const result=message as {type?:string;id?:string;outcome?:unknown};
+        if(result.type!=="pos-e2e-sas-result"||result.id!==id)return;
+        service?.off("message",listener);clearTimeout(timer);socket.end(JSON.stringify(result.outcome));
+      };
+      const timer=setTimeout(()=>{service?.off("message",listener);socket.destroy();},10000);
+      service?.on("message",listener);service?.send({type:"pos-e2e-sas-acquire",id,input:packet});
+    });
+  });
   const ready = (child: ChildProcess, predicate: (line: string) => boolean): Promise<string> => new Promise((done, reject) => {
     let output = "", diagnostic = "", settled = false;
     child.stderr!.on("data", (chunk: Buffer) => { diagnostic = (diagnostic + chunk.toString()).slice(-2000); });
@@ -42,7 +63,8 @@ export async function exerciseElectronCommercialBrowser(input: {
       cwd: local, stdio: ["pipe", "pipe", "pipe", "ipc"], env: { ...process.env, NODE_ENV: "test", POS_E2E_SESSION_MODE: "NONE",
         POS_E2E_DATA_DIR: directory, POS_E2E_TENANT_ID: input.tenantId, POS_E2E_COMPANY_ID: input.companyId,
         POS_E2E_BRANCH_ID: input.branchId, POS_E2E_INSTALLATION_ID: input.installationId, POS_E2E_DEVICE_ID: input.deviceId,
-        POS_E2E_SSA_PUBLIC_TRUST:input.ssaPublicTrust?JSON.stringify(input.ssaPublicTrust):"" },
+        POS_E2E_SSA_PUBLIC_TRUST:input.ssaPublicTrust?JSON.stringify(input.ssaPublicTrust):"",
+        POS_E2E_SAS_PUBLIC_TRUST:input.sasPublicTrust?JSON.stringify(input.sasPublicTrust):"" },
     });
     await ready(service, line => line.includes('"ready":true'));
     const env = { ...process.env, POS_DATA_DIRECTORY: directory, POS_INSTALLATION_ID: input.installationId,

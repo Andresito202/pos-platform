@@ -82,12 +82,21 @@ async function run() {
     const {createDeviceRequestAuthorization}=await import("../dist/device-proof-lab-probe.mjs");
     const {uuidV7}=await import("../dist/ssa-native-transport-probe.mjs");
     const deviceKey=createPrivateKey(input.nativeBinding.devicePrivatePem);input.nativeBinding.devicePrivatePem="";
-    nativePost=async(path,payload,signed=true,access)=>{
+    nativePost=async(path,payload,signed=true,access,testPhase)=>{
+      const serviceSas=path==="__SAS_SERVICE_REQUEST__";
+      if(serviceSas)path="/v1/business-session/authorization";
       const body=JSON.stringify(payload),requestId=uuidV7(),correlationId=uuidV7();
       const headers={host:"business.example.test","content-type":"application/json","content-length":Buffer.byteLength(body),
         ...(signed?{authorization:createDeviceRequestAuthorization({method:"POST",path,requestId,correlationId,body,
           credentialId:input.nativeBinding.deviceCredentialId},deviceKey),"x-request-id":requestId,"x-correlation-id":correlationId}:{}),
         ...(access?{"x-isolated-business-access":access}:{})};
+      if(serviceSas)return new Promise((resolve,reject)=>{
+        const socket=connect(pipe);let response="";
+        socket.setTimeout(10000,()=>socket.destroy(Error("SAS_SERVICE_TIMEOUT")));socket.on("error",reject);
+        socket.on("connect",()=>socket.write(JSON.stringify({mode:"ISOLATED_VALIDATION",port,ca:input.nativeBinding.ca,accessToken:access,
+          authorization:headers.authorization,requestId,correlationId,body,timeoutMs:5000,testPhase})+"\n"));
+        socket.on("data",chunk=>{response+=chunk;});socket.on("end",()=>{try{resolve(JSON.parse(response));}catch(e){reject(e);}});
+      });
       return new Promise((resolve,reject)=>{
         const req=httpsRequest({host:"127.0.0.1",port,servername:"business.example.test",ca:input.nativeBinding.ca,
           method:"POST",path,headers,agent:false},res=>{
@@ -153,18 +162,42 @@ async function run() {
         return nativePost("/v1/business-session/assertions",{session_id:payload.sid},true,tokens.accessToken);
       });
       const {exerciseNativeAssertion}=await import("../dist/ssa-native-transport-probe.mjs");
-      const nativeSsa=await exerciseNativeAssertion(assertion);
+      const acquireSas=input.sasPublicTrust?async(testPhase)=>{
+        // Request construction remains in main; the service is the SAS HTTP
+        // consumer. This privileged fixture handoff is not exposed to React.
+        const result=await vault.use(async tokens=>{
+          const payload=JSON.parse(Buffer.from(tokens.accessToken.split(".")[1],"base64url").toString());
+          return nativePost("__SAS_SERVICE_REQUEST__",{session_id:payload.sid},true,tokens.accessToken,testPhase);
+        });
+        if(result?.kind!=="ACQUIRED")throw Error("CENTRAL_SAS_NOT_ACQUIRED");
+        return result;
+      }:undefined;
+      const nativeSsa=await exerciseNativeAssertion(assertion,acquireSas);
       if(nativeSsa.activated!=="ACTIVATED"||nativeSsa.recovered!=="ACTIVE")throw Error("NATIVE_BOUND_SSA_NOT_ACTIVE");
       await pos.webContents.executeJavaScript('document.querySelector("button").click()');
-      await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-error]")) && !document.querySelector(".pos-shell")'),"BOUND_SSA_WITHOUT_GRANTS");
+      if(acquireSas){
+        await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector(".pos-shell")) && [...document.querySelectorAll("button")].some(b=>b.textContent.trim()==="Dashboard")'),"CENTRAL_SAS_DASHBOARD");
+        await pos.webContents.executeJavaScript('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Dashboard").click()');
+      }else await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-error]")) && !document.querySelector(".pos-shell")'),"BOUND_SSA_WITHOUT_GRANTS");
       if(process.env.POS_E2E_AUDIT_DIRECTORY){
         const {mkdir,writeFile}=await import("node:fs/promises");await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});
-        await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"bound-ssa-without-grants.png"),(await pos.capturePage()).toPNG());
+        await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,acquireSas?"central-sas-dashboard.png":"bound-ssa-without-grants.png"),(await pos.capturePage()).toPNG());
+      }
+      let revocationDenied=false,revokedAuthorization;
+      if(acquireSas){
+        const refresh=await acquireSas("REVOKE");if(refresh.sequence!==2)throw Error("SAS_REVOCATION_SEQUENCE_MISMATCH");
+        revokedAuthorization=await exerciseNativeAssertion(assertion);
+        if(revokedAuthorization.capabilities.result.permissions.length!==0||revokedAuthorization.audit.result_code!=="UNAUTHORIZED")throw Error("SAS_REVOCATION_NOT_ENFORCED");
+        pos.webContents.reload();
+        await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-denied]")) && !document.querySelector(".pos-shell")'),"SAS_REVOKED_DASHBOARD");
+        revocationDenied=true;
+        if(process.env.POS_E2E_AUDIT_DIRECTORY){const {writeFile}=await import("node:fs/promises");await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"central-sas-revoked.png"),(await pos.capturePage()).toPNG());}
       }
       vault.clear();
       const custodyCleared=await vault.use(async()=>false)===null;
       process.stdout.write(JSON.stringify({browserIntegration:true,scope:"ISOLATED_VALIDATION",boundNative:true,destinationConfirmed:true,
-        wrongPasswordRejected:true,erased,custodyCleared,nativeSsa,grantsFabricated:false,dashboardClosed:true,authenticator:"CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"})+"\n");
+        wrongPasswordRejected:true,erased,custodyCleared,nativeSsa,grantsFabricated:false,dashboardClosed:!acquireSas||revocationDenied,
+        dashboardAuthorized:Boolean(acquireSas),revocationDenied,revokedAuthorization,centralSas:Boolean(acquireSas),authenticator:"CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"})+"\n");
       return;
     }
     const posStillClosed = await pos.webContents.executeJavaScript('Boolean(document.querySelector("[data-testid=authorization-unauthenticated]")) && !document.querySelector(".pos-shell")');

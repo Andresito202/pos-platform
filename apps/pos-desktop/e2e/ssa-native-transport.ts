@@ -6,7 +6,7 @@ import {SignedSessionAssertionSchema} from "@pos-platform/contracts";
 export {uuidV7} from "@pos-platform/contracts";
 
 /** Test driver reuses production DPAPI + channel + main delivery; no new IPC. */
-export async function exerciseNativeAssertion(assertion:unknown){
+export async function exerciseNativeAssertion(assertion:unknown,afterActivation?:(()=>Promise<void>)){
   const p=loadProductionDesktopProvisioning(),authenticator=new LocalChannelAuthenticator(p.channelSecret);
   p.channelSecret.fill(0);
   const envelope=(message_type:string,payload:unknown)=>({protocol_version:"1.0.0",message_type,request_id:randomUUID(),correlation_id:randomUUID(),payload_schema_version:"1.0.0",payload});
@@ -20,8 +20,11 @@ export async function exerciseNativeAssertion(assertion:unknown){
     const activated=await activateNativeBusinessAssertion(assertion,channel);
     const replay=await activateNativeBusinessAssertion(assertion,channel);
     const recovery=await channel.request(envelope("session.recover",{})) as {result_code:string};
+    if(afterActivation)await afterActivation();
     const capabilities=await channel.request(envelope("authorization.capabilities.get",{})) as {status:string;result_code:string};
-    observed={invalid,activated,replay,recovered:recovery.result_code,capabilities};
+    const forbidden=afterActivation?await channel.request(envelope("catalog.item.list",{query:"",limit:1,offset:0})) as {status:string;result_code:string}:undefined;
+    const audit=await channel.request(envelope("audit.event.list",{query:"",action_code:null,resource_type:null,actor_type:null,from:null,to:null,limit:1,offset:0})) as {status:string;result_code:string};
+    observed={invalid,activated,replay,recovered:recovery.result_code,capabilities,audit,...(forbidden?{forbidden}: {})};
   }finally{await channel.close();authenticator.destroy();}
   let channelLossRejected=false;
   try{await activateNativeBusinessAssertion(assertion,channel);}catch{channelLossRejected=true;}
