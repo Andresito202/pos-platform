@@ -90,4 +90,35 @@ describe("SessionTrustKeyVerifier", () => {
       claims: { ...value.artifact.claims, key_purpose: "DEVICE_TRUST" },
     })).toThrow();
   });
+
+  it("authenticates revocation before returning a trusted tombstone", () => {
+    const value = artifact();
+    const verifier = new SessionTrustKeyVerifier(value.root.publicKey, "production", () => NOW);
+    expect(verifier.verify({ ...value.artifact, claims: { ...value.artifact.claims, status: "REVOKED" } }).decision)
+      .toBe("ROOT_SIGNATURE_INVALID");
+    const revoked = artifact({ status: "REVOKED", valid_until: "2026-02-01T00:00:00.000Z" });
+    expect(new SessionTrustKeyVerifier(revoked.root.publicKey, "production", () => NOW).verify(revoked.artifact).decision)
+      .toBe("REVOKED");
+  });
+
+  it("rejects private or non-Ed25519 root material", () => {
+    expect(() => new SessionTrustKeyVerifier(generateKeyPairSync("ed25519").privateKey, "production"))
+      .toThrow("SESSION_TRUST_PUBLIC_ED25519_ROOT_REQUIRED");
+    expect(() => new SessionTrustKeyVerifier(generateKeyPairSync("ec", { namedCurve: "prime256v1" }).publicKey, "production"))
+      .toThrow("SESSION_TRUST_PUBLIC_ED25519_ROOT_REQUIRED");
+  });
+
+  it.each(["private", "ec", "malformed"])("rejects root-signed %s operational material", (kind) => {
+    const value = artifact();
+    const pair = generateKeyPairSync("ed25519");
+    const pem = kind === "private" ? pair.privateKey.export({ type: "pkcs8", format: "pem" })
+      : kind === "ec" ? generateKeyPairSync("ec", { namedCurve: "prime256v1" }).publicKey.export({ type: "spki", format: "pem" })
+      : "-----BEGIN PUBLIC KEY-----\n" + "x".repeat(100) + "\n-----END PUBLIC KEY-----";
+    for (const status of ["ACTIVE", "REVOKED"] as const) {
+      const claims = { ...value.artifact.claims, public_key_pem: pem.toString(), status };
+      const signed = { claims, signature: sign(null, unsignedSessionAssertionOperationalKeyBytes(claims), value.root.privateKey).toString("base64url") };
+      expect(new SessionTrustKeyVerifier(value.root.publicKey, "production", () => NOW).verify(signed).decision)
+        .toBe("KEY_MATERIAL_INVALID");
+    }
+  });
 });

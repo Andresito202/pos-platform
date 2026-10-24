@@ -1,0 +1,186 @@
+{
+    "date":  "2026-10-24",
+    "timezone":  "America/Bogota",
+    "base_commit":  "9639c9fd776a2d629fa71d0007f250af2e01a337",
+    "branch":  "feat/android-commercial-runtime",
+    "scope":  "TESTED_ISOLATED_VALIDATION_NOT_PRODUCTION",
+    "distinct_selected_tests":  {
+                                    "passed":  32,
+                                    "failed":  0,
+                                    "skipped":  168
+                                },
+    "runs":  [
+                 {
+                     "report":  "trust-corrected-tests.json",
+                     "passed":  22,
+                     "failed":  0,
+                     "skipped":  0,
+                     "cases":  [
+                                   "G1.2 session bootstrap runtime boundary activates, recovers and rejects replay after restart against the provisioned trust key",
+                                   "SessionTrustKeyResolver keeps ACTIVE and VERIFY_ONLY keys during rotation and removes REVOKED keys",
+                                   "SessionTrustKeyResolver does not read the ambient artifact environment when the validated config path is absent",
+                                   "SessionTrustKeyResolver installs a valid centrally fetched bundle into protected local persistence",
+                                   "SessionTrustKeyResolver rejects an invalid remote update and keeps a previously trusted bundle",
+                                   "SessionTrustKeyResolver fails closed when the first remote bundle is not signed by the configured root",
+                                   "SessionTrustKeyResolver falls back to a valid installer artifact when the first central bundle is not trusted",
+                                   "SessionTrustKeyStore does not persist an unauthenticated revocation over previously verified trust",
+                                   "SessionTrustKeyStore accepts newer bundles, preserves older local state and rejects same-version conflicts",
+                                   "SessionTrustKeyVerifier accepts a root-signed SESSION_ASSERTION key for the expected environment",
+                                   "SessionTrustKeyVerifier rejects an environment mismatch",
+                                   "SessionTrustKeyVerifier rejects revoked and expired keys",
+                                   "SessionTrustKeyVerifier rejects a root signature that was made by another root",
+                                   "SessionTrustKeyVerifier rejects malformed trust purpose instead of coercing it",
+                                   "SessionTrustKeyVerifier authenticates revocation before returning a trusted tombstone",
+                                   "SessionTrustKeyVerifier rejects private or non-Ed25519 root material",
+                                   "SessionTrustKeyVerifier rejects root-signed private operational material",
+                                   "SessionTrustKeyVerifier rejects root-signed ec operational material",
+                                   "SessionTrustKeyVerifier rejects root-signed malformed operational material",
+                                   "root trust lifecycle composition (no commercial login) outage does not extend key validity; restart stays closed until authenticated rotation",
+                                   "SessionTrustRefreshComponent applies operational-key rotation and revocation to the live verifier map",
+                                   "SessionTrustRefreshComponent retains the last verified keys when the central endpoint is temporarily unavailable"
+                               ],
+                     "sha256":  "aa27b6760927d1bf30e5a86f903c48ec258b31f8aa026b5cd3aefb8e2c846f7f"
+                 },
+                 {
+                     "report":  "sequence-final-tests.json",
+                     "passed":  9,
+                     "failed":  0,
+                     "skipped":  0,
+                     "cases":  [
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL rolls back DDL and ledger together on failure; retries and repeated apply are safe",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL empty down is reversible and a subsequent up reconstructs the same schema",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL serializes concurrent reservations without duplicate sequence values",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL counter advance rolls back with an audit failure",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL rejects replay, jumps, mutable binding, deletion and destructive rollback",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL rejects an installation not linked to the device and invalid source checksums",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL forces RLS, excludes local roles and adds no write authority over RBAC sources",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL retains the watermark across connection restart and cannot reset it by reapplying",
+                                   "SAS proposal Ã¢â‚¬â€ disposable PostgreSQL SQL refuses a disposable database outside the guarded rehearsal namespace before DDL"
+                               ],
+                     "sha256":  "e3b1bc7785e6174f67b450bbc72391f8c4da5f9e73b80adfd226bf9836c6a063"
+                 },
+                 {
+                     "report":  "electron-tests.json",
+                     "passed":  1,
+                     "failed":  0,
+                     "skipped":  168,
+                     "cases":  [
+                                   "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=true"
+                               ],
+                     "sha256":  "80116cffe0be2b1b82a692b47ac6ed9fa0e34d64570c677b22478d00760b017b"
+                 }
+             ],
+    "initial_failures":  [
+                             "Lifecycle fixture imported InsecureDerivedKeyProvider from wrong module; one test failed and TypeScript rejected import. Fixed before final runs.",
+                             "An assert for expired cached trust was corrected to existing EXPIRED decision; no production verifier relaxation."
+                         ],
+    "gates":  {
+                  "typecheck":  "PASS Local Service and target-migrations",
+                  "build":  "PASS full Electron",
+                  "architecture_tests":  "PASS 16",
+                  "architecture_boundaries":  "PASS",
+                  "repository_policy":  "PASS 1029 tracked files scanned",
+                  "remote_ci":  "PENDING billing suspension per owner, expected restoration 2026-11-01; not polled"
+              },
+    "postgres":  {
+                     "version":  "16",
+                     "container":  "target-migrations-postgres-1",
+                     "storage":  "tmpfs /var/lib/postgresql/data",
+                     "binding":  "127.0.0.1:55433",
+                     "temporary_databases_removed":  true,
+                     "production_ddl":  false,
+                     "general_rbac_write_grants_added":  false,
+                     "runner":  "Test-only checksum/lock/ledger rehearsal, not production runner"
+                 },
+    "electron":  {
+                     "actual_process":  true,
+                     "service_custody":  true,
+                     "device_private_key_in_main":  false,
+                     "dashboard_authorized":  true,
+                     "permission":  "AUDIT_EVENT_READ",
+                     "catalog":  "UNAUTHORIZED",
+                     "authenticator":  "CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN",
+                     "new_human_certification":  false
+                 },
+    "artifacts":  [
+                      {
+                          "path":  "typecheck.log",
+                          "sha256":  "9f0dc110dfbf8e8dbfb84b11204f256806e244b6131a0344adad0ad8f9a53fd4"
+                      },
+                      {
+                          "path":  "typecheck-final.log",
+                          "sha256":  "c3a8ffe614b527a0d6130ecc134c83b0a1c8c02d85a288f8638e442ba9fb2b09"
+                      },
+                      {
+                          "path":  "typecheck-validated.log",
+                          "sha256":  "c3a8ffe614b527a0d6130ecc134c83b0a1c8c02d85a288f8638e442ba9fb2b09"
+                      },
+                      {
+                          "path":  "desktop-build.log",
+                          "sha256":  "a8c7fe735519e9f5cc75b1ef3eb9c2d6db69fb60d5793c124f4bb9d8e0b97a67"
+                      },
+                      {
+                          "path":  "architecture-tests.log",
+                          "sha256":  "1f3d50ffbefcd026be4fce2ed4e27e9f01e1e4f0d5ee8d95cf3319b42185bc87"
+                      },
+                      {
+                          "path":  "architecture.log",
+                          "sha256":  "53f24bb4d70b065c508afb5fb6a0e04051bb61024d47cbd10571e854677c84de"
+                      },
+                      {
+                          "path":  "trust-final-tests.json",
+                          "sha256":  "4206ab86229e0c1781bafeca82da5c7e34f22a66c735cbbc3a068f7ab6ca061f"
+                      },
+                      {
+                          "path":  "electron/browser-observations.json",
+                          "sha256":  "e8cb5faee85240a3dd361a99a7b64926f3a76d7996fe9f9b50ad4d4a253dfa25"
+                      },
+                      {
+                          "path":  "electron/service-custody-dashboard.png",
+                          "sha256":  "63e60722b39cd0d47b2879c0a13df882abbdeec0c3fe7bf6c41041881ce929f2"
+                      },
+                      {
+                          "path":  "policy.log",
+                          "sha256":  "dec77b993ddd6a9f0aaf1a4ff9f1d63c24b34f252d33e1ebd9e4311e6705db6c"
+                      }
+                  ],
+    "pending":  [
+                    "Real Central environment/operator/DNS-TLS/database and canonical DEV-003 enrollment",
+                    "Approval of full SAS trust envelope, issuer/generation/key-set authentication and distribution",
+                    "Approval/integration of canonical SAS sequence migration and minimum-privilege source locking",
+                    "Approved sender-constrained access/refresh profile and durable binding, times/abuse/offline policies",
+                    "Real interactive employee certification"
+                ],
+    "approval_request":  "docs/testing/android-commercial-approval-proposal-2026-10-22.md",
+    "concurrent_work_preserved":  "docs/product/oracleJdk-27/",
+    "code_files":  [
+                       {
+                           "path":  "apps/pos-local-service/src/security/session-trust-key-verifier.ts",
+                           "sha256":  "dafacc143fb2f4fda99e7f03feac964352ea623dd76929b12161ff644b58b5fb"
+                       },
+                       {
+                           "path":  "apps/pos-local-service/tests/session-trust-key-store.test.ts",
+                           "sha256":  "229ed49768e8ceae0be30a7d8def1a36f874e7fbf061e55241265a212306fea7"
+                       },
+                       {
+                           "path":  "apps/pos-local-service/tests/session-trust-key.test.ts",
+                           "sha256":  "16458a04b7b33dcd7bf0cb57a57ee906353c4af4ae46d7cebc317a653c798bae"
+                       },
+                       {
+                           "path":  "apps/pos-local-service/tests/session-trust-lifecycle.test.ts",
+                           "sha256":  "01da88e7b89b331ab9fa5e52fd4dc757480a7a0a491539854d943537ff56dd48"
+                       },
+                       {
+                           "path":  "tools/target-migrations/sql/postgres/proposals/sas_sequences.up.sql",
+                           "sha256":  "8cb0ae36b521e75092335b96e681e754a5aae2514fefc3a4dd8ab85557357618"
+                       },
+                       {
+                           "path":  "tools/target-migrations/sql/postgres/proposals/sas_sequences.down.sql",
+                           "sha256":  "36567cb989588ccf8c0cfa4e515e34179be326bfaccd65ba33b5120bf7658768"
+                       },
+                       {
+                           "path":  "tools/target-migrations/tests/sas-sequence-proposal-physical.test.ts",
+                           "sha256":  "76d412a610a53f4db2ead7657359ad2255310dcec5fd980e710777a59b02aa48"
+                       }
+                   ]
+}

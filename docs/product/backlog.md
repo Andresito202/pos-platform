@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+Continuidad P0 2026-10-24 desde `9639c9f`: [confianza/provisión Windows](../testing/commercial-provisioning-continuity-2026-10-24.md). Se corrige revocación root-signed interpretada antes de autenticar y se exige material público Ed25519. Propuesta de contador Authorization ensayada sólo en PostgreSQL temporal, sin descriptor/montaje productivo ni UPDATE RBAC. Solicitud única precisa sobre SAS completo, access/refresh y privilegios/vigencias; no hay formato SAS de confianza activado ni aprobación nueva. El primer enrolamiento/login humano sigue bloqueado por entorno real y decisiones concretas.
+
 Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Platform: prioridad, dependencia, bloqueo, trabajo activo y orden inmediato.
 
 Orden vigente del propietario 2026-10-22: cerrar primero autenticación comercial: persistencia HTTP con procedencia MFA, transporte HTTPS, integración BUSINESS y clientes Windows/Android. No avanzar a inventario, compras ni cajón hasta cerrar este incremento o documentar bloqueos externos verificables. Autoridad central externa no confirmada; DEV-003, SEC-004, D3 y DEC-025 sin aprobación. La [propuesta conjunta](../testing/android-commercial-approval-proposal-2026-10-22.md) conserva los datos y decisiones requeridos, sin activarlos.
