@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { POSTGRES_MIGRATION_LOCK_RESOURCE, uuidV7 } from "../src/shared.js";
+import {prepareSasMigrationProposal,verifySasProposalCatalog} from "../src/postgres-sas-proposal.js";
+import {postgresDatabase} from "../src/database.js";
 
 const serverUrl = process.env.POSTGRES_TEST_URL;
 const databaseName = `pos_business_session_test_${randomBytes(8).toString("hex")}`;
@@ -189,5 +191,22 @@ describe.runIf(Boolean(serverUrl))("SAS proposal — disposable PostgreSQL", () 
       await expect(rejected.query(up)).rejects.toThrow("SAS proposal requires disposable database");
       expect((await rejected.query("SELECT to_regnamespace('authorization') AS schema")).rows[0].schema).toBeNull();
     } finally { await rejected.end(); await admin.query(`DROP DATABASE "${rejectedName}"`); }
+  });
+  it("runner preparation: proposed artifacts remain unregistered and catalog rejects unsafe function drift",async()=>{
+    const plan=await prepareSasMigrationProposal();expect(plan.registered).toBe(false);expect(plan.migrationId).toBeNull();
+    expect(plan.approvedPredecessors).toBeNull();expect(plan.artifacts.every(a=>/^[0-9a-f]{64}$/.test(a.checksum))).toBe(true);
+    await applyProposal();
+    const c=await owner.connect();try{
+      await c.query("BEGIN");await c.query("SET LOCAL ROLE pos_schema_owner");
+      await c.query(await readFile(new URL("proposals/sas_sources_read_lock.up.sql",root),"utf8"));await c.query("COMMIT");
+    }catch(error){await c.query("ROLLBACK");throw error;}finally{c.release();}
+    const url=new URL(serverUrl!);url.pathname=`/${databaseName}`;const probe=postgresDatabase(url.toString(),1);
+    try{
+      await verifySasProposalCatalog(probe);
+      await owner.query('ALTER FUNCTION "authorization".lock_sas_sources_for_read() SET search_path=public');
+      await expect(verifySasProposalCatalog(probe)).rejects.toThrow("SAS read lock definer mismatch");
+    }finally{
+      await owner.query('ALTER FUNCTION "authorization".lock_sas_sources_for_read() SET search_path=pg_catalog');await probe.destroy();
+    }
   });
 });

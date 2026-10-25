@@ -1,0 +1,323 @@
+{
+  "date": "2026-10-25",
+  "initial_head": "ceb1046322387e6884c6e386822b3e0fd3e6330f",
+  "branch": "feat/android-commercial-runtime",
+  "scope": "isolated Windows integration, not production/human certification",
+  "environment": {
+    "os": "Windows NT 10.0.19045",
+    "node": "22.19.0",
+    "postgres": "temporary tmpfs on 127.0.0.1:55433",
+    "sqlite": "temporary canonical DB",
+    "custody": "real CurrentUser DPAPI"
+  },
+  "distinct_functional_cases": 31,
+  "distinct_failed_cases": 0,
+  "architecture_cases": 16,
+  "reports": [
+    {
+      "source": "artifacts/windows-p0/2026-10-25/service.json",
+      "sha256": "b65c359710fee4c3c8fdb253e15b32b2087bac05a7bda24a167aa117b1c81d3e",
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        {
+          "name": "SAS lifecycle: boot and refresh use DPAPI live verification; revoked and offline-expired keys disappear",
+          "status": "passed"
+        },
+        {
+          "name": "SAS lifecycle: coalesces privileged refresh and cancellation joins it before destroying custody",
+          "status": "passed"
+        },
+        {
+          "name": "SAS lifecycle: refuses a provisioning adapter bound to another device and destroys it",
+          "status": "passed"
+        },
+        {
+          "name": "SAS lifecycle: no provisioned adapter or missing refresh policy cannot create authority",
+          "status": "passed"
+        },
+        {
+          "name": "G1.2 main runtime bootstrap boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation",
+          "status": "passed"
+        },
+        {
+          "name": "SessionTrustRefreshComponent applies operational-key rotation and revocation to the live verifier map",
+          "status": "passed"
+        },
+        {
+          "name": "SessionTrustRefreshComponent retains the last verified keys when the central endpoint is temporarily unavailable",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/windows-p0/2026-10-25/sql.json",
+      "sha256": "25928a4379d59ac0e90568fe619d575312ca47e3c8c909504c35c5819beade43",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 169,
+      "tests": [
+        {
+          "name": "BUSINESS access preparation - physical composition SAS SQL rehearsal: canonical counter and least-privilege source reader issue the real signed projection",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition SAS SQL rehearsal: replay is denied and concurrent fresh proofs reserve exact distinct sequences",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition SAS SQL rehearsal: audit failure rolls back proposed counter and fresh retry starts at one",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition SAS SQL rehearsal: source lock does not bypass caller RLS or grant a different company",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition SAS SQL rehearsal: revocation committed by an earlier writer is observed before projection",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition SAS SQL rehearsal: reader transaction blocks INSERT phantoms from ordinary writers until commit",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/windows-p0/2026-10-25/runner.json",
+      "sha256": "44042d1cc72a107787efe1dc7fe827408a5cb3fb6348294295dbb950bc500783",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 8,
+      "tests": [
+        {
+          "name": "SAS proposal — disposable PostgreSQL rolls back DDL and ledger together on failure; retries and repeated apply are safe",
+          "status": "passed"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL runner preparation: proposed artifacts remain unregistered and catalog rejects unsafe function drift",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/windows-p0/2026-10-25/possession.json",
+      "sha256": "e88eed529bcf460865b1cd60e29dcf64fdfe7bd311aab13b29d9dd586b1434e1",
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        {
+          "name": "D3 V2 candidate: token-bound digest verifies without defining a production wire protocol",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing origin breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing audience breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing clientId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing tenantId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing installationId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing deviceId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing credentialId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing token breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing requestId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing correlationId breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing body breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: replacing operation breaks possession",
+          "status": "passed"
+        },
+        {
+          "name": "D3 V2 candidate: stale proof wrong key missing policy and DeviceProof V1 are rejected",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/windows-p0/2026-10-25/https-cancel.json",
+      "sha256": "3fe3e935106c4062ad58ccca36973de9772b25bd6d5eea1f23d762ab304996b5",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 34,
+      "tests": [
+        {
+          "name": "SAS candidate: real HTTPS rejects tampering redirects oversized bodies deadline and offline without replacing durable trust",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/windows-p0/2026-10-25/electron.json",
+      "sha256": "c3cd15d13894943e2990d843c0d5b903196f7739e740796b7f8c66051d98118e",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 174,
+      "tests": [
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=true",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/windows-p0/2026-10-25/lifecycle-final.json",
+      "sha256": "4d19b470d50135fa9f68d3b58778ad7b2badea012ebd8c1940abe5518fe52fca",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        {
+          "name": "SAS lifecycle: boot and refresh use DPAPI live verification; revoked and offline-expired keys disappear",
+          "status": "passed"
+        },
+        {
+          "name": "SAS lifecycle: coalesces privileged refresh and cancellation joins it before destroying custody",
+          "status": "passed"
+        },
+        {
+          "name": "SAS lifecycle: refuses a provisioning adapter bound to another device and destroys it",
+          "status": "passed"
+        },
+        {
+          "name": "SAS lifecycle: no provisioned adapter or missing refresh policy cannot create authority",
+          "status": "passed"
+        },
+        {
+          "name": "SessionTrustRefreshComponent applies operational-key rotation and revocation to the live verifier map",
+          "status": "passed"
+        },
+        {
+          "name": "SessionTrustRefreshComponent retains the last verified keys when the central endpoint is temporarily unavailable",
+          "status": "passed"
+        }
+      ]
+    }
+  ],
+  "electron": {
+    "source": "artifacts/windows-p0/2026-10-25/electron/sas-trust-observations-custody-true.json",
+    "sha256": "fa83c71237f21513a276c249a9406e15bdf156df96045f56ce461a77a2b06817",
+    "observed": {
+      "browserIntegration": true,
+      "scope": "ISOLATED_VALIDATION",
+      "serviceCustody": true,
+      "devicePrivateKeyInMain": false,
+      "dashboardAuthorized": true,
+      "wrongPasswordRejected": true,
+      "erased": true,
+      "observed": {
+        "recovery": {
+          "protocol_version": "1.0.0",
+          "request_id": "aca504e7-b869-4422-90e5-32cc77d8d99b",
+          "correlation_id": "e8d4d9dc-e546-421a-97fc-338e1904711a",
+          "operation_id": null,
+          "status": "SUCCEEDED",
+          "result_code": "ACTIVE",
+          "result_schema_version": "1.0.0",
+          "error": null,
+          "server_time": "2026-10-25T16:04:52.048Z",
+          "result": {
+            "outcome": "ACTIVE",
+            "session_id": "01a173ce-bb99-7c9e-bd50-e8eb9821457a",
+            "offline_valid_until": "2026-10-25T16:05:21.402Z",
+            "decision": null
+          }
+        },
+        "capabilities": {
+          "protocol_version": "1.0.0",
+          "request_id": "562254ac-9cf6-4e8a-bb2b-0975d51b7d31",
+          "correlation_id": "773a5f22-5fc6-442f-8ecc-2ae44d2ba147",
+          "operation_id": null,
+          "status": "SUCCEEDED",
+          "result_code": "AVAILABLE",
+          "result_schema_version": "1.0.0",
+          "error": null,
+          "server_time": "2026-10-25T16:04:52.072Z",
+          "result": {
+            "outcome": "AVAILABLE",
+            "permissions": [
+              "AUDIT_EVENT_READ"
+            ]
+          }
+        },
+        "forbidden": {
+          "protocol_version": "1.0.0",
+          "request_id": "2c25589a-b2ca-476b-b237-9e8477ebeb9e",
+          "correlation_id": "4a349199-47fe-435e-841a-dac3c4a757db",
+          "operation_id": null,
+          "status": "REJECTED",
+          "result_code": "UNAUTHORIZED",
+          "result_schema_version": "1.0.0",
+          "error": {
+            "code": "UNAUTHORIZED",
+            "category": "AUTHORIZATION",
+            "retryable": false,
+            "user_message_key": "catalog.item.list.unauthorized",
+            "field_errors": [],
+            "current_version": null,
+            "required_action": null,
+            "diagnostic_id": "d8b0f198-e50f-4d45-b85f-e6da1ebb550d"
+          },
+          "server_time": "2026-10-25T16:04:52.129Z",
+          "result": {
+            "outcome": "UNAUTHORIZED",
+            "items": [],
+            "has_more": false
+          }
+        }
+      },
+      "authenticator": "CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"
+    }
+  },
+  "gates": {
+    "typecheck_service": "PASS",
+    "typecheck_central": "PASS",
+    "typecheck_device_trust": "PASS",
+    "typecheck_target_migrations": "PASS",
+    "build_electron": "PASS",
+    "build_service_win32_x64": "PASS",
+    "architecture": "PASS",
+    "repository_policy": "PASS, 1096 tracked files including staged additions"
+  },
+  "service_artifact": {
+    "file": "apps/pos-local-service/dist/pos-local-service-0.0.0-win32-x64.tar.gz",
+    "sha256": "45ed8edcd1c96da7b3723039de2cbd4cd41d23e718408506c659c3b92ac68466",
+    "size_bytes": 1235248
+  },
+  "production_changes": false,
+  "human_authenticated": false,
+  "remote_ci": "SKIP: billing suspension reported by owner; pending restoration",
+  "unchanged_suites": "previous 63 cases, password/MFA/commercial/hardware full suites not repeated; affected main, scheduler and one Electron composition rerun"
+}

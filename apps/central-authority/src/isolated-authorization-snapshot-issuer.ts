@@ -20,11 +20,14 @@ export class IsolatedAuthorizationSnapshotIssuer {
   private readonly guard;
   constructor(private readonly pool:Pool,private readonly codec:IsolatedBusinessAccessTokenCodec,
     private readonly deployment:Readonly<TrustedAuthorizationDeployment>,private readonly policy:Readonly<IsolatedAuthorizationPolicy>,
-    private readonly signing:Readonly<IsolatedAuthorizationSigning>){
+    private readonly signing:Readonly<IsolatedAuthorizationSigning>,
+    private readonly storage?:Readonly<{mode:"DEC011_SQL_REHEARSAL";lockTimeoutMs:number}>){
     this.guard=new IsolatedBusinessAuditSessionGuard(pool);
     if(!(codec instanceof IsolatedBusinessAccessTokenCodec)||policy?.mode!=="ISOLATED_VALIDATION"||
       ![policy.lifetimeMs,policy.maximumReauthenticationAgeMs].every(n=>Number.isSafeInteger(n)&&n>0))throw Error("SAS_ISOLATED_POLICY_REQUIRED");
     this.checkKey();
+    if(storage&&(storage.mode!=="DEC011_SQL_REHEARSAL"||!Number.isSafeInteger(storage.lockTimeoutMs)||storage.lockTimeoutMs<=0))
+      throw Error("SAS_SQL_REHEARSAL_POLICY_REQUIRED");
   }
   private checkKey(){
     const k=this.signing,now=Date.now();
@@ -51,14 +54,18 @@ export class IsolatedAuthorizationSnapshotIssuer {
       if(!eligible.rows[0]||eligible.rows[0].user_id!==access.sub||eligible.rows[0].tenant_membership_id!==access.mid)return null;
       const branch=await c.query("SELECT 1 FROM organization.branches WHERE id=$1 AND tenant_id=$2 AND company_id=$3 AND status='ACTIVE' FOR SHARE",[d.branchId,d.tenantId,d.companyId]);
       if(!branch.rowCount)return null;
+      if(this.storage){
+        await c.query("SELECT set_config('lock_timeout',$1,true)",[`${this.storage.lockTimeoutMs}ms`]);
+        await c.query('SELECT "authorization".lock_sas_sources_for_read()');
+      }
       // Locks serialize competing publications of this user's device projection.
       await c.query("SELECT pg_advisory_xact_lock(hashtext($1))",["sas:"+access.sub+":"+d.installationId+":"+d.deviceId]);
       const assignmentSql=`SELECT a.*,r.status AS role_status,r.version AS role_version FROM "authorization".user_role_assignments a
         JOIN "authorization".roles r ON r.id=a.role_id AND r.scope_type='BUSINESS'
         WHERE a.tenant_id=$1 AND a.tenant_membership_id=$2 AND (a.company_id IS NULL OR a.company_id=$3)
-          AND (a.branch_id IS NULL OR a.branch_id=$4) ORDER BY a.id FOR SHARE OF a,r`;
+          AND (a.branch_id IS NULL OR a.branch_id=$4) ORDER BY a.id${this.storage?"":" FOR SHARE OF a,r"}`;
       const grantSql=`SELECT g.*,p.code,p.status AS permission_status FROM "authorization".role_permission_grants g
-          JOIN "authorization".permissions p ON p.id=g.permission_id WHERE g.role_id=$1 ORDER BY p.code,g.grant_version FOR SHARE OF g,p`;
+          JOIN "authorization".permissions p ON p.id=g.permission_id WHERE g.role_id=$1 ORDER BY p.code,g.grant_version${this.storage?"":" FOR SHARE OF g,p"}`;
       const assignmentParams=[d.tenantId,access.mid,d.companyId,d.branchId];
       const assignments=await c.query(assignmentSql,assignmentParams);
       const now=new Date(),at=now.getTime();
@@ -83,7 +90,11 @@ export class IsolatedAuthorizationSnapshotIssuer {
       }
       if(until<=at)return null;
       const checksum=createHash("sha256").update(JSON.stringify(source)).digest("hex"),snapshotId=uuidV7();
-      const next=await c.query(`INSERT INTO "authorization".snapshot_sequence_validation(user_id,installation_id,device_id,sequence,source_checksum,snapshot_id)
+      const next=this.storage?await c.query(`INSERT INTO "authorization".snapshot_sequences(user_id,installation_id,device_id,last_issued_sequence,source_checksum,snapshot_id)
+        VALUES($1,$2,$3,1,$4,$5) ON CONFLICT(user_id,installation_id,device_id) DO UPDATE
+        SET last_issued_sequence="authorization".snapshot_sequences.last_issued_sequence+1,source_checksum=excluded.source_checksum,
+          snapshot_id=excluded.snapshot_id,updated_at=clock_timestamp() RETURNING last_issued_sequence AS sequence`,
+        [access.sub,d.installationId,d.deviceId,checksum,snapshotId]):await c.query(`INSERT INTO "authorization".snapshot_sequence_validation(user_id,installation_id,device_id,sequence,source_checksum,snapshot_id)
         VALUES($1,$2,$3,1,$4,$5) ON CONFLICT(user_id,installation_id,device_id) DO UPDATE
         SET sequence="authorization".snapshot_sequence_validation.sequence+1,source_checksum=excluded.source_checksum,snapshot_id=excluded.snapshot_id RETURNING sequence`,
         [access.sub,d.installationId,d.deviceId,checksum,snapshotId]);

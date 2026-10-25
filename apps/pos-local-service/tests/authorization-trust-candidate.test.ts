@@ -211,6 +211,11 @@ it.runIf(process.platform === "win32")("SAS candidate: real HTTPS rejects tamper
       await expect(refreshIsolatedAuthorizationTrust({ ...input, timeoutMs: behavior === "timeout" ? 150 : 2000 })).rejects.toThrow();
       expect(f.store.resolve().get("SAS_TEST_A")?.status).toBe("ACTIVE");
     }
+    const cancellation=new AbortController();
+    const timer=setTimeout(()=>cancellation.abort(),50);
+    try{await expect(refreshIsolatedAuthorizationTrust({...input,signal:cancellation.signal})).rejects.toThrow(/abort/i);}
+    finally{clearTimeout(timer);}
+    expect(f.store.resolve().get("SAS_TEST_A")?.status).toBe("ACTIVE");
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   await expect(refreshIsolatedAuthorizationTrust(input)).rejects.toThrow();
   expect(f.create().resolve().size).toBe(1); // Offline only while signed trust is valid.

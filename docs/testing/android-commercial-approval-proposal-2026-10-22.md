@@ -6,6 +6,19 @@ El propietario no necesita inventar UUID ni proporcionar secretos. Primero debe 
 
 ## Una decisión conjunta y sus datos
 
+Continuidad Windows desde `ceb10463`, 2026-10-25: la misión posterior autoriza
+preparar y probar las partes independientes de aprobación, incluida la
+evaluación SQL **sólo en bases temporales**. Se materializan el puerto/lifecycle
+SAS del Service, el emisor con contador propuesto y una función definer
+**exclusivamente de bloqueo**, además de vectores criptográficos D3 LAB V2.
+[Alcance, decisiones concretas y evidencia](windows-p0-continuity-2026-10-25.md).
+La función no lee datos: las validaciones de sesión/dispositivo/alcance y RLS
+permanecen en su transacción llamadora. Esto precisa la alternativa de lectura
+definer de la tabla inferior, sin aprobarla ni modificar esquemas productivos.
+Los vectores V2 no son un formato HTTP, no son DPoP y no activan renovación.
+No se añaden solicitudes paralelas: las decisiones inferiores siguen formando
+esta única aprobación conjunta.
+
 Continuidad 2026-10-25: la misión expresa del propietario «Cierre DEC-011 y
 distribución confiable de SAS», sección 3, autoriza **contrato candidato y pruebas
 independientes en laboratorio** mientras se obtiene aprobación del formato

@@ -85,7 +85,8 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const ddl = await owner.connect();
     try {
       await ddl.query("SET ROLE pos_schema_owner");
-      for (const name of ["001_central_foundation.up.sql","004_device_trust.up.sql","009_webauthn_challenges.up.sql","010_webauthn_credential_material.up.sql","011_session_assertion_sequences.up.sql","012_device_request_proof_replays.up.sql","013_business_browser_sessions.up.sql"]) {
+      for (const name of ["001_central_foundation.up.sql","004_device_trust.up.sql","009_webauthn_challenges.up.sql","010_webauthn_credential_material.up.sql","011_session_assertion_sequences.up.sql","012_device_request_proof_replays.up.sql","013_business_browser_sessions.up.sql",
+        "proposals/sas_sequences.up.sql","proposals/sas_sources_read_lock.up.sql"]) {
         await ddl.query(await readFile(new URL(name,root),"utf8"));
       }
     } finally { try { await ddl.query("RESET ROLE"); } finally { ddl.release(); } }
@@ -818,6 +819,72 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   function sasIssuer(codec:IsolatedBusinessAccessTokenCodec,s:Awaited<ReturnType<typeof sasFixture>>){
     return new IsolatedAuthorizationSnapshotIssuer(runtime,codec,s.deployment,s.sasPolicy,s.material);
   }
+  async function withSasSqlRehearsal(work:(s:Awaited<ReturnType<typeof sasFixture>>,issuer:IsolatedAuthorizationSnapshotIssuer,access:string,codec:IsolatedBusinessAccessTokenCodec)=>Promise<void>){
+    const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
+    // Remove the OLD laboratory FOR SHARE privileges for this experiment.
+    // Restore that pre-existing fixture only; never a production role/database.
+    await owner.query('REVOKE UPDATE ON "authorization".roles,"authorization".permissions,"authorization".role_permission_grants FROM pos_platform_app');
+    try{await work(s,new IsolatedAuthorizationSnapshotIssuer(runtime,codec,s.deployment,s.sasPolicy,s.material,
+      {mode:"DEC011_SQL_REHEARSAL",lockTimeoutMs:5000}),access,codec);}
+    finally{await owner.query('GRANT UPDATE ON "authorization".roles,"authorization".permissions,"authorization".role_permission_grants TO pos_platform_app');}
+  }
+  async function waitForSourceLock(mode:string){
+    for(let i=0;i<200;i++){
+      const waiting=await owner.query(`SELECT 1 FROM pg_locks WHERE relation='"authorization".role_permission_grants'::regclass AND mode=$1 AND NOT granted`,[mode]);
+      if(waiting.rowCount)return;await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    throw Error("SAS_EXPECTED_LOCK_NOT_OBSERVED");
+  }
+  it("SAS SQL rehearsal: canonical counter and least-privilege source reader issue the real signed projection",async()=>withSasSqlRehearsal(async(s,issuer,access)=>{
+    for(const table of ["roles","permissions","role_permission_grants"])
+      expect((await runtime.query("SELECT has_any_column_privilege(current_user,$1,'UPDATE') AS allowed",[`"authorization".${table}`])).rows[0].allowed).toBe(false);
+    const issued=await issuer.issue(access,sasProof());
+    expect(issued?.claims.assignments[0]?.permissions).toEqual([{code:"AUDIT_EVENT_READ",status:"ACTIVE"}]);
+    expect(verify(null,Buffer.from(canonicalSessionTrustJson(issued!.claims)),s.material.publicKey,Buffer.from(issued!.signature,"base64url"))).toBe(true);
+    expect((await runtime.query('SELECT last_issued_sequence::int AS n FROM "authorization".snapshot_sequences WHERE user_id=$1',[userId])).rows).toEqual([{n:1}]);
+    expect((await runtime.query('SELECT count(*)::int AS n FROM "authorization".snapshot_sequence_validation WHERE user_id=$1',[userId])).rows[0].n).toBe(0);
+  }));
+  it("SAS SQL rehearsal: replay is denied and concurrent fresh proofs reserve exact distinct sequences",async()=>withSasSqlRehearsal(async(_s,issuer,access)=>{
+    const proof=sasProof();expect((await issuer.issue(access,proof))?.claims.sequence).toBe(1);
+    expect(await issuer.issue(access,proof)).toBeNull();
+    const next=await Promise.all([issuer.issue(access,sasProof()),issuer.issue(access,sasProof())]);
+    expect(next.map(x=>x?.claims.sequence).sort()).toEqual([2,3]);
+  }));
+  it("SAS SQL rehearsal: audit failure rolls back proposed counter and fresh retry starts at one",async()=>withSasSqlRehearsal(async(_s,issuer,access)=>{
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    const proof=sasProof();
+    try{await expect(issuer.issue(access,proof)).rejects.toMatchObject({code:"42501"});}
+    finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    expect((await runtime.query('SELECT count(*)::int AS n FROM "authorization".snapshot_sequences WHERE user_id=$1',[userId])).rows[0].n).toBe(0);
+    expect(await issuer.issue(access,proof)).toBeNull();expect((await issuer.issue(access,sasProof()))?.claims.sequence).toBe(1);
+  }));
+  it("SAS SQL rehearsal: source lock does not bypass caller RLS or grant a different company",async()=>withSasSqlRehearsal(async(s,_issuer,access,codec)=>{
+    const wrong=new IsolatedAuthorizationSnapshotIssuer(runtime,codec,{...s.deployment,companyId:uuidV7()},s.sasPolicy,s.material,{mode:"DEC011_SQL_REHEARSAL",lockTimeoutMs:5000});
+    expect(await wrong.issue(access,sasProof())).toBeNull();
+    const c=await runtime.connect();try{
+      await c.query("BEGIN");await c.query("SELECT set_config('app.tenant_id',$1,true)",[uuidV7()]);
+      await c.query('SELECT "authorization".lock_sas_sources_for_read()');
+      expect((await c.query('SELECT count(*)::int AS n FROM "authorization".user_role_assignments WHERE id=$1',[s.assignmentId])).rows[0].n).toBe(0);
+    }finally{await c.query("ROLLBACK");c.release();}
+    expect((await runtime.query("SELECT has_function_privilege('pos_app','authorization.lock_sas_sources_for_read()','EXECUTE') AS allowed")).rows[0].allowed).toBe(false);
+  }));
+  it("SAS SQL rehearsal: revocation committed by an earlier writer is observed before projection",async()=>withSasSqlRehearsal(async(s,issuer,access)=>{
+    const writer=await owner.connect();let issuing:ReturnType<typeof issuer.issue>|undefined;
+    try{
+      await writer.query("BEGIN");await writer.query('UPDATE "authorization".role_permission_grants SET status=\'RETIRED\',retired_at=clock_timestamp() WHERE id=$1',[s.grantId]);
+      issuing=issuer.issue(access,sasProof());await waitForSourceLock("ShareLock");
+      await writer.query("COMMIT");expect((await issuing)?.claims.assignments[0]?.permissions[0]?.status).toBe("RETIRED");
+    }finally{await writer.query("ROLLBACK");writer.release();await issuing?.catch(()=>undefined);}
+  }));
+  it("SAS SQL rehearsal: reader transaction blocks INSERT phantoms from ordinary writers until commit",async()=>withSasSqlRehearsal(async(s)=>{
+    const reader=await runtime.connect();let writing:Promise<unknown>|undefined;
+    try{
+      await reader.query("BEGIN");await reader.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      await reader.query('SELECT "authorization".lock_sas_sources_for_read()');
+      writing=owner.query(`INSERT INTO "authorization".role_permission_grants SELECT $1,role_id,permission_id,2,status,valid_from,valid_until,created_at,retired_at FROM "authorization".role_permission_grants WHERE id=$2`,[uuidV7(),s.grantId]);
+      await waitForSourceLock("RowExclusiveLock");await reader.query("COMMIT");await writing;
+    }finally{await reader.query("ROLLBACK");reader.release();await writing?.catch(()=>undefined);}
+  }));
   it("central SAS: projects canonical scoped grants and signs separate from SSA",async()=>{
     const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issued=await sasIssuer(codec,s).issue(access,sasProof());
     expect(issued?.claims).toMatchObject({user_id:userId,device_id:deviceId,installation_id:installationId,sequence:1,

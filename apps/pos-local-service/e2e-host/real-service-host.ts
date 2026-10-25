@@ -25,6 +25,7 @@ import {mkdirSync} from "node:fs";
 import {join} from "node:path";
 import {WindowsDpapiKeyProvider} from "../src/security/windows-dpapi-key-provider.js";
 import {AuthorizationTrustCandidateStore} from "../src/security/authorization-trust-candidate.js";
+import {AuthorizationTrustLifecycle} from "../src/security/authorization-trust-lifecycle.js";
 import {refreshIsolatedAuthorizationTrust} from "../src/security/isolated-authorization-trust-fetcher.js";
 import {TrustedClockGuard} from "../src/security/trusted-clock.js";
 import {LocalSecurityComponent,deviceIdentityContext} from "../src/security/local-security-component.js";
@@ -236,7 +237,7 @@ async function main(): Promise<void> {
   await operations.start();
 
   let commercial: CommercialComponent;
-  let authorizationTrustSecrets:EncryptedFileSecretStore|undefined;
+  let authorizationTrust:AuthorizationTrustLifecycle|undefined;
   let externalSigningKeyCount=0;
   if (WITHOUT_SESSION) {
     // Empty canonical storage; optional Central public trust only. No private
@@ -256,12 +257,14 @@ async function main(): Promise<void> {
       const trust=JSON.parse(process.env.POS_E2E_SAS_TRUST_CANDIDATE) as {issuer:string;authorityId:string;minimumGeneration:number;rootPublicPem:string;url:string;ca:string};
       const directory=join(DATA_DIRECTORY,"sas-trust-candidate");mkdirSync(directory,{recursive:true});
       const encrypted=new EncryptedFileSecretStore(directory,new WindowsDpapiKeyProvider(directory),"dec011-sas-lab-only");
-      authorizationTrustSecrets=encrypted;
       const store=new AuthorizationTrustCandidateStore(encrypted,{mode:"ISOLATED_VALIDATION",environment:"isolated-validation",
         issuer:trust.issuer,authorityId:trust.authorityId,minimumGeneration:trust.minimumGeneration,root:createPublicKey(trust.rootPublicPem)},
         externalKeys,new TrustedClockGuard(database,0),()=>new Date());
-      await refreshIsolatedAuthorizationTrust({mode:"ISOLATED_VALIDATION",url:trust.url,ca:trust.ca,timeoutMs:5000,store});
-      authorizationKeys=store.liveKeys();
+      authorizationTrust=new AuthorizationTrustLifecycle({installationId:INSTALLATION,deviceId:DEVICE},{refreshIntervalMs:60000,
+        create:()=>({binding:{installationId:INSTALLATION,deviceId:DEVICE},readKeys:()=>store.resolve(),destroy:()=>encrypted.destroy(),
+          refresh:async signal=>{await refreshIsolatedAuthorizationTrust({mode:"ISOLATED_VALIDATION",url:trust.url,ca:trust.ca,timeoutMs:5000,store,signal});}}),
+      },()=>{});
+      authorizationKeys=authorizationTrust.keys;
     }
     if(process.env.POS_E2E_SAS_PUBLIC_TRUST){
       const trust=JSON.parse(process.env.POS_E2E_SAS_PUBLIC_TRUST) as {mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
@@ -312,6 +315,7 @@ async function main(): Promise<void> {
       new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
     );
   }
+  await authorizationTrust?.start();
   await commercial.start();
   let nativeCommercial:NativeCommercialCoordinator|undefined,localSecurity:LocalSecurityComponent|undefined,enrollmentSecrets:EncryptedFileSecretStore|undefined;
   if(custody){
@@ -400,7 +404,7 @@ async function main(): Promise<void> {
         await server.stop();
           enrollmentSecrets?.destroy();await localSecurity?.stop();
         await commercial.stop();
-        authorizationTrustSecrets?.destroy();
+        await authorizationTrust?.stop();
         await operations.stop();
         await durableSync.stop();
       } finally {

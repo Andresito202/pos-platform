@@ -8,6 +8,7 @@ import type { AuthorizationTrustCandidateStore } from "./authorization-trust-can
 export async function refreshIsolatedAuthorizationTrust(input: {
   mode: "ISOLATED_VALIDATION"; url: string; ca: string; timeoutMs: number;
   store: AuthorizationTrustCandidateStore;
+  signal?:AbortSignal;
 }): Promise<number> {
   const url = new URL(input.url);
   if (process.env.NODE_ENV !== "test" || input.mode !== "ISOLATED_VALIDATION" || url.protocol !== "https:" || !url.hostname.endsWith(".test") ||
@@ -17,6 +18,7 @@ export async function refreshIsolatedAuthorizationTrust(input: {
   const payload = await new Promise<Buffer>((resolve, reject) => {
     const req = request({ host: "127.0.0.1", port: url.port || 443, servername: url.hostname,
       path: url.pathname, method: "GET", ca: input.ca, rejectUnauthorized: true, minVersion: "TLSv1.2", agent: false,
+      ...(input.signal?{signal:input.signal}:{}),
       headers: { accept: "application/json", host: url.hostname } }, res => {
       res.once("error", reject); res.once("aborted", () => reject(Error("SAS_TRUST_RESPONSE_ABORTED")));
       if (res.statusCode !== 200 || res.headers["cache-control"] !== "no-store" || res.headers["content-type"] !== "application/json; charset=utf-8" ||
@@ -35,5 +37,6 @@ export async function refreshIsolatedAuthorizationTrust(input: {
     const deadline = setTimeout(() => req.destroy(Error("SAS_TRUST_TIMEOUT")), input.timeoutMs);
     req.once("close", () => clearTimeout(deadline)); req.once("error", reject); req.end();
   });
+  input.signal?.throwIfAborted();
   return input.store.install(SignedAuthorizationTrustCandidateSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload))));
 }

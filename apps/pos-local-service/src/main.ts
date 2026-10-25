@@ -14,6 +14,7 @@ import { SyncDispatcher } from "./sync/sync-dispatcher.js";
 import { EnrolledDeviceCredentialProvider, UnprovisionedDeviceCredentialProvider, type DeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
+import {AuthorizationTrustLifecycle} from "./security/authorization-trust-lifecycle.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
@@ -219,13 +220,21 @@ try {
   // every activation, so runtime refresh can apply rotation/revocation in place.
   const liveSessionTrustKeys = new Map<string, TrustedSigningKey>(sessionTrustKeys.keys);
 
+  // No environment/renderer JSON can instantiate a privileged SAS adapter.
+  // The production format/root/provisioning contract is not yet approved.
+  const authorizationTrust=new AuthorizationTrustLifecycle(
+    {installationId:config.installation_id,deviceId:config.device_id},undefined,
+    (event,detail)=>logger.log(event==="FAILED"?"warn":"info",`authorization_trust.${event.toLowerCase()}`,detail),
+  );
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
+    undefined,authorizationTrust.keys,
   );
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [
     localDatabase,
     security,
+    authorizationTrust,
     durableSync,
     operationConfirmation,
     commercial,
