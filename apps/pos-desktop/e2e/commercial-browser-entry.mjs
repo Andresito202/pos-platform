@@ -129,6 +129,12 @@ async function run() {
     process.stderr.write("BROWSER_DRIVER_FORM_READY\n");
     const visible = await browser.webContents.executeJavaScript(`({secure:window.isSecureContext,origin:location.origin,node:typeof require,bridge:typeof window.posService})`);
     if (!visible.secure || visible.origin !== "https://business.example.test" || visible.node !== "undefined" || visible.bridge !== "undefined") throw Error("BROWSER_ORIGIN_ISOLATION_FAILED");
+    if(process.env.POS_E2E_AUDIT_DIRECTORY){
+      const {mkdir,writeFile}=await import("node:fs/promises");
+      await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});
+      // Capture before filling either credential field; no secrets in evidence.
+      await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"central-https-login.png"),(await browser.capturePage()).toPNG());
+    }
     await browser.webContents.executeJavaScript(`(() => {
       window.__labPhases=[];
       new MutationObserver(() => window.__labPhases.push(document.querySelector("#status").dataset.phase))
@@ -166,7 +172,19 @@ async function run() {
         if(observed.recovery.result_code!=="ACTIVE"||observed.capabilities.result.permissions.join()!=="AUDIT_EVENT_READ"||observed.forbidden.result_code!=="UNAUTHORIZED")throw Error("SERVICE_NATIVE_CAPABILITIES_REJECTED");
         await pos.webContents.executeJavaScript('document.querySelector("button").click()');
         await waitFor(()=>pos.webContents.executeJavaScript('Boolean(document.querySelector(".pos-shell"))'),"SERVICE_CUSTODY_DASHBOARD");
-        if(process.env.POS_E2E_AUDIT_DIRECTORY){const {writeFile,mkdir}=await import("node:fs/promises");await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"service-custody-dashboard.png"),(await pos.capturePage()).toPNG());}
+        if(process.env.POS_E2E_AUDIT_DIRECTORY){
+          const {writeFile,mkdir}=await import("node:fs/promises");
+          // Focusing the POS legitimately revalidates capabilities. Wait for
+          // that transition and painted frames before recording the dashboard.
+          pos.focus();let stable=0;
+          await waitFor(async()=>{
+            const ready=await pos.webContents.executeJavaScript('Boolean(document.querySelector(".pos-shell")) && document.querySelector(".pos-header h1")?.textContent === "Dashboard"');
+            stable=ready?stable+1:0;return stable>=3;
+          },"SERVICE_CUSTODY_VISUAL_STABLE");
+          await pos.webContents.executeJavaScript('new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)))');
+          await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY,{recursive:true});
+          await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,"service-custody-dashboard.png"),(await pos.capturePage()).toPNG());
+        }
         process.stdout.write(JSON.stringify({browserIntegration:true,scope:"ISOLATED_VALIDATION",serviceCustody:true,devicePrivateKeyInMain:false,
           dashboardAuthorized:true,wrongPasswordRejected:true,erased,observed,authenticator:"CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"})+"\n");return;
       }

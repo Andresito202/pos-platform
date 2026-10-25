@@ -1,6 +1,7 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useCallback, useMemo, useState } from "react";
 import "./App.css";
+import "./commercial-precision.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
@@ -173,7 +174,7 @@ export function App(): React.JSX.Element {
         id: planned.id,
         label: planned.label,
         section: planned.section,
-        planned: true,
+        planned: planned.id !== "dashboard" && planned.id !== "admin-audit",
         render: () => <PlannedScreen screen={planned} />,
       });
     }
@@ -219,6 +220,7 @@ export function App(): React.JSX.Element {
   return (
     <main className="pos-shell" data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}>
       <aside className="pos-sidebar" aria-label="Navegación principal">
+        <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
@@ -247,7 +249,7 @@ export function App(): React.JSX.Element {
         </nav>
       </aside>
 
-      <div className="pos-content">
+      <div className="pos-content" id="pos-workspace" tabIndex={-1}>
         <header className="pos-header">
           <div>
             <p className="pos-product-name">Camacho POS Colombia · {selectedScreen?.section ?? "Sesión autorizada"}</p>

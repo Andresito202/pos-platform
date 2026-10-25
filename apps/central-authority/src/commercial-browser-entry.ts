@@ -22,18 +22,31 @@ export function sendCommercialBrowserEntry(res: ServerResponse, configuration: C
   const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Acceso — Camacho POS Colombia</title>
 <style nonce="${nonce}">
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#09131c;color:#e6edf3;font:17px system-ui}
-main{max-width:520px;margin:24px;padding:36px;background:#15232d;border:1px solid #2c535b;border-radius:24px}
-img{max-width:240px}h1{font-size:25px}label{display:block;margin-top:18px}input{box-sizing:border-box;width:100%;padding:12px;margin-top:6px;font:inherit}
-button{padding:12px 20px;margin:18px 10px 0 0;font:inherit;cursor:pointer}button:disabled{cursor:wait}p{line-height:1.5}
-</style><main><img alt="Camacho POS Colombia" src="data:image/png;base64,${configuration.logoPng.toString("base64")}">
+/* Commercial Precision B: presentation only; nonce and authentication unchanged. */
+:root{font-family:Bahnschrift,"Segoe UI",system-ui,sans-serif;color:#142b3a;background:#f3f6f8;line-height:1.5}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,420px);gap:64px;width:min(1060px,100%);padding:40px;margin:0}
+.access-brand{align-self:center}.access-brand img{display:block;width:min(330px,100%);margin-bottom:36px;background:#fff;border:1px solid #d6dfe6;border-radius:4px;padding:12px}
+h1{font-size:34px;line-height:1.18;letter-spacing:-.6px;font-weight:600;margin:0 0 20px}h2{font-size:24px;line-height:1.25;margin:0 0 16px;font-weight:600}
+.access-brand p{font-size:14px;color:#536475;max-width:360px}.access-form{min-width:0;background:#fff;border:1px solid #d6dfe6;border-top:3px solid #087052;border-radius:4px;padding:30px}
+label{display:grid;gap:6px;margin-top:18px;font-size:13px;font-weight:600}
+input{width:100%;min-height:44px;padding:10px 12px;font:inherit;color:#142b3a;border:1px solid #b8c6d1;border-radius:4px;background:#fff}
+button{min-height:44px;padding:10px 16px;margin:20px 8px 0 0;font:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #b8c6d1;border-radius:4px;background:#fff;color:#142b3a}
+#start,#confirm{background:#087052;border-color:#087052;color:#fff}button:disabled{cursor:not-allowed;background:#edf0f3!important;border-color:#d6dfe6!important;color:#536475!important}
+:is(button,input):focus-visible{outline:3px solid #2577b0;outline-offset:3px}p{line-height:1.5}#status{font-size:13px;padding:14px;border-left:3px solid #123d68;background:#e9f1f6;margin:24px 0 0;overflow-wrap:anywhere}
+#destination{font-size:13px;padding-top:18px;border-top:1px solid #d6dfe6;overflow-wrap:anywhere}#status[data-phase="REJECTED"],#status[data-phase="LOGOUT_UNCONFIRMED"]{background:#fff2d4;color:#805500;border-left-color:#805500}
+@media(max-width:700px){main{grid-template-columns:minmax(0,1fr);gap:24px;padding:24px 18px}.access-brand img{width:240px;margin-bottom:22px}h1{font-size:28px}.access-brand p{max-width:none}.access-form{padding:24px}}
+@media(pointer:coarse){input,button{min-height:48px;font-size:16px}}
+</style><main><section class="access-brand"><img alt="Camacho POS Colombia" src="data:image/png;base64,${configuration.logoPng.toString("base64")}">
 <h1>Iniciar autenticación comercial</h1><p>Entorno local de integración. No habilita acceso productivo al POS.</p>
+</section><section class="access-form" aria-label="Autenticación comercial"><h2>Verifica tu identidad</h2>
 <form id="login"><label>Correo del empleado<input name="email" type="email" autocomplete="username" maxlength="320" required></label>
 <label>Contraseña<input name="password" type="password" autocomplete="current-password" maxlength="1024" required></label>
 <button id="start" type="submit">Iniciar autenticación</button><button id="cancel" type="button" disabled>Cancelar</button></form>
 <p id="status" role="status" aria-live="polite" data-phase="IDLE">Se exigirá verificación WebAuthn.</p>
 <button id="logout" type="button" hidden>Cerrar sesión central</button>
 <p id="destination" hidden></p><button id="confirm" type="button" hidden>Confirmar destino y continuar al POS</button>
+</section>
 <script nonce="${nonce}">
 "use strict";
 (() => {

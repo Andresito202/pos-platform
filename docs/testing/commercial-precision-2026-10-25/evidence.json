@@ -1,0 +1,438 @@
+{
+  "date": "2026-10-25",
+  "timezone": "America/Bogota",
+  "base_commit": "f6284749d0c8dde464506531fa3c37a4658b35f9",
+  "branch": "feat/android-commercial-runtime",
+  "approval": "Owner: Apruebo B (visual direction only)",
+  "distinct_cases": {
+    "passed": 136,
+    "failed": 0,
+    "skipped": 167
+  },
+  "runs": [
+    {
+      "report": "renderer-final-tests.json",
+      "passed": 134,
+      "failed": 0,
+      "skipped": 0,
+      "sha256": "40f687b254d09b0fb99c1aaa7d30cad477e22b0643f6a73e990b390f45a3352b",
+      "cases": [
+        "CatalogPanel CSV previews without writes and confirms only through existing backend registration",
+        "CatalogPanel D-19 sends only explicitly declared fiscal attributes, normalizing the tax rate",
+        "CatalogPanel construye un sobre que el esquema real del contrato acepta",
+        "CatalogPanel expone el presentation_id, que es lo que la entrada de existencia necesita",
+        "CatalogPanel un código de barras vacío viaja como null, no como cadena vacía",
+        "CatalogPanel rechaza un precio que no cabe en escala 6 en vez de truncarlo",
+        "CatalogPanel muestra el desenlace cuando el alta se rechaza sin identificadores",
+        "InventoryPanel recibir y ajustar construyen sobres que sus esquemas reales aceptan",
+        "InventoryPanel los motivos de entrada y de ajuste son listas disjuntas",
+        "InventoryPanel enseña la existencia disponible cuando el movimiento se rechaza por faltante",
+        "InventoryPanel no colapsa «sin movimientos» con existencia cero",
+        "InventoryPanel rechaza una cantidad fuera de escala 6 sin tocar el canal",
+        "CustomerPanel expone el aviso de privacidad y el canal de consultas desde el formulario",
+        "CustomerPanel construye un sobre que el esquema real del contrato acepta",
+        "CustomerPanel muestra los findings cuando el alta fiscal se rechaza",
+        "CustomerPanel distingue encontrado de no registrado en la búsqueda",
+        "FiscalPanel construye un sobre que el esquema real del contrato acepta",
+        "FiscalPanel muestra el cufe y el consecutivo cuando la emisión queda evidenciada",
+        "FiscalPanel el adquiriente anónimo bloquea, y el motivo se lee entero en pantalla",
+        "FiscalPanel un desenlace incierto se muestra aparte, no como un fallo cualquiera",
+        "FiscalPanel un fallo sin `result` sí es error de transporte, y se dice como tal",
+        "AdministrativeControlPanel navega entre pestañas sin fabricar métricas",
+        "AdministrativeControlPanel consume métricas administrativas reales sin calcularlas en el renderer",
+        "AdministrativeControlPanel consume eventos de auditoría reales mediante el contrato read-only",
+        "permisos por acción y consultas conectadas connects catalog-read without enabling product registration",
+        "permisos por acción y consultas conectadas does not enable stock mutations for an inventory reader",
+        "permisos por acción y consultas conectadas preselects the completed sale for fiscal issuance without issuing automatically",
+        "App does not open the operational shell for a session with zero capabilities",
+        "App shows expiration based on a canonical backend decision, without exposing operational screens",
+        "App shows only navigation areas covered by effective permissions",
+        "App does not expose fiscal navigation without the fiscal permission",
+        "App exposes fiscal navigation only when the effective fiscal permission is present",
+        "App groups authorized screens under their existing navigation sections",
+        "App materializes the first authorized screen and keeps navigation capability-driven",
+        "App gives POS inputs accessible names across authorized screens",
+        "App exposes only the currently executable administrative surfaces",
+        "App does not expose the administrative dashboard from operational permissions alone",
+        "App fails closed when effective authorization cannot be loaded",
+        "App keeps technical diagnostics collapsed in the operator workspace",
+        "App renders the POS Local heading",
+        "App renders the status panel in loading state initially",
+        "App renders the operation panel after authorization loads",
+        "App renders the operation id input",
+        "App renders get-result and confirm buttons",
+        "App preserves the cash screen while navigating to another authorized screen",
+        "App connects product registration to stock entry using the returned presentation ID",
+        "App connects the paid sale to its receipt and fiscal form without retyping IDs",
+        "Entry and navigation preserve authorization boundaries retries canonical recovery without granting any permissions",
+        "Entry and navigation preserve authorization boundaries keeps unavailable recovery fail-closed",
+        "Entry and navigation preserve authorization boundaries changes visual area only after an authorized navigation event",
+        "Entry and navigation preserve authorization boundaries keeps the branded entry screen fail-closed while authorization is pending",
+        "Entry and navigation preserve authorization boundaries does not render decorative controls or operational screens when authorization fails",
+        "bounded catalog CSV preparation and authorized per-row orchestration reads UTF-8/BOM, quoted separators and exact decimals without treating empty fiscal values as exemption",
+        "bounded catalog CSV preparation and authorized per-row orchestration detects duplicate codes/barcodes and invalid values per record without writes",
+        "bounded catalog CSV preparation and authorized per-row orchestration rejects unknown invoice/stock columns, broken quotes, duplicate headers and oversized sources",
+        "bounded catalog CSV preparation and authorized per-row orchestration resumes the identical file with identical keys after uncertain transport, leaving each row to backend authorization",
+        "bounded catalog CSV preparation and authorized per-row orchestration stops on missing backend permissions and never marks pending work as registered",
+        "shouldPlayChime — CHA-CHING = SALE_COMPLETED ONLY suena cuando la venta quedó cobrada y la transición fue real",
+        "shouldPlayChime — CHA-CHING = SALE_COMPLETED ONLY no suena en un pago parcial: el pago se confirmó, la venta no",
+        "shouldPlayChime — CHA-CHING = SALE_COMPLETED ONLY no suena en un reintento idempotente aunque la venta esté cobrada (§13.3)",
+        "shouldPlayChime — CHA-CHING = SALE_COMPLETED ONLY no suena en un rechazo",
+        "shouldPlayChime — CHA-CHING = SALE_COMPLETED ONLY no suena sin resultado",
+        "OperationPanel disables both buttons when operation id is empty",
+        "OperationPanel enables both buttons after typing an operation id",
+        "OperationPanel calls operation.result.get with the entered id and shows result",
+        "OperationPanel calls operation.confirm with the entered id and shows result",
+        "OperationPanel shows error message when operation.result.get fails",
+        "OperationPanel shows error message when operation.confirm fails",
+        "OperationPanel does not call service when operation id is whitespace only",
+        "OperationPanel does not send malformed JSON to the service",
+        "ReceiptPanel pide el recibo con un sobre que el contrato acepta",
+        "ReceiptPanel muestra cada cifra tal como llega, sin recalcular",
+        "ReceiptPanel distingue una venta que no existe de una que no está cobrada",
+        "ReceiptPanel no pide nada mientras no haya identificador",
+        "SalePanel — vertical comercial se monta con la caja cerrada",
+        "SalePanel — vertical comercial abre el turno nombrando la caja, y el request cumple el contrato",
+        "SalePanel — vertical comercial busca el producto por código de barras con un request contractual",
+        "SalePanel — vertical comercial el producto seleccionado entra en la venta",
+        "SalePanel — vertical comercial sale.create envía cash_register_id y el request cumple el contrato",
+        "SalePanel — vertical comercial sale.create NO envía cash_shift_id: la resolución no vive en el renderer",
+        "SalePanel — vertical comercial ningún request comercial declara identidad: el ámbito lo deriva la capa confiable",
+        "SalePanel — vertical comercial el cobro en efectivo usa el contrato y el importe emitido por el servicio",
+        "SalePanel — vertical comercial normalizes typed cash before sending the payment contract",
+        "SalePanel — vertical comercial reuses the exact payment request after an uncertain transport failure",
+        "SalePanel — vertical comercial supports a partial cash payment without calculating a new total in the renderer",
+        "SalePanel — vertical comercial blocks a different amount after a lost response and explicitly retries the original request",
+        "SalePanel — vertical comercial removes a draft cart line without sending a sale mutation",
+        "SalePanel — vertical comercial sale_completed = true produce EXACTAMENTE un cha-ching",
+        "SalePanel — vertical comercial un pago parcial confirmado NO suena, y la UI lo dice",
+        "SalePanel — vertical comercial un reintento idempotente no vuelve a sonar aunque la venta esté cobrada",
+        "SalePanel — vertical comercial un rechazo del cobro no suena y muestra el código estable",
+        "SalePanel — vertical comercial sin turno abierto la venta viaja con cash_register_id nulo",
+        "SalePanel · cierre de turno cierra el turno con la versión que trajo la apertura, no con una supuesta",
+        "SalePanel · cierre de turno muestra el arqueo tal como lo devuelve el servicio, sin restar en pantalla",
+        "SalePanel · cierre de turno un cierre rechazado no cierra el turno ni se disfraza de éxito",
+        "SalePanel · cierre de turno no pide cierre sin efectivo contado",
+        "SalePanel · transferencia registra la transferencia y toma la versión real de payment.get",
+        "SalePanel · transferencia registrar NO es cobrar: no suena, no completa y queda pendiente",
+        "SalePanel · transferencia un registro IDEMPOTENT tampoco suena, y su versión también sale de payment.get",
+        "SalePanel · transferencia confirmar con CONFIRMED y venta completada suena exactamente una vez",
+        "SalePanel · transferencia CONFIRMED sin completar la venta NO suena",
+        "SalePanel · transferencia un IDEMPOTENT en la confirmación no vuelve a sonar",
+        "SalePanel · transferencia VERSION_CONFLICT se muestra con su código y no suena",
+        "SalePanel · transferencia PAYMENT_NOT_CONFIRMABLE se muestra con su código y no suena",
+        "SalePanel · transferencia no hay confirmación posible sin transferencia registrada",
+        "SalePanel · transferencia allows a supervisor to load and confirm an existing transfer with its stored version",
+        "SalePanel · transferencia cancels only an unconfirmed transfer and reloads its persisted state",
+        "SalePanel · transferencia retains the registered payment ID when the reporter has no payment-read grant",
+        "la cantidad tecleada se escribe como la exige el contrato un entero se completa a escala 6",
+        "la cantidad tecleada se escribe como la exige el contrato acepta coma y punto, como acepta el teclado colombiano",
+        "la cantidad tecleada se escribe como la exige el contrato respeta los seis decimales exactos y los espacios alrededor",
+        "la cantidad tecleada se escribe como la exige el contrato no trunca en silencio lo que no cabe: prefiere que el cajero corrija",
+        "la cantidad tecleada se escribe como la exige el contrato rechaza lo que no es un número",
+        "la cantidad tecleada se escribe como la exige el contrato normaliza los ceros a la izquierda sin perder el valor",
+        "canonical session recovery coordination (unit fixtures only) does not expose an IPC exception as runtime status text",
+        "canonical session recovery coordination (unit fixtures only) denies the workspace when the backend returns no effective permissions",
+        "canonical session recovery coordination (unit fixtures only) reports expiration only when the canonical recovery decision says EXPIRED",
+        "canonical session recovery coordination (unit fixtures only) removes stale permissions after an operation returns SESSION_NOT_BOUND",
+        "canonical session recovery coordination (unit fixtures only) removes stale permissions after an operation returns AUTHORIZATION_SNAPSHOT_UNAVAILABLE",
+        "canonical session recovery coordination (unit fixtures only) channel failure clears prior grants without leaking the exception into the access card",
+        "canonical session recovery coordination (unit fixtures only) focus removes displayed grants until capabilities are revalidated",
+        "canonical session recovery coordination (unit fixtures only) ACTIVE rereads capabilities; the recovery UUID grants nothing",
+        "canonical session recovery coordination (unit fixtures only) ACTIVE cannot bypass a rejected authorization snapshot",
+        "canonical session recovery coordination (unit fixtures only) rejects malformed or unverifiable recovery 0",
+        "canonical session recovery coordination (unit fixtures only) rejects malformed or unverifiable recovery 1",
+        "canonical session recovery coordination (unit fixtures only) rejects malformed or unverifiable recovery 2",
+        "canonical session recovery coordination (unit fixtures only) rejects malformed or unverifiable recovery 3",
+        "canonical session recovery coordination (unit fixtures only) ignores a stale recovery after retry and clears old permissions immediately",
+        "canonical session recovery coordination (unit fixtures only) does not recover on a bound session authorization denial",
+        "StatusPanel shows loading state while awaiting first response",
+        "StatusPanel shows connected state after successful response",
+        "StatusPanel shows the sanitized error state when the service transport fails",
+        "StatusPanel calls runtime.status.get on mount",
+        "StatusPanel does not report a rejected status as connected"
+      ]
+    },
+    {
+      "report": "changed-panels-final-tests.json",
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0,
+      "sha256": "2fd640af95a01f9edfcc370e7cb4b7aad2bb8c19849098344d52be0b2feee4f9",
+      "cases": [
+        "CatalogPanel CSV previews without writes and confirms only through existing backend registration",
+        "CatalogPanel D-19 sends only explicitly declared fiscal attributes, normalizing the tax rate",
+        "CatalogPanel construye un sobre que el esquema real del contrato acepta",
+        "CatalogPanel expone el presentation_id, que es lo que la entrada de existencia necesita",
+        "CatalogPanel un código de barras vacío viaja como null, no como cadena vacía",
+        "CatalogPanel rechaza un precio que no cabe en escala 6 en vez de truncarlo",
+        "CatalogPanel muestra el desenlace cuando el alta se rechaza sin identificadores",
+        "InventoryPanel recibir y ajustar construyen sobres que sus esquemas reales aceptan",
+        "InventoryPanel los motivos de entrada y de ajuste son listas disjuntas",
+        "InventoryPanel enseña la existencia disponible cuando el movimiento se rechaza por faltante",
+        "InventoryPanel no colapsa «sin movimientos» con existencia cero",
+        "InventoryPanel rechaza una cantidad fuera de escala 6 sin tocar el canal",
+        "CustomerPanel expone el aviso de privacidad y el canal de consultas desde el formulario",
+        "CustomerPanel construye un sobre que el esquema real del contrato acepta",
+        "CustomerPanel muestra los findings cuando el alta fiscal se rechaza",
+        "CustomerPanel distingue encontrado de no registrado en la búsqueda",
+        "FiscalPanel construye un sobre que el esquema real del contrato acepta",
+        "FiscalPanel muestra el cufe y el consecutivo cuando la emisión queda evidenciada",
+        "FiscalPanel el adquiriente anónimo bloquea, y el motivo se lee entero en pantalla",
+        "FiscalPanel un desenlace incierto se muestra aparte, no como un fallo cualquiera",
+        "FiscalPanel un fallo sin `result` sí es error de transporte, y se dice como tal",
+        "AdministrativeControlPanel navega entre pestañas sin fabricar métricas",
+        "AdministrativeControlPanel consume métricas administrativas reales sin calcularlas en el renderer",
+        "AdministrativeControlPanel consume eventos de auditoría reales mediante el contrato read-only",
+        "permisos por acción y consultas conectadas connects catalog-read without enabling product registration",
+        "permisos por acción y consultas conectadas does not enable stock mutations for an inventory reader",
+        "permisos por acción y consultas conectadas preselects the completed sale for fiscal issuance without issuing automatically",
+        "bounded catalog CSV preparation and authorized per-row orchestration reads UTF-8/BOM, quoted separators and exact decimals without treating empty fiscal values as exemption",
+        "bounded catalog CSV preparation and authorized per-row orchestration detects duplicate codes/barcodes and invalid values per record without writes",
+        "bounded catalog CSV preparation and authorized per-row orchestration rejects unknown invoice/stock columns, broken quotes, duplicate headers and oversized sources",
+        "bounded catalog CSV preparation and authorized per-row orchestration resumes the identical file with identical keys after uncertain transport, leaving each row to backend authorization",
+        "bounded catalog CSV preparation and authorized per-row orchestration stops on missing backend permissions and never marks pending work as registered",
+        "StatusPanel shows loading state while awaiting first response",
+        "StatusPanel shows connected state after successful response",
+        "StatusPanel shows the sanitized error state when the service transport fails",
+        "StatusPanel calls runtime.status.get on mount",
+        "StatusPanel does not report a rejected status as connected"
+      ]
+    },
+    {
+      "report": "postgres-electron-tests.json",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 167,
+      "sha256": "54dfd35e7204e19816f1d8e885e8b2f292cee99b00cd026b118479c70d97fb1a",
+      "cases": [
+        "BUSINESS access preparation - physical composition HTTPS browser entry: exact registered native request nonce CSP and no authentication side effects",
+        "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=true"
+      ]
+    },
+    {
+      "report": "electron-final-tests.json",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 168,
+      "sha256": "6487069cca153ba3f9c394b63985532e094990774817f9f28e22a484266f0eeb",
+      "cases": [
+        "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=true"
+      ]
+    }
+  ],
+  "overlap": "37 panel rechecks and 1 final Electron overlap the 134 renderer + 2 PostgreSQL/Electron cases; not added again",
+  "gates": {
+    "typecheck": "PASS desktop/central plus SSR Node harness",
+    "build": "PASS full Electron and latest renderer",
+    "syntax": "PASS",
+    "architecture": "PASS 16 tests and boundaries",
+    "policy": "PASS 1079 tracked files; rechecked after final staging",
+    "remote_ci": "PENDING billing suspension; not polled"
+  },
+  "visual": {
+    "actual_renderer_layouts": 4,
+    "static_component_layouts": 32,
+    "static_component_permissions": [],
+    "fake_bridge": false,
+    "backend_records_from_visual_helper": false,
+    "javascript_exceptions": 0,
+    "touch_context": "Edge hasTouch, CSS pointer coarse; no Android physical certification",
+    "electron": "Real isolated Windows/HTTPS/DPAPI/SSA/SAS canonical fixture; virtual CTAP2, not human",
+    "login_capture": "Before either credential field is filled"
+  },
+  "behavior": {
+    "event_disabled_attributes_unchanged": 76,
+    "central_script_and_security_headers_unchanged": true,
+    "line_endings_normalized": true
+  },
+  "asset_size_kb": {
+    "before": {
+      "css": 24.08,
+      "css_gzip": 5.14,
+      "js": 377.64,
+      "js_gzip": 108.37
+    },
+    "after": {
+      "css": 35.31,
+      "css_gzip": 6.82,
+      "js": 380.35,
+      "js_gzip": 108.86
+    }
+  },
+  "initial_failures": [
+    "Missing catalog grid opening tag: caught by types/build/import suites, fixed",
+    "Stale StatusPanel expectation of raw transport error: assertion corrected; sanitizer unchanged",
+    "Visual helper header/read ordering and JSX automatic transform corrected",
+    "SSR Node types explicitly configured; no production exposure",
+    "Electron screenshot captured prior loading frame; awaited legitimate focus revalidation and painted frames",
+    "Invariant comparison initially differed only in CRLF/LF; normalized, equality proved"
+  ],
+  "files": [
+    {
+      "path": "apps/central-authority/src/commercial-browser-entry.ts",
+      "sha256": "a4dc5b70eaeb39e186af22740cc2dd4bb22a64c39cc5236bf439fadd4d09031e"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/App.css",
+      "sha256": "40071090e023e066f811455aef93fe4899514635bcdb6ee3b322ff983ca91177"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/App.tsx",
+      "sha256": "028b020bf2c83b05b5eb4f48b36dd438a143ec136a8b281eac427326fab43cf4"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/design-tokens.css",
+      "sha256": "de94273a015233bb07393b6ec0d1f58d8fe4a2ed5c2485294eed8b139e01a903"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/commercial-precision.css",
+      "sha256": "d0513dc7597bf1db84563b95442a556eefee5e7ff95ad0349a52dc451d5362bc"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/components/AdministrativeControlPanel.tsx",
+      "sha256": "af86a2366dabd469f2a44fa8e607d4778d5ff1dcee45fd3051037bd4fca9078e"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/components/CatalogPanel.tsx",
+      "sha256": "19b5f3978f3a96010d6e498f3d0ec2af60434d3cec14ab007fd6c76b489ef186"
+    },
+    {
+      "path": "apps/pos-desktop/renderer/src/components/InventoryPanel.tsx",
+      "sha256": "773468b9d2817f11bbf88b0db5b57d61c374650f3f26547eb0b32450cb0354e9"
+    },
+    {
+      "path": "apps/pos-desktop/tests/renderer/AdminPanels.test.tsx",
+      "sha256": "8512ddf4e75b5432d5ff04f15ba5f0e6d204a2f9b6eaa563c7e00b3cacc9e897"
+    },
+    {
+      "path": "apps/pos-desktop/tests/renderer/StatusPanel.test.tsx",
+      "sha256": "6938ebb510bd16048d52fce316ea6c7bbd708fad15ad4017334a031203f787b5"
+    },
+    {
+      "path": "apps/pos-desktop/e2e/commercial-browser-entry.mjs",
+      "sha256": "3ac4a965c87496448ddc642fe664104148879ae1946cd747574fbbb72c96931a"
+    },
+    {
+      "path": "apps/pos-desktop/e2e/visual-components.tsx",
+      "sha256": "6083b10299493a93d26394607f4cb07d1da990b4bfd8ffa04387d9e82464cac1"
+    },
+    {
+      "path": "apps/pos-desktop/e2e/tsconfig.visual.json",
+      "sha256": "e2051094334fdeb48df4a62dfd8da9b5e581a5dcc3647487de3635bb13544618"
+    },
+    {
+      "path": "tools/design/verify-commercial-precision.mjs",
+      "sha256": "679b28fed3d3c533b19c8109cb8080b59edc246be9fd9dc4151a7524d613fbf2"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "typecheck-validated.log",
+      "sha256": "c13067363387be0e597b7cb3d656a90c8145d23c08827097b4d2f36b388cf3ea"
+    },
+    {
+      "path": "visual-typecheck-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "build-validated.log",
+      "sha256": "fda772db2c7532f40b71fd2b98c008f5f7e64bf01069f0094b146f14c7cf3102"
+    },
+    {
+      "path": "renderer-build-final.log",
+      "sha256": "c23fe4138ca989635be651bac1e95b3a5f982e305f85cc623d9848d232458fcb"
+    },
+    {
+      "path": "visual-validated.log",
+      "sha256": "5f221ec9b0a55aebbc66bd4baeefe21a70c8e2bab932e33d547dde752fc5820e"
+    },
+    {
+      "path": "behavior-invariants-final.log",
+      "sha256": "1818dc172f0d46960013d80d957cfda9bd5585cc3cf3eb25108328ee7f42d82d"
+    },
+    {
+      "path": "architecture-tests.log",
+      "sha256": "9160040d2cb0fc1e33beb58bda3a41310855ad8abde0d95d14641f66b4b5c46d"
+    },
+    {
+      "path": "architecture.log",
+      "sha256": "53f24bb4d70b065c508afb5fb6a0e04051bb61024d47cbd10571e854677c84de"
+    },
+    {
+      "path": "electron-final/browser-observations.json",
+      "sha256": "2f750194125843498d2edfc314966c4d998d6206ec8cd943c086d8f15e4f16b7"
+    },
+    {
+      "path": "renderer-tests.json",
+      "sha256": "02f47fe39675c7e06e9087f4da11f027c87b646e67317d65cd8c4630f90a37b3"
+    },
+    {
+      "path": "renderer-corrected-tests.json",
+      "sha256": "31a4ab7b03b7ac6c8d2849eedb25c955a3c84ab8e466e8794147f5a9259cc26c"
+    },
+    {
+      "path": "visual.log",
+      "sha256": "7115e2d4bedf1a984a98588490de9f03abcd3c963ba2b5515275526df585c515"
+    },
+    {
+      "path": "visual-retry.log",
+      "sha256": "248095c83d0775239ba90596700331083153c3746901f7e06688691851400ab7"
+    },
+    {
+      "path": "desktop-typecheck-shipping.log",
+      "sha256": "d0904c18b3c3cbbc767a7a4fdb8c9eff084c0f73c26b877de081ab24ac14910f"
+    },
+    {
+      "path": "renderer-build-shipping.log",
+      "sha256": "67d0da5b1aab38522541d14c9324e0026ffee2154d6793f32d9a401abd20fb07"
+    },
+    {
+      "path": "visual-shipping.log",
+      "sha256": "5f221ec9b0a55aebbc66bd4baeefe21a70c8e2bab932e33d547dde752fc5820e"
+    },
+    {
+      "path": "policy.log",
+      "sha256": "be00cbd4eb762c6b46eb5ece108e465c6c3fd38791b10e43cda41c4cbde6900b"
+    }
+  ],
+  "codex_security": {
+    "installed": true,
+    "enabled": true,
+    "checked": "2026-10-25",
+    "scan_executed": false
+  },
+  "production_activated": false,
+  "human_login_certified": false,
+  "preserved": "docs/product/oracleJdk-27/",
+  "captures": [
+    {
+      "path": "access-desktop.png",
+      "sha256": "d0e64b4eff45676901c740c066bd52ef7d46cc0db0e08cffae3590e83cac17b5"
+    },
+    {
+      "path": "access-mobile.png",
+      "sha256": "471c397badf1936e4cb20a8e099120ad9f567b3df05b4d382fe290094c7664d8"
+    },
+    {
+      "path": "catalog-touch-static.png",
+      "sha256": "0b12bada7f3974f12e2f010b013f2e723040c51608e3c2661f3213d5a992403b"
+    },
+    {
+      "path": "central-https-login-lab.png",
+      "sha256": "451c53a9cd5ee1330002695dfd3302926e4a4fa58102a436c7af8bd59ed3af91"
+    },
+    {
+      "path": "dashboard-electron-lab.png",
+      "sha256": "4995183e69b778b166814b6d4a1d593d927dcc39dcb98761b32ef7db922810f8"
+    },
+    {
+      "path": "inventory-touch-static.png",
+      "sha256": "b0365a5d8da158fdd40e7a54da2578a040ce20424fd64885f29d939be93f2475"
+    },
+    {
+      "path": "sales-desktop-static.png",
+      "sha256": "b84d99b84ad8a4f385f88f68f84b987570ea1bcd54aa0fb117d75a9426600211"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 # Camacho POS Colombia — tres direcciones visuales
 
-**Propuestas para revisión, ninguna aprobada ni incorporada al POS.** Base
+**Corte histórico de propuestas. B fue aprobada posteriormente por el propietario
+mediante «Apruebo B»; [implementación y evidencia del 2026-10-25](../../testing/commercial-precision-2026-10-25.md).** Base del estudio
 `781328ef0ba3c6346d1ac297ad9f475b8eb9cf34`, rama activa
 `feat/android-commercial-runtime`, PR #96 draft. Local/remoto coincidían; sólo
 `docs/product/oracleJdk-27/` concurrente, preservado. No se accedió a

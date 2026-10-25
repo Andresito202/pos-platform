@@ -142,13 +142,18 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
             <button type="button" onClick={() => void audit.refresh()} disabled={audit.busy}>Actualizar</button>
           </div>
           {audit.error !== null && <div className="pos-admin-empty" role="alert"><strong>{audit.error}</strong><span>La consulta fue rechazada o no pudo completarse.</span></div>}
-          <div className="pos-admin-audit-table" role="table" aria-label="Eventos de auditoría">
-            <div className="pos-admin-audit-row pos-admin-audit-head" role="row"><span>Sec.</span><span>Fecha</span><span>Actor</span><span>Acción</span><span>Recurso</span><span>Motivo</span></div>
+          <div className="pos-table-scroll" tabIndex={0} role="region" aria-label="Eventos de auditoría, tabla desplazable">
+          <table className="pos-data-table" aria-label="Eventos de auditoría">
+            <caption>Eventos dentro del alcance de la sesión</caption>
+            <thead><tr><th scope="col">Sec.</th><th scope="col">Fecha</th><th scope="col">Actor</th><th scope="col">Acción</th><th scope="col">Recurso</th><th scope="col">Motivo</th></tr></thead>
+            <tbody>
             {audit.events.map((event) => (
-              <div className="pos-admin-audit-row" role="row" key={event.sequence}>
-                <span>{event.sequence}</span><span>{new Date(event.created_at).toLocaleString()}</span><span>{event.actor_type}</span><span>{event.action_code}</span><span>{event.resource_type}</span><span>{event.reason_code ?? "—"}</span>
-              </div>
+              <tr key={event.sequence}>
+                <td className="pos-number">{event.sequence}</td><td>{new Date(event.created_at).toLocaleString()}</td><td>{event.actor_type}</td><td>{event.action_code}</td><td>{event.resource_type}</td><td>{event.reason_code ?? "—"}</td>
+              </tr>
             ))}
+            </tbody>
+          </table>
           </div>
           <div className="pos-admin-audit-actions"><span>{audit.busy ? "Consultando…" : `${audit.totalLoaded} ${audit.totalLoaded === 1 ? "evento cargado" : "eventos cargados"}`}</span><button type="button" onClick={() => void audit.nextPage()} disabled={!audit.hasMore || audit.busy}>Cargar más</button></div>
         </div>
