@@ -1,14 +1,15 @@
 import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import {
-  SignedAuthorizationTrustCandidateSchema, unsignedAuthorizationTrustCandidateBytes, canonicalSessionTrustJson,
-  type SignedAuthorizationTrustCandidate,
+  SignedAuthorizationTrustCandidateSchema, SignedAuthorizationTrustSchema, canonicalSessionTrustJson,
+  type SignedAuthorizationTrustCandidate, type SignedAuthorizationTrust, type AuthorizationTrustClaims,
 } from "@pos-platform/contracts";
 import type { EncryptedFileSecretStore } from "./encrypted-secret-store.js";
 import type { TrustedSigningKey } from "./license-verifier.js";
 import type { TrustedClockGuard } from "./trusted-clock.js";
 import { assertAuthorizationTrustSeparated } from "./authorization-trust-separation.js";
 
-const SECRET = "authorization-trust-lab-candidate";
+type CandidatePolicy={mode:"ISOLATED_VALIDATION";issuer:string;authorityId:string;environment:"isolated-validation";minimumGeneration:number;root:KeyObject};
+export type AuthorizationTrustDeploymentPolicy={mode:"DEPLOYMENT";issuer:string;authorityId:string;environment:"PREPRODUCTION"|"PRODUCTION";minimumGeneration:number;root:KeyObject;recipient:AuthorizationTrustClaims["recipient"]};
 const rank = { ACTIVE: 0, VERIFY_ONLY: 1, REVOKED: 2 };
 const material = (key: KeyObject) => key.export({ type: "spki", format: "der" }).toString("hex");
 
@@ -16,34 +17,36 @@ const material = (key: KeyObject) => key.export({ type: "spki", format: "der" })
  * interleave within that owner. This is not a cross-process locking protocol.
  * OS-bound persistence protects the retained watermark, not administrator-led
  * restoration of an entire machine backup; the pinned bootstrap floor remains
- * an explicit input. Production root/floor distribution is still unapproved. */
-export class AuthorizationTrustCandidateStore {
+ * an explicit input. Deployment root/floor come only from trusted provisioning. */
+export class AuthorizationTrustStore {
   constructor(
     private readonly secrets: EncryptedFileSecretStore,
-    private readonly policy: {
-      mode: "ISOLATED_VALIDATION"; issuer: string; authorityId: string;
-      environment: "isolated-validation"; minimumGeneration: number; root: KeyObject;
-    },
+    private readonly policy: CandidatePolicy|AuthorizationTrustDeploymentPolicy,
     private readonly sessionKeys: ReadonlyMap<string, TrustedSigningKey>,
     private readonly clock: TrustedClockGuard,
     private readonly now: () => Date,
   ) {
-    if (policy.mode !== "ISOLATED_VALIDATION" || policy.environment !== "isolated-validation" ||
+    if (!(policy.mode==="ISOLATED_VALIDATION"&&policy.environment==="isolated-validation" ||
+      policy.mode==="DEPLOYMENT"&&["PREPRODUCTION","PRODUCTION"].includes(policy.environment)) ||
       !Number.isSafeInteger(policy.minimumGeneration) || policy.minimumGeneration < 1 ||
       policy.root.type !== "public" || policy.root.asymmetricKeyType !== "ed25519" || secrets.protection !== "OS_BOUND")
       throw Error("SAS_LAB_OS_BOUND_ROOT_POLICY_REQUIRED");
     // Freeze a private copy: changing a caller-owned policy cannot change trust.
-    this.policy = Object.freeze({ ...policy });
+    this.policy = Object.freeze({ ...policy,...(policy.mode==="DEPLOYMENT"?{recipient:Object.freeze({...policy.recipient})}:{}) });
   }
 
-  private check(input: unknown, requireCurrent: boolean): SignedAuthorizationTrustCandidate {
-    const bundle = SignedAuthorizationTrustCandidateSchema.parse(input), c = bundle.claims;
+  private get secret(){return this.policy.mode==="DEPLOYMENT"?"authorization-trust-v1":"authorization-trust-lab-candidate";}
+
+  private check(input: unknown, requireCurrent: boolean): SignedAuthorizationTrustCandidate|SignedAuthorizationTrust {
+    const bundle = (this.policy.mode==="DEPLOYMENT"?SignedAuthorizationTrustSchema:SignedAuthorizationTrustCandidateSchema).parse(input), c = bundle.claims;
     // Authenticate the whole set BEFORE interpreting generation or revocation.
-    if (!verify(null, unsignedAuthorizationTrustCandidateBytes(c), this.policy.root, Buffer.from(bundle.signature, "base64url")))
+    if (!verify(null, Buffer.from(canonicalSessionTrustJson(c)), this.policy.root, Buffer.from(bundle.signature, "base64url")))
       throw Error("SAS_ROOT_SIGNATURE_INVALID");
     if (c.issuer !== this.policy.issuer || c.authority_id !== this.policy.authorityId ||
-      c.environment !== this.policy.environment || c.generation < this.policy.minimumGeneration)
+      c.environment !== this.policy.environment || requireCurrent && c.generation < this.policy.minimumGeneration)
       throw Error("SAS_TRUST_BINDING_REJECTED");
+    if(this.policy.mode==="DEPLOYMENT"&&(!("recipient" in c)||canonicalSessionTrustJson(c.recipient)!==canonicalSessionTrustJson(this.policy.recipient)))
+      throw Error("SAS_TRUST_RECIPIENT_REJECTED");
     const now = this.now(); this.clock.accept(now);
     if (requireCurrent && (now.getTime() < Date.parse(c.valid_from) || now.getTime() >= Date.parse(c.valid_until)))
       throw Error("SAS_TRUST_WINDOW_REJECTED");
@@ -59,8 +62,8 @@ export class AuthorizationTrustCandidateStore {
     return bundle;
   }
 
-  private load(requireCurrent: boolean): SignedAuthorizationTrustCandidate | null {
-    return this.secrets.has(SECRET) ? this.check(JSON.parse(this.secrets.read(SECRET).toString("utf8")), requireCurrent) : null;
+  private load(requireCurrent: boolean): SignedAuthorizationTrustCandidate|SignedAuthorizationTrust|null {
+    return this.secrets.has(this.secret) ? this.check(JSON.parse(this.secrets.read(this.secret).toString("utf8")), requireCurrent) : null;
   }
 
   install(input: unknown): number {
@@ -83,7 +86,7 @@ export class AuthorizationTrustCandidateStore {
     }
     // One protected envelope carries the signature, generation and tombstones.
     // No memory cache is changed if encryption/rename fails.
-    this.secrets.write(SECRET, Buffer.from(JSON.stringify(next)));
+    this.secrets.write(this.secret, Buffer.from(JSON.stringify(next)));
     return next.claims.generation;
   }
 
@@ -108,5 +111,13 @@ export class AuthorizationTrustCandidateStore {
       [Symbol.iterator]: () => owner.resolve()[Symbol.iterator](),
       forEach(callback, thisArg) { owner.resolve().forEach((value, key) => callback.call(thisArg, value, key, this)); },
     };
+  }
+}
+
+/** Compatibility wrapper: the laboratory constructor still accepts LAB only. */
+export class AuthorizationTrustCandidateStore extends AuthorizationTrustStore{
+  constructor(secrets:EncryptedFileSecretStore,policy:CandidatePolicy,sessionKeys:ReadonlyMap<string,TrustedSigningKey>,clock:TrustedClockGuard,now:()=>Date){
+    if(policy.mode!=="ISOLATED_VALIDATION")throw Error("SAS_LAB_OS_BOUND_ROOT_POLICY_REQUIRED");
+    super(secrets,policy,sessionKeys,clock,now);
   }
 }

@@ -1,7 +1,7 @@
 import { generateKeyPairSync, verify } from "node:crypto";
 import { expect, it } from "vitest";
-import { unsignedAuthorizationTrustCandidateBytes } from "@pos-platform/contracts";
-import { signIsolatedAuthorizationTrust } from "../src/isolated-authorization-trust.js";
+import { unsignedAuthorizationTrustCandidateBytes,unsignedAuthorizationTrustBytes } from "@pos-platform/contracts";
+import { signIsolatedAuthorizationTrust,signAuthorizationTrust } from "../src/isolated-authorization-trust.js";
 
 it("Central signs the entire DEC-011 laboratory candidate and refuses a production profile or public signer", () => {
   const root = generateKeyPairSync("ed25519"), key = generateKeyPairSync("ed25519");
@@ -11,6 +11,13 @@ it("Central signs the entire DEC-011 laboratory candidate and refuses a producti
     keys: [{ key_id: "SAS_TEST_A", purpose: "AUTHORIZATION_SNAPSHOT", status: "ACTIVE", version: 1,
       public_key_pem: key.publicKey.export({ type: "spki", format: "pem" }).toString(), valid_from: "2026-10-25T12:00:00.000Z", valid_until: "2026-10-25T14:00:00.000Z" }] };
   const bundle = signIsolatedAuthorizationTrust(claims, root.privateKey);
+  const deploymentClaims={...claims,profile:"CAMACHO_SAS_TRUST_V1",mode:"DEPLOYMENT",environment:"PREPRODUCTION",
+    recipient:{tenant_id:crypto.randomUUID(),company_id:crypto.randomUUID(),branch_id:crypto.randomUUID(),installation_id:crypto.randomUUID(),device_id:crypto.randomUUID()}};
+  const deployment=signAuthorizationTrust(deploymentClaims,root.privateKey);
+  expect(verify(null,unsignedAuthorizationTrustBytes(deployment.claims),root.publicKey,Buffer.from(deployment.signature,"base64url"))).toBe(true);
+  expect(()=>signIsolatedAuthorizationTrust(deploymentClaims,root.privateKey)).toThrow();
+  expect(()=>signAuthorizationTrust(claims,root.privateKey)).toThrow();
+  expect(()=>signAuthorizationTrust(deploymentClaims,root.publicKey)).toThrow("SAS_ROOT_PRIVATE_ED25519_REQUIRED");
   expect(verify(null, unsignedAuthorizationTrustCandidateBytes(bundle.claims), root.publicKey, Buffer.from(bundle.signature, "base64url"))).toBe(true);
   bundle.claims.generation++;
   expect(verify(null, unsignedAuthorizationTrustCandidateBytes(bundle.claims), root.publicKey, Buffer.from(bundle.signature, "base64url"))).toBe(false);

@@ -15,6 +15,7 @@ import { EnrolledDeviceCredentialProvider, UnprovisionedDeviceCredentialProvider
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import {AuthorizationTrustLifecycle} from "./security/authorization-trust-lifecycle.js";
+import {prepareAuthorizationTrustProvisioning} from "./security/authorization-trust-provisioning.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
@@ -220,10 +221,15 @@ try {
   // every activation, so runtime refresh can apply rotation/revocation in place.
   const liveSessionTrustKeys = new Map<string, TrustedSigningKey>(sessionTrustKeys.keys);
 
-  // No environment/renderer JSON can instantiate a privileged SAS adapter.
-  // The production format/root/provisioning contract is not yet approved.
+  // Only installer-managed Service configuration can supply this root. Neither
+  // renderer nor Electron main has a provisioning operation. Missing configuration denies.
+  const sasProvisioning=config.authorization_trust_provision_file===undefined?undefined:prepareAuthorizationTrustProvisioning({
+    path:config.authorization_trust_provision_file,centralOrigin:config.central_base_url,
+    recipient:{tenant_id:config.tenant_id,company_id:config.company_id,branch_id:config.branch_id,installation_id:config.installation_id,device_id:config.device_id},
+    directory:securityDirectory,keyProvider,database:()=>localDatabase.database,sessionKeys:liveSessionTrustKeys,
+  });
   const authorizationTrust=new AuthorizationTrustLifecycle(
-    {installationId:config.installation_id,deviceId:config.device_id},undefined,
+    {installationId:config.installation_id,deviceId:config.device_id},sasProvisioning,
     (event,detail)=>logger.log(event==="FAILED"?"warn":"info",`authorization_trust.${event.toLowerCase()}`,detail),
   );
   const commercial = new CommercialComponent(

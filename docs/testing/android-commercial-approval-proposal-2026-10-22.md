@@ -1,6 +1,8 @@
 # Propuesta única de desbloqueo comercial — 2026-10-22
 
-**PROPUESTA, NO APROBADA.** El propietario confirmó que no dispone todavía de activación DEV-003 ni confianza central verificadas y no ha aprobado SEC-004/D3/DEC-025. Este documento consolida la solicitud; las tablas anteriores de custodia/acceso conservan fundamento histórico, no son solicitudes adicionales. No se modifica configuración productiva por publicarlo.
+**Actualización de aprobación, 2026-10-25:** el propietario respondió «si autorizado» a la solicitud que citaba este documento y `windows-p0-continuity-2026-10-25.md` para aprobar **SAS y access/refresh Windows**, conservando expresamente la prohibición de inventar raíces, certificados, vigencias o datos de despliegue. Se autoriza materializar esos contratos; no se aprueban por inferencia el coste SQL global/registro del runner, parámetros temporales aún candidatos, perfiles exclusivos Android ni activación productiva. La infraestructura y DEV-003 auténticos siguen sin confirmar. Las frases de «pendiente de aprobación» inferiores conservan el estado histórico de sus fechas y quedan sustituidas sólo para el alcance Windows indicado. [Primer incremento tras aprobación](windows-sas-deployment-2026-10-25.md).
+
+El documento consolida la solicitud; las tablas anteriores de custodia/acceso conservan fundamento histórico, no son solicitudes adicionales. No se modifica configuración productiva por publicarlo.
 
 El propietario no necesita inventar UUID ni proporcionar secretos. Primero debe identificar el despliegue Central Authority y su administrador autorizado, o confirmar que hay que preparar ese despliegue. Los registros y claves públicas se obtienen de esa autoridad existente mediante sus servicios/procedimientos; no de React, una cuenta compartida o SQL improvisado sobre bases persistentes.
 

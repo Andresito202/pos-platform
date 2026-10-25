@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -7,6 +7,8 @@ import {
   SessionAssertionOperationalKeyClaimsSchema,
   SessionAssertionTrustBundleSchema,
   unsignedSessionAssertionOperationalKeyBytes,
+  unsignedAuthorizationTrustBytes,
+  type AuthorizationTrustClaims,
   type SessionAssertionClaims,
 } from "@pos-platform/contracts";
 import { LocalChannelAuthenticator, LocalChannelClient } from "@pos-platform/local-channel";
@@ -140,7 +142,7 @@ async function stopService(child: ChildProcessWithoutNullStreams): Promise<void>
   }
 }
 
-function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string): ChildProcessWithoutNullStreams {
+function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string, deployment:NodeJS.ProcessEnv={}): ChildProcessWithoutNullStreams {
   const tsxCli = join(serviceRoot, "node_modules", "tsx", "dist", "cli.mjs");
   const child = spawn(process.execPath, [tsxCli, "src/main.ts"], {
     cwd: serviceRoot,
@@ -159,12 +161,39 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
       POS_SESSION_TRUST_ENVIRONMENT: "production",
       POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
       POS_SESSION_TRUST_ARTIFACT_PATH: artifactPath,
+      ...deployment,
     },
   }) as ChildProcessWithoutNullStreams;
   child.once("close", () => closedServices.add(child));
   return child;
 }
 describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () => {
+  it("boots and restarts the real main with installer-provisioned deployment SAS under DPAPI",async()=>{
+    const dir=mkdtempSync(join(process.env.TEMP??process.cwd(),"camacho-sas-main-"));
+    const root=generateKeyPairSync("ed25519"),operational=generateKeyPairSync("ed25519"),sasRoot=generateKeyPairSync("ed25519"),sas=generateKeyPairSync("ed25519");
+    const artifact=join(dir,"ssa.json"),sasArtifact=join(dir,"sas.json"),provision=join(dir,"sas-provision.json");
+    const recipient={tenant_id:IDS.tenantId,company_id:IDS.companyId,branch_id:IDS.branchId,installation_id:IDS.installationId,device_id:IDS.deviceId};
+    const now=Date.now(),from=new Date(now-60_000).toISOString(),until=new Date(now+120_000).toISOString();
+    const claims:AuthorizationTrustClaims={profile:"CAMACHO_SAS_TRUST_V1",mode:"DEPLOYMENT",schema_version:1,purpose:"AUTHORIZATION_SNAPSHOT",environment:"PREPRODUCTION",issuer:"https://central.example.test",authority_id:"MAIN_SAS_TEST",recipient,generation:2,complete:true,issued_at:from,valid_from:from,valid_until:until,
+      keys:[{key_id:"MAIN_SAS_TEST_KEY",purpose:"AUTHORIZATION_SNAPSHOT",public_key_pem:sas.publicKey.export({type:"spki",format:"pem"}).toString(),status:"ACTIVE",version:1,valid_from:from,valid_until:until}]};
+    writeFileSync(artifact,JSON.stringify(trustArtifact(root,operational,1,"ACTIVE")));
+    writeFileSync(sasArtifact,JSON.stringify({claims,signature:sign(null,unsignedAuthorizationTrustBytes(claims),sasRoot.privateKey).toString("base64url")}));
+    writeFileSync(provision,JSON.stringify({version:1,environment:"PREPRODUCTION",issuer:claims.issuer,authority_id:claims.authority_id,recipient,minimum_generation:2,
+      root_public_key_pem:sasRoot.publicKey.export({type:"spki",format:"pem"}).toString(),root_spki_sha256:createHash("sha256").update(sasRoot.publicKey.export({type:"spki",format:"der"})).digest("hex"),
+      artifact_path:sasArtifact,refresh_interval_ms:60_000,clock_rollback_tolerance_ms:0}));
+    let service:ChildProcessWithoutNullStreams|undefined;
+    try{
+      for(let restart=0;restart<2;restart++){
+        let output="";service=spawnService(join(import.meta.dirname,".."),dir,root.publicKey.export({type:"spki",format:"pem"}).toString(),artifact,
+          {POS_CENTRAL_BASE_URL:claims.issuer,POS_AUTHORIZATION_TRUST_PROVISION_FILE:provision});
+        service.stdout.on("data",chunk=>{output+=String(chunk);});
+        await waitForRuntime(service);
+        const events=output.split("\n").filter(line=>line.includes("authorization_trust.updated")).map(line=>JSON.parse(line));
+        expect(events).toHaveLength(1);expect(events[0].fields).toMatchObject({decision:"VALID",key_count:1});
+        await stopService(service);service=undefined;
+      }
+    }finally{if(service)await stopService(service);rmSync(dir,{recursive:true,force:true});}
+  },120_000);
   it("boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation", async () => {
     const root = generateKeyPairSync("ed25519");
     const operational = generateKeyPairSync("ed25519");

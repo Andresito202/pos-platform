@@ -16,6 +16,11 @@ const valid = {
 const rootPublicKeyPem = "-----BEGIN PUBLIC KEY-----\n" + "A".repeat(44) + "\n-----END PUBLIC KEY-----";
 
 describe("parseServiceConfig", () => {
+  it("accepts only an absolute installer-managed SAS provision path and keeps it absent by default",()=>{
+    expect(parseServiceConfig(valid).authorization_trust_provision_file).toBeUndefined();
+    expect(()=>parseServiceConfig({...valid,POS_AUTHORIZATION_TRUST_PROVISION_FILE:"relative.json"})).toThrow();
+    expect(parseServiceConfig({...valid,POS_AUTHORIZATION_TRUST_PROVISION_FILE:valid.POS_DATA_DIRECTORY+"/sas.json"}).authorization_trust_provision_file).toBe(valid.POS_DATA_DIRECTORY+"/sas.json");
+  });
   it("fails closed when required configuration is absent", () => {
     expect(() => parseServiceConfig({})).toThrow();
   });

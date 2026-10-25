@@ -21,6 +21,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM",
   "POS_SESSION_TRUST_ARTIFACT_PATH",
   "POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE",
+  "POS_AUTHORIZATION_TRUST_PROVISION_FILE",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -43,6 +44,7 @@ const ServiceConfigSchema = z.strictObject({
   session_trust_artifact_path: z.string().min(1).max(4096).optional(),
   /** Path to the deployment-managed bearer token for the public trust endpoint. */
   session_trust_transport_token_file: z.string().min(1).max(4096).optional(),
+  authorization_trust_provision_file:z.string().refine(isAbsolute).optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
@@ -87,6 +89,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_root_public_key_pem: environment.POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM,
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
     session_trust_transport_token_file: environment.POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE,
+    authorization_trust_provision_file:environment.POS_AUTHORIZATION_TRUST_PROVISION_FILE,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };
