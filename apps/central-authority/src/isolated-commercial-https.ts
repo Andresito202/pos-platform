@@ -1,7 +1,7 @@
 import {createServer, type ServerOptions} from "node:https";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
-import {uuidV7, UuidSchema, UuidV7Schema, PlatformSecurityEventCode} from "@pos-platform/contracts";
+import {uuidV7, UuidSchema, UuidV7Schema, PlatformSecurityEventCode, SignedAuthorizationTrustCandidateSchema, type SignedAuthorizationTrustCandidate} from "@pos-platform/contracts";
 import {PostgresBrowserSessionHandoffWriter, PostgresPlatformSecurityEventRepository, type Pool, type BrowserSessionRequest} from "@pos-platform/database-postgres";
 import type {AuthenticationResponseJSON} from "@simplewebauthn/server";
 import {BusinessInitialMfaFlow} from "./business-initial-mfa-flow.js";
@@ -88,6 +88,7 @@ export async function createIsolatedCommercialHttpsServer(input:{
   nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec;
     signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
   authorizationIssuer?:IsolatedAuthorizationSnapshotIssuer;
+  authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   const url=new URL(pool.options.connectionString??"invalid:");
@@ -99,6 +100,11 @@ export async function createIsolatedCommercialHttpsServer(input:{
   const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
   if(database.rows[0]?.ok!==true)throw Error("COMMERCIAL_HTTPS_TEMPORARY_DATABASE_REQUIRED");
   const origin=new URL(input.origin);
+  // Public, root-signed artifact only. Restricted to this existing temporary-DB
+  // server; neither production main nor the SSA distribution route mounts it.
+  const authorizationTrust=input.authorizationTrustCandidate
+    ? SignedAuthorizationTrustCandidateSchema.parse(input.authorizationTrustCandidate) : undefined;
+  if(authorizationTrust && authorizationTrust.claims.issuer!==input.origin)throw Error("SAS_TRUST_ISSUER_MISMATCH");
   const native=input.nativeValidation;
   if(native&&(!(native.requests instanceof IsolatedNativeBusinessRequests)||!(native.codec instanceof IsolatedBusinessAccessTokenCodec)))throw Error("NATIVE_HTTPS_VALIDATION_OWNER_REQUIRED");
   if(input.browserEntry && (input.browserEntry.rpId!==origin.hostname ||
@@ -124,6 +130,11 @@ export async function createIsolatedCommercialHttpsServer(input:{
         if(!bucket||now-bucket.start>=60_000){bucket={start:now,count:0};buckets.set(address,bucket);}
         if(++bucket.count>policy.requestsPerMinute)throw new Rejection(429);
         strictHeaders(req);
+        if(req.method==="GET" && req.url==="/v1/isolated/authorization-trust" && authorizationTrust){
+          if(req.headers.host!==origin.host || Number(req.headers["content-length"]??0)!==0 ||
+            (req.headers.origin && req.headers.origin!==input.origin))throw new Rejection(400);
+          send(res,200,authorizationTrust);return;
+        }
         if(req.method==="GET" && input.browserEntry && req.url){
           const entry=new URL(req.url,input.origin),params=entry.searchParams;
           if(native){

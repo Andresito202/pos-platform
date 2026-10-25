@@ -6,6 +6,18 @@ El propietario no necesita inventar UUID ni proporcionar secretos. Primero debe 
 
 ## Una decisión conjunta y sus datos
 
+Continuidad 2026-10-25: la misión expresa del propietario «Cierre DEC-011 y
+distribución confiable de SAS», sección 3, autoriza **contrato candidato y pruebas
+independientes en laboratorio** mientras se obtiene aprobación del formato
+productivo. Esta autorización posterior acota la frase «no se codifica el wire
+format» de la tabla: sigue prohibida su adopción productiva. Se materializa
+`DEC011_LAB_CANDIDATE_1`, exclusivamente `ISOLATED_VALIDATION` /
+`isolated-validation`, separado de SESSION_ASSERTION, sin montaje productivo.
+[Contrato, límites, pruebas y pendientes](sas-trust-candidate-2026-10-25.md).
+La tabla conserva la **única solicitud pendiente**: no se considera aprobada
+la raíz real, su canal de provisión, la cadencia de renovación ni el formato
+productivo por haber pasado pruebas del candidato.
+
 Continuidad P0 2026-10-24 desde `9639c9f`: [cierre técnico de provisión/confianza](commercial-provisioning-continuity-2026-10-24.md). La siguiente precisión **forma parte de esta misma solicitud y no está aprobada**. La corrección de verificación de revocaciones conserva el contrato SSA; el borrador SQL sólo se ensaya en PostgreSQL desechable. No se ha creado ni activado un formato SAS root-signed.
 
 ### Precisión para aprobación conjunta Windows: confianza, acceso y persistencia

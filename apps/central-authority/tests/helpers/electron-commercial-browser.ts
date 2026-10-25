@@ -20,6 +20,7 @@ export async function exerciseElectronCommercialBrowser(input: {
   nativeBinding?:{deviceCredentialId:string;devicePrivatePem:string;ca:string};
   serviceCustody?:{activation:unknown;result:unknown;rootPublicPem:string;operational:unknown};
   sasPublicTrust?:{mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
+  sasTrustCandidate?:{issuer:string;authorityId:string;minimumGeneration:number;rootPublicPem:string;url:string;ca:string};
   beforeAuthorizationRevocation?:()=>Promise<void>;
 }): Promise<Record<string, unknown>> {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -67,6 +68,7 @@ export async function exerciseElectronCommercialBrowser(input: {
         POS_E2E_BRANCH_ID: input.branchId, POS_E2E_INSTALLATION_ID: input.installationId, POS_E2E_DEVICE_ID: input.deviceId,
         POS_E2E_SSA_PUBLIC_TRUST:input.ssaPublicTrust?JSON.stringify(input.ssaPublicTrust):"",
         POS_E2E_SAS_PUBLIC_TRUST:input.sasPublicTrust?JSON.stringify(input.sasPublicTrust):"",
+        POS_E2E_SAS_TRUST_CANDIDATE:input.sasTrustCandidate?JSON.stringify(input.sasTrustCandidate):"",
         POS_E2E_NATIVE_CUSTODY:input.serviceCustody?"1":"0" },
     });
     if(input.serviceCustody)service.send!({type:"pos-e2e-native-provision",...input.serviceCustody,
@@ -83,6 +85,8 @@ export async function exerciseElectronCommercialBrowser(input: {
     if (process.env.POS_E2E_AUDIT_DIRECTORY) {
       await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY, { recursive: true });
       await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY, "browser-observations.json"), JSON.stringify(observed, null, 2));
+      if(input.sasTrustCandidate)await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,
+        `sas-trust-observations-custody-${Boolean(input.serviceCustody)}.json`),JSON.stringify(observed,null,2));
     }
     return observed;
   } finally {

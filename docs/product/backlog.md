@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+Continuidad DEC-011 2026-10-25 desde `7d92ea4c`: [confianza SAS completa candidata](../testing/sas-trust-candidate-2026-10-25.md). Sobre íntegro root-signed, generación/historial protegidos con DPAPI, resolución por uso y distribución HTTPS integrada con Service/Electron en laboratorio; 63 casos focalizados y 16 de arquitectura aprobados, con fallos iniciales conservados. Producción sigue pendiente de formato/raíz/bootstrap SAS, DDL/runner y serialización RBAC, D3 access/refresh/vigencias/abuso, Central/DEV-003 auténticos y certificación humana Windows. No modifica el diseño B ni convierte el candidato en protocolo aprobado.
+
 B aprobada y materializada 2026-10-25 desde `f6284749`: [Commercial Precision en el runtime existente](../testing/commercial-precision-2026-10-25.md). Tokens, shell/estados, tablas catálogo/auditoría, etiquetas/retículas y presentación HTTPS; mismos handlers, capacidades y contratos. 136 casos distintos aprobados, más QA visual y gates locales; Windows/Electron en laboratorio, no login humano o Android/Linux certificados. Funciones pendientes de backend y decisiones de provisión/seguridad siguen pendientes; sin merge a main.
 
 Estudio visual autorizado 2026-10-24 desde `781328ef`: [skills y tres propuestas de diseño](../design/pos-proposals-2026-10-24/README.md). Instalación personal, inventario de frontend y prototipos documentales A/B/C separados del runtime, con capturas reales sin datos/sesiones fabricados. No reemplazar pantallas antes de aprobación visual; no modifica contratos ni cambia el bloqueo/continuidad de autenticación. El futuro rediseño se ejecuta por módulos tras decisión, sin ramas paralelas ni mezclar commits de seguridad.

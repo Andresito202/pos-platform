@@ -22,6 +22,8 @@ import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } f
 import type { Server } from "node:https";
 import { exerciseElectronCommercialBrowser } from "./helpers/electron-commercial-browser.js";
 import {SessionTrustKeyIssuer} from "../src/session-trust-key-issuer.js";
+import {signIsolatedAuthorizationTrust} from "../src/isolated-authorization-trust.js";
+import type {SignedAuthorizationTrustCandidate} from "@pos-platform/contracts";
 import {canonicalSessionTrustJson} from "@pos-platform/contracts";
 import {IsolatedNativeBusinessRequests,type IsolatedNativeRequestPolicy} from "../src/isolated-native-business-requests.js";
 import {IsolatedAuthorizationSnapshotIssuer,type IsolatedAuthorizationSigning} from "../src/isolated-authorization-snapshot-issuer.js";
@@ -1388,7 +1390,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let tls:ReturnType<typeof labTls>|undefined;
   const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
     androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>,authorization?:(codec:IsolatedBusinessAccessTokenCodec)=>IsolatedAuthorizationSnapshotIssuer){
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>,authorization?:(codec:IsolatedBusinessAccessTokenCodec)=>IsolatedAuthorizationSnapshotIssuer,authorizationTrustCandidate?:SignedAuthorizationTrustCandidate){
     tls??=labTls();
     const codec=isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
@@ -1416,6 +1418,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
       ...(native?{nativeValidation:{requests:native,codec,signing}}:{}),
       ...(authorization?{authorizationIssuer:authorization(codec)}:{}),
+      ...(authorizationTrustCandidate?{authorizationTrustCandidate}:{}),
       ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url))}}:{}),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
     try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server,coordinator,signing);}
@@ -1644,6 +1647,12 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   },100,true,{}),90_000);
   it.runIf(process.platform==="win32").each([false,true])("central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=%s",async serviceCustody=>{
     const s=await sasFixture();
+    const sasRoot=generateKeyPairSync("ed25519");
+    const sasTrust=signIsolatedAuthorizationTrust({profile:"DEC011_LAB_CANDIDATE_1",mode:"ISOLATED_VALIDATION",schema_version:1,
+      purpose:"AUTHORIZATION_SNAPSHOT",environment:"isolated-validation",issuer:origin,authority_id:"LAB_SAS_ROOT",generation:1,complete:true,
+      issued_at:s.material.validFrom,valid_from:s.material.validFrom,valid_until:s.material.validUntil,
+      keys:[{key_id:s.material.keyId,purpose:"AUTHORIZATION_SNAPSHOT",public_key_pem:s.material.publicKey.export({format:"pem",type:"spki"}).toString(),
+        status:"ACTIVE",version:1,valid_from:s.material.validFrom,valid_until:s.material.validUntil}]},sasRoot.privateKey);
     const deviceRoot=generateKeyPairSync("ed25519"),deviceOperational=generateKeyPairSync("ed25519"),at=new Date(Date.now()-1000).toISOString(),until=new Date(Date.now()+300000).toISOString();
     const operationalClaims={key_id:"NATIVE_DEVICE_TEST",key_purpose:"DEVICE_TRUST",public_key_pem:deviceOperational.publicKey.export({format:"pem",type:"spki"}).toString(),status:"ACTIVE",valid_from:at,version:1};
     const credentialClaims={credential_id:deviceCredentialId,key_id:operationalClaims.key_id,tenant_id:tenantId,company_id:companyId,installation_id:installationId,device_id:deviceId,
@@ -1664,14 +1673,14 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         ssaPublicTrust:{rootPublicPem:signing.rootTrustAnchor.export({format:"pem",type:"spki"}).toString(),artifact:signing.signedOperationalKey},
         nativeBinding:{deviceCredentialId,devicePrivatePem:deviceKeys.privateKey.export({format:"pem",type:"pkcs8"}).toString(),ca:tls!.cert.toString()},
         ...(serviceCustody?{serviceCustody:custodyFixture}:{}),
-        sasPublicTrust:{mode:s.material.mode,environment:s.material.environment,purpose:s.material.purpose,keyId:s.material.keyId,status:s.material.status,
-          validFrom:s.material.validFrom,validUntil:s.material.validUntil,publicPem:s.material.publicKey.export({format:"pem",type:"spki"}).toString()},
+        sasTrustCandidate:{issuer:origin,authorityId:"LAB_SAS_ROOT",minimumGeneration:1,
+          rootPublicPem:sasRoot.publicKey.export({format:"pem",type:"spki"}).toString(),url:`https://${rpId}:${address.port}/v1/isolated/authorization-trust`,ca:tls!.cert.toString()},
         beforeAuthorizationRevocation:async()=>{await owner.query(`UPDATE "authorization".user_role_assignments SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1`,[s.assignmentId]);}});
       if(serviceCustody)expect(observed).toMatchObject({serviceCustody:true,devicePrivateKeyInMain:false,dashboardAuthorized:true,
         observed:{recovery:{result_code:"ACTIVE"},capabilities:{result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{result_code:"UNAUTHORIZED"}}});
       else expect(observed).toMatchObject({centralSas:true,dashboardAuthorized:true,revocationDenied:true,dashboardClosed:true,nativeSsa:{activated:"ACTIVATED",recovered:"ACTIVE",
         capabilities:{status:"SUCCEEDED",result_code:"AVAILABLE",result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{status:"REJECTED",result_code:"UNAUTHORIZED"}}});
-    },100,true,{},codec=>sasIssuer(codec,s));
+    },100,true,{},codec=>sasIssuer(codec,s),sasTrust);
   },90_000);
   it.runIf(process.platform==="win32")("business SSA composition: Electron main activates Central assertion but no grants cannot open dashboard",async()=>withHttps(async(post,codec,server,coordinator)=>{
     const login=await httpLogin(post),material=ssaMaterial();

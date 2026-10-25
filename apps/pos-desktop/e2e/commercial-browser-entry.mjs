@@ -196,7 +196,7 @@ async function run() {
         return nativePost("/v1/business-session/assertions",{session_id:payload.sid},true,tokens.accessToken);
       });
       const {exerciseNativeAssertion}=await import("../dist/ssa-native-transport-probe.mjs");
-      const acquireSas=input.sasPublicTrust?async(testPhase)=>{
+      const acquireSas=(input.sasPublicTrust||input.sasTrustCandidate)?async(testPhase)=>{
         // Request construction remains in main; the service is the SAS HTTP
         // consumer. This privileged fixture handoff is not exposed to React.
         const result=await vault.use(async tokens=>{

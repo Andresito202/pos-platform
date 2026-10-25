@@ -22,6 +22,7 @@ export * from "./platform-security-events.js";
 export * from "./authorization-snapshot.js";
 export * from "./session-assertion.js";
 export * from "./session-trust.js";
+export * from "./authorization-trust-candidate.js";
 export * from "./master-snapshot.js";
 export * from "./device-trust.js";
 export * from "./device-enrollment.js";

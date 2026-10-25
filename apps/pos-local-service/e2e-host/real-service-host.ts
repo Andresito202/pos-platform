@@ -24,6 +24,9 @@ import {IsolatedHttpsSnapshotProvider} from "../src/authorization/isolated-https
 import {mkdirSync} from "node:fs";
 import {join} from "node:path";
 import {WindowsDpapiKeyProvider} from "../src/security/windows-dpapi-key-provider.js";
+import {AuthorizationTrustCandidateStore} from "../src/security/authorization-trust-candidate.js";
+import {refreshIsolatedAuthorizationTrust} from "../src/security/isolated-authorization-trust-fetcher.js";
+import {TrustedClockGuard} from "../src/security/trusted-clock.js";
 import {LocalSecurityComponent,deviceIdentityContext} from "../src/security/local-security-component.js";
 import {DeviceTrustCredentialStore} from "../src/security/device-trust-credential-store.js";
 import {DeviceEnrollmentService} from "../src/security/device-enrollment-service.js";
@@ -31,7 +34,6 @@ import {DeviceTrustVerifier} from "@pos-platform/device-trust";
 import {CommercialDeviceCredentialProvider} from "../src/security/commercial-device-credential.js";
 import {NativeCommercialCoordinator} from "../src/security/native-commercial-coordinator.js";
 import {IsolatedNativeCommercialHttps} from "../src/security/native-commercial-https.js";
-import {TrustedClockGuard} from "../src/security/trusted-clock.js";
 import type {NativeClientRegistration} from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
@@ -234,6 +236,7 @@ async function main(): Promise<void> {
   await operations.start();
 
   let commercial: CommercialComponent;
+  let authorizationTrustSecrets:EncryptedFileSecretStore|undefined;
   let externalSigningKeyCount=0;
   if (WITHOUT_SESSION) {
     // Empty canonical storage; optional Central public trust only. No private
@@ -247,11 +250,23 @@ async function main(): Promise<void> {
       externalKeys.set(checked.claims.key_id,verifier.toTrustedSigningKey(checked.claims));
     }
     externalSigningKeyCount=externalKeys.size;
-    const authorizationKeys=new Map<string,TrustedSigningKey>();
+    let authorizationKeys:ReadonlyMap<string,TrustedSigningKey>=new Map();
+    if(process.env.POS_E2E_SAS_TRUST_CANDIDATE){
+      if(process.env.POS_E2E_SAS_PUBLIC_TRUST)throw Error("SAS_TRUST_SOURCE_AMBIGUOUS");
+      const trust=JSON.parse(process.env.POS_E2E_SAS_TRUST_CANDIDATE) as {issuer:string;authorityId:string;minimumGeneration:number;rootPublicPem:string;url:string;ca:string};
+      const directory=join(DATA_DIRECTORY,"sas-trust-candidate");mkdirSync(directory,{recursive:true});
+      const encrypted=new EncryptedFileSecretStore(directory,new WindowsDpapiKeyProvider(directory),"dec011-sas-lab-only");
+      authorizationTrustSecrets=encrypted;
+      const store=new AuthorizationTrustCandidateStore(encrypted,{mode:"ISOLATED_VALIDATION",environment:"isolated-validation",
+        issuer:trust.issuer,authorityId:trust.authorityId,minimumGeneration:trust.minimumGeneration,root:createPublicKey(trust.rootPublicPem)},
+        externalKeys,new TrustedClockGuard(database,0),()=>new Date());
+      await refreshIsolatedAuthorizationTrust({mode:"ISOLATED_VALIDATION",url:trust.url,ca:trust.ca,timeoutMs:5000,store});
+      authorizationKeys=store.liveKeys();
+    }
     if(process.env.POS_E2E_SAS_PUBLIC_TRUST){
       const trust=JSON.parse(process.env.POS_E2E_SAS_PUBLIC_TRUST) as {mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
       if(trust.mode!=="ISOLATED_VALIDATION"||trust.environment!=="isolated-validation"||trust.purpose!=="AUTHORIZATION_SNAPSHOT"||trust.status!=="ACTIVE"||!/^SAS_TEST_[A-Z0-9_]+$/.test(trust.keyId))throw Error("E2E_SAS_TRUST_REJECTED");
-      authorizationKeys.set(trust.keyId,{key:createPublicKey(trust.publicPem),status:"ACTIVE",validFrom:trust.validFrom,validUntil:trust.validUntil});
+      authorizationKeys=new Map([[trust.keyId,{key:createPublicKey(trust.publicPem),status:"ACTIVE",validFrom:trust.validFrom,validUntil:trust.validUntil}]]);
     }
     commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys,undefined,undefined,undefined,authorizationKeys);
   } else {
@@ -385,6 +400,7 @@ async function main(): Promise<void> {
         await server.stop();
           enrollmentSecrets?.destroy();await localSecurity?.stop();
         await commercial.stop();
+        authorizationTrustSecrets?.destroy();
         await operations.stop();
         await durableSync.stop();
       } finally {
