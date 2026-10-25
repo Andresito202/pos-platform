@@ -128,3 +128,48 @@ el entorno y su operador continúan **sin confirmar por el propietario**.
 Sin esos datos no se inventan dominio, TLS, claves, activación o usuarios.
 Offline: SAS/trust vencidos deniegan; reconexión exige verificación/refresh antes
 de operar; ninguna gracia nueva. Android no bloquea este incremento Windows.
+
+## Continuación desde a5f022b5: coste SQL observado
+
+Dos casos nuevos ejecutados en Windows con PostgreSQL temporal tmpfs; 2 PASS,
+0 FAIL, 175 omitidos por selección. No se repiten las suites anteriores.
+El proceso crea y elimina su base aleatoria; no aplica DDL ni grants comerciales.
+
+| Experimento | Resultado observado |
+| --- | --- |
+| Lector SAS del tenant A conserva SHARE; escritor de asignación del tenant B intenta revocar | pg_locks confirma RowExclusiveLock pendiente. Retención controlada de 200 ms; escritura termina a los 214,56 ms tras liberar el lector. SELECT ordinario compatible: 3,03 ms. La asignación B termina REVOKED |
+| Escritor previo retiene RBAC; emisor con lock_timeout experimental de 100 ms | SQLSTATE 55P03; operación completa 244,95 ms incluyendo validaciones previas. Sin contador ni evento SAS persistidos; DeviceProof consumida, replay denegado; prueba fresca tras liberar el escritor emite secuencia 1 y un único evento |
+
+Es una muestra funcional de contención, **no** benchmark de capacidad ni SLA.
+El timeout limita la espera del lock SQL, no todo el recorrido. El lock global
+acopla la disponibilidad entre empresas: no debe adoptarse por inferencia.
+Recomendación: no registrar aún la propuesta en el runner productivo; DB y
+Authorization deben aprobar ese coste, límite y protocolo de reintento o exigir
+una alternativa que cubra todos los escritores. No se cambia la serialización.
+
+Reproducción (dos casos nuevos, no la suite completa):
+
+```powershell
+$env:POSTGRES_TEST_URL='postgresql://postgres@127.0.0.1:55433/postgres'
+pnpm --filter @pos-platform/central-authority exec vitest run tests/business-access-preparation-physical.test.ts -t 'SAS lock measurement:' --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sql-lock-measurement.json
+pnpm --filter @pos-platform/central-authority typecheck
+pnpm architecture:check
+pnpm ci:repository-policy
+```
+
+El reporte JSON tiene SHA-256
+`97c924f93fbc5ea443d79bf1c9014bf3de3ae7c8619f4d2baa18b585944fe899`.
+Cada ejecución regenera mediciones con timestamp en
+`artifacts/windows-p0/sql-lock-measurement/{cross-tenant,timeout}.json`.
+Los valores anteriores corresponden a 2026-10-25T20:34:37Z–20:34:38Z;
+no son constantes productivas ni umbrales aprobados.
+
+No se modifican runtime, formato SAS, protocolo access/refresh ni endpoints.
+TypeScript Central PASS, arquitectura 16/16 y fronteras PASS, política del
+repositorio PASS (1.096 archivos rastreados) y git diff --check PASS.
+La autorización de desarrollo no resuelve la aprobación explícita de esos
+contratos. Sigue vigente la única tabla de decisiones anterior; no se inventan
+root, vigencias, registro DEV-003 o infraestructura. Sin esos requisitos no se
+ejecuta certificación con persona. Build/Electron/DPAPI no se repiten porque
+este incremento sólo añade pruebas SQL y documentación. No se consulta ni
+despacha Actions; CI remoto queda pendiente por instrucción del propietario.

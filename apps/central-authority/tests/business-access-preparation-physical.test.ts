@@ -28,7 +28,7 @@ import {canonicalSessionTrustJson} from "@pos-platform/contracts";
 import {IsolatedNativeBusinessRequests,type IsolatedNativeRequestPolicy} from "../src/isolated-native-business-requests.js";
 import {IsolatedAuthorizationSnapshotIssuer,type IsolatedAuthorizationSigning} from "../src/isolated-authorization-snapshot-issuer.js";
 import {verify} from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresPool, type BusinessSessionValidationPolicy } from "@pos-platform/database-postgres";
 import { uuidV7 } from "@pos-platform/contracts";
@@ -828,12 +828,17 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       {mode:"DEC011_SQL_REHEARSAL",lockTimeoutMs:5000}),access,codec);}
     finally{await owner.query('GRANT UPDATE ON "authorization".roles,"authorization".permissions,"authorization".role_permission_grants TO pos_platform_app');}
   }
-  async function waitForSourceLock(mode:string){
+  async function waitForSourceLock(mode:string,relation='"authorization".role_permission_grants'){
     for(let i=0;i<200;i++){
-      const waiting=await owner.query(`SELECT 1 FROM pg_locks WHERE relation='"authorization".role_permission_grants'::regclass AND mode=$1 AND NOT granted`,[mode]);
+      const waiting=await owner.query(`SELECT 1 FROM pg_locks WHERE relation=$2::regclass AND mode=$1 AND NOT granted`,[mode,relation]);
       if(waiting.rowCount)return;await new Promise(resolve=>setTimeout(resolve,10));
     }
     throw Error("SAS_EXPECTED_LOCK_NOT_OBSERVED");
+  }
+  async function recordSasLockMeasurement(name:"cross-tenant"|"timeout",measurement:Record<string,unknown>){
+    const directory=new URL("../../../artifacts/windows-p0/sql-lock-measurement/",import.meta.url);
+    await mkdir(directory,{recursive:true});
+    await writeFile(new URL(`${name}.json`,directory),JSON.stringify({observedAt:new Date().toISOString(),...measurement},null,2)+"\n");
   }
   it("SAS SQL rehearsal: canonical counter and least-privilege source reader issue the real signed projection",async()=>withSasSqlRehearsal(async(s,issuer,access)=>{
     for(const table of ["roles","permissions","role_permission_grants"])
@@ -884,6 +889,46 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       writing=owner.query(`INSERT INTO "authorization".role_permission_grants SELECT $1,role_id,permission_id,2,status,valid_from,valid_until,created_at,retired_at FROM "authorization".role_permission_grants WHERE id=$2`,[uuidV7(),s.grantId]);
       await waitForSourceLock("RowExclusiveLock");await reader.query("COMMIT");await writing;
     }finally{await reader.query("ROLLBACK");reader.release();await writing?.catch(()=>undefined);}
+  }));
+  it("SAS lock measurement: global reader blocks another tenant writer while allowing ordinary reads",async()=>withSasSqlRehearsal(async(s)=>{
+    const otherTenant=uuidV7(),otherMembership=uuidV7(),otherCompany=uuidV7(),otherAssignment=uuidV7();
+    await owner.query(`INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES($1,'Contention fixture','ACTIVE',clock_timestamp(),clock_timestamp())`,[otherTenant]);
+    await owner.query(`INSERT INTO tenancy.tenant_memberships(id,tenant_id,user_id,membership_type,status,created_by_actor_type,created_at,activated_at) VALUES($1,$2,$3,'MEMBER','ACTIVE','SYSTEM',clock_timestamp(),clock_timestamp())`,[otherMembership,otherTenant,userId]);
+    await owner.query(`INSERT INTO organization.companies(id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at) VALUES($1,$2,'Contention fixture','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp())`,[otherCompany,otherTenant]);
+    await owner.query(`INSERT INTO "authorization".user_role_assignments(id,tenant_id,tenant_membership_id,role_id,company_id,status,valid_from,created_at,created_by_actor_type) VALUES($1,$2,$3,$4,$5,'ACTIVE',clock_timestamp(),clock_timestamp(),'SYSTEM')`,[otherAssignment,otherTenant,otherMembership,s.roleId,otherCompany]);
+    const reader=await runtime.connect();let writing:Promise<unknown>|undefined;
+    try{
+      await reader.query("BEGIN");await reader.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      await reader.query('SELECT "authorization".lock_sas_sources_for_read()');
+      let finished=false;const start=performance.now();
+      writing=owner.query(`UPDATE "authorization".user_role_assignments SET status='REVOKED',revoked_at=clock_timestamp() WHERE id=$1`,[otherAssignment]).then(result=>{finished=true;return result;});
+      await waitForSourceLock("RowExclusiveLock",'"authorization".user_role_assignments');
+      const readStart=performance.now();
+      expect((await owner.query('SELECT status FROM "authorization".user_role_assignments WHERE id=$1',[otherAssignment])).rows[0].status).toBe("ACTIVE");
+      const readMs=performance.now()-readStart;
+      await new Promise(resolve=>setTimeout(resolve,200));expect(finished).toBe(false);
+      await reader.query("COMMIT");await writing;
+      const writerWaitMs=performance.now()-start;expect(writerWaitMs).toBeGreaterThanOrEqual(200);
+      expect((await owner.query('SELECT status FROM "authorization".user_role_assignments WHERE id=$1',[otherAssignment])).rows[0].status).toBe("REVOKED");
+      await recordSasLockMeasurement("cross-tenant",{scope:"temporary-postgres-cross-tenant",controlledHoldMs:200,writerWaitMs,readMs});
+    }finally{await reader.query("ROLLBACK");reader.release();await writing?.catch(()=>undefined);}
+  }));
+  it("SAS lock measurement: bounded timeout rolls back issuance and burns proof before a fresh retry",async()=>withSasSqlRehearsal(async(s,_issuer,access,codec)=>{
+    const issuer=new IsolatedAuthorizationSnapshotIssuer(runtime,codec,s.deployment,s.sasPolicy,s.material,{mode:"DEC011_SQL_REHEARSAL",lockTimeoutMs:100});
+    const writer=await owner.connect(),proof=sasProof();
+    const events=async()=>Number((await owner.query("SELECT count(*) AS n FROM identity.security_events WHERE event_code=$1",[PlatformSecurityEventCode.AUTHORIZATION_SNAPSHOT_ISSUED])).rows[0].n);
+    const before=await events();
+    try{
+      await writer.query("BEGIN");await writer.query('UPDATE "authorization".role_permission_grants SET valid_until=valid_until WHERE id=$1',[s.grantId]);
+      const start=performance.now();await expect(issuer.issue(access,proof)).rejects.toMatchObject({code:"55P03"});
+      const elapsedMs=performance.now()-start;
+      expect((await runtime.query('SELECT count(*)::int AS n FROM "authorization".snapshot_sequences WHERE user_id=$1',[userId])).rows[0].n).toBe(0);
+      expect(await events()).toBe(before);
+      await writer.query("ROLLBACK");expect(await issuer.issue(access,proof)).toBeNull();
+      expect((await issuer.issue(access,sasProof()))?.claims.sequence).toBe(1);
+      expect(await events()).toBe(before+1);
+      await recordSasLockMeasurement("timeout",{scope:"temporary-postgres-timeout",configuredTimeoutMs:100,elapsedMs,rollback:true,replayDenied:true,freshRetrySequence:1});
+    }finally{await writer.query("ROLLBACK");writer.release();}
   }));
   it("central SAS: projects canonical scoped grants and signs separate from SSA",async()=>{
     const s=await sasFixture(),{codec,access}=await signedAccessForSequence(),issued=await sasIssuer(codec,s).issue(access,sasProof());

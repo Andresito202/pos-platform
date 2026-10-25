@@ -1,5 +1,32 @@
 {
   "date": "2026-10-25",
+  "continuation_from_a5f022b5": {
+    "scope": "new SQL contention and timeout tests only; no production runtime changes",
+    "passed": 2,
+    "failed": 0,
+    "skipped_by_selection": 175,
+    "report": "artifacts/windows-p0/2026-10-25/sql-lock-measurement.json",
+    "report_sha256": "97c924f93fbc5ea443d79bf1c9014bf3de3ae7c8619f4d2baa18b585944fe899",
+    "cross_tenant": {
+      "observed_at": "2026-10-25T20:34:37.757Z",
+      "controlled_hold_ms": 200,
+      "writer_wait_ms": 214.5568999999996,
+      "ordinary_read_ms": 3.0335000000004584,
+      "writer_lock_observed_pending": true
+    },
+    "timeout": {
+      "observed_at": "2026-10-25T20:34:38.359Z",
+      "experimental_lock_timeout_ms": 100,
+      "whole_operation_ms": 244.94530000000032,
+      "sqlstate": "55P03",
+      "counter_and_audit_rolled_back": true,
+      "proof_replay_denied": true,
+      "fresh_retry_sequence": 1
+    },
+    "production_policy_approved": false,
+    "human_certification_performed": false,
+    "remote_ci": "not queried or dispatched; pending owner restriction"
+  },
   "initial_head": "ceb1046322387e6884c6e386822b3e0fd3e6330f",
   "branch": "feat/android-commercial-runtime",
   "scope": "isolated Windows integration, not production/human certification",
