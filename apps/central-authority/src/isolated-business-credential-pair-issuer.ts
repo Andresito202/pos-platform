@@ -1,8 +1,8 @@
 import {createHash,randomBytes} from "node:crypto";
-import type {Pool,PoolClient} from "@pos-platform/database-postgres";
+import {PostgresCommercialRefreshFamilies,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {UuidSchema,uuidV7} from "@pos-platform/contracts";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
-import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
+import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 import type {ValidatedCommercialBinding} from "./commercial-binding-prerequisite.js";
 
 const hash=(value:string)=>createHash("sha256").update(value).digest("hex");
@@ -15,9 +15,9 @@ const hash=(value:string)=>createHash("sha256").update(value).digest("hex");
  */
 export class IsolatedBusinessCredentialPairIssuer {
   private readonly guard:IsolatedBusinessAuditSessionGuard;
-  constructor(private readonly pool:Pool,private readonly access:IsolatedBusinessAccessTokenCodec){
+  constructor(private readonly pool:Pool,private readonly access:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,private readonly boundRefresh?:PostgresCommercialRefreshFamilies){
     this.guard=new IsolatedBusinessAuditSessionGuard(pool);
-    if(!(access instanceof IsolatedBusinessAccessTokenCodec))
+    if(!(access instanceof IsolatedBusinessAccessTokenCodec)&&!(access instanceof CommercialBusinessAccessAuthority))
       throw new Error("CREDENTIAL_PAIR_TRUSTED_ACCESS_CODEC_REQUIRED");
   }
   async issue(binding:ValidatedCommercialBinding,correlationId:string):Promise<
@@ -33,16 +33,24 @@ export class IsolatedBusinessCredentialPairIssuer {
   }
   /** Caller must hold a verified and locked BUSINESS session in this transaction. */
   async issueInTransaction(client:PoolClient,binding:ValidatedCommercialBinding,
-    correlationId:string,providedToken?:string):Promise<{accessToken:string;refreshToken:string}>{
+    correlationId:string,providedToken?:string,expectedClientId?:string):Promise<{accessToken:string;refreshToken:string}>{
       UuidSchema.parse(correlationId);
       if(!binding?.identity||!binding?.device||binding.identity.tenantId!==binding.device.tenantId)
         throw Error("CREDENTIAL_PAIR_BINDING_REQUIRED");
       const refreshToken=providedToken??randomBytes(48).toString("base64url");
       // The access codec revalidates the full BUSINESS membership and device
       // before signing, using this exact transaction and canonical audit.
-      const accessToken=await this.access.issueInTransaction(client,binding.identity,{
-        deviceId:binding.device.deviceId,credentialId:binding.device.credentialId,
-      },correlationId);
+      if(this.boundRefresh){
+        if(!(this.boundRefresh instanceof PostgresCommercialRefreshFamilies)||!expectedClientId||!this.boundRefresh.acceptsClient(expectedClientId)||providedToken!==undefined)
+          throw Error("CREDENTIAL_PAIR_REGISTERED_REFRESH_CLIENT_REQUIRED");
+        const issued=await this.boundRefresh.issueInTransaction(client,{sessionId:binding.identity.sessionId,tenantId:binding.identity.tenantId,
+          credentialId:binding.device.credentialId,deviceId:binding.device.deviceId,installationId:binding.device.installationId},correlationId);
+        const accessToken=this.access instanceof CommercialBusinessAccessAuthority?await this.access.issueInTransaction(client,issued.familyId,correlationId):
+          await this.access.issueInTransaction(client,binding.identity,{deviceId:binding.device.deviceId,credentialId:binding.device.credentialId},correlationId);
+        return {accessToken,refreshToken:issued.refreshToken};
+      }
+      if(this.access instanceof CommercialBusinessAccessAuthority)throw Error("CREDENTIAL_PAIR_BOUND_FAMILY_REQUIRED");
+      const accessToken=await this.access.issueInTransaction(client,binding.identity,{deviceId:binding.device.deviceId,credentialId:binding.device.credentialId},correlationId);
       const insert=await client.query(`INSERT INTO identity.session_refresh_tokens
         (id,session_id,token_family_id,parent_token_id,token_hash,issued_at,expires_at)
         SELECT $1,s.id,$2,NULL,$3,clock_timestamp(),

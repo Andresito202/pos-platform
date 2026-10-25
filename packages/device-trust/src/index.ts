@@ -137,3 +137,4 @@ export * from "./enrollment-http.js";
 
 export * from "./request-proof.js";
 export * from "./commercial-possession-candidate.js";
+export * from "./commercial-possession.js";

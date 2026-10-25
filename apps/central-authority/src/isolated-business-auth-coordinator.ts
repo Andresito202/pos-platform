@@ -197,7 +197,7 @@ export class IsolatedBusinessAuthCoordinator {
             device:{deviceId:row.deviceId,credentialId:row.credentialId,
               tenantId:row.tenantId,installationId:row.installationId,companyId:row.companyId},
           };
-          return pairIssuer.issueInTransaction(client,binding,uuidV7());
+          return pairIssuer.issueInTransaction(client,binding,uuidV7(),undefined,registration.clientId);
         },device),
     };
     return new NativeAuthorizationCodeExchange(registration,consumer).exchange(request);

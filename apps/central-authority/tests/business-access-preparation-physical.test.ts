@@ -1,9 +1,11 @@
 import { PostgresBusinessSessionRevocationTransaction, PostgresPlatformSecurityEventRepository } from "@pos-platform/database-postgres";
+import {PostgresCommercialRefreshFamilies} from "@pos-platform/database-postgres";
+import {commercialPossessionChallenge,type CommercialPossessionContext} from "@pos-platform/device-trust";
 import { IsolatedBusinessAuditSessionGuard } from "../src/isolated-business-audit-session-guard.js";
 import {verifyCentralRuntimeDatabase} from "../src/central-deployment-configuration.js";
 import { IsolatedBusinessNativeCodeIssuer } from "../src/isolated-business-native-code-issuer.js";
 import { IsolatedBusinessRefreshRotation } from "../src/isolated-business-refresh-rotation.js";
-import { IsolatedBusinessAccessTokenCodec } from "../src/isolated-business-access-token-codec.js";
+import { IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority } from "../src/isolated-business-access-token-codec.js";
 import { IsolatedBusinessCredentialPairIssuer } from "../src/isolated-business-credential-pair-issuer.js";
 import { IsolatedBusinessAuthCoordinator } from "../src/isolated-business-auth-coordinator.js";
 import { IsolatedBusinessBrowserLogin } from "../src/isolated-business-browser-login.js";
@@ -86,7 +88,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     try {
       await ddl.query("SET ROLE pos_schema_owner");
       for (const name of ["001_central_foundation.up.sql","004_device_trust.up.sql","009_webauthn_challenges.up.sql","010_webauthn_credential_material.up.sql","011_session_assertion_sequences.up.sql","012_device_request_proof_replays.up.sql","013_business_browser_sessions.up.sql",
-        "proposals/sas_sequences.up.sql","proposals/sas_sources_read_lock.up.sql"]) {
+        "proposals/sas_sequences.up.sql","proposals/sas_sources_read_lock.up.sql","proposals/commercial_refresh_binding.up.sql"]) {
         await ddl.query(await readFile(new URL(name,root),"utf8"));
       }
     } finally { try { await ddl.query("RESET ROLE"); } finally { ddl.release(); } }
@@ -713,6 +715,100 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect(await linkedExchange().exchange({code:code!,verifier:exchangeVerifier,state:exchangeState})).toBeNull();
   });
 
+  const refreshPolicy={origin:"https://business.example.test",audience:"BUSINESS_REFRESH_TEST",clientId:"WINDOWS_REFRESH_TEST",lifetimeMs:30_000,
+    maximumReauthenticationAgeMs:30_000,maximumProofSkewMs:30_000,rotationWindowMs:30_000,maximumRotationsPerWindow:3};
+  async function boundRefresh(){
+    const store=new PostgresCommercialRefreshFamilies(runtime,refreshPolicy),c=await runtime.connect();
+    try{await c.query("BEGIN");const result=await store.issueInTransaction(c,{sessionId:binding.sessionId,tenantId,deviceId,installationId,credentialId:deviceCredentialId},uuidV7());await c.query("COMMIT");return {store,...result};}
+    catch(error){await c.query("ROLLBACK");throw error;}finally{c.release();}
+  }
+  async function boundAccess(){
+    const f=await boundRefresh(),keys=generateKeyPairSync("ed25519");
+    const authority=new CommercialBusinessAccessAuthority(runtime,{privatePem:keys.privateKey.export({type:"pkcs8",format:"pem"}).toString(),publicPem:keys.publicKey.export({type:"spki",format:"pem"}).toString()},
+      {issuer:refreshPolicy.origin,audience:refreshPolicy.audience,clientId:refreshPolicy.clientId,keyId:"ACCESS_V2_PHYSICAL_TEST",accessLifetimeMs:10_000,maximumProofSkewMs:30_000,
+        signingValidFrom:new Date(Date.now()-60_000).toISOString(),signingValidUntil:new Date(Date.now()+120_000).toISOString()},f.store);
+    const c=await runtime.connect();try{await c.query("BEGIN");const access=await authority.issueInTransaction(c,f.familyId,uuidV7());await c.query("COMMIT");return {...f,authority,access,keys};}
+    catch(error){await c.query("ROLLBACK");throw error;}finally{c.release();}
+  }
+  function refreshProof(token:string,changes:Partial<CommercialPossessionContext>={}){
+    const context:CommercialPossessionContext={operation:"REFRESH",origin:refreshPolicy.origin,audience:refreshPolicy.audience,clientId:refreshPolicy.clientId,
+      tenantId,deviceId,installationId,credentialId:deviceCredentialId,token,requestId:uuidV7(),correlationId:uuidV7(),body:JSON.stringify({grant_type:"refresh_token",refresh_token:token,client_id:refreshPolicy.clientId}),...changes};
+    const timestamp=new Date().toISOString(),nonce=randomBytes(32).toString("base64url"),signature=sign(null,commercialPossessionChallenge(context,{timestamp,nonce}),deviceKeys.privateKey).toString("base64url");
+    return {authorization:`CommercialProofV2 ${context.credentialId}.${timestamp}.${nonce}.${signature}`,requestId:context.requestId,correlationId:context.correlationId,body:context.body};
+  }
+  it("bound access V2: verifies token plus possession once and rejects a different operation",async()=>{
+    const f=await boundAccess(),proof=refreshProof(f.access,{operation:"SESSION_ASSERTION",body:JSON.stringify({session_id:binding.sessionId})});
+    expect(await f.authority.verifyAndConsume(f.access,proof,"AUTHORIZATION_SNAPSHOT")).toBeNull();
+    expect(await f.authority.verifyAndConsume(f.access,proof,"SESSION_ASSERTION")).toMatchObject({ver:2,sid:binding.sessionId,fid:f.familyId,cid:deviceCredentialId,client_id:refreshPolicy.clientId});
+    expect(await f.authority.verifyAndConsume(f.access,proof,"SESSION_ASSERTION")).toBeNull();
+  });
+  it("bound access V2: refresh mints access atomically and family reuse revokes existing access",async()=>{
+    const f=await boundAccess(),rotated=await f.authority.refresh(f.refreshToken,refreshProof(f.refreshToken));
+    expect(rotated?.status).toBe("ROTATED");if(rotated?.status!=="ROTATED"||typeof rotated.access!=="string")throw Error("EXPECTED_ACCESS_ROTATION");
+    expect(await f.authority.verifyAndConsume(rotated.access,refreshProof(rotated.access,{operation:"AUTHORIZATION_SNAPSHOT"}),"AUTHORIZATION_SNAPSHOT")).not.toBeNull();
+    expect(await f.authority.refresh(f.refreshToken,refreshProof(f.refreshToken))).toEqual({status:"REUSE_DETECTED"});
+    for(const token of [f.access,rotated.access])expect(await f.authority.verifyAndConsume(token,refreshProof(token,{operation:"SESSION_ASSERTION"}),"SESSION_ASSERTION")).toBeNull();
+  });
+  it.each(["signature","audience","expiry","thumbprint","device","legacy"] as const)("bound access V2: rejects %s token",async target=>{
+    const f=await boundAccess(),parts=f.access.split("."),claims=JSON.parse(Buffer.from(parts[1]!,"base64url").toString());
+    if(target==="audience")claims.aud="OTHER";if(target==="expiry")claims.exp=Math.floor(Date.now()/1000)-1;
+    if(target==="thumbprint")claims.cnf.jkt="a".repeat(43);if(target==="device")claims.did=uuidV7();if(target==="legacy")delete claims.ver;
+    const unsigned=parts[0]+"."+Buffer.from(JSON.stringify(claims)).toString("base64url"),token=unsigned+"."+(target==="signature"?"a".repeat(86):sign(null,Buffer.from(unsigned),f.keys.privateKey).toString("base64url"));
+    expect(await f.authority.verifyAndConsume(token,refreshProof(token,{operation:"SESSION_ASSERTION"}),"SESSION_ASSERTION")).toBeNull();
+  });
+  it("bound access V2: access audit failure rolls back refresh token and both issuance events",async()=>{
+    const f=await boundAccess();await owner.query(`CREATE FUNCTION identity.reject_v2_access() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN IF NEW.reason_code='DEVICE_BOUND_ACCESS_V2' THEN RAISE EXCEPTION 'ACCESS_AUDIT_FAILURE'; END IF; RETURN NEW; END $f$; CREATE TRIGGER reject_v2_access BEFORE INSERT ON identity.security_events FOR EACH ROW EXECUTE FUNCTION identity.reject_v2_access()`);
+    try{await expect(f.authority.refresh(f.refreshToken,refreshProof(f.refreshToken))).rejects.toThrow("ACCESS_AUDIT_FAILURE");}
+    finally{await owner.query("DROP TRIGGER reject_v2_access ON identity.security_events; DROP FUNCTION identity.reject_v2_access()");}
+    expect((await owner.query("SELECT count(*)::int AS n FROM identity.session_refresh_tokens WHERE token_family_id=$1",[f.familyId])).rows[0].n).toBe(1);
+    expect((await f.authority.refresh(f.refreshToken,refreshProof(f.refreshToken)))?.status).toBe("ROTATED");
+  });
+  it("bound refresh V2: rotates with persisted device binding and detects fresh-proof reuse",async()=>{
+    const f=await boundRefresh(),next=await f.store.rotate(f.refreshToken,refreshProof(f.refreshToken));expect(next?.status).toBe("ROTATED");
+    expect(await f.store.rotate(f.refreshToken,refreshProof(f.refreshToken))).toEqual({status:"REUSE_DETECTED"});
+    if(next?.status!=="ROTATED")throw Error("EXPECTED_ROTATION");
+    expect(await f.store.rotate(next.refreshToken,refreshProof(next.refreshToken))).toBeNull();
+    const rows=await owner.query("SELECT revoked_at,client_id,credential_id::text,family_expires_at FROM identity.session_refresh_tokens WHERE token_family_id=$1",[f.familyId]);
+    expect(rows.rowCount).toBe(2);for(const row of rows.rows){expect(row.revoked_at).not.toBeNull();expect(row.client_id).toBe(refreshPolicy.clientId);expect(row.credential_id).toBe(deviceCredentialId);}
+  });
+  it.each(["token","clientId","origin","audience","tenantId","installationId","deviceId","body"] as const)("bound refresh V2: rejects modified %s without consuming token",async field=>{
+    const f=await boundRefresh();const changes:Partial<CommercialPossessionContext>=field==="token"?{token:randomBytes(48).toString("base64url")}:
+      field==="origin"?{origin:"https://other.example.test"}:field==="body"?{body:"{}"}:field==="clientId"||field==="audience"?{[field]:"WRONG"}:{[field]:uuidV7()};
+    const proof=refreshProof(f.refreshToken,changes);if(field==="body")proof.body="{\"changed\":true}";
+    expect(await f.store.rotate(f.refreshToken,proof)).toBeNull();
+    expect((await f.store.rotate(f.refreshToken,refreshProof(f.refreshToken)))?.status).toBe("ROTATED");
+  });
+  it("bound refresh V2: one proof cannot replay; concurrent fresh proofs revoke the family",async()=>{
+    const f=await boundRefresh(),proof=refreshProof(f.refreshToken);
+    const identical=await Promise.all([f.store.rotate(f.refreshToken,proof),f.store.rotate(f.refreshToken,proof)]);expect(identical.filter(x=>x?.status==="ROTATED")).toHaveLength(1);expect(identical.filter(x=>x===null)).toHaveLength(1);
+    const second=await boundRefresh(),parallel=await Promise.all([second.store.rotate(second.refreshToken,refreshProof(second.refreshToken)),second.store.rotate(second.refreshToken,refreshProof(second.refreshToken))]);
+    expect(parallel.map(x=>x?.status).sort()).toEqual(["REUSE_DETECTED","ROTATED"]);
+    expect((await owner.query("SELECT count(*)::int AS n FROM identity.session_refresh_tokens WHERE token_family_id=$1 AND revoked_at IS NULL",[second.familyId])).rows[0].n).toBe(0);
+  });
+  it("bound refresh V2: audit failure rolls back rotation while burning the proof",async()=>{
+    const f=await boundRefresh(),proof=refreshProof(f.refreshToken);await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try{await expect(f.store.rotate(f.refreshToken,proof)).rejects.toMatchObject({code:"42501"});}finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    expect((await owner.query("SELECT count(*)::int AS n FROM identity.session_refresh_tokens WHERE token_family_id=$1",[f.familyId])).rows[0].n).toBe(1);
+    expect(await f.store.rotate(f.refreshToken,proof)).toBeNull();expect((await f.store.rotate(f.refreshToken,refreshProof(f.refreshToken)))?.status).toBe("ROTATED");
+  });
+  it.each(["session","device","credential","membership","expired","password"] as const)("bound refresh V2: denies %s invalidation",async target=>{
+    const f=await boundRefresh();
+    if(target==="session")await owner.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revoked_by_actor_type='SYSTEM',revocation_reason='TEST' WHERE id=$1",[binding.sessionId]);
+    if(target==="device")await owner.query("UPDATE identity.device_registry SET status='REVOKED' WHERE device_id=$1",[deviceId]);
+    if(target==="credential")await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp() WHERE credential_id=$1",[deviceCredentialId]);
+    if(target==="membership")await owner.query("UPDATE tenancy.tenant_memberships SET status='SUSPENDED',suspended_at=clock_timestamp() WHERE id=$1",[membershipId]);
+    if(target==="expired")await owner.query("UPDATE identity.sessions SET expires_at=clock_timestamp()-interval '1 millisecond' WHERE id=$1",[binding.sessionId]);
+    if(target==="password")await owner.query("UPDATE identity.user_credentials SET version=version+1 WHERE id=$1",[credentialId]);
+    expect(await f.store.rotate(f.refreshToken,refreshProof(f.refreshToken))).toBeNull();
+    if(target==="password")expect((await owner.query("SELECT revoked_at FROM identity.session_refresh_tokens WHERE token_family_id=$1",[f.familyId])).rows[0].revoked_at).not.toBeNull();
+  });
+  it("bound refresh V2: durable rotation budget and immutable SQL family binding",async()=>{
+    const f=await boundRefresh();let token=f.refreshToken;
+    for(let i=0;i<3;i++){const next=await f.store.rotate(token,refreshProof(token));if(next?.status!=="ROTATED")throw Error("EXPECTED_ROTATION");token=next.refreshToken;}
+    expect(await f.store.rotate(token,refreshProof(token))).toBeNull();
+    await expect(owner.query("UPDATE identity.session_refresh_tokens SET client_id='OTHER' WHERE token_family_id=$1",[f.familyId])).rejects.toThrow("immutable");
+    await expect(owner.query("UPDATE identity.session_refresh_tokens SET consumed_at=NULL WHERE token_family_id=$1 AND consumed_at IS NOT NULL",[f.familyId])).rejects.toThrow("irreversible");
+  });
   it("rotates isolated refresh atomically, then detects replay and revokes the family",async()=>{
     const rotation=new IsolatedBusinessRefreshRotation(runtime);
     const initial=await rotation.issue(binding,uuidV7());
@@ -1264,6 +1360,26 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const pair=new IsolatedBusinessCredentialPairIssuer(runtime,isolatedAccessCodec());
     return {coordinator,registration,pair};
   }
+  it("bound refresh V2: native PKCE exchange commits the registered family and access together",async()=>{
+    const {coordinator,registration}=coordinatedCredentials();
+    const store=new PostgresCommercialRefreshFamilies(runtime,{...refreshPolicy,clientId:registration.clientId});
+    const signing=generateKeyPairSync("ed25519"),authority=new CommercialBusinessAccessAuthority(runtime,{privatePem:signing.privateKey.export({type:"pkcs8",format:"pem"}).toString(),publicPem:signing.publicKey.export({type:"spki",format:"pem"}).toString()},
+      {issuer:refreshPolicy.origin,audience:refreshPolicy.audience,clientId:registration.clientId,keyId:"ACCESS_V2_EXCHANGE_TEST",accessLifetimeMs:10_000,maximumProofSkewMs:30_000,
+        signingValidFrom:new Date(Date.now()-60_000).toISOString(),signingValidUntil:new Date(Date.now()+120_000).toISOString()},store);
+    const pair=new IsolatedBusinessCredentialPairIssuer(runtime,authority,store);
+    const code=await coordinator.authorize(reference,request(),registration,{codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState});
+    const payload={grant_type:"authorization_code",code:code!,code_verifier:exchangeVerifier,state:exchangeState,client_id:registration.clientId,redirect_uri:registration.redirectUri};
+    const p=nativeSigned("/v1/commercial/token",payload);
+    const tokens=await coordinator.exchangeNativeCredentials(registration,{code:code!,verifier:exchangeVerifier,state:exchangeState},pair,
+      {body:p.raw,authorization:p.headers.authorization,requestId:p.headers["x-request-id"],correlationId:p.headers["x-correlation-id"]},30_000);
+    expect(tokens?.accessToken).toMatch(/^[^.]+\.[^.]+\.[^.]+$/);
+    expect(JSON.parse(Buffer.from(tokens!.accessToken.split(".")[1]!,"base64url").toString()).ver).toBe(2);
+    expect((await owner.query("SELECT client_id,credential_id::text FROM identity.session_refresh_tokens WHERE token_hash=$1",[createHash("sha256").update(tokens!.refreshToken).digest("hex")])).rows).toEqual([{client_id:registration.clientId,credential_id:deviceCredentialId}]);
+    const context:CommercialPossessionContext={operation:"REFRESH",origin:refreshPolicy.origin,audience:refreshPolicy.audience,clientId:registration.clientId,tenantId,installationId,deviceId,credentialId:deviceCredentialId,token:tokens!.refreshToken,requestId:uuidV7(),correlationId:uuidV7(),body:JSON.stringify({grant_type:"refresh_token",refresh_token:tokens!.refreshToken,client_id:registration.clientId})};
+    const timestamp=new Date().toISOString(),nonce=randomBytes(32).toString("base64url"),signature=sign(null,commercialPossessionChallenge(context,{timestamp,nonce}),deviceKeys.privateKey).toString("base64url");
+    const renewed=await authority.refresh(tokens!.refreshToken,{body:context.body,requestId:context.requestId,correlationId:context.correlationId,authorization:`CommercialProofV2 ${deviceCredentialId}.${timestamp}.${nonce}.${signature}`});
+    expect(renewed?.status).toBe("ROTATED");if(renewed?.status==="ROTATED")expect(typeof renewed.access).toBe("string");
+  });
   it("commits PKCE consumption and access-refresh pair together",async()=>{
     const {coordinator,registration,pair}=coordinatedCredentials();
     const code=await coordinator.authorize(reference,request(),registration,{

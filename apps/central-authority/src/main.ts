@@ -146,6 +146,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   // D3 deployment approval, native registrations and key custody are verified.
   // Do not route isolated PostgreSQL fixtures or accept client session IDs.
   if (request.url === "/v1/commercial/token" ||
+      request.url === "/v1/commercial/refresh" ||
       request.url === "/v1/commercial/authorize" ||
       request.url === "/v1/commercial/login" ||
       request.url === "/v1/commercial/browser/session" ||

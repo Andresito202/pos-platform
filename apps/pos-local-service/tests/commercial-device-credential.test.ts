@@ -10,7 +10,7 @@ import {DurableSyncStore} from "../src/sync/durable-sync-store.js";
 import {LocalChannelClient,LocalChannelAuthenticator,loadOrCreateWindowsLocalChannelSecret} from "@pos-platform/local-channel";
 import {LocalChannelComponent} from "../src/channel/local-channel-component.js";
 import {CentralDeviceCredentialIssuer,DeviceTrustVerifier,canonicalDeviceTrustJson,verifyDeviceRequestAuthorization,
-  type TrustedDeviceTrustKey} from "@pos-platform/device-trust";
+  verifyCommercialPossession,parseCommercialPossession,type TrustedDeviceTrustKey} from "@pos-platform/device-trust";
 import {LocalDatabaseComponent} from "../src/local-database-component.js";
 import {LocalSecurityComponent} from "../src/security/local-security-component.js";
 import {WindowsDpapiKeyProvider} from "../src/security/windows-dpapi-key-provider.js";
@@ -60,6 +60,16 @@ async function fixture(insecure=false){
 }
 
 describe.runIf(process.platform==="win32")("commercial device custody — real Windows DPAPI and temporary SQLite",()=>{
+  it("refresh V2 signs only the closed operation under real custody and rejects lost enrollment",async()=>{
+    const f=await fixture();f.enroll();const token=randomBytes(48).toString("base64url"),signer=f.signer(),c={origin:"https://business.example.test",audience:"REFRESH_TEST",clientId:"WINDOWS_TEST",token,requestId:uuidV7(),correlationId:uuidV7(),body:JSON.stringify({grant_type:"refresh_token",refresh_token:token,client_id:"WINDOWS_TEST"})};
+    const proof=await signer.refreshPossession(c),second=await signer.refreshPossession(c);
+    expect(parseCommercialPossession(proof)?.nonce).not.toBe(parseCommercialPossession(second)?.nonce);
+    const expected={...c,operation:"REFRESH" as const,credentialId:signer.requireVerifiedCredentialId(),tenantId:f.binding.tenantId,installationId:f.binding.installationId,deviceId:f.binding.deviceId};
+    expect(verifyCommercialPossession(proof,expected,createPublicKey(f.identity().publicKeyPem()),new Date(),30_000)).toBe(true);
+    expect(verifyCommercialPossession(proof,{...expected,operation:"SESSION_ASSERTION"},createPublicKey(f.identity().publicKeyPem()),new Date(),30_000)).toBe(false);
+    await f.restart();expect(parseCommercialPossession(await f.signer().refreshPossession(c))).not.toBeNull();
+    await f.stop();await expect(signer.refreshPossession(c)).rejects.toThrow("device identity is not ready");
+  },60000);
   it("uses the audited enrolled local identity for all fixed commercial routes with fresh nonces",async()=>{
     const f=await fixture();f.enroll();const signer=f.signer();
     for(const path of ["/v1/commercial/native-requests","/v1/commercial/token","/v1/business-session/assertions","/v1/business-session/authorization"]){

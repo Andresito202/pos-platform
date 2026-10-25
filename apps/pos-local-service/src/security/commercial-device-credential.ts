@@ -1,6 +1,6 @@
-import {createPublicKey} from "node:crypto";
-import {UuidSchema} from "@pos-platform/contracts";
-import {DeviceTrustVerifier,type DeviceTrustBinding} from "@pos-platform/device-trust";
+import {createPublicKey,randomBytes} from "node:crypto";
+import {UuidSchema,CommercialRefreshRequestSchema} from "@pos-platform/contracts";
+import {DeviceTrustVerifier,commercialPossessionChallenge,type CommercialPossessionContext,type DeviceTrustBinding} from "@pos-platform/device-trust";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
 import type {DeviceRequestSigningContext} from "../sync/device-credential.js";
 import {LocalSecurityComponent} from "./local-security-component.js";
@@ -39,6 +39,16 @@ export class CommercialDeviceCredentialProvider {
     return identity.signRequestAuthorization({...context,credentialId:credential.claims.credential_id});
   }
   requireVerifiedCredentialId():string{return this.requireVerified().credential.claims.credential_id;}
+  /** Closed refresh proof, Service-only. Not an arbitrary sign(path,body) API. */
+  async refreshPossession(context:Omit<CommercialPossessionContext,"operation"|"credentialId"|"tenantId"|"installationId"|"deviceId">):Promise<string>{
+    const request=CommercialRefreshRequestSchema.parse(JSON.parse(context.body));
+    if(request.refresh_token!==context.token||request.client_id!==context.clientId)throw Error("COMMERCIAL_REFRESH_BODY_REJECTED");
+    const {identity,credential}=this.requireVerified(),timestamp=new Date().toISOString(),nonce=randomBytes(32).toString("base64url");
+    const c:CommercialPossessionContext={...context,operation:"REFRESH",credentialId:credential.claims.credential_id,
+      tenantId:this.binding.tenantId,installationId:this.binding.installationId,deviceId:this.binding.deviceId};
+    const signature=identity.signChallenge(commercialPossessionChallenge(c,{timestamp,nonce})).toString("base64url");
+    return `CommercialProofV2 ${c.credentialId}.${timestamp}.${nonce}.${signature}`;
+  }
   private requireVerified(){
     if(this.security.protection!=="OS_BOUND")throw Error("COMMERCIAL_DEVICE_OS_CUSTODY_REQUIRED");
     if(!this.security.matchesDeviceBinding(this.binding))throw Error("COMMERCIAL_DEVICE_LOCAL_BINDING_MISMATCH");
