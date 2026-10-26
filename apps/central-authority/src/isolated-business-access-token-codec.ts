@@ -118,6 +118,7 @@ export interface CommercialAccessPolicy{
  * production policy. V1 laboratory tokens are rejected. The public verifier
  * requires possession and current canonical family/session/device state. */
 export class CommercialBusinessAccessAuthority{
+  private readonly verified=new WeakSet<object>();
   private readonly privateKey:KeyObject;private readonly publicKey:KeyObject;
   private readonly policy:Readonly<CommercialAccessPolicy>;
   private readonly proofs:PostgresCommercialPossessionVerifier;
@@ -172,7 +173,18 @@ export class CommercialBusinessAccessAuthority{
       const valid=family&&family.sessionId===claims.sid&&family.userId===claims.sub&&family.membershipId===claims.mid&&family.tenantId===claims.tid&&
         family.deviceId===claims.did&&family.installationId===claims.iid&&family.credentialId===claims.cid&&claims.exp*1000<=family.expiresAt.getTime()&&
         jwkThumbprint(createPublicKey(family.publicKey.toString("utf8")))===claims.cnf.jkt&&claims.exp>Math.floor(Date.now()/1000)&&this.signingCurrent();
-      await c.query("COMMIT");begun=false;return valid?Object.freeze({...claims}):null;
+      await c.query("COMMIT");begun=false;
+      if(!valid)return null;
+      const evidence=Object.freeze({...claims});this.verified.add(evidence);return evidence;
     }catch(error){if(begun)await c.query("ROLLBACK");throw error;}finally{c.release();}
+  }
+  /** Internal capability: serialized claims cannot cross this boundary. Recheck
+   * under the caller's issuance transaction, retaining canonical family locks. */
+  async currentInTransaction(c:PoolClient,claims:CommercialAccessClaims):Promise<boolean>{
+    if(!this.verified.has(claims)||!this.signingCurrent()||claims.exp<=Math.floor(Date.now()/1000))return false;
+    const f=await this.families.currentFamilyInTransaction(c,claims.fid);
+    return !!f&&f.sessionId===claims.sid&&f.userId===claims.sub&&f.membershipId===claims.mid&&f.tenantId===claims.tid&&
+      f.deviceId===claims.did&&f.installationId===claims.iid&&f.credentialId===claims.cid&&claims.exp*1000<=f.expiresAt.getTime()&&
+      jwkThumbprint(createPublicKey(f.publicKey.toString("utf8")))===claims.cnf.jkt;
   }
 }

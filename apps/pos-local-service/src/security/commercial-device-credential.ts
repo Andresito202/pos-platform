@@ -1,5 +1,5 @@
 import {createPublicKey,randomBytes} from "node:crypto";
-import {UuidSchema,CommercialRefreshRequestSchema} from "@pos-platform/contracts";
+import {UuidSchema,CommercialRefreshRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
 import {DeviceTrustVerifier,commercialPossessionChallenge,type CommercialPossessionContext,type DeviceTrustBinding} from "@pos-platform/device-trust";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
 import type {DeviceRequestSigningContext} from "../sync/device-credential.js";
@@ -39,12 +39,31 @@ export class CommercialDeviceCredentialProvider {
     return identity.signRequestAuthorization({...context,credentialId:credential.claims.credential_id});
   }
   requireVerifiedCredentialId():string{return this.requireVerified().credential.claims.credential_id;}
+  async sessionAssertionPossession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0]){
+    return this.accessPossession(context,"SESSION_ASSERTION");
+  }
+  async authorizationSnapshotPossession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0]){
+    return this.accessPossession(context,"AUTHORIZATION_SNAPSHOT");
+  }
+  private accessPossession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0],operation:"SESSION_ASSERTION"|"AUTHORIZATION_SNAPSHOT"){
+    const claims=CommercialAccessClaimsSchema.parse(JSON.parse(Buffer.from(context.token.split(".")[1]??"","base64url").toString("utf8"))),body=JSON.parse(context.body);
+    const credentialId=this.requireVerifiedCredentialId();
+    // Parsing never authenticates a token. Central verifies its signature and
+    // current family; here it only constrains what this enrolled key may sign.
+    if(claims.iss!==context.origin||claims.aud!==context.audience||claims.client_id!==context.clientId||claims.cid!==credentialId||
+      claims.tid!==this.binding.tenantId||claims.iid!==this.binding.installationId||claims.did!==this.binding.deviceId||claims.exp<=Math.floor(Date.now()/1000)||
+      !body||typeof body!=="object"||Object.keys(body).length!==1||body.session_id!==claims.sid)throw Error("COMMERCIAL_ACCESS_BODY_OR_BINDING_REJECTED");
+    return this.possession(context,operation);
+  }
   /** Closed refresh proof, Service-only. Not an arbitrary sign(path,body) API. */
   async refreshPossession(context:Omit<CommercialPossessionContext,"operation"|"credentialId"|"tenantId"|"installationId"|"deviceId">):Promise<string>{
     const request=CommercialRefreshRequestSchema.parse(JSON.parse(context.body));
     if(request.refresh_token!==context.token||request.client_id!==context.clientId)throw Error("COMMERCIAL_REFRESH_BODY_REJECTED");
+    return this.possession(context,"REFRESH");
+  }
+  private possession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0],operation:CommercialPossessionContext["operation"]){
     const {identity,credential}=this.requireVerified(),timestamp=new Date().toISOString(),nonce=randomBytes(32).toString("base64url");
-    const c:CommercialPossessionContext={...context,operation:"REFRESH",credentialId:credential.claims.credential_id,
+    const c:CommercialPossessionContext={...context,operation,credentialId:credential.claims.credential_id,
       tenantId:this.binding.tenantId,installationId:this.binding.installationId,deviceId:this.binding.deviceId};
     const signature=identity.signChallenge(commercialPossessionChallenge(c,{timestamp,nonce})).toString("base64url");
     return `CommercialProofV2 ${c.credentialId}.${timestamp}.${nonce}.${signature}`;

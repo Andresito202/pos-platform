@@ -952,9 +952,43 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const payload={session_id:sessionId},p=nativeSigned("/v1/business-session/authorization",payload);
     return {body:p.raw,authorization:p.headers.authorization,requestId:p.headers["x-request-id"],correlationId:p.headers["x-correlation-id"]};
   }
-  function sasIssuer(codec:IsolatedBusinessAccessTokenCodec,s:Awaited<ReturnType<typeof sasFixture>>){
+  function sasIssuer(codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,s:Awaited<ReturnType<typeof sasFixture>>){
     return new IsolatedAuthorizationSnapshotIssuer(runtime,codec,s.deployment,s.sasPolicy,s.material);
   }
+  it("V2 SSA SAS integration: canonical sequence issuer and RBAC consume distinct proofs",async()=>{
+    const f=await boundAccess(),s=await sasFixture(),coordinator=ssaCoordinator();
+    const proof=refreshProof(f.access,{operation:"SESSION_ASSERTION",body:JSON.stringify({session_id:binding.sessionId})});
+    const assertion=await coordinator.issueSessionAssertion(f.access,proof,f.authority,ssaMaterial());
+    expect(assertion?.claims).toMatchObject({session_id:binding.sessionId,user_id:userId,device_id:deviceId,sequence:1});
+    expect(await coordinator.issueSessionAssertion(f.access,proof,f.authority,ssaMaterial())).toBeNull();
+    const issuer=sasIssuer(f.authority,s),signed=await issuer.issue(f.access,refreshProof(f.access,{operation:"AUTHORIZATION_SNAPSHOT",body:proof.body}));
+    expect(signed?.claims.assignments[0]?.permissions).toEqual([{code:"AUDIT_EVENT_READ",status:"ACTIVE"}]);
+  });
+  it.each(["family","credential","wrong session"] as const)("V2 SSA SAS integration: rejects %s before delivering authority",async target=>{
+    const f=await boundAccess(),s=await sasFixture();
+    if(target==="family")await owner.query("UPDATE identity.session_refresh_tokens SET revoked_at=clock_timestamp(),revocation_reason='TEST' WHERE token_family_id=$1",[f.familyId]);
+    if(target==="credential")await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=clock_timestamp(),revoked_reason='TEST' WHERE credential_id=$1",[deviceCredentialId]);
+    const body=JSON.stringify({session_id:target==="wrong session"?uuidV7():binding.sessionId});
+    expect(await ssaCoordinator().issueSessionAssertion(f.access,refreshProof(f.access,{operation:"SESSION_ASSERTION",body}),f.authority,ssaMaterial())).toBeNull();
+    expect(await sasIssuer(f.authority,s).issue(f.access,refreshProof(f.access,{operation:"AUTHORIZATION_SNAPSHOT",body}))).toBeNull();
+  });
+  it("V2 SSA SAS integration: revalidates exact in-process evidence against concurrent family revocation",async()=>{
+    const f=await boundAccess(),proof=refreshProof(f.access,{operation:"SESSION_ASSERTION",body:JSON.stringify({session_id:binding.sessionId})});
+    const claims=(await f.authority.verifyAndConsume(f.access,proof,"SESSION_ASSERTION"))!,c=await runtime.connect();
+    try{
+      await c.query("BEGIN");expect(await f.authority.currentInTransaction(c,JSON.parse(JSON.stringify(claims)))).toBe(false);await c.query("ROLLBACK");
+      await owner.query("UPDATE identity.session_refresh_tokens SET revoked_at=clock_timestamp(),revocation_reason='TEST' WHERE token_family_id=$1",[f.familyId]);
+      await c.query("BEGIN");expect(await f.authority.currentInTransaction(c,claims)).toBe(false);await c.query("ROLLBACK");
+    }finally{c.release();}
+  });
+  it("V2 SSA SAS integration: denied RBAC remains empty and audit failure rolls snapshot back",async()=>{
+    const f=await boundAccess(),s=await sasFixture(false),issuer=sasIssuer(f.authority,s),proof=()=>refreshProof(f.access,{operation:"AUTHORIZATION_SNAPSHOT",body:JSON.stringify({session_id:binding.sessionId})});
+    expect((await issuer.issue(f.access,proof()))?.claims.assignments).toEqual([]);
+    await owner.query("REVOKE INSERT ON identity.security_events FROM pos_platform_app");
+    try{await expect(issuer.issue(f.access,proof())).rejects.toMatchObject({code:"42501"});}
+    finally{await owner.query("GRANT INSERT ON identity.security_events TO pos_platform_app");}
+    expect((await owner.query('SELECT sequence::int FROM "authorization".snapshot_sequence_validation WHERE user_id=$1',[userId])).rows[0].sequence).toBe(1);
+  });
   async function withSasSqlRehearsal(work:(s:Awaited<ReturnType<typeof sasFixture>>,issuer:IsolatedAuthorizationSnapshotIssuer,access:string,codec:IsolatedBusinessAccessTokenCodec)=>Promise<void>){
     const s=await sasFixture(),{codec,access}=await signedAccessForSequence();
     // Remove the OLD laboratory FOR SHARE privileges for this experiment.
@@ -1658,9 +1692,12 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
   let tls:ReturnType<typeof labTls>|undefined;
   const androidRegistration={clientId:"android",platform:"ANDROID" as const,authorizationOrigin:origin,redirectUri:origin+"/android/callback",
     androidPackageId:"co.camachopos.android",androidSigningCertificateSha256:Array(32).fill("A1").join(":")};
-  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>,authorization?:(codec:IsolatedBusinessAccessTokenCodec)=>IsolatedAuthorizationSnapshotIssuer,authorizationTrustCandidate?:SignedAuthorizationTrustCandidate){
+  async function withHttps(work:(post:(path:string,payload:unknown,headers?:Record<string,string|string[]>,raw?:string|Buffer)=>ReturnType<typeof postLabHttps>,codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,server:Server,coordinator:IsolatedBusinessAuthCoordinator,signing:ReturnType<typeof ssaMaterial>)=>Promise<void>,requestsPerMinute=100,browserEntry=false,nativePolicy?:Partial<IsolatedNativeRequestPolicy>,authorization?:(codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority)=>IsolatedAuthorizationSnapshotIssuer,authorizationTrustCandidate?:SignedAuthorizationTrustCandidate,v2=false){
     tls??=labTls();
-    const codec=isolatedAccessCodec();
+    const refresh=v2?new PostgresCommercialRefreshFamilies(runtime,{...refreshPolicy,clientId:nativeClientId}):undefined,accessKeys=generateKeyPairSync("ed25519");
+    const codec=refresh?new CommercialBusinessAccessAuthority(runtime,{privatePem:accessKeys.privateKey.export({type:"pkcs8",format:"pem"}).toString(),publicPem:accessKeys.publicKey.export({type:"spki",format:"pem"}).toString()},
+      {issuer:origin,audience:refreshPolicy.audience,clientId:nativeClientId,keyId:"ACCESS_V2_ELECTRON_TEST",accessLifetimeMs:30_000,maximumProofSkewMs:30_000,
+        signingValidFrom:new Date(Date.now()-60_000).toISOString(),signingValidUntil:new Date(Date.now()+120_000).toISOString()},refresh):isolatedAccessCodec();
     const coordinator=new IsolatedBusinessAuthCoordinator(preparation,runtime,{
       authorityReference:"CANONICAL_HTTPS_BINDING_AUDIT",
       record:async checked=>{
@@ -1683,7 +1720,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       requestLifetimeMs:120_000,codeLifetimeMs:60_000,maximumChallengesPerMinute:20,maximumReauthenticationAgeMs:30_000,...nativePolicy}):undefined;
     const server=await createIsolatedCommercialHttpsServer({pool:runtime,tls,origin,mfa:flow,authority,
       handoffs:new PostgresBrowserSessionHandoffWriter(origin,15_000),browser:new DurableBrowserSessionStore(runtime,origin,canonicalPolicy),
-      coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec),
+      coordinator,clients:new CommercialNativeClientCatalog([registration,androidRegistration]),pair:new IsolatedBusinessCredentialPairIssuer(runtime,codec,refresh),
       ...(native?{nativeValidation:{requests:native,codec,signing}}:{}),
       ...(authorization?{authorizationIssuer:authorization(codec)}:{}),
       ...(authorizationTrustCandidate?{authorizationTrustCandidate}:{}),
@@ -1913,7 +1950,8 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       nativeSsa:{invalid:"REJECTED",activated:"ACTIVATED",replay:"REJECTED",recovered:"ACTIVE",channelLossRejected:true,
         capabilities:{result_code:"AUTHORIZATION_SNAPSHOT_UNAVAILABLE"}}});
   },100,true,{}),90_000);
-  it.runIf(process.platform==="win32").each([false,true])("central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=%s",async serviceCustody=>{
+  async function runSasElectron(serviceCustody:boolean,v2=false){
+    const refreshBefore=Number((await owner.query("SELECT count(*)::int AS n FROM identity.security_events WHERE event_code=$1",[PlatformSecurityEventCode.REFRESH_ROTATED])).rows[0].n);
     const s=await sasFixture();
     const sasRoot=generateKeyPairSync("ed25519");
     const sasTrust=signIsolatedAuthorizationTrust({profile:"DEC011_LAB_CANDIDATE_1",mode:"ISOLATED_VALIDATION",schema_version:1,
@@ -1940,7 +1978,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         registration:{clientId:nativeClientId,redirectUri:exchangeRedirect,authorizationOrigin:origin},tenantId,companyId,branchId:s.branchId,installationId,deviceId,
         ssaPublicTrust:{rootPublicPem:signing.rootTrustAnchor.export({format:"pem",type:"spki"}).toString(),artifact:signing.signedOperationalKey},
         nativeBinding:{deviceCredentialId,devicePrivatePem:deviceKeys.privateKey.export({format:"pem",type:"pkcs8"}).toString(),ca:tls!.cert.toString()},
-        ...(serviceCustody?{serviceCustody:custodyFixture}:{}),
+        ...(serviceCustody?{serviceCustody:{...custodyFixture,...(v2?{accessV2:{audience:refreshPolicy.audience,maximumRetentionMs:60_000}}:{})}}:{}),
         sasTrustCandidate:{issuer:origin,authorityId:"LAB_SAS_ROOT",minimumGeneration:1,
           rootPublicPem:sasRoot.publicKey.export({format:"pem",type:"spki"}).toString(),url:`https://${rpId}:${address.port}/v1/isolated/authorization-trust`,ca:tls!.cert.toString()},
         beforeAuthorizationRevocation:async()=>{await owner.query(`UPDATE "authorization".user_role_assignments SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1`,[s.assignmentId]);}});
@@ -1948,8 +1986,11 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
         observed:{recovery:{result_code:"ACTIVE"},capabilities:{result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{result_code:"UNAUTHORIZED"}}});
       else expect(observed).toMatchObject({centralSas:true,dashboardAuthorized:true,revocationDenied:true,dashboardClosed:true,nativeSsa:{activated:"ACTIVATED",recovered:"ACTIVE",
         capabilities:{status:"SUCCEEDED",result_code:"AVAILABLE",result:{permissions:["AUDIT_EVENT_READ"]}},forbidden:{status:"REJECTED",result_code:"UNAUTHORIZED"}}});
-    },100,true,{},codec=>sasIssuer(codec,s),sasTrust);
-  },90_000);
+      if(v2)expect((await owner.query("SELECT count(*)::int AS n FROM identity.security_events WHERE event_code=$1",[PlatformSecurityEventCode.REFRESH_ROTATED])).rows[0].n).toBe(refreshBefore+1);
+    },100,true,{},codec=>sasIssuer(codec,s),sasTrust,v2);
+  }
+  it.runIf(process.platform==="win32").each([false,true])("central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=%s",async serviceCustody=>runSasElectron(serviceCustody),90_000);
+  it.runIf(process.platform==="win32")("V2 SSA SAS integration: Electron HTTPS BUSINESS native PKCE DPAPI possession canonical grants dashboard",()=>runSasElectron(true,true),90_000);
   it.runIf(process.platform==="win32")("business SSA composition: Electron main activates Central assertion but no grants cannot open dashboard",async()=>withHttps(async(post,codec,server,coordinator)=>{
     const login=await httpLogin(post),material=ssaMaterial();
     const code=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);
@@ -1983,6 +2024,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     expect(await coordinator.prepareSessionAssertion(credentials.body.accessToken as string,request(login.sessionId),codec)).toBeNull();
   }));
   it("HTTPS commercial: actual password MFA BUSINESS cookie DeviceProof PKCE signed JWT refresh and logout",async()=>withHttps(async(post,codec)=>{
+    if(!(codec instanceof IsolatedBusinessAccessTokenCodec))throw Error("LEGACY_FIXTURE_REQUIRED");
     const login=await httpLogin(post);
     const authorized=await post("authorize",{clientId:"desktop",redirectUri:exchangeRedirect,
       codeChallenge:derivePkceS256Challenge(exchangeVerifier),state:exchangeState,deviceProof:request(login.sessionId)},login.headers);

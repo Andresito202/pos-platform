@@ -20,7 +20,7 @@ import {validateNativeClientRegistration} from "./native-authorization-constrain
 import type {createPostgresPool} from "@pos-platform/database-postgres";
 import {IsolatedBusinessCredentialPairIssuer} from "./isolated-business-credential-pair-issuer.js";
 import type {ValidatedCommercialBinding} from "./commercial-binding-prerequisite.js";
-import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
+import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 
 /**
  * INTERNAL ISOLATED orchestration only. A client cannot supply a serialized
@@ -32,13 +32,13 @@ export class IsolatedBusinessAuthCoordinator {
   private readonly consumer:IsolatedBusinessBoundCodeConsumer;
   private readonly audit:PostgresPlatformSecurityEventRepository;
   /** Internal post-exchange consumer. No new HTTP protocol or claims producer. */
-  prepareSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec){
+  prepareSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority){
     return this.preparation.prepareSequenceFromAccess(accessToken,proof,codec);
   }
   /** Actual canonical SSA issuance, restricted to temporary integration DBs.
    * Host-owned laboratory material only; never accepted from an HTTP body.
    * No grants, policy assignments or authorization snapshot are produced. */
-  async issueSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec,material:{
+  async issueSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,material:{
     mode:"ISOLATED_VALIDATION";environment:"isolated-validation";operationalPrivateKey:KeyObject;rootTrustAnchor:KeyObject;
     signedOperationalKey:SignedSessionAssertionOperationalKey;
     policy:SessionAssertionIssuancePolicy & {maximumReauthenticationAgeMs:number};
@@ -47,13 +47,14 @@ export class IsolatedBusinessAuthCoordinator {
       ![material.policy?.maximumReauthenticationAgeMs,material.policy?.maximumClaimAgeMs,material.policy?.maximumOfflineLifetimeMs]
         .every(value=>Number.isSafeInteger(value)&&value!>0)||material.operationalPrivateKey?.type!=="private"||material.rootTrustAnchor?.type!=="public")
       throw Error("BUSINESS_SSA_ISOLATED_SIGNING_POLICY_REQUIRED");
-    if(!(codec instanceof IsolatedBusinessAccessTokenCodec))throw Error("BUSINESS_ACCESS_VERIFIER_REQUIRED");
+    if(!(codec instanceof IsolatedBusinessAccessTokenCodec)&&!(codec instanceof CommercialBusinessAccessAuthority))throw Error("BUSINESS_ACCESS_VERIFIER_REQUIRED");
     const artifact=SignedSessionAssertionOperationalKeySchema.parse(material.signedOperationalKey);
-    const access=await codec.verify(accessToken);if(!access)return null;
     const prepared=await this.prepareSessionAssertion(accessToken,proof,codec);if(!prepared)return null;
+    const access=codec instanceof CommercialBusinessAccessAuthority?prepared.access:await codec.verify(accessToken);if(!access)return null;
     const reservation=prepared.reservation,scope=reservation.eligibleScope;
     return new IsolatedBusinessAuditSessionGuard(this.pool).whileActive({sessionId:scope.sessionId,userId:scope.userId,
       tenantId:scope.tenantId,tenantMembershipId:scope.tenantMembershipId},async client=>{
+      if(codec instanceof CommercialBusinessAccessAuthority&&(!prepared.access||!await codec.currentInTransaction(client,prepared.access)))return null;
       // Same owner predicate, on this transaction client: locks remain held
       // through canonical signing, audit and commit, serializing with logout.
       const eligibilitySql=BUSINESS_SSA_ELIGIBILITY_SQL+" FOR SHARE OF s,u,tm,t,d,company,dc";

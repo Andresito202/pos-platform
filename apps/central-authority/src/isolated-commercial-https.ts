@@ -13,7 +13,7 @@ import {IsolatedBusinessCredentialPairIssuer} from "./isolated-business-credenti
 import {inspectCommercialTokenRequest} from "./commercial-token-http-contract.js";
 import {sendCommercialBrowserEntry, type CommercialBrowserEntryConfiguration} from "./commercial-browser-entry.js";
 import {IsolatedNativeBusinessRequests,type NativeRequestParameters} from "./isolated-native-business-requests.js";
-import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
+import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
 
 type ObjectBody=Record<string,unknown>;
@@ -85,7 +85,7 @@ export async function createIsolatedCommercialHttpsServer(input:{
   coordinator:IsolatedBusinessAuthCoordinator; pair:IsolatedBusinessCredentialPairIssuer;
   policy:{mode:"ISOLATED_VALIDATION";maximumBodyBytes:number;requestsPerMinute:number};
   browserEntry?:CommercialBrowserEntryConfiguration;
-  nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec;
+  nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority;
     signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
   authorizationIssuer?:IsolatedAuthorizationSnapshotIssuer;
   authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
@@ -106,7 +106,7 @@ export async function createIsolatedCommercialHttpsServer(input:{
     ? SignedAuthorizationTrustCandidateSchema.parse(input.authorizationTrustCandidate) : undefined;
   if(authorizationTrust && authorizationTrust.claims.issuer!==input.origin)throw Error("SAS_TRUST_ISSUER_MISMATCH");
   const native=input.nativeValidation;
-  if(native&&(!(native.requests instanceof IsolatedNativeBusinessRequests)||!(native.codec instanceof IsolatedBusinessAccessTokenCodec)))throw Error("NATIVE_HTTPS_VALIDATION_OWNER_REQUIRED");
+  if(native&&(!(native.requests instanceof IsolatedNativeBusinessRequests)||!(native.codec instanceof IsolatedBusinessAccessTokenCodec)&&!(native.codec instanceof CommercialBusinessAccessAuthority)))throw Error("NATIVE_HTTPS_VALIDATION_OWNER_REQUIRED");
   if(input.browserEntry && (input.browserEntry.rpId!==origin.hostname ||
     ![input.browserEntry.factorId,input.browserEntry.tenantId,input.browserEntry.membershipId].every(uuid) ||
     !Buffer.isBuffer(input.browserEntry.logoPng) || input.browserEntry.logoPng.length>1024*1024 ||
@@ -159,9 +159,10 @@ export async function createIsolatedCommercialHttpsServer(input:{
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
           (!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
+              ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh"]:[]),
               ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        const nativeRoute=tokenRoute||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
+        const nativeRoute=tokenRoute||req.url==="/v1/commercial/refresh"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
         if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
@@ -188,6 +189,10 @@ export async function createIsolatedCommercialHttpsServer(input:{
           if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);
           const assertion=await coordinator.issueSessionAssertion(req.headers["x-isolated-business-access"],proof(),native.codec,native.signing);
           if(!assertion)throw new Rejection(401);send(res,200,assertion);return;
+        }
+        if(native?.codec instanceof CommercialBusinessAccessAuthority&&req.url==="/v1/commercial/refresh"){
+          const rotated=await native.codec.refresh(o.refresh_token as string,proof());
+          if(!rotated||rotated.status!=="ROTATED")throw new Rejection(401);send(res,200,rotated);return;
         }
         if(native&&input.authorizationIssuer&&req.url==="/v1/business-session/authorization"){
           if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);

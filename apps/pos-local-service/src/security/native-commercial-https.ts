@@ -13,7 +13,7 @@ export class IsolatedNativeCommercialHttps implements NativeCommercialCentralTra
       throw Error("NATIVE_HTTPS_ISOLATED_POLICY_REQUIRED");
   }
   post(path:NativeCentralPath,body:string,headers:Readonly<Record<string,string>>,signal:AbortSignal):Promise<unknown>{
-    if(!["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/commercial/token",
+    if(!["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/commercial/token","/v1/commercial/refresh",
       "/v1/business-session/assertions","/v1/business-session/authorization"].includes(path))throw Error("NATIVE_CENTRAL_ROUTE_REJECTED");
     return new Promise((resolve,reject)=>{
       const req=request({host:"127.0.0.1",port:this.input.port,servername:new URL(this.origin).hostname,ca:this.input.ca,signal,

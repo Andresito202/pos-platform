@@ -226,7 +226,7 @@ async function main(): Promise<void> {
   // Electron. Production main does not accept this control message.
   const custody=process.env.POS_E2E_NATIVE_CUSTODY==="1"?await new Promise<{
     activation:unknown;result:unknown;rootPublicPem:string;operational:unknown;registration:NativeClientRegistration;port:number;
-    binding:{devicePrivatePem:string;ca:string};
+    binding:{devicePrivatePem:string;ca:string};accessV2?:{audience:string;maximumRetentionMs:number};
   }>(resolve=>process.once("message",packet=>{if(packet&&typeof packet==="object"&&"type" in packet&&packet.type==="pos-e2e-native-provision")resolve(packet as never);else throw Error("NATIVE_TEST_PROVISION_REQUIRED");})):undefined;
   const localDatabase = new LocalDatabaseComponent(DATA_DIRECTORY);
   await localDatabase.start();
@@ -317,7 +317,7 @@ async function main(): Promise<void> {
   }
   await authorizationTrust?.start();
   await commercial.start();
-  let nativeCommercial:NativeCommercialCoordinator|undefined,localSecurity:LocalSecurityComponent|undefined,enrollmentSecrets:EncryptedFileSecretStore|undefined;
+  let nativeCommercial:NativeCommercialCoordinator|undefined,localSecurity:LocalSecurityComponent|undefined,enrollmentSecrets:EncryptedFileSecretStore|undefined,commercialSecrets:EncryptedFileSecretStore|undefined;
   if(custody){
     if(!WITHOUT_SESSION||process.platform!=="win32"||process.env.NODE_ENV!=="test")throw Error("NATIVE_TEST_PROVISION_FORBIDDEN");
     const b={tenantId:TENANT,companyId:COMPANY,installationId:INSTALLATION,deviceId:DEVICE},directory=join(DATA_DIRECTORY,"security");
@@ -333,9 +333,19 @@ async function main(): Promise<void> {
     keys.set(operational.value.key_id,{key:createPublicKey(operational.value.public_key_pem),status:operational.value.status,validFrom:operational.value.valid_from});
     const enrollment=new DeviceEnrollmentService(database,localSecurity.identity,b,()=>new Date(),credentials);
     if(enrollment.prepare(custody.activation).decision!=="READY")throw Error("NATIVE_TEST_ENROLLMENT_PREPARE_REJECTED");enrollment.complete(custody.result,verifier);
+    if(custody.accessV2)commercialSecrets=new EncryptedFileSecretStore(directory,provider,`commercial-v2:${INSTALLATION}:${DEVICE}`);
     nativeCommercial=new NativeCommercialCoordinator(new CommercialDeviceCredentialProvider(localSecurity,localDatabase,credentials,verifier,b),custody.registration,
       new IsolatedNativeCommercialHttps(custody.registration,{mode:"ISOLATED_VALIDATION",port:custody.port,ca:Buffer.from(custody.binding.ca),timeoutMs:4000}),commercial,
-      {mode:"ISOLATED_VALIDATION",attemptLifetimeMs:60000});
+      {mode:"ISOLATED_VALIDATION",attemptLifetimeMs:60000,...(custody.accessV2?{accessV2:custody.accessV2}:{})},undefined,
+      commercialSecrets&&custody.accessV2?{store:commercialSecrets,maximumRetentionMs:custody.accessV2.maximumRetentionMs}:undefined);
+    if(custody.accessV2){
+      const coordinator=nativeCommercial,handle=coordinator.handle.bind(coordinator);
+      coordinator.handle=async(raw,connectionId,signal)=>{
+        const response=await handle(raw,connectionId,signal);
+        if(response.result?.outcome==="ACTIVATED"&&!await coordinator.renewAuthorization(connectionId,signal))throw Error("V2_E2E_REAL_RENEWAL_FAILED");
+        return response;
+      };
+    }
   }
   const handler = new CommercialRequestHandler(config(), commercial);
 
@@ -402,7 +412,7 @@ async function main(): Promise<void> {
     void (async () => {
       try {
         await server.stop();
-          enrollmentSecrets?.destroy();await localSecurity?.stop();
+          commercialSecrets?.destroy();enrollmentSecrets?.destroy();await localSecurity?.stop();
         await commercial.stop();
         await authorizationTrust?.stop();
         await operations.stop();

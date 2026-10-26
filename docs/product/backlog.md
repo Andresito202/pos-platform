@@ -4,6 +4,15 @@
 
 ## Propósito y autoridad
 
+Continuación desde `c24df8b1`: [V2 → SSA/SAS y custodia durable Windows](../testing/windows-v2-ssa-sas-2026-10-25.md).
+Los emisores existentes consumen posesión V2 y revalidan familia en su transacción;
+Service conserva y renueva credenciales bajo DPAPI con consumo local previo a red,
+sin reintento ambiguo. Electron real alcanza dashboard con RBAC SQL y renovación
+HTTPS en laboratorio. No es login humano certificado ni montaje productivo:
+runner/SQL, parámetros operativos, Central/DEV-003 auténticos y certificación
+humana/CI siguen siendo gates. Esta entrada sustituye las menciones históricas
+inferiores a custodia e integración V2 pendientes. Orden: login, licencias, caché.
+
 Continuación desde `a58be77f` (19 archivos WIP conservados íntegros):
 [provisión SAS HTTPS y transición de raíz](../testing/windows-sas-remote-rollover-2026-10-25.md)
 materializadas sobre el store DPAPI y lifecycle existentes. Doble firma, binding

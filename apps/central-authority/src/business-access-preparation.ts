@@ -5,11 +5,12 @@ import {
 } from "@pos-platform/database-postgres";
 import { BusinessSessionAuthority } from "./business-session-authority.js";
 import type { TrustedSessionAssertionIssuance } from "./central-session-assertion-issuer.js";
-import { IsolatedBusinessAccessTokenCodec } from "./isolated-business-access-token-codec.js";
+import { IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority } from "./isolated-business-access-token-codec.js";
+import type {CommercialAccessClaims} from "@pos-platform/contracts";
 
 /** In-process preparation reference, NOT an access token or a transport contract. */
 export interface BusinessAccessPreparationReference { readonly kind:"BUSINESS_ACCESS_PREPARATION" }
-export type PreparedBusinessAssertionReservation=Pick<TrustedSessionAssertionIssuance,"reservation">;
+export type PreparedBusinessAssertionReservation=Pick<TrustedSessionAssertionIssuance,"reservation"> & {access?:CommercialAccessClaims};
 
 /**
  * Isolated preparation of the existing issuer's reservation input. No external
@@ -82,8 +83,17 @@ export class BusinessAccessPreparation {
    * The device proof must be fresh and bound to the SAME credential as access.
    * This reserves a watermark; it does not issue SSA or authorization grants. */
   async prepareSequenceFromAccess(accessToken: string, request: DeviceProofRequest,
-    codec: IsolatedBusinessAccessTokenCodec): Promise<PreparedBusinessAssertionReservation | null> {
+    codec: IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority): Promise<PreparedBusinessAssertionReservation | null> {
     await this.requireIsolatedDatabase();
+    if(codec instanceof CommercialBusinessAccessAuthority){
+      const access=await codec.verifyAndConsume(accessToken,request,"SESSION_ASSERTION");if(!access)return null;
+      let body:unknown;try{body=JSON.parse(request.body);}catch{return null;}
+      if(!body||typeof body!=="object"||Object.keys(body).length!==1||!("session_id" in body)||body.session_id!==access.sid)return null;
+      const reservation=await this.sequences.reserveForVerifiedProof({sessionId:access.sid,deviceId:access.did,installationId:access.iid});
+      if(!reservation||reservation.eligibleScope.userId!==access.sub||reservation.eligibleScope.tenantId!==access.tid||
+        reservation.eligibleScope.tenantMembershipId!==access.mid)return null;
+      return Object.freeze({reservation,access});
+    }
     if (!(codec instanceof IsolatedBusinessAccessTokenCodec)) throw Error("BUSINESS_ACCESS_VERIFIER_REQUIRED");
     const access = await codec.verify(accessToken);
     if (!access) return null;

@@ -3,7 +3,7 @@ import {AuthorizationSnapshotClaimsSchema,SignedAuthorizationSnapshotSchema,cano
   type SnapshotAssignment} from "@pos-platform/contracts";
 import {PostgresNativeBusinessDeviceProofVerifier,PostgresPlatformSecurityEventRepository,BUSINESS_SSA_ELIGIBILITY_SQL,
   type Pool,type DeviceProofRequest} from "@pos-platform/database-postgres";
-import {IsolatedBusinessAccessTokenCodec} from "./isolated-business-access-token-codec.js";
+import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 
 export interface IsolatedAuthorizationSigning {
@@ -18,12 +18,12 @@ export interface TrustedAuthorizationDeployment {tenantId:string;companyId:strin
  * Unrepresentable multiple roles / grant versions fail closed, not unioned. */
 export class IsolatedAuthorizationSnapshotIssuer {
   private readonly guard;
-  constructor(private readonly pool:Pool,private readonly codec:IsolatedBusinessAccessTokenCodec,
+  constructor(private readonly pool:Pool,private readonly codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,
     private readonly deployment:Readonly<TrustedAuthorizationDeployment>,private readonly policy:Readonly<IsolatedAuthorizationPolicy>,
     private readonly signing:Readonly<IsolatedAuthorizationSigning>,
     private readonly storage?:Readonly<{mode:"DEC011_SQL_REHEARSAL";lockTimeoutMs:number}>){
     this.guard=new IsolatedBusinessAuditSessionGuard(pool);
-    if(!(codec instanceof IsolatedBusinessAccessTokenCodec)||policy?.mode!=="ISOLATED_VALIDATION"||
+    if((!(codec instanceof IsolatedBusinessAccessTokenCodec)&&!(codec instanceof CommercialBusinessAccessAuthority))||policy?.mode!=="ISOLATED_VALIDATION"||
       ![policy.lifetimeMs,policy.maximumReauthenticationAgeMs].every(n=>Number.isSafeInteger(n)&&n>0))throw Error("SAS_ISOLATED_POLICY_REQUIRED");
     this.checkKey();
     if(storage&&(storage.mode!=="DEC011_SQL_REHEARSAL"||!Number.isSafeInteger(storage.lockTimeoutMs)||storage.lockTimeoutMs<=0))
@@ -41,14 +41,19 @@ export class IsolatedAuthorizationSnapshotIssuer {
     const db=await this.pool.query("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
     if(db.rows[0]?.ok!==true)throw Error("SAS_TEMPORARY_DATABASE_REQUIRED");
     this.checkKey();
-    const access=await this.codec.verify(accessToken);if(!access)return null;
+    const v2=this.codec instanceof CommercialBusinessAccessAuthority;
+    const access= v2 ? await this.codec.verifyAndConsume(accessToken,proof,"AUTHORIZATION_SNAPSHOT") : await this.codec.verify(accessToken);if(!access)return null;
     let body:unknown;try{body=JSON.parse(proof.body);}catch{return null;}
     if(!body||typeof body!=="object"||Object.keys(body).length!==1||!("session_id" in body)||body.session_id!==access.sid)return null;
-    const device=await new PostgresNativeBusinessDeviceProofVerifier(this.pool).verifyAuthorizationAndConsume(proof);
+    const device=v2?(await this.pool.query(`SELECT dc.credential_id AS "credentialId",dc.device_id AS "deviceId",dc.installation_id AS "installationId",
+      dc.tenant_id AS "tenantId",d.company_id AS "companyId",dc.expires_at AS "credentialExpiresAt" FROM identity.device_credentials dc
+      JOIN identity.device_registry d ON d.device_id=dc.device_id WHERE dc.credential_id=$1`,[access.cid])).rows[0]:
+      await new PostgresNativeBusinessDeviceProofVerifier(this.pool).verifyAuthorizationAndConsume(proof);
     const d=this.deployment;
     if(!device||device.credentialId!==access.cid||device.deviceId!==access.did||device.tenantId!==access.tid||
       device.tenantId!==d.tenantId||device.companyId!==d.companyId||device.deviceId!==d.deviceId||device.installationId!==d.installationId)return null;
     return this.guard.whileActive({sessionId:access.sid,userId:access.sub,tenantId:access.tid,tenantMembershipId:access.mid},async c=>{
+      if(this.codec instanceof CommercialBusinessAccessAuthority&&!("ver" in access&&await this.codec.currentInTransaction(c,access)))return null;
       const eligible=await c.query(BUSINESS_SSA_ELIGIBILITY_SQL+" FOR SHARE OF s,u,tm,t,d,company,dc",
         [access.sid,d.deviceId,d.installationId,this.policy.maximumReauthenticationAgeMs]);
       if(!eligible.rows[0]||eligible.rows[0].user_id!==access.sub||eligible.rows[0].tenant_membership_id!==access.mid)return null;

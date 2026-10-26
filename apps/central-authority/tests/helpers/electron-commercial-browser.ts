@@ -18,7 +18,7 @@ export async function exerciseElectronCommercialBrowser(input: {
   issuedAssertion?:unknown;
   ssaPublicTrust?:{rootPublicPem:string;artifact:unknown};
   nativeBinding?:{deviceCredentialId:string;devicePrivatePem:string;ca:string};
-  serviceCustody?:{activation:unknown;result:unknown;rootPublicPem:string;operational:unknown};
+  serviceCustody?:{activation:unknown;result:unknown;rootPublicPem:string;operational:unknown;accessV2?:{audience:string;maximumRetentionMs:number}};
   sasPublicTrust?:{mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
   sasTrustCandidate?:{issuer:string;authorityId:string;minimumGeneration:number;rootPublicPem:string;url:string;ca:string};
   beforeAuthorizationRevocation?:()=>Promise<void>;
