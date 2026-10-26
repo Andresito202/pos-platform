@@ -4,6 +4,16 @@
 
 ## Propósito y autoridad
 
+2026-10-26 desde `a2d858c9`: [montaje Service Windows y runner](../testing/windows-runtime-runner-2026-10-26.md).
+Decisión expresa: adoptar bloqueo global RBAC con timeout obligatorio, sin UPDATE
+general y sin DDL productivo en esta sesión. Artefactos 014/015/016 registrados
+como sucesores de 013 en el runner canónico, propuestas conservadas intactas.
+Service main monta coordinador V2/DPAPI mediante provisión explícita y lifecycle
+de renovación; falta composición Central productiva y logout/revocación nativa
+completa. No se reabren PKCE/MFA/DPAPI/SAS/V2 de laboratorio ya cerrados; nuevas
+pruebas sólo de fronteras modificadas. Login humano no certificado; licencias y
+caché siguen fuera de este incremento por instrucción vigente.
+
 Continuación desde `c24df8b1`: [V2 → SSA/SAS y custodia durable Windows](../testing/windows-v2-ssa-sas-2026-10-25.md).
 Los emisores existentes consumen posesión V2 y revalidan familia en su transacción;
 Service conserva y renueva credenciales bajo DPAPI con consumo local previo a red,

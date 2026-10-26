@@ -5,6 +5,7 @@ import { spawn,execFileSync, type ChildProcessWithoutNullStreams } from "node:ch
 import {createServer,type Server} from "node:https";
 import { describe, expect, it } from "vitest";
 import {
+  uuidV7,canonicalSessionTrustJson,
   SessionAssertionOperationalKeyClaimsSchema,
   SessionAssertionTrustBundleSchema,
   unsignedSessionAssertionOperationalKeyBytes,
@@ -170,6 +171,28 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
   return child;
 }
 describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () => {
+  it("deployment Windows coordinator is mounted by real main and denies missing DEV-003 before transport",async()=>{
+    const dir=mkdtempSync(join(process.env.TEMP??process.cwd(),"camacho-commercial-main-")),root=generateKeyPairSync("ed25519"),op=generateKeyPairSync("ed25519"),devRoot=generateKeyPairSync("ed25519"),devKey=generateKeyPairSync("ed25519");
+    const artifact=join(dir,"ssa.json"),provision=join(dir,"commercial.json"),origin="https://auth.fixture-commercial.co";
+    writeFileSync(artifact,JSON.stringify(trustArtifact(root,op,1,"ACTIVE")));
+    const claims={key_id:"DEV_FIXTURE",key_purpose:"DEVICE_TRUST",status:"ACTIVE",version:1,valid_from:new Date(Date.now()-1000).toISOString(),public_key_pem:devKey.publicKey.export({type:"spki",format:"pem"}).toString()};
+    writeFileSync(provision,JSON.stringify({profile:"CAMACHO_WINDOWS_COMMERCIAL_V2",environment:"PREPRODUCTION",
+      registration:{clientId:"WINDOWS_FIXTURE",platform:"ELECTRON",authorizationOrigin:origin,redirectUri:"http://127.0.0.1:42133/callback"},rp_id:"auth.fixture-commercial.co",webauthn_origin:origin,audience:"FIXTURE",
+      request_timeout_ms:1000,attempt_lifetime_ms:2000,maximum_retention_ms:3000,renewal_interval_ms:1000,renewal_before_expiry_ms:2000,
+      device_trust_root_public_key_pem:devRoot.publicKey.export({type:"spki",format:"pem"}).toString(),device_trust_root_spki_sha256:createHash("sha256").update(devRoot.publicKey.export({type:"spki",format:"der"})).digest("hex"),
+      device_trust_operational_keys:[{claims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(claims)),devRoot.privateKey).toString("base64url")}]}));
+    let service:ChildProcessWithoutNullStreams|undefined,client:LocalChannelClient|undefined,auth:LocalChannelAuthenticator|undefined;
+    try{
+      service=spawnService(process.cwd(),dir,root.publicKey.export({type:"spki",format:"pem"}).toString(),artifact,{POS_CENTRAL_BASE_URL:origin,POS_WINDOWS_COMMERCIAL_PROVISION_FILE:provision});
+      let log="";service.stdout.on("data",chunk=>{log+=chunk.toString();});const ready=await waitForRuntime(service);
+      expect(log).toContain('"native_commercial":"MOUNTED"');
+      auth=new LocalChannelAuthenticator(loadOrCreateWindowsLocalChannelSecret(dir,IDS.installationId));client=new LocalChannelClient(ready.endpoint,auth,{min:"1.0.0",max:"1.0.0"});
+      const envelope=(type:string,payload:unknown)=>({protocol_version:"1.0.0",message_type:type,request_id:uuidV7(),correlation_id:uuidV7(),payload_schema_version:"1.0.0",payload});
+      await client.connect(envelope("runtime.handshake",{desktop_version:"1.0.0",service_version:"1.0.0",protocol_min:"1.0.0",protocol_max:"1.0.0",installation_id:IDS.installationId,device_id:IDS.deviceId,schema_version:"5",service_state:"READY"}));
+      const response=await client.request(envelope("commercial.native.begin",{state:"s".repeat(43),code_challenge:"c".repeat(43)})) as {error:{code:string}};
+      expect(response.error.code).toBe("NATIVE_COMMERCIAL_DENIED");
+    }finally{await client?.close();auth?.destroy();if(service)await stopService(service);rmSync(dir,{recursive:true,force:true});}
+  },90_000);
   it.each(["file","https"] as const)("boots and restarts the real main with installer-provisioned deployment SAS under DPAPI %s",async mode=>{
     const dir=mkdtempSync(join(process.env.TEMP??process.cwd(),"camacho-sas-main-"));
     const root=generateKeyPairSync("ed25519"),operational=generateKeyPairSync("ed25519"),sasRoot=generateKeyPairSync("ed25519"),sas=generateKeyPairSync("ed25519");

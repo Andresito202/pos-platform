@@ -1,5 +1,9 @@
 import * as z from "zod";
 
+/** Deployment HTTP V2 metadata. Proprietary possession proof, not OAuth DPoP.
+ * The access token is never accepted without its separate fresh signed proof. */
+export const CommercialHttpV2=Object.freeze({profile:"CAMACHO_COMMERCIAL_HTTP_V2",accessHeader:"x-commercial-business-access"} as const);
+
 /** Device-bound access V2; a parsed claim is NOT proof of authentication. */
 export const CommercialAccessClaimsSchema=z.strictObject({
   ver:z.literal(2),iss:z.string(),aud:z.string(),sub:z.uuid(),sid:z.uuid(),tid:z.uuid(),mid:z.uuid(),did:z.uuid(),iid:z.uuid(),cid:z.uuid(),

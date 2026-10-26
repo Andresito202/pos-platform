@@ -1,9 +1,10 @@
 import {createHash,randomBytes} from "node:crypto";
 import {NativeCommercialRequestSchema,NativeCommercialResponseSchema,validateNativeClientRegistration,UuidSchema,
-  SignedSessionAssertionSchema,SignedAuthorizationSnapshotSchema,CommercialAccessClaimsSchema,uuidV7,type NativeClientRegistration,type NativeCommercialRequest} from "@pos-platform/contracts";
+  SignedSessionAssertionSchema,SignedAuthorizationSnapshotSchema,CommercialAccessClaimsSchema,CommercialHttpV2,uuidV7,type NativeClientRegistration,type NativeCommercialRequest} from "@pos-platform/contracts";
 import {EncryptedFileSecretStore} from "./encrypted-secret-store.js";
 import type {CommercialComponent} from "../commercial/commercial-component.js";
 import {CommercialDeviceCredentialProvider} from "./commercial-device-credential.js";
+import {NativeCommercialHttps} from "./native-commercial-https.js";
 
 export type NativeCentralPath="/v1/commercial/native-request-challenges"|"/v1/commercial/native-requests"|
   "/v1/commercial/token"|"/v1/commercial/refresh"|"/v1/business-session/assertions"|"/v1/business-session/authorization";
@@ -22,10 +23,11 @@ export class NativeCommercialCoordinator {
   private readonly registration:NativeClientRegistration;
   constructor(private readonly signer:CommercialDeviceCredentialProvider,registration:NativeClientRegistration,
     private readonly transport:NativeCommercialCentralTransport,private readonly commercial:CommercialComponent,
-    private readonly policy:Readonly<{mode:"ISOLATED_VALIDATION";attemptLifetimeMs:number;accessV2?:Readonly<{audience:string}>}>,private readonly now=()=>Date.now(),
+    private readonly policy:Readonly<{mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";attemptLifetimeMs:number;accessV2?:Readonly<{audience:string}>}>,private readonly now=()=>Date.now(),
     private readonly custody?:Readonly<{store:EncryptedFileSecretStore;maximumRetentionMs:number}>){
-    if(!(signer instanceof CommercialDeviceCredentialProvider)||policy.mode!=="ISOLATED_VALIDATION"||
+    if(!(signer instanceof CommercialDeviceCredentialProvider)||!["ISOLATED_VALIDATION","DEPLOYMENT"].includes(policy.mode)||
       !Number.isSafeInteger(policy.attemptLifetimeMs)||policy.attemptLifetimeMs<=0)throw Error("NATIVE_COORDINATOR_POLICY_REQUIRED");
+    if(policy.mode==="DEPLOYMENT"&&(!(transport instanceof NativeCommercialHttps)||!policy.accessV2||!custody))throw Error("NATIVE_DEPLOYMENT_CUSTODY_TRANSPORT_REQUIRED");
     this.registration=validateNativeClientRegistration(registration);
     if(policy.accessV2&&(!policy.accessV2.audience||policy.accessV2.audience.length>128))throw Error("NATIVE_ACCESS_V2_POLICY_REQUIRED");
     if(custody&&(!policy.accessV2||!(custody.store instanceof EncryptedFileSecretStore)||custody.store.protection!=="OS_BOUND"||
@@ -152,6 +154,19 @@ export class NativeCommercialCoordinator {
     }catch{if(!a||this.attempts.get(connectionId)===a){this.clearCredentials();this.commercial.bindings.release(connectionId);}return false;}
     finally{if(a&&this.attempts.get(connectionId)===a)this.release(connectionId);}
   }
+  async renewIfDue(connectionId:string,signal:AbortSignal,beforeExpiryMs:number):Promise<"NOT_DUE"|"RENEWED"|"DENIED">{
+    if(!this.custody||!Number.isSafeInteger(beforeExpiryMs)||beforeExpiryMs<=0)return "DENIED";
+    try{
+      if(!this.custody.store.has("commercial-credentials-v2"))return "NOT_DUE";
+      const bytes=this.custody.store.read("commercial-credentials-v2");let record;
+      try{record=JSON.parse(bytes.toString("utf8"));}finally{bytes.fill(0);}
+      if(record.state!=="READY")return "NOT_DUE";
+      const claims=CommercialAccessClaimsSchema.parse(JSON.parse(Buffer.from(record.accessToken.split(".")[1],"base64url").toString()));
+      if(beforeExpiryMs>=(claims.exp-claims.iat)*1000)return "DENIED";
+      if(claims.exp*1000-this.now()>beforeExpiryMs)return "NOT_DUE";
+      return await this.renewAuthorization(connectionId,signal)?"RENEWED":"DENIED";
+    }catch{return "DENIED";}
+  }
   private live(a:Attempt,id:string,signal:AbortSignal){
     if(signal.aborted||a.abort.signal.aborted||this.attempts.get(id)!==a||!Number.isFinite(a.expires)||this.now()>=a.expires)throw Error("NATIVE_ATTEMPT_INACTIVE");
   }
@@ -170,7 +185,7 @@ export class NativeCommercialCoordinator {
         else throw Error("NATIVE_ACCESS_V2_OPERATION_REJECTED");
       }else headers.authorization=await this.signer.authorization(context);
     }
-    if(access)headers["x-isolated-business-access"]=access;
+    if(access)headers[this.policy.mode==="DEPLOYMENT"?CommercialHttpV2.accessHeader:"x-isolated-business-access"]=access;
     const result=await this.transport.post(path,body,headers,AbortSignal.any([signal,a.abort.signal]));this.live(a,id,signal);return result;
   }
 }

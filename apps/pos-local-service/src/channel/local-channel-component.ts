@@ -43,7 +43,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly runtimeState: () => RuntimeState,
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
-    private readonly nativeCommercial?:NativeCommercialCoordinator,
+    private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
   ) {
     this.commercialHandler = new CommercialRequestHandler(config, commercial);
     this.endpoint = localChannelEndpoint(config.installation_id);
@@ -119,7 +119,6 @@ export class LocalChannelComponent implements RuntimeComponent {
           result:{outcome:"DENIED",attempt_id:null,authorization_url:null}};
       case "authorization.capabilities.get":
       case "session.activate":
-      case "session.recover":
       case "cash.shift.open":
       case "cash.shift.close":
       case "sale.create":
@@ -149,6 +148,11 @@ export class LocalChannelComponent implements RuntimeComponent {
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);
+      case "session.recover": {
+        const response=await this.commercialHandler.handle(request,context.connectionId,signal);
+        if(response&&typeof response==="object"&&"result_code" in response&&response.result_code==="ACTIVE")this.nativeCommercial?.recovered?.(context.connectionId);
+        return response;
+      }
 
       case "runtime.handshake": {
         const identityTrusted =

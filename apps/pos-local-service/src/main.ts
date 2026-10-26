@@ -16,6 +16,7 @@ import { OperationConfirmationComponent } from "./operations/operation-confirmat
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import {AuthorizationTrustLifecycle} from "./security/authorization-trust-lifecycle.js";
 import {prepareAuthorizationTrustProvisioning} from "./security/authorization-trust-provisioning.js";
+import {WindowsCommercialRuntime,readWindowsCommercialConfiguration} from "./security/windows-commercial-runtime.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
@@ -236,6 +237,11 @@ try {
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
     undefined,authorizationTrust.keys,
   );
+  const commercialProvision=config.windows_commercial_provision_file;
+  const nativeCommercial=commercialProvision===undefined?undefined:new WindowsCommercialRuntime(
+    readWindowsCommercialConfiguration(commercialProvision,config.central_base_url),{database:localDatabase,security,commercial,
+      credentials:deviceTrustCredentialStore,directory:securityDirectory,keyProvider,
+      binding:{tenantId:config.tenant_id,companyId:config.company_id,installationId:config.installation_id,deviceId:config.device_id}});
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [
     localDatabase,
@@ -244,6 +250,7 @@ try {
     durableSync,
     operationConfirmation,
     commercial,
+    ...(nativeCommercial?[nativeCommercial]:[]),
   ];
 
   if (
@@ -305,6 +312,7 @@ try {
       () => lifecycle?.state ?? "STARTING",
       operationConfirmation,
       commercial,
+      nativeCommercial,
     );
     components.push(localChannel);
   }
@@ -317,6 +325,7 @@ try {
     device_key_id: security.deviceKeyId,
     key_protection: security.protection,
     central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
+    native_commercial: nativeCommercial===undefined?"NOT_CONFIGURED":"MOUNTED",
     session_trust: sessionTrustKeys.decision,
     fiscal_issuance: config.fiscal_environment === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),

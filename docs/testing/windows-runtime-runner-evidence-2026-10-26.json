@@ -1,0 +1,41 @@
+﻿{
+    "base":  "a2d858c9cb58ad7693a513268f864446cb4349d5",
+    "date":  "2026-10-26",
+    "scope":  "Windows real main deployment mount and registered SQL runner; not full Central/human certification",
+    "approval":  "Owner adopted global RBAC read lock with mandatory explicit timeout, no general UPDATE and no production DDL this session",
+    "reports":  [
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-26/deployment-lifecycle.json",
+                        "passed":  11,
+                        "failed":  0,
+                        "skipped":  36,
+                        "sha256":  "777cbd8661e73b40bbd8d30bc9425d7832fb0fca7689d9298c4eb9dd6fb846b8"
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-26/commercial-runner-016.json",
+                        "passed":  3,
+                        "failed":  0,
+                        "skipped":  0,
+                        "sha256":  "d0551a44ca74d73937596c6a3df1800b2b1e8d75cf9512ffed6da4b0a4cb480d"
+                    }
+                ],
+    "typecheck":  "PASS contracts/Service/target-migrations",
+    "architecture":  "PASS 16 and ARCH-003",
+    "build":  {
+                  "component":  "LOCAL_SERVICE",
+                  "sha256":  "68937b565dc136416c9e83a6a0dc1a34a6387ec690f94ec328c0806a64a42d71",
+                  "bytes":  1249968
+              },
+    "repository_policy":  "PASS 1125 tracked files",
+    "production_data_changed":  false,
+    "human_certified":  false,
+    "remote_ci":  "PENDING; no Actions calls",
+    "commands":  [
+                     "pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-commercial-runtime.test.ts tests/session-bootstrap-main-runtime.test.ts tests/commercial-device-credential.test.ts -t deployment --testTimeout=120000 --no-file-parallelism",
+                     "POSTGRES_TEST_URL=postgresql://postgres@127.0.0.1:55433/postgres pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-commercial-runner-physical.test.ts",
+                     "pnpm --filter @pos-platform/pos-local-service --filter @pos-platform/target-migrations --filter @pos-platform/contracts run typecheck",
+                     "pnpm --filter @pos-platform/pos-local-service build:artifact",
+                     "pnpm architecture:check",
+                     "pnpm ci:repository-policy"
+                 ]
+}

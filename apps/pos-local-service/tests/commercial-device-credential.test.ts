@@ -206,6 +206,12 @@ async function coordinatedFixture(v2=false){
 }
 
 describe.runIf(process.platform==="win32")("privileged native coordinator",()=>{
+  it("deployment renewal hook waits for its explicit lead time and renews only a bound session",async()=>{
+    const f=await coordinatedFixture(true),id=await f.begin();await f.complete(id);await f.call("commercial.native.commit",{attempt_id:id});
+    expect(await f.coordinator.renewIfDue("owner",new AbortController().signal,30_000)).toBe("NOT_DUE");
+    f.expire();expect(await f.coordinator.renewIfDue("owner",new AbortController().signal,30_000)).toBe("RENEWED");
+    expect(f.paths.filter(p=>p.endsWith("/refresh"))).toHaveLength(1);
+  },60_000);
   it("durable V2: reopens DPAPI credentials after identity restart and rotates with fresh possession",async()=>{
     const f=await coordinatedFixture(true),id=await f.begin();await f.complete(id);
     expect(JSON.parse(f.store!.read("commercial-credentials-v2").toString()).state).toBe("CLOSED");
