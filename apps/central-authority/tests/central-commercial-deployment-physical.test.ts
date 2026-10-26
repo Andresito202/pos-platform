@@ -70,7 +70,7 @@ beforeAll(async()=>{
     sas:{private_key_file:await privateFile("sas.key",sas),root_public_key_file:rootFile,root_spki_sha256:pin,trust_bundle_file:sasFile,authority_id:"CENTRAL_FIXTURE",key_id:"SAS_FIXTURE"},
     limits:{session_ms:300000,mfa_age_ms:120000,reauthentication_ms:300000,context_age_ms:30000,mfa_challenge_ms:60000,handoff_ms:30000,browser_ms:300000,browser_idle_ms:120000,
       refresh_family_ms:240000,access_ms:60000,proof_skew_ms:30000,rotation_window_ms:60000,maximum_rotations:10,native_challenge_ms:60000,native_request_ms:120000,native_code_ms:60000,
-      maximum_challenges_per_minute:30,maximum_login_attempts:4,http_maximum_body_bytes:65536,http_requests_per_minute:100,sas_ms:60000,ssa_claim_age_ms:30000,ssa_offline_ms:120000,sql_lock_timeout_ms:5000}};
+      maximum_challenges_per_minute:30,maximum_login_attempts:4,http_maximum_body_bytes:65536,http_requests_per_minute:100,http_maximum_buckets:1000,sas_ms:60000,ssa_claim_age_ms:30000,ssa_offline_ms:120000,sql_lock_timeout_ms:5000}};
   provision=await put("central.json",JSON.stringify(config));
   execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+host,"-addext","subjectAltName=DNS:"+host,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
   tls={key:await readFile(join(dir,"tls.key")),cert:await readFile(join(dir,"tls.crt"))};

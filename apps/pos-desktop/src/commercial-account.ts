@@ -8,7 +8,8 @@ import type {NativeBusinessCredentialVault} from "./native-business-login.js";
 
 const Configuration=z.strictObject({profile:z.literal("CAMACHO_WINDOWS_DESKTOP_V2"),
   registration:z.strictObject({clientId:z.string(),redirectUri:z.string(),authorizationOrigin:z.string(),platform:z.literal("ELECTRON")}),
-  rp_id:z.string(),webauthn_origin:z.string(),attempt_timeout_ms:z.number().int().positive().max(2147483647)});
+  rp_id:z.string(),webauthn_origin:z.string(),attempt_timeout_ms:z.number().int().positive().max(2147483647),
+  browser_cache:z.strictObject({maximum_cache_bytes:z.number().int().positive().max(Number.MAX_SAFE_INTEGER),interval_ms:z.number().int().min(1000).max(2147483647)}).optional()});
 /** Installer-owned public metadata only. No credential, private key, grant or
  * caller-supplied authorization is accepted by this main-process entry. */
 export function readDesktopCommercialConfiguration(path:string){

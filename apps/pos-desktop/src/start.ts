@@ -4,7 +4,8 @@ import { connectLocalServiceChannel } from "./local-service-channel.js";
 import { bootstrap, type DesktopLogger } from "./main.js";
 import {DesktopCommercialAccount,readDesktopCommercialConfiguration} from "./commercial-account.js";
 import {createElectronBusinessCredentialVault} from "./electron-business-login.js";
-import {app,shell} from "electron";
+import {app,shell,session} from "electron";
+import {BrowserCacheMaintenance} from "./browser-cache-maintenance.js";
 
 /**
  * El arranque del POS de escritorio, **sin decidir de dónde vienen las claves**.
@@ -64,5 +65,6 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
       return {request:input=>connected.request(input),close:async()=>{try{await connected.close();}finally{nativeAuthenticator.destroy();}}};}
     catch(error){nativeAuthenticator.destroy();throw error;}
   },createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
-  await bootstrap(channel, options.logger,account);
+  const cache=commercial?.browser_cache?new BrowserCacheMaintenance(session.defaultSession,commercial.browser_cache):undefined;
+  await bootstrap(channel, options.logger,account,cache);
 }

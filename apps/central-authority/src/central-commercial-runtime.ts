@@ -95,5 +95,5 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
       {mode:"DEPLOYMENT",environment:p.environment,purpose:"AUTHORIZATION_SNAPSHOT",keyId:p.sas.key_id,status:"ACTIVE",privateKey:sasPrivate,publicKey:sasPublic,validFrom:sasFrom,validUntil:sasUntil},
       {mode:"REGISTERED_015",lockTimeoutMs:l.sql_lock_timeout_ms},deployment),
     browserEntry:{rpId:p.rp_id,factorId:p.factor_id,tenantId:d.tenant_id,membershipId:p.membership_id,logoPng:managed(fileURLToPath(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url)))},
-    policy:{mode:"DEPLOYMENT",maximumBodyBytes:l.http_maximum_body_bytes,requestsPerMinute:l.http_requests_per_minute,maximumLoginAttempts:l.maximum_login_attempts}});
+    policy:{mode:"DEPLOYMENT",maximumBodyBytes:l.http_maximum_body_bytes,requestsPerMinute:l.http_requests_per_minute,maximumLoginAttempts:l.maximum_login_attempts,maximumBuckets:l.http_maximum_buckets}});
 }

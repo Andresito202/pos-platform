@@ -14,7 +14,7 @@ export const CentralCommercialProvisionSchema=z.strictObject({
   limits:z.strictObject({session_ms:ms,mfa_age_ms:ms,reauthentication_ms:ms,context_age_ms:ms,mfa_challenge_ms:ms,handoff_ms:ms,
     browser_ms:ms,browser_idle_ms:ms,refresh_family_ms:ms,access_ms:ms,proof_skew_ms:ms.max(120000),rotation_window_ms:ms,maximum_rotations:ms,
     native_challenge_ms:ms,native_request_ms:ms,native_code_ms:ms,maximum_challenges_per_minute:ms,maximum_login_attempts:ms,
-    http_maximum_body_bytes:ms,http_requests_per_minute:ms,sas_ms:ms,ssa_claim_age_ms:ms,ssa_offline_ms:ms,sql_lock_timeout_ms:ms}),
+    http_maximum_body_bytes:ms,http_requests_per_minute:ms,http_maximum_buckets:ms,sas_ms:ms,ssa_claim_age_ms:ms,ssa_offline_ms:ms,sql_lock_timeout_ms:ms}),
 }).superRefine((p,c)=>{
   if(p.limits.mfa_age_ms>p.limits.session_ms||p.limits.reauthentication_ms>p.limits.session_ms||p.limits.browser_idle_ms>p.limits.browser_ms||
     p.limits.access_ms>p.limits.refresh_family_ms||Date.parse(p.access.valid_until)<=Date.parse(p.access.valid_from))c.addIssue({code:"custom",message:"Invalid explicit commercial policy ordering"});

@@ -16,6 +16,7 @@ import {IsolatedNativeBusinessRequests,type NativeRequestParameters} from "./iso
 import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
 import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "@pos-platform/database-postgres";
+import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -83,7 +84,7 @@ export async function prepareCommercialHttpHandler(input:{
   mfa:BusinessInitialMfaFlow; authority:BusinessSessionAuthority; handoffs:PostgresBrowserSessionHandoffWriter;
   browser:DurableBrowserSessionStore; clients:CommercialNativeClientCatalog;
   coordinator:IsolatedBusinessAuthCoordinator; pair:IsolatedBusinessCredentialPairIssuer;
-  policy:{mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";maximumBodyBytes:number;requestsPerMinute:number;maximumLoginAttempts?:number};
+  policy:{mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";maximumBodyBytes:number;requestsPerMinute:number;maximumLoginAttempts?:number;maximumBuckets?:number};
   deploymentContext?:PostgresCommercialDeploymentContext;
   browserEntry?:CommercialBrowserEntryConfiguration;
   nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority;
@@ -95,7 +96,8 @@ export async function prepareCommercialHttpHandler(input:{
   if(input.deploymentContext){
     assertCommercialDeployment(pool,input.deploymentContext);validateCommercialHttpsOrigin(input.origin);
     if(!input.nativeValidation||!(input.nativeValidation.codec instanceof CommercialBusinessAccessAuthority)||!input.authorizationIssuer||!input.browserEntry||
-      input.authorizationTrustCandidate||!Number.isSafeInteger(policy.maximumLoginAttempts)||policy.maximumLoginAttempts!<=0)throw Error("COMMERCIAL_DEPLOYMENT_COMPOSITION_REQUIRED");
+      input.authorizationTrustCandidate||!Number.isSafeInteger(policy.maximumLoginAttempts)||policy.maximumLoginAttempts!<=0||
+      !Number.isSafeInteger(policy.maximumBuckets)||policy.maximumBuckets!<=0)throw Error("COMMERCIAL_DEPLOYMENT_COMPOSITION_REQUIRED");
   }
   const url=new URL(pool.options.connectionString??"invalid:");
   if(!policy||policy.mode!==(input.deploymentContext?"DEPLOYMENT":"ISOLATED_VALIDATION")||![policy.maximumBodyBytes,policy.requestsPerMinute].every(n=>Number.isSafeInteger(n)&&n>0)||
@@ -119,7 +121,7 @@ export async function prepareCommercialHttpHandler(input:{
     !Buffer.isBuffer(input.browserEntry.logoPng) || input.browserEntry.logoPng.length>1024*1024 ||
     input.browserEntry.logoPng.subarray(0,8).toString("hex")!=="89504e470d0a1a0a"))throw Error("COMMERCIAL_BROWSER_CONFIGURATION_REQUIRED");
   const audit=new PostgresPlatformSecurityEventRepository(pool);
-  const buckets=new Map<string,{start:number;count:number}>();
+  const limiter=new FixedWindowRateLimiter(policy.requestsPerMinute,policy.maximumBuckets??10000);
   async function rejectionAudit(limited:boolean){
     const at=await pool.query<{at:Date}>("SELECT clock_timestamp() AS at");
     await audit.append({user_id:null,session_id:null,tenant_id:null,
@@ -133,10 +135,8 @@ export async function prepareCommercialHttpHandler(input:{
         if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted)throw new Rejection(400);
         // Address and single server-wide budget cannot be replaced by a bearer,
         // account name, path, spoofed proxy header or supplied correlation ID.
-        const address=req.socket.remoteAddress??"unknown",now=Date.now();
-        let bucket=buckets.get(address);
-        if(!bucket||now-bucket.start>=60_000){bucket={start:now,count:0};buckets.set(address,bucket);}
-        if(++bucket.count>policy.requestsPerMinute)throw new Rejection(429);
+        const address=req.socket.remoteAddress??"unknown";
+        if(!limiter.allow(address))throw new Rejection(429);
         strictHeaders(req);
         if(req.method==="GET" && req.url==="/v1/isolated/authorization-trust" && authorizationTrust){
           if(req.headers.host!==origin.host || Number(req.headers["content-length"]??0)!==0 ||

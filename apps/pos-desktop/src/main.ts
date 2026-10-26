@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain,Menu,MenuItem,dialog } from "electron";
 import type {DesktopAccountActions} from "./commercial-account.js";
+import type {BrowserCacheMaintenance} from "./browser-cache-maintenance.js";
 import { WINDOW_SECURITY_CONFIG } from "./window-security.js";
 import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "./ipc-allowlist.js";
 import { ChannelBridge, type ServiceChannel } from "./channel-bridge.js";
@@ -84,6 +85,7 @@ export async function bootstrap(
   serviceChannel: ServiceChannel,
   logger?: DesktopLogger,
   account?:DesktopAccountActions,
+  cache?:BrowserCacheMaintenance,
 ): Promise<void> {
   assertAllowlistConsistency();
   const bridge = new ChannelBridge(serviceChannel);
@@ -94,6 +96,13 @@ export async function bootstrap(
   registerIpcHandlers(bridge);
   const win = createWindow(preloadPath);
   await win.loadFile(rendererPath);
+  if(cache){
+    const menu=Menu.getApplicationMenu()??new Menu();
+    menu.append(new MenuItem({label:"Mantenimiento",submenu:[{label:"Limpiar caché de navegación",click:()=>{void cache.run(true).then(async result=>{
+      await dialog.showMessageBox({type:"info",title:"Camacho POS",message:`Caché HTTP: ${result.before_bytes} → ${result.after_bytes} bytes. Datos comerciales y sesión conservados.`});
+    }).catch(async()=>{await dialog.showMessageBox({type:"error",title:"Camacho POS",message:"No se pudo completar la limpieza de caché."});});}}]}));
+    Menu.setApplicationMenu(menu);cache.start();app.on("before-quit",()=>{void cache.stop();});
+  }
   if(account){
     const invoke=async(operation:"login"|"logout")=>{
       try{
@@ -114,6 +123,7 @@ export async function bootstrap(
 
   app.on("window-all-closed", () => {
     account?.stop();
+    void cache?.stop();
     void closeChannelAndQuit(serviceChannel, logger);
   });
 
