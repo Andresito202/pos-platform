@@ -46,4 +46,3 @@ CREATE TRIGGER commercial_refresh_binding_guard BEFORE INSERT OR UPDATE ON ident
  FOR EACH ROW EXECUTE FUNCTION identity.guard_commercial_refresh_binding();
 REVOKE ALL ON FUNCTION identity.guard_commercial_refresh_binding() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION identity.guard_commercial_refresh_binding() TO pos_platform_app;
-

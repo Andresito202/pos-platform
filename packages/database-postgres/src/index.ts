@@ -23,3 +23,4 @@ export * from "./business-session-access-repository.js";
 export * from "./browser-session-handoff-writer.js";
 export * from "./business-session-revocation-transaction.js";
 export * from "./commercial-refresh-families.js";
+export * from "./commercial-deployment-context.js";

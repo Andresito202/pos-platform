@@ -2,6 +2,7 @@ import {
   PostgresBusinessSessionCreationTransaction,
   PostgresBrowserSessionHandoffWriter,
   type BusinessSessionValidationPolicy, type PersistedBusinessSession, type createPostgresPool,
+  type PostgresCommercialDeploymentContext,
 } from "@pos-platform/database-postgres";
 import { BusinessInitialMfaFlow } from "./business-initial-mfa-flow.js";
 
@@ -12,9 +13,10 @@ export class BusinessSessionAuthority {
     pool: ReturnType<typeof createPostgresPool>,
     private readonly mfaFlow: BusinessInitialMfaFlow,
     trustedPolicy: BusinessSessionValidationPolicy,
+    deployment?:PostgresCommercialDeploymentContext,
   ) {
     if (!(mfaFlow instanceof BusinessInitialMfaFlow)) throw new Error("BUSINESS_SESSION_TRUSTED_MFA_FLOW_REQUIRED");
-    this.transaction = new PostgresBusinessSessionCreationTransaction(pool, trustedPolicy);
+    this.transaction = new PostgresBusinessSessionCreationTransaction(pool, trustedPolicy,deployment);
   }
 
   async create(input: {

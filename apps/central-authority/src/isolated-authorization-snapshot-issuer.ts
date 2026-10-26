@@ -3,14 +3,15 @@ import {AuthorizationSnapshotClaimsSchema,SignedAuthorizationSnapshotSchema,cano
   type SnapshotAssignment} from "@pos-platform/contracts";
 import {PostgresNativeBusinessDeviceProofVerifier,PostgresPlatformSecurityEventRepository,BUSINESS_SSA_ELIGIBILITY_SQL,
   type Pool,type DeviceProofRequest} from "@pos-platform/database-postgres";
+import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "@pos-platform/database-postgres";
 import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 
 export interface IsolatedAuthorizationSigning {
-  mode:"ISOLATED_VALIDATION";environment:"isolated-validation";purpose:"AUTHORIZATION_SNAPSHOT";
+  mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";environment:"isolated-validation"|"PREPRODUCTION"|"PRODUCTION";purpose:"AUTHORIZATION_SNAPSHOT";
   keyId:string;status:"ACTIVE";privateKey:KeyObject;publicKey:KeyObject;validFrom:string;validUntil:string;
 }
-export interface IsolatedAuthorizationPolicy {mode:"ISOLATED_VALIDATION";lifetimeMs:number;maximumReauthenticationAgeMs:number}
+export interface IsolatedAuthorizationPolicy {mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";lifetimeMs:number;maximumReauthenticationAgeMs:number}
 export interface TrustedAuthorizationDeployment {tenantId:string;companyId:string;branchId:string;installationId:string;deviceId:string}
 
 /** Laboratory producer, not a production key/profile or migration. Reads only
@@ -21,25 +22,28 @@ export class IsolatedAuthorizationSnapshotIssuer {
   constructor(private readonly pool:Pool,private readonly codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,
     private readonly deployment:Readonly<TrustedAuthorizationDeployment>,private readonly policy:Readonly<IsolatedAuthorizationPolicy>,
     private readonly signing:Readonly<IsolatedAuthorizationSigning>,
-    private readonly storage?:Readonly<{mode:"DEC011_SQL_REHEARSAL";lockTimeoutMs:number}>){
-    this.guard=new IsolatedBusinessAuditSessionGuard(pool);
-    if((!(codec instanceof IsolatedBusinessAccessTokenCodec)&&!(codec instanceof CommercialBusinessAccessAuthority))||policy?.mode!=="ISOLATED_VALIDATION"||
+    private readonly storage?:Readonly<{mode:"DEC011_SQL_REHEARSAL"|"REGISTERED_015";lockTimeoutMs:number}>,
+    private readonly deploymentContext?:PostgresCommercialDeploymentContext){
+    this.guard=new IsolatedBusinessAuditSessionGuard(pool,deploymentContext);
+    if(deploymentContext){assertCommercialDeployment(pool,deploymentContext);if(!(codec instanceof CommercialBusinessAccessAuthority)||storage?.mode!=="REGISTERED_015")throw Error("SAS_DEPLOYMENT_V2_STORAGE_REQUIRED");}
+    if((!(codec instanceof IsolatedBusinessAccessTokenCodec)&&!(codec instanceof CommercialBusinessAccessAuthority))||policy?.mode!==(deploymentContext?"DEPLOYMENT":"ISOLATED_VALIDATION")||
       ![policy.lifetimeMs,policy.maximumReauthenticationAgeMs].every(n=>Number.isSafeInteger(n)&&n>0))throw Error("SAS_ISOLATED_POLICY_REQUIRED");
     this.checkKey();
-    if(storage&&(storage.mode!=="DEC011_SQL_REHEARSAL"||!Number.isSafeInteger(storage.lockTimeoutMs)||storage.lockTimeoutMs<=0))
+    if(storage&&(storage.mode!==(deploymentContext?"REGISTERED_015":"DEC011_SQL_REHEARSAL")||!Number.isSafeInteger(storage.lockTimeoutMs)||storage.lockTimeoutMs<=0))
       throw Error("SAS_SQL_REHEARSAL_POLICY_REQUIRED");
   }
   private checkKey(){
     const k=this.signing,now=Date.now();
-    if(k?.mode!=="ISOLATED_VALIDATION"||k.environment!=="isolated-validation"||k.purpose!=="AUTHORIZATION_SNAPSHOT"||k.status!=="ACTIVE"||
-      !/^SAS_TEST_[A-Z0-9_]+$/.test(k.keyId)||k.privateKey?.type!=="private"||k.publicKey?.type!=="public"||
+    if(k?.mode!==(this.deploymentContext?"DEPLOYMENT":"ISOLATED_VALIDATION")||(this.deploymentContext?!["PREPRODUCTION","PRODUCTION"].includes(k.environment):k.environment!=="isolated-validation")||k.purpose!=="AUTHORIZATION_SNAPSHOT"||k.status!=="ACTIVE"||
+      !(this.deploymentContext?/^[A-Za-z0-9._-]{1,128}$/:/^SAS_TEST_[A-Z0-9_]+$/).test(k.keyId)||k.privateKey?.type!=="private"||k.publicKey?.type!=="public"||
       k.privateKey.asymmetricKeyType!=="ed25519"||k.publicKey.asymmetricKeyType!=="ed25519"||
       !(Date.parse(k.validFrom)<=now&&now<Date.parse(k.validUntil)))throw Error("SAS_SIGNING_AUTHORITY_REJECTED");
     const sample=randomBytes(32);if(!verify(null,sample,k.publicKey,sign(null,sample,k.privateKey)))throw Error("SAS_SIGNING_KEY_MISMATCH");
   }
   async issue(accessToken:string,proof:DeviceProofRequest){
-    const db=await this.pool.query("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
+    if(!this.deploymentContext){const db=await this.pool.query("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
     if(db.rows[0]?.ok!==true)throw Error("SAS_TEMPORARY_DATABASE_REQUIRED");
+    }
     this.checkKey();
     const v2=this.codec instanceof CommercialBusinessAccessAuthority;
     const access= v2 ? await this.codec.verifyAndConsume(accessToken,proof,"AUTHORIZATION_SNAPSHOT") : await this.codec.verify(accessToken);if(!access)return null;

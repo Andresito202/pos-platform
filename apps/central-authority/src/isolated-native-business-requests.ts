@@ -2,13 +2,14 @@ import {createHash,randomBytes} from "node:crypto";
 import {uuidV7,PlatformSecurityEventCode} from "@pos-platform/contracts";
 import {PostgresNativeBusinessDeviceProofVerifier,PostgresPlatformSecurityEventRepository,BUSINESS_SSA_ELIGIBILITY_SQL,
   type Pool,type PoolClient,type DeviceProofRequest} from "@pos-platform/database-postgres";
+import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "@pos-platform/database-postgres";
 import type {NativeClientRegistration} from "./native-authorization-constraints.js";
 import type {TrustedCommercialIdentity,TrustedCommercialDevice} from "./commercial-binding-prerequisite.js";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const opaque=(s:unknown):s is string=>typeof s==="string"&&/^[A-Za-z0-9_-]{43}$/.test(s)&&Buffer.from(s,"base64url").length===32;
 export interface IsolatedNativeRequestPolicy {
-  mode:"ISOLATED_VALIDATION";challengeLifetimeMs:number;requestLifetimeMs:number;codeLifetimeMs:number;
+  mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";challengeLifetimeMs:number;requestLifetimeMs:number;codeLifetimeMs:number;
   maximumChallengesPerMinute:number;maximumReauthenticationAgeMs:number;
 }
 export interface NativeRequestParameters {client_id:string;redirect_uri:string;code_challenge:string;code_challenge_method:"S256";state:string}
@@ -25,9 +26,11 @@ export class IsolatedNativeBusinessRequests {
   readonly policy:Readonly<IsolatedNativeRequestPolicy>;
   private readonly proofs;
   private readonly audit;
-  constructor(private readonly pool:Pool,policy:IsolatedNativeRequestPolicy){
+  private get table(){return this.deployment?"identity.native_authorization_requests":"identity.native_request_validation";}
+  constructor(private readonly pool:Pool,policy:IsolatedNativeRequestPolicy,private readonly deployment?:PostgresCommercialDeploymentContext){
+    if(deployment)assertCommercialDeployment(pool,deployment);
     const u=new URL(pool.options.connectionString??"invalid:");
-    if(!["localhost","127.0.0.1"].includes(u.hostname)||u.port!=="55433"||policy?.mode!=="ISOLATED_VALIDATION"||
+    if((!deployment&&(!["localhost","127.0.0.1"].includes(u.hostname)||u.port!=="55433"))||policy?.mode!==(deployment?"DEPLOYMENT":"ISOLATED_VALIDATION")||
       ![policy.challengeLifetimeMs,policy.requestLifetimeMs,policy.codeLifetimeMs,policy.maximumChallengesPerMinute,policy.maximumReauthenticationAgeMs]
         .every(v=>Number.isSafeInteger(v)&&v>0))throw Error("NATIVE_REQUEST_ISOLATED_POLICY_REQUIRED");
     this.policy=Object.freeze({...policy});this.proofs=new PostgresNativeBusinessDeviceProofVerifier(pool);
@@ -36,8 +39,9 @@ export class IsolatedNativeBusinessRequests {
   private async transaction<T>(work:(client:PoolClient)=>Promise<T>):Promise<T>{
     const c=await this.pool.connect();let begun=false;
     try{await c.query("BEGIN");begun=true;
-      const checked=await c.query("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
+      if(!this.deployment){const checked=await c.query("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
       if(checked.rows[0]?.ok!==true)throw Error("NATIVE_REQUEST_TEMPORARY_DATABASE_REQUIRED");
+      }
       const result=await work(c);await c.query("COMMIT");begun=false;return result;
     }catch(e){if(begun)await c.query("ROLLBACK");throw e;}finally{c.release();}
   }
@@ -51,10 +55,10 @@ export class IsolatedNativeBusinessRequests {
       // Serialize the durable laboratory budget across workers/restarts. It is
       // intentionally not a production anti-abuse policy or per-user budget.
       await c.query("SELECT pg_advisory_xact_lock(hashtext($1))",["native-challenge:"+r.clientId]);
-      const n=await c.query("SELECT count(*)::int AS n FROM identity.native_request_validation WHERE client_id=$1 AND created_at>clock_timestamp()-interval '1 minute'",[r.clientId]);
+      const n=await c.query(`SELECT count(*)::int AS n FROM ${this.table} WHERE client_id=$1 AND created_at>clock_timestamp()-interval '1 minute'`,[r.clientId]);
       if(n.rows[0].n>=this.policy.maximumChallengesPerMinute)return null;
       const challenge=randomBytes(32).toString("base64url"),id=uuidV7();
-      const inserted=await c.query(`INSERT INTO identity.native_request_validation
+      const inserted=await c.query(`INSERT INTO ${this.table}
         (id,challenge_hash,client_id,redirect_uri,code_challenge,state,created_at,challenge_expires_at)
         VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+($7::bigint*interval '1 millisecond'))
         RETURNING challenge_expires_at`,[id,hash(challenge),p.client_id,p.redirect_uri,p.code_challenge,p.state,this.policy.challengeLifetimeMs]);
@@ -72,7 +76,7 @@ export class IsolatedNativeBusinessRequests {
     const device=await this.proofs.verifyRegistrationAndConsume(proof);if(!device)return null;
     return this.transaction(async c=>{
       const token=randomBytes(32).toString("base64url");
-      const row=await c.query(`UPDATE identity.native_request_validation SET
+      const row=await c.query(`UPDATE ${this.table} SET
         request_hash=$1,credential_id=$2,device_id=$3,installation_id=$4,tenant_id=$5,company_id=$6,
         challenge_consumed_at=clock_timestamp(),expires_at=LEAST(clock_timestamp()+($7::bigint*interval '1 millisecond'),$8::timestamptz)
         WHERE id=$9 AND challenge_hash=$10 AND challenge_consumed_at IS NULL AND challenge_expires_at>clock_timestamp()
@@ -89,12 +93,12 @@ export class IsolatedNativeBusinessRequests {
   async inspect(token:string){
     if(!opaque(token))return null;
     return this.transaction(async c=>{
-      const scope=await c.query("SELECT tenant_id::text FROM identity.native_request_validation WHERE request_hash=$1",[hash(token)]);
+      const scope=await c.query(`SELECT tenant_id::text FROM ${this.table} WHERE request_hash=$1`,[hash(token)]);
       if(!scope.rows[0]?.tenant_id)return null;
       await c.query("SELECT set_config('app.tenant_id',$1,true)",[scope.rows[0].tenant_id]);
       const q=await c.query<RequestRow>(`SELECT n.client_id,n.redirect_uri,n.code_challenge,n.state,n.credential_id::text,n.device_id::text,
         n.installation_id::text,n.tenant_id::text,n.company_id::text,n.expires_at,company.trade_name AS company_name,t.name AS tenant_name
-        FROM identity.native_request_validation n
+        FROM ${this.table} n
         JOIN identity.device_registry d ON d.device_id=n.device_id AND d.installation_id=n.installation_id AND d.tenant_id=n.tenant_id AND d.company_id=n.company_id AND d.status='ACTIVE'
         JOIN identity.device_credentials dc ON dc.credential_id=n.credential_id AND dc.device_id=d.device_id AND dc.status='ACTIVE' AND dc.expires_at>clock_timestamp()
         JOIN organization.companies company ON company.id=n.company_id AND company.tenant_id=n.tenant_id AND company.status='ACTIVE'
@@ -110,11 +114,19 @@ export class IsolatedNativeBusinessRequests {
       [identity.sessionId,device.deviceId,device.installationId,this.policy.maximumReauthenticationAgeMs]);
     const row=eligible.rows[0];
     if(!row||row.user_id!==identity.userId||row.tenant_membership_id!==identity.tenantMembershipId)throw Error("NATIVE_REQUEST_IDENTITY_INACTIVE");
-    const used=await client.query(`UPDATE identity.native_request_validation SET consumed_at=clock_timestamp(),session_id=$2
+    const used=await client.query(`UPDATE ${this.table} SET consumed_at=clock_timestamp(),session_id=$2
       WHERE request_hash=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp()
         AND tenant_id=$3 AND device_id=$4 AND credential_id=$5 RETURNING id`,
       [hash(token),identity.sessionId,identity.tenantId,device.deviceId,device.credentialId]);
     if(used.rowCount!==1)throw Error("NATIVE_REQUEST_CONSUMED_OR_INVALID");
+  }
+  async consumeLoginBudget(token:string,maximumAttempts:number){
+    if(!this.deployment||!opaque(token)||!Number.isSafeInteger(maximumAttempts)||maximumAttempts<=0||maximumAttempts>2147483647)return false;
+    return this.transaction(async c=>{
+      const used=await c.query(`UPDATE ${this.table} SET login_attempt_count=login_attempt_count+1 WHERE request_hash=$1
+        AND consumed_at IS NULL AND expires_at>clock_timestamp() AND credential_id IS NOT NULL AND login_attempt_count<$2 RETURNING id`,[hash(token),maximumAttempts]);
+      return used.rowCount===1;
+    });
   }
   private async event(c:PoolClient,reason:string,correlation:string){
     const clock=await c.query("SELECT clock_timestamp() AS at");

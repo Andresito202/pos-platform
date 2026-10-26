@@ -10,6 +10,7 @@ const routes=new Set<NativeCentralPath>(["/v1/commercial/native-request-challeng
 export class NativeCommercialHttps implements NativeCommercialCentralTransport{
   private readonly origin:string;
   constructor(registration:NativeClientRegistration,private readonly timeoutMs:number){
+    if(process.env.NODE_TLS_REJECT_UNAUTHORIZED==="0")throw Error("NATIVE_HTTPS_TLS_VERIFICATION_REQUIRED");
     this.origin=validateCommercialHttpsOrigin(validateNativeClientRegistration(registration).authorizationOrigin);
     if(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0||timeoutMs>2_147_483_647)throw Error("NATIVE_HTTPS_EXPLICIT_TIMEOUT_REQUIRED");
   }

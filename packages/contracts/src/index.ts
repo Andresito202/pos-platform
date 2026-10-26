@@ -25,6 +25,7 @@ export * from "./session-trust.js";
 export * from "./authorization-trust-candidate.js";
 export * from "./authorization-trust.js";
 export * from "./commercial-access.js";
+export * from "./central-commercial-provision.js";
 export * from "./master-snapshot.js";
 export * from "./device-trust.js";
 export * from "./device-enrollment.js";

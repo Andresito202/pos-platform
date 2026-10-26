@@ -2,6 +2,7 @@ import {
   PostgresBusinessSessionAccessRepository,PostgresDeviceProofReplayVerifier,PostgresBusinessSsaSequenceAllocator,
   PostgresBusinessSessionRevocationTransaction,
   type BusinessAccessValidationPolicy,type DeviceProofRequest,type TrustedBusinessSessionBinding,type createPostgresPool,
+  assertCommercialDeployment,type PostgresCommercialDeploymentContext,
 } from "@pos-platform/database-postgres";
 import { BusinessSessionAuthority } from "./business-session-authority.js";
 import type { TrustedSessionAssertionIssuance } from "./central-session-assertion-issuer.js";
@@ -25,11 +26,13 @@ export class BusinessAccessPreparation {
     private readonly pool:ReturnType<typeof createPostgresPool>,
     private readonly authority:BusinessSessionAuthority,
     policy:BusinessAccessValidationPolicy & {readonly mode:"ISOLATED_VALIDATION"|"PRODUCTION"},
+    readonly deploymentContext?:PostgresCommercialDeploymentContext,
   ) {
-    if (policy?.mode!=="ISOLATED_VALIDATION") throw new Error("BUSINESS_ACCESS_PRODUCTION_BLOCKED_PENDING_D3");
+    if(deploymentContext){assertCommercialDeployment(pool,deploymentContext);if(policy.mode!=="PRODUCTION")throw Error("BUSINESS_ACCESS_DEPLOYMENT_POLICY_REQUIRED");}
+    else if (policy?.mode!=="ISOLATED_VALIDATION") throw new Error("BUSINESS_ACCESS_PRODUCTION_BLOCKED_PENDING_D3");
     if (!(authority instanceof BusinessSessionAuthority)) throw new Error("BUSINESS_ACCESS_TRUSTED_AUTHORITY_REQUIRED");
     const endpoint=new URL(pool.options.connectionString??"invalid:");
-    if (!["127.0.0.1","localhost"].includes(endpoint.hostname) || endpoint.port!=="55433") {
+    if (!deploymentContext&&(!["127.0.0.1","localhost"].includes(endpoint.hostname) || endpoint.port!=="55433")) {
       throw new Error("BUSINESS_ACCESS_LOCAL_VALIDATION_SERVER_REQUIRED");
     }
     this.sessions=new PostgresBusinessSessionAccessRepository(pool,policy);
@@ -38,6 +41,7 @@ export class BusinessAccessPreparation {
   }
 
   private async requireIsolatedDatabase():Promise<void> {
+    if(this.deploymentContext){assertCommercialDeployment(this.pool,this.deploymentContext);return;}
     const result=await this.pool.query<{allowed:boolean}>(
       "SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS allowed");
     if (result.rows[0]?.allowed!==true) throw new Error("BUSINESS_ACCESS_ISOLATED_DATABASE_REQUIRED");

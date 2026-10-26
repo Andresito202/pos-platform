@@ -62,7 +62,7 @@ button{min-height:44px;padding:10px 16px;margin:20px 8px 0 0;font:inherit;font-s
   const encode = value => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");
   async function post(path, body, signal, token) {
     const response = await fetch("/v1/commercial/" + path, { method:"POST", credentials:"same-origin", cache:"no-store", redirect:"error", signal,
-      headers:{"content-type":"application/json", ...(token ? {"x-csrf-token":token} : {})}, body:JSON.stringify(body) });
+      headers:{"content-type":"application/json", ...(token ? {"x-csrf-token":token} : {}),...(config.destination?{"x-commercial-native-request":config.destination.request}:{})}, body:JSON.stringify(body) });
     if (!response.ok) throw new Error(response.status === 401 ? "CREDENTIALS_REJECTED" : response.status === 429 ? "THROTTLED" : "AUTHENTICATION_UNAVAILABLE");
     return response.json();
   }

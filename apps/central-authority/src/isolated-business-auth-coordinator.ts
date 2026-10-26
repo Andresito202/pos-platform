@@ -39,11 +39,12 @@ export class IsolatedBusinessAuthCoordinator {
    * Host-owned laboratory material only; never accepted from an HTTP body.
    * No grants, policy assignments or authorization snapshot are produced. */
   async issueSessionAssertion(accessToken:string,proof:DeviceProofRequest,codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,material:{
-    mode:"ISOLATED_VALIDATION";environment:"isolated-validation";operationalPrivateKey:KeyObject;rootTrustAnchor:KeyObject;
+    mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";environment:"isolated-validation"|"PREPRODUCTION"|"PRODUCTION";operationalPrivateKey:KeyObject;rootTrustAnchor:KeyObject;
     signedOperationalKey:SignedSessionAssertionOperationalKey;
     policy:SessionAssertionIssuancePolicy & {maximumReauthenticationAgeMs:number};
   }){
-    if(material?.mode!=="ISOLATED_VALIDATION"||material.environment!=="isolated-validation"||
+    const deployment=this.preparation.deploymentContext;
+    if(material?.mode!==(deployment?"DEPLOYMENT":"ISOLATED_VALIDATION")||(deployment?!["PREPRODUCTION","PRODUCTION"].includes(material.environment):material.environment!=="isolated-validation")||
       ![material.policy?.maximumReauthenticationAgeMs,material.policy?.maximumClaimAgeMs,material.policy?.maximumOfflineLifetimeMs]
         .every(value=>Number.isSafeInteger(value)&&value!>0)||material.operationalPrivateKey?.type!=="private"||material.rootTrustAnchor?.type!=="public")
       throw Error("BUSINESS_SSA_ISOLATED_SIGNING_POLICY_REQUIRED");
@@ -52,7 +53,7 @@ export class IsolatedBusinessAuthCoordinator {
     const prepared=await this.prepareSessionAssertion(accessToken,proof,codec);if(!prepared)return null;
     const access=codec instanceof CommercialBusinessAccessAuthority?prepared.access:await codec.verify(accessToken);if(!access)return null;
     const reservation=prepared.reservation,scope=reservation.eligibleScope;
-    return new IsolatedBusinessAuditSessionGuard(this.pool).whileActive({sessionId:scope.sessionId,userId:scope.userId,
+    return new IsolatedBusinessAuditSessionGuard(this.pool,deployment).whileActive({sessionId:scope.sessionId,userId:scope.userId,
       tenantId:scope.tenantId,tenantMembershipId:scope.tenantMembershipId},async client=>{
       if(codec instanceof CommercialBusinessAccessAuthority&&(!prepared.access||!await codec.currentInTransaction(client,prepared.access)))return null;
       // Same owner predicate, on this transaction client: locks remain held
@@ -94,8 +95,8 @@ export class IsolatedBusinessAuthCoordinator {
     private readonly bindingAudit:TrustedCommercialAudit,
   ){
     if(!(preparation instanceof BusinessAccessPreparation))throw Error("BUSINESS_COORDINATOR_AUTHORITY_REQUIRED");
-    this.issuer=new IsolatedBusinessNativeCodeIssuer(pool);
-    this.consumer=new IsolatedBusinessBoundCodeConsumer(pool);
+    this.issuer=new IsolatedBusinessNativeCodeIssuer(pool,preparation.deploymentContext);
+    this.consumer=new IsolatedBusinessBoundCodeConsumer(pool,preparation.deploymentContext);
     this.audit=new PostgresPlatformSecurityEventRepository(pool);
     if(!bindingAudit?.authorityReference?.trim()||typeof bindingAudit.record!=="function")
       throw Error("BUSINESS_COORDINATOR_DURABLE_BINDING_AUDIT_REQUIRED");

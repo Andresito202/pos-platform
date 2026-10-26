@@ -25,6 +25,7 @@ CREATE TABLE identity.native_authorization_requests (
   device_id uuid REFERENCES identity.device_registry(device_id),installation_id uuid,
   tenant_id uuid REFERENCES tenancy.tenants(id),company_id uuid REFERENCES organization.companies(id),
   session_id uuid REFERENCES identity.sessions(id),
+  login_attempt_count integer NOT NULL DEFAULT 0 CHECK(login_attempt_count>=0),
   CHECK(challenge_expires_at>created_at),
   CHECK((challenge_consumed_at IS NULL AND request_hash IS NULL AND credential_id IS NULL AND device_id IS NULL AND installation_id IS NULL AND tenant_id IS NULL AND company_id IS NULL AND expires_at IS NULL)
     OR(challenge_consumed_at IS NOT NULL AND request_hash IS NOT NULL AND credential_id IS NOT NULL AND device_id IS NOT NULL AND installation_id IS NOT NULL AND tenant_id IS NOT NULL AND company_id IS NOT NULL AND expires_at>created_at)),
@@ -42,9 +43,10 @@ BEGIN
       RAISE EXCEPTION 'Native code binding/consumption is immutable';
     END IF;
   ELSE
-    IF (to_jsonb(NEW)-ARRAY['request_hash','credential_id','device_id','installation_id','tenant_id','company_id','challenge_consumed_at','expires_at','consumed_at','session_id']) IS DISTINCT FROM
-       (to_jsonb(OLD)-ARRAY['request_hash','credential_id','device_id','installation_id','tenant_id','company_id','challenge_consumed_at','expires_at','consumed_at','session_id']) OR
-       OLD.request_hash IS NOT NULL AND (to_jsonb(NEW)-ARRAY['consumed_at','session_id']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['consumed_at','session_id']) OR
+    IF NEW.login_attempt_count NOT IN (OLD.login_attempt_count,OLD.login_attempt_count+1) THEN RAISE EXCEPTION 'Native login budget cannot roll back or skip'; END IF;
+    IF (to_jsonb(NEW)-ARRAY['request_hash','credential_id','device_id','installation_id','tenant_id','company_id','challenge_consumed_at','expires_at','consumed_at','session_id','login_attempt_count']) IS DISTINCT FROM
+       (to_jsonb(OLD)-ARRAY['request_hash','credential_id','device_id','installation_id','tenant_id','company_id','challenge_consumed_at','expires_at','consumed_at','session_id','login_attempt_count']) OR
+       OLD.request_hash IS NOT NULL AND (to_jsonb(NEW)-ARRAY['consumed_at','session_id','login_attempt_count']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['consumed_at','session_id','login_attempt_count']) OR
        OLD.consumed_at IS NOT NULL AND (NEW.consumed_at IS DISTINCT FROM OLD.consumed_at OR NEW.session_id IS DISTINCT FROM OLD.session_id) THEN
       RAISE EXCEPTION 'Native request binding/consumption is immutable';
     END IF;
@@ -64,6 +66,9 @@ REVOKE ALL ON identity.native_authorization_codes,identity.native_authorization_
 REVOKE ALL ON FUNCTION identity.guard_native_authorization_history() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION identity.guard_native_authorization_history() TO pos_platform_app;
 GRANT SELECT,INSERT ON identity.native_authorization_codes,identity.native_authorization_requests TO pos_platform_app;
+-- Read-only deployment attestation; the runtime cannot forge migration status.
+GRANT SELECT ON platform.target_migration_executions TO pos_platform_app;
 GRANT UPDATE(consumed_at) ON identity.native_authorization_codes TO pos_platform_app;
 GRANT UPDATE(request_hash,credential_id,device_id,installation_id,tenant_id,company_id,challenge_consumed_at,expires_at,consumed_at,session_id)
   ON identity.native_authorization_requests TO pos_platform_app;
+GRANT UPDATE(login_attempt_count) ON identity.native_authorization_requests TO pos_platform_app;

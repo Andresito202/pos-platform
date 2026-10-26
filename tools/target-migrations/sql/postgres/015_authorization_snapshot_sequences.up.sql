@@ -68,4 +68,3 @@ $function$;
 ALTER FUNCTION "authorization".lock_sas_sources_for_read() OWNER TO pos_schema_owner;
 REVOKE ALL ON FUNCTION "authorization".lock_sas_sources_for_read() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION "authorization".lock_sas_sources_for_read() TO pos_platform_app;
-

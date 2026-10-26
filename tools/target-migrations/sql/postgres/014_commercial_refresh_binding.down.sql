@@ -14,4 +14,3 @@ ALTER TABLE identity.session_refresh_tokens
  DROP COLUMN client_id,DROP COLUMN credential_id,DROP COLUMN installation_id,DROP COLUMN device_id,
  DROP COLUMN tenant_id,DROP COLUMN issuer_origin,DROP COLUMN audience,DROP COLUMN family_expires_at,
  DROP COLUMN password_credential_id,DROP COLUMN password_credential_version;
-

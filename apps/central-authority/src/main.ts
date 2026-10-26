@@ -9,6 +9,7 @@ import { SessionTrustPublication,AuthorizationTrustPublication } from "./session
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import {resolveCentralDeploymentConfiguration,verifyCentralTlsIdentity,verifyEnrollmentIssuerKey,verifyCentralRuntimeDatabase,createCentralReadinessProbe} from "./central-deployment-configuration.js";
 import {drainCentralServer} from "./central-server-shutdown.js";
+import {prepareCentralCommercialRuntime} from "./central-commercial-runtime.js";
 
 const deployment=resolveCentralDeploymentConfiguration(process.env);
 const PORT = deployment?.port??Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -103,6 +104,11 @@ if(authorizationTrustTransportToken!==null&&(authorizationTrustTransportToken.le
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
 if(deployment){try{await verifyCentralRuntimeDatabase(pool);}catch{await pool.end();throw Error("CENTRAL_RUNTIME_DATABASE_REJECTED");}}
 const readiness=deployment?createCentralReadinessProbe(pool,deployment.requestTimeoutMs):null;
+const commercialProvision=process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
+if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!sessionTrustPublication||!authorizationTrustPublication))throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
+const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
+  origin:deployment!.origin,environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",tls:{key:tlsKey,cert:tlsCert},
+  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE")}):undefined;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
@@ -127,7 +133,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
   if(request.method==="GET"&&request.url==="/ready"){
-    if(readiness&&await readiness())send(response,200,{status:"READY",service:"central-authority",commercial_auth:"NOT_ACTIVATED"});
+    if(readiness&&await readiness())send(response,200,{status:"READY",service:"central-authority",commercial_auth:commercialHandler?"CONFIGURED":"NOT_ACTIVATED"});
     else send(response,503,{status:"NOT_READY",service:"central-authority"});return;
   }
 
@@ -158,6 +164,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
 
+  if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){commercialHandler(request,response);return;}
   // Reserved commercial authorization surface: explicitly fail closed until
   // D3 deployment approval, native registrations and key custody are verified.
   // Do not route isolated PostgreSQL fixtures or accept client session IDs.

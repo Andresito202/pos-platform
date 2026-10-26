@@ -18,6 +18,7 @@ export const POSTGRES_015_DESCRIPTOR=descriptor("015_authorization_snapshot_sequ
 export const POSTGRES_016_DESCRIPTOR=descriptor("016_native_business_authorization",POSTGRES_015_DESCRIPTOR.migrationId,["identity.native_authorization_codes","identity.native_authorization_requests"],"identity");
 export const COMMERCIAL_MIGRATIONS=Object.freeze([POSTGRES_008_DESCRIPTOR,POSTGRES_009_DESCRIPTOR,POSTGRES_010_DESCRIPTOR,
   POSTGRES_011_DESCRIPTOR,POSTGRES_012_DESCRIPTOR,POSTGRES_013_DESCRIPTOR,POSTGRES_014_DESCRIPTOR,POSTGRES_015_DESCRIPTOR,POSTGRES_016_DESCRIPTOR]);
+export async function commercialMigrationManifest(){return Object.fromEntries(await Promise.all(COMMERCIAL_MIGRATIONS.map(async d=>[d.migrationId,sha256(await readArtifact(d.upArtifact)).toString("hex")])));}
 const check:(ok:unknown,message:string)=>asserts ok=(ok,message)=>{if(!ok)throw new MigrationInvariantError(message);};
 
 async function smoke(c:PoolClient,d:MigrationDescriptor){

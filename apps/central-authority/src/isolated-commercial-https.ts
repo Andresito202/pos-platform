@@ -1,7 +1,7 @@
 import {createServer, type ServerOptions} from "node:https";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
-import {uuidV7, UuidSchema, UuidV7Schema, PlatformSecurityEventCode, SignedAuthorizationTrustCandidateSchema, type SignedAuthorizationTrustCandidate} from "@pos-platform/contracts";
+import {uuidV7, UuidSchema, UuidV7Schema, PlatformSecurityEventCode,CommercialHttpV2,validateCommercialHttpsOrigin, SignedAuthorizationTrustCandidateSchema, type SignedAuthorizationTrustCandidate} from "@pos-platform/contracts";
 import {PostgresBrowserSessionHandoffWriter, PostgresPlatformSecurityEventRepository, type Pool, type BrowserSessionRequest} from "@pos-platform/database-postgres";
 import type {AuthenticationResponseJSON} from "@simplewebauthn/server";
 import {BusinessInitialMfaFlow} from "./business-initial-mfa-flow.js";
@@ -15,6 +15,7 @@ import {sendCommercialBrowserEntry, type CommercialBrowserEntryConfiguration} fr
 import {IsolatedNativeBusinessRequests,type NativeRequestParameters} from "./isolated-native-business-requests.js";
 import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
 import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
+import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "@pos-platform/database-postgres";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -78,12 +79,13 @@ function assertion(value:unknown):value is AuthenticationResponseJSON{
 /** Real HTTPS laboratory transport. There is intentionally no production flag,
  * public bind, forwarded-header trust, or route mounting in main.ts. Existing
  * isolated code/JWT issuers remain restricted to the temporary database. */
-export async function createIsolatedCommercialHttpsServer(input:{
+export async function prepareCommercialHttpHandler(input:{
   pool:Pool; tls:Pick<ServerOptions,"key"|"cert">; origin:string;
   mfa:BusinessInitialMfaFlow; authority:BusinessSessionAuthority; handoffs:PostgresBrowserSessionHandoffWriter;
   browser:DurableBrowserSessionStore; clients:CommercialNativeClientCatalog;
   coordinator:IsolatedBusinessAuthCoordinator; pair:IsolatedBusinessCredentialPairIssuer;
-  policy:{mode:"ISOLATED_VALIDATION";maximumBodyBytes:number;requestsPerMinute:number};
+  policy:{mode:"ISOLATED_VALIDATION"|"DEPLOYMENT";maximumBodyBytes:number;requestsPerMinute:number;maximumLoginAttempts?:number};
+  deploymentContext?:PostgresCommercialDeploymentContext;
   browserEntry?:CommercialBrowserEntryConfiguration;
   nativeValidation?:{requests:IsolatedNativeBusinessRequests;codec:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority;
     signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
@@ -91,14 +93,20 @@ export async function createIsolatedCommercialHttpsServer(input:{
   authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
+  if(input.deploymentContext){
+    assertCommercialDeployment(pool,input.deploymentContext);validateCommercialHttpsOrigin(input.origin);
+    if(!input.nativeValidation||!(input.nativeValidation.codec instanceof CommercialBusinessAccessAuthority)||!input.authorizationIssuer||!input.browserEntry||
+      input.authorizationTrustCandidate||!Number.isSafeInteger(policy.maximumLoginAttempts)||policy.maximumLoginAttempts!<=0)throw Error("COMMERCIAL_DEPLOYMENT_COMPOSITION_REQUIRED");
+  }
   const url=new URL(pool.options.connectionString??"invalid:");
-  if(!policy||policy.mode!=="ISOLATED_VALIDATION"||![policy.maximumBodyBytes,policy.requestsPerMinute].every(n=>Number.isSafeInteger(n)&&n>0)||
-    !["localhost","127.0.0.1"].includes(url.hostname)||url.port!=="55433"||
+  if(!policy||policy.mode!==(input.deploymentContext?"DEPLOYMENT":"ISOLATED_VALIDATION")||![policy.maximumBodyBytes,policy.requestsPerMinute].every(n=>Number.isSafeInteger(n)&&n>0)||
+    (!input.deploymentContext&&(!["localhost","127.0.0.1"].includes(url.hostname)||url.port!=="55433"))||
     !(mfa instanceof BusinessInitialMfaFlow)||!(authority instanceof BusinessSessionAuthority)||!(handoffs instanceof PostgresBrowserSessionHandoffWriter)||
     !(browser instanceof DurableBrowserSessionStore)||!(clients instanceof CommercialNativeClientCatalog)||
     !(coordinator instanceof IsolatedBusinessAuthCoordinator)||!(pair instanceof IsolatedBusinessCredentialPairIssuer)||!browser.acceptsOrigin(input.origin))throw Error("COMMERCIAL_HTTPS_ISOLATED_COMPOSITION_REQUIRED");
-  const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
+  if(!input.deploymentContext){const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
   if(database.rows[0]?.ok!==true)throw Error("COMMERCIAL_HTTPS_TEMPORARY_DATABASE_REQUIRED");
+  }
   const origin=new URL(input.origin);
   // Public, root-signed artifact only. Restricted to this existing temporary-DB
   // server; neither production main nor the SSA distribution route mounts it.
@@ -119,7 +127,8 @@ export async function createIsolatedCommercialHttpsServer(input:{
       event_code:limited?PlatformSecurityEventCode.ABUSE_RATE_LIMITED:PlatformSecurityEventCode.CREDENTIAL_REJECTED,
       result:limited?"THROTTLED":"REJECTED",reason_code:"ISOLATED_HTTPS_REJECTED",correlation_id:uuidV7(),occurred_at:at.rows[0]!.at.toISOString()});
   }
-  const server=createServer({...input.tls,minVersion:"TLSv1.2",maxHeaderSize:16*1024},(req,res)=>{
+  const accessHeader=input.deploymentContext?CommercialHttpV2.accessHeader:"x-isolated-business-access";
+  const handler=(req:IncomingMessage,res:ServerResponse)=>{
     void (async()=>{
       try{
         if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted)throw new Rejection(400);
@@ -147,6 +156,7 @@ export async function createIsolatedCommercialHttpsServer(input:{
             sendCommercialBrowserEntry(res,input.browserEntry,{request:token,tenantName:destination.tenant_name,companyName:destination.company_name,
               deviceId:destination.device_id,installationId:destination.installation_id});return;
           }
+          if(input.deploymentContext)throw new Rejection(400);
           const names=["client_id","redirect_uri","code_challenge","code_challenge_method","state"];
           const registration=clients.requireExact(params.get("client_id"),params.get("redirect_uri"));
           if(req.headers.host!==origin.host || entry.origin!==input.origin || entry.pathname!=="/v1/commercial/login" ||
@@ -186,8 +196,9 @@ export async function createIsolatedCommercialHttpsServer(input:{
           if(!registered)throw new Rejection(401);send(res,200,registered);return;
         }
         if(native&&req.url==="/v1/business-session/assertions"){
-          if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);
-          const assertion=await coordinator.issueSessionAssertion(req.headers["x-isolated-business-access"],proof(),native.codec,native.signing);
+          const access=req.headers[accessHeader];
+          if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(access,8192))throw new Rejection(400);
+          const assertion=await coordinator.issueSessionAssertion(access,proof(),native.codec,native.signing);
           if(!assertion)throw new Rejection(401);send(res,200,assertion);return;
         }
         if(native?.codec instanceof CommercialBusinessAccessAuthority&&req.url==="/v1/commercial/refresh"){
@@ -195,14 +206,17 @@ export async function createIsolatedCommercialHttpsServer(input:{
           if(!rotated||rotated.status!=="ROTATED")throw new Rejection(401);send(res,200,rotated);return;
         }
         if(native&&input.authorizationIssuer&&req.url==="/v1/business-session/authorization"){
-          if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(req.headers["x-isolated-business-access"],8192))throw new Rejection(400);
-          const signed=await input.authorizationIssuer.issue(req.headers["x-isolated-business-access"],proof());
+          const access=req.headers[accessHeader];
+          if(!exact(o,["session_id"])||!uuid(o.session_id)||!text(access,8192))throw new Rejection(400);
+          const signed=await input.authorizationIssuer.issue(access,proof());
           if(!signed)throw new Rejection(401);send(res,200,signed);return;
         }
         const sessionRequest:BrowserSessionRequest={method:"POST",origin:req.headers.origin??null,
           fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,
           cookie:req.headers.cookie??null,csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null};
         if(req.url==="/v1/commercial/login"){
+          if(input.deploymentContext){const selector=req.headers["x-commercial-native-request"];
+            if(!text(selector,43)||!await native!.requests.consumeLoginBudget(selector,policy.maximumLoginAttempts!))throw new Rejection(429);}
           // Login CSRF is prevented by exact Origin + same-origin Fetch Metadata
           // and strict non-simple JSON. An ambient/expired cookie is NEVER
           // authentication evidence: a fresh password and assertion are required.
@@ -267,7 +281,15 @@ export async function createIsolatedCommercialHttpsServer(input:{
         catch{send(res,503,{error:"temporarily_unavailable"});}
       }
     })();
-  });
+  };
+  return handler;
+}
+export type CommercialHttpHandlerInput=Parameters<typeof prepareCommercialHttpHandler>[0];
+/** Original isolated entry remains explicitly isolated; production main uses
+ * the shared handler on its own already-verified HTTPS listener. */
+export async function createIsolatedCommercialHttpsServer(input:Omit<CommercialHttpHandlerInput,"deploymentContext">){
+  if(input.policy.mode!=="ISOLATED_VALIDATION")throw Error("COMMERCIAL_HTTPS_ISOLATED_POLICY_REQUIRED");
+  const server=createServer({...input.tls,minVersion:"TLSv1.2",maxHeaderSize:16*1024},await prepareCommercialHttpHandler(input));
   server.requestTimeout=10_000;server.headersTimeout=5_000;server.keepAliveTimeout=1_000;
   // No caller-provided host or port; production activation requires a separate,
   // approved composition. Tests connect using a trusted lab certificate and SNI.

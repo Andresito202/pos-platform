@@ -1,5 +1,5 @@
 import {createHash,randomBytes} from "node:crypto";
-import {PostgresCommercialRefreshFamilies,type Pool,type PoolClient} from "@pos-platform/database-postgres";
+import {PostgresCommercialRefreshFamilies,type PostgresCommercialDeploymentContext,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {UuidSchema,uuidV7} from "@pos-platform/contracts";
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from "./isolated-business-access-token-codec.js";
@@ -15,8 +15,9 @@ const hash=(value:string)=>createHash("sha256").update(value).digest("hex");
  */
 export class IsolatedBusinessCredentialPairIssuer {
   private readonly guard:IsolatedBusinessAuditSessionGuard;
-  constructor(private readonly pool:Pool,private readonly access:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,private readonly boundRefresh?:PostgresCommercialRefreshFamilies){
-    this.guard=new IsolatedBusinessAuditSessionGuard(pool);
+  constructor(private readonly pool:Pool,private readonly access:IsolatedBusinessAccessTokenCodec|CommercialBusinessAccessAuthority,private readonly boundRefresh?:PostgresCommercialRefreshFamilies,deployment?:PostgresCommercialDeploymentContext){
+    this.guard=new IsolatedBusinessAuditSessionGuard(pool,deployment);
+    if(deployment&&(!(access instanceof CommercialBusinessAccessAuthority)||!boundRefresh))throw Error("CREDENTIAL_PAIR_DEPLOYMENT_V2_REQUIRED");
     if(!(access instanceof IsolatedBusinessAccessTokenCodec)&&!(access instanceof CommercialBusinessAccessAuthority))
       throw new Error("CREDENTIAL_PAIR_TRUSTED_ACCESS_CODEC_REQUIRED");
   }

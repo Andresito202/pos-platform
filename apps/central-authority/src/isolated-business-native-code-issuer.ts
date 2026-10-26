@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Pool } from "@pos-platform/database-postgres";
+import type { Pool,PostgresCommercialDeploymentContext } from "@pos-platform/database-postgres";
 import { IsolatedBusinessAuditSessionGuard } from "./isolated-business-audit-session-guard.js";
 import type { ValidatedCommercialBinding } from "./commercial-binding-prerequisite.js";
 import {validateNativeClientRegistration,type NativeClientRegistration} from "./native-authorization-constraints.js";
@@ -14,8 +14,9 @@ import {validateNativeClientRegistration,type NativeClientRegistration} from "./
  */
 export class IsolatedBusinessNativeCodeIssuer {
   private readonly guard: IsolatedBusinessAuditSessionGuard;
-  constructor(private readonly pool: Pool) {
-    this.guard = new IsolatedBusinessAuditSessionGuard(pool);
+  private get table(){return this.deployment?"identity.native_authorization_codes":"identity.native_authorization_code_validation";}
+  constructor(private readonly pool: Pool,private readonly deployment?:PostgresCommercialDeploymentContext) {
+    this.guard = new IsolatedBusinessAuditSessionGuard(pool,deployment);
   }
 
   async issue(input: {
@@ -28,6 +29,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     readonly lifetimeMs?:number;
     readonly recordAudit: (transaction: import("@pos-platform/database-postgres").PoolClient) => Promise<void>;
   }): Promise<string | null> {
+    if(this.deployment&&(!input.registration||input.lifetimeMs===undefined))throw Error("NATIVE_CODE_DEPLOYMENT_REGISTRATION_LIFETIME_REQUIRED");
     if (!input?.binding?.identity || !input.binding.device ||
       input.binding.identity.tenantId !== input.binding.device.tenantId ||
       !/^[A-Za-z0-9._~-]{1,128}$/.test(input.clientId) ||
@@ -46,7 +48,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     const result = await this.guard.whileActive(identity, async client => {
       // Bound to server-verified identity and device. Both IDs remain durable
       // in the disposable DB for explicit exchange-time revalidation.
-      await client.query(`INSERT INTO identity.native_authorization_code_validation
+      await client.query(`INSERT INTO ${this.table}
         (code_hash,client_id,redirect_uri,code_challenge,state,trusted_binding_id,
          session_id,device_id,tenant_id,issued_at,expires_at)
         SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp(),

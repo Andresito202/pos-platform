@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Pool, PoolClient } from "@pos-platform/database-postgres";
+import {assertCommercialDeployment,type PostgresCommercialDeploymentContext,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {PlatformSecurityEventCode,uuidV7} from "@pos-platform/contracts";
 import {PostgresPlatformSecurityEventRepository} from "@pos-platform/database-postgres";
 import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from "./native-authorization-code-exchange.js";
@@ -12,8 +12,10 @@ import type { AtomicNativeCodeConsumer, StoredNativeAuthorizationGrant } from ".
 export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsumer<{
   sessionId: string; deviceId: string; tenantId: string; credentialId: string;
 }> {
-  readonly durabilityPolicyReference = "ISOLATED_BUSINESS_BOUND_CODE_V1";
-  constructor(private readonly pool: Pool) {
+  get durabilityPolicyReference(){return this.deployment?"POSTGRES_NATIVE_BUSINESS_AUTHORIZATION_V1":"ISOLATED_BUSINESS_BOUND_CODE_V1";}
+  private get table(){return this.deployment?"identity.native_authorization_codes":"identity.native_authorization_code_validation";}
+  constructor(private readonly pool: Pool,private readonly deployment?:PostgresCommercialDeploymentContext) {
+    if(deployment){assertCommercialDeployment(pool,deployment);return;}
     const url = new URL(pool.options.connectionString ?? "invalid:");
     if (!["localhost","127.0.0.1"].includes(url.hostname) || url.port !== "55433")
       throw new Error("BUSINESS_BOUND_CODE_LOCAL_FIXTURE_REQUIRED");
@@ -35,15 +37,17 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
     })=>Promise<T>,
     expectedDevice?:{credentialId:string;deviceId:string;tenantId:string;maximumReauthenticationAgeMs:number},
   ):Promise<T|null> {
+    if(this.deployment&&!expectedDevice)throw Error("NATIVE_CODE_DEPLOYMENT_POSSESSION_REQUIRED");
     if (!/^[A-Za-z0-9._~-]{16,512}$/.test(code) || typeof verify !== "function") return null;
     const client = await this.pool.connect();
     let begun = false;
     const audit=new PostgresPlatformSecurityEventRepository(this.pool);
     try {
       await client.query("BEGIN"); begun = true;
-      const approved = await client.query<{approved:boolean}>(
+      if(!this.deployment){const approved = await client.query<{approved:boolean}>(
         "SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS approved");
       if (approved.rows[0]?.approved !== true) throw new Error("BUSINESS_BOUND_CODE_DATABASE_REQUIRED");
+      }
       const digest=createHash("sha256").update(code).digest("hex");
       const found = await client.query<{
         client_id:string;redirect_uri:string;code_challenge:string;state:string;
@@ -52,14 +56,14 @@ export class IsolatedBusinessBoundCodeConsumer implements AtomicNativeCodeConsum
       }>(`SELECT client_id,redirect_uri,code_challenge,state,session_id::text,
         device_id::text,tenant_id::text,trusted_binding_id,
         (consumed_at IS NULL AND expires_at>clock_timestamp()) AS usable
-        FROM identity.native_authorization_code_validation
+        FROM ${this.table}
         WHERE code_hash=$1 FOR UPDATE`,[digest]);
       const grant=found.rows[0];
       if (!grant?.usable) {
         await client.query("COMMIT");begun=false;return null;
       }
       // Invalid PKCE/client/state attempts burn the code permanently.
-      await client.query(`UPDATE identity.native_authorization_code_validation
+      await client.query(`UPDATE ${this.table}
         SET consumed_at=clock_timestamp() WHERE code_hash=$1 AND consumed_at IS NULL`,[digest]);
       const deviceMatches=!expectedDevice||(expectedDevice.credentialId===grant.trusted_binding_id&&
         expectedDevice.deviceId===grant.device_id&&expectedDevice.tenantId===grant.tenant_id);

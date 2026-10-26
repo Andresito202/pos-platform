@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "@pos-platform/database-postgres";
+import {assertCommercialDeployment,type PostgresCommercialDeploymentContext,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import { UuidSchema } from "@pos-platform/contracts";
 
 /**
@@ -7,7 +7,8 @@ import { UuidSchema } from "@pos-platform/contracts";
  * The approved audit owner must write on the supplied transaction client.
  */
 export class IsolatedBusinessAuditSessionGuard {
-  constructor(private readonly pool: Pool) {
+  constructor(private readonly pool: Pool,private readonly deployment?:PostgresCommercialDeploymentContext) {
+    if(deployment){assertCommercialDeployment(pool,deployment);return;}
     const uri = new URL(pool.options.connectionString ?? "invalid:");
     if (!["localhost", "127.0.0.1"].includes(uri.hostname) || uri.port !== "55433")
       throw new Error("BUSINESS_AUDIT_LOCAL_FIXTURE_REQUIRED");
@@ -26,9 +27,10 @@ export class IsolatedBusinessAuditSessionGuard {
     let begun = false;
     try {
       await client.query("BEGIN"); begun = true;
-      const scope = await client.query<{allowed:boolean}>(
+      if(!this.deployment){const scope = await client.query<{allowed:boolean}>(
         "SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS allowed");
       if (scope.rows[0]?.allowed !== true) throw new Error("BUSINESS_AUDIT_ISOLATED_DATABASE_REQUIRED");
+      }
       const sessionScope = await client.query<{tenant_id:string}>(
         "SELECT tenant_id::text FROM identity.sessions WHERE id=$1 AND tenant_id IS NOT NULL", [sessionId]);
       if (sessionScope.rows[0]?.tenant_id !== tenantId) {
