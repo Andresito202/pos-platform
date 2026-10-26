@@ -21,7 +21,13 @@ import { derivePkceS256Challenge } from "../src/native-authorization-constraints
 import { createIsolatedCommercialBindingPrerequisite } from "../src/isolated-commercial-binding-adapter.js";
 import { PlatformSecurityEventCode } from "@pos-platform/contracts";
 import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } from "node:crypto";
-import type { Server } from "node:https";
+import {request as tlsRequest,type Server} from "node:https";
+import {spawn,execFileSync} from "node:child_process";
+import {createServer as createPortProbe} from "node:net";
+import {tmpdir} from "node:os";
+import {join,resolve,dirname,basename} from "node:path";
+import {mkdtemp,rm} from "node:fs/promises";
+import {signAuthorizationTrust} from "../src/isolated-authorization-trust.js";
 import { exerciseElectronCommercialBrowser } from "./helpers/electron-commercial-browser.js";
 import {SessionTrustKeyIssuer} from "../src/session-trust-key-issuer.js";
 import {signIsolatedAuthorizationTrust} from "../src/isolated-authorization-trust.js";
@@ -206,6 +212,40 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     await expect(verifyCentralRuntimeDatabase(runtime)).resolves.toBeUndefined();
     await expect(verifyCentralRuntimeDatabase(owner)).rejects.toThrow("CENTRAL_RUNTIME_DATABASE_REJECTED");
   });
+  it("SAS remote publication: real Central HTTPS requires its separate token and keeps commercial auth closed",async()=>{
+    const dir=await mkdtemp(join(tmpdir(),"camacho-central-trust-")),keyFile=join(dir,"tls.key"),certFile=join(dir,"tls.crt");
+    const probe=createPortProbe();await new Promise<void>(resolve=>probe.listen(0,"127.0.0.1",resolve));const address=probe.address();
+    if(!address||typeof address==="string")throw Error("CENTRAL_TEST_PORT_REQUIRED");const port=address.port;await new Promise<void>(resolve=>probe.close(()=>resolve()));
+    execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN=localhost","-addext","subjectAltName=DNS:localhost","-keyout",keyFile,"-out",certFile],{stdio:"ignore",windowsHide:true});
+    const root=generateKeyPairSync("ed25519"),operational=generateKeyPairSync("ed25519"),origin=`https://localhost:${port}`,artifact=join(dir,"sas.json"),sasToken=join(dir,"sas-token"),enrollmentToken=join(dir,"enrollment-token"),issuerKey=join(dir,"issuer.key");
+    const token=randomBytes(48).toString("base64url"),now=Date.now(),from=new Date(now-60_000).toISOString(),until=new Date(now+120_000).toISOString();
+    const signed=signAuthorizationTrust({profile:"CAMACHO_SAS_TRUST_V1",mode:"DEPLOYMENT",schema_version:1,purpose:"AUTHORIZATION_SNAPSHOT",environment:"PREPRODUCTION",issuer:origin,authority_id:"CENTRAL_REMOTE_TEST",recipient:{tenant_id:tenantId,company_id:companyId,branch_id:uuidV7(),installation_id:installationId,device_id:deviceId},generation:1,complete:true,issued_at:from,valid_from:from,valid_until:until,
+      keys:[{key_id:"REMOTE_TEST_SAS",purpose:"AUTHORIZATION_SNAPSHOT",public_key_pem:operational.publicKey.export({type:"spki",format:"pem"}).toString(),status:"ACTIVE",version:1,valid_from:from,valid_until:until}]},root.privateKey);
+    await writeFile(artifact,JSON.stringify(signed));await writeFile(sasToken,token);await writeFile(enrollmentToken,randomBytes(48).toString("base64url"));await writeFile(issuerKey,root.privateKey.export({type:"pkcs8",format:"pem"}));
+    const child=spawn(process.execPath,["--import","tsx","src/main.ts"],{cwd:new URL("..",import.meta.url),windowsHide:true,env:{...process.env,NODE_ENV:"test",
+      CENTRAL_DEPLOYMENT_ENVIRONMENT:"LOCAL",CENTRAL_AUTHORITY_ORIGIN:origin,CENTRAL_AUTHORITY_PORT:String(port),CENTRAL_DATABASE_URL:runtime.options.connectionString!,CENTRAL_REQUEST_TIMEOUT_MS:"10000",CENTRAL_HEADERS_TIMEOUT_MS:"5000",CENTRAL_SHUTDOWN_TIMEOUT_MS:"2000",D3_ENROLLMENT_MAX_BODY_BYTES:"16384",D3_CREDENTIAL_LIFETIME_MS:"60000",
+      D3_ENROLLMENT_TRANSPORT_TOKEN_FILE:enrollmentToken,D3_ISSUER_PRIVATE_KEY_FILE:issuerKey,CENTRAL_TLS_KEY_FILE:keyFile,CENTRAL_TLS_CERT_FILE:certFile,
+      AUTHORIZATION_TRUST_ARTIFACT_FILE:artifact,AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE:sasToken},stdio:["ignore","pipe","pipe"]});
+    let output="",errors="";child.stderr.on("data",chunk=>{errors+=String(chunk);});
+    try{
+      await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error("CENTRAL_TEST_START_TIMEOUT")),30000);
+        child.stdout.on("data",chunk=>{output+=String(chunk);if(output.includes('"LISTENING"')){clearTimeout(timer);resolve();}});
+        child.once("exit",()=>{clearTimeout(timer);reject(Error("CENTRAL_TEST_EXIT: "+errors));});child.once("error",error=>{clearTimeout(timer);reject(error);});});
+      const ca=await readFile(certFile);
+      const get=(path:string,bearer?:string)=>new Promise<{status:number;body:Record<string,unknown>}>((resolve,reject)=>{
+        const req=tlsRequest({hostname:"127.0.0.1",servername:"localhost",port,path,ca,rejectUnauthorized:true,headers:{host:`localhost:${port}`,...(bearer?{authorization:`Bearer ${bearer}`}:{})}},res=>{
+          const chunks:Buffer[]=[];res.on("data",chunk=>chunks.push(Buffer.from(chunk)));res.on("error",reject);res.on("end",()=>{try{resolve({status:res.statusCode!,body:JSON.parse(Buffer.concat(chunks).toString())});}catch(error){reject(error);}});
+        });req.on("error",reject);req.setTimeout(5000,()=>req.destroy(Error("CENTRAL_TEST_REQUEST_TIMEOUT")));req.end();});
+      expect((await get("/v1/authorization-trust")).status).toBe(401);expect((await get("/v1/authorization-trust","wrong")).status).toBe(401);
+      expect(await get("/v1/authorization-trust",token)).toEqual({status:200,body:signed});
+      expect((await get("/ready")).body.commercial_auth).toBe("NOT_ACTIVATED");expect((await get("/v1/commercial/refresh")).status).toBe(503);
+      await writeFile(artifact,"{}");expect((await get("/v1/authorization-trust",token)).status).toBe(503);
+    }finally{
+      if(child.exitCode===null&&child.signalCode===null)await new Promise<void>(resolve=>{child.once("close",()=>resolve());child.kill();});
+      if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("camacho-central-trust-"))throw Error("CENTRAL_TEST_CLEANUP_REJECTED");
+      await rm(dir,{recursive:true,force:true});
+    }
+  },60_000);
   async function openAgain() {
     const next=await preparation.open({mfaReceipt:await authenticate(),selection:{tenantId,membershipId}});
     if (!next) throw new Error("ACCESS_FIXTURE_REOPEN_FAILED");

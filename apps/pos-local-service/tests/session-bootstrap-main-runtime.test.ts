@@ -1,13 +1,15 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync,readFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn,execFileSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {createServer,type Server} from "node:https";
 import { describe, expect, it } from "vitest";
 import {
   SessionAssertionOperationalKeyClaimsSchema,
   SessionAssertionTrustBundleSchema,
   unsignedSessionAssertionOperationalKeyBytes,
   unsignedAuthorizationTrustBytes,
+  unsignedAuthorizationRootTransitionBytes,
   type AuthorizationTrustClaims,
   type SessionAssertionClaims,
 } from "@pos-platform/contracts";
@@ -168,31 +170,58 @@ function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyP
   return child;
 }
 describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () => {
-  it("boots and restarts the real main with installer-provisioned deployment SAS under DPAPI",async()=>{
+  it.each(["file","https"] as const)("boots and restarts the real main with installer-provisioned deployment SAS under DPAPI %s",async mode=>{
     const dir=mkdtempSync(join(process.env.TEMP??process.cwd(),"camacho-sas-main-"));
     const root=generateKeyPairSync("ed25519"),operational=generateKeyPairSync("ed25519"),sasRoot=generateKeyPairSync("ed25519"),sas=generateKeyPairSync("ed25519");
     const artifact=join(dir,"ssa.json"),sasArtifact=join(dir,"sas.json"),provision=join(dir,"sas-provision.json");
+    let server:Server|undefined;let requests=0;let issuer="https://central.example.test";
+    const transportToken="remote-sas-test-"+crypto.randomUUID()+crypto.randomUUID(),tokenFile=join(dir,"sas-token"),certFile=join(dir,"tls.crt");
+    if(mode==="https"){
+      const keyFile=join(dir,"tls.key");
+      execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN=localhost","-addext","subjectAltName=DNS:localhost","-keyout",keyFile,"-out",certFile],{stdio:"ignore",windowsHide:true});
+      writeFileSync(tokenFile,transportToken);
+      server=createServer({key:readFileSync(keyFile),cert:readFileSync(certFile),minVersion:"TLSv1.2"},(req,res)=>{
+        requests++;
+        if(req.url!=="/v1/authorization-trust"||req.headers.authorization!==`Bearer ${transportToken}`){res.writeHead(401);res.end();return;}
+        res.writeHead(200,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"});res.end(readFileSync(sasArtifact));
+      });
+      await new Promise<void>(resolve=>server!.listen(0,"127.0.0.1",resolve));const address=server.address();
+      if(!address||typeof address==="string")throw Error("SAS_HTTPS_FIXTURE_ADDRESS_REQUIRED");issuer=`https://localhost:${address.port}`;
+    }
     const recipient={tenant_id:IDS.tenantId,company_id:IDS.companyId,branch_id:IDS.branchId,installation_id:IDS.installationId,device_id:IDS.deviceId};
     const now=Date.now(),from=new Date(now-60_000).toISOString(),until=new Date(now+120_000).toISOString();
-    const claims:AuthorizationTrustClaims={profile:"CAMACHO_SAS_TRUST_V1",mode:"DEPLOYMENT",schema_version:1,purpose:"AUTHORIZATION_SNAPSHOT",environment:"PREPRODUCTION",issuer:"https://central.example.test",authority_id:"MAIN_SAS_TEST",recipient,generation:2,complete:true,issued_at:from,valid_from:from,valid_until:until,
+    const claims:AuthorizationTrustClaims={profile:"CAMACHO_SAS_TRUST_V1",mode:"DEPLOYMENT",schema_version:1,purpose:"AUTHORIZATION_SNAPSHOT",environment:"PREPRODUCTION",issuer,authority_id:"MAIN_SAS_TEST",recipient,generation:2,complete:true,issued_at:from,valid_from:from,valid_until:until,
       keys:[{key_id:"MAIN_SAS_TEST_KEY",purpose:"AUTHORIZATION_SNAPSHOT",public_key_pem:sas.publicKey.export({type:"spki",format:"pem"}).toString(),status:"ACTIVE",version:1,valid_from:from,valid_until:until}]};
     writeFileSync(artifact,JSON.stringify(trustArtifact(root,operational,1,"ACTIVE")));
     writeFileSync(sasArtifact,JSON.stringify({claims,signature:sign(null,unsignedAuthorizationTrustBytes(claims),sasRoot.privateKey).toString("base64url")}));
     writeFileSync(provision,JSON.stringify({version:1,environment:"PREPRODUCTION",issuer:claims.issuer,authority_id:claims.authority_id,recipient,minimum_generation:2,
       root_public_key_pem:sasRoot.publicKey.export({type:"spki",format:"pem"}).toString(),root_spki_sha256:createHash("sha256").update(sasRoot.publicKey.export({type:"spki",format:"der"})).digest("hex"),
-      artifact_path:sasArtifact,refresh_interval_ms:60_000,clock_rollback_tolerance_ms:0}));
+      artifact_path:sasArtifact,refresh_interval_ms:60_000,clock_rollback_tolerance_ms:0,...(mode==="https"?{remote:{transport_token_file:tokenFile,timeout_ms:10_000}}:{})}));
     let service:ChildProcessWithoutNullStreams|undefined;
     try{
-      for(let restart=0;restart<2;restart++){
+      let rolloverRoot:ReturnType<typeof generateKeyPairSync>|undefined;
+      for(let restart=0;restart<(mode==="https"?3:2);restart++){
+        if(mode==="https"&&restart===1){
+          rolloverRoot=generateKeyPairSync("ed25519");
+          const fp=(key:typeof sasRoot.publicKey)=>createHash("sha256").update(key.export({type:"spki",format:"der"})).digest("hex");
+          const transitionClaims={profile:"CAMACHO_SAS_ROOT_TRANSITION_V1" as const,purpose:"AUTHORIZATION_TRUST_ROOT_TRANSITION" as const,issuer,authority_id:claims.authority_id,environment:"PREPRODUCTION" as const,recipient,
+            old_root_spki_sha256:fp(sasRoot.publicKey),new_root_spki_sha256:fp(rolloverRoot.publicKey),new_root_public_key_pem:rolloverRoot.publicKey.export({type:"spki",format:"pem"}).toString(),next_minimum_generation:3,issued_at:from,expires_at:until};
+          const bytes=unsignedAuthorizationRootTransitionBytes(transitionClaims),nextClaims={...claims,generation:3};
+          writeFileSync(sasArtifact,JSON.stringify({transition:{claims:transitionClaims,old_signature:sign(null,bytes,sasRoot.privateKey).toString("base64url"),new_signature:sign(null,bytes,rolloverRoot.privateKey).toString("base64url")},bundle:{claims:nextClaims,signature:sign(null,unsignedAuthorizationTrustBytes(nextClaims),rolloverRoot.privateKey).toString("base64url")}}));
+        }
+        if(mode==="https"&&restart===2){
+          const nextClaims={...claims,generation:4};writeFileSync(sasArtifact,JSON.stringify({claims:nextClaims,signature:sign(null,unsignedAuthorizationTrustBytes(nextClaims),rolloverRoot!.privateKey).toString("base64url")}));
+        }
         let output="";service=spawnService(join(import.meta.dirname,".."),dir,root.publicKey.export({type:"spki",format:"pem"}).toString(),artifact,
-          {POS_CENTRAL_BASE_URL:claims.issuer,POS_AUTHORIZATION_TRUST_PROVISION_FILE:provision});
+          {POS_CENTRAL_BASE_URL:claims.issuer,POS_AUTHORIZATION_TRUST_PROVISION_FILE:provision,...(mode==="https"?{NODE_EXTRA_CA_CERTS:certFile}:{})});
         service.stdout.on("data",chunk=>{output+=String(chunk);});
         await waitForRuntime(service);
         const events=output.split("\n").filter(line=>line.includes("authorization_trust.updated")).map(line=>JSON.parse(line));
         expect(events).toHaveLength(1);expect(events[0].fields).toMatchObject({decision:"VALID",key_count:1});
         await stopService(service);service=undefined;
       }
-    }finally{if(service)await stopService(service);rmSync(dir,{recursive:true,force:true});}
+      if(mode==="https")expect(requests).toBeGreaterThanOrEqual(3);
+    }finally{if(service)await stopService(service);if(server){server.closeAllConnections();await new Promise<void>(resolve=>server!.close(()=>resolve()));}rmSync(dir,{recursive:true,force:true});}
   },120_000);
   it("boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation", async () => {
     const root = generateKeyPairSync("ed25519");

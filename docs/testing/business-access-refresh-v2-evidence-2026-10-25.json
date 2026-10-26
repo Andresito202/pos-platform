@@ -1,0 +1,37 @@
+﻿{
+    "source_commit":  "a58be77f7b1ccc36c072eb2b5dad5e2122aca11f",
+    "scope":  "Preserved access/refresh V2 WIP evidence; prior observed reports, not whole-suite rerun",
+    "functional_distinct_passed":  77,
+    "reports":  [
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/bound-access-refresh-v2-final.json",
+                        "sha256":  "6c3d9a92f244752b83d5dad8bab95abc7212fa579c2ef12d7e9bbb59e77ce5d9",
+                        "passed":  35,
+                        "failed":  0,
+                        "skipped_by_filter":  170
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/refresh-v2-custody-final.json",
+                        "sha256":  "d6620a17d07e659dc32a23159d81f136c4e19da8a6fb90981fdab6297fec64dc",
+                        "passed":  29,
+                        "failed":  0,
+                        "skipped_by_filter":  0
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/refresh-v2-replay-regression.json",
+                        "sha256":  "13b7bcd3c7a3a75572c5574a1a1f1ee11b95482438c52246c2512828cdb26804",
+                        "passed":  8,
+                        "failed":  0,
+                        "skipped_by_filter":  0
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/refresh-v2-security-events.json",
+                        "sha256":  "9098cbe5cfe8167c6e0c5ee3a70364795089cf1138ca0efbf98ccf049d8c199a",
+                        "passed":  5,
+                        "failed":  0,
+                        "skipped_by_filter":  0
+                    }
+                ],
+    "human_certified":  false,
+    "production_certified":  false
+}

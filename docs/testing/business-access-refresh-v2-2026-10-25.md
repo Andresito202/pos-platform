@@ -81,7 +81,10 @@ productivos con abuso y custodia durable de tokens en Service. El proceso main
 central conserva NOT_ACTIVATED y rechaza expresamente la ruta refresh.
 La provisión/rotación real del firmante necesita el custodio y claves auténticos.
 
-Siguen pendientes transición de raíz SAS y transporte remoto de provisión,
+Actualización de continuidad desde `a58be77f`: transición de raíz SAS y transporte
+remoto de provisión implementados y comprobados en Windows; véase
+[evidencia SAS remota](windows-sas-remote-rollover-2026-10-25.md).
+Siguen pendientes el montaje productivo/custodia durable de access-refresh,
 adopción SQL/runner, parámetros operativos, Central HTTPS/DEV-003 auténticos y
 certificación humana/CI. No se presenta una implementación pendiente como una
 mera aprobación externa. Sin cambios visuales, licencias, hardware o Android.

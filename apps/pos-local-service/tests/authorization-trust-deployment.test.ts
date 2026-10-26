@@ -2,15 +2,17 @@ import {createHash,generateKeyPairSync,randomUUID,sign} from "node:crypto";
 import {mkdtempSync,rmSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {afterEach,expect,it} from "vitest";
+import {afterEach,expect,it,vi} from "vitest";
 import {LocalDatabase} from "@pos-platform/database-sqlite";
-import {SignedAuthorizationTrustCandidateSchema,SignedAuthorizationTrustSchema,unsignedAuthorizationTrustBytes,type AuthorizationTrustClaims} from "@pos-platform/contracts";
+import {SignedAuthorizationTrustCandidateSchema,SignedAuthorizationTrustSchema,unsignedAuthorizationTrustBytes,unsignedAuthorizationRootTransitionBytes,type AuthorizationTrustClaims,type SignedAuthorizationRootTransition} from "@pos-platform/contracts";
 import {WindowsDpapiKeyProvider} from "../src/security/windows-dpapi-key-provider.js";
 import {prepareAuthorizationTrustProvisioning} from "../src/security/authorization-trust-provisioning.js";
 import {AuthorizationTrustLifecycle} from "../src/security/authorization-trust-lifecycle.js";
 
 const cleanup:(()=>void)[]=[];
-afterEach(()=>{for(const close of cleanup.splice(0).reverse())close();});
+const io=vi.hoisted(()=>({failRename:false}));
+vi.mock("node:fs",async original=>{const fs=await original<typeof import("node:fs")>();return {...fs,renameSync:(...args:Parameters<typeof fs.renameSync>)=>{if(io.failRename)throw Error("ROLLOVER_ATOMIC_WRITE_FAILURE");return fs.renameSync(...args);}};});
+afterEach(()=>{io.failRename=false;for(const close of cleanup.splice(0).reverse())close();});
 function fixture(){
   const dir=mkdtempSync(join(tmpdir(),"camacho-sas-deployment-")),db=LocalDatabase.open({dataDirectory:dir});
   const root=generateKeyPairSync("ed25519"),key=generateKeyPairSync("ed25519"),keyProvider=new WindowsDpapiKeyProvider(dir);
@@ -80,4 +82,47 @@ it.runIf(process.platform==="win32")("SAS deployment: raised bootstrap floor pre
   const renewed=f.prepare().create();cleanup.push(()=>renewed.destroy());expect(renewed.readKeys().size).toBe(0);
   f.claims.generation=2;f.claims.keys[0]!.status="REVOKED";f.claims.keys[0]!.version=2;f.write();
   await renewed.refresh(new AbortController().signal);expect(renewed.readKeys().get("SAS_DEPLOYMENT_TEST")?.status).toBe("REVOKED");
+});
+function rollover(f:ReturnType<typeof fixture>){
+  const next=generateKeyPairSync("ed25519"),fp=(key:typeof next.publicKey)=>createHash("sha256").update(key.export({type:"spki",format:"der"})).digest("hex");
+  const claims:SignedAuthorizationRootTransition["claims"]={profile:"CAMACHO_SAS_ROOT_TRANSITION_V1",purpose:"AUTHORIZATION_TRUST_ROOT_TRANSITION",issuer:f.provision.issuer,
+    authority_id:f.provision.authority_id,environment:"PREPRODUCTION",recipient:f.recipient,old_root_spki_sha256:fp(f.root.publicKey),new_root_spki_sha256:fp(next.publicKey),
+    new_root_public_key_pem:next.publicKey.export({type:"spki",format:"pem"}).toString(),next_minimum_generation:2,issued_at:"2026-10-25T11:59:00.000Z",expires_at:"2026-10-25T12:01:00.000Z"};
+  const bytes=unsignedAuthorizationRootTransitionBytes(claims),transition={claims,old_signature:sign(null,bytes,f.root.privateKey).toString("base64url"),new_signature:sign(null,bytes,next.privateKey).toString("base64url")};
+  const bundle={claims:{...structuredClone(f.claims),generation:2},signature:""};bundle.signature=sign(null,unsignedAuthorizationTrustBytes(bundle.claims),next.privateKey).toString("base64url");
+  return {next,transition,bundle};
+}
+it.runIf(process.platform==="win32")("SAS rollover: dual-root update is atomic idempotent and survives restart from original pin",async()=>{
+  const f=fixture(),p=f.prepare(),adapter=p.create();await adapter.refresh(new AbortController().signal);
+  const r=rollover(f);writeFileSync(f.artifact,JSON.stringify({transition:r.transition,bundle:r.bundle}));
+  await adapter.refresh(new AbortController().signal);await adapter.refresh(new AbortController().signal);adapter.destroy();
+  const recovered=p.create();cleanup.push(()=>recovered.destroy());expect(recovered.readKeys().size).toBe(1);
+  // Acceptance window can expire without invalidating an already verified chain.
+  f.advance(120_000);expect(recovered.readKeys().size).toBe(1);
+  r.bundle.claims.generation=3;r.bundle.signature=sign(null,unsignedAuthorizationTrustBytes(r.bundle.claims),r.next.privateKey).toString("base64url");
+  writeFileSync(f.artifact,JSON.stringify(r.bundle));await recovered.refresh(new AbortController().signal);
+  f.write();await expect(recovered.refresh(new AbortController().signal)).rejects.toThrow("SAS_ROOT_SIGNATURE_INVALID");
+});
+it.runIf(process.platform==="win32").each(["old signature","new signature","recipient","floor","expired","history"])("SAS rollover: rejects %s without replacing trusted state",async target=>{
+  const f=fixture(),p=f.prepare(),adapter=p.create();cleanup.push(()=>adapter.destroy());await adapter.refresh(new AbortController().signal);
+  const r=rollover(f);
+  if(target==="old signature")r.transition.old_signature="A".repeat(86);
+  if(target==="new signature")r.transition.new_signature="A".repeat(86);
+  if(target==="recipient")r.transition.claims.recipient={...r.transition.claims.recipient,device_id:randomUUID()};
+  if(target==="floor")r.transition.claims.next_minimum_generation=1;
+  if(target==="recipient"||target==="floor"){
+    const bytes=unsignedAuthorizationRootTransitionBytes(r.transition.claims);
+    r.transition.old_signature=sign(null,bytes,f.root.privateKey).toString("base64url");r.transition.new_signature=sign(null,bytes,r.next.privateKey).toString("base64url");
+  }
+  if(target==="expired")f.advance(60_000);
+  if(target==="history"){r.bundle.claims.keys[0]!.version=2;r.bundle.claims.keys[0]!.public_key_pem=generateKeyPairSync("ed25519").publicKey.export({type:"spki",format:"pem"}).toString();r.bundle.signature=sign(null,unsignedAuthorizationTrustBytes(r.bundle.claims),r.next.privateKey).toString("base64url");}
+  writeFileSync(f.artifact,JSON.stringify({transition:r.transition,bundle:r.bundle}));await expect(adapter.refresh(new AbortController().signal)).rejects.toThrow();
+  expect(adapter.readKeys().size).toBe(1);
+  const recovered=p.create();try{expect(recovered.readKeys().size).toBe(1);}finally{recovered.destroy();}
+});
+it.runIf(process.platform==="win32")("SAS rollover: failed atomic replace retains old root and accepts retry",async()=>{
+  const f=fixture(),p=f.prepare(),adapter=p.create();cleanup.push(()=>adapter.destroy());await adapter.refresh(new AbortController().signal);
+  const r=rollover(f);writeFileSync(f.artifact,JSON.stringify({transition:r.transition,bundle:r.bundle}));io.failRename=true;
+  await expect(adapter.refresh(new AbortController().signal)).rejects.toThrow("ROLLOVER_ATOMIC_WRITE_FAILURE");io.failRename=false;
+  const recovered=p.create();try{expect(recovered.readKeys().size).toBe(1);await recovered.refresh(new AbortController().signal);expect(recovered.readKeys().size).toBe(1);}finally{recovered.destroy();}
 });

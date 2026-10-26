@@ -1,10 +1,11 @@
-import { readFileSync } from "node:fs";
+import { lstatSync,readFileSync } from "node:fs";
+import {isAbsolute} from "node:path";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
 import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
-import { SessionTrustPublication } from "./session-trust-publication.js";
+import { SessionTrustPublication,AuthorizationTrustPublication } from "./session-trust-publication.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import {resolveCentralDeploymentConfiguration,verifyCentralTlsIdentity,verifyEnrollmentIssuerKey,verifyCentralRuntimeDatabase,createCentralReadinessProbe} from "./central-deployment-configuration.js";
 import {drainCentralServer} from "./central-server-shutdown.js";
@@ -86,6 +87,19 @@ const sessionTrustPublication = process.env.SESSION_TRUST_ARTIFACT_FILE === unde
 const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FILE === undefined
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
+const sasConfigured=process.env.AUTHORIZATION_TRUST_ARTIFACT_FILE!==undefined||process.env.AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE!==undefined;
+if(sasConfigured&&!deployment)throw Error("SAS_EXPLICIT_CENTRAL_DEPLOYMENT_REQUIRED");
+if(sasConfigured){
+  const path=required("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE");
+  if(!isAbsolute(path))throw Error("SAS_MANAGED_TOKEN_ABSOLUTE_FILE_REQUIRED");
+  const stat=lstatSync(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4096)throw Error("SAS_MANAGED_TOKEN_FILE_REJECTED");
+}
+const authorizationTrustPublication=sasConfigured?new AuthorizationTrustPublication(required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+  {issuer:deployment!.origin,...(deployment!.environment==="LOCAL"?{}:{environment:deployment!.environment})}):null;
+const authorizationTrustTransportToken=sasConfigured?secretFromFile("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE"):null;
+if(authorizationTrustTransportToken!==null&&(authorizationTrustTransportToken.length<32||Buffer.byteLength(authorizationTrustTransportToken)>4096||
+  /[\r\n]/.test(authorizationTrustTransportToken)||constantTimeEqual(authorizationTrustTransportToken,transportToken)||
+  sessionTrustTransportToken!==null&&constantTimeEqual(authorizationTrustTransportToken,sessionTrustTransportToken)))throw Error("SAS_SEPARATE_MANAGED_TRANSPORT_TOKEN_REQUIRED");
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
 if(deployment){try{await verifyCentralRuntimeDatabase(pool);}catch{await pool.end();throw Error("CENTRAL_RUNTIME_DATABASE_REJECTED");}}
 const readiness=deployment?createCentralReadinessProbe(pool,deployment.requestTimeoutMs):null;
@@ -117,27 +131,29 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     else send(response,503,{status:"NOT_READY",service:"central-authority"});return;
   }
 
-  if (request.method === "GET" && request.url === "/v1/session-trust") {
+  if (request.method === "GET" && (request.url === "/v1/session-trust"||request.url==="/v1/authorization-trust")) {
+    const sas=request.url==="/v1/authorization-trust",publication=sas?authorizationTrustPublication:sessionTrustPublication,
+      token=sas?authorizationTrustTransportToken:sessionTrustTransportToken,prefix=sas?"AUTHORIZATION_TRUST":"SESSION_TRUST";
     // Rate-limit before bearer validation so failed token guesses consume the same remote-address budget.
-    if (!limiter.allow(`${remote}:session-trust`)) {
-      send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
+    if (!limiter.allow(`${remote}:${sas?"authorization-trust":"session-trust"}`)) {
+      send(response, 429, { status: "REJECTED", result_code: `${prefix}_RATE_LIMITED`, request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
       return;
     }
     const authorization = request.headers.authorization ?? null;
-    const authorized = sessionTrustPublication !== null
-      && sessionTrustTransportToken !== null
+    const authorized = publication !== null
+      && token !== null
       && authorization !== null
       && authorization.startsWith("Bearer ")
-      && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
+      && constantTimeEqual(authorization.slice(7), token);
     if (!authorized) {
-      send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
+      send(response, 401, { status: "REJECTED", result_code: `${prefix}_UNAUTHORIZED`, request_id: requestId, correlation_id: correlationId });
       return;
     }
     try {
-      const bundle = sessionTrustPublication.load();
+      const bundle = publication.load();
       send(response, 200, bundle, { "x-request-id": requestId, "x-correlation-id": correlationId });
     } catch {
-      send(response, 503, { status: "REJECTED", result_code: "SESSION_TRUST_UNAVAILABLE", request_id: requestId, correlation_id: correlationId });
+      send(response, 503, { status: "REJECTED", result_code: `${prefix}_UNAVAILABLE`, request_id: requestId, correlation_id: correlationId });
     }
     return;
   }

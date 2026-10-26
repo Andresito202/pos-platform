@@ -4,6 +4,17 @@
 
 ## Propósito y autoridad
 
+Continuación desde `a58be77f` (19 archivos WIP conservados íntegros):
+[provisión SAS HTTPS y transición de raíz](../testing/windows-sas-remote-rollover-2026-10-25.md)
+materializadas sobre el store DPAPI y lifecycle existentes. Doble firma, binding
+completo, historial monotónico, reemplazo atómico y recuperación desde el pin
+original; Service real con TLS verificado y Central con PostgreSQL temporal.
+El estado vigente sustituye las menciones inferiores a raíz/provisión pendientes.
+Falta implementación de montaje productivo access/refresh y custodia durable en
+Service; además adopción SQL/runner, parámetros operativos, Central/DEV-003
+auténticos y certificación humana/CI. Login humano no cerrado. Orden vigente:
+login, después licencias (una caja incluida), después rendimiento/caché.
+
 Access/refresh V2 2026-10-25 desde `42c79cd8`: [backend vinculado a familia/dispositivo](../testing/business-access-refresh-v2-2026-10-25.md), sobre owners de access, refresh, DeviceProof/012 y proveedor DPAPI existentes. Canje nativo y renovación con access/familia/auditoría atómicos; pruebas físicas temporales. No endpoints productivos ni migraciones comerciales aplicados. Pendiente montaje productivo/custodia durable Service, transición root y provisión remota SAS, aprobación SQL/runner, parámetros/infraestructura/DEV-003 auténticos y certificación humana. No volver a pedir la aprobación general SAS/access ya registrada; no declarar terminado el login.
 
 SAS/access-refresh Windows aprobados expresamente por el propietario el 2026-10-25 («si autorizado»), sin aprobar valores temporales, infraestructura inventada, SQL global o producción operativa. [Bootstrap SAS de despliegue](../testing/windows-sas-deployment-2026-10-25.md): contrato separado ligado al recipient completo, firmante offline, provisión administrada Service, store DPAPI/historial compartido y montaje en main. Access/refresh productivo sigue pendiente de implementación, ya autorizado; no repetir la petición general. Rotación automática de raíz, descarga HTTPS autenticada y provisión remota no están materializadas. Datos auténticos y certificación humana siguen pendientes.

@@ -2,13 +2,14 @@ import {createHash,createPublicKey} from "node:crypto";
 import {lstatSync,readFileSync} from "node:fs";
 import {isAbsolute} from "node:path";
 import * as z from "zod";
-import {AuthorizationTrustRecipientSchema,SignedAuthorizationTrustSchema} from "@pos-platform/contracts";
+import {AuthorizationTrustRecipientSchema,SignedAuthorizationTrustSchema,AuthorizationTrustDeliverySchema} from "@pos-platform/contracts";
 import type {LocalDatabase} from "@pos-platform/database-sqlite";
 import {AuthorizationTrustStore} from "./authorization-trust-candidate.js";
 import {EncryptedFileSecretStore,type SecretStoreKeyProvider} from "./encrypted-secret-store.js";
 import {TrustedClockGuard} from "./trusted-clock.js";
 import type {TrustedSigningKey} from "./license-verifier.js";
 import type {PrivilegedAuthorizationTrust} from "./authorization-trust-lifecycle.js";
+import {SessionTrustBundleFetcher} from "./session-trust-bundle-fetcher.js";
 
 /** Installer/Service configuration, NEVER a renderer or named-pipe payload.
  * Installer ACLs and out-of-band fingerprint verification remain operator duties.
@@ -22,7 +23,12 @@ const ProvisionSchema=z.strictObject({
   root_spki_sha256:z.string().regex(/^[a-f0-9]{64}$/),
   artifact_path:z.string().refine(isAbsolute),refresh_interval_ms:z.number().int().min(1000).max(2_147_483_647),
   clock_rollback_tolerance_ms:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  remote:z.strictObject({transport_token_file:z.string().refine(isAbsolute),timeout_ms:z.number().int().positive().max(2_147_483_647)}).optional(),
 });
+function readTransportToken(path:string){
+  const stat=lstatSync(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4096)throw Error("SAS_MANAGED_TOKEN_FILE_REJECTED");
+  const token=readFileSync(path,"utf8").trim();if(token.length<32||Buffer.byteLength(token)>4096||/[\r\n]/.test(token))throw Error("SAS_MANAGED_TOKEN_REJECTED");return token;
+}
 function readManagedJson(path:string):unknown{
   if(!isAbsolute(path))throw Error("SAS_MANAGED_ABSOLUTE_FILE_REQUIRED");
   const stat=lstatSync(path);
@@ -51,7 +57,10 @@ export function prepareAuthorizationTrustProvisioning(input:{
         readKeys:()=>destroyed?new Map():store.resolve(),
         refresh:async(signal:AbortSignal)=>{
           signal.throwIfAborted();if(destroyed)throw Error("SAS_PROVISIONING_CLOSED");
-          const artifact=readManagedJson(p.artifact_path);signal.throwIfAborted();store.install(artifact);
+          const artifact=p.remote?await new SessionTrustBundleFetcher().fetchAuthorization(new URL("/v1/authorization-trust",p.issuer).href,
+            readTransportToken(p.remote.transport_token_file),p.remote.timeout_ms,signal):AuthorizationTrustDeliverySchema.parse(readManagedJson(p.artifact_path));
+          signal.throwIfAborted();
+          if("transition" in artifact)store.installRootTransition(artifact.transition,artifact.bundle);else store.install(artifact);
         },destroy:()=>{destroyed=true;secrets.destroy();}};
     }catch(error){secrets.destroy();throw error;}
   }};

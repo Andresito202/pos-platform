@@ -1,7 +1,7 @@
-import { generateKeyPairSync, verify } from "node:crypto";
+import {createHash, generateKeyPairSync, verify } from "node:crypto";
 import { expect, it } from "vitest";
-import { unsignedAuthorizationTrustCandidateBytes,unsignedAuthorizationTrustBytes } from "@pos-platform/contracts";
-import { signIsolatedAuthorizationTrust,signAuthorizationTrust } from "../src/isolated-authorization-trust.js";
+import { unsignedAuthorizationTrustCandidateBytes,unsignedAuthorizationTrustBytes,unsignedAuthorizationRootTransitionBytes } from "@pos-platform/contracts";
+import { signIsolatedAuthorizationTrust,signAuthorizationTrust,signAuthorizationRootTransition } from "../src/isolated-authorization-trust.js";
 
 it("Central signs the entire DEC-011 laboratory candidate and refuses a production profile or public signer", () => {
   const root = generateKeyPairSync("ed25519"), key = generateKeyPairSync("ed25519");
@@ -18,6 +18,13 @@ it("Central signs the entire DEC-011 laboratory candidate and refuses a producti
   expect(()=>signIsolatedAuthorizationTrust(deploymentClaims,root.privateKey)).toThrow();
   expect(()=>signAuthorizationTrust(claims,root.privateKey)).toThrow();
   expect(()=>signAuthorizationTrust(deploymentClaims,root.publicKey)).toThrow("SAS_ROOT_PRIVATE_ED25519_REQUIRED");
+  const nextRoot=generateKeyPairSync("ed25519"),fp=(key:typeof root.publicKey)=>createHash("sha256").update(key.export({type:"spki",format:"der"})).digest("hex");
+  const transitionClaims={profile:"CAMACHO_SAS_ROOT_TRANSITION_V1",purpose:"AUTHORIZATION_TRUST_ROOT_TRANSITION",issuer:deploymentClaims.issuer,authority_id:deploymentClaims.authority_id,
+    environment:"PREPRODUCTION",recipient:deploymentClaims.recipient,old_root_spki_sha256:fp(root.publicKey),new_root_spki_sha256:fp(nextRoot.publicKey),new_root_public_key_pem:nextRoot.publicKey.export({type:"spki",format:"pem"}).toString(),next_minimum_generation:2,issued_at:claims.issued_at,expires_at:claims.valid_until};
+  const transition=signAuthorizationRootTransition(transitionClaims,root.privateKey,nextRoot.privateKey),bytes=unsignedAuthorizationRootTransitionBytes(transition.claims);
+  expect(verify(null,bytes,root.publicKey,Buffer.from(transition.old_signature,"base64url"))).toBe(true);
+  expect(verify(null,bytes,nextRoot.publicKey,Buffer.from(transition.new_signature,"base64url"))).toBe(true);
+  expect(()=>signAuthorizationRootTransition({...transitionClaims,new_root_spki_sha256:"0".repeat(64)},root.privateKey,nextRoot.privateKey)).toThrow("SAS_ROOT_TRANSITION_SIGNERS_MISMATCH");
   expect(verify(null, unsignedAuthorizationTrustCandidateBytes(bundle.claims), root.publicKey, Buffer.from(bundle.signature, "base64url"))).toBe(true);
   bundle.claims.generation++;
   expect(verify(null, unsignedAuthorizationTrustCandidateBytes(bundle.claims), root.publicKey, Buffer.from(bundle.signature, "base64url"))).toBe(false);
