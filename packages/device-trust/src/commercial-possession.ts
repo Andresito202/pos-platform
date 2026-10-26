@@ -2,7 +2,7 @@ import {createHash,verify,type KeyObject} from "node:crypto";
 import {canonicalSessionTrustJson,UuidSchema} from "@pos-platform/contracts";
 import {deviceRequestProofBytes,parseDeviceRequestAuthorization} from "./request-proof.js";
 
-const paths={SESSION_ASSERTION:"/v1/business-session/assertions",AUTHORIZATION_SNAPSHOT:"/v1/business-session/authorization",REFRESH:"/v1/commercial/refresh"} as const;
+const paths={SESSION_ASSERTION:"/v1/business-session/assertions",AUTHORIZATION_SNAPSHOT:"/v1/business-session/authorization",REFRESH:"/v1/commercial/refresh",REVOKE:"/v1/commercial/revoke"} as const;
 export interface CommercialPossessionContext{
   readonly operation:keyof typeof paths;readonly origin:string;readonly audience:string;readonly clientId:string;
   readonly tenantId:string;readonly installationId:string;readonly deviceId:string;readonly credentialId:string;
@@ -22,7 +22,7 @@ export function commercialPossessionChallenge(c:CommercialPossessionContext,f:{t
     body:c.body,credentialId:c.credentialId,timestamp:f.timestamp,nonce:f.nonce});
   return createHash("sha256").update("POS-COMMERCIAL-POSSESSION-V2\n").update(canonicalSessionTrustJson({
     origin:c.origin,audience:c.audience,client_id:c.clientId,tenant_id:c.tenantId,installation_id:c.installationId,device_id:c.deviceId,
-    token_kind:c.operation==="REFRESH"?"REFRESH":"ACCESS",token_hash:createHash("sha256").update(c.token).digest("hex"),request:request.toString("base64url"),
+    token_kind:c.operation==="REFRESH"||c.operation==="REVOKE"?"REFRESH":"ACCESS",token_hash:createHash("sha256").update(c.token).digest("hex"),request:request.toString("base64url"),
   })).digest();
 }
 export function parseCommercialPossession(value:string){

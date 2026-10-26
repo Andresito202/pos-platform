@@ -1,6 +1,6 @@
 import {afterAll,beforeAll,expect,it} from "vitest";
 import {createPostgresPool,PostgresCommercialDeploymentContext,assertCommercialDeployment,type Pool} from "@pos-platform/database-postgres";
-import {uuidV7,CommercialHttpV2} from "@pos-platform/contracts";
+import {uuidV7,CommercialHttpV2,PlatformSecurityEventCode} from "@pos-platform/contracts";
 import {createHash,generateKeyPairSync,randomBytes,sign} from "node:crypto";
 import {execFileSync} from "node:child_process";
 import {mkdtemp,readFile,writeFile,rm} from "node:fs/promises";
@@ -137,7 +137,22 @@ it.runIf(Boolean(serverUrl))("deployment composition: canonical runner, password
   const refresh={grant_type:"refresh_token",refresh_token:pair.body.refreshToken,client_id:registration.clientId};
   const rotated=await post("/v1/commercial/refresh",refresh,possession("REFRESH",pair.body.refreshToken,refresh));expect(rotated.status).toBe(200);
   expect(rotated.body.refreshToken).not.toBe(pair.body.refreshToken);
-  const signedOut=await post("/v1/commercial/browser/logout",{}, {...browserHeaders,cookie:login.cookie!,"x-csrf-token":login.body.csrfToken});expect(signedOut.status).toBe(200);
+  const revoke={client_id:registration.clientId,refresh_token:rotated.body.refreshToken};
+  expect((await post("/v1/commercial/revoke",revoke,possession("REFRESH",rotated.body.refreshToken,revoke))).status).toBe(401);
+  await owner.query(`CREATE FUNCTION identity.reject_native_logout_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.event_code='${PlatformSecurityEventCode.SESSION_REVOKED}' THEN RAISE EXCEPTION 'LOGOUT_AUDIT_FIXTURE'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER reject_native_logout_fixture BEFORE INSERT ON identity.security_events FOR EACH ROW EXECUTE FUNCTION identity.reject_native_logout_fixture()`);
+  const failedProof=possession("REVOKE",rotated.body.refreshToken,revoke);
+  try{
+    expect((await post("/v1/commercial/revoke",revoke,failedProof)).status).toBe(503);
+    expect((await owner.query("SELECT revoked_at FROM identity.sessions WHERE id=$1",[claims.sid])).rows[0].revoked_at).toBeNull();
+    expect((await owner.query("SELECT count(*)::int AS n FROM identity.session_refresh_tokens WHERE session_id=$1 AND revoked_at IS NOT NULL",[claims.sid])).rows[0].n).toBe(0);
+  }finally{await owner.query("DROP TRIGGER reject_native_logout_fixture ON identity.security_events; DROP FUNCTION identity.reject_native_logout_fixture()");}
+  expect((await post("/v1/commercial/revoke",revoke,failedProof)).status).toBe(401);
+  const freshProof=possession("REVOKE",rotated.body.refreshToken,revoke);
+  const signedOut=await post("/v1/commercial/revoke",revoke,freshProof);expect(signedOut.status).toBe(200);
+  expect((await post("/v1/commercial/revoke",revoke,freshProof)).status).toBe(401);
+  expect((await post("/v1/commercial/revoke",revoke,possession("REVOKE",rotated.body.refreshToken,revoke))).status).toBe(200);
   expect((await post("/v1/business-session/assertions",body,{...possession("SESSION_ASSERTION",rotated.body.access,body),[CommercialHttpV2.accessHeader]:rotated.body.access})).status).toBe(401);
 },30000);
 it.runIf(Boolean(serverUrl))("deployment capability rejects serialized context, wrong pool, schema drift and missing policies",async()=>{

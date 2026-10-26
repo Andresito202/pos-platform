@@ -1,6 +1,7 @@
 import {createHash,randomBytes} from "node:crypto";
 import type {Pool,PoolClient} from "pg";
-import {PlatformSecurityEventCode,UuidSchema,uuidV7,CommercialRefreshRequestSchema} from "@pos-platform/contracts";
+import {PlatformSecurityEventCode,UuidSchema,uuidV7,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema} from "@pos-platform/contracts";
+import {PostgresBusinessSessionRevocationTransaction} from "./business-session-revocation-transaction.js";
 import type {CommercialPossessionContext} from "@pos-platform/device-trust";
 import {PostgresCommercialPossessionVerifier,type DeviceProofRequest} from "./device-proof-replay-verifier.js";
 import {BUSINESS_SSA_ELIGIBILITY_SQL} from "./business-session-ssa-eligibility-repository.js";
@@ -36,6 +37,22 @@ export class PostgresCommercialRefreshFamilies{
   }
   acceptsClient(clientId:string){return clientId===this.policy.clientId;}
   matchesRegistration(origin:string,audience:string,clientId:string){return origin===this.policy.origin&&audience===this.policy.audience&&clientId===this.policy.clientId;}
+  /** A hash is only a lookup. Fresh possession of the exact enrolled credential
+   * is mandatory even for revocation. Reuse the canonical session/family writer
+   * and its session-first lock order; no nested transaction or parallel owner. */
+  async revoke(raw:string,input:DeviceProofRequest){
+    try{const r=CommercialRevokeRequestSchema.parse(JSON.parse(input.body));if(r.refresh_token!==raw||r.client_id!==this.policy.clientId)return null;}catch{return null;}
+    const row=(await this.pool.query<Row>("SELECT * FROM identity.session_refresh_tokens WHERE token_hash=$1 AND client_id=$2 AND issuer_origin=$3 AND audience=$4",[hash(raw),this.policy.clientId,this.policy.origin,this.policy.audience])).rows[0];
+    if(!row)return null;
+    const context:CommercialPossessionContext={operation:"REVOKE",origin:this.policy.origin,audience:this.policy.audience,clientId:this.policy.clientId,
+      tenantId:row.tenant_id,installationId:row.installation_id,deviceId:row.device_id,credentialId:row.credential_id,token:raw,requestId:input.requestId,correlationId:input.correlationId,body:input.body};
+    if(!await this.proofs.verifyRevokeAndConsume(input,context,this.policy.maximumProofSkewMs))return null;
+    const session=(await this.pool.query<{user_id:string;tenant_membership_id:string;authenticated_at:Date;expires_at:Date}>(
+      "SELECT user_id::text,tenant_membership_id::text,authenticated_at,expires_at FROM identity.sessions WHERE id=$1 AND tenant_id=$2 AND tenant_membership_id IS NOT NULL AND device_id IS NULL",[row.session_id,row.tenant_id])).rows[0];
+    if(!session)return null;
+    return new PostgresBusinessSessionRevocationTransaction(this.pool).revokeOwn({sessionId:row.session_id,tenantId:row.tenant_id,userId:session.user_id,
+      tenantMembershipId:session.tenant_membership_id,authenticatedAt:session.authenticated_at.toISOString(),expiresAt:session.expires_at.toISOString()},input.correlationId);
+  }
   /** Canonical revalidation for a signed access credential. Does not verify
    * possession or grant permissions by itself. Caller owns transaction. */
   async currentFamilyInTransaction(c:PoolClient,familyId:string){

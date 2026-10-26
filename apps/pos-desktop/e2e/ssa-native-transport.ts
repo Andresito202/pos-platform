@@ -6,6 +6,7 @@ import {SignedSessionAssertionSchema} from "@pos-platform/contracts";
 export {uuidV7} from "@pos-platform/contracts";
 export {beginServiceBackedNativeLogin} from "../src/native-commercial-service-login.js";
 export {NativeBusinessCredentialVault} from "../src/native-business-login.js";
+export {DesktopCommercialAccount} from "../src/commercial-account.js";
 
 /** Test driver reuses production DPAPI + channel + main delivery; no new IPC. */
 export async function openNativeServiceChannel(){

@@ -168,10 +168,10 @@ export async function prepareCommercialHttpHandler(input:{
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
           (!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
-              ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh"]:[]),
+              ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh","/v1/commercial/revoke"]:[]),
               ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        const nativeRoute=tokenRoute||req.url==="/v1/commercial/refresh"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
+        const nativeRoute=tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
         if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
@@ -203,6 +203,10 @@ export async function prepareCommercialHttpHandler(input:{
         if(native?.codec instanceof CommercialBusinessAccessAuthority&&req.url==="/v1/commercial/refresh"){
           const rotated=await native.codec.refresh(o.refresh_token as string,proof());
           if(!rotated||rotated.status!=="ROTATED")throw new Rejection(401);send(res,200,rotated);return;
+        }
+        if(native?.codec instanceof CommercialBusinessAccessAuthority&&req.url==="/v1/commercial/revoke"){
+          if(!await native.codec.revoke(o.refresh_token as string,proof()))throw new Rejection(401);
+          send(res,200,{status:"SIGNED_OUT"});return;
         }
         if(native&&input.authorizationIssuer&&req.url==="/v1/business-session/authorization"){
           const access=req.headers[accessHeader];

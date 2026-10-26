@@ -20,11 +20,14 @@ export const NativeCommercialCancelRequestSchema=request(z.strictObject({attempt
   .safeExtend({...metadata,message_type:z.literal("commercial.native.cancel")});
 export const NativeCommercialCommitRequestSchema=request(z.strictObject({attempt_id:opaque}))
   .safeExtend({...metadata,message_type:z.literal("commercial.native.commit")});
+export const NativeCommercialLogoutRequestSchema=request(z.strictObject({}))
+  .safeExtend({...metadata,message_type:z.literal("commercial.native.logout")});
 export const NativeCommercialResponseSchema=createResponseEnvelopeSchema(z.strictObject({
-  outcome:z.enum(["PREPARED","VERIFIED","ACTIVATED","CANCELLED","DENIED"]),
+  outcome:z.enum(["PREPARED","VERIFIED","ACTIVATED","CANCELLED","SIGNED_OUT","SIGNED_OUT_LOCAL","DENIED"]),
   attempt_id:opaque.nullable(),authorization_url:z.url().startsWith("https://").max(2048).nullable(),
 }));
 export const NativeCommercialRequestSchema=z.discriminatedUnion("message_type",[
   NativeCommercialBeginRequestSchema,NativeCommercialCompleteRequestSchema,NativeCommercialCancelRequestSchema,NativeCommercialCommitRequestSchema,
+  NativeCommercialLogoutRequestSchema,
 ]);
 export type NativeCommercialRequest=z.infer<typeof NativeCommercialRequestSchema>;

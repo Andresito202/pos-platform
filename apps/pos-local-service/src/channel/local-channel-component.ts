@@ -111,6 +111,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "commercial.native.complete":
       case "commercial.native.commit":
       case "commercial.native.cancel":
+      case "commercial.native.logout":
         if(this.nativeCommercial)return this.nativeCommercial.handle(request,context.connectionId,signal);
         return {protocol_version:request.protocol_version,request_id:request.request_id,correlation_id:request.correlation_id,
           operation_id:null,status:"REJECTED",result_code:"DENIED",result_schema_version:"1.0.0",server_time:new Date().toISOString(),

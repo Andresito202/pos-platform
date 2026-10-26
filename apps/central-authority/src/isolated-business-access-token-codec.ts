@@ -150,6 +150,7 @@ export class CommercialBusinessAccessAuthority{
   async refresh(raw:string,input:DeviceProofRequest){
     return this.families.rotate(raw,input,(c,familyId)=>this.issueInTransaction(c,familyId,input.correlationId));
   }
+  revoke(raw:string,input:DeviceProofRequest){return this.families.revoke(raw,input);}
   async verifyAndConsume(token:string,input:DeviceProofRequest,operation:"SESSION_ASSERTION"|"AUTHORIZATION_SNAPSHOT"){
     let claims:CommercialAccessClaims;
     try{

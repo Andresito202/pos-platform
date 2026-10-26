@@ -44,6 +44,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "commercial.native.complete":NativeCommercialResponseSchema,
   "commercial.native.cancel":NativeCommercialResponseSchema,
   "commercial.native.commit":NativeCommercialResponseSchema,
+  "commercial.native.logout":NativeCommercialResponseSchema,
   "hardware.command": HardwareResponseSchema,
   "runtime.handshake": RuntimeHandshakeResponseSchema,
   "runtime.status.get": RuntimeStatusResponseSchema,

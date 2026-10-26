@@ -4,6 +4,16 @@
 
 ## Propósito y autoridad
 
+2026-10-26: [cierre técnico Windows](../testing/windows-login-closure-2026-10-26.md).
+Montaje Central canónico, entrada Electron main y logout nativo materializados y
+probados localmente. Sustituye las menciones inferiores a esos huecos pendientes;
+no certifica producción ni una persona. SQL global/runner adoptado con timeout
+obligatorio y sin DDL productivo esta sesión. Restan infraestructura auténtica,
+DEV-003, valores operativos, instalación/certificación humana y CI restablecido.
+La nueva orden del propietario habilita continuar piezas independientes de
+licencias y después rendimiento; se conserva una caja incluida y precios bajo
+autoridad backend. No se activan grants o pagos ficticios.
+
 2026-10-26 desde `a2d858c9`: [montaje Service Windows y runner](../testing/windows-runtime-runner-2026-10-26.md).
 Decisión expresa: adoptar bloqueo global RBAC con timeout obligatorio, sin UPDATE
 general y sin DDL productivo en esta sesión. Artefactos 014/015/016 registrados

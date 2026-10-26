@@ -173,11 +173,12 @@ async function coordinatedFixture(v2=false){
   const transport:NativeCommercialCentralTransport={post:async(path,body,headers,signal)=>{
     paths.push(path);if(hook)await hook(path);if(signal.aborted)throw Error("ABORTED");
     if(path.endsWith("native-request-challenges"))return {challenge_id:uuidV7(),challenge:randomBytes(32).toString("base64url"),expires_at:until};
-    if(v2&&(path.endsWith("/assertions")||path.endsWith("/authorization")||path.endsWith("/refresh"))){
-      const refresh=path.endsWith("/refresh"),operation=refresh?"REFRESH":path.endsWith("/assertions")?"SESSION_ASSERTION":"AUTHORIZATION_SNAPSHOT";
+    if(v2&&(path.endsWith("/assertions")||path.endsWith("/authorization")||path.endsWith("/refresh")||path.endsWith("/revoke"))){
+      const refresh=path.endsWith("/refresh"),revoke=path.endsWith("/revoke"),operation=revoke?"REVOKE":refresh?"REFRESH":path.endsWith("/assertions")?"SESSION_ASSERTION":"AUTHORIZATION_SNAPSHOT";
       expect(verifyCommercialPossession(headers.authorization!,{operation,origin:registration.authorizationOrigin,audience:"ACCESS_TEST",clientId:registration.clientId,
         tenantId:f.binding.tenantId,installationId:f.binding.installationId,deviceId:f.binding.deviceId,credentialId:f.result.credential_id!,
-        token:refresh?JSON.parse(body).refresh_token:currentTokens.accessToken,body,requestId:headers["x-request-id"]!,correlationId:headers["x-correlation-id"]!},createPublicKey(f.identity().publicKeyPem()),new Date(),30_000)).toBe(true);
+        token:refresh||revoke?JSON.parse(body).refresh_token:currentTokens.accessToken,body,requestId:headers["x-request-id"]!,correlationId:headers["x-correlation-id"]!},createPublicKey(f.identity().publicKeyPem()),new Date(),30_000)).toBe(true);
+      if(revoke)return {status:"SIGNED_OUT"};
       if(refresh){currentTokens=tokens();assertion.claims.sequence++;snapshot.claims.sequence++;
         assertion.signature=artifact(assertion.claims,ssa.privateKey).signature;snapshot.signature=artifact(snapshot.claims,sas.privateKey).signature;
         return {status:"ROTATED",access:currentTokens.accessToken,refreshToken:currentTokens.refreshToken};}
@@ -206,6 +207,27 @@ async function coordinatedFixture(v2=false){
 }
 
 describe.runIf(process.platform==="win32")("privileged native coordinator",()=>{
+  it.each(["online","offline"])("native logout: %s closes all bindings, burns DPAPI custody and prevents recovery/replay after restart",async mode=>{
+    const f=await coordinatedFixture(true),id=await f.begin();await f.complete(id);await f.call("commercial.native.commit",{attempt_id:id});
+    f.commercial.bindings.bind("renderer",f.commercial.bindings.resolve("owner")!);
+    expect((await f.call("commercial.native.logout",{},"unbound")).result?.outcome).toBe("DENIED");
+    if(mode==="offline")f.hook(async path=>{if(path.endsWith("/revoke"))throw Error("NETWORK_LOST");});
+    expect((await f.call("commercial.native.logout",{})).result?.outcome).toBe(mode==="online"?"SIGNED_OUT":"SIGNED_OUT_LOCAL");
+    expect(f.commercial.bindings.size).toBe(0);expect(JSON.parse(f.store!.read("commercial-credentials-v2").toString()).state).toBe("CLOSED");
+    expect(f.commercial.sessionStore.loadActiveByDevice(f.binding.installationId,f.binding.deviceId).kind).toBe("NONE");
+    expect(()=>f.commercial.activateNativeAuthorization(f.assertion,f.snapshot,"replayed")).toThrow("LOCAL_BUSINESS_SESSION_CLOSED");
+    expect(f.database.database.native.prepare("SELECT count(*) AS n FROM local_session_assertion").get()).toEqual({n:1});
+    await f.restart();expect(f.commercial.sessionStore.loadActiveByDevice(f.binding.installationId,f.binding.deviceId).kind).toBe("NONE");
+    expect(await f.createCoordinator().renewAuthorization("owner",new AbortController().signal)).toBe(false);
+  },60000);
+  it("native logout: audit failure is denied without reporting a completed logout",async()=>{
+    const f=await coordinatedFixture(true),id=await f.begin();await f.complete(id);await f.call("commercial.native.commit",{attempt_id:id});
+    f.database.database.native.exec("CREATE TRIGGER reject_logout_audit BEFORE INSERT ON local_security_audit WHEN NEW.event_type='BUSINESS_SESSION_CLOSED' BEGIN SELECT RAISE(ABORT,'LOGOUT_AUDIT_FAILURE'); END");
+    expect((await f.call("commercial.native.logout",{})).result?.outcome).toBe("DENIED");
+    expect(f.commercial.bindings.resolve("owner")).not.toBeNull();expect(f.paths.some(p=>p.endsWith("/revoke"))).toBe(false);
+    f.database.database.native.exec("DROP TRIGGER reject_logout_audit");
+    expect((await f.call("commercial.native.logout",{})).result?.outcome).toBe("SIGNED_OUT");
+  },60000);
   it("deployment renewal hook waits for its explicit lead time and renews only a bound session",async()=>{
     const f=await coordinatedFixture(true),id=await f.begin();await f.complete(id);await f.call("commercial.native.commit",{attempt_id:id});
     expect(await f.coordinator.renewIfDue("owner",new AbortController().signal,30_000)).toBe("NOT_DUE");

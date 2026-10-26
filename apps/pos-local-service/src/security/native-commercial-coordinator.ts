@@ -7,7 +7,7 @@ import {CommercialDeviceCredentialProvider} from "./commercial-device-credential
 import {NativeCommercialHttps} from "./native-commercial-https.js";
 
 export type NativeCentralPath="/v1/commercial/native-request-challenges"|"/v1/commercial/native-requests"|
-  "/v1/commercial/token"|"/v1/commercial/refresh"|"/v1/business-session/assertions"|"/v1/business-session/authorization";
+  "/v1/commercial/token"|"/v1/commercial/refresh"|"/v1/commercial/revoke"|"/v1/business-session/assertions"|"/v1/business-session/authorization";
 export interface NativeCommercialCentralTransport {
   post(path:NativeCentralPath,body:string,headers:Readonly<Record<string,string>>,signal:AbortSignal):Promise<unknown>;
 }
@@ -40,7 +40,7 @@ export class NativeCommercialCoordinator {
   stop(){for(const id of this.attempts.keys())this.release(id);}
   async handle(raw:unknown,connectionId:string,signal:AbortSignal){
     const r=NativeCommercialRequestSchema.parse(raw);
-    const reply=(outcome:"PREPARED"|"VERIFIED"|"ACTIVATED"|"CANCELLED"|"DENIED",id:string|null=null,url:string|null=null)=>NativeCommercialResponseSchema.parse({
+    const reply=(outcome:"PREPARED"|"VERIFIED"|"ACTIVATED"|"CANCELLED"|"SIGNED_OUT"|"SIGNED_OUT_LOCAL"|"DENIED",id:string|null=null,url:string|null=null)=>NativeCommercialResponseSchema.parse({
       protocol_version:r.protocol_version,request_id:r.request_id,correlation_id:r.correlation_id,operation_id:null,
       status:outcome==="DENIED"?"REJECTED":"SUCCEEDED",result_code:outcome,result_schema_version:"1.0.0",server_time:new Date(this.now()).toISOString(),
       error:outcome==="DENIED"?{code:"NATIVE_COMMERCIAL_DENIED",category:"AUTHORIZATION",retryable:false,user_message_key:"native.commercial.denied",
@@ -48,6 +48,7 @@ export class NativeCommercialCoordinator {
     let current:Attempt|undefined;
     try{
       if(!connectionId||signal.aborted)throw Error("NATIVE_CHANNEL_REQUIRED");
+      if(r.message_type==="commercial.native.logout")return reply(await this.logout(connectionId,signal));
       if(r.message_type==="commercial.native.begin"){
         const prior=this.attempts.get(connectionId);if(prior&&prior.expires>this.now())throw Error("NATIVE_ATTEMPT_EXISTS");
         this.release(connectionId);this.commercial.bindings.release(connectionId);this.clearCredentials();
@@ -102,6 +103,26 @@ export class NativeCommercialCoordinator {
       if(current&&this.attempts.get(connectionId)===current)this.release(connectionId);
       return reply("DENIED");
     }
+  }
+  private async logout(connectionId:string,signal:AbortSignal):Promise<"SIGNED_OUT"|"SIGNED_OUT_LOCAL"|"DENIED">{
+    const bound=this.commercial.bindings.resolve(connectionId);if(!bound)return "DENIED";
+    let saved:{state?:string;refreshToken?:string;credentialId?:string;ssa?:{claims?:{session_id?:string}}}|undefined;
+    try{if(this.custody?.store.has("commercial-credentials-v2")){
+      const bytes=this.custody.store.read("commercial-credentials-v2");try{saved=JSON.parse(bytes.toString("utf8"));}finally{bytes.fill(0);}
+    }}catch{/* Corrupt custody cannot preserve local authorization on logout. */}
+    // Audit first: if it fails, no success is returned. Retained SSA watermarks
+    // and the tombstone prevent recovery/replay even after process restart.
+    if(this.commercial.closeNativeSession(connectionId)!==bound.ssaSessionId)return "DENIED";
+    this.stop();this.clearCredentials();
+    if(!this.policy.accessV2||saved?.state!=="READY"||saved.ssa?.claims?.session_id!==bound.ssaSessionId||!saved.refreshToken)return "SIGNED_OUT_LOCAL";
+    try{
+      if(saved.credentialId!==this.signer.requireVerifiedCredentialId())return "SIGNED_OUT_LOCAL";
+      const body=JSON.stringify({client_id:this.registration.clientId,refresh_token:saved.refreshToken}),requestId=uuidV7(),correlationId=uuidV7();
+      const authorization=await this.signer.revokePossession({origin:this.registration.authorizationOrigin,audience:this.policy.accessV2.audience,
+        clientId:this.registration.clientId,token:saved.refreshToken,body,requestId,correlationId});
+      const response=await this.transport.post("/v1/commercial/revoke",body,{authorization,"x-request-id":requestId,"x-correlation-id":correlationId},signal) as {status?:string};
+      return response.status==="SIGNED_OUT"?"SIGNED_OUT":"SIGNED_OUT_LOCAL";
+    }catch{return "SIGNED_OUT_LOCAL";}
   }
   private clearCredentials(){this.custody?.store.write("commercial-credentials-v2",Buffer.from('{"state":"CLOSED"}'));}
   private retainAndActivate(a:Attempt,connectionId:string,retainedUntil=this.now()+(this.custody?.maximumRetentionMs??0)){

@@ -150,6 +150,7 @@ export class CommercialComponent implements RuntimeComponent {
   verifyNativeAuthorization(assertion:unknown,snapshot:unknown){
     assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
     const ssa=SignedSessionAssertionSchema.parse(assertion),sas=SignedAuthorizationSnapshotSchema.parse(snapshot);
+    if(this.sessionStore.isClosed(ssa.claims.session_id))throw Error("LOCAL_BUSINESS_SESSION_CLOSED");
     const binding={...this.deviceBinding(),userId:ssa.claims.user_id};
     const identity=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
       .verify(ssa,binding);
@@ -165,6 +166,12 @@ export class CommercialComponent implements RuntimeComponent {
       if(this.authorizationStore.activate(sas,binding).kind!=="ACTIVATED")throw Error("NATIVE_SAS_SEQUENCE_REJECTED");
     })();
     this.bindings.bind(connectionId,boundIdentityFromClaims(ssa.claims));
+  }
+  closeNativeSession(connectionId:string):string|null{
+    const bound=this.bindings.resolve(connectionId);if(!bound)return null;
+    this.sessionStore.close(bound.ssaSessionId);
+    this.bindings.releaseSession(bound.ssaSessionId);
+    return bound.ssaSessionId;
   }
   loadVerifiedAuthorization(binding:SnapshotBinding){
     try{assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);}catch{return null;}

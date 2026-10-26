@@ -6,6 +6,7 @@ function main(): void {
   const provisioning = loadProductionDesktopProvisioning();
 
   startPosDesktop({
+    ...(process.env.POS_WINDOWS_DESKTOP_COMMERCIAL_FILE?{commercialFile:process.env.POS_WINDOWS_DESKTOP_COMMERCIAL_FILE}:{}),
     endpoint: provisioning.endpoint,
     channelSecret: provisioning.channelSecret,
     protocolRange: { min: "1.0.0", max: "1.0.0" },

@@ -15,3 +15,6 @@ export type CommercialAccessClaims=z.infer<typeof CommercialAccessClaimsSchema>;
 export const CommercialRefreshRequestSchema=z.strictObject({
   grant_type:z.literal("refresh_token"),client_id:z.string().min(1).max(128),refresh_token:z.string().regex(/^[A-Za-z0-9_-]{64}$/),
 });
+export const CommercialRevokeRequestSchema=z.strictObject({
+  client_id:z.string().min(1).max(128),refresh_token:z.string().regex(/^[A-Za-z0-9_-]{64}$/),
+});

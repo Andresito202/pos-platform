@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain,Menu,MenuItem,dialog } from "electron";
+import type {DesktopAccountActions} from "./commercial-account.js";
 import { WINDOW_SECURITY_CONFIG } from "./window-security.js";
 import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "./ipc-allowlist.js";
 import { ChannelBridge, type ServiceChannel } from "./channel-bridge.js";
@@ -82,6 +83,7 @@ async function closeChannelAndQuit(
 export async function bootstrap(
   serviceChannel: ServiceChannel,
   logger?: DesktopLogger,
+  account?:DesktopAccountActions,
 ): Promise<void> {
   assertAllowlistConsistency();
   const bridge = new ChannelBridge(serviceChannel);
@@ -92,8 +94,26 @@ export async function bootstrap(
   registerIpcHandlers(bridge);
   const win = createWindow(preloadPath);
   await win.loadFile(rendererPath);
+  if(account){
+    const invoke=async(operation:"login"|"logout")=>{
+      try{
+        const status=await account[operation]();
+        // React re-resolves identity and backend capabilities on reload. A main
+        // status cannot enable a dashboard or replace a signed snapshot.
+        for(const window of BrowserWindow.getAllWindows())window.reload();
+        await dialog.showMessageBox({type:"info",title:"Camacho POS",message:status==="SESSION_ACTIVATED"?"Sesión verificada. Los permisos se consultan al servicio.":
+          status==="SIGNED_OUT"?"Sesión cerrada y revocada en Central.":status==="SIGNED_OUT_LOCAL"?"Sesión cerrada en este equipo. Revocación central sin confirmar.":
+          status==="NO_ACTIVE_SESSION"?"No hay una sesión activa.":"La autenticación no se completó."});
+      }catch{await dialog.showMessageBox({type:"error",title:"Camacho POS",message:"La operación de cuenta no pudo completarse. El acceso sigue sujeto al servicio."});}
+    };
+    const menu=Menu.getApplicationMenu()??new Menu();
+    menu.append(new MenuItem({label:"Cuenta",submenu:[{label:"Iniciar sesión / cambiar usuario",click:()=>{void invoke("login");}},
+      {label:"Cancelar autenticación",click:()=>account.stop()},{label:"Cerrar sesión",click:()=>{void invoke("logout");}}]}));
+    Menu.setApplicationMenu(menu);app.on("before-quit",()=>account.stop());
+  }
 
   app.on("window-all-closed", () => {
+    account?.stop();
     void closeChannelAndQuit(serviceChannel, logger);
   });
 

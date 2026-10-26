@@ -3,7 +3,7 @@ import {validateNativeClientRegistration,validateCommercialHttpsOrigin,Commercia
 import type {NativeCommercialCentralTransport,NativeCentralPath} from "./native-commercial-coordinator.js";
 
 const routes=new Set<NativeCentralPath>(["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/commercial/token",
-  "/v1/commercial/refresh","/v1/business-session/assertions","/v1/business-session/authorization"]);
+  "/v1/commercial/refresh","/v1/commercial/revoke","/v1/business-session/assertions","/v1/business-session/authorization"]);
 
 /** Deployment transport: system TLS only, pinned configured origin and closed
  * operations. No DNS/CA overrides, redirect following or caller-owned URL. */
@@ -44,7 +44,7 @@ export class IsolatedNativeCommercialHttps implements NativeCommercialCentralTra
       throw Error("NATIVE_HTTPS_ISOLATED_POLICY_REQUIRED");
   }
   post(path:NativeCentralPath,body:string,headers:Readonly<Record<string,string>>,signal:AbortSignal):Promise<unknown>{
-    if(!["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/commercial/token","/v1/commercial/refresh",
+    if(!["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/commercial/token","/v1/commercial/refresh","/v1/commercial/revoke",
       "/v1/business-session/assertions","/v1/business-session/authorization"].includes(path))throw Error("NATIVE_CENTRAL_ROUTE_REJECTED");
     return new Promise((resolve,reject)=>{
       const req=request({host:"127.0.0.1",port:this.input.port,servername:new URL(this.origin).hostname,ca:this.input.ca,signal,

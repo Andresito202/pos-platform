@@ -43,7 +43,7 @@ it("a mismatched service correlation closes the attempt without opening a browse
 it("a response for another attempt cannot commit local activation",async()=>{
   const f=await setup({wrongAttempt:true});expect(await f.attempt.result).toBe("FAILED");expect(f.calls).not.toContain("commercial.native.commit");
 });
-it.each(["begin","complete","commit","cancel"])("renderer cannot invoke privileged native %s",async operation=>{
+it.each(["begin","complete","commit","cancel","logout"])("renderer cannot invoke privileged native %s",async operation=>{
   let reached=false;const bridge=new ChannelBridge({request:async()=>{reached=true;},close:async()=>undefined});
   await expect(bridge.handleInvoke("pos:commercial.native."+operation,{message_type:"commercial.native."+operation})).rejects.toThrow("IPC channel not allowed");
   await expect(bridge.handleInvoke("pos:session.recover",{message_type:"commercial.native."+operation})).rejects.toThrow("does not match");expect(reached).toBe(false);

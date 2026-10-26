@@ -191,6 +191,10 @@ export class PostgresCommercialPossessionVerifier extends PostgresDeviceProofRep
     if(context.operation!=="REFRESH")return Promise.resolve(null);
     return this.verifyTargetAndConsume(input,"/v1/commercial/refresh",{context,maximumSkewMs});
   }
+  verifyRevokeAndConsume(input:DeviceProofRequest,context:CommercialPossessionContext,maximumSkewMs:number){
+    if(context.operation!=="REVOKE")return Promise.resolve(null);
+    return this.verifyTargetAndConsume(input,"/v1/commercial/revoke",{context,maximumSkewMs});
+  }
 }
 
 /** Dedicated native-login targets. Never accepts a caller-selected path or

@@ -111,8 +111,8 @@ async function run() {
   }
   const privileged=input.privilegedService?await import("../dist/ssa-native-transport-probe.mjs"):undefined;
   const nativeConnection=privileged?await privileged.openNativeServiceChannel():undefined;
-  const attempt = privileged?await privileged.beginServiceBackedNativeLogin({channel:nativeConnection.channel,registration:input.registration,timeoutMs:60_000,vault,
-    openSystemBrowser:url=>browser.loadURL(url)}):await beginNativeBusinessLogin({ registration: input.registration, timeoutMs: 60_000, vault,
+  const account=privileged?new privileged.DesktopCommercialAccount({registration:input.registration,attempt_timeout_ms:60_000},async()=>nativeConnection.channel,vault,url=>browser.loadURL(url)):undefined;
+  const attempt = account?{result:account.login(),cancel:()=>account.stop()}:await beginNativeBusinessLogin({ registration: input.registration, timeoutMs: 60_000, vault,
     openSystemBrowser: url => browser.loadURL(url),
     ...(nativePost?{prepareAuthorization:async parameters=>{
       const challenge=await nativePost("/v1/commercial/native-request-challenges",parameters,false);

@@ -1,5 +1,5 @@
 import {createPublicKey,randomBytes} from "node:crypto";
-import {UuidSchema,CommercialRefreshRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
+import {UuidSchema,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
 import {DeviceTrustVerifier,commercialPossessionChallenge,type CommercialPossessionContext,type DeviceTrustBinding} from "@pos-platform/device-trust";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
 import type {DeviceRequestSigningContext} from "../sync/device-credential.js";
@@ -60,6 +60,11 @@ export class CommercialDeviceCredentialProvider {
     const request=CommercialRefreshRequestSchema.parse(JSON.parse(context.body));
     if(request.refresh_token!==context.token||request.client_id!==context.clientId)throw Error("COMMERCIAL_REFRESH_BODY_REJECTED");
     return this.possession(context,"REFRESH");
+  }
+  async revokePossession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0]):Promise<string>{
+    const request=CommercialRevokeRequestSchema.parse(JSON.parse(context.body));
+    if(request.refresh_token!==context.token||request.client_id!==context.clientId)throw Error("COMMERCIAL_REVOKE_BODY_REJECTED");
+    return this.possession(context,"REVOKE");
   }
   private possession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0],operation:CommercialPossessionContext["operation"]){
     const {identity,credential}=this.requireVerified(),timestamp=new Date().toISOString(),nonce=randomBytes(32).toString("base64url");
