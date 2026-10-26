@@ -56,13 +56,18 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
   const accessPrivate=managed(p.access.private_key_file,8192).toString("utf8"),accessPublic=managed(p.access.public_key_file,8192).toString("utf8");
   if(new Set([publicMaterial(ssaPublic),publicMaterial(sasPublic),publicMaterial(createPublicKey(accessPublic))]).size!==3)throw Error("COMMERCIAL_SIGNING_PURPOSE_SEPARATION_REQUIRED");
   const rejection=managed(p.rejection_verifier_file,8192).toString("utf8").trim();if(!isSupportedPlatformPasswordVerifier(rejection))throw Error("COMMERCIAL_REJECTION_VERIFIER_REJECTED");
-  const selected=await input.pool.query(`SELECT 1 FROM identity.mfa_factors f JOIN identity.users u ON u.id=f.user_id AND u.status='ACTIVE'
+  const preflight=await input.pool.connect();
+  try{
+  await preflight.query("BEGIN READ ONLY");
+  await preflight.query("SELECT set_config('app.tenant_id',$1,true)",[d.tenant_id]);
+  const selected=await preflight.query(`SELECT 1 FROM identity.mfa_factors f JOIN identity.users u ON u.id=f.user_id AND u.status='ACTIVE'
     JOIN tenancy.tenant_memberships m ON m.user_id=u.id AND m.id=$2 AND m.tenant_id=$3 AND m.status='ACTIVE' AND m.suspended_at IS NULL AND m.revoked_at IS NULL
     JOIN identity.device_registry r ON r.device_id=$4 AND r.installation_id=$5 AND r.tenant_id=m.tenant_id AND r.company_id=$6 AND r.status='ACTIVE'
     JOIN organization.branches branch ON branch.id=$7 AND branch.tenant_id=m.tenant_id AND branch.company_id=r.company_id AND branch.status='ACTIVE'
     WHERE f.id=$1 AND f.factor_type='WEBAUTHN' AND f.status='ACTIVE' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL`,
     [p.factor_id,p.membership_id,d.tenant_id,d.device_id,d.installation_id,d.company_id,d.branch_id]);
   if(selected.rowCount!==1)throw Error("COMMERCIAL_AUTHENTIC_SCOPE_NOT_PROVISIONED");
+  }finally{try{await preflight.query("ROLLBACK");}finally{preflight.release();}}
   const mfa=new BusinessInitialMfaFlow(input.pool,{rpId:p.rp_id,origin:input.origin,challengeLifetimeMs:l.mfa_challenge_ms,rejectionVerifier:rejection});
   const authority=new BusinessSessionAuthority(input.pool,mfa,{mode:"PRODUCTION",version:p.policy_reference,sessionLifetimeMs:l.session_ms,
     maximumMfaAgeMs:l.mfa_age_ms,maximumReauthenticationAgeMs:l.reauthentication_ms,accessProof:{mode:"COMMERCIAL_POSSESSION_V2",policyReference:p.policy_reference},

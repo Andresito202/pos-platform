@@ -48,7 +48,7 @@ export class IsolatedBusinessNativeCodeIssuer {
     const result = await this.guard.whileActive(identity, async client => {
       // Bound to server-verified identity and device. Both IDs remain durable
       // in the disposable DB for explicit exchange-time revalidation.
-      await client.query(`INSERT INTO ${this.table}
+      const inserted=await client.query(`INSERT INTO ${this.table}
         (code_hash,client_id,redirect_uri,code_challenge,state,trusted_binding_id,
          session_id,device_id,tenant_id,issued_at,expires_at)
         SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp(),
@@ -72,11 +72,7 @@ export class IsolatedBusinessNativeCodeIssuer {
         device.companyId,device.installationId,input.lifetimeMs??60_000,
       ]);
       // Check exactly one INSERT before committing audit. SQL errors abort.
-      const found = await client.query<{n:number}>(
-        "SELECT count(*)::int AS n FROM identity.native_authorization_code_validation WHERE code_hash=$1",
-        [codeHash],
-      );
-      if (found.rows[0]?.n !== 1) throw new Error("NATIVE_CODE_ISSUANCE_SESSION_INVALID");
+      if (inserted.rowCount !== 1) throw new Error("NATIVE_CODE_ISSUANCE_SESSION_INVALID");
       await input.recordAudit(client);
       return code;
     });

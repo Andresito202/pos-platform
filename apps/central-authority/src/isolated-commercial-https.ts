@@ -76,9 +76,8 @@ function assertion(value:unknown):value is AuthenticationResponseJSON{
     (r.userHandle===undefined||r.userHandle===null||text(r.userHandle,2048));
 }
 
-/** Real HTTPS laboratory transport. There is intentionally no production flag,
- * public bind, forwarded-header trust, or route mounting in main.ts. Existing
- * isolated code/JWT issuers remain restricted to the temporary database. */
+/** Shared closed HTTPS routes. Deployment requires the verified database
+ * capability; the isolated factory below retains its temporary-only boundary. */
 export async function prepareCommercialHttpHandler(input:{
   pool:Pool; tls:Pick<ServerOptions,"key"|"cert">; origin:string;
   mfa:BusinessInitialMfaFlow; authority:BusinessSessionAuthority; handoffs:PostgresBrowserSessionHandoffWriter;
