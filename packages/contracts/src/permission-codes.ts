@@ -8,6 +8,7 @@
  * vocabulary/contract, not a client-side authorization source.
  */
 export const PermissionCode = {
+  LICENSE_PLAN_MANAGE: "LICENSE_PLAN_MANAGE",
   HARDWARE_READ: "HARDWARE_READ",
   HARDWARE_CONFIGURE: "HARDWARE_CONFIGURE",
   HARDWARE_PRINT: "HARDWARE_PRINT",
