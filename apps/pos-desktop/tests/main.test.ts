@@ -90,6 +90,16 @@ it("main mounts account actions only in its native menu and reloads backend auth
   appEvents.get("before-quit")!();expect(stop).toHaveBeenCalledTimes(1);
 });
 
+it("main mounts safe cache maintenance without a renderer channel or session deletion",async()=>{
+  const {bootstrap}=await import("../src/main.js"),{BrowserCacheMaintenance}=await import("../src/browser-cache-maintenance.js");
+  let bytes=4096;const clearCache=vi.fn(async()=>{bytes=0;}),cache=new BrowserCacheMaintenance({getCacheSize:async()=>bytes,clearCache},{maximum_cache_bytes:1024,interval_ms:60000});
+  await bootstrap(makeServiceChannel(),undefined,undefined,cache);
+  expect(menuItems[0]?.label).toBe("Mantenimiento");menuItems[0]!.submenu[0]!.click();
+  await vi.waitFor(()=>expect(showMessageBox).toHaveBeenCalledTimes(1));expect(clearCache).toHaveBeenCalledTimes(1);
+  expect(showMessageBox.mock.calls[0]![0].message).toContain("4096 → 0");expect(handlers.has("pos:cache.clear")).toBe(false);
+  appEvents.get("before-quit")!();await cache.stop();
+});
+
 describe("main bootstrap IPC registration", () => {
   it("registers a handler for every allowlisted channel", async () => {
     await bootstrapWith(makeServiceChannel());
