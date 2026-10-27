@@ -1,6 +1,6 @@
 # Central Authority: preparación de despliegue Windows comercial
 
-Estado 2026-10-24: el propietario confirma **entorno todavía no existente o no
+Estado 2026-10-26: el propietario confirma **entorno todavía no existente o no
 confirmado**. Este directorio prepara el servicio existente; no registra DNS,
 no genera claves, no aprovisiona cuentas y no despliega nada. `infra/central-sync`
 es transporte de sincronización, no la autoridad de identidad.
@@ -25,15 +25,16 @@ del valor legacy de entorno. Archivos, CA, ACL y políticas deben provisionarse 
 aprobarse externamente; no se eligieron valores operativos en este incremento.
 
 `/health` conserva liveness. `/ready` devuelve 503 sin perfil o DB elegible y
-200 sólo para el servicio de enrollment listo; declara explícitamente
-`commercial_auth: NOT_ACTIVATED`. Las comprobaciones concurrentes comparten una
+200 para el servicio listo; declara `commercial_auth: NOT_ACTIVATED` sin montaje
+comercial o `CONFIGURED` cuando el preflight comercial está satisfecho. CONFIGURED
+no significa usuario autenticado ni certificación humana. Las comprobaciones concurrentes comparten una
 consulta y tienen deadline explícito. SIGINT/SIGTERM drenan HTTP antes de cerrar
 el pool; el deadline configurado fuerza cierre de conexiones y salida fallida
 si no termina. Un Host distinto del origen configurado se rechaza.
 
 Sin selector ni campos del perfil se conserva el arranque **legacy de enrollment** para no
 alterar callers/workflows existentes. Sus defaults históricos no son configuración
-comercial aprobada. Las rutas BUSINESS permanecen bloqueadas en ambos casos.
+comercial aprobada. Sin provisión comercial explícita las rutas BUSINESS permanecen bloqueadas.
 El ejemplo sigue vacío y no desplegable; no ejecutar el servidor públicamente
 como consecuencia de copiarlo. [Resultados P0-05](../../docs/testing/commercial-provisioning-2026-10-24.md).
 
@@ -105,19 +106,31 @@ de activación en los logs del servicio/proxy.
 
 ## Antes de habilitar BUSINESS/SAS
 
-El entrypoint productivo actual sirve enrolamiento y publicación de confianza
-SSA. **Las rutas comerciales continúan bloqueadas y no hay productor SAS
-productivo montado.** No promover `isolated-commercial-https.ts` ni cambiar su
-guard de DB para conseguir una pantalla de login.
+El montaje está implementado y probado en laboratorio: BUSINESS, binding PKCE,
+access/refresh V2, SSA/SAS, DPAPI, entrada Electron y logout. No reconstruirlo.
+El proceso existente monta el handler sólo con CENTRAL_COMMERCIAL_PROVISION_FILE,
+perfil PREPRODUCTION/PRODUCTION, manifiesto 008–016 exacto y confianza verificada.
+No basta renombrar un perfil de laboratorio ni establecer un booleano.
 
-En la [propuesta única](../../docs/testing/android-commercial-approval-proposal-2026-10-22.md)
-deben resolverse: custodia/entrega nativa main↔Service, registro de cliente,
-perfil access/refresh ligado a dispositivo, vigencias/offline/abuso y despliegue;
-migraciones de binding y contador SAS con privilegios mínimos; confianza SAS
-independiente y política de versiones/composición de roles. El contador del fixture
-no es una migración aprobada. No hay un parámetro booleano que sustituya estas decisiones.
+Procedimiento operativo reutilizable, con entradas del operador:
 
-Una vez aprobados, completar esos adapters y montaje sobre los owners existentes,
-probar en DB de preproducción y después autenticar un empleado autorizado de forma
-interactiva. Sólo ese recorrido permite certificar P0-07; no reutilizar cuentas,
-grants ni claves de fixtures. Windows no espera aprobación exclusiva de Android.
+1. Obtener el manifiesto sin conexión ni DDL:
+   `pnpm --filter @pos-platform/target-migrations postgres:commercial:apply --manifest`.
+2. Operador DB aplica el runner registrado con URL pos_migrator, base/SHA exactos
+   y timeouts explícitos. Conservar ledger y resultados. No usar proposals/ ni
+   ejecutar contra bases comerciales desde una sesión de laboratorio.
+3. Configurar el archivo CAMACHO_CENTRAL_COMMERCIAL_V2 según el schema compartido,
+   con datos reales, políticas, factor/membresía y claves operacionales distintas.
+   Instalar las publicaciones SSA/SAS y tokens separados por archivo protegido;
+   verificar pins con sus custodios. Nunca transferir claves raíz privadas.
+4. Aprovisionar DEV-003 auténtico, Service y archivo público Desktop coincidente,
+   conforme al [cierre Windows](../../docs/testing/windows-login-closure-2026-10-26.md).
+5. Arrancar el servicio existente y comprobar TLS desde Windows, /ready, ruta
+   comercial y después la ceremonia con persona/autenticador físico. Preservar
+   evidencia de renovación, logout, revocación y denegación tras reinicio.
+
+Observación local 2026-10-26: SCM informa PosLocalService Running. Las variables
+de Central y los archivos de provisión no se proporcionaron a esta consola;
+no se infiere que falten en todas las cuentas del sistema. No se reinició ni
+reconfiguró el servicio instalado. Sin URL, operador y material auténtico no se
+ejecutó un despliegue ni se certificó P0-07. CI permanece pendiente; no Actions.
