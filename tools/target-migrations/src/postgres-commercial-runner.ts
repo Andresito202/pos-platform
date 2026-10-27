@@ -1,6 +1,7 @@
 import {Pool,type PoolClient} from "pg";
 import type {MigrationDescriptor} from "./contract.js";
 import {POSTGRES_007_DESCRIPTOR} from "./postgres-007-contract.js";
+import {POSTGRES_006_DESCRIPTOR} from "./postgres-006-contract.js";
 import {POSTGRES_008_DESCRIPTOR} from "./postgres-008-platform-roles-contract.js";
 import {POSTGRES_009_DESCRIPTOR} from "./postgres-009-webauthn-contract.js";
 import {POSTGRES_010_DESCRIPTOR} from "./postgres-010-webauthn-material-contract.js";
@@ -18,7 +19,12 @@ export const POSTGRES_015_DESCRIPTOR=descriptor("015_authorization_snapshot_sequ
 export const POSTGRES_016_DESCRIPTOR=descriptor("016_native_business_authorization",POSTGRES_015_DESCRIPTOR.migrationId,["identity.native_authorization_codes","identity.native_authorization_requests"],"identity");
 export const COMMERCIAL_MIGRATIONS=Object.freeze([POSTGRES_008_DESCRIPTOR,POSTGRES_009_DESCRIPTOR,POSTGRES_010_DESCRIPTOR,
   POSTGRES_011_DESCRIPTOR,POSTGRES_012_DESCRIPTOR,POSTGRES_013_DESCRIPTOR,POSTGRES_014_DESCRIPTOR,POSTGRES_015_DESCRIPTOR,POSTGRES_016_DESCRIPTOR]);
-export async function commercialMigrationManifest(){return Object.fromEntries(await Promise.all(COMMERCIAL_MIGRATIONS.map(async d=>[d.migrationId,sha256(await readArtifact(d.upArtifact)).toString("hex")])));}
+export const POSTGRES_017_DESCRIPTOR={...descriptor("017_license_offer_pricing",POSTGRES_016_DESCRIPTOR.migrationId,["licensing.plans"],"licensing"),
+  dependencies:[POSTGRES_016_DESCRIPTOR.migrationId,POSTGRES_006_DESCRIPTOR.migrationId]};
+export const LICENSING_MIGRATIONS=Object.freeze([...COMMERCIAL_MIGRATIONS,POSTGRES_017_DESCRIPTOR]);
+export async function commercialMigrationManifest(target:"AUTHENTICATION"|"LICENSING"="AUTHENTICATION"){
+  return Object.fromEntries(await Promise.all((target==="LICENSING"?LICENSING_MIGRATIONS:COMMERCIAL_MIGRATIONS).map(async d=>[d.migrationId,sha256(await readArtifact(d.upArtifact)).toString("hex")])));
+}
 const check:(ok:unknown,message:string)=>asserts ok=(ok,message)=>{if(!ok)throw new MigrationInvariantError(message);};
 
 async function smoke(c:PoolClient,d:MigrationDescriptor){
@@ -32,6 +38,11 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
     const columns=await c.query("SELECT attname FROM pg_attribute WHERE attrelid='identity.session_refresh_tokens'::regclass AND attnum>0 AND NOT attisdropped");
     check(["client_id","credential_id","family_expires_at","password_credential_version"].every(n=>columns.rows.some(r=>r.attname===n)),"Refresh binding columns missing");
     check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid='identity.session_refresh_tokens'::regclass AND tgname='commercial_refresh_binding_guard' AND tgenabled='O'")).rowCount===1,"Refresh binding guard missing");
+  }
+  if(d===POSTGRES_017_DESCRIPTOR){
+    const columns=(await c.query("SELECT attname FROM pg_attribute WHERE attrelid='licensing.plans'::regclass AND attnum>0 AND NOT attisdropped")).rows;
+    check(["offer_profile","included_registers","additional_register_price_minor","support_price_minor","support_charge","offer_policy_reference"].every(name=>columns.some(r=>r.attname===name)),"License offer columns missing");
+    check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid='licensing.plans'::regclass AND tgname='licensing_offer_version_guard' AND tgenabled='O'")).rowCount===1,"License offer history guard missing");
   }
   if(d===POSTGRES_015_DESCRIPTOR){
     const fn=(await c.query("SELECT p.prosecdef,p.prosrc,p.proconfig,r.rolname FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure('authorization.lock_sas_sources_for_read()')")).rows[0];
@@ -48,7 +59,8 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
 /** Same canonical migration lock, checksum ledger and transactional DDL. Only
  * registered successors of 007; never applies a proposals/ artifact or guesses
  * a predecessor. Operator URL, target, SHA and time limits are mandatory. */
-export async function applyCommercialMigrations(input:{migratorUrl:string;expectedDatabase:string;repositoryCommit:string;lockTimeoutMs:number;statementTimeoutMs:number}){
+export async function applyCommercialMigrations(input:{migratorUrl:string;expectedDatabase:string;repositoryCommit:string;lockTimeoutMs:number;statementTimeoutMs:number;target?:"AUTHENTICATION"|"LICENSING"}){
+  check(input.target===undefined||input.target==="AUTHENTICATION"||input.target==="LICENSING","Unknown commercial migration target");
   check(/^[0-9a-f]{40}$/.test(input.repositoryCommit)&&input.expectedDatabase.length>0,"Exact migration target/SHA required");
   check([input.lockTimeoutMs,input.statementTimeoutMs].every(n=>Number.isSafeInteger(n)&&n>0)&&input.statementTimeoutMs>input.lockTimeoutMs,"Explicit migration timeouts required");
   check(new URL(input.migratorUrl).username==="pos_migrator","Commercial runner requires pos_migrator URL");
@@ -60,8 +72,12 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
     await c.query("SELECT set_config('lock_timeout',$1,false),set_config('statement_timeout',$2,false)",[`${input.lockTimeoutMs}ms`,`${input.statementTimeoutMs}ms`]);
     await c.query("SELECT pg_advisory_lock(hashtextextended($1,0))",[POSTGRES_MIGRATION_LOCK_RESOURCE]);
     try{
+      if(input.target==="LICENSING"){
+        const foundation=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_006_DESCRIPTOR.migrationId])).rows[0];
+        check(foundation&&Buffer.from(foundation.checksum).equals(sha256(await readArtifact(POSTGRES_006_DESCRIPTOR.upArtifact))),"Licensing 006 predecessor mismatch");
+      }
       let predecessor=POSTGRES_007_DESCRIPTOR;
-      for(const d of COMMERCIAL_MIGRATIONS){
+      for(const d of input.target==="LICENSING"?LICENSING_MIGRATIONS:COMMERCIAL_MIGRATIONS){
         const checksum=sha256(await readArtifact(d.upArtifact)),prior=sha256(await readArtifact(predecessor.upArtifact));
         const history=(await c.query("SELECT execution_id,checksum,status FROM platform.target_migration_executions WHERE migration_id=$1 ORDER BY started_at",[d.migrationId])).rows;
         check(history.every(r=>Buffer.from(r.checksum).equals(checksum)),`Commercial migration checksum mismatch: ${d.migrationId}`);

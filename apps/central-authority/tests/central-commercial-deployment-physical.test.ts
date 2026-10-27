@@ -41,9 +41,12 @@ beforeAll(async()=>{
     await ddl.query(`INSERT INTO platform.target_migration_executions(execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,body_committed_at,smoke_verified_at,applied_at,finished_at,runner_version)
       VALUES($1,'007_password_recovery','POSTGRESQL',1,$2,'APPLIED',clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),'TEMPORARY_FIXTURE_PREDECESSOR')`,
       [id(),Buffer.from(sha(await readFile(new URL("007_password_recovery.up.sql",rootSql))),"hex")]);
+    await ddl.query(`INSERT INTO platform.target_migration_executions(execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,body_committed_at,smoke_verified_at,applied_at,finished_at,runner_version)
+      VALUES($1,'006_licensing_foundation','POSTGRESQL',1,$2,'APPLIED',clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),'TEMPORARY_FIXTURE_PREDECESSOR')`,
+      [id(),Buffer.from(sha(await readFile(new URL("006_licensing_foundation.up.sql",rootSql))),"hex")]);
   }finally{await ddl.query("RESET ROLE");ddl.release();}
   url.username="pos_migrator";url.password="";
-  execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts"],{cwd:tool,windowsHide:true,env:{...process.env,
+  execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--licensing"],{cwd:tool,windowsHide:true,env:{...process.env,
     POSTGRES_MIGRATOR_URL:url.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:"e1f9d4f98345eb3224844377a497c1a573673d01",
     POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}});
   manifest=JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--manifest"],{cwd:tool,windowsHide:true,encoding:"utf8"}));
@@ -174,7 +177,6 @@ it.runIf(Boolean(serverUrl))("deployment login budget is durable, atomic, bounde
 });
 
 it.runIf(Boolean(serverUrl))("license draft pricing: persisted versions, one register, explicit GLOBAL grant, replay conflict, overflow and audit rollback",async()=>{
-  const ddl=await owner.connect();try{await ddl.query("SET ROLE pos_schema_owner");await ddl.query(await readFile(new URL("proposals/license_offer_pricing.up.sql",rootSql),"utf8"));}finally{await ddl.query("RESET ROLE");ddl.release();}
   const global=id(),role=id(),permission=id(),grant=id();
   await owner.query("INSERT INTO identity.sessions(id,user_id,authenticated_at,expires_at,last_reauthenticated_at,mfa_status,created_at) VALUES($1,$2,clock_timestamp(),clock_timestamp()+interval '5 minutes',clock_timestamp(),'SATISFIED',clock_timestamp())",[global,user]);
   const drafts=new LicenseOfferDrafts(runtime,60000),offer:LicenseOfferDraft={id:id(),code:"TEMPORARY_PLAN",name:"Temporary draft only",billing_model:"MONTHLY",deployment_mode:"HYBRID",currency_code:"COP",price_minor:10000,
@@ -222,7 +224,7 @@ it.runIf(Boolean(serverUrl))("license draft pricing: persisted versions, one reg
     expect((await drafts.published()).map(p=>p.id)).toEqual([revised.id]);
   }finally{await owner.query("DROP TRIGGER reject_publication_fixture ON audit.audit_events; DROP FUNCTION audit.reject_publication_fixture()");}
   expect(await drafts.publish(global,winner.value.planId,3,id())).toMatchObject({version:3});
-  const down=await owner.connect();try{await down.query("SET ROLE pos_schema_owner");await expect(down.query(await readFile(new URL("proposals/license_offer_pricing.down.sql",rootSql),"utf8"))).rejects.toThrow("history must be retained");}finally{await down.query("RESET ROLE");down.release();}
+  const down=await owner.connect();try{await down.query("SET ROLE pos_schema_owner");await expect(down.query(await readFile(new URL("017_license_offer_pricing.down.sql",rootSql),"utf8"))).rejects.toThrow("history must be retained");}finally{await down.query("RESET ROLE");down.release();}
   const expensive={...offer,id:id(),code:"TEMPORARY_OVERFLOW",price_minor:Number.MAX_SAFE_INTEGER};await drafts.save(global,expensive,0,id());
   await expect(drafts.preview(global,expensive.id,{additional_registers:1,support:false})).rejects.toThrow("OVERFLOW");
   await owner.query("UPDATE \"authorization\".role_permission_grants SET status='RETIRED',retired_at=clock_timestamp() WHERE id=$1",[grant]);

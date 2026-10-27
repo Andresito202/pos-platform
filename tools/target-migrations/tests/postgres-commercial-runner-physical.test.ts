@@ -1,7 +1,7 @@
 import {Pool} from "pg";
 import {randomBytes} from "node:crypto";
 import {afterEach,it,expect} from "vitest";
-import {applyCommercialMigrations,COMMERCIAL_MIGRATIONS} from "../src/postgres-commercial-runner.js";
+import {applyCommercialMigrations,COMMERCIAL_MIGRATIONS,commercialMigrationManifest} from "../src/postgres-commercial-runner.js";
 import {readArtifact,sha256,uuidV7} from "../src/shared.js";
 const server=process.env.POSTGRES_TEST_URL;
 const cleanup:(()=>Promise<void>)[]=[];
@@ -47,3 +47,29 @@ it.runIf(Boolean(server))("commercial runner: DDL failure records FAILED and rol
   expect((await f.owner.query("SELECT status FROM platform.target_migration_executions WHERE migration_id='009_webauthn_challenges'")).rows[0].status).toBe("FAILED");
   expect((await f.owner.query("SELECT to_regclass('identity.webauthn_credential_material') AS object")).rows[0].object).toBeNull();
 },60_000);
+async function licensingFoundation(f:Awaited<ReturnType<typeof fixture>>){
+  await f.owner.query(`INSERT INTO platform.target_migration_executions(execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,body_committed_at,smoke_verified_at,applied_at,finished_at,runner_version)
+    VALUES($1,'006_licensing_foundation','POSTGRESQL',1,$2,'APPLIED',clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),'TEMPORARY_FIXTURE_PREDECESSOR')`,[uuidV7(),sha256(await readArtifact("postgres/006_licensing_foundation.up.sql"))]);
+}
+it.runIf(Boolean(server))("licensing successor: applies 017 once concurrently and preserves legacy prices and authentication manifest",async()=>{
+  const f=await fixture();await licensingFoundation(f);const planId=uuidV7();
+  await f.owner.query("INSERT INTO licensing.plans(id,code,name,billing_model,deployment_mode,currency_code,price_minor,status,version,created_at,updated_at) VALUES($1,'LEGACY_PRICE','Legacy','MONTHLY','HYBRID','COP',12345,'DRAFT',1,clock_timestamp(),clock_timestamp())",[planId]);
+  const before=(await f.owner.query("SELECT row_to_json(p) AS value FROM licensing.plans p WHERE id=$1",[planId])).rows[0].value;
+  const results=await Promise.all([applyCommercialMigrations({...f.input,target:"LICENSING"}),applyCommercialMigrations({...f.input,target:"LICENSING"})]);
+  expect(results.flat().filter(r=>r.migrationId==="017_license_offer_pricing"&&r.status==="APPLIED")).toHaveLength(1);
+  expect(results.flat().filter(r=>r.migrationId==="017_license_offer_pricing"&&r.status==="ALREADY_APPLIED")).toHaveLength(1);
+  const after=(await f.owner.query("SELECT row_to_json(p) AS value FROM licensing.plans p WHERE id=$1",[planId])).rows[0].value;for(const [key,value] of Object.entries(before))expect(after[key]).toEqual(value);
+  expect(after.offer_profile).toBeNull();expect(after.included_registers).toBeNull();
+  expect(Object.keys(await commercialMigrationManifest())).toHaveLength(9);
+  expect(Object.keys(await commercialMigrationManifest("LICENSING"))).toHaveLength(10);
+  const checksum=(await f.owner.query("SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id='017_license_offer_pricing' AND status='APPLIED'")).rows[0].checksum;
+  expect(checksum).toBe((await commercialMigrationManifest("LICENSING"))["017_license_offer_pricing"]);
+},60000);
+it.runIf(Boolean(server))("licensing successor: missing 006 ledger rejects before DDL and 017 failure rolls its columns back",async()=>{
+  const f=await fixture();await expect(applyCommercialMigrations({...f.input,target:"LICENSING"})).rejects.toThrow("Licensing 006 predecessor mismatch");
+  expect((await f.owner.query("SELECT to_regclass('identity.webauthn_challenges') AS object")).rows[0].object).toBeNull();
+  await licensingFoundation(f);await f.owner.query("ALTER TABLE licensing.plans ADD COLUMN included_registers text");
+  await expect(applyCommercialMigrations({...f.input,target:"LICENSING"})).rejects.toThrow();
+  expect((await f.owner.query("SELECT status FROM platform.target_migration_executions WHERE migration_id='017_license_offer_pricing'")).rows[0].status).toBe("FAILED");
+  expect((await f.owner.query("SELECT 1 FROM pg_attribute WHERE attrelid='licensing.plans'::regclass AND attname='offer_profile' AND NOT attisdropped")).rowCount).toBe(0);
+},60000);
