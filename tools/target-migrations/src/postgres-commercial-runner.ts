@@ -26,11 +26,14 @@ export const POSTGRES_018_DESCRIPTOR={...descriptor("018_factus_pay_webhook_inbo
   ["integrations.factus_pay_webhook_keys","integrations.factus_pay_webhook_inbox"],"integrations"),
   dependencies:[POSTGRES_017_DESCRIPTOR.migrationId,POSTGRES_003_DESCRIPTOR.migrationId]};
 export const FACTUS_PAY_MIGRATIONS=Object.freeze([...LICENSING_MIGRATIONS,POSTGRES_018_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY";
+export const POSTGRES_019_DESCRIPTOR=descriptor("019_subscription_quotes",POSTGRES_018_DESCRIPTOR.migrationId,["subscriptions.license_quotes"],"subscriptions");
+export const SUBSCRIPTION_MIGRATIONS=Object.freeze([...FACTUS_PAY_MIGRATIONS,POSTGRES_019_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS";
 function migrations(target:CommercialMigrationTarget){
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
   if(target==="LICENSING")return LICENSING_MIGRATIONS;
   if(target==="FACTUS_PAY")return FACTUS_PAY_MIGRATIONS;
+  if(target==="SUBSCRIPTIONS")return SUBSCRIPTION_MIGRATIONS;
   throw new MigrationInvariantError("Unknown commercial migration target");
 }
 export async function commercialMigrationManifest(target:CommercialMigrationTarget="AUTHENTICATION"){
@@ -91,11 +94,11 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
     await c.query("SELECT set_config('lock_timeout',$1,false),set_config('statement_timeout',$2,false)",[`${input.lockTimeoutMs}ms`,`${input.statementTimeoutMs}ms`]);
     await c.query("SELECT pg_advisory_lock(hashtextextended($1,0))",[POSTGRES_MIGRATION_LOCK_RESOURCE]);
     try{
-      if(input.target==="LICENSING"||input.target==="FACTUS_PAY"){
+      if(input.target==="LICENSING"||input.target==="FACTUS_PAY"||input.target==="SUBSCRIPTIONS"){
         const foundation=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_006_DESCRIPTOR.migrationId])).rows[0];
         check(foundation&&Buffer.from(foundation.checksum).equals(sha256(await readArtifact(POSTGRES_006_DESCRIPTOR.upArtifact))),"Licensing 006 predecessor mismatch");
       }
-      if(input.target==="FACTUS_PAY"){
+      if(input.target==="FACTUS_PAY"||input.target==="SUBSCRIPTIONS"){
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }

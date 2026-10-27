@@ -1,7 +1,7 @@
 import {applyCommercialMigrations,commercialMigrationManifest} from "./postgres-commercial-runner.js";
 const required=(name:string)=>{const value=process.env[name];if(!value)throw Error(`${name} required`);return value;};
-if(process.argv.includes("--licensing")&&process.argv.includes("--factus-pay"))throw Error("Choose one migration target");
-const target=process.argv.includes("--factus-pay")?"FACTUS_PAY":process.argv.includes("--licensing")?"LICENSING":"AUTHENTICATION";
+if(["--licensing","--factus-pay","--subscriptions"].filter(f=>process.argv.includes(f)).length>1)throw Error("Choose one migration target");
+const target=process.argv.includes("--subscriptions")?"SUBSCRIPTIONS":process.argv.includes("--factus-pay")?"FACTUS_PAY":process.argv.includes("--licensing")?"LICENSING":"AUTHENTICATION";
 if(process.argv.includes("--manifest"))process.stdout.write(JSON.stringify(await commercialMigrationManifest(target))+"\n");
 else process.stdout.write(JSON.stringify(await applyCommercialMigrations({migratorUrl:required("POSTGRES_MIGRATOR_URL"),
   expectedDatabase:required("POSTGRES_EXPECTED_DATABASE"),repositoryCommit:required("REPOSITORY_COMMIT"),
