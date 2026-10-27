@@ -4,6 +4,7 @@ import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
+import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
@@ -236,6 +237,11 @@ try {
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
     undefined,authorizationTrust.keys,
+    (scope, registerId) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
+    },
   );
   const commercialProvision=config.windows_commercial_provision_file;
   const nativeCommercial=commercialProvision===undefined?undefined:new WindowsCommercialRuntime(

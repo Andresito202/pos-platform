@@ -54,6 +54,7 @@ import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
 import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { HardwareService } from "../hardware/hardware-service.js";
+import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
 import { loadHardwareRegistry,loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 
@@ -135,6 +136,7 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
     /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
     private readonly authorizationSigningKeys:ReadonlyMap<string,TrustedSigningKey>=new Map(),
+    private readonly licenseGate?: CashRegisterLicenseGate,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -275,7 +277,7 @@ export class CommercialComponent implements RuntimeComponent {
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
-      openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
+      openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now, this.licenseGate),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
       receiveStock: new ReceiveStockUseCase(inventoryStore),

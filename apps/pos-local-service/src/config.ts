@@ -23,6 +23,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE",
   "POS_AUTHORIZATION_TRUST_PROVISION_FILE",
   "POS_WINDOWS_COMMERCIAL_PROVISION_FILE",
+  "POS_LICENSE_CAPACITY_PROVISION_FILE",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -39,6 +40,7 @@ const ServiceConfigSchema = z.strictObject({
   fiscal_environment: FiscalEnvironmentSchema.optional(),
   hardware_profiles_file:z.string().refine(isAbsolute).optional(),
   windows_commercial_provision_file:z.string().refine(isAbsolute).optional(),
+  license_capacity_provision_file:z.string().refine(isAbsolute).optional(),
   hardware_automatic_drawer_policy_file:z.string().refine(isAbsolute).optional(),
   session_trust_environment: z.string().min(1).max(128).optional(),
   session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
@@ -92,6 +94,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
     session_trust_transport_token_file: environment.POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE,
     windows_commercial_provision_file: environment.POS_WINDOWS_COMMERCIAL_PROVISION_FILE,
+    license_capacity_provision_file: environment.POS_LICENSE_CAPACITY_PROVISION_FILE,
     authorization_trust_provision_file:environment.POS_AUTHORIZATION_TRUST_PROVISION_FILE,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");

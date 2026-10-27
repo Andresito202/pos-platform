@@ -6,6 +6,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SqliteMasterSnapshotStore } from "../master-data/sqlite-master-snapshot-store.js";
 import type { SqliteCashShiftStore } from "./sqlite-cash-shift-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
+import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 
 export const PERMISSION_CASH_SHIFT_OPEN = CanonicalPermission.CASH_SHIFT_OPEN;
 
@@ -49,6 +50,7 @@ export class OpenCashShiftUseCase {
     private readonly masterSnapshotStore: SqliteMasterSnapshotStore,
     private readonly cashShiftStore: SqliteCashShiftStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly licenseGate?: CashRegisterLicenseGate,
   ) {}
 
   execute(
@@ -94,6 +96,8 @@ export class OpenCashShiftUseCase {
     if (register.status !== "ACTIVE") {
       return { kind: "REGISTER_INACTIVE" };
     }
+    const licenseDenial = this.licenseGate?.(scope, request.cashRegisterId);
+    if (licenseDenial) return { kind: "UNAUTHORIZED", reason: licenseDenial };
 
     // 5. Projection sequence congelado en apertura (B4 / DEC-012 §27)
     const projectionSequence = this.masterSnapshotStore.highestAcceptedSequence(masterScope);
