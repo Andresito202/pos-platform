@@ -65,3 +65,11 @@ export const QrPaymentMatchSchema = z.strictObject({
 });
 
 export type QrPaymentMatch = z.infer<typeof QrPaymentMatchSchema>;
+const FactusPayPositiveLimit=z.number().int().positive().max(2_147_483_647);
+/** Installer-managed ingress policy, without a provider secret or implicit limits. */
+export const FactusPayIngressProvisionSchema=z.strictObject({
+  profile:z.literal("CAMACHO_FACTUS_PAY_INGRESS_V1"),policy_reference:z.string().min(1).max(256),
+  migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),max_body_bytes:FactusPayPositiveLimit,
+  lock_timeout_ms:FactusPayPositiveLimit,statement_timeout_ms:FactusPayPositiveLimit,
+  rate_limit:z.strictObject({maximum:FactusPayPositiveLimit,buckets:FactusPayPositiveLimit,window_ms:FactusPayPositiveLimit}),
+}).refine(p=>p.statement_timeout_ms>p.lock_timeout_ms,"statement timeout must exceed lock timeout");

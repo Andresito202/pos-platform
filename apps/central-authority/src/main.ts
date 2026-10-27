@@ -10,6 +10,8 @@ import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import {resolveCentralDeploymentConfiguration,verifyCentralTlsIdentity,verifyEnrollmentIssuerKey,verifyCentralRuntimeDatabase,createCentralReadinessProbe} from "./central-deployment-configuration.js";
 import {drainCentralServer} from "./central-server-shutdown.js";
 import {prepareCentralCommercialRuntime} from "./central-commercial-runtime.js";
+import {prepareFactusPayRuntime} from "./factus-pay-runtime.js";
+import {FACTUS_PAY_COLLECTION_WEBHOOK_PATH} from "./factus-pay-webhook-handler.js";
 
 const deployment=resolveCentralDeploymentConfiguration(process.env);
 const PORT = deployment?.port??Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -104,6 +106,9 @@ if(authorizationTrustTransportToken!==null&&(authorizationTrustTransportToken.le
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
 if(deployment){try{await verifyCentralRuntimeDatabase(pool);}catch{await pool.end();throw Error("CENTRAL_RUNTIME_DATABASE_REJECTED");}}
 const readiness=deployment?createCentralReadinessProbe(pool,deployment.requestTimeoutMs):null;
+const factusPayProvision=process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
+if(factusPayProvision&&!deployment)throw Error("FACTUS_PAY_EXPLICIT_DEPLOYMENT_REQUIRED");
+const factusPayHandler=factusPayProvision?await prepareFactusPayRuntime(pool,factusPayProvision):undefined;
 const commercialProvision=process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
 if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!sessionTrustPublication||!authorizationTrustPublication))throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
 const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
@@ -165,6 +170,10 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 
   if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){commercialHandler(request,response);return;}
+  if(request.url?.split("?",1)[0]===FACTUS_PAY_COLLECTION_WEBHOOK_PATH){
+    if(!factusPayHandler){send(response,503,{status:"REJECTED",result_code:"FACTUS_PAY_NOT_PROVISIONED"});return;}
+    await factusPayHandler(request,response);return;
+  }
   // Reserved commercial authorization surface: explicitly fail closed until
   // D3 deployment approval, native registrations and key custody are verified.
   // Do not route isolated PostgreSQL fixtures or accept client session IDs.
