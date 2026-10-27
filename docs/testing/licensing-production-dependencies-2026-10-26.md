@@ -1,22 +1,24 @@
 # Dependencias precisas para cobro y activación de licencias
 
-La publicación de ofertas/precios está implementada en 5352ddc9. Esta lista
+La publicación de ofertas/precios está implementada en 5352ddc9. SQL 017 se
+registró en e32011b6 y el gate local de capacidad en 72568f93. Esta lista
 delimita lo todavía no implementado y sus contratos; no autoriza activar ofertas,
 credenciales, permisos o precios productivos por copiar un ejemplo.
 
 | Dependencia | Estado real / resolución propuesta |
 |---|---|
 | Administración | El repositorio verifica GLOBAL/MFA y LICENSE_PLAN_MANAGE real. Falta conectar el transporte GLOBAL autenticado y el panel existente. No aceptar sessionId HTTP como credencial ni equiparar administrador BUSINESS con superadministrador. |
-| Facturación de planes | Subscriptions figura en module-map; data-ownership todavía no asigna sus agregados de cotización/cobro. Reconciliar ese owner antes de introducir persistencia comercial de suscripciones. Propuesta: Subscriptions posee oferta aceptada/cotización y referencias de cobro; Payments conserva confirmación monetaria; Licensing conserva derechos y firma. No crear otro Payment ni otro sistema de identidad. |
-| Capacidad firmada | SignedLicense actual contiene flags de entitlements, no cantidad de cajas. La cantidad 1 + adicionales pagadas está probada en la oferta, pero aún no se transporta ni se aplica como límite firmado. Hace falta contrato versionado de capacidad, política legacy y enforcement en alta/activación de cajas antes de cobrar o prometer esa capacidad. No convertir device_id en una caja ni inferir límites ausentes. |
-| Soporte y términos | OPTIONAL_SAME_TERM sólo se admite en borradores. Definir vigencia, renovación y qué significa soporte para PERPETUAL; no prometer soporte perpetuo ni una suscripción recurrente por inferencia. Publicar precios aprobados mediante nuevas versiones, sin sobrescribir historia. |
-| FACTUS Pay | PR #93 Draft, delta histórico sin integrar: normaliza paid e inbox, pero no confirma pago canónico. Su migración 009 colisiona con 009 WebAuthn de esta línea. Reconciliar el delta específico/identificador/runner y correlacionar referencia única, tenant, importe y moneda con la cotización persistida. No fusionar su rama histórica ni tratar el webhook como activación. |
+| Facturación de planes | Subscriptions ya posee oferta aceptada/cotización y referencias de cobro en data-ownership; Payments conserva confirmación monetaria; Licensing conserva derechos y firma. La persistencia de cotizaciones y su coordinación de cobro siguen sin implementar. No crear otro Payment ni otro sistema de identidad. |
+| Capacidad firmada | V2 y gate del Service verifican 1 + adicionales firmadas, asignaciones explícitas, binding, vigencia, versión y revocación antes de abrir caja. V1 no adquiere cupo. Falta el productor central que derive adicionales del pago confirmado, serialice asignaciones globales y distribuya el artefacto. El campo firmado no demuestra por sí solo que exista esa compra. |
+| Soporte y términos | El propietario confirmó que no hay política fiscal/soporte definida. OPTIONAL_SAME_TERM sigue como candidato de borrador: falta impuestos aplicables, inclusión/exclusión en precio, vigencia y renovación del soporte PERPETUAL. No emitir cotización pagable con tasas o términos supuestos. |
+| FACTUS Pay | Ingreso reconciliado de PR #93 como 018, sin tocar 009 WebAuthn: HTTPS opt-in, autenticación por hash, RLS, inbox/auditoría atómicos e idempotencia física. Falta confirmar mediante API y correlacionar referencia única, comercio receptor, comprador, importe y moneda con cotización/pago persistidos. El webhook no activa licencias. |
 | Datos auténticos | Faltan integración/binding de FACTUS Pay, credenciales custodiadas, URL HTTPS de callback y cuenta administradora autorizadas. Empresa/datos fiscales y contactos deben verificarse en su backend real; no se fabrican en fixtures ni se solicitan secretos por chat. |
 | Activación | Falta conectar evidencia de pago autoritativa → emisión/licencia/entitlements persistidos → artefacto firmado verificable → sincronización y cupo de cajas. No activar desde el checkbox, redirección del proveedor o resultado optimista de React. |
 | Factura y entrega | Faltan correlación fiscal y notificación transaccional. Pago, activación, emisión fiscal y entrega son estados separados con evidencia; no marcar enviado por haber generado un PDF ni pagado por un callback de navegador. |
 
 No hay precios de producción sembrados. No hay endpoint administrativo inseguro,
 cobro de prueba presentado como real, activación simulada, factura ni email
-declarados enviados. SQL de ofertas sigue como propuesta ensayada temporalmente,
-fuera del runner de autenticación. Las decisiones anteriores son específicas de
+declarados enviados. SQL de ofertas ya está en el runner canónico mediante
+--licensing; --factus-pay añade 018 con dependencia 003 verificada. El selector
+de autenticación conserva 008–016. Las decisiones anteriores son específicas de
 licenciamiento; no reabren las aprobaciones SAS/access/refresh o SQL de login.

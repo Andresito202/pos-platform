@@ -58,7 +58,7 @@ async function validate001FoundationShape(db:SqlExecutor):Promise<void>{
       ORDER BY a.attnum
     `);
     const actualColumns=columns.map(row=>row.name);
-    let expectedColumns=[...expected];
+    let expectedColumns:string[]=[...expected];
     // Registered successor 014 legitimately extends this closed 001 table.
     // Accept only its exact additive shape with an authentic APPLIED checksum;
     // unknown columns or an unregistered/partial extension still fail closed.
@@ -178,8 +178,8 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
   return {sha:sha256(JSON.stringify(source)).toString('hex'),components:{...components,...columnTables}};
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
-  const extension=await queryRows<{present:boolean}>(db,"SELECT to_regclass('integrations.factus_pay_webhook_keys') IS NOT NULL OR to_regclass('integrations.factus_pay_webhook_inbox') IS NOT NULL AS present");
-  if(extension[0]?.present){
+  const factusExtensionState=await queryRows<{present:boolean}>(db,"SELECT to_regclass('integrations.factus_pay_webhook_keys') IS NOT NULL OR to_regclass('integrations.factus_pay_webhook_inbox') IS NOT NULL AS present");
+  if(factusExtensionState[0]?.present){
     const checksum=sha256(await readArtifact("postgres/018_factus_pay_webhook_inbox.up.sql")).toString("hex");
     const history=await queryRows<{checksum:string}>(db,"SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id='018_factus_pay_webhook_inbox' AND status='APPLIED'");
     invariant(history.length===1&&history[0]!.checksum===checksum,"003 Factus Pay extension requires registered 018 checksum");

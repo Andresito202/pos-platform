@@ -55,6 +55,15 @@ CREATE INDEX factus_pay_webhook_inbox_pending_idx
   ON integrations.factus_pay_webhook_inbox(processing_status,next_attempt_at,received_at)
   WHERE processing_status IN ('PENDING','RETRY_SCHEDULED');
 
+CREATE TRIGGER factus_pay_webhook_key_immutable_guard BEFORE UPDATE ON integrations.factus_pay_webhook_keys
+  FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('status,revoked_at,version');
+CREATE TRIGGER factus_pay_webhook_key_state_guard BEFORE UPDATE OF status ON integrations.factus_pay_webhook_keys
+  FOR EACH ROW EXECUTE FUNCTION integrations.guard_state_transition('status','DEFAULT','ACTIVE>REVOKED');
+CREATE TRIGGER factus_pay_webhook_inbox_immutable_guard BEFORE UPDATE ON integrations.factus_pay_webhook_inbox
+  FOR EACH ROW EXECUTE FUNCTION integrations.guard_allowed_update_columns('processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version');
+CREATE TRIGGER factus_pay_webhook_inbox_state_guard BEFORE UPDATE OF processing_status ON integrations.factus_pay_webhook_inbox
+  FOR EACH ROW EXECUTE FUNCTION integrations.guard_state_transition('processing_status','DEFAULT','PENDING>PROCESSING,PROCESSING>PROCESSED,PROCESSING>RETRY_SCHEDULED,PROCESSING>DEAD_LETTER,RETRY_SCHEDULED>PROCESSING,RETRY_SCHEDULED>DEAD_LETTER');
+
 ALTER TABLE integrations.factus_pay_webhook_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE integrations.factus_pay_webhook_keys FORCE ROW LEVEL SECURITY;
 ALTER TABLE integrations.factus_pay_webhook_inbox ENABLE ROW LEVEL SECURITY;
@@ -72,7 +81,9 @@ CREATE POLICY factus_pay_webhook_keys_owner_read ON integrations.factus_pay_webh
 CREATE POLICY factus_pay_webhook_inbox_owner_read ON integrations.factus_pay_webhook_inbox FOR SELECT TO pos_schema_owner USING (true);
 
 REVOKE ALL ON integrations.factus_pay_webhook_keys, integrations.factus_pay_webhook_inbox FROM PUBLIC,pos_app,pos_worker,pos_reporting;
-GRANT SELECT,INSERT,UPDATE ON integrations.factus_pay_webhook_keys TO pos_platform_app;
+GRANT SELECT,INSERT ON integrations.factus_pay_webhook_keys TO pos_platform_app;
+GRANT UPDATE (status,revoked_at,version) ON integrations.factus_pay_webhook_keys TO pos_platform_app;
 GRANT SELECT ON integrations.factus_pay_webhook_keys TO pos_platform_admin;
-GRANT SELECT,INSERT,UPDATE ON integrations.factus_pay_webhook_inbox TO pos_platform_app;
+GRANT SELECT,INSERT ON integrations.factus_pay_webhook_inbox TO pos_platform_app;
+GRANT UPDATE (processing_status,attempt_count,next_attempt_at,last_error_code,processed_at,version) ON integrations.factus_pay_webhook_inbox TO pos_platform_app;
 GRANT SELECT ON integrations.factus_pay_webhook_inbox TO pos_platform_admin;

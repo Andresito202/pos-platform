@@ -18,6 +18,11 @@ export async function prepareFactusPayRuntime(pool:Pool,path:string){
   const role=await pool.query(`SELECT current_user='pos_platform_app' AND NOT rolsuper AND NOT rolbypassrls
     AND NOT pg_has_role(current_user,'pos_schema_owner','MEMBER') AS eligible FROM pg_roles WHERE rolname=current_user`);
   if(role.rows[0]?.eligible!==true)throw Error("FACTUS_PAY_CENTRAL_ROLE_REQUIRED");
+  const tables=await pool.query(`SELECT c.relname,c.relrowsecurity AND c.relforcerowsecurity AND r.rolname='pos_schema_owner' AS protected,
+    has_table_privilege(current_user,c.oid,'DELETE') AS deletable
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner
+    WHERE n.nspname='integrations' AND c.relname IN ('factus_pay_webhook_keys','factus_pay_webhook_inbox') AND c.relkind='r'`);
+  if(tables.rows.length!==2||tables.rows.some(r=>r.protected!==true||r.deletable!==false))throw Error("FACTUS_PAY_SCHEMA_SECURITY_REQUIRED");
   const limiter=new FixedWindowRateLimiter(p.rate_limit.maximum,p.rate_limit.buckets,p.rate_limit.window_ms);
   const handler=createFactusPayWebhookHandler({inbox:new PostgresFactusPayWebhookInboxRepository({pool,
     lockTimeoutMs:p.lock_timeout_ms,statementTimeoutMs:p.statement_timeout_ms}),maxBodyBytes:p.max_body_bytes});

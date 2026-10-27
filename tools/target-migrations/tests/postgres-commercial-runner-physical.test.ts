@@ -51,6 +51,14 @@ async function licensingFoundation(f:Awaited<ReturnType<typeof fixture>>){
   await f.owner.query(`INSERT INTO platform.target_migration_executions(execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,body_committed_at,smoke_verified_at,applied_at,finished_at,runner_version)
     VALUES($1,'006_licensing_foundation','POSTGRESQL',1,$2,'APPLIED',clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp(),'TEMPORARY_FIXTURE_PREDECESSOR')`,[uuidV7(),sha256(await readArtifact("postgres/006_licensing_foundation.up.sql"))]);
 }
+it.runIf(Boolean(server))("factus successor: refuses missing 003 before commercial DDL without changing authentication or pricing manifests",async()=>{
+  const f=await fixture();await licensingFoundation(f);
+  await expect(applyCommercialMigrations({...f.input,target:"FACTUS_PAY"})).rejects.toThrow("Factus Pay 003 predecessor mismatch");
+  expect((await f.owner.query("SELECT to_regclass('identity.webauthn_challenges') AS object")).rows[0].object).toBeNull();
+  expect(Object.keys(await commercialMigrationManifest())).toHaveLength(9);
+  expect(Object.keys(await commercialMigrationManifest("LICENSING"))).toHaveLength(10);
+  expect(Object.keys(await commercialMigrationManifest("FACTUS_PAY"))).toHaveLength(11);
+},60000);
 it.runIf(Boolean(server))("licensing successor: applies 017 once concurrently and preserves legacy prices and authentication manifest",async()=>{
   const f=await fixture();await licensingFoundation(f);const planId=uuidV7();
   await f.owner.query("INSERT INTO licensing.plans(id,code,name,billing_model,deployment_mode,currency_code,price_minor,status,version,created_at,updated_at) VALUES($1,'LEGACY_PRICE','Legacy','MONTHLY','HYBRID','COP',12345,'DRAFT',1,clock_timestamp(),clock_timestamp())",[planId]);

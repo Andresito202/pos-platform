@@ -9,6 +9,7 @@
 | Authorization | Roles, permisos, políticas y UserRoleAssignment |
 | Devices | Equipos, instalaciones, solicitudes/respuestas de activación de dispositivo, claves, confianza, perfiles de administración y políticas nativas de dispositivo |
 | Licensing | Licencias, LicenseActivation, entitlements, límites, gracia, revocaciones y artefactos contractuales firmados |
+| Subscriptions | Cotizaciones y aceptación de ofertas de suscripción, términos contratados y referencias de cobro; referencia versiones de planes de Licensing y resultados de Tax/Payments, sin confirmar dinero ni emitir derechos |
 | Catalog | Productos, categorías, variantes y códigos |
 | Pricing | Listas, precios, promociones, descuentos, redondeo comercial, políticas de resolución, versiones, vigencias e historial |
 | Tax | TaxRule, TaxRuleVersion, clasificación, tasas, reglas, vigencia, cálculo y resultado tributario |

@@ -23,9 +23,12 @@ async function seed(provider:string,adapter:string){
   await owner.query("INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES($1,'Temporary','ACTIVE',now(),now())",[s.tenant]);
   await owner.query("INSERT INTO organization.companies(id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at) VALUES($1,$2,'Temporary','America/Bogota','COP','ACTIVE',now(),now())",[s.company,s.tenant]);
   await owner.query(`INSERT INTO integrations.external_integrations(id,tenant_id,company_id,provider_id,provider_code_snapshot,provider_adapter_version_id,
-    environment,status,configuration_version,created_at,updated_at) VALUES($1,$2,$3,$4,'FACTUS_PAY',$5,'SANDBOX','ACTIVE',1,now(),now())`,[s.integration,s.tenant,s.company,provider,adapter]);
+    environment,status,configuration_version,created_at,updated_at) VALUES($1,$2,$3,$4,'FACTUS_PAY',$5,'SANDBOX','CREDENTIALS_CONFIGURED',1,now(),now())`,[s.integration,s.tenant,s.company,provider,adapter]);
   await owner.query(`INSERT INTO integrations.integration_credential_bindings(id,tenant_id,company_id,integration_id,credential_reference,credential_kind,
-    generation,status,activated_at,created_at) VALUES($1,$2,$3,$4,'temporary-reference','PROVIDER_API',1,'ACTIVE',now(),now())`,[s.binding,s.tenant,s.company,s.integration]);
+    generation,status,created_at) VALUES($1,$2,$3,$4,'temporary-reference','PROVIDER_API',1,'PENDING',now())`,[s.binding,s.tenant,s.company,s.integration]);
+  await owner.query("UPDATE integrations.integration_credential_bindings SET status='ACTIVE',activated_at=now() WHERE id=$1",[s.binding]);
+  for(const state of ["AUTHENTICATED","DISCOVERING","DISCOVERY_COMPLETE","READY_FOR_REVIEW","ACTIVE"])
+    await owner.query("UPDATE integrations.external_integrations SET status=$2,updated_at=now(),version=version+1 WHERE id=$1",[s.integration,state]);
   await owner.query(`INSERT INTO integrations.factus_pay_webhook_keys(id,tenant_id,company_id,integration_id,secret_sha256,status,created_at)
     VALUES($1,$2,$3,$4,$5,'ACTIVE',now())`,[s.keyId,s.tenant,s.company,s.integration,sha(s.secret)]);return s;
 }
@@ -34,12 +37,14 @@ beforeAll(async()=>{
   if(!url)return;const u=new URL(url);
   if(!["127.0.0.1","localhost"].includes(u.hostname)||u.port!=="55433")throw Error("TEMPORARY_POSTGRES_ONLY");
   admin=createPostgresPool(url,2,"factus-temp-admin");
-  await admin.query("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='pos_reporting') THEN CREATE ROLE pos_reporting NOLOGIN NOINHERIT NOBYPASSRLS; END IF; END $$");
   await admin.query(`CREATE DATABASE "${db}"`);created=true;
-  await admin.query(`GRANT CREATE ON DATABASE "${db}" TO pos_schema_owner`);u.pathname="/"+db;
-  owner=createPostgresPool(u.href,2,"factus-temp-owner");await owner.query(await sql("bootstrap.sql"));
+  u.pathname="/"+db;
+  execFileSync(process.execPath,["--import","tsx","--input-type=module","-e",
+    "const {applyPostgres001}=await import('./src/postgres.ts');await applyPostgres001({adminUrl:process.env.FIXTURE_DATABASE_URL})"],
+    {cwd:tool,windowsHide:true,env:{...process.env,FIXTURE_DATABASE_URL:u.href},stdio:"pipe"});
+  owner=createPostgresPool(u.href,2,"factus-temp-owner");
   const c=await owner.connect();try{await c.query("SET ROLE pos_schema_owner");await c.query("CREATE EXTENSION btree_gist");
-    for(const name of ["001_central_foundation","002_external_integrations_foundation","003_fiscal_electronic_invoicing_foundation",
+    for(const name of ["002_external_integrations_foundation","003_fiscal_electronic_invoicing_foundation",
       "004_device_trust","006_licensing_foundation","007_password_recovery"])await c.query(await sql(name+".up.sql"));
     for(const name of ["003_fiscal_electronic_invoicing_foundation","006_licensing_foundation","007_password_recovery"])
       await c.query(`INSERT INTO platform.target_migration_executions(execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,body_committed_at,
@@ -96,6 +101,8 @@ it.runIf(Boolean(url))("Factus physical: HTTPS → registered 018 → durable in
   const rows=(await owner.query("SELECT tenant_id,company_id,amount::text FROM integrations.factus_pay_webhook_inbox ORDER BY tenant_id")).rows;
   expect(rows).toHaveLength(2);expect(rows.find(r=>r.tenant_id===a.tenant)?.company_id).toBe(a.company);
   expect(rows.every(r=>r.amount==="150000.000000")).toBe(true);
+  await expect(runtime.query("UPDATE integrations.factus_pay_webhook_inbox SET amount=1")).rejects.toThrow("permission denied");
+  await expect(owner.query("UPDATE integrations.factus_pay_webhook_inbox SET amount=1")).rejects.toThrow("immutable columns");
   expect((await owner.query("SELECT count(*)::int AS n FROM audit.audit_events WHERE action_code='FACTUS_PAY_COLLECTION_OBSERVED'")).rows[0].n).toBe(2);
   await owner.query(`CREATE FUNCTION public.reject_factus_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
     IF NEW.action_code='FACTUS_PAY_COLLECTION_OBSERVED' THEN RAISE EXCEPTION 'temporary audit failure'; END IF; RETURN NEW; END $$;
@@ -106,6 +113,7 @@ it.runIf(Boolean(url))("Factus physical: HTTPS → registered 018 → durable in
   expect(await post(a.secret,"ROLLBACK")).toBe(204);
   const context=(await repo.resolveKey(a.secret))!;
   const obs=normalizeFactusPayCollectionWebhook({data:{reference_code:"REVOKED",amount:150000,status:"paid"}});
+  await owner.query("UPDATE integrations.external_integrations SET status='DISABLED',disabled_at=now(),updated_at=now(),version=version+1 WHERE id=$1",[a.integration]);
   await owner.query("UPDATE integrations.integration_credential_bindings SET status='REVOKED',revoked_at=now() WHERE id=$1",[a.binding]);
   await expect(repo.persistVerifiedObservation(obs,context,"FACTUS_PAY:REVOKED")).rejects.toThrow("REVOKED");
   expect(await post(a.secret,"AFTER_REVOKE")).toBe(401);
