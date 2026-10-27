@@ -11,13 +11,16 @@ ALTER TABLE licensing.plans
 CREATE POLICY licensing_offer_owner_history ON licensing.plans FOR SELECT TO pos_schema_owner USING(true);
 ALTER TABLE licensing.plans ADD CONSTRAINT licensing_offer_complete_ck CHECK (
   (offer_profile IS NULL AND included_registers IS NULL AND additional_register_price_minor IS NULL AND support_price_minor IS NULL AND support_charge IS NULL AND offer_policy_reference IS NULL)
-  OR(offer_profile='CAMACHO_LICENSE_OFFER_V1' AND included_registers IS NOT NULL AND included_registers=1
+  OR(offer_profile IS NOT NULL AND offer_profile='CAMACHO_LICENSE_OFFER_V1' AND included_registers IS NOT NULL AND included_registers=1
+    AND price_minor<=9007199254740991
     AND additional_register_price_minor IS NOT NULL AND additional_register_price_minor>=0
-    AND support_price_minor IS NOT NULL AND support_price_minor>=0
+    AND support_price_minor IS NOT NULL AND support_price_minor BETWEEN 0 AND 9007199254740991
+    AND additional_register_price_minor<=9007199254740991
     AND support_charge IS NOT NULL AND support_charge='OPTIONAL_SAME_TERM'
     AND offer_policy_reference IS NOT NULL AND btrim(offer_policy_reference)<>''));
 CREATE FUNCTION licensing.guard_offer_version() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $body$
 BEGIN
+  IF TG_OP='UPDATE' AND OLD.offer_profile IS DISTINCT FROM NEW.offer_profile THEN RAISE EXCEPTION 'Offer profile requires a new version'; END IF;
   IF OLD.offer_profile IS NOT NULL AND (TG_OP='DELETE' OR
     (to_jsonb(NEW)-ARRAY['status','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['status','updated_at'])) THEN
     RAISE EXCEPTION 'Offer price version is immutable';

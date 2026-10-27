@@ -179,6 +179,7 @@ it.runIf(Boolean(serverUrl))("license draft pricing: persisted versions, one reg
   await owner.query("INSERT INTO identity.sessions(id,user_id,authenticated_at,expires_at,last_reauthenticated_at,mfa_status,created_at) VALUES($1,$2,clock_timestamp(),clock_timestamp()+interval '5 minutes',clock_timestamp(),'SATISFIED',clock_timestamp())",[global,user]);
   const drafts=new LicenseOfferDrafts(runtime,60000),offer:LicenseOfferDraft={id:id(),code:"TEMPORARY_PLAN",name:"Temporary draft only",billing_model:"MONTHLY",deployment_mode:"HYBRID",currency_code:"COP",price_minor:10000,
     included_registers:1,additional_register_price_minor:2000,support_price_minor:1000,support_charge:"OPTIONAL_SAME_TERM",policy_reference:"TEMPORARY_PRICING_NOT_A_PRODUCTION_POLICY"};
+  await expect(owner.query("INSERT INTO licensing.plans(id,code,name,billing_model,deployment_mode,currency_code,price_minor,status,version,created_at,updated_at,support_price_minor) VALUES($1,'INCOMPLETE_FIXTURE','Incomplete','MONTHLY','HYBRID','COP',1,'DRAFT',1,clock_timestamp(),clock_timestamp(),0)",[id()])).rejects.toThrow("licensing_offer_complete_ck");
   await expect(drafts.save(global,offer,0,id())).rejects.toThrow("LICENSE_PLAN_MANAGE_REQUIRED");
   await owner.query("INSERT INTO \"authorization\".roles(id,code,name,scope_type,version,status,created_at) VALUES($1,'TEMPORARY_LICENSE_ADMIN','Fixture','PLATFORM',1,'ACTIVE',clock_timestamp())",[role]);
   await owner.query("INSERT INTO \"authorization\".permissions(id,code,module,description,status,created_at) VALUES($1,'LICENSE_PLAN_MANAGE','LICENSING','Fixture only','ACTIVE',clock_timestamp())",[permission]);
@@ -187,11 +188,20 @@ it.runIf(Boolean(serverUrl))("license draft pricing: persisted versions, one reg
     await a.query("INSERT INTO \"authorization\".platform_role_assignments(id,user_id,role_id,status,valid_from,created_at,created_by_actor_type) VALUES($1,$2,$3,'ACTIVE',clock_timestamp(),clock_timestamp(),'SYSTEM')",[id(),user,role]);await a.query("COMMIT");
   }catch(e){await a.query("ROLLBACK");throw e;}finally{a.release();}
   expect(await drafts.save(global,offer,0,id())).toMatchObject({version:1,idempotent:false});
+  await owner.query("INSERT INTO licensing.plan_entitlements(id,plan_id,capability_code,enabled,limit_type,limit_value,created_at) VALUES($1,$2,'CASH_REGISTER',false,'FINITE',1,clock_timestamp())",[id(),offer.id]);
+  expect(await drafts.published()).toEqual([]);
+  expect(await drafts.publish(global,offer.id,1,id())).toMatchObject({version:1,idempotent:false});
   expect(await drafts.save(global,offer,0,id())).toMatchObject({version:1,idempotent:true});
   await expect(drafts.save(global,{...offer,price_minor:999},0,id())).rejects.toThrow("IDEMPOTENCY_CONFLICT");
   const revised={...offer,id:id(),price_minor:12000};expect(await drafts.save(global,revised,1,id())).toMatchObject({version:2});
   expect(await drafts.preview(global,offer.id,{additional_registers:2,support:true})).toMatchObject({plan_version:1,included_registers:1,total_registers:3,subtotal_minor:15000,payment_status:"NOT_REQUESTED",activation_status:"NOT_ACTIVATED"});
   expect(await drafts.preview(global,revised.id,{additional_registers:0,support:false})).toMatchObject({plan_version:2,total_registers:1,subtotal_minor:12000});
+  expect((await drafts.published())[0]).toMatchObject({id:offer.id,price_minor:10000,features:[{capability_code:"CASH_REGISTER",enabled:false}]});
+  expect(await drafts.publish(global,revised.id,2,id())).toMatchObject({version:2,idempotent:false});
+  expect(await drafts.publish(global,revised.id,2,id())).toMatchObject({version:2,idempotent:true});
+  expect((await drafts.published()).map(p=>p.id)).toEqual([revised.id]);
+  expect((await drafts.published())[0]!.features).toMatchObject([{capability_code:"CASH_REGISTER",enabled:false,limit_type:"FINITE",limit_value:"1"}]);
+  await expect(drafts.publish(global,offer.id,1,id())).rejects.toThrow("STALE_PUBLICATION");
   await expect(drafts.preview(global,revised.id,{additional_registers:1,support:false,price_minor:1})).rejects.toThrow();
   await expect(owner.query("UPDATE licensing.plans SET price_minor=1 WHERE id=$1",[offer.id])).rejects.toThrow("immutable");
   const business=id();await owner.query("INSERT INTO identity.sessions(id,user_id,tenant_id,tenant_membership_id,authenticated_at,expires_at,last_reauthenticated_at,mfa_status,created_at) VALUES($1,$2,$3,$4,clock_timestamp(),clock_timestamp()+interval '5 minutes',clock_timestamp(),'SATISFIED',clock_timestamp())",[business,user,tenant,membership]);
@@ -205,10 +215,18 @@ it.runIf(Boolean(serverUrl))("license draft pricing: persisted versions, one reg
   const competing=await Promise.allSettled([drafts.save(global,{...offer,id:id(),price_minor:13000},2,id()),drafts.save(global,{...offer,id:id(),price_minor:14000},2,id())]);
   expect(competing.filter(r=>r.status==="fulfilled")).toHaveLength(1);expect(competing.filter(r=>r.status==="rejected")).toHaveLength(1);
   expect((await owner.query("SELECT count(*)::int AS n FROM licensing.plans WHERE code=$1 AND version=3",[offer.code])).rows[0].n).toBe(1);
+  const winner=competing.find(r=>r.status==="fulfilled")!;if(winner.status!=="fulfilled")throw Error("FIXTURE_PUBLICATION_WINNER_REQUIRED");
+  await owner.query(`CREATE FUNCTION audit.reject_publication_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action_code='LICENSE_OFFER_PUBLISHED' THEN RAISE EXCEPTION 'PUBLICATION_AUDIT_FAILURE'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER reject_publication_fixture BEFORE INSERT ON audit.audit_events FOR EACH ROW EXECUTE FUNCTION audit.reject_publication_fixture()`);
+  try{await expect(drafts.publish(global,winner.value.planId,3,id())).rejects.toThrow("PUBLICATION_AUDIT_FAILURE");
+    expect((await drafts.published()).map(p=>p.id)).toEqual([revised.id]);
+  }finally{await owner.query("DROP TRIGGER reject_publication_fixture ON audit.audit_events; DROP FUNCTION audit.reject_publication_fixture()");}
+  expect(await drafts.publish(global,winner.value.planId,3,id())).toMatchObject({version:3});
   const down=await owner.connect();try{await down.query("SET ROLE pos_schema_owner");await expect(down.query(await readFile(new URL("proposals/license_offer_pricing.down.sql",rootSql),"utf8"))).rejects.toThrow("history must be retained");}finally{await down.query("RESET ROLE");down.release();}
   const expensive={...offer,id:id(),code:"TEMPORARY_OVERFLOW",price_minor:Number.MAX_SAFE_INTEGER};await drafts.save(global,expensive,0,id());
   await expect(drafts.preview(global,expensive.id,{additional_registers:1,support:false})).rejects.toThrow("OVERFLOW");
   await owner.query("UPDATE \"authorization\".role_permission_grants SET status='RETIRED',retired_at=clock_timestamp() WHERE id=$1",[grant]);
   await expect(drafts.save(global,{...offer,id:id()},2,id())).rejects.toThrow("LICENSE_PLAN_MANAGE_REQUIRED");
+  await expect(drafts.publish(global,revised.id,2,id())).rejects.toThrow("LICENSE_PLAN_MANAGE_REQUIRED");
   expect((await owner.query("SELECT 1 FROM licensing.licenses")).rowCount).toBe(0);
 },30000);

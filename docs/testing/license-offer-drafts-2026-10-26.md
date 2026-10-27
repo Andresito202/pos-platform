@@ -1,5 +1,20 @@
 # Licencias: borradores de precios backend
 
+Continuación posterior: publicación de oferta y catálogo backend completados
+internamente. publish exige el mismo GLOBAL/MFA/grant, versión exacta y auditoría;
+activa sólo el último borrador y retira la versión anterior atómicamente. Reintento
+idéntico es idempotente; versión vieja no vuelve a activarse. published lee precio
+y funcionalidades de licensing.plans/plan_entitlements en snapshot consistente;
+no recibe valores de React. Editar precio copia funcionalidades previas, sin
+fabricar derechos. Publicar una oferta no crea una licencia ni confirma un pago.
+
+license-offer-publication-final.json: 1 escenario físico temporal PASS, 0 FAIL,
+ampliando el escenario anterior con publicación/idempotencia, catálogo real SQL,
+conservación de funcionalidades, rollback de publicación y rechazo de versión
+vieja/permiso revocado. No sumar como dos escenarios distintos. Un intento previo
+no pudo ejecutar aserciones: reinició PostgreSQL tmpfs y perdió roles; se verificó
+ausencia de volúmenes persistentes y se restauraron sólo roles de laboratorio.
+
 Después del cierre técnico Windows 85134b88. No altera el login ni las licencias
 existentes. Es un incremento interno; no declara listo el panel comercial.
 
@@ -35,7 +50,7 @@ veía historial por forced RLS. Corregidos antes del PASS mediante lectura exclu
 del schema owner, sin ampliar permisos de aplicación sobre RBAC.
 
 Pendiente real: transporte autenticado GLOBAL/panel superadministrador, adopción
-SQL, publicación de ofertas, impuestos/cotización comercial durable, confirmación
+SQL y montaje del catálogo, impuestos/cotización comercial durable, confirmación
 de cliente y verificaciones, correlación de pago, activación firmada Licensing,
 factura y notificación con estados independientes. PR #93 sigue Draft sin merge:
 su inbox FACTUS Pay aún no confirma un pago canónico. No se importa su rama ni se
