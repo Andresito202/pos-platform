@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
 import { useAdminMetrics } from "../hooks/useAdminMetrics.js";
 import type {PlatformClient,PublishedOffer} from "../platform-client.js";
-import {PlatformOfferEditor} from "./PlatformOfferEditor.js";
+import type {ReactNode} from "react";
 
 type ControlKind = "admin" | "superadmin" | "audit";
 
@@ -55,7 +55,7 @@ const copy: Record<ControlKind, {
   },
 };
 
-export function AdministrativeControlPanel({ kind,platform }: { kind: ControlKind;platform?:{client:PlatformClient;offers:PublishedOffer[];onChanged:()=>Promise<void>} }): React.JSX.Element {
+export function AdministrativeControlPanel({ kind,platform,platformEditor }: { kind: ControlKind;platform?:{client:PlatformClient;offers:PublishedOffer[];onChanged:()=>Promise<void>};platformEditor?:ReactNode }): React.JSX.Element {
   const [tab, setTab] = useState<Tab>("overview");
   const model = copy[kind];
   const audit = useAdministrativeAudit(kind === "audit");
@@ -166,7 +166,7 @@ export function AdministrativeControlPanel({ kind,platform }: { kind: ControlKin
         </div>
       ) : null}
 
-      {kind==="superadmin"&&platform&&tab==="overview"&&<PlatformOfferEditor client={platform.client} offers={platform.offers} onChanged={platform.onChanged}/>}
+      {kind==="superadmin"&&tab==="overview"&&platformEditor}
       {tab === "security" && (
         <div className="pos-admin-surface">
           <h3>Seguridad y trazabilidad</h3>

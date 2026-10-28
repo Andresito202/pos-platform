@@ -52,15 +52,42 @@ async function run(){
   }
   await login();
   process.stderr.write("PLATFORM_TEST_AUTHENTICATED\n");
-  const values={code:input.planCode,name:"Plan laboratorio interfaz",currency_code:"COP",price_minor:"223000",additional_register_price_minor:"2000",support_price_minor:"1000",policy_reference:"TEST_UI_NOT_APPROVED_FOR_PRODUCTION"};
-  await win.webContents.executeJavaScript("(()=>{const values="+JSON.stringify(values)+";for(const [key,value] of Object.entries(values))document.querySelector('[name='+key+']').value=value;document.querySelector('[name=billing_model]').value='MONTHLY';document.querySelector('button[type=submit]').click();})()");
+  const click=async(text)=>win.webContents.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==="+JSON.stringify(text)+").click()");
+  const selectPlan=async(code,status)=>{
+    await win.webContents.executeJavaScript("(()=>{const select=document.querySelector('[aria-label=\"Plan del catálogo\"]');const option=Array.from(select.options).find(o=>o.textContent.includes("+JSON.stringify(code)+")&&o.textContent.includes("+JSON.stringify(status)+"));if(!option)throw Error('PLAN_NOT_RECOVERED');select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));})()");
+  };
+  const confirmPublish=async()=>{
+    await win.webContents.executeJavaScript("document.querySelector('[aria-label=\"Confirmar publicación\"]').click()");
+    await wait(win,"Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Publicar versión guardada'&&!b.disabled)","PUBLISH_READY");
+    await click('Publicar versión guardada');
+    await wait(win,"document.body.textContent.includes('Central publicó la versión del plan')","PUBLISHED");
+  };
+  await click('Preparar catálogo preproducción');
+  await wait(win,"document.querySelectorAll('[data-admin-plan-code]').length===3","INITIAL_DRAFTS");
+  for(const name of ['Mensual','Anual','Perpetuo']){await selectPlan(name,'Borrador');await confirmPublish();}
+  const publicPartition=session.fromPartition('public-prices-test-only');
+  publicPartition.setCertificateVerifyProc((request,done)=>{
+    let ok=false;try{ok=request.hostname==='global.example.test'&&new X509Certificate(request.certificate.data).fingerprint256===input.fingerprint;}catch{}done(ok?0:-3);
+  });
+  const publicWindow=new BrowserWindow({show:false,webPreferences:{partition:'public-prices-test-only',sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,backgroundThrottling:false}});
+  await publicWindow.loadURL(input.origin+'/pricing/');
+  await wait(publicWindow,"document.querySelector('[data-plan-code=CAMACHO_MONTHLY] [data-price-minor=\"4990000\"]')","INITIAL_PUBLIC_PRICE");
+  const initial=await publicWindow.webContents.executeJavaScript("Array.from(document.querySelectorAll('[data-plan-code]')).map(e=>({code:e.dataset.planCode,minor:e.querySelector('[data-price-minor]').dataset.priceMinor}))");
+  if(!initial.some(p=>p.code==='CAMACHO_ANNUAL'&&p.minor==='49900000')||!initial.some(p=>p.code==='CAMACHO_PERPETUAL'&&p.minor==='149000000'))throw Error('INITIAL_PRICES_INCORRECT');
+  const beforeAssets=await publicWindow.webContents.executeJavaScript("Array.from(document.scripts).map(s=>s.src).join('|')");
+  await selectPlan('Mensual','Publicado');
+  await win.webContents.executeJavaScript("document.querySelector('[name=price_minor]').value='59.900';document.querySelector('button[type=submit]').click()");
+  await wait(win,"document.querySelector('[data-testid=offer-preview]')","PRICE_PREVIEW");
+  await click('Guardar borrador');
   await wait(win,"document.body.textContent.includes('Central guardó el borrador')","DRAFT_PERSISTED");
-  // Renderer state is lost. Fresh real MFA must recover the backend draft.
-  await new Promise(resolve=>{win.webContents.once("did-finish-load",resolve);win.reload();});await login();
-  await win.webContents.executeJavaScript("(()=>{const select=document.querySelector('[aria-label=\"Plan del catálogo\"]');const option=Array.from(select.options).find(o=>o.textContent.includes('Plan laboratorio interfaz')&&o.textContent.includes('Borrador'));if(!option)throw Error('DRAFT_NOT_RECOVERED');select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));})()");
-  await wait(win,"Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Publicar versión guardada'&&!b.disabled)","PUBLISH_READY");
-  await win.webContents.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Publicar versión guardada').click()");
-  await wait(win,"document.body.textContent.includes('Central publicó la versión del plan')","PUBLISHED");
+  await new Promise(resolve=>{win.webContents.once('did-finish-load',resolve);win.reload();});await login();
+  await selectPlan('Mensual','Borrador');await confirmPublish();
+  await publicWindow.webContents.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Actualizar precios').click()");
+  await wait(publicWindow,"document.querySelector('[data-plan-code=CAMACHO_MONTHLY] [data-price-minor=\"5990000\"]')","PRICE_UPDATED_WITHOUT_BUILD");
+  const afterAssets=await publicWindow.webContents.executeJavaScript("Array.from(document.scripts).map(s=>s.src).join('|')");
+  if(beforeAssets!==afterAssets)throw Error('PRICE_UPDATE_CHANGED_ASSETS');
+  if((await publicPartition.cookies.get({url:input.origin})).length!==0)throw Error('PUBLIC_CATALOG_USED_SESSION');
+  publicWindow.destroy();
   const storage=await win.webContents.executeJavaScript("({local:localStorage.length,session:sessionStorage.length,preload:typeof window.pos})");
   if(storage.local!==0||storage.session!==0||storage.preload!=="undefined")throw Error("PLATFORM_RENDERER_ISOLATION_FAILED");
   const cookies=await partition.cookies.get({url:input.origin});
@@ -69,7 +96,7 @@ async function run(){
   await win.webContents.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Cerrar sesión GLOBAL').click()");
   await wait(win,"document.body.textContent.includes('Central confirmó el cierre de sesión')","LOGOUT");
   input.password="";
-  process.stdout.write(JSON.stringify({platformUi:true,draftRecovered:true,published:true,logout:true,storage,consoleErrors:errors})+"\n");
+  process.stdout.write(JSON.stringify({platformUi:true,draftRecovered:true,published:true,dynamicPrice:true,publicUnauthenticated:true,noRecompile:true,logout:true,storage,consoleErrors:errors})+"\n");
   win.destroy();app.quit();
 }
 run().catch(error=>{process.stderr.write(String(error?.stack??error)+"\n");app.exit(1);});

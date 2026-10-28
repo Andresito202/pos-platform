@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { CanonicalPermission, SubscriptionQuoteRequestSchema, SubscriptionQuoteTermsSchema, canonicalSessionTrustJson,
-  previewLicenseOffer, uuidV7, UuidSchema, type SubscriptionQuoteTerms } from "@pos-platform/contracts";
+  previewLicenseOffer,addLicenseCalendarMonths, uuidV7, UuidSchema, type SubscriptionQuoteTerms } from "@pos-platform/contracts";
 import { PostgresPlatformAdministrationSessionRepository, type Pool, type PoolClient } from "@pos-platform/database-postgres";
 import { readPublishedLicenseOffer } from "./license-offer-reader.js";
 
@@ -72,6 +72,10 @@ export class SubscriptionQuotes {
         const supplied=policy.resolveTerms({pricing,supportSelected:r.selection.support,buyer:Object.freeze({...buyer}),now});
         if(!supplied)throw Error("SUBSCRIPTION_FISCAL_SUPPORT_POLICY_REQUIRED");
         const terms=SubscriptionQuoteTermsSchema.parse(supplied);
+        if("profile" in offer&&(terms.currency_exponent!==offer.currency_exponent||
+          (offer.billing_model!=='PERPETUAL'&&terms.service_until!==addLicenseCalendarMonths(terms.service_from,offer.billing_model==='MONTHLY'?1:12))||
+          r.selection.support&&terms.support_until!==addLicenseCalendarMonths(terms.service_from,offer.support_term_months)))
+          throw Error("SUBSCRIPTION_VERSIONED_CURRENCY_OR_TERM_MISMATCH");
         const from=Date.parse(terms.service_from),until=terms.service_until===null?null:Date.parse(terms.service_until);
         if(Date.parse(terms.expires_at)<=now.getTime()||from<now.getTime()||(until!==null&&until<=from)||
           (pricing.billing_model==="PERPETUAL"?until!==null:until===null)||

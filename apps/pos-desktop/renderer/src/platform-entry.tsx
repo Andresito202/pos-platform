@@ -1,9 +1,10 @@
-import {useEffect,useRef,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {createRoot} from "react-dom/client";
 import "./App.css";
 import "./commercial-precision.css";
 import {AdministrativeControlPanel} from "./components/AdministrativeControlPanel.js";
 import {PlatformClient,type PublishedOffer} from "./platform-client.js";
+import {PlatformOfferEditor} from "./components/PlatformOfferEditor.js";
 
 export function PlatformAdministrationPortal(){
   const [client]=useState(()=>window.location.protocol==="https:"?new PlatformClient():null);
@@ -11,7 +12,7 @@ export function PlatformAdministrationPortal(){
   const [busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null),[notice,setNotice]=useState<string|null>(null);
   const controller=useRef<AbortController|null>(null);
   useEffect(()=>()=>controller.current?.abort(),[]);
-  async function refresh(){if(!client)return;setOffers(await client.offers());}
+  const refresh=useCallback(async()=>{if(!client)return;setOffers(await client.offers());},[client]);
   async function login(form:HTMLFormElement){
     if(!client||busy)return;
     const input=form.elements.namedItem("password") as HTMLInputElement,email=form.elements.namedItem("email") as HTMLInputElement;
@@ -36,7 +37,7 @@ export function PlatformAdministrationPortal(){
         <button type="button" disabled={!busy} onClick={()=>controller.current?.abort()}>Cancelar</button>
       </form>}{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
     </section></main>;
-  return <main className="pos-main"><AdministrativeControlPanel kind="superadmin" platform={{client,offers,onChanged:refresh}}/>
+  return <main className="pos-main"><AdministrativeControlPanel kind="superadmin" platform={{client,offers,onChanged:refresh}} platformEditor={<PlatformOfferEditor client={client} offers={offers} onChanged={refresh}/>}/>
     <button type="button" disabled={busy} onClick={()=>void logout()}>Cerrar sesión GLOBAL</button>{error&&<p role="alert">{error}</p>}</main>;
 }
 const root=document.getElementById("root");if(!root)throw Error("Elemento raíz no disponible");createRoot(root).render(<PlatformAdministrationPortal/>);

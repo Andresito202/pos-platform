@@ -119,6 +119,7 @@ const licenseRuntime=licenseProvision?await prepareLicenseCapacityRuntime({pool,
   environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION"}):undefined;
 if(globalProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("GLOBAL_ADMIN_REAL_DEPLOYMENT_REQUIRED");
 const globalHandler=globalProvision?await prepareGlobalAdministrationRuntime({pool,provisionFile:globalProvision,origin:deployment!.origin,
+  environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",
   ...(licenseRuntime?{licenseAuthority:licenseRuntime.authority}:{})}):undefined;
 const collectionsProvision=process.env.CENTRAL_FACTUS_PAY_COLLECTIONS_PROVISION_FILE;
 if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("COLLECTIONS_REAL_DEPLOYMENT_REQUIRED");
@@ -151,7 +152,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     if(licenseRuntime)await licenseRuntime.handler(request,response);else send(response,503,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;
   }
 
-  if(request.url?.startsWith("/v1/platform/")||request.url==="/platform"||request.url?.startsWith("/platform/")){
+  if(request.url?.startsWith("/v1/platform/")||request.url==="/platform"||request.url?.startsWith("/platform/")||request.url==="/v1/licensing/offers"||request.url==="/pricing"||request.url?.startsWith("/pricing/")){
     if(globalHandler)await globalHandler(request,response);
     else send(response,503,{status:"REJECTED",result_code:"GLOBAL_ADMINISTRATION_NOT_ACTIVATED"});
     return;

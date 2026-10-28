@@ -6,20 +6,21 @@ import {TLSSocket} from "node:tls";
 
 /** Installer-managed renderer build only; no arbitrary paths, listings,
  * sourcemaps, Node/preload entry or configuration/credential files. */
-export function createGlobalAdministrationAssets(input:{directory:string;origin:string;maximumAssetBytes:number}){
+export function createGlobalAdministrationAssets(input:{directory:string;origin:string;maximumAssetBytes:number;page?:"platform"|"pricing"}){
+  const page=input.page??"platform",base="/"+page;
   if(!isAbsolute(input.directory)||!Number.isSafeInteger(input.maximumAssetBytes)||input.maximumAssetBytes<=0)throw Error("GLOBAL_ASSETS_EXPLICIT_POLICY_REQUIRED");
-  const root=lstatSync(input.directory),assets=lstatSync(join(input.directory,"assets")),html=lstatSync(join(input.directory,"platform.html"));
+  const root=lstatSync(input.directory),assets=lstatSync(join(input.directory,"assets")),html=lstatSync(join(input.directory,page+".html"));
   if(!root.isDirectory()||root.isSymbolicLink()||!assets.isDirectory()||assets.isSymbolicLink()||!html.isFile()||html.isSymbolicLink()||html.size>input.maximumAssetBytes)
     throw Error("GLOBAL_ASSETS_MANAGED_BUILD_REQUIRED");
   const mime:Record<string,string>={js:"text/javascript; charset=utf-8",css:"text/css; charset=utf-8",png:"image/png",svg:"image/svg+xml",woff:"font/woff",woff2:"font/woff2",ttf:"font/ttf"};
   return async(req:IncomingMessage,res:ServerResponse)=>{
     if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted||req.headers.host!==new URL(input.origin).host||req.method!=="GET"){
       res.writeHead(403,{"content-length":"0","cache-control":"no-store"});res.end();return;}
-    if(req.url==="/platform"){res.writeHead(303,{location:"/platform/","content-length":"0","cache-control":"no-store"});res.end();return;}
+    if(req.url===base){res.writeHead(303,{location:base+"/","content-length":"0","cache-control":"no-store"});res.end();return;}
     let file:string,type:string;
-    if(req.url==="/platform/"){file=join(input.directory,"platform.html");type="text/html; charset=utf-8";}
+    if(req.url===base+"/"){file=join(input.directory,page+".html");type="text/html; charset=utf-8";}
     else{
-      const match=/^\/platform\/assets\/([A-Za-z0-9_-][A-Za-z0-9_.-]*\.(js|css|png|svg|woff2?|ttf))$/.exec(req.url??"");
+      const match=new RegExp("^"+base+"/assets/([A-Za-z0-9_-][A-Za-z0-9_.-]*\\.(js|css|png|svg|woff2?|ttf))$").exec(req.url??"");
       if(!match||match[1]!.includes("..")){res.writeHead(404,{"content-length":"0","cache-control":"no-store"});res.end();return;}
       file=join(input.directory,"assets",match[1]!);type=mime[match[2]!]!;
     }

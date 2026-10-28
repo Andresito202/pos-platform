@@ -1,5 +1,5 @@
 import {LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
-export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE"};
+export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null};
 const decode=(value:string)=>Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
 const encode=(value:ArrayBuffer)=>btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 
@@ -14,6 +14,7 @@ export class PlatformClient{
     const response=await this.transport(this.location.origin+"/v1/platform/"+path,{method:"POST",credentials:"same-origin",cache:"no-store",redirect:"error",
       ...(signal?{signal}:{}),headers:{"content-type":"application/json",...(csrf?{"x-csrf-token":csrf}:{})},body:JSON.stringify(body)});
     if(!response.ok){
+      if(response.status===409){const problem=await response.json() as {code?:unknown};if(problem.code==='LICENSE_OFFER_VERSION_CONFLICT')throw Error("Otro administrador cambió la versión. Recupera el catálogo antes de reintentar.");}
       throw Error(response.status===429?"Demasiados intentos; espera antes de continuar.":response.status===401||response.status===403?
         "Central rechazó la sesión o los permisos.":response.status===409?"La operación requiere políticas comerciales aprobadas.":"Central no pudo completar la operación.");
     }
@@ -39,11 +40,13 @@ export class PlatformClient{
     if(!Array.isArray(result.offers))throw Error("Catálogo de planes inválido.");
     return result.offers.map((raw:unknown)=>{
       if(!raw||typeof raw!=="object"||!("version" in raw)||!Number.isSafeInteger(raw.version)||Number(raw.version)<1||!("status" in raw)||!["DRAFT","ACTIVE"].includes(String(raw.status)))throw Error("Versión de plan inválida.");
-      const {version,status,features:_,...offer}=raw as Record<string,unknown>;
-      return {...LicenseOfferDraftSchema.parse(offer),version:Number(version),status:status as "DRAFT"|"ACTIVE"};
+      const {version,status,features:_,published_at,...offer}=raw as Record<string,unknown>;
+      if(published_at!==undefined&&published_at!==null&&(typeof published_at!=="string"||!Number.isFinite(Date.parse(published_at))))throw Error("Fecha de publicación inválida.");
+      return {...LicenseOfferDraftSchema.parse(offer),version:Number(version),status:status as "DRAFT"|"ACTIVE",...(published_at!==undefined?{published_at:published_at as string|null}:{})};
     });
   }
   save(offer:LicenseOfferDraft,expectedVersion:number,correlationId:string){return this.post("license-offers/save",{offer,expectedVersion,correlationId});}
+  initializePreproduction(){return this.post("license-offers/initialize-preproduction",{});}
   publish(planId:string,expectedVersion:number,correlationId:string){return this.post("license-offers/publish",{planId,expectedVersion,correlationId});}
   async logout(){try{await this.post("logout",{});}finally{this.csrf=null;}}
 }

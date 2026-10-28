@@ -37,8 +37,11 @@ export const GLOBAL_ADMINISTRATION_MIGRATIONS=Object.freeze([...SUBSCRIPTION_PAY
 export const POSTGRES_022_DESCRIPTOR=descriptor("022_license_activations",POSTGRES_021_DESCRIPTOR.migrationId,
   ["licensing.license_activations","licensing.trusted_signing_keys","licensing.license_revocations"],"licensing");
 export const LICENSE_ACTIVATION_MIGRATIONS=Object.freeze([...GLOBAL_ADMINISTRATION_MIGRATIONS,POSTGRES_022_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS";
+export const POSTGRES_023_DESCRIPTOR=descriptor("023_license_offer_terms",POSTGRES_022_DESCRIPTOR.migrationId,["licensing.plans"],"licensing");
+export const LICENSE_CATALOG_MIGRATIONS=Object.freeze([...LICENSE_ACTIVATION_MIGRATIONS,POSTGRES_023_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
   if(target==="LICENSE_ACTIVATIONS")return LICENSE_ACTIVATION_MIGRATIONS;
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
   if(target==="LICENSING")return LICENSING_MIGRATIONS;

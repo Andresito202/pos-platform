@@ -23,7 +23,7 @@ export interface GlobalAdministrationHttpLimits{
 /** The same Central HTTPS listener mounts this closed control-plane handler.
  * GLOBAL cookies cannot authorize BUSINESS, and request IDs never authenticate. */
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
-  quotePolicy?:SubscriptionQuotePolicy;fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];licenseAuthority?:LicenseCapacityAuthority}){
+  quotePolicy?:SubscriptionQuotePolicy;fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];licenseAuthority?:LicenseCapacityAuthority;preproductionCatalogEnabled?:boolean}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
@@ -79,7 +79,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         if(!exact(b,[])){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         const closed=await sessions.close(request);sendCommercialJson(res,closed?200:401,{closed:closed!==null},sessions.clearCookie());return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/initialize-preproduction","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,path==="/v1/platform/licenses/revoke-activation"?CentralAdministrationOperation.LICENSE_REVOKE:
         path?.startsWith("/v1/platform/licenses/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
@@ -87,6 +87,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/session"&&exact(b,[])){sendCommercialJson(res,200,{authenticated:true,scope:"GLOBAL",permissions:[CanonicalPermission.LICENSE_PLAN_MANAGE]});return;}
       if(path==="/v1/platform/license-offers/list"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.published()});return;}
       if(path==="/v1/platform/license-offers/catalog"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.administrativeCatalog(session)});return;}
+      if(path==="/v1/platform/license-offers/initialize-preproduction"&&exact(b,[])){
+        if(input.preproductionCatalogEnabled!==true){sendCommercialJson(res,403,{code:"PREPRODUCTION_CATALOG_NOT_AUTHORIZED"});return;}
+        sendCommercialJson(res,200,await offers.initializePreproduction(session));return;
+      }
       if(path==="/v1/platform/license-offers/save"&&exact(b,["offer","expectedVersion","correlationId"])){
         sendCommercialJson(res,200,await offers.save(session,b.offer,Number(b.expectedVersion),String(b.correlationId)));return;}
       if(path==="/v1/platform/license-offers/publish"&&exact(b,["planId","expectedVersion","correlationId"])){
@@ -104,6 +108,9 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,await licenses.issue(session,String(b.paymentId),String(b.correlationId)));return;}
       sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});
     }catch(e){
+      if(e instanceof Error&&/LICENSE_OFFER_(VERSION_CONFLICT|STALE_PUBLICATION_REJECTED|IDEMPOTENCY_CONFLICT)/.test(e.message)){
+        sendCommercialJson(res,409,{code:"LICENSE_OFFER_VERSION_CONFLICT"});return;
+      }
       const status=e instanceof Error&&"status" in e&&[400,413,415].includes(Number(e.status))?Number(e.status):
         e instanceof Error&&["SUBSCRIPTION_FISCAL_SUPPORT_POLICY_REQUIRED","LICENSING_FULFILLMENT_POLICY_REQUIRED"].includes(e.message)?409:400;
       sendCommercialJson(res,status,{code:status===409?"FISCAL_SUPPORT_POLICY_REQUIRED":"GLOBAL_REQUEST_REJECTED"});

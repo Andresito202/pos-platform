@@ -14,6 +14,7 @@ import {SubscriptionQuotes,type SubscriptionQuotePolicy} from "../src/subscripti
 import {LicenseOfferDrafts} from "../src/license-offer-drafts.js";
 import {GlobalAdministrationSessions} from "../src/global-administration-sessions.js";
 import {createGlobalAdministrationHandler} from "../src/global-administration-http.js";
+import {createPublicLicenseCatalog} from "../src/public-license-catalog.js";
 import {createGlobalAdministrationAssets} from "../src/global-administration-assets.js";
 import {exercisePlatformAdministrationBrowser} from "./helpers/platform-administration-browser.js";
 import {exerciseLicenseCapacity} from "./helpers/license-capacity-scenario.js";
@@ -366,10 +367,10 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
 
 it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, purpose isolation, live permissions, recovery and logout",async()=>{
   const u=new URL(server!);u.pathname="/"+db;u.username="pos_migrator";u.password="";
-  const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--global-administration"],{cwd:tool,windowsHide:true,encoding:"utf8",env:{...process.env,
+  const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--license-catalog"],{cwd:tool,windowsHide:true,encoding:"utf8",env:{...process.env,
     POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),
     POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
-  expect(migrate().some((r:{status:string;migrationId:string})=>r.migrationId==="021_global_browser_administration"&&r.status==="APPLIED")).toBe(true);
+  expect(migrate().some((r:{status:string;migrationId:string})=>r.migrationId==="023_license_offer_terms"&&r.status==="APPLIED")).toBe(true);
   expect(migrate().every((r:{status:string})=>r.status==="ALREADY_APPLIED")).toBe(true);
   const password=randomBytes(24).toString("base64url"),origin="https://global.example.test",rpId="global.example.test";
   const rejectionVerifier=await createPlatformPasswordVerifier(randomBytes(24).toString("hex"),"owasp-19m-t2-p1");
@@ -425,14 +426,20 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     let handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
     let browserHandler:ReturnType<typeof createGlobalAdministrationHandler>|undefined;
     let assets:ReturnType<typeof createGlobalAdministrationAssets>|undefined;
+    let pricing:ReturnType<typeof createGlobalAdministrationAssets>|undefined;
+    let catalog:ReturnType<typeof createPublicLicenseCatalog>|undefined;
     tls=createServer({key:await readFile(join(dir,"tls.key")),cert},(req,res)=>{
+      if(req.url==="/v1/licensing/offers"){void catalog!(req,res);return;}
+      if(req.url?.startsWith("/pricing")){void pricing!(req,res);return;}
       if(req.url?.startsWith("/platform")){void assets!(req,res);return;}
       void (req.headers.host===rpId?handler:browserHandler!)(req,res);
     });
     await new Promise<void>(yes=>tls!.listen(0,"127.0.0.1",yes));
     const browserOrigin=origin+":"+(tls.address() as {port:number}).port;
-    browserHandler=createGlobalAdministrationHandler({pool:runtime,policy:{...p,origin:browserOrigin},limits:httpLimits});
+    browserHandler=createGlobalAdministrationHandler({pool:runtime,policy:{...p,origin:browserOrigin},limits:httpLimits,preproductionCatalogEnabled:true});
     assets=createGlobalAdministrationAssets({directory:resolve("../pos-desktop/dist/renderer"),origin:browserOrigin,maximumAssetBytes:2000000});
+    pricing=createGlobalAdministrationAssets({directory:resolve("../pos-desktop/dist/renderer"),origin:browserOrigin,maximumAssetBytes:2000000,page:"pricing"});
+    catalog=createPublicLicenseCatalog(new LicenseOfferDrafts(runtime,60000),browserOrigin,{requests:100,buckets:10,windowMs:60000});
     const asset=(path:string,method="GET",host=new URL(browserOrigin).host)=>new Promise<{status:number;csp:string|undefined}>((yes,no)=>{
       const req=httpsRequest({host:"127.0.0.1",port:(tls!.address() as {port:number}).port,servername:rpId,ca:cert,agent:false,path,method,headers:{host}},res=>{
         res.resume();res.on("end",()=>yes({status:res.statusCode!,csp:res.headers["content-security-policy"] as string|undefined}));
@@ -459,6 +466,7 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     expect(authenticated.status).toBe(200);expect(authenticated.body).toMatchObject({authenticated:true,scope:"GLOBAL"});
     expect((await call("login/complete",completeBody,started.cookies[0]!.split(";",1)[0],started.body.csrfToken)).status).toBe(401);
     const cookie=authenticated.cookies.find(s=>s.startsWith("__Host-camacho_platform="))!.split(";",1)[0]!,csrf=authenticated.body.csrfToken;
+    expect((await call("license-offers/initialize-preproduction",{},cookie,csrf)).status).toBe(403); // No production seed switch.
     expect((await call("license-offers/list",{},cookie,csrf)).body.offers.length).toBeGreaterThan(0);
     expect((await call("license-offers/list",{sessionId:globalSession},cookie,csrf)).status).toBe(400);
     const offer={...offers[0]!,id:id(),code:"TEST_GLOBAL_HTTP_PRICE",price_minor:220000};
@@ -498,14 +506,15 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
     expect((await call("session",{},cookie,csrf)).body).toMatchObject({authenticated:true,scope:"GLOBAL",permissions:["LICENSE_PLAN_MANAGE"]});
     expect((await call("session",{},cookie,"a".repeat(43))).status).toBe(401);
-    const planCode="TEST_PLATFORM_UI_"+randomBytes(6).toString("hex").toUpperCase();
+    const planCode="CAMACHO_MONTHLY";
     const observed=await exercisePlatformAdministrationBrowser({origin:browserOrigin,fingerprint:new X509Certificate(cert).fingerprint256,
       email:login.email,password,credentialId:Buffer.from(credentialId,"base64url").toString("base64"),
       privateKey:key.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"),counter:2,planCode});
-    expect(observed).toMatchObject({platformUi:true,draftRecovered:true,published:true,logout:true,storage:{local:0,session:0,preload:"undefined"}});
+    expect(observed).toMatchObject({platformUi:true,draftRecovered:true,published:true,dynamicPrice:true,publicUnauthenticated:true,noRecompile:true,logout:true,storage:{local:0,session:0,preload:"undefined"}});
     expect(observed.consoleErrors,JSON.stringify(observed.consoleErrors)).toEqual([]);
-    expect((await owner.query("SELECT status,version::int,price_minor::int,included_registers,additional_register_price_minor::int,support_price_minor::int FROM licensing.plans WHERE code=$1",[planCode])).rows)
-      .toEqual([{status:"ACTIVE",version:1,price_minor:223000,included_registers:1,additional_register_price_minor:2000,support_price_minor:1000}]);
+    expect((await owner.query("SELECT status,version::int,price_minor::int,included_registers,additional_register_price_minor::int,support_price_minor::int FROM licensing.plans WHERE code=$1 ORDER BY version",[planCode])).rows)
+      .toEqual([{status:"RETIRED",version:1,price_minor:4990000,included_registers:1,additional_register_price_minor:1990000,support_price_minor:1490000},
+        {status:"ACTIVE",version:2,price_minor:5990000,included_registers:1,additional_register_price_minor:1990000,support_price_minor:1490000}]);
     const browserRows=await owner.query("SELECT s.revoked_at IS NOT NULL AS revoked FROM identity.sessions s JOIN identity.browser_sessions b ON b.session_id=s.id WHERE b.origin=$1",[browserOrigin]);
     expect(browserRows.rows).toHaveLength(2);expect(browserRows.rows.every(r=>r.revoked)).toBe(true);
     await owner.query("UPDATE identity.user_credentials SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1",[credential]);
