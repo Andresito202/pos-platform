@@ -14,6 +14,7 @@ import {prepareFactusPayRuntime} from "./factus-pay-runtime.js";
 import {FACTUS_PAY_COLLECTION_WEBHOOK_PATH} from "./factus-pay-webhook-handler.js";
 import {prepareSubscriptionCollectionRuntime} from "./subscription-collection-runtime.js";
 import {prepareGlobalAdministrationRuntime} from "./global-administration-runtime.js";
+import {prepareLicenseCapacityRuntime} from "./license-capacity-runtime.js";
 
 const deployment=resolveCentralDeploymentConfiguration(process.env);
 const PORT = deployment?.port??Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -112,8 +113,13 @@ const factusPayProvision=process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
 if(factusPayProvision&&!deployment)throw Error("FACTUS_PAY_EXPLICIT_DEPLOYMENT_REQUIRED");
 const factusPayHandler=factusPayProvision?await prepareFactusPayRuntime(pool,factusPayProvision):undefined;
 const globalProvision=process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
+const licenseProvision=process.env.CENTRAL_LICENSE_ACTIVATION_PROVISION_FILE;
+if(licenseProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("LICENSE_REAL_DEPLOYMENT_REQUIRED");
+const licenseRuntime=licenseProvision?await prepareLicenseCapacityRuntime({pool,provisionFile:licenseProvision,origin:deployment!.origin,
+  environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION"}):undefined;
 if(globalProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("GLOBAL_ADMIN_REAL_DEPLOYMENT_REQUIRED");
-const globalHandler=globalProvision?await prepareGlobalAdministrationRuntime({pool,provisionFile:globalProvision,origin:deployment!.origin}):undefined;
+const globalHandler=globalProvision?await prepareGlobalAdministrationRuntime({pool,provisionFile:globalProvision,origin:deployment!.origin,
+  ...(licenseRuntime?{licenseAuthority:licenseRuntime.authority}:{})}):undefined;
 const collectionsProvision=process.env.CENTRAL_FACTUS_PAY_COLLECTIONS_PROVISION_FILE;
 if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("COLLECTIONS_REAL_DEPLOYMENT_REQUIRED");
 const collectionsRuntime=collectionsProvision?await prepareSubscriptionCollectionRuntime({pool,provisionFile:collectionsProvision,
@@ -141,6 +147,9 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
+  if(request.url==="/v1/licensing/activations/resolve"){
+    if(licenseRuntime)await licenseRuntime.handler(request,response);else send(response,503,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;
+  }
 
   if(request.url?.startsWith("/v1/platform/")||request.url==="/platform"||request.url?.startsWith("/platform/")){
     if(globalHandler)await globalHandler(request,response);

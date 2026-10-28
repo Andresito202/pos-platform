@@ -4,12 +4,13 @@ import {GlobalAdministrationProvisionSchema,isSupportedPlatformPasswordVerifier}
 import type {Pool} from "@pos-platform/database-postgres";
 import {createGlobalAdministrationHandler} from "./global-administration-http.js";
 import {createGlobalAdministrationAssets} from "./global-administration-assets.js";
+import type {LicenseCapacityAuthority} from "./license-capacity-authority.js";
 function managed(path:string,max:number){
   if(!isAbsolute(path))throw Error("GLOBAL_ADMIN_MANAGED_ABSOLUTE_FILE_REQUIRED");
   const s=lstatSync(path);if(!s.isFile()||s.isSymbolicLink()||s.size>max||process.platform!=="win32"&&(s.mode&0o077)!==0)throw Error("GLOBAL_ADMIN_MANAGED_FILE_REJECTED");
   return new TextDecoder("utf-8",{fatal:true}).decode(readFileSync(path));
 }
-export async function prepareGlobalAdministrationRuntime(input:{pool:Pool;provisionFile:string;origin:string}){
+export async function prepareGlobalAdministrationRuntime(input:{pool:Pool;provisionFile:string;origin:string;licenseAuthority?:LicenseCapacityAuthority}){
   const p=GlobalAdministrationProvisionSchema.parse(JSON.parse(managed(input.provisionFile,32768))),l=p.limits;
   const found=(await input.pool.query(`SELECT current_database() AS db,current_user='pos_platform_app' AND NOT rolsuper AND NOT rolbypassrls
     AND NOT pg_has_role(current_user,'pos_schema_owner','MEMBER') AS eligible FROM pg_roles WHERE rolname=current_user`)).rows[0];
@@ -24,7 +25,7 @@ export async function prepareGlobalAdministrationRuntime(input:{pool:Pool;provis
     limits:{maximumBodyBytes:l.maximum_body_bytes,maximumPendingFlows:l.maximum_pending_flows,requestsPerWindow:l.requests_per_window,
       maximumBuckets:l.maximum_buckets,requestWindowMs:l.request_window_ms,loginWindowMs:l.login_window_ms,
       maximumLoginPerAddress:l.maximum_login_per_address,maximumLoginPerAccount:l.maximum_login_per_account},
-    ...(p.fulfillment_policies?{fulfillmentPolicies:p.fulfillment_policies}:{})});
+    ...(p.fulfillment_policies?{fulfillmentPolicies:p.fulfillment_policies}:{}),...(input.licenseAuthority?{licenseAuthority:input.licenseAuthority}:{})});
   const assets=p.renderer?createGlobalAdministrationAssets({directory:p.renderer.directory,maximumAssetBytes:p.renderer.maximum_asset_bytes,origin:input.origin}):null;
   return async(req:Parameters<typeof api>[0],res:Parameters<typeof api>[1])=>{
     if(req.url==="/platform"||req.url?.startsWith("/platform/")){

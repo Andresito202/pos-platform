@@ -60,3 +60,4 @@ export const SignedLicenseCapacitySchema = z.strictObject({
   signature: SignedLicenseSchema.shape.signature,
 });
 export type LicenseCapacityClaims = z.infer<typeof LicenseCapacityClaimsSchema>;
+export type SignedLicenseCapacity = z.infer<typeof SignedLicenseCapacitySchema>;

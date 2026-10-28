@@ -37,3 +37,4 @@ export * from "./platform-password-verifier.js";
 export * from "./platform-webauthn-credential-reference.js";
 export * from "./hardware.js";
 export * from "./native-client-registration.js";
+export * from "./license-activation.js";

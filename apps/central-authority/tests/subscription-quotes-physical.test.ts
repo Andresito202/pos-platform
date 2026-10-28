@@ -16,6 +16,7 @@ import {GlobalAdministrationSessions} from "../src/global-administration-session
 import {createGlobalAdministrationHandler} from "../src/global-administration-http.js";
 import {createGlobalAdministrationAssets} from "../src/global-administration-assets.js";
 import {exercisePlatformAdministrationBrowser} from "./helpers/platform-administration-browser.js";
+import {exerciseLicenseCapacity} from "./helpers/license-capacity-scenario.js";
 import {BusinessInitialMfaFlow} from "../src/business-initial-mfa-flow.js";
 import {createPlatformPasswordVerifier} from "../src/platform-password-verifier.js";
 import {DurableBrowserSessionStore} from "../src/durable-browser-session-store.js";
@@ -542,3 +543,7 @@ it.runIf(Boolean(server))("quotes: concurrent replay, inactive buyer, bad terms,
   await owner.query("UPDATE \"authorization\".role_permission_grants SET status='RETIRED',retired_at=now() WHERE id=$1",[grant]);
   await expect(service.issue(globalSession,r)).rejects.toThrow("GLOBAL_MFA_PERMISSION_REQUIRED");
 },30000);
+
+it.runIf(Boolean(server))("capacity: canonical GLOBAL allocation, paid quota, DeviceProof, audit rollback and real Windows SQLite gate",async()=>{
+  await exerciseLicenseCapacity({owner,runtime,user,grant,db,server:server!,buyer});
+},60000);

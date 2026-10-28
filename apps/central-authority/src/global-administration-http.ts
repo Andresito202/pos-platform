@@ -9,6 +9,7 @@ import {SubscriptionQuotes,type SubscriptionQuotePolicy} from "./subscription-qu
 import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 import {SubscriptionLicenseContracts,type FulfillmentPolicyReferences} from "./subscription-license-contracts.js";
 import {readCommercialJsonBody,inspectCommercialHeaders,validateCommercialAssertion,sendCommercialJson} from "./isolated-commercial-https.js";
+import type {LicenseCapacityAuthority} from "./license-capacity-authority.js";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const exact=(o:Record<string,unknown>,keys:string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -22,7 +23,7 @@ export interface GlobalAdministrationHttpLimits{
 /** The same Central HTTPS listener mounts this closed control-plane handler.
  * GLOBAL cookies cannot authorize BUSINESS, and request IDs never authenticate. */
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
-  quotePolicy?:SubscriptionQuotePolicy;fulfillmentPolicies?:readonly FulfillmentPolicyReferences[]}){
+  quotePolicy?:SubscriptionQuotePolicy;fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];licenseAuthority?:LicenseCapacityAuthority}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
@@ -78,9 +79,9 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         if(!exact(b,[])){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         const closed=await sessions.close(request);sendCommercialJson(res,closed?200:401,{closed:closed!==null},sessions.clearCookie());return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
-      const session=await sessions.authorize(request,path==="/v1/platform/licenses/issue"?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
+      const session=await sessions.authorize(request,path?.startsWith("/v1/platform/licenses/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
       if(!session){sendCommercialJson(res,401,{code:"GLOBAL_AUTHORIZATION_REJECTED"});return;}
       if(path==="/v1/platform/session"&&exact(b,[])){sendCommercialJson(res,200,{authenticated:true,scope:"GLOBAL",permissions:[CanonicalPermission.LICENSE_PLAN_MANAGE]});return;}
       if(path==="/v1/platform/license-offers/list"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.published()});return;}
@@ -90,6 +91,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/license-offers/publish"&&exact(b,["planId","expectedVersion","correlationId"])){
         sendCommercialJson(res,200,await offers.publish(session,String(b.planId),Number(b.expectedVersion),String(b.correlationId)));return;}
       if(path==="/v1/platform/quotes/issue"){sendCommercialJson(res,200,await quotes.issue(session,b));return;}
+      if(path==="/v1/platform/licenses/allocate"){
+        if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
+        sendCommercialJson(res,200,await input.licenseAuthority.allocate(session,b));return;
+      }
       if(path==="/v1/platform/licenses/issue"&&exact(b,["paymentId","correlationId"])){
         sendCommercialJson(res,200,await licenses.issue(session,String(b.paymentId),String(b.correlationId)));return;}
       sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});
