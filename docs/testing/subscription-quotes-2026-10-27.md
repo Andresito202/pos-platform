@@ -37,3 +37,9 @@ autoridad/ceremonia HTTP montada emite BUSINESS. Sin transporte/emisor GLOBAL
 autenticado, conectarlo por UUID o reutilizando el bearer BUSINESS violaría los
 contratos. Se mantiene sin conexión; no se reconstruye ni amplía ese login bajo
 la prohibición expresa del incremento. Falta resolver ese contrato de montaje.
+
+Continuación: revalidación READ COMMITTED después de esperas, con el bloqueo
+RBAC aprobado de 015 y locks de identidad/MFA/asignación, sin UPDATE general.
+Una prueba adicional demuestra que un grant retirado durante la espera no
+autoriza la cotización. Ver subscription-payments-2026-10-27.md para resultados
+posteriores y alcance exacto de Payments/FACTUS/outbox.

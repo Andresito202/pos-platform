@@ -32,16 +32,28 @@ export class SubscriptionQuotes {
     for(let attempt=0;;attempt++){
       const c=await this.pool.connect();let begun=false;
       try{
-        await c.query("BEGIN ISOLATION LEVEL SERIALIZABLE");begun=true;
+        // Read committed rechecks after waits. The existing approved SHARE
+        // protocol plus row locks below serialize all mutable authorization
+        // sources; a stale pre-lock MVCC snapshot must not authorize a quote.
+        await c.query("BEGIN");begun=true;
         await c.query("SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)",
           [`${this.limits.lockTimeoutMs}ms`,`${this.limits.statementTimeoutMs}ms`]);
         await c.query("SELECT id FROM identity.sessions WHERE id=$1 FOR SHARE",[sessionId]);
-        const actor=await new PostgresPlatformAdministrationSessionRepository(c).findActivePlatformPermissionForSession(sessionId,
+        let actor=await new PostgresPlatformAdministrationSessionRepository(c).findActivePlatformPermissionForSession(sessionId,
           CanonicalPermission.LICENSE_PLAN_MANAGE,this.limits.reauthenticationMs);
         if(!actor)throw Error("SUBSCRIPTION_GLOBAL_MFA_PERMISSION_REQUIRED");
         const requestChecksum=digest({id:r.id,tenant_id:r.tenant_id,company_id:r.company_id,plan_id:r.plan_id,
           plan_version:r.plan_version,selection:r.selection,idempotency_key:r.idempotency_key,merchant:policy.merchant});
         await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`subscription-quote:${r.tenant_id}:${r.company_id}:${r.idempotency_key}`]);
+        await c.query("SELECT set_config('app.tenant_id',$1,true)",[r.tenant_id]);
+        // Reuse 015 without changing its function or granting UPDATE on RBAC.
+        await c.query('SELECT "authorization".lock_sas_sources_for_read()');
+        await c.query("SELECT id FROM identity.users WHERE id=$1 FOR SHARE",[actor.user_id]);
+        await c.query("SELECT id FROM identity.mfa_factors WHERE user_id=$1 AND status='ACTIVE' FOR SHARE",[actor.user_id]);
+        await c.query('SELECT id FROM "authorization".platform_role_assignments WHERE user_id=$1 AND status=\'ACTIVE\' FOR SHARE',[actor.user_id]);
+        actor=await new PostgresPlatformAdministrationSessionRepository(c).findActivePlatformPermissionForSession(sessionId,
+          CanonicalPermission.LICENSE_PLAN_MANAGE,this.limits.reauthenticationMs);
+        if(!actor)throw Error("SUBSCRIPTION_GLOBAL_MFA_PERMISSION_REQUIRED");
         const old=(await c.query("SELECT *,clock_timestamp() AS evaluated_at FROM subscriptions.license_quotes WHERE id=$1 OR (tenant_id=$2 AND company_id=$3 AND idempotency_key=$4)",
           [r.id,r.tenant_id,r.company_id,r.idempotency_key])).rows;
         if(old.length){
@@ -80,6 +92,8 @@ export class SubscriptionQuotes {
             pricing.currency_code,total.toString(),terms.currency_exponent,r.selection.additional_registers,JSON.stringify({offer,pricing}),JSON.stringify(terms),
             JSON.stringify(features),r.idempotency_key,requestChecksum,digest(snapshot),actor.user_id,sessionId,now,terms.expires_at,providerReference])).rows[0];
         await c.query("SELECT set_config('app.tenant_id',$1,true)",[r.tenant_id]);
+        if(!await new PostgresPlatformAdministrationSessionRepository(c).findActivePlatformPermissionForSession(sessionId,
+          CanonicalPermission.LICENSE_PLAN_MANAGE,this.limits.reauthenticationMs))throw Error("SUBSCRIPTION_GLOBAL_MFA_PERMISSION_REQUIRED");
         const payload=canonicalSessionTrustJson({quote_id:r.id,quote_checksum:stored.quote_checksum,tenant_id:r.tenant_id,company_id:r.company_id,
           merchant:policy.merchant,plan_id:r.plan_id,plan_version:r.plan_version,total_minor:total.toString()});
         // GLOBAL session audit remains GLOBAL. Target tenant/company are evidence,

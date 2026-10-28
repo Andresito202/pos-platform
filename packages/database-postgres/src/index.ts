@@ -1,4 +1,5 @@
 export * from "./sql.js";
+export * from "./subscription-payment-outbox.js";
 export type {Pool,PoolClient} from "pg";
 export * from "./durable-browser-session-store.js";
 export * from "./onboarding-repository.js";

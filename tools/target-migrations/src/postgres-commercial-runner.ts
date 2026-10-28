@@ -28,12 +28,16 @@ export const POSTGRES_018_DESCRIPTOR={...descriptor("018_factus_pay_webhook_inbo
 export const FACTUS_PAY_MIGRATIONS=Object.freeze([...LICENSING_MIGRATIONS,POSTGRES_018_DESCRIPTOR]);
 export const POSTGRES_019_DESCRIPTOR=descriptor("019_subscription_quotes",POSTGRES_018_DESCRIPTOR.migrationId,["subscriptions.license_quotes"],"subscriptions");
 export const SUBSCRIPTION_MIGRATIONS=Object.freeze([...FACTUS_PAY_MIGRATIONS,POSTGRES_019_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS";
+export const POSTGRES_020_DESCRIPTOR=descriptor("020_subscription_payments",POSTGRES_019_DESCRIPTOR.migrationId,
+  ["payments.payment_groups","payments.payments","payments.payment_attempts","payments.payment_allocations"],"payments");
+export const SUBSCRIPTION_PAYMENT_MIGRATIONS=Object.freeze([...SUBSCRIPTION_MIGRATIONS,POSTGRES_020_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS";
 function migrations(target:CommercialMigrationTarget){
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
   if(target==="LICENSING")return LICENSING_MIGRATIONS;
   if(target==="FACTUS_PAY")return FACTUS_PAY_MIGRATIONS;
   if(target==="SUBSCRIPTIONS")return SUBSCRIPTION_MIGRATIONS;
+  if(target==="SUBSCRIPTION_PAYMENTS")return SUBSCRIPTION_PAYMENT_MIGRATIONS;
   throw new MigrationInvariantError("Unknown commercial migration target");
 }
 export async function commercialMigrationManifest(target:CommercialMigrationTarget="AUTHENTICATION"){
@@ -66,6 +70,13 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
       check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,"Factus Pay evidence must not be deletable");
     }
   }
+  if(d===POSTGRES_020_DESCRIPTOR){
+    check(!(await c.query("SELECT has_column_privilege('pos_platform_app','payments.payments','expected_amount','UPDATE') AS allowed")).rows[0].allowed,"Subscription payment amount must be immutable to runtime");
+    for(const table of d.ownedTables){
+      check(!(await c.query("SELECT has_table_privilege('pos_app',$1,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[table])).rows[0].allowed,"Subscription payments exposed to local tenant runtime");
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname='subscription_payment_no_truncate' AND tgenabled='O'",[table])).rowCount===1,"Subscription payment history guard missing");
+    }
+  }
   if(d===POSTGRES_015_DESCRIPTOR){
     const fn=(await c.query("SELECT p.prosecdef,p.prosrc,p.proconfig,r.rolname FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure('authorization.lock_sas_sources_for_read()')")).rows[0];
     const artifact=await readArtifact(d.upArtifact);
@@ -94,11 +105,11 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
     await c.query("SELECT set_config('lock_timeout',$1,false),set_config('statement_timeout',$2,false)",[`${input.lockTimeoutMs}ms`,`${input.statementTimeoutMs}ms`]);
     await c.query("SELECT pg_advisory_lock(hashtextextended($1,0))",[POSTGRES_MIGRATION_LOCK_RESOURCE]);
     try{
-      if(input.target==="LICENSING"||input.target==="FACTUS_PAY"||input.target==="SUBSCRIPTIONS"){
+      if(selected.includes(POSTGRES_017_DESCRIPTOR)){
         const foundation=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_006_DESCRIPTOR.migrationId])).rows[0];
         check(foundation&&Buffer.from(foundation.checksum).equals(sha256(await readArtifact(POSTGRES_006_DESCRIPTOR.upArtifact))),"Licensing 006 predecessor mismatch");
       }
-      if(input.target==="FACTUS_PAY"||input.target==="SUBSCRIPTIONS"){
+      if(selected.includes(POSTGRES_018_DESCRIPTOR)){
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }

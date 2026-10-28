@@ -47,7 +47,7 @@
 11. Una nota o ajuste electrónico es un documento nuevo relacionado, no una mutación destructiva del documento aceptado.
 12. Credenciales y certificados se referencian desde el almacén definido por SEC-004; no son propiedad de tablas de negocio.
 13. Purchasing confirma la recepción física, pero Inventory es la única autoridad que crea movimientos y deriva saldos; una recepción nunca modifica StockBalance por fuera del contrato de Inventory.
-14. Payment cubre cobros de ventas, pedidos y cuentas por cobrar. Pagos a proveedores pertenecen a una capacidad financiera futura y no reutilizan ese agregado.
+14. Payment cubre cobros de ventas, pedidos, cuentas por cobrar y cotizaciones de suscripción (ampliación autorizada de licencias de 2026-10-27). Subscriptions referencia el cobro; no lo confirma. Pagos a proveedores pertenecen a una capacidad financiera futura y no reutilizan ese agregado.
 15. No existe un propietario global `Configuration`: cada módulo posee su identidad y versiones; Sync o `ConfigurationDistribution` solo transportan referencias y snapshots verificables.
 16. Pricing consume el resultado de Tax dentro del pipeline, pero no posee ni recalcula reglas tributarias. Electronic Invoicing consume el snapshot tributario de la operación y mantiene separado su snapshot de emisión fiscal.
 17. `ElectronicDocument` es el único agregado canónico del documento de Electronic Invoicing; `FiscalDocument` no constituye una entidad paralela.
