@@ -1,16 +1,23 @@
 import {afterAll,beforeAll,it,expect} from "vitest";
 import {createPostgresPool,type Pool} from "@pos-platform/database-postgres";
 import {uuidV7,type LicenseOfferDraft,type SubscriptionQuoteRequest} from "@pos-platform/contracts";
-import {createHash,randomBytes} from "node:crypto";
+import {createHash,randomBytes,generateKeyPairSync,sign} from "node:crypto";
 import {execFileSync} from "node:child_process";
-import {readFile,mkdtemp,rm} from "node:fs/promises";
+import {readFile,writeFile,mkdtemp,rm} from "node:fs/promises";
 import {resolve,join,dirname,basename} from "node:path";
 import {tmpdir} from "node:os";
 import {createServer,request as httpsRequest,type Server} from "node:https";
 import {FactusPayQuoteVerifier,type FactusPayCredentialResolver} from "../src/factus-pay-quote-verifier.js";
 import {SubscriptionPayments} from "../src/subscription-payments.js";
+import {prepareSubscriptionCollectionRuntime} from "../src/subscription-collection-runtime.js";
 import {SubscriptionQuotes,type SubscriptionQuotePolicy} from "../src/subscription-quotes.js";
 import {LicenseOfferDrafts} from "../src/license-offer-drafts.js";
+import {GlobalAdministrationSessions} from "../src/global-administration-sessions.js";
+import {createGlobalAdministrationHandler} from "../src/global-administration-http.js";
+import {BusinessInitialMfaFlow} from "../src/business-initial-mfa-flow.js";
+import {createPlatformPasswordVerifier} from "../src/platform-password-verifier.js";
+import {DurableBrowserSessionStore} from "../src/durable-browser-session-store.js";
+import {SubscriptionLicenseContracts} from "../src/subscription-license-contracts.js";
 
 const server=process.env.POSTGRES_TEST_URL,db="pos_subscription_quotes_test_"+randomBytes(8).toString("hex"),tool=resolve("../../tools/target-migrations");
 const root=new URL("../../../tools/target-migrations/sql/postgres/",import.meta.url),id=uuidV7;
@@ -136,7 +143,9 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
   await owner.query("UPDATE integrations.external_integrations SET provider_account_reference='TEST_RECEIVER_ACCOUNT' WHERE id=$1",[merchant.integrationId]);
   const apiLimits={requestTimeoutMs:5000,maximumResponseBytes:16384,evidenceLifetimeMs:5000,lockTimeoutMs:1000,statementTimeoutMs:3000};
   const resolver:FactusPayCredentialResolver={resolve:async binding=>({binding:{...binding},accessToken:"TEST_ONLY_PROVIDER_TOKEN",expiresAt:new Date(Date.now()+60000).toISOString()})};
-  let api:Server|undefined,dir:string|undefined,calls=0,status=200;
+  let api:Server|undefined,dir:string|undefined,calls=0,status=200,reference=row.provider_reference;
+  const posted:Record<string,unknown>[]=[];
+  const collections=new Map<string,Record<string,unknown>>();
   let data:Record<string,unknown>={reference_code:row.provider_reference,amount:151.23,status:"paid"};
   let beforeReply:(()=>Promise<void>)|undefined;
   try{
@@ -146,10 +155,16 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
       "-addext","subjectAltName=DNS:"+host,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
     const cert=await readFile(join(dir,"tls.crt"));
     api=createServer({key:await readFile(join(dir,"tls.key")),cert},async(req,res)=>{
-      calls++;expect(req.method).toBe("GET");expect(req.url).toBe("/v1/collections/"+row.provider_reference);
+      calls++;let requested=reference;
+      if(req.method==="POST"){
+        expect(req.url).toBe("/v1/collections");const chunks:Buffer[]=[];for await(const b of req)chunks.push(Buffer.from(b));
+        posted.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        requested=String(posted.at(-1)!.reference_code);
+      }else{expect(req.method).toBe("GET");requested=req.url!.slice("/v1/collections/".length);
+        expect([reference,...collections.keys()]).toContain(requested);}
       expect(req.headers.authorization).toBe("Bearer TEST_ONLY_PROVIDER_TOKEN");
       if(beforeReply)await beforeReply();
-      res.writeHead(status,{"content-type":"application/json"});res.end(JSON.stringify({status:"success",data}));
+      res.writeHead(status,{"content-type":"application/json"});res.end(JSON.stringify({status:"success",data:collections.get(requested)??data}));
     });
     await new Promise<void>(yes=>api!.listen(0,"127.0.0.1",yes));
     // Only the test transport routes the fixed official host to a local stand-in.
@@ -160,7 +175,7 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
         const req=httpsRequest({host:"127.0.0.1",port:(api!.address() as {port:number}).port,servername:host,ca:cert,agent:false,
           path:url.pathname,method:init?.method,headers:init?.headers as Record<string,string>,signal:init?.signal??undefined},res=>{
           const chunks:Buffer[]=[];res.on("data",b=>chunks.push(Buffer.from(b)));res.on("end",()=>yes(new Response(Buffer.concat(chunks),{
-            status:res.statusCode!,headers:{"content-type":res.headers["content-type"]!}})));});req.on("error",no);req.end();
+            status:res.statusCode!,headers:{"content-type":res.headers["content-type"]!}})));});req.on("error",no);req.end(init?.body??undefined);
       });
     };
     const verifier=new FactusPayQuoteVerifier(runtime,resolver,apiLimits,transport);
@@ -243,6 +258,84 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
       CREATE TRIGGER reject_api_audit BEFORE INSERT ON audit.audit_events FOR EACH ROW EXECUTE FUNCTION public.reject_api_audit()`);
     try{await expect(verifier.verifyQuote(r.id)).rejects.toThrow("VERIFICATION_FAILED");}
     finally{await owner.query("DROP TRIGGER reject_api_audit ON audit.audit_events; DROP FUNCTION public.reject_api_audit()");}
+
+    // New affected path: official POST contract -> durable readiness -> runtime
+    // GET reconciliation. Test prices/policies remain explicitly non-production.
+    const creationOffer={...offers[0]!,id:id(),code:"TEST_COLLECTION_CREATION",price_minor:110000};
+    const drafts=new LicenseOfferDrafts(runtime,60000);await drafts.save(globalSession,creationOffer,0,id());await drafts.publish(globalSession,creationOffer.id,1,id());
+    const cr=request(creationOffer);await service.issue(globalSession,cr);
+    const cq=(await owner.query("SELECT * FROM subscriptions.license_quotes WHERE id=$1",[cr.id])).rows[0];reference=cq.provider_reference;
+    const qr="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+    data={reference_code:reference,amount:1151.23,status:"ready",qr};
+    await expect(verifier.prepareCollection(cr.id,30)).rejects.toThrow("RESERVED_CURRENT_INTENT_REQUIRED");
+    await payments.reserve(cr.id,id());
+    await expect(verifier.prepareCollection(cr.id,1000)).rejects.toThrow("RESERVED_CURRENT_INTENT_REQUIRED");
+    data={...data,amount:1151.24};await expect(verifier.prepareCollection(cr.id,30)).rejects.toThrow("COLLECTION_BINDING_MISMATCH");
+    data={...data,amount:1151.23,qr:"https://untrusted.invalid/qr"};await expect(verifier.prepareCollection(cr.id,30)).rejects.toThrow("QR_REJECTED");
+    data={...data,qr};
+    const creationReceipt=await verifier.prepareCollection(cr.id,30);
+    expect(posted.at(-1)).toEqual({reference_code:reference,amount:"1151.23",expiration:"30"});
+    await expect(payments.confirm(creationReceipt,id())).rejects.toThrow("FRESH_RECEIPT_REQUIRED");
+    await expect(payments.recordCollection(JSON.parse(JSON.stringify(creationReceipt)),id())).rejects.toThrow("COLLECTION_RECEIPT_REQUIRED");
+    await owner.query(`CREATE FUNCTION public.reject_collection_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.action_code='SUBSCRIPTION_COLLECTION_PREPARED' THEN RAISE EXCEPTION 'COLLECTION_AUDIT_FAILURE'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER reject_collection_audit BEFORE INSERT ON audit.audit_events FOR EACH ROW EXECUTE FUNCTION public.reject_collection_audit()`);
+    try{await expect(payments.recordCollection(creationReceipt,id())).rejects.toThrow("COLLECTION_AUDIT_FAILURE");
+      expect((await owner.query("SELECT a.evidence_snapshot FROM payments.payment_attempts a JOIN payments.payment_groups g ON g.collection_subject_id=$1 JOIN payments.payments p ON p.payment_group_id=g.id AND a.payment_id=p.id",[cr.id])).rows[0].evidence_snapshot).toBeNull();
+    }finally{await owner.query("DROP TRIGGER reject_collection_audit ON audit.audit_events; DROP FUNCTION public.reject_collection_audit()");}
+    await expect(payments.recordCollection(creationReceipt,id())).rejects.toThrow("COLLECTION_RECEIPT_REQUIRED");
+    const creations=await Promise.all([verifier.prepareCollection(cr.id,30),verifier.prepareCollection(cr.id,30)]);
+    const readiness=await Promise.all(creations.map(e=>payments.recordCollection(e,id())));
+    expect(readiness.filter(e=>!e.idempotent)).toHaveLength(1);expect(readiness.every(e=>e.state==="PENDING")).toBe(true);
+    const credentialFile=join(dir,"custody.json"),provisionFile=join(dir,"collections.json");
+    const binding={tenantId:merchant.tenantId,companyId:merchant.companyId,integrationId:merchant.integrationId,credentialReference:"temporary-reference",
+      generation:1,environment:"SANDBOX",providerAccountReference:"TEST_RECEIVER_ACCOUNT"};
+    const secretFile={profile:"CAMACHO_FACTUS_PAY_API_CUSTODY_V1",credentials:[{binding,accessToken:"TEST_ONLY_PROVIDER_TOKEN",expiresAt:new Date(Date.now()+60000).toISOString()}]};
+    await writeFile(credentialFile,JSON.stringify(secretFile),{mode:0o600});
+    const provision={profile:"CAMACHO_FACTUS_PAY_COLLECTIONS_V1",policy_reference:"TEST_ONLY_NO_PRODUCTION_APPROVAL",environment:"SANDBOX",
+      merchant:{...merchant,branchId},approved_quote_policies:[{policy_reference:"TEST_ONLY_NOT_APPROVED_FOR_PRODUCTION",tax_policy_reference:"TEST_TAX_RESULT",support_policy_reference:"TEST_SUPPORT_TERMS"}],
+      migrations:{"019_subscription_quotes":createHash("sha256").update(await sql("019_subscription_quotes.up.sql")).digest("hex"),
+        "020_subscription_payments":createHash("sha256").update(await sql("020_subscription_payments.up.sql")).digest("hex")},credentials_file:credentialFile,
+      poll_interval_ms:1000,batch_size:100,collection_expiration_seconds:30,request_timeout_ms:5000,maximum_response_bytes:16384,
+      evidence_lifetime_ms:5000,lock_timeout_ms:1000,statement_timeout_ms:3000};
+    await writeFile(provisionFile,JSON.stringify(provision),{mode:0o600});
+    // Remove unrelated failed-reservation quote: quotes alone must not dispatch.
+    const errors:string[]=[];
+    await writeFile(provisionFile,JSON.stringify({...provision,migrations:{...provision.migrations,"020_subscription_payments":"0".repeat(64)}}));
+    await expect(prepareSubscriptionCollectionRuntime({pool:runtime,provisionFile,transport})).rejects.toThrow("REGISTERED_SCHEMA_REQUIRED");
+    await writeFile(provisionFile,JSON.stringify({...provision,approved_quote_policies:[{...provision.approved_quote_policies[0],tax_policy_reference:"UNAPPROVED"}]}));
+    const blocked=await prepareSubscriptionCollectionRuntime({pool:runtime,provisionFile,transport,onError:e=>errors.push(e)});
+    const beforePolicy=calls;await blocked.tick();expect(calls).toBe(beforePolicy);expect(errors.pop()).toBe("COLLECTIONS_APPROVED_QUOTE_POLICY_REQUIRED");await blocked.stop();
+    await writeFile(provisionFile,JSON.stringify(provision));
+    const runtimeQuote=request(creationOffer);await service.issue(globalSession,runtimeQuote);await payments.reserve(runtimeQuote.id,id());
+    const runtimeReference=(await owner.query("SELECT provider_reference FROM subscriptions.license_quotes WHERE id=$1",[runtimeQuote.id])).rows[0].provider_reference;
+    collections.set(runtimeReference,{reference_code:runtimeReference,amount:1151.23,status:"ready",qr});
+    const beforeRuntimePosts=posted.length;
+    const live=await prepareSubscriptionCollectionRuntime({pool:runtime,provisionFile,transport,onError:e=>errors.push(e)});
+    await Promise.all([live.tick(),live.tick()]);expect(errors).toEqual([]);
+    expect(posted.length-beforeRuntimePosts).toBe(1);expect(posted.at(-1)!.reference_code).toBe(runtimeReference);
+    const runtimePayment=(await owner.query("SELECT p.id,p.status FROM payments.payments p JOIN payments.payment_groups g ON g.id=p.payment_group_id WHERE g.collection_subject_id=$1",[cr.id])).rows[0];
+    expect(runtimePayment.status).toBe("PENDING");await live.stop();await expect(async()=>live.tick()).rejects.toThrow("RUNTIME_STOPPED");
+    // Fresh runtime/custody objects recover only durable state. Wrong custody
+    // binding rejects before HTTP; then an authenticated GET confirms the money.
+    await writeFile(credentialFile,JSON.stringify({...secretFile,credentials:[{...secretFile.credentials[0],binding:{...binding,companyId:buyer.company}}]}));
+    const restored=await prepareSubscriptionCollectionRuntime({pool:runtime,provisionFile,transport,onError:e=>errors.push(e)});
+    const beforeCustody=calls;await restored.tick();expect(calls).toBe(beforeCustody);expect(errors.at(-1)).toBe("FACTUS_API_VERIFICATION_FAILED");
+    await writeFile(credentialFile,JSON.stringify(secretFile));data={...data,status:"paid"};
+    await restored.tick();await restored.tick();
+    expect((await owner.query("SELECT status FROM payments.payments WHERE id=$1",[runtimePayment.id])).rows[0].status).toBe("CONFIRMED");
+    expect(errors.length).toBe(2);expect(errors.every(e=>e==="FACTUS_API_VERIFICATION_FAILED")).toBe(true);
+    await restored.stop();
+    expect((await owner.query("SELECT count(*)::int AS n FROM audit.audit_events WHERE resource_id=$1 AND action_code='SUBSCRIPTION_PAYMENT_CONFIRMED'",[runtimePayment.id])).rows[0].n).toBe(1);
+    const shortPolicy=policy(),shortQuotes=new SubscriptionQuotes(runtime,{...shortPolicy,resolveTerms:args=>({...shortPolicy.resolveTerms(args)!,
+      expires_at:new Date(args.now.getTime()+1000).toISOString()})},limits),expiringQuote=request(creationOffer);
+    await shortQuotes.issue(globalSession,expiringQuote);await payments.reserve(expiringQuote.id,id());
+    await expect(payments.reviewExpired(expiringQuote.id,id())).rejects.toThrow("EXPIRED_INTENT_REQUIRED");
+    await new Promise(yes=>setTimeout(yes,1100));
+    const reviews=await Promise.all([payments.reviewExpired(expiringQuote.id,id()),payments.reviewExpired(expiringQuote.id,id())]);
+    expect(reviews.filter(e=>!e.idempotent)).toHaveLength(1);expect(reviews.every(e=>e.state==="REVIEW_REQUIRED")).toBe(true);
+    expect((await owner.query("SELECT count(*)::int AS n FROM sync.sync_operations WHERE operation_type='SUBSCRIPTION_PAYMENT_REVIEW_REQUIRED' AND payload->>'quote_id'=$1",[expiringQuote.id])).rows[0].n).toBe(1);
+    reference=row.provider_reference;data={reference_code:reference,amount:151.23,status:"paid"};
     const heldReceipt=await verifier.verifyQuote(r.id);
     beforeReply=async()=>{
       await owner.query("UPDATE integrations.external_integrations SET status='CREDENTIAL_ROTATION_REQUIRED',updated_at=now(),version=version+1 WHERE id=$1",[merchant.integrationId]);
@@ -265,6 +358,130 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
   }finally{
     if(api){api.closeAllConnections();await new Promise<void>(yes=>api!.close(()=>yes()));}
     if(dir){if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("pos-factus-api-"))throw Error("CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});}
+  }
+},30000);
+
+it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, purpose isolation, live permissions, recovery and logout",async()=>{
+  const u=new URL(server!);u.pathname="/"+db;u.username="pos_migrator";u.password="";
+  const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--global-administration"],{cwd:tool,windowsHide:true,encoding:"utf8",env:{...process.env,
+    POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),
+    POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
+  expect(migrate().some((r:{status:string;migrationId:string})=>r.migrationId==="021_global_browser_administration"&&r.status==="APPLIED")).toBe(true);
+  expect(migrate().every((r:{status:string})=>r.status==="ALREADY_APPLIED")).toBe(true);
+  const password=randomBytes(24).toString("base64url"),origin="https://global.example.test",rpId="global.example.test";
+  const rejectionVerifier=await createPlatformPasswordVerifier(randomBytes(24).toString("hex"),"owasp-19m-t2-p1");
+  const verifier=await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1");
+  const key=generateKeyPairSync("ec",{namedCurve:"prime256v1"}),jwk=key.publicKey.export({format:"jwk"});
+  const cose=Buffer.concat([Buffer.from("a5010203262001215820","hex"),Buffer.from(jwk.x!,"base64url"),Buffer.from("225820","hex"),Buffer.from(jwk.y!,"base64url")]);
+  const factor=id(),material=id(),credentialId=randomBytes(32).toString("base64url"),credential=id();
+  // The fixture user already has an actual platform assignment and grant. No
+  // role is invented by the session authority or copied from BUSINESS.
+  await owner.query("INSERT INTO identity.user_credentials(id,user_id,credential_type,verifier,status,created_at) VALUES($1,$2,'PASSWORD',$3,'ACTIVE',now())",[credential,user,verifier]);
+  await owner.query("INSERT INTO identity.mfa_factors(id,user_id,factor_type,secret_reference,status,enrolled_at,verified_at) VALUES($1,$2,'WEBAUTHN',$3,'ACTIVE',now(),now())",[factor,user,"webauthn:v1:"+material]);
+  await owner.query("INSERT INTO identity.webauthn_credential_material(id,factor_id,credential_id,public_key_cose_base64url) VALUES($1,$2,$3,$4)",[material,factor,credentialId,cose.toString("base64url")]);
+  const p={mode:"ISOLATED_VALIDATION" as const,origin,rpId,policyReference:"TEST_ONLY_NOT_PRODUCTION",rejectionVerifier,challengeLifetimeMs:60000,sessionLifetimeMs:60000,maximumMfaAgeMs:10000,
+    maximumReauthenticationAgeMs:60000,browserLifetimeMs:60000,idleTimeoutMs:60000,lockTimeoutMs:1000,statementTimeoutMs:10000};
+  const sessions=new GlobalAdministrationSessions(runtime,p),login={email:"quote-test@example.invalid",password,factorId:factor,correlationId:id()};
+  expect(await sessions.begin({...login,password:"wrong"})).toBeNull();
+  const business=new BusinessInitialMfaFlow(runtime,{rpId,origin,rejectionVerifier,challengeLifetimeMs:60000});
+  const proof=(challenge:string,counter:number)=>{
+    const data=Buffer.from(JSON.stringify({type:"webauthn.get",challenge,origin,crossOrigin:false})),auth=Buffer.alloc(37);
+    createHash("sha256").update(rpId).digest().copy(auth);auth[32]=0x05;auth.writeUInt32BE(counter,33);
+    return {id:credentialId,rawId:credentialId,type:"public-key" as const,clientExtensionResults:{},response:{clientDataJSON:data.toString("base64url"),
+      authenticatorData:auth.toString("base64url"),signature:sign("sha256",Buffer.concat([auth,createHash("sha256").update(data).digest()]),key.privateKey).toString("base64url")}};
+  };
+  const first=(await sessions.begin(login))!;
+  const completion={email:login.email,password,challenge:first.challenge,response:proof(first.challenge,1)};
+  expect(await business.complete(completion)).toBeNull();
+  const established=await sessions.complete(completion);expect(established).not.toBeNull();expect(await sessions.complete(completion)).toBeNull();
+  expect(established!.setCookie).toContain("Secure; HttpOnly; SameSite=Strict");
+  const browserRequest={cookie:established!.setCookie.split(";",1)[0]!,origin,csrfToken:established!.csrfToken,fetchSite:"same-origin",method:"POST"};
+  const sid=await sessions.authorize(browserRequest,"LICENSE_PLAN_MANAGE");expect(sid).not.toBeNull();
+  const businessCookies=new DurableBrowserSessionStore(runtime,origin,{mode:"CANONICAL",lifetimeMs:60000,idleTimeoutMs:60000,maximumReauthenticationAgeMs:60000});
+  expect(await businessCookies.inspect({...browserRequest,cookie:browserRequest.cookie.replace("__Host-camacho_platform=","__Host-camacho_business=")})).toBeNull();
+  expect((await owner.query("SELECT tenant_id,tenant_membership_id,device_id,mfa_status FROM identity.sessions WHERE id=$1",[sid])).rows[0])
+    .toEqual({tenant_id:null,tenant_membership_id:null,device_id:null,mfa_status:"SATISFIED"});
+  expect(await sessions.authorize({...browserRequest,csrfToken:"a".repeat(43)},"LICENSE_PLAN_MANAGE")).toBeNull();
+  expect(await sessions.authorize({...browserRequest,origin:"https://evil.invalid"},"LICENSE_PLAN_MANAGE")).toBeNull();
+  expect(await sessions.authorize({...browserRequest,cookie:"__Host-camacho_business="+established!.setCookie.split("=")[1]},"LICENSE_PLAN_MANAGE")).toBeNull();
+  expect(await sessions.authorize(browserRequest,"FISCAL_DOCUMENT_ISSUE")).toBeNull();
+  const restored=new GlobalAdministrationSessions(runtime,p);expect(await restored.authorize(browserRequest,"LICENSE_PLAN_MANAGE")).toBe(sid);
+  expect(await restored.close(browserRequest)).toBe(sid);
+  expect(await sessions.authorize(browserRequest,"LICENSE_PLAN_MANAGE")).toBeNull();
+  expect((await owner.query("SELECT revoked_at IS NOT NULL AS revoked FROM identity.sessions WHERE id=$1",[sid])).rows[0].revoked).toBe(true);
+  const budget={windowMs:60000,maximumPerAddress:1,maximumPerAccount:1};
+  expect(await sessions.spendLoginBudget("TEST_BUDGET_ADDRESS","budget@example.invalid",budget)).toBe(true);
+  expect(await restored.spendLoginBudget("TEST_BUDGET_ADDRESS","budget@example.invalid",budget)).toBe(false);
+  let dir:string|undefined,tls:Server|undefined;
+  try{
+    dir=await mkdtemp(join(tmpdir(),"pos-global-api-"));
+    execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+rpId,
+      "-addext","subjectAltName=DNS:"+rpId,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
+    const cert=await readFile(join(dir,"tls.crt")),httpLimits={maximumBodyBytes:16384,maximumPendingFlows:10,requestsPerWindow:100,maximumBuckets:10,
+      requestWindowMs:60000,loginWindowMs:60000,maximumLoginPerAddress:20,maximumLoginPerAccount:20};
+    let handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
+    tls=createServer({key:await readFile(join(dir,"tls.key")),cert},(req,res)=>void handler(req,res));
+    await new Promise<void>(yes=>tls!.listen(0,"127.0.0.1",yes));
+    const call=(path:string,payload:unknown,cookie?:string,csrf?:string,requestOrigin=origin)=>new Promise<{status:number;body:any;cookies:string[]}>((yes,no)=>{
+      const body=JSON.stringify(payload),req=httpsRequest({host:"127.0.0.1",port:(tls!.address() as {port:number}).port,servername:rpId,ca:cert,agent:false,
+        path:"/v1/platform/"+path,method:"POST",headers:{host:rpId,origin:requestOrigin,"sec-fetch-site":"same-origin","content-type":"application/json",
+          "content-length":Buffer.byteLength(body),...(cookie?{cookie}:{}),...(csrf?{"x-csrf-token":csrf}:{})}},res=>{
+        const chunks:Buffer[]=[];res.on("data",b=>chunks.push(Buffer.from(b)));res.on("end",()=>yes({status:res.statusCode!,body:JSON.parse(Buffer.concat(chunks).toString("utf8")),cookies:res.headers["set-cookie"]??[]}));
+      });req.on("error",no);req.end(body);
+    });
+    const beginBody={email:login.email,password,factorId:factor};
+    expect((await call("login/begin",beginBody,undefined,undefined,"https://evil.invalid")).status).toBe(403);
+    expect((await call("login/begin",{...beginBody,password:"wrong"})).status).toBe(401);
+    const started=await call("login/begin",beginBody);expect(started.status).toBe(200);
+    const completeBody={email:login.email,password,challenge:started.body.challenge,response:proof(started.body.challenge,2)};
+    const authenticated=await call("login/complete",completeBody,started.cookies[0]!.split(";",1)[0],started.body.csrfToken);
+    expect(authenticated.status).toBe(200);expect(authenticated.body).toMatchObject({authenticated:true,scope:"GLOBAL"});
+    expect((await call("login/complete",completeBody,started.cookies[0]!.split(";",1)[0],started.body.csrfToken)).status).toBe(401);
+    const cookie=authenticated.cookies.find(s=>s.startsWith("__Host-camacho_platform="))!.split(";",1)[0]!,csrf=authenticated.body.csrfToken;
+    expect((await call("license-offers/list",{},cookie,csrf)).body.offers.length).toBeGreaterThan(0);
+    expect((await call("license-offers/list",{sessionId:globalSession},cookie,csrf)).status).toBe(400);
+    const offer={...offers[0]!,id:id(),code:"TEST_GLOBAL_HTTP_PRICE",price_minor:220000};
+    expect((await call("license-offers/save",{offer,expectedVersion:0,correlationId:id()},cookie,csrf)).body).toMatchObject({planId:offer.id,version:1});
+    expect((await call("license-offers/publish",{planId:offer.id,expectedVersion:1,correlationId:id()},cookie,csrf)).status).toBe(200);
+    expect((await call("license-offers/list",{},cookie,csrf)).body.offers.find((o:any)=>o.id===offer.id).price_minor).toBe(220000);
+    expect((await call("quotes/issue",request(),cookie,csrf)).status).toBe(409); // No production fiscal/terms provider.
+    const paid=(await owner.query("SELECT id FROM payments.payments WHERE status='CONFIRMED' ORDER BY id LIMIT 1")).rows[0];
+    if(!paid)throw Error("GLOBAL_FULFILLMENT_TEST_RUN_WITH_FACTUS_API_SCENARIO");
+    expect((await call("licenses/issue",{paymentId:paid.id,correlationId:id()},cookie,csrf)).status).toBe(401); // Plan management is not issuance.
+    const issuePermission=id(),issueGrant=id(),roleId=(await owner.query('SELECT role_id FROM "authorization".role_permission_grants WHERE id=$1',[grant])).rows[0].role_id;
+    await owner.query('INSERT INTO "authorization".permissions(id,code,module,description,status,created_at) VALUES($1,\'LICENSE_ISSUE\',\'LICENSING\',\'Explicit test-only D1 issuance\',\'ACTIVE\',now())',[issuePermission]);
+    await owner.query('INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,\'ACTIVE\',now(),now())',[issueGrant,roleId,issuePermission]);
+    expect((await call("licenses/issue",{paymentId:paid.id,correlationId:id()},cookie,csrf)).status).toBe(409); // Policies still absent.
+    const approved=[{policy_reference:"TEST_ONLY_NOT_APPROVED_FOR_PRODUCTION",tax_policy_reference:"TEST_TAX_RESULT",support_policy_reference:"TEST_SUPPORT_TERMS"}];
+    handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits,fulfillmentPolicies:approved});
+    const currentRequest={...browserRequest,cookie,csrfToken:csrf};
+    const issuanceSession=await sessions.authorize(currentRequest,"LICENSE_ISSUE");expect(issuanceSession).not.toBeNull();
+    const issuer=new SubscriptionLicenseContracts(runtime,approved,{...limits,lockTimeoutMs:5000});
+    await expect(issuer.issue(issuanceSession!,id(),id())).rejects.toThrow("CONFIRMED_QUOTE_PAYMENT_REQUIRED");
+    const pendingPayment=(await owner.query("SELECT id FROM payments.payments WHERE status='PENDING' LIMIT 1")).rows[0];
+    expect(pendingPayment).toBeDefined();await expect(issuer.issue(issuanceSession!,pendingPayment.id,id())).rejects.toThrow("CONFIRMED_QUOTE_PAYMENT_REQUIRED");
+    await owner.query(`CREATE FUNCTION public.reject_license_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.action_code='PAID_SUBSCRIPTION_LICENSE_ISSUED' THEN RAISE EXCEPTION 'LICENSE_AUDIT_FAILURE'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER reject_license_audit BEFORE INSERT ON audit.audit_events FOR EACH ROW EXECUTE FUNCTION public.reject_license_audit()`);
+    try{await expect(issuer.issue(issuanceSession!,paid.id,id())).rejects.toThrow("LICENSE_AUDIT_FAILURE");
+      expect((await owner.query("SELECT 1 FROM licensing.licenses WHERE commercial_reference=$1",["SUBSCRIPTION_PAYMENT:"+paid.id])).rowCount).toBe(0);
+      expect((await owner.query("SELECT 1 FROM sync.sync_operations WHERE operation_type='LICENSE_CONTRACT_ISSUED'")).rowCount).toBe(0);
+    }finally{await owner.query("DROP TRIGGER reject_license_audit ON audit.audit_events; DROP FUNCTION public.reject_license_audit()");}
+    const issued=await Promise.all([issuer.issue(issuanceSession!,paid.id,id()),issuer.issue(issuanceSession!,paid.id,id())]);
+    expect(issued.filter(e=>!e.idempotent)).toHaveLength(1);expect(issued.every(e=>e.activationStatus==="NOT_ACTIVATED")).toBe(true);
+    expect(issued[0]!.licenseId).toBe(issued[1]!.licenseId);
+    expect((await call("licenses/issue",{paymentId:paid.id,correlationId:id()},cookie,csrf)).body).toMatchObject({licenseId:issued[0]!.licenseId,idempotent:true,activationStatus:"NOT_ACTIVATED"});
+    expect((await owner.query("SELECT count(*)::int AS n FROM sync.sync_operations WHERE operation_type='LICENSE_CONTRACT_ISSUED'")).rows[0].n).toBe(1);
+    handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
+    expect((await call("session",{},cookie,csrf)).body).toMatchObject({authenticated:true,scope:"GLOBAL",permissions:["LICENSE_PLAN_MANAGE"]});
+    expect((await call("session",{},cookie,"a".repeat(43))).status).toBe(401);
+    await owner.query("UPDATE identity.user_credentials SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1",[credential]);
+    expect((await call("session",{},cookie,csrf)).status).toBe(401);
+    expect((await call("logout",{},cookie,csrf)).body.closed).toBe(true); // Must close even after credential revocation.
+    expect((await call("session",{},cookie,csrf)).status).toBe(401);
+  }finally{
+    if(tls){tls.closeAllConnections();await new Promise<void>(yes=>tls!.close(()=>yes()));}
+    if(dir){if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("pos-global-api-"))throw Error("CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});}
   }
 },30000);
 

@@ -5,12 +5,12 @@ import {canonicalSessionTrustJson,uuidV7} from "@pos-platform/contracts";
 /** Sync-owned writer on the existing 001 Operation/Outbox pair. No delivery,
  * entitlement or routing is inferred by persisting a financial event. */
 export class PostgresSubscriptionPaymentOutbox {
-  async publish(c:PoolClient,input:{operation:"RESERVED"|"CONFIRMED";tenantId:string;companyId:string;branchId:string;
+  async publish(c:PoolClient,input:{operation:"RESERVED"|"CONFIRMED"|"REVIEW_REQUIRED";tenantId:string;companyId:string;branchId:string;
     paymentId:string;quoteId:string;buyerTenantId:string;buyerCompanyId:string;amount:string;providerReference:string;correlationId:string}){
     const operationId=uuidV7(),type="SUBSCRIPTION_PAYMENT_"+input.operation;
     const payload=canonicalSessionTrustJson({schema_version:1,payment_id:input.paymentId,quote_id:input.quoteId,
       buyer_tenant_id:input.buyerTenantId,buyer_company_id:input.buyerCompanyId,amount:input.amount,currency_code:"COP",
-      provider_reference:input.providerReference,status:input.operation==="CONFIRMED"?"CONFIRMED":"PENDING"});
+      provider_reference:input.providerReference,status:input.operation==="RESERVED"?"PENDING":input.operation});
     const checksum=createHash("sha256").update(payload).digest();
     await c.query(`INSERT INTO sync.sync_operations(id,tenant_id,company_id,branch_id,source_kind,actor_type,aggregate_type,aggregate_id,
       operation_type,idempotency_key,authority_policy,correlation_id,schema_version,payload,payload_checksum,sync_status,received_at_server,committed_at_server)

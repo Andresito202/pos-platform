@@ -27,12 +27,14 @@ export class BusinessInitialMfaFlow {
     trustedPolicy: {
       readonly rpId: string; readonly origin: string;
       readonly challengeLifetimeMs: number; readonly rejectionVerifier: string;
+      readonly sessionScope?:"BUSINESS"|"GLOBAL";
     },
   ) {
     if (!Number.isSafeInteger(trustedPolicy.challengeLifetimeMs) || trustedPolicy.challengeLifetimeMs <= 0) {
       throw new Error("BUSINESS_INITIAL_MFA_CHALLENGE_POLICY_REQUIRED");
     }
     this.policy = Object.freeze({ ...trustedPolicy });
+    if(trustedPolicy.sessionScope!==undefined&&!["BUSINESS","GLOBAL"].includes(trustedPolicy.sessionScope))throw Error("INITIAL_MFA_SCOPE_REQUIRED");
   }
 
   async begin(input: {
@@ -47,7 +49,7 @@ export class BusinessInitialMfaFlow {
       .findVerifiedMaterial(match.userId, input.factorId);
     if (!material) return null;
     const challenge = await new PostgresPlatformWebAuthnChallengeRepository(this.pool).issue({
-      userId: match.userId, factorId: material.factorId, sessionId: null, purpose: "AUTHENTICATE",
+      userId: match.userId, factorId: material.factorId, sessionId: null, purpose: this.policy.sessionScope==="GLOBAL"?"GLOBAL_AUTHENTICATE":"AUTHENTICATE",
       rpId: this.policy.rpId, expectedOrigin: this.policy.origin,
       expiresAt: new Date(Date.now() + this.policy.challengeLifetimeMs).toISOString(),
       correlationId: input.correlationId,
@@ -63,7 +65,7 @@ export class BusinessInitialMfaFlow {
       new PostgresPasswordCredentialVerificationRepository(this.pool), input, this.policy,
     );
     if (!match) return null;
-    const evidence = await new PostgresBusinessInitialWebAuthnTransaction(this.pool).verifyAndCommit({
+    const evidence = await new PostgresBusinessInitialWebAuthnTransaction(this.pool,this.policy.sessionScope).verifyAndCommit({
       passwordMatch: match, challenge: input.challenge,
       rpId: this.policy.rpId, expectedOrigin: this.policy.origin,
     }, async context => {
@@ -90,9 +92,14 @@ export class BusinessInitialMfaFlow {
    * Process restart loses outstanding receipts; no bearer or durable token exists.
    */
   takeForBusinessSession(receipt: unknown): CommittedBusinessInitialMfa | null {
+    if(this.policy.sessionScope==="GLOBAL")return null;
     if (typeof receipt !== "object" || receipt === null) return null;
     const evidence = this.verified.get(receipt);
     this.verified.delete(receipt);
     return evidence ?? null;
+  }
+  takeForGlobalSession(receipt:unknown):CommittedBusinessInitialMfa|null{
+    if(this.policy.sessionScope!=="GLOBAL"||typeof receipt!=="object"||receipt===null)return null;
+    const evidence=this.verified.get(receipt);this.verified.delete(receipt);return evidence?.purpose==="GLOBAL_INITIAL_MFA"?evidence:null;
   }
 }

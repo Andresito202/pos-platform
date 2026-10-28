@@ -19,6 +19,10 @@ export interface CheckedFactusCollection {
   readonly merchant:Readonly<FactusPayCredentialBinding>;readonly providerReference:string;readonly amount:string;
   readonly currencyCode:"COP";readonly verifiedAt:string;
 }
+export interface PreparedFactusCollection extends CheckedFactusCollection {
+  readonly collectionStatus:"READY"|"PAID_UNVERIFIED";
+  readonly qr:string|null;
+}
 const origins={SANDBOX:"https://pay-api-sandbox.factus.com.co",PRODUCTION:"https://pay-api.factus.com.co"} as const;
 const equal=(a:unknown,b:unknown)=>canonicalSessionTrustJson(a)===canonicalSessionTrustJson(b);
 
@@ -27,11 +31,82 @@ const equal=(a:unknown,b:unknown)=>canonicalSessionTrustJson(a)===canonicalSessi
  * receipt and persists canonical confirmation before Licensing may issue rights. */
 export class FactusPayQuoteVerifier {
   private readonly receipts=new WeakMap<object,{value:CheckedFactusCollection;expiresAt:number}>();
+  private readonly collections=new WeakMap<object,{value:PreparedFactusCollection;expiresAt:number}>();
   constructor(private readonly pool:Pool,private readonly credentials:FactusPayCredentialResolver,
     private readonly limits:{requestTimeoutMs:number;maximumResponseBytes:number;evidenceLifetimeMs:number;lockTimeoutMs:number;statementTimeoutMs:number},
     private readonly transport:typeof fetch=fetch){
     if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0)||limits.statementTimeoutMs<=limits.lockTimeoutMs)
       throw Error("FACTUS_API_EXPLICIT_LIMITS_REQUIRED");
+  }
+
+  /** Creates only a previously reserved financial intent. The provider uses the
+   * persisted reference as its idempotency key. Even a paid POST response must
+   * undergo a separate authenticated GET before Payments can confirm it. */
+  async prepareCollection(quoteId:string,expirationSeconds:number,parentSignal?:AbortSignal):Promise<object>{
+    UuidSchema.parse(quoteId);
+    if(!Number.isSafeInteger(expirationSeconds)||expirationSeconds<=0)throw Error("FACTUS_API_EXPIRATION_REQUIRED");
+    const deadline=new AbortController(),abort=()=>deadline.abort();
+    const timer=setTimeout(abort,this.limits.requestTimeoutMs);parentSignal?.addEventListener("abort",abort,{once:true});
+    if(parentSignal?.aborted)abort();
+    try{
+      deadline.signal.throwIfAborted();
+      const source=await this.transaction(async c=>{
+        const current=await this.load(c,quoteId,false);
+        const rows=await c.query(`SELECT 1 FROM payments.payment_attempts a JOIN payments.payments p ON p.id=a.payment_id
+          JOIN payments.payment_groups g ON g.id=p.payment_group_id JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id
+          WHERE q.id=$1 AND a.status='PENDING' AND p.status='PENDING' AND a.provider_reference=$2 AND a.integration_id=$3
+          AND a.amount=$4 AND a.currency_code='COP' AND q.expires_at>clock_timestamp()+$5*interval '1 second'`,
+          [quoteId,current.reference,current.binding.integrationId,current.amount,expirationSeconds]);
+        if(rows.rowCount!==1)throw Error("FACTUS_API_RESERVED_CURRENT_INTENT_REQUIRED");
+        // Official collection limits: COP 1,000..12,100,000; at most 2 decimals.
+        const [whole,fraction]=current.amount.split(".");
+        if(BigInt(whole!)<1000n||BigInt(whole!)>12100000n||fraction!.slice(2)!=="0000"||
+          BigInt(whole!)===12100000n&&fraction!=="000000")throw Error("FACTUS_API_COLLECTION_AMOUNT_UNSUPPORTED");
+        return current;
+      });
+      const credential=await this.abortable(this.credentials.resolve(Object.freeze({...source.binding}),deadline.signal),deadline.signal);
+      if(!equal(credential.binding,source.binding)||typeof credential.accessToken!=="string"||!credential.accessToken||credential.accessToken.length>8192||/[\r\n]/.test(credential.accessToken)||
+        !Number.isFinite(Date.parse(credential.expiresAt))||Date.parse(credential.expiresAt)<=Date.now())throw Error("FACTUS_API_CREDENTIAL_BINDING_REJECTED");
+      const url=origins[source.binding.environment]+"/v1/collections";
+      const response=await this.abortable(this.transport(url,{method:"POST",redirect:"error",cache:"no-store",signal:deadline.signal,
+        headers:{authorization:"Bearer "+credential.accessToken,accept:"application/json","content-type":"application/json"},
+        body:JSON.stringify({reference_code:source.reference,amount:source.amount.slice(0,-4),expiration:String(expirationSeconds)})}),deadline.signal);
+      if(![200,201].includes(response.status)||response.redirected||response.url&&response.url!==url||
+        response.headers.get("content-type")?.split(";",1)[0]?.trim().toLowerCase()!=="application/json"){
+        void response.body?.cancel().catch(()=>undefined);throw Error("FACTUS_API_RESPONSE_REJECTED");}
+      const body=await this.readJson(response,deadline.signal) as {status?:unknown;data?:Record<string,unknown>};
+      const d=body?.data;
+      if(body?.status!=="success"||!d||!["ready","paid"].includes(String(d.status)))throw Error("FACTUS_API_COLLECTION_REJECTED");
+      // Reuse the canonical monetary parser without promoting POST to paid proof.
+      const observed=normalizeFactusPayCollectionWebhook({data:{...d,status:"paid"}});
+      if(observed.external_reference!==source.reference||observed.amount!==source.amount||d.currency_code!==undefined&&d.currency_code!=="COP")
+        throw Error("FACTUS_API_COLLECTION_BINDING_MISMATCH");
+      const qr=d.status==="ready"?d.qr:null;
+      if(qr!==null&&(typeof qr!=="string"||qr.length>this.limits.maximumResponseBytes||!/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(qr)))
+        throw Error("FACTUS_API_QR_REJECTED");
+      const checked=await this.transaction(async c=>{
+        if(!equal(source,await this.load(c,quoteId,true)))throw Error("FACTUS_API_QUOTE_OR_CREDENTIAL_CHANGED");
+        const at=(await c.query("SELECT clock_timestamp() AS at")).rows[0].at as Date;
+        if(Date.parse(credential.expiresAt)<=at.getTime())throw Error("FACTUS_API_CREDENTIAL_EXPIRED");
+        return Object.freeze({quoteId,quoteChecksum:source.checksum,buyerTenantId:source.buyerTenant,buyerCompanyId:source.buyerCompany,
+          merchant:Object.freeze({...source.binding}),providerReference:source.reference,amount:source.amount,currencyCode:"COP" as const,
+          verifiedAt:at.toISOString(),collectionStatus:d.status==="ready"?"READY" as const:"PAID_UNVERIFIED" as const,qr:qr as string|null});
+      });
+      deadline.signal.throwIfAborted();
+      const receipt=Object.freeze({});this.collections.set(receipt,{value:checked,expiresAt:Date.parse(checked.verifiedAt)+this.limits.evidenceLifetimeMs});
+      return receipt;
+    }catch(error){
+      if(deadline.signal.aborted)throw Error("FACTUS_API_CANCELLED_OR_TIMEOUT");
+      if(error instanceof Error&&/^FACTUS_[A-Z_]+$/.test(error.message))throw error;
+      throw Error("FACTUS_API_COLLECTION_FAILED");
+    }finally{clearTimeout(timer);parentSignal?.removeEventListener("abort",abort);}
+  }
+
+  async consumeCollection<T>(receipt:unknown,work:(c:PoolClient,value:PreparedFactusCollection)=>Promise<T>):Promise<T>{
+    if(typeof receipt!=="object"||receipt===null)throw Error("FACTUS_API_COLLECTION_RECEIPT_REQUIRED");
+    const found=this.collections.get(receipt);this.collections.delete(receipt);
+    if(!found||Date.now()>=found.expiresAt)throw Error("FACTUS_API_COLLECTION_RECEIPT_REQUIRED");
+    return this.consumeCurrent(found.value,work);
   }
 
   async verifyQuote(quoteId:string,parentSignal?:AbortSignal):Promise<object>{
@@ -102,6 +177,10 @@ export class FactusPayQuoteVerifier {
    * A rollback still consumes the receipt; recovery must perform a fresh GET. */
   async consume<T>(receipt:unknown,work:(c:PoolClient,value:CheckedFactusCollection)=>Promise<T>):Promise<T>{
     const value=this.take(receipt);if(!value)throw Error("FACTUS_API_FRESH_RECEIPT_REQUIRED");
+    return this.consumeCurrent(value,work);
+  }
+
+  private consumeCurrent<V extends CheckedFactusCollection,T>(value:V,work:(c:PoolClient,value:V)=>Promise<T>){
     return this.transaction(async c=>{
       const current=await this.load(c,value.quoteId,true);
       if(current.checksum!==value.quoteChecksum||current.reference!==value.providerReference||current.amount!==value.amount||

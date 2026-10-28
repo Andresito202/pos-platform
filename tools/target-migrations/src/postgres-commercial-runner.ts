@@ -31,13 +31,17 @@ export const SUBSCRIPTION_MIGRATIONS=Object.freeze([...FACTUS_PAY_MIGRATIONS,POS
 export const POSTGRES_020_DESCRIPTOR=descriptor("020_subscription_payments",POSTGRES_019_DESCRIPTOR.migrationId,
   ["payments.payment_groups","payments.payments","payments.payment_attempts","payments.payment_allocations"],"payments");
 export const SUBSCRIPTION_PAYMENT_MIGRATIONS=Object.freeze([...SUBSCRIPTION_MIGRATIONS,POSTGRES_020_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS";
+export const POSTGRES_021_DESCRIPTOR=descriptor("021_global_browser_administration",POSTGRES_020_DESCRIPTOR.migrationId,
+  ["identity.webauthn_challenges","identity.browser_session_handoffs","identity.browser_sessions"],"identity");
+export const GLOBAL_ADMINISTRATION_MIGRATIONS=Object.freeze([...SUBSCRIPTION_PAYMENT_MIGRATIONS,POSTGRES_021_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION";
 function migrations(target:CommercialMigrationTarget){
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
   if(target==="LICENSING")return LICENSING_MIGRATIONS;
   if(target==="FACTUS_PAY")return FACTUS_PAY_MIGRATIONS;
   if(target==="SUBSCRIPTIONS")return SUBSCRIPTION_MIGRATIONS;
   if(target==="SUBSCRIPTION_PAYMENTS")return SUBSCRIPTION_PAYMENT_MIGRATIONS;
+  if(target==="GLOBAL_ADMINISTRATION")return GLOBAL_ADMINISTRATION_MIGRATIONS;
   throw new MigrationInvariantError("Unknown commercial migration target");
 }
 export async function commercialMigrationManifest(target:CommercialMigrationTarget="AUTHENTICATION"){

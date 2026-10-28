@@ -100,6 +100,21 @@ export const PlatformAdministrationSessionSchema = z.strictObject({
 export type PlatformAdministrationSession =
   z.infer<typeof PlatformAdministrationSessionSchema>;
 
+const positiveLimit=z.number().int().positive().max(2_147_483_647);
+/** Approved 2026-10-27 extension: server-managed GLOBAL HTTPS policy, not a
+ * session, permission assertion, secret or browser-supplied approval. */
+export const GlobalAdministrationProvisionSchema=z.strictObject({
+  profile:z.literal("CAMACHO_GLOBAL_ADMINISTRATION_V1"),policy_reference:z.string().min(1).max(256),
+  expected_database:z.string().min(1).max(63),rp_id:z.string().min(1).max(253),rejection_verifier_file:z.string().min(1).max(4096),
+  migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),
+  fulfillment_policies:z.array(z.strictObject({policy_reference:z.string().min(1).max(256),tax_policy_reference:z.string().min(1).max(256),
+    support_policy_reference:z.string().min(1).max(256)})).min(1).max(64).optional(),
+  limits:z.strictObject({challenge_ms:positiveLimit,session_ms:positiveLimit,mfa_age_ms:positiveLimit,reauthentication_ms:positiveLimit,
+    browser_ms:positiveLimit,idle_ms:positiveLimit,sql_lock_ms:positiveLimit,sql_statement_ms:positiveLimit,maximum_body_bytes:positiveLimit,
+    maximum_pending_flows:positiveLimit,request_window_ms:positiveLimit,requests_per_window:positiveLimit,maximum_buckets:positiveLimit,
+    login_window_ms:positiveLimit,maximum_login_per_address:positiveLimit,maximum_login_per_account:positiveLimit}),
+}).refine(p=>p.limits.sql_statement_ms>p.limits.sql_lock_ms,"statement timeout must exceed lock timeout");
+
 /**
  * Every D-1 administrative operation requires a fully authenticated platform
  * session. No tenant membership is substituted for platform authority.

@@ -76,6 +76,8 @@ function assertion(value:unknown):value is AuthenticationResponseJSON{
     [r.clientDataJSON,r.authenticatorData,r.signature].every(s=>text(s,8192))&&
     (r.userHandle===undefined||r.userHandle===null||text(r.userHandle,2048));
 }
+// One strict parser/header/assertion boundary for both approved browser scopes.
+export {body as readCommercialJsonBody,strictHeaders as inspectCommercialHeaders,assertion as validateCommercialAssertion,send as sendCommercialJson};
 
 /** Shared closed HTTPS routes. Deployment requires the verified database
  * capability; the isolated factory below retains its temporary-only boundary. */

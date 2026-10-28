@@ -110,7 +110,7 @@ export class DurableBrowserSessionStore {
     return this.transaction(async c=>{
       const found=await c.query<{session_id:string;user_id:string;tenant_id:string;membership_id:string}>(`
         SELECT session_id::text,user_id::text,tenant_id::text,membership_id::text
-        FROM identity.browser_session_handoffs WHERE handoff_hash=$1 AND origin=$2
+        FROM identity.browser_session_handoffs WHERE handoff_hash=$1 AND origin=$2 AND tenant_id IS NOT NULL AND membership_id IS NOT NULL
           AND consumed_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE`,[hash(handoff),this.origin]);
       const row=found.rows[0];if(!row)return null;
       const binding={sessionId:row.session_id,userId:row.user_id,tenantId:row.tenant_id,tenantMembershipId:row.membership_id};
@@ -160,7 +160,7 @@ export class DurableBrowserSessionStore {
         SELECT session_id::text,user_id::text,tenant_id::text,
           membership_id::text,csrf_hash
         FROM ${this.table}
-        WHERE cookie_hash=$1 AND origin=$2 AND revoked_at IS NULL
+        WHERE cookie_hash=$1 AND origin=$2 AND revoked_at IS NULL AND tenant_id IS NOT NULL AND membership_id IS NOT NULL
           AND expires_at>clock_timestamp() ${this.policy.mode==="CANONICAL"?"AND last_used_at>clock_timestamp()-($3::bigint*interval '1 millisecond')":""}
         FOR UPDATE`,[hash(token),this.origin,...(this.policy.mode==="CANONICAL"?[this.policy.idleTimeoutMs]:[])]);
       const row=found.rows[0];if(!row)return null;
@@ -200,7 +200,7 @@ export class DurableBrowserSessionStore {
       const found=await c.query<{session_id:string;user_id:string;tenant_id:string;membership_id:string;csrf_hash:string;expires_at:string;handoff_hash?:string}>(`
         SELECT session_id::text,user_id::text,tenant_id::text,
           membership_id::text,csrf_hash,expires_at::text ${this.policy.mode==="CANONICAL"?",handoff_hash":""} FROM ${this.table}
-        WHERE cookie_hash=$1 AND origin=$2 AND revoked_at IS NULL AND expires_at>clock_timestamp()
+        WHERE cookie_hash=$1 AND origin=$2 AND revoked_at IS NULL AND tenant_id IS NOT NULL AND membership_id IS NOT NULL AND expires_at>clock_timestamp()
           ${this.policy.mode==="CANONICAL"?"AND last_used_at>clock_timestamp()-($3::bigint*interval '1 millisecond')":""}
         FOR UPDATE`,[hash(old),this.origin,...(this.policy.mode==="CANONICAL"?[this.policy.idleTimeoutMs]:[])]);
       const row=found.rows[0];if(!row)return null;

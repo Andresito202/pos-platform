@@ -7,11 +7,13 @@ import {FactusPayQuoteVerifier} from "./factus-pay-quote-verifier.js";
  * local cash movement, license or delivery is fabricated to collect a plan. */
 export class SubscriptionPayments {
   private readonly outbox=new PostgresSubscriptionPaymentOutbox();
+  private readonly merchantBranch:Readonly<{tenantId:string;companyId:string;branchId:string}>;
   constructor(private readonly pool:Pool,private readonly verifier:FactusPayQuoteVerifier,
-    private readonly merchantBranch:{tenantId:string;companyId:string;branchId:string},
+    merchantBranch:{tenantId:string;companyId:string;branchId:string},
     private readonly limits:{lockTimeoutMs:number;statementTimeoutMs:number}){
+    this.merchantBranch=Object.freeze({tenantId:merchantBranch.tenantId,companyId:merchantBranch.companyId,branchId:merchantBranch.branchId});
     if(!(verifier instanceof FactusPayQuoteVerifier))throw Error("SUBSCRIPTION_PAYMENT_TRUSTED_VERIFIER_REQUIRED");
-    for(const id of Object.values(merchantBranch))UuidSchema.parse(id);
+    for(const id of Object.values(this.merchantBranch))UuidSchema.parse(id);
     if(![limits.lockTimeoutMs,limits.statementTimeoutMs].every(n=>Number.isSafeInteger(n)&&n>0)||limits.statementTimeoutMs<=limits.lockTimeoutMs)
       throw Error("SUBSCRIPTION_PAYMENT_LIMITS_REQUIRED");
   }
@@ -97,6 +99,63 @@ export class SubscriptionPayments {
       await this.audit(c,"SUBSCRIPTION_PAYMENT_CONFIRMED",e.quoteId,p.id,correlationId,{amount:e.amount,currency_code:e.currencyCode,provider_reference:e.providerReference,evidence_checksum:hash},operationId);
       return {paymentId:String(p.id),quoteId:e.quoteId,state:"CONFIRMED" as const,idempotent:false,activationStatus:"NOT_ACTIVATED" as const};
     });
+  }
+
+  /** A QR response records collection readiness only. It can never be consumed
+   * as payment evidence; confirmation requires the separate GET receipt. */
+  recordCollection(receipt:unknown,correlationId:string){
+    UuidSchema.parse(correlationId);
+    return this.verifier.consumeCollection(receipt,async(c,e)=>{
+      await this.configure(c);await this.branch(c);
+      const b=this.merchantBranch;
+      if(e.merchant.tenantId!==b.tenantId||e.merchant.companyId!==b.companyId)throw Error("SUBSCRIPTION_PAYMENT_MERCHANT_MISMATCH");
+      const rows=(await c.query(`SELECT p.id,p.status,p.company_id,p.branch_id,p.expected_amount,g.request_checksum,a.id AS attempt_id,
+        a.status AS attempt_status,a.provider_reference,a.integration_id,a.evidence_snapshot
+        FROM payments.payments p JOIN payments.payment_groups g ON g.id=p.payment_group_id JOIN payments.payment_attempts a ON a.payment_id=p.id
+        WHERE g.tenant_id=$1 AND g.collection_subject_id=$2 AND g.collection_subject_type='SUBSCRIPTION_QUOTE' FOR UPDATE OF p,a`,[b.tenantId,e.quoteId])).rows;
+      const p=rows[0];
+      if(rows.length!==1||!p||p.company_id!==b.companyId||p.branch_id!==b.branchId||p.expected_amount!==e.amount||
+        p.request_checksum!==this.checksum(e.quoteChecksum,e.providerReference)||p.provider_reference!==e.providerReference||p.integration_id!==e.merchant.integrationId)
+        throw Error("SUBSCRIPTION_PAYMENT_EVIDENCE_MISMATCH");
+      if(p.status!=="PENDING"||p.attempt_status!=="PENDING")throw Error("SUBSCRIPTION_PAYMENT_NOT_PENDING");
+      const snapshot={profile:"FACTUS_COLLECTION_PREPARED_V1",provider_reference:e.providerReference,
+        collection_status:e.collectionStatus,qr:e.qr,verified_at:e.verifiedAt};
+      const previous=p.evidence_snapshot;
+      if(previous?.profile===snapshot.profile&&previous.qr===snapshot.qr&&previous.collection_status===snapshot.collection_status)
+        return {paymentId:String(p.id),state:"PENDING" as const,collectionStatus:e.collectionStatus,idempotent:true};
+      const serialized=canonicalSessionTrustJson(snapshot),checksum=createHash("sha256").update(serialized).digest("hex");
+      await c.query("UPDATE payments.payment_attempts SET evidence_snapshot=$2::jsonb,evidence_checksum=$3,server_recorded_at=clock_timestamp(),version=version+1 WHERE id=$1",[p.attempt_id,serialized,checksum]);
+      const payload=canonicalSessionTrustJson({quote_id:e.quoteId,collection_status:e.collectionStatus,evidence_checksum:checksum});
+      await c.query(`INSERT INTO audit.audit_events(id,tenant_id,company_id,branch_id,actor_type,action_code,resource_type,resource_reference_kind,
+        resource_id,correlation_id,schema_version,reported_at,server_recorded_at,result,new_value,payload_checksum)
+        VALUES($1,$2,$3,$4,'SYSTEM','SUBSCRIPTION_COLLECTION_PREPARED','PAYMENT','INSTANCE',$5,$6,1,clock_timestamp(),clock_timestamp(),'PENDING',$7::jsonb,$8)`,
+        [uuidV7(),b.tenantId,b.companyId,b.branchId,p.id,correlationId,payload,createHash("sha256").update(payload).digest("hex")]);
+      return {paymentId:String(p.id),state:"PENDING" as const,collectionStatus:e.collectionStatus,idempotent:false};
+    });
+  }
+
+  /** Expired quotes cannot auto-confirm late money or activate rights. Preserve
+   * the financial intent for reconciliation instead of silently abandoning it. */
+  async reviewExpired(quoteId:string,correlationId:string){
+    UuidSchema.parse(quoteId);UuidSchema.parse(correlationId);
+    const c=await this.pool.connect();try{
+      await c.query("BEGIN");await this.configure(c);await this.branch(c);const b=this.merchantBranch;
+      const rows=(await c.query(`SELECT p.id,p.status,a.id AS attempt_id,a.status AS attempt_status,q.provider_reference,
+        q.tenant_id,q.company_id,p.expected_amount::text FROM payments.payments p JOIN payments.payment_groups g ON g.id=p.payment_group_id
+        JOIN payments.payment_attempts a ON a.payment_id=p.id JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id
+        WHERE q.id=$1 AND p.tenant_id=$2 AND p.company_id=$3 AND p.branch_id=$4 AND q.expires_at<=clock_timestamp()
+        FOR UPDATE OF p,a`,[quoteId,b.tenantId,b.companyId,b.branchId])).rows;
+      const row=rows[0];if(rows.length!==1||!row)throw Error("SUBSCRIPTION_PAYMENT_EXPIRED_INTENT_REQUIRED");
+      if(row.status==="REVIEW_REQUIRED"&&row.attempt_status==="REVIEW_REQUIRED"){
+        await c.query("COMMIT");return {state:"REVIEW_REQUIRED" as const,idempotent:true};}
+      if(row.status!=="PENDING"||row.attempt_status!=="PENDING")throw Error("SUBSCRIPTION_PAYMENT_NOT_PENDING");
+      await c.query("UPDATE payments.payments SET status='REVIEW_REQUIRED',server_recorded_at=clock_timestamp(),version=version+1 WHERE id=$1",[row.id]);
+      await c.query("UPDATE payments.payment_attempts SET status='REVIEW_REQUIRED',error_code='QUOTE_EXPIRED_RECONCILIATION_REQUIRED',server_recorded_at=clock_timestamp(),version=version+1 WHERE id=$1",[row.attempt_id]);
+      const operationId=await this.outbox.publish(c,{operation:"REVIEW_REQUIRED",...b,paymentId:row.id,quoteId,buyerTenantId:row.tenant_id,
+        buyerCompanyId:row.company_id,amount:row.expected_amount,providerReference:row.provider_reference,correlationId});
+      await this.audit(c,"SUBSCRIPTION_PAYMENT_REVIEW_REQUIRED",quoteId,row.id,correlationId,{reason:"QUOTE_EXPIRED_RECONCILIATION_REQUIRED"},operationId);
+      await c.query("COMMIT");return {state:"REVIEW_REQUIRED" as const,idempotent:false};
+    }catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}
   }
 
   private checksum(quoteChecksum:string,providerReference:string){return createHash("sha256").update(canonicalSessionTrustJson({quoteChecksum,providerReference,merchantBranch:this.merchantBranch})).digest("hex");}

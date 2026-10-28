@@ -7,16 +7,34 @@ import {PostgresPlatformAdministrationSessionRepository,type Pool,type PoolClien
  * by a browser is not authentication. Rechecks actual MFA and explicit grant;
  * a BUSINESS cashier/owner is never platform authority. No grants are seeded. */
 export class LicenseOfferDrafts{
-  constructor(private readonly pool:Pool,private readonly maximumReauthenticationAgeMs:number){
+  constructor(private readonly pool:Pool,private readonly maximumReauthenticationAgeMs:number,
+    private readonly httpPolicy?:{origin:string;lockTimeoutMs:number;statementTimeoutMs:number}){
     if(!Number.isSafeInteger(maximumReauthenticationAgeMs)||maximumReauthenticationAgeMs<=0)throw Error("LICENSE_ADMIN_REAUTHENTICATION_POLICY_REQUIRED");
+    if(httpPolicy&&(![httpPolicy.lockTimeoutMs,httpPolicy.statementTimeoutMs].every(n=>Number.isSafeInteger(n)&&n>0)||httpPolicy.statementTimeoutMs<=httpPolicy.lockTimeoutMs))
+      throw Error("LICENSE_ADMIN_HTTP_POLICY_REQUIRED");
   }
   private async transaction<T>(sessionId:string,work:(c:PoolClient,userId:string)=>Promise<T>){
     UuidSchema.parse(sessionId);const c=await this.pool.connect();let begun=false;
-    try{await c.query("BEGIN ISOLATION LEVEL SERIALIZABLE");begun=true;
+    try{await c.query(this.httpPolicy?"BEGIN":"BEGIN ISOLATION LEVEL SERIALIZABLE");begun=true;
+      if(this.httpPolicy){
+        await c.query("SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true),set_config('app.tenant_id','',true)",
+          [`${this.httpPolicy.lockTimeoutMs}ms`,`${this.httpPolicy.statementTimeoutMs}ms`]);
+        await c.query('SELECT "authorization".lock_platform_sources_for_read()');
+        if((await c.query(`SELECT 1 FROM identity.browser_session_handoffs h JOIN identity.users u ON u.id=h.user_id AND u.status='ACTIVE'
+          JOIN identity.user_credentials pwd ON pwd.id=h.password_credential_id AND pwd.user_id=u.id AND pwd.status='ACTIVE'
+            AND pwd.credential_type='PASSWORD' AND pwd.version=h.password_credential_version AND pwd.revoked_at IS NULL
+            AND (pwd.locked_until IS NULL OR pwd.locked_until<=clock_timestamp())
+          JOIN identity.mfa_factors f ON f.id=h.factor_id AND f.user_id=u.id AND f.status='ACTIVE' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
+          WHERE h.session_id=$1 AND h.origin=$2 AND h.tenant_id IS NULL AND h.membership_id IS NULL FOR SHARE OF u,pwd,f`,[sessionId,this.httpPolicy.origin])).rowCount!==1)
+          throw Error("LICENSE_ADMIN_CURRENT_GLOBAL_CREDENTIAL_REQUIRED");
+      }
       await c.query("SELECT id FROM identity.sessions WHERE id=$1 FOR SHARE",[sessionId]);
       const checked=await new PostgresPlatformAdministrationSessionRepository(c).findActivePlatformPermissionForSession(sessionId,CanonicalPermission.LICENSE_PLAN_MANAGE,this.maximumReauthenticationAgeMs);
       if(!checked)throw Error("LICENSE_PLAN_MANAGE_REQUIRED");
-      const result=await work(c,checked.user_id);await c.query("COMMIT");begun=false;return result;
+      const result=await work(c,checked.user_id);
+      if(this.httpPolicy&&!await new PostgresPlatformAdministrationSessionRepository(c).findActivePlatformPermissionForSession(sessionId,CanonicalPermission.LICENSE_PLAN_MANAGE,this.maximumReauthenticationAgeMs))
+        throw Error("LICENSE_PLAN_MANAGE_REQUIRED");
+      await c.query("COMMIT");begun=false;return result;
     }catch(error){if(begun)await c.query("ROLLBACK");throw error;}finally{c.release();}
   }
   /** Edit by new immutable version; exact expected version prevents lost edits.

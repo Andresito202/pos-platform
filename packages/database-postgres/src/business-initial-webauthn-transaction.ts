@@ -9,7 +9,7 @@ import { PostgresPlatformSecurityEventRepository } from "./platform-security-eve
 
 /** Internal evidence only. Does not grant a session, tenant, role or SSA. */
 export interface CommittedBusinessInitialMfa {
-  readonly purpose: "BUSINESS_INITIAL_MFA";
+  readonly purpose: "BUSINESS_INITIAL_MFA"|"GLOBAL_INITIAL_MFA";
   readonly sessionId: null;
   readonly userId: string;
   readonly passwordCredentialId: string;
@@ -26,7 +26,9 @@ export interface CommittedBusinessInitialMfa {
  * that provenance. Does not extend the GLOBAL reauth/recovery transaction.
  */
 export class PostgresBusinessInitialWebAuthnTransaction {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool,private readonly scope:"BUSINESS"|"GLOBAL"="BUSINESS") {
+    if(!["BUSINESS","GLOBAL"].includes(scope))throw Error("INITIAL_MFA_SCOPE_REQUIRED");
+  }
 
   async verifyAndCommit(
     input: {
@@ -65,11 +67,11 @@ export class PostgresBusinessInitialWebAuthnTransaction {
             AND f.factor_type='WEBAUTHN' AND f.status='ACTIVE'
             AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
           WHERE c.challenge_hash=$1 AND c.user_id=$2
-            AND c.purpose='AUTHENTICATE' AND c.session_id IS NULL
+            AND c.purpose=$7 AND c.session_id IS NULL
             AND c.consumed_at IS NULL AND c.expires_at>clock_timestamp()
             AND c.rp_id=$5 AND c.expected_origin=$6
           FOR UPDATE OF c FOR SHARE OF u, p, f`,
-        [digest, userId, credentialId, credentialVersion, input.rpId, input.expectedOrigin],
+        [digest, userId, credentialId, credentialVersion, input.rpId, input.expectedOrigin,this.scope==="GLOBAL"?"GLOBAL_AUTHENTICATE":"AUTHENTICATE"],
       );
       const row = found.rows[0];
       if (!row) { await client.query("ROLLBACK"); begun = false; return null; }
@@ -79,7 +81,7 @@ export class PostgresBusinessInitialWebAuthnTransaction {
       const proof = await verify({
         challenge: {
           challenge: input.challenge, userId: row.user_id, factorId: row.factor_id,
-          sessionId: null, purpose: "AUTHENTICATE", rpId: input.rpId, expectedOrigin: input.expectedOrigin,
+          sessionId: null, purpose: this.scope==="GLOBAL"?"GLOBAL_AUTHENTICATE":"AUTHENTICATE", rpId: input.rpId, expectedOrigin: input.expectedOrigin,
         }, material,
       });
       if (proof?.userVerified !== true || !Number.isSafeInteger(proof.newCounter)
@@ -104,13 +106,13 @@ export class PostgresBusinessInitialWebAuthnTransaction {
       await new PostgresPlatformSecurityEventRepository(this.pool).append({
         user_id: row.user_id, session_id: null, tenant_id: null,
         event_code: PlatformSecurityEventCode.WEBAUTHN_ASSERTION_VERIFIED,
-        result: "SUCCEEDED", reason_code: "BUSINESS_INITIAL_MFA",
+        result: "SUCCEEDED", reason_code: this.scope+"_INITIAL_MFA",
         correlation_id: row.correlation_id, occurred_at: at.toISOString(),
       }, client);
       await client.query("COMMIT");
       begun = false;
       return Object.freeze({
-        purpose: "BUSINESS_INITIAL_MFA", sessionId: null, userId: row.user_id,
+        purpose: this.scope==="GLOBAL"?"GLOBAL_INITIAL_MFA":"BUSINESS_INITIAL_MFA", sessionId: null, userId: row.user_id,
         passwordCredentialId: credentialId, passwordCredentialVersion: credentialVersion,
         factorId: row.factor_id, challengeId: row.id, correlationId: row.correlation_id, verifiedAt: at.toISOString(),
       });
