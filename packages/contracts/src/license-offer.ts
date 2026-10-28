@@ -48,3 +48,5 @@ export function addLicenseCalendarMonths(start:string,months:number):string{
   const day=at.getUTCDate();at.setUTCDate(1);at.setUTCMonth(at.getUTCMonth()+months);const end=new Date(at);end.setUTCMonth(end.getUTCMonth()+1);end.setUTCDate(0);
   at.setUTCDate(Math.min(day,end.getUTCDate()));return at.toISOString();
 }
+
+export type PublicLicenseCatalog=z.infer<typeof PublicLicenseCatalogSchema>;

@@ -2,6 +2,7 @@ import type * as z from "zod";
 import {
   NativeCommercialResponseSchema,
   HardwareResponseSchema,
+  LicenseOffersListResponseSchema,
   AdminMetricsGetResponseSchema,
   AuditEventListResponseSchema,
   AuthorizationCapabilitiesGetResponseSchema,
@@ -78,6 +79,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "sales.receipt.get": SalesReceiptGetResponseSchema,
   "audit.event.list": AuditEventListResponseSchema,
   "admin.metrics.get": AdminMetricsGetResponseSchema,
+  "license.offers.list": LicenseOffersListResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {

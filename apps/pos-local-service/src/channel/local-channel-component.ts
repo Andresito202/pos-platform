@@ -146,6 +146,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "hardware.command":
       case "audit.event.list":
       case "admin.metrics.get":
+      case "license.offers.list":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);

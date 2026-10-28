@@ -1,3 +1,4 @@
+import type {PublicLicenseCatalog} from "@pos-platform/contracts";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -137,6 +138,7 @@ export class CommercialComponent implements RuntimeComponent {
     /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
     private readonly authorizationSigningKeys:ReadonlyMap<string,TrustedSigningKey>=new Map(),
     private readonly licenseGate?: CashRegisterLicenseGate,
+    private readonly publicLicenseCatalog?:()=>Promise<PublicLicenseCatalog>,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -208,6 +210,8 @@ export class CommercialComponent implements RuntimeComponent {
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
+  readPublicLicenseCatalog(){if(!this.publicLicenseCatalog)throw Error("LICENSE_CATALOG_NOT_CONFIGURED");return this.publicLicenseCatalog();}
+
   get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }

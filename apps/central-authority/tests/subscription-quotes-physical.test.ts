@@ -1,6 +1,6 @@
 import {afterAll,beforeAll,it,expect} from "vitest";
 import {createPostgresPool,type Pool} from "@pos-platform/database-postgres";
-import {uuidV7,type LicenseOfferDraft,type SubscriptionQuoteRequest} from "@pos-platform/contracts";
+import {uuidV7,addLicenseCalendarMonths,type LicenseOfferDraft,type SubscriptionQuoteRequest} from "@pos-platform/contracts";
 import {createHash,randomBytes,generateKeyPairSync,sign,X509Certificate} from "node:crypto";
 import {execFileSync} from "node:child_process";
 import {readFile,writeFile,mkdtemp,rm} from "node:fs/promises";
@@ -526,6 +526,66 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     if(dir){if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("pos-global-api-"))throw Error("CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});}
   }
 },90000);
+
+it.runIf(Boolean(server))("pricing V2: runner 023, reversible empty schema, immutable quotes, stale/concurrent edits and publication rollback",async()=>{
+  const u=new URL(server!);u.pathname="/"+db;u.username="pos_migrator";u.password="";
+  const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--license-catalog"],{cwd:tool,encoding:"utf8",windowsHide:true,
+    env:{...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8",windowsHide:true}).trim(),
+      POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
+  migrate();expect(migrate().every((r:{status:string})=>r.status==='ALREADY_APPLIED')).toBe(true);
+  const existingV2=Number((await owner.query("SELECT count(*) AS n FROM licensing.plans WHERE offer_profile='CAMACHO_LICENSE_OFFER_V2'")).rows[0].n);
+  // Physical down/up, rolled back as one transaction: runner ledger is untouched.
+  const c=await owner.connect();try{await c.query("BEGIN");await c.query("SET LOCAL ROLE pos_schema_owner");if(existingV2===0){
+    await c.query(await sql("023_license_offer_terms.down.sql"));
+    expect((await c.query("SELECT 1 FROM information_schema.columns WHERE table_schema='licensing' AND table_name='plans' AND column_name='currency_exponent'")).rowCount).toBe(0);
+    await c.query(await sql("023_license_offer_terms.up.sql"));}await c.query("ROLLBACK");
+  }finally{c.release();}
+  // A preceding provider test may revoke its own temporary merchant credential.
+  if((await owner.query("SELECT status FROM integrations.external_integrations WHERE id=$1",[merchant.integrationId])).rows[0].status==='CREDENTIAL_ROTATION_REQUIRED'){
+    const credential=id();await owner.query(`INSERT INTO integrations.integration_credential_bindings(id,tenant_id,company_id,integration_id,credential_reference,credential_kind,generation,status,created_at)
+      VALUES($1,$2,$3,$4,'TEST_REPLACEMENT_ONLY','PROVIDER_API',2,'PENDING',now())`,[credential,merchant.tenantId,merchant.companyId,merchant.integrationId]);
+    await owner.query("UPDATE integrations.integration_credential_bindings SET status='ACTIVE',activated_at=now() WHERE id=$1",[credential]);
+    for(const status of ['AUTHENTICATED','DISCOVERING','DISCOVERY_COMPLETE','READY_FOR_REVIEW','ACTIVE'])await owner.query("UPDATE integrations.external_integrations SET status=$2,version=version+1,updated_at=now() WHERE id=$1",[merchant.integrationId,status]);
+  }
+  const legacyService=new SubscriptionQuotes(runtime,policy(),limits),legacy=request();await legacyService.issue(globalSession,legacy);
+  const history=(await owner.query("SELECT pricing_snapshot,quote_checksum FROM subscriptions.license_quotes WHERE id=$1",[legacy.id])).rows[0];
+  const drafts=new LicenseOfferDrafts(runtime,60000);
+  const existingCodes=(await drafts.administrativeCatalog(globalSession)).filter(p=>p.code.startsWith('CAMACHO_'));
+  expect((await drafts.initializePreproduction(globalSession)).created).toHaveLength(existingCodes.length?0:3);
+  expect((await drafts.initializePreproduction(globalSession)).created).toHaveLength(0);
+  const initial:Array<LicenseOfferDraft&{version:number}>=[];
+  for(const template of (await drafts.administrativeCatalog(globalSession)).filter(p=>"profile" in p&&p.code.startsWith('CAMACHO_')&&p.status==='ACTIVE'||"profile" in p&&p.code.startsWith('CAMACHO_')&&p.status==='DRAFT')){
+    if(initial.some(p=>p.billing_model===template.billing_model))continue;
+    const {version:_,status:__,published_at:___,...base}=template,p={...base,id:id(),code:'TEST_PRICE_V2_'+base.billing_model,price_minor:(base.billing_model==='MONTHLY'?49900:base.billing_model==='ANNUAL'?499000:1490000)*100};
+    await drafts.save(globalSession,p,0,id());await drafts.publish(globalSession,p.id,1,id());initial.push({...p,version:1});
+  }
+  const regular=policy();const calendar:SubscriptionQuotePolicy={...regular,resolveTerms:args=>{
+    const t=regular.resolveTerms(args)!;return {...t,service_until:args.pricing.billing_model==='PERPETUAL'?null:addLicenseCalendarMonths(t.service_from,args.pricing.billing_model==='MONTHLY'?1:12),
+      support_until:args.supportSelected?addLicenseCalendarMonths(t.service_from,args.pricing.billing_model==='MONTHLY'?1:12):null};}};
+  const service=new SubscriptionQuotes(runtime,calendar,limits),monthly={...initial.find(p=>p.billing_model==='MONTHLY')!,price_minor:4990000};
+  const r={...request(monthly),selection:{additional_registers:0,support:false}};await service.issue(globalSession,r);
+  const oldQuote=(await owner.query("SELECT * FROM subscriptions.license_quotes WHERE id=$1",[r.id])).rows[0];
+  expect(oldQuote.total_minor).toBe("4990123"); // Test-only explicit tax result 123; never a production default.
+  const updated={...monthly,id:id(),price_minor:5990000};const {version:_,...input}=updated;
+  await drafts.save(globalSession,input,1,id());expect((await drafts.published()).find(p=>p.code===monthly.code)?.price_minor).toBe(4990000);
+  await drafts.publish(globalSession,input.id,2,id());expect((await drafts.publish(globalSession,input.id,2,id())).idempotent).toBe(true);
+  const next=await service.issue(globalSession,{...request(input),plan_version:2,selection:{additional_registers:0,support:false}});expect(next.totalMinor).toBe("5990123");
+  await expect(service.issue(globalSession,{...request(monthly),id:id()})).rejects.toThrow();
+  const raced=await Promise.allSettled([drafts.save(globalSession,{...input,id:id(),price_minor:6990000},2,id()),drafts.save(globalSession,{...input,id:id(),price_minor:7990000},2,id())]);
+  expect(raced.filter(p=>p.status==='fulfilled')).toHaveLength(1);
+  await expect(drafts.publish(globalSession,monthly.id,1,id())).rejects.toThrow("STALE_PUBLICATION");
+  const pending=(await drafts.administrativeCatalog(globalSession)).find(p=>p.code===monthly.code&&p.status==='DRAFT')!;
+  await owner.query(`CREATE FUNCTION public.reject_price_publish() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.action_code='LICENSE_OFFER_PUBLISHED' THEN RAISE EXCEPTION 'PRICE_AUDIT_FAILURE'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER reject_price_publish BEFORE INSERT ON audit.audit_events FOR EACH ROW EXECUTE FUNCTION public.reject_price_publish()`);
+  try{await expect(drafts.publish(globalSession,pending.id,3,id())).rejects.toThrow("PRICE_AUDIT_FAILURE");}
+  finally{await owner.query("DROP TRIGGER reject_price_publish ON audit.audit_events; DROP FUNCTION public.reject_price_publish()");}
+  expect((await drafts.published()).find(p=>p.code===monthly.code)).toMatchObject({id:input.id,version:2,price_minor:5990000});
+  expect((await owner.query("SELECT pricing_snapshot,quote_checksum FROM subscriptions.license_quotes WHERE id=$1",[legacy.id])).rows[0]).toEqual(history);
+  expect((await owner.query("SELECT * FROM subscriptions.license_quotes WHERE id=$1",[r.id])).rows[0]).toEqual(oldQuote);
+  await expect(owner.query("UPDATE licensing.plans SET currency_exponent=0 WHERE id=$1",[input.id])).rejects.toThrow();
+  const down=await owner.connect();try{await down.query("BEGIN");await expect(down.query(await sql("023_license_offer_terms.down.sql"))).rejects.toThrow("Retained V2");await down.query("ROLLBACK");}finally{down.release();}
+},60000);
 
 it.runIf(Boolean(server))("quotes: concurrent replay, inactive buyer, bad terms, audit rollback and missing GLOBAL MFA/grant",async()=>{
   const service=new SubscriptionQuotes(runtime,policy(),limits),r=request();

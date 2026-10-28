@@ -1,3 +1,4 @@
+import {PublicLicenseCatalogSchema} from "./license-offer.js";
 import * as z from "zod";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
 import { SignedSessionAssertionSchema } from "./session-assertion.js";
@@ -1163,6 +1164,9 @@ export const SalesReceiptGetResponseSchema =
 
 // ── admin.metrics.get ───────────────────────────────────────────────────────
 
+export const LicenseOffersListRequestSchema=createRequestEnvelopeSchema(z.strictObject({})).safeExtend({message_type:z.literal("license.offers.list")}).superRefine(forbidCallerAssertedIdentity);
+export const LicenseOffersListResultSchema=z.strictObject({outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),catalog:PublicLicenseCatalogSchema.nullable()});
+export const LicenseOffersListResponseSchema=createResponseEnvelopeSchema(LicenseOffersListResultSchema);
 export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({}),
 ).safeExtend({ message_type: z.literal("admin.metrics.get") })
@@ -1270,6 +1274,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.get",
   "audit.event.list",
   "admin.metrics.get",
+  "license.offers.list",
 ]);
 
 /**
@@ -1304,6 +1309,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.stock.get",
   "pos:audit.event.list",
   "pos:admin.metrics.get",
+  "pos:license.offers.list",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;

@@ -17,6 +17,8 @@ import {
   InventoryStockReceiveRequestSchema,
   SaleCreateRequestSchema,
   SessionActivateRequestSchema,
+  LicenseOffersListRequestSchema,
+  type PublicLicenseCatalog,
   type AuthorizationSnapshotClaims,
   type SessionAssertionClaims,
 } from "@pos-platform/contracts";
@@ -155,7 +157,7 @@ function config(): ServiceConfig {
   } as ServiceConfig;
 }
 
-async function buildEnv(options: { trustKeys?: boolean } = {}) {
+async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<PublicLicenseCatalog> } = {}) {
   const dir = await directory();
   const database = track(LocalDatabase.open({ dataDirectory: dir }));
   const durableSync = new DurableSyncStore(database);
@@ -171,7 +173,7 @@ async function buildEnv(options: { trustKeys?: boolean } = {}) {
     { store: durableSync } as never,
     keys,
     () => NOW,
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,options.catalog,
   );
   await commercial.start();
 
@@ -249,6 +251,20 @@ function response(raw: unknown) {
     result: Record<string, unknown>;
   };
 }
+
+it("license catalog: authenticated read only, no GLOBAL authority, rechecks channel after asynchronous response",async()=>{
+  const catalog:PublicLicenseCatalog={profile:"CAMACHO_PUBLIC_LICENSE_CATALOG_V1",offers:[]};let deliver:((value:PublicLicenseCatalog)=>void)|undefined,calls=0;
+  const {handler,commercial,database}=await buildEnv({catalog:()=>{calls++;return new Promise(resolve=>{deliver=resolve;});}});
+  const request=LicenseOffersListRequestSchema.parse({...BASE,message_type:"license.offers.list",request_id:randomUUID(),correlation_id:randomUUID(),payload:{}}),connection=randomUUID();
+  expect(response(await handler.handle(request,connection)).result).toEqual({outcome:"UNAUTHORIZED",catalog:null});expect(calls).toBe(0);
+  seedAuthorization(database,USER,[]);handler.handle(activateRequest(signSession(sessionClaims())),connection);
+  const pending=handler.handle(request,connection);deliver!(catalog);
+  expect(response(await pending).result).toEqual({outcome:"AVAILABLE",catalog});
+  const lost=handler.handle(request,connection);commercial.bindings.release(connection);deliver!(catalog);
+  expect(response(await lost).result).toEqual({outcome:"UNAUTHORIZED",catalog:null});
+  expect(()=>LicenseOffersListRequestSchema.parse({...request,tenant_id:TENANT})).toThrow();
+  expect(()=>LicenseOffersListRequestSchema.parse({...request,payload:{publish:true}})).toThrow();
+});
 
 // ── session.activate ─────────────────────────────────────────────────────────
 

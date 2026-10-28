@@ -1,3 +1,4 @@
+import {fetchPublicLicenseCatalog} from "./security/license-offer-catalog.js";
 import { createPublicKey } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { lstatSync, mkdirSync, readFileSync } from "node:fs";
@@ -234,6 +235,8 @@ try {
     {installationId:config.installation_id,deviceId:config.device_id},sasProvisioning,
     (event,detail)=>logger.log(event==="FAILED"?"warn":"info",`authorization_trust.${event.toLowerCase()}`,detail),
   );
+  const commercialProvision=config.windows_commercial_provision_file;
+  const nativeConfiguration=commercialProvision===undefined?undefined:readWindowsCommercialConfiguration(commercialProvision,config.central_base_url);
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
     undefined,authorizationTrust.keys,
@@ -242,10 +245,10 @@ try {
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
       return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
     },
+    nativeConfiguration?()=>fetchPublicLicenseCatalog(nativeConfiguration.registration.authorizationOrigin,nativeConfiguration.request_timeout_ms):undefined,
   );
-  const commercialProvision=config.windows_commercial_provision_file;
   const nativeCommercial=commercialProvision===undefined?undefined:new WindowsCommercialRuntime(
-    readWindowsCommercialConfiguration(commercialProvision,config.central_base_url),{database:localDatabase,security,commercial,
+    nativeConfiguration!,{database:localDatabase,security,commercial,
       credentials:deviceTrustCredentialStore,directory:securityDirectory,keyProvider,
       ...(config.license_capacity_provision_file?{licenseProvisionFile:config.license_capacity_provision_file}:{}),
       onLicenseError:code=>logger.log("warn","license.download",{code}),

@@ -3,6 +3,7 @@ import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
 import { useAdminMetrics } from "../hooks/useAdminMetrics.js";
 import type {PlatformClient,PublishedOffer} from "../platform-client.js";
 import type {ReactNode} from "react";
+import {BusinessLicenseOffers} from "./BusinessLicenseOffers.js";
 
 type ControlKind = "admin" | "superadmin" | "audit";
 
@@ -167,6 +168,7 @@ export function AdministrativeControlPanel({ kind,platform,platformEditor }: { k
       ) : null}
 
       {kind==="superadmin"&&tab==="overview"&&platformEditor}
+      {kind==="admin"&&tab==="overview"&&<BusinessLicenseOffers/>}
       {tab === "security" && (
         <div className="pos-admin-surface">
           <h3>Seguridad y trazabilidad</h3>

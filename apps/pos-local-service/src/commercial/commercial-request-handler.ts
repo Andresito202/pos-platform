@@ -32,7 +32,7 @@ type CommercialRequest = Extract<
       | "sales.receipt.get"
       | "hardware.command"
       | "audit.event.list"
-      | "admin.metrics.get";
+      | "admin.metrics.get" | "license.offers.list";
   }
 >;
 
@@ -226,6 +226,7 @@ export class CommercialRequestHandler {
       case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
       case "admin.metrics.get": return this.getAdminMetrics(request, connectionId);
+      case "license.offers.list": return this.listLicenseOffers(request,connectionId);
     }
   }
 
@@ -945,6 +946,16 @@ export class CommercialRequestHandler {
     });
   }
 
+  /** Public prices only; never account data or GLOBAL mutation authority. */
+  private async listLicenseOffers(request:Extract<CommercialRequest,{message_type:"license.offers.list"}>,connectionId:string){
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)return rejected(request,authenticated.rejection,{outcome:"UNAUTHORIZED",catalog:null});
+    try{const catalog=await this.commercial.readPublicLicenseCatalog(),current=this.authenticate(connectionId);
+      if("rejection" in current||current.identity.ssaSessionId!==authenticated.identity.ssaSessionId)
+        return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",catalog:null});
+      return succeeded(request,"AVAILABLE",{outcome:"AVAILABLE",catalog});
+    }catch{return rejected(request,"LICENSE_CATALOG_UNAVAILABLE",{outcome:"UNAVAILABLE",catalog:null});}
+  }
   private getAdminMetrics(
     request: Extract<CommercialRequest, { message_type: "admin.metrics.get" }>,
     connectionId: string,

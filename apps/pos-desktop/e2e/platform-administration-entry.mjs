@@ -57,6 +57,7 @@ async function run(){
     await win.webContents.executeJavaScript("(()=>{const select=document.querySelector('[aria-label=\"Plan del catálogo\"]');const option=Array.from(select.options).find(o=>o.textContent.includes("+JSON.stringify(code)+")&&o.textContent.includes("+JSON.stringify(status)+"));if(!option)throw Error('PLAN_NOT_RECOVERED');select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));})()");
   };
   const confirmPublish=async()=>{
+    await wait(win,"document.querySelector('[aria-label=\"Confirmar publicación\"]')?.disabled===false","SELECTED_DRAFT");
     await win.webContents.executeJavaScript("document.querySelector('[aria-label=\"Confirmar publicación\"]').click()");
     await wait(win,"Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Publicar versión guardada'&&!b.disabled)","PUBLISH_READY");
     await click('Publicar versión guardada');
@@ -87,6 +88,7 @@ async function run(){
   const afterAssets=await publicWindow.webContents.executeJavaScript("Array.from(document.scripts).map(s=>s.src).join('|')");
   if(beforeAssets!==afterAssets)throw Error('PRICE_UPDATE_CHANGED_ASSETS');
   if((await publicPartition.cookies.get({url:input.origin})).length!==0)throw Error('PUBLIC_CATALOG_USED_SESSION');
+  await wait(win,"document.querySelector('[data-admin-plan-code=CAMACHO_MONTHLY] strong')?.textContent.includes('59.900')","ADMIN_PRICE_REFRESHED");
   publicWindow.destroy();
   const storage=await win.webContents.executeJavaScript("({local:localStorage.length,session:sessionStorage.length,preload:typeof window.pos})");
   if(storage.local!==0||storage.session!==0||storage.preload!=="undefined")throw Error("PLATFORM_RENDERER_ISOLATION_FAILED");
