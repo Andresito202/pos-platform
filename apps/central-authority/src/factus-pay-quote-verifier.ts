@@ -11,7 +11,8 @@ export interface FactusPayCredentialBinding {
  * an arbitrary bearer supplied by the caller. Tokens are never returned or audited. */
 export interface FactusPayCredentialResolver {
   resolve(binding:Readonly<FactusPayCredentialBinding>,signal:AbortSignal):Promise<{
-    binding:FactusPayCredentialBinding;accessToken:string;expiresAt:string;
+    /** null means provider has no time expiry; never disables generation/revocation checks. */
+    binding:FactusPayCredentialBinding;accessToken:string;expiresAt:string|null;
   }>;
 }
 export interface CheckedFactusCollection {
@@ -66,7 +67,7 @@ export class FactusPayQuoteVerifier {
       });
       const credential=await this.abortable(this.credentials.resolve(Object.freeze({...source.binding}),deadline.signal),deadline.signal);
       if(!equal(credential.binding,source.binding)||typeof credential.accessToken!=="string"||!credential.accessToken||credential.accessToken.length>8192||/[\r\n]/.test(credential.accessToken)||
-        !Number.isFinite(Date.parse(credential.expiresAt))||Date.parse(credential.expiresAt)<=Date.now())throw Error("FACTUS_API_CREDENTIAL_BINDING_REJECTED");
+        (credential.expiresAt!==null&&(!Number.isFinite(Date.parse(credential.expiresAt))||Date.parse(credential.expiresAt)<=Date.now())))throw Error("FACTUS_API_CREDENTIAL_BINDING_REJECTED");
       const url=origins[source.binding.environment]+"/v1/collections";
       const response=await this.abortable(this.transport(url,{method:"POST",redirect:"error",cache:"no-store",signal:deadline.signal,
         headers:{authorization:"Bearer "+credential.accessToken,accept:"application/json","content-type":"application/json"},
@@ -87,7 +88,7 @@ export class FactusPayQuoteVerifier {
       const checked=await this.transaction(async c=>{
         if(!equal(source,await this.load(c,quoteId,true)))throw Error("FACTUS_API_QUOTE_OR_CREDENTIAL_CHANGED");
         const at=(await c.query("SELECT clock_timestamp() AS at")).rows[0].at as Date;
-        if(Date.parse(credential.expiresAt)<=at.getTime())throw Error("FACTUS_API_CREDENTIAL_EXPIRED");
+        if(credential.expiresAt!==null&&Date.parse(credential.expiresAt)<=at.getTime())throw Error("FACTUS_API_CREDENTIAL_EXPIRED");
         return Object.freeze({quoteId,quoteChecksum:source.checksum,buyerTenantId:source.buyerTenant,buyerCompanyId:source.buyerCompany,
           merchant:Object.freeze({...source.binding}),providerReference:source.reference,amount:source.amount,currencyCode:"COP" as const,
           verifiedAt:at.toISOString(),collectionStatus:d.status==="ready"?"READY" as const:"PAID_UNVERIFIED" as const,qr:qr as string|null});
@@ -120,7 +121,7 @@ export class FactusPayQuoteVerifier {
       const credential=await this.abortable(this.credentials.resolve(Object.freeze({...source.binding}),deadline.signal),deadline.signal);
       if(!equal(credential.binding,source.binding)||typeof credential.accessToken!=="string"||
         !credential.accessToken||credential.accessToken.length>8192||/[\r\n]/.test(credential.accessToken)||
-        !Number.isFinite(Date.parse(credential.expiresAt))||Date.parse(credential.expiresAt)<=Date.now())throw Error("FACTUS_API_CREDENTIAL_BINDING_REJECTED");
+        (credential.expiresAt!==null&&(!Number.isFinite(Date.parse(credential.expiresAt))||Date.parse(credential.expiresAt)<=Date.now())))throw Error("FACTUS_API_CREDENTIAL_BINDING_REJECTED");
       const url=origins[source.binding.environment]+"/v1/collections/"+encodeURIComponent(source.reference);
       const response=await this.abortable(this.transport(url,{method:"GET",redirect:"error",cache:"no-store",signal:deadline.signal,
         headers:{authorization:"Bearer "+credential.accessToken,accept:"application/json"}}),deadline.signal);
@@ -142,7 +143,7 @@ export class FactusPayQuoteVerifier {
         if(!equal(source,current))throw Error("FACTUS_API_QUOTE_OR_CREDENTIAL_CHANGED");
         deadline.signal.throwIfAborted();
         const at=(await c.query("SELECT clock_timestamp() AS at")).rows[0].at as Date;
-        if(Date.parse(credential.expiresAt)<=at.getTime())throw Error("FACTUS_API_CREDENTIAL_EXPIRED");
+        if(credential.expiresAt!==null&&Date.parse(credential.expiresAt)<=at.getTime())throw Error("FACTUS_API_CREDENTIAL_EXPIRED");
         const result:CheckedFactusCollection={quoteId,quoteChecksum:current.checksum,buyerTenantId:current.buyerTenant,
           buyerCompanyId:current.buyerCompany,merchant:Object.freeze({...current.binding}),providerReference:current.reference,
           amount:current.amount,currencyCode:"COP",verifiedAt:at.toISOString()};

@@ -4,6 +4,7 @@ import {FactusPayCollectionsProvisionSchema,SubscriptionQuoteTermsSchema,canonic
 import type {Pool} from "@pos-platform/database-postgres";
 import {FactusPayQuoteVerifier,type FactusPayCredentialResolver,type FactusPayCredentialBinding} from "./factus-pay-quote-verifier.js";
 import {SubscriptionPayments} from "./subscription-payments.js";
+import {readWindowsFactusPayCredential} from "./factus-pay-windows-custody.js";
 
 function managedJson(path:string,maximum:number):unknown{
   if(!isAbsolute(path))throw Error("COLLECTIONS_ABSOLUTE_MANAGED_FILE_REQUIRED");
@@ -27,9 +28,14 @@ export class ManagedFactusPayCredentials implements FactusPayCredentialResolver{
       const rows=file.credentials.filter((r:unknown)=>typeof r==="object"&&r!==null&&
         canonicalSessionTrustJson((r as {binding:unknown}).binding)===canonicalSessionTrustJson(binding));
       if(rows.length!==1)throw Error();
-      const row=rows[0] as {binding:FactusPayCredentialBinding;accessToken:string;expiresAt:string};
+      let row=rows[0] as {binding:FactusPayCredentialBinding;accessToken:string;expiresAt:string|null;protectedCredential?:{provider?:unknown;data?:unknown}};
+      if(row.protectedCredential){
+        if(row.protectedCredential.provider!=="WINDOWS_DPAPI_CURRENT_USER"||typeof row.protectedCredential.data!=="string"||row.protectedCredential.data.length>65536)throw Error();
+        row=readWindowsFactusPayCredential(this.path,row.protectedCredential.data) as typeof row;
+        if(canonicalSessionTrustJson(row.binding)!==canonicalSessionTrustJson(binding))throw Error();
+      }
       if(typeof row.accessToken!=="string"||row.accessToken.length<1||row.accessToken.length>8192||/[\r\n]/.test(row.accessToken)||
-        typeof row.expiresAt!=="string"||!Number.isFinite(Date.parse(row.expiresAt))||Date.parse(row.expiresAt)<=Date.now())throw Error();
+        row.expiresAt!==null&&(typeof row.expiresAt!=="string"||!Number.isFinite(Date.parse(row.expiresAt))||Date.parse(row.expiresAt)<=Date.now()))throw Error();
       return {binding:{...binding},accessToken:row.accessToken,expiresAt:row.expiresAt};
     }catch{throw Error("COLLECTIONS_MANAGED_CREDENTIAL_REJECTED");}
   }

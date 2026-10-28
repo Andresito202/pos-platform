@@ -146,7 +146,8 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
   const row=(await owner.query("SELECT provider_reference FROM subscriptions.license_quotes WHERE id=$1",[r.id])).rows[0];
   await owner.query("UPDATE integrations.external_integrations SET provider_account_reference='TEST_RECEIVER_ACCOUNT' WHERE id=$1",[merchant.integrationId]);
   const apiLimits={requestTimeoutMs:5000,maximumResponseBytes:16384,evidenceLifetimeMs:5000,lockTimeoutMs:1000,statementTimeoutMs:3000};
-  const resolver:FactusPayCredentialResolver={resolve:async binding=>({binding:{...binding},accessToken:"TEST_ONLY_PROVIDER_TOKEN",expiresAt:new Date(Date.now()+60000).toISOString()})};
+  let providerExpiry:string|null=null; // Official provider tokens have no time expiry.
+  const resolver:FactusPayCredentialResolver={resolve:async binding=>({binding:{...binding},accessToken:"TEST_ONLY_PROVIDER_TOKEN",expiresAt:providerExpiry})};
   let api:Server|undefined,dir:string|undefined,calls=0,status=200,reference=row.provider_reference;
   const posted:Record<string,unknown>[]=[];
   const collections=new Map<string,Record<string,unknown>>();
@@ -199,6 +200,8 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
     expect(pending.filter(x=>!x.idempotent)).toHaveLength(1);expect(pending.filter(x=>x.idempotent)).toHaveLength(1);
     expect(pending[0]!.state).toBe("PENDING");
     await expect(payments.confirm({quoteId:r.id,paid:true},id())).rejects.toThrow("FRESH_RECEIPT_REQUIRED");
+    providerExpiry=new Date(Date.now()-1000).toISOString();
+    const beforeExpired=calls;await expect(verifier.verifyQuote(r.id)).rejects.toThrow("CREDENTIAL_BINDING_REJECTED");expect(calls).toBe(beforeExpired);providerExpiry=null;
     const receipt=await verifier.verifyQuote(r.id);
     expect(JSON.stringify(receipt)).toBe("{}");expect(verifier.take(JSON.parse(JSON.stringify(receipt)))).toBeNull();
     expect(verifier.take(receipt)).toMatchObject({quoteId:r.id,buyerTenantId:buyer.tenant,buyerCompanyId:buyer.company,
