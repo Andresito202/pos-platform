@@ -1,5 +1,5 @@
 import {createPublicKey,generateKeyPairSync,sign,randomUUID,randomBytes,createHash} from "node:crypto";
-import {mkdtemp,rm} from "node:fs/promises";
+import {mkdtemp,rm,readFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,dirname,resolve,basename} from "node:path";
 import {afterEach,describe,it,expect} from "vitest";
@@ -20,6 +20,8 @@ import {DeviceEnrollmentService} from "../src/security/device-enrollment-service
 import {DeviceTrustCredentialStore} from "../src/security/device-trust-credential-store.js";
 import {CommercialDeviceCredentialProvider} from "../src/security/commercial-device-credential.js";
 import {TrustedClockGuard} from "../src/security/trusted-clock.js";
+import {downloadLicenseCapacity} from "../src/security/license-capacity-download.js";
+import {LicenseCapacityGate,readLicenseCapacityProvision} from "../src/security/license-capacity-gate.js";
 
 const cleanup:(()=>Promise<void>)[]=[];
 afterEach(async()=>{for(const close of cleanup.splice(0).reverse())await close();});
@@ -61,6 +63,48 @@ async function fixture(insecure=false){
 }
 
 describe.runIf(process.platform==="win32")("commercial device custody — real Windows DPAPI and temporary SQLite",()=>{
+  it("license download: closed DPAPI proof, pinned LICENSE trust, atomic file and rollback denial",async()=>{
+    const f=await fixture();f.enroll();const provider=f.signer(),activationId=uuidV7(),requestId=uuidV7(),correlationId=uuidV7();
+    const proof=await provider.licenseActivationAuthorization({activationId,requestId,correlationId});
+    const context={method:"POST" as const,path:"/v1/licensing/activations/resolve",requestId,correlationId,body:JSON.stringify({activationId})};
+    expect(verifyDeviceRequestAuthorization(proof.authorization,context,createPublicKey(f.identity().publicKeyPem()))?.credentialId).toBe(f.result.credential_id);
+    expect(verifyDeviceRequestAuthorization(proof.authorization,{...context,path:"/v1/commercial/token"},createPublicKey(f.identity().publicKeyPem()))).toBeNull();
+    const pair=generateKeyPairSync("ed25519"),key={key_id:"LICENSE_DOWNLOAD_TEST",public_key_pem:pair.publicKey.export({type:"spki",format:"pem"}).toString(),
+      spki_sha256:createHash("sha256").update(pair.publicKey.export({type:"spki",format:"der"})).digest("hex"),status:"ACTIVE"};
+    const branch=uuidV7(),register=uuidV7(),now=Date.now(),claims={profile:"CAMACHO_LICENSE_CAPACITY_V2",license_id:uuidV7(),tenant_id:f.binding.tenantId,company_id:f.binding.companyId,
+      installation_id:f.binding.installationId,device_id:f.binding.deviceId,mode:"HYBRID",entitlements:["CASH_REGISTER"],issued_at:new Date(now-1000).toISOString(),not_before:new Date(now-1000).toISOString(),
+      expires_at:new Date(now+60000).toISOString(),offline_grace_until:null,key_id:key.key_id,license_version:1,plan_id:uuidV7(),plan_version:1,cash_register_capacity:{included:1,paid_additional:0,allocations:[{register_id:register,branch_id:branch}]}};
+    const signed=()=>({claims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(claims)),pair.privateKey).toString("base64url")});
+    let artifact=signed(),revocation:unknown;
+    const transport:typeof fetch=async(url,init)=>{
+      expect(String(url)).toBe("https://auth.fixture-commercial.co/v1/licensing/activations/resolve");expect(init?.redirect).toBe("error");
+      const h=init?.headers as Record<string,string>;
+      expect(verifyDeviceRequestAuthorization(h.authorization!,{method:"POST",path:context.path,requestId:h["x-request-id"]!,correlationId:h["x-correlation-id"]!,body:String(init?.body)},createPublicKey(f.identity().publicKeyPem()))).not.toBeNull();
+      return new Response(JSON.stringify(revocation?{revocation}:{artifact,key:{key_id:"UNTRUSTED_REMOTE_KEY"}}),{headers:{"content-type":"application/json"}});
+    };
+    const provisionFile=join(f.directory,"downloaded-license.json"),input={origin:"https://auth.fixture-commercial.co",activationId,provisionFile,trustKeys:[key],binding:f.binding,database:f.database.database,provider,timeoutMs:1000,signal:new AbortController().signal};
+    expect(await downloadLicenseCapacity(input,transport)).toMatchObject({status:"STORED",licenseVersion:1,usableNow:true});
+    const scope={...f.binding,branchId:branch};
+    expect(new LicenseCapacityGate(f.database.database,()=>readLicenseCapacityProvision(provisionFile)).authorize(scope,register)).toBeNull();
+    claims.license_version=2;artifact=signed();await downloadLicenseCapacity(input,transport);const retained=await readFile(provisionFile,"utf8");
+    claims.license_version=1;artifact=signed();await expect(downloadLicenseCapacity(input,transport)).rejects.toThrow("ROLLBACK");expect(await readFile(provisionFile,"utf8")).toBe(retained);
+    claims.license_version=3;artifact=signed();artifact.signature="a".repeat(86);await expect(downloadLicenseCapacity(input,transport)).rejects.toThrow("SIGNATURE_OR_BINDING");
+    expect(await readFile(provisionFile,"utf8")).toBe(retained);
+    const wrong=generateKeyPairSync("ed25519");await expect(downloadLicenseCapacity({...input,trustKeys:[{...key,public_key_pem:wrong.publicKey.export({type:"spki",format:"pem"}).toString()}]},transport)).rejects.toThrow("TRUST_REJECTED");
+    artifact=signed();const abort=new AbortController();abort.abort();await expect(downloadLicenseCapacity({...input,signal:abort.signal},transport)).rejects.toThrow("CANCELLED");
+    const revokeClaims={profile:"CAMACHO_LICENSE_CAPACITY_REVOCATION_V1",activation_id:activationId,license_id:claims.license_id,tenant_id:f.binding.tenantId,company_id:f.binding.companyId,
+      installation_id:f.binding.installationId,device_id:f.binding.deviceId,credential_id:f.result.credential_id,revocation_sequence:4,issued_at:new Date(Date.now()-1).toISOString(),key_id:key.key_id,reason_code:"ADMINISTRATIVE_REVOCATION"};
+    revocation={claims:revokeClaims,signature:sign(null,Buffer.from(canonicalSessionTrustJson(revokeClaims)),pair.privateKey).toString("base64url")};
+    f.database.database.native.exec("CREATE TRIGGER reject_revocation BEFORE INSERT ON local_security_audit WHEN NEW.event_type='LICENSE_CAPACITY_REVOCATION_ACCEPTED' BEGIN SELECT RAISE(ABORT,'TEST_REVOCATION_AUDIT_FAILURE'); END");
+    await expect(downloadLicenseCapacity(input,transport)).rejects.toThrow("TEST_REVOCATION_AUDIT_FAILURE");
+    expect((f.database.database.native.prepare("SELECT status FROM local_license_activation_state WHERE license_id=?").get(claims.license_id) as {status:string}).status).toBe("ACTIVE");
+    f.database.database.native.exec("DROP TRIGGER reject_revocation");
+    expect(await downloadLicenseCapacity(input,transport)).toMatchObject({status:"REVOKED",usableNow:false});await downloadLicenseCapacity(input,transport);
+    expect(new LicenseCapacityGate(f.database.database,()=>readLicenseCapacityProvision(provisionFile)).authorize(scope,register)).toBe("LICENSE_REVOKED");
+    expect(f.database.database.native.prepare("SELECT count(*) AS n FROM local_security_audit WHERE event_type='LICENSE_CAPACITY_REVOCATION_ACCEPTED'").get()).toEqual({n:1});
+    await f.restart();await expect(f.signer().licenseActivationAuthorization({activationId,requestId:uuidV7(),correlationId:uuidV7()})).resolves.toMatchObject({body:context.body});
+    await f.stop();await expect(provider.licenseActivationAuthorization({activationId,requestId,correlationId})).rejects.toThrow();
+  },60000);
   it("access V2 signs only session and authorization operations for its enrolled binding",async()=>{
     const f=await fixture();f.enroll();const signer=f.signer(),sid=uuidV7();
     const claims={ver:2,iss:"https://business.example.test",aud:"ACCESS_TEST",sub:uuidV7(),sid,tid:f.binding.tenantId,mid:uuidV7(),did:f.binding.deviceId,

@@ -14,6 +14,7 @@ import {SubscriptionLicenseContracts} from "../../src/subscription-license-contr
 import {LicenseCapacityAuthority,LICENSE_ACTIVATION_PATH} from "../../src/license-capacity-authority.js";
 import {createLicenseCapacityHandler} from "../../src/license-capacity-runtime.js";
 import {labTls,postLabHttps,closeLabHttps} from "./lab-https.js";
+import {createGlobalAdministrationHandler} from "../../src/global-administration-http.js";
 
 export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:string;grant:string;db:string;server:string;buyer:{tenant:string;company:string}}){
   const {owner,runtime,user,buyer}=f,tool=resolve("../../tools/target-migrations"),u=new URL(f.server);u.pathname="/"+f.db;u.username="pos_migrator";u.password="";
@@ -31,8 +32,9 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
   const roleId=(await owner.query('SELECT role_id FROM "authorization".role_permission_grants WHERE id=$1',[f.grant])).rows[0].role_id,permission=id(),issueGrant=id();
   await owner.query('INSERT INTO "authorization".permissions(id,code,module,description,status,created_at) VALUES($1,\'LICENSE_ISSUE\',\'LICENSING\',\'Test only\',\'ACTIVE\',now())',[permission]);
   await owner.query('INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,\'ACTIVE\',now(),now())',[issueGrant,roleId,permission]);
-  const sessions=new GlobalAdministrationSessions(runtime,{mode:"ISOLATED_VALIDATION",origin,rpId:"business.example.test",policyReference:"TEST_ONLY",rejectionVerifier:await createPlatformPasswordVerifier("rejection-test","owasp-19m-t2-p1"),
-    challengeLifetimeMs:60000,sessionLifetimeMs:300000,maximumMfaAgeMs:60000,maximumReauthenticationAgeMs:300000,browserLifetimeMs:300000,idleTimeoutMs:300000,lockTimeoutMs:2000,statementTimeoutMs:10000});
+  const globalPolicy={mode:"ISOLATED_VALIDATION" as const,origin,rpId:"business.example.test",policyReference:"TEST_ONLY",rejectionVerifier:await createPlatformPasswordVerifier("rejection-test","owasp-19m-t2-p1"),
+    challengeLifetimeMs:60000,sessionLifetimeMs:300000,maximumMfaAgeMs:60000,maximumReauthenticationAgeMs:300000,browserLifetimeMs:300000,idleTimeoutMs:300000,lockTimeoutMs:2000,statementTimeoutMs:10000};
+  const sessions=new GlobalAdministrationSessions(runtime,globalPolicy);
   const start=(await sessions.begin({email:"quote-test@example.invalid",password,factorId:factor,correlationId:id()}))!,data=Buffer.from(JSON.stringify({type:"webauthn.get",challenge:start.challenge,origin,crossOrigin:false})),auth=Buffer.alloc(37);
   createHash("sha256").update("business.example.test").digest().copy(auth);auth[32]=5;auth.writeUInt32BE(1,33);
   const login=(await sessions.complete({email:"quote-test@example.invalid",password,challenge:start.challenge,response:{id:credentialId,rawId:credentialId,type:"public-key",clientExtensionResults:{},response:{
@@ -78,9 +80,13 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
     expect((await owner.query("SELECT activation_status FROM licensing.license_activations WHERE id=$1",[pending.activationId])).rows[0].activation_status).toBe("PENDING");
   }finally{await owner.query("DROP TRIGGER reject_capacity_event ON identity.device_authentication_events; DROP FUNCTION public.reject_capacity_event()");}
   await expect(authority.activate(burned)).rejects.toThrow("POSSESSION");
-  const tls=labTls(),api=createServer(tls,createLicenseCapacityHandler(authority,origin,{requests:40,buckets:10,windowMs:60000}));
+  const globalHandler=createGlobalAdministrationHandler({pool:runtime,policy:globalPolicy,licenseAuthority:authority,limits:{maximumBodyBytes:16384,maximumPendingFlows:10,requestsPerWindow:100,maximumBuckets:10,requestWindowMs:60000,loginWindowMs:60000,maximumLoginPerAddress:10,maximumLoginPerAccount:10}});
+  const tls=labTls(),native=createLicenseCapacityHandler(authority,origin,{requests:40,buckets:10,windowMs:60000}),api=createServer(tls,(req,res)=>void (req.url?.startsWith("/v1/platform/")?globalHandler:native)(req,res));
   await new Promise<void>(yes=>api.listen(0,"127.0.0.1",yes));
   try{const fresh=proof(),headers={authorization:fresh.authorization,"x-request-id":fresh.requestId,"x-correlation-id":fresh.correlationId};
+    const globalHeaders={origin,"sec-fetch-site":"same-origin",cookie:login.setCookie.split(";",1)[0]!,"x-csrf-token":login.csrfToken};
+    expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/allocate",request,globalHeaders)).body).toMatchObject({activationId:pending.activationId,idempotent:true});
+    expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/allocate",request,{...globalHeaders,cookie:globalHeaders.cookie.replace("__Host-camacho_platform=","__Host-camacho_business=")})).status).toBe(401);
     expect((await postLabHttps(api,tls.cert,LICENSE_ACTIVATION_PATH,JSON.parse(fresh.body),{...headers,origin})).status).toBe(403);
     const response=await postLabHttps(api,tls.cert,LICENSE_ACTIVATION_PATH,JSON.parse(fresh.body),headers);expect(response.status).toBe(200);
     const result=response.body as any;expect(result.artifact.claims.cash_register_capacity).toMatchObject({included:1,paid_additional:2});
@@ -94,6 +100,16 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
       const probe=execFileSync(process.execPath,["--import","tsx","tests/helpers/central-license-capacity-probe.ts",dir],{cwd:resolve("../pos-local-service"),encoding:"utf8",windowsHide:true});
       expect(JSON.parse(probe)).toMatchObject({accepted:true,expiredRejected:true,unallocatedRejected:true,restartAccepted:true});
     }finally{if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("pos-central-capacity-"))throw Error("CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});}
+    expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/revoke-activation",{activationId:pending.activationId,correlationId:id()},globalHeaders)).status).toBe(401);
+    const revokePermission=id();await owner.query('INSERT INTO "authorization".permissions(id,code,module,description,status,created_at) VALUES($1,\'LICENSE_REVOKE\',\'LICENSING\',\'Test only\',\'ACTIVE\',now())',[revokePermission]);
+    await owner.query('INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,\'ACTIVE\',now(),now())',[id(),roleId,revokePermission]);
+    const revoked=await Promise.all([authority.revoke(sid,pending.activationId,id()),authority.revoke(sid,pending.activationId,id())]);
+    expect(revoked.filter(r=>!r.idempotent)).toHaveLength(1);
+    const revocation=await authority.activate(proof());expect(revocation).toHaveProperty("revocation");
+    const signedRevocation=(revocation as any).revocation;
+    expect(verify(null,Buffer.from(canonicalSessionTrustJson(signedRevocation.claims)),key.publicKey,Buffer.from(signedRevocation.signature,"base64url"))).toBe(true);
+    expect((await owner.query("SELECT count(*)::int AS n FROM licensing.license_revocations WHERE activation_id=$1",[pending.activationId])).rows[0].n).toBe(1);
+    await expect(runtime.query("UPDATE licensing.trusted_signing_keys SET key_status='REVOKED' WHERE key_id=$1",[keyId])).rejects.toThrow("permission denied");
     await owner.query("UPDATE identity.device_credentials SET status='REVOKED',revoked_at=now(),revoked_reason='TEST' WHERE credential_id=$1",[d.credential]);
     await expect(authority.activate(proof())).rejects.toThrow("POSSESSION");
   }finally{await closeLabHttps(api);}

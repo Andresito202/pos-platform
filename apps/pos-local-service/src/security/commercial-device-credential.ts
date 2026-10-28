@@ -39,6 +39,13 @@ export class CommercialDeviceCredentialProvider {
     return identity.signRequestAuthorization({...context,credentialId:credential.claims.credential_id});
   }
   requireVerifiedCredentialId():string{return this.requireVerified().credential.claims.credential_id;}
+  /** Service-only licensing purpose; no caller-selected path or body. */
+  async licenseActivationAuthorization(input:{activationId:string;requestId:string;correlationId:string}){
+    const activationId=UuidSchema.parse(input.activationId),requestId=UuidSchema.parse(input.requestId),correlationId=UuidSchema.parse(input.correlationId);
+    const {identity,credential}=this.requireVerified(),body=JSON.stringify({activationId});
+    return {body,requestId,correlationId,authorization:identity.signRequestAuthorization({method:"POST",path:"/v1/licensing/activations/resolve",
+      requestId,correlationId,body,credentialId:credential.claims.credential_id})};
+  }
   async sessionAssertionPossession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0]){
     return this.accessPossession(context,"SESSION_ASSERTION");
   }

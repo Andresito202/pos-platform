@@ -247,6 +247,8 @@ try {
   const nativeCommercial=commercialProvision===undefined?undefined:new WindowsCommercialRuntime(
     readWindowsCommercialConfiguration(commercialProvision,config.central_base_url),{database:localDatabase,security,commercial,
       credentials:deviceTrustCredentialStore,directory:securityDirectory,keyProvider,
+      ...(config.license_capacity_provision_file?{licenseProvisionFile:config.license_capacity_provision_file}:{}),
+      onLicenseError:code=>logger.log("warn","license.download",{code}),
       binding:{tenantId:config.tenant_id,companyId:config.company_id,installationId:config.installation_id,deviceId:config.device_id}});
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [

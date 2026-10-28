@@ -19,6 +19,7 @@ const Provision = z.strictObject({
   })).min(1).max(32),
   artifact: SignedLicenseCapacitySchema,
 });
+export const LicenseCapacityProvisionSchema=Provision;
 
 /** Installer-owned public trust and signed artifact only. No IPC can set this
  * file or supply keys. License trust is independent of SSA/SAS/DeviceTrust. */
@@ -26,16 +27,23 @@ export function readLicenseCapacityProvision(path: string) {
   if (!isAbsolute(path)) throw Error("LICENSE_MANAGED_ABSOLUTE_FILE_REQUIRED");
   const stat = lstatSync(path);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 262144) throw Error("LICENSE_MANAGED_FILE_REJECTED");
-  const p = Provision.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path))));
+  return parseLicenseCapacityProvision(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path))));
+}
+export function parseLicenseCapacityProvision(input:unknown){
+  const p = Provision.parse(input);
+  return {artifact:p.artifact,keys:parseLicenseCapacityKeys(p.keys)};
+}
+export function parseLicenseCapacityKeys(input:unknown){
+  const records=Provision.shape.keys.parse(input);
   const keys = new Map<string, TrustedSigningKey>();
-  for (const k of p.keys) {
+  for (const k of records) {
     const key = createPublicKey(k.public_key_pem);
     if (keys.has(k.key_id) || key.asymmetricKeyType !== "ed25519" ||
         createHash("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== k.spki_sha256)
       throw Error("LICENSE_MANAGED_TRUST_REJECTED");
     keys.set(k.key_id, { key, status: k.status });
   }
-  return { artifact: p.artifact, keys };
+  return keys;
 }
 
 export type CashRegisterLicenseGate = (scope: SyncScope, registerId: string) => string | null;
@@ -56,6 +64,7 @@ export class LicenseCapacityGate {
       const c = result.claims;
       if (result.decision !== "VALID" || !c) return `LICENSE_${result.decision}`;
       if (c.tenant_id !== scope.tenantId || c.company_id !== scope.companyId) return "LICENSE_SCOPE_MISMATCH";
+      if(this.database.native.prepare("SELECT 1 FROM local_security_audit WHERE event_type='LICENSE_CAPACITY_REVOCATION_ACCEPTED' AND subject_id=? LIMIT 1").get(c.license_id))return "LICENSE_REVOKED";
       if (!c.cash_register_capacity.allocations.some(a => a.register_id === registerId && a.branch_id === scope.branchId))
         return "LICENSE_REGISTER_NOT_ALLOCATED";
       const digest = createHash("sha256").update(canonicalJson(c)).digest("hex");

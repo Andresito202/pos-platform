@@ -1,5 +1,5 @@
 import * as z from "zod";
-import {UuidV7Schema,UuidSchema,StableCodeSchema} from "./primitives.js";
+import {UuidV7Schema,UuidSchema,StableCodeSchema,UtcDateTimeSchema} from "./primitives.js";
 export const LicenseAllocationRequestSchema=z.strictObject({
   license_id:UuidSchema,credential_id:UuidSchema,idempotency_key:UuidV7Schema,correlation_id:UuidV7Schema,
   allocations:z.array(z.strictObject({register_id:UuidSchema,branch_id:UuidSchema})).min(1).max(10001),
@@ -13,6 +13,11 @@ export const LicenseActivationPolicySchema=z.strictObject({
   offline_capabilities:z.array(StableCodeSchema).max(256),
 });
 export type LicenseActivationPolicy=z.infer<typeof LicenseActivationPolicySchema>;
+export const SignedLicenseCapacityRevocationSchema=z.strictObject({claims:z.strictObject({
+  profile:z.literal("CAMACHO_LICENSE_CAPACITY_REVOCATION_V1"),activation_id:UuidSchema,license_id:UuidSchema,
+  tenant_id:UuidSchema,company_id:UuidSchema,installation_id:UuidSchema,device_id:UuidSchema,credential_id:UuidSchema,
+  revocation_sequence:z.number().int().positive().max(Number.MAX_SAFE_INTEGER),issued_at:UtcDateTimeSchema,key_id:StableCodeSchema,reason_code:StableCodeSchema,
+}),signature:z.string().length(86).regex(/^[A-Za-z0-9_-]+$/)});
 export const LicenseActivationProvisionSchema=z.strictObject({
   policy:LicenseActivationPolicySchema,expected_database:z.string().min(1).max(63),migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),
   environment:z.enum(["PREPRODUCTION","PRODUCTION"]),key_id:StableCodeSchema,private_key_file:z.string().min(1).max(4096),

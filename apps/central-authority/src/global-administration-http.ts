@@ -79,9 +79,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         if(!exact(b,[])){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         const closed=await sessions.close(request);sendCommercialJson(res,closed?200:401,{closed:closed!==null},sessions.clearCookie());return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
-      const session=await sessions.authorize(request,path?.startsWith("/v1/platform/licenses/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
+      const session=await sessions.authorize(request,path==="/v1/platform/licenses/revoke-activation"?CentralAdministrationOperation.LICENSE_REVOKE:
+        path?.startsWith("/v1/platform/licenses/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
       if(!session){sendCommercialJson(res,401,{code:"GLOBAL_AUTHORIZATION_REJECTED"});return;}
       if(path==="/v1/platform/session"&&exact(b,[])){sendCommercialJson(res,200,{authenticated:true,scope:"GLOBAL",permissions:[CanonicalPermission.LICENSE_PLAN_MANAGE]});return;}
       if(path==="/v1/platform/license-offers/list"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.published()});return;}
@@ -94,6 +95,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/licenses/allocate"){
         if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
         sendCommercialJson(res,200,await input.licenseAuthority.allocate(session,b));return;
+      }
+      if(path==="/v1/platform/licenses/revoke-activation"&&exact(b,["activationId","correlationId"])){
+        if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
+        sendCommercialJson(res,200,await input.licenseAuthority.revoke(session,String(b.activationId),String(b.correlationId)));return;
       }
       if(path==="/v1/platform/licenses/issue"&&exact(b,["paymentId","correlationId"])){
         sendCommercialJson(res,200,await licenses.issue(session,String(b.paymentId),String(b.correlationId)));return;}

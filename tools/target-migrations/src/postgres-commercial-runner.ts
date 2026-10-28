@@ -35,7 +35,7 @@ export const POSTGRES_021_DESCRIPTOR=descriptor("021_global_browser_administrati
   ["identity.webauthn_challenges","identity.browser_session_handoffs","identity.browser_sessions"],"identity");
 export const GLOBAL_ADMINISTRATION_MIGRATIONS=Object.freeze([...SUBSCRIPTION_PAYMENT_MIGRATIONS,POSTGRES_021_DESCRIPTOR]);
 export const POSTGRES_022_DESCRIPTOR=descriptor("022_license_activations",POSTGRES_021_DESCRIPTOR.migrationId,
-  ["licensing.license_activations","licensing.trusted_signing_keys"],"licensing");
+  ["licensing.license_activations","licensing.trusted_signing_keys","licensing.license_revocations"],"licensing");
 export const LICENSE_ACTIVATION_MIGRATIONS=Object.freeze([...GLOBAL_ADMINISTRATION_MIGRATIONS,POSTGRES_022_DESCRIPTOR]);
 type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS";
 function migrations(target:CommercialMigrationTarget){

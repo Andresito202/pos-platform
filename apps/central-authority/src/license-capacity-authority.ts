@@ -1,6 +1,6 @@
 import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
-  type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
+  SignedLicenseCapacityRevocationSchema,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {requireLicenseAdministrator} from "./license-administration.js";
 
@@ -34,8 +34,7 @@ export class LicenseCapacityAuthority{
     }catch(error){await c.query("ROLLBACK");throw error;}finally{c.release();}
   }
   private async trustedKey(c:PoolClient){
-    const row=(await c.query(`SELECT * FROM licensing.trusted_signing_keys WHERE key_id=$1 AND key_purpose='LICENSE' AND algorithm_id='Ed25519'
-      AND environment=$2 AND key_status='ACTIVE' AND valid_from<=clock_timestamp() AND valid_until>clock_timestamp() FOR SHARE`,[this.signer.keyId,this.signer.environment])).rows[0];
+    const row=(await c.query("SELECT * FROM licensing.lock_active_signing_key($1,$2)",[this.signer.keyId,this.signer.environment])).rows[0];
     const pub=createPublicKey(this.signer.privateKey),pem=pub.export({type:"spki",format:"pem"});
     if(!row||!createHash("sha256").update(pub.export({type:"spki",format:"der"})).digest().equals(row.public_key_checksum)||
       !createPublicKey(row.public_key).export({type:"spki",format:"der"}).equals(pub.export({type:"spki",format:"der"})))throw Error("LICENSE_REGISTERED_SIGNING_KEY_REQUIRED");
@@ -44,6 +43,9 @@ export class LicenseCapacityAuthority{
   private async source(c:PoolClient,licenseId:string,credentialId:string){
     // Serialize all issuers for this license before quota/version decisions.
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["license-capacity:"+licenseId]);
+    const license=(await c.query("SELECT tenant_id FROM licensing.licenses WHERE id=$1 FOR UPDATE",[licenseId])).rows[0];
+    if(!license)throw Error("LICENSE_PAID_CURRENT_BINDING_REQUIRED");
+    await c.query("SELECT set_config('app.tenant_id',$1,true)",[license.tenant_id]);
     const row=(await c.query(`SELECT l.*,q.company_id,q.plan_version,q.included_registers,q.additional_registers,q.terms_snapshot,
       d.device_id,d.installation_id,dc.credential_id,clock_timestamp() AS server_now FROM licensing.licenses l
       JOIN payments.payments p ON l.commercial_reference='SUBSCRIPTION_PAYMENT:'||p.id::text AND p.status='CONFIRMED'
@@ -110,8 +112,17 @@ export class LicenseCapacityAuthority{
     // proof; retry requires fresh possession, never replaying an ambiguous call.
     const binding=await this.possession.consume(input);if(!binding)throw Error("LICENSE_FRESH_POSSESSION_REQUIRED");
     return this.transaction(async c=>{
-      const initial=(await c.query("SELECT license_id FROM licensing.license_activations WHERE id=$1 AND credential_id=$2",[r.activationId,binding.credentialId])).rows[0];
+      let initial=(await c.query("SELECT license_id FROM licensing.license_activations WHERE id=$1 AND credential_id=$2",[r.activationId,binding.credentialId])).rows[0];
       if(!initial)throw Error("LICENSE_ACTIVATION_CREDENTIAL_MISMATCH");
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["license-capacity:"+initial.license_id]);
+      await c.query("SELECT id FROM licensing.licenses WHERE id=$1 FOR UPDATE",[initial.license_id]);
+      initial=(await c.query("SELECT * FROM licensing.license_activations WHERE id=$1 FOR SHARE",[r.activationId])).rows[0];
+      if(initial.activation_status==='REVOKED'){
+        if(initial.tenant_id!==binding.tenantId||initial.company_id!==binding.companyId||initial.device_id!==binding.deviceId||initial.installation_id!==binding.installationId)throw Error("LICENSE_REVOCATION_BINDING_REJECTED");
+        const revoked=(await c.query("SELECT canonical_payload,signature FROM licensing.license_revocations WHERE activation_id=$1",[initial.id])).rows[0];
+        if(!revoked)throw Error("LICENSE_REVOCATION_EVIDENCE_REQUIRED");
+        return {revocation:SignedLicenseCapacityRevocationSchema.parse({claims:revoked.canonical_payload,signature:revoked.signature.toString("base64url")}),idempotent:true};
+      }
       const source=await this.source(c,initial.license_id,binding.credentialId),key=await this.trustedKey(c);
       const a=(await c.query("SELECT * FROM licensing.license_activations WHERE id=$1 FOR UPDATE",[r.activationId])).rows[0];
       if(!a||a.activation_status==='REVOKED'||a.signing_key_id!==this.signer.keyId||a.tenant_id!==binding.tenantId||a.company_id!==binding.companyId||
@@ -133,6 +144,31 @@ export class LicenseCapacityAuthority{
       await c.query(`INSERT INTO identity.device_authentication_events(id,device_id,credential_id,tenant_id,company_id,installation_id,result,reason_code,correlation_id,occurred_at,evidence_checksum)
         VALUES($1,$2,$3,$4,$5,$6,'ACCEPTED','LICENSE_CAPACITY_ACTIVATED',$7,clock_timestamp(),$8)`,[uuidV7(),binding.deviceId,binding.credentialId,binding.tenantId,binding.companyId,binding.installationId,input.correlationId,checksum(claims).toString("hex")]);
       return {artifact:{claims,signature:signature.toString("base64url")},key,idempotent:false};
+    });
+  }
+  async revoke(sessionId:string,activationId:string,correlationId:string){
+    UuidSchema.parse(sessionId);UuidSchema.parse(activationId);UuidSchema.parse(correlationId);
+    return this.transaction(async c=>{
+      const actor=await requireLicenseAdministrator(c,sessionId,this.limits.reauthenticationMs,"LICENSE_REVOKE");
+      const found=(await c.query("SELECT license_id FROM licensing.license_activations WHERE id=$1",[activationId])).rows[0];
+      if(!found)throw Error("LICENSE_ACTIVATION_NOT_FOUND");
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["license-capacity:"+found.license_id]);
+      const l=(await c.query("SELECT current_version FROM licensing.licenses WHERE id=$1 FOR UPDATE",[found.license_id])).rows[0];
+      const a=(await c.query("SELECT * FROM licensing.license_activations WHERE id=$1 FOR UPDATE",[activationId])).rows[0];
+      if(a.activation_status==='REVOKED')return {status:"REVOKED",idempotent:true};
+      if(a.activation_status!=='ACTIVE')throw Error("LICENSE_ACTIVE_ARTIFACT_REQUIRED");
+      await this.trustedKey(c);const sequence=Number(l.current_version)+1;if(!Number.isSafeInteger(sequence))throw Error("LICENSE_VERSION_EXHAUSTED");
+      const at=(await c.query("SELECT clock_timestamp() AS at")).rows[0].at as Date;
+      const claims={profile:"CAMACHO_LICENSE_CAPACITY_REVOCATION_V1" as const,activation_id:a.id,license_id:a.license_id,tenant_id:a.tenant_id,company_id:a.company_id,
+        installation_id:a.installation_id,device_id:a.device_id,credential_id:a.credential_id,revocation_sequence:sequence,issued_at:at.toISOString(),key_id:this.signer.keyId,reason_code:"ADMINISTRATIVE_REVOCATION"};
+      const signature=sign(null,bytes(claims),this.signer.privateKey);SignedLicenseCapacityRevocationSchema.parse({claims,signature:signature.toString("base64url")});
+      await c.query("INSERT INTO licensing.license_revocations(id,license_id,activation_id,sequence,canonical_payload,payload_checksum,signature,signing_key_id) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8)",
+        [uuidV7(),a.license_id,a.id,sequence,bytes(claims).toString(),checksum(claims),signature,this.signer.keyId]);
+      await c.query("UPDATE licensing.license_activations SET activation_status='REVOKED',revoked_at=$2 WHERE id=$1",[a.id,at]);
+      await c.query("UPDATE licensing.licenses SET current_version=$2,version=version+1,updated_at=clock_timestamp() WHERE id=$1",[a.license_id,sequence]);
+      await this.audit(c,"LICENSE_ACTIVATION_REVOKED",a.id,correlationId,claims,{user_id:actor.user_id,sessionId});
+      await requireLicenseAdministrator(c,sessionId,this.limits.reauthenticationMs,"LICENSE_REVOKE");
+      return {status:"REVOKED",idempotent:false};
     });
   }
 }
