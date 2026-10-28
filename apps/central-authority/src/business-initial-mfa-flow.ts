@@ -39,14 +39,24 @@ export class BusinessInitialMfaFlow {
 
   async begin(input: {
     readonly email: string; readonly password: string;
-    readonly factorId: string; readonly correlationId: string;
+    readonly factorId?: string; readonly correlationId: string;
   }): Promise<{ challengeId: string; challenge: string; credentialId: string; userVerification: "required" } | null> {
     const match = await verifyStoredPlatformPassword(
       new PostgresPasswordCredentialVerificationRepository(this.pool), input, this.policy,
     );
     if (!match) return null;
+    let factorId=input.factorId;
+    // GLOBAL web entry has no client-trusted factor selector. Resolve only
+    // after the existing password verifier identifies the account. Choosing an
+    // enrolled factor does not satisfy MFA; its real signature/UV is mandatory.
+    if(factorId===undefined&&this.policy.sessionScope==="GLOBAL"){
+      factorId=(await this.pool.query(`SELECT f.id FROM identity.mfa_factors f JOIN identity.webauthn_credential_material m ON m.factor_id=f.id
+        AND f.secret_reference='webauthn:v1:'||m.id::text WHERE f.user_id=$1 AND f.factor_type='WEBAUTHN' AND f.status='ACTIVE'
+        AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL ORDER BY f.enrolled_at,f.id LIMIT 1`,[match.userId])).rows[0]?.id;
+    }
+    if(typeof factorId!=="string")return null;
     const material = await new PostgresPlatformWebAuthnMaterialRepository(this.pool)
-      .findVerifiedMaterial(match.userId, input.factorId);
+      .findVerifiedMaterial(match.userId, factorId);
     if (!material) return null;
     const challenge = await new PostgresPlatformWebAuthnChallengeRepository(this.pool).issue({
       userId: match.userId, factorId: material.factorId, sessionId: null, purpose: this.policy.sessionScope==="GLOBAL"?"GLOBAL_AUTHENTICATE":"AUTHENTICATE",

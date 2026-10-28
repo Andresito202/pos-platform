@@ -48,7 +48,7 @@ export class GlobalAdministrationSessions{
   }
   private cookie(token:string,seconds:number){return `${COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${seconds}`;}
   clearCookie(){return this.cookie("",0);}
-  async complete(input:Parameters<BusinessInitialMfaFlow["complete"]>[0]){
+  async complete(input:Parameters<BusinessInitialMfaFlow["complete"]>[0],previousCookie:string|null=null){
     const receipt=await this.mfa.complete(input),e=this.mfa.takeForGlobalSession(receipt);if(!e)return null;
     const cookie=random(),csrf=random(),session=uuidV7(),handoff=hash(random()),p=this.policy;
     return this.transaction(async c=>{
@@ -72,6 +72,20 @@ export class GlobalAdministrationSessions{
         WHERE $3::timestamptz<=clock_timestamp() AND $3::timestamptz>=clock_timestamp()-$5*interval '1 millisecond' RETURNING id`,
         [session,e.userId,e.verifiedAt,p.sessionLifetimeMs,Math.min(p.maximumMfaAgeMs,p.maximumReauthenticationAgeMs)]);
       if(inserted.rowCount!==1)throw Error("GLOBAL_ADMIN_FRESH_MFA_REQUIRED");
+      // A fresh successful ceremony replaces only this browser's previous
+      // GLOBAL cookie. Reload/user change must not leave its old principal live.
+      const previous=this.extract(previousCookie);
+      if(previous){
+        const old=(await c.query(`SELECT b.session_id,b.user_id FROM identity.browser_sessions b JOIN identity.sessions s ON s.id=b.session_id AND s.user_id=b.user_id
+          WHERE b.cookie_hash=$1 AND b.origin=$2 AND b.tenant_id IS NULL AND b.membership_id IS NULL AND b.revoked_at IS NULL
+          AND s.tenant_id IS NULL AND s.tenant_membership_id IS NULL FOR UPDATE OF b,s`,[hash(previous),p.origin])).rows[0];
+        if(old){
+          await c.query("UPDATE identity.browser_sessions SET last_used_at=clock_timestamp(),revoked_at=clock_timestamp() WHERE cookie_hash=$1",[hash(previous)]);
+          await c.query("UPDATE identity.sessions SET revoked_at=clock_timestamp(),revocation_reason='GLOBAL_BROWSER_REPLACED',version=version+1 WHERE id=$1 AND revoked_at IS NULL",[old.session_id]);
+          await new PostgresPlatformSecurityEventRepository(this.pool).append({user_id:old.user_id,session_id:old.session_id,tenant_id:null,
+            event_code:PlatformSecurityEventCode.SESSION_REVOKED,result:"REVOKED",reason_code:"GLOBAL_BROWSER_REPLACED",correlation_id:e.correlationId,occurred_at:new Date().toISOString()},c);
+        }
+      }
       await c.query(`INSERT INTO identity.browser_session_handoffs(handoff_hash,session_id,user_id,tenant_id,membership_id,challenge_id,
         password_credential_id,password_credential_version,factor_id,origin,expires_at,consumed_at)
         VALUES($1,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,clock_timestamp()+$9*interval '1 millisecond',clock_timestamp())`,

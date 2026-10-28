@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
 import { useAdminMetrics } from "../hooks/useAdminMetrics.js";
+import type {PlatformClient,PublishedOffer} from "../platform-client.js";
+import {PlatformOfferEditor} from "./PlatformOfferEditor.js";
 
 type ControlKind = "admin" | "superadmin" | "audit";
 
@@ -53,7 +55,7 @@ const copy: Record<ControlKind, {
   },
 };
 
-export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): React.JSX.Element {
+export function AdministrativeControlPanel({ kind,platform }: { kind: ControlKind;platform?:{client:PlatformClient;offers:PublishedOffer[];onChanged:()=>Promise<void>} }): React.JSX.Element {
   const [tab, setTab] = useState<Tab>("overview");
   const model = copy[kind];
   const audit = useAdministrativeAudit(kind === "audit");
@@ -97,7 +99,7 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
         <div className="pos-admin-grid">
           {model.cards.map((card) => (
             <article key={card.label} className="pos-admin-card">
-              <span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small>
+              <span>{card.label}</span><strong>{card.label==="Planes"&&platform?platform.offers.filter(o=>o.status==="ACTIVE").length:card.value}</strong><small>{card.label==="Planes"&&platform?"Versiones publicadas verificadas en Central":card.detail}</small>
             </article>
           ))}
         </div>
@@ -164,6 +166,7 @@ export function AdministrativeControlPanel({ kind }: { kind: ControlKind }): Rea
         </div>
       ) : null}
 
+      {kind==="superadmin"&&platform&&tab==="overview"&&<PlatformOfferEditor client={platform.client} offers={platform.offers} onChanged={platform.onChanged}/>}
       {tab === "security" && (
         <div className="pos-admin-surface">
           <h3>Seguridad y trazabilidad</h3>

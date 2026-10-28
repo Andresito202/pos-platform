@@ -1,7 +1,7 @@
 import {afterAll,beforeAll,it,expect} from "vitest";
 import {createPostgresPool,type Pool} from "@pos-platform/database-postgres";
 import {uuidV7,type LicenseOfferDraft,type SubscriptionQuoteRequest} from "@pos-platform/contracts";
-import {createHash,randomBytes,generateKeyPairSync,sign} from "node:crypto";
+import {createHash,randomBytes,generateKeyPairSync,sign,X509Certificate} from "node:crypto";
 import {execFileSync} from "node:child_process";
 import {readFile,writeFile,mkdtemp,rm} from "node:fs/promises";
 import {resolve,join,dirname,basename} from "node:path";
@@ -14,6 +14,8 @@ import {SubscriptionQuotes,type SubscriptionQuotePolicy} from "../src/subscripti
 import {LicenseOfferDrafts} from "../src/license-offer-drafts.js";
 import {GlobalAdministrationSessions} from "../src/global-administration-sessions.js";
 import {createGlobalAdministrationHandler} from "../src/global-administration-http.js";
+import {createGlobalAdministrationAssets} from "../src/global-administration-assets.js";
+import {exercisePlatformAdministrationBrowser} from "./helpers/platform-administration-browser.js";
 import {BusinessInitialMfaFlow} from "../src/business-initial-mfa-flow.js";
 import {createPlatformPasswordVerifier} from "../src/platform-password-verifier.js";
 import {DurableBrowserSessionStore} from "../src/durable-browser-session-store.js";
@@ -420,8 +422,26 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     const cert=await readFile(join(dir,"tls.crt")),httpLimits={maximumBodyBytes:16384,maximumPendingFlows:10,requestsPerWindow:100,maximumBuckets:10,
       requestWindowMs:60000,loginWindowMs:60000,maximumLoginPerAddress:20,maximumLoginPerAccount:20};
     let handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
-    tls=createServer({key:await readFile(join(dir,"tls.key")),cert},(req,res)=>void handler(req,res));
+    let browserHandler:ReturnType<typeof createGlobalAdministrationHandler>|undefined;
+    let assets:ReturnType<typeof createGlobalAdministrationAssets>|undefined;
+    tls=createServer({key:await readFile(join(dir,"tls.key")),cert},(req,res)=>{
+      if(req.url?.startsWith("/platform")){void assets!(req,res);return;}
+      void (req.headers.host===rpId?handler:browserHandler!)(req,res);
+    });
     await new Promise<void>(yes=>tls!.listen(0,"127.0.0.1",yes));
+    const browserOrigin=origin+":"+(tls.address() as {port:number}).port;
+    browserHandler=createGlobalAdministrationHandler({pool:runtime,policy:{...p,origin:browserOrigin},limits:httpLimits});
+    assets=createGlobalAdministrationAssets({directory:resolve("../pos-desktop/dist/renderer"),origin:browserOrigin,maximumAssetBytes:2000000});
+    const asset=(path:string,method="GET",host=new URL(browserOrigin).host)=>new Promise<{status:number;csp:string|undefined}>((yes,no)=>{
+      const req=httpsRequest({host:"127.0.0.1",port:(tls!.address() as {port:number}).port,servername:rpId,ca:cert,agent:false,path,method,headers:{host}},res=>{
+        res.resume();res.on("end",()=>yes({status:res.statusCode!,csp:res.headers["content-security-policy"] as string|undefined}));
+      });req.on("error",no);req.end();
+    });
+    expect(await asset("/platform/")).toMatchObject({status:200,csp:expect.stringContaining("frame-ancestors 'none'")});
+    for(const path of ["/platform/assets/../platform.html","/platform/assets/%2e%2e/secret.js","/platform/assets/preload.cjs","/platform/assets/main.js.map","/platform/config.json"])
+      expect((await asset(path)).status).toBe(404);
+    expect((await asset("/platform/","POST")).status).toBe(403);
+    expect((await asset("/platform/","GET","evil.invalid")).status).toBe(403);
     const call=(path:string,payload:unknown,cookie?:string,csrf?:string,requestOrigin=origin)=>new Promise<{status:number;body:any;cookies:string[]}>((yes,no)=>{
       const body=JSON.stringify(payload),req=httpsRequest({host:"127.0.0.1",port:(tls!.address() as {port:number}).port,servername:rpId,ca:cert,agent:false,
         path:"/v1/platform/"+path,method:"POST",headers:{host:rpId,origin:requestOrigin,"sec-fetch-site":"same-origin","content-type":"application/json",
@@ -442,6 +462,8 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     expect((await call("license-offers/list",{sessionId:globalSession},cookie,csrf)).status).toBe(400);
     const offer={...offers[0]!,id:id(),code:"TEST_GLOBAL_HTTP_PRICE",price_minor:220000};
     expect((await call("license-offers/save",{offer,expectedVersion:0,correlationId:id()},cookie,csrf)).body).toMatchObject({planId:offer.id,version:1});
+    expect((await call("license-offers/catalog",{},cookie,csrf)).body.offers.find((o:any)=>o.id===offer.id)).toMatchObject({status:"DRAFT",version:1,price_minor:220000});
+    expect((await call("license-offers/list",{},cookie,csrf)).body.offers.find((o:any)=>o.id===offer.id)).toBeUndefined();
     expect((await call("license-offers/publish",{planId:offer.id,expectedVersion:1,correlationId:id()},cookie,csrf)).status).toBe(200);
     expect((await call("license-offers/list",{},cookie,csrf)).body.offers.find((o:any)=>o.id===offer.id).price_minor).toBe(220000);
     expect((await call("quotes/issue",request(),cookie,csrf)).status).toBe(409); // No production fiscal/terms provider.
@@ -475,6 +497,16 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
     expect((await call("session",{},cookie,csrf)).body).toMatchObject({authenticated:true,scope:"GLOBAL",permissions:["LICENSE_PLAN_MANAGE"]});
     expect((await call("session",{},cookie,"a".repeat(43))).status).toBe(401);
+    const planCode="TEST_PLATFORM_UI_"+randomBytes(6).toString("hex").toUpperCase();
+    const observed=await exercisePlatformAdministrationBrowser({origin:browserOrigin,fingerprint:new X509Certificate(cert).fingerprint256,
+      email:login.email,password,credentialId:Buffer.from(credentialId,"base64url").toString("base64"),
+      privateKey:key.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"),counter:2,planCode});
+    expect(observed).toMatchObject({platformUi:true,draftRecovered:true,published:true,logout:true,storage:{local:0,session:0,preload:"undefined"}});
+    expect(observed.consoleErrors,JSON.stringify(observed.consoleErrors)).toEqual([]);
+    expect((await owner.query("SELECT status,version::int,price_minor::int,included_registers,additional_register_price_minor::int,support_price_minor::int FROM licensing.plans WHERE code=$1",[planCode])).rows)
+      .toEqual([{status:"ACTIVE",version:1,price_minor:223000,included_registers:1,additional_register_price_minor:2000,support_price_minor:1000}]);
+    const browserRows=await owner.query("SELECT s.revoked_at IS NOT NULL AS revoked FROM identity.sessions s JOIN identity.browser_sessions b ON b.session_id=s.id WHERE b.origin=$1",[browserOrigin]);
+    expect(browserRows.rows).toHaveLength(2);expect(browserRows.rows.every(r=>r.revoked)).toBe(true);
     await owner.query("UPDATE identity.user_credentials SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1",[credential]);
     expect((await call("session",{},cookie,csrf)).status).toBe(401);
     expect((await call("logout",{},cookie,csrf)).body.closed).toBe(true); // Must close even after credential revocation.
@@ -483,7 +515,7 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     if(tls){tls.closeAllConnections();await new Promise<void>(yes=>tls!.close(()=>yes()));}
     if(dir){if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("pos-global-api-"))throw Error("CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});}
   }
-},30000);
+},90000);
 
 it.runIf(Boolean(server))("quotes: concurrent replay, inactive buyer, bad terms, audit rollback and missing GLOBAL MFA/grant",async()=>{
   const service=new SubscriptionQuotes(runtime,policy(),limits),r=request();

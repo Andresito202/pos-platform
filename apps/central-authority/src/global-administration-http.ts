@@ -47,15 +47,15 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       const path=req.url;
       if(path==="/v1/platform/login/begin"||path==="/v1/platform/login/complete"){
         const begin=path.endsWith("/begin");
-        if(!exact(b,begin?["email","password","factorId"]:["email","password","challenge","response"])||!text(b.email,320)||!text(b.password,1024)||
-          (begin?!UuidSchema.safeParse(b.factorId).success:!text(b.challenge,128)||!validateCommercialAssertion(b.response))){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
+        if(!(begin?(exact(b,["email","password"])||exact(b,["email","password","factorId"])):exact(b,["email","password","challenge","response"]))||!text(b.email,320)||!text(b.password,1024)||
+          (begin?b.factorId!==undefined&&!UuidSchema.safeParse(b.factorId).success:!text(b.challenge,128)||!validateCommercialAssertion(b.response))){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         if(!await sessions.spendLoginBudget(req.socket.remoteAddress??"unknown",b.email,{windowMs:limits.loginWindowMs,
           maximumPerAddress:limits.maximumLoginPerAddress,maximumPerAccount:limits.maximumLoginPerAccount})){
           sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
         if(begin){
           if(pending.size+starting>=limits.maximumPendingFlows){sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
           starting++;
-          let challenge;try{challenge=await sessions.begin({email:b.email,password:b.password,factorId:String(b.factorId),correlationId:uuidV7()});}
+          let challenge;try{challenge=await sessions.begin({email:b.email,password:b.password,...(b.factorId===undefined?{}:{factorId:String(b.factorId)}),correlationId:uuidV7()});}
           finally{starting--;}
           if(!challenge){sendCommercialJson(res,401,{code:"GLOBAL_AUTHENTICATION_REJECTED"});return;}
           const flow=randomBytes(32).toString("base64url"),csrf=randomBytes(32).toString("base64url");
@@ -67,7 +67,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         const csrf=req.headers["x-csrf-token"];
         if(!/^[A-Za-z0-9_-]{43}$/.test(token)||!flow||flow.expiresAt<=Date.now()||flow.email!==b.email.trim().toLowerCase()||flow.challenge!==b.challenge||
           typeof csrf!=="string"||hash(csrf)!==flow.csrf){sendCommercialJson(res,401,{code:"GLOBAL_AUTHENTICATION_REJECTED"},flowCookie("",0));return;}
-        const result=await sessions.complete({email:b.email,password:b.password,challenge:String(b.challenge),response:b.response as Parameters<GlobalAdministrationSessions["complete"]>[0]["response"]});
+        const result=await sessions.complete({email:b.email,password:b.password,challenge:String(b.challenge),response:b.response as Parameters<GlobalAdministrationSessions["complete"]>[0]["response"]},req.headers.cookie??null);
         if(!result){sendCommercialJson(res,401,{code:"GLOBAL_AUTHENTICATION_REJECTED"},flowCookie("",0));return;}
         res.setHeader("set-cookie",[result.setCookie,flowCookie("",0)]);
         sendCommercialJson(res,200,{authenticated:true,scope:"GLOBAL",csrfToken:result.csrfToken});return;
@@ -78,12 +78,13 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         if(!exact(b,[])){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         const closed=await sessions.close(request);sendCommercialJson(res,closed?200:401,{closed:closed!==null},sessions.clearCookie());return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,path==="/v1/platform/licenses/issue"?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
       if(!session){sendCommercialJson(res,401,{code:"GLOBAL_AUTHORIZATION_REJECTED"});return;}
       if(path==="/v1/platform/session"&&exact(b,[])){sendCommercialJson(res,200,{authenticated:true,scope:"GLOBAL",permissions:[CanonicalPermission.LICENSE_PLAN_MANAGE]});return;}
       if(path==="/v1/platform/license-offers/list"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.published()});return;}
+      if(path==="/v1/platform/license-offers/catalog"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.administrativeCatalog(session)});return;}
       if(path==="/v1/platform/license-offers/save"&&exact(b,["offer","expectedVersion","correlationId"])){
         sendCommercialJson(res,200,await offers.save(session,b.offer,Number(b.expectedVersion),String(b.correlationId)));return;}
       if(path==="/v1/platform/license-offers/publish"&&exact(b,["planId","expectedVersion","correlationId"])){

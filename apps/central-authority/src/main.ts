@@ -142,7 +142,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
 
-  if(request.url?.startsWith("/v1/platform/")){
+  if(request.url?.startsWith("/v1/platform/")||request.url==="/platform"||request.url?.startsWith("/platform/")){
     if(globalHandler)await globalHandler(request,response);
     else send(response,503,{status:"REJECTED",result_code:"GLOBAL_ADMINISTRATION_NOT_ACTIVATED"});
     return;

@@ -107,6 +107,7 @@ export const GlobalAdministrationProvisionSchema=z.strictObject({
   profile:z.literal("CAMACHO_GLOBAL_ADMINISTRATION_V1"),policy_reference:z.string().min(1).max(256),
   expected_database:z.string().min(1).max(63),rp_id:z.string().min(1).max(253),rejection_verifier_file:z.string().min(1).max(4096),
   migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),
+  renderer:z.strictObject({directory:z.string().min(1).max(4096),maximum_asset_bytes:positiveLimit}).optional(),
   fulfillment_policies:z.array(z.strictObject({policy_reference:z.string().min(1).max(256),tax_policy_reference:z.string().min(1).max(256),
     support_policy_reference:z.string().min(1).max(256)})).min(1).max(64).optional(),
   limits:z.strictObject({challenge_ms:positiveLimit,session_ms:positiveLimit,mfa_age_ms:positiveLimit,reauthentication_ms:positiveLimit,

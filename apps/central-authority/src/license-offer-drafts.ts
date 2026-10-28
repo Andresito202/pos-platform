@@ -109,6 +109,15 @@ export class LicenseOfferDrafts{
       await c.query("COMMIT");begun=false;return result;
     }catch(e){if(begun)await c.query("ROLLBACK");throw e;}finally{c.release();}
   }
+  /** Administrative recovery includes the latest DRAFT and current ACTIVE price;
+   * a lost save response must not hide an already committed price version. */
+  administrativeCatalog(sessionId:string){
+    return this.transaction(sessionId,async c=>{
+      const rows=(await c.query(`SELECT DISTINCT ON(code,status) * FROM licensing.plans WHERE offer_profile='CAMACHO_LICENSE_OFFER_V1'
+        AND status IN ('DRAFT','ACTIVE') ORDER BY code,status,version DESC`)).rows;
+      return rows.map(row=>({...this.offer(row),version:Number(row.version),status:String(row.status)}));
+    });
+  }
   private offer(row:Record<string,unknown>):LicenseOfferDraft{
     return LicenseOfferDraftSchema.parse({id:row.id,code:row.code,name:row.name,billing_model:row.billing_model,deployment_mode:row.deployment_mode,currency_code:row.currency_code,
       price_minor:Number(row.price_minor),included_registers:row.included_registers,additional_register_price_minor:Number(row.additional_register_price_minor),
