@@ -24,6 +24,12 @@ export const PREPROD_BUSINESS_LOGIN_SQL_SHA256=Object.freeze({
 
 type MigrationName=keyof typeof PREPROD_BUSINESS_LOGIN_SQL_SHA256;
 
+export function assertPinnedPreprodLoginArtifact(id:string,hash:string):void{
+  const expected=PREPROD_BUSINESS_LOGIN_SQL_SHA256[id as MigrationName];
+  if(!expected||hash!==expected)
+    throw Error("LOGIN_SQL_PINNED_ARTIFACT_CHANGED_STOP");
+}
+
 export function verifyPreprodLoginArtifactLock(
   artifacts:readonly {id:string;hash:string}[]
 ):void{
@@ -31,9 +37,6 @@ export function verifyPreprodLoginArtifactLock(
   if(artifacts.length!==canonical.length ||
      canonical.some((name,index)=>artifacts[index]?.id!==name))
     throw Error("LOGIN_SQL_PINNED_CANONICAL_ORDER_DRIFT");
-  for(const artifact of artifacts){
-    const expected=PREPROD_BUSINESS_LOGIN_SQL_SHA256[artifact.id as MigrationName];
-    if(!expected||artifact.hash!==expected)
-      throw Error("LOGIN_SQL_PINNED_ARTIFACT_CHANGED_STOP");
-  }
+  for(const artifact of artifacts)
+    assertPinnedPreprodLoginArtifact(artifact.id,artifact.hash);
 }
