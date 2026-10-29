@@ -108,11 +108,11 @@ try{
       if(ledger.some(item=>item.migration_id===POSTGRES_004_MIGRATION_ID))
         throw Error("PREPROD_004_HISTORY_PRESENT_NO_RETRY");
       await validatePostgres003Catalog(connection);
-      const tables=await queryRows<{name:string;exists:boolean}>(connection,
-        "SELECT name,to_regclass(name) IS NOT NULL exists FROM (VALUES "+
+      const tables=await queryRows<{name:string;present:boolean}>(connection,
+        "SELECT name,to_regclass(name) IS NOT NULL AS present FROM (VALUES "+
         DEVICE_TRUST_004_TABLES.map(name=>"('"+name+"')").join(",")+
         ") expected(name)");
-      if(tables.length!==4||tables.some(item=>item.exists))
+      if(tables.length!==4||tables.some(item=>item.present))
         throw Error("PREPROD_004_PARTIAL_TABLES_FOUND");
       const rolePrerequisites=await queryRows<{name:string;has_usage:boolean}>(connection,
         "SELECT role_name name,has_schema_privilege(role_name,'identity','USAGE') has_usage FROM "+
