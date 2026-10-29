@@ -40,18 +40,41 @@ export type ChannelHandler = (
 function requestWithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
+  connectionSignal: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (error: Error | undefined, value?: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      connectionSignal.removeEventListener("abort", onDisconnect);
+      if (error) reject(error);
+      else resolve(value as T);
+    };
+    const onDisconnect = () => {
+      controller.abort();
+      finish(new Error("local channel connection closed"));
+    };
     const timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`local channel request timed out after ${timeoutMs}ms`));
+      finish(new Error(`local channel request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref?.();
-    operation(controller.signal).then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); },
-    );
+    connectionSignal.addEventListener("abort", onDisconnect, { once: true });
+    if (connectionSignal.aborted) {
+      onDisconnect();
+      return;
+    }
+    try {
+      operation(controller.signal).then(
+        (value) => finish(undefined, value),
+        (error: unknown) => finish(error instanceof Error ? error : new Error("local channel handler failed")),
+      );
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error("local channel handler failed"));
+    }
   });
 }
 
@@ -114,6 +137,7 @@ export class LocalChannelServer {
       }
 
       this.sockets.add(socket);
+      const connectionController = new AbortController();
       const decoder = new FrameDecoder();
       const negotiatedSessions = new Map<string, string>();
       // Identidad de conexión asignada por el servidor. Se crea aquí, vive
@@ -150,6 +174,7 @@ export class LocalChannelServer {
                   const rawResponse = await requestWithTimeout(
                     (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
                     this.requestTimeoutMs,
+                    connectionController.signal,
                   );
                   const response = RuntimeHandshakeResponseSchema.parse(rawResponse);
                   const outcome = response.result;
@@ -200,6 +225,7 @@ export class LocalChannelServer {
       });
 
       socket.once("close", () => {
+        connectionController.abort();
         negotiatedSessions.clear();
         this.sockets.delete(socket);
         this.onConnectionClosed?.(connectionId);
