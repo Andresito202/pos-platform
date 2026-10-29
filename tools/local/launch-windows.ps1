@@ -74,7 +74,15 @@ try {
     if (-not $env:POS_CENTRAL_BASE_URL) {
         Write-Host 'Sin POS_CENTRAL_BASE_URL: sync central no se habilita; el POS local puede arrancar.'
     }
-    Write-Host 'LOGIN COMERCIAL: el main.ts central actual no expone un endpoint de login/SSA real.' -ForegroundColor Yellow
+    # The canonical Central V2 login/SSA endpoints exist, but remain disabled
+    # without authorized HTTPS, Identity, D3 and installed Windows provision.
+    $loginKeys = @('POS_CENTRAL_BASE_URL','POS_WINDOWS_COMMERCIAL_PROVISION_FILE','POS_WINDOWS_DESKTOP_COMMERCIAL_FILE','POS_AUTHORIZATION_TRUST_PROVISION_FILE')
+    $loginMissing = @($loginKeys | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+    if ($loginMissing.Count -gt 0) {
+        Write-Host "LOGIN COMERCIAL: falta provision Windows-Central: $($loginMissing -join ', ')" -ForegroundColor Yellow
+    } else {
+        Write-Host 'LOGIN COMERCIAL: rutas de provision declaradas; no certifica archivos, MFA, SSA/SAS ni acceso real.' -ForegroundColor Yellow
+    }
     $pnpm = Get-Command pnpm -ErrorAction Stop
     if (-not (Test-Path (Join-Path $root 'apps\pos-desktop\package.json'))) {
         throw 'LOCAL_LAUNCH_REPOSITORY_LAYOUT_INVALID'
