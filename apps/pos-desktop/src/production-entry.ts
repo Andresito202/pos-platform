@@ -4,7 +4,18 @@ import { loadProductionDesktopProvisioning } from "@pos-platform/local-channel";
 import { startPosDesktop } from "./start.js";
 
 function main(): void {
-  const provisioning = loadProductionDesktopProvisioning();
+  // Loading the OS-bound channel secret can fail before the asynchronous
+  // desktop startup even begins. Never expose the original DPAPI exception,
+  // filesystem path, account identity or protected secret to logs.
+  let provisioning: ReturnType<typeof loadProductionDesktopProvisioning>;
+  try {
+    provisioning = loadProductionDesktopProvisioning();
+  } catch {
+    console.error("POS_DESKTOP_PROVISIONING_FAILED");
+    process.exitCode = 1;
+    app.quit();
+    return;
+  }
 
   startPosDesktop({
     ...(process.env.POS_WINDOWS_DESKTOP_COMMERCIAL_FILE?{commercialFile:process.env.POS_WINDOWS_DESKTOP_COMMERCIAL_FILE}:{}),
