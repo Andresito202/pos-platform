@@ -75,8 +75,11 @@ function loadRootKey(dataDirectory: string, installationId: string, platform: No
   const context = `local-channel:${installationId}`;
   const contextHash = createHash("sha256").update(context).digest("hex");
   const path = join(dpapiDirectory, `root-key-${contextHash}.dpapi`);
-  if (existsSync(path) && (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())) {
-    throw new Error("LOCAL_CHANNEL_DPAPI_KEY_FILE_REJECTED");
+  if (existsSync(path)) {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size === 0 || stat.size > 4096) {
+      throw new Error("LOCAL_CHANNEL_DPAPI_KEY_FILE_REJECTED");
+    }
   }
   if (!allowCreate && !existsSync(path)) {
     throw new Error("LOCAL_CHANNEL_DPAPI_KEY_NOT_PROVISIONED");
@@ -84,8 +87,11 @@ function loadRootKey(dataDirectory: string, installationId: string, platform: No
   const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", DPAPI_SCRIPT], { encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024, env: { ...process.env, POS_DPAPI_KEY_PATH: path, POS_DPAPI_CONTEXT: context, POS_DPAPI_ALLOW_CREATE: allowCreate ? "1" : "0" } });
   if (result.error) throw new Error("Windows DPAPI invocation failed", { cause: result.error });
   if (result.status !== 0) {
-    const diagnostic = result.stderr.trim().slice(0, 1_024);
-    throw new Error(`Windows DPAPI key operation failed${diagnostic ? `: ${diagnostic}` : ""}`);
+    // Never copy PowerShell stderr into app diagnostics: it can contain
+    // account names, file locations or a protected-data exception context.
+    throw new Error(allowCreate
+      ? "LOCAL_CHANNEL_SERVICE_DPAPI_PROVISION_FAILED"
+      : "LOCAL_CHANNEL_DESKTOP_DPAPI_ACCESS_DENIED");
   }
   const encoded = result.stdout.trim();
   const key = Buffer.from(encoded, "base64");
