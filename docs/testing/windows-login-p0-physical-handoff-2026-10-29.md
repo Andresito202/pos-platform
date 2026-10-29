@@ -86,3 +86,15 @@ En el segundo comando **sí** se inicia el Service interactivo real y Electron. 
 - Hasta cerrar esas dependencias y ejecutar pruebas integrales, el PR #99 seguirá **Draft** y la issue #98 **abierta**.
 
 **Prohibiciones:** no eliminar MFA, no introducir fixture permanente, no persistir tokens sin OS-bound, no copiar key a GitHub, no desactivar RLS/TLS, no ejecutar `reset/clean` destructivo, no activar CI remoto, no trabajar en módulos ajenos al login.
+
+## 6. Prevención de duplicidad de Service
+
+El lanzador interactivo de login comercial rehúsa iniciar procesos si el SCM presenta `CamachoPOSLocalService` en `Running`, `StartPending` o `StopPending`. **No** detiene el servicio ni abre una segunda SQLite deliberadamente; el operador debe revisar primero la instalación y su estado. Sigue siendo necesario verificar manualmente que no haya otro proceso Local Service interactivo usando la misma identidad, porque un proceso suelto puede no figurar en el SCM. La ocupación de named pipe debe fallar cerrado.
+
+## 7. Evidencia interna aislada anterior a la prueba humana
+
+Los módulos exactos descargados del commit del PR #99 se verificaron con `git hash-object`:
+- `windows-commercial-host-identity.ts`: blob `c4e2c29118ac6d033bd2697fa9fa9ca39e338392`. `tsc --strict --noEmit` PASS y 12 casos Node.js ejecutados PASS, con runner Windows inyectado (sin PowerShell/Win32 reales).
+- `central-login-preflight.ts`: blob `f53dfd5c20f14294bc6807856d604e058d45f981`. `tsc --strict --noEmit` PASS y 12 casos Node.js ejecutados PASS, con módulo de certificación Central simulado (sin certificados, PostgreSQL ni red reales).
+
+**24/24 internos aislados.** No es equivalente a compilar el monorepo, ejecutar todas las suites Vitest del PR #99 o certificar el entorno Windows. Los 32 PASS previos del propietario pertenecen a la base PR #96 y no se reutilizan como prueba de PR #99.
