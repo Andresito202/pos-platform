@@ -72,3 +72,14 @@ El tercer comando solo cubre pruebas automatizadas y puede trabajar con fixtures
 **Decisión de arquitectura:** conservar DPAPI CurrentUser y el SID de logon exige que Desktop y Service compartan cuenta/sesión, hasta implementar una autoridad de handoff real. Un servicio SCM virtual **no** puede recibir la clave por inferencia de env, copia de .dpapi, modificación de DACL o una cuenta global. DPAPI-NG `SID=` requiere AD y por tanto no puede asumirse disponible para un cliente Windows independiente: véase documentación de proveedor Microsoft/DPAPI-NG sobre protección por descriptor. Se deberá elegir y certificar un host/IPC apropiado **antes** de habilitar WinSW comercial. El código sigue fallando cerrado.
 
 **Sin certificación:** los 32 PASS previos son de la rama PR #96, anteriores a estas modificaciones de PR #99. Todo delta actual necesita pruebas en la fase final. La issue P0 no se cierra y no se fusiona el PR.
+
+## Ejecución interna aislada del módulo de identidad (Chat, 2026-10-29)
+
+Se recuperó de GitHub el contenido **exacto** de `apps/pos-local-service/src/security/windows-commercial-host-identity.ts` y se corroboró su integridad por `git hash-object`: SHA de blob `c4e2c29118ac6d033bd2697fa9fa9ca39e338392`. Sobre ese archivo idéntico en el entorno aislado del asistente (Linux, Node.js v22.16.0, TypeScript global), se ejecutaron:
+
+- `tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck` con tipos Node.js: **PASS**, 0 errores.
+- Transpilación TypeScript a CommonJS y **11 casos ejecutados** con `assert`, inyectando resultados del helper Windows: plataforma incorrecta, marcador exacto, marcador adulterado, cuatro salidas no autorizadas, error de proceso, excepción del helper, no filtración de SID/error, salida de éxito sin marcador: **11 PASS**, 0 errores.
+
+Esto certifica **exclusivamente la lógica inyectable del módulo de identidad bajo entradas simuladas**, no la función Win32 real ni PowerShell, ACL WinSW, DPAPI, MFA o Central. Las pruebas integrales del workspace siguen **sin ejecutar** y las 32 pruebas que el operador mostró corresponden a la base PR #96.
+
+La compilación y los casos anteriores se ejecutaron en el contenedor del asistente y no alteraron archivos del repositorio, bases de datos o servicio Windows.
