@@ -135,7 +135,7 @@ const INVENTORY_STOCK = {
   quantity_on_hand: "10.000000", last_movement_sequence: 1,
 } as const;
 
-/** Las cuatro respuestas de la vertical comercial del Bloque 1. */
+/** Respuestas comerciales del canal: vertical de caja y catálogo público de licencias. */
 const COMMERCIAL_CASES = [
   {
     messageType: "cash.shift.open",
@@ -322,7 +322,7 @@ describe("transporte de las operaciones comerciales", () => {
         ) as { result: { outcome: string } };
         outcomes.push(response.result.outcome);
       }
-      expect(outcomes).toEqual(["OPENED", "FOUND", "CREATED", "CONFIRMED"]);
+      expect(outcomes).toEqual(["OPENED", "FOUND", "CREATED", "CONFIRMED", "AVAILABLE"]);
     });
   }, 20_000);
 
