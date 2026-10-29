@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+2026-10-29: [ejecución de runtime G1/G2](../testing/windows-g1-g2-runtime-2026-10-29.md), código `24680729`: cierre de conexiones y logout durable conectados al LocalChannelComponent, 100 PASS / 4 omitidas en Linux con TCP real de laboratorio, TypeScript/arquitectura/bundle PASS. No acredita identidad de peers Windows. G1 sigue sin adaptador nativo integrado y G2 por lease incompleto; no certificado, PR #99 Draft e issue #98 abierta. Sin habilitación SCM.
+
 2026-10-29: [auditoría consolidada de continuidad del login](../testing/windows-login-continuity-audit-2026-10-29.md). Runtime `8d04ca15`: consumo de lease con reloj del Service y guardas TypeScript 006–016 corregidos; focalizadas 50 PASS / 4 omitidas, Central 79 PASS; transporte Linux con ocho EPERM conservados como fallos de entorno. No sumar baterías solapadas. SCM sigue pendiente de integración de código, GLOBAL de cadena de esquema y ambos de certificación humana. PR #99 Draft e issue #98 abierta.
 
 2026-10-29: orden expresa del propietario — única línea activa `feat/p0-windows-login-install-readiness`, PR #99 / issue #98, continuación de PR #96. Prioridad exclusiva login Windows–Central. Laboratorio aislado gratuito permitido; no contratar VPS/dominio ni presentar autenticadores virtuales como personas. Host interactivo bajo la misma sesión Windows y DPAPI CurrentUser es el camino ya aprobado para la primera ceremonia; WinSW multiidentidad sigue bloqueado hasta un handoff autenticado aprobado y certificado. Las notas inferiores conservan su alcance histórico.
