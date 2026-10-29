@@ -55,3 +55,28 @@ La máquina Windows ejecutó **realmente** sobre `camacho_pos_preprod` (PostgreS
 **El ordenador puede apagarse sin perder ninguna de las migraciones 001–005 confirmadas.** Conservar volumen Docker, certificados, `pgpass.conf`, recibos y trabajo local. Nunca `reset --hard`, `docker volume rm`, copiar secretos al repo, ni presentar una prueba virtual de MFA como acceso productivo.
 
 **Estado documental:** 001–005 certificadas en preproducción; código de login avanzado, pero todavía no operativo/certificado con humano. El trabajo de código puede progresar durante sesiones activas con GitHub conectado; no afirmar trabajo autónomo continuo cuando la conversación esté cerrada.
+
+
+## Incremento de código sin PC — cierre del lote SQL login (29-oct-2026)
+
+Se materializó en la **misma rama** el tramo técnico necesario para preparar los esquemas restantes, sin modificar SQL existentes:
+
+- tools/target-migrations/src/preprod-login-schema-gate.ts: modo --manifest (offline) y --inspect (read-only). Verifica 001–016, SHA256, recibo 005, rol/TLS y ausencia de 006–016. No aplica DDL.
+- tools/target-migrations/src/preprod-login-foundation-apply.ts: modo explícito --apply-foundation-006-007. Usa exactamente una vez cada runner oficial existente 006/007, comprobación RLS forzada, propietario, ACL y recibo exclusivo SHA256.
+- tools/target-migrations/src/preprod-login-authentication-apply.ts: modo explícito --apply-authentication-008-016. Usa una vez el runner comercial existente con target AUTHENTICATION, no pagos ni GLOBAL. Verifica ledger, checksum, RLS, ACL de tablas de confianza Central y recibo exclusivo SHA256.
+- tools/target-migrations/tests/preprod-login-operator-gates.test.ts: cinco casos de regresión estructural que se ejecutarán con la batería final.
+
+**Estado honesto: IMPLEMENTED / NOT YET TESTED.** El código está publicado y auditado estáticamente; no hay TypeScript/Vitest físicos de este incremento, DDL nueva en Windows ni persona autenticada. La máquina puede permanecer apagada.
+
+### Último tramo manual, cuando vuelva el operador
+
+1. Sin tocar datos: git pull --ff-only, tree limpio, typecheck target-migrations, vitest focalizado preprod-login-operator-gates.
+2. Inspección read-only: pnpm --filter @pos-platform/target-migrations exec tsx src/preprod-login-schema-gate.ts --manifest; luego el mismo comando con --inspect. Debe comprobar la ausencia completa de 006–016.
+3. Sólo tras aceptar el resultado y los artefactos: pnpm --filter @pos-platform/target-migrations exec tsx src/preprod-login-foundation-apply.ts --apply-foundation-006-007. Esto **modifica la DB**; si 006 aplica y 007 falla, detenerse sin reintentar.
+4. Tras recibo/ledger 007 verificados: pnpm --filter @pos-platform/target-migrations exec tsx src/preprod-login-authentication-apply.ts --apply-authentication-008-016. Esto **modifica la DB**; en fallo parcial, detenerse y conciliar registros antes de cualquier acción.
+5. Preflight de Central HTTPS, rol runtime pos_platform_app, provisión auténtica de identidades/device y raíces SSA/SAS. Ejecutar al final batería Windows+Central y E2E humano con MFA físico, PKCE, DeviceProof, refresh/logout/revocación, aislamiento GLOBAL/BUSINESS y autorización real.
+6. El host interactivo del **mismo usuario Windows** es el primer hito. La interoperabilidad SCM WinSW con dos cuentas diferentes permanece bloqueada hasta que el handoff firmado y la revocación queden integrados y verificados físicamente.
+
+**Regla:** no reejecutar MAT003 ni 003–005. No ejecutar los aplicadores nuevos durante el trabajo remoto ni declararlos certificados sin salida física real. No publicar secretos, no abrir acceso sin MFA, no saltarse RLS.
+
+**Separación GLOBAL 021:** el descriptor y la ruta actual dependen de 017–020 (pagos/licencias), y el handler GLOBAL incorpora funciones de ofertas/suscripciones. No aplicar esa cadena sólo para desbloquear un login, ni reescribir la dependencia sin decisión de arquitectura/compatibilidad. BUSINESS se certifica como hito independiente.
