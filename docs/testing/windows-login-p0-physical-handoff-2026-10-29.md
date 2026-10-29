@@ -15,6 +15,25 @@ Este documento **no acredita todavía un login humano**. El operador debe dispon
 - Verificar `git rev-parse HEAD` y conservar SHA exacto del artefacto de pruebas en el registro final. No asumir que el usuario ya tiene PR #99: su Windows sigue en PR #96 hasta sincronizar.
 - Los 32 PASS de Windows anteriores al PR #99 **no cuentan como pruebas de este delta**.
 
+## Diagnóstico de aprovisionamiento del 29 de octubre (evidencia del operador)
+
+En la máquina de prueba, el operador ejecutó el preflight Windows y Central:
+
+- Token interactivo actual: **elegible** (`CurrentProcessInteractiveEligible=True`).
+- Cuenta WinSW: servicio **NO REGISTRADO**; esto no impide el primer recorrido interactivo, y tampoco certifica la instalación como servicio comercial.
+- Variables comerciales POS en Process/User/Machine: **ausentes en los campos presentados**. No existe evidencia de origen Central, perfil Service/Desktop, trust SSA/SAS, IDs inscritos o archivos administrados aprovisionados en el equipo.
+- Central: `environmentAllowed=false`, `configuredLocally=false`, `configurationValid=false`, `tlsIdentityMatched=false`; todas las variables esenciales y archivos de confianza mostrados como ausentes.
+- **Conclusión:** Código probado, despliegue real aún sin aprovisionar. La presencia de una variable o archivo por sí sola nunca basta para autenticar un usuario o validar raíces.
+
+El preflight Windows ofrece `-Interactive` para consultar **solo el bloqueo del host mismo usuario Windows**, sin exigir que un servicio WinSW incompatible esté instalado. Siempre mantiene `ScmCommercialLoginReady=false` y `HumanLoginCertified=false`; añade `SSA_TRUST_DISTRIBUTION_NOT_CONFIGURED` cuando no hay artefacto firmado ni token de transporte referenciado. Antes de ejecutar el preflight actualizado debe sincronizarse el nuevo commit y confirmarse su sintaxis con el Parser de PowerShell 5.1.
+
+```powershell
+# Inspección de presencia exclusivamente; no fabrica material criptográfico
+powershell.exe -NoProfile -File .\tools\operators\windows-login-deployment-preflight.ps1 -Interactive
+```
+
+No establecer UUID arbitrarios, perfiles falsos, `NODE_TLS_REJECT_UNAUTHORIZED=0` ni claves privadas en variables o repositorio para que el preflight aparezca verde. Un FQDN de preproducción, una base PostgreSQL con el rol exacto y sujetos reales inscritos son condiciones de despliegue legítimas.
+
 ## 2. Configuración legítima requerida (NUNCA generar valores simulados)
 
 **Central (PREPRODUCTION o PRODUCTION, no LOCAL):**
