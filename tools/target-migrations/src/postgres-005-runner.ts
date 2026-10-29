@@ -3,6 +3,7 @@ import { readArtifact, sha256, uuidV7, MigrationInvariantError, POSTGRES_MIGRATI
 import { POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_003_DESCRIPTOR } from "./contract.js";
 import { POSTGRES_004_DESCRIPTOR } from "./postgres-004-contract.js";
 import { POSTGRES_005_DESCRIPTOR } from "./postgres-005-contract.js";
+import { runPostgres005Smoke } from "./postgres-005-smoke.js";
 
 export interface Postgres005RunnerConfig { adminUrl: string; expectedDatabase: string; repositoryCommit: string; }
 export interface Postgres005ApplyResult { executionId: string; noOp: boolean; checksumHex: string; result: "APPLIED" | "ALREADY_APPLIED"; }
@@ -78,8 +79,21 @@ export async function applyPostgres005(config: Postgres005RunnerConfig): Promise
         throw error;
       }
 
+      // Record irreversible body commit before starting a separate live
+      // platform-app RLS smoke. No smoke_verified_at without actual checks.
+      // A smoke failure leaves STARTED + body_committed_at for explicit
+      // reconciliation, never a blind rerun.
       await client.query(
-        "UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp(),smoke_verified_at=clock_timestamp(),applied_at=clock_timestamp(),finished_at=clock_timestamp(),status='APPLIED' WHERE execution_id=$1::uuid AND status='STARTED'",
+        "UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() WHERE execution_id=$1::uuid AND status='STARTED' AND body_committed_at IS NULL",
+        [executionId],
+      );
+      const assertions=await runPostgres005Smoke(config.adminUrl,config.expectedDatabase);
+      invariant(assertions===17,"005 physical actor RLS smoke count mismatch");
+      await client.query(
+        "UPDATE platform.target_migration_executions "+
+        "SET smoke_verified_at=clock_timestamp(),applied_at=clock_timestamp(),"+
+        "finished_at=clock_timestamp(),status='APPLIED' "+
+        "WHERE execution_id=$1::uuid AND status='STARTED' AND body_committed_at IS NOT NULL",
         [executionId],
       );
       return { executionId, noOp: false, checksumHex, result: "APPLIED" };
