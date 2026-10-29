@@ -105,6 +105,8 @@ export interface ServiceDescriptorInput {
   readonly workingDirectory: string;
   /** Las nueve variables que `parseServiceConfig` exige, ni una más. */
   readonly environment: Readonly<Record<string, string>>;
+  /** Explicit installer intent. Never infer commercial readiness from base POS vars. */
+  readonly commercialLogin?: boolean;
 }
 
 export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
@@ -114,7 +116,7 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
   // identities are not shared with an interactive Windows user. Refuse to
   // advertise commercial login support through this SCM descriptor until a
   // separately audited cross-session transport and secret handoff exist.
-  if (Object.hasOwn(input.environment, "POS_WINDOWS_COMMERCIAL_PROVISION_FILE")) {
+  if (input.commercialLogin === true || Object.hasOwn(input.environment, "POS_WINDOWS_COMMERCIAL_PROVISION_FILE")) {
     throw new Error("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
   }
   const missing = REQUIRED_ENVIRONMENT.filter((key) => !(key in input.environment));
