@@ -44,6 +44,7 @@ describe("P0 login Windows operator tools (static, non-executing gates)",()=>{
     for(const file of ["preprod-login-schema-gate.ts","preprod-login-authentication-apply.ts"])
       expect(source(file)).toContain("verifyPreprodLoginArtifactLock(");
     expect(source("preprod-login-foundation-apply.ts")).toContain("assertPinnedPreprodLoginArtifact(");
+    expect(source("preprod-login-stage-status.ts")).toContain("verifyPreprodLoginArtifactLock(");
   });
   it("retains physically reviewed PostgreSQL 005 bytes",async()=>{
     const data=await readArtifact(POSTGRES_005_DESCRIPTOR.upArtifact);
