@@ -106,6 +106,13 @@ try {
                 throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_SYMLINK: $name"
             }
         }
+        # Never run a second SQLite/IPC authority while the Windows SCM
+        # instance owns (or may own) the same installation and named pipe.
+        # Do not stop or reconfigure the existing service as a side effect.
+        $scmService = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+        if ($null -ne $scmService -and $scmService.Status -in @('Running','StartPending','StopPending')) {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_SCM_SERVICE_CONFLICT'
+        }
         # Cross-check the installer-managed public registration metadata BEFORE
         # starting SQLite, the local channel or Electron. Never print values.
         $servicePath = [Environment]::GetEnvironmentVariable('POS_WINDOWS_COMMERCIAL_PROVISION_FILE')
