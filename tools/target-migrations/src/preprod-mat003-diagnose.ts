@@ -93,16 +93,26 @@ if(gate.result!=="PASS"||gate.state!=="MISSING"){
           "SELECT pg_try_advisory_xact_lock(hashtextextended('"+
           POSTGRES_MIGRATION_LOCK_RESOURCE+"',0)) AS acquired"))[0];
         if(lock?.acquired!==true)throw Error("MAT003_GLOBAL_LOCK_UNAVAILABLE");
-        faultStage="SET_LOCAL_ROLE";
-        await executeRaw(connection,"SET LOCAL ROLE pos_schema_owner");
-        faultStage="VERIFY_IDENTITY";
-        const identity=(await queryRows<{session_user:string;current_user:string;db:string;ssl:boolean}>(
+        // Check TLS while still in the authenticated LOGIN role:
+        // pg_stat_ssl can mask statistics when switching current_user
+        // to a NOLOGIN schema-owner that does not own the session.
+        faultStage="VERIFY_SESSION_TLS_BEFORE_ROLE_SWITCH";
+        const session=(await queryRows<{session_user:string;current_user:string;db:string;ssl:boolean}>(
           connection,"SELECT session_user,current_user,current_database() db,"+
           "(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) ssl"))[0];
+        if(session?.session_user!=="pos_migrator"||
+           session.current_user!=="pos_migrator"||
+           session.db!=="camacho_pos_preprod"||session.ssl!==true)
+          throw Error("MAT003_SESSION_OR_TLS_INVARIANT_FAILED");
+        faultStage="SET_LOCAL_ROLE";
+        await executeRaw(connection,"SET LOCAL ROLE pos_schema_owner");
+        faultStage="VERIFY_IDENTITY_AFTER_ROLE_SWITCH";
+        const identity=(await queryRows<{session_user:string;current_user:string;db:string}>(
+          connection,"SELECT session_user,current_user,current_database() db"))[0];
         if(identity?.session_user!=="pos_migrator"||
           identity.current_user!=="pos_schema_owner"||
-          identity.db!=="camacho_pos_preprod"||identity.ssl!==true)
-          throw Error("MAT003_ROLE_DB_OR_TLS_INVARIANT_FAILED");
+          identity.db!=="camacho_pos_preprod")
+          throw Error("MAT003_ROLE_OR_DB_INVARIANT_FAILED");
         faultStage="ACL_BEFORE";
         const before=await inspectRoleReadinessAcl(connection);
         if(classifyRoleReadiness(before)!=="MISSING")
