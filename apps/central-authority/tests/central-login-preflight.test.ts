@@ -16,6 +16,17 @@ describe("BUSINESS/GLOBAL operator readiness",()=>{
     expect(report.missingFiles).toContain("CENTRAL_COMMERCIAL_PROVISION_FILE");
     expect(report.missingFiles).toContain("CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE");
   });
+  it("does not demand optional SSA transport without an operator-selected distribution channel",()=>{
+    const report=inspectCentralLoginPreflight({});
+    expect(report.missingFiles).not.toContain("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
+    expect(report.missingFiles).toContain("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE");
+    expect(report.configuredLocally).toBe(false);
+  });
+  it("rejects LOCAL even if the code supports local enrollment for another purpose",()=>{
+    const report=inspectCentralLoginPreflight({CENTRAL_DEPLOYMENT_ENVIRONMENT:"LOCAL"});
+    expect(report.environmentAllowed).toBe(false);
+    expect(report.status).toBe("BLOCKED_BY_CONFIGURATION");
+  });
   it("does not mix fiscal, licensing or payment custody into the login P0",()=>{
     const report=inspectCentralLoginPreflight({});
     const serialized=JSON.stringify(report);
