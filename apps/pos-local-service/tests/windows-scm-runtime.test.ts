@@ -113,4 +113,16 @@ describe("SCM runtime integration with simulated kernel/DPAPI ports",()=>{
   await expect(x.connect()).rejects.toThrow();await a.close();await b.close();
  });
 
+ it("drains exactly the initiating signed response while closing every other lease member",async()=>{
+  let x:Awaited<ReturnType<typeof lab>>;
+  x=await lab({handler:async(r,_signal,context)=>{
+    x.transport.revokeConnections(x.ids,context.connectionId);
+    return response(r,{service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5"});
+  }});
+  const a=await x.connect(),b=await x.connect();
+  await expect(a.request(request())).resolves.toMatchObject({status:"SUCCEEDED"});
+  await expect(b.request(request())).rejects.toThrow();await expect(a.request(request())).rejects.toThrow();
+  await a.close();await b.close();
+ });
+
 });

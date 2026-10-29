@@ -23,9 +23,13 @@ describe("physical Windows SCM transport (not BUSINESS/human certification)",()=
   const p=readWindowsScmProvision(file!,role);
   if(role==="SERVICE"){
    const dir=mkdtempSync(join(tmpdir(),"camacho-scm-physical-")),db=LocalDatabase.open({dataDirectory:dir}),master=randomBytes(32),auth=new LocalChannelAuthenticator(master);
-   const transport=new WindowsScmChannelTransport(p,db,master),ids=new Set<string>(),closed=new Set<string>();let operations=0;
+   const transport=new WindowsScmChannelTransport(p,db,master),ids=new Set<string>(),closed=new Set<string>();let operations=0,beforeRevocationRows=0;
    const server=new LocalChannelServer("NATIVE_PHYSICAL",auth,async(r,_signal,context)=>{
     ids.add(context.connectionId);if(r.message_type!=="runtime.handshake")operations++;
+    if(operations===2&&r.message_type!=="runtime.handshake"){
+      beforeRevocationRows=(db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get() as {n:number}).n;
+      transport.revokeConnections([...ids],context.connectionId);
+    }
     return {protocol_version:"1.0.0",request_id:r.request_id,correlation_id:r.correlation_id,operation_id:null,status:"SUCCEEDED",result_code:"OK",result_schema_version:"1.0.0",error:null,server_time:new Date().toISOString(),result:r.message_type==="runtime.handshake"?{status:"COMPATIBLE",negotiated_protocol_version:"1.0.0"}:{service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5"}};
    },range,32,64,5000,id=>closed.add(id),transport);
    try{
@@ -35,9 +39,7 @@ describe("physical Windows SCM transport (not BUSINESS/human certification)",()=
     const deadline=Date.now()+60_000;
     while(operations<2&&Date.now()<deadline)await pause(50);
     expect(operations).toBe(2);expect(ids.size).toBe(2);await pause(500);
-    const before=(db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get() as {n:number}).n;
-    transport.revokeConnections([...ids],"no-drain");
-    expect((db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get() as {n:number}).n).toBe(before+1);
+    expect((db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get() as {n:number}).n).toBe(beforeRevocationRows+1);
     expect(closed.size).toBe(2);
    }finally{await server.stop();auth.destroy();master.fill(0);db.close();rmSync(dir,{recursive:true,force:true});}
   }else{

@@ -237,14 +237,21 @@ export class LocalChannelServer {
       let closed = false;
       let retired = false;
       let handling = false;
-      const close = () => {
+      const close = (drain=false) => {
         if (closed) return;
         closed = true;
         connectionController.abort();
         negotiatedSessions.clear();
         this.connections.delete(connectionId);
         this.sockets.delete(socket);
-        socket.destroy();
+        // end() invokes libuv shutdown/pipe flushing. Immediate destruction
+        // after write() may discard a Windows pipe response still unread by
+        // the client. Authority is already removed; draining is bounded.
+        if(drain&&!socket.destroyed){
+          const timer=setTimeout(()=>socket.destroy(),this.requestTimeoutMs);timer.unref();
+          socket.once("close",()=>clearTimeout(timer));
+          try{socket.end();}catch{socket.destroy();}
+        }else socket.destroy();
         // Cleanup failure must not keep this connection alive or prevent the
         // remaining connections from being closed on stop/revocation.
         try { security?.closed(connectionId); } catch { /* fail closed */ }
@@ -253,7 +260,7 @@ export class LocalChannelServer {
       this.connections.set(connectionId, { close, retire: () => {
         retired = true;
         socket.pause();
-        if (!handling) close();
+        if (!handling) close(true);
       } });
       let queuedRequests = 0;
       let queue: Promise<void> = Promise.resolve();
@@ -338,7 +345,7 @@ export class LocalChannelServer {
               .finally(() => {
                 handling = false;
                 queuedRequests -= 1;
-                if (retired) close();
+                if (retired) close(true);
               });
           }
         } catch {
@@ -346,8 +353,8 @@ export class LocalChannelServer {
         }
       });
 
-      socket.once("close", close);
-      socket.once("error", close);
+      socket.once("close",()=>close());
+      socket.once("error",()=>close());
   }
 
   private write(socket: Socket, buffer: Buffer): Promise<void> {
