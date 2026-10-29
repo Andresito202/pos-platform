@@ -18,6 +18,7 @@ import {POSTGRES_005_DESCRIPTOR} from "./postgres-005-contract.js";
 import {POSTGRES_006_DESCRIPTOR} from "./postgres-006-contract.js";
 import {POSTGRES_007_DESCRIPTOR} from "./postgres-007-contract.js";
 import {COMMERCIAL_MIGRATIONS,applyCommercialMigrations} from "./postgres-commercial-runner.js";
+import {runBusinessSchemaAclSmoke} from "./postgres-commercial-auth-smoke.js";
 import {canonicalJson} from "./postgres-003-role-readiness.js";
 import {readArtifact,sha256} from "./shared.js";
 
@@ -185,6 +186,10 @@ if(outcomes.length!==expectedIds.length||
   throw Error("LOGIN_AUTHENTICATION_PARTIAL_OR_NOOP_MANUAL_RECONCILIATION");
 await verify("AFTER",outcomes);
 process.stdout.write("LOGIN_AUTHENTICATION_LEDGER_CATALOG_ROLE_ACL: PASS\n");
+const realRoleAssertions=await runBusinessSchemaAclSmoke(migratorUrl,database);
+if(realRoleAssertions!==244)
+  throw Error("LOGIN_AUTHENTICATION_ROLE_SMOKE_FAILED_NO_RETRY");
+process.stdout.write("LOGIN_AUTHENTICATION_ROLE_ACL_SMOKE_ASSERTIONS: "+realRoleAssertions+"\n");
 const payload={
   receipt_version:1,
   migrations:outcomes.map(o=>({
@@ -194,7 +199,8 @@ const payload={
   predecessor_007_execution_id:p.migrations![1]!.execution_id,
   repository_commit:commit,
   target:{environment_id:environment,database_name:database,postgres_version_num:"160014"},
-  verified:"SCHEMA_RLS_LEDGER_AND_PRIVATE_TABLE_ACL_NOT_HUMAN_AUTHENTICATION",
+  verified:"SCHEMA_RLS_LEDGER_AND_REAL_PRIVATE_TABLE_ROLE_SMOKE_NOT_HUMAN_LOGIN",
+  role_acl_smoke_assertions:realRoleAssertions,
 };
 const digest=sha256(canonicalJson(payload)).toString("hex");
 const file=await open(output,"wx");
