@@ -21,6 +21,28 @@ export function validateWindowsHandoff(input:unknown,installationId:string,devic
   if(sha(key.export({type:"spki",format:"der"}))!==p.recipient_key_sha256)fail();
   return p;
 }
+/**
+ * Check the actual Windows recipient token independently of the encrypted
+ * capsule. DPAPI CurrentUser alone does not distinguish logon sessions.
+ * No environment-supplied SID or claimed session is accepted as identity.
+ *
+ * This does NOT establish capsule origin authenticity or make SCM ready.
+ */
+export function validateWindowsHandoffRecipient(
+  input:unknown,
+  installationId:string,
+  deviceId:string,
+  now:Date,
+  identity:WindowsHandoffIdentity,
+):WindowsChannelHandoff {
+  const p=validateWindowsHandoff(input,installationId,deviceId,now);
+  interactive(identity);
+  if(identity.sid!==p.recipient_sid||
+    identity.logonSid!==p.recipient_logon_sid||
+    identity.sessionId!==p.recipient_session_id)fail();
+  return p;
+}
+
 export function handoffProfileHash(p:WindowsChannelHandoff):string{return sha(canonicalJson(p));}
 function label(p:WindowsChannelHandoff,nonce:string):Buffer{return Buffer.from(canonicalJson({purpose:"CAMACHO_WINDOWS_CHANNEL_HANDOFF_CANDIDATE_V1",profile_sha256:handoffProfileHash(p),nonce}));}
 
@@ -86,4 +108,40 @@ export function recoverWindowsHandoffReceiverPublic(file:string,installationId:s
     if(actual!==r.public_key_pem)fail();
     return publicEnrollment(installationId,deviceId,id,actual);
   }finally{key.fill(0);}
+}
+
+/**
+ * Candidate-only receiver path: uses the CURRENT OS token and actual clock,
+ * verifies receiver-file custody and key pin, then decrypts the lease.
+ *
+ * Intentionally not connected to Electron/SCM. Authentic service publication,
+ * a one-use/revocable lease, and a restricted cross-logon pipe are still
+ * mandatory before this value can authorize a production channel.
+ */
+export function openWindowsHandoffCandidateForCurrentRecipient(
+  profile:unknown,
+  capsule:unknown,
+  receiverFile:string,
+  installationId:string,
+  deviceId:string,
+):Buffer {
+  path(receiverFile);
+  const identity=currentHandoffIdentity();
+  const p=validateWindowsHandoffRecipient(profile,installationId,deviceId,new Date(),identity);
+  const r=ReceiverSchema.parse(JSON.parse(handoffNative({action:"read-receiver",path:receiverFile})));
+  if(r.installation_id!==installationId||
+    r.device_id!==deviceId||
+    r.sid!==identity.sid||
+    sha(createPublicKey(r.public_key_pem).export({type:"spki",format:"der"}))!==p.recipient_key_sha256)fail();
+  const secretKey=Buffer.from(handoffNative({
+    action:"open-receiver",
+    path:receiverFile,
+    context:context(installationId,deviceId,identity.sid),
+    bytes:r.protected_private_key,
+  }),"base64");
+  try{
+    const material=createPrivateKey({key:secretKey,type:"pkcs8",format:"der"});
+    if(sha(createPublicKey(material).export({type:"spki",format:"der"}))!==p.recipient_key_sha256)fail();
+    return openWindowsHandoff(p,capsule,secretKey);
+  }finally{secretKey.fill(0);}
 }
