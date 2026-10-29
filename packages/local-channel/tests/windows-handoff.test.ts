@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { WindowsChannelHandoffSchema, type WindowsChannelHandoff } from "@pos-platform/contracts";
 import { canonicalJson } from "../src/canonical-json.js";
 import { LocalChannelAuthenticator } from "../src/authenticator.js";
-import { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, openWindowsHandoff, sealWindowsHandoff, validateWindowsHandoff } from "../src/windows-handoff.js";
+import { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, openWindowsHandoff, openWindowsHandoffCandidateForCurrentRecipient, sealWindowsHandoff, validateWindowsHandoff, validateWindowsHandoffRecipient } from "../src/windows-handoff.js";
 import { currentHandoffIdentity, handoffNative } from "../src/windows-handoff-native.js";
 
 const installation="018f0000-0000-7000-8000-000000000001";
@@ -38,6 +38,20 @@ describe("candidate handoff cryptography (not SCM interoperability)",()=>{
    {recipient_sid:"S-1-1-0"},{recipient_logon_sid:"S-1-5-32-545"},{recipient_session_id:0},
  ])("rejects altered or unauthorized profile %j",change=>{
    expect(()=>validateWindowsHandoff({...p,...change},installation,device,at)).toThrow();
+ });
+ it("denies an otherwise valid capsule recipient from a different Windows account, logon, session, or host kind",()=>{
+   const id={sid:p.recipient_sid,logonSid:p.recipient_logon_sid,sessionId:p.recipient_session_id,interactive:true,service:false};
+   expect(validateWindowsHandoffRecipient(p,installation,device,at,id)).toEqual(p);
+   for(const changed of [
+     {sid:"S-1-5-21-1-2-3-9001"},
+     {logonSid:"S-1-5-5-1-3"},
+     {sessionId:2},
+     {interactive:false},
+     {service:true},
+     {sessionId:0},
+   ])expect(()=>validateWindowsHandoffRecipient(p,installation,device,at,{...id,...changed})).toThrow("WINDOWS_HANDOFF_REJECTED");
+   expect(()=>validateWindowsHandoffRecipient(p,installation,device,new Date("2026-10-29T12:01:00Z"),id)).toThrow();
+   expect(()=>validateWindowsHandoffRecipient(p,installation,device,new Date("2026-10-29T11:58:59Z"),id)).toThrow();
  });
  it("rejects RSA below the candidate strength even with a matching pin",()=>{
    const key=generateKeyPairSync("rsa",{modulusLength:2048}).publicKey;
@@ -101,6 +115,20 @@ windowsIt("real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrit
      const valid=validateWindowsHandoff(profile,installation,device,at);
      const master=randomBytes(32),sealed=sealWindowsHandoff(valid,master),opened=openWindowsHandoff(valid,JSON.parse(sealed.capsule),key);
      try{expect(opened.equals(sealed.secret)).toBe(true);}finally{master.fill(0);sealed.secret.fill(0);opened.fill(0);}
+     // This candidate API must check the real OS logon and real wall clock,
+     // not only DPAPI's CurrentUser scope or a caller-injected identity.
+     const liveAt=new Date();
+     const live=validateWindowsHandoff({...profile,not_before:new Date(liveAt.getTime()-60_000).toISOString(),
+       expires_at:new Date(liveAt.getTime()+60_000).toISOString()},installation,device,liveAt);
+     const liveMaster=randomBytes(32),lease=sealWindowsHandoff(live,liveMaster);
+     try{
+       const recovered=openWindowsHandoffCandidateForCurrentRecipient(live,JSON.parse(lease.capsule),file,installation,device);
+       try{expect(recovered.equals(lease.secret)).toBe(true);}
+       finally{recovered.fill(0);}
+       expect(()=>openWindowsHandoffCandidateForCurrentRecipient({...live,recipient_logon_sid:"S-1-5-5-1-123456"},JSON.parse(lease.capsule),file,installation,device)).toThrow();
+       expect(()=>openWindowsHandoffCandidateForCurrentRecipient({...live,expires_at:new Date(Date.now()-1).toISOString()},JSON.parse(lease.capsule),file,installation,device)).toThrow();
+     }finally{liveMaster.fill(0);lease.secret.fill(0);}
+
    }finally{key.fill(0);}
    expect(()=>handoffNative({action:"open-receiver",path:file,context:context+"altered",bytes:stored.protected_private_key})).toThrow("HANDOFF_NATIVE_REJECTED");
    const bytes=Buffer.from(stored.protected_private_key,"base64");bytes[bytes.length-1]=bytes[bytes.length-1]!^1;
