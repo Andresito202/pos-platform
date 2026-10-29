@@ -203,7 +203,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
 
-  if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){commercialHandler(request,response);return;}
+  if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){await commercialHandler(request,response);return;}
   if(request.url?.split("?",1)[0]===FACTUS_PAY_COLLECTION_WEBHOOK_PATH){
     if(!factusPayHandler){send(response,503,{status:"REJECTED",result_code:"FACTUS_PAY_NOT_PROVISIONED"});return;}
     await factusPayHandler(request,response);return;
