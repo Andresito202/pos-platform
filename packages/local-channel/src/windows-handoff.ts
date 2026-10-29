@@ -260,6 +260,21 @@ export function verifySignedWindowsHandoffCandidate(
       signing_key_sha256:pinnedServiceSignerSha256}))};
 }
 
+/**
+ * The canonical SQLite replay table requires a 36-character UUID session_id.
+ * Derive a deterministic, domain-separated RFC-4122 version-4-shaped UUID from
+ * the signed lease digest; do NOT change the existing table or channel schema.
+ */
+export function windowsHandoffReplaySessionId(leaseId:string):string{
+  if(!/^[0-9a-f]{64}$/.test(leaseId))fail();
+  const digest=createHash("sha256").update("WINDOWS_HANDOFF_REPLAY_UUID_V1:").update(leaseId).digest();
+  digest[6]=(digest[6]!&0x0f)|0x40;
+  digest[8]=(digest[8]!&0x3f)|0x80;
+  const h=digest.subarray(0,16).toString("hex");
+  digest.fill(0);
+  return [h.slice(0,8),h.slice(8,12),h.slice(12,16),h.slice(16,20),h.slice(20,32)].join("-");
+}
+
 export interface WindowsHandoffRevocationAuthority {
   /** Must read trusted current installer/Service policy, never client claims. */
   assertActive(input:Readonly<{
@@ -295,7 +310,7 @@ export function consumeSignedWindowsHandoffForCurrentRecipient(
   const secret=openWindowsHandoffCandidateForCurrentRecipient(v.profile,v.capsule,
     receiverFile,installationId,deviceId);
   try{
-    replay.accept({sessionId:v.leaseId,sequence:1,
+    replay.accept({sessionId:windowsHandoffReplaySessionId(v.leaseId),sequence:1,
       evaluatedAt:new Date().toISOString(),expiresAt:v.profile.expires_at});
     return secret;
   }catch{
