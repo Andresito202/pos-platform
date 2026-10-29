@@ -1,9 +1,10 @@
-import { constants, createHash, createHmac, createPrivateKey, createPublicKey, generateKeyPairSync, privateDecrypt, publicEncrypt, randomBytes, timingSafeEqual } from "node:crypto";
+import { constants, createHash, createHmac, createPrivateKey, createPublicKey, generateKeyPairSync, privateDecrypt, publicEncrypt, randomBytes, sign, timingSafeEqual, verify } from "node:crypto";
 import { win32 } from "node:path";
 import * as z from "zod";
 import { WindowsChannelHandoffSchema, type WindowsChannelHandoff } from "@pos-platform/contracts";
 import { canonicalJson } from "./canonical-json.js";
 import { currentHandoffIdentity, handoffNative, type WindowsHandoffIdentity } from "./windows-handoff-native.js";
+import type { LocalChannelReplayStateStore } from "./replay-state.js";
 
 const ReceiverSchema=z.strictObject({version:z.literal(1),installation_id:z.uuid(),device_id:z.uuid(),sid:z.string(),public_key_pem:z.string(),protected_private_key:z.string().min(1).max(16384)});
 const CapsuleSchema=z.strictObject({version:z.literal(1),profile_sha256:z.string().regex(/^[a-f0-9]{64}$/),nonce:z.string().regex(/^[A-Za-z0-9_-]{43}$/),ciphertext:z.string().regex(/^[A-Za-z0-9_-]+$/).max(2048)});
@@ -144,4 +145,160 @@ export function openWindowsHandoffCandidateForCurrentRecipient(
     if(sha(createPublicKey(material).export({type:"spki",format:"der"}))!==p.recipient_key_sha256)fail();
     return openWindowsHandoff(p,capsule,secretKey);
   }finally{secretKey.fill(0);}
+}
+
+
+/**
+ * Authentication layer for the existing candidate handoff capsule.
+ *
+ * RSA-OAEP supplies confidentiality, NOT issuer authentication. This envelope
+ * additionally requires an Ed25519 signature from the installer-pinned Service
+ * signer, verified without trusting any public key carried by the capsule.
+ * The signer must be provisioned under Service-owned DPAPI custody; this
+ * module NEVER provisions or stores its private key.
+ *
+ * No SCM/pipe activation follows from these primitives.
+ */
+const SignedHandoffSchema=z.strictObject({
+  version:z.literal(2),
+  capsule:CapsuleSchema,
+  signed_at:z.iso.datetime(),
+  signing_key_sha256:z.string().regex(/^[a-f0-9]{64}$/),
+  signature:z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+});
+export type SignedWindowsHandoffCapsule=z.infer<typeof SignedHandoffSchema>;
+
+function signingPayload(
+  p:WindowsChannelHandoff,
+  capsule:z.infer<typeof CapsuleSchema>,
+  signedAt:string,
+  signingKeySha256:string,
+):Buffer{
+  return Buffer.from(canonicalJson({
+    purpose:"CAMACHO_WINDOWS_CHANNEL_HANDOFF_SIGNED_CANDIDATE_V2",
+    profile_sha256:handoffProfileHash(p),
+    capsule,
+    signed_at:signedAt,
+    signing_key_sha256:signingKeySha256,
+    service_sid:p.service_sid,
+  }),"utf8");
+}
+function pinnedServiceSigner(publicKeyPem:string,pinnedSha256:string){
+  if(!/^[a-f0-9]{64}$/.test(pinnedSha256))fail();
+  const key=createPublicKey(publicKeyPem);
+  if(key.asymmetricKeyType!=="ed25519")fail();
+  const fingerprint=sha(key.export({type:"spki",format:"der"}));
+  if(!timingSafeEqual(Buffer.from(fingerprint,"hex"),Buffer.from(pinnedSha256,"hex")))fail();
+  return key;
+}
+export function assertWindowsHandoffIssuer(p:WindowsChannelHandoff,id:WindowsHandoffIdentity):void{
+  if(!id.service||id.interactive||id.sid!==p.service_sid||id.sessionId!==0)fail();
+}
+
+/** Pure candidate seal for isolated tests; do not use as a host attestation. */
+export function sealSignedWindowsHandoffCandidate(
+  p:WindowsChannelHandoff,
+  master:Buffer,
+  signerPrivateDer:Buffer,
+  approvedServiceSignerPublicPem:string,
+  pinnedServiceSignerSha256:string,
+  now:Date,
+  serviceIdentity:WindowsHandoffIdentity,
+):{capsule:string;secret:Buffer}{
+  validateWindowsHandoff(p,p.installation_id,p.device_id,now);
+  assertWindowsHandoffIssuer(p,serviceIdentity);
+  const publicKey=pinnedServiceSigner(approvedServiceSignerPublicPem,pinnedServiceSignerSha256);
+  const key=createPrivateKey({key:signerPrivateDer,format:"der",type:"pkcs8"});
+  if(key.asymmetricKeyType!=="ed25519"||
+    sha(createPublicKey(key).export({type:"spki",format:"der"}))!==sha(publicKey.export({type:"spki",format:"der"})))fail();
+  const sealed=sealWindowsHandoff(p,master);
+  try{
+    const original=CapsuleSchema.parse(JSON.parse(sealed.capsule));
+    const issuedAt=now.toISOString();
+    const signature=sign(null,signingPayload(p,original,issuedAt,pinnedServiceSignerSha256),key).toString("base64url");
+    return {secret:sealed.secret,capsule:JSON.stringify(SignedHandoffSchema.parse({
+      version:2,capsule:original,signed_at:issuedAt,signing_key_sha256:pinnedServiceSignerSha256,signature,
+    }))};
+  }catch{
+    sealed.secret.fill(0);return fail();
+  }
+}
+
+/** Only actual SCM service token can issue from this Windows entry point. */
+export function sealSignedWindowsHandoffForCurrentService(
+  p:WindowsChannelHandoff,master:Buffer,signerPrivateDer:Buffer,
+  approvedServiceSignerPublicPem:string,pinnedServiceSignerSha256:string,
+):{capsule:string;secret:Buffer}{
+  return sealSignedWindowsHandoffCandidate(p,master,signerPrivateDer,
+    approvedServiceSignerPublicPem,pinnedServiceSignerSha256,new Date(),currentHandoffIdentity());
+}
+
+/** Reject unauthenticated, expired, modified and wrongly pinned handoffs. */
+export function verifySignedWindowsHandoffCandidate(
+  profile:unknown,
+  input:unknown,
+  installationId:string,
+  deviceId:string,
+  now:Date,
+  approvedServiceSignerPublicPem:string,
+  pinnedServiceSignerSha256:string,
+):{profile:WindowsChannelHandoff;capsule:z.infer<typeof CapsuleSchema>;leaseId:string}{
+  const p=validateWindowsHandoff(profile,installationId,deviceId,now);
+  const signed=SignedHandoffSchema.parse(input);
+  const publicKey=pinnedServiceSigner(approvedServiceSignerPublicPem,pinnedServiceSignerSha256);
+  if(signed.signing_key_sha256!==pinnedServiceSignerSha256||
+     signed.capsule.profile_sha256!==handoffProfileHash(p))fail();
+  const issuance=Date.parse(signed.signed_at);
+  if(!Number.isFinite(issuance)||issuance<Date.parse(p.not_before)||
+     issuance>=Date.parse(p.expires_at)||issuance>now.getTime())fail();
+  const signature=Buffer.from(signed.signature,"base64url");
+  if(signature.length!==64||signature.toString("base64url")!==signed.signature||
+     !verify(null,signingPayload(p,signed.capsule,signed.signed_at,pinnedServiceSignerSha256),publicKey,signature))fail();
+  return {profile:p,capsule:signed.capsule,
+    leaseId:sha(canonicalJson({purpose:"WINDOWS_HANDOFF_LEASE_V2",
+      profile_hash:handoffProfileHash(p),nonce:signed.capsule.nonce,
+      signing_key_sha256:pinnedServiceSignerSha256}))};
+}
+
+export interface WindowsHandoffRevocationAuthority {
+  /** Must read trusted current installer/Service policy, never client claims. */
+  assertActive(input:Readonly<{
+    leaseId:string;revision:number;serviceSid:string;
+    recipientSid:string;recipientLogonSid:string;expiresAt:string;
+  }>):void;
+}
+
+/**
+ * This candidate composes signed issuer authenticity + current OS receiver
+ * identity + mandatory revocation authority + one-use replay ledger.
+ * The ledger must be durably implemented by the authorized host: using a
+ * memory store in a test does NOT certify restart-safe consumption.
+ * In particular no Electron, Service or SCM boot path calls this function yet.
+ */
+export function consumeSignedWindowsHandoffForCurrentRecipient(
+  profile:unknown,input:unknown,receiverFile:string,
+  installationId:string,deviceId:string,
+  approvedServiceSignerPublicPem:string,pinnedServiceSignerSha256:string,
+  replay:LocalChannelReplayStateStore,
+  revocation:WindowsHandoffRevocationAuthority,
+):Buffer{
+  if(!replay||typeof replay.accept!=="function"||
+     !revocation||typeof revocation.assertActive!=="function")fail();
+  const now=new Date();
+  const v=verifySignedWindowsHandoffCandidate(profile,input,installationId,deviceId,now,
+    approvedServiceSignerPublicPem,pinnedServiceSignerSha256);
+  const id=currentHandoffIdentity();
+  validateWindowsHandoffRecipient(v.profile,installationId,deviceId,now,id);
+  revocation.assertActive({leaseId:v.leaseId,revision:v.profile.revision,
+    serviceSid:v.profile.service_sid,recipientSid:id.sid,
+    recipientLogonSid:id.logonSid,expiresAt:v.profile.expires_at});
+  const secret=openWindowsHandoffCandidateForCurrentRecipient(v.profile,v.capsule,
+    receiverFile,installationId,deviceId);
+  try{
+    replay.accept({sessionId:v.leaseId,sequence:1,
+      evaluatedAt:new Date().toISOString(),expiresAt:v.profile.expires_at});
+    return secret;
+  }catch{
+    secret.fill(0);return fail();
+  }
 }
