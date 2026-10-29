@@ -74,3 +74,32 @@ usuario autorizado (identidad de cliente, ACL, intercambio de secreto, persisten
 y revocación) antes de permitir instalación comercial automática. La prueba
 operativa debe ejecutarse en Windows real con un autenticador físico y Central
 HTTPS autorizada. No comprar VPS/dominio ni usar fixtures para cerrar esta tarea.
+
+## P0 — preparación del login Windows sin iniciar pruebas físicas
+
+El código actual dispone de autenticación BUSINESS/GLOBAL, pero la instalación
+en el computador del operador sigue sin servicio SCM ni provisiones operativas.
+La entrada Desktop ahora **no genera** la clave del canal al iniciarse: solo
+puede leer la creada por Local Service bajo la misma identidad Windows. Si
+falta, falla con `LOCAL_CHANNEL_SECRET_NOT_PROVISIONED` antes de abrir la UI.
+
+Para inspeccionar sin iniciar servicios:
+
+```powershell
+powershell.exe -NoProfile -File .\tools\local\launch-windows.ps1 -CheckOnly -RequireCommercialLogin
+powershell.exe -NoProfile -File .\tools\operators\windows-login-deployment-preflight.ps1
+pnpm --filter @pos-platform/central-authority run login:preflight
+```
+
+`-RequireCommercialLogin` exige archivos administrados de Service/Desktop/SAS,
+URL Central y confianza SSA presentes antes del arranque. Una ruta existente
+**no** demuestra firma válida, propietario aprobado, permisos ni sesión iniciada.
+
+Las pruebas unitarias/build finales están **preparadas pero no ejecutadas**
+en `tools/operators/windows-login-final-checks.ps1`; por defecto solo imprime
+el plan, y requiere `-Run` para ejecutarlas. No utilizarlo hasta completar el
+código y obtener autorización final. El resultado no sustituye MFA físico.
+El descriptor WinSW mantiene el bloqueo SCM comercial por la diferencia de
+identidades y DPAPI; nunca instalarlo como atajo.
+
+Véase `docs/testing/windows-login-p0-implementation-2026-10-29.md`.
