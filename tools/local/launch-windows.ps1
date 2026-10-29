@@ -10,7 +10,8 @@
 [CmdletBinding()]
 param(
     [switch]$CheckOnly,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$RequireCommercialLogin
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -82,6 +83,30 @@ try {
         Write-Host "LOGIN COMERCIAL: falta provision Windows-Central: $($loginMissing -join ', ')" -ForegroundColor Yellow
     } else {
         Write-Host 'LOGIN COMERCIAL: rutas de provision declaradas; no certifica archivos, MFA, SSA/SAS ni acceso real.' -ForegroundColor Yellow
+    }
+    if ($RequireCommercialLogin -or -not [string]::IsNullOrWhiteSpace($env:POS_WINDOWS_COMMERCIAL_PROVISION_FILE) -or -not [string]::IsNullOrWhiteSpace($env:POS_WINDOWS_DESKTOP_COMMERCIAL_FILE)) {
+        $loginRequired = @(
+            'POS_CENTRAL_BASE_URL',
+            'POS_WINDOWS_COMMERCIAL_PROVISION_FILE',
+            'POS_WINDOWS_DESKTOP_COMMERCIAL_FILE',
+            'POS_AUTHORIZATION_TRUST_PROVISION_FILE',
+            'POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM',
+            'POS_SESSION_TRUST_ENVIRONMENT'
+        )
+        $notProvisioned = @($loginRequired | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+        if ($notProvisioned.Count -gt 0) {
+            throw "WINDOWS_COMMERCIAL_LOGIN_PROVISION_INCOMPLETE: $($notProvisioned -join ', ')"
+        }
+        foreach ($name in @('POS_WINDOWS_COMMERCIAL_PROVISION_FILE', 'POS_WINDOWS_DESKTOP_COMMERCIAL_FILE', 'POS_AUTHORIZATION_TRUST_PROVISION_FILE')) {
+            $path = [Environment]::GetEnvironmentVariable($name)
+            if (-not [IO.Path]::IsPathRooted($path) -or -not [IO.File]::Exists($path)) {
+                throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_MISSING: $name"
+            }
+            if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_SYMLINK: $name"
+            }
+        }
+        Write-Host 'LOGIN COMERCIAL: archivos presentes. No certifica credenciales, roots SSA/SAS, D3, MFA o roles.'
     }
     $pnpm = Get-Command pnpm -ErrorAction Stop
     if (-not (Test-Path (Join-Path $root 'apps\pos-desktop\package.json'))) {
