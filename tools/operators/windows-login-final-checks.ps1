@@ -51,6 +51,30 @@ if ($IncludeIsolatedPostgres) {
 Set-Location $root
 $branch=& git branch --show-current
 if ($LASTEXITCODE -ne 0) { throw 'LOGIN_TESTS_GIT_BRANCH_UNAVAILABLE' }
+if ($branch -ne 'feat/p0-windows-login-install-readiness') {
+    throw 'LOGIN_TESTS_REQUIRE_P0_PR99_BRANCH'
+}
+$verifiedHead = & git rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or -not ($verifiedHead -match '^[a-f0-9]{40}
+$dirty=@(& git status --porcelain=v1)
+if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'LOGIN_TESTS_REQUIRE_CLEAN_WORKTREE' }
+Write-Output ('P0 LOGIN — PRUEBAS AUTOMATIZADAS EN: ' + $branch)
+foreach ($step in $steps) {
+    Write-Output ('INICIO: ' + $step.Name)
+    $pnpmArgs = [string[]]$step.Args
+    & pnpm @pnpmArgs
+    if ($LASTEXITCODE -ne 0) { throw ('LOGIN_FINAL_STEP_FAILED: ' + $step.Name) }
+    Write-Output ('PASS: ' + $step.Name)
+}
+Write-Output 'AUTO_CHECKS_PASSED. No certifica MFA fisico, identidad SCM ni provisionamiento HTTPS real.'
+)) {
+    throw 'LOGIN_TESTS_COMMIT_NOT_VERIFIED'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $root 'apps\pos-local-service\src\security\windows-commercial-host-identity.ts') -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $root 'apps\central-authority\src\central-login-preflight.ts') -PathType Leaf)) {
+    throw 'LOGIN_TESTS_REQUIRED_PR99_SOURCES_MISSING'
+}
+Write-Output ('SHA tested: ' + $verifiedHead)
 $dirty=@(& git status --porcelain=v1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'LOGIN_TESTS_REQUIRE_CLEAN_WORKTREE' }
 Write-Output ('P0 LOGIN — PRUEBAS AUTOMATIZADAS EN: ' + $branch)
