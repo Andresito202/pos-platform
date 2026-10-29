@@ -56,15 +56,31 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
     throw error;
   }
 
-  await app.whenReady();
-  const commercial=options.commercialFile?readDesktopCommercialConfiguration(options.commercialFile):undefined;
-  const account=commercial?new DesktopCommercialAccount(commercial,async()=>{
-    const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret);
-    try{const connected=await connectLocalServiceChannel({endpoint:options.endpoint,authenticator:nativeAuthenticator,protocolRange:options.protocolRange,
-      handshake:options.handshake,timeoutMs:commercial.attempt_timeout_ms});
-      return {request:input=>connected.request(input),close:async()=>{try{await connected.close();}finally{nativeAuthenticator.destroy();}}};}
-    catch(error){nativeAuthenticator.destroy();throw error;}
-  },createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
-  const cache=commercial?.browser_cache?new BrowserCacheMaintenance(session.defaultSession,commercial.browser_cache):undefined;
-  await bootstrap(channel, options.logger,account,cache);
+  try {
+    await app.whenReady();
+    const commercial=options.commercialFile?readDesktopCommercialConfiguration(options.commercialFile):undefined;
+    const account=commercial?new DesktopCommercialAccount(commercial,async()=>{
+      const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret);
+      try{const connected=await connectLocalServiceChannel({endpoint:options.endpoint,authenticator:nativeAuthenticator,protocolRange:options.protocolRange,
+        handshake:options.handshake,timeoutMs:commercial.attempt_timeout_ms});
+        return {request:input=>connected.request(input),close:async()=>{try{await connected.close();}finally{nativeAuthenticator.destroy();}}};}
+      catch(error){nativeAuthenticator.destroy();throw error;}
+    },createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
+    const cache=commercial?.browser_cache?new BrowserCacheMaintenance(session.defaultSession,commercial.browser_cache):undefined;
+    await bootstrap(channel, options.logger,account,cache);
+    // The launcher's original secret is needed to authenticate additional
+    // account channels during this Electron process, but never after exit.
+    // The authenticator holds its own copy; erase both on normal shutdown.
+    app.once("will-quit",()=>{
+      authenticator.destroy();
+      options.channelSecret.fill(0);
+    });
+  } catch (error) {
+    // Never leave a connected, credential-bearing local channel alive if
+    // config loading, Electron readiness, or bootstrap fails after handshake.
+    try{await channel.close();}catch{/* preserve the startup failure */}
+    authenticator.destroy();
+    options.channelSecret.fill(0);
+    throw error;
+  }
 }
