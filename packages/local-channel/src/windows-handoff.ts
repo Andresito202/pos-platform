@@ -279,6 +279,7 @@ export interface WindowsHandoffRevocationAuthority {
   /** Must read trusted current installer/Service policy, never client claims. */
   assertActive(input:Readonly<{
     leaseId:string;revision:number;serviceSid:string;
+    installationId:string;deviceId:string;policyReference:string;
     recipientSid:string;recipientLogonSid:string;expiresAt:string;
   }>):void;
 }
@@ -305,8 +306,9 @@ export function consumeSignedWindowsHandoffForCurrentRecipient(
   const id=currentHandoffIdentity();
   validateWindowsHandoffRecipient(v.profile,installationId,deviceId,now,id);
   revocation.assertActive({leaseId:v.leaseId,revision:v.profile.revision,
-    serviceSid:v.profile.service_sid,recipientSid:id.sid,
-    recipientLogonSid:id.logonSid,expiresAt:v.profile.expires_at});
+    serviceSid:v.profile.service_sid,installationId:v.profile.installation_id,
+    deviceId:v.profile.device_id,policyReference:v.profile.policy_reference,
+    recipientSid:id.sid,recipientLogonSid:id.logonSid,expiresAt:v.profile.expires_at});
   const secret=openWindowsHandoffCandidateForCurrentRecipient(v.profile,v.capsule,
     receiverFile,installationId,deviceId);
   try{
