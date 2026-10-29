@@ -26,9 +26,10 @@ Si faltan variables, termina sin iniciar procesos. Se almacenan los
 registros de esa ejecución en el directorio temporal
 camacho-pos-real-launch y no en el repositorio.
 
-**Aviso:** el servidor central actual no expone login comercial autenticado,
-MFA/SSA por HTTPS, y el renderer únicamente muestra pantallas cuando
-authorization.capabilities.get devuelve permisos efectivos. El servicio local
+**Aviso actualizado:** Central ya tiene el montaje V2 HTTPS de BUSINESS,
+MFA, SSA y SAS, pero se activa solo con provisión, base, confianza y dispositivos
+reales. La ausencia de esas condiciones deniega el acceso. El renderer únicamente
+muestra funciones cuando `authorization.capabilities.get` devuelve grants del backend. El servicio local
 puede arrancar y la ventana puede decir «Acceso no disponible»: eso es
 fail-closed y NO significa producto operativo. No habilitar botones ni
 falsificar permisos para salir de esa pantalla. Facturación requiere también
@@ -41,3 +42,35 @@ planned de App.tsx que usan requiredPermissions vacío no están completas.
 
 Esta herramienta no fusiona main ni prueba automáticamente un login.
 Su utilidad es identificar el primer bloqueo real del arranque Windows.
+
+## Instalación comercial Windows — bloqueo de identidad identificado
+
+Antes de instalar WinSW, ejecutar exclusivamente el preflight sin cambios:
+
+```powershell
+powershell.exe -NoProfile -File .\tools\operators\windows-login-deployment-preflight.ps1
+```
+
+El descriptor WinSW existente ejecuta Local Service bajo la cuenta virtual
+`NT SERVICE\\CamachoPOSLocalService`. La custodia del secreto del canal en
+`packages/local-channel/src/windows-production.ts` usa DPAPI `CurrentUser`;
+la DACL del named pipe acepta la sesión Windows que ejecuta el Service. El
+escritorio Electron interactivo tiene otro contexto de logon. **No** basta con
+instalar WinSW o compartir las variables `POS_*`: el transporte y el secreto
+requieren un procedimiento aprobado de cruce de identidad que no está materializado.
+
+Por seguridad, el descriptor rehúsa aceptar el perfil
+`POS_WINDOWS_COMMERCIAL_PROVISION_FILE` como una instalación comercial
+certificada. No modificar la DACL para `Everyone` o `Authenticated Users`,
+no cambiar DPAPI a texto plano, no usar cuenta LocalSystem como solución.
+
+El lanzador local de esta carpeta sigue siendo una herramienta diferente: inicia
+Service y Desktop bajo la misma cuenta interactiva **solo con provisión legítima**.
+No instala un servicio SCM, ni aprueba identidad D3, certificados, WebAuthn,
+registro nativo, MFA o grants. El preflight no modifica archivos ni servicios.
+
+Siguiente cierre pendiente en P0: materializar y auditar canal Windows SCM ↔
+usuario autorizado (identidad de cliente, ACL, intercambio de secreto, persistencia
+y revocación) antes de permitir instalación comercial automática. La prueba
+operativa debe ejecutarse en Windows real con un autenticador físico y Central
+HTTPS autorizada. No comprar VPS/dominio ni usar fixtures para cerrar esta tarea.
