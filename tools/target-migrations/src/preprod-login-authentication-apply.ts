@@ -21,6 +21,7 @@ import {COMMERCIAL_MIGRATIONS,applyCommercialMigrations} from "./postgres-commer
 import {runBusinessSchemaAclSmoke} from "./postgres-commercial-auth-smoke.js";
 import {canonicalJson} from "./postgres-003-role-readiness.js";
 import {readArtifact,sha256} from "./shared.js";
+import {verifyPreprodLoginArtifactLock} from "./preprod-login-sql-lock.js";
 
 if(process.argv.length!==3||process.argv[2]!=="--apply-authentication-008-016")
   throw Error("LOGIN_AUTHENTICATION_EXPLICIT_OPERATOR_FLAG_REQUIRED");
@@ -56,6 +57,7 @@ const expectedIds=["008_platform_role_assignments","009_webauthn_challenges",
 if(COMMERCIAL_MIGRATIONS.length!==expectedIds.length||
   COMMERCIAL_MIGRATIONS.some((d,i)=>d.migrationId!==expectedIds[i]))
   throw Error("LOGIN_AUTHENTICATION_CANONICAL_MIGRATION_ORDER_DRIFT");
+verifyPreprodLoginArtifactLock(hashes);
 const receipt=JSON.parse(readFileSync(prior,"utf8")) as {
   receipt_payload?:{
     receipt_version?:number;
