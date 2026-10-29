@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const LOCAL_CHANNEL_SECRET_NAME = "local-channel-auth";
@@ -29,12 +29,25 @@ if ([System.IO.File]::Exists($path)) {
 }
 if ($key.Length -ne 32) { throw "DPAPI root key length is invalid" }
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-$acl = New-Object System.Security.AccessControl.FileSecurity
-$acl.SetOwner($identity.User)
-$acl.SetAccessRuleProtection($true, $false)
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity.User, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)
-[void]$acl.AddAccessRule($rule)
-[System.IO.File]::SetAccessControl($path, $acl)
+if ($env:POS_DPAPI_ALLOW_CREATE -eq '1') {
+  $acl = New-Object System.Security.AccessControl.FileSecurity
+  $acl.SetOwner($identity.User)
+  $acl.SetAccessRuleProtection($true, $false)
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity.User, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)
+  [void]$acl.AddAccessRule($rule)
+  [System.IO.File]::SetAccessControl($path, $acl)
+} else {
+  # Desktop is a reader, never an ACL/ownership administrator.
+  $acl = [System.IO.File]::GetAccessControl($path)
+  if (-not $acl.AreAccessRulesProtected -or $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $identity.User.Value) {
+    throw "LOCAL_CHANNEL_DPAPI_ACL_REJECTED"
+  }
+  foreach ($rule in $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])) {
+    if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -ne $identity.User.Value) {
+      throw "LOCAL_CHANNEL_DPAPI_ACL_REJECTED"
+    }
+  }
+}
 $output = [Convert]::ToBase64String($key)
 [Array]::Clear($key, 0, $key.Length)
 Write-Output $output
@@ -62,7 +75,10 @@ function loadRootKey(dataDirectory: string, installationId: string, platform: No
   const context = `local-channel:${installationId}`;
   const contextHash = createHash("sha256").update(context).digest("hex");
   const path = join(dpapiDirectory, `root-key-${contextHash}.dpapi`);
-  if (!allowCreate && (!existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())) {
+  if (existsSync(path) && (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())) {
+    throw new Error("LOCAL_CHANNEL_DPAPI_KEY_FILE_REJECTED");
+  }
+  if (!allowCreate && !existsSync(path)) {
     throw new Error("LOCAL_CHANNEL_DPAPI_KEY_NOT_PROVISIONED");
   }
   const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", DPAPI_SCRIPT], { encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024, env: { ...process.env, POS_DPAPI_KEY_PATH: path, POS_DPAPI_CONTEXT: context, POS_DPAPI_ALLOW_CREATE: allowCreate ? "1" : "0" } });
@@ -127,6 +143,7 @@ export function loadProductionDesktopProvisioning(environment: NodeJS.ProcessEnv
  * authorized Desktop until cross-account SCM handoff has been implemented. */
 export function loadOrCreateWindowsLocalChannelSecret(dataDirectory: string, installationId: string, platform: NodeJS.Platform = process.platform): Buffer {
   if (!INSTALLATION_ID.test(installationId)) throw new Error("invalid installation id for service channel bootstrap");
+  if (!isAbsolute(dataDirectory)) throw new Error("Windows service channel data directory must be absolute");
   if (platform !== "win32") throw new Error("Windows channel provisioning requires Windows DPAPI");
   const rootKey = loadRootKey(dataDirectory, installationId, platform, true);
   const context = `local-channel:${installationId}`;
