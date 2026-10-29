@@ -36,7 +36,8 @@ if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'LOGIN_TESTS_REQUIRE_CLE
 Write-Output ('P0 LOGIN — PRUEBAS AUTOMATIZADAS EN: ' + $branch)
 foreach ($step in $steps) {
     Write-Output ('INICIO: ' + $step.Name)
-    & pnpm @($step.Args)
+    $pnpmArgs = [string[]]$step.Args
+    & pnpm @pnpmArgs
     if ($LASTEXITCODE -ne 0) { throw ('LOGIN_FINAL_STEP_FAILED: ' + $step.Name) }
     Write-Output ('PASS: ' + $step.Name)
 }
