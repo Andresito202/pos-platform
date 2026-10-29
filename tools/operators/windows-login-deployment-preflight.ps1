@@ -64,6 +64,18 @@ $missing = @($observed | Where-Object { $_.Variable -in $required -and -not $_.P
   ForEach-Object { $_.Variable })
 if ($missing.Count -gt 0) { [void]$blocks.Add('PROCESS_CONFIGURATION_INCOMPLETE') }
 
+# Current process only. It does not inspect a service's child-process token.
+# Never print the Windows user name, SID or memberships to operator logs.
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$identityName = $currentIdentity.Name
+$restrictedIdentity = $identityName.StartsWith('NT SERVICE\', [StringComparison]::OrdinalIgnoreCase) -or
+  $identityName.StartsWith('NT AUTHORITY\', [StringComparison]::OrdinalIgnoreCase)
+$logonGroups = @($currentIdentity.Groups | ForEach-Object { $_.Value })
+$interactivePresent = @($logonGroups | Where-Object { $_ -in @('S-1-5-4','S-1-5-14') }).Count -gt 0
+$processEligible = $currentIdentity.IsAuthenticated -and -not $currentIdentity.IsSystem -and
+  -not $currentIdentity.IsAnonymous -and -not $restrictedIdentity -and $interactivePresent
+if (-not $processEligible) { [void]$blocks.Add('CURRENT_PROCESS_NOT_INTERACTIVE_HOST') }
+
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 if (-not $service) { [void]$blocks.Add('WINDOWS_SERVICE_NOT_REGISTERED') }
 $accountModel = 'UNKNOWN'
@@ -102,6 +114,7 @@ $result = [pscustomobject]@{
   ServiceRegistered=($null -ne $service)
   ServiceState=if ($service) { [string]$service.Status } else { 'NOT_REGISTERED' }
   ServiceAccountModel=$accountModel
+  CurrentProcessInteractiveEligible=[bool]$processEligible
   Variables=$observed
   MissingRequiredVariableNames=$missing
   MissingReferencedFileNames=$filesAbsent
@@ -115,6 +128,7 @@ if ($Json) {
   Write-Output 'CAMACHO POS - Login P0 - diagnostico SIN CAMBIOS'
   Write-Output ('Servicio: ' + $result.ServiceState)
   Write-Output ('Cuenta SCM: ' + $accountModel)
+  Write-Output ('Contexto interactivo de este PowerShell: ' + [string]$result.CurrentProcessInteractiveEligible)
   $observed | Format-Table Variable,Process,User,Machine,FileExistsInProcess -AutoSize | Out-String |
     Write-Output
   Write-Output ('Bloqueos: ' + ($result.Blockers -join ', '))
