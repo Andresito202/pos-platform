@@ -113,4 +113,17 @@ describe("P0 login Windows operator tools (static, non-executing gates)",()=>{
       .toBeLessThan(wrapper.indexOf('open(output,"wx")'));
   });
 
+
+  it("provides a read-only, operator-safe partial 006–016 reconciliation inspector",()=>{
+    const inspector=source("preprod-login-stage-status.ts");
+    expect(inspector).toContain("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    expect(inspector).toContain('client.query("ROLLBACK")');
+    expect(inspector).toContain("REQUIRES_MANUAL_RECONCILIATION");
+    expect(inspector).toContain("PARTIALLY_APPLIED");
+    expect(inspector).toContain("LOGIN_STAGE_NO_MUTATIONS_PERFORMED");
+    expect(inspector).not.toMatch(/await applyPostgres00[67]\(/);
+    expect(inspector).not.toMatch(/await applyCommercialMigrations\(/);
+    expect(inspector).not.toMatch(/\b(?:INSERT INTO|UPDATE platform\.|DELETE FROM|DROP DATABASE)\b/i);
+  });
+
 });
