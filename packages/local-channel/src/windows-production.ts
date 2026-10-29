@@ -93,15 +93,54 @@ function loadRootKey(dataDirectory: string, installationId: string, platform: No
   return key;
 }
 
+function decodeBase64Url(value: unknown, bytes: number): Buffer {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error("LOCAL_CHANNEL_SECRET_ENVELOPE_REJECTED");
+  }
+  const result = Buffer.from(value, "base64url");
+  if (result.length !== bytes || result.toString("base64url") !== value) {
+    result.fill(0);
+    throw new Error("LOCAL_CHANNEL_SECRET_ENVELOPE_REJECTED");
+  }
+  return result;
+}
+
 function readSecret(path: string, key: Buffer, context: string): Buffer {
-  if (lstatSync(path).isSymbolicLink()) throw new Error("secret file cannot be a symbolic link");
-  const value = JSON.parse(readFileSync(path, "utf8")) as EncryptedSecret;
-  if (value.version !== 1) throw new Error("unsupported secret envelope version");
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(value.iv, "base64url"));
-  decipher.setAAD(Buffer.from(context));
-  decipher.setAuthTag(Buffer.from(value.tag, "base64url"));
-  try { return Buffer.concat([decipher.update(Buffer.from(value.ciphertext, "base64url")), decipher.final()]); }
-  catch { throw new Error("secret envelope authentication failed"); }
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 96 || stat.size > 2048) {
+    throw new Error("LOCAL_CHANNEL_SECRET_FILE_REJECTED");
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error("LOCAL_CHANNEL_SECRET_ENVELOPE_REJECTED");
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("LOCAL_CHANNEL_SECRET_ENVELOPE_REJECTED");
+  }
+  const record = raw as Record<string, unknown>;
+  const fields = Object.keys(record).sort();
+  if (record.version !== 1 || fields.join(",") !== "ciphertext,iv,tag,version") {
+    throw new Error("LOCAL_CHANNEL_SECRET_ENVELOPE_REJECTED");
+  }
+  const iv = decodeBase64Url(record.iv, 12);
+  const tag = decodeBase64Url(record.tag, 16);
+  const ciphertext = decodeBase64Url(record.ciphertext, 32);
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAAD(Buffer.from(context));
+    decipher.setAuthTag(tag);
+    const secret = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    if (secret.length !== 32) { secret.fill(0); throw new Error("LOCAL_CHANNEL_SECRET_LENGTH_REJECTED"); }
+    return secret;
+  } catch {
+    throw new Error("LOCAL_CHANNEL_SECRET_AUTHENTICATION_FAILED");
+  } finally {
+    iv.fill(0);
+    tag.fill(0);
+    ciphertext.fill(0);
+  }
 }
 
 function writeSecret(dataDirectory: string, key: Buffer, context: string, secret: Buffer): void {
@@ -121,6 +160,7 @@ export interface ProductionDesktopProvisioning { readonly endpoint: string; read
 
 export function loadProductionDesktopProvisioning(environment: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): ProductionDesktopProvisioning {
   const dataDirectory = requireValue("POS_DATA_DIRECTORY", environment.POS_DATA_DIRECTORY);
+  if (!isAbsolute(dataDirectory)) throw new Error("LOCAL_CHANNEL_DATA_DIRECTORY_MUST_BE_ABSOLUTE");
   const installationId = requireValue("POS_INSTALLATION_ID", environment.POS_INSTALLATION_ID);
   const deviceId = requireValue("POS_DEVICE_ID", environment.POS_DEVICE_ID);
   const endpoint = resolveEndpoint(installationId, platform);
