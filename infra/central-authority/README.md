@@ -134,3 +134,18 @@ de Central y los archivos de provisión no se proporcionaron a esta consola;
 no se infiere que falten en todas las cuentas del sistema. No se reinició ni
 reconfiguró el servicio instalado. Sin URL, operador y material auténtico no se
 ejecutó un despliegue ni se certificó P0-07. CI permanece pendiente; no Actions.
+
+## P0 focalizado de login, sin dependencias de facturación
+
+Se añadió `pnpm --filter @pos-platform/central-authority run login:preflight`.
+Es de **solo lectura**, comprueba presencia de variables/archivos administrados
+de BUSINESS/GLOBAL y coincidencia TLS local con el perfil del proceso.
+No consulta PostgreSQL, no ejecuta el servidor, no imprime secretos y nunca
+certifica MFA humano, pertenencia/roles reales o SSA/SAS firmados por el operador.
+
+La prueba que precede al montaje real sigue exigiendo origen HTTPS aprobado,
+registro ELECTRON exacto, identidad D3, roles verificados, PostgreSQL de
+privilegios mínimos y raíces independientes. Ninguna ausencia se suple
+con identidades aleatorias, `NODE_TLS_REJECT_UNAUTHORIZED=0`, bypass RLS
+o credenciales copiadas de laboratorio. El VPS y dominio comercial definitivos
+siguen fuera del P0 de implementación.
