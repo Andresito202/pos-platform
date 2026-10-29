@@ -134,6 +134,6 @@ export async function runPostgres005Smoke(adminUrl:string,expectedDatabase:strin
     await pool.end();
   }
   invariant(rolledBack,"005 RLS smoke rollback not confirmed");
-  invariant(assertions===16,"005 RLS smoke assertion count mismatch");
+  invariant(assertions===17,"005 RLS smoke assertion count mismatch");
   return assertions;
 }
