@@ -203,7 +203,23 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
 
-  if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){await commercialHandler(request,response);return;}
+  if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){
+    try{
+      await commercialHandler(request,response);
+    }catch{
+      // An asynchronous BUSINESS handler failure must never escape the HTTPS
+      // request listener or disclose password, code, token or key material.
+      // A partially written response cannot safely be replaced with JSON.
+      if(response.headersSent){
+        if(!response.writableEnded)response.destroy();
+      }else if(!response.destroyed){
+        send(response,500,{status:"REJECTED",result_code:"COMMERCIAL_REQUEST_FAILED",
+          request_id:requestId,correlation_id:correlationId});
+      }
+      process.stderr.write("CENTRAL_COMMERCIAL_REQUEST_FAILED\n");
+    }
+    return;
+  }
   if(request.url?.split("?",1)[0]===FACTUS_PAY_COLLECTION_WEBHOOK_PATH){
     if(!factusPayHandler){send(response,503,{status:"REJECTED",result_code:"FACTUS_PAY_NOT_PROVISIONED"});return;}
     await factusPayHandler(request,response);return;
