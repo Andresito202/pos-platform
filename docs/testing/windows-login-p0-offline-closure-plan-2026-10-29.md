@@ -114,3 +114,10 @@ Se añadieron correcciones sobre las rutas de producción existentes, sin habili
 4. PR #99 sigue DRAFT. No se ha ejecutado tsc/Vitest del incremento actual, no se han aplicado 006–016, no se ha encendido Windows ni aprovisionado Central, y no se ha certificado un login humano.
 
 Criterio final: las rutas BUSINESS deben fallar cerrado sin filtrar secretos, Electron no debe mantener un canal autorizado tras fallar el arranque, y se debe demostrar autenticación MFA física, DeviceProof, SSA/SAS y RBAC con una identidad humana legítima. WinSW multiusuario queda como hito arquitectónico separado.
+
+
+### Cierre del fallo fatal de arranque Electron
+
+Se ajustó también apps/pos-desktop/src/production-entry.ts: si falla el arranque autenticado no imprime la excepción original (que podría incluir rutas, URL o datos de custodia), sino únicamente POS_DESKTOP_BOOTSTRAP_FAILED; borra el secreto del launcher, establece exitCode=1 y solicita app.quit() para no mantener una ventana huérfana. La regresión de Desktop comprueba estas invariantes. No cambia el handshake ni abre accesos comerciales.
+
+Este ajuste permanece en estado IMPLEMENTADO / PRUEBAS FÍSICAS PENDIENTES, junto con las demás correcciones.
