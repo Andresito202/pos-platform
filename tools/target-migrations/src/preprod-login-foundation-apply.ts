@@ -21,6 +21,7 @@ import {applyPostgres007} from "./postgres-007-runner.js";
 import {runPostgres006Smoke,runPostgres007Smoke} from "./postgres-006-007-smoke.js";
 import {canonicalJson} from "./postgres-003-role-readiness.js";
 import {readArtifact,sha256} from "./shared.js";
+import {assertPinnedPreprodLoginArtifact} from "./preprod-login-sql-lock.js";
 
 if(process.argv.length!==3||process.argv[2]!=="--apply-foundation-006-007")
   throw Error("LOGIN_FOUNDATION_EXPLICIT_OPERATOR_APPROVAL_REQUIRED");
@@ -49,6 +50,11 @@ const dbName="camacho_pos_preprod",environment="camacho-pos-windows-preprod";
 const d005=sha256(await readArtifact(POSTGRES_005_DESCRIPTOR.upArtifact)).toString("hex");
 const d006=sha256(await readArtifact(POSTGRES_006_DESCRIPTOR.upArtifact)).toString("hex");
 const d007=sha256(await readArtifact(POSTGRES_007_DESCRIPTOR.upArtifact)).toString("hex");
+for(const [id,hash] of [
+  [POSTGRES_005_DESCRIPTOR.migrationId,d005],
+  [POSTGRES_006_DESCRIPTOR.migrationId,d006],
+  [POSTGRES_007_DESCRIPTOR.migrationId,d007],
+] as const)assertPinnedPreprodLoginArtifact(id,hash);
 if(d005!=="4cc95c0fd293c75305c672d2b7b5e958d80a687fc5e0b736d5233272665f8387")
   throw Error("LOGIN_FOUNDATION_APPROVED_005_ARTIFACT_CHANGED");
 const receipt005=JSON.parse(readFileSync(previous,"utf8")) as {
