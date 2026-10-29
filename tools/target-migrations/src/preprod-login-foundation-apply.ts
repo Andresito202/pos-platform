@@ -91,11 +91,11 @@ async function inspect(stage:"BEFORE"|"AFTER",
   try{
     await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
     begun=true;
-    const identity=(await client.query<{db:string;role:string;session_user:string;ssl:boolean;ro:string}>(
-      "SELECT current_database() db,current_user role,session_user,"+
+    const identity=(await client.query<{db:string;login_role:string;session_user:string;ssl:boolean;ro:string}>(
+      "SELECT current_database() db,current_user AS login_role,session_user,"+
       "(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) ssl,"+
       "current_setting('transaction_read_only') ro")).rows[0];
-    if(identity?.db!==dbName||identity.role!=="pos_migrator"||
+    if(identity?.db!==dbName||identity.login_role!=="pos_migrator"||
        identity.session_user!=="pos_migrator"||identity.ssl!==true||identity.ro!=="on")
       throw Error("LOGIN_FOUNDATION_IDENTITY_TLS_INVALID");
     await client.query("SET LOCAL ROLE pos_schema_owner");
