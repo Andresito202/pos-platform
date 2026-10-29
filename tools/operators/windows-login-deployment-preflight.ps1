@@ -6,7 +6,7 @@ Examines only the invoking PowerShell process and Windows service registry.
 Presence of a variable is not proof that a service uses or trusts its contents.
 #>
 [CmdletBinding()]
-param([switch]$Json)
+param([switch]$Json, [switch]$Interactive)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -77,7 +77,7 @@ $processEligible = $currentIdentity.IsAuthenticated -and -not $currentIdentity.I
 if (-not $processEligible) { [void]$blocks.Add('CURRENT_PROCESS_NOT_INTERACTIVE_HOST') }
 
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if (-not $service) { [void]$blocks.Add('WINDOWS_SERVICE_NOT_REGISTERED') }
+if (-not $service -and -not $Interactive) { [void]$blocks.Add('WINDOWS_SERVICE_NOT_REGISTERED') }
 $accountModel = 'UNKNOWN'
 if ($service) {
   try {
@@ -100,7 +100,13 @@ if ($service) {
 # - named pipe DACL uses the server's own S-1-5-5-* logon SID.
 # Interactive Electron has a different Windows logon context. An installer
 # cannot make that channel work merely by setting environment variables.
-[void]$blocks.Add('SCM_INTERACTIVE_CHANNEL_HANDOFF_NOT_IMPLEMENTED')
+if (-not $Interactive) { [void]$blocks.Add('SCM_INTERACTIVE_CHANNEL_HANDOFF_NOT_IMPLEMENTED') }
+
+# Either a signed installer artifact or the authenticated Central trust transport
+# is required to bootstrap SSA for a commercial interactive session.
+$ssaSources = @('POS_SESSION_TRUST_ARTIFACT_PATH','POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE')
+$ssaDistributionPresent = @($observed | Where-Object { $_.Variable -in $ssaSources -and $_.Process -and $_.FileExistsInProcess -eq $true }).Count -gt 0
+if (-not $ssaDistributionPresent) { [void]$blocks.Add('SSA_TRUST_DISTRIBUTION_NOT_CONFIGURED') }
 
 $filesAbsent = @($observed | Where-Object {
   $_.Variable -in $managedFiles -and $_.Process -and $_.FileExistsInProcess -eq $false
@@ -110,7 +116,8 @@ if ($filesAbsent.Count -gt 0) {
 }
 
 $result = [pscustomobject]@{
-  Scope='READ_ONLY_CURRENT_WINDOWS_PROCESS'
+  Scope=if ($Interactive) { 'READ_ONLY_INTERACTIVE_LOGIN_CONFIGURATION' } else { 'READ_ONLY_CURRENT_WINDOWS_PROCESS' }
+  HostMode=if ($Interactive) { 'INTERACTIVE_SAME_LOGON' } else { 'SCM_SERVICE' }
   ServiceRegistered=($null -ne $service)
   ServiceState=if ($service) { [string]$service.Status } else { 'NOT_REGISTERED' }
   ServiceAccountModel=$accountModel
@@ -120,18 +127,22 @@ $result = [pscustomobject]@{
   MissingReferencedFileNames=$filesAbsent
   ScmCommercialLoginReady=$false
   HumanLoginCertified=$false
+  ConfigurationPresenceOnly=($blocks.Count -eq 0)
+  ScmLimitations=@('SCM_INTERACTIVE_CHANNEL_HANDOFF_NOT_IMPLEMENTED')
   Blockers=@($blocks.ToArray())
 }
 if ($Json) {
   $result | ConvertTo-Json -Depth 6
 } else {
   Write-Output 'CAMACHO POS - Login P0 - diagnostico SIN CAMBIOS'
-  Write-Output ('Servicio: ' + $result.ServiceState)
+  Write-Output ('Modo preflight: ' + $result.HostMode)
+  Write-Output ('Servicio SCM: ' + $result.ServiceState)
   Write-Output ('Cuenta SCM: ' + $accountModel)
   Write-Output ('Contexto interactivo de este PowerShell: ' + [string]$result.CurrentProcessInteractiveEligible)
   $observed | Format-Table Variable,Process,User,Machine,FileExistsInProcess -AutoSize | Out-String |
     Write-Output
-  Write-Output ('Bloqueos: ' + ($result.Blockers -join ', '))
+  Write-Output ('Bloqueos del modo seleccionado: ' + ($result.Blockers -join ', '))
+  if ($Interactive) { Write-Output 'WinSW comercial permanece sin interop certificada; no es requisito del host interactivo.' }
   Write-Output 'Los estados de presencia no autorizan login, creacion de usuarios ni acceso al dashboard.'
 }
 if ($blocks.Count -gt 0) { exit 2 }
