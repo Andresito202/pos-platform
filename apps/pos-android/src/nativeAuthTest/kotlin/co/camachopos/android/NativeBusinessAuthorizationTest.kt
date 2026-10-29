@@ -41,5 +41,13 @@ fun main(){
         val pending=AndroidPendingBusinessAuthorization(prepared,1000);val state=query(pending.begin())["state"]!!
         check(pending.consume(prepared.callback+"?code="+"c".repeat(64)+"&state="+state)!=null)
     }
-    println("ANDROID_NATIVE_AUTH_CONTRACTS: $passed/12 PASS (JVM; no device, network or session activation)")
+    test {
+        val expired=OperationalLicenseInformation("EXPIRED","2026-10-28T00:00:00Z","2026-10-27T00:00:00Z")
+        check(expired.title()=="Licencia vencida")
+        check(expired.message()=="El acceso a nuevas ventas está suspendido según las condiciones de tu licencia. La renovación se gestiona en camachoposcolombia.com.")
+        check(!expired.message().contains("https://")&&!expired.message().contains("http://"))
+        check(OperationalLicenseInformation.unverified().title()=="Licencia sin verificar")
+        check(OperationalLicenseInformation("CURRENT").message().contains("sin vencimiento de uso"))
+    }
+    println("ANDROID_NATIVE_AUTH_CONTRACTS: $passed/13 PASS (JVM; no device, network or session activation)")
 }

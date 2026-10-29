@@ -82,3 +82,22 @@ it("capacity: audit failure rolls activation back; legacy/malformed trust never 
   expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_CAPACITY_UNAVAILABLE");
   expect(()=>readLicenseCapacityProvision("relative.json")).toThrow();
 });
+
+it("information: signed expiry, accepted renewal, suspension and company isolation; reading never grants or renews",()=>{
+  const f=fixture();expect(f.gate().information(scope).status).toBe('UNVERIFIED');
+  expect(f.db.native.prepare('SELECT count(*) AS n FROM local_license_activation_state').get()).toEqual({n:0});
+  expect(f.gate().authorize(scope,id(8))).toBeNull();
+  const audits=()=>f.db.native.prepare("SELECT count(*) AS n FROM local_security_audit WHERE event_type='LICENSE_CAPACITY_ACCEPTED'").get();
+  expect(f.gate().information(scope)).toMatchObject({status:'CURRENT',signedValidUntil:f.claims.expires_at});expect(audits()).toEqual({n:1});
+  expect(f.gate().information({...scope,companyId:id(99)}).status).toBe('UNVERIFIED');
+  f.setTime('2026-10-27T00:00:00.001Z');expect(f.gate().information(scope).status).toBe('EXPIRED');
+  expect(f.gate().authorize(scope,id(8))).toBe('LICENSE_EXPIRED');
+  const renewed={...f.claims,license_version:2,expires_at:'2026-11-27T00:00:00Z'};f.save(f.provision(renewed));
+  expect(f.gate().information(scope).status).toBe('UNVERIFIED');expect(audits()).toEqual({n:1});
+  expect(f.gate().authorize(scope,id(8))).toBeNull();expect(f.gate().information(scope).status).toBe('CURRENT');expect(audits()).toEqual({n:2});
+  const altered=f.provision(structuredClone(renewed));altered.artifact.claims.plan_version=99;f.save(altered);expect(f.gate().information(scope).status).toBe('UNVERIFIED');
+  f.save(f.provision(renewed));new LocalSecurityLifecycle(f.db).suspendLicense(f.claims.license_id,'test operator');
+  expect(f.gate().information(scope).status).toBe('SUSPENDED');expect(f.gate().authorize(scope,id(8))).toBe('LICENSE_SUSPENDED');
+  f.restart();expect(f.gate().information(scope).status).toBe('SUSPENDED');
+  new LocalSecurityLifecycle(f.db).revokeLicense(f.claims.license_id,'test operator revocation');expect(f.gate().information(scope).status).toBe('REVOKED');
+});

@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+2026-10-28: decisión del propietario — Android exclusivamente operativo; contratación, precios, pagos y renovación de licencias y administración GLOBAL permanecen en la web. [Separación Android y estado informativo](../testing/android-operational-only-2026-10-28.md). No convierte el probe en APK comercial ni aprueba Play, SEC-004 o un login ficticio.
+
 2026-10-26: [cierre técnico Windows](../testing/windows-login-closure-2026-10-26.md).
 Montaje Central canónico, entrada Electron main y logout nativo materializados y
 probados localmente. Sustituye las menciones inferiores a esos huecos pendientes;

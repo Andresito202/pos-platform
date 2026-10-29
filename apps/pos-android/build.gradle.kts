@@ -33,6 +33,10 @@ val nativeAuthTest by sourceSets.creating {
     compileClasspath += runtime.output + runtime.compileClasspath
     runtimeClasspath += output + compileClasspath + configurations.runtimeClasspath.get()
 }
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileNativeAuthTestKotlin") {
+    // Test-only access to internal DTO constructors; production visibility stays closed.
+    compilerOptions.freeCompilerArgs.add(provider { "-Xfriend-paths="+runtime.output.classesDirs.files.joinToString(",") { it.absolutePath } })
+}
 tasks.register<JavaExec>("nativeAuthContractsTest") {
     dependsOn(nativeAuthTest.classesTaskName)
     classpath=nativeAuthTest.runtimeClasspath

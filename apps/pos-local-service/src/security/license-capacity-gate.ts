@@ -47,6 +47,10 @@ export function parseLicenseCapacityKeys(input:unknown){
 }
 
 export type CashRegisterLicenseGate = (scope: SyncScope, registerId: string) => string | null;
+export interface OperationalLicenseInformation {
+  status:"UNVERIFIED"|"CURRENT"|"EXPIRED"|"SUSPENDED"|"REVOKED";
+  signedValidUntil:string|null;lastAcceptedLocalCheck:string|null;evaluatedAt:string|null;
+}
 
 /** Existing activation and append-only audit owners. Re-verifies signature/time
  * per operation. The high-water mark survives restart; no local slot allocation. */
@@ -54,6 +58,26 @@ export class LicenseCapacityGate {
   constructor(private readonly database: LocalDatabase,
     private readonly load: () => { artifact: unknown; keys: ReadonlyMap<string, TrustedSigningKey> },
     private readonly now: () => Date = () => new Date()) {}
+
+  /** Read model only: does not activate a license, accept a new version, renew,
+   * authorize a sale, contact a provider or infer offline/subscription grace.
+   * Only a locally accepted, still authentic artifact can inform this view. */
+  information(scope:SyncScope):OperationalLicenseInformation{
+    const unknown:OperationalLicenseInformation={status:"UNVERIFIED",signedValidUntil:null,lastAcceptedLocalCheck:null,evaluatedAt:null};
+    try{
+      const {artifact,keys}=this.load(),result=new LicenseVerifier(keys,new TrustedClockGuard(this.database),this.now).verifyCapacity(artifact,scope,true),c=result.claims;
+      if(!c||!["VALID","EXPIRED"].includes(result.decision)||c.tenant_id!==scope.tenantId||c.company_id!==scope.companyId)return unknown;
+      const accepted=this.database.native.prepare(`SELECT details_json,created_at FROM local_security_audit
+        WHERE event_type='LICENSE_CAPACITY_ACCEPTED' AND subject_id=? ORDER BY sequence DESC LIMIT 1`).get(scope.installationId) as {details_json:string;created_at:string}|undefined;
+      if(!accepted)return unknown;
+      const previous=JSON.parse(accepted.details_json),digest=createHash("sha256").update(canonicalJson(c)).digest("hex");
+      if(previous.license_id!==c.license_id||previous.version!==c.license_version||previous.digest!==digest)return unknown;
+      const activation=this.database.native.prepare('SELECT status FROM local_license_activation_state WHERE license_id=?').get(c.license_id) as {status:string}|undefined;
+      const revoked=this.database.native.prepare("SELECT 1 FROM local_security_audit WHERE event_type='LICENSE_CAPACITY_REVOCATION_ACCEPTED' AND subject_id=? LIMIT 1").get(c.license_id);
+      const status=revoked||activation?.status==='REVOKED'?'REVOKED':activation?.status==='SUSPENDED'?'SUSPENDED':activation?.status==='ACTIVE'?result.decision==='EXPIRED'?'EXPIRED':'CURRENT':'UNVERIFIED';
+      return {status,signedValidUntil:c.expires_at,lastAcceptedLocalCheck:accepted.created_at,evaluatedAt:result.evaluatedAt};
+    }catch{return unknown;}
+  }
 
   authorize(scope: SyncScope, registerId: string): string | null {
     try {

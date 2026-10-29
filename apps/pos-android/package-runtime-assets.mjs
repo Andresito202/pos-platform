@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { cpSync,existsSync,mkdirSync,readdirSync,readFileSync,statSync,writeFileSync } from "node:fs";
 import { dirname,join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {verifyAndroidOperationalBundle} from "./operational-boundary.mjs";
 const project=dirname(fileURLToPath(import.meta.url)),root=join(project,"build/runtime-root"),assets=join(project,"build/runtime-assets/runtime");
+verifyAndroidOperationalBundle(root);
 mkdirSync(assets,{recursive:true});
-for(const path of ["bin","lib","node_modules","share","runtime-probe.mjs","runtime-service.mjs"]) {
+for(const path of ["bin","lib","node_modules","share","runtime-probe.mjs","runtime-service.mjs","android-operational-boundary.json"]) {
   if(!existsSync(join(root,path)))throw new Error("COMPILED_RUNTIME_REQUIRED: "+path);
   cpSync(join(root,path),join(assets,path),{recursive:true,dereference:true});
 }

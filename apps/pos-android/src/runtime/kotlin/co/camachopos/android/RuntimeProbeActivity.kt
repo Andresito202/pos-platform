@@ -3,6 +3,9 @@ package co.camachopos.android
 import android.app.Activity
 import android.os.Bundle
 import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.util.Log
 import android.widget.Button
 import android.widget.LinearLayout
@@ -18,6 +21,13 @@ class RuntimeProbeActivity : Activity() {
     private lateinit var output:TextView
     private lateinit var button:Button
     private val executor=Executors.newSingleThreadExecutor()
+    private var localBinder:LocalRuntimeService.LocalBinder?=null
+    private var bound=false
+    private lateinit var licenseStatus:OperationalLicenseStatusView
+    private val connection=object:ServiceConnection{
+        override fun onServiceConnected(name:ComponentName,binder:IBinder){localBinder=binder as LocalRuntimeService.LocalBinder;licenseStatus.show(localBinder!!.licenseInformation())}
+        override fun onServiceDisconnected(name:ComponentName){localBinder=null;licenseStatus.show(OperationalLicenseInformation.unverified())}
+    }
     override fun onCreate(state:Bundle?) {
         super.onCreate(state)
         val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(24,24,24,24) }
@@ -28,6 +38,11 @@ class RuntimeProbeActivity : Activity() {
         control("Iniciar servicio local sin aprovisionar") { startForegroundService(Intent(this,LocalRuntimeService::class.java));output.text="Iniciando servicio local. Acceso comercial bloqueado." }
         control("Estado del servicio local") { val file=File(filesDir,"android-service-status.json");output.text=if(file.isFile)file.readText() else "Servicio no iniciado" }
         control("Detener servicio local") { startService(Intent(this,LocalRuntimeService::class.java).setAction("co.camachopos.android.STOP")) }
+        licenseStatus=OperationalLicenseStatusView(this){
+            if(localBinder!=null)licenseStatus.show(localBinder!!.licenseInformation())
+            else if(!bound){bound=bindService(Intent(this,LocalRuntimeService::class.java),connection,0);if(!bound)licenseStatus.show(OperationalLicenseInformation.unverified())}
+        }
+        layout.addView(licenseStatus)
         layout.addView(output);setContentView(ScrollView(this).apply { addView(layout) })
     }
     private fun runProbe() {
@@ -56,5 +71,5 @@ class RuntimeProbeActivity : Activity() {
             }finally{runOnUiThread { button.isEnabled=true }}
         }
     }
-    override fun onDestroy() { executor.shutdown();super.onDestroy() }
+    override fun onDestroy() { if(bound)unbindService(connection);localBinder=null;executor.shutdown();super.onDestroy() }
 }

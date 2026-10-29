@@ -25,6 +25,12 @@ class LocalRuntimeService:Service() {
     @Volatile private var status="{\"state\":\"STARTING\",\"commercial_access\":\"BLOCKED_PENDING_TRUSTED_PROVISIONING\"}"
     inner class LocalBinder:Binder() {
         fun status():String { check(Binder.getCallingUid()==AndroidProcess.myUid());return status }
+        /** Foundation has no installed commercial trust. Never infer expiry,
+         * grace, renewal or a license from the successful SQLite probe. */
+        fun licenseInformation():OperationalLicenseInformation {
+            check(Binder.getCallingUid()==AndroidProcess.myUid())
+            return OperationalLicenseInformation.unverified()
+        }
         fun stop() { check(Binder.getCallingUid()==AndroidProcess.myUid());requestStop() }
         fun takeBusinessAuthorizationCode():AndroidPendingBusinessAuthorization.Exchange? {
             check(Binder.getCallingUid()==AndroidProcess.myUid())
