@@ -30,6 +30,8 @@ function runWindowsIdentityInspection(script: string): CommandResult {
     windowsHide: true,
     encoding: "utf8",
     maxBuffer: 4096,
+    timeout: 15_000,
+    killSignal: "SIGKILL",
   });
 }
 
