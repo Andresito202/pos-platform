@@ -18,6 +18,7 @@ import {POSTGRES_006_DESCRIPTOR,LICENSING_006_TABLES} from "./postgres-006-contr
 import {POSTGRES_007_DESCRIPTOR,PASSWORD_RECOVERY_007_TABLES} from "./postgres-007-contract.js";
 import {applyPostgres006} from "./postgres-006-runner.js";
 import {applyPostgres007} from "./postgres-007-runner.js";
+import {runPostgres006Smoke,runPostgres007Smoke} from "./postgres-006-007-smoke.js";
 import {canonicalJson} from "./postgres-003-role-readiness.js";
 import {readArtifact,sha256} from "./shared.js";
 
@@ -171,6 +172,12 @@ if(applied007.result!=="APPLIED"||applied007.noOp||applied007.checksumHex!==d007
   throw Error("LOGIN_FOUNDATION_007_NO_RETRY_RECONCILE_MANUALLY");
 await inspect("AFTER",applied006.executionId,applied007.executionId);
 process.stdout.write("LOGIN_FOUNDATION_LEDGER_CATALOG_ACL: PASS\n");
+const sixRoleChecks=await runPostgres006Smoke(adminUrl,dbName);
+const sevenRoleChecks=await runPostgres007Smoke(adminUrl,dbName);
+if(sixRoleChecks!==132||sevenRoleChecks!==36)
+  throw Error("LOGIN_FOUNDATION_INDEPENDENT_ROLE_SMOKE_FAILED_NO_RETRY");
+process.stdout.write("LOGIN_FOUNDATION_006_ROLE_ACL_ASSERTIONS: "+sixRoleChecks+"\n");
+process.stdout.write("LOGIN_FOUNDATION_007_ROLE_ACL_ASSERTIONS: "+sevenRoleChecks+"\n");
 const payload={
   receipt_version:1,
   migrations:[
@@ -180,7 +187,9 @@ const payload={
   predecessor_005_execution_id:p.execution_id,
   repository_commit:commit,
   target:{environment_id:environment,database_name:dbName,postgres_version_num:"160014"},
-  verified:"LEDGER_OWNER_FORCED_RLS_AND_ROLE_ACL",
+  verified:"LEDGER_OWNER_FORCED_RLS_AND_REAL_ROLE_SMOKE",
+  role_acl_assertions_006:sixRoleChecks,
+  role_acl_assertions_007:sevenRoleChecks,
 };
 const digest=sha256(canonicalJson(payload)).toString("hex");
 const file=await open(output,"wx");
