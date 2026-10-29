@@ -73,7 +73,7 @@ export class SqliteReplayStateStore implements LocalChannelReplayStateStore {
  */
 export class SqliteWindowsHandoffLeaseAuthority
   implements LocalChannelReplayStateStore, WindowsHandoffRevocationAuthority {
-  private pending: {sessionId:string;expiresAt:string;leaseId:string}|undefined;
+  private pending: {sessionId:string;expiresAt:string;leaseId:string;authorizedAt:number}|undefined;
   private readonly replay:SqliteReplayStateStore;
 
   constructor(
@@ -117,7 +117,7 @@ export class SqliteWindowsHandoffLeaseAuthority
       throw Error("HANDOFF_LEASE_NOT_AUTHORIZED");
     }
     this.pending={sessionId:windowsHandoffReplaySessionId(input.leaseId),
-      expiresAt:input.expiresAt,leaseId:input.leaseId};
+      expiresAt:input.expiresAt,leaseId:input.leaseId,authorizedAt:now.getTime()};
   }
 
   accept(input:ReplayAcceptance):void{
@@ -127,10 +127,18 @@ export class SqliteWindowsHandoffLeaseAuthority
     if(!pending||input.sessionId!==pending.sessionId||input.expiresAt!==pending.expiresAt||
       input.sequence!==1)throw Error("HANDOFF_LEASE_NOT_AUTHORIZED");
     this.database.native.transaction(()=>{
-      if(this.isRevoked(pending.leaseId,new Date(input.evaluatedAt))){
+      // Authorization precedes native DPAPI work. Recheck the Service clock
+      // at consumption; a receipt timestamp cannot extend a lease or prune
+      // still-live replay/revocation records. A failed attempt burns pending.
+      const now=this.clock(),time=now.getTime();
+      if(!Number.isFinite(time)||time<pending.authorizedAt||
+        time<Date.parse(this.approved.not_before)||time>=Date.parse(pending.expiresAt)){
+        throw Error("HANDOFF_LEASE_NOT_AUTHORIZED");
+      }
+      if(this.isRevoked(pending.leaseId,now)){
         throw Error("HANDOFF_LEASE_REVOKED");
       }
-      this.replay.accept(input);
+      this.replay.accept({...input,evaluatedAt:now.toISOString()});
     })();
   }
 

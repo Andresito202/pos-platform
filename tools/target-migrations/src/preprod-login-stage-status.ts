@@ -111,7 +111,7 @@ try{
       throw Error("LOGIN_STAGE_001_005_BASELINE_INVALID");
   }
   const stored005=rows.find(x=>x.migration_id===POSTGRES_005_DESCRIPTOR.migrationId);
-  if(stored005?.execution_id!==p.execution_id||
+  if(!stored005||stored005.execution_id!==p.execution_id||
      !stored005.body_committed||!stored005.smoke_verified)
     throw Error("LOGIN_STAGE_005_RECEIPT_LEDGER_MISMATCH");
   let completed=0,missing=0,unhealthy=0;

@@ -68,14 +68,15 @@ const receipt=JSON.parse(readFileSync(prior,"utf8")) as {
   receipt_sha256?:string;
 };
 const p=receipt.receipt_payload;
-if(!p||p.receipt_version!==1||p.migrations?.length!==2||
+if(!p||p.receipt_version!==1||!p.migrations||p.migrations.length!==2||
    p.target?.environment_id!==environment||p.target.database_name!==database||
    p.target.postgres_version_num!=="160014"||
    receipt.receipt_sha256!==sha256(canonicalJson(p)).toString("hex"))
   throw Error("LOGIN_AUTHENTICATION_FOUNDATION_RECEIPT_INVALID");
+const foundationMigrations=p.migrations;
 for(let i=0;i<2;i++){
-  const got=p.migrations?.[i],expected=hashes[i+1];
-  if(!got||got.migration_id!==expected?.id||got.artifact_sha256!==expected.hash||
+  const got=foundationMigrations[i],expected=hashes[i+1];
+  if(!got||!expected||got.migration_id!==expected.id||got.artifact_sha256!==expected.hash||
      !/^[a-f0-9-]{36}$/.test(got.execution_id??""))
     throw Error("LOGIN_AUTHENTICATION_FOUNDATION_RECEIPT_DIVERGED");
 }
@@ -116,7 +117,7 @@ async function verify(stage:"BEFORE"|"AFTER",results?:readonly {migrationId:stri
          rows[0].checksum_hex!==predecessor.hash)
         throw Error("LOGIN_AUTHENTICATION_FOUNDATION_LEDGER_INVALID");
     }
-    for(const [i,record] of p.migrations!.entries()){
+    for(const [i,record] of foundationMigrations.entries()){
       if(ledger.find(x=>x.migration_id===hashes[i+1]?.id)?.execution_id!==record.execution_id)
         throw Error("LOGIN_AUTHENTICATION_FOUNDATION_RECEIPT_LEDGER_MISMATCH");
     }

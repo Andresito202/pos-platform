@@ -57,6 +57,55 @@ afterEach(()=>{
 });
 
 describe("Service-owned SQLite candidate handoff lease ledger",()=>{
+  it.each([60_000,60_001])("rejects a pending consumption after %i ms even with an old receipt timestamp",elapsed=>{
+    const {db}=open(),leaseId="f".repeat(64);
+    let now=at;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>now);
+    ledger.assertActive(scope(leaseId));
+    now=new Date(at.getTime()+elapsed);
+    expect(()=>ledger.accept(receipt(leaseId))).toThrow("HANDOFF_LEASE_NOT_AUTHORIZED");
+    expect(db.native.prepare("SELECT count(*) AS count FROM local_channel_replay_state").get()).toEqual({count:0});
+  });
+
+  it("rejects clock rollback between authorization and consumption",()=>{
+    const {db}=open(),leaseId="e".repeat(64);
+    let now=at;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>now);
+    ledger.assertActive(scope(leaseId));
+    now=new Date(at.getTime()-1);
+    expect(()=>ledger.accept(receipt(leaseId))).toThrow("HANDOFF_LEASE_NOT_AUTHORIZED");
+    now=at;
+    expect(()=>ledger.accept(receipt(leaseId))).toThrow("HANDOFF_LEASE_NOT_AUTHORIZED");
+  });
+
+  it("rejects an invalid host clock at consumption",()=>{
+    const {db}=open(),leaseId="f".repeat(64);
+    let now=at;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>now);
+    ledger.assertActive(scope(leaseId));
+    now=new Date(NaN);
+    expect(()=>ledger.accept(receipt(leaseId))).toThrow("HANDOFF_LEASE_NOT_AUTHORIZED");
+  });
+
+  it("uses the Service clock rather than the receipt timestamp to prune replay records",()=>{
+    const {db}=open(),leaseId="e".repeat(64),other=windowsHandoffReplaySessionId("f".repeat(64));
+    db.native.prepare("INSERT INTO local_channel_replay_state(session_id,highest_sequence,expires_at) VALUES (?,1,?)")
+      .run(other,new Date(at.getTime()+10_000).toISOString());
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at);
+    ledger.assertActive(scope(leaseId));
+    ledger.accept({...receipt(leaseId),evaluatedAt:new Date(at.getTime()+30_000).toISOString()});
+    expect(db.native.prepare("SELECT highest_sequence FROM local_channel_replay_state WHERE session_id = ?").get(other))
+      .toEqual({highest_sequence:1});
+  });
+
+  it("rechecks revocation made by another authority between authorization and consumption",()=>{
+    const {db}=open(),leaseId="f".repeat(64);
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at);
+    ledger.assertActive(scope(leaseId));
+    new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at).revoke(leaseId);
+    expect(()=>ledger.accept(receipt(leaseId))).toThrow("HANDOFF_LEASE_REVOKED");
+  });
+
   it("persists one-use receipt across a real SQLite close and reopen",()=>{
     const {db,dir}=open(),leaseId="a".repeat(64);
     const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at);

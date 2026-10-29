@@ -141,7 +141,7 @@ if(mode==="--manifest"){
         throw Error("LOGIN_SCHEMA_PREDECESSOR_LEDGER_INVALID");
     }
     const row005=ledger.find(row=>row.migration_id===POSTGRES_005_DESCRIPTOR.migrationId);
-    if(row005?.execution_id!==p.execution_id||!row005.body_committed||!row005.smoke_verified)
+    if(!row005||row005.execution_id!==p.execution_id||!row005.body_committed||!row005.smoke_verified)
       throw Error("LOGIN_SCHEMA_005_RECEIPT_LEDGER_MISMATCH");
     if(ledger.some(row=>expectedIds.slice(5).includes(row.migration_id as never)))
       throw Error("LOGIN_SCHEMA_FUTURE_LEDGER_PRESENT_RECONCILIATION_REQUIRED");

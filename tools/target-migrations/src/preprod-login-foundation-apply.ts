@@ -72,6 +72,7 @@ if(!p||p.receipt_version!==1||p.migration_id!==POSTGRES_005_DESCRIPTOR.migration
    p.target.postgres_version_num!=="160014"||
    receipt005.receipt_sha256!==sha256(canonicalJson(p)).toString("hex"))
   throw Error("LOGIN_FOUNDATION_005_RECEIPT_INVALID");
+const predecessorExecutionId=p.execution_id;
 function roleUrl(role:"pos_migrator"|"pos_platform_admin"):string{
   const url=new URL("postgresql://127.0.0.1:55435/camacho_pos_preprod");
   url.username=role;
@@ -113,7 +114,7 @@ async function inspect(stage:"BEFORE"|"AFTER",
     const only=(id:string)=>records.filter(row=>row.migration_id===id);
     const row005=only(POSTGRES_005_DESCRIPTOR.migrationId);
     if(row005.length!==1||row005[0]?.status!=="APPLIED"||
-       row005[0].checksum_hex!==d005||row005[0].execution_id!==p.execution_id)
+       row005[0].checksum_hex!==d005||row005[0].execution_id!==predecessorExecutionId)
       throw Error("LOGIN_FOUNDATION_PREDECESSOR_005_MISMATCH");
     if(stage==="BEFORE"){
       if(only(POSTGRES_006_DESCRIPTOR.migrationId).length!==0||
