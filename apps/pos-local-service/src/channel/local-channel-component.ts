@@ -38,6 +38,7 @@ export class LocalChannelComponent implements RuntimeComponent {
   private server: LocalChannelServer | undefined;
   private authenticator: LocalChannelAuthenticator | undefined;
   private unregisterSessionCloser:(()=>void)|undefined;
+  private startupToken: symbol | undefined;
   private readonly commercialHandler: CommercialRequestHandler;
 
   constructor(
@@ -54,7 +55,9 @@ export class LocalChannelComponent implements RuntimeComponent {
   }
 
   async start(): Promise<void> {
-    if(this.server||this.authenticator||this.unregisterSessionCloser)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
+    if(this.server||this.authenticator||this.unregisterSessionCloser||this.startupToken)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
+    const startupToken=Symbol("local-channel-start");
+    this.startupToken=startupToken;
     if (process.platform !== "win32") {
       throw new Error("production local channel requires Windows");
     }
@@ -90,16 +93,22 @@ export class LocalChannelComponent implements RuntimeComponent {
         finally{for(const id of connections){if(id===initiator)server.retireConnection(id);else server.disconnectConnection(id);}}
       });
       await server.start();
+      if(this.startupToken!==startupToken)throw Error("LOCAL_CHANNEL_START_CANCELLED");
       this.authenticator = authenticator;
       this.server = server;
     } catch (error) {
       this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
-      try{await scmTransport?.stop();}finally{authenticator.destroy();}
+      try{await server.stop();}finally{
+        try{await scmTransport?.stop();}finally{authenticator.destroy();}
+      }
       throw error;
+    } finally {
+      if(this.startupToken===startupToken)this.startupToken=undefined;
     }
   }
 
   async stop(): Promise<void> {
+    this.startupToken=undefined;
     this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
     this.nativeCommercial?.stop();
     const server = this.server;
