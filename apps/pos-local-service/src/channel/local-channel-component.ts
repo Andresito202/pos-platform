@@ -56,8 +56,6 @@ export class LocalChannelComponent implements RuntimeComponent {
 
   async start(): Promise<void> {
     if(this.server||this.authenticator||this.unregisterSessionCloser||this.startupToken)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
-    const startupToken=Symbol("local-channel-start");
-    this.startupToken=startupToken;
     if (process.platform !== "win32") {
       throw new Error("production local channel requires Windows");
     }
@@ -87,6 +85,8 @@ export class LocalChannelComponent implements RuntimeComponent {
       scmTransport,
     );
 
+    const startupToken=Symbol("local-channel-start");
+    this.startupToken=startupToken;
     try {
       this.unregisterSessionCloser=this.commercial.registerNativeSessionCloser((connections,initiator)=>{
         try{scmTransport?.revokeConnections(connections,initiator);}
