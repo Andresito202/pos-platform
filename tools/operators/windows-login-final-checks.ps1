@@ -54,7 +54,9 @@ if ($IncludeIsolatedPostgres) {
         if ($parsed.AbsolutePath -ne '/postgres') { throw 'LOGIN_LAB_ADMIN_DATABASE_REQUIRED' }
         $inspection=& docker inspect target-migrations-postgres-1
         if($LASTEXITCODE -ne 0){throw 'LOGIN_LAB_CONTAINER_REQUIRED'}
-        $container=@($inspection | ConvertFrom-Json)[0]
+        $containers=ConvertFrom-Json -InputObject ($inspection -join [Environment]::NewLine)
+        if(@($containers).Count -ne 1){throw 'LOGIN_LAB_SINGLE_CONTAINER_REQUIRED'}
+        $container=$containers[0]
         if(-not $container.State.Running -or @($container.Mounts).Count -ne 0 -or
           -not $container.HostConfig.Tmpfs.PSObject.Properties['/var/lib/postgresql/data']) {
             throw 'LOGIN_LAB_REQUIRES_RUNNING_TMPFS_POSTGRES_WITHOUT_PERSISTENT_MOUNTS'
@@ -98,6 +100,29 @@ foreach ($relativePath in @(
 Write-Output ('P0 LOGIN - SHA tested: ' + $verifiedHead)
 $labReports=$null
 if($IsolatedLabOnly){
+    # A restarted tmpfs cluster has no roles. Reuse the canonical 001 runner in
+    # a fresh disposable DB instead of inventing role/grant SQL. This happens
+    # only after all Docker/URL/branch/clean-tree checks above have passed.
+    $bootstrap=@'
+import {randomBytes} from 'node:crypto';
+import {Pool} from 'pg';
+import {applyPostgres001} from './src/postgres.ts';
+const base=process.env.POSTGRES_TEST_URL;
+const url=new URL(base);
+if(!['postgres:','postgresql:'].includes(url.protocol)||url.hostname!=='127.0.0.1'||url.port!=='55433'||url.pathname!=='/postgres')throw Error('LOGIN_LAB_BOOTSTRAP_SCOPE_REJECTED');
+const name='pos_login_lab_bootstrap_'+randomBytes(8).toString('hex');
+const admin=new Pool({connectionString:base,max:1});let created=false;
+try{
+ await admin.query('CREATE DATABASE "'+name+'"');created=true;url.pathname='/'+name;
+ await applyPostgres001({adminUrl:url.href});
+ console.log('LAB_CANONICAL_ROLES_READY_NO_BUSINESS_IDENTITY');
+}finally{try{if(created)await admin.query('DROP DATABASE "'+name+'"');}finally{await admin.end();}}
+'@
+    Push-Location (Join-Path $root 'tools\target-migrations')
+    try {
+        $bootstrap | & node --import tsx --input-type=module
+        if($LASTEXITCODE -ne 0){throw 'LOGIN_LAB_CANONICAL_BOOTSTRAP_FAILED'}
+    } finally {Pop-Location}
     # Test artifacts only; unique output never overwrites existing evidence.
     $labReports=Join-Path $root ('artifacts\windows-p0\2026-10-29\local-lab-'+[guid]::NewGuid().ToString('N'))
     [void](New-Item -ItemType Directory -Path $labReports)
