@@ -82,9 +82,26 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   }
  }
  async stop():Promise<void>{
-  this.running=false;clearInterval(this.poll);this.poll=undefined;
-  if(this.adapter&&this.listener!==undefined)this.adapter.stop(this.listener);
-  this.ledger.closeConnections();for(const socket of this.sockets)socket.destroy();
-  await this.loop;this.bound.clear();this.cache?.secret.fill(0);this.cache=undefined;this.master.fill(0);
+  // Cleanup is mandatory even if native CloseHandle/CancelIoEx throws. Once
+  // shutdown starts no cached lease, MAC secret or accepted socket may survive.
+  this.running=false;
+  clearInterval(this.poll);this.poll=undefined;
+  let failure:unknown;
+  try{
+   if(this.adapter&&this.listener!==undefined)this.adapter.stop(this.listener);
+  }catch(error){failure=error;}
+  finally{
+   try{this.ledger.closeConnections();}catch(error){failure??=error;}
+   for(const socket of this.sockets)socket.destroy();
+   for(const member of this.bound.values())try{member.close();}catch(error){failure??=error;}
+   this.bound.clear();
+   this.cache?.secret.fill(0);this.cache=undefined;this.master.fill(0);
+   this.listener=undefined;this.adapter=undefined;
+  }
+  // A failed native stop cannot be assumed to have released the blocking
+  // accept call. Do not hang shutdown forever or hide its original error.
+  if(failure!==undefined)throw failure;
+  await this.loop;
+  this.loop=undefined;
  }
 }
