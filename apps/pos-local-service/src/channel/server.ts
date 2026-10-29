@@ -203,6 +203,7 @@ export class LocalChannelServer {
                 const rawResponse = await requestWithTimeout(
                   (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
                   this.requestTimeoutMs,
+                  connectionController.signal,
                 );
                 const response = validateResponse(request, rawResponse) as { protocol_version: string };
                 if (response.protocol_version !== existingProtocol) {
