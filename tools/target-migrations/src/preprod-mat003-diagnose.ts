@@ -10,7 +10,9 @@
  */
 import {existsSync,readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
-import {join} from "node:path";
+import {join,resolve} from "node:path";
+import {fileURLToPath} from "node:url";
+import {execFileSync} from "node:child_process";
 import {postgresDatabase,executeRaw,queryRows} from "./database.js";
 import {checkRoleReadiness,inspectRoleReadinessAcl,classifyRoleReadiness,type RoleReadinessConfig} from "./postgres-003-role-readiness.js";
 import {validatePostgres002Catalog} from "./postgres-introspection.js";
@@ -24,13 +26,31 @@ if(!existsSync(join(dir,"pgpass.conf"))||!existsSync(join(dir,"pg-server-ca.crt"
   throw Error("PREPROD_MAT003_MANAGED_CREDENTIAL_FILES_MISSING");
 if(process.env.PGPASSWORD!==undefined)throw Error("PREPROD_MAT003_GENERIC_PASSWORD_NOT_ALLOWED");
 process.env.PGPASSFILE=join(dir,"pgpass.conf");
+// Build both URLs from the verified, dedicated local preproduction target.
+// Do not depend on caller shell state: old or malformed env URLs previously
+// caused false-negative guards, despite working official CHECK connections.
+const cert=join(dir,"pg-server-ca.crt");
+function roleUrl(role:"pos_migrator"|"pos_platform_admin"):string{
+  const url=new URL("postgresql://127.0.0.1:55435/camacho_pos_preprod");
+  url.username=role;
+  url.searchParams.set("sslmode","verify-full");
+  url.searchParams.set("sslrootcert",cert);
+  return url.toString();
+}
+const repository=resolve(fileURLToPath(new URL("../../../",import.meta.url)));
+const branch=execFileSync("git",["branch","--show-current"],{cwd:repository,encoding:"utf8"}).trim();
+if(branch!=="feat/p0-windows-login-install-readiness")
+  throw Error("PREPROD_MAT003_EXPECTED_BRANCH_REQUIRED");
+const sha=execFileSync("git",["rev-parse","HEAD"],{cwd:repository,encoding:"utf8"}).trim();
+if(!/^[0-9a-f]{40}$/.test(sha))throw Error("PREPROD_MAT003_INVALID_COMMIT_SHA");
 const cfg:RoleReadinessConfig={
-  provisioningUrl:process.env.POSTGRES_ROLE_READINESS_PROVISIONING_URL??"",
-  verificationUrl:process.env.POSTGRES_ROLE_READINESS_VERIFICATION_URL??"",
-  environmentId:process.env.POSTGRES_ROLE_READINESS_ENVIRONMENT_ID??"",
-  expectedDatabase:process.env.POSTGRES_ROLE_READINESS_EXPECTED_DATABASE??"",
-  repositoryCommit:process.env.ROLE_READINESS_REPOSITORY_COMMIT??"",
+  provisioningUrl:roleUrl("pos_migrator"),
+  verificationUrl:roleUrl("pos_platform_admin"),
+  environmentId:"camacho-pos-windows-preprod",
+  expectedDatabase:"camacho_pos_preprod",
+  repositoryCommit:sha,
 };
+process.stdout.write("CONFIG_SOURCE: MANAGED_LOCAL_PREPRODUCTION\n");
 for(const [label,uri,role] of [
   ["PROVISIONING",cfg.provisioningUrl,"pos_migrator"],
   ["VERIFICATION",cfg.verificationUrl,"pos_platform_admin"],
