@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
+import {runPostgres007Smoke} from "./postgres-006-007-smoke.js";
 import { POSTGRES_006_DESCRIPTOR } from "./postgres-006-contract.js";
 import { POSTGRES_007_DESCRIPTOR, PASSWORD_RECOVERY_007_TABLES } from "./postgres-007-contract.js";
 
@@ -50,7 +51,22 @@ export async function applyPostgres007(config: Postgres007RunnerConfig): Promise
         await client.query("UPDATE platform.target_migration_executions SET status='FAILED',error_code='BODY_007_ROLLED_BACK',finished_at=clock_timestamp() WHERE execution_id=$1::uuid AND status='STARTED'",[executionId]);
         throw error;
       }
-      await client.query("UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp(),smoke_verified_at=clock_timestamp(),applied_at=clock_timestamp(),finished_at=clock_timestamp(),status='APPLIED' WHERE execution_id=$1::uuid AND status='STARTED'",[executionId]);
+      // The DDL is durably committed. Record body completion before testing
+      // each actual login role on a separate connection. Failures leave
+      // STARTED+body_committed for manual reconciliation; no false smoke stamp.
+      await client.query(
+        "UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp() "+
+        "WHERE execution_id=$1::uuid AND status='STARTED' AND body_committed_at IS NULL",
+        [executionId],
+      );
+      const roleAssertions=await runPostgres007Smoke(config.adminUrl,config.expectedDatabase);
+      invariant(roleAssertions===36,"007 physical four-role ACL smoke count mismatch");
+      await client.query(
+        "UPDATE platform.target_migration_executions SET smoke_verified_at=clock_timestamp(),"+
+        "applied_at=clock_timestamp(),finished_at=clock_timestamp(),status='APPLIED' "+
+        "WHERE execution_id=$1::uuid AND status='STARTED' AND body_committed_at IS NOT NULL",
+        [executionId],
+      );
       return { executionId, noOp:false, checksumHex, result:"APPLIED" };
     } finally {
       await client.query("SELECT pg_advisory_unlock(hashtextextended($1,0))",[POSTGRES_MIGRATION_LOCK_RESOURCE]);
