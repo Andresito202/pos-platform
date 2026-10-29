@@ -67,7 +67,7 @@ if ($IncludeIsolatedPostgres) {
         }
         $steps += @(
             @{ Name='Canonical deployment HTTPS, negatives, rollback and login abuse (LAB)'; Args=@('--filter','@pos-platform/central-authority','exec','vitest','run','tests/central-commercial-deployment-physical.test.ts','-t','^deployment','--no-file-parallelism'); Expected=3 },
-            @{ Name='Real Electron, PostgreSQL, DPAPI, BUSINESS, SSA/SAS and dashboard (virtual MFA LAB)'; Args=@('--filter','@pos-platform/central-authority','exec','vitest','run','tests/business-access-preparation-physical.test.ts','-t','V2 SSA SAS integration:','--no-file-parallelism'); Expected=1 }
+            @{ Name='V2 proofs, revocation, denied RBAC, rollback and real Electron dashboard (virtual MFA LAB)'; Args=@('--filter','@pos-platform/central-authority','exec','vitest','run','tests/business-access-preparation-physical.test.ts','-t','V2 SSA SAS integration:','--no-file-parallelism'); Expected=7 }
         )
     } else { $steps += @(
         @{ Name='BUSINESS real PostgreSQL MFA (isolated random DB)'; Args=@('--filter','@pos-platform/central-authority','exec','vitest','run','tests/business-initial-mfa-physical.test.ts','--no-file-parallelism') },

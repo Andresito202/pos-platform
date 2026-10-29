@@ -10,11 +10,11 @@ Se continúa el runner existente `tools/operators/windows-login-final-checks.ps1
 
 1. Comprobación real de WindowsIdentity/PowerShell del contexto actual, sin runner inyectado, sin registrar nombre/SID. No equivale a otra cuenta Windows ni a SCM.
 2. Los tres escenarios `deployment` existentes: runner canónico en DB aleatoria, montaje HTTPS, contraseña/WebAuthn, código ligado a dispositivo, refresh/SSA/SAS, negativas, rollback, schema drift y presupuesto durable.
-3. El escenario existente `V2 SSA SAS integration:`: Electron/Chromium real, pipe del Service, DPAPI CurrentUser, PKCE, posesión, BUSINESS, grants centrales y dashboard. Es un host de integración, no la instalación comercial WinSW ni una persona.
+3. Los siete escenarios existentes `V2 SSA SAS integration:`: pruebas distintas SSA/SAS, revocación de familia/credencial/sesión, concurrencia, RBAC denegado y rollback; además Electron/Chromium real, pipe del Service, DPAPI CurrentUser, PKCE, posesión, BUSINESS, grants centrales y dashboard. Es un host de integración, no la instalación comercial WinSW ni una persona.
 
 El runner exige Windows, rama aprobada, árbol limpio/SHA exacto, `-Run`, `-IncludeIsolatedPostgres` y URL de test loopback `55433/postgres`. Antes de conectar comprueba el contenedor ya existente `target-migrations-postgres-1`: ejecutándose, datos tmpfs, ningún mount persistente y un único binding 127.0.0.1:55433. No instala contenedores ni cambia WinNAT, servicios, ACL, DNS, certificados del sistema o datos comerciales. Cada suite crea/elimina su DB aleatoria. Se reutilizan los certificados efímeros y el pin de confianza por transporte/partición de test; TLS/RLS permanecen activos.
 
-Cada ejecución guarda JSON en un directorio nuevo bajo `artifacts/windows-p0/2026-10-29/local-lab-<aleatorio>` y exige exactamente los PASS esperados (1 + 3 + 1). Un archivo filtrado/saltado no permite anunciar un PASS de laboratorio. Los outputs son evidencia técnica, no credenciales de operación ni un instalador de Central.
+Cada ejecución guarda JSON en un directorio nuevo bajo `artifacts/windows-p0/2026-10-29/local-lab-<aleatorio>` y exige exactamente los PASS esperados (1 + 3 + 7). Un archivo filtrado/saltado no permite anunciar un PASS de laboratorio. Los outputs son evidencia técnica, no credenciales de operación ni un instalador de Central. Tras verificar aislamiento, el runner usa `applyPostgres001` canónico sobre una base aleatoria que elimina, para preparar los roles de infraestructura del cluster tmpfs recién reiniciado; no genera personas, grants de negocio ni roles alternativos.
 
 ## Comando reproducible
 
@@ -57,4 +57,6 @@ El Service virtual y Electron interactivo no comparten CurrentUser ni SID de log
 
 - Prueba nueva `real Windows token:`: **1 PASS / 5 filtradas** en Windows real, sin inyección del runner. No autentica BUSINESS ni GLOBAL.
 - Sintaxis PowerShell del runner: **PASS**. Resultados del laboratorio integrado se registran después de ejecutarlo sobre un SHA limpio.
+- Primer intento: contenedor apagado, rechazo previo a DB; se inspeccionó tmpfs/binding y se inició el contenedor existente. Se normalizó la lectura del array JSON de Docker para PowerShell.
+- Ejecución `493c0f3b`: las pruebas dieron **1 + 3 + 7 PASS, cero FAIL**, pero el wrapper falló correctamente su validación de conteo porque esperaba un solo escenario V2 y el selector también incluye seis negativas relevantes. Se corrigió el contrato del runner a siete, sin modificar pruebas ni producto. Evidencia conservada en `local-lab-77639d193b324f3da5693f130c6c779d`; no presentarla como exit 0 del wrapper.
 - No contratación, despliegue público, Actions, merge, hardware, licencias ni pagos.
