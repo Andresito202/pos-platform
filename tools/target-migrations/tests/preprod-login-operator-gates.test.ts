@@ -70,4 +70,47 @@ describe("P0 login Windows operator tools (static, non-executing gates)",()=>{
     expect(source("preprod-login-authentication-apply.ts")).toContain(
       "HUMAN_LOGIN_GLOBAL_AND_SCM_NOT_CERTIFIED");
   });
+
+  it("does not stamp 006/007 as smoke-verified before true four-role queries",()=>{
+    for(const suffix of ["006","007"]){
+      const runner=source("postgres-"+suffix+"-runner.ts");
+      const smokeIndex=runner.indexOf("await runPostgres"+suffix+"Smoke(");
+      const stampIndex=runner.lastIndexOf("smoke_verified_at=clock_timestamp()");
+      expect(smokeIndex).toBeGreaterThan(-1);
+      expect(stampIndex).toBeGreaterThan(smokeIndex);
+      expect(runner).toContain("body_committed_at=clock_timestamp()");
+      expect(runner).toContain("AND body_committed_at IS NOT NULL");
+      expect(runner).not.toContain("SET body_committed_at=clock_timestamp(),smoke_verified_at=clock_timestamp()");
+    }
+    const smoke=source("postgres-006-007-smoke.ts");
+    expect(smoke).toContain("pos_app");
+    expect(smoke).toContain("pos_worker");
+    expect(smoke).toContain("pos_platform_app");
+    expect(smoke).toContain("pos_platform_admin");
+    expect(smoke).toContain("SELECT 1 FROM ");
+    expect(smoke).toContain('"42501"');
+    expect(smoke).not.toMatch(/(?:INSERT INTO|UPDATE .+ SET|DELETE FROM|DROP DATABASE)\b/i);
+    const wrapper=source("preprod-login-foundation-apply.ts");
+    expect(wrapper).toContain("LOGIN_FOUNDATION_006_ROLE_ACL_ASSERTIONS");
+    expect(wrapper).toContain("LOGIN_FOUNDATION_007_ROLE_ACL_ASSERTIONS");
+    expect(wrapper).toContain("role_acl_assertions_006");
+    expect(wrapper).toContain("role_acl_assertions_007");
+  });
+  it("requires an independent 244-assertion four-role private BUSINESS ACL smoke",()=>{
+    const audit=source("postgres-commercial-auth-smoke.ts");
+    expect(audit).toContain("authorization.platform_role_assignments");
+    expect(audit).toContain("identity.native_authorization_codes");
+    expect(audit).toContain("identity.webauthn_challenges");
+    expect(audit).toContain('assertions===244');
+    expect(audit).toContain("pos_platform_admin");
+    expect(audit).toContain('"42501"');
+    expect(audit).not.toMatch(/(?:INSERT INTO|UPDATE .+ SET|DELETE FROM|DROP DATABASE)\b/i);
+    const wrapper=source("preprod-login-authentication-apply.ts");
+    expect(wrapper).toContain("await runBusinessSchemaAclSmoke(");
+    expect(wrapper).toContain("LOGIN_AUTHENTICATION_ROLE_ACL_SMOKE_ASSERTIONS");
+    expect(wrapper).toContain("role_acl_smoke_assertions:realRoleAssertions");
+    expect(wrapper.indexOf("await runBusinessSchemaAclSmoke("))
+      .toBeLessThan(wrapper.indexOf('open(output,"wx")'));
+  });
+
 });
