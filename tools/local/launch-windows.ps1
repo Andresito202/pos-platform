@@ -106,6 +106,20 @@ try {
                 throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_SYMLINK: $name"
             }
         }
+        if ([string]::IsNullOrWhiteSpace($env:POS_SESSION_TRUST_ARTIFACT_PATH) -and [string]::IsNullOrWhiteSpace($env:POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE)) {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_SSA_DISTRIBUTION_REQUIRED'
+        }
+        foreach ($name in @('POS_SESSION_TRUST_ARTIFACT_PATH', 'POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE')) {
+            $path = [Environment]::GetEnvironmentVariable($name)
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                if (-not [IO.Path]::IsPathRooted($path) -or -not [IO.File]::Exists($path)) {
+                    throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_MISSING: $name"
+                }
+                if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                    throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_SYMLINK: $name"
+                }
+            }
+        }
         Write-Host 'LOGIN COMERCIAL: archivos presentes. No certifica credenciales, roots SSA/SAS, D3, MFA o roles.'
     }
     $pnpm = Get-Command pnpm -ErrorAction Stop
