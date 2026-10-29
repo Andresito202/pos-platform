@@ -29,7 +29,27 @@ object RuntimeAssets {
             }
             check(sha(destination)==files.getString(path)) { "BUNDLED_RUNTIME_DIGEST_MISMATCH" }
         }
-        check(File(root,"bin/node").setExecutable(true,true)) { "NODE_EXECUTION_MODE_FAILED" }
+        if(manifest.has("installed_native")) {
+            val native=File(context.applicationInfo.nativeLibraryDir).canonicalFile
+            check(native.path.startsWith("/data/app/")) {"INSTALLED_NATIVE_DIRECTORY_REQUIRED"}
+            val files=manifest.getJSONObject("installed_native")
+            check(files.has("libcamacho_node.so")&&files.has("libcamacho_sqlite.so")) {"INSTALLED_NATIVE_ENTRYPOINTS_REQUIRED"}
+            files.keys().forEach {name->
+                check(name.matches(Regex("lib[A-Za-z0-9_+.-]+\\.so")))
+                val file=File(native,name).canonicalFile
+                check(file.parentFile==native&&file.isFile&&sha(file)==files.getString(name)) {"INSTALLED_NATIVE_DIGEST_MISMATCH"}
+            }
+        } else {
+            check(context.applicationInfo.targetSdkVersion<=28) {"WRITABLE_EXECUTABLE_FORBIDDEN_FOR_MODERN_TARGET"}
+            check(File(root,"bin/node").setExecutable(true,true)) { "NODE_EXECUTION_MODE_FAILED" }
+        }
         return root
     }
+    fun executable(context:Context,root:File):File {
+        val manifest=JSONObject(context.assets.open("runtime/files.json").bufferedReader().use {it.readText()})
+        return if(manifest.has("installed_native"))File(context.applicationInfo.nativeLibraryDir,"libcamacho_node.so")
+            else {check(context.applicationInfo.targetSdkVersion<=28);File(root,"bin/node")}
+    }
+    fun libraries(context:Context,root:File):File =
+        if(executable(context,root).name=="libcamacho_node.so")File(context.applicationInfo.nativeLibraryDir) else File(root,"lib")
 }

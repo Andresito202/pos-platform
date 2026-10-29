@@ -2,6 +2,8 @@
 
 Base: `05086c8d`, continuación única `feat/android-commercial-runtime`, PR #96 Draft. La preparación de dominios/lectura empresarial anterior quedó publicada antes de este incremento. No se modifica DNS, infraestructura, FACTUS, login Windows ni `oracleJdk-27`.
 
+Continuación desde `be95fd38`: [lector privilegiado y layout instalado](android-service-installed-runtime-2026-10-28.md). Añade consulta real por pipe, lectura interna ligada al enrolamiento y candidato nativo instalado. Los resultados inferiores conservan su alcance histórico; no se promueven a certificación física.
+
 ## Decisión aplicada
 
 Android no comercializa acceso digital: sin precios de planes, compras, checkout/QR de licencias, renovación, enlaces de pago, administración GLOBAL ni Play Billing. El cobro de mercadería física sigue perteneciendo a los casos de uso operativos y no se elimina ni se mezcla con licencias. Las autorizaciones proceden del backend y sus snapshots; el rol o una pantalla no otorgan permisos.

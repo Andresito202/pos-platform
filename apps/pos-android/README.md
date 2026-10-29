@@ -2,6 +2,8 @@
 
 Owner: POS Local Service, DEC-017/DEC-025. Continuidad de `51d5feb`, sin motor comercial alternativo. Todavía no es el APK comercial del POS.
 
+Continuidad 2026-10-28: [lector privilegiado y layout instalado](../../docs/testing/android-service-installed-runtime-2026-10-28.md). El candidato separado empaqueta Node/SQLite y su clausura ELF en `lib/arm64-v8a`, con hashes y alineación de 16 KB, y consulta informativa por Binder/pipe. Sigue siendo laboratorio target 28, sin confianza comercial instalada ni certificación Play. El procedimiento histórico inferior mantiene su alcance original.
+
 La prueba SQLite nativa `co.camachopos.android.probe` se conserva sin cambios: fue instalada y comprobada antes de este incremento. Su tarea `probeApk` no certifica Node ni se repite aquí.
 
 El nuevo `co.camachopos.android.runtimeprobe` incluye Node ARM64/Bionic 24.18.0 y **better-sqlite3 13.0.3**, recompilado con NDK r27d, API 28, N-API 10. Ejecuta `LocalDatabase` y las migraciones canónicas 1–18 sin modificarlas. Prueba WAL, integridad, exclusión de segundo writer en el proceso, transacción, rollback, cierre/reapertura y persistencia entre dos procesos del APK. Sus datos viven exclusivamente en `files/commercial-engine-probe` de ese paquete. No instala Termux ni necesita un servicio Windows para ejecutar el motor.

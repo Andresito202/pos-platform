@@ -1,4 +1,5 @@
 import { AndroidServiceFoundation } from "../pos-local-service/src/android/android-service-foundation.js";
+import { AndroidPrivateServiceControl } from "../pos-local-service/src/android/android-private-service-control.js";
 import { AndroidKeystoreKeyProvider } from "../pos-local-service/src/security/android-keystore-key-provider.js";
 import { EncryptedFileSecretStore } from "../pos-local-service/src/security/encrypted-secret-store.js";
 import { fstatSync,readSync } from "node:fs";
@@ -34,14 +35,10 @@ function stop(code:number) {
 }
 try{await service.start();report();}catch(error){seal.destroy();keyProvider.destroy();throw error;}
 // This is an inherited OS pipe from the same-UID native parent, never a network/React protocol.
-let control=Buffer.alloc(0);
-process.stdin.on("data",(chunk:Buffer)=>{
-  if(stopping)return;
-  if(control.length+chunk.length>5){void stop(1);return;}
-  control=Buffer.concat([control,chunk]);
-  if(control.includes(10))void stop(control.toString("ascii")==="STOP\n"?0:1);
-});
-process.stdin.on("end",()=>{void stop(0);});
+const control=new AndroidPrivateServiceControl(()=>service.licenseInformation(),
+  value=>process.stdout.write(JSON.stringify(value)+"\n"),code=>{void stop(code);});
+process.stdin.on("data",(chunk:Buffer)=>{if(!stopping)control.accept(chunk);});
+process.stdin.on("end",()=>{control.end();});
 process.on("SIGTERM",()=>{void stop(0);});
 process.on("SIGINT",()=>{void stop(0);});
 process.stdin.resume();

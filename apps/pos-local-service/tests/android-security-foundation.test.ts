@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DeviceTrustVerifier, unsignedDeviceTrustCredentialBytes, type TrustedDeviceTrustKey } from "@pos-platform/device-trust";
 import { SignedDeviceTrustCredentialSchema, type DeviceEnrollmentRequest } from "@pos-platform/contracts";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
-import { AndroidSecurityFoundation } from "../src/android/android-security-foundation.js";
+import { AndroidSecurityFoundation, type AndroidLicenseObservation } from "../src/android/android-security-foundation.js";
+import { LicenseCapacityGate } from "../src/security/license-capacity-gate.js";
+import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
+import { LicenseCapacityClaimsSchema } from "@pos-platform/contracts";
 import { AndroidServiceFoundation } from "../src/android/android-service-foundation.js";
 import { AndroidKeystoreKeyProvider } from "../src/security/android-keystore-key-provider.js";
 
@@ -32,9 +35,9 @@ function fixture() {
   let time = new Date("2026-10-22T12:00:00Z");
   const now = () => time;
   const verifier = new DeviceTrustVerifier(generateKeyPairSync("ed25519").publicKey, keys, { now, accept: () => undefined });
-  const build = (seed = root) => {
+  const build = (seed = root, license?:AndroidLicenseObservation) => {
     const provider = new AndroidKeystoreKeyProvider(seed, "android");
-    const runtime = new AndroidSecurityFoundation(directory, binding, provider, verifier, now);
+    const runtime = new AndroidSecurityFoundation(directory, binding, provider, verifier, now,license);
     services.push(runtime); return { runtime, provider };
   };
   const activation = {
@@ -52,9 +55,29 @@ function fixture() {
     const credential = { claims, signature: sign(null, unsignedDeviceTrustCredentialBytes(claims), issuer.privateKey).toString("base64url") };
     return { status: "ENROLLED", activation_id: activation.activation_id, credential_id: claims.credential_id, credential, enrolled_at: time.toISOString(), reason: null, version: 1 };
   }
-  return { directory, root, keys, build, activation, result, advance: () => { time = new Date("2026-10-22T15:00:00Z"); } };
+  return { directory, root, keys, build, activation, result, now, advance: () => { time = new Date("2026-10-22T15:00:00Z"); } };
 }
 describe("Android canonical local-security and device enrollment composition", () => {
+  it("license observation: reuses accepted capacity only with live enrolled device and trusted installation scope",async()=>{
+    const f=fixture(),pair=generateKeyPairSync("ed25519"),branchId="018f0000-0000-7000-8000-000000000020",registerId="018f0000-0000-7000-8000-000000000021";
+    const claims=LicenseCapacityClaimsSchema.parse({profile:"CAMACHO_LICENSE_CAPACITY_V2",license_id:"018f0000-0000-7000-8000-000000000022",
+      tenant_id:binding.tenantId,company_id:binding.companyId,installation_id:binding.installationId,device_id:binding.deviceId,
+      mode:"HYBRID",entitlements:["CASH_REGISTER"],issued_at:"2026-10-22T00:00:00Z",not_before:"2026-10-22T00:00:00Z",expires_at:"2026-10-23T00:00:00Z",offline_grace_until:null,
+      key_id:"TEST_LICENSE",license_version:1,plan_id:"018f0000-0000-7000-8000-000000000023",plan_version:1,cash_register_capacity:{included:1,paid_additional:0,allocations:[{register_id:registerId,branch_id:branchId}]}});
+    const artifact={claims,signature:sign(null,unsignedLicenseCapacityBytes(claims),pair.privateKey).toString("base64url")};
+    const load=()=>({artifact,keys:new Map([[claims.key_id,{key:pair.publicKey,status:"ACTIVE" as const}]])});
+    const runtime=f.build(f.root,{branchId,load}).runtime;await runtime.start();
+    expect(runtime.licenseInformation().status).toBe("UNVERIFIED");
+    runtime.completeEnrollment(f.result(runtime.prepareEnrollment(f.activation).request!));
+    expect(runtime.licenseInformation().status).toBe("UNVERIFIED");await runtime.stop();
+    const db=LocalDatabase.open({dataDirectory:f.directory});
+    try{expect(new LicenseCapacityGate(db,load,f.now).authorize({...binding,branchId},registerId)).toBeNull();}finally{db.close();}
+    const reopened=f.build(f.root,{branchId,load}).runtime;await reopened.start();
+    expect(reopened.licenseInformation().status).toBe("CURRENT");expect(reopened.status().external_channel).toBe("CLOSED");
+    f.keys.set("TEST_DEVICE_TRUST",{...f.keys.get("TEST_DEVICE_TRUST")!,status:"REVOKED"});
+    expect(reopened.licenseInformation().status).toBe("UNVERIFIED");
+    await reopened.stop();expect(reopened.licenseInformation().status).toBe("UNVERIFIED");
+  });
   it("requires actual trusted dependencies, not a serialized provider/verifier", () => {
     expect(() => new AndroidSecurityFoundation("unused", binding, {} as never, {} as never, () => new Date())).toThrow("ANDROID_TRUSTED_SECURITY_DEPENDENCIES_REQUIRED");
   });

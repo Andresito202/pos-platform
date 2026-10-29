@@ -49,5 +49,17 @@ fun main(){
         check(OperationalLicenseInformation.unverified().title()=="Licencia sin verificar")
         check(OperationalLicenseInformation("CURRENT").message().contains("sin vencimiento de uso"))
     }
-    println("ANDROID_NATIVE_AUTH_CONTRACTS: $passed/13 PASS (JVM; no device, network or session activation)")
+    test {
+        var time=100L;val results=mutableListOf<String>();val query=AndroidLicenseQuery({time},2000)
+        val first=query.begin {results.add(it.status)}!!
+        check(!query.complete(first+1,OperationalLicenseInformation("CURRENT")))
+        check(query.complete(first,OperationalLicenseInformation("EXPIRED")))
+        check(!query.complete(first,OperationalLicenseInformation("CURRENT")))
+        check(results==listOf("EXPIRED"))
+        val second=query.begin {results.add(it.status)}!!;time+=2000;query.expire()
+        check(!query.complete(second,OperationalLicenseInformation("CURRENT")))
+        query.begin {results.add(it.status)};query.cancel()
+        check(results==listOf("EXPIRED","UNVERIFIED","UNVERIFIED"))
+    }
+    println("ANDROID_NATIVE_AUTH_CONTRACTS: $passed/14 PASS (JVM; no device, network or session activation)")
 }

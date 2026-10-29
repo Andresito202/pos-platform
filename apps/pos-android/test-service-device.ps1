@@ -1,5 +1,5 @@
 #requires -Version 5.1
-param([Parameter(Mandatory=$true)][string]$AdbPath,[Parameter(Mandatory=$true)][string]$Serial,[Parameter(Mandatory=$true)][string]$EvidenceDirectory,[switch]$ExistingCustodyOnly)
+param([Parameter(Mandatory=$true)][string]$AdbPath,[Parameter(Mandatory=$true)][string]$Serial,[Parameter(Mandatory=$true)][string]$EvidenceDirectory,[switch]$ExistingCustodyOnly,[switch]$LicenseInformationOnly)
 $ErrorActionPreference='Stop'
 [void](New-Item -ItemType Directory -Force -Path $EvidenceDirectory)
 $package='co.camachopos.android.runtimeprobe'
@@ -22,7 +22,8 @@ function Wait-State([string]$Expected,[string]$Name) {
   do {
     Button 'ESTADO DEL SERVICIO LOCAL'
     $screen=Screen
-    $text=(@($screen.SelectNodes('//node[@class="android.widget.TextView" and @package="co.camachopos.android.runtimeprobe"]')) | ForEach-Object {$_.text}) -join "`n"
+    $text=(@($screen.SelectNodes('//node[@class="android.widget.TextView" and @package="co.camachopos.android.runtimeprobe"]')) | ForEach-Object {$_.text} | Where-Object {$_.StartsWith('{')} | Select-Object -Last 1)
+    if(-not $text){continue}
     if($text.StartsWith('{')) {
       $status=$text | ConvertFrom-Json
       if($status.state -eq 'FAILED'){throw 'REAL_ANDROID_SERVICE_FAILED'}
@@ -35,9 +36,26 @@ function Wait-State([string]$Expected,[string]$Name) {
   } while([DateTime]::UtcNow -lt $deadline)
   throw 'ANDROID_SERVICE_STATE_TIMEOUT'
 }
+if($LicenseInformationOnly){
+  $model=((Adb @('shell','getprop','ro.product.model')) -join '').Trim()
+  $sdk=((Adb @('shell','getprop','ro.build.version.sdk')) -join '').Trim()
+  if($model -ne 'M60WL' -or $sdk -ne '28'){throw 'EXPECTED_M60WL_ANDROID9_REQUIRED'}
+}
 Adb @('shell','am','start','-W','-n',"$package/co.camachopos.android.RuntimeProbeActivity") | Out-Null
 Button 'INICIAR SERVICIO LOCAL SIN APROVISIONAR'
 $first=Wait-State 'READY' 'started'
+if($LicenseInformationOnly){
+  try {
+    Button 'CONSULTAR ESTADO DE LICENCIA'
+    Start-Sleep -Seconds 3
+    $queried=Wait-State 'READY' 'license-information'
+    if($queried.license_information_request -lt 1 -or $queried.license_information.status -ne 'UNVERIFIED'){throw 'UNPROVISIONED_LICENSE_QUERY_NOT_OBSERVED'}
+    Adb @('shell','screencap','-p','/sdcard/camacho-license-information.png') | Out-Null
+    Adb @('pull','/sdcard/camacho-license-information.png',(Join-Path $EvidenceDirectory 'license-information.png')) | Out-Null
+    Write-Output 'ANDROID_LICENSE_INFORMATION_PHYSICAL_PASS: native Binder -> inherited pipe -> unprovisioned service -> correlated UNVERIFIED response. No commercial license, role, sale, sync or expiry certification.'
+  }finally{Button 'DETENER SERVICIO LOCAL';$null=Wait-State 'STOPPED' 'license-final-stopped'}
+  exit 0
+}
 if($ExistingCustodyOnly) {
   if(-not $first.sealed_store_restored){throw 'EXISTING_CUSTODY_WAS_NOT_PRESERVED'}
   Button 'DETENER SERVICIO LOCAL';$null=Wait-State 'STOPPED' 'final-stopped'

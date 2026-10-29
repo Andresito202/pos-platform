@@ -9,6 +9,12 @@ import { DeviceEnrollmentService, type DeviceEnrollmentBinding } from "../securi
 import { DeviceTrustCredentialStore } from "../security/device-trust-credential-store.js";
 import { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 import { LocalSecurityComponent } from "../security/local-security-component.js";
+import { LicenseCapacityGate, type OperationalLicenseInformation } from "../security/license-capacity-gate.js";
+
+export interface AndroidLicenseObservation {
+  readonly branchId: string;
+  readonly load: ConstructorParameters<typeof LicenseCapacityGate>[1];
+}
 
 /** Internal composition for the privileged Android host, NOT a wire contract.
  * Binding comes from trusted installation provisioning; it grants no authority.
@@ -30,7 +36,8 @@ export class AndroidSecurityFoundation {
     binding: DeviceEnrollmentBinding,
     private readonly provider: AndroidKeystoreKeyProvider,
     private readonly verifier: DeviceTrustVerifier,
-    now: () => Date,
+    private readonly now: () => Date,
+    private readonly licenseObservation?: AndroidLicenseObservation,
   ) {
     if (!(provider instanceof AndroidKeystoreKeyProvider) || !(verifier instanceof DeviceTrustVerifier) || typeof now !== "function") {
       throw new Error("ANDROID_TRUSTED_SECURITY_DEPENDENCIES_REQUIRED");
@@ -39,6 +46,11 @@ export class AndroidSecurityFoundation {
       tenantId: UuidSchema.parse(binding.tenantId), companyId: UuidSchema.parse(binding.companyId),
       installationId: UuidSchema.parse(binding.installationId), deviceId: UuidSchema.parse(binding.deviceId),
     });
+    if(licenseObservation) {
+      UuidSchema.parse(licenseObservation.branchId);
+      if(typeof licenseObservation.load!=="function")throw Error("ANDROID_TRUSTED_LICENSE_LOADER_REQUIRED");
+      this.licenseObservation=Object.freeze({...licenseObservation});
+    }
     this.database = new LocalDatabaseComponent(directory);
     this.security = new LocalSecurityComponent(this.database, this.binding, provider, join(directory, "security"), now);
     this.lifecycle = new ServiceLifecycle([
@@ -88,6 +100,17 @@ export class AndroidSecurityFoundation {
   requireVerifiedDevice() {
     this.requireReady();
     return this.verifyStoredCredential();
+  }
+  /** Internal read only; scope is installer-owned, never supplied over Binder.
+   * Enrollment, root revocation and signed-capacity acceptance are rechecked. */
+  licenseInformation(): OperationalLicenseInformation {
+    const unknown:OperationalLicenseInformation={status:"UNVERIFIED",signedValidUntil:null,lastAcceptedLocalCheck:null,evaluatedAt:null};
+    try {
+      this.requireVerifiedDevice();
+      if(!this.licenseObservation)return unknown;
+      return new LicenseCapacityGate(this.database.database,this.licenseObservation.load,this.now)
+        .information({...this.binding,branchId:this.licenseObservation.branchId});
+    } catch {return unknown;}
   }
   status() {
     return {

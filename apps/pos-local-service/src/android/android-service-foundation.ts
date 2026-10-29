@@ -1,5 +1,6 @@
 import { ServiceLifecycle } from "../lifecycle.js";
 import { LocalDatabaseComponent } from "../local-database-component.js";
+import type { OperationalLicenseInformation } from "../security/license-capacity-gate.js";
 
 /** Unprovisioned host composition only. No handler, channel, session or authority is created. */
 export class AndroidServiceFoundation {
@@ -12,6 +13,11 @@ export class AndroidServiceFoundation {
   }
   async start(): Promise<void> { await this.lifecycle.start(); }
   async stop(): Promise<void> { await this.lifecycle.stop(); }
+  licenseInformation(): OperationalLicenseInformation {
+    // No installation/device trust exists in this composition. A running DB is
+    // never substituted for enrollment or for an accepted signed capacity.
+    return {status:"UNVERIFIED",signedValidUntil:null,lastAcceptedLocalCheck:null,evaluatedAt:null};
+  }
   status() {
     return {
       component: "android-service-foundation" as const,
