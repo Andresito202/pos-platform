@@ -55,6 +55,9 @@ const artifactDescriptors=[
 const artifacts=await Promise.all(artifactDescriptors.map(async d=>({
   id:d.migrationId,hash:sha256(await readArtifact(d.upArtifact)).toString("hex"),
 })));
+const approved005ArtifactHash="4cc95c0fd293c75305c672d2b7b5e958d80a687fc5e0b736d5233272665f8387";
+if(artifacts[4]?.hash!==approved005ArtifactHash)
+  throw Error("PREPROD_005_APPROVED_SQL_ARTIFACT_CHANGED_STOP");
 type Receipt={receipt_payload?:{
     receipt_version?:number;migration_id?:string;execution_id?:string;
     artifact_sha256?:string;role_acl_smoke_assertions?:number;
