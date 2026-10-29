@@ -44,11 +44,18 @@ export class DesktopCommercialAccount implements DesktopAccountActions{
     if(this.active)throw Error("NATIVE_ACCOUNT_OPERATION_IN_PROGRESS");
     const lease:{channel?:ServiceChannel;cancel?:()=>void;stopped:boolean}={stopped:false};this.active=lease;
     try{
-      const channel=await this.connect();lease.channel=channel;if(lease.stopped)throw Error("NATIVE_ACCOUNT_CANCELLED");
+      let channel=await this.connect();lease.channel=channel;if(lease.stopped)throw Error("NATIVE_ACCOUNT_CANCELLED");
       // Changing user closes the previous verified device session first. It
       // cannot leave a hidden former cashier authorized on another connection.
       const closed=await this.recoverAndClose(channel);if(!login)return closed;
       if(lease.stopped)throw Error("NATIVE_ACCOUNT_CANCELLED");
+      if(closed!=="NO_ACTIVE_SESSION"){
+        // Logout retired this connection and its transport lease. A fresh
+        // authenticated negotiation is mandatory before another login.
+        await channel.close();delete lease.channel;
+        channel=await this.connect();lease.channel=channel;
+        if(lease.stopped)throw Error("NATIVE_ACCOUNT_CANCELLED");
+      }
       const attempt=await beginServiceBackedNativeLogin({channel,registration:this.configuration.registration,vault:this.vault,
         timeoutMs:this.configuration.attempt_timeout_ms,openSystemBrowser:this.openSystemBrowser});
       lease.cancel=attempt.cancel;if(lease.stopped)attempt.cancel();return await attempt.result;

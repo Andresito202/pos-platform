@@ -12,8 +12,8 @@ async function fixture(active=false,offline=false){
   const probe=createServer();await new Promise<void>(r=>probe.listen(0,"127.0.0.1",r));const port=(probe.address() as {port:number}).port;await new Promise<void>(r=>probe.close(()=>r()));
   const registration={clientId:"WINDOWS_ACCOUNT_TEST",redirectUri:`http://127.0.0.1:${port}/callback`,authorizationOrigin:"https://auth.fixture-commercial.co",platform:"ELECTRON" as const};
   const calls:string[]=[],attempt=randomBytes(32).toString("base64url"),vault=new NativeBusinessCredentialVault({isEncryptionAvailable:()=>true,encryptString:()=>{throw Error("NO_TOKENS_IN_MAIN");},decryptString:()=>{throw Error("NO_TOKENS_IN_MAIN");}});
-  let state="",closed=0,opened=0,wrong=false;
-  const channel={close:async()=>{closed++;},request:async(value:unknown)=>{
+  let state="",closed=0,opened=0,wrong=false,connections=0;
+  const handle=async(value:unknown)=>{
     const r=value as {message_type:string;request_id:string;correlation_id:string;payload:{state?:string}};calls.push(r.message_type);
     const recover=r.message_type==="session.recover";
     if(r.message_type==="commercial.native.begin")state=r.payload.state!;
@@ -21,9 +21,13 @@ async function fixture(active=false,offline=false){
     if(r.message_type.endsWith("logout"))active=false;
     const result=recover?{outcome,session_id:null,offline_valid_until:null,decision:null}:{outcome,attempt_id:attempt,authorization_url:outcome==="PREPARED"?registration.authorizationOrigin+"/v1/commercial/login?request="+randomBytes(32).toString("base64url"):null};
     return {protocol_version:"1.0.0",request_id:wrong?"018f0000-0000-7000-8000-000000000001":r.request_id,correlation_id:r.correlation_id,operation_id:null,status:"SUCCEEDED",result_code:outcome,result_schema_version:"1.0.0",server_time:new Date().toISOString(),error:null,result};
-  }};
-  const account=new DesktopCommercialAccount({registration,attempt_timeout_ms:3000},async()=>channel,vault,async()=>{opened++;void fetch(registration.redirectUri+"?code=authorized-account-code&state="+state);});
-  cleanup.push(async()=>account.stop());return {account,calls,vault,wrong:()=>{wrong=true;},closed:()=>closed,opened:()=>opened,registration};
+  };
+  const connect=async()=>{connections++;let retired=false;return {close:async()=>{closed++;retired=true;},request:async(value:unknown)=>{
+    if(retired)throw Error("RETIRED_CHANNEL");const result=await handle(value);
+    if((value as {message_type:string}).message_type==="commercial.native.logout")retired=true;return result;
+  }}};
+  const account=new DesktopCommercialAccount({registration,attempt_timeout_ms:3000},connect,vault,async()=>{opened++;void fetch(registration.redirectUri+"?code=authorized-account-code&state="+state);});
+  cleanup.push(async()=>account.stop());return {account,calls,vault,wrong:()=>{wrong=true;},closed:()=>closed,opened:()=>opened,registration,connections:()=>connections};
 }
 it("account entry reuses the callback and consumes activation only, then closes its channel",async()=>{
   const f=await fixture();expect(await f.account.login()).toBe("SESSION_ACTIVATED");
@@ -32,6 +36,7 @@ it("account entry reuses the callback and consumes activation only, then closes 
 });
 it.each([false,true])("change user closes the recovered session first, remote failure=%s",async offline=>{
   const f=await fixture(true,offline);expect(await f.account.login()).toBe("SESSION_ACTIVATED");
+  expect(f.connections()).toBe(2);
   expect(f.calls.slice(0,3)).toEqual(["session.recover","commercial.native.logout","commercial.native.begin"]);
 });
 it("native logout preserves local-only status instead of claiming central revocation",async()=>{

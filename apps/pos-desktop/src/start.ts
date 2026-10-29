@@ -2,7 +2,7 @@ import { LocalChannelAuthenticator } from "@pos-platform/local-channel";
 import type { ContractVersionRange } from "@pos-platform/contracts";
 import { connectLocalServiceChannel } from "./local-service-channel.js";
 import { bootstrap, type DesktopLogger } from "./main.js";
-import {DesktopCommercialAccount,readDesktopCommercialConfiguration} from "./commercial-account.js";
+import {DesktopCommercialAccount,readDesktopCommercialConfiguration,type DesktopAccountActions} from "./commercial-account.js";
 import {createElectronBusinessCredentialVault} from "./electron-business-login.js";
 import {app,shell,session} from "electron";
 import {BrowserCacheMaintenance} from "./browser-cache-maintenance.js";
@@ -44,7 +44,7 @@ export interface PosDesktopStartOptions {
 export async function startPosDesktop(options: PosDesktopStartOptions): Promise<void> {
   if((options.channelSecret===undefined)===(options.channelFactory===undefined))throw Error("DESKTOP_CHANNEL_CUSTODY_REQUIRED");
   const authenticator = options.channelSecret===undefined?undefined:new LocalChannelAuthenticator(options.channelSecret);
-  let channel;
+  let channel:ServiceChannel;
   try {
     channel = options.channelFactory?await options.channelFactory():await connectLocalServiceChannel({
       endpoint: options.endpoint,
@@ -64,15 +64,33 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
   try {
     await app.whenReady();
     const commercial=options.commercialFile?readDesktopCommercialConfiguration(options.commercialFile):undefined;
-    const account=commercial?new DesktopCommercialAccount(commercial,options.channelFactory??(async()=>{
+    const accountImplementation=commercial?new DesktopCommercialAccount(commercial,options.channelFactory??(async()=>{
       const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret!);
       try{const connected=await connectLocalServiceChannel({endpoint:options.endpoint,authenticator:nativeAuthenticator,protocolRange:options.protocolRange,
         handshake:options.handshake,timeoutMs:commercial.attempt_timeout_ms});
         return {request:input=>connected.request(input),close:async()=>{try{await connected.close();}finally{nativeAuthenticator.destroy();}}};}
       catch(error){nativeAuthenticator.destroy();throw error;}
     }),createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
+    let closing=false;
+    let account:DesktopAccountActions|undefined=accountImplementation;
+    if(accountImplementation&&options.channelFactory){
+      const implementation=accountImplementation,factory=options.channelFactory;
+      app.once("before-quit",()=>{closing=true;});
+      const refreshPanelChannel=async()=>{
+        if(closing)return;
+        const replacement=await factory();
+        if(closing){await replacement.close();return;}
+        const previous=channel;channel=replacement;
+        await previous.close();
+      };
+      account={login:async()=>{try{return await implementation.login();}finally{await refreshPanelChannel();}},
+        logout:async()=>{try{return await implementation.logout();}finally{await refreshPanelChannel();}},stop:()=>implementation.stop()};
+    }
+    // The bridge keeps this delegate while explicit account transitions replace
+    // its retired socket. No operation is retried after uncertain delivery.
+    const panelChannel:ServiceChannel=options.channelFactory?{request:input=>channel.request(input),close:()=>channel.close()}:channel;
     const cache=commercial?.browser_cache?new BrowserCacheMaintenance(session.defaultSession,commercial.browser_cache):undefined;
-    await bootstrap(channel, options.logger,account,cache);
+    await bootstrap(panelChannel, options.logger,account,cache);
     // The launcher's original secret is needed to authenticate additional
     // account channels during this Electron process, but never after exit.
     // The authenticator holds its own copy; erase both on normal shutdown.
