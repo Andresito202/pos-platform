@@ -48,6 +48,7 @@ export class LocalChannelClient {
     private readonly protocolRange: ContractVersionRange,
     private readonly timeoutMs = 5_000,
     private readonly maxQueuedRequests = 64,
+    private readonly openConnectedSocket?:()=>Promise<Socket>,
   ) {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
       throw new Error("local channel client timeout must be a positive integer");
@@ -60,9 +61,12 @@ export class LocalChannelClient {
   async connect(handshakeInput: unknown): Promise<void> {
     if (this.socket) throw new Error("local channel client already connected");
     const handshake = RuntimeHandshakeRequestSchema.parse(handshakeInput);
-    const socket = createConnection(this.endpoint);
+    let expired=false;
+    const socket = this.openConnectedSocket===undefined?createConnection(this.endpoint):await withTimeout(
+      this.openConnectedSocket().then(socket=>{if(expired){socket.destroy();throw Error("local channel connect expired");}return socket;}),
+      this.timeoutMs,"local channel connect",()=>{expired=true;});
     try {
-      await withTimeout(
+      if(this.openConnectedSocket===undefined)await withTimeout(
         new Promise<void>((resolve, reject) => {
           socket.once("connect", resolve);
           socket.once("error", reject);
@@ -168,6 +172,7 @@ export class LocalChannelClient {
       : this.negotiatedProtocol!;
 
     const responsePromise = this.receiveOne();
+    socket.resume();
     socket.write(encodeFrame(
       this.authenticator.sign(request, protocolVersion, this.sessionId, requestSequence),
     ));

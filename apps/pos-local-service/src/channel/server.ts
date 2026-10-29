@@ -29,6 +29,8 @@ import {
 export interface ChannelRequestContext {
   readonly transportSessionId: string;
   readonly connectionId: string;
+  /** Recheck immediately before a cancelable effect after asynchronous work. */
+  readonly assertAuthorized?:()=>void;
 }
 
 export type ChannelHandler = (
@@ -96,7 +98,20 @@ function validateResponse(request: IpcRequest, input: unknown): unknown {
   return responseSchemaFor(request.message_type).parse(input);
 }
 
+export interface ChannelConnectionSecurity {
+  readonly authenticator:LocalChannelAuthenticator;
+  authorize(context:ChannelRequestContext,close:()=>void,retire:()=>void):void;
+  closed(connectionId:string):void;
+}
+export interface ChannelServerTransport {
+  start(accept:(socket:Socket,security:ChannelConnectionSecurity)=>void):Promise<void>;
+  stop():Promise<void>;
+  revokeConnections?(ids:readonly string[],initiator:string):void;
+}
+
 export class LocalChannelServer {
+  private running=false;
+  private acceptingTraffic=false;
   private server: Server | undefined;
   private readonly sockets = new Set<Socket>();
   private readonly connections = new Map<string, { close: () => void; retire: () => void }>();
@@ -131,6 +146,7 @@ export class LocalChannelServer {
      * identidad de una conexión que ya no existe.
      */
     private readonly onConnectionClosed?: (connectionId: string) => void,
+    private readonly transport?:ChannelServerTransport,
   ) {
     if (!Number.isSafeInteger(maxConnections) || maxConnections <= 0) throw new Error("maxConnections must be positive");
     if (!Number.isSafeInteger(maxQueuedRequestsPerConnection) || maxQueuedRequestsPerConnection <= 0) {
@@ -140,11 +156,69 @@ export class LocalChannelServer {
   }
 
   async start(): Promise<void> {
-    if (this.server) throw new Error("local channel server already started");
-    let acceptingTraffic = process.platform !== "win32";
+    if (this.running) throw new Error("local channel server already started");
+    this.running=true;
+    if(this.transport){
+      this.acceptingTraffic=true;
+      try{await this.transport.start((socket,security)=>this.acceptSocket(socket,security));if(!this.running)throw Error("LOCAL_CHANNEL_START_CANCELLED");}
+      catch(error){this.running=false;this.acceptingTraffic=false;for(const c of [...this.connections.values()])c.close();await this.transport.stop();throw error;}
+      return;
+    }
+    this.acceptingTraffic = process.platform !== "win32";
 
-    const server = createServer((socket) => {
-      if (!acceptingTraffic) {
+    const server = createServer(socket=>this.acceptSocket(socket));
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => {
+          server.off("error", onError);
+          reject(error);
+        };
+        server.once("error", onError);
+        server.listen(this.endpoint, () => {
+          server.off("error", onError);
+          try {
+            if(!this.running)throw Error("LOCAL_CHANNEL_START_CANCELLED");
+            if (process.platform === "win32") {
+              hardenWindowsNamedPipeSecurity(this.endpoint);
+              inspectWindowsNamedPipeSecurity(this.endpoint);
+              setTimeout(() => {
+                if(!this.running){reject(Error("LOCAL_CHANNEL_START_CANCELLED"));return;}
+                this.acceptingTraffic = true;
+                resolve();
+              }, 25);
+              return;
+            }
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+      this.server = server;
+    } catch (error) {
+      this.running=false;this.acceptingTraffic=false;
+      for (const connection of [...this.connections.values()]) connection.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.running=false;this.acceptingTraffic=false;
+    if(this.transport){for(const c of [...this.connections.values()])c.close();await this.transport.stop();return;}
+    const server = this.server;
+    if (!server) return;
+    for (const connection of [...this.connections.values()]) connection.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    this.server = undefined;
+  }
+
+  private acceptSocket(socket:Socket,security?:ChannelConnectionSecurity):void {
+    const authenticator=security?.authenticator??this.authenticator;
+      if (!this.acceptingTraffic) {
         socket.destroy();
         return;
       }
@@ -173,6 +247,7 @@ export class LocalChannelServer {
         socket.destroy();
         // Cleanup failure must not keep this connection alive or prevent the
         // remaining connections from being closed on stop/revocation.
+        try { security?.closed(connectionId); } catch { /* fail closed */ }
         try { this.onConnectionClosed?.(connectionId); } catch { /* fail closed */ }
       };
       this.connections.set(connectionId, { close, retire: () => {
@@ -197,12 +272,17 @@ export class LocalChannelServer {
               .then(async () => {
                 if (closed || retired || socket.destroyed) return;
                 handling = true;
-                const frame = this.authenticator.verify(raw);
+                const frame = authenticator.verify(raw);
                 const request = IpcRequestSchema.parse(frame.payload);
                 if (request.protocol_version !== frame.protocol_version) {
                   throw new Error("local channel transport/request protocol mismatch");
                 }
 
+                const context:ChannelRequestContext={transportSessionId:frame.session_id,connectionId,assertAuthorized:()=>{
+                  if(closed||retired||socket.destroyed||connectionController.signal.aborted)throw Error("LOCAL_CHANNEL_AUTHORIZATION_CLOSED");
+                  security?.authorize(context,close,()=>{this.retireConnection(connectionId);});
+                }};
+                context.assertAuthorized!();
                 const existingProtocol = negotiatedSessions.get(frame.session_id);
                 if (request.message_type === "runtime.handshake") {
                   if (existingProtocol !== undefined) throw new Error("local channel session already negotiated");
@@ -211,7 +291,7 @@ export class LocalChannelServer {
                     max: request.payload.protocol_max,
                   });
                   const rawResponse = await requestWithTimeout(
-                    (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
+                    (signal) => this.handler(request, signal, context),
                     this.requestTimeoutMs,
                     connectionController.signal,
                   );
@@ -229,7 +309,7 @@ export class LocalChannelServer {
                     throw new Error("local channel incompatible handshake advertised a protocol");
                   }
                   await this.write(socket, encodeFrame(
-                    this.authenticator.sign(response, response.protocol_version, frame.session_id, frame.sequence + 1),
+                    authenticator.sign(response, response.protocol_version, frame.session_id, frame.sequence + 1),
                   ));
                   return;
                 }
@@ -240,7 +320,7 @@ export class LocalChannelServer {
                 }
 
                 const rawResponse = await requestWithTimeout(
-                  (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
+                  (signal) => this.handler(request, signal, context),
                   this.requestTimeoutMs,
                   connectionController.signal,
                 );
@@ -249,7 +329,7 @@ export class LocalChannelServer {
                   throw new Error("local channel response protocol mismatch");
                 }
                 await this.write(socket, encodeFrame(
-                  this.authenticator.sign(response, existingProtocol, frame.session_id, frame.sequence + 1),
+                  authenticator.sign(response, existingProtocol, frame.session_id, frame.sequence + 1),
                 ));
               })
               .catch(() => {
@@ -268,49 +348,6 @@ export class LocalChannelServer {
 
       socket.once("close", close);
       socket.once("error", close);
-    });
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (error: Error) => {
-          server.off("error", onError);
-          reject(error);
-        };
-        server.once("error", onError);
-        server.listen(this.endpoint, () => {
-          server.off("error", onError);
-          try {
-            if (process.platform === "win32") {
-              hardenWindowsNamedPipeSecurity(this.endpoint);
-              inspectWindowsNamedPipeSecurity(this.endpoint);
-              setTimeout(() => {
-                acceptingTraffic = true;
-                resolve();
-              }, 25);
-              return;
-            }
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        });
-      });
-      this.server = server;
-    } catch (error) {
-      for (const connection of [...this.connections.values()]) connection.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      throw error;
-    }
-  }
-
-  async stop(): Promise<void> {
-    const server = this.server;
-    if (!server) return;
-    for (const connection of [...this.connections.values()]) connection.close();
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    });
-    this.server = undefined;
   }
 
   private write(socket: Socket, buffer: Buffer): Promise<void> {

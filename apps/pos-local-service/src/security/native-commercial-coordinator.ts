@@ -38,7 +38,7 @@ export class NativeCommercialCoordinator {
   }
   release(connectionId:string){const a=this.attempts.get(connectionId);this.attempts.delete(connectionId);a?.abort.abort();}
   stop(){for(const id of this.attempts.keys())this.release(id);}
-  async handle(raw:unknown,connectionId:string,signal:AbortSignal){
+  async handle(raw:unknown,connectionId:string,signal:AbortSignal,assertAuthorized:()=>void=()=>{}){
     const r=NativeCommercialRequestSchema.parse(raw);
     const reply=(outcome:"PREPARED"|"VERIFIED"|"ACTIVATED"|"CANCELLED"|"SIGNED_OUT"|"SIGNED_OUT_LOCAL"|"DENIED",id:string|null=null,url:string|null=null)=>NativeCommercialResponseSchema.parse({
       protocol_version:r.protocol_version,request_id:r.request_id,correlation_id:r.correlation_id,operation_id:null,
@@ -47,6 +47,7 @@ export class NativeCommercialCoordinator {
         field_errors:[],current_version:null,required_action:null,diagnostic_id:uuidV7()}:null,result:{outcome,attempt_id:id,authorization_url:url}});
     let current:Attempt|undefined;
     try{
+      assertAuthorized();
       if(!connectionId||signal.aborted)throw Error("NATIVE_CHANNEL_REQUIRED");
       if(r.message_type==="commercial.native.logout")return reply(await this.logout(connectionId,signal));
       if(r.message_type==="commercial.native.begin"){
@@ -67,7 +68,7 @@ export class NativeCommercialCoordinator {
         if(url.origin!==this.registration.authorizationOrigin||url.pathname!=="/v1/commercial/login"||url.username||url.password||url.hash||
           [...url.searchParams].length!==1||!/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get("request")??""))throw Error("NATIVE_DESTINATION_REJECTED");
         current.expires=Math.min(current.expires,Date.parse(bound.expires_at));this.live(current,connectionId,signal);
-        current.phase="CALLBACK";return reply("PREPARED",current.id,url.href);
+        assertAuthorized();current.phase="CALLBACK";return reply("PREPARED",current.id,url.href);
       }
       current=this.attempts.get(connectionId);
       if(!current||r.payload.attempt_id!==current.id){current=undefined;throw Error("NATIVE_ATTEMPT_MISMATCH");}
@@ -77,7 +78,7 @@ export class NativeCommercialCoordinator {
       if(r.message_type==="commercial.native.commit"){
         if(current.phase!=="VERIFIED"||!current.artifacts)throw Error("NATIVE_COMMIT_NOT_READY");
         if(this.signer.requireVerifiedCredentialId()!==current.credentialId)throw Error("NATIVE_CREDENTIAL_CHANGED");
-        this.retainAndActivate(current,connectionId);
+        assertAuthorized();this.retainAndActivate(current,connectionId);
         this.release(connectionId);return reply("ACTIVATED");
       }
       if(current.phase!=="CALLBACK"||r.payload.state!==current.state||
@@ -96,7 +97,7 @@ export class NativeCommercialCoordinator {
       const sas=SignedAuthorizationSnapshotSchema.parse(await this.post("/v1/business-session/authorization",{session_id:sid},r,current,connectionId,signal,true,tokens.accessToken));
       this.live(current,connectionId,signal);
       if(this.signer.requireVerifiedCredentialId()!==current.credentialId)throw Error("NATIVE_CREDENTIAL_CHANGED");
-      this.commercial.verifyNativeAuthorization(ssa,sas);
+      assertAuthorized();this.commercial.verifyNativeAuthorization(ssa,sas);
       current.artifacts={ssa,sas};if(this.custody)current.tokens=tokens;current.phase="VERIFIED";return reply("VERIFIED",current.id);
     }catch{
       // Do not let a request for a different attempt cancel a valid owner lease.

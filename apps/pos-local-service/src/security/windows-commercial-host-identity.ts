@@ -23,6 +23,12 @@ Write-Output "COMMERCIAL_INTERACTIVE_CONTEXT_VERIFIED"
 `;
 
 type CommandResult = { readonly status: number | null; readonly stdout?: string; readonly error?: Error };
+
+/** Integration code is present, but only observed Windows evidence may remove
+ * this release gate. No environment switch or provision boolean bypasses it. */
+export function assertWindowsScmCommercialCertification():never{
+  throw Error("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+}
 type IdentityRunner = (script: string) => CommandResult;
 
 function runWindowsIdentityInspection(script: string): CommandResult {

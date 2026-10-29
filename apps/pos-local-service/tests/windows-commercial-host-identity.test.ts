@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertWindowsCommercialInteractiveHost } from "../src/security/windows-commercial-host-identity.js";
+import { assertWindowsCommercialInteractiveHost,assertWindowsScmCommercialCertification } from "../src/security/windows-commercial-host-identity.js";
 
 describe("Windows commercial process identity", () => {
   it.runIf(process.platform==="win32")("real Windows token: verifies the current interactive host without an injected runner",()=>{
@@ -54,3 +54,5 @@ describe("Windows commercial process identity", () => {
     })).toThrow("COMMERCIAL_WINDOWS_IDENTITY_INSPECTION_FAILED");
   });
 });
+
+it("retains the unconditional commercial SCM release gate despite an implemented adapter",()=>{expect(()=>assertWindowsScmCommercialCertification()).toThrow("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");});

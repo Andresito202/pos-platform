@@ -20,3 +20,12 @@ export const WindowsChannelHandoffSchema=z.strictObject({
   policy_reference:z.string().min(1).max(256),
 }).refine(v=>Date.parse(v.expires_at)>Date.parse(v.not_before),"HANDOFF_WINDOW_INVALID");
 export type WindowsChannelHandoff= z.infer<typeof WindowsChannelHandoffSchema>;
+
+/** Installer-owned paths/pins only. No private material and no enable flag. */
+export const WindowsScmHandoffProvisionSchema=z.strictObject({
+  version:z.literal(1),role:z.enum(["SERVICE","DESKTOP"]),handoff:WindowsChannelHandoffSchema,
+  adapter_file:z.string().min(1).max(2048),adapter_sha256:z.string().regex(/^[a-f0-9]{64}$/),
+  signer_public_key_pem:z.string().min(40).max(4096),signer_spki_sha256:z.string().regex(/^[a-f0-9]{64}$/),
+  signer_private_file:z.string().min(1).max(2048).optional(),receiver_file:z.string().min(1).max(2048).optional(),
+}).refine(p=>p.role==="SERVICE"?p.signer_private_file!==undefined&&p.receiver_file===undefined:p.receiver_file!==undefined&&p.signer_private_file===undefined,"SCM_PROVISION_ROLE_MISMATCH");
+export type WindowsScmHandoffProvision=z.infer<typeof WindowsScmHandoffProvisionSchema>;

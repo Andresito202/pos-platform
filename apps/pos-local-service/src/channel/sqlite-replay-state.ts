@@ -8,6 +8,7 @@ import {
 } from "@pos-platform/local-channel";
 import { createHash } from "node:crypto";
 import type { WindowsChannelHandoff } from "@pos-platform/contracts";
+import {TrustedClockGuard} from "../security/trusted-clock.js";
 
 /**
  * Anti-replay persistente. Implementa el puerto que declara
@@ -68,13 +69,16 @@ export class SqliteReplayStateStore implements LocalChannelReplayStateStore {
  * distinct persistent marker; checking it and consuming the lease happen
  * under the same SQLite transaction.
  *
- * Candidate only: commercial SCM stays blocked until the pipe peers are
- * identified by Windows and active connections can be terminated on revoke.
+ * Runtime admission owns live connections; commercial SCM remains release
+ * gated until native Windows peer authentication is physically verified.
  */
 export class SqliteWindowsHandoffLeaseAuthority
   implements LocalChannelReplayStateStore, WindowsHandoffRevocationAuthority {
   private pending: {sessionId:string;expiresAt:string;leaseId:string;authorizedAt:number}|undefined;
   private readonly replay:SqliteReplayStateStore;
+  private readonly connected=new Map<string,{leaseId:string;close:()=>void}>();
+  private readonly consumedHere=new Set<string>();
+  private readonly trustedClock:TrustedClockGuard;
 
   constructor(
     private readonly database:LocalDatabase,
@@ -82,6 +86,53 @@ export class SqliteWindowsHandoffLeaseAuthority
     private readonly clock:()=>Date=()=>new Date(),
   ) {
     this.replay=new SqliteReplayStateStore(database);
+    this.trustedClock=new TrustedClockGuard(database,0);
+  }
+
+  private liveTime():Date{
+    const now=this.clock();
+    if(!Number.isFinite(now.getTime())||now.getTime()<Date.parse(this.approved.not_before)||now.getTime()>=Date.parse(this.approved.expires_at))throw Error("HANDOFF_LEASE_NOT_AUTHORIZED");
+    try{this.trustedClock.accept(now);}catch{throw Error("HANDOFF_LEASE_NOT_AUTHORIZED");}
+    return now;
+  }
+
+  /** Called only AFTER kernel peer attestation and MAC verification by Service.
+   * First admission consumes once; additional live sockets join that consumed
+   * lease only in this process. A restart cannot resurrect an old receipt. */
+  admitConnection(leaseId:string,connectionId:string,close:()=>void):void{
+    if(!connectionId||this.connected.has(connectionId))throw Error("HANDOFF_CONNECTION_REJECTED");
+    this.liveTime();
+    if(!this.consumedHere.has(leaseId)){
+      const p=this.approved;
+      this.assertActive({leaseId,revision:p.revision,serviceSid:p.service_sid,installationId:p.installation_id,deviceId:p.device_id,policyReference:p.policy_reference,recipientSid:p.recipient_sid,recipientLogonSid:p.recipient_logon_sid,expiresAt:p.expires_at});
+      this.accept({sessionId:windowsHandoffReplaySessionId(leaseId),sequence:1,evaluatedAt:this.liveTime().toISOString(),expiresAt:p.expires_at});
+      this.consumedHere.add(leaseId);
+    }
+    if(this.isRevoked(leaseId,this.liveTime()))throw Error("HANDOFF_LEASE_REVOKED");
+    this.connected.set(connectionId,{leaseId,close});
+  }
+  assertConnectionActive(connectionId:string):void{
+    const connection=this.connected.get(connectionId);
+    try{
+      const now=this.liveTime();
+      if(!connection||!this.consumedHere.has(connection.leaseId)||this.isRevoked(connection.leaseId,now))throw Error("HANDOFF_LEASE_REVOKED");
+    }catch(error){if(connection){this.connected.delete(connectionId);try{connection.close();}catch{}}throw error;}
+  }
+  leaseForConnection(connectionId:string):string|undefined{return this.connected.get(connectionId)?.leaseId;}
+  releaseConnection(connectionId:string):void{this.connected.delete(connectionId);}
+  closeConnections():void{
+    const connections=[...this.connected.values()];this.connected.clear();this.consumedHere.clear();
+    for(const connection of connections)try{connection.close();}catch{/* keep closing the rest */}
+  }
+  /** Polling is supplementary; every request still checks synchronously. */
+  checkConnections():void{for(const id of [...this.connected.keys()])try{this.assertConnectionActive(id);}catch{}}
+
+  /** MAC verification precedes operation admission. Fence its cleanup too:
+   * an out-of-window host clock must never prune live lease tombstones. */
+  acceptTransportFrame(input:ReplayAcceptance):void{
+    assertAcceptance(input);const now=this.liveTime();
+    const expiresAt=Date.parse(input.expiresAt)<Date.parse(this.approved.expires_at)?input.expiresAt:this.approved.expires_at;
+    this.replay.accept({...input,evaluatedAt:now.toISOString(),expiresAt});
   }
 
   private revokedId(leaseId:string):string{
@@ -143,11 +194,22 @@ export class SqliteWindowsHandoffLeaseAuthority
   }
 
   /** Idempotent revocation, retained until expiration. */
-  revoke(leaseId:string):void{
-    const expiresAt=Date.parse(this.approved.expires_at),now=this.clock();
-    if(!Number.isFinite(now.getTime())||now.getTime()>=expiresAt)throw Error("HANDOFF_LEASE_EXPIRED");
-    const revocationId=this.revokedId(leaseId);
-    this.database.native.prepare("INSERT INTO local_channel_replay_state(session_id,highest_sequence,expires_at) VALUES (?,1,?) ON CONFLICT(session_id) DO UPDATE SET expires_at = excluded.expires_at").run(revocationId,this.approved.expires_at);
+  revoke(leaseId:string,drainConnectionId?:string,drain?:()=>void):void{
+    try{
+      this.liveTime();
+      const revocationId=this.revokedId(leaseId);
+      this.database.native.prepare("INSERT INTO local_channel_replay_state(session_id,highest_sequence,expires_at) VALUES (?,1,?) ON CONFLICT(session_id) DO UPDATE SET expires_at = excluded.expires_at").run(revocationId,this.approved.expires_at);
+    }catch(error){
+      // A failed durable write is NOT a successful revocation. Burn all live
+      // capabilities before returning the failure, including other leases.
+      this.pending=undefined;this.closeConnections();throw error;
+    }
     if(this.pending?.leaseId===leaseId)this.pending=undefined;
+    // Commit the tombstone first, unlink ALL affected connections before any
+    // callback, then cancel/close. No callback can re-enter an authorized lease.
+    const affected=[...this.connected.entries()].filter(([,c])=>c.leaseId===leaseId);
+    for(const [id]of affected)this.connected.delete(id);
+    this.consumedHere.delete(leaseId);
+    for(const [id,c]of affected)try{if(id===drainConnectionId&&drain)drain();else c.close();}catch{/* continue closing all affected sockets */}
   }
 }

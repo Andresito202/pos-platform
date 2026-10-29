@@ -4,6 +4,7 @@ import {
   negotiateProtocolVersion,
   type ContractError,
   type IpcRequest,
+  type WindowsScmHandoffProvision,
 } from "@pos-platform/contracts";
 import type { RuntimeComponent, RuntimeState } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -16,6 +17,7 @@ import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 import type {NativeCommercialCoordinator} from "../security/native-commercial-coordinator.js";
+import {WindowsScmChannelTransport} from "./windows-scm-transport.js";
 
 const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -45,6 +47,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
     private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
+    private readonly scmProvision?:WindowsScmHandoffProvision,
   ) {
     this.commercialHandler = new CommercialRequestHandler(config, commercial);
     this.endpoint = localChannelEndpoint(config.installation_id);
@@ -63,7 +66,10 @@ export class LocalChannelComponent implements RuntimeComponent {
     const authenticator = new LocalChannelAuthenticator(secret, undefined, {
       replayStateStore: new SqliteReplayStateStore(this.localDatabase.database),
     });
-    secret.fill(0);
+    let scmTransport:WindowsScmChannelTransport|undefined;
+    try{if(this.scmProvision)scmTransport=new WindowsScmChannelTransport(this.scmProvision,this.localDatabase.database,secret);}
+    catch(error){authenticator.destroy();throw error;}
+    finally{secret.fill(0);}
 
     const server = new LocalChannelServer(
       this.endpoint,
@@ -75,21 +81,20 @@ export class LocalChannelComponent implements RuntimeComponent {
       undefined,
       // El cierre de la conexión invalida su vínculo de sesión (`DEC-015` §5.6).
       (connectionId) => {try{this.commercial.bindings.release(connectionId);}finally{this.nativeCommercial?.release(connectionId);}},
+      scmTransport,
     );
 
     try {
       this.unregisterSessionCloser=this.commercial.registerNativeSessionCloser((connections,initiator)=>{
-        for(const id of connections){
-          if(id===initiator)server.retireConnection(id);
-          else server.disconnectConnection(id);
-        }
+        try{scmTransport?.revokeConnections(connections,initiator);}
+        finally{for(const id of connections){if(id===initiator)server.retireConnection(id);else server.disconnectConnection(id);}}
       });
       await server.start();
       this.authenticator = authenticator;
       this.server = server;
     } catch (error) {
       this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
-      authenticator.destroy();
+      try{await scmTransport?.stop();}finally{authenticator.destroy();}
       throw error;
     }
   }
@@ -122,7 +127,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "commercial.native.commit":
       case "commercial.native.cancel":
       case "commercial.native.logout":
-        if(this.nativeCommercial)return this.nativeCommercial.handle(request,context.connectionId,signal);
+        if(this.nativeCommercial)return this.nativeCommercial.handle(request,context.connectionId,signal,context.assertAuthorized);
         return {protocol_version:request.protocol_version,request_id:request.request_id,correlation_id:request.correlation_id,
           operation_id:null,status:"REJECTED",result_code:"DENIED",result_schema_version:"1.0.0",server_time:new Date().toISOString(),
           error:{code:"NATIVE_COMMERCIAL_UNPROVISIONED",category:"AUTHENTICATION",retryable:false,user_message_key:"native.commercial.unprovisioned",

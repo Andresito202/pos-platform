@@ -6,22 +6,22 @@ const entry=readFileSync(new URL("../src/production-entry.ts",import.meta.url),"
 
 describe("Windows commercial Electron startup custody regressions",()=>{
   it("keeps the main authenticated Service connection and account channel distinct",()=>{
-    expect(startup).toContain("const authenticator = new LocalChannelAuthenticator(options.channelSecret)");
-    expect(startup).toContain("const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret)");
+    expect(startup).toContain("const authenticator = options.channelSecret===undefined?undefined:new LocalChannelAuthenticator(options.channelSecret)");
+    expect(startup).toContain("const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret!)");
     expect(startup).toContain("await connectLocalServiceChannel({");
     expect(startup).toContain("new DesktopCommercialAccount(");
     expect(startup).toContain("createElectronBusinessCredentialVault()");
   });
   it("closes the authenticated channel on any startup failure after handshake",()=>{
     expect(startup).toContain("try{await channel.close();}catch");
-    expect(startup).toContain("authenticator.destroy()");
-    expect(startup).toContain("options.channelSecret.fill(0)");
+    expect(startup).toContain("authenticator?.destroy()");
+    expect(startup).toContain("options.channelSecret?.fill(0)");
     expect(startup).toContain("throw error;");
   });
   it("zeroizes both the channel authenticator and launcher secret when Electron quits",()=>{
     const cleanup=startup.slice(startup.indexOf('app.once("will-quit"'));
-    expect(cleanup).toContain("authenticator.destroy()");
-    expect(cleanup).toContain("options.channelSecret.fill(0)");
+    expect(cleanup).toContain("authenticator?.destroy()");
+    expect(cleanup).toContain("options.channelSecret?.fill(0)");
     expect(entry).toContain("provisioning.channelSecret.fill(0)");
     expect(entry).toContain('console.error("POS_DESKTOP_BOOTSTRAP_FAILED")');
     expect(entry).toContain("process.exitCode = 1");

@@ -19,7 +19,8 @@ import { CommercialComponent } from "./commercial/commercial-component.js";
 import {AuthorizationTrustLifecycle} from "./security/authorization-trust-lifecycle.js";
 import {prepareAuthorizationTrustProvisioning} from "./security/authorization-trust-provisioning.js";
 import {WindowsCommercialRuntime,readWindowsCommercialConfiguration} from "./security/windows-commercial-runtime.js";
-import {assertWindowsCommercialInteractiveHost} from "./security/windows-commercial-host-identity.js";
+import {assertWindowsCommercialInteractiveHost,assertWindowsScmCommercialCertification} from "./security/windows-commercial-host-identity.js";
+import {readWindowsScmProvision} from "@pos-platform/local-channel";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
@@ -134,13 +135,16 @@ function describeStartupError(error: unknown): Record<string, unknown> {
 
 try {
   const config = parseServiceConfig(process.env);
+  const scmProvisionFile=process.env.POS_WINDOWS_SCM_HANDOFF_FILE;
+  if(scmProvisionFile!==undefined)assertWindowsScmCommercialCertification();
+  const scmProvision=scmProvisionFile===undefined?undefined:readWindowsScmProvision(scmProvisionFile,"SERVICE",config.installation_id,config.device_id);
   if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
     throw new Error("POS Local Service production runtime requires Windows");
   }
   // Fail before opening SQLite, loading DPAPI material or binding a named pipe.
   // The WinSW virtual service token cannot share CurrentUser DPAPI with an
   // interactive Electron client and does not have the Desktop logon SID.
-  if (config.windows_commercial_provision_file !== undefined) {
+  if (config.windows_commercial_provision_file !== undefined && scmProvision===undefined) {
     assertWindowsCommercialInteractiveHost();
   }
 
@@ -331,6 +335,7 @@ try {
       operationConfirmation,
       commercial,
       nativeCommercial,
+      scmProvision,
     );
     components.push(localChannel);
   }

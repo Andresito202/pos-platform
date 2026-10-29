@@ -159,3 +159,65 @@ describe("Service-owned SQLite candidate handoff lease ledger",()=>{
     }finally{closeTracked(db);}
   });
 });
+
+describe("runtime lease connection authorization (real disposable SQLite)",()=>{
+  it("consumes once for several live connections; revocation commits before closing all and survives restart",()=>{
+    const {db,dir}=open(),lease="1".repeat(64),closed:string[]=[];
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at);
+    for(const id of ["a","b","c"])ledger.admitConnection(lease,id,()=>{
+      expect(ledger.leaseForConnection(id)).toBeUndefined();
+      expect(()=>new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at).assertActive(scope(lease))).toThrow();
+      closed.push(id);if(id==="a")throw Error("close failure");
+    });
+    expect(db.native.prepare("SELECT highest_sequence FROM local_channel_replay_state WHERE session_id=?").get(windowsHandoffReplaySessionId(lease))).toEqual({highest_sequence:1});
+    ledger.assertConnectionActive("b");ledger.revoke(lease);
+    expect(closed).toEqual(["a","b","c"]);
+    expect(()=>ledger.assertConnectionActive("b")).toThrow();
+    expect(()=>ledger.admitConnection(lease,"new",()=>{})).toThrow();
+    closeTracked(db);const reopened=track(LocalDatabase.open({dataDirectory:dir}));
+    expect(()=>new SqliteWindowsHandoffLeaseAuthority(reopened,p,()=>at).admitConnection(lease,"new",()=>{})).toThrow();
+  });
+  it("does not restore a consumed lease on authority restart, even without revocation",()=>{
+    const {db}=open(),lease="2".repeat(64);
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at);
+    ledger.admitConnection(lease,"a",()=>{});ledger.closeConnections();
+    expect(()=>new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at).admitConnection(lease,"b",()=>{})).toThrow("replay");
+  });
+  it.each(["expiry","rollback","invalid"])("rejects each operation and closes on %s",mode=>{
+    const {db}=open();let now=at,closed=0;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>now);
+    ledger.admitConnection("3".repeat(64),"a",()=>closed++);
+    now=mode==="expiry"?new Date(p.expires_at):mode==="rollback"?new Date(at.getTime()-1):new Date(NaN);
+    expect(()=>ledger.assertConnectionActive("a")).toThrow();expect(closed).toBe(1);
+    expect(ledger.leaseForConnection("a")).toBeUndefined();
+  });
+  it("fails closed on durable write failure without reporting successful revocation",()=>{
+    const {db}=open();let closed=0;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at),lease="4".repeat(64);
+    ledger.admitConnection(lease,"a",()=>closed++);ledger.admitConnection(lease,"b",()=>closed++);
+    db.native.pragma("query_only = ON");
+    expect(()=>ledger.revoke(lease)).toThrow();expect(closed).toBe(2);
+    expect(()=>ledger.assertConnectionActive("a")).toThrow();
+    db.native.pragma("query_only = OFF");
+    expect(()=>ledger.admitConnection(lease,"c",()=>{})).toThrow("replay");
+  });
+  it("drains only the initiating response and removes its authority immediately",()=>{
+    const {db}=open(),lease="5".repeat(64);let closed=0,drained=0;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>at);
+    ledger.admitConnection(lease,"a",()=>closed++);ledger.admitConnection(lease,"b",()=>closed++);
+    ledger.revoke(lease,"a",()=>{drained++;expect(ledger.leaseForConnection("a")).toBeUndefined();});
+    expect({closed,drained}).toEqual({closed:1,drained:1});
+    expect(()=>ledger.assertConnectionActive("a")).toThrow();
+  });
+  it("does not let MAC replay cleanup delete lease tombstones after a host clock jump",()=>{
+    const {db}=open(),lease="6".repeat(64);let now=at;
+    const ledger=new SqliteWindowsHandoffLeaseAuthority(db,p,()=>now);
+    ledger.admitConnection(lease,"a",()=>{});ledger.revoke(lease);
+    const before=db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get();
+    now=new Date(at.getTime()+120_000);
+    expect(()=>ledger.acceptTransportFrame({...receipt("7".repeat(64)),expiresAt:new Date(now.getTime()+60_000).toISOString()})).toThrow();
+    expect(db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get()).toEqual(before);
+    now=at;expect(()=>ledger.admitConnection(lease,"b",()=>{})).toThrow();
+  });
+
+});

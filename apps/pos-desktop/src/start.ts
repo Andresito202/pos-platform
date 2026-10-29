@@ -6,6 +6,7 @@ import {DesktopCommercialAccount,readDesktopCommercialConfiguration} from "./com
 import {createElectronBusinessCredentialVault} from "./electron-business-login.js";
 import {app,shell,session} from "electron";
 import {BrowserCacheMaintenance} from "./browser-cache-maintenance.js";
+import type {ServiceChannel} from "./channel-bridge.js";
 
 /**
  * El arranque del POS de escritorio, **sin decidir de dónde vienen las claves**.
@@ -29,7 +30,9 @@ export interface PosDesktopStartOptions {
    * Secreto del canal, **ya resuelto**. Se copia al autenticador y el original
    * queda a cargo de quien lo obtuvo.
    */
-  readonly channelSecret: Buffer;
+  readonly channelSecret?: Buffer;
+  /** Trusted main-process factory; never serialized or supplied by renderer. */
+  readonly channelFactory?:()=>Promise<ServiceChannel>;
   readonly protocolRange: ContractVersionRange;
   /** Sobre `runtime.handshake` que el canal negocia al conectar. */
   readonly handshake: unknown;
@@ -39,12 +42,13 @@ export interface PosDesktopStartOptions {
 }
 
 export async function startPosDesktop(options: PosDesktopStartOptions): Promise<void> {
-  const authenticator = new LocalChannelAuthenticator(options.channelSecret);
+  if((options.channelSecret===undefined)===(options.channelFactory===undefined))throw Error("DESKTOP_CHANNEL_CUSTODY_REQUIRED");
+  const authenticator = options.channelSecret===undefined?undefined:new LocalChannelAuthenticator(options.channelSecret);
   let channel;
   try {
-    channel = await connectLocalServiceChannel({
+    channel = options.channelFactory?await options.channelFactory():await connectLocalServiceChannel({
       endpoint: options.endpoint,
-      authenticator,
+      authenticator:authenticator!,
       protocolRange: options.protocolRange,
       handshake: options.handshake,
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
@@ -52,36 +56,36 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
   } catch (error) {
     // Un POS que cree estar conectado y no lo está es peor que uno que sabe que
     // no lo está (`DEC-010` §156): no se abre ventana sin canal.
-    authenticator.destroy();
-    options.channelSecret.fill(0);
+    authenticator?.destroy();
+    options.channelSecret?.fill(0);
     throw error;
   }
 
   try {
     await app.whenReady();
     const commercial=options.commercialFile?readDesktopCommercialConfiguration(options.commercialFile):undefined;
-    const account=commercial?new DesktopCommercialAccount(commercial,async()=>{
-      const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret);
+    const account=commercial?new DesktopCommercialAccount(commercial,options.channelFactory??(async()=>{
+      const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret!);
       try{const connected=await connectLocalServiceChannel({endpoint:options.endpoint,authenticator:nativeAuthenticator,protocolRange:options.protocolRange,
         handshake:options.handshake,timeoutMs:commercial.attempt_timeout_ms});
         return {request:input=>connected.request(input),close:async()=>{try{await connected.close();}finally{nativeAuthenticator.destroy();}}};}
       catch(error){nativeAuthenticator.destroy();throw error;}
-    },createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
+    }),createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
     const cache=commercial?.browser_cache?new BrowserCacheMaintenance(session.defaultSession,commercial.browser_cache):undefined;
     await bootstrap(channel, options.logger,account,cache);
     // The launcher's original secret is needed to authenticate additional
     // account channels during this Electron process, but never after exit.
     // The authenticator holds its own copy; erase both on normal shutdown.
     app.once("will-quit",()=>{
-      authenticator.destroy();
-      options.channelSecret.fill(0);
+      authenticator?.destroy();
+      options.channelSecret?.fill(0);
     });
   } catch (error) {
     // Never leave a connected, credential-bearing local channel alive if
     // config loading, Electron readiness, or bootstrap fails after handshake.
     try{await channel.close();}catch{/* preserve the startup failure */}
-    authenticator.destroy();
-    options.channelSecret.fill(0);
+    authenticator?.destroy();
+    options.channelSecret?.fill(0);
     throw error;
   }
 }
