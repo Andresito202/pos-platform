@@ -19,6 +19,7 @@ import {POSTGRES_007_DESCRIPTOR} from "./postgres-007-contract.js";
 import {COMMERCIAL_MIGRATIONS} from "./postgres-commercial-runner.js";
 import {canonicalJson} from "./postgres-003-role-readiness.js";
 import {readArtifact,sha256} from "./shared.js";
+import {verifyPreprodLoginArtifactLock} from "./preprod-login-sql-lock.js";
 
 const mode=process.argv[2];
 if(process.argv.length!==3||(mode!=="--manifest"&&mode!=="--inspect"))
@@ -61,6 +62,7 @@ const digests=await Promise.all(descriptors.map(async d=>({
 })));
 if(digests.some(d=>!/^[a-f0-9]{64}$/.test(d.checksum_sha256)))
   throw Error("LOGIN_SCHEMA_ARTIFACT_DIGEST_INVALID");
+verifyPreprodLoginArtifactLock(digests.slice(4).map(d=>({id:d.migration_id,hash:d.checksum_sha256})));
 const canonical005="4cc95c0fd293c75305c672d2b7b5e958d80a687fc5e0b736d5233272665f8387";
 if(digests[4]?.checksum_sha256!==canonical005)
   throw Error("LOGIN_SCHEMA_APPROVED_005_ARTIFACT_DRIFT");
