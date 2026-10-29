@@ -22,6 +22,7 @@ import {POSTGRES_007_DESCRIPTOR} from "./postgres-007-contract.js";
 import {COMMERCIAL_MIGRATIONS} from "./postgres-commercial-runner.js";
 import {canonicalJson} from "./postgres-003-role-readiness.js";
 import {readArtifact,sha256} from "./shared.js";
+import {verifyPreprodLoginArtifactLock} from "./preprod-login-sql-lock.js";
 
 if(process.argv.length!==2)throw Error("LOGIN_STAGE_STATUS_TAKES_NO_ARGUMENTS");
 if(process.platform!=="win32"||!process.env.LOCALAPPDATA)
@@ -49,6 +50,7 @@ const digests=await Promise.all(descriptors.map(async d=>({
   migrationId:d.migrationId,hash:sha256(await readArtifact(d.upArtifact)).toString("hex"),
 })));
 if(digests.length!==16)throw Error("LOGIN_STAGE_EXPECTED_001_016");
+verifyPreprodLoginArtifactLock(digests.slice(4).map(d=>({id:d.migrationId,hash:d.hash})));
 const receipt=JSON.parse(readFileSync(receipt005,"utf8")) as {
   receipt_payload?:{
     migration_id?:string;artifact_sha256?:string;execution_id?:string;
