@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+2026-10-29: orden expresa del propietario — única línea activa `feat/p0-windows-login-install-readiness`, PR #99 / issue #98, continuación de PR #96. Prioridad exclusiva login Windows–Central. Laboratorio aislado gratuito permitido; no contratar VPS/dominio ni presentar autenticadores virtuales como personas. Host interactivo bajo la misma sesión Windows y DPAPI CurrentUser es el camino ya aprobado para la primera ceremonia; WinSW multiidentidad sigue bloqueado hasta un handoff autenticado aprobado y certificado. Las notas inferiores conservan su alcance histórico.
+
 2026-10-28: decisión del propietario — Android exclusivamente operativo; contratación, precios, pagos y renovación de licencias y administración GLOBAL permanecen en la web. [Separación Android y estado informativo](../testing/android-operational-only-2026-10-28.md). No convierte el probe en APK comercial ni aprueba Play, SEC-004 o un login ficticio.
 
 2026-10-26: [cierre técnico Windows](../testing/windows-login-closure-2026-10-26.md).

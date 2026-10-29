@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { assertWindowsCommercialInteractiveHost } from "../src/security/windows-commercial-host-identity.js";
 
 describe("Windows commercial process identity", () => {
+  it.runIf(process.platform==="win32")("real Windows token: verifies the current interactive host without an injected runner",()=>{
+    // Actual PowerShell/WindowsIdentity; no user name, SID or secret is logged.
+    // This does not certify another Windows account, SCM, Central or human MFA.
+    expect(()=>assertWindowsCommercialInteractiveHost()).not.toThrow();
+  });
   it("rejects non-Windows runtime before invoking the host", () => {
     expect(() => assertWindowsCommercialInteractiveHost("linux", () => {
       throw new Error("runner must not run");

@@ -16,7 +16,7 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-`feat/android-commercial-runtime`, desde `51d5feb`, por orden expresa del propietario. Continúa el laboratorio `b907d20f`; [PR #92](https://github.com/Andresito202/pos-platform/pull/92) permanece draft y se conserva su historia. El objetivo activo es ejecutar el motor comercial existente en Android y después integrar autorización y hardware, sin otro POS ni cambios de seguridad para facilitar el arranque.
+`feat/p0-windows-login-install-readiness`, por orden expresa del propietario de 2026-10-29 ([issue #98](https://github.com/Andresito202/pos-platform/issues/98), [PR #99](https://github.com/Andresito202/pos-platform/pull/99)). Continúa `feat/android-commercial-runtime@913ea8cc`; PR #96 y PR #92 permanecen Draft. Objetivo exclusivo: cierre técnico del login Windows–Central y laboratorio aislado, sin desarrollar otros módulos ni debilitar controles.
 
 Cualquier IA o agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
 
