@@ -93,3 +93,12 @@ El lote BUSINESS 008–016 conserva su runner comercial; se añadió `postgres-c
 `tests/preprod-login-operator-gates.test.ts` amplió de 5 a **7** pruebas estructurales para exigir esta secuencia y los límites de seguridad, pero **no han sido ejecutadas** en el Windows del operador, que permanece apagado.
 
 **Gestión de fallo:** una excepción después de crear una tabla puede dejar el ledger en `STARTED` con `body_committed_at`; el procedimiento debe detenerse sin reintentar ni revertir automáticamente. Registrar y conciliar la ejecución ya realizada con roles mínimos es preferible a aplicar de nuevo. El recibo final no acredita MFA ni autorización de una persona real, sólo DDL, ACL y aislamiento de tablas bajo los roles DB.
+
+
+### Inspector no destructivo ante fallos del lote 006–016
+
+Se añadió `tools/target-migrations/src/preprod-login-stage-status.ts`: conexión limitada a `127.0.0.1:55435/camacho_pos_preprod`, certificado CA validado con `verify-full`, rol `pos_migrator`, owner temporal dentro de transacción `READ ONLY` y `ROLLBACK`. Por cada migración 006–016 informa solamente `ABSENT`, `APPLIED_LEDGER_ONLY` o `REVIEW_REQUIRED`, confrontando checksum, estado y marcas de body/smoke. No imprime secretos/UUID ni ejecuta DDL. Puede identificar si hay una ejecución parcial antes de una conciliación humana de un `STARTED`, pero no la corrige automáticamente.
+
+Comando reservado para la fase manual: `pnpm --filter @pos-platform/target-migrations exec tsx src/preprod-login-stage-status.ts`. Los tests estáticos focalizados del paquete son ahora **ocho (implementados, no ejecutados)**. La certificación final deberá distinguir explícitamente: código presente, scripts compilados, smoke físico PostgreSQL, receipt íntegro, Central configurada, operación Electron/Service alcanzable y login humano.
+
+El usuario mantiene su Windows apagado durante esta preparación. No se ha realizado una operación remota en su PostgreSQL, ni se han habilitado perfiles temporales, llaves de prueba o accesos sin MFA.
