@@ -3,7 +3,7 @@
  * Uses node-postgres / pgpass + TLS verify-full and the pinned server CA.
  * Never logs passwords, URLs or filesystem paths; never mutates SQL.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "pg";
 
@@ -59,16 +59,29 @@ for(const role of roles){
     await client.end().catch(()=>undefined);
   }
 }
-let wrongAccepted=false;
-const invalid=connection("pos_platform_app","CAMACHO_INVALID_CREDENTIAL_NEGATIVE_TEST");
+// Intentionally do NOT use connectionString or pgpass for this negative gate:
+ // pg's connection-string parser can override Client.password and accidentally
+ // re-select a valid .pgpass credential. Only the actual SQLSTATE 28P01
+ // ('invalid_password') proves the server rejected the supplied wrong secret.
+let rejectedWrongPassword=false;
+const invalid=new Client({
+  host:"127.0.0.1",
+  port:55435,
+  database:"camacho_pos_preprod",
+  user:"pos_platform_app",
+  password:"CAMACHO_INVALID_CREDENTIAL_NEGATIVE_TEST",
+  ssl:{ca:readFileSync(ca),rejectUnauthorized:true},
+  connectionTimeoutMillis:8000,
+});
 try{
   await invalid.connect();
-  wrongAccepted=true;
-}catch{
-  // Auth refusal is intentional. No server errors/credentials are logged.
+}catch(error){
+  const code=(error as {code?:unknown})?.code;
+  if(code!=="28P01")throw Error("PREPROD_NEGATIVE_GATE_NOT_INVALID_PASSWORD");
+  rejectedWrongPassword=true;
 }finally{
   await invalid.end().catch(()=>undefined);
 }
-if(wrongAccepted)throw Error("PREPROD_WRONG_PASSWORD_WAS_ACCEPTED");
-process.stdout.write("WRONG_PASSWORD_DENIED: PASS\n");
+if(!rejectedWrongPassword)throw Error("PREPROD_WRONG_PASSWORD_WAS_ACCEPTED");
+process.stdout.write("WRONG_PASSWORD_DENIED_SQLSTATE_28P01: PASS\n");
 process.stdout.write("ROLE_GATE: PASS (no migrations or commercial login executed)\n");
