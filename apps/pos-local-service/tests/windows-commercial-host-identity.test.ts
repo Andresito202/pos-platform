@@ -32,6 +32,17 @@ describe("Windows commercial process identity", () => {
     }))).toThrow("COMMERCIAL_WINDOWS_IDENTITY_INSPECTION_FAILED");
   });
 
+  it("rejects success exit without the exact attestation and rejects arbitrary nonzero codes", () => {
+    expect(() => assertWindowsCommercialInteractiveHost("win32", () => ({
+      status: 0, stdout: "",
+    }))).toThrow("COMMERCIAL_WINDOWS_INTERACTIVE_IDENTITY_REQUIRED");
+    for (const status of [1, 99]) {
+      expect(() => assertWindowsCommercialInteractiveHost("win32", () => ({
+        status, stdout: "COMMERCIAL_INTERACTIVE_CONTEXT_VERIFIED",
+      }))).toThrow("COMMERCIAL_WINDOWS_INTERACTIVE_IDENTITY_REQUIRED");
+    }
+  });
+
   it("fails closed when inspection itself fails", () => {
     expect(() => assertWindowsCommercialInteractiveHost("win32", () => {
       throw new Error("PRIVATE_TOKEN_DETAILS");
