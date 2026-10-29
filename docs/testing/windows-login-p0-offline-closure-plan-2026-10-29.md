@@ -102,3 +102,15 @@ Se añadió `tools/target-migrations/src/preprod-login-stage-status.ts`: conexi�
 Comando reservado para la fase manual: `pnpm --filter @pos-platform/target-migrations exec tsx src/preprod-login-stage-status.ts`. Los tests estáticos focalizados del paquete son ahora **ocho (implementados, no ejecutados)**. La certificación final deberá distinguir explícitamente: código presente, scripts compilados, smoke físico PostgreSQL, receipt íntegro, Central configurada, operación Electron/Service alcanzable y login humano.
 
 El usuario mantiene su Windows apagado durante esta preparación. No se ha realizado una operación remota en su PostgreSQL, ni se han habilitado perfiles temporales, llaves de prueba o accesos sin MFA.
+
+
+## Endurecimiento de las conexiones reales (continuación sin PC)
+
+Se añadieron correcciones sobre las rutas de producción existentes, sin habilitar ningún bypass de autenticación:
+
+1. Central HTTPS (apps/central-authority/src/main.ts): el despachador de /v1/commercial/* y /v1/business-session/* espera realmente al handler BUSINESS. Las excepciones asíncronas se capturan: fallo genérico COMMERCIAL_REQUEST_FAILED, respuesta no-store, destrucción de respuesta parcialmente enviada y un único evento de error sin contraseña, token, cookies, material criptográfico ni excepción. Se conserva el enrutamiento GLOBAL/Factus.
+2. Desktop (apps/pos-desktop/src/start.ts): cualquier error de handshake o posterior a la conexión ocasiona limpieza del autenticador, borrado del secreto simétrico del lanzador y cierre de canal cuando existe. En el cierre normal Electron will-quit también se limpian ambas copias. El material sigue disponible solo mientras se necesita para abrir otros canales de cuenta y se conserva DPAPI CurrentUser.
+3. Se prepararon las regresiones apps/central-authority/tests/central-commercial-dispatch-hardening.test.ts y apps/pos-desktop/tests/desktop-commercial-startup-secrecy.test.ts (siete casos estructurales); se incorporaron a la batería final tools/operators/windows-login-final-checks.ps1 junto con TypeScript y las pruebas no destructivas de 006–016. Las regresiones estructurales no reemplazan pruebas reales de sockets, WebAuthn o HTTPS.
+4. PR #99 sigue DRAFT. No se ha ejecutado tsc/Vitest del incremento actual, no se han aplicado 006–016, no se ha encendido Windows ni aprovisionado Central, y no se ha certificado un login humano.
+
+Criterio final: las rutas BUSINESS deben fallar cerrado sin filtrar secretos, Electron no debe mantener un canal autorizado tras fallar el arranque, y se debe demostrar autenticación MFA física, DeviceProof, SSA/SAS y RBAC con una identidad humana legítima. WinSW multiusuario queda como hito arquitectónico separado.
