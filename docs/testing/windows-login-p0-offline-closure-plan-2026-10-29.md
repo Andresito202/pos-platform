@@ -80,3 +80,16 @@ Se materializó en la **misma rama** el tramo técnico necesario para preparar l
 **Regla:** no reejecutar MAT003 ni 003–005. No ejecutar los aplicadores nuevos durante el trabajo remoto ni declararlos certificados sin salida física real. No publicar secretos, no abrir acceso sin MFA, no saltarse RLS.
 
 **Separación GLOBAL 021:** el descriptor y la ruta actual dependen de 017–020 (pagos/licencias), y el handler GLOBAL incorpora funciones de ofertas/suscripciones. No aplicar esa cadena sólo para desbloquear un login, ni reescribir la dependencia sin decisión de arquitectura/compatibilidad. BUSINESS se certifica como hito independiente.
+
+
+## Endurecimiento adicional del paquete final sin PC
+
+Hallazgo posterior a preparar los aplicadores: los runners existentes de 006 y 007 registraban `smoke_verified_at` después de inspeccionar tablas y RLS, pero antes de una comprobación efectiva de privilegios en sesiones separadas. Repetir el patrón de 004/005 no era aceptable.
+
+Se corrigieron **únicamente los dos runners** `postgres-006-runner.ts` y `postgres-007-runner.ts` para registrar primero `body_committed_at`, luego ejecutar consultas reales bajo cuatro cuentas DB separadas y solo después declarar `smoke_verified_at/APPLIED`. El módulo `postgres-006-007-smoke.ts` exige identidad y TLS para cada rol, ACL SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER y prueba SQL SELECT permitida o denegación 42501: **132 aserciones en 006 y 36 en 007**. El wrapper 006–007 repite esas pruebas después del ledger e incluye sus resultados en el recibo SHA256.
+
+El lote BUSINESS 008–016 conserva su runner comercial; se añadió `postgres-commercial-auth-smoke.ts` que comprueba **244 aserciones** de seguridad mediante cuatro roles reales y diez tablas de autorización, WebAuthn, DeviceProof, SSA/SAS, browser sessions y códigos nativos. Distingue deliberadamente la lectura legítima `pos_platform_admin` de `authorization.platform_role_assignments` de los almacenes MFA/PKCE exclusivos de `pos_platform_app`. El wrapper obliga a este smoke separado *antes* de crear su recibo, sin modificar SQL ni otorgar permisos.
+
+`tests/preprod-login-operator-gates.test.ts` amplió de 5 a **7** pruebas estructurales para exigir esta secuencia y los límites de seguridad, pero **no han sido ejecutadas** en el Windows del operador, que permanece apagado.
+
+**Gestión de fallo:** una excepción después de crear una tabla puede dejar el ledger en `STARTED` con `body_committed_at`; el procedimiento debe detenerse sin reintentar ni revertir automáticamente. Registrar y conciliar la ejecución ya realizada con roles mínimos es preferible a aplicar de nuevo. El recibo final no acredita MFA ni autorización de una persona real, sólo DDL, ACL y aislamiento de tablas bajo los roles DB.
