@@ -1,0 +1,1990 @@
+{
+  "source_base_sha": "29cb14b8f1f89ed2034c5502d1dd6d490e38f855",
+  "runtime_commit_sha": "8d04ca157c49ce9c748722714c7eef7e5db182d8",
+  "environment": {
+    "os": "Linux",
+    "node": "v24.22.1",
+    "vitest": "4.1.11",
+    "typescript": "6.0.3",
+    "zod": "4.4.3",
+    "better-sqlite3": "13.0.3",
+    "windows": false,
+    "owner_pc_access": false,
+    "persistent_database_access": false
+  },
+  "runs": [
+    {
+      "label": "candidate-before-migration-guard-fixes",
+      "report_sha256": "741da0f14e208b5430d2f7de871eab132550cbe6590cf818839754676f4fe64f",
+      "success": true,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 4,
+      "total": 37,
+      "started_at_epoch_ms": 1793301306047,
+      "suites": [
+        {
+          "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 10,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": [],
+          "case_names": [
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+            "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+            "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+            "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+            "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+            "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts"
+          ]
+        },
+        {
+          "path": "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "packages/local-channel/tests/windows-handoff.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 22,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        }
+      ]
+    },
+    {
+      "label": "expanded-with-transport-environment-failures",
+      "report_sha256": "e14850079e1d1ca888e8521e9c384f9aec6710b123e6b53b535319c15b105ee5",
+      "success": false,
+      "passed": 199,
+      "failed": 8,
+      "skipped": 28,
+      "total": 235,
+      "started_at_epoch_ms": 1793301732592,
+      "suites": [
+        {
+          "path": "apps/central-authority/tests/central-commercial-dispatch-hardening.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 3,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-desktop/tests/desktop-commercial-startup-secrecy.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 5,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/authorization-snapshot.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 31,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/authorization-trust-deployment.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 0,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 19
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/authorization-trust-lifecycle.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 3
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/channel-commercial-transport.test.ts",
+          "status": "failed",
+          "counts": {
+            "passed": 0,
+            "failed": 8,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": [
+            "transporte de las operaciones comerciales cash.shift.open viaja y su respuesta se parsea con su propio esquema",
+            "transporte de las operaciones comerciales catalog.item.find viaja y su respuesta se parsea con su propio esquema",
+            "transporte de las operaciones comerciales sale.create viaja y su respuesta se parsea con su propio esquema",
+            "transporte de las operaciones comerciales payment.register.cash viaja y su respuesta se parsea con su propio esquema",
+            "transporte de las operaciones comerciales license.offers.list viaja y su respuesta se parsea con su propio esquema",
+            "transporte de las operaciones comerciales la vertical completa recorre el canal en una sola conexión",
+            "transporte de las operaciones comerciales las nueve operaciones antes sin enrutar ya no matan la conexión",
+            "transporte de las operaciones comerciales el cobro que completa la venta llega con sale_completed intacto"
+          ]
+        },
+        {
+          "path": "apps/pos-local-service/tests/commercial-ipc.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 47,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/service-descriptor.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 13,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/session-assertion-verifier.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 51,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/session-trust-key-resolver.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 6,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 10,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": [],
+          "case_names": [
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+            "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+            "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+            "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+            "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+            "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts"
+          ]
+        },
+        {
+          "path": "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "packages/local-channel/tests/response-schemas.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 4,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "packages/local-channel/tests/windows-handoff.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 22,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "packages/local-channel/tests/windows-production.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 5,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        }
+      ]
+    },
+    {
+      "label": "central-authentication-unit",
+      "report_sha256": "338d9f92c3d5cf7bb49522189672f77032ac72d8b9ecd90ab00032540a5d0fb3",
+      "success": true,
+      "passed": 79,
+      "failed": 0,
+      "skipped": 0,
+      "total": 79,
+      "started_at_epoch_ms": 1793301819499,
+      "suites": [
+        {
+          "path": "apps/central-authority/tests/business-login-coordinator.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 8,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/central-certification-preflight.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/central-deployment-configuration.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 14,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/central-login-preflight.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 5,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/central-session-assertion-issuer.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 30,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/commercial-native-client-catalog.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 4,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/isolated-authorization-trust.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/native-authorization-callback.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 6,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/native-authorization-code-exchange.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 5,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/native-authorization-constraints.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 3,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "apps/central-authority/tests/session-trust-key-issuer.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        }
+      ]
+    },
+    {
+      "label": "migration-operator-unit",
+      "report_sha256": "c6cd98bea0a49663185186d0275cd1e9537978a94a9ca31224b6ea2fadcd5652",
+      "success": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "total": 17,
+      "started_at_epoch_ms": 1793301820695,
+      "suites": [
+        {
+          "path": "tools/target-migrations/tests/postgres-006-licensing.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-007-password-recovery.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-008-platform-roles.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 4,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/preprod-login-operator-gates.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 9,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        }
+      ]
+    },
+    {
+      "label": "final-local-candidate",
+      "report_sha256": "bb6f18630a4ac880fe9941d25a786b824e1fa467c5db33f664f1811776d35772",
+      "success": true,
+      "passed": 50,
+      "failed": 0,
+      "skipped": 4,
+      "total": 54,
+      "started_at_epoch_ms": 1793301883824,
+      "suites": [
+        {
+          "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 10,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": [],
+          "case_names": [
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+            "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+            "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+            "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+            "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+            "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts"
+          ]
+        },
+        {
+          "path": "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "packages/local-channel/tests/windows-handoff.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 22,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-006-licensing.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-007-password-recovery.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-008-platform-roles.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 4,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/preprod-login-operator-gates.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 9,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        }
+      ]
+    },
+    {
+      "label": "published-runtime",
+      "report_sha256": "76d4fc7d9aa135b7953f49fcfd588dcab78eea85e36fc1553af9dddcf5e05f56",
+      "success": true,
+      "passed": 50,
+      "failed": 0,
+      "skipped": 4,
+      "total": 54,
+      "started_at_epoch_ms": 1793301995728,
+      "suites": [
+        {
+          "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 10,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": [],
+          "case_names": [
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+            "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+            "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+            "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+            "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+            "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+            "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+            "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts"
+          ]
+        },
+        {
+          "path": "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "packages/local-channel/tests/windows-handoff.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 22,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 2
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-006-licensing.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-007-password-recovery.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 2,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/postgres-008-platform-roles.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 4,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        },
+        {
+          "path": "tools/target-migrations/tests/preprod-login-operator-gates.test.ts",
+          "status": "passed",
+          "counts": {
+            "passed": 9,
+            "failed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "failed_cases": []
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Counters overlap between runs; do not sum.",
+    "8 expanded-suite failures are EPERM when binding Unix sockets.",
+    "Skipped Windows scenarios are not PASS.",
+    "No physical MFA, SCM or production certification."
+  ],
+  "history": [
+    {
+      "sha": "dc5eca64fcf2b0e186bcc7c3e41b7647ed4f3dd6",
+      "parents": [
+        "913ea8cc6b24dfcd672f4f794e74b48ce3731c93"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:02:02Z",
+      "title": "fix(windows): reject unsafe SCM commercial login profile until identity handoff exists"
+    },
+    {
+      "sha": "c3ff1e465a52dcd5aa99fd010643b4e3b819c00e",
+      "parents": [
+        "dc5eca64fcf2b0e186bcc7c3e41b7647ed4f3dd6"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:02:12Z",
+      "title": "test(windows): cover fail-closed commercial SCM profile"
+    },
+    {
+      "sha": "d03aac4848d977630188859d8c8cd7604736bcdd",
+      "parents": [
+        "c3ff1e465a52dcd5aa99fd010643b4e3b819c00e"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:02:54Z",
+      "title": "feat(windows): add safe read-only commercial login deployment preflight"
+    },
+    {
+      "sha": "9d49dbc97866cc2d1b48cfc44540f676cfd423f7",
+      "parents": [
+        "d03aac4848d977630188859d8c8cd7604736bcdd"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:03:26Z",
+      "title": "fix(windows): correct stale Central login readiness message"
+    },
+    {
+      "sha": "450fdc80b00f48ada856d8a779c18d82fcb7d858",
+      "parents": [
+        "9d49dbc97866cc2d1b48cfc44540f676cfd423f7"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:03:28Z",
+      "title": "docs(windows): document real SCM identity/channel blocker and safe preflight"
+    },
+    {
+      "sha": "fc8acda90bc0e56bb9bc001e96ca8630450af77d",
+      "parents": [
+        "450fdc80b00f48ada856d8a779c18d82fcb7d858"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:23:43Z",
+      "title": "fix(channel): make production Desktop consume only Service-provisioned DPAPI channel secret"
+    },
+    {
+      "sha": "d4d17627bfddd6cdf2ee0f13192bea00fac5de54",
+      "parents": [
+        "fc8acda90bc0e56bb9bc001e96ca8630450af77d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:24:19Z",
+      "title": "test(channel): cover Service-owned DPAPI secret and Desktop non-creation"
+    },
+    {
+      "sha": "cbe239059b9fdeab2dd051e959e9bdab316903f3",
+      "parents": [
+        "d4d17627bfddd6cdf2ee0f13192bea00fac5de54"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:25:16Z",
+      "title": "feat(auth): focused offline BUSINESS/GLOBAL readiness inventory without pay/license fields"
+    },
+    {
+      "sha": "e9f6312f181415308a488ee495595ecc3ea42b51",
+      "parents": [
+        "cbe239059b9fdeab2dd051e959e9bdab316903f3"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:25:26Z",
+      "title": "feat(auth): add targeted login deployment preflight CLI"
+    },
+    {
+      "sha": "b2e8175a8d69f891acbdbd37c68dcc2dbd93bf7d",
+      "parents": [
+        "e9f6312f181415308a488ee495595ecc3ea42b51"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:25:36Z",
+      "title": "chore(auth): expose dedicated BUSINESS/GLOBAL preflight command"
+    },
+    {
+      "sha": "333959aa5c735b15f26c23a9131e7d35e18deca3",
+      "parents": [
+        "b2e8175a8d69f891acbdbd37c68dcc2dbd93bf7d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:25:53Z",
+      "title": "test(auth): cover offline login readiness, redaction and fail-closed state"
+    },
+    {
+      "sha": "ba52709418a7ec8e647ecf101d6f47398dc2ba51",
+      "parents": [
+        "333959aa5c735b15f26c23a9131e7d35e18deca3"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:26:31Z",
+      "title": "fix(windows): refuse incomplete commercial provisioning before launching local Service/Electron"
+    },
+    {
+      "sha": "0d5dbcc21aef0790425ce6c71a6eb00982544306",
+      "parents": [
+        "ba52709418a7ec8e647ecf101d6f47398dc2ba51"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:27:26Z",
+      "title": "fix(channel): verify reader ACL, reject unsafe DPAPI paths and require absolute service store"
+    },
+    {
+      "sha": "a91a77f2b180ed8cf3035fa0a7d116276048cba0",
+      "parents": [
+        "0d5dbcc21aef0790425ce6c71a6eb00982544306"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:28:24Z",
+      "title": "feat(auth): stage focused final Windows checks without running them"
+    },
+    {
+      "sha": "a23ece828224660786b0d18eeedf0ace605b8acd",
+      "parents": [
+        "a91a77f2b180ed8cf3035fa0a7d116276048cba0"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:28:50Z",
+      "title": "fix(auth): splat final check arguments safely in PowerShell 5.1"
+    },
+    {
+      "sha": "af807a7d207312912ddea7c7bb06b6e002249039",
+      "parents": [
+        "a23ece828224660786b0d18eeedf0ace605b8acd"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:29:14Z",
+      "title": "fix(windows): make unsafe SCM commercial-install intent explicit and fail-closed"
+    },
+    {
+      "sha": "8443e7bf1f06b65a202fefa8a8fcd9026bd6b8fd",
+      "parents": [
+        "af807a7d207312912ddea7c7bb06b6e002249039"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:29:28Z",
+      "title": "test(windows): assert explicit commercial SCM intent is rejected even with base env"
+    },
+    {
+      "sha": "857cc9b11dd9bc2e4a7008d063ffd8cccd1b65fb",
+      "parents": [
+        "8443e7bf1f06b65a202fefa8a8fcd9026bd6b8fd"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:31:12Z",
+      "title": "docs(auth): record exact P0 implementation, historical test evidence and deferred certification"
+    },
+    {
+      "sha": "90ceffe9ed1c4e393fbaabcc64ff4f64e9ff09eb",
+      "parents": [
+        "857cc9b11dd9bc2e4a7008d063ffd8cccd1b65fb"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:31:39Z",
+      "title": "docs(auth): document safe local login readiness and delayed certification"
+    },
+    {
+      "sha": "f562d5a5ce004a9b8ef3117016886f0136bbef35",
+      "parents": [
+        "90ceffe9ed1c4e393fbaabcc64ff4f64e9ff09eb"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:31:42Z",
+      "title": "docs(auth): document safe local login readiness and delayed certification"
+    },
+    {
+      "sha": "bc643b6ef529a57143533d1b6fb7f038499f6fbf",
+      "parents": [
+        "f562d5a5ce004a9b8ef3117016886f0136bbef35"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:33:03Z",
+      "title": "fix(auth): require real SSA trust distribution before commercial Windows launch"
+    },
+    {
+      "sha": "fc2145e03416a4c42585380f7d6ea1764ad8f541",
+      "parents": [
+        "bc643b6ef529a57143533d1b6fb7f038499f6fbf"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:39:45Z",
+      "title": "feat(auth): reject commercial login under SCM/non-interactive Windows token before startup"
+    },
+    {
+      "sha": "e4d9a8902d99274e3f5bcfe74dc296870ff15d9d",
+      "parents": [
+        "fc2145e03416a4c42585380f7d6ea1764ad8f541"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:40:15Z",
+      "title": "fix(auth): enforce interactive Windows token for commercial login before opening local state"
+    },
+    {
+      "sha": "8e4cd71e323fd0915435f08a5445fdd91fd42c3a",
+      "parents": [
+        "e4d9a8902d99274e3f5bcfe74dc296870ff15d9d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:40:47Z",
+      "title": "fix(channel): strictly validate and authenticate encrypted channel envelope, bounded read"
+    },
+    {
+      "sha": "c824eb083be5800857b235f5cb0eeb8c7388026d",
+      "parents": [
+        "8e4cd71e323fd0915435f08a5445fdd91fd42c3a"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:41:14Z",
+      "title": "test(auth): cover OS identity gating and fail-closed diagnostics without Windows execution"
+    },
+    {
+      "sha": "42c9361b588ffaeb852ee14b18f0a3cdb1e7015a",
+      "parents": [
+        "c824eb083be5800857b235f5cb0eeb8c7388026d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:41:59Z",
+      "title": "test(channel): cover bounded encrypted envelope, tamper rejection and no mutation by Desktop"
+    },
+    {
+      "sha": "8000d62eaf142d5cbda7a3c28bc8ea22db208d5b",
+      "parents": [
+        "42c9361b588ffaeb852ee14b18f0a3cdb1e7015a"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:42:53Z",
+      "title": "chore(auth): include OS-token gate regression in deferred Windows test plan"
+    },
+    {
+      "sha": "72f0cb6f190a11fab29895ba2cb5f8fda1e3c62e",
+      "parents": [
+        "8000d62eaf142d5cbda7a3c28bc8ea22db208d5b"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:43:29Z",
+      "title": "fix(channel): bound DPAPI key files and sanitize helper failures to avoid leaking Windows identity"
+    },
+    {
+      "sha": "3e0c5770b3d5a2546c0dc44430b7d83066886896",
+      "parents": [
+        "72f0cb6f190a11fab29895ba2cb5f8fda1e3c62e"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:44:03Z",
+      "title": "feat(auth): inspect current Windows token eligibility without exposing identities"
+    },
+    {
+      "sha": "b0faad59fceff36c8e9d7035b0144ef0d5a2829c",
+      "parents": [
+        "3e0c5770b3d5a2546c0dc44430b7d83066886896"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:44:52Z",
+      "title": "docs(auth): record OS-token boundary and encrypted envelope hardening without test claims"
+    },
+    {
+      "sha": "4e04c71055aa98b2951da23a51e165c43e199951",
+      "parents": [
+        "b0faad59fceff36c8e9d7035b0144ef0d5a2829c"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:54:25Z",
+      "title": "fix(auth): bound Windows token inspection to prevent commercial startup hang"
+    },
+    {
+      "sha": "99a8c1716d3473c803470c37b6d0444365cbd67c",
+      "parents": [
+        "4e04c71055aa98b2951da23a51e165c43e199951"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:55:56Z",
+      "title": "test(auth): reject missing interactive attestation and nonzero host status"
+    },
+    {
+      "sha": "893b02944b9c1ed8e08aad81b1b46f13b80172cf",
+      "parents": [
+        "99a8c1716d3473c803470c37b6d0444365cbd67c"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T06:56:51Z",
+      "title": "docs(auth): record executed internal strict TypeScript and 11 identity-gate cases with exact blob hash"
+    },
+    {
+      "sha": "5135cdda233297a8574f4138fce3ed2c690b719d",
+      "parents": [
+        "893b02944b9c1ed8e08aad81b1b46f13b80172cf"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:32:04Z",
+      "title": "fix(auth): align BUSINESS/GLOBAL preflight with actual Central trust publication prerequisites"
+    },
+    {
+      "sha": "ed5acfd03b19cd0d21329bbba4c49e82537f65d5",
+      "parents": [
+        "5135cdda233297a8574f4138fce3ed2c690b719d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:33:34Z",
+      "title": "test(auth): broaden focused BUSINESS/GLOBAL/SSA/SAS regression gates and isolate PostgreSQL opt-in"
+    },
+    {
+      "sha": "509693817632bbff929fb86b7755534d84b64980",
+      "parents": [
+        "ed5acfd03b19cd0d21329bbba4c49e82537f65d5"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:34:01Z",
+      "title": "test(auth): reject LOCAL login and distinguish optional SSA vs mandatory SAS transport"
+    },
+    {
+      "sha": "9735de730c96dea3dab45b5e925433241b2aa5f8",
+      "parents": [
+        "509693817632bbff929fb86b7755534d84b64980"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:36:57Z",
+      "title": "fix(auth): verify Service/Desktop native registration and WebAuthn origin before any local launch"
+    },
+    {
+      "sha": "61c74dfd57adf918843d2cfcda74461ab29aa39a",
+      "parents": [
+        "9735de730c96dea3dab45b5e925433241b2aa5f8"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:37:57Z",
+      "title": "docs(auth): definitive P0 Windows physical E2E handoff with signed-session and RBAC evidence gates"
+    },
+    {
+      "sha": "f34f83aea2835b98b2e24f61fc9b1e3b3b8c3b66",
+      "parents": [
+        "61c74dfd57adf918843d2cfcda74461ab29aa39a"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:38:41Z",
+      "title": "fix(auth): require reviewed PR99 branch and exact SHA before running final certification suites"
+    },
+    {
+      "sha": "9fb5438127a90ee4c04e85f424ec9243e7be843d",
+      "parents": [
+        "f34f83aea2835b98b2e24f61fc9b1e3b3b8c3b66"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:39:55Z",
+      "title": "fix(auth): block interactive login if SCM Local Service already owns runtime; never stop unrelated service"
+    },
+    {
+      "sha": "2418af42c7424c49f2312cc036dd0aaa1b0ffbfe",
+      "parents": [
+        "9fb5438127a90ee4c04e85f424ec9243e7be843d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:40:24Z",
+      "title": "docs(auth): record real isolated gate results and prevent SCM/runtime double-ownership"
+    },
+    {
+      "sha": "adae5081f2e156f135364b37c3a5bbba5bfff8c7",
+      "parents": [
+        "2418af42c7424c49f2312cc036dd0aaa1b0ffbfe"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:51:36Z",
+      "title": "fix(auth): restore PowerShell final-checks syntax and remove duplicated truncated tail"
+    },
+    {
+      "sha": "ba16a46638953306d97b9392c04d4ecd23ca914b",
+      "parents": [
+        "adae5081f2e156f135364b37c3a5bbba5bfff8c7"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T12:57:10Z",
+      "title": "test(channel): assert all five real commercial outcomes including license catalog response"
+    },
+    {
+      "sha": "29bddf191007ca1f4b277e737fa0d99182ba7473",
+      "parents": [
+        "ba16a46638953306d97b9392c04d4ecd23ca914b"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T13:05:44Z",
+      "title": "fix(auth): separate interactive login readiness from unsupported WinSW SCM and require SSA source"
+    },
+    {
+      "sha": "468e9d06792784cfdc7a68da771fb98e97f04761",
+      "parents": [
+        "29bddf191007ca1f4b277e737fa0d99182ba7473"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T13:06:32Z",
+      "title": "docs(auth): record missing real provisioning and separate interactive login gate from WinSW"
+    },
+    {
+      "sha": "d5e1c62673613571a9a488742403ff07e06367e8",
+      "parents": [
+        "468e9d06792784cfdc7a68da771fb98e97f04761"
+      ],
+      "author": "Wilson Andres Camacho Culma",
+      "date": "2026-10-29T13:21:39Z",
+      "title": "test(auth): add isolated Windows login lab mode without provisioning [skip ci]"
+    },
+    {
+      "sha": "493c0f3b0338592ed8fc703ef3cb8220b7fb6c19",
+      "parents": [
+        "d5e1c62673613571a9a488742403ff07e06367e8"
+      ],
+      "author": "Wilson Andres Camacho Culma",
+      "date": "2026-10-29T13:24:25Z",
+      "title": "fix(qa): prepare fresh tmpfs login lab with canonical bootstrap [skip ci]"
+    },
+    {
+      "sha": "d04c4ee088fb8a94276aa4b4c8a672c9220f9cc7",
+      "parents": [
+        "493c0f3b0338592ed8fc703ef3cb8220b7fb6c19"
+      ],
+      "author": "Wilson Andres Camacho Culma",
+      "date": "2026-10-29T13:26:38Z",
+      "title": "fix(qa): account for all seven selected V2 login scenarios [skip ci]"
+    },
+    {
+      "sha": "f83ded28c0cb38919a90925227bd87b295ee0b04",
+      "parents": [
+        "d04c4ee088fb8a94276aa4b4c8a672c9220f9cc7"
+      ],
+      "author": "Wilson Andres Camacho Culma",
+      "date": "2026-10-29T13:28:33Z",
+      "title": "docs(auth): record observed Windows local lab and remaining human gates [skip ci]"
+    },
+    {
+      "sha": "24d9dfa76de9d584e7297628145b278423eb1e43",
+      "parents": [
+        "f83ded28c0cb38919a90925227bd87b295ee0b04"
+      ],
+      "author": "Wilson Andres Camacho Culma",
+      "date": "2026-10-29T14:17:51Z",
+      "title": "wip(auth): preserve Windows handoff candidate without SCM activation"
+    },
+    {
+      "sha": "6ce88249b5f41b37a488f7fe72d1c4867eedf21e",
+      "parents": [
+        "24d9dfa76de9d584e7297628145b278423eb1e43"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:20:25Z",
+      "title": "security(auth): bind handoff receiver to current Windows token, logon SID, clock and pinned private key"
+    },
+    {
+      "sha": "1c6914a67cd656e33f383edf41505be162a3b877",
+      "parents": [
+        "6ce88249b5f41b37a488f7fe72d1c4867eedf21e"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:20:52Z",
+      "title": "test(auth): reject different Windows token/logon and expired receiver lease before DPAPI handoff"
+    },
+    {
+      "sha": "b59d551df3004e401fc29c3b1b1e3036f51b795b",
+      "parents": [
+        "1c6914a67cd656e33f383edf41505be162a3b877"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:21:16Z",
+      "title": "test(auth): include canonical contracts and native handoff/WinSW denial suites in Windows P0 gate"
+    },
+    {
+      "sha": "556db17960938b41345d625d7e09143eb2add659",
+      "parents": [
+        "b59d551df3004e401fc29c3b1b1e3036f51b795b"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:30:34Z",
+      "title": "security(auth): authenticate Service handoff with pinned Ed25519 signature and mandatory one-use/revocation gates"
+    },
+    {
+      "sha": "74d02615324e62f08ab9aada364c73c04f888b78",
+      "parents": [
+        "556db17960938b41345d625d7e09143eb2add659"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:31:22Z",
+      "title": "test(auth): verify pinned Service signatures, tamper, one-use lease and revocation gate with real DPAPI receiver"
+    },
+    {
+      "sha": "ccf299816b5641f280a3b718034d897c0072a3c1",
+      "parents": [
+        "74d02615324e62f08ab9aada364c73c04f888b78"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:33:07Z",
+      "title": "docs(auth): distinguish signed candidate gates from SCM and human-login certification"
+    },
+    {
+      "sha": "beedd2c7cc48665381fb6e56fe6cb68181d73210",
+      "parents": [
+        "ccf299816b5641f280a3b718034d897c0072a3c1"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:35:34Z",
+      "title": "fix(auth): map signed handoff leases to canonical 36-char SQLite replay session IDs"
+    },
+    {
+      "sha": "883bbfd983c2c1791f05b66f0f5f82cb764575ad",
+      "parents": [
+        "beedd2c7cc48665381fb6e56fe6cb68181d73210"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:36:17Z",
+      "title": "security(auth): bind revocation contract to installer-approved installation and policy identity"
+    },
+    {
+      "sha": "bd83506e8da6b4e7dd3b8a40ba1758cc57e77b64",
+      "parents": [
+        "883bbfd983c2c1791f05b66f0f5f82cb764575ad"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:37:11Z",
+      "title": "security(auth): persist one-use and revocation on existing Service SQLite replay table atomically"
+    },
+    {
+      "sha": "1d5b9c3dcc81485e04b8b9cf58e46e84cbe22139",
+      "parents": [
+        "bd83506e8da6b4e7dd3b8a40ba1758cc57e77b64"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:37:47Z",
+      "title": "test(auth): prove durable signed-lease consume/revoke and policy denial in existing SQLite"
+    },
+    {
+      "sha": "a04ba6aaf416e724305c322c74bdca22c9e109b2",
+      "parents": [
+        "1d5b9c3dcc81485e04b8b9cf58e46e84cbe22139"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:38:02Z",
+      "title": "test(auth): run canonical SQLite lease/revocation persistence gate in Windows P0 suite"
+    },
+    {
+      "sha": "849bd266de25ff8814588f61c7cf64654dfc432d",
+      "parents": [
+        "a04ba6aaf416e724305c322c74bdca22c9e109b2"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:38:45Z",
+      "title": "test(auth): verify deterministic UUID replay mapping for canonical SQLite schema"
+    },
+    {
+      "sha": "84a0033dbf1198f49424f799e303564ad8c9c7df",
+      "parents": [
+        "849bd266de25ff8814588f61c7cf64654dfc432d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:39:11Z",
+      "title": "docs(auth): record SQLite-backed durable lease and revocation adapter without SCM activation"
+    },
+    {
+      "sha": "3d101d911f229546744ac7c53d4f96e18b7530a7",
+      "parents": [
+        "84a0033dbf1198f49424f799e303564ad8c9c7df"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:43:54Z",
+      "title": "fix(auth): export signed handoff lease mapping and revocation contract from canonical channel"
+    },
+    {
+      "sha": "c5136fbf61807f829967b245ac851b74dcb0091a",
+      "parents": [
+        "3d101d911f229546744ac7c53d4f96e18b7530a7"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T14:44:11Z",
+      "title": "test(auth): ensure temporary SQLite handles close even when lease assertions fail"
+    },
+    {
+      "sha": "c2eff0d315011db905a8ced878a8d3bb5fcd7101",
+      "parents": [
+        "c5136fbf61807f829967b245ac851b74dcb0091a"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:24:06Z",
+      "title": "ops(login): provision isolated PostgreSQL preprod roles with per-role SCRAM credentials and owner-only custody"
+    },
+    {
+      "sha": "79fbc1f93ae54aea0f7a4b6e48b9e41652444586",
+      "parents": [
+        "c2eff0d315011db905a8ced878a8d3bb5fcd7101"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:25:34Z",
+      "title": "test(login): add read-only node-postgres SCRAM, TLS identity and wrong-password role gate"
+    },
+    {
+      "sha": "a2c458b9a67a015421a112b0f82b060adc58b52d",
+      "parents": [
+        "79fbc1f93ae54aea0f7a4b6e48b9e41652444586"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:25:56Z",
+      "title": "fix(ops): use explicit PowerShell 5.1 .NET file-stream constructors for credential custody"
+    },
+    {
+      "sha": "78cb20253a15065cd1084de46f18e97fb3509eaa",
+      "parents": [
+        "a2c458b9a67a015421a112b0f82b060adc58b52d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:32:27Z",
+      "title": "fix(login): bind wrong-password negative test independently of pgpass and require SQLSTATE 28P01"
+    },
+    {
+      "sha": "89317cc32c220bedb25f9daad010df465704610a",
+      "parents": [
+        "78cb20253a15065cd1084de46f18e97fb3509eaa"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:34:40Z",
+      "title": "ops(login): gate canonical PostgreSQL foundation 001-002 behind real TLS SCRAM and read-only inventory"
+    },
+    {
+      "sha": "687fa112f6246cf9f5d41fb08b6b4ee482d705c4",
+      "parents": [
+        "89317cc32c220bedb25f9daad010df465704610a"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:46:42Z",
+      "title": "fix(migrations): repair root MAT003 role-readiness check/apply/revert aliases"
+    },
+    {
+      "sha": "7042fd841a4794df57570aa1d1aa010675c81dc2",
+      "parents": [
+        "687fa112f6246cf9f5d41fb08b6b4ee482d705c4"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T15:59:26Z",
+      "title": "diagnostics(login): isolate MAT003 apply SQL and catalog failure in guaranteed rollback transaction"
+    },
+    {
+      "sha": "86a3302a1a75e9ed1edadd65537c7fec3a3ad06c",
+      "parents": [
+        "7042fd841a4794df57570aa1d1aa010675c81dc2"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:05:05Z",
+      "title": "fix(login): verify MAT003 pinned CA by content across Windows URI path encodings and report failed URL guard field only"
+    },
+    {
+      "sha": "b3eb1c1e65a0ec04120ce3d06087595925fad8dd",
+      "parents": [
+        "86a3302a1a75e9ed1edadd65537c7fec3a3ad06c"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:14:32Z",
+      "title": "fix(login): verify TLS as authenticated migrator before SET LOCAL ROLE and separate owner identity check"
+    },
+    {
+      "sha": "ecd9a539cd7368ebefcb8107f9bc93238527ecc3",
+      "parents": [
+        "b3eb1c1e65a0ec04120ce3d06087595925fad8dd"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:18:41Z",
+      "title": "fix(login): make MAT003 diagnostic self-contained with pinned local TLS, role URLs and git identity"
+    },
+    {
+      "sha": "dbaa501aebd2431d9695951dcfd616a7424807b3",
+      "parents": [
+        "ecd9a539cd7368ebefcb8107f9bc93238527ecc3"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:22:20Z",
+      "title": "ops(login): guarded single-use Windows MAT003 canonical grant with verified durable receipt and no stale environment"
+    },
+    {
+      "sha": "e48542fdfa430af14cd3601e3e61dd72b053edfc",
+      "parents": [
+        "dbaa501aebd2431d9695951dcfd616a7424807b3"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:33:18Z",
+      "title": "ops(login): guarded Windows 003 migration after MAT003 preflight with smoke receipt and ledger verification"
+    },
+    {
+      "sha": "bede8b0d5d9a1b7f86f2aeb163c150e7437f30ca",
+      "parents": [
+        "e48542fdfa430af14cd3601e3e61dd72b053edfc"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:36:58Z",
+      "title": "ops(login): add read-only Windows 004 predecessor catalog and receipt readiness gate"
+    },
+    {
+      "sha": "34107662c0558c785bde5d716e376c17fb9d9967",
+      "parents": [
+        "bede8b0d5d9a1b7f86f2aeb163c150e7437f30ca"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:40:27Z",
+      "title": "test(device-trust): add real 4-role PostgreSQL 004 ACL and read-denial smoke"
+    },
+    {
+      "sha": "ba6e493345c94cec088e6480d86fb2ebcd392754",
+      "parents": [
+        "34107662c0558c785bde5d716e376c17fb9d9967"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:40:47Z",
+      "title": "fix(device-trust): stamp 004 smoke only after actual four-role access verification; fail closed on STARTED"
+    },
+    {
+      "sha": "8435820af045d84a85b8f48cc9b263c053ab2451",
+      "parents": [
+        "ba6e493345c94cec088e6480d86fb2ebcd392754"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:41:54Z",
+      "title": "ops(login): guard physical 004 apply with read-only preflight, smoke, fresh ledger and durable receipt"
+    },
+    {
+      "sha": "6e3137f0d387cec31617ec8e65c60f2f114aa4a2",
+      "parents": [
+        "8435820af045d84a85b8f48cc9b263c053ab2451"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:42:12Z",
+      "title": "fix(migrations): avoid reserved SQL alias in 004 read-only preflight"
+    },
+    {
+      "sha": "c789bcc5e59720723f2508af9c56646b0c833ab8",
+      "parents": [
+        "6e3137f0d387cec31617ec8e65c60f2f114aa4a2"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:48:55Z",
+      "title": "fix(migrations): reconcile 004 successful apply with read-only ledger and ACL smoke, recover receipt without reapply"
+    },
+    {
+      "sha": "cb544d239b17d15eb8997ed22efde30242eee833",
+      "parents": [
+        "c789bcc5e59720723f2508af9c56646b0c833ab8"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:53:21Z",
+      "title": "ops(login): guard PostgreSQL 005 readiness with read-only receipts ledger RLS baseline inspection"
+    },
+    {
+      "sha": "a43d66466bf89d744ddb27bb1477dd23980eb570",
+      "parents": [
+        "cb544d239b17d15eb8997ed22efde30242eee833"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:58:18Z",
+      "title": "test(onboarding): add real actor-scoped 005 RLS smoke with transaction-only fixtures"
+    },
+    {
+      "sha": "0a41651caa354f034361d9301bf962d556f897e7",
+      "parents": [
+        "a43d66466bf89d744ddb27bb1477dd23980eb570"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:58:39Z",
+      "title": "fix(onboarding): align 005 smoke assertion count with all 17 security checks"
+    },
+    {
+      "sha": "7e18a18ad827e9850ceb89d7fd44ab8433e5ef32",
+      "parents": [
+        "0a41651caa354f034361d9301bf962d556f897e7"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T16:59:04Z",
+      "title": "fix(onboarding): stamp 005 smoke only after live actor scoped RLS checks and rollback"
+    },
+    {
+      "sha": "baa4fa68b5360459257cb830f0b3a3f80db149d3",
+      "parents": [
+        "7e18a18ad827e9850ceb89d7fd44ab8433e5ef32"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:00:46Z",
+      "title": "ops(login): guarded one-time Windows 005 with read-only preflight, live RLS smoke and durable receipt"
+    },
+    {
+      "sha": "5d05cecb7393796dc8bccae8e98c097d39c26178",
+      "parents": [
+        "baa4fa68b5360459257cb830f0b3a3f80db149d3"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:03:48Z",
+      "title": "fix(onboarding): pin 005 preprod SQL artifact SHA256 to physically inspected and approved bytes"
+    },
+    {
+      "sha": "97b3efb934a7d8b6a542942bb84e6347bc7b7845",
+      "parents": [
+        "5d05cecb7393796dc8bccae8e98c097d39c26178"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:22:52Z",
+      "title": "docs(login): capture physical 001-005 evidence and exact offline BUSINESS/GLOBAL closure dependencies"
+    },
+    {
+      "sha": "785fe0d99c3b116c1d7748a3fdfcc9014b816552",
+      "parents": [
+        "97b3efb934a7d8b6a542942bb84e6347bc7b7845"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:30:00Z",
+      "title": "ops(login): add immutable 001-016 manifest and read-only Windows readiness gate after 005"
+    },
+    {
+      "sha": "e953795827cc859c3b45c70856fd55ee34f546c4",
+      "parents": [
+        "785fe0d99c3b116c1d7748a3fdfcc9014b816552"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:31:33Z",
+      "title": "ops(login): guard one-time canonical 006/007 foundation with verified 005 receipt and exact role RLS postcheck"
+    },
+    {
+      "sha": "f7a096380e92b332fc1174987e6afb3dd8ba4e81",
+      "parents": [
+        "e953795827cc859c3b45c70856fd55ee34f546c4"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:32:12Z",
+      "title": "fix(login): use non-keyword alias for preprod foundation TLS role check"
+    },
+    {
+      "sha": "3d04eb90f867bc2aaff614d56dbb994018e3b686",
+      "parents": [
+        "f7a096380e92b332fc1174987e6afb3dd8ba4e81"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:33:37Z",
+      "title": "ops(login): add guarded canonical 008-016 BUSINESS schema apply with 007 receipt, RLS ACL checks and immutable receipt"
+    },
+    {
+      "sha": "915ea612bb971ed6a733d6a4bb6e72554ee57708",
+      "parents": [
+        "3d04eb90f867bc2aaff614d56dbb994018e3b686"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:35:00Z",
+      "title": "test(login): add non-destructive canonical operator gate regressions for 005-016 staging"
+    },
+    {
+      "sha": "bd54f498e74cd3d43f9c6d907c72594469211e27",
+      "parents": [
+        "915ea612bb971ed6a733d6a4bb6e72554ee57708"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:37:42Z",
+      "title": "docs(login): append implemented SQL 006-016 offline gates and final Windows/manual acceptance sequence"
+    },
+    {
+      "sha": "7157f911d4c6477888d0f1c99e83319f128811ac",
+      "parents": [
+        "bd54f498e74cd3d43f9c6d907c72594469211e27"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:46:54Z",
+      "title": "test(login): add real four-role read-only ACL smoke to licensing 006 and password recovery 007"
+    },
+    {
+      "sha": "8b5bf987ca70f10fe55e17b5e506c94714ea0b61",
+      "parents": [
+        "7157f911d4c6477888d0f1c99e83319f128811ac"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:47:22Z",
+      "title": "fix(login): require real 006 4-role SQL smoke before stamping APPLIED"
+    },
+    {
+      "sha": "ed4f35af0007f8f82192c8b280fdec5ad29dde55",
+      "parents": [
+        "8b5bf987ca70f10fe55e17b5e506c94714ea0b61"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:47:33Z",
+      "title": "fix(login): require real 007 4-role SQL smoke before stamping APPLIED"
+    },
+    {
+      "sha": "c1cc19bd40805a777118ae75ba7af7b3ccebc882",
+      "parents": [
+        "ed4f35af0007f8f82192c8b280fdec5ad29dde55"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:48:30Z",
+      "title": "ops(login): independently recheck 006/007 four-role SQL smoke before durable receipt"
+    },
+    {
+      "sha": "1b291e7aef5b583d9bb71be7835ef825a63904ed",
+      "parents": [
+        "c1cc19bd40805a777118ae75ba7af7b3ccebc882"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:49:35Z",
+      "title": "test(login): add four-role 244-assertion physical business MFA and session ACL smoke"
+    },
+    {
+      "sha": "1c4c0bde9628523184bc482e29c24d03309f546a",
+      "parents": [
+        "1b291e7aef5b583d9bb71be7835ef825a63904ed"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:50:01Z",
+      "title": "ops(login): require independent 244 role-bound BUSINESS SQL smoke before 008-016 receipt"
+    },
+    {
+      "sha": "66c3883e974eeafc4ab24af84114f65f01ce4d04",
+      "parents": [
+        "1c4c0bde9628523184bc482e29c24d03309f546a"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:50:36Z",
+      "title": "test(login): enforce 006/007 live role smoke stamps and 008-016 independent ACL smoke receipt"
+    },
+    {
+      "sha": "0701b852b31c5ef04eb398aadb3b78a90afc8203",
+      "parents": [
+        "66c3883e974eeafc4ab24af84114f65f01ce4d04"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:52:18Z",
+      "title": "docs(login): preserve 006-016 four-role physical smoke contracts and deferred Windows gate"
+    },
+    {
+      "sha": "3c46d86294670e64e43baca72b86d22bd13b320f",
+      "parents": [
+        "0701b852b31c5ef04eb398aadb3b78a90afc8203"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:53:22Z",
+      "title": "ops(login): add read-only 006-016 ledger reconciliation inspector with no SQL writes"
+    },
+    {
+      "sha": "2fba2db52b14e22bffb6b8d145cf0fe629878f18",
+      "parents": [
+        "3c46d86294670e64e43baca72b86d22bd13b320f"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:53:45Z",
+      "title": "test(login): assert 006-016 status diagnostics never run writes or retry migrations"
+    },
+    {
+      "sha": "83ddeff5abd613d350f9e9c11585b80300c7b825",
+      "parents": [
+        "2fba2db52b14e22bffb6b8d145cf0fe629878f18"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T17:54:36Z",
+      "title": "docs(login): add safe 006-016 partial-stage recovery inspector and final evidence separation"
+    },
+    {
+      "sha": "5d220c0a6732178d55a1844bd6a467a4812fd943",
+      "parents": [
+        "83ddeff5abd613d350f9e9c11585b80300c7b825"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:04:34Z",
+      "title": "test(login): include 006-016 typecheck and non-destructive schema gate regressions in existing final Windows suite"
+    },
+    {
+      "sha": "4f064be0171e7be5a805d1ef96c5fc501f5e9ce7",
+      "parents": [
+        "5d220c0a6732178d55a1844bd6a467a4812fd943"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:16:10Z",
+      "title": "fix(login): await Central BUSINESS handler before completing HTTPS request dispatch"
+    },
+    {
+      "sha": "2e12cdae472eb630ccd756821afc59a1144f7d14",
+      "parents": [
+        "4f064be0171e7be5a805d1ef96c5fc501f5e9ce7"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:16:42Z",
+      "title": "fix(login): contain async Central BUSINESS failures and fail closed without token disclosure"
+    },
+    {
+      "sha": "04477627d24511b0eb7c611de373217f50909fc6",
+      "parents": [
+        "2e12cdae472eb630ccd756821afc59a1144f7d14"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:17:32Z",
+      "title": "test(login): lock awaited Central BUSINESS HTTPS dispatch and generic failure boundaries"
+    },
+    {
+      "sha": "d84877173cbdc1bcb60a4b0df11e68dfdc6b8cb9",
+      "parents": [
+        "04477627d24511b0eb7c611de373217f50909fc6"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:17:55Z",
+      "title": "test(login): include Central async dispatch hardening in final P0 suite"
+    },
+    {
+      "sha": "66c299d3491613b42460afca62d1feb1b7950511",
+      "parents": [
+        "d84877173cbdc1bcb60a4b0df11e68dfdc6b8cb9"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:19:08Z",
+      "title": "fix(login): close authenticated Electron channel on startup errors and zeroize local secret on quit"
+    },
+    {
+      "sha": "c6efccef4595ef62d44c5525179fb9db26931491",
+      "parents": [
+        "66c299d3491613b42460afca62d1feb1b7950511"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:19:31Z",
+      "title": "test(login): guard Electron service connection failure cleanup and channel-secret zeroization"
+    },
+    {
+      "sha": "a4277071cd8858c46d5932c6d0a19bee802e8179",
+      "parents": [
+        "c6efccef4595ef62d44c5525179fb9db26931491"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:19:47Z",
+      "title": "test(login): add Electron startup secret-custody regression to final Windows suite"
+    },
+    {
+      "sha": "41addaaa33722e190d0037a9805a202dc568377b",
+      "parents": [
+        "a4277071cd8858c46d5932c6d0a19bee802e8179"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:20:22Z",
+      "title": "fix(login): zeroize original desktop channel secret when initial handshake fails"
+    },
+    {
+      "sha": "0199308977edec490f67db90da5353f579eb8e61",
+      "parents": [
+        "41addaaa33722e190d0037a9805a202dc568377b"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:21:15Z",
+      "title": "docs(login): record Central async dispatch containment and Electron channel-secret lifecycle changes"
+    },
+    {
+      "sha": "2ce398c3d6ac887b0d60a42bf4bf2b1312d5c4f7",
+      "parents": [
+        "0199308977edec490f67db90da5353f579eb8e61"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:22:40Z",
+      "title": "fix(login): exit Electron fail-closed on authenticated startup failure without logging secrets"
+    },
+    {
+      "sha": "838b27f4efa29f602dd61ffe4b9d636dbac30bf6",
+      "parents": [
+        "2ce398c3d6ac887b0d60a42bf4bf2b1312d5c4f7"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:22:55Z",
+      "title": "test(login): assert fatal Electron startup quits and suppresses sensitive exception output"
+    },
+    {
+      "sha": "e2065af184d859cc48edf32d386cb58feb835a14",
+      "parents": [
+        "838b27f4efa29f602dd61ffe4b9d636dbac30bf6"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:23:12Z",
+      "title": "docs(login): record fail-closed Electron fatal startup shutdown and redacted logs"
+    },
+    {
+      "sha": "f0cd66b0e802e9e46268fe2b572ac7fe2818c720",
+      "parents": [
+        "e2065af184d859cc48edf32d386cb58feb835a14"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:26:47Z",
+      "title": "fix(login): fail closed and redact errors when loading Windows DPAPI desktop provisioning"
+    },
+    {
+      "sha": "25fd27fcfce0bb4683b3361b66658da69f90f839",
+      "parents": [
+        "f0cd66b0e802e9e46268fe2b572ac7fe2818c720"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:27:05Z",
+      "title": "test(login): cover fail-closed DPAPI desktop provisioning before Electron startup"
+    },
+    {
+      "sha": "620e1a18dcebfa5d3b86949b0562e87aa1e76c5e",
+      "parents": [
+        "25fd27fcfce0bb4683b3361b66658da69f90f839"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:28:49Z",
+      "title": "security(login): pin immutable canonical 005-016 SQL artifact hashes for Windows preprod"
+    },
+    {
+      "sha": "af709544785cd5861e553093e6f9a4154b96744d",
+      "parents": [
+        "620e1a18dcebfa5d3b86949b0562e87aa1e76c5e"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:29:12Z",
+      "title": "security(login): support individual preprod SQL checksum assertion and full ordered manifest"
+    },
+    {
+      "sha": "5164fe658d8b3ffe29ff84a0556a188b506d2d90",
+      "parents": [
+        "af709544785cd5861e553093e6f9a4154b96744d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:29:35Z",
+      "title": "security(login): enforce reviewed 005-016 SQL SHA lock before Windows migration stages"
+    },
+    {
+      "sha": "3069ecc193c1eb3c86e7395f64590dc085d26301",
+      "parents": [
+        "5164fe658d8b3ffe29ff84a0556a188b506d2d90"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:29:43Z",
+      "title": "security(login): enforce reviewed 005-016 SQL SHA lock before Windows migration stages"
+    },
+    {
+      "sha": "dde8986c07416b8e074233b6763116576ee489c5",
+      "parents": [
+        "3069ecc193c1eb3c86e7395f64590dc085d26301"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:29:52Z",
+      "title": "security(login): enforce reviewed 005-016 SQL SHA lock before Windows migration stages"
+    },
+    {
+      "sha": "bc3bfc0642afbaa07d17e93716c6e223b43b808d",
+      "parents": [
+        "dde8986c07416b8e074233b6763116576ee489c5"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:30:14Z",
+      "title": "test(login): prepare tamper-detection and ordered 005-016 SQL lock regressions"
+    },
+    {
+      "sha": "2c500073b06cb869c21076303ad900a9fb592e47",
+      "parents": [
+        "bc3bfc0642afbaa07d17e93716c6e223b43b808d"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:31:00Z",
+      "title": "security(login): pin SQL manifest during read-only partial migration status checks"
+    },
+    {
+      "sha": "df1ab330d1f122bbbe9c3290ab146da7d9406d49",
+      "parents": [
+        "2c500073b06cb869c21076303ad900a9fb592e47"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:31:16Z",
+      "title": "test(login): preserve immutable SQL hash check in partial-migration status inspector"
+    },
+    {
+      "sha": "37b1f45c1d9931d9956cccc8120fcc0e726e0273",
+      "parents": [
+        "df1ab330d1f122bbbe9c3290ab146da7d9406d49"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:32:05Z",
+      "title": "docs(login): record reviewed immutable SQL 005-016 lock and fail-closed DPAPI prestartup guard"
+    },
+    {
+      "sha": "29cb14b8f1f89ed2034c5502d1dd6d490e38f855",
+      "parents": [
+        "37b1f45c1d9931d9956cccc8120fcc0e726e0273"
+      ],
+      "author": "Andres Camacho",
+      "date": "2026-10-29T18:57:35Z",
+      "title": "fix(login): reject insecure Central origins in Windows commercial launcher"
+    }
+  ],
+  "changed_blobs": [
+    {
+      "path": "apps/pos-local-service/src/channel/sqlite-replay-state.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7689b4f85fb007c1fa574838af607b8049c57d37"
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cb6287e5bef9d85c92a3a60a187a236a54f018bf"
+    },
+    {
+      "path": "tools/target-migrations/src/preprod-login-authentication-apply.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2bb23e444d23869bda2902f7b7cf30ca9dea62d8"
+    },
+    {
+      "path": "tools/target-migrations/src/preprod-login-foundation-apply.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cf1f8b20f8db68c384ec1a675b0e4f88943e322c"
+    },
+    {
+      "path": "tools/target-migrations/src/preprod-login-schema-gate.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f787e38537f249156af5a34b428bd179478c1ce"
+    },
+    {
+      "path": "tools/target-migrations/src/preprod-login-stage-status.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "378109b0e83ce5a085413af6cdff108af4cf95c4"
+    }
+  ],
+  "typecheck_projects": [
+    {
+      "command": "node_modules/.bin/tsc -p packages/contracts/tsconfig.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p packages/local-channel/tsconfig.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p packages/database-sqlite/tsconfig.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p apps/pos-local-service/tsconfig.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p apps/central-authority/tsconfig.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p apps/pos-desktop/tsconfig.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p apps/pos-desktop/tsconfig.renderer.json",
+      "result": "PASS"
+    },
+    {
+      "command": "node_modules/.bin/tsc -p tools/target-migrations/tsconfig.json",
+      "result": "PASS"
+    }
+  ],
+  "architecture": {
+    "commands": [
+      "node --test tools/architecture/validate-boundaries.test.mjs",
+      "node tools/architecture/validate-boundaries.mjs"
+    ],
+    "tests_passed": 16,
+    "validation": "PASS"
+  },
+  "pre_fix_regression": {
+    "command": "../audit-runtime/node_modules/.bin/vitest run apps/pos-local-service/tests/windows-handoff-lease-state.test.ts --no-file-parallelism",
+    "passed": 5,
+    "failed": 5,
+    "source_blob": "30b3202ca07ef858e9881f9423ee2844e2a987a8"
+  },
+  "published_test_command": "node_modules/.bin/vitest run packages/local-channel/tests/windows-handoff.test.ts apps/pos-local-service/tests/windows-handoff-lease-state.test.ts apps/pos-local-service/tests/windows-winsw-readiness.test.ts tools/target-migrations/tests/preprod-login-operator-gates.test.ts tools/target-migrations/tests/postgres-006-licensing.test.ts tools/target-migrations/tests/postgres-007-password-recovery.test.ts tools/target-migrations/tests/postgres-008-platform-roles.test.ts --no-file-parallelism --reporter=json --outputFile=../published-focused.json",
+  "normalized_other_test_commands": [
+    {
+      "label": "expanded-with-transport-environment-failures",
+      "command": "node_modules/.bin/vitest run apps/central-authority/tests/central-commercial-dispatch-hardening.test.ts apps/pos-desktop/tests/desktop-commercial-startup-secrecy.test.ts apps/pos-local-service/tests/authorization-snapshot.test.ts apps/pos-local-service/tests/authorization-trust-deployment.test.ts apps/pos-local-service/tests/authorization-trust-lifecycle.test.ts apps/pos-local-service/tests/channel-commercial-transport.test.ts apps/pos-local-service/tests/commercial-ipc.test.ts apps/pos-local-service/tests/service-descriptor.test.ts apps/pos-local-service/tests/session-assertion-verifier.test.ts apps/pos-local-service/tests/session-trust-key-resolver.test.ts apps/pos-local-service/tests/windows-handoff-lease-state.test.ts apps/pos-local-service/tests/windows-winsw-readiness.test.ts packages/local-channel/tests/response-schemas.test.ts packages/local-channel/tests/windows-handoff.test.ts packages/local-channel/tests/windows-production.test.ts --no-file-parallelism --reporter=json",
+      "note": "Normalized executable path and expanded file selectors; original outcomes preserved."
+    },
+    {
+      "label": "central-authentication-unit",
+      "command": "node_modules/.bin/vitest run apps/central-authority/tests/business-login-coordinator.test.ts apps/central-authority/tests/central-certification-preflight.test.ts apps/central-authority/tests/central-deployment-configuration.test.ts apps/central-authority/tests/central-login-preflight.test.ts apps/central-authority/tests/central-session-assertion-issuer.test.ts apps/central-authority/tests/commercial-native-client-catalog.test.ts apps/central-authority/tests/isolated-authorization-trust.test.ts apps/central-authority/tests/native-authorization-callback.test.ts apps/central-authority/tests/native-authorization-code-exchange.test.ts apps/central-authority/tests/native-authorization-constraints.test.ts apps/central-authority/tests/session-trust-key-issuer.test.ts --no-file-parallelism --reporter=json",
+      "note": "Normalized executable path and expanded file selectors; original outcomes preserved."
+    },
+    {
+      "label": "migration-operator-unit",
+      "command": "node_modules/.bin/vitest run tools/target-migrations/tests/postgres-006-licensing.test.ts tools/target-migrations/tests/postgres-007-password-recovery.test.ts tools/target-migrations/tests/postgres-008-platform-roles.test.ts tools/target-migrations/tests/preprod-login-operator-gates.test.ts --no-file-parallelism --reporter=json",
+      "note": "Normalized executable path and expanded file selectors; original outcomes preserved."
+    }
+  ],
+  "build_commands": [
+    {
+      "cwd": "repository",
+      "command": "node_modules/.bin/tsc -p apps/pos-desktop/tsconfig.build.json"
+    },
+    {
+      "cwd": "repository",
+      "command": "node_modules/.bin/esbuild apps/pos-desktop/src/production-entry.ts --bundle --platform=node --format=esm --external:electron --outfile=apps/pos-desktop/dist/start.bundle.mjs"
+    },
+    {
+      "cwd": "apps/pos-desktop",
+      "command": "../../node_modules/.bin/esbuild src/start.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/channel-start.bundle.mjs"
+    },
+    {
+      "cwd": "apps/pos-desktop",
+      "command": "../../node_modules/.bin/vite build --config vite.preload.config.ts"
+    },
+    {
+      "cwd": "apps/pos-desktop",
+      "command": "../../node_modules/.bin/vite build"
+    }
+  ],
+  "policy_gate": {
+    "command": "node tools/ci/validate-repository-policy.mjs",
+    "result": "NOT_VERIFIED",
+    "reason": "snapshot has no authenticated Git checkout/index; git ls-files failed"
+  }
+}

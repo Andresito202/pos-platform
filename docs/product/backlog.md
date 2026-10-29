@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+2026-10-29: [auditoría consolidada de continuidad del login](../testing/windows-login-continuity-audit-2026-10-29.md). Runtime `8d04ca15`: consumo de lease con reloj del Service y guardas TypeScript 006–016 corregidos; focalizadas 50 PASS / 4 omitidas, Central 79 PASS; transporte Linux con ocho EPERM conservados como fallos de entorno. No sumar baterías solapadas. SCM sigue pendiente de integración de código, GLOBAL de cadena de esquema y ambos de certificación humana. PR #99 Draft e issue #98 abierta.
+
 2026-10-29: orden expresa del propietario — única línea activa `feat/p0-windows-login-install-readiness`, PR #99 / issue #98, continuación de PR #96. Prioridad exclusiva login Windows–Central. Laboratorio aislado gratuito permitido; no contratar VPS/dominio ni presentar autenticadores virtuales como personas. Host interactivo bajo la misma sesión Windows y DPAPI CurrentUser es el camino ya aprobado para la primera ceremonia; WinSW multiidentidad sigue bloqueado hasta un handoff autenticado aprobado y certificado. Las notas inferiores conservan su alcance histórico.
 
 2026-10-28: decisión del propietario — Android exclusivamente operativo; contratación, precios, pagos y renovación de licencias y administración GLOBAL permanecen en la web. [Separación Android y estado informativo](../testing/android-operational-only-2026-10-28.md). No convierte el probe en APK comercial ni aprueba Play, SEC-004 o un login ficticio.
