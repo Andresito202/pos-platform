@@ -8,7 +8,8 @@
  *
  * The actual reviewed MAT003 runner must still be used for apply.
  */
-import {existsSync} from "node:fs";
+import {existsSync,readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {join} from "node:path";
 import {postgresDatabase,executeRaw,queryRows} from "./database.js";
 import {checkRoleReadiness,inspectRoleReadinessAcl,classifyRoleReadiness,type RoleReadinessConfig} from "./postgres-003-role-readiness.js";
@@ -36,13 +37,36 @@ for(const [label,uri,role] of [
 ] as const){
   let u:URL;
   try{u=new URL(uri)}catch{throw Error("PREPROD_MAT003_"+label+"_URL_MISSING")}
-  if(!["postgres:","postgresql:"].includes(u.protocol)||u.username!==role||
-     u.hostname!=="127.0.0.1"||u.port!=="55435"||
-     u.pathname!=="/camacho_pos_preprod"||u.password!==""||
-     u.searchParams.get("sslmode")!=="verify-full"||
-     !u.searchParams.has("sslrootcert")||
-     u.searchParams.get("sslrootcert")!==join(dir,"pg-server-ca.crt"))
+  // Windows path encodings (backslashes, drive-letter case, URI escaping)
+  // are not reliable for exact string equality. Verify the trusted CA bytes
+  // instead of requiring a literal text representation of its filesystem path.
+  const rootCert=u.searchParams.get("sslrootcert");
+  let verifiedPinnedCa=false;
+  if(rootCert){
+    try{
+      const expected=createHash("sha256").update(readFileSync(join(dir,"pg-server-ca.crt"))).digest("hex");
+      const observed=createHash("sha256").update(readFileSync(rootCert)).digest("hex");
+      verifiedPinnedCa=observed===expected;
+    }catch{
+      verifiedPinnedCa=false;
+    }
+  }
+  const fields={
+    PROTOCOL:["postgres:","postgresql:"].includes(u.protocol),
+    USERNAME:u.username===role,
+    HOST:u.hostname==="127.0.0.1",
+    PORT:u.port==="55435",
+    DATABASE:u.pathname==="/camacho_pos_preprod",
+    NO_EMBEDDED_PASSWORD:u.password==="",
+    SSL_VERIFY_FULL:u.searchParams.get("sslmode")==="verify-full",
+    SERVER_CA_MATCH:verifiedPinnedCa,
+  };
+  const failed=Object.entries(fields).filter(([,ok])=>!ok).map(([field])=>field);
+  if(failed.length){
+    for(const field of failed)process.stdout.write("URL_GUARD_"+label+"_"+field+": FAIL\n");
     throw Error("PREPROD_MAT003_"+label+"_URL_TARGET_OR_TLS_MISMATCH");
+  }
+  process.stdout.write("URL_GUARD_"+label+": PASS\n");
 }
 if(cfg.expectedDatabase!=="camacho_pos_preprod")throw Error("PREPROD_MAT003_EXPECTED_DB_MISMATCH");
 const gate=await checkRoleReadiness(cfg);
