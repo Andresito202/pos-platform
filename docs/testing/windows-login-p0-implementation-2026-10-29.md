@@ -58,3 +58,17 @@ powershell.exe -NoProfile -File .\tools\operators\windows-login-final-checks.ps1
 El tercer comando solo cubre pruebas automatizadas y puede trabajar con fixtures/archivos temporales; **no certifica** una persona real, una identidad SCM separada, MFA físico ni TLS público. La aceptación final necesita ambos contextos Windows reales, clave/ACL efectiva, identidad D3, Global y Business independientes, refresh/logout/revocación, SAS/SSA firmados y RBAC en Central, y operaciones denegadas cuando corresponda.
 
 **Estado: IMPLEMENTACIÓN PARCIAL EN PR #99, PRUEBAS DEL DELTA PENDIENTES, LOGIN COMERCIAL NO CERTIFICADO.**
+
+## Incremento de hardening del 29 de octubre (posterior a la primera revisión)
+
+**Implementado, aún no ejecutado ni certificado en Windows:**
+
+- `apps/pos-local-service/src/security/windows-commercial-host-identity.ts`: atestación del token de Windows real del proceso mediante `WindowsIdentity.GetCurrent`, sin aceptar UID/SID del entorno, sin imprimir el usuario ni su SID. Exige una sesión interactiva o sesión remota interactiva reconocida por Windows, y rechaza identidades `NT SERVICE`, `NT AUTHORITY`, SYSTEM y cuentas no autenticadas. En `main.ts` se valida **antes** de abrir SQLite, DPAPI o el named pipe cuando hay aprovisionamiento BUSINESS comercial. Este guard no autentica al usuario BUSINESS/GLOBAL, y no habilita WinSW.
+- `packages/local-channel/src/windows-production.ts`: envoltura AES-256-GCM del secreto de canal sometida a límites de tamaño y campos estrictos; IV de 12 bytes, etiqueta de 16 bytes, ciphertext de 32 bytes, Base64url canónico y control de autenticidad. El lector Desktop no genera ni reescribe datos y rechaza almacenamiento relativo. El archivo DPAPI se valida como archivo regular acotado; los fallos del helper Windows se convierten en códigos sin rutas/SID/secretos.
+- Regresiones nuevas en `windows-commercial-host-identity.test.ts` y `windows-production.test.ts` para atestación, permisos, arranque sin secretos y manipulación de sobres cifrados; ejecución **reservada para la batería final**.
+- `tools/operators/windows-login-deployment-preflight.ps1`: incluye elegibilidad del token del PowerShell actual, sin publicar nombre de usuario ni SID. Esa elegibilidad **no prueba** el token futuro del servicio.
+- `tools/operators/windows-login-final-checks.ps1`: incluye las regresiones del token de Windows dentro de la futura batería unificada.
+
+**Decisión de arquitectura:** conservar DPAPI CurrentUser y el SID de logon exige que Desktop y Service compartan cuenta/sesión, hasta implementar una autoridad de handoff real. Un servicio SCM virtual **no** puede recibir la clave por inferencia de env, copia de .dpapi, modificación de DACL o una cuenta global. DPAPI-NG `SID=` requiere AD y por tanto no puede asumirse disponible para un cliente Windows independiente: véase documentación de proveedor Microsoft/DPAPI-NG sobre protección por descriptor. Se deberá elegir y certificar un host/IPC apropiado **antes** de habilitar WinSW comercial. El código sigue fallando cerrado.
+
+**Sin certificación:** los 32 PASS previos son de la rama PR #96, anteriores a estas modificaciones de PR #99. Todo delta actual necesita pruebas en la fase final. La issue P0 no se cierra y no se fusiona el PR.
