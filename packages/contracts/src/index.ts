@@ -39,3 +39,4 @@ export * from "./hardware.js";
 export * from "./native-client-registration.js";
 export * from "./license-activation.js";
 export * from "./commercial-domains.js";
+export * from "./windows-channel-handoff.js";

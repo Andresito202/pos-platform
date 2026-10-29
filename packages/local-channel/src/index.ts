@@ -22,3 +22,4 @@ export * from "./endpoint.js";
 export * from "./response-schemas.js";
 export * from "./client.js";
 export * from "./windows-production.js";
+export { prepareWindowsHandoffReceiver } from "./windows-handoff.js";
