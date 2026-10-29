@@ -28,6 +28,15 @@ describe("Windows commercial Electron startup custody regressions",()=>{
     expect(entry).toContain("app.quit()");
     expect(entry).not.toContain('console.error("production desktop bootstrap failed", error)');
   });
+  it("fails closed before Electron startup if DPAPI provisioning cannot be loaded",()=>{
+    expect(entry).toContain("try {");
+    expect(entry).toContain("provisioning = loadProductionDesktopProvisioning()");
+    expect(entry).toContain('console.error("POS_DESKTOP_PROVISIONING_FAILED")');
+    expect(entry).toContain("process.exitCode = 1");
+    expect(entry).toContain("app.quit()");
+    expect(entry).not.toContain("console.error(error)");
+    expect(entry).not.toContain("console.error(err)");
+  });
   it("does not substitute unauthenticated IPC or persist the shared secret in renderer state",()=>{
     expect(startup).not.toContain("NODE_TLS_REJECT_UNAUTHORIZED");
     expect(startup).not.toContain("localStorage");
