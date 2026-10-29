@@ -53,6 +53,7 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
     // Un POS que cree estar conectado y no lo está es peor que uno que sabe que
     // no lo está (`DEC-010` §156): no se abre ventana sin canal.
     authenticator.destroy();
+    options.channelSecret.fill(0);
     throw error;
   }
 
