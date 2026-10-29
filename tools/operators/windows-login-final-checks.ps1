@@ -18,6 +18,11 @@ $steps=@(
     @{ Name='Local Service TypeScript'; Args=@('--filter','@pos-platform/pos-local-service','run','typecheck') },
     @{ Name='Desktop TypeScript/build'; Args=@('--filter','@pos-platform/pos-desktop','build') },
     @{ Name='Central Authority TypeScript'; Args=@('--filter','@pos-platform/central-authority','run','typecheck') },
+    # The 006-016 production staging gates are code until physical Windows approval.
+    # This step compiles them and checks only their non-destructive contracts;
+    # never invokes guarded --apply flags or PostgreSQL on the preprod volume.
+    @{ Name='Target migrations P0 login TypeScript'; Args=@('--filter','@pos-platform/target-migrations','run','typecheck') },
+    @{ Name='P0 login schema runner and operator gate regressions (no DDL)'; Args=@('--filter','@pos-platform/target-migrations','exec','vitest','run','tests/preprod-login-operator-gates.test.ts','tests/postgres-006-licensing.test.ts','tests/postgres-007-password-recovery.test.ts','tests/postgres-008-platform-roles.test.ts','--no-file-parallelism') },
     @{ Name='Service DPAPI, pipe, descriptor and commercial configuration'; Args=@('--filter','@pos-platform/pos-local-service','exec','vitest','run','tests/service-descriptor.test.ts','tests/channel.test.ts','tests/windows-dpapi.test.ts','tests/windows-commercial-runtime.test.ts','tests/windows-commercial-host-identity.test.ts','tests/windows-winsw-readiness.test.ts','tests/windows-handoff-lease-state.test.ts','--no-file-parallelism') },
     @{ Name='Service SSA/SAS/RBAC trust and signed grants'; Args=@('--filter','@pos-platform/pos-local-service','exec','vitest','run','tests/authorization-trust-lifecycle.test.ts','tests/authorization-trust-deployment.test.ts','tests/authorization-snapshot.test.ts','tests/session-assertion-verifier.test.ts','tests/session-trust-key-resolver.test.ts','tests/channel-commercial-transport.test.ts','tests/commercial-ipc.test.ts','--no-file-parallelism') },
     @{ Name='Channel service ownership and desktop no-create'; Args=@('--filter','@pos-platform/local-channel','exec','vitest','run','tests/windows-production.test.ts','tests/windows-handoff.test.ts','--no-file-parallelism') },
