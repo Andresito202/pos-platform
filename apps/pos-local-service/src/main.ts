@@ -19,6 +19,7 @@ import { CommercialComponent } from "./commercial/commercial-component.js";
 import {AuthorizationTrustLifecycle} from "./security/authorization-trust-lifecycle.js";
 import {prepareAuthorizationTrustProvisioning} from "./security/authorization-trust-provisioning.js";
 import {WindowsCommercialRuntime,readWindowsCommercialConfiguration} from "./security/windows-commercial-runtime.js";
+import {assertWindowsCommercialInteractiveHost} from "./security/windows-commercial-host-identity.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
@@ -135,6 +136,12 @@ try {
   const config = parseServiceConfig(process.env);
   if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
     throw new Error("POS Local Service production runtime requires Windows");
+  }
+  // Fail before opening SQLite, loading DPAPI material or binding a named pipe.
+  // The WinSW virtual service token cannot share CurrentUser DPAPI with an
+  // interactive Electron client and does not have the Desktop logon SID.
+  if (config.windows_commercial_provision_file !== undefined) {
+    assertWindowsCommercialInteractiveHost();
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
