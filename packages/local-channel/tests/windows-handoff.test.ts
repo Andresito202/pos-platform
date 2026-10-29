@@ -9,6 +9,7 @@ import { canonicalJson } from "../src/canonical-json.js";
 import { LocalChannelAuthenticator } from "../src/authenticator.js";
 import { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, openWindowsHandoff, openWindowsHandoffCandidateForCurrentRecipient, sealWindowsHandoff, validateWindowsHandoff, validateWindowsHandoffRecipient, sealSignedWindowsHandoffCandidate, verifySignedWindowsHandoffCandidate, consumeSignedWindowsHandoffForCurrentRecipient } from "../src/windows-handoff.js";
 import { InMemoryReplayStateStore } from "../src/replay-state.js";
+import { windowsHandoffReplaySessionId } from "../src/windows-handoff.js";
 import { currentHandoffIdentity, handoffNative } from "../src/windows-handoff-native.js";
 
 const installation="018f0000-0000-7000-8000-000000000001";
@@ -87,6 +88,16 @@ describe("candidate handoff cryptography (not SCM interoperability)",()=>{
  });
 });
 
+
+describe("handoff lease SQLite replay compatibility",()=>{
+ it("uses deterministic collision-resistant UUID IDs without changing the canonical SQLite schema",()=>{
+   const a=windowsHandoffReplaySessionId("a".repeat(64));
+   expect(a).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+   expect(windowsHandoffReplaySessionId("a".repeat(64))).toBe(a);
+   expect(windowsHandoffReplaySessionId("b".repeat(64))).not.toBe(a);
+   expect(()=>windowsHandoffReplaySessionId("not-a-lease-id")).toThrow("WINDOWS_HANDOFF_REJECTED");
+ });
+});
 
 describe("service-signed handoff capsule (NOT SCM certified)",()=>{
  const signer=generateKeyPairSync("ed25519");
