@@ -6,6 +6,7 @@ import {POSTGRES_006_DESCRIPTOR} from "../src/postgres-006-contract.js";
 import {POSTGRES_007_DESCRIPTOR} from "../src/postgres-007-contract.js";
 import {COMMERCIAL_MIGRATIONS} from "../src/postgres-commercial-runner.js";
 import {readArtifact,sha256} from "../src/shared.js";
+import {PREPROD_BUSINESS_LOGIN_SQL_SHA256,assertPinnedPreprodLoginArtifact,verifyPreprodLoginArtifactLock} from "../src/preprod-login-sql-lock.js";
 
 const here=resolve(import.meta.dirname,"..","src");
 function source(name:string){
@@ -27,6 +28,22 @@ describe("P0 login Windows operator tools (static, non-executing gates)",()=>{
     }
     expect(COMMERCIAL_MIGRATIONS.every(d=>!d.migrationId.includes("factus")&&
       !d.migrationId.includes("licens")&&!d.migrationId.includes("payment"))).toBe(true);
+  });
+  it("pins every canonical 005–016 SQL byte sequence and stops on any drift",async()=>{
+    const selected=[POSTGRES_005_DESCRIPTOR,POSTGRES_006_DESCRIPTOR,
+      POSTGRES_007_DESCRIPTOR,...COMMERCIAL_MIGRATIONS];
+    const actual=await Promise.all(selected.map(async descriptor=>({
+      id:descriptor.migrationId,
+      hash:sha256(await readArtifact(descriptor.upArtifact)).toString("hex"),
+    })));
+    expect(Object.keys(PREPROD_BUSINESS_LOGIN_SQL_SHA256)).toEqual(actual.map(d=>d.id));
+    expect(()=>verifyPreprodLoginArtifactLock(actual)).not.toThrow();
+    expect(()=>assertPinnedPreprodLoginArtifact(actual[0]!.id,"0".repeat(64))).toThrow("LOGIN_SQL_PINNED_ARTIFACT_CHANGED_STOP");
+    expect(()=>assertPinnedPreprodLoginArtifact("999_unapproved","0".repeat(64))).toThrow("LOGIN_SQL_PINNED_ARTIFACT_CHANGED_STOP");
+    expect(()=>verifyPreprodLoginArtifactLock([...actual].reverse())).toThrow("LOGIN_SQL_PINNED_CANONICAL_ORDER_DRIFT");
+    for(const file of ["preprod-login-schema-gate.ts","preprod-login-authentication-apply.ts"])
+      expect(source(file)).toContain("verifyPreprodLoginArtifactLock(");
+    expect(source("preprod-login-foundation-apply.ts")).toContain("assertPinnedPreprodLoginArtifact(");
   });
   it("retains physically reviewed PostgreSQL 005 bytes",async()=>{
     const data=await readArtifact(POSTGRES_005_DESCRIPTOR.upArtifact);
