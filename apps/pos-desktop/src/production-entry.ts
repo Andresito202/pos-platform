@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import {app} from "electron";
 import { loadProductionDesktopProvisioning } from "@pos-platform/local-channel";
 import { startPosDesktop } from "./start.js";
 
@@ -27,10 +28,13 @@ function main(): void {
         service_state: "READY",
       },
     },
-  }).catch((error: unknown) => {
-    console.error("production desktop bootstrap failed", error);
+  }).catch(() => {
+    // Fatal authentication/IPC startup errors must never leave an orphaned
+    // renderer running or print URLs, private paths, channel keys or tokens.
+    console.error("POS_DESKTOP_BOOTSTRAP_FAILED");
     provisioning.channelSecret.fill(0);
     process.exitCode = 1;
+    app.quit();
   });
 }
 
