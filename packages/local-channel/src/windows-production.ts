@@ -20,6 +20,7 @@ if ([System.IO.File]::Exists($path)) {
   $protected = [System.IO.File]::ReadAllBytes($path)
   $key = [System.Security.Cryptography.ProtectedData]::Unprotect($protected, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
 } else {
+  if ($env:POS_DPAPI_ALLOW_CREATE -ne '1') { throw "LOCAL_CHANNEL_DPAPI_KEY_NOT_PROVISIONED" }
   $key = New-Object byte[] 32
   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
   try { $rng.GetBytes($key) } finally { $rng.Dispose() }
@@ -50,16 +51,21 @@ function resolveEndpoint(installationId: string, platform: NodeJS.Platform): str
   return `\\\\.\\pipe\\camacho-pos-${installationId.toLowerCase()}`;
 }
 
-function loadRootKey(dataDirectory: string, installationId: string, platform: NodeJS.Platform): Buffer {
+function loadRootKey(dataDirectory: string, installationId: string, platform: NodeJS.Platform, allowCreate: boolean): Buffer {
   if (platform !== "win32") throw new Error("local channel production secret requires Windows DPAPI");
   const securityDirectory = join(dataDirectory, "security");
   const dpapiDirectory = join(securityDirectory, "dpapi");
-  mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
-  mkdirSync(dpapiDirectory, { recursive: true, mode: 0o700 });
+  if (allowCreate) {
+    mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
+    mkdirSync(dpapiDirectory, { recursive: true, mode: 0o700 });
+  }
   const context = `local-channel:${installationId}`;
   const contextHash = createHash("sha256").update(context).digest("hex");
   const path = join(dpapiDirectory, `root-key-${contextHash}.dpapi`);
-  const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", DPAPI_SCRIPT], { encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024, env: { ...process.env, POS_DPAPI_KEY_PATH: path, POS_DPAPI_CONTEXT: context } });
+  if (!allowCreate && (!existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())) {
+    throw new Error("LOCAL_CHANNEL_DPAPI_KEY_NOT_PROVISIONED");
+  }
+  const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", DPAPI_SCRIPT], { encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024, env: { ...process.env, POS_DPAPI_KEY_PATH: path, POS_DPAPI_CONTEXT: context, POS_DPAPI_ALLOW_CREATE: allowCreate ? "1" : "0" } });
   if (result.error) throw new Error("Windows DPAPI invocation failed", { cause: result.error });
   if (result.status !== 0) {
     const diagnostic = result.stderr.trim().slice(0, 1_024);
@@ -102,24 +108,37 @@ export function loadProductionDesktopProvisioning(environment: NodeJS.ProcessEnv
   const installationId = requireValue("POS_INSTALLATION_ID", environment.POS_INSTALLATION_ID);
   const deviceId = requireValue("POS_DEVICE_ID", environment.POS_DEVICE_ID);
   const endpoint = resolveEndpoint(installationId, platform);
-  const rootKey = loadRootKey(dataDirectory, installationId, platform);
-  const securityDirectory = join(dataDirectory, "security");
-  mkdirSync(securityDirectory, { recursive: true, mode: 0o700 });
-  const path = join(securityDirectory, `${LOCAL_CHANNEL_SECRET_NAME}.secret`);
+  // Desktop is a consumer, NEVER the authority that provisions the shared MAC key.
+  // A first-run renderer/main must not create a new channel identity for the Service.
+  const path = join(dataDirectory, "security", `${LOCAL_CHANNEL_SECRET_NAME}.secret`);
+  if (!existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) {
+    throw new Error("LOCAL_CHANNEL_SECRET_NOT_PROVISIONED");
+  }
+  const rootKey = loadRootKey(dataDirectory, installationId, platform, false);
+  try {
+    const secret = readSecret(path, rootKey, `local-channel:${installationId}`);
+    if (secret.byteLength !== 32) { secret.fill(0); throw new Error("persisted local channel secret has invalid length"); }
+    return { endpoint, installationId, deviceId, channelSecret: secret };
+  } finally { rootKey.fill(0); }
+}
+
+/** Service-only bootstrap: creates the OS-bound channel secret on first start.
+ * Never call from Desktop. It must run under the same Windows identity as the
+ * authorized Desktop until cross-account SCM handoff has been implemented. */
+export function loadOrCreateWindowsLocalChannelSecret(dataDirectory: string, installationId: string, platform: NodeJS.Platform = process.platform): Buffer {
+  if (!INSTALLATION_ID.test(installationId)) throw new Error("invalid installation id for service channel bootstrap");
+  if (platform !== "win32") throw new Error("Windows channel provisioning requires Windows DPAPI");
+  const rootKey = loadRootKey(dataDirectory, installationId, platform, true);
   const context = `local-channel:${installationId}`;
+  const path = join(dataDirectory, "security", `${LOCAL_CHANNEL_SECRET_NAME}.secret`);
   try {
     if (existsSync(path)) {
       const secret = readSecret(path, rootKey, context);
       if (secret.byteLength !== 32) { secret.fill(0); throw new Error("persisted local channel secret has invalid length"); }
-      return { endpoint, installationId, deviceId, channelSecret: secret };
+      return secret;
     }
     const secret = randomBytes(32);
-    try { writeSecret(dataDirectory, rootKey, context, secret); return { endpoint, installationId, deviceId, channelSecret: Buffer.from(secret) }; }
+    try { writeSecret(dataDirectory, rootKey, context, secret); return Buffer.from(secret); }
     finally { secret.fill(0); }
   } finally { rootKey.fill(0); }
-}
-
-export function loadOrCreateWindowsLocalChannelSecret(dataDirectory: string, installationId: string, platform: NodeJS.Platform = process.platform): Buffer {
-  const provisioning = loadProductionDesktopProvisioning({ POS_DATA_DIRECTORY: dataDirectory, POS_INSTALLATION_ID: installationId, POS_DEVICE_ID: "00000000-0000-4000-8000-000000000000" }, platform);
-  return provisioning.channelSecret;
 }
