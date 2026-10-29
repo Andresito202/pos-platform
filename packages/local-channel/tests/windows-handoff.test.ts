@@ -7,7 +7,8 @@ import { spawnSync } from "node:child_process";
 import { WindowsChannelHandoffSchema, type WindowsChannelHandoff } from "@pos-platform/contracts";
 import { canonicalJson } from "../src/canonical-json.js";
 import { LocalChannelAuthenticator } from "../src/authenticator.js";
-import { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, openWindowsHandoff, openWindowsHandoffCandidateForCurrentRecipient, sealWindowsHandoff, validateWindowsHandoff, validateWindowsHandoffRecipient } from "../src/windows-handoff.js";
+import { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, openWindowsHandoff, openWindowsHandoffCandidateForCurrentRecipient, sealWindowsHandoff, validateWindowsHandoff, validateWindowsHandoffRecipient, sealSignedWindowsHandoffCandidate, verifySignedWindowsHandoffCandidate, consumeSignedWindowsHandoffForCurrentRecipient } from "../src/windows-handoff.js";
+import { InMemoryReplayStateStore } from "../src/replay-state.js";
 import { currentHandoffIdentity, handoffNative } from "../src/windows-handoff-native.js";
 
 const installation="018f0000-0000-7000-8000-000000000001";
@@ -86,6 +87,45 @@ describe("candidate handoff cryptography (not SCM interoperability)",()=>{
  });
 });
 
+
+describe("service-signed handoff capsule (NOT SCM certified)",()=>{
+ const signer=generateKeyPairSync("ed25519");
+ const signerPem=signer.publicKey.export({type:"spki",format:"pem"}).toString();
+ const signingDer=signer.privateKey.export({type:"pkcs8",format:"der"});
+ const signerPin=createHash("sha256").update(signer.publicKey.export({type:"spki",format:"der"})).digest("hex");
+ const service={sid:"S-1-5-80-1-2-3-4-5",logonSid:"S-1-5-5-9-9",sessionId:0,service:true,interactive:false};
+ function issued(){
+   const master=randomBytes(32);
+   try{return sealSignedWindowsHandoffCandidate(p,master,signingDer,signerPem,signerPin,at,service);}
+   finally{master.fill(0);}
+ }
+ it("requires the real Service identity constraints and the authorized signing key",()=>{
+   for(const changed of [{service:false},{interactive:true},{sessionId:1},{sid:"S-1-5-80-1-2-3-4-6"}])
+     expect(()=>sealSignedWindowsHandoffCandidate(p,randomBytes(32),signingDer,signerPem,signerPin,at,{...service,...changed})).toThrow();
+   const rogue=generateKeyPairSync("ed25519").privateKey.export({type:"pkcs8",format:"der"});
+   try{expect(()=>sealSignedWindowsHandoffCandidate(p,randomBytes(32),rogue,signerPem,signerPin,at,service)).toThrow();}
+   finally{rogue.fill(0);}
+ });
+ it("verifies service signature without trusting a public key in the payload",()=>{
+   const sealed=issued();
+   try{
+     const payload=JSON.parse(sealed.capsule);
+     expect(verifySignedWindowsHandoffCandidate(p,payload,installation,device,at,signerPem,signerPin).leaseId).toMatch(/^[0-9a-f]{64}$/);
+     const wrong=generateKeyPairSync("ed25519");
+     const wrongPem=wrong.publicKey.export({type:"spki",format:"pem"}).toString();
+     expect(()=>verifySignedWindowsHandoffCandidate(p,payload,installation,device,at,wrongPem,signerPin)).toThrow();
+     for(const changed of [
+       {...payload,signature:randomBytes(64).toString("base64url")},
+       {...payload,signing_key_sha256:"f".repeat(64)},
+       {...payload,version:1},
+       {...payload,capsule:{...payload.capsule,nonce:randomBytes(32).toString("base64url")}},
+       {...payload,signed_at:"2026-10-29T12:00:01.000Z"},
+     ])expect(()=>verifySignedWindowsHandoffCandidate(p,changed,installation,device,at,signerPem,signerPin)).toThrow();
+     expect(()=>verifySignedWindowsHandoffCandidate(p,payload,installation,device,new Date("2026-10-29T12:01:00Z"),signerPem,signerPin)).toThrow();
+   }finally{sealed.secret.fill(0);}
+ });
+});
+
 const windowsIt=process.platform==="win32"?it:it.skip;
 windowsIt("real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrite, wrong context and tampering denied",()=>{
  const dir=mkdtempSync(join(tmpdir(),"pos-handoff-receiver-")),file=join(dir,"receiver.json");
@@ -128,6 +168,30 @@ windowsIt("real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrit
        expect(()=>openWindowsHandoffCandidateForCurrentRecipient({...live,recipient_logon_sid:"S-1-5-5-1-123456"},JSON.parse(lease.capsule),file,installation,device)).toThrow();
        expect(()=>openWindowsHandoffCandidateForCurrentRecipient({...live,expires_at:new Date(Date.now()-1).toISOString()},JSON.parse(lease.capsule),file,installation,device)).toThrow();
      }finally{liveMaster.fill(0);lease.secret.fill(0);}
+     const signer=generateKeyPairSync("ed25519");
+     const signingKey=signer.privateKey.export({type:"pkcs8",format:"der"});
+     const signerPublic=signer.publicKey.export({type:"spki",format:"pem"}).toString();
+     const signerPin=createHash("sha256").update(signer.publicKey.export({type:"spki",format:"der"})).digest("hex");
+     const signedMaster=randomBytes(32);
+     const service={sid:live.service_sid,logonSid:"S-1-5-5-8-8",sessionId:0,interactive:false,service:true};
+     const signed=sealSignedWindowsHandoffCandidate(live,signedMaster,signingKey,signerPublic,signerPin,new Date(),service);
+     let revoked=false,revocationChecks=0;
+     const revocation={assertActive:()=>{revocationChecks++;if(revoked)throw Error("HANDOFF_REVOKED");}};
+     const replay=new InMemoryReplayStateStore();
+     try{
+       const accepted=consumeSignedWindowsHandoffForCurrentRecipient(live,JSON.parse(signed.capsule),file,
+         installation,device,signerPublic,signerPin,replay,revocation);
+       try{expect(accepted.equals(signed.secret)).toBe(true);}finally{accepted.fill(0);}
+       expect(()=>consumeSignedWindowsHandoffForCurrentRecipient(live,JSON.parse(signed.capsule),file,
+         installation,device,signerPublic,signerPin,replay,revocation)).toThrow("WINDOWS_HANDOFF_REJECTED");
+       expect(revocationChecks).toBe(2);
+       revoked=true;
+       const different=sealSignedWindowsHandoffCandidate(live,signedMaster,signingKey,signerPublic,signerPin,new Date(),service);
+       try{expect(()=>consumeSignedWindowsHandoffForCurrentRecipient(live,JSON.parse(different.capsule),file,
+         installation,device,signerPublic,signerPin,replay,revocation)).toThrow("HANDOFF_REVOKED");}
+       finally{different.secret.fill(0);}
+     }finally{signedMaster.fill(0);signed.secret.fill(0);signingKey.fill(0);}
+
 
    }finally{key.fill(0);}
    expect(()=>handoffNative({action:"open-receiver",path:file,context:context+"altered",bytes:stored.protected_private_key})).toThrow("HANDOFF_NATIVE_REJECTED");
@@ -138,7 +202,7 @@ windowsIt("real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrit
    if(!dir.startsWith(join(tmpdir(),"pos-handoff-receiver-")))throw Error("TEST_PATH_REJECTED");
    rmSync(dir,{recursive:true,force:true});
  }
-},60000);
+},120000);
 
 windowsIt("real Windows receiver rejects inherited directory ACL before writing",()=>{
  const dir=mkdtempSync(join(tmpdir(),"pos-handoff-denied-")),file=join(dir,"receiver.json");
