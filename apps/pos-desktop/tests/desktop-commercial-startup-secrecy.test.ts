@@ -23,6 +23,10 @@ describe("Windows commercial Electron startup custody regressions",()=>{
     expect(cleanup).toContain("authenticator.destroy()");
     expect(cleanup).toContain("options.channelSecret.fill(0)");
     expect(entry).toContain("provisioning.channelSecret.fill(0)");
+    expect(entry).toContain('console.error("POS_DESKTOP_BOOTSTRAP_FAILED")');
+    expect(entry).toContain("process.exitCode = 1");
+    expect(entry).toContain("app.quit()");
+    expect(entry).not.toContain('console.error("production desktop bootstrap failed", error)');
   });
   it("does not substitute unauthenticated IPC or persist the shared secret in renderer state",()=>{
     expect(startup).not.toContain("NODE_TLS_REJECT_UNAUTHORIZED");
