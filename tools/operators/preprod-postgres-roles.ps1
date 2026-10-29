@@ -92,9 +92,9 @@ foreach($role in $logins){
   $lines.Add(('127.0.0.1:{0}:{1}:{2}:{3}' -f $port,$db,$role,$secret[$role]))
 }
 # Exclusive creation under the private directory. No secret goes to docker args.
-$stream=New-Object IO.FileStream($passfile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+$stream=[IO.FileStream]::new($passfile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try{
-  $writer=New-Object IO.StreamWriter($stream,(New-Object System.Text.UTF8Encoding($false)))
+  $writer=[IO.StreamWriter]::new($stream,[System.Text.UTF8Encoding]::new($false))
   try{foreach($line in $lines){$writer.WriteLine($line)};$writer.Flush();$stream.Flush($true)}
   finally{$writer.Dispose()}
 }finally{$stream.Dispose()}
