@@ -106,6 +106,47 @@ try {
                 throw "WINDOWS_COMMERCIAL_LOGIN_MANAGED_FILE_SYMLINK: $name"
             }
         }
+        # Cross-check the installer-managed public registration metadata BEFORE
+        # starting SQLite, the local channel or Electron. Never print values.
+        $servicePath = [Environment]::GetEnvironmentVariable('POS_WINDOWS_COMMERCIAL_PROVISION_FILE')
+        $desktopPath = [Environment]::GetEnvironmentVariable('POS_WINDOWS_DESKTOP_COMMERCIAL_FILE')
+        $serviceStat = Get-Item -LiteralPath $servicePath -Force
+        $desktopStat = Get-Item -LiteralPath $desktopPath -Force
+        if ($serviceStat.Length -gt 131072 -or $desktopStat.Length -gt 16384) {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_MANAGED_CONFIG_OVERSIZED'
+        }
+        try {
+            $serviceProfile = Get-Content -LiteralPath $servicePath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+            $desktopProfile = Get-Content -LiteralPath $desktopPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_MANAGED_CONFIG_INVALID_JSON'
+        }
+        if ($serviceProfile.profile -cne 'CAMACHO_WINDOWS_COMMERCIAL_V2' -or
+            $desktopProfile.profile -cne 'CAMACHO_WINDOWS_DESKTOP_V2') {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_PROFILE_MISMATCH'
+        }
+        foreach ($field in @('clientId', 'redirectUri', 'authorizationOrigin', 'platform')) {
+            if ([string]::IsNullOrWhiteSpace([string]$serviceProfile.registration.$field) -or
+                $serviceProfile.registration.$field -cne $desktopProfile.registration.$field) {
+                throw "WINDOWS_COMMERCIAL_LOGIN_REGISTRATION_MISMATCH: $field"
+            }
+        }
+        foreach ($field in @('rp_id', 'webauthn_origin')) {
+            if ([string]::IsNullOrWhiteSpace([string]$serviceProfile.$field) -or
+                $serviceProfile.$field -cne $desktopProfile.$field) {
+                throw "WINDOWS_COMMERCIAL_LOGIN_REGISTRATION_MISMATCH: $field"
+            }
+        }
+        try {
+            $centralOrigin = ([System.Uri]$env:POS_CENTRAL_BASE_URL).GetLeftPart([System.UriPartial]::Authority)
+        } catch {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_CENTRAL_ORIGIN_INVALID'
+        }
+        if ($serviceProfile.registration.authorizationOrigin -cne $centralOrigin -or
+            $serviceProfile.webauthn_origin -cne $centralOrigin -or
+            $serviceProfile.registration.platform -cne 'ELECTRON') {
+            throw 'WINDOWS_COMMERCIAL_LOGIN_CENTRAL_ORIGIN_MISMATCH'
+        }
         if ([string]::IsNullOrWhiteSpace($env:POS_SESSION_TRUST_ARTIFACT_PATH) -and [string]::IsNullOrWhiteSpace($env:POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE)) {
             throw 'WINDOWS_COMMERCIAL_LOGIN_SSA_DISTRIBUTION_REQUIRED'
         }
