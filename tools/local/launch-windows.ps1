@@ -145,7 +145,13 @@ try {
             }
         }
         try {
-            $centralOrigin = ([System.Uri]$env:POS_CENTRAL_BASE_URL).GetLeftPart([System.UriPartial]::Authority)
+            $centralUri = [System.Uri]::new($env:POS_CENTRAL_BASE_URL, [System.UriKind]::Absolute)
+            if ($centralUri.Scheme -cne 'https' -or $centralUri.IsLoopback -or
+                -not [string]::IsNullOrEmpty($centralUri.UserInfo) -or
+                -not [string]::IsNullOrEmpty($centralUri.Fragment)) {
+                throw 'WINDOWS_COMMERCIAL_LOGIN_CENTRAL_HTTPS_REQUIRED'
+            }
+            $centralOrigin = $centralUri.GetLeftPart([System.UriPartial]::Authority)
         } catch {
             throw 'WINDOWS_COMMERCIAL_LOGIN_CENTRAL_ORIGIN_INVALID'
         }
