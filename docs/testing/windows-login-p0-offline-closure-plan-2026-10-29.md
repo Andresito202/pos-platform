@@ -121,3 +121,12 @@ Criterio final: las rutas BUSINESS deben fallar cerrado sin filtrar secretos, El
 Se ajustó también apps/pos-desktop/src/production-entry.ts: si falla el arranque autenticado no imprime la excepción original (que podría incluir rutas, URL o datos de custodia), sino únicamente POS_DESKTOP_BOOTSTRAP_FAILED; borra el secreto del launcher, establece exitCode=1 y solicita app.quit() para no mantener una ventana huérfana. La regresión de Desktop comprueba estas invariantes. No cambia el handshake ni abre accesos comerciales.
 
 Este ajuste permanece en estado IMPLEMENTADO / PRUEBAS FÍSICAS PENDIENTES, junto con las demás correcciones.
+
+
+## Manifiesto SQL inmóvil y custodia de arranque (incremento PR #99)
+
+El manifiesto `tools/target-migrations/src/preprod-login-sql-lock.ts` fija el SHA-256 de **cada artefacto 005–016**, calculado desde los archivos SQL exactos en esta rama de GitHub. El SHA-256 de 005 coincide con el hash confirmado físicamente en preproducción; **006–016 todavía no se han aplicado ni certificado físicamente**. Cualquier cambio posterior de bytes, inclusión de migración extra o reordenamiento detiene el gate, los aplicadores y el inspector hasta revisión expresa. No reescribe SQL, grants ni políticas RLS. Los regresores de `preprod-login-operator-gates.test.ts` ejercitan orden, detección de cambios y la conexión del bloqueo a las tres rutas de inspección/aplicación; las pruebas siguen reservadas para la batería final.
+
+Por separado, `apps/pos-desktop/src/production-entry.ts` ahora trata también el fallo **sincrónico** de carga de aprovisionamiento DPAPI antes de iniciar Electron, con error fijo `POS_DESKTOP_PROVISIONING_FAILED`, `exitCode=1`, `app.quit()` y sin registrar excepciones con rutas/usuarios. La regresión `desktop-commercial-startup-secrecy.test.ts` cubre ese caso; no constituye una prueba Win32 ejecutada.
+
+**Límites sin cambio:** 001–005 certificados, 006–016 solo preparados en código; Central HTTPS, identidad humana MFA, provisionamiento de dispositivo y pruebas Windows quedan para el último tramo. GLOBAL 021 y WinSW SCM multicuenta no se habilitan por defecto. PR #99 permanece Draft.
