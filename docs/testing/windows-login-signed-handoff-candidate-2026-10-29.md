@@ -7,14 +7,15 @@
 1. `WindowsChannelHandoffSchema` y la cápsula RSA-OAEP-SHA256 existente siguen intactas. No se comparte el secreto maestro del Service.
 2. `sealSignedWindowsHandoffForCurrentService`: verifica token real del Service virtual, SID y sesión 0; firma la cápsula con clave Ed25519 privada **que debe suministrar la autoridad de instalación por custodia Service/DPAPI CurrentUser**. No crea una clave privada ni un perfil autorizado.
 3. `verifySignedWindowsHandoffCandidate`: exige clave pública Ed25519 fijada *fuera de la cápsula* por el instalador, pin SHA-256, firma, hash de perfil, período de validez y contexto de instancia. Rechaza firmantes distintos, falsificación y alteraciones.
-4. `consumeSignedWindowsHandoffForCurrentRecipient`: usa el receptor DPAPI del usuario/logon Windows reales, requiere una autoridad de revocación y un `LocalChannelReplayStateStore` sin valores por defecto. El consumo `sequence=1` del `leaseId` permite reutilizar el `SqliteReplayStateStore` duradero y existente **cuando el Service incorpore este contrato en su frontera de confianza**. En las pruebas unitarias puede usarse almacenamiento en memoria, pero no se acepta eso como prueba de durabilidad ni revocación entre procesos.
-5. En fallos tras descifrar se limpia la clave temporal. Las APIs antiguas siguen disponibles para el arnés histórico, **no autorizan acceso comercial**.
+4. `consumeSignedWindowsHandoffForCurrentRecipient`: usa el receptor DPAPI del usuario/logon Windows reales y exige autoridad de revocación y almacenamiento antirrepetición explícitos. El `leaseId` SHA-256 se convierte en UUID determinista de 36 caracteres para respetar el esquema SQLite canónico existente (sin migración). En las pruebas unitarias puede utilizarse memoria, pero eso no demuestra durabilidad.
+5. `SqliteWindowsHandoffLeaseAuthority`, en el **mismo componente Service** que ya tiene `SqliteReplayStateStore`, guarda consumo único y marcadores de revocación en `local_channel_replay_state`; comprueba revocación y acepta la secuencia bajo una transacción SQLite. Incluye pruebas de reapertura de SQLite, denegación por revisión/identidad incorrectas, revocación antes/después del consumo e idempotencia. No está cableado al canal SCM todavía.
+6. En fallos tras descifrar se limpia la clave temporal. Las APIs antiguas siguen disponibles para el arnés histórico, **no autorizan acceso comercial**.
 
 ## Lo que NO se ha hecho
 
 - NO se activó SCM comercial: `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` permanece. No hubo cambios en `windows-service-descriptor.ts` ni en la DACL del named pipe.
 - NO existe todavía un firmante operacional con material protegido bajo la cuenta `NT SERVICE\\CamachoPOSLocalService`, ni cadena de provisión firmada/aprobada.
-- NO está cableada la autoridad de revocación confiable al Service, a su SQLite o al ciclo de vida del canal. La interfaz obliga a declararla, pero no demuestra revocación en caliente de canales ya abiertos.
+- El adaptador SQLite existe, pero NO está cableado al canal SCM ni a su ciclo de vida. No demuestra revocación en caliente de canales ya abiertos; no puede certificarse desde Electron sin una frontera IPC segura entre cuentas.
 - NO se certificó identidad del par mediante handle nativo de Windows en dos cuentas/logons. **No** agregar `FILE_GENERIC_WRITE`/Everyone al pipe: Windows comparte `FILE_APPEND_DATA` y `FILE_CREATE_PIPE_INSTANCE`; hay que negociar permisos mínimos y verificar el token real del cliente/servidor.
 - NO se ha efectuado login humano BUSINESS ni GLOBAL contra Central provisionada.
 
@@ -26,7 +27,8 @@ Tras `git pull --ff-only`, en el mismo equipo con SHA exacta y sin cambios rastr
 pnpm --filter @pos-platform/contracts typecheck
 pnpm --filter @pos-platform/local-channel typecheck
 pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts --no-file-parallelism
-pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-winsw-readiness.test.ts --no-file-parallelism
+pnpm --filter @pos-platform/pos-local-service typecheck
+pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-handoff-lease-state.test.ts tests/windows-winsw-readiness.test.ts --no-file-parallelism
 ```
 
 Reportar resultados reales por SHA. La batería anterior **21+3 PASS y dos typechecks** corresponde al commit `b59d551d`; no se atribuye al nuevo incremento. Las **341** pruebas anteriores y **11** del laboratorio se mantienen como registros históricos; no se suman a la ejecución actual ni se reejecutan sin razón.
