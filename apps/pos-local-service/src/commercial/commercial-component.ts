@@ -117,6 +117,13 @@ export class CommercialComponent implements RuntimeComponent {
     | undefined;
 
   readonly bindings: SessionBindingRegistry;
+  private nativeSessionCloser:((connections:readonly string[],initiator:string)=>void)|undefined;
+
+  registerNativeSessionCloser(close:(connections:readonly string[],initiator:string)=>void):()=>void{
+    if(this.nativeSessionCloser)throw Error("NATIVE_SESSION_CLOSER_ALREADY_REGISTERED");
+    this.nativeSessionCloser=close;
+    return ()=>{if(this.nativeSessionCloser===close)this.nativeSessionCloser=undefined;};
+  }
 
   constructor(
     private readonly config: ServiceConfig,
@@ -174,7 +181,10 @@ export class CommercialComponent implements RuntimeComponent {
   closeNativeSession(connectionId:string):string|null{
     const bound=this.bindings.resolve(connectionId);if(!bound)return null;
     this.sessionStore.close(bound.ssaSessionId);
-    this.bindings.releaseSession(bound.ssaSessionId);
+    const connections=this.bindings.releaseSession(bound.ssaSessionId);
+    // The durable tombstone above commits before bindings or sockets are
+    // released. Already committed effects remain subject to idempotency.
+    this.nativeSessionCloser?.(connections,connectionId);
     return bound.ssaSessionId;
   }
   loadVerifiedAuthorization(binding:SnapshotBinding){

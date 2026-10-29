@@ -99,6 +99,23 @@ function validateResponse(request: IpcRequest, input: unknown): unknown {
 export class LocalChannelServer {
   private server: Server | undefined;
   private readonly sockets = new Set<Socket>();
+  private readonly connections = new Map<string, { close: () => void; retire: () => void }>();
+
+  /** Privileged Service API. IDs come from this server, never an IPC payload. */
+  disconnectConnection(connectionId: string): boolean {
+    const connection = this.connections.get(connectionId);
+    if (!connection) return false;
+    connection.close();
+    return true;
+  }
+
+  /** Deny queued/new work now; allow only the current logout response to drain. */
+  retireConnection(connectionId: string): boolean {
+    const connection = this.connections.get(connectionId);
+    if (!connection) return false;
+    connection.retire();
+    return true;
+  }
 
   constructor(
     private readonly endpoint: string,
@@ -143,21 +160,43 @@ export class LocalChannelServer {
       // Identidad de conexión asignada por el servidor. Se crea aquí, vive
       // exactamente lo que vive el socket y no se transmite jamás.
       const connectionId = randomUUID();
+      let closed = false;
+      let retired = false;
+      let handling = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        connectionController.abort();
+        negotiatedSessions.clear();
+        this.connections.delete(connectionId);
+        this.sockets.delete(socket);
+        socket.destroy();
+        // Cleanup failure must not keep this connection alive or prevent the
+        // remaining connections from being closed on stop/revocation.
+        try { this.onConnectionClosed?.(connectionId); } catch { /* fail closed */ }
+      };
+      this.connections.set(connectionId, { close, retire: () => {
+        retired = true;
+        socket.pause();
+        if (!handling) close();
+      } });
       let queuedRequests = 0;
       let queue: Promise<void> = Promise.resolve();
 
       socket.on("data", (chunk) => {
+        if (closed || retired) return;
         try {
           for (const raw of decoder.push(chunk)) {
             queuedRequests += 1;
             if (queuedRequests > this.maxQueuedRequestsPerConnection) {
-              socket.destroy(new Error("local channel request queue capacity exceeded"));
+              close();
               return;
             }
 
             queue = queue
               .then(async () => {
-                if (socket.destroyed) return;
+                if (closed || retired || socket.destroyed) return;
+                handling = true;
                 const frame = this.authenticator.verify(raw);
                 const request = IpcRequestSchema.parse(frame.payload);
                 if (request.protocol_version !== frame.protocol_version) {
@@ -214,24 +253,21 @@ export class LocalChannelServer {
                 ));
               })
               .catch(() => {
-                socket.destroy();
+                close();
               })
               .finally(() => {
+                handling = false;
                 queuedRequests -= 1;
+                if (retired) close();
               });
           }
         } catch {
-          socket.destroy();
+          close();
         }
       });
 
-      socket.once("close", () => {
-        connectionController.abort();
-        negotiatedSessions.clear();
-        this.sockets.delete(socket);
-        this.onConnectionClosed?.(connectionId);
-      });
-      socket.once("error", () => socket.destroy());
+      socket.once("close", close);
+      socket.once("error", close);
     });
 
     try {
@@ -261,7 +297,7 @@ export class LocalChannelServer {
       });
       this.server = server;
     } catch (error) {
-      for (const socket of this.sockets) socket.destroy();
+      for (const connection of [...this.connections.values()]) connection.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       throw error;
     }
@@ -270,7 +306,7 @@ export class LocalChannelServer {
   async stop(): Promise<void> {
     const server = this.server;
     if (!server) return;
-    for (const socket of this.sockets) socket.destroy();
+    for (const connection of [...this.connections.values()]) connection.close();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
     });

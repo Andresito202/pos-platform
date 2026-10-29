@@ -35,6 +35,7 @@ export class LocalChannelComponent implements RuntimeComponent {
 
   private server: LocalChannelServer | undefined;
   private authenticator: LocalChannelAuthenticator | undefined;
+  private unregisterSessionCloser:(()=>void)|undefined;
   private readonly commercialHandler: CommercialRequestHandler;
 
   constructor(
@@ -50,6 +51,7 @@ export class LocalChannelComponent implements RuntimeComponent {
   }
 
   async start(): Promise<void> {
+    if(this.server||this.authenticator||this.unregisterSessionCloser)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
     if (process.platform !== "win32") {
       throw new Error("production local channel requires Windows");
     }
@@ -72,20 +74,28 @@ export class LocalChannelComponent implements RuntimeComponent {
       undefined,
       undefined,
       // El cierre de la conexión invalida su vínculo de sesión (`DEC-015` §5.6).
-      (connectionId) => {this.commercial.bindings.release(connectionId);this.nativeCommercial?.release(connectionId);},
+      (connectionId) => {try{this.commercial.bindings.release(connectionId);}finally{this.nativeCommercial?.release(connectionId);}},
     );
 
     try {
+      this.unregisterSessionCloser=this.commercial.registerNativeSessionCloser((connections,initiator)=>{
+        for(const id of connections){
+          if(id===initiator)server.retireConnection(id);
+          else server.disconnectConnection(id);
+        }
+      });
       await server.start();
       this.authenticator = authenticator;
       this.server = server;
     } catch (error) {
+      this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
       authenticator.destroy();
       throw error;
     }
   }
 
   async stop(): Promise<void> {
+    this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
     this.nativeCommercial?.stop();
     const server = this.server;
     const authenticator = this.authenticator;
