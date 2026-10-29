@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "benchmark:kdf": "node --import tsx benchmarks/password-kdf.ts",
-    "deployment:preflight": "tsx src/central-certification-preflight-cli.ts"
+    "deployment:preflight": "tsx src/central-certification-preflight-cli.ts",
+    "android:prepare-app-links": "tsx src/prepare-android-app-links-cli.ts"
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",

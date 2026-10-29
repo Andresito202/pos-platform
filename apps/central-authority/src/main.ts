@@ -15,6 +15,8 @@ import {FACTUS_PAY_COLLECTION_WEBHOOK_PATH} from "./factus-pay-webhook-handler.j
 import {prepareSubscriptionCollectionRuntime} from "./subscription-collection-runtime.js";
 import {prepareGlobalAdministrationRuntime} from "./global-administration-runtime.js";
 import {prepareLicenseCapacityRuntime} from "./license-capacity-runtime.js";
+import {prepareCommercialPublicSite} from "./commercial-public-site.js";
+import {CamachoCommercialDomains} from "@pos-platform/contracts";
 
 const deployment=resolveCentralDeploymentConfiguration(process.env);
 const PORT = deployment?.port??Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -109,6 +111,9 @@ if(authorizationTrustTransportToken!==null&&(authorizationTrustTransportToken.le
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
 if(deployment){try{await verifyCentralRuntimeDatabase(pool);}catch{await pool.end();throw Error("CENTRAL_RUNTIME_DATABASE_REJECTED");}}
 const readiness=deployment?createCentralReadinessProbe(pool,deployment.requestTimeoutMs):null;
+const publicSiteFile=process.env.CENTRAL_PUBLIC_SITE_PROVISION_FILE;
+if(publicSiteFile&&(!deployment||deployment.environment==='LOCAL'))throw Error("PUBLIC_SITE_EXPLICIT_DEPLOYMENT_REQUIRED");
+const publicSite=publicSiteFile?await prepareCommercialPublicSite(pool,publicSiteFile,deployment!.origin,tlsCert):undefined;
 const factusPayProvision=process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
 if(factusPayProvision&&!deployment)throw Error("FACTUS_PAY_EXPLICIT_DEPLOYMENT_REQUIRED");
 const factusPayHandler=factusPayProvision?await prepareFactusPayRuntime(pool,factusPayProvision):undefined;
@@ -144,7 +149,11 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
 const limiter = new FixedWindowRateLimiter();
 
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, async (request, response) => {
+  if(publicSite&&request.headers.host===new URL(CamachoCommercialDomains.publicOrigin).host){await publicSite(request,response);return;}
   if(deployment&&request.headers.host!==new URL(deployment.origin).host){send(response,421,{status:"REJECTED",result_code:"CENTRAL_HOST_REJECTED"});return;}
+  if(request.url?.split('?')[0]===CamachoCommercialDomains.androidCallbackPath||request.url===CamachoCommercialDomains.androidAssociationPath){
+    send(response,503,{status:'REJECTED',result_code:'ANDROID_NATIVE_RUNTIME_NOT_PROVISIONED'});return;
+  }
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";

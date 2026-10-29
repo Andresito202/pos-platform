@@ -15,6 +15,8 @@ import {LicenseOfferDrafts} from "../src/license-offer-drafts.js";
 import {GlobalAdministrationSessions} from "../src/global-administration-sessions.js";
 import {createGlobalAdministrationHandler} from "../src/global-administration-http.js";
 import {createPublicLicenseCatalog} from "../src/public-license-catalog.js";
+import {prepareCommercialPublicSite} from "../src/commercial-public-site.js";
+import {readCompanyLicenseContracts} from "../src/company-license-contract-reader.js";
 import {createGlobalAdministrationAssets} from "../src/global-administration-assets.js";
 import {exercisePlatformAdministrationBrowser} from "./helpers/platform-administration-browser.js";
 import {exerciseLicenseCapacity} from "./helpers/license-capacity-scenario.js";
@@ -423,7 +425,7 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
   try{
     dir=await mkdtemp(join(tmpdir(),"pos-global-api-"));
     execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+rpId,
-      "-addext","subjectAltName=DNS:"+rpId,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
+      "-addext","subjectAltName=DNS:"+rpId+",DNS:camachoposcolombia.com,DNS:central.camachoposcolombia.com","-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
     const cert=await readFile(join(dir,"tls.crt")),httpLimits={maximumBodyBytes:16384,maximumPendingFlows:10,requestsPerWindow:100,maximumBuckets:10,
       requestWindowMs:60000,loginWindowMs:60000,maximumLoginPerAddress:20,maximumLoginPerAccount:20};
     let handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
@@ -431,7 +433,9 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     let assets:ReturnType<typeof createGlobalAdministrationAssets>|undefined;
     let pricing:ReturnType<typeof createGlobalAdministrationAssets>|undefined;
     let catalog:ReturnType<typeof createPublicLicenseCatalog>|undefined;
+    let publicSite:Awaited<ReturnType<typeof prepareCommercialPublicSite>>|undefined;
     tls=createServer({key:await readFile(join(dir,"tls.key")),cert},(req,res)=>{
+      if(req.headers.host==='camachoposcolombia.com'){void publicSite!(req,res);return;}
       if(req.url==="/v1/licensing/offers"){void catalog!(req,res);return;}
       if(req.url?.startsWith("/pricing")){void pricing!(req,res);return;}
       if(req.url?.startsWith("/platform")){void assets!(req,res);return;}
@@ -443,6 +447,20 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     assets=createGlobalAdministrationAssets({directory:resolve("../pos-desktop/dist/renderer"),origin:browserOrigin,maximumAssetBytes:2000000});
     pricing=createGlobalAdministrationAssets({directory:resolve("../pos-desktop/dist/renderer"),origin:browserOrigin,maximumAssetBytes:2000000,page:"pricing"});
     catalog=createPublicLicenseCatalog(new LicenseOfferDrafts(runtime,60000),browserOrigin,{requests:100,buckets:10,windowMs:60000});
+    const siteFile=join(dir,'public-site.json');await writeFile(siteFile,JSON.stringify({profile:'CAMACHO_PUBLIC_SITE_PREPARATION_V1',origin:'https://camachoposcolombia.com',central_origin:'https://central.camachoposcolombia.com',renderer_directory:resolve('../pos-desktop/dist/renderer'),maximum_asset_bytes:2000000,
+      catalog_migration_checksum:createHash('sha256').update(await sql('023_license_offer_terms.up.sql')).digest('hex'),limits:{requests:100,buckets:10,windowMs:60000}}));
+    publicSite=await prepareCommercialPublicSite(runtime,siteFile,'https://central.camachoposcolombia.com',cert);
+    const publicGet=(path:string,headers:Record<string,string>={})=>new Promise<{status:number;location?:string;body:string}>((yes,no)=>{
+      const req=httpsRequest({host:'127.0.0.1',port:(tls!.address() as {port:number}).port,servername:'camachoposcolombia.com',ca:cert,agent:false,path,
+        headers:{host:'camachoposcolombia.com',...headers}},res=>{let body='';res.on('data',b=>body+=String(b));res.on('end',()=>yes({status:res.statusCode!,...(res.headers.location?{location:res.headers.location}:{}),body}));});req.on('error',no);req.end();
+    });
+    expect((await publicGet('/')).status).toBe(200);
+    expect((await publicGet('/app')).body).toContain('WEB_POS_RUNTIME_NOT_PROVISIONED');
+    expect((await publicGet('/login')).status).toBe(503);
+    expect(await publicGet('/login?request='+'a'.repeat(43))).toMatchObject({status:303,location:'https://central.camachoposcolombia.com/v1/commercial/login?request='+'a'.repeat(43)});
+    expect((await publicGet('/login?request='+'a'.repeat(43)+'&return_to=https://evil.invalid')).status).toBe(503);
+    expect((await publicGet('/v1/platform/session')).status).toBe(404);
+    expect((await publicGet('/v1/licensing/offers',{cookie:'__Host-camacho_platform=not-an-authority'})).status).toBe(403);
     const asset=(path:string,method="GET",host=new URL(browserOrigin).host)=>new Promise<{status:number;csp:string|undefined}>((yes,no)=>{
       const req=httpsRequest({host:"127.0.0.1",port:(tls!.address() as {port:number}).port,servername:rpId,ca:cert,agent:false,path,method,headers:{host}},res=>{
         res.resume();res.on("end",()=>yes({status:res.statusCode!,csp:res.headers["content-security-policy"] as string|undefined}));
@@ -504,6 +522,17 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     const issued=await Promise.all([issuer.issue(issuanceSession!,paid.id,id()),issuer.issue(issuanceSession!,paid.id,id())]);
     expect(issued.filter(e=>!e.idempotent)).toHaveLength(1);expect(issued.every(e=>e.activationStatus==="NOT_ACTIVATED")).toBe(true);
     expect(issued[0]!.licenseId).toBe(issued[1]!.licenseId);
+    const contractPolicy={profile:'CAMACHO_LICENSE_ACTIVATION_V1',policy_reference:'TEST_ONLY',subscription_grace_days:3,grace_basis:'ELAPSED_24_HOURS',perpetual_use:'NO_EXPIRY',support_and_external_services:'SEPARATE',
+      accepted_contract_policy_references:['TEST_ONLY_NOT_APPROVED_FOR_PRODUCTION'],offline_capabilities:[]};
+    const companyReader=await runtime.connect();try{
+      await companyReader.query('BEGIN');await companyReader.query("SELECT set_config('app.tenant_id','',true)");
+      await expect(readCompanyLicenseContracts(companyReader,buyer.company,contractPolicy)).rejects.toThrow('TRUSTED_TENANT');
+      await companyReader.query("SELECT set_config('app.tenant_id',$1,true)",[buyer.tenant]);
+      const contracts=await readCompanyLicenseContracts(companyReader,buyer.company,contractPolicy);
+      expect(contracts).toHaveLength(1);expect(contracts[0]).toMatchObject({licenseId:issued[0]!.licenseId,includedRegisters:1,paidAdditionalRegisters:2,totalPaidMinor:'15123',renewalStatus:'REQUIRES_CONFIRMED_PAYMENT_AND_APPROVED_TERMS'});
+      await expect(readCompanyLicenseContracts(companyReader,merchant.companyId,contractPolicy)).rejects.toThrow('SCOPE_REJECTED');
+      await companyReader.query('ROLLBACK');
+    }finally{companyReader.release();}
     expect((await call("licenses/issue",{paymentId:paid.id,correlationId:id()},cookie,csrf)).body).toMatchObject({licenseId:issued[0]!.licenseId,idempotent:true,activationStatus:"NOT_ACTIVATED"});
     expect((await owner.query("SELECT count(*)::int AS n FROM sync.sync_operations WHERE operation_type='LICENSE_CONTRACT_ISSUED'")).rows[0].n).toBe(1);
     handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
@@ -515,6 +544,9 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
       privateKey:key.privateKey.export({format:"der",type:"pkcs8"}).toString("base64"),counter:2,planCode});
     expect(observed).toMatchObject({platformUi:true,draftRecovered:true,published:true,dynamicPrice:true,publicUnauthenticated:true,noRecompile:true,logout:true,storage:{local:0,session:0,preload:"undefined"}});
     expect(observed.consoleErrors,JSON.stringify(observed.consoleErrors)).toEqual([]);
+    const publicPrices=await publicGet('/v1/licensing/offers');expect(publicPrices.status).toBe(200);
+    expect(JSON.parse(publicPrices.body).offers.find((p:any)=>p.code==='CAMACHO_MONTHLY').price_minor).toBe(5990000);
+    expect(publicPrices.body).not.toContain(buyer.company);expect(publicPrices.body).not.toContain('quote_checksum');
     expect((await owner.query("SELECT status,version::int,price_minor::int,included_registers,additional_register_price_minor::int,support_price_minor::int FROM licensing.plans WHERE code=$1 ORDER BY version",[planCode])).rows)
       .toEqual([{status:"RETIRED",version:1,price_minor:4990000,included_registers:1,additional_register_price_minor:1990000,support_price_minor:1490000},
         {status:"ACTIVE",version:2,price_minor:5990000,included_registers:1,additional_register_price_minor:1990000,support_price_minor:1490000}]);

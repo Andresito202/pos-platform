@@ -6,7 +6,7 @@ import {LicenseOfferDrafts} from "./license-offer-drafts.js";
 import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 import {inspectCommercialHeaders,sendCommercialJson} from "./isolated-commercial-https.js";
 export const PUBLIC_LICENSE_CATALOG_PATH="/v1/licensing/offers";
-export function createPublicLicenseCatalog(offers:LicenseOfferDrafts,origin:string,limits:{requests:number;buckets:number;windowMs:number}){
+export function createPublicLicenseCatalog(offers:Pick<LicenseOfferDrafts,"published">,origin:string,limits:{requests:number;buckets:number;windowMs:number}){
   const limiter=new FixedWindowRateLimiter(limits.requests,limits.buckets,limits.windowMs);
   return async(req:IncomingMessage,res:ServerResponse)=>{
     try{

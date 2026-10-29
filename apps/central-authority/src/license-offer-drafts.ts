@@ -104,13 +104,14 @@ export class LicenseOfferDrafts{
   }
   /** Read model for future plan cards. Backend status/price/features only; no
    * customer input, tenant authorization, token or activation is synthesized. */
-  async published(){
-    const c=await this.pool.connect();let begun=false;
+  published(){return LicenseOfferDrafts.readPublished(this.pool);}
+  static async readPublished(pool:Pool){
+    const c=await pool.connect();let begun=false;
     try{await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");begun=true;
       const rows=(await c.query("SELECT * FROM licensing.plans WHERE status='ACTIVE' AND offer_profile IN ('CAMACHO_LICENSE_OFFER_V1','CAMACHO_LICENSE_OFFER_V2') ORDER BY billing_model,code")).rows;
       const result=[];
       for(const row of rows){const features=(await c.query("SELECT capability_code,enabled,limit_type,limit_value::text FROM licensing.plan_entitlements WHERE plan_id=$1 ORDER BY capability_code",[row.id])).rows;
-        result.push({...this.offer(row),version:Number(row.version),status:"ACTIVE" as const,published_at:(row.updated_at as Date).toISOString(),features});}
+        result.push({...licenseOfferFromRow(row),version:Number(row.version),status:"ACTIVE" as const,published_at:(row.updated_at as Date).toISOString(),features});}
       await c.query("COMMIT");begun=false;return result;
     }catch(e){if(begun)await c.query("ROLLBACK");throw e;}finally{c.release();}
   }

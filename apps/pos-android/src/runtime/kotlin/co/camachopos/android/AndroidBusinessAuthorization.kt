@@ -13,6 +13,12 @@ import javax.net.ssl.HttpsURLConnection
 
 /** Registration metadata only; never user/device authentication or D3 approval. */
 data class AndroidNativeRegistration(val clientId:String,val origin:String,val callback:String,val packageId:String,val certificateSha256:String) {
+    companion object {
+        /** Destination preparation only; caller still needs the real release
+         * signer, verified DAL, DEV-003 and native request binding. */
+        fun camacho(clientId:String,packageId:String,certificateSha256:String)=AndroidNativeRegistration(
+            clientId,"https://central.camachoposcolombia.com","https://central.camachoposcolombia.com/android/callback",packageId,certificateSha256)
+    }
     init {
         val issuer=URI(origin);val redirect=URI(callback)
         require(clientId.matches(Regex("[A-Za-z0-9._~-]{1,128}")))

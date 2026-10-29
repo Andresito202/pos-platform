@@ -1,5 +1,7 @@
 # FACTUS Pay Sandbox — dos campos del panel
 
+Actualización de destinos autorizados por el propietario: la URL futura queda fijada en `https://central.camachoposcolombia.com/v1/webhooks/factus-pay/collections`, sin `?key=`. El dominio todavía no se ha comprado ni desplegado; esta selección no verifica DNS/TLS ni configura el portal. Las referencias inferiores a un host pendiente describen el estado anterior a esta decisión y conservan su evidencia histórica.
+
 La misión de catálogo quedó documentada en [pricing-v2-closure-2026-10-28.md](pricing-v2-closure-2026-10-28.md), commit `1ffa70d857dbbfcaa681683963bcf2666f7e8175`. La herramienta de credenciales API quedó publicada en `4ef252fd`. Esta preparación posterior no modifica login, licencias, precios, FACTUS V2, handler, inbox ni contratos.
 
 ## CAMPO 1 — URL del webhook

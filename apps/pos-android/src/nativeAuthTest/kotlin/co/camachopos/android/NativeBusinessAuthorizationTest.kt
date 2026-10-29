@@ -34,5 +34,12 @@ fun main(){
     test { check(!VerifiedAndroidBusinessAppLink.matchesAssociation(dal.replace(registration.packageId,"co.other.app"),registration,registration.certificateSha256));check(!VerifiedAndroidBusinessAppLink.matchesAssociation(dal,registration,List(32){"B2"}.joinToString(":"))) }
     test { check(!VerifiedAndroidBusinessAppLink.matchesAssociation(dal.replace("delegate_permission/common.handle_all_urls","unrelated"),registration,registration.certificateSha256));check(!VerifiedAndroidBusinessAppLink.matchesAssociation(dal.replace("android_app","web"),registration,registration.certificateSha256)) }
     test { check(!VerifiedAndroidBusinessAppLink.matchesAssociation("{",registration,registration.certificateSha256));check(!VerifiedAndroidBusinessAppLink.matchesAssociation(" ".repeat(32769),registration,registration.certificateSha256)) }
-    println("ANDROID_NATIVE_AUTH_CONTRACTS: $passed/11 PASS (JVM; no device, network or session activation)")
+    test {
+        val prepared=AndroidNativeRegistration.camacho("test-client",registration.packageId,registration.certificateSha256)
+        check(prepared.origin=="https://central.camachoposcolombia.com")
+        check(prepared.callback==prepared.origin+"/android/callback")
+        val pending=AndroidPendingBusinessAuthorization(prepared,1000);val state=query(pending.begin())["state"]!!
+        check(pending.consume(prepared.callback+"?code="+"c".repeat(64)+"&state="+state)!=null)
+    }
+    println("ANDROID_NATIVE_AUTH_CONTRACTS: $passed/12 PASS (JVM; no device, network or session activation)")
 }
