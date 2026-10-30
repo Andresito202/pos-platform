@@ -118,6 +118,8 @@ try{
   Must (Test-Path -LiteralPath $runner -PathType Leaf) 'EXISTING_RUNNER_MISSING'
   Must (Test-Path -LiteralPath $xml -PathType Leaf) 'WINSW_XML_MISSING'
   Must (Test-Path -LiteralPath $resultsDir -PathType Container) 'RESULT_DIR_MISSING'
+  $signedWrapperSha=(Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash
+  Must ($signedWrapperSha -eq 'D405E480FE1B14ED3895E06A4F7B4DB758CF270F09A2C1B607F415E747C5A7CD') 'WINSW_LAB_SIGNED_HASH_CHANGED'
   $sig=Get-AuthenticodeSignature -LiteralPath $wrapper
   Must ($sig.Status -eq 'Valid' -and $null -ne $sig.SignerCertificate -and
     $sig.SignerCertificate.Thumbprint -eq 'D66CDBD8B1564BF4B8A8F0664A3DCD17C39D0911') 'WINSW_LAB_SIGNATURE_REJECTED'
