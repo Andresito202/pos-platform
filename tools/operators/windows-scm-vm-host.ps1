@@ -150,8 +150,8 @@ function AssertHost {
 
 try {
   $state=AssertHost
-  Require ([bool]$Apply) 'DRY_RUN_ONLY_PASS_APPLY_TO_EXECUTE'
   if($Phase -eq 'PrepareHost'){
+    Require ([bool]$Apply) 'DRY_RUN_ONLY_PASS_APPLY_TO_EXECUTE'
     Require ($state -ne 'EnablePending') 'HYPERV_PENDING_REBOOT'
     if($state -eq 'Enabled'){
       Write-Host 'HYPERV_ALREADY_ENABLED=YES'
@@ -182,18 +182,54 @@ try {
       throw
     }
   }else{
-    Require ($state -eq 'Enabled') 'HYPERV_NOT_READY_REBOOT_OR_INSTALL_REQUIRED'
-    Require (Get-Command New-VM -ErrorAction SilentlyContinue) 'HYPERV_MANAGEMENT_TOOLS_REQUIRED'
-    $memory=(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB
-    Require ($memory -ge 5GB) 'AVAILABLE_RAM_5GB_REQUIRED_CLOSE_APPS_BEFORE_VM_CREATION'
-    Require (-not [string]::IsNullOrWhiteSpace($IsoPath)) 'WINDOWS_ISO_REQUIRED'
-    $iso=[IO.Path]::GetFullPath($IsoPath)
-    Require ($iso -match '(?i)^[a-z]:\\' -and $iso.EndsWith('.iso',[StringComparison]::OrdinalIgnoreCase)) 'WINDOWS_ISO_LOCAL_FILE_REQUIRED'
-    $isoFile=Get-Item -LiteralPath $iso -ErrorAction Stop
-    Require (-not $isoFile.PSIsContainer -and $isoFile.Length -ge 2GB) 'WINDOWS_ISO_INVALID_OR_TOO_SMALL'
-    Require (Test-Path -LiteralPath $diskRoot -PathType Container) 'LAB_BACKUP_PREPARATION_REQUIRED'
+    # Report all prerequisites in a SINGLE preflight. Get-Command returns
+    # no object when the Hyper-V PowerShell feature is absent; passing that
+    # directly to Require([bool]) previously raised ParameterBindingException.
+    # No component is changed unless the complete preflight passes AND -Apply.
+    $blockers=[System.Collections.Generic.List[string]]::new()
+    $vmCommand=Get-Command -Name New-VM -ErrorAction SilentlyContinue
+    $hasManagement=($null -ne $vmCommand)
+    $vmms=Get-Service -Name vmms -ErrorAction SilentlyContinue
+    $hasVmms=($null -ne $vmms -and $vmms.Status -eq 'Running')
+    $memory=[double]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB)
+    $memoryEnough=($memory -ge 5GB)
+    $iso=$null
+    $isoReady=$false
+    if(-not [string]::IsNullOrWhiteSpace($IsoPath)){
+      try {
+        $candidate=[IO.Path]::GetFullPath($IsoPath)
+        if($candidate -match '(?i)^[a-z]:\\' -and
+           $candidate.EndsWith('.iso',[StringComparison]::OrdinalIgnoreCase) -and
+           (Test-Path -LiteralPath $candidate -PathType Leaf)){
+          $isoFile=Get-Item -LiteralPath $candidate -ErrorAction Stop
+          if(-not $isoFile.PSIsContainer -and $isoFile.Length -ge 2GB){
+            $iso=$candidate;$isoReady=$true
+          }
+        }
+      }catch{}
+    }
+    if($state -ne 'Enabled'){[void]$blockers.Add('HYPERV_FEATURE_NOT_ENABLED')}
+    if(-not $hasManagement){[void]$blockers.Add('HYPERV_MANAGEMENT_TOOLS_REQUIRED')}
+    if(-not $hasVmms){[void]$blockers.Add('HYPERV_VMMS_NOT_RUNNING_REBOOT_OR_FEATURE_REQUIRED')}
+    if(-not $memoryEnough){[void]$blockers.Add('AVAILABLE_RAM_5GB_REQUIRED')}
+    if(-not $isoReady){[void]$blockers.Add('REAL_WINDOWS_ISO_REQUIRED')}
+    if(-not (Test-Path -LiteralPath $diskRoot -PathType Container)){
+      [void]$blockers.Add('LAB_BACKUP_PREPARATION_REQUIRED')
+    }
+    Write-Host ('HYPERV_MANAGEMENT_CMD='+$hasManagement)
+    Write-Host ('HYPERV_VMMS_RUNNING='+$hasVmms)
+    Write-Host ('RAM_FREE_GB='+[math]::Round($memory/1GB,2))
+    Write-Host ('WINDOWS_ISO_READY='+$isoReady)
+    if($blockers.Count -gt 0){
+      throw ('CREATE_VM_PREFLIGHT_BLOCKED:'+($blockers.ToArray() -join ','))
+    }
+    if(-not $Apply){
+      Write-Host 'CREATE_VM_PREFLIGHT=PASS_READONLY'
+      Write-Host 'VM_CREATED=NO_APPLY_FLAG'
+      exit 0
+    }
     $rootAcl=Get-Acl -LiteralPath $diskRoot
-    Require ($rootAcl.AreAccessRulesProtected) 'LAB_ROOT_ACL_INHERITANCE_REJECTED'
+    Require ([bool]$rootAcl.AreAccessRulesProtected) 'LAB_ROOT_ACL_INHERITANCE_REJECTED'
     Require ($null -eq (Get-VM -Name $vm -ErrorAction SilentlyContinue)) 'LAB_VM_ALREADY_EXISTS_NO_OVERWRITE'
     $vmsRoot=Join-Path $diskRoot 'VMs'
     ProtectedDirectory $vmsRoot
