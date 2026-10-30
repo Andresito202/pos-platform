@@ -49,7 +49,17 @@ export class CentralSyncComponent implements RuntimeComponent {
 
     // Un primer despacho inmediato sirve de sonda: decide si merece la pena
     // temporizar, y de paso drena lo que quedase de la ejecución anterior.
-    const first = await dispatcher.dispatchOnce(this.scope);
+    // Track the initial dispatch too. stop() must not let the database close
+    // while its response or failure is still being committed to SQLite.
+    const initial = dispatcher.dispatchOnce(this.scope);
+    this.inFlight = initial.then(() => undefined);
+    let first: DispatchOutcome;
+    try {
+      first = await initial;
+    } finally {
+      this.inFlight = undefined;
+    }
+    if (this.stopped) return;
     if (first.kind === "NOT_AUTHENTICATED") {
       this.report.onLifecycle("NO_DEVICE_CREDENTIAL", { code: first.code });
       return;
