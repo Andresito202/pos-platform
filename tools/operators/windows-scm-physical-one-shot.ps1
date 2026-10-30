@@ -60,8 +60,10 @@ function Invoke-Round([string]$Runtime){
   $svc=Get-Service -Name $serviceName -ErrorAction Stop
   Check "$Runtime-SCM-initially-stopped" ($svc.Status -eq 'Stopped') 'Preconfigured lab SCM must be stopped'
   $roundStarted=[DateTime]::UtcNow
-  Start-Service -Name $serviceName -ErrorAction Stop
+  # Mark before calling SCM: Start-Service may throw after partially starting
+  # the isolated lab wrapper. Finally must still attempt to stop it.
   $script:startedByUs=$true
+  Start-Service -Name $serviceName -ErrorAction Stop
   Start-Sleep -Milliseconds 750
   $clientJson=Join-Path $recordRoot ("desktop-"+$Runtime.ToLowerInvariant()+".json")
   $env:CAMACHO_SCM_PHYSICAL_PROVISION=$DesktopProvision
@@ -77,9 +79,9 @@ function Invoke-Round([string]$Runtime){
   }finally{[Environment]::SetEnvironmentVariable('ELECTRON_RUN_AS_NODE',$oldElectron,'Process')}
   Check "$Runtime-Desktop-exit" ($exit -eq 0) 'Physical Desktop test process'
   $desktopHash=Read-PhysicalResult $clientJson $roundStarted
-  Check "$Runtime-Desktop-physical" ($desktopHash.Length -eq 64) 'One passed, none skipped or failed'
+  Check "$Runtime-Desktop-physical" ($desktopHash.Length -eq 64) $desktopHash
   $serviceHash=Wait-ForResult $roundStarted
-  Check "$Runtime-Service-physical" ($serviceHash.Length -eq 64) 'One passed, none skipped or failed'
+  Check "$Runtime-Service-physical" ($serviceHash.Length -eq 64) $serviceHash
   for($i=0;$i -lt 50;$i++){
     $svc=Get-Service -Name $serviceName -ErrorAction Stop
     if($svc.Status -eq 'Stopped'){break}
