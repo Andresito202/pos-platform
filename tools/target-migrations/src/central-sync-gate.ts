@@ -36,7 +36,7 @@ function sha256(value: unknown): string {
   return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
-async function seedCentralScope(companyId: string, branchId: string, deviceId: string, installationId: string, credentialId: string, publicKeyPem: string): Promise<void> {
+async function seedCentralScope(scopeTenantId: string, companyId: string, branchId: string, deviceId: string, installationId: string, credentialId: string, publicKeyPem: string): Promise<void> {
   const admin = new Pool({ connectionString: POSTGRES_ADMIN_URL, max: 1 });
   const client = await admin.connect();
   try {
@@ -45,13 +45,13 @@ async function seedCentralScope(companyId: string, branchId: string, deviceId: s
       `INSERT INTO tenancy.tenants (id,name,status,created_at,updated_at)
        VALUES ($1,'Central Sync Gate Tenant','ACTIVE',clock_timestamp(),clock_timestamp())
        ON CONFLICT (id) DO NOTHING`,
-      [tenantId],
+      [scopeTenantId],
     );
     await client.query(
       `INSERT INTO organization.companies (id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at)
        VALUES ($1,$2,'Central Sync Gate Company','America/Bogota','COP','ACTIVE',clock_timestamp(),clock_timestamp())
        ON CONFLICT (id) DO NOTHING`,
-      [companyId, tenantId],
+      [companyId, scopeTenantId],
     );
     await client.query(
       `INSERT INTO organization.branches (id,tenant_id,company_id,name,timezone,status,created_at,updated_at)
@@ -64,14 +64,14 @@ async function seedCentralScope(companyId: string, branchId: string, deviceId: s
         (device_id,installation_id,tenant_id,company_id,device_key_id,device_public_key,device_public_key_algorithm,status,trust_key_id,trust_key_purpose,created_at,updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,'Ed25519','ACTIVE','GATE_DEVICE_TRUST','DEVICE_TRUST',clock_timestamp(),clock_timestamp())
        ON CONFLICT (device_id) DO UPDATE SET status='ACTIVE', device_public_key=EXCLUDED.device_public_key`,
-      [deviceId, installationId, tenantId, companyId, `GATE_${deviceId}`, Buffer.from(publicKeyPem, "utf8")],
+      [deviceId, installationId, scopeTenantId, companyId, `GATE_${deviceId}`, Buffer.from(publicKeyPem, "utf8")],
     );
     await client.query(
       `INSERT INTO identity.device_credentials
         (credential_id,device_id,installation_id,tenant_id,company_id,device_key_id,trust_key_id,key_purpose,status,generation,issued_at,expires_at,credential_checksum,issuer_signature,created_at)
        VALUES ($1,$2,$3,$4,$5,$6,'GATE_DEVICE_TRUST','DEVICE_TRUST','ACTIVE',1,clock_timestamp(),clock_timestamp()+interval '1 hour',$7,$8,clock_timestamp())
        ON CONFLICT (credential_id) DO UPDATE SET status='ACTIVE', expires_at=clock_timestamp()+interval '1 hour'`,
-      [credentialId, deviceId, installationId, tenantId, companyId, `GATE_${deviceId}`,
+      [credentialId, deviceId, installationId, scopeTenantId, companyId, `GATE_${deviceId}`,
         createHash("sha256").update(credentialId).digest("hex"), Buffer.from("central-sync-gate")],
     );
     await client.query("COMMIT");
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
     "x-pos-installation-id": installationId,
   });
 
-  await seedCentralScope(companyId, branchId, deviceId, installationId, credentialId, publicKeyPem);
+  await seedCentralScope(tenantId, companyId, branchId, deviceId, installationId, credentialId, publicKeyPem);
   const envelopeBody = JSON.stringify(envelope);
   const headers = requestHeaders(envelope, envelopeBody);
   const first = await fetch(`${BASE}/v1/sync/batches`, {
@@ -344,6 +344,85 @@ async function main(): Promise<void> {
     if (foreignPersistence.rows[0]?.count !== "0") throw new Error("CROSS_TENANT_PERSISTENCE_LEAK");
     console.log("CROSS_TENANT_DEVICE_BINDING=REJECTED");
     console.log("CROSS_TENANT_PERSISTENCE_ROWS=0");
+
+    // A second, legitimately enrolled tenant must be able to sync independently.
+    // Distinct Ed25519 keys, device identity and tenant scope are mandatory.
+    const secondTenantId = uuidV7();
+    const secondCompanyId = uuidV7();
+    const secondBranchId = uuidV7();
+    const secondDeviceId = uuidV7();
+    const secondInstallationId = uuidV7();
+    const secondCredentialId = uuidV7();
+    const secondKeys = generateKeyPairSync("ed25519");
+    const secondPublicKey = secondKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+    await seedCentralScope(secondTenantId, secondCompanyId, secondBranchId,
+      secondDeviceId, secondInstallationId, secondCredentialId, secondPublicKey);
+    const secondOperationId = uuidV7();
+    const secondOperation = {
+      ...operation,
+      operation_id: secondOperationId,
+      tenant_id: secondTenantId,
+      company_id: secondCompanyId,
+      branch_id: secondBranchId,
+      device_id: secondDeviceId,
+      installation_id: secondInstallationId,
+      idempotency_key: `tenant-b-${secondOperationId}`,
+      correlation_id: uuidV7(),
+    };
+    const secondBatch = {
+      ...batch,
+      batch_id: uuidV7(),
+      tenant_id: secondTenantId,
+      company_id: secondCompanyId,
+      branch_id: secondBranchId,
+      device_id: secondDeviceId,
+      installation_id: secondInstallationId,
+      operations: [secondOperation],
+    };
+    const secondEnvelope = {
+      ...envelope,
+      tenant_id: secondTenantId,
+      device_id: secondDeviceId,
+      request_id: uuidV7(),
+      correlation_id: uuidV7(),
+      payload: secondBatch,
+    };
+    const secondBody = JSON.stringify(secondEnvelope);
+    const secondAuthorization = createDeviceRequestAuthorization({
+      method: "POST", path: "/v1/sync/batches",
+      requestId: secondEnvelope.request_id,
+      correlationId: secondEnvelope.correlation_id,
+      credentialId: secondCredentialId, body: secondBody,
+    }, secondKeys.privateKey);
+    const secondResult = await fetch(`${BASE}/v1/sync/batches`, {
+      method: "POST",
+      headers: {
+        ...requestHeaders(envelope, envelopeBody),
+        authorization: secondAuthorization,
+        "x-request-id": secondEnvelope.request_id,
+        "x-correlation-id": secondEnvelope.correlation_id,
+        "x-pos-device-id": secondDeviceId,
+        "x-pos-installation-id": secondInstallationId,
+      },
+      body: secondBody,
+    });
+    if (secondResult.status !== 200) {
+      throw new Error(`SECOND_TENANT_SYNC_FAILED:${secondResult.status}:${(await secondResult.text()).slice(0, 300)}`);
+    }
+    const scoped = await pool.query<{ tenant_id: string; count: string }>(
+      `SELECT tenant_id::text, count(*)::text AS count
+         FROM sync.sync_operations WHERE id = ANY($1::uuid[])
+         GROUP BY tenant_id ORDER BY tenant_id`,
+      [[operationId, secondOperationId]],
+    );
+    if (scoped.rowCount !== 2
+      || scoped.rows.some((row) => row.count !== "1")
+      || !scoped.rows.some((row) => row.tenant_id === tenantId)
+      || !scoped.rows.some((row) => row.tenant_id === secondTenantId)) {
+      throw new Error("TWO_TENANT_PERSISTENCE_ISOLATION_FAILED");
+    }
+    console.log("TWO_TENANT_INDEPENDENT_AUTHENTICATED_SYNC=VERIFIED");
+
 
 
     if (process.env.CAMACHO_ISOLATED_SYNC_LAB === "YES") {
