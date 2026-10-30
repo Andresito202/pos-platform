@@ -1,7 +1,7 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
-import { runIsolatedSqliteGate } from "../../../apps/pos-local-service/src/sync/isolated-central-sqlite-gate.js";
+
 
 const BASE = process.env.CENTRAL_SYNC_BASE_URL;
 const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
@@ -306,7 +306,23 @@ async function main(): Promise<void> {
     // The same enrolled lab device sends an operation originating in REAL SQLite.
     // First response is discarded after Central commits; the second signed
     // request must deduplicate in PostgreSQL and then advance local checkpoint.
-    const sqlite = await runIsolatedSqliteGate({
+    // Lazy-load the cross-package laboratory fixture. A static source import
+    // would bring apps/pos-local-service outside target-migrations rootDir.
+    const localGateUrl = new URL(
+      "../../../apps/pos-local-service/src/sync/isolated-central-sqlite-gate.ts",
+      import.meta.url,
+    );
+    const fixture = await import(localGateUrl.href) as {
+      runIsolatedSqliteGate(input: {
+        scope: { tenantId: string; companyId: string; branchId: string; deviceId: string; installationId: string };
+        baseUrl: string;
+        uuidV7(): string;
+        authorization(context: {
+          method: "POST"; path: string; requestId: string; correlationId: string; body: string;
+        }): Promise<string>;
+      }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number }>;
+    };
+    const sqlite = await fixture.runIsolatedSqliteGate({
       scope: { tenantId, companyId, branchId, deviceId, installationId },
       baseUrl: BASE,
       uuidV7,
