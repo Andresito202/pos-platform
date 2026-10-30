@@ -2,6 +2,12 @@
 
 > Los prefijos de proveedor se retiraron por solicitud del propietario. Las etiquetas históricas abreviadas se identifican por sus SHAs y PR; no son nombres completos de rama.
 
+## Mandato operativo prioritario — 2026-10-30
+
+**CERTIFICACIÓN EXTERNA: CERRADA POR ORDEN DEL PROPIETARIO. NO REABRIR.** Ver [decisión](../governance/decision-free-certification-closure-2026-10-30.md), vinculante para Codex, Work y todo colaborador. Certificación técnica gratuita local: 10/10 PASS sobre `1efddb4a`; gate real SQLite/Central/PostgreSQL/RLS/device enrollment: VERIFIED sobre `72baef5e`. Servicio `CamachoPOSLocalService` ausente: inspección de SCM `NOT_CERTIFIED`, **no** evidencia de servicio comercial operativo. GitHub Actions no es requisito para avanzar; firma pública de Windows es opcional. Se permiten regresiones técnicas relevantes cuando cambie código, sin reabrir investigación de certificados.
+
+**SIGUIENTE ENTREGA DE PRODUCTO:** materializar G1/G2 Windows login/SCM/DPAPI de forma segura en PR #99, preservar barrera `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` hasta interoperabilidad real probada, compilar addon Windows auténtico, comprobar transporte y secretos entre cuentas distintas, y preparar arranque de laboratorio antes de ceremonia humana final. No reducir características ni desplazar el esfuerzo hacia certificados, papeles, MSIX o nuevos gates decorativos.
+
 ## Propósito y autoridad
 
 2026-10-29: [cierre comparativo de G1/G2](../testing/windows-g1-g2-closure-2026-10-29.md), código `52ab79a7cc55411b343283bc92b3aad89f3910b7`: se revisaron `7fe6615e`, `fb628a7f` y `cabd41e4`; se corrigieron carreras de arranque/apagado, cierres repetidos y conservación de errores, y se integró la distribución del addon con hash en el builder existente mediante SCM_CANDIDATE. Regresión remota 350 PASS / 30 omitidas más 8 procesos PASS disjuntos; TypeScript, arquitectura y build PASS. El PE de empaquetado es un fixture estructural no ejecutado. G1/G2 implementados y probados parcialmente; addon Windows real, SCM/DPAPI, BUSINESS/GLOBAL integral y ceremonia humana pendientes. Gate SCM conservado, PR #99 Draft e issue #98 abierta. No sumar baterías históricas.
