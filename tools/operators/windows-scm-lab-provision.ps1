@@ -32,6 +32,7 @@ $script:xmlRestore=$null
 $script:serviceAclRestore=$null
 $script:serviceStartedByUs=$false
 $script:stagingActive=$false
+$script:cleanupFailed=$false
 $script:previousEnvironment=@{}
 foreach($key in @('CAMACHO_SCM_EXPLICIT_OPERATOR_ENROLL','CAMACHO_SCM_LAB_ROOT','CAMACHO_SCM_ENROLL_ROLE','CAMACHO_SCM_OPERATOR_PRIVATE_FILE','CAMACHO_SCM_OPERATOR_PUBLIC_FILE','POS_INSTALLATION_ID','POS_DEVICE_ID')){
   $script:previousEnvironment[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
@@ -312,19 +313,21 @@ exit 0
 }finally{
   if($script:serviceStartedByUs){
     try{Stop-Service -Name $svcName -Force -ErrorAction Stop}catch{
-      Write-Host 'SCM_CLEANUP_SERVICE_STOP_UNVERIFIED'
+      $script:cleanupFailed=$true;Write-Host 'SCM_CLEANUP_SERVICE_STOP_UNVERIFIED'
     }
   }
   if($script:runnerRestore -ne $null){
-    try{[IO.File]::WriteAllBytes($runner,$script:runnerRestore)}catch{Write-Host 'SCM_CLEANUP_RUNNER_RESTORE_UNVERIFIED'}
+    try{[IO.File]::WriteAllBytes($runner,$script:runnerRestore)}catch{$script:cleanupFailed=$true;Write-Host 'SCM_CLEANUP_RUNNER_RESTORE_UNVERIFIED'}
   }
   if($script:xmlRestore -ne $null){
-    try{[IO.File]::WriteAllBytes($xml,$script:xmlRestore)}catch{Write-Host 'SCM_CLEANUP_XML_RESTORE_UNVERIFIED'}
+    try{[IO.File]::WriteAllBytes($xml,$script:xmlRestore)}catch{$script:cleanupFailed=$true;Write-Host 'SCM_CLEANUP_XML_RESTORE_UNVERIFIED'}
   }
   if($script:stagingActive -and $script:serviceAclRestore -ne $null){
-    try{Set-Acl -LiteralPath $serviceDir -AclObject $script:serviceAclRestore}catch{Write-Host 'SCM_CLEANUP_ACL_RESTORE_UNVERIFIED'}
+    try{Set-Acl -LiteralPath $serviceDir -AclObject $script:serviceAclRestore}catch{$script:cleanupFailed=$true;Write-Host 'SCM_CLEANUP_ACL_RESTORE_UNVERIFIED'}
   }
   foreach($key in $script:previousEnvironment.Keys){
     [Environment]::SetEnvironmentVariable($key,$script:previousEnvironment[$key],'Process')
   }
 }
+
+if($script:cleanupFailed){Write-Host 'SCM_LAB_CLEANUP=FAIL';exit 2}
