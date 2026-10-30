@@ -218,17 +218,28 @@ $lab='__LAB__'
 $private=Join-Path $lab 'service\private'
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
 if($id.Name -ne 'NT SERVICE\CamachoPOSLocalService' -or [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0){exit 93}
-if(Test-Path -LiteralPath $private){exit 94}
-[void][IO.Directory]::CreateDirectory($private)
-$acl=[Security.AccessControl.DirectorySecurity]::new()
-$acl.SetOwner($id.User)
-$acl.SetAccessRuleProtection($true,$false)
-[void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
- $id.User,[Security.AccessControl.FileSystemRights]::FullControl,
- [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
- [Security.AccessControl.PropagationFlags]::None,
- [Security.AccessControl.AccessControlType]::Allow))
-Set-Acl -LiteralPath $private -AclObject $acl
+Write-Output 'SCM_ENROLL_STEP=TOKEN_VERIFIED'
+if(-not (Test-Path -LiteralPath $private -PathType Container)){
+ [void][IO.Directory]::CreateDirectory($private)
+ $acl=[Security.AccessControl.DirectorySecurity]::new()
+ $acl.SetOwner($id.User)
+ $acl.SetAccessRuleProtection($true,$false)
+ [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+  $id.User,[Security.AccessControl.FileSystemRights]::FullControl,
+  [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
+  [Security.AccessControl.PropagationFlags]::None,
+  [Security.AccessControl.AccessControlType]::Allow))
+ Set-Acl -LiteralPath $private -AclObject $acl
+ Write-Output 'SCM_ENROLL_STEP=PRIVATE_DIRECTORY_CREATED'
+}else{
+ if((Get-Item -LiteralPath $private -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){exit 94}
+ $acl=Get-Acl -LiteralPath $private
+ if(-not $acl.AreAccessRulesProtected -or $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $id.User.Value){exit 95}
+ foreach($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+  if($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.Value -ne $id.User.Value){exit 96}
+ }
+ Write-Output 'SCM_ENROLL_STEP=PRIVATE_DIRECTORY_CUSTODY_REUSED'
+}
 $env:CAMACHO_SCM_EXPLICIT_OPERATOR_ENROLL='1'
 $env:CAMACHO_SCM_LAB_ROOT=$lab
 $env:CAMACHO_SCM_ENROLL_ROLE='SERVICE'
@@ -237,8 +248,10 @@ $env:CAMACHO_SCM_OPERATOR_PUBLIC_FILE=Join-Path $private 'signer-public.json'
 $env:POS_INSTALLATION_ID='__INSTALLATION__'
 $env:POS_DEVICE_ID='__DEVICE__'
 $vitest=Join-Path $repo 'apps\pos-local-service\node_modules\vitest\vitest.mjs'
+Write-Output 'SCM_ENROLL_STEP=VITEST_START'
 & 'C:\Program Files\nodejs\node.exe' $vitest run --root (Join-Path $repo 'apps\pos-local-service') 'tests/windows-scm-enrollment.operator.test.ts' '--no-file-parallelism' '--reporter=json' ('--outputFile='+(Join-Path $lab 'results\service-enrollment.json'))
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+if($LASTEXITCODE -ne 0){Write-Error ('SCM_ENROLL_VITEST_EXIT='+$LASTEXITCODE);exit $LASTEXITCODE}
+Write-Output 'SCM_ENROLL_STEP=VITEST_PASS'
 Copy-Item -LiteralPath (Join-Path $private 'signer-public.json') -Destination (Join-Path $lab 'results\service-signer-public.json') -ErrorAction Stop
 exit 0
 '@
