@@ -74,7 +74,7 @@ for (const [name, args] of checks) {
   // Windows cannot reliably spawn a .cmd shim with shell:false on Node 22.
   // All arguments here are compile-time constants; no user input is passed to cmd.
   const runResult = process.platform === "win32"
-    ? run(process.env.ComSpec || "C:\\\\Windows\\\\System32\\\\cmd.exe", ["/d", "/s", "/c", "pnpm", ...args])
+    ? run(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "pnpm", ...args])
     : run("pnpm", args);
   const logPath = join(dir, `${name}.log`);
   writeFileSync(logPath, runResult.output, { flag: "wx", mode: 0o600 });
