@@ -1,6 +1,7 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
+import { runIsolatedSqliteGate } from "../../../apps/pos-local-service/src/sync/isolated-central-sqlite-gate.js";
 
 const BASE = process.env.CENTRAL_SYNC_BASE_URL;
 const POSTGRES_TEST_URL = process.env.POSTGRES_TEST_URL;
@@ -301,6 +302,30 @@ async function main(): Promise<void> {
       [tenantId, operation.idempotency_key],
     );
     if (conflictCount.rows[0]!.count !== "1") throw new Error("IDEMPOTENCY_CONFLICT_MUTATED_PERSISTENCE");
+
+    // The same enrolled lab device sends an operation originating in REAL SQLite.
+    // First response is discarded after Central commits; the second signed
+    // request must deduplicate in PostgreSQL and then advance local checkpoint.
+    const sqlite = await runIsolatedSqliteGate({
+      scope: { tenantId, companyId, branchId, deviceId, installationId },
+      baseUrl: BASE,
+      uuidV7,
+      authorization: async (context) => createDeviceRequestAuthorization({
+        ...context, credentialId,
+      }, deviceKeyPair.privateKey),
+    });
+    const durableSqliteOperation = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM sync.sync_operations
+       WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'`,
+      [tenantId, sqlite.operationId, sqlite.idempotencyKey],
+    );
+    if (durableSqliteOperation.rows[0]?.count !== "1") {
+      throw new Error("SQLITE_CENTRAL_POSTGRES_DEDUPLICATION_FAILED");
+    }
+    console.log("SQLITE_OUTBOX_CENTRAL_POSTGRES=VERIFIED");
+    console.log(`SQLITE_CHECKPOINT=${sqlite.localCheckpoint}`);
+    console.log(`SQLITE_INBOX_ROW_COUNT=${sqlite.localInboxRows}`);
+    console.log("SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED");
 
     console.log("POSTGRES_PERSISTENCE=VERIFIED");
     console.log("IDEMPOTENCY_REPLAY=VERIFIED");
