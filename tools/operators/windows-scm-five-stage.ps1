@@ -53,11 +53,13 @@ try {
  if(($machine.Manufacturer+' '+$machine.Model) -notmatch '(?i)virtual|hyper-v|vmware|virtualbox|qemu|kvm'){throw 'VM_REQUIRED'}
  $lab=[IO.Path]::GetFullPath($LabRoot).TrimEnd('\')
  if($lab -notmatch '(?i)^C:\\CamachoPosScmLab\\[a-f0-9]{32}$' -or -not (Test-Path -LiteralPath $lab -PathType Container)){throw 'LAB_ROOT_REJECTED'}
- $branch=(& git -C $repo branch --show-current).Trim()
+ $gitExe='C:\Program Files\Git\cmd\git.exe'
+ if(-not (Test-Path -LiteralPath $gitExe -PathType Leaf)){throw 'GIT_EXE_MISSING'}
+ $branch=(& $gitExe -C $repo branch --show-current).Trim()
  if($LASTEXITCODE -ne 0 -or $branch -ne 'feat/p0-windows-login-install-readiness'){throw 'BRANCH_REJECTED'}
- $changes=@(& git -C $repo status --porcelain)
+ $changes=@(& $gitExe -C $repo status --porcelain)
  if($LASTEXITCODE -ne 0 -or $changes.Count -ne 0){throw 'WORKTREE_NOT_CLEAN'}
- Write-Host ('HEAD='+(& git -C $repo rev-parse HEAD).Trim())
+ Write-Host ('HEAD='+(& $gitExe -C $repo rev-parse HEAD).Trim())
  $svc=Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction Stop
  Gate 'A_SCM_VIRTUAL_ACCOUNT' ($null -ne $svc -and $svc.StartName -eq 'NT SERVICE\CamachoPOSLocalService' -and $svc.StartMode -eq 'Manual' -and $svc.State -eq 'Stopped')
  $desktopSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
