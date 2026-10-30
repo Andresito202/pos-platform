@@ -155,7 +155,7 @@ if (process.argv.includes("--child")) {
     no_service_mutation: true,
     no_pipe_creation: true,
     interactive_service_impersonation_rejected: results.every(row => row.status === "PASS"),
-    real_service_sid_queried_from_windows: true,
+    real_service_sid_queried_from_windows: results.every(row => row.status === "PASS"),
     scm_interoperability_verified: false,
     interactive_login_verified: false,
     results,
