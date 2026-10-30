@@ -37,7 +37,7 @@ export async function runIsolatedDeviceEnrollmentGate(input: {
   const deviceId = input.uuidV7();
   const installationId = input.uuidV7();
   const activationId = input.uuidV7();
-  const deviceKeyId = `LAB_DEVICE_KEY_${deviceId}`;
+  const deviceKeyId = `LAB_DEVICE_KEY_${deviceId.replace(/-/g, "").toUpperCase()}`;
   const activationSecret = randomBytes(32).toString("base64url");
   const deviceKeys = generateKeyPairSync("ed25519");
   const issuerKeys = generateKeyPairSync("ed25519");
