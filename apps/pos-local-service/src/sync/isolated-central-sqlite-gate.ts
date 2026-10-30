@@ -85,7 +85,12 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
           throw new CentralTransportError("lab discarded committed response", "LAB_RESPONSE_LOST_AFTER_COMMIT", true);
         }
         if (remote.status !== 200) {
-          throw new Error(`LAB_RETRY_HTTP_STATUS=${remote.status};BODY=${remote.body.slice(0, 2048)}`);
+          let remoteCode = "NON_JSON";
+          try {
+            const parsed = JSON.parse(remote.body) as { result_code?: string; error?: { code?: string } };
+            remoteCode = parsed.error?.code ?? parsed.result_code ?? "UNKNOWN";
+          } catch { /* Do not emit entire remote body or device evidence. */ }
+          console.error(`LAB_SQLITE_RETRY_HTTP_STATUS=${remote.status} CODE=${remoteCode}`);
         }
         return remote;
       },
