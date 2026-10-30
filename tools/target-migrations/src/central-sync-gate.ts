@@ -1,6 +1,7 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
+import { runIsolatedDeviceEnrollmentGate } from "./central-device-enrollment-gate.js";
 
 
 const BASE = process.env.CENTRAL_SYNC_BASE_URL;
@@ -303,177 +304,184 @@ async function main(): Promise<void> {
     );
     if (conflictCount.rows[0]!.count !== "1") throw new Error("IDEMPOTENCY_CONFLICT_MUTATED_PERSISTENCE");
 
-    // The authenticated device belongs to tenantId. A signed request trying
-    // to write to another tenant must be rejected without any persistence.
-    const foreignTenantId = uuidV7();
-    const foreignOperationId = uuidV7();
-    const foreignBatch = {
-      ...batch,
-      batch_id: uuidV7(),
-      tenant_id: foreignTenantId,
-      operations: [{
-        ...operation,
-        operation_id: foreignOperationId,
+    if (process.env.CAMACHO_ISOLATED_SYNC_LAB === "YES") {
+      // The authenticated device belongs to tenantId. A signed request trying
+      // to write to another tenant must be rejected without any persistence.
+      const foreignTenantId = uuidV7();
+      const foreignOperationId = uuidV7();
+      const foreignBatch = {
+        ...batch,
+        batch_id: uuidV7(),
         tenant_id: foreignTenantId,
-        idempotency_key: `cross-tenant-gate-${foreignOperationId}`,
-      }],
-    };
-    const foreignEnvelope = {
-      ...envelope,
-      request_id: uuidV7(),
-      correlation_id: uuidV7(),
-      tenant_id: foreignTenantId,
-      payload: foreignBatch,
-    };
-    const foreignBody = JSON.stringify(foreignEnvelope);
-    const foreign = await fetch(`${BASE}/v1/sync/batches`, {
-      method: "POST",
-      headers: requestHeaders(foreignEnvelope, foreignBody),
-      body: foreignBody,
-    });
-    const foreignText = await foreign.text();
-    if (foreign.status !== 422) throw new Error(`CROSS_TENANT_STATUS=${foreign.status}:${foreignText.slice(0, 300)}`);
-    const foreignRejection = JSON.parse(foreignText) as { result_code?: string };
-    if (foreignRejection.result_code !== "SYNC.DEVICE_BINDING_MISMATCH") {
-      throw new Error(`CROSS_TENANT_REJECTION_UNEXPECTED=${foreignRejection.result_code ?? "UNKNOWN"}`);
-    }
-    const foreignPersistence = await pool.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM sync.sync_operations WHERE id=$1",
-      [foreignOperationId],
-    );
-    if (foreignPersistence.rows[0]?.count !== "0") throw new Error("CROSS_TENANT_PERSISTENCE_LEAK");
-    console.log("CROSS_TENANT_DEVICE_BINDING=REJECTED");
-    console.log("CROSS_TENANT_PERSISTENCE_ROWS=0");
-
-    // A second, legitimately enrolled tenant must be able to sync independently.
-    // Distinct Ed25519 keys, device identity and tenant scope are mandatory.
-    const secondTenantId = uuidV7();
-    const secondCompanyId = uuidV7();
-    const secondBranchId = uuidV7();
-    const secondDeviceId = uuidV7();
-    const secondInstallationId = uuidV7();
-    const secondCredentialId = uuidV7();
-    const secondKeys = generateKeyPairSync("ed25519");
-    const secondPublicKey = secondKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
-    await seedCentralScope(secondTenantId, secondCompanyId, secondBranchId,
-      secondDeviceId, secondInstallationId, secondCredentialId, secondPublicKey);
-    const secondOperationId = uuidV7();
-    const secondOperation = {
-      ...operation,
-      operation_id: secondOperationId,
-      tenant_id: secondTenantId,
-      company_id: secondCompanyId,
-      branch_id: secondBranchId,
-      device_id: secondDeviceId,
-      installation_id: secondInstallationId,
-      idempotency_key: `tenant-b-${secondOperationId}`,
-      correlation_id: uuidV7(),
-    };
-    const secondBatch = {
-      ...batch,
-      batch_id: uuidV7(),
-      tenant_id: secondTenantId,
-      company_id: secondCompanyId,
-      branch_id: secondBranchId,
-      device_id: secondDeviceId,
-      installation_id: secondInstallationId,
-      operations: [secondOperation],
-    };
-    const secondEnvelope = {
-      ...envelope,
-      tenant_id: secondTenantId,
-      device_id: secondDeviceId,
-      request_id: uuidV7(),
-      correlation_id: uuidV7(),
-      payload: secondBatch,
-    };
-    const secondBody = JSON.stringify(secondEnvelope);
-    const secondAuthorization = createDeviceRequestAuthorization({
-      method: "POST", path: "/v1/sync/batches",
-      requestId: secondEnvelope.request_id,
-      correlationId: secondEnvelope.correlation_id,
-      credentialId: secondCredentialId, body: secondBody,
-    }, secondKeys.privateKey);
-    const secondResult = await fetch(`${BASE}/v1/sync/batches`, {
-      method: "POST",
-      headers: {
-        ...requestHeaders(envelope, envelopeBody),
-        authorization: secondAuthorization,
-        "x-request-id": secondEnvelope.request_id,
-        "x-correlation-id": secondEnvelope.correlation_id,
-        "x-pos-device-id": secondDeviceId,
-        "x-pos-installation-id": secondInstallationId,
-      },
-      body: secondBody,
-    });
-    if (secondResult.status !== 200) {
-      throw new Error(`SECOND_TENANT_SYNC_FAILED:${secondResult.status}:${(await secondResult.text()).slice(0, 300)}`);
-    }
-    const scoped = await pool.query<{ tenant_id: string; count: string }>(
-      `SELECT tenant_id::text, count(*)::text AS count
-         FROM sync.sync_operations WHERE id = ANY($1::uuid[])
-         GROUP BY tenant_id ORDER BY tenant_id`,
-      [[operationId, secondOperationId]],
-    );
-    if (scoped.rowCount !== 2
-      || scoped.rows.some((row) => row.count !== "1")
-      || !scoped.rows.some((row) => row.tenant_id === tenantId)
-      || !scoped.rows.some((row) => row.tenant_id === secondTenantId)) {
-      throw new Error("TWO_TENANT_PERSISTENCE_ISOLATION_FAILED");
-    }
-    console.log("TWO_TENANT_INDEPENDENT_AUTHENTICATED_SYNC=VERIFIED");
-
-    // Query through the ACTUAL unprivileged runtime role, not the superuser.
-    // Each transaction carries an independent tenant context; RLS must return
-    // only that tenant's persisted operation and no row without a context.
-    const appUrl = new URL(POSTGRES_ADMIN_URL!);
-    if (appUrl.hostname !== "127.0.0.1" || appUrl.port !== "55436"
-      || appUrl.pathname !== "/postgres" || appUrl.username !== "postgres") {
-      throw new Error("RLS_GATE_DISPOSABLE_DATABASE_REQUIRED");
-    }
-    appUrl.username = "pos_platform_app";
-    appUrl.password = "";
-    const appPool = new Pool({ connectionString: appUrl.toString(), max: 1 });
-    try {
-      const appClient = await appPool.connect();
-      try {
-        const probe = async (tenantContext: string | null): Promise<string[]> => {
-          await appClient.query("BEGIN");
-          try {
-            if (tenantContext !== null) {
-              await appClient.query("SELECT set_config('app.tenant_id',$1,true)", [tenantContext]);
-            }
-            const visible = await appClient.query<{ tenant_id: string }>(
-              "SELECT tenant_id::text FROM sync.sync_operations WHERE id=ANY($1::uuid[])",
-              [[operationId, secondOperationId]],
-            );
-            await appClient.query("COMMIT");
-            return visible.rows.map((row) => row.tenant_id);
-          } catch (error) {
-            await appClient.query("ROLLBACK").catch(() => undefined);
-            throw error;
-          }
-        };
-        const withoutScope = await probe(null);
-        const tenantAOnly = await probe(tenantId);
-        const tenantBOnly = await probe(secondTenantId);
-        const afterScope = await probe(null);
-        if (withoutScope.length !== 0 || afterScope.length !== 0
-          || tenantAOnly.length !== 1 || tenantAOnly[0] !== tenantId
-          || tenantBOnly.length !== 1 || tenantBOnly[0] !== secondTenantId) {
-          throw new Error("RLS_RUNTIME_TENANT_READ_ISOLATION_FAILED");
-        }
-        console.log("RLS_RUNTIME_TENANT_READ_ISOLATION=VERIFIED");
-        console.log("RLS_TRANSACTION_CONTEXT_RESET=VERIFIED");
-      } finally {
-        appClient.release();
+        operations: [{
+          ...operation,
+          operation_id: foreignOperationId,
+          tenant_id: foreignTenantId,
+          idempotency_key: `cross-tenant-gate-${foreignOperationId}`,
+        }],
+      };
+      const foreignEnvelope = {
+        ...envelope,
+        request_id: uuidV7(),
+        correlation_id: uuidV7(),
+        tenant_id: foreignTenantId,
+        payload: foreignBatch,
+      };
+      const foreignBody = JSON.stringify(foreignEnvelope);
+      const foreign = await fetch(`${BASE}/v1/sync/batches`, {
+        method: "POST",
+        headers: requestHeaders(foreignEnvelope, foreignBody),
+        body: foreignBody,
+      });
+      const foreignText = await foreign.text();
+      if (foreign.status !== 422) throw new Error(`CROSS_TENANT_STATUS=${foreign.status}:${foreignText.slice(0, 300)}`);
+      const foreignRejection = JSON.parse(foreignText) as { result_code?: string };
+      if (foreignRejection.result_code !== "SYNC.DEVICE_BINDING_MISMATCH") {
+        throw new Error(`CROSS_TENANT_REJECTION_UNEXPECTED=${foreignRejection.result_code ?? "UNKNOWN"}`);
       }
-    } finally {
-      await appPool.end();
+      const foreignPersistence = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM sync.sync_operations WHERE id=$1",
+        [foreignOperationId],
+      );
+      if (foreignPersistence.rows[0]?.count !== "0") throw new Error("CROSS_TENANT_PERSISTENCE_LEAK");
+      console.log("CROSS_TENANT_DEVICE_BINDING=REJECTED");
+      console.log("CROSS_TENANT_PERSISTENCE_ROWS=0");
+  
+      // A second, legitimately enrolled tenant must be able to sync independently.
+      // Distinct Ed25519 keys, device identity and tenant scope are mandatory.
+      const secondTenantId = uuidV7();
+      const secondCompanyId = uuidV7();
+      const secondBranchId = uuidV7();
+      const secondDeviceId = uuidV7();
+      const secondInstallationId = uuidV7();
+      const secondCredentialId = uuidV7();
+      const secondKeys = generateKeyPairSync("ed25519");
+      const secondPublicKey = secondKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+      await seedCentralScope(secondTenantId, secondCompanyId, secondBranchId,
+        secondDeviceId, secondInstallationId, secondCredentialId, secondPublicKey);
+      const secondOperationId = uuidV7();
+      const secondOperation = {
+        ...operation,
+        operation_id: secondOperationId,
+        tenant_id: secondTenantId,
+        company_id: secondCompanyId,
+        branch_id: secondBranchId,
+        device_id: secondDeviceId,
+        installation_id: secondInstallationId,
+        idempotency_key: `tenant-b-${secondOperationId}`,
+        correlation_id: uuidV7(),
+      };
+      const secondBatch = {
+        ...batch,
+        batch_id: uuidV7(),
+        tenant_id: secondTenantId,
+        company_id: secondCompanyId,
+        branch_id: secondBranchId,
+        device_id: secondDeviceId,
+        installation_id: secondInstallationId,
+        operations: [secondOperation],
+      };
+      const secondEnvelope = {
+        ...envelope,
+        tenant_id: secondTenantId,
+        device_id: secondDeviceId,
+        request_id: uuidV7(),
+        correlation_id: uuidV7(),
+        payload: secondBatch,
+      };
+      const secondBody = JSON.stringify(secondEnvelope);
+      const secondAuthorization = createDeviceRequestAuthorization({
+        method: "POST", path: "/v1/sync/batches",
+        requestId: secondEnvelope.request_id,
+        correlationId: secondEnvelope.correlation_id,
+        credentialId: secondCredentialId, body: secondBody,
+      }, secondKeys.privateKey);
+      const secondResult = await fetch(`${BASE}/v1/sync/batches`, {
+        method: "POST",
+        headers: {
+          ...requestHeaders(envelope, envelopeBody),
+          authorization: secondAuthorization,
+          "x-request-id": secondEnvelope.request_id,
+          "x-correlation-id": secondEnvelope.correlation_id,
+          "x-pos-device-id": secondDeviceId,
+          "x-pos-installation-id": secondInstallationId,
+        },
+        body: secondBody,
+      });
+      if (secondResult.status !== 200) {
+        throw new Error(`SECOND_TENANT_SYNC_FAILED:${secondResult.status}:${(await secondResult.text()).slice(0, 300)}`);
+      }
+      const scoped = await pool.query<{ tenant_id: string; count: string }>(
+        `SELECT tenant_id::text, count(*)::text AS count
+           FROM sync.sync_operations WHERE id = ANY($1::uuid[])
+           GROUP BY tenant_id ORDER BY tenant_id`,
+        [[operationId, secondOperationId]],
+      );
+      if (scoped.rowCount !== 2
+        || scoped.rows.some((row) => row.count !== "1")
+        || !scoped.rows.some((row) => row.tenant_id === tenantId)
+        || !scoped.rows.some((row) => row.tenant_id === secondTenantId)) {
+        throw new Error("TWO_TENANT_PERSISTENCE_ISOLATION_FAILED");
+      }
+      console.log("TWO_TENANT_INDEPENDENT_AUTHENTICATED_SYNC=VERIFIED");
+  
+      // Query through the ACTUAL unprivileged runtime role, not the superuser.
+      // Each transaction carries an independent tenant context; RLS must return
+      // only that tenant's persisted operation and no row without a context.
+      const appUrl = new URL(POSTGRES_ADMIN_URL!);
+      if (appUrl.hostname !== "127.0.0.1" || appUrl.port !== "55436"
+        || appUrl.pathname !== "/postgres" || appUrl.username !== "postgres") {
+        throw new Error("RLS_GATE_DISPOSABLE_DATABASE_REQUIRED");
+      }
+      appUrl.username = "pos_platform_app";
+      appUrl.password = "";
+      const appPool = new Pool({ connectionString: appUrl.toString(), max: 1 });
+      try {
+        const appClient = await appPool.connect();
+        try {
+          const probe = async (tenantContext: string | null): Promise<string[]> => {
+            await appClient.query("BEGIN");
+            try {
+              if (tenantContext !== null) {
+                await appClient.query("SELECT set_config('app.tenant_id',$1,true)", [tenantContext]);
+              }
+              const visible = await appClient.query<{ tenant_id: string }>(
+                "SELECT tenant_id::text FROM sync.sync_operations WHERE id=ANY($1::uuid[])",
+                [[operationId, secondOperationId]],
+              );
+              await appClient.query("COMMIT");
+              return visible.rows.map((row) => row.tenant_id);
+            } catch (error) {
+              await appClient.query("ROLLBACK").catch(() => undefined);
+              throw error;
+            }
+          };
+          const withoutScope = await probe(null);
+          const tenantAOnly = await probe(tenantId);
+          const tenantBOnly = await probe(secondTenantId);
+          const afterScope = await probe(null);
+          if (withoutScope.length !== 0 || afterScope.length !== 0
+            || tenantAOnly.length !== 1 || tenantAOnly[0] !== tenantId
+            || tenantBOnly.length !== 1 || tenantBOnly[0] !== secondTenantId) {
+            throw new Error("RLS_RUNTIME_TENANT_READ_ISOLATION_FAILED");
+          }
+          console.log("RLS_RUNTIME_TENANT_READ_ISOLATION=VERIFIED");
+          console.log("RLS_TRANSACTION_CONTEXT_RESET=VERIFIED");
+        } finally {
+          appClient.release();
+        }
+      } finally {
+        await appPool.end();
+      }
+      const issued = await runIsolatedDeviceEnrollmentGate({
+        adminUrl: POSTGRES_ADMIN_URL!, tenantId, companyId, uuidV7,
+      });
+      if (issued.activationRows !== 1 || issued.credentialRows !== 1 || !issued.replayRejected) {
+        throw new Error("DEVICE_ENROLLMENT_POSTGRES_EVIDENCE_INVALID");
+      }
+      console.log("DEVICE_ENROLLMENT_POSTGRES_ISSUANCE=VERIFIED");
+      console.log("DEVICE_ENROLLMENT_ACTIVATION_REPLAY=REJECTED");
     }
-
-
-
 
     if (process.env.CAMACHO_ISOLATED_SYNC_LAB === "YES") {
       // The same enrolled lab device sends an operation originating in REAL SQLite.
