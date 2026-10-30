@@ -522,7 +522,8 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => console.log(`central sync API listening on :${port}`));
+const bindHost = process.env.CENTRAL_SYNC_BIND_HOST ?? "0.0.0.0";
+server.listen(port, bindHost, () => console.log(`central sync API listening on ${bindHost}:${port}`));
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`${signal}: shutting down central sync API`);
