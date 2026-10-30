@@ -32,6 +32,10 @@ $script:xmlRestore=$null
 $script:serviceAclRestore=$null
 $script:serviceStartedByUs=$false
 $script:stagingActive=$false
+$script:previousEnvironment=@{}
+foreach($key in @('CAMACHO_SCM_EXPLICIT_OPERATOR_ENROLL','CAMACHO_SCM_LAB_ROOT','CAMACHO_SCM_ENROLL_ROLE','CAMACHO_SCM_OPERATOR_PRIVATE_FILE','CAMACHO_SCM_OPERATOR_PUBLIC_FILE','POS_INSTALLATION_ID','POS_DEVICE_ID')){
+  $script:previousEnvironment[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
+}
 function Must([bool]$yes,[string]$code){if(-not $yes){throw $code}}
 function Ace([string]$sid,[Security.AccessControl.FileSystemRights]$rights,[bool]$inherited){
   $inherit=if($inherited){[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
@@ -174,6 +178,8 @@ try{
       (Get-FileHash $addonSource -Algorithm SHA256).Hash) 'LAB_ADDON_PREEXISTING_MISMATCH'
   }else{Copy-Item -LiteralPath $addonSource -Destination $addonLab -ErrorAction Stop}
   SetProtectedFile $addonLab
+  SetProtectedFile $wrapper
+  Must ((Get-AuthenticodeSignature -LiteralPath $wrapper).Status -eq 'Valid') 'WINSW_SIGNATURE_CHANGED_AFTER_ACL'
   Write-Host 'A_LAB_INSTALLER_ACL=PASS'
   # Windows signed service account creates its own owner-only private directory.
   # During this controlled enrollment, allow the service to create that folder.
@@ -316,7 +322,7 @@ exit 0
   if($script:stagingActive -and $script:serviceAclRestore -ne $null){
     try{Set-Acl -LiteralPath $serviceDir -AclObject $script:serviceAclRestore}catch{Write-Host 'SCM_CLEANUP_ACL_RESTORE_UNVERIFIED'}
   }
-  foreach($key in @('CAMACHO_SCM_EXPLICIT_OPERATOR_ENROLL','CAMACHO_SCM_LAB_ROOT','CAMACHO_SCM_ENROLL_ROLE','CAMACHO_SCM_OPERATOR_PRIVATE_FILE','CAMACHO_SCM_OPERATOR_PUBLIC_FILE','POS_INSTALLATION_ID','POS_DEVICE_ID')){
-    Remove-Item -Path ("Env:"+$key) -ErrorAction SilentlyContinue
+  foreach($key in $script:previousEnvironment.Keys){
+    [Environment]::SetEnvironmentVariable($key,$script:previousEnvironment[$key],'Process')
   }
 }
