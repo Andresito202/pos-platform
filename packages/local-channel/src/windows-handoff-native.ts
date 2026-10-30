@@ -40,9 +40,15 @@ $p=[Console]::In.ReadToEnd() | ConvertFrom-Json
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
 $sid=$id.User.Value
 $groups=@($id.Groups | ForEach-Object {$_.Value})
-$logon=[CamachoReceiverToken]::LogonSid($id.Token)
-if(-not $id.IsAuthenticated){throw 'WINDOWS_TOKEN_REJECTED'}
 $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+if(-not $id.IsAuthenticated){throw 'WINDOWS_TOKEN_REJECTED'}
+# The SCM virtual service token may lack an interactive logon SID; no service
+# operation consumes a logon SID as authority. Never relax the Desktop check.
+if($session -eq 0 -and $id.Name -eq 'NT SERVICE\CamachoPOSLocalService'){
+  try{$logon=[CamachoReceiverToken]::LogonSid($id.Token)}catch{$logon=''}
+}else{
+  $logon=[CamachoReceiverToken]::LogonSid($id.Token)
+}
 function SafePath([string]$path){
  if(-not [IO.Path]::IsPathRooted($path) -or $path.StartsWith('\\')){throw 'LOCAL_ABSOLUTE_PATH_REQUIRED'}
  $cursor=$path
