@@ -77,6 +77,9 @@ function ReadPreprod {
   }
 }
 function BackupPreprod($preprod) {
+  # The parent must not retain an inherited Users/Everyone delete or write
+  # permission that could replace or exfiltrate a backup child.
+  ProtectedDirectory $diskRoot
   $dir=Join-Path $diskRoot ('host-backup-'+[Guid]::NewGuid().ToString('N'))
   ProtectedDirectory $dir
   $file=Join-Path $dir 'preprod-pg-dumpall.sql'
@@ -188,8 +191,13 @@ try {
     Require ($iso -match '(?i)^[a-z]:\\' -and $iso.EndsWith('.iso',[StringComparison]::OrdinalIgnoreCase)) 'WINDOWS_ISO_LOCAL_FILE_REQUIRED'
     $isoFile=Get-Item -LiteralPath $iso -ErrorAction Stop
     Require (-not $isoFile.PSIsContainer -and $isoFile.Length -ge 2GB) 'WINDOWS_ISO_INVALID_OR_TOO_SMALL'
+    Require (Test-Path -LiteralPath $diskRoot -PathType Container) 'LAB_BACKUP_PREPARATION_REQUIRED'
+    $rootAcl=Get-Acl -LiteralPath $diskRoot
+    Require ($rootAcl.AreAccessRulesProtected) 'LAB_ROOT_ACL_INHERITANCE_REJECTED'
     Require ($null -eq (Get-VM -Name $vm -ErrorAction SilentlyContinue)) 'LAB_VM_ALREADY_EXISTS_NO_OVERWRITE'
-    $vmDir=Join-Path $diskRoot ('VMs\'+[Guid]::NewGuid().ToString('N'))
+    $vmsRoot=Join-Path $diskRoot 'VMs'
+    ProtectedDirectory $vmsRoot
+    $vmDir=Join-Path $vmsRoot ([Guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($vmDir)
     $vhd=Join-Path $vmDir 'CamachoPOS-SCM-Lab.vhdx'
     New-VM -Name $vm -Generation 2 -Path $vmDir -MemoryStartupBytes 4GB -NewVHDPath $vhd -NewVHDSizeBytes 70GB -ErrorAction Stop | Out-Null
