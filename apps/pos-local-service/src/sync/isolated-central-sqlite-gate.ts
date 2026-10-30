@@ -29,6 +29,7 @@ export interface IsolatedSqliteGateResult {
   idempotencyKey: string;
   localCheckpoint: number;
   localInboxRows: number;
+  recoveredInterruptedDispatches: number;
 }
 
 export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Promise<IsolatedSqliteGateResult> {
@@ -37,10 +38,11 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     throw new Error("ISOLATED_SQLITE_GATE_LOOPBACK_ONLY");
   }
   const directory = mkdtempSync(join(tmpdir(), "camacho-sqlite-central-gate-"));
-  const database = LocalDatabase.open({ dataDirectory: directory });
+  let database = LocalDatabase.open({ dataDirectory: directory });
   try {
     let clock = new Date();
-    const store = new DurableSyncStore(database, { maxAttempts: 4, baseDelayMs: 1_000, maxDelayMs: 1_000 }, () => clock);
+    const policy = { maxAttempts: 4, baseDelayMs: 1_000, maxDelayMs: 1_000 };
+    let store = new DurableSyncStore(database, policy, () => clock);
     const payload = { gate: "SQLITE_OUTBOX_CENTRAL", nonce: input.uuidV7() };
     const operationId = input.uuidV7();
     const operation: SyncOperation = {
@@ -95,7 +97,7 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
         return remote;
       },
     };
-    const dispatcher = new SyncDispatcher(store, transport, credentials, "https://central.invalid", "1.0.0");
+    let dispatcher = new SyncDispatcher(store, transport, credentials, "https://central.invalid", "1.0.0");
     const first = await dispatcher.dispatchOnce(input.scope);
     if (first.kind !== "TRANSPORT_FAILED" || first.code !== "LAB_RESPONSE_LOST_AFTER_COMMIT") {
       throw new Error(`SQLITE_RESPONSE_LOSS_NOT_DETECTED:${first.kind}`);
@@ -103,7 +105,24 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     if (store.checkpoint(input.scope) !== 0 || store.outboxState(operationId)?.status !== "RETRY_WAIT") {
       throw new Error("SQLITE_ADVANCED_CHECKPOINT_BEFORE_ACK");
     }
+    // Simulate a crash after claiming the retry, before any second HTTP send.
+    // Closing and reopening the actual SQLite database preserves IN_FLIGHT.
     clock = new Date(clock.getTime() + 2_000);
+    const interrupted = store.claimBatch(input.scope, 100);
+    if (!interrupted || store.outboxState(operationId)?.status !== "IN_FLIGHT") {
+      throw new Error("SQLITE_INTERRUPTED_CLAIM_NOT_IN_FLIGHT");
+    }
+    database.close();
+    database = LocalDatabase.open({ dataDirectory: directory });
+    store = new DurableSyncStore(database, policy, () => clock);
+    if (store.checkpoint(input.scope) !== 0 || store.outboxState(operationId)?.status !== "IN_FLIGHT") {
+      throw new Error("SQLITE_RESTART_LOST_IN_FLIGHT");
+    }
+    const recoveredInterruptedDispatches = store.recoverInterruptedDispatches();
+    if (recoveredInterruptedDispatches !== 1 || store.outboxState(operationId)?.status !== "RETRY_WAIT") {
+      throw new Error("SQLITE_RESTART_RECOVERY_FAILED");
+    }
+    dispatcher = new SyncDispatcher(store, transport, credentials, "https://central.invalid", "1.0.0");
     const second = await dispatcher.dispatchOnce(input.scope);
     if (second.kind !== "DELIVERED" || second.acknowledgedThrough !== 1) {
       throw new Error(`SQLITE_RETRY_NOT_DELIVERED:${JSON.stringify(second)}`);
@@ -117,7 +136,7 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     if ((await dispatcher.dispatchOnce(input.scope)).kind !== "IDLE") {
       throw new Error("SQLITE_OUTBOX_NOT_IDLE_AFTER_ACK");
     }
-    return { operationId, idempotencyKey: operation.idempotency_key, localCheckpoint: 1, localInboxRows: 1 };
+    return { operationId, idempotencyKey: operation.idempotency_key, localCheckpoint: 1, localInboxRows: 1, recoveredInterruptedDispatches };
   } finally {
     database.close();
     rmSync(directory, { recursive: true, force: true });
