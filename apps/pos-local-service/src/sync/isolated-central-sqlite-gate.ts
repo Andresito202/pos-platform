@@ -12,7 +12,7 @@ import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "@pos-platform/local-channel";
 import type { SyncOperation } from "@pos-platform/contracts";
 import { CentralTransportError, type CentralTransport } from "./central-transport.js";
-import { DeviceCredentialProvider } from "./device-credential.js";
+import type { DeviceCredentialProvider } from "./device-credential.js";
 import { DurableSyncStore, type SyncScope } from "./durable-sync-store.js";
 import { FetchCentralTransport } from "./fetch-central-transport.js";
 import { SyncDispatcher } from "./sync-dispatcher.js";
