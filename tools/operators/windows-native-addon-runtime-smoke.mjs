@@ -40,13 +40,13 @@ function readSid(command, args, pattern, failureCode) {
 
 function actualServiceSid() {
   return readSid("sc.exe", ["showsid", "CamachoPOSLocalService"],
-    /\\bS-1-5-80-(?:[0-9]+-){4}[0-9]+\\b/g,
+    /\bS-1-5-80-(?:[0-9]+-){4}[0-9]+\b/g,
     "NATIVE_SERVICE_SID_UNAVAILABLE");
 }
 
 function currentTokenSid() {
   return readSid("whoami.exe", ["/user"],
-    /\\bS-1-(?:[0-9]+-){2,}[0-9]+\\b/g,
+    /\bS-1-(?:[0-9]+-){2,}[0-9]+\b/g,
     "NATIVE_CURRENT_TOKEN_SID_UNAVAILABLE");
 }
 
