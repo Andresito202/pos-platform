@@ -31,7 +31,9 @@ if (-not $Run) { Write-Host 'DRY: Pass -Run to create a disposable PostgreSQL co
 Set-Location $root
 $branch = (& git branch --show-current).Trim()
 if ($branch -ne 'feat/p0-windows-login-install-readiness') { throw 'LAB_WRONG_BRANCH' }
-if ((& git status --porcelain).Count -gt 0) { throw 'LAB_REQUIRES_CLEAN_WORKTREE' }
+$workingTreeChanges = @(& git status --porcelain)
+if ($LASTEXITCODE -ne 0) { throw 'LAB_GIT_STATUS_FAILED' }
+if ($workingTreeChanges.Count -gt 0) { throw 'LAB_REQUIRES_CLEAN_WORKTREE' }
 $existing = @(& docker ps -a --filter "name=^/$container$" --format '{{.Names}}')
 if ($LASTEXITCODE -ne 0) { throw 'DOCKER_NOT_AVAILABLE' }
 if ($existing.Count -gt 0) { throw 'LAB_CONTAINER_ALREADY_EXISTS_ABORT' }
