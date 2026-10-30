@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { WindowsScmHandoffProvision } from "@pos-platform/contracts";
-import type { WindowsPipeAdapter } from "@pos-platform/local-channel";
+import type { AttestedWindowsPipe, WindowsPipeAdapter } from "@pos-platform/local-channel";
 import { WindowsScmChannelTransport } from "../src/channel/windows-scm-transport.js";
 
 const provision = {
@@ -14,7 +14,7 @@ const dummyDatabase = {} as LocalDatabase;
 function adapter(overrides: Partial<WindowsPipeAdapter> = {}): WindowsPipeAdapter {
   return {
     listen: vi.fn(() => ({})),
-    accept: vi.fn(() => new Promise(() => undefined)),
+    accept: vi.fn(() => new Promise<AttestedWindowsPipe>(() => undefined)),
     connect: vi.fn(() => Promise.reject(Error("not a desktop"))),
     stop: vi.fn(),
     ...overrides,
