@@ -22,6 +22,34 @@ const addonFile = join(root, "packages/local-channel/native/build/Release/camach
 const required = ["listen", "accept", "connect", "adopt", "release", "recheck", "stop"];
 const digest = value => createHash("sha256").update(value).digest("hex");
 
+/**
+ * Query actual Windows identities, not example SIDs. A fabricated service SID
+ * makes the native rejection test pass trivially and cannot certify identity
+ * separation. Both commands are read-only and require no installed service.
+ */
+function readSid(command, args, pattern, failureCode) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8", timeout: 10_000, windowsHide: true,
+    shell: false, maxBuffer: 16 * 1024,
+  });
+  if (result.status !== 0 || result.error) throw Error(failureCode);
+  const found = [...(result.stdout ?? "").matchAll(pattern)];
+  if (found.length !== 1) throw Error(failureCode);
+  return found[0][0];
+}
+
+function actualServiceSid() {
+  return readSid("sc.exe", ["showsid", "CamachoPOSLocalService"],
+    /\\bS-1-5-80-(?:[0-9]+-){4}[0-9]+\\b/g,
+    "NATIVE_SERVICE_SID_UNAVAILABLE");
+}
+
+function currentTokenSid() {
+  return readSid("whoami.exe", ["/user"],
+    /\\bS-1-(?:[0-9]+-){2,}[0-9]+\\b/g,
+    "NATIVE_CURRENT_TOKEN_SID_UNAVAILABLE");
+}
+
 function childMode() {
   const require = createRequire(import.meta.url);
   const binding = require(addonFile);
@@ -37,9 +65,12 @@ function childMode() {
   // A real native call with syntactically valid policy: an interactive
   // process must be rejected BEFORE CreateNamedPipeW. This is not a simulated
   // security decision and must pass under both Node and Electron runtimes.
+  const serviceSid = actualServiceSid();
+  const tokenSid = currentTokenSid();
+  if (tokenSid === serviceSid) throw Error("NATIVE_INTERACTIVE_TEST_REQUIRES_NON_SERVICE_TOKEN");
   const identityArguments = [
     "\\\\\\\\.\\\\pipe\\\\camacho-pos-018f0000-0000-7000-8000-000000000001-scm",
-    "S-1-5-80-1-2-3-4-5",
+    serviceSid,
     "S-1-5-21-1-2-3-1001",
     "S-1-5-5-1-2",
     1,
@@ -61,6 +92,7 @@ function childMode() {
     api_count: required.length,
     invalid_arguments_rejected: 6,
     interactive_service_impersonation_rejected: true,
+    actual_windows_service_sid_used: true,
   }) + "\n");
 }
 
@@ -101,7 +133,8 @@ if (process.argv.includes("--child")) {
       && check?.runtime === config.name
       && check.api_count === 7
       && check.invalid_arguments_rejected === 6
-      && check.interactive_service_impersonation_rejected === true;
+      && check.interactive_service_impersonation_rejected === true
+      && check.actual_windows_service_sid_used === true;
     results.push({
       runtime: config.name,
       status: pass ? "PASS" : "FAIL",
@@ -122,6 +155,7 @@ if (process.argv.includes("--child")) {
     no_service_mutation: true,
     no_pipe_creation: true,
     interactive_service_impersonation_rejected: results.every(row => row.status === "PASS"),
+    real_service_sid_queried_from_windows: true,
     scm_interoperability_verified: false,
     interactive_login_verified: false,
     results,
