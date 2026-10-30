@@ -303,6 +303,49 @@ async function main(): Promise<void> {
     );
     if (conflictCount.rows[0]!.count !== "1") throw new Error("IDEMPOTENCY_CONFLICT_MUTATED_PERSISTENCE");
 
+    // The authenticated device belongs to tenantId. A signed request trying
+    // to write to another tenant must be rejected without any persistence.
+    const foreignTenantId = uuidV7();
+    const foreignOperationId = uuidV7();
+    const foreignBatch = {
+      ...batch,
+      batch_id: uuidV7(),
+      tenant_id: foreignTenantId,
+      operations: [{
+        ...operation,
+        operation_id: foreignOperationId,
+        tenant_id: foreignTenantId,
+        idempotency_key: `cross-tenant-gate-${foreignOperationId}`,
+      }],
+    };
+    const foreignEnvelope = {
+      ...envelope,
+      request_id: uuidV7(),
+      correlation_id: uuidV7(),
+      tenant_id: foreignTenantId,
+      payload: foreignBatch,
+    };
+    const foreignBody = JSON.stringify(foreignEnvelope);
+    const foreign = await fetch(`${BASE}/v1/sync/batches`, {
+      method: "POST",
+      headers: requestHeaders(foreignEnvelope, foreignBody),
+      body: foreignBody,
+    });
+    const foreignText = await foreign.text();
+    if (foreign.status !== 422) throw new Error(`CROSS_TENANT_STATUS=${foreign.status}:${foreignText.slice(0, 300)}`);
+    const foreignRejection = JSON.parse(foreignText) as { result_code?: string };
+    if (foreignRejection.result_code !== "SYNC.DEVICE_BINDING_MISMATCH") {
+      throw new Error(`CROSS_TENANT_REJECTION_UNEXPECTED=${foreignRejection.result_code ?? "UNKNOWN"}`);
+    }
+    const foreignPersistence = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM sync.sync_operations WHERE id=$1",
+      [foreignOperationId],
+    );
+    if (foreignPersistence.rows[0]?.count !== "0") throw new Error("CROSS_TENANT_PERSISTENCE_LEAK");
+    console.log("CROSS_TENANT_DEVICE_BINDING=REJECTED");
+    console.log("CROSS_TENANT_PERSISTENCE_ROWS=0");
+
+
     if (process.env.CAMACHO_ISOLATED_SYNC_LAB === "YES") {
       // The same enrolled lab device sends an operation originating in REAL SQLite.
       // First response is discarded after Central commits; the second signed
@@ -321,7 +364,7 @@ async function main(): Promise<void> {
           authorization(context: {
             method: "POST"; path: string; requestId: string; correlationId: string; body: string;
           }): Promise<string>;
-        }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number }>;
+        }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number; recoveredInterruptedDispatches: number }>;
       };
       const sqlite = await fixture.runIsolatedSqliteGate({
         scope: { tenantId, companyId, branchId, deviceId, installationId },
@@ -343,6 +386,8 @@ async function main(): Promise<void> {
       console.log(`SQLITE_CHECKPOINT=${sqlite.localCheckpoint}`);
       console.log(`SQLITE_INBOX_ROW_COUNT=${sqlite.localInboxRows}`);
       console.log("SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED");
+      if (sqlite.recoveredInterruptedDispatches !== 1) throw new Error("SQLITE_RESTART_PROOF_MISSING");
+      console.log("SQLITE_RESTART_IN_FLIGHT_RECOVERY=VERIFIED");
 
     }
 
