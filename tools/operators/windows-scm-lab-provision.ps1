@@ -303,6 +303,21 @@ exit 0
   }else{
     Write-Host 'D_PHYSICAL_NODE_ELECTRON=NOT_EXECUTED'
   }
+  $centralPreflight=Join-Path $PSScriptRoot 'windows-login-deployment-preflight.ps1'
+  Must (Test-Path -LiteralPath $centralPreflight -PathType Leaf) 'CENTRAL_PREFLIGHT_SCRIPT_MISSING'
+  $centralRequired=@('POS_CENTRAL_BASE_URL','POS_WINDOWS_COMMERCIAL_PROVISION_FILE',
+    'POS_WINDOWS_DESKTOP_COMMERCIAL_FILE','POS_AUTHORIZATION_TRUST_PROVISION_FILE',
+    'POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM','POS_SESSION_TRUST_ENVIRONMENT')
+  $missingCentral=@($centralRequired | Where-Object {
+    [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_,'Process'))
+  })
+  if($missingCentral.Count -gt 0){
+    Write-Host ('E_CENTRAL_CONFIG_BLOCKED_MISSING='+($missingCentral -join ','))
+  }else{
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $centralPreflight -Interactive -Json | Out-Null
+    if($LASTEXITCODE -eq 0){Write-Host 'E_CENTRAL_CONFIG_PRESENCE=PASS_NOT_CERTIFIED'}
+    else{Write-Host 'E_CENTRAL_CONFIG_PREFLIGHT=BLOCKED'}
+  }
   Write-Host 'E_CENTRAL_LOGIN=NOT_CERTIFIED'
   Write-Host 'HUMAN_MFA=NOT_CERTIFIED'
   Write-Host 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN=ACTIVE'
