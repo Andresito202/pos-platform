@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAbsolute, normalize, relative, resolve, join } from "node:path";
+import { isAbsolute, normalize, relative, join } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
 import {
   prepareWindowsHandoffReceiver,
