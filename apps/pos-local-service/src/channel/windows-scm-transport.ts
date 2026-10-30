@@ -39,11 +39,28 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
  async start(accept:(socket:Socket,security:ChannelConnectionSecurity)=>void):Promise<void>{
   if(this.stopped)throw Error("SCM_TRANSPORT_STOPPED");
   if(this.started)throw Error("SCM_TRANSPORT_ALREADY_STARTED");this.started=true;
-  this.adapter=this.dependencies?.adapter??loadWindowsNativePipeAdapter(this.p);
-  this.listener=this.adapter.listen();this.running=true;
+  try{
+   this.adapter=this.dependencies?.adapter??loadWindowsNativePipeAdapter(this.p);
+   this.listener=this.adapter.listen();this.running=true;
+  }catch(error){
+   // A failed native bind must never retain the service's master key or
+   // leave an adapter partially active. No retry on the same transport.
+   try{await this.stop();}catch(cleanupError){
+    throw new AggregateError([error,cleanupError],"SCM_NATIVE_BIND_AND_CLEANUP_FAILED");
+   }
+   throw error;
+  }
   this.poll=setInterval(()=>{
-   this.ledger.checkConnections();
-   for(const b of [...this.bound.values()])try{b.pipe.recheck();}catch{b.close();}
+   try{
+    this.ledger.checkConnections();
+    for(const b of [...this.bound.values()])try{b.pipe.recheck();}catch{b.close();}
+   }catch{
+    // A durability/lease failure is fatal: never continue serving requests
+    // with an uncertain revocation state or emit unhandled timer exceptions.
+    this.faulted=true;
+    for(const socket of this.sockets)socket.destroy();
+    void this.stop().catch(()=>undefined);
+   }
   },this.p.handoff.poll_ms);this.poll.unref();
   this.loop=(async()=>{while(this.running){
    let pipe:AttestedWindowsPipe;
