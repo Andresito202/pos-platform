@@ -9,6 +9,7 @@
     "test:application": "pnpm --filter @pos-platform/application test",
     "test:fiscal-adapters": "pnpm --filter @pos-platform/fiscal-adapters test",
     "certify:local:free": "node tools/ci/free-local-certification.mjs",
+    "windows:native:runtime-smoke": "node tools/operators/windows-native-addon-runtime-smoke.mjs",
     "ci:repository-policy": "node tools/ci/validate-repository-policy.mjs",
     "ci:dependency-inventory": "node tools/ci/generate-dependency-inventory.mjs",
     "preflight:migration:003": "pnpm --filter @pos-platform/target-migrations preflight:003",
