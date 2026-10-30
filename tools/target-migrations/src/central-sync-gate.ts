@@ -325,7 +325,7 @@ async function main(): Promise<void> {
       };
       const sqlite = await fixture.runIsolatedSqliteGate({
         scope: { tenantId, companyId, branchId, deviceId, installationId },
-        baseUrl: BASE,
+        baseUrl: BASE!,
         uuidV7,
         authorization: async (context) => createDeviceRequestAuthorization({
           ...context, credentialId,
