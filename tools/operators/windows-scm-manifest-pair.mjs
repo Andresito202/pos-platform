@@ -10,7 +10,7 @@
  * The only output with private material is a FILE PATH: no key plaintext is
  * read by this script. Fails closed on any existing output.
  */
-import { createHash, createPublicKey, randomUUID } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { isAbsolute, normalize, resolve, dirname, join, relative } from "node:path";
 
@@ -40,8 +40,10 @@ function main() {
   const serviceOutput = join(lab, "service", "service-provision.json");
   const receiverPrivate = join(lab, "desktop", "private", "receiver.dpapi.json");
   const signerPrivate = join(lab, "service", "private", "signer.dpapi.json");
-  const adapter = resolve("packages/local-channel/native/build/Release/camacho_windows_pipe.node");
-  if (!within(adapter, resolve(".")) || !existsSync(adapter) || !statSync(adapter).isFile()) fail("NATIVE_ADAPTER_MISSING");
+  const compiledAdapter = resolve("packages/local-channel/native/build/Release/camacho_windows_pipe.node");
+  const adapter = join(lab, "service", "camacho_windows_pipe.node");
+  if (!within(compiledAdapter, resolve(".")) || !existsSync(compiledAdapter) || !statSync(compiledAdapter).isFile() ||
+      !existsSync(adapter) || sha(readFileSync(adapter)) !== sha(readFileSync(compiledAdapter))) fail("PINNED_LAB_ADAPTER_MISSING_OR_MISMATCH");
   if (!absoluteWindows(receiverPath) || !absoluteWindows(signerPath) ||
       !within(receiverPath, lab) || !within(signerPath, lab)) fail("PUBLIC_ENROLLMENT_OUTSIDE_LAB");
   if (existsSync(desktopOutput) || existsSync(serviceOutput)) fail("PROVISION_ALREADY_EXISTS");
