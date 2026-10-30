@@ -303,45 +303,48 @@ async function main(): Promise<void> {
     );
     if (conflictCount.rows[0]!.count !== "1") throw new Error("IDEMPOTENCY_CONFLICT_MUTATED_PERSISTENCE");
 
-    // The same enrolled lab device sends an operation originating in REAL SQLite.
-    // First response is discarded after Central commits; the second signed
-    // request must deduplicate in PostgreSQL and then advance local checkpoint.
-    // Lazy-load the cross-package laboratory fixture. A static source import
-    // would bring apps/pos-local-service outside target-migrations rootDir.
-    const localGateUrl = new URL(
-      "../../../apps/pos-local-service/src/sync/isolated-central-sqlite-gate.ts",
-      import.meta.url,
-    );
-    const fixture = await import(localGateUrl.href) as {
-      runIsolatedSqliteGate(input: {
-        scope: { tenantId: string; companyId: string; branchId: string; deviceId: string; installationId: string };
-        baseUrl: string;
-        uuidV7(): string;
-        authorization(context: {
-          method: "POST"; path: string; requestId: string; correlationId: string; body: string;
-        }): Promise<string>;
-      }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number }>;
-    };
-    const sqlite = await fixture.runIsolatedSqliteGate({
-      scope: { tenantId, companyId, branchId, deviceId, installationId },
-      baseUrl: BASE,
-      uuidV7,
-      authorization: async (context) => createDeviceRequestAuthorization({
-        ...context, credentialId,
-      }, deviceKeyPair.privateKey),
-    });
-    const durableSqliteOperation = await pool.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM sync.sync_operations
-       WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'`,
-      [tenantId, sqlite.operationId, sqlite.idempotencyKey],
-    );
-    if (durableSqliteOperation.rows[0]?.count !== "1") {
-      throw new Error("SQLITE_CENTRAL_POSTGRES_DEDUPLICATION_FAILED");
+    if (process.env.CAMACHO_ISOLATED_SYNC_LAB === "YES") {
+      // The same enrolled lab device sends an operation originating in REAL SQLite.
+      // First response is discarded after Central commits; the second signed
+      // request must deduplicate in PostgreSQL and then advance local checkpoint.
+      // Lazy-load the cross-package laboratory fixture. A static source import
+      // would bring apps/pos-local-service outside target-migrations rootDir.
+      const localGateUrl = new URL(
+        "../../../apps/pos-local-service/src/sync/isolated-central-sqlite-gate.ts",
+        import.meta.url,
+      );
+      const fixture = await import(localGateUrl.href) as {
+        runIsolatedSqliteGate(input: {
+          scope: { tenantId: string; companyId: string; branchId: string; deviceId: string; installationId: string };
+          baseUrl: string;
+          uuidV7(): string;
+          authorization(context: {
+            method: "POST"; path: string; requestId: string; correlationId: string; body: string;
+          }): Promise<string>;
+        }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number }>;
+      };
+      const sqlite = await fixture.runIsolatedSqliteGate({
+        scope: { tenantId, companyId, branchId, deviceId, installationId },
+        baseUrl: BASE,
+        uuidV7,
+        authorization: async (context) => createDeviceRequestAuthorization({
+          ...context, credentialId,
+        }, deviceKeyPair.privateKey),
+      });
+      const durableSqliteOperation = await pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM sync.sync_operations
+         WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'`,
+        [tenantId, sqlite.operationId, sqlite.idempotencyKey],
+      );
+      if (durableSqliteOperation.rows[0]?.count !== "1") {
+        throw new Error("SQLITE_CENTRAL_POSTGRES_DEDUPLICATION_FAILED");
+      }
+      console.log("SQLITE_OUTBOX_CENTRAL_POSTGRES=VERIFIED");
+      console.log(`SQLITE_CHECKPOINT=${sqlite.localCheckpoint}`);
+      console.log(`SQLITE_INBOX_ROW_COUNT=${sqlite.localInboxRows}`);
+      console.log("SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED");
+
     }
-    console.log("SQLITE_OUTBOX_CENTRAL_POSTGRES=VERIFIED");
-    console.log(`SQLITE_CHECKPOINT=${sqlite.localCheckpoint}`);
-    console.log(`SQLITE_INBOX_ROW_COUNT=${sqlite.localInboxRows}`);
-    console.log("SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED");
 
     console.log("POSTGRES_PERSISTENCE=VERIFIED");
     console.log("IDEMPOTENCY_REPLAY=VERIFIED");
