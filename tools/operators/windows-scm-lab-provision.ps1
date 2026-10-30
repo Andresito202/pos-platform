@@ -262,7 +262,9 @@ exit 0
 
   # Restore the original physical runner before any further action.
   [IO.File]::WriteAllBytes($runner,$script:runnerRestore)
-  [IO.File]::WriteAllBytes($xml,$script:xmlRestore)
+  # Keep the protected lab-only WinSW log path pointed at the writable results
+  # directory. Restoring the old XML would redirect log writes into the now
+  # read-only service directory and break the subsequent physical SCM start.
   SetProtectedFile $runner
   SetProtectedFile $xml
   Set-Acl -LiteralPath $serviceDir -AclObject $script:serviceAclRestore
