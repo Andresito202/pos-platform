@@ -70,7 +70,11 @@ try {
   Write-Host ('HEAD='+$head)
   Write-Host ('BLOCKER_COUNT='+$blockers.Count)
   Write-Host 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN=ACTIVE'
-  if($Mode -eq 'Status'){return}
+  if($Mode -eq 'Status'){
+    if($blockers.Count -gt 0){exit 2}
+    Write-Host 'SCM_LAB_STATUS=READY_FOR_PHYSICAL_PRECHECK'
+    return
+  }
   if($blockers.Count -ne 0){throw ('PHYSICAL_LAB_NOT_READY:'+($blockers.ToArray() -join ','))}
   $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
   if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'ADMIN_REQUIRED'}
