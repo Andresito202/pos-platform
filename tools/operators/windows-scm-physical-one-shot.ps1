@@ -100,6 +100,8 @@ try{
   $vmText=($computer.Manufacturer+' '+$computer.Model)
   Check 'Disposable-VM-only' ($vmText -match '(?i)virtual|vmware|virtualbox|qemu|kvm|hyper-v|xen|parallels') 'Never install or start SCM lab on working PC'
   Check 'Explicit-run' ([bool]$Run) 'Pass -Run only after operator approves the disposable lab setup'
+  $principal=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+  Check 'VM-admin-operator' ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'SCM can only be controlled by the approved VM administrator'
   $canonicalLab=[IO.Path]::GetFullPath($LabRoot).TrimEnd('\')
   Check 'Dedicated-lab-root' ($canonicalLab -match '(?i)^[a-z]:\\CamachoPosScmLab\\[a-z0-9-]{12,}$' -and
     (Test-Path -LiteralPath $canonicalLab -PathType Container)) 'Use a unique owner-approved path outside working system/repository'
@@ -124,6 +126,11 @@ try{
   $binary=([regex]::Match($svc.PathName,'^\s*"?(.+?\.exe)"?(?:\s|$)')).Groups[1].Value
   Check 'SCM-binary-contained' ([IO.Path]::IsPathRooted($binary) -and
     [IO.Path]::GetFullPath($binary).StartsWith($canonicalLab+'\',[StringComparison]::OrdinalIgnoreCase)) 'WinSW runner must live under fresh lab root'
+  $launcher=Get-Item -LiteralPath $binary -ErrorAction Stop
+  Check 'WinSW-service-launcher' ($launcher.VersionInfo.ProductVersion -match '^2\.12\.0(?:[.+ -]|$)' -and
+    (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($binary,'.xml')) -PathType Leaf)) 'WinSW 2.12.0 and matching XML required'
+  $signature=Get-AuthenticodeSignature -LiteralPath $binary -ErrorAction Stop
+  Check 'WinSW-valid-signature' ($signature.Status -eq 'Valid') 'Reject unsigned, altered or untrusted privileged service launchers'
   Set-Location $root
   Invoke-Round 'NODE'
   Invoke-Round 'ELECTRON'
