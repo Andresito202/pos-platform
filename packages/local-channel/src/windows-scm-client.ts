@@ -32,10 +32,10 @@ function receiveCapsule(socket:Socket):Promise<unknown>{
     bytes=Buffer.concat([bytes,chunk]);
     const result=decodeScmCapsulePrefix(bytes);
     if(!result.complete)return;
-    socket.pause();cleanup();settled=true;
+    socket.pause();
     const remainder=bytes.subarray(result.consumed);
     if(remainder.length>0)socket.unshift(remainder);
-    resolve(result.capsule);
+    cleanup();settled=true;resolve(result.capsule);
   }catch{fail();}};
   socket.on("data",data);socket.once("close",fail);socket.once("error",fail);socket.resume();
  });
