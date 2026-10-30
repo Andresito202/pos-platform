@@ -6,10 +6,20 @@ Este repositorio se desarrolla sobre **una única línea activa**. La existencia
 
 ### Línea activa vigente
 
-- Rama activa: `feat/p0-windows-login-install-readiness`, por orden explícita del propietario de 2026-10-29, issue #98 / PR #99. Continúa `feat/android-commercial-runtime@913ea8cc` (PR #96 Draft), sin trabajo paralelo sobre ella. Objetivo exclusivo: login/autorización Windows–Central y laboratorio aislado; no licencias, pagos ni hardware.
+- Rama activa: `feat/p0-windows-login-install-readiness`, issue #98 / PR #99. Continúa `feat/android-commercial-runtime@913ea8cc` (PR #96 Draft), sin trabajo paralelo sobre ella. **Orden posterior del propietario (2026-10-30): cerrar definitivamente el frente de certificación externa gratuita y avanzar a materialización funcional del POS**, empezando por login/autorización Windows–Central, interoperabilidad SCM/DPAPI y arranque comercial seguro. Ampliar módulos solo tras cerrar las dependencias reales y de acuerdo con el tablero; no abrir ramas paralelas.
 - Predecesora de laboratorio: `claude/pos-camacho-bloque-4c-ld43py@b907d20f`; [PR #92](https://github.com/Andresito202/pos-platform/pull/92) se conserva draft, sin merge ni trabajo paralelo sobre ella.
 - Rama canónica del producto: `main`
 - El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
+
+## Decisión obligatoria de cierre de certificación — 2026-10-30
+
+**LEER ANTES DE PROPONER CUALQUIER TRABAJO DE CERTIFICACIÓN:** [decisión vinculante](docs/governance/decision-free-certification-closure-2026-10-30.md).
+
+- **CERRADO:** evaluación de certificados gratuitos de terceros, MSIX/Store, firma pública y dependencia de GitHub Actions. No reabrir el tema salvo orden expresa del propietario.
+- **APROBADO EN SU ALCANCE:** certificación técnica local gratuita de 10 controles sobre HEAD histórico `1efddb4a`, y gate aislado de SQLite/Central/Postgres/RLS/enrolamiento sobre `72baef5e`; conservar evidencia y alcance exacto.
+- **NO ACREDITADO:** instalación SCM (servicio ausente), interoperabilidad real entre identidades, login humano, emisión comercial completa y hardware. Estos son **pendientes de materialización del producto**, no de firma ni certificación externa.
+- **PRIORIDAD:** corregir y conectar código funcional real, ejecutar pruebas locales relevantes y dejar las pruebas humanas/PC para cuando sean indispensables. Prohibido debilitar `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` para simular progreso.
+- No modificar, reducir ni eliminar funcionalidad comercial por requisitos de una entidad certificadora; mantener seguridad fail-closed.
 
 ## Prohibido crear trabajo paralelo por iniciativa propia
 
