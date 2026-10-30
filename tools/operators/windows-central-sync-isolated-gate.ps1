@@ -93,7 +93,7 @@ try {
   & pnpm --filter '@pos-platform/target-migrations' central-sync:gate
   if ($LASTEXITCODE -ne 0) { throw 'ISOLATED_CENTRAL_SYNC_GATE_FAILED' }
   Write-Host 'PASS: Real Central HTTP/PostgreSQL persistence, proof replay and idempotency gate.'
-  Write-Host 'VERIFIED_IN_LAB: SQLite dispatch, persisted acknowledgement, restart recovery, cross-tenant rejection and two independently enrolled tenants.'
+  Write-Host 'VERIFIED_IN_LAB: SQLite recovery; two scoped sync tenants; runtime RLS SELECT isolation; atomic one-use device credential issuance.'
   Write-Host 'NOT_PROVEN: production device enrollment, full multi-tenant concurrency/RLS matrix, real Windows service restart, or 1000-user capacity.'
 } finally {
   if ($null -ne $server) {
