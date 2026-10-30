@@ -4,6 +4,8 @@
 
 ## Propósito y autoridad
 
+2026-10-29: [cierre comparativo de G1/G2](../testing/windows-g1-g2-closure-2026-10-29.md), código `52ab79a7cc55411b343283bc92b3aad89f3910b7`: se revisaron `7fe6615e`, `fb628a7f` y `cabd41e4`; se corrigieron carreras de arranque/apagado, cierres repetidos y conservación de errores, y se integró la distribución del addon con hash en el builder existente mediante SCM_CANDIDATE. Regresión remota 350 PASS / 30 omitidas más 8 procesos PASS disjuntos; TypeScript, arquitectura y build PASS. El PE de empaquetado es un fixture estructural no ejecutado. G1/G2 implementados y probados parcialmente; addon Windows real, SCM/DPAPI, BUSINESS/GLOBAL integral y ceremonia humana pendientes. Gate SCM conservado, PR #99 Draft e issue #98 abierta. No sumar baterías históricas.
+
 2026-10-29: [ejecución de runtime G1/G2](../testing/windows-g1-g2-runtime-2026-10-29.md), código `24680729`: cierre de conexiones y logout durable conectados al LocalChannelComponent, 100 PASS / 4 omitidas en Linux con TCP real de laboratorio, TypeScript/arquitectura/bundle PASS. No acredita identidad de peers Windows. G1 sigue sin adaptador nativo integrado y G2 por lease incompleto; no certificado, PR #99 Draft e issue #98 abierta. Sin habilitación SCM.
 
 2026-10-29: [auditoría consolidada de continuidad del login](../testing/windows-login-continuity-audit-2026-10-29.md). Runtime `8d04ca15`: consumo de lease con reloj del Service y guardas TypeScript 006–016 corregidos; focalizadas 50 PASS / 4 omitidas, Central 79 PASS; transporte Linux con ocho EPERM conservados como fallos de entorno. No sumar baterías solapadas. SCM sigue pendiente de integración de código, GLOBAL de cadena de esquema y ambos de certificación humana. PR #99 Draft e issue #98 abierta.
