@@ -29,6 +29,21 @@ El campo `external_certificate` permanece `false`; también `installation_certif
 
 Para certificar el gate aislado por separado, seguir el procedimiento aprobado del script PowerShell y comprobar la salida `CENTRAL-SYNC GATE: VERIFIED`. Guardar el log únicamente en el directorio aislado creado por el operador.
 
+
+## Gate Windows SCM sin modificar la instalación
+
+Después de aprobar `pnpm certify:local:free`, ejecutar en PowerShell normal:
+
+```powershell
+powershell.exe -NoProfile -File "tools/operators/windows-installation-readonly-certification.ps1"
+```
+
+Este script es deliberadamente **de solo lectura**: consulta `Win32_Service` y `sc.exe qc`; no hace `install`, `start`, `stop`, `restart`, `delete`, ni registra servicios. Si no existe `CamachoPOSLocalService`, la salida es `WINDOWS_SCM_READONLY_RESULT=NOT_CERTIFIED`, nunca un PASS inventado. Si existe, valida existencia, inicio automático, identidad virtual y estado `Running` en ese instante. El comprobante se escribe en un directorio único de `%TEMP%` con SHA-256.
+
+`PASS_READONLY_INVENTORY` **no prueba** reinicio forzado real, recuperación SQLite después de corte de luz, secreto DPAPI entre cuentas, DACL de named pipe, impresión/cajón ni acceso humano. Esos controles requieren un laboratorio Windows independiente con backup validado y sin afectar una instalación comercial existente. Nunca simularlos ni declarar aprobación por un chequeo SCM estático.
+
+El gate de certificación gratuito ahora incluye la regresión `tests/service-descriptor.test.ts` que verifica las políticas fail-closed del descriptor WinSW; no instala WinSW y no firma binarios.
+
 ## Reglas de no regresión
 
 1. No usar `git clean`, `git reset --hard`, cambios de ramas automáticos, pruebas contra preproducción ni acciones de SCM.
