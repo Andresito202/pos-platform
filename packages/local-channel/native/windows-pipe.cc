@@ -8,6 +8,9 @@
 #include <vector>
 #include <cstdint>
 #ifdef _WIN32
+// libuv brings Winsock2. Load it before windows.h, which otherwise pulls
+// legacy winsock.h and causes duplicate sockaddr/WSA declarations with MSVC.
+#include <winsock2.h>
 #include <windows.h>
 #include <uv.h>
 #include <sddl.h>
