@@ -49,7 +49,9 @@ describe("SCM transport fail-closed lifecycle", () => {
     internal.ledger.checkConnections = () => { throw Error("DURABLE_LEDGER_FAILED"); };
     await transport.start(() => undefined);
     await vi.advanceTimersByTimeAsync(110);
-    await transport.stop();
+    const closing = transport.stop();
+    await vi.runOnlyPendingTimersAsync();
+    await closing;
     expect(stop).toHaveBeenCalledTimes(1);
     await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
   });
