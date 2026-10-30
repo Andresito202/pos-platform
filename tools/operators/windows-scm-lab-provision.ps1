@@ -96,7 +96,7 @@ try{
   $machine=Get-CimInstance Win32_ComputerSystem
   Must (($machine.Manufacturer+' '+$machine.Model) -match '(?i)virtual|hyper-v|vmware|virtualbox') 'VM_REQUIRED'
   $admin=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
-  Must $admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'ELEVATED_ADMIN_REQUIRED'
+  Must ($admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'ELEVATED_ADMIN_REQUIRED'
   $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
   Must ($session -gt 0) 'INTERACTIVE_OPERATOR_REQUIRED'
   $lab=[IO.Path]::GetFullPath($LabRoot).TrimEnd('\')
