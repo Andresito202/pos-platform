@@ -58,7 +58,7 @@ async function seedCentralScope(scopeTenantId: string, companyId: string, branch
       `INSERT INTO organization.branches (id,tenant_id,company_id,name,timezone,status,created_at,updated_at)
        VALUES ($1,$2,$3,'Central Sync Gate Branch','America/Bogota','ACTIVE',clock_timestamp(),clock_timestamp())
        ON CONFLICT (id) DO NOTHING`,
-      [branchId, tenantId, companyId],
+      [branchId, scopeTenantId, companyId],
     );
     await client.query(
       `INSERT INTO identity.device_registry
