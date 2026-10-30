@@ -79,6 +79,24 @@ try {
  $service=Join-Path $lab 'service\service-provision.json'
  Gate 'C_DESKTOP_MANAGED_PROVISION' (Managed $desktop 'DESKTOP')
  Gate 'C_SERVICE_MANAGED_PROVISION' (Managed $service 'SERVICE')
+ $crossBindings=$false
+ if((Managed $desktop 'DESKTOP') -and (Managed $service 'SERVICE')){
+  try {
+   $d=Get-Content -LiteralPath $desktop -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+   $v=Get-Content -LiteralPath $service -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+   $adapterPath=Join-Path $repo 'packages\\local-channel\\native\\build\\Release\\camacho_windows_pipe.node'
+   $canonicalD=ConvertTo-Json -InputObject $d.handoff -Depth 15 -Compress
+   $canonicalV=ConvertTo-Json -InputObject $v.handoff -Depth 15 -Compress
+   $crossBindings=($canonicalD -ceq $canonicalV) -and
+    ($d.adapter_file -ceq $v.adapter_file) -and
+    ($d.adapter_sha256 -ceq $v.adapter_sha256) -and
+    ($d.signer_spki_sha256 -ceq $v.signer_spki_sha256) -and
+    ($d.signer_public_key_pem -ceq $v.signer_public_key_pem) -and
+    (Test-Path -LiteralPath $adapterPath -PathType Leaf) -and
+    ($d.adapter_sha256 -ceq (Get-FileHash -LiteralPath $adapterPath -Algorithm SHA256).Hash.ToLowerInvariant())
+  } catch { $crossBindings=$false }
+ }
+ Gate 'C_PAIR_BINDING_AND_ADDON_HASH' $crossBindings
  Gate 'D_RESULT_DIRECTORY' (Test-Path -LiteralPath (Join-Path $lab 'results') -PathType Container)
  $keys=@('POS_CENTRAL_BASE_URL','POS_WINDOWS_COMMERCIAL_PROVISION_FILE','POS_WINDOWS_DESKTOP_COMMERCIAL_FILE','POS_AUTHORIZATION_TRUST_PROVISION_FILE','POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM','POS_SESSION_TRUST_ENVIRONMENT')
  $missing=@($keys | Where-Object {[string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_,'Process'))})
