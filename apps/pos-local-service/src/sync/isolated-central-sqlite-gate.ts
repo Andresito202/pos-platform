@@ -84,6 +84,9 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
           // Central committed but the terminal did not receive the response.
           throw new CentralTransportError("lab discarded committed response", "LAB_RESPONSE_LOST_AFTER_COMMIT", true);
         }
+        if (remote.status !== 200) {
+          throw new Error(`LAB_RETRY_HTTP_STATUS=${remote.status};BODY=${remote.body.slice(0, 2048)}`);
+        }
         return remote;
       },
     };
@@ -98,7 +101,7 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     clock = new Date(clock.getTime() + 2_000);
     const second = await dispatcher.dispatchOnce(input.scope);
     if (second.kind !== "DELIVERED" || second.acknowledgedThrough !== 1) {
-      throw new Error(`SQLITE_RETRY_NOT_DELIVERED:${second.kind}`);
+      throw new Error(`SQLITE_RETRY_NOT_DELIVERED:${JSON.stringify(second)}`);
     }
     if (store.checkpoint(input.scope) !== 1 || store.outboxState(operationId)?.status !== "ACKNOWLEDGED") {
       throw new Error("SQLITE_CHECKPOINT_NOT_ACKNOWLEDGED");
