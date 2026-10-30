@@ -423,6 +423,56 @@ async function main(): Promise<void> {
     }
     console.log("TWO_TENANT_INDEPENDENT_AUTHENTICATED_SYNC=VERIFIED");
 
+    // Query through the ACTUAL unprivileged runtime role, not the superuser.
+    // Each transaction carries an independent tenant context; RLS must return
+    // only that tenant's persisted operation and no row without a context.
+    const appUrl = new URL(POSTGRES_ADMIN_URL!);
+    if (appUrl.hostname !== "127.0.0.1" || appUrl.port !== "55436"
+      || appUrl.pathname !== "/postgres" || appUrl.username !== "postgres") {
+      throw new Error("RLS_GATE_DISPOSABLE_DATABASE_REQUIRED");
+    }
+    appUrl.username = "pos_platform_app";
+    appUrl.password = "";
+    const appPool = new Pool({ connectionString: appUrl.toString(), max: 1 });
+    try {
+      const appClient = await appPool.connect();
+      try {
+        const probe = async (tenantContext: string | null): Promise<string[]> => {
+          await appClient.query("BEGIN");
+          try {
+            if (tenantContext !== null) {
+              await appClient.query("SELECT set_config('app.tenant_id',$1,true)", [tenantContext]);
+            }
+            const visible = await appClient.query<{ tenant_id: string }>(
+              "SELECT tenant_id::text FROM sync.sync_operations WHERE id=ANY($1::uuid[])",
+              [[operationId, secondOperationId]],
+            );
+            await appClient.query("COMMIT");
+            return visible.rows.map((row) => row.tenant_id);
+          } catch (error) {
+            await appClient.query("ROLLBACK").catch(() => undefined);
+            throw error;
+          }
+        };
+        const withoutScope = await probe(null);
+        const tenantAOnly = await probe(tenantId);
+        const tenantBOnly = await probe(secondTenantId);
+        const afterScope = await probe(null);
+        if (withoutScope.length !== 0 || afterScope.length !== 0
+          || tenantAOnly.length !== 1 || tenantAOnly[0] !== tenantId
+          || tenantBOnly.length !== 1 || tenantBOnly[0] !== secondTenantId) {
+          throw new Error("RLS_RUNTIME_TENANT_READ_ISOLATION_FAILED");
+        }
+        console.log("RLS_RUNTIME_TENANT_READ_ISOLATION=VERIFIED");
+        console.log("RLS_TRANSACTION_CONTEXT_RESET=VERIFIED");
+      } finally {
+        appClient.release();
+      }
+    } finally {
+      await appPool.end();
+    }
+
+
 
 
     if (process.env.CAMACHO_ISOLATED_SYNC_LAB === "YES") {
