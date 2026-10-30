@@ -84,7 +84,7 @@ try {
   try {
    $d=Get-Content -LiteralPath $desktop -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
    $v=Get-Content -LiteralPath $service -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
-   $adapterPath=Join-Path $repo 'packages\\local-channel\\native\\build\\Release\\camacho_windows_pipe.node'
+   $adapterPath=Join-Path $lab 'service\camacho_windows_pipe.node'
    $canonicalD=ConvertTo-Json -InputObject $d.handoff -Depth 15 -Compress
    $canonicalV=ConvertTo-Json -InputObject $v.handoff -Depth 15 -Compress
    $crossBindings=($canonicalD -ceq $canonicalV) -and
