@@ -106,6 +106,12 @@ try{
   foreach($p in @($DesktopProvision,$ServiceResult)){
     Check 'Lab-input-absolute' ([IO.Path]::IsPathRooted($p) -and [IO.Path]::GetFullPath($p).StartsWith($canonicalLab+'\',[StringComparison]::OrdinalIgnoreCase)) 'Only lab-owned inputs are allowed'
   }
+  # The SERVICE Vitest reporter overwrites ServiceResult. Constrain that
+  # writable output to a dedicated results path, never a DPAPI/provision file.
+  $expectedResult=[IO.Path]::GetFullPath((Join-Path $canonicalLab 'results\service-physical.json'))
+  Check 'Dedicated-service-result' ([IO.Path]::GetFullPath($ServiceResult).Equals($expectedResult,[StringComparison]::OrdinalIgnoreCase) -and
+    (Test-Path -LiteralPath ([IO.Path]::GetDirectoryName($expectedResult)) -PathType Container)) 'Only the dedicated lab report file may be overwritten'
+  Check 'Distinct-provision-and-result' (-not [IO.Path]::GetFullPath($DesktopProvision).Equals($expectedResult,[StringComparison]::OrdinalIgnoreCase)) 'Never overwrite an installer provision'
   Check 'Desktop-provision-present' (Test-Path -LiteralPath $DesktopProvision -PathType Leaf) 'Installer-owned desktop handoff'
   $branch=(& git -C $root branch --show-current).Trim()
   Check 'Correct-branch' ($branch -eq 'feat/p0-windows-login-install-readiness') 'PR #99'
