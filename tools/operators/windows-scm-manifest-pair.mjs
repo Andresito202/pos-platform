@@ -47,7 +47,9 @@ function main() {
   if (!absoluteWindows(receiverPath) || !absoluteWindows(signerPath) ||
       !within(receiverPath, lab) || !within(signerPath, lab)) fail("PUBLIC_ENROLLMENT_OUTSIDE_LAB");
   if (existsSync(desktopOutput) || existsSync(serviceOutput)) fail("PROVISION_ALREADY_EXISTS");
-  if (!existsSync(receiverPrivate) || !existsSync(signerPrivate)) fail("REAL_DPAPI_CUSTODY_MISSING");
+  // Installer cannot inspect the SERVICE-private folder: its owner-only DACL is intentional.
+  // Real Service custody must be attested by the separate service-side operator test.
+  if (!existsSync(receiverPrivate)) fail("DESKTOP_DPAPI_CUSTODY_MISSING");
   const r = parse(receiverPath), s = parse(signerPath);
   if (r.installation_id !== installationId || r.device_id !== deviceId ||
       !sid(r.recipient_sid) || !logon(r.recipient_logon_sid) ||
