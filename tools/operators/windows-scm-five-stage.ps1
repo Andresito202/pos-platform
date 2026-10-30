@@ -82,6 +82,13 @@ try {
  $missing=@($keys | Where-Object {[string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_,'Process'))})
  Gate 'E_CENTRAL_PROVISION_PRESENT' ($missing.Count -eq 0)
  if($missing.Count -gt 0){Write-Host ('E_MISSING_VARIABLE_NAMES='+($missing -join ','))}
+ $centralPreflight=Join-Path $PSScriptRoot 'windows-login-deployment-preflight.ps1'
+ if(-not (FileExists $centralPreflight)){Gate 'E_CENTRAL_PREFLIGHT' $false}
+ elseif($missing.Count -gt 0){Gate 'E_CENTRAL_PREFLIGHT' $false}
+ else{
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $centralPreflight -Interactive -Json | Out-Null
+  Gate 'E_CENTRAL_PREFLIGHT' ($LASTEXITCODE -eq 0)
+ }
  $physicalBlockers=@($blocks.ToArray() | Where-Object {$_ -notlike 'E_*'})
  if($RunPhysical){
   if($physicalBlockers.Count -ne 0){throw ('PHYSICAL_PRECONDITIONS_BLOCKED:'+($physicalBlockers -join ','))}
