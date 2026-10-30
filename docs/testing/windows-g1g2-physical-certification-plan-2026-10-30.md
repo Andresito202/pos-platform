@@ -50,3 +50,17 @@ Registrar commit SHA, versiones, hashes, nombre de pruebas, PASS/FAIL/SKIP, tiem
 ## Política de cierre
 
 No retirar `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN`, no fusionar PR #99, no cerrar issue #98 ni publicar servicio comercial hasta evidencias físicas, de seguridad, humanas y de revisión. Los resultados de octubre 30 prueban inventario Windows y compilación nativa **únicamente**. La cuenta virtual y el SID del servicio no deben confundirse con un login interactivo ni con un hash de ejecutable.
+
+
+## Decisión de producto 30-oct-2026 — sin compra de certificado de firma Windows
+
+**Decisión expresa del propietario:** no presupuestar certificados comerciales Authenticode/OV/EV, HSM ni Azure Artifact Signing para permitir el funcionamiento del POS. La inversión prevista se limita inicialmente a dominio y VPS. Esto no renuncia a HTTPS confiable (puede obtenerse sin costo), integridad de artefactos, autenticación mutua del canal, ACL, DPAPI, aislamiento multiempresa o revisión de seguridad.
+
+**Separar controles:**
+- `WINSW_APPROVED_AUTHENTICODE_SIGNER_REQUIRED` es una **política local de distribución** que actualmente impide aprobar ese wrapper sin certificado. En un procedimiento de laboratorio explícito, puede utilizarse un ejecutable de procedencia y SHA aprobados sin considerarlo una distribución comercial; nunca falsear `BinaryReviewReady`, modificar trust stores en secreto ni reutilizar datos productivos.
+- `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` protege la **seguridad del canal entre identidades**. Se conserva hasta probar SCM real, tokens, DPAPI, pins, leases, revocación, reinicios y Electron real. Eliminar firma de código no demuestra esas garantías.
+- Antes de ofrecer Windows a clientes, evaluar y documentar una política de distribución **sin firma comercial** con hashes reproducibles, origen TLS, verificación local del artefacto, ACL sobre binarios y rutas, instalador explícito, advertencias SmartScreen y compatibilidad con políticas de ejecución del cliente. No prometer que todas las máquinas aceptarán software sin firma ni que los hashes sustituyen autenticación del editor. Una revisión de seguridad debe aprobar cualquier cambio al validador actual; prohibido hacer bypass silencioso.
+
+**Capacidad objetivo:** más de 1.000 usuarios del ecosistema POS. NO equivale a 1.000 conexiones activas; modelar y medir empresas, sucursales, cajas, usuarios concurrentes, TPS, p95/p99, errores, conexiones PostgreSQL, colas offline, conflictos e idempotencia. No declarar capacidad certificada hasta superar pruebas de carga escalonadas, aislamiento multi-tenant y recuperación.
+
+**Estado:** decisión registrada; no hay nuevo servicio instalado, no hay test físico SCM entre identidades y no existe certificación de 1.000 usuarios. El procedimiento comercial de WinSW firmado descrito arriba queda como **política heredada pendiente de revisión**, no como compra aprobada.
