@@ -105,6 +105,22 @@ function header(headers: Readonly<Record<string, string>>, name: string): string
   return undefined;
 }
 
+/**
+ * HTTP Content-Type may include a charset parameter. The wire contract uses
+ * the normalized media type, while the response body is decoded as UTF-8.
+ * Reject unsupported charsets and unexpected parameters fail-closed.
+ */
+function normalizedJsonContentType(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const parts = raw.split(";").map((part) => part.trim());
+  if (parts[0]?.toLowerCase() !== "application/json") return raw;
+  if (parts.length === 1) return "application/json";
+  if (parts.length === 2 && /^charset=(?:"utf-8"|utf-8)$/i.test(parts[1] ?? "")) {
+    return "application/json";
+  }
+  return raw;
+}
+
 export class SyncDispatcher {
   private readonly baseUrl: string;
   private readonly maxOperations: number;
@@ -280,7 +296,7 @@ export class SyncDispatcher {
     const validation = responseSchema.safeParse({
       status_code: response.status,
       contract_headers: {
-        "content-type": header(response.headers, "content-type"),
+        "content-type": normalizedJsonContentType(header(response.headers, "content-type")),
         "x-pos-api-version": header(response.headers, "x-pos-api-version"),
         "x-request-id": header(response.headers, "x-request-id"),
         "x-correlation-id": header(response.headers, "x-correlation-id"),
