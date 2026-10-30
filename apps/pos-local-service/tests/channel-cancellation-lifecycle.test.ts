@@ -130,3 +130,11 @@ describe.runIf(process.platform!=="win32")("real TCP transport: connection cance
     expect(store.confirm().kind).toBe("ALREADY_CONFIRMED");expect(store.count()).toEqual({n:1});expect(store.audit()).toEqual({n:1});
   });
 });
+
+it("preserves transport startup and cleanup failures together",async()=>{
+  const start=Error("TRANSPORT_START_FAILED"),stop=Error("TRANSPORT_STOP_FAILED"),auth=new LocalChannelAuthenticator(Buffer.alloc(32,4));
+  const transport={start:async()=>{throw start;},stop:async()=>{throw stop;}};
+  const server=new LocalChannelServer("NO_SOCKET_FAILURE_FIXTURE",auth,async()=>{throw Error("NO_HANDLER");},{min:"1.0.0",max:"1.0.0"},32,64,5000,undefined,transport);
+  try{const error=await server.start().catch(e=>e);expect(error).toBeInstanceOf(AggregateError);expect(error.errors).toEqual([start,stop]);}
+  finally{auth.destroy();}
+});

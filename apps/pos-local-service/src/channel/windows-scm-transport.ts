@@ -14,6 +14,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
  private readonly ledger:SqliteWindowsHandoffLeaseAuthority;
  private readonly master:Buffer;
  private adapter:WindowsPipeAdapter|undefined;private listener:unknown;
+ private stopped=false;private stopOperation:Promise<void>|undefined;
  private faulted=false;private running=false;private started=false;private loop:Promise<void>|undefined;private poll:NodeJS.Timeout|undefined;
  private readonly sockets=new Set<Socket>();
  private readonly bound=new Map<string,{pipe:AttestedWindowsPipe;close:()=>void;retire:()=>void}>();
@@ -36,6 +37,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   }catch(error){sealed.secret.fill(0);throw error;}
  }
  async start(accept:(socket:Socket,security:ChannelConnectionSecurity)=>void):Promise<void>{
+  if(this.stopped)throw Error("SCM_TRANSPORT_STOPPED");
   if(this.started)throw Error("SCM_TRANSPORT_ALREADY_STARTED");this.started=true;
   this.adapter=this.dependencies?.adapter??loadWindowsNativePipeAdapter(this.p);
   this.listener=this.adapter.listen();this.running=true;
@@ -81,27 +83,26 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
    finally{if(this.cache?.leaseId===leaseId){this.cache.secret.fill(0);this.cache=undefined;}}
   }
  }
- async stop():Promise<void>{
-  // Cleanup is mandatory even if native CloseHandle/CancelIoEx throws. Once
-  // shutdown starts no cached lease, MAC secret or accepted socket may survive.
-  this.running=false;
+ stop():Promise<void>{
+  if(this.stopOperation)return this.stopOperation;
+  this.stopped=true;this.running=false;
   clearInterval(this.poll);this.poll=undefined;
-  let failure:unknown;
-  try{
-   if(this.adapter&&this.listener!==undefined)this.adapter.stop(this.listener);
-  }catch(error){failure=error;}
-  finally{
-   try{this.ledger.closeConnections();}catch(error){failure??=error;}
-   for(const socket of this.sockets)socket.destroy();
-   for(const member of this.bound.values())try{member.close();}catch(error){failure??=error;}
-   this.bound.clear();
-   this.cache?.secret.fill(0);this.cache=undefined;this.master.fill(0);
-   this.listener=undefined;this.adapter=undefined;
-  }
-  // A failed native stop cannot be assumed to have released the blocking
-  // accept call. Do not hang shutdown forever or hide its original error.
-  if(failure!==undefined)throw failure;
-  await this.loop;
-  this.loop=undefined;
+  // A failed stop is terminal too: repeated callers receive the same failure
+  // instead of waiting forever on an accept whose cancellation is unproven.
+  this.stopOperation=Promise.resolve().then(()=>this.stopOwnedResources());
+  return this.stopOperation;
+ }
+ private async stopOwnedResources():Promise<void>{
+  let failed=false,failure:unknown;
+  const remember=(error:unknown)=>{if(!failed){failed=true;failure=error;}};
+  try{if(this.adapter&&this.listener!==undefined)this.adapter.stop(this.listener);}catch(error){remember(error);}
+  try{this.ledger.closeConnections();}catch(error){remember(error);}
+  for(const socket of [...this.sockets])try{socket.destroy();}catch(error){remember(error);}
+  for(const member of [...this.bound.values()])try{member.close();}catch(error){remember(error);}
+  this.sockets.clear();this.bound.clear();
+  this.cache?.secret.fill(0);this.cache=undefined;this.master.fill(0);
+  this.listener=undefined;this.adapter=undefined;
+  if(failed)throw failure;
+  await this.loop;this.loop=undefined;
  }
 }

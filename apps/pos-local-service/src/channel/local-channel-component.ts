@@ -39,6 +39,10 @@ export class LocalChannelComponent implements RuntimeComponent {
   private authenticator: LocalChannelAuthenticator | undefined;
   private unregisterSessionCloser:(()=>void)|undefined;
   private startupToken: symbol | undefined;
+  private starting:Promise<void>|undefined;
+  private stopping:Promise<void>|undefined;
+  private stoppedResult:Promise<void>|undefined;
+  private closeActive:(()=>Promise<void>)|undefined;
   private readonly commercialHandler: CommercialRequestHandler;
 
   constructor(
@@ -55,7 +59,13 @@ export class LocalChannelComponent implements RuntimeComponent {
   }
 
   async start(): Promise<void> {
-    if(this.server||this.authenticator||this.unregisterSessionCloser||this.startupToken)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
+    if(this.server||this.authenticator||this.unregisterSessionCloser||this.startupToken||this.starting||this.stopping||this.closeActive)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
+    this.stoppedResult=undefined;
+    const operation=this.startAttempt();this.starting=operation;
+    try{await operation;}finally{if(this.starting===operation)this.starting=undefined;}
+  }
+
+  private async startAttempt():Promise<void>{
     if (process.platform !== "win32") {
       throw new Error("production local channel requires Windows");
     }
@@ -87,40 +97,58 @@ export class LocalChannelComponent implements RuntimeComponent {
 
     const startupToken=Symbol("local-channel-start");
     this.startupToken=startupToken;
+    let unregister:(()=>void)|undefined;
+    let cleanup:Promise<void>|undefined;
+    // One attempt owns these resources, including while start() is pending.
+    // Cache cleanup before running callbacks so repeated/reentrant stops join it.
+    const close=():Promise<void>=>cleanup??=(Promise.resolve().then(async()=>{
+      const failures:unknown[]=[];
+      try{unregister?.();}catch(error){failures.push(error);}
+      finally{if(this.unregisterSessionCloser===unregister)this.unregisterSessionCloser=undefined;}
+      try{await server.stop();}catch(error){failures.push(error);}
+      finally{
+        authenticator.destroy();
+        if(this.server===server){this.server=undefined;this.authenticator=undefined;}
+        if(failures.length===0&&this.closeActive===close)this.closeActive=undefined;
+        if(this.startupToken===startupToken)this.startupToken=undefined;
+      }
+      if(failures.length===1)throw failures[0];
+      if(failures.length>1)throw new AggregateError(failures,"local channel cleanup failed");
+    }));
+    this.server=server;this.authenticator=authenticator;this.closeActive=close;
     try {
-      this.unregisterSessionCloser=this.commercial.registerNativeSessionCloser((connections,initiator)=>{
+      unregister=this.commercial.registerNativeSessionCloser((connections,initiator)=>{
         try{scmTransport?.revokeConnections(connections,initiator);}
         finally{for(const id of connections){if(id===initiator)server.retireConnection(id);else server.disconnectConnection(id);}}
       });
+      this.unregisterSessionCloser=unregister;
       await server.start();
       if(this.startupToken!==startupToken)throw Error("LOCAL_CHANNEL_START_CANCELLED");
-      this.authenticator = authenticator;
-      this.server = server;
     } catch (error) {
-      this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
-      try{await server.stop();}finally{
-        try{await scmTransport?.stop();}finally{authenticator.destroy();}
-      }
+      try{await close();}catch(cleanupError){throw new AggregateError([error,cleanupError],"local channel start and cleanup failed");}
       throw error;
     } finally {
       if(this.startupToken===startupToken)this.startupToken=undefined;
     }
   }
 
-  async stop(): Promise<void> {
+  async stop():Promise<void>{
+    if(this.stopping)return this.stopping;
+    if(this.stoppedResult)return this.stoppedResult;
     this.startupToken=undefined;
-    this.unregisterSessionCloser?.();this.unregisterSessionCloser=undefined;
-    this.nativeCommercial?.stop();
-    const server = this.server;
-    const authenticator = this.authenticator;
-    this.server = undefined;
-    this.authenticator = undefined;
+    const operation=this.stopAttempt();this.stopping=operation;this.stoppedResult=operation;
+    try{await operation;}finally{if(this.stopping===operation)this.stopping=undefined;}
+  }
 
-    try {
-      await server?.stop();
-    } finally {
-      authenticator?.destroy();
-    }
+  private async stopAttempt():Promise<void>{
+    const failures:unknown[]=[];
+    try{this.nativeCommercial?.stop();}catch(error){failures.push(error);}
+    try{await this.closeActive?.();}catch(error){failures.push(error);}
+    // A cancelled start must finish its own cleanup before another attempt is
+    // admitted. Its original failure still belongs to the start() caller.
+    try{await this.starting;}catch{/* start caller observes cancellation/failure */}
+    if(failures.length===1)throw failures[0];
+    if(failures.length>1)throw new AggregateError(failures,"local channel stop failed");
   }
 
   private async handle(

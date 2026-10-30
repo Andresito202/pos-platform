@@ -161,7 +161,12 @@ export class LocalChannelServer {
     if(this.transport){
       this.acceptingTraffic=true;
       try{await this.transport.start((socket,security)=>this.acceptSocket(socket,security));if(!this.running)throw Error("LOCAL_CHANNEL_START_CANCELLED");}
-      catch(error){this.running=false;this.acceptingTraffic=false;for(const c of [...this.connections.values()])c.close();await this.transport.stop();throw error;}
+      catch(error){
+        this.running=false;this.acceptingTraffic=false;
+        for(const c of [...this.connections.values()])c.close();
+        try{await this.transport.stop();}catch(cleanupError){throw new AggregateError([error,cleanupError],"local channel transport start and cleanup failed");}
+        throw error;
+      }
       return;
     }
     this.acceptingTraffic = process.platform !== "win32";
