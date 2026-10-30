@@ -87,7 +87,15 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
    negotiation=setTimeout(()=>socket.destroy(),5000);negotiation.unref();
    socket.write(encodeFrame(offered.capsule,32768),error=>{
     if(error||!this.running||socket.destroyed){socket.destroy();return;}
-    accept(socket,security);socket.resume();
+    try {
+     // The IPC server may reject a connection synchronously (capacity,
+     // shutdown, authorization). Never allow that throw to escape the
+     // asynchronous socket.write callback and crash the Windows service.
+     accept(socket,security);
+     if(!socket.destroyed)socket.resume();
+    } catch {
+     socket.destroy();
+    }
    });
   }catch{socket.destroy();}
  }
