@@ -61,7 +61,7 @@ try {
 
   Set-LabEnvironment 'POSTGRES_TEST_URL' 'postgres://postgres@127.0.0.1:55436/postgres'
   Set-LabEnvironment 'POSTGRES_ADMIN_URL' 'postgres://postgres@127.0.0.1:55436/postgres'
-  Set-LabEnvironment 'DATABASE_URL' 'postgres://pos_app@127.0.0.1:55436/postgres'
+  Set-LabEnvironment 'DATABASE_URL' 'postgres://pos_platform_app@127.0.0.1:55436/postgres'
   Set-LabEnvironment 'CENTRAL_SYNC_BASE_URL' 'http://127.0.0.1:18787'
   Set-LabEnvironment 'CENTRAL_SYNC_BIND_HOST' '127.0.0.1'
   Set-LabEnvironment 'PORT' '18787'
