@@ -34,6 +34,25 @@ function childMode() {
     try { binding[name](); } catch { rejected = true; }
     if (!rejected) throw Error("NATIVE_INVALID_ARGUMENT_ACCEPTED:" + name);
   }
+  // A real native call with syntactically valid policy: an interactive
+  // process must be rejected BEFORE CreateNamedPipeW. This is not a simulated
+  // security decision and must pass under both Node and Electron runtimes.
+  const identityArguments = [
+    "\\\\\\\\.\\\\pipe\\\\camacho-pos-018f0000-0000-7000-8000-000000000001-scm",
+    "S-1-5-80-1-2-3-4-5",
+    "S-1-5-21-1-2-3-1001",
+    "S-1-5-5-1-2",
+    1,
+  ];
+  let unauthorizedListenRejected = false;
+  try { binding.listen(...identityArguments); }
+  catch (error) {
+    unauthorizedListenRejected = error instanceof Error
+      && error.message.includes("WINDOWS_NATIVE_PIPE_REJECTED");
+  }
+  if (!unauthorizedListenRejected) {
+    throw Error("NATIVE_INTERACTIVE_SERVICE_IMPERSONATION_NOT_REJECTED");
+  }
   process.stdout.write(JSON.stringify({
     status: "PASS",
     runtime: process.versions.electron ? "ELECTRON" : "NODE",
@@ -41,6 +60,7 @@ function childMode() {
     electron: process.versions.electron ?? null,
     api_count: required.length,
     invalid_arguments_rejected: 6,
+    interactive_service_impersonation_rejected: true,
   }) + "\n");
 }
 
@@ -80,7 +100,8 @@ if (process.argv.includes("--child")) {
       && check?.status === "PASS"
       && check?.runtime === config.name
       && check.api_count === 7
-      && check.invalid_arguments_rejected === 6;
+      && check.invalid_arguments_rejected === 6
+      && check.interactive_service_impersonation_rejected === true;
     results.push({
       runtime: config.name,
       status: pass ? "PASS" : "FAIL",
@@ -100,6 +121,7 @@ if (process.argv.includes("--child")) {
     addon_size_bytes: readFileSync(addonFile).length,
     no_service_mutation: true,
     no_pipe_creation: true,
+    interactive_service_impersonation_rejected: results.every(row => row.status === "PASS"),
     scm_interoperability_verified: false,
     interactive_login_verified: false,
     results,
