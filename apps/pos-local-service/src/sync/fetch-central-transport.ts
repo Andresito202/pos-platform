@@ -31,7 +31,6 @@ export class FetchCentralTransport implements CentralTransport {
     const abort = (): void => deadline.abort();
     request.signal.addEventListener("abort", abort, { once: true });
 
-    let sent = false;
     try {
       const response = await fetch(request.url, {
         method: request.method,
@@ -39,19 +38,18 @@ export class FetchCentralTransport implements CentralTransport {
         body: request.body,
         signal: deadline.signal,
       });
-      // Hay respuesta: la petición salió, sin duda.
-      sent = true;
       return {
         status: response.status,
         headers: Object.fromEntries(response.headers.entries()),
         body: await response.text(),
       };
     } catch (error) {
-      // Un aborto por tiempo ocurre con la petición ya enviada; un fallo de
-      // resolución o de conexión, antes de enviarla.
+      // A failed fetch does not distinguish a pre-send network failure from
+      // a dropped response after the server committed the request. Mark the
+      // result as uncertain; operation-level idempotency handles safe retries.
       const aborted = error instanceof Error && error.name === "AbortError";
       const code = aborted ? "READ_TIMEOUT" : "CONNECTION_FAILURE";
-      throw new CentralTransportError(`central transport ${code}`, code, sent || aborted);
+      throw new CentralTransportError(`central transport ${code}`, code, true);
     } finally {
       clearTimeout(timer);
       request.signal.removeEventListener("abort", abort);
