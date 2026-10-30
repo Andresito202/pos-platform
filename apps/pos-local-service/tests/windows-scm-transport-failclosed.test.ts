@@ -39,7 +39,7 @@ describe("SCM transport fail-closed lifecycle", () => {
   it("a lease polling failure stops native listening and never continues serving", async () => {
     vi.useFakeTimers();
     const stop = vi.fn();
-    const mock = adapter({ stop });
+    const mock = adapter({ stop, accept: vi.fn(async () => { throw Error("NO_CONNECTION"); }) });
     const transport = new WindowsScmChannelTransport(
       provision, dummyDatabase, Buffer.alloc(32, 1),
       { adapter: mock, seal: () => { throw Error("must not publish"); } },
