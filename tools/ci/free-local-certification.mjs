@@ -63,6 +63,7 @@ const checks = [
   ["device-issuer-tests", ["--filter", "@pos-platform/device-trust", "exec", "vitest", "run", "tests/enrollment.test.ts", "tests/enrollment-http.test.ts"]],
   ["local-enrollment-tests", ["--filter", "@pos-platform/pos-local-service", "exec", "vitest", "run", "tests/device-enrollment-service.test.ts"]],
   ["local-sync-tests", ["--filter", "@pos-platform/pos-local-service", "exec", "vitest", "run", "tests/fetch-central-transport.test.ts", "tests/sync-dispatcher.test.ts", "tests/central-sync-component.test.ts"]],
+  ["windows-service-descriptor-tests", ["--filter", "@pos-platform/pos-local-service", "exec", "vitest", "run", "tests/service-descriptor.test.ts"]],
 ];
 
 const dir = mkdtempSync(join(tmpdir(), "camacho-pos-free-cert-"));
