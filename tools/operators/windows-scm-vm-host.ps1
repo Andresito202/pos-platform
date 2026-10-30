@@ -6,8 +6,9 @@
   Two phases separated by a mandatory operator-controlled reboot:
     PrepareHost : dump/verify the active dedicated PostgreSQL preprod container,
                   stop that ONE container, then enable Hyper-V without reboot.
-    CreateVM    : require Hyper-V, >=5 GiB available RAM and a supplied ISO,
-                  create but do not boot one isolated Gen-2 VM on drive E.
+    CreateVM    : require Hyper-V and a real local ISO, create but do not
+                  boot one isolated Gen-2 VM on drive E. Report boot RAM
+                  readiness separately; creation does not allocate guest RAM.
   Never modifies PostgreSQL data or volumes, installs an SCM service, writes
   installer credentials, exposes a secret, or bypasses the commercial gate.
   Failure to back up means NO Docker stop, NO feature enablement.
@@ -211,7 +212,9 @@ try {
     if($state -ne 'Enabled'){[void]$blockers.Add('HYPERV_FEATURE_NOT_ENABLED')}
     if(-not $hasManagement){[void]$blockers.Add('HYPERV_MANAGEMENT_TOOLS_REQUIRED')}
     if(-not $hasVmms){[void]$blockers.Add('HYPERV_VMMS_NOT_RUNNING_REBOOT_OR_FEATURE_REQUIRED')}
-    if(-not $memoryEnough){[void]$blockers.Add('AVAILABLE_RAM_5GB_REQUIRED')}
+    # New-VM defines a powered-off VM/VHDX; it does not reserve the 4 GiB
+    # guest startup memory. RAM must be checked again BEFORE Start-VM, not
+    # used as a prerequisite for the safe creation-only operation here.
     if(-not $isoReady){[void]$blockers.Add('REAL_WINDOWS_ISO_REQUIRED')}
     if(-not (Test-Path -LiteralPath $diskRoot -PathType Container)){
       [void]$blockers.Add('LAB_BACKUP_PREPARATION_REQUIRED')
@@ -219,6 +222,8 @@ try {
     Write-Host ('HYPERV_MANAGEMENT_CMD='+$hasManagement)
     Write-Host ('HYPERV_VMMS_RUNNING='+$hasVmms)
     Write-Host ('RAM_FREE_GB='+[math]::Round($memory/1GB,2))
+    Write-Host ('VM_BOOT_RAM_READY='+$memoryEnough)
+    if(-not $memoryEnough){Write-Warning 'VM_BOOT_NOT_SAFE_WITH_CURRENT_RAM: create the powered-off VM only; do not start it until RAM is recovered.'}
     Write-Host ('WINDOWS_ISO_READY='+$isoReady)
     if($blockers.Count -gt 0){
       throw ('CREATE_VM_PREFLIGHT_BLOCKED:'+($blockers.ToArray() -join ','))
@@ -247,6 +252,7 @@ try {
     Write-Host ('LAB_VM_FILES='+$vmDir)
     Write-Host ('LAB_VHDX='+$vhd)
     Write-Host 'LAB_VM_STARTED=NO'
+    if(-not $memoryEnough){Write-Host 'LAB_VM_BOOT_BLOCKED=INSUFFICIENT_AVAILABLE_RAM'}
     Write-Host 'SCM_PHYSICAL_INTEROP=NOT_VERIFIED'
   }
 }catch{
