@@ -148,6 +148,14 @@ try{
   Must ($existingRunner.Contains('CAMACHO_SCM_PHYSICAL_PROVISION') -and $existingRunner.Contains('windows-scm-physical.test.ts')) 'RUNNER_UNEXPECTED_CONTENT'
   $script:runnerRestore=[IO.File]::ReadAllBytes($runner)
   $script:xmlRestore=[IO.File]::ReadAllBytes($xml)
+  # Abort before new writes if an earlier run left service enrollment evidence.
+  foreach($old in @(
+    (Join-Path $resultsDir 'service-enrollment.json'),
+    (Join-Path $resultsDir 'desktop-enrollment.json'),
+    (Join-Path $resultsDir 'service-signer-public.json')
+  )){
+    Must (-not (Test-Path -LiteralPath $old)) ('PARTIAL_ENROLLMENT_REPORT_REQUIRES_REVIEW:'+ [IO.Path]::GetFileName($old))
+  }
 
   # Installer-scoped real UUIDs, solely for isolated lab. Reuse if prepared.
   if(Test-Path -LiteralPath $idFile -PathType Leaf){
