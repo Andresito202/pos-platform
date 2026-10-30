@@ -17,7 +17,7 @@ $apiPort = 18787
 $server = $null
 $created = $false
 $prior = @{}
-$variables = @('POSTGRES_TEST_URL','POSTGRES_ADMIN_URL','DATABASE_URL','CENTRAL_SYNC_BASE_URL','CENTRAL_SYNC_BIND_HOST','CAMACHO_ISOLATED_SYNC_LAB','PORT')
+$variables = @('POSTGRES_TEST_URL','POSTGRES_ADMIN_URL','DATABASE_URL','CENTRAL_SYNC_BASE_URL','CENTRAL_SYNC_BIND_HOST','CAMACHO_ISOLATED_SYNC_LAB','PORT','REPOSITORY_COMMIT')
 
 function Assert-FreePort([int]$port) {
   $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$port)
@@ -66,6 +66,44 @@ try {
   Set-LabEnvironment 'CENTRAL_SYNC_BIND_HOST' '127.0.0.1'
   Set-LabEnvironment 'PORT' '18787'
   Set-LabEnvironment 'CAMACHO_ISOLATED_SYNC_LAB' 'YES'
+  $reviewedCommit = (& git rev-parse HEAD).Trim()
+  if ($LASTEXITCODE -ne 0 -or $reviewedCommit -notmatch '^[0-9a-f]{40}
+
+  & pnpm --filter '@pos-platform/target-migrations' exec tsx 'src/central-sync-lab-migrate.ts'
+  if ($LASTEXITCODE -ne 0) { throw 'ISOLATED_POSTGRES_MIGRATION_FAILED' }
+
+  $pkg = Join-Path $root 'tools\target-migrations'
+  $node = (Get-Command node.exe -ErrorAction Stop).Source
+  $stdout = Join-Path $logDir 'central-stdout.log'
+  $stderr = Join-Path $logDir 'central-stderr.log'
+  $server = Start-Process -FilePath $node -ArgumentList @('--import','tsx','src/central-sync-server.ts') -WorkingDirectory $pkg -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+  $responding = $false
+  for ($i=0; $i -lt 35; $i++) {
+    if ($server.HasExited) { throw 'ISOLATED_CENTRAL_EXITED_EARLY' }
+    try {
+      $health = Invoke-RestMethod 'http://127.0.0.1:18787/health' -TimeoutSec 2
+      if ($health.status -eq 'ok') { $responding=$true;break }
+    } catch {}
+    Start-Sleep -Seconds 1
+  }
+  if (-not $responding) { throw 'ISOLATED_CENTRAL_HEALTH_FAILED' }
+
+  & pnpm --filter '@pos-platform/target-migrations' central-sync:gate
+  if ($LASTEXITCODE -ne 0) { throw 'ISOLATED_CENTRAL_SYNC_GATE_FAILED' }
+  Write-Host 'PASS: Real Central HTTP/PostgreSQL persistence, proof replay and idempotency gate.'
+  Write-Host 'NOT_PROVEN: local SQLite dispatch, production device enrollment, multi-business 1000-user capacity.'
+} finally {
+  if ($null -ne $server) {
+    try { if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction Stop } } catch { Write-Warning 'LAB_SERVER_STOP_FAILED_INSPECT_PROCESS' }
+  }
+  if ($created) { & docker rm --force $container | Out-Null }
+  foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name,$prior[$name],'Process') }
+  Write-Host ('LAB_LOG_DIRECTORY=' + $logDir)
+  Write-Host 'Only the uniquely named temporary PostgreSQL container and newly started API process were targeted for cleanup.'
+}
+) { throw 'LAB_COMMIT_LOOKUP_FAILED' }
+  Set-LabEnvironment 'REPOSITORY_COMMIT' $reviewedCommit
 
   & pnpm --filter '@pos-platform/target-migrations' exec tsx 'src/central-sync-lab-migrate.ts'
   if ($LASTEXITCODE -ne 0) { throw 'ISOLATED_POSTGRES_MIGRATION_FAILED' }
