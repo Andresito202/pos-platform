@@ -6,17 +6,36 @@ import {loadWindowsNativePipeAdapter,type WindowsPipeAdapter} from "./windows-na
 import {verifySignedWindowsHandoffCandidate,openWindowsHandoffCandidateForCurrentRecipient} from "./windows-handoff.js";
 
 /** Only the existing signed capsule is prefixed; channel frames stay canonical. */
+/**
+ * Named pipes are byte streams, not message boundaries. The first channel
+ * frame may arrive in the same data event as the signed capsule. Preserve
+ * trailing bytes for LocalChannelClient rather than rejecting valid framing.
+ */
+export function decodeScmCapsulePrefix(bytes:Buffer):
+  | {readonly complete:false}
+  | {readonly complete:true;readonly capsule:unknown;readonly consumed:number}{
+ if(bytes.length<4)return {complete:false};
+ const length=bytes.readUInt32BE(0);
+ if(length===0||length>32768)throw Error("SCM_HANDOFF_DELIVERY_REJECTED");
+ if(bytes.length<4+length)return {complete:false};
+ const capsule=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes.subarray(4,4+length))) as unknown;
+ return {complete:true,capsule,consumed:4+length};
+}
 function receiveCapsule(socket:Socket):Promise<unknown>{
  return new Promise((resolve,reject)=>{
-  let bytes=Buffer.alloc(0);const timer=setTimeout(()=>fail(),5000);timer.unref();
+  let bytes=Buffer.alloc(0);let settled=false;
+  const timer=setTimeout(()=>fail(),5000);timer.unref();
   const cleanup=()=>{clearTimeout(timer);socket.off("data",data);socket.off("close",fail);socket.off("error",fail);};
-  const fail=()=>{cleanup();socket.destroy();reject(Error("SCM_HANDOFF_DELIVERY_REJECTED"));};
-  const data=(chunk:Buffer)=>{try{
-    if(bytes.length+chunk.length>32772){fail();return;}bytes=Buffer.concat([bytes,chunk]);
-    if(bytes.length<4)return;const n=bytes.readUInt32BE();if(n===0||n>32768){fail();return;}
-    if(bytes.length<4+n)return;if(bytes.length!==4+n){fail();return;}
-    const capsule=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes.subarray(4)));
-    socket.pause();cleanup();resolve(capsule);
+  const fail=()=>{if(settled)return;settled=true;cleanup();socket.destroy();reject(Error("SCM_HANDOFF_DELIVERY_REJECTED"));};
+  const data=(chunk:Buffer)=>{if(settled)return;try{
+    if(bytes.length+chunk.length>65540){fail();return;}
+    bytes=Buffer.concat([bytes,chunk]);
+    const result=decodeScmCapsulePrefix(bytes);
+    if(!result.complete)return;
+    socket.pause();cleanup();settled=true;
+    const remainder=bytes.subarray(result.consumed);
+    if(remainder.length>0)socket.unshift(remainder);
+    resolve(result.capsule);
   }catch{fail();}};
   socket.on("data",data);socket.once("close",fail);socket.once("error",fail);socket.resume();
  });
