@@ -67,14 +67,25 @@ try {
  $dp=Join-Path $lab 'desktop\private'
  $sp=Join-Path $lab 'service\private'
  Gate 'A_DESKTOP_PRIVATE_ACL' (Custody $dp $desktopSid)
- Gate 'A_SERVICE_PRIVATE_ACL' (Custody $sp $serviceSid)
+ $serviceEnrollmentReport=Join-Path $lab 'results\service-enrollment.json'
+ $serviceEnrollmentPublic=Join-Path $lab 'results\service-signer-public.json'
+ $serviceAttested=$false
+ if((FileExists $serviceEnrollmentReport) -and (FileExists $serviceEnrollmentPublic)){
+  try{
+   $enrollment=Get-Content -LiteralPath $serviceEnrollmentReport -Raw | ConvertFrom-Json -ErrorAction Stop
+   $serviceAttested=($enrollment.numTotalTests -eq 1 -and $enrollment.numPassedTests -eq 1 -and
+     $enrollment.numFailedTests -eq 0 -and $enrollment.numPendingTests -eq 0)
+  }catch{$serviceAttested=$false}
+ }
+ # The caller must NOT gain access to SERVICE-private DPAPI files merely to inspect them.
+ Gate 'A_SERVICE_SELF_CUSTODY_ATTESTED' $serviceAttested
  $wrapper=Join-Path $lab 'service\CamachoPOSLocalService.exe'
  if(FileExists $wrapper){
   $sig=Get-AuthenticodeSignature -LiteralPath $wrapper
   Gate 'A_LAB_SIGNED_WINSW' ($sig.Status -eq 'Valid' -and $null -ne $sig.SignerCertificate -and $sig.SignerCertificate.Thumbprint -eq 'D66CDBD8B1564BF4B8A8F0664A3DCD17C39D0911')
  }else{Gate 'A_LAB_SIGNED_WINSW' $false}
  Gate 'B_DESKTOP_DPAPI_PRESENT' (FileExists (Join-Path $dp 'receiver.dpapi.json'))
- Gate 'B_SERVICE_DPAPI_PRESENT' (FileExists (Join-Path $sp 'signer.dpapi.json'))
+ Gate 'B_SERVICE_DPAPI_SELF_ENROLLED' $serviceAttested
  $desktop=Join-Path $lab 'desktop\desktop-provision.json'
  $service=Join-Path $lab 'service\service-provision.json'
  Gate 'C_DESKTOP_MANAGED_PROVISION' (Managed $desktop 'DESKTOP')
