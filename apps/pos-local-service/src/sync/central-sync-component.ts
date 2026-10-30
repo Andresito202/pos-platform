@@ -52,7 +52,7 @@ export class CentralSyncComponent implements RuntimeComponent {
     // Track the initial dispatch too. stop() must not let the database close
     // while its response or failure is still being committed to SQLite.
     const initial = dispatcher.dispatchOnce(this.scope);
-    this.inFlight = initial.then(() => undefined);
+    this.inFlight = initial.then(() => undefined, () => undefined);
     let first: DispatchOutcome;
     try {
       first = await initial;
