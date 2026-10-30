@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { isAbsolute, normalize, relative, join } from "node:path";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   prepareWindowsHandoffReceiver,
   prepareWindowsServiceSigner,
+  recoverWindowsServiceSignerPublic,
+  recoverWindowsHandoffReceiverPublic,
 } from "@pos-platform/local-channel";
 
 /**
@@ -35,10 +37,22 @@ describe("explicit Windows SCM operator DPAPI enrollment (not certification)", (
     const parent = join(root, role === "SERVICE" ? "service" : "desktop", "private");
     const privateFile = requirePath(process.env.CAMACHO_SCM_OPERATOR_PRIVATE_FILE, parent);
     const publicFile = requirePath(process.env.CAMACHO_SCM_OPERATOR_PUBLIC_FILE, parent);
-    if (privateFile.toLowerCase() === publicFile.toLowerCase() ||
-        existsSync(privateFile) || existsSync(publicFile)) throw Error("SCM_OPERATOR_EXISTING_FILE_REJECTED");
+    if (privateFile.toLowerCase() === publicFile.toLowerCase()) throw Error("SCM_OPERATOR_PATH_COLLISION");
     const installationId = process.env.POS_INSTALLATION_ID ?? "";
     const deviceId = process.env.POS_DEVICE_ID ?? "";
+    const privateExists = existsSync(privateFile);
+    const publicExists = existsSync(publicFile);
+    if (privateExists !== publicExists) throw Error("SCM_OPERATOR_PARTIAL_ENROLLMENT_STOP");
+    if (privateExists) {
+      // Same real Windows user/service DPAPI token, no rotation or rewrite.
+      const recovered = role === "SERVICE"
+        ? recoverWindowsServiceSignerPublic(privateFile, installationId, deviceId)
+        : recoverWindowsHandoffReceiverPublic(privateFile, installationId, deviceId);
+      const existing = JSON.parse(readFileSync(publicFile, "utf8"));
+      if (JSON.stringify(recovered) !== JSON.stringify(existing)) throw Error("SCM_OPERATOR_PUBLIC_RECOVERY_PIN_MISMATCH");
+      expect(existsSync(privateFile)).toBe(true);
+      return;
+    }
     const value = role === "SERVICE"
       ? prepareWindowsServiceSigner(privateFile, installationId, deviceId)
       : prepareWindowsHandoffReceiver(privateFile, installationId, deviceId);
