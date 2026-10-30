@@ -193,11 +193,13 @@ try{
   $script:stagingActive=$true
   $xmlDoc=[xml][IO.File]::ReadAllText($xml)
   Must ($xmlDoc.service.id -eq $svcName) 'SERVICE_XML_MISMATCH'
-  if($null -eq $xmlDoc.service.logpath){
+  # StrictMode-safe XML DOM access: an absent node is not a valid PS property.
+  $logpath=$xmlDoc.SelectSingleNode('/service/logpath')
+  if($null -eq $logpath){
     $logpath=$xmlDoc.CreateElement('logpath')
-    $logpath.InnerText=$resultsDir
-    [void]$xmlDoc.service.AppendChild($logpath)
-  }else{$xmlDoc.service.logpath=$resultsDir}
+    [void]$xmlDoc.DocumentElement.AppendChild($logpath)
+  }
+  $logpath.InnerText=$resultsDir
   $xmlDoc.Save($xml)
   SetProtectedFile $xml
 
