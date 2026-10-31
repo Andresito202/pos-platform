@@ -169,6 +169,14 @@ try{
       created_utc=[DateTime]::UtcNow.ToString('o')
     }
   }
+  # Bounded repair for the observed EPERM on Vitest behind pnpm Windows
+  # junctions. Never recurse with icacls /T (previously failed on a dangling
+  # nested pnpm dependency), never grant Modify/FullControl to the SCM token.
+  $dependencyAclRepair=Join-Path $PSScriptRoot 'windows-scm-lab-dependency-acl.ps1'
+  Must (Test-Path -LiteralPath $dependencyAclRepair -PathType Leaf) 'PNPM_SCOPED_REPAIR_MISSING'
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $dependencyAclRepair -Repository $repo -LabRoot $lab -Apply
+  Must ($LASTEXITCODE -eq 0) 'PNPM_SCOPED_RX_REPAIR_FAILED'
+  Write-Host 'A_PNPM_SCOPED_RX=APPLIED_NOT_EXECUTION_CERTIFIED'
   # Ancestors: no changes to C:\, Program Files, repository or Windows 10.
   $parent='C:\CamachoPosScmLab'
   SetProtectedDir $parent $adminsSid @($svcSid,$operatorSid) @()
