@@ -11,8 +11,9 @@
  * read by this script. Fails closed on any existing output.
  */
 import { createHash, createPublicKey } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, normalize, resolve, dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const fail = (code) => { throw new Error(code); };
 const sha = (data) => createHash("sha256").update(data).digest("hex");
@@ -30,6 +31,21 @@ const parse = (file) => {
   if (!absoluteWindows(file) || !existsSync(file) || statSync(file).size > 8192) fail("PUBLIC_ENROLLMENT_MISSING_OR_INVALID");
   return JSON.parse(readFileSync(file, "utf8"));
 };
+/** Called only after main's binding/key validation. A pair cannot be published
+ * atomically as two independent files. Preserve partial output for review;
+ * never unlink evidence or overwrite a manifest produced concurrently. */
+export function writeManifestPair(desktopOutput, serviceOutput, desktop, service) {
+  let createdDesktop = false;
+  try {
+    writeFileSync(desktopOutput, JSON.stringify(desktop, null, 2) + "\n", { flag: "wx" });
+    createdDesktop = true;
+    writeFileSync(serviceOutput, JSON.stringify(service, null, 2) + "\n", { flag: "wx" });
+  } catch (err) {
+    throw new Error(createdDesktop
+      ? "PAIRED_MANIFEST_PARTIAL_OUTPUT_PRESERVED_REQUIRES_REVIEW"
+      : "PAIRED_MANIFEST_OUTPUT_EXISTS_OR_WRITE_FAILED", { cause: err });
+  }
+}
 function main() {
   if (process.platform !== "win32") fail("WINDOWS_REQUIRED");
   const args = process.argv.slice(2);
@@ -90,17 +106,13 @@ function main() {
   const desktop = { ...shared, role: "DESKTOP", receiver_file: receiverPrivate };
   // Windows installer must harden ACLs before either output can be accepted
   // by native read-managed; this tool does not bypass custody checks.
-  let createdDesktop = false;
-  try {
-    writeFileSync(desktopOutput, JSON.stringify(desktop, null, 2) + "\n", { flag: "wx" });
-    createdDesktop = true;
-    writeFileSync(serviceOutput, JSON.stringify(service, null, 2) + "\n", { flag: "wx" });
-  } catch (err) {
-    if (createdDesktop) unlinkSync(desktopOutput);
-    throw err;
-  }
+  writeManifestPair(desktopOutput, serviceOutput, desktop, service);
   console.log("PAIRED_MANIFESTS_CREATED=YES");
   console.log("INSTALLER_MANAGED_ACL_REQUIRED=YES");
   console.log("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN=ACTIVE");
 }
-try { main(); } catch (e) { console.error("SCM_PAIRED_MANIFEST_REJECTED=" + e.message); process.exitCode = 2; }
+const invoked = process.argv[1] ? resolve(process.argv[1]) : "";
+const self = fileURLToPath(import.meta.url);
+if (process.platform === "win32" ? invoked.toLowerCase() === self.toLowerCase() : invoked === self) {
+  try { main(); } catch (e) { console.error("SCM_PAIRED_MANIFEST_REJECTED=" + e.message); process.exitCode = 2; }
+}
