@@ -19,6 +19,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows-scm-lab-binding.ps1')
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $git='C:\Program Files\Git\cmd\git.exe'
 $node='C:\Program Files\nodejs\node.exe'
@@ -115,6 +116,7 @@ try{
   $runner=Join-Path $serviceDir 'run-physical-test.ps1'
   $xml=Join-Path $serviceDir 'CamachoPOSLocalService.xml'
   $wrapper=Join-Path $serviceDir 'CamachoPOSLocalService.exe'
+  Must (Test-WindowsScmLabImagePath $svc.PathName $wrapper) 'SCM_LAB_IMAGE_PATH_MISMATCH'
   Must (Test-Path -LiteralPath $runner -PathType Leaf) 'EXISTING_RUNNER_MISSING'
   Must (Test-Path -LiteralPath $xml -PathType Leaf) 'WINSW_XML_MISSING'
   Must (Test-Path -LiteralPath $resultsDir -PathType Container) 'RESULT_DIR_MISSING'

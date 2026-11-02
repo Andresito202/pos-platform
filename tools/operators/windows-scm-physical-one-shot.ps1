@@ -21,6 +21,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows-scm-lab-binding.ps1')
 $serviceName='CamachoPOSLocalService'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $recordRoot=Join-Path ([IO.Path]::GetTempPath()) ('camacho-scm-one-shot-'+[Guid]::NewGuid().ToString('N'))
@@ -123,7 +124,8 @@ try{
   Check 'Lab-SCM-installed' ($null -ne $svc) 'Preinstalled disposable WinSW service required'
   Check 'SCM-virtual-identity' ($svc.StartName -eq 'NT SERVICE\CamachoPOSLocalService') 'Service may not run as SYSTEM or interactive Desktop'
   Check 'SCM-manual-start' ($svc.StartMode -eq 'Manual') 'Never run an automatically starting commercial service in lab'
-  $binary=([regex]::Match($svc.PathName,'^\s*"?(.+?\.exe)"?(?:\s|$)')).Groups[1].Value
+  $binary=Join-Path $canonicalLab 'service\CamachoPOSLocalService.exe'
+  Check 'SCM-exact-lab-image' (Test-WindowsScmLabImagePath $svc.PathName $binary) 'Reject another executable, arguments or an ambiguous ImagePath'
   Check 'SCM-binary-contained' ([IO.Path]::IsPathRooted($binary) -and
     [IO.Path]::GetFullPath($binary).StartsWith($canonicalLab+'\',[StringComparison]::OrdinalIgnoreCase)) 'WinSW runner must live under fresh lab root'
   $launcher=Get-Item -LiteralPath $binary -ErrorAction Stop

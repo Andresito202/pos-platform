@@ -16,6 +16,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows-scm-lab-binding.ps1')
 $service='CamachoPOSLocalService'
 $serviceSid='S-1-5-80-2399233179-3901739178-3110492099-2767556519-659945569'
 function Assert([bool]$condition,[string]$code){if(-not $condition){throw $code}}
@@ -24,33 +25,90 @@ function Within([string]$candidate,[string]$parent){
  $b=[IO.Path]::GetFullPath($parent).TrimEnd('\')+'\'
  return $a.StartsWith($b,[StringComparison]::OrdinalIgnoreCase)
 }
-function GrantRead([string]$path,[bool]$directory){
+function ResolveVitestPath([string]$node,[string]$link){
+ # PowerShell 5.1 strips embedded quotes from native -e arguments. Pass code
+ # through stdin instead; argv[1] is '-' and the sole path is argv[2].
+ # Return UTF-8 as base64: native stdout decoding under an OEM code page must
+ # not corrupt a real pnpm path containing non-ASCII characters.
+ $real=@('process.stdout.write(Buffer.from(require("node:fs").realpathSync.native(process.argv[2]),"utf8").toString("base64"))' | & $node - $link)
+ Assert ($LASTEXITCODE -eq 0 -and $real.Count -eq 1) 'VITEST_CANONICAL_RESOLUTION_FAILED'
+ $utf8=[Text.UTF8Encoding]::new($false,$true)
+ return [IO.Path]::GetFullPath($utf8.GetString([Convert]::FromBase64String($real[0])))
+}
+function InspectRead([string]$path,[bool]$directory){
  $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
  Assert (-not (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'PNPM_REPARSE_CUSTODY_REJECTED'
+ Assert ($item.PSIsContainer -eq $directory) 'PNPM_OBJECT_KIND_CHANGED'
  $acl=Get-Acl -LiteralPath $path -ErrorAction Stop
- $sid=[Security.Principal.SecurityIdentifier]::new($serviceSid)
  $rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute
+ $write=[Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership
  $inherit=if($directory){[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
  $exists=$false
  foreach($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
-   if($ace.IdentityReference.Value -eq $serviceSid -and $ace.AccessControlType -eq 'Deny' -and
+   # These groups are applicable to an authenticated local SCM service. Other
+   # token-specific denies still require the real SCM execution below the gate.
+   if($ace.IdentityReference.Value -in @($serviceSid,'S-1-1-0','S-1-5-11','S-1-5-6','S-1-2-0') -and $ace.AccessControlType -eq 'Deny' -and
       ($ace.FileSystemRights -band $rights) -ne 0){throw 'PNPM_EXPLICIT_DENY_REQUIRES_REVIEW'}
    if($ace.IdentityReference.Value -eq $serviceSid -and $ace.AccessControlType -eq 'Allow' -and
+      ($ace.FileSystemRights -band $write) -ne 0){throw 'PNPM_EXISTING_SERVICE_WRITE_REQUIRES_REVIEW'}
+   if($ace.IdentityReference.Value -eq $serviceSid -and $ace.AccessControlType -eq 'Allow' -and
       ($ace.FileSystemRights -band $rights) -eq $rights -and
+      ($ace.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -eq 0 -and
       (-not $directory -or ($ace.InheritanceFlags -band $inherit) -eq $inherit)){$exists=$true}
  }
- if($exists){Write-Host ('PNPM_RX_ALREADY_PRESENT='+$path);return}
+ return [pscustomobject]@{Path=$path;Directory=$directory;Acl=$acl;NeedsGrant=(-not $exists)}
+}
+function GrantRead([string]$path,[bool]$directory){
+ $inspection=InspectRead $path $directory
+ if(-not $inspection.NeedsGrant){Write-Host ('PNPM_RX_ALREADY_PRESENT='+$path);return}
  if(-not $Apply){Write-Host ('PNPM_RX_REQUIRED='+$path);return}
+ $acl=$inspection.Acl
+ $sid=[Security.Principal.SecurityIdentifier]::new($serviceSid)
+ $rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute
+ $inherit=if($directory){[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
  $rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,$rights,$inherit,
    [Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
+ $before=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
  $acl.AddAccessRule($rule)
+ $expected=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+ # Record before Set-Acl: an exception does not guarantee that nothing changed.
+ $change=[pscustomobject]@{Path=$path;Directory=$directory;Before=$before;Expected=$expected;After=$null}
+ [void]$script:aclChanges.Add($change)
+ SaveJournal 'APPLYING'
  Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
- $effective=Get-Acl -LiteralPath $path -ErrorAction Stop
- Assert (@($effective.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) |
-    Where-Object {$_.IdentityReference.Value -eq $serviceSid -and $_.AccessControlType -eq 'Allow' -and
-       ($_.FileSystemRights -band $rights) -eq $rights}).Count -gt 0) 'PNPM_RX_POSTWRITE_UNVERIFIED'
+ $effective=InspectRead $path $directory
+ Assert (-not $effective.NeedsGrant) 'PNPM_RX_POSTWRITE_UNVERIFIED'
+ $change.After=$effective.Acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+ SaveJournal 'APPLYING'
  Write-Host ('PNPM_RX_GRANTED='+$path)
 }
+function SaveJournal([string]$state){
+ if($null -eq $script:journalPath){return}
+ $value=[ordered]@{version=1;state=$state;effective_service_access='NOT_PROVEN';changes=@($script:aclChanges.ToArray())}
+ [IO.File]::WriteAllText($script:journalPath,(ConvertTo-Json -InputObject $value -Depth 6),[Text.UTF8Encoding]::new($false))
+}
+function UndoReadChanges{
+ $ok=$true
+ for($i=$script:aclChanges.Count-1;$i -ge 0;$i--){
+  $change=$script:aclChanges[$i]
+  try{
+   $item=Get-Item -LiteralPath $change.Path -Force -ErrorAction Stop
+   Assert (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'PNPM_ROLLBACK_REPARSE_REJECTED'
+   $acl=Get-Acl -LiteralPath $change.Path -ErrorAction Stop
+   $now=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+   if($now -eq $change.Before){continue}
+   $owned=if($null -eq $change.After){$change.Expected}else{$change.After}
+   Assert ($now -eq $owned) 'PNPM_CONCURRENT_ACL_CHANGE_NOT_OVERWRITTEN'
+   $acl.SetSecurityDescriptorSddlForm($change.Before,[Security.AccessControl.AccessControlSections]::Access)
+   Set-Acl -LiteralPath $change.Path -AclObject $acl -ErrorAction Stop
+   $restored=(Get-Acl -LiteralPath $change.Path).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+   Assert ($restored -eq $change.Before) 'PNPM_ROLLBACK_UNVERIFIED'
+  }catch{$ok=$false;Write-Host 'PNPM_ROLLBACK_PATH_REQUIRES_OPERATOR_REVIEW'}
+ }
+ return $ok
+}
+$script:aclChanges=[System.Collections.Generic.List[object]]::new()
+$script:journalPath=$null
 try{
  Assert ($env:OS -eq 'Windows_NT' -and [Environment]::Is64BitOperatingSystem) 'WINDOWS_X64_REQUIRED'
  $machine=Get-CimInstance Win32_ComputerSystem
@@ -63,6 +121,7 @@ try{
  $svc=Get-CimInstance Win32_Service -Filter "Name='$service'"
  Assert ($null -ne $svc -and $svc.State -eq 'Stopped' -and $svc.StartMode -eq 'Manual' -and
    $svc.StartName -eq ('NT SERVICE\'+$service)) 'SERVICE_UNSAFE'
+ Assert (Test-WindowsScmLabImagePath $svc.PathName (Join-Path $lab 'service\CamachoPOSLocalService.exe')) 'SCM_LAB_IMAGE_PATH_MISMATCH'
  $admin=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
  Assert ($admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'ADMIN_REQUIRED'
  $pnpmStore=Join-Path $root 'node_modules\.pnpm'
@@ -74,14 +133,13 @@ try{
  Assert (Test-Path -LiteralPath $node -PathType Leaf) 'NODE_MISSING'
  # Node resolves pnpm junctions using exactly the same filesystem semantics
  # that the service runtime uses. Do not recurse over dangling junctions.
- $real=@(& $node -e 'process.stdout.write(require("node:fs").realpathSync.native(process.argv[1]))' $vitestLink)
- Assert ($LASTEXITCODE -eq 0 -and $real.Count -eq 1) 'VITEST_CANONICAL_RESOLUTION_FAILED'
- $realVitest=[IO.Path]::GetFullPath($real[0])
+ $realVitest=ResolveVitestPath $node $vitestLink
  Assert (Within $realVitest $pnpmStore) 'VITEST_OUTSIDE_PNPM_STORE_REJECTED'
  Assert (Test-Path -LiteralPath $realVitest -PathType Leaf) 'REAL_VITEST_MISSING'
  Write-Host ('CANONICAL_VITEST='+$realVitest)
  # Nonrecursive, bounded set of concrete physical ancestors. No /T.
- GrantRead $pnpmStore $true
+ $plan=[System.Collections.Generic.List[object]]::new()
+ [void]$plan.Add([pscustomobject]@{Path=$pnpmStore;Directory=$true})
  $relative=$realVitest.Substring($pnpmStore.Length).TrimStart('\')
  $cursor=$pnpmStore
  $parts=$relative.Split('\')
@@ -89,12 +147,30 @@ try{
    $cursor=Join-Path $cursor $parts[$i]
    Assert (Within $cursor $pnpmStore) 'PNPM_PATH_ESCAPES_ROOT'
    Assert (Test-Path -LiteralPath $cursor -PathType Container) 'PNPM_ANCESTOR_MISSING'
-   GrantRead $cursor $true
+   [void]$plan.Add([pscustomobject]@{Path=$cursor;Directory=$true})
  }
- GrantRead $realVitest $false
+ [void]$plan.Add([pscustomobject]@{Path=$realVitest;Directory=$false})
+ # Validate the whole bounded plan before the first write. No directory walk,
+ # recursion, link traversal, private custody or repository-wide write grant.
+ foreach($entry in $plan){[void](InspectRead $entry.Path $entry.Directory)}
+ if($Apply){
+  $results=Join-Path $lab 'results'
+  Assert (Test-Path -LiteralPath $results -PathType Container) 'PNPM_RESULTS_DIRECTORY_MISSING'
+  Assert (-not ((Get-Item -LiteralPath $results -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) 'PNPM_RESULTS_REPARSE_REJECTED'
+  $script:journalPath=Join-Path $results ('dependency-acl-'+[guid]::NewGuid().ToString('N')+'.json')
+  $stream=[IO.File]::Open($script:journalPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);$stream.Dispose()
+  SaveJournal 'PLANNED'
+ }
+ foreach($entry in $plan){GrantRead $entry.Path $entry.Directory}
+ SaveJournal 'APPLIED_ACL_VERIFIED_NOT_SERVICE_TOKEN'
  Write-Host ('PNPM_RX_REPAIR='+$(if($Apply){'APPLIED'}else{'DRY_RUN'}))
  Write-Host 'SERVICE_EFFECTIVE_ACCESS=NOT_PROVEN_UNTIL_REAL_SCM_RUN'
 }catch{
+ if($script:aclChanges.Count -gt 0){
+  $rollback=UndoReadChanges
+  try{SaveJournal $(if($rollback){'ROLLED_BACK_DIRECT_PATHS'}else{'ROLLBACK_REQUIRES_REVIEW'})}catch{Write-Host 'PNPM_JOURNAL_RECOVERY_REQUIRES_REVIEW'}
+  Write-Host ('PNPM_DIRECT_PATH_ROLLBACK='+$rollback)
+ }
  Write-Host ('PNPM_RX_REPAIR_FAILED='+$_.Exception.Message)
  exit 2
 }

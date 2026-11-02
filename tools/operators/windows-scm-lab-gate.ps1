@@ -20,6 +20,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows-scm-lab-binding.ps1')
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $service='CamachoPOSLocalService'
 $blockers=[System.Collections.Generic.List[string]]::new()
@@ -51,7 +52,7 @@ try {
     $wrapper=Join-Path $lab 'service\CamachoPOSLocalService.exe'
     $imagePath=[string]$svc.PathName
     Require ((Test-Path -LiteralPath $wrapper -PathType Leaf) -and
-      $imagePath.IndexOf($wrapper,[StringComparison]::OrdinalIgnoreCase) -ge 0) 'SCM_LAB_WRAPPER'
+      (Test-WindowsScmLabImagePath $imagePath $wrapper)) 'SCM_LAB_WRAPPER'
     if(Test-Path -LiteralPath $wrapper -PathType Leaf){
       $signature=Get-AuthenticodeSignature -LiteralPath $wrapper -ErrorAction Stop
       Require ($signature.Status -eq 'Valid' -and

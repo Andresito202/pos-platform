@@ -8,6 +8,7 @@ No private keys or trust roots are manufactured; no interactive login is launche
 param([Parameter(Mandatory=$true)][string]$LabRoot,[switch]$RunPhysical)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows-scm-lab-binding.ps1')
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $blocks=[System.Collections.Generic.List[string]]::new()
 function Gate([string]$name,[bool]$passed){
@@ -80,6 +81,7 @@ try {
  # The caller must NOT gain access to SERVICE-private DPAPI files merely to inspect them.
  Gate 'A_SERVICE_SELF_CUSTODY_ATTESTED' $serviceAttested
  $wrapper=Join-Path $lab 'service\CamachoPOSLocalService.exe'
+ Gate 'A_SCM_LAB_IMAGE_PATH' ($null -ne $svc -and (Test-WindowsScmLabImagePath $svc.PathName $wrapper))
  if(FileExists $wrapper){
   $sig=Get-AuthenticodeSignature -LiteralPath $wrapper
   Gate 'A_LAB_SIGNED_WINSW' ($sig.Status -eq 'Valid' -and $null -ne $sig.SignerCertificate -and $sig.SignerCertificate.Thumbprint -eq 'D66CDBD8B1564BF4B8A8F0664A3DCD17C39D0911')
