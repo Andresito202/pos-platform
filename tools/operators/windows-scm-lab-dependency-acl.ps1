@@ -5,7 +5,7 @@
  .DESCRIPTION
    No recursive icacls /T, no symlink traversal, no ownership/deny changes.
    Adds only (RX) inherited grants to real directories and explicit (RX)
-   to the actual Vitest entrypoint if its DACL blocks inheritance.
+   to vitest.mjs and dist\cli.js even when their DACLs block inheritance.
    This is NOT an installer/production ACL. Runs only on the dedicated VM.
 #>
 [CmdletBinding()]
@@ -35,7 +35,51 @@ function ResolveVitestPath([string]$node,[string]$link){
  $utf8=[Text.UTF8Encoding]::new($false,$true)
  return [IO.Path]::GetFullPath($utf8.GetString([Convert]::FromBase64String($real[0])))
 }
+function AssertPnpmPath([string]$path,[string]$store){
+ $path=[IO.Path]::GetFullPath($path)
+ $store=[IO.Path]::GetFullPath($store).TrimEnd('\')
+ Assert ($path -ieq $store -or (Within $path $store)) 'VITEST_OUTSIDE_PNPM_STORE_REJECTED'
+ # Inspect from the store down before following an unexpected junction.
+ $cursor=$store
+ $paths=[System.Collections.Generic.List[string]]::new()
+ [void]$paths.Add($cursor)
+ if($path -ine $store){
+  foreach($part in $path.Substring($store.Length).TrimStart('\').Split('\')){
+   $cursor=Join-Path $cursor $part
+   [void]$paths.Add($cursor)
+  }
+ }
+ foreach($candidate in $paths){
+  $item=Get-Item -LiteralPath $candidate -Force -ErrorAction Stop
+  Assert (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'PNPM_REPARSE_CUSTODY_REJECTED'
+ }
+}
+function NewVitestReadPlan([string]$node,[string]$store,[string]$entry){
+ $entry=[IO.Path]::GetFullPath($entry)
+ AssertPnpmPath $entry $store
+ Assert ([IO.Path]::GetFileName($entry) -ieq 'vitest.mjs') 'VITEST_ENTRY_NAME_REJECTED'
+ $cli=Join-Path ([IO.Path]::GetDirectoryName($entry)) 'dist\cli.js'
+ AssertPnpmPath $cli $store
+ $realCli=ResolveVitestPath $node $cli
+ Assert (Within $realCli $store) 'VITEST_OUTSIDE_PNPM_STORE_REJECTED'
+ Assert ($realCli -ieq $cli) 'VITEST_CLI_CANONICAL_PATH_CHANGED'
+ Write-Host ('CANONICAL_VITEST_CLI='+$realCli)
+ $plan=[System.Collections.Generic.List[object]]::new()
+ foreach($file in @($entry,$realCli)){
+  $cursor=$store
+  $parts=$file.Substring($store.Length).TrimStart('\').Split('\')
+  if(-not (@($plan | ForEach-Object {$_.Path}) -contains $cursor)){[void]$plan.Add([pscustomobject]@{Path=$cursor;Directory=$true})}
+  for($i=0;$i -lt $parts.Length-1;$i++){
+   $cursor=Join-Path $cursor $parts[$i]
+   if(-not (@($plan | ForEach-Object {$_.Path}) -contains $cursor)){[void]$plan.Add([pscustomobject]@{Path=$cursor;Directory=$true})}
+  }
+  [void]$plan.Add([pscustomobject]@{Path=$file;Directory=$false})
+ }
+ foreach($item in $plan){[void](InspectRead $item.Path $item.Directory)}
+ return $plan.ToArray()
+}
 function InspectRead([string]$path,[bool]$directory){
+ if($null -ne $script:physicalStore){AssertPnpmPath $path $script:physicalStore}
  $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
  Assert (-not (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'PNPM_REPARSE_CUSTODY_REJECTED'
  Assert ($item.PSIsContainer -eq $directory) 'PNPM_OBJECT_KIND_CHANGED'
@@ -75,6 +119,9 @@ function GrantRead([string]$path,[bool]$directory){
  $change=[pscustomobject]@{Path=$path;Directory=$directory;Before=$before;Expected=$expected;After=$null}
  [void]$script:aclChanges.Add($change)
  SaveJournal 'APPLYING'
+ # Revalidate custody and the exact DACL after journaling, before the write.
+ $current=InspectRead $path $directory
+ Assert ($current.Acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access) -eq $before) 'PNPM_CONCURRENT_ACL_CHANGE_NOT_OVERWRITTEN'
  Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
  $effective=InspectRead $path $directory
  Assert (-not $effective.NeedsGrant) 'PNPM_RX_POSTWRITE_UNVERIFIED'
@@ -92,8 +139,10 @@ function UndoReadChanges{
  for($i=$script:aclChanges.Count-1;$i -ge 0;$i--){
   $change=$script:aclChanges[$i]
   try{
+   if($null -ne $script:physicalStore){AssertPnpmPath $change.Path $script:physicalStore}
    $item=Get-Item -LiteralPath $change.Path -Force -ErrorAction Stop
    Assert (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'PNPM_ROLLBACK_REPARSE_REJECTED'
+   Assert ($item.PSIsContainer -eq $change.Directory) 'PNPM_OBJECT_KIND_CHANGED'
    $acl=Get-Acl -LiteralPath $change.Path -ErrorAction Stop
    $now=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
    if($now -eq $change.Before){continue}
@@ -109,6 +158,7 @@ function UndoReadChanges{
 }
 $script:aclChanges=[System.Collections.Generic.List[object]]::new()
 $script:journalPath=$null
+$script:physicalStore=$null
 try{
  Assert ($env:OS -eq 'Windows_NT' -and [Environment]::Is64BitOperatingSystem) 'WINDOWS_X64_REQUIRED'
  $machine=Get-CimInstance Win32_ComputerSystem
@@ -137,19 +187,8 @@ try{
  Assert (Within $realVitest $pnpmStore) 'VITEST_OUTSIDE_PNPM_STORE_REJECTED'
  Assert (Test-Path -LiteralPath $realVitest -PathType Leaf) 'REAL_VITEST_MISSING'
  Write-Host ('CANONICAL_VITEST='+$realVitest)
- # Nonrecursive, bounded set of concrete physical ancestors. No /T.
- $plan=[System.Collections.Generic.List[object]]::new()
- [void]$plan.Add([pscustomobject]@{Path=$pnpmStore;Directory=$true})
- $relative=$realVitest.Substring($pnpmStore.Length).TrimStart('\')
- $cursor=$pnpmStore
- $parts=$relative.Split('\')
- for($i=0;$i -lt $parts.Length-1;$i++){
-   $cursor=Join-Path $cursor $parts[$i]
-   Assert (Within $cursor $pnpmStore) 'PNPM_PATH_ESCAPES_ROOT'
-   Assert (Test-Path -LiteralPath $cursor -PathType Container) 'PNPM_ANCESTOR_MISSING'
-   [void]$plan.Add([pscustomobject]@{Path=$cursor;Directory=$true})
- }
- [void]$plan.Add([pscustomobject]@{Path=$realVitest;Directory=$false})
+ $script:physicalStore=$pnpmStore
+ $plan=@(NewVitestReadPlan $node $pnpmStore $realVitest)
  # Validate the whole bounded plan before the first write. No directory walk,
  # recursion, link traversal, private custody or repository-wide write grant.
  foreach($entry in $plan){[void](InspectRead $entry.Path $entry.Directory)}
