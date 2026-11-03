@@ -16,6 +16,7 @@
 param(
   [switch]$Run,
   [Parameter(Mandatory=$true)][string]$LabRoot,
+  [Parameter(Mandatory=$true)][string]$IsolatedRuntime,
   [Parameter(Mandatory=$true)][string]$DesktopProvision,
   [Parameter(Mandatory=$true)][string]$ServiceResult
 )
@@ -31,6 +32,7 @@ $checks=[System.Collections.Generic.List[object]]::new()
 $startedByUs=$false
 $oldProvision=[Environment]::GetEnvironmentVariable('CAMACHO_SCM_PHYSICAL_PROVISION','Process')
 $oldElectron=[Environment]::GetEnvironmentVariable('ELECTRON_RUN_AS_NODE','Process')
+$oldTemp=$env:TEMP;$oldTmp=$env:TMP
 function Check([string]$Name,[bool]$Passed,[string]$Detail){
   $status=if($Passed){'PASS'}else{'FAIL'}
   $script:checks.Add([pscustomobject]@{name=$Name;status=$status;detail=$Detail})
@@ -72,9 +74,9 @@ function Invoke-Round([string]$Runtime){
   else{[Environment]::SetEnvironmentVariable('ELECTRON_RUN_AS_NODE',$null,'Process')}
   try{
     if($Runtime -eq 'NODE'){
-      & pnpm --filter '@pos-platform/pos-local-service' exec vitest run 'tests/windows-scm-physical.test.ts' '--no-file-parallelism' '--reporter=json' "--outputFile=$clientJson"
+      & $runtimeNode $runtimeVitest run --root $runtimeServiceRoot --config $runtimeConfig --configLoader native 'tests/windows-scm-physical.test.ts' '--no-file-parallelism' '--reporter=json' "--outputFile=$clientJson"
     }else{
-      & pnpm --filter '@pos-platform/pos-desktop' exec electron '../pos-local-service/node_modules/vitest/vitest.mjs' run '--root' '../pos-local-service' 'tests/windows-scm-physical.test.ts' '--no-file-parallelism' '--reporter=json' "--outputFile=$clientJson"
+      & $runtimeElectron $runtimeVitest run --root $runtimeServiceRoot --config $runtimeConfig --configLoader native 'tests/windows-scm-physical.test.ts' '--no-file-parallelism' '--reporter=json' "--outputFile=$clientJson"
     }
     $exit=$LASTEXITCODE
   }finally{[Environment]::SetEnvironmentVariable('ELECTRON_RUN_AS_NODE',$oldElectron,'Process')}
@@ -133,7 +135,22 @@ try{
     (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($binary,'.xml')) -PathType Leaf)) 'WinSW 2.12.0 and matching XML required'
   $signature=Get-AuthenticodeSignature -LiteralPath $binary -ErrorAction Stop
   Check 'WinSW-valid-signature' ($signature.Status -eq 'Valid') 'Reject unsigned, altered or untrusted privileged service launchers'
-  Set-Location $root
+  & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'windows-scm-isolated-runtime.ps1') -Mode Verify -RequireScmProbe -LabRoot $canonicalLab -Attempt $IsolatedRuntime
+  Check 'Isolated-runtime-verified' ($LASTEXITCODE -eq 0) 'Hashes, ACLs and actual SCM dependency probe'
+  $runtime=[IO.Path]::GetFullPath($IsolatedRuntime)
+  $runtimeManifest=Get-Content -LiteralPath (Join-Path $runtime 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+  Check 'Isolated-runtime-commit' ($runtimeManifest.source.commit -eq ((& git -C $root rev-parse HEAD).Trim())) 'Same reviewed source snapshot'
+  $runtimeWorkspace=Join-Path $runtime 'payload'
+  $runtimeNode=Join-Path $runtimeWorkspace '.scm-runtime\node.exe'
+  $runtimeServiceRoot=Join-Path $runtimeWorkspace 'apps\pos-local-service'
+  $runtimeVitest=Join-Path $runtimeServiceRoot 'node_modules\vitest\vitest.mjs'
+  $runtimeConfig=Join-Path $runtimeWorkspace '.scm-runtime\vitest-operator.config.mjs'
+  $runtimeElectron=Join-Path $runtimeWorkspace 'apps\pos-desktop\node_modules\electron\dist\electron.exe'
+  $candidate=Join-Path $runtime 'control\service-physical-runner.ps1'
+  $installedRunner=Join-Path $canonicalLab 'service\run-physical-test.ps1'
+  Check 'Isolated-service-runner-bound' ((Get-FileHash $candidate -Algorithm SHA256).Hash -eq (Get-FileHash $installedRunner -Algorithm SHA256).Hash) 'Operator must explicitly bind the prepared runner before SCM start'
+  $env:TEMP=Join-Path $runtime 'work\operator';$env:TMP=$env:TEMP
+  Set-Location $runtimeWorkspace
   Invoke-Round 'NODE'
   Invoke-Round 'ELECTRON'
   $verdict='PASS_PHYSICAL_NATIVE_TWO_RUNTIMES'
@@ -141,6 +158,7 @@ try{
   $failure=$_.Exception.Message
   Write-Host ('SCM_ONE_SHOT_FAILURE='+$failure)
 }finally{
+  $env:TEMP=$oldTemp;$env:TMP=$oldTmp
   [Environment]::SetEnvironmentVariable('CAMACHO_SCM_PHYSICAL_PROVISION',$oldProvision,'Process')
   [Environment]::SetEnvironmentVariable('ELECTRON_RUN_AS_NODE',$oldElectron,'Process')
   if($startedByUs){

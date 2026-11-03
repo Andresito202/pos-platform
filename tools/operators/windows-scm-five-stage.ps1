@@ -5,7 +5,7 @@ No private keys or trust roots are manufactured; no interactive login is launche
 -RunPhysical delegates to the existing Node/Electron one-shot only after readiness.
 #>
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$LabRoot,[switch]$RunPhysical)
+param([Parameter(Mandatory=$true)][string]$LabRoot,[switch]$RunPhysical,[string]$IsolatedRuntime)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'windows-scm-lab-binding.ps1')
@@ -129,7 +129,7 @@ try {
   if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'ADMIN_REQUIRED'}
   $oneShot=Join-Path $PSScriptRoot 'windows-scm-physical-one-shot.ps1'
   if(-not (FileExists $oneShot)){throw 'ONE_SHOT_MISSING'}
-  $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$oneShot,'-Run','-LabRoot',$lab,'-DesktopProvision',$desktop,'-ServiceResult',(Join-Path $lab 'results\service-physical.json'))
+  $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$oneShot,'-Run','-LabRoot',$lab,'-IsolatedRuntime',$IsolatedRuntime,'-DesktopProvision',$desktop,'-ServiceResult',(Join-Path $lab 'results\service-physical.json'))
   & powershell.exe @args
   if($LASTEXITCODE -ne 0){throw 'PHYSICAL_NODE_ELECTRON_FAILED'}
   Write-Host 'D_PHYSICAL_NODE_ELECTRON=PASS'

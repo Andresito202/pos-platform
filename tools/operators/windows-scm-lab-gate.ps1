@@ -16,6 +16,7 @@
 param(
   [ValidateSet('Status','Physical')][string]$Mode='Status',
   [Parameter(Mandatory=$true)][string]$LabRoot,
+  [string]$IsolatedRuntime,
   [string]$LabSignerThumbprint='D66CDBD8B1564BF4B8A8F0664A3DCD17C39D0911'
 )
 Set-StrictMode -Version Latest
@@ -81,7 +82,7 @@ try {
   if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'ADMIN_REQUIRED'}
   $oneShot=Join-Path $PSScriptRoot 'windows-scm-physical-one-shot.ps1'
   if(-not (Test-Path -LiteralPath $oneShot -PathType Leaf)){throw 'ONE_SHOT_MISSING'}
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $oneShot -Run -LabRoot $lab -DesktopProvision $desktop -ServiceResult (Join-Path $resultDir 'service-physical.json')
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $oneShot -Run -LabRoot $lab -IsolatedRuntime $IsolatedRuntime -DesktopProvision $desktop -ServiceResult (Join-Path $resultDir 'service-physical.json')
   if($LASTEXITCODE -ne 0){throw 'PHYSICAL_ONE_SHOT_FAILED'}
   Write-Host 'SCM_NATIVE_PHYSICAL_TEST=FINISHED_CHECK_RECEIPT'
   Write-Host 'HUMAN_LOGIN_CERTIFIED=NO'

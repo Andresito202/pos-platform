@@ -14,6 +14,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string]$LabRoot,
+  [Parameter(Mandatory=$true)][string]$IsolatedRuntime,
   [switch]$Apply,
   [switch]$RunPhysical
 )
@@ -147,7 +148,9 @@ try{
     exit 2
   }
   $existingRunner=[IO.File]::ReadAllText($runner)
-  Must ($existingRunner.Contains('CAMACHO_SCM_PHYSICAL_PROVISION') -and $existingRunner.Contains('windows-scm-physical.test.ts')) 'RUNNER_UNEXPECTED_CONTENT'
+  $runnerHash=(Get-FileHash -LiteralPath $runner -Algorithm SHA256).Hash
+  $allowedRunners=@('service-probe-runner.ps1','service-physical-runner.ps1') | ForEach-Object {(Get-FileHash -LiteralPath (Join-Path $IsolatedRuntime ('control\'+$_)) -Algorithm SHA256).Hash}
+  Must ($runnerHash -in $allowedRunners) 'RUNNER_NOT_BOUND_TO_ISOLATED_RUNTIME'
   $script:runnerRestore=[IO.File]::ReadAllBytes($runner)
   $script:xmlRestore=[IO.File]::ReadAllBytes($xml)
   # Abort before new writes if an earlier run left service enrollment evidence.
@@ -171,14 +174,16 @@ try{
       created_utc=[DateTime]::UtcNow.ToString('o')
     }
   }
-  # Bounded repair for the observed EPERM on Vitest behind pnpm Windows
-  # junctions. Never recurse with icacls /T (previously failed on a dangling
-  # nested pnpm dependency), never grant Modify/FullControl to the SCM token.
-  $dependencyAclRepair=Join-Path $PSScriptRoot 'windows-scm-lab-dependency-acl.ps1'
-  Must (Test-Path -LiteralPath $dependencyAclRepair -PathType Leaf) 'PNPM_SCOPED_REPAIR_MISSING'
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $dependencyAclRepair -Repository $repo -LabRoot $lab -Apply
-  Must ($LASTEXITCODE -eq 0) 'PNPM_SCOPED_RX_REPAIR_FAILED'
-  Write-Host 'A_PNPM_SCOPED_RX=APPLIED_NOT_EXECUTION_CERTIFIED'
+  # Consume only a sealed isolated snapshot. Never repair principal node_modules.
+  & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'windows-scm-isolated-runtime.ps1') -Mode Verify -RequireScmProbe -LabRoot $lab -Attempt $IsolatedRuntime
+  Must ($LASTEXITCODE -eq 0) 'ISOLATED_RUNTIME_NOT_PROVEN'
+  $runtime=[IO.Path]::GetFullPath($IsolatedRuntime)
+  $runtimeWorkspace=Join-Path $runtime 'payload'
+  $runtimeManifest=Get-Content -LiteralPath (Join-Path $runtime 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+  Must ($runtimeManifest.source.commit -eq ((& $git -C $repo rev-parse HEAD).Trim())) 'ISOLATED_RUNTIME_COMMIT_MISMATCH'
+  Must ($runtimeManifest.addonHash -ieq (Get-FileHash -LiteralPath $addonSource -Algorithm SHA256).Hash) 'ISOLATED_NATIVE_ADDON_MISMATCH'
+  $node=Join-Path $runtimeWorkspace '.scm-runtime\node.exe'
+  Write-Host 'A_ISOLATED_RUNTIME=HASH_ACL_AND_SCM_PROBE_VERIFIED'
   # Ancestors: no changes to C:\, Program Files, repository or Windows 10.
   $parent='C:\CamachoPosScmLab'
   SetProtectedDir $parent $adminsSid @($svcSid,$operatorSid) @()
@@ -223,12 +228,16 @@ try{
 
   $temporaryRunner=@'
 $ErrorActionPreference='Stop'
-$repo='C:\CamachoLab\pos-platform'
+$repo='__RUNTIME_WORKSPACE__'
 $lab='__LAB__'
+$runtime='__RUNTIME__'
 $private=Join-Path $lab 'service\private'
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
 if($id.Name -ne 'NT SERVICE\CamachoPOSLocalService' -or [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0){exit 93}
 Write-Output 'SCM_ENROLL_STEP=TOKEN_VERIFIED'
+& powershell.exe -NoProfile -File (Join-Path $runtime 'control\windows-scm-isolated-runtime.ps1') -Mode Verify -RequireScmProbe -LabRoot $lab -Attempt $runtime
+if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+$env:TEMP=Join-Path $runtime 'work\service';$env:TMP=$env:TEMP
 if(-not (Test-Path -LiteralPath $private -PathType Container)){
  [void][IO.Directory]::CreateDirectory($private)
  $acl=[Security.AccessControl.DirectorySecurity]::new()
@@ -259,13 +268,13 @@ $env:POS_INSTALLATION_ID='__INSTALLATION__'
 $env:POS_DEVICE_ID='__DEVICE__'
 $vitest=Join-Path $repo 'apps\pos-local-service\node_modules\vitest\vitest.mjs'
 Write-Output 'SCM_ENROLL_STEP=VITEST_START'
-& 'C:\Program Files\nodejs\node.exe' $vitest run --root (Join-Path $repo 'apps\pos-local-service') 'tests/windows-scm-enrollment.operator.test.ts' '--no-file-parallelism' '--reporter=json' ('--outputFile='+(Join-Path $lab 'results\service-enrollment.json'))
+& (Join-Path $repo '.scm-runtime\node.exe') $vitest run --root (Join-Path $repo 'apps\pos-local-service') --config (Join-Path $repo '.scm-runtime\vitest.config.mjs') --configLoader native 'tests/windows-scm-enrollment.operator.test.ts' '--no-file-parallelism' '--reporter=json' ('--outputFile='+(Join-Path $lab 'results\service-enrollment.json'))
 if($LASTEXITCODE -ne 0){Write-Error ('SCM_ENROLL_VITEST_EXIT='+$LASTEXITCODE);exit $LASTEXITCODE}
 Write-Output 'SCM_ENROLL_STEP=VITEST_PASS'
 Copy-Item -LiteralPath (Join-Path $private 'signer-public.json') -Destination (Join-Path $lab 'results\service-signer-public.json') -ErrorAction Stop
 exit 0
 '@
-  $temporaryRunner=$temporaryRunner.Replace('__LAB__',$lab).Replace('__INSTALLATION__',[string]$ids.installation_id).Replace('__DEVICE__',[string]$ids.device_id)
+  $temporaryRunner=$temporaryRunner.Replace('__RUNTIME_WORKSPACE__',$runtimeWorkspace).Replace('__RUNTIME__',$runtime).Replace('__LAB__',$lab).Replace('__INSTALLATION__',[string]$ids.installation_id).Replace('__DEVICE__',[string]$ids.device_id)
   [IO.File]::WriteAllText($runner,$temporaryRunner,[Text.UTF8Encoding]::new($false))
   SetProtectedFile $runner
   Write-Host 'B_SERVICE_IDENTITY_ENROLLMENT=STARTING'
@@ -296,8 +305,8 @@ exit 0
   $script:serviceStartedByUs=$false
   Write-Host 'B_SERVICE_DPAPI_ENROLLED=PASS'
 
-  # Restore the original physical runner before any further action.
-  [IO.File]::WriteAllBytes($runner,$script:runnerRestore)
+  # Bind the already verified isolated physical runner; no service identity change.
+  [IO.File]::WriteAllBytes($runner,[IO.File]::ReadAllBytes((Join-Path $runtime 'control\service-physical-runner.ps1')))
   # Keep the protected lab-only WinSW log path pointed at the writable results
   # directory. Restoring the old XML would redirect log writes into the now
   # read-only service directory and break the subsequent physical SCM start.
@@ -315,8 +324,8 @@ exit 0
   $env:CAMACHO_SCM_OPERATOR_PUBLIC_FILE=$receiverPublic
   $env:POS_INSTALLATION_ID=[string]$ids.installation_id
   $env:POS_DEVICE_ID=[string]$ids.device_id
-  $vitest=Join-Path $repo 'apps\pos-local-service\node_modules\vitest\vitest.mjs'
-  & $node $vitest run --root (Join-Path $repo 'apps\pos-local-service') 'tests/windows-scm-enrollment.operator.test.ts' '--no-file-parallelism' '--reporter=json' ('--outputFile='+(Join-Path $resultsDir 'desktop-enrollment.json'))
+  $vitest=Join-Path $runtimeWorkspace 'apps\pos-local-service\node_modules\vitest\vitest.mjs'
+  & $node $vitest run --root (Join-Path $runtimeWorkspace 'apps\pos-local-service') --config (Join-Path $runtimeWorkspace '.scm-runtime\vitest-operator.config.mjs') --configLoader native 'tests/windows-scm-enrollment.operator.test.ts' '--no-file-parallelism' '--reporter=json' ('--outputFile='+(Join-Path $resultsDir 'desktop-enrollment.json'))
   Must ($LASTEXITCODE -eq 0) 'DESKTOP_ENROLLMENT_FAILED'
   Must ((Test-Path $receiverPrivate -PathType Leaf) -and (Test-Path $receiverPublic -PathType Leaf)) 'DESKTOP_DPAPI_NOT_CREATED'
   Write-Host 'B_DESKTOP_DPAPI_ENROLLED=PASS'
@@ -332,7 +341,7 @@ exit 0
 
   if($RunPhysical){
     # Existing operator tests: two genuine rounds, Node and Electron-as-Node.
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'windows-scm-physical-one-shot.ps1') -Run -LabRoot $lab -DesktopProvision $desktopManifest -ServiceResult (Join-Path $resultsDir 'service-physical.json')
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'windows-scm-physical-one-shot.ps1') -Run -LabRoot $lab -IsolatedRuntime $runtime -DesktopProvision $desktopManifest -ServiceResult (Join-Path $resultsDir 'service-physical.json')
     Must ($LASTEXITCODE -eq 0) 'D_PHYSICAL_NODE_ELECTRON_FAILED'
     Write-Host 'D_PHYSICAL_NODE_ELECTRON=PASS'
   }else{
