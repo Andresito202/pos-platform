@@ -10,7 +10,9 @@ const publicKeyPath = resolve(repositoryRoot, "infra/trust/camacho-pos-session-t
 const fingerprintPath = resolve(repositoryRoot, "infra/trust/camacho-pos-session-trust-root-public.sha256");
 
 test("session trust root is public Ed25519 material matching the pinned SHA-256 fingerprint", () => {
-  const pem = readFileSync(publicKeyPath, "utf8");
+  // Windows checkout may use CRLF. Trust is pinned to the exact SPKI DER below,
+  // not to platform-dependent PEM line endings. Never change the key or pin.
+  const pem = readFileSync(publicKeyPath, "utf8").replace(/\r\n/g, "\n");
   const expectedFingerprint = readFileSync(fingerprintPath, "utf8").trim();
 
   assert.ok(pem.startsWith("-----BEGIN PUBLIC KEY-----\n"));

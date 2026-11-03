@@ -7,9 +7,10 @@ import { spawnSync } from "node:child_process";
 import { WindowsChannelHandoffSchema, type WindowsChannelHandoff } from "@pos-platform/contracts";
 import { canonicalJson } from "../src/canonical-json.js";
 import { LocalChannelAuthenticator } from "../src/authenticator.js";
-import { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, openWindowsHandoff, openWindowsHandoffCandidateForCurrentRecipient, sealWindowsHandoff, validateWindowsHandoff, validateWindowsHandoffRecipient, sealSignedWindowsHandoffCandidate, verifySignedWindowsHandoffCandidate, consumeSignedWindowsHandoffForCurrentRecipient } from "../src/windows-handoff.js";
+import { prepareWindowsHandoffReceiver, openWindowsHandoff, openWindowsHandoffCandidateForCurrentRecipient, sealWindowsHandoff, validateWindowsHandoff, validateWindowsHandoffRecipient, sealSignedWindowsHandoffCandidate, verifySignedWindowsHandoffCandidate, consumeSignedWindowsHandoffForCurrentRecipient } from "../src/windows-handoff.js";
 import { InMemoryReplayStateStore } from "../src/replay-state.js";
 import { windowsHandoffReplaySessionId } from "../src/windows-handoff.js";
+import { recoverWindowsHandoffReceiverPublic } from "../src/index.js";
 import { currentHandoffIdentity, handoffNative } from "../src/windows-handoff-native.js";
 
 const installation="018f0000-0000-7000-8000-000000000001";

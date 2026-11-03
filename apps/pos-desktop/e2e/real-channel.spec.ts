@@ -170,11 +170,14 @@ test.beforeAll(async () => {
   const ready = await waitForService(service);
   sessionAssertion = ready.sessionAssertion;
 
+  const electronEnvironment = Object.fromEntries(Object.entries(process.env).filter(
+    (entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== "ELECTRON_RUN_AS_NODE",
+  ));
   app = await electron.launch({
-    args: ["--no-sandbox", join(here, "real-channel-entry.mjs")],
+    args: [...(process.platform === "linux" ? ["--no-sandbox"] : []), join(here, "real-channel-entry.mjs")],
     executablePath,
     env: {
-      ...process.env,
+      ...electronEnvironment,
       POS_E2E_CHANNEL_ENDPOINT: ready.endpoint,
       POS_E2E_CHANNEL_SECRET: channelSecret,
       POS_E2E_INSTALLATION_ID: INSTALLATION,
@@ -214,7 +217,8 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.evaluate(() => ({ require: typeof (globalThis as { require?: unknown }).require, process: typeof (globalThis as { process?: unknown }).process })))
     .toEqual({ require: "undefined", process: "undefined" });
   await expect(page.getByTestId("status-connected")).toBeVisible();
-  await expect(page.getByTestId("authorization-error")).toBeVisible();
+  await expect(page.getByTestId("authorization-unauthenticated")).toBeVisible();
+  await expect(page.getByTestId("sale-panel")).toHaveCount(0);
   if (auditDirectory) {
     mkdirSync(auditDirectory, { recursive: true });
     writeFileSync(join(auditDirectory, "electron-security.json"), JSON.stringify(security, null, 2));

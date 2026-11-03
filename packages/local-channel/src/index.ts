@@ -22,7 +22,7 @@ export * from "./endpoint.js";
 export * from "./response-schemas.js";
 export * from "./client.js";
 export * from "./windows-production.js";
-export { prepareWindowsHandoffReceiver, windowsHandoffReplaySessionId } from "./windows-handoff.js";
+export { prepareWindowsHandoffReceiver, recoverWindowsHandoffReceiverPublic, windowsHandoffReplaySessionId } from "./windows-handoff.js";
 export type { WindowsHandoffRevocationAuthority } from "./windows-handoff.js";
 export * from "./windows-native-pipe.js";
 export * from "./windows-service-signer.js";

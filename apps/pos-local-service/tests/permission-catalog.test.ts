@@ -47,12 +47,17 @@ const EXECUTABLE_PERMISSION_CODES = [
 
 describe("runtime permission catalog alignment", () => {
   it("keeps every executable backend permission in the shared canonical catalog", () => {
+    // The shared catalog also names the GLOBAL permission enforced by Central.
+    // Local POS operations must not claim to implement platform administration.
     expect([...EXECUTABLE_PERMISSION_CODES].sort()).toEqual(
-      [...CANONICAL_PERMISSION_CODES].sort(),
+      CANONICAL_PERMISSION_CODES.filter(code => code !== CanonicalPermission.LICENSE_PLAN_MANAGE).sort(),
     );
   });
 
   it("contains no duplicate executable permission code", () => {
     expect(new Set(EXECUTABLE_PERMISSION_CODES).size).toBe(EXECUTABLE_PERMISSION_CODES.length);
+  });
+  it("does not treat GLOBAL plan management as a local POS permission", () => {
+    expect(EXECUTABLE_PERMISSION_CODES).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
 });
