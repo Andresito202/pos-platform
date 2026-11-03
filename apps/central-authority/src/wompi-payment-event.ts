@@ -23,10 +23,19 @@ interface WompiSignature {
   readonly checksum?: unknown;
 }
 
+// Supported transaction.updated signature profile. Read the order from the
+// event, as Wompi requires; do not accept selectors that detach the signature
+// from its authoritative ID/status/amount. New field sets require a reviewed
+// profile rather than silently treating arbitrary data as signed transaction.
+const TRANSACTION_SIGNATURE_FIELDS=new Set([
+  "transaction.id","transaction.status","transaction.amount_in_cents",
+]);
+const TRANSACTION_STATUSES=new Set(["APPROVED","DECLINED","ERROR","VOIDED","PENDING"]);
+
 function propertyValue(root: unknown, path: string): string | null {
   let current: unknown = root;
   for (const part of path.split(".")) {
-    if (typeof current !== "object" || current === null || !(part in current)) return null;
+    if (typeof current !== "object" || current === null || !Object.hasOwn(current,part)) return null;
     current = (current as Record<string, unknown>)[part];
   }
   return typeof current === "string" || typeof current === "number" || typeof current === "boolean"
@@ -64,15 +73,25 @@ export function verifyWompiTransactionEvent(input: unknown, eventSecret: string)
   const signature = event.signature as WompiSignature | undefined;
   const properties = signature?.properties;
   const checksum = signature?.checksum;
-  if (!Array.isArray(properties) || properties.some((value) => typeof value !== "string")) {
+  if (!Array.isArray(properties) || properties.length!==TRANSACTION_SIGNATURE_FIELDS.size ||
+    new Set(properties).size!==properties.length ||
+    properties.some((value) => typeof value !== "string"||!TRANSACTION_SIGNATURE_FIELDS.has(value)) ||
+    // The provider concatenates without lengths or separators. Adjacent ID and
+    // amount admit moving digits between them without changing the checksum.
+    // Only supported profiles with a recognized status separating them are
+    // unambiguous here. Other provider profiles require independent API binding.
+    properties[1]!=="transaction.status") {
     throw new Error("WOMPI_INVALID_SIGNATURE_PROPERTIES");
   }
   if (typeof checksum !== "string" || checksum.length !== 64) throw new Error("WOMPI_INVALID_CHECKSUM");
 
   const transaction = (event.data as { transaction?: unknown } | undefined)?.transaction as WompiTransaction | undefined;
   if (transaction === undefined) throw new Error("WOMPI_TRANSACTION_MISSING");
+  if(typeof transaction.status!=="string"||!TRANSACTION_STATUSES.has(transaction.status))throw new Error("WOMPI_INVALID_STATUS");
 
-  const material = properties.map((path) => propertyValue(event.data, path)).map((value) => value ?? "").join("")
+  const values=properties.map((path)=>propertyValue(event.data,path));
+  if(values.some(value=>value===null))throw new Error("WOMPI_INVALID_SIGNATURE_PROPERTIES");
+  const material = values.join("")
     + String(event.timestamp)
     + eventSecret;
   const calculated = createHash("sha256").update(material, "utf8").digest("hex");
@@ -94,6 +113,9 @@ export function verifyWompiTransactionEvent(input: unknown, eventSecret: string)
       ? "DECLINED"
       : transaction.status === "PENDING" ? "PENDING" : "UNKNOWN";
 
+  // Currency/reference/email are advisory metadata in this provider profile.
+  // An observation is never settlement evidence: the canonical consumer must
+  // verify the current transaction and all financial binding through the API.
   return QrPaymentObservationSchema.parse({
     external_transaction_id: transaction.id,
     external_reference: typeof transaction.reference === "string" ? transaction.reference : null,

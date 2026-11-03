@@ -43,6 +43,53 @@ describe("Wompi transaction event verification", () => {
     expect(() => verifyWompiTransactionEvent(event, "test-secret")).toThrow("WOMPI_INVALID_CHECKSUM");
   });
 
+  it("rejects relocation of the signed tuple into an attacker-selected property",()=>{
+    const event=signedEvent("test-secret");
+    Object.assign(event.data,{attacker:"tx-001APPROVED8750000"});
+    event.signature.properties=["attacker"];
+    event.data.transaction.id="forged-transaction";
+    event.data.transaction.amount_in_cents=100;
+    expect(()=>verifyWompiTransactionEvent(event,"test-secret")).toThrow("WOMPI_INVALID_SIGNATURE_PROPERTIES");
+  });
+
+  it("uses the supplied supported property order rather than a fixed array order",()=>{
+    const event=signedEvent("test-secret");
+    event.signature.properties=["transaction.amount_in_cents","transaction.status","transaction.id"];
+    event.signature.checksum=createHash("sha256").update(`8750000APPROVEDtx-001${event.timestamp}test-secret`).digest("hex");
+    expect(verifyWompiTransactionEvent(event,"test-secret").status).toBe("APPROVED");
+  });
+
+  it("rejects ambiguous adjacent amount/ID tuples even with an unchanged valid checksum",()=>{
+    const event=signedEvent("test-secret");
+    event.signature.properties=["transaction.amount_in_cents","transaction.id","transaction.status"];
+    event.signature.checksum=createHash("sha256").update(`8750000tx-001APPROVED${event.timestamp}test-secret`).digest("hex");
+    event.data.transaction.amount_in_cents=875000;
+    event.data.transaction.id="0tx-001";
+    expect(()=>verifyWompiTransactionEvent(event,"test-secret")).toThrow("WOMPI_INVALID_SIGNATURE_PROPERTIES");
+  });
+
+  it("rejects missing, duplicate and unsupported signature selectors",()=>{
+    for(const properties of [[],["transaction.id"],["transaction.id","transaction.status","transaction.status"],
+      ["transaction.id","transaction.status","transaction.amount_in_cents","attacker"],["constructor","__proto__","transaction.id"]]){
+      const event=signedEvent("test-secret");event.signature.properties=properties;
+      expect(()=>verifyWompiTransactionEvent(event,"test-secret")).toThrow("WOMPI_INVALID_SIGNATURE_PROPERTIES");
+    }
+  });
+
+  it("preserves documented states and rejects altered core values or an unreviewed delimiter",()=>{
+    for(const status of ["APPROVED","DECLINED","ERROR","VOIDED","PENDING"]){
+      const event=signedEvent("test-secret");event.data.transaction.status=status;
+      event.signature.checksum=createHash("sha256").update(`tx-001${status}8750000${event.timestamp}test-secret`).digest("hex");
+      expect(verifyWompiTransactionEvent(event,"test-secret").status).toBe(status==="APPROVED"?"APPROVED":status==="PENDING"?"PENDING":"DECLINED");
+    }
+    for(const mutation of [{id:"other"},{amount_in_cents:100},{status:"DECLINED"}]){
+      const event=signedEvent("test-secret");Object.assign(event.data.transaction,mutation);
+      expect(()=>verifyWompiTransactionEvent(event,"test-secret")).toThrow("WOMPI_INVALID_CHECKSUM");
+    }
+    const event=signedEvent("test-secret");event.data.transaction.status="ROVED";
+    expect(()=>verifyWompiTransactionEvent(event,"test-secret")).toThrow("WOMPI_INVALID_STATUS");
+  });
+
   it("does not invent payer names when the provider only supplies email", () => {
     const result = verifyWompiTransactionEvent(signedEvent("test-secret"), "test-secret");
     expect(result.payer_display_name).toBeNull();
