@@ -17,6 +17,7 @@
 #include <tlhelp32.h>
 #include <io.h>
 #include <fcntl.h>
+#include "windows-process-birth.h"
 #endif
 
 static void check(napi_status s){if(s!=napi_ok)throw std::runtime_error("NATIVE_PIPE_API_FAILED");}
@@ -30,16 +31,32 @@ static std::wstring sidText(PSID sid){LPWSTR text=nullptr;require(IsValidSid(sid
 static void sidValid(const std::wstring& s){PSID sid=nullptr;require(ConvertStringSidToSidW(s.c_str(),&sid));std::wstring canonical=sidText(sid);LocalFree(sid);require(canonical==s);}
 static uint64_t creation(HANDLE h){FILETIME c,x,k,u;require(GetProcessTimes(h,&c,&x,&k,&u));return (uint64_t(c.dwHighDateTime)<<32)|c.dwLowDateTime;}
 struct Identity{std::wstring sid,logon;DWORD session=0,pid=0;uint64_t born=0;};
-static Identity identity(DWORD pid){
- Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,pid));require(process.h&&process.h!=INVALID_HANDLE_VALUE);
- require(WaitForSingleObject(process.h,0)==WAIT_TIMEOUT); // must still be alive
- Handle token;require(OpenProcessToken(process.h,TOKEN_QUERY,&token.h));
- auto info=[&](TOKEN_INFORMATION_CLASS cls){DWORD n=0;GetTokenInformation(token.h,cls,nullptr,0,&n);require(n>0&&n<1048576);std::vector<unsigned char>b(n);require(GetTokenInformation(token.h,cls,b.data(),n,&n));return b;};
+static Identity tokenIdentity(HANDLE token,DWORD pid,uint64_t born){
+ auto info=[&](TOKEN_INFORMATION_CLASS cls){DWORD n=0;GetTokenInformation(token,cls,nullptr,0,&n);require(n>0&&n<1048576);std::vector<unsigned char>b(n);require(GetTokenInformation(token,cls,b.data(),n,&n));return b;};
  auto user=info(TokenUser),groups=info(TokenGroups),session=info(TokenSessionId);
- Identity id;id.sid=sidText(reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid);id.session=*reinterpret_cast<DWORD*>(session.data());id.pid=pid;id.born=creation(process.h);
+ Identity id;id.sid=sidText(reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid);id.session=*reinterpret_cast<DWORD*>(session.data());id.pid=pid;id.born=born;
  auto g=reinterpret_cast<TOKEN_GROUPS*>(groups.data());
  for(DWORD i=0;i<g->GroupCount;i++)if((g->Groups[i].Attributes&SE_GROUP_LOGON_ID)==SE_GROUP_LOGON_ID){require(id.logon.empty());id.logon=sidText(g->Groups[i].Sid);}
  require(id.logon.rfind(L"S-1-5-5-",0)==0);return id;
+}
+static Identity identity(DWORD pid){
+ Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,pid));require(process.h&&process.h!=INVALID_HANDLE_VALUE);
+ require(WaitForSingleObject(process.h,0)==WAIT_TIMEOUT);
+ Handle token;require(OpenProcessToken(process.h,TOKEN_QUERY,&token.h));
+ return tokenIdentity(token.h,pid,creation(process.h));
+}
+static Identity pipeClientIdentity(HANDLE pipe,DWORD pid){
+ // Identification only, from this actual connected pipe after its preface.
+ // Never acquire PROCESS_QUERY/TOKEN_QUERY on the interactive peer process.
+ Handle token;require(ImpersonateNamedPipeClient(pipe));
+ BOOL opened=OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token.h);
+ // No throwing code or privileged operation may run while impersonating.
+ if(!RevertToSelf()){TerminateProcess(GetCurrentProcess(),ERROR_CANNOT_IMPERSONATE);std::terminate();}
+ require(opened);
+ SECURITY_IMPERSONATION_LEVEL level{};DWORD length=0;
+ require(GetTokenInformation(token.h,TokenImpersonationLevel,&level,sizeof(level),&length));
+ require(level>=SecurityIdentification);
+ return tokenIdentity(token.h,pid,kernelProcessBirth(pid));
 }
 static DWORD parentPid(DWORD pid){
  Handle snap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0));require(snap.h!=INVALID_HANDLE_VALUE);PROCESSENTRY32W row{};row.dwSize=sizeof(row);
@@ -66,7 +83,7 @@ static Policy policy(napi_env e,napi_value* a){Policy p{str(e,a[0]),str(e,a[1]),
 static Identity peerIdentity(HANDLE pipe,bool server,const Policy& p){
  ULONG pid=0,session=0;require(server?GetNamedPipeClientProcessId(pipe,&pid):GetNamedPipeServerProcessId(pipe,&pid));
  require(server?GetNamedPipeClientSessionId(pipe,&session):GetNamedPipeServerSessionId(pipe,&session));
- Identity id=identity(pid);require(id.session==session);
+ Identity id=server?pipeClientIdentity(pipe,pid):identity(pid);require(id.session==session);
  if(server)require(id.sid==p.recipient&&id.logon==p.logon&&id.session==p.session);
  else serviceIdentity(id,p.service);
  ULONG again=0;require(server?GetNamedPipeClientProcessId(pipe,&again):GetNamedPipeServerProcessId(pipe,&again));require(pid==again);return id;
@@ -104,6 +121,26 @@ static napi_value Listen(napi_env e,napi_callback_info info){try{
 struct Work{napi_env env=nullptr;napi_deferred deferred;napi_async_work work=nullptr;napi_ref ref=nullptr;Listener* listener=nullptr;Policy p;DWORD timeout=0;bool failed=false,claimed=false,queued=false;std::unique_ptr<Connection> result;
  ~Work(){if(listener&&claimed&&!queued){std::lock_guard<std::mutex>lock(listener->mutex);listener->busy=false;}if(ref)napi_delete_reference(env,ref);if(work)napi_delete_async_work(env,work);}
 };
+// Native protocol v1 preface establishes the client's pipe security context
+// before impersonation. It is not authentication; kernel attestation follows.
+// Both ends are pinned to the same addon hash. Old/malformed peers fail closed.
+static void pipePreface(HANDLE pipe,bool server,DWORD timeout,HANDLE stop=nullptr){
+ unsigned char bytes[4]={'C','P',1,0};const unsigned char expected[4]={'C','P',1,0};
+ Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr));require(event.h!=nullptr);
+ OVERLAPPED ov{};ov.hEvent=event.h;DWORD transferred=0;
+ BOOL ok=server?ReadFile(pipe,bytes,sizeof(bytes),&transferred,&ov):WriteFile(pipe,bytes,sizeof(bytes),&transferred,&ov);
+ if(!ok){
+  require(GetLastError()==ERROR_IO_PENDING);
+  HANDLE events[]{event.h,stop};
+  DWORD wait=stop?WaitForMultipleObjects(2,events,FALSE,timeout):WaitForSingleObject(event.h,timeout);
+  if(wait!=WAIT_OBJECT_0){
+   CancelIoEx(pipe,&ov);GetOverlappedResult(pipe,&ov,&transferred,TRUE);
+   throw std::runtime_error("WINDOWS_NATIVE_PIPE_REJECTED");
+  }
+  require(GetOverlappedResult(pipe,&ov,&transferred,FALSE));
+ }
+ require(transferred==sizeof(bytes)&&(!server||std::memcmp(bytes,expected,sizeof(bytes))==0));
+}
 static void execute(napi_env,void* data){auto w=static_cast<Work*>(data);HANDLE pipe=INVALID_HANDLE_VALUE;try{
  if(w->listener){
   auto l=w->listener;pipe=l->pending;Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr));require(event.h!=nullptr);OVERLAPPED ov{};ov.hEvent=event.h;
@@ -114,6 +151,7 @@ static void execute(napi_env,void* data){auto w=static_cast<Work*>(data);HANDLE 
   }else require(connected||error==ERROR_PIPE_CONNECTED);
   // Hold the namespace continuously: create the next instance BEFORE handing
   // ownership of the accepted instance to libuv or closing an invalid peer.
+  pipePreface(pipe,true,w->timeout,l->stop);
   peerIdentity(pipe,true,l->p);Handle next(makePipe(l->p,false));
   {std::lock_guard<std::mutex> lock(l->mutex);require(!l->closed);l->pending=next.h;next.h=INVALID_HANDLE_VALUE;}
   w->result=connection(pipe,true,l->p);pipe=INVALID_HANDLE_VALUE;
@@ -123,6 +161,7 @@ static void execute(napi_env,void* data){auto w=static_cast<Work*>(data);HANDLE 
   do{pipe=CreateFileW(w->p.endpoint.c_str(),FILE_READ_DATA|FILE_WRITE_DATA|FILE_READ_ATTRIBUTES|FILE_WRITE_ATTRIBUTES|READ_CONTROL|SYNCHRONIZE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED|SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION,nullptr);
    if(pipe!=INVALID_HANDLE_VALUE)break;require(GetLastError()==ERROR_PIPE_BUSY&&GetTickCount64()<until);WaitNamedPipeW(w->p.endpoint.c_str(),100);
   }while(true);
+  pipePreface(pipe,false,w->timeout);
   w->result=connection(pipe,false,w->p);pipe=INVALID_HANDLE_VALUE;
  }
  }catch(...){w->failed=true;if(pipe!=INVALID_HANDLE_VALUE){if(w->listener&&w->listener->pending==pipe)DisconnectNamedPipe(pipe);else CloseHandle(pipe);}}
