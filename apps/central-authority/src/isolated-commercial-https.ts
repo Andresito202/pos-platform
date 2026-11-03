@@ -124,18 +124,29 @@ export async function prepareCommercialHttpHandler(input:{
     input.browserEntry.logoPng.subarray(0,8).toString("hex")!=="89504e470d0a1a0a"))throw Error("COMMERCIAL_BROWSER_CONFIGURATION_REQUIRED");
   const audit=new PostgresPlatformSecurityEventRepository(pool);
   const limiter=new FixedWindowRateLimiter(policy.requestsPerMinute,policy.maximumBuckets??10000);
+  // Rejected traffic must not bypass admission by filling the shared DB pool
+  // with audit writes. Reuse the explicit request budget per rejection class,
+  // globally within this process (not per remote address). Keep an independent
+  // abuse sample and at most one pending write per class; never queue requests.
+  const auditLimiter=new FixedWindowRateLimiter(policy.requestsPerMinute,2);
+  const pendingAudits=new Set<"limited"|"rejected">();
   async function rejectionAudit(limited:boolean){
-    const at=await pool.query<{at:Date}>("SELECT clock_timestamp() AS at");
-    await audit.append({user_id:null,session_id:null,tenant_id:null,
-      event_code:limited?PlatformSecurityEventCode.ABUSE_RATE_LIMITED:PlatformSecurityEventCode.CREDENTIAL_REJECTED,
-      result:limited?"THROTTLED":"REJECTED",reason_code:"ISOLATED_HTTPS_REJECTED",correlation_id:uuidV7(),occurred_at:at.rows[0]!.at.toISOString()});
+    const category=limited?"limited":"rejected";
+    if(pendingAudits.has(category)||!auditLimiter.allow(category))return;
+    pendingAudits.add(category);
+    try{
+      const at=await pool.query<{at:Date}>("SELECT clock_timestamp() AS at");
+      await audit.append({user_id:null,session_id:null,tenant_id:null,
+        event_code:limited?PlatformSecurityEventCode.ABUSE_RATE_LIMITED:PlatformSecurityEventCode.CREDENTIAL_REJECTED,
+        result:limited?"THROTTLED":"REJECTED",reason_code:"ISOLATED_HTTPS_REJECTED",correlation_id:uuidV7(),occurred_at:at.rows[0]!.at.toISOString()});
+    }finally{pendingAudits.delete(category);}
   }
   const accessHeader=input.deploymentContext?CommercialHttpV2.accessHeader:"x-isolated-business-access";
   const handler=(req:IncomingMessage,res:ServerResponse)=>{
     void (async()=>{
       try{
         if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted)throw new Rejection(400);
-        // Address and single server-wide budget cannot be replaced by a bearer,
+        // The per-address budget cannot be replaced by a bearer,
         // account name, path, spoofed proxy header or supplied correlation ID.
         const address=req.socket.remoteAddress??"unknown";
         if(!limiter.allow(address))throw new Rejection(429);
