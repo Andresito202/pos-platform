@@ -136,7 +136,8 @@ export async function startLabEnrollment(labRoot:string){
  });
  server.requestTimeout=15_000;server.headersTimeout=10_000;server.maxConnections=8;
  await new Promise<void>((done,fail)=>{server.once("error",fail);server.listen(8443,"127.0.0.1",done);});
- writeFileSync(join(directory,"enrollment-open-url.txt"),origin+"/#"+ticket+"\n",{flag:"wx"});console.log("LAB_ENROLLMENT_HTTPS=READY");
+ const capabilityFile=join(directory,"enrollment-open-url-"+randomBytes(16).toString("hex")+".txt");
+ writeFileSync(capabilityFile,origin+"/#"+ticket+"\n",{flag:"wx"});console.log("LAB_ENROLLMENT_CAPABILITY_FILE="+capabilityFile);console.log("LAB_ENROLLMENT_HTTPS=READY");
  return {server,close:async()=>{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await Promise.all([admin.end(),app.end()]);}};
 }
 if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url){
