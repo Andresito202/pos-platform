@@ -31,8 +31,9 @@
     "test:database-postgres": "pnpm --filter @pos-platform/pos-local-service test -- tests/postgres-onboarding.test.ts"
   },
   "devDependencies": {
-    "nx": "23.1.2",
-    "typescript": "6.0.3"
+    "nx": "23.2.1",
+    "typescript": "6.0.3",
+    "vite": "8.2.4"
   },
   "nx": {
     "targets": {
@@ -46,9 +47,10 @@
   },
   "pnpm": {
     "overrides": {
-      "smol-toml": ">=1.7.1",
+      "smol-toml": "1.9.0",
       "axios": "1.20.0",
-      "undici": "7.30.0",
+      "undici": "7.30.1",
+      "follow-redirects": "1.16.2",
       "brace-expansion": "5.0.12",
       "source-map-js": ">=1.2.2"
     }
