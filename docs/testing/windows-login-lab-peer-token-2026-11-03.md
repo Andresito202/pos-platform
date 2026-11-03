@@ -40,3 +40,52 @@ Validation observed before commit:
 References:
 - https://learn.microsoft.com/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient
 - https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation
+
+## Continuation: actual transport and local human enrollment
+
+The corrected Node Desktop physical test passed. The Service reached and passed
+the two-operation, two-authenticated-connection and durable revocation-row
+assertions, then failed its final socket count: 3 closed sockets versus an
+incorrect expectation of 2. The third socket belongs to the deliberately rejected
+signer-pin client; it never enters the authenticated handler. The regression now
+requires both authenticated IDs to be closed AND exactly one additional rejected
+connection. No production authorization behavior changes.
+
+The failed combined attempt remains under runtime
+9f8343ebef8e482fa2a63a7fd8ecad2a / physical-combined-ba1f5e50ded94d1d84c0dff88451688c.
+It is not counted as a passing test run. The original runner was restored and
+SCM stopped.
+
+The owner explicitly authorized a local, isolated Central rather than any
+productive VPS or domain. PostgreSQL 16.14 portable runs on loopback 55433 with
+distinct SCRAM role credentials. Canonical 001–016 authentication migrations
+were applied, with durable receipts under central-lab. The committed 006 body
+was reconciled only after its 132 real four-role TLS/ACL assertions passed and
+its checksum/state were checked under the canonical global advisory lock.
+No licensing business data or payment integration was created.
+
+The lab CA is restricted to camacho-pos.local and 127.0.0.1. It is installed only
+in the operator's CurrentUser root store. Hosts contains only two new loopback
+aliases; its prior bytes, SDDL and hashes are journaled in central-lab/tls.
+No TLS verification bypass is used.
+
+The first-human enrollment operator reuses canonical Argon2, durable ENROLL
+challenges, real WebAuthn attestation/UV verification and the enrollment
+transaction. It requires the actual elevated interactive Windows operator, an
+empty dedicated lab database and a single-use capability. The temporary role
+has no permission grants; its server-issued enrollment session remains PENDING,
+and neither BUSINESS nor SSA is issued. The role/session are revoked after
+actual enrollment. Existing accounts or partial custody are preserved for review.
+
+Observed technical checks: verified TLS, page/CSP, browser-script syntax, no
+capability embedded in the HTML, cross-origin denial, invalid capability denial,
+unauthenticated completion denial, untrusted TLS rejection, and no fabricated
+users/factors/sessions: 10 PASS. Strict TypeScript checking passed.
+A real browser profile is open for the owner's first registration; no virtual
+authenticator was used. Positive human registration remains pending.
+
+Purpose-separated device/SSA/SAS/access key material was created only in the
+private lab authority directory and signed/verified with the canonical owners.
+Metadata explicitly marks LAB_ONLY/PREPRODUCTION, device possession pending,
+human factor pending and no BUSINESS session. These artifacts are not productive
+trust, a completed enrollment or a passing G2 certificate.

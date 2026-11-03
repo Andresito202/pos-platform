@@ -40,7 +40,10 @@ describe("physical Windows SCM transport (not BUSINESS/human certification)",()=
     while(operations<2&&Date.now()<deadline)await pause(50);
     expect(operations).toBe(2);expect(ids.size).toBe(2);await pause(500);
     expect((db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get() as {n:number}).n).toBe(beforeRevocationRows+1);
-    expect(closed.size).toBe(2);
+    // The wrong-signer-pin client is kernel-authorized but never completes a
+    // MAC handshake. Its native socket must also close; it is not in ids.
+    expect([...ids].filter(id=>closed.has(id))).toHaveLength(2);
+    expect([...closed].filter(id=>!ids.has(id))).toHaveLength(1);
    }finally{await server.stop();auth.destroy();master.fill(0);db.close();rmSync(dir,{recursive:true,force:true});}
   }else{
    const handshake=()=>({...statusRequest(),message_type:"runtime.handshake",payload:{desktop_version:"1.0.0",service_version:"1.0.0",protocol_min:"1.0.0",protocol_max:"1.0.0",installation_id:p.handoff.installation_id,device_id:p.handoff.device_id,schema_version:"5",service_state:"READY"}});
